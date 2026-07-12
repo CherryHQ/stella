@@ -18,9 +18,8 @@ import (
 )
 
 func (s *Server) ListShares(w http.ResponseWriter, r *http.Request, params apiserver.ListSharesParams) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
+	acc, ok := s.shareAccess(w, r)
+	if !ok {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -28,9 +27,9 @@ func (s *Server) ListShares(w http.ResponseWriter, r *http.Request, params apise
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	result, err := s.shareSvc.As(shareIdentity(info, "")).List(r.Context(), limit, offset)
+	result, err := acc.List(r.Context(), limit, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list shares")
+		s.writeShareError(w, err)
 		return
 	}
 	out := make([]apitypes.Share, 0, len(result.Shares))
@@ -45,9 +44,8 @@ func (s *Server) ListShares(w http.ResponseWriter, r *http.Request, params apise
 }
 
 func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
+	acc, ok := s.shareAccess(w, r)
+	if !ok {
 		return
 	}
 
@@ -57,7 +55,7 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := s.createShare(r, info, body)
+	created, err := createShare(r, acc, body)
 	if err != nil {
 		s.writeShareError(w, err)
 		return
@@ -65,7 +63,7 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, apiCreatedShare(created.Share, shareURL(r, created.Token)))
 }
 
-func (s *Server) createShare(r *http.Request, info *AuthInfo, body apitypes.CreateShareRequest) (sharepkg.Created, error) {
+func createShare(r *http.Request, acc *sharepkg.Access, body apitypes.CreateShareRequest) (sharepkg.Created, error) {
 	expiresIn := ""
 	if body.ExpiresIn != nil {
 		expiresIn = string(*body.ExpiresIn)
@@ -82,26 +80,27 @@ func (s *Server) createShare(r *http.Request, info *AuthInfo, body apitypes.Crea
 		if body.Scope != nil {
 			scope = string(*body.Scope)
 		}
-		return s.shareSvc.As(shareIdentity(info, agentID)).ShareArtifact(r.Context(), sessionID, path, scope, expiresIn)
+		// The body agent id is a workspace selector (not identity); the Access
+		// confines an agent-scoped actor to its own agent.
+		return acc.ShareArtifact(r.Context(), sessionID, path, scope, agentID, expiresIn)
 	case apitypes.CreateShareRequestSourceArticle:
-		return s.shareSvc.As(shareIdentity(info, "")).ShareArticle(r.Context(), strDeref(body.ArticleId), expiresIn)
+		return acc.ShareArticle(r.Context(), strDeref(body.ArticleId), expiresIn)
 	default:
 		return sharepkg.Created{}, fmt.Errorf("source must be one of: artifact, article: %w", sharepkg.ErrInvalidInput)
 	}
 }
 
 func (s *Server) RevokeShare(w http.ResponseWriter, r *http.Request, id string) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
+	acc, ok := s.shareAccess(w, r)
+	if !ok {
 		return
 	}
-	if err := s.shareSvc.As(shareIdentity(info, "")).Revoke(r.Context(), id); err != nil {
+	if err := acc.Revoke(r.Context(), id); err != nil {
 		if authz.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "share not found")
 			return
 		}
-		s.writeInternalError(w, err)
+		s.writeShareError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -138,16 +137,33 @@ func (s *Server) GetShareContent(w http.ResponseWriter, r *http.Request, token s
 	http.ServeContent(w, r, share.Title, time.Time{}, bytes.NewReader(content))
 }
 
-func shareIdentity(info *AuthInfo, agentID string) authz.Identity {
-	ident := toolIdentity(info)
-	if !ident.AgentScoped {
-		ident.AgentID = agentID
+// shareAccess derives the trusted Authority for the authenticated caller and
+// opens one share Authorizer evaluation. The share Service is the sole PEP; the
+// handler never inspects identity beyond deriving the Authority from verified
+// session claims.
+func (s *Server) shareAccess(w http.ResponseWriter, r *http.Request) (*sharepkg.Access, bool) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return nil, false
 	}
-	return ident
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return nil, false
+	}
+	acc, err := s.shareSvc.Begin(r.Context(), authority)
+	if err != nil {
+		s.writeShareError(w, err)
+		return nil, false
+	}
+	return acc, true
 }
 
 func (s *Server) writeShareError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, authz.ErrUnauthenticated):
+		writeError(w, http.StatusUnauthorized, "not authenticated")
 	case authz.IsForbidden(err):
 		writeError(w, http.StatusForbidden, "permission denied")
 	case authz.IsNotFound(err):

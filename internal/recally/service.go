@@ -2,7 +2,6 @@ package recally
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,26 +9,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/mmcdole/gofeed"
 
 	"github.com/CherryHQ/stella/internal/authz"
 )
 
-// Authorized is the identity-scoped view of the service; all authorization
-// checks live on its methods.
-type Authorized struct {
-	*Service
-	ident authz.Identity
-}
-
-func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
-
+// Service is the recally library. Authorization lives on Access (access.go): the
+// Service holds only unauthenticated internals (save/read/poll/backfill) that the
+// PEP and the startup backfill call.
 type Service struct {
 	store      *Store
 	files      *FileManager
 	feeds      *gofeed.Parser
 	stellaHome string
+	authz      authz.Authorizer
 }
 
 type SaveResult struct {
@@ -37,25 +30,16 @@ type SaveResult struct {
 	Created bool
 }
 
-func NewService(store *Store, stellaHome string) *Service {
+func NewService(store *Store, stellaHome string, az authz.Authorizer) *Service {
 	p := gofeed.NewParser()
 	p.Client = &http.Client{Timeout: 30 * time.Second}
 	p.RSSTranslator = &gofeed.DefaultRSSTranslator{}
 	p.AtomTranslator = &gofeed.DefaultAtomTranslator{}
 	p.JSONTranslator = &gofeed.DefaultJSONTranslator{}
-	return &Service{store: store, files: newFileManager(stellaHome), feeds: p, stellaHome: stellaHome}
+	return &Service{store: store, files: newFileManager(stellaHome), feeds: p, stellaHome: stellaHome, authz: az}
 }
 
 func (s *Service) Store() *Store { return s.store }
-
-// Recally is deliberately user-owned, not agent-scoped: a user's reading
-// library is shared across all of their agents.
-func userID(ident authz.Identity) (string, error) {
-	if err := ident.RequireUser(); err != nil {
-		return "", err
-	}
-	return ident.UserID, nil
-}
 
 func mapMissing(err error) error {
 	if err == nil {
@@ -65,19 +49,6 @@ func mapMissing(err error) error {
 		return authz.ErrNotFound
 	}
 	return err
-}
-
-func (s Authorized) Save(ctx context.Context, req SaveRequest) (SaveResult, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return SaveResult{}, err
-	}
-	article, created, err := s.save(ctx, uid, req)
-	if err != nil {
-		return SaveResult{}, err
-	}
-	return SaveResult{Article: article, Created: created}, nil
 }
 
 // save persists an article and its body to PostgreSQL, which is the sole source
@@ -124,19 +95,6 @@ func (s *Service) save(ctx context.Context, userID string, req SaveRequest) (*Ar
 		}
 	}
 	return article, isNew, nil
-}
-
-func (s Authorized) GetArticle(ctx context.Context, id string) (*Article, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	article, err := s.store.GetArticle(ctx, uid, id)
-	if err != nil {
-		return nil, mapMissing(err)
-	}
-	return article, nil
 }
 
 func (s *Service) ReadArticleBody(ctx context.Context, article *Article) (string, error) {
@@ -197,167 +155,10 @@ func (s *Service) BackfillMissingContent(ctx context.Context) (scanned, backfill
 	return scanned, backfilled, missing, nil
 }
 
-func (s Authorized) ListArticles(ctx context.Context, filter ArticleFilter) ([]Article, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	return s.store.ListArticles(ctx, uid, filter)
-}
-
-func (s Authorized) SearchArticles(ctx context.Context, query string, limit int) ([]Article, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	return s.store.SearchArticles(ctx, uid, query, limit)
-}
-
-func (s Authorized) GetArticleByCanonicalURL(ctx context.Context, canonicalURL string) (*Article, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	article, err := s.store.GetArticleByCanonicalURL(ctx, uid, canonicalURL)
-	if err != nil {
-		return nil, mapMissing(err)
-	}
-	return article, nil
-}
-
-func (s Authorized) ListFeeds(ctx context.Context, limit, offset int) ([]Feed, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	return s.store.ListFeeds(ctx, uid, limit, offset)
-}
-
-func (s Authorized) GetFeedByURL(ctx context.Context, feedURL string) (*Feed, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	feed, err := s.store.GetFeedByURL(ctx, uid, feedURL)
-	if err != nil {
-		return nil, mapMissing(err)
-	}
-	return feed, nil
-}
-
-func (s Authorized) GetFeed(ctx context.Context, feedID string) (*Feed, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	feed, err := s.store.GetFeed(ctx, uid, feedID)
-	if err != nil {
-		return nil, mapMissing(err)
-	}
-	return feed, nil
-}
-
-func (s Authorized) CreateFeed(ctx context.Context, feedURL string, kind FeedKind, title string, agentID *string) (*Feed, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	if feedURL == "" {
-		return nil, fmt.Errorf("url is required")
-	}
-	if existing, _ := s.store.GetFeedByURL(ctx, uid, feedURL); existing != nil {
-		return nil, fmt.Errorf("feed already subscribed")
-	}
-	if kind == "" {
-		kind = SniffFeedKind(feedURL)
-	}
-	if !kind.Valid() {
-		return nil, fmt.Errorf("invalid feed kind")
-	}
-	if err := ValidateFeedSubscription(feedURL, kind); err != nil {
-		return nil, err
-	}
-	description := ""
-	if kind == FeedKindRSS {
-		parseCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		parsed, parseErr := s.feeds.ParseURLWithContext(feedURL, parseCtx)
-		cancel()
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		if title == "" {
-			title = parsed.Title
-		}
-		description = parsed.Description
-	}
-	return s.store.CreateFeed(ctx, uid, feedURL, kind, nil, title, description, agentID)
-}
-
-func (s Authorized) DeleteFeed(ctx context.Context, id string) error {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return err
-	}
-	if _, err := s.store.GetFeed(ctx, uid, id); err != nil {
-		return mapMissing(err)
-	}
-	if err := s.store.DeleteFeed(ctx, uid, id); err != nil {
-		if errors.Is(err, authz.ErrNotFound) {
-			return authz.ErrNotFound
-		}
-		return err
-	}
-	return nil
-}
-
-func (s Authorized) PollFeed(ctx context.Context, id string, limit int) (FeedPollResult, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return FeedPollResult{}, err
-	}
-	feed, err := s.store.GetFeed(ctx, uid, id)
-	if err != nil {
-		return FeedPollResult{}, mapMissing(err)
-	}
-	return s.pollFeed(ctx, uid, *feed, limit), nil
-}
-
-func (s Authorized) PollFeeds(ctx context.Context, limit int) ([]FeedPollResult, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	const pageSize = 500
-	results := []FeedPollResult{}
-	for offset := 0; ; offset += pageSize {
-		feeds, err := s.store.ListFeeds(ctx, uid, pageSize, offset)
-		if err != nil {
-			return nil, err
-		}
-		for _, feed := range feeds {
-			if !feed.Enabled || feed.Kind != FeedKindRSS {
-				continue
-			}
-			results = append(results, s.pollFeed(ctx, uid, feed, limit))
-		}
-		if len(feeds) < pageSize {
-			break
-		}
-	}
-	return results, nil
-}
-
-func (s Authorized) pollFeed(ctx context.Context, uid string, feed Feed, limit int) FeedPollResult {
+// pollFeed fetches one RSS feed and records any new entries. It is unauthenticated:
+// the PEP (Access.PollFeed / Access.PollFeeds) authorizes and passes the caller's
+// uid, and this stays a plain Service helper so the poll loop has no policy view.
+func (s *Service) pollFeed(ctx context.Context, uid string, feed Feed, limit int) FeedPollResult {
 	result := FeedPollResult{Feed: feed, NewEntries: []FeedEntry{}}
 	if !feed.Enabled || feed.Kind != FeedKindRSS {
 		return result
@@ -397,81 +198,4 @@ func (s Authorized) pollFeed(ctx context.Context, uid string, feed Feed, limit i
 		slog.Warn("failed to update feed last_checked_at", "feed_id", feed.ID, "error", err)
 	}
 	return result
-}
-
-func (s Authorized) ListFeedEntries(ctx context.Context, feedID string, filter FeedEntryFilter) ([]FeedEntry, error) {
-	if _, err := s.GetFeed(ctx, feedID); err != nil {
-		return nil, err
-	}
-	status := filter.Status
-	if status == "" {
-		status = EntryStatusPending
-	}
-	if status != EntryStatusPending {
-		return nil, fmt.Errorf("only status=pending is supported")
-	}
-	return s.store.ListPendingFeedEntries(ctx, feedID, filter.Limit, filter.Offset)
-}
-
-func (s Authorized) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, title string) (*FeedEntry, bool, error) {
-	if _, err := s.GetFeed(ctx, feedID); err != nil {
-		return nil, false, err
-	}
-	if guid == "" {
-		return nil, false, fmt.Errorf("guid is required")
-	}
-	entry, err := s.store.CreateFeedEntry(ctx, feedID, guid, entryURL, title)
-	if err != nil {
-		return nil, false, err
-	}
-	return entry, entry != nil, nil
-}
-
-func (s Authorized) UpdateFeedEntry(ctx context.Context, feedID, id string, status RSSEntryStatus, articleID *string, errorMsg string) (*FeedEntry, error) {
-	if _, err := s.GetFeed(ctx, feedID); err != nil {
-		return nil, err
-	}
-	if _, err := s.store.GetFeedEntry(ctx, feedID, id); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || errors.Is(mapMissing(err), authz.ErrNotFound) {
-			return nil, authz.ErrNotFound
-		}
-		return nil, err
-	}
-	switch status {
-	case EntryStatusSaved, EntryStatusSkipped, EntryStatusError, EntryStatusPending:
-	default:
-		return nil, fmt.Errorf("invalid status")
-	}
-	if status == EntryStatusSaved && (articleID == nil || *articleID == "") {
-		return nil, fmt.Errorf("article_id required when status=saved")
-	}
-	updated, err := s.store.MarkFeedEntry(ctx, feedID, id, status, articleID, errorMsg)
-	if err != nil {
-		return nil, err
-	}
-	return updated, nil
-}
-
-func (s Authorized) GetDigest(ctx context.Context) (*Digest, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	return s.store.GetDigest(ctx, uid)
-}
-
-func (s Authorized) SaveDigest(ctx context.Context, narrative, date string) (*StoredDigest, error) {
-	ident := s.ident
-	uid, err := userID(ident)
-	if err != nil {
-		return nil, err
-	}
-	if narrative == "" {
-		return nil, fmt.Errorf("narrative is required")
-	}
-	if date == "" {
-		date = time.Now().UTC().Format("2006-01-02")
-	}
-	return s.store.SaveDigest(ctx, uid, narrative, date)
 }
