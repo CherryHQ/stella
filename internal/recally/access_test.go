@@ -98,8 +98,19 @@ func TestRecallyForeignUserCannotRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if _, err := mustBegin(t, svc, otherUserID).GetArticle(ctx, saved.Article.ID); !errors.Is(err, authz.ErrNotFound) {
+	foreign := mustBegin(t, svc, otherUserID)
+	if _, err := foreign.GetArticle(ctx, saved.Article.ID); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("foreign GetArticle err=%v, want ErrNotFound", err)
+	}
+	if err := foreign.UpsertArticleContent(ctx, saved.Article.ID, "stolen"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("foreign UpsertArticleContent err=%v, want ErrNotFound", err)
+	}
+	body, err := mustBegin(t, svc, testUserID).ReadArticleBody(ctx, saved.Article)
+	if err != nil {
+		t.Fatalf("owner ReadArticleBody: %v", err)
+	}
+	if body != "body" {
+		t.Fatalf("body=%q, want original content", body)
 	}
 }
 

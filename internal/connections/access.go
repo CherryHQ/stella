@@ -62,7 +62,7 @@ func (a *Access) Statuses(ctx context.Context) ([]ProviderStatus, error) {
 
 // StartFlow starts an OAuth flow for the acting user.
 func (a *Access) StartFlow(ctx context.Context, provider string, origin ...string) (FlowStatus, error) {
-	if err := a.authorize(authz.ActionExecute, provider, true); err != nil {
+	if err := a.authorize(authz.ActionExecute, provider, a.userID, true); err != nil {
 		return FlowStatus{}, err
 	}
 	if len(origin) > 0 && origin[0] != "" {
@@ -84,7 +84,7 @@ func (a *Access) PollFlow(ctx context.Context, provider, flowID string) (FlowSta
 		return FlowStatus{}, false, authz.ErrNotFound
 	}
 	// is_owner is derived from the durable flow owner; a foreign flow is denied.
-	if err := a.authorize(authz.ActionRead, provider, flow.UserID == a.userID); err != nil {
+	if err := a.authorize(authz.ActionRead, provider, flow.UserID, flow.UserID == a.userID); err != nil {
 		return FlowStatus{}, false, err
 	}
 	return a.svc.PollFlow(ctx, a.userID, provider, flowID)
@@ -92,7 +92,7 @@ func (a *Access) PollFlow(ctx context.Context, provider, flowID string) (FlowSta
 
 // Disconnect removes the acting user's OAuth bundle for a provider.
 func (a *Access) Disconnect(ctx context.Context, provider string) error {
-	if err := a.authorize(authz.ActionDelete, provider, true); err != nil {
+	if err := a.authorize(authz.ActionDelete, provider, a.userID, true); err != nil {
 		return err
 	}
 	return a.svc.Disconnect(ctx, a.userID, provider)
@@ -101,12 +101,12 @@ func (a *Access) Disconnect(ctx context.Context, provider string) error {
 // authorize decides one connection action for the acting user under this
 // Access's single revision. A denial is an authenticated 403 (ErrForbidden),
 // preserving the pre-cutover contract.
-func (a *Access) authorize(action authz.Action, provider string, isOwner bool) error {
+func (a *Access) authorize(action authz.Action, provider, owner string, isOwner bool) error {
 	if a.userID == "" {
 		return authz.ErrUnauthenticated
 	}
-	facts := policy.ConnectionFacts{Owner: a.userID, Agent: a.agentID, Type: provider, IsOwner: isOwner}
-	req, err := policy.ConnectionRequest(action, a.userID, a.userID, facts)
+	facts := policy.ConnectionFacts{Owner: owner, Agent: a.agentID, Type: provider, IsOwner: isOwner}
+	req, err := policy.ConnectionRequest(action, owner, owner, facts)
 	if err != nil {
 		return authz.ErrForbidden
 	}

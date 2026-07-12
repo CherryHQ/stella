@@ -162,11 +162,15 @@ func (a *Access) DeleteArticle(ctx context.Context, id string) error {
 	return a.svc.store.DeleteArticle(ctx, a.userID, id)
 }
 
-// UpsertArticleContent rewrites one article's body. Content rows are keyed by
-// article id; callers must load the article (owner-scoped) first.
+// UpsertArticleContent rewrites one owner-scoped article body. The content
+// table is keyed only by article id, so this boundary must prove ownership
+// itself rather than trusting a caller to have loaded the article first.
 func (a *Access) UpsertArticleContent(ctx context.Context, articleID, content string) error {
 	if err := a.authorize(authz.ActionWrite); err != nil {
 		return err
+	}
+	if _, err := a.svc.store.GetArticle(ctx, a.userID, articleID); err != nil {
+		return mapMissing(err)
 	}
 	return a.svc.store.UpsertArticleContent(ctx, articleID, content)
 }
