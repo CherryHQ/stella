@@ -8,7 +8,7 @@ title: 架构
 
 stella 的结构是一组松耦合的包，在启动时组装在一起。系统支持多用户和多代理，消息路由按消息级别处理。核心流程：
 
-1. 一个**通道**（CLI、Telegram、QQ、Feishu 或微信）接收用户输入。
+1. **Web UI 或通道**（Telegram、QQ、Feishu 或微信）接收用户输入。
 2. 通道**解析用户**（通过外部 ID + 平台进行 upsert）和**解析代理**（DM 默认、群组绑定或回退）。
 3. **ServiceManager** 通过代理 ID 查找该代理的 `agent.Service`。
 4. `agent.Service` 通过 `session.Registry` 解析 session intent。
@@ -17,7 +17,7 @@ stella 的结构是一组松耦合的包，在启动时组装在一起。系统�
 7. 响应通过通道流回给用户。
 
 ```
-Channel (CLI / Telegram / QQ / Feishu / WeChat)
+Web UI / Channel (Telegram / QQ / Feishu / WeChat)
     |
     v
 Resolve user  -->  Resolve agent
@@ -56,7 +56,7 @@ internal/
   controlplane/        控制面 PEP（providers、settings、plugins、channels）
   pluginhost/          按能力限定的插件平台宿主
   db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询
-  scheduler/           River 持久化调度服务（供 Web UI、CLI 和 Agent 原生工具使用）
+  scheduler/           River 持久化调度服务（供 Web UI 和 Agent 原生工具使用）
   skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
 pkg/
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
@@ -191,7 +191,7 @@ type Tool interface {
 | `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）                 |
 | `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                             |
 
-内存工具由 `memory.BuildTool(provider)` 自动生成，它会检查 provider 能力并生成匹配动作。普通聊天 runner 会用 `WithSessionReadOnlyWrites()` 收窄它：使用 LCM provider 时暴露 `status`、`search`、`describe`、`expand`、`get_message`、`profile_get`、`soul_get`、`profile_history` 和 `constraint_list`；Simple provider 暴露对应的只读子集。持久 profile/soul/constraint 写入由 Reflect 或 UI/API/CLI 等 manual 路径完成，并注入新会话的系统提示。
+内存工具由 `memory.BuildTool(provider)` 自动生成，它会检查 provider 能力并生成匹配动作。普通聊天 runner 会用 `WithSessionReadOnlyWrites()` 收窄它：使用 LCM provider 时暴露 `status`、`search`、`describe`、`expand`、`get_message`、`profile_get`、`soul_get`、`profile_history` 和 `constraint_list`；Simple provider 暴露对应的只读子集。持久 profile/soul/constraint 写入由 Reflect 或 UI/API 等手动路径完成，并注入新会话的系统提示。
 
 ## 会话生命周期
 
@@ -217,7 +217,7 @@ type Channel interface {
 }
 ```
 
-共享命令逻辑（`/new`、`/compact`、`/abort`、`/whoami`）位于通道协调层，每个通道委托给它以处理核心逻辑。`/model` 和 `/agent` 保持按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘，QQ、Feishu 和微信使用文本列表，CLI 使用 TUI 选择器）。聊天轮次按解析的 Stella 会话进行序列化，因此重叠的通道消息不会竞争相同的会话历史；`/abort` 取消该会话当前正在运行的轮次。
+共享命令逻辑（`/new`、`/compact`、`/abort`、`/whoami`）位于通道协调层，每个通道委托给它以处理核心逻辑。`/model` 和 `/agent` 保持按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘；QQ、Feishu 和微信使用文本列表）。聊天轮次按解析的 Stella 会话进行序列化，因此重叠的通道消息不会竞争相同的会话历史；`/abort` 取消该会话当前正在运行的轮次。
 
 ### 通道入口归属
 

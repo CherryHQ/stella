@@ -1,7 +1,7 @@
 // Package mcp is an MCP (Model Context Protocol) client for Stella. It lets
 // agents connect to external MCP servers over HTTP-based transports only
 // (streamable HTTP + SSE); stdio is deliberately unsupported so the
-// multi-tenant sandbox never spawns local processes.
+// multi-user sandbox boundary never spawns local processes.
 //
 // Registrations are scoped exactly like skills and vault entries
 // (system / system_agent / user / user_agent) and any auth credential is stored
