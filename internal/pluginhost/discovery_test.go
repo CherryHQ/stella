@@ -378,7 +378,7 @@ func TestChannelConfiguredComeFromPluginRegistrations(t *testing.T) {
 			Config:  map[string]any{},
 		},
 	}}
-	host := New(store)
+	host := New(store, WithChannelRuntimeServices(NewChannelRuntimeServices()))
 	if err := host.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}

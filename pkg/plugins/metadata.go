@@ -1,6 +1,9 @@
 package plugins
 
-import "sort"
+import (
+	"slices"
+	"sort"
+)
 
 const (
 	CapabilityChannel   = "channel"
@@ -12,6 +15,26 @@ const (
 	CapabilityPrompt    = "prompt"
 	CapabilityProvider  = "provider"
 	CapabilityHook      = "hook"
+)
+
+// Capability identifies a single host service exposed through the plugin-scoped
+// Platform. A plugin must DECLARE the capabilities it needs in
+// PluginInfo.RequiredCapabilities; the host grants only those, and a Platform
+// accessor for an undeclared capability returns nil (fail-closed). This is a
+// distinct, typed vocabulary from the derived trait strings above (which report
+// what a plugin registered, not what host ports it may reach).
+type Capability string
+
+const (
+	CapabilityLogger          Capability = "logger"
+	CapabilityConfigStore     Capability = "config_store"
+	CapabilityStateStore      Capability = "state_store"
+	CapabilityScheduler       Capability = "scheduler"
+	CapabilityNotifier        Capability = "notifier"
+	CapabilityAuth            Capability = "auth"
+	CapabilityRuntimeLookup   Capability = "runtime_lookup"
+	CapabilityChannelPlatform Capability = "channel_platform"
+	CapabilitySkillStore      Capability = "skill_store"
 )
 
 // PluginInfo is the host discovery metadata registered by a plugin.
@@ -27,12 +50,22 @@ type PluginInfo struct {
 	HasConfig    bool     `json:"has_config,omitempty"`
 	HasStatus    bool     `json:"has_status,omitempty"`
 	Capabilities []string `json:"capabilities,omitempty"`
+	// RequiredCapabilities is the set of host Platform ports this plugin needs.
+	// The host grants only these; the plugin-scoped Platform fails closed (nil)
+	// on any undeclared capability. Distinct from the derived Capabilities trait.
+	RequiredCapabilities []Capability `json:"required_capabilities,omitempty"`
 }
 
 // Clone returns a shallow copy.
 func (m PluginInfo) Clone() PluginInfo {
 	m.Capabilities = append([]string(nil), m.Capabilities...)
+	m.RequiredCapabilities = append([]Capability(nil), m.RequiredCapabilities...)
 	return m
+}
+
+// RequiresCapability reports whether the plugin declared the given capability.
+func (m PluginInfo) RequiresCapability(c Capability) bool {
+	return slices.Contains(m.RequiredCapabilities, c)
 }
 
 // RegisteredPlugin is the merged discovery view of registered metadata and persisted state.
