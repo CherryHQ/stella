@@ -16,30 +16,47 @@ import (
 // while bounding memory use from an authenticated client.
 const maxEmailRequestBytes = 5 << 20
 
-func emailIdentity(r *http.Request) (authz.Identity, bool) {
+// emailAccess derives the trusted Authority for the authenticated caller and
+// opens one email Authorizer evaluation. The email Service is the sole PEP; the
+// handler never inspects identity beyond deriving the Authority from verified
+// session claims.
+func (s *Server) emailAccess(w http.ResponseWriter, r *http.Request) (*email.Access, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
-		return authz.Identity{}, false
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return nil, false
 	}
-	return authz.Identity{UserID: info.UserID}, true
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return nil, false
+	}
+	acc, err := s.emailSvc.Begin(r.Context(), authority)
+	if err != nil {
+		s.writeEmailError(w, err)
+		return nil, false
+	}
+	return acc, true
 }
 
 func (s *Server) writeEmailError(w http.ResponseWriter, err error) {
-	if errors.Is(err, authz.ErrUnauthenticated) {
+	switch {
+	case errors.Is(err, authz.ErrUnauthenticated):
 		writeError(w, http.StatusUnauthorized, err.Error())
-		return
+	case errors.Is(err, authz.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden")
+	default:
+		writeError(w, http.StatusBadRequest, err.Error())
 	}
-	writeError(w, http.StatusBadRequest, err.Error())
 }
 
 // ListEmailAccounts handles GET /api/email/accounts.
 func (s *Server) ListEmailAccounts(w http.ResponseWriter, r *http.Request) {
-	ident, ok := emailIdentity(r)
+	acc, ok := s.emailAccess(w, r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	accounts, err := s.emailSvc.As(ident).Accounts(r.Context())
+	accounts, err := acc.Accounts(r.Context())
 	if err != nil {
 		s.writeEmailError(w, err)
 		return
@@ -49,16 +66,15 @@ func (s *Server) ListEmailAccounts(w http.ResponseWriter, r *http.Request) {
 
 // ListEmailFolders handles GET /api/email/folders.
 func (s *Server) ListEmailFolders(w http.ResponseWriter, r *http.Request, params apiserver.ListEmailFoldersParams) {
-	ident, ok := emailIdentity(r)
+	acc, ok := s.emailAccess(w, r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	account := ""
 	if params.Account != nil {
 		account = *params.Account
 	}
-	folders, err := s.emailSvc.As(ident).Folders(r.Context(), account)
+	folders, err := acc.Folders(r.Context(), account)
 	if err != nil {
 		s.writeEmailError(w, err)
 		return
@@ -68,9 +84,8 @@ func (s *Server) ListEmailFolders(w http.ResponseWriter, r *http.Request, params
 
 // ListEmailMessages handles GET /api/email/messages.
 func (s *Server) ListEmailMessages(w http.ResponseWriter, r *http.Request, params apiserver.ListEmailMessagesParams) {
-	ident, ok := emailIdentity(r)
+	acc, ok := s.emailAccess(w, r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	limit := 20
@@ -106,7 +121,7 @@ func (s *Server) ListEmailMessages(w http.ResponseWriter, r *http.Request, param
 		t := params.Before.Time
 		opts.Before = &t
 	}
-	msgs, err := s.emailSvc.As(ident).List(r.Context(), account, opts)
+	msgs, err := acc.List(r.Context(), account, opts)
 	if err != nil {
 		s.writeEmailError(w, err)
 		return
@@ -120,9 +135,8 @@ func (s *Server) ListEmailMessages(w http.ResponseWriter, r *http.Request, param
 
 // GetEmailMessage handles GET /api/email/messages/{uid}.
 func (s *Server) GetEmailMessage(w http.ResponseWriter, r *http.Request, uid int, params apiserver.GetEmailMessageParams) {
-	ident, ok := emailIdentity(r)
+	acc, ok := s.emailAccess(w, r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	imapUID, ok := parseIMAPUID(w, uid)
@@ -137,7 +151,7 @@ func (s *Server) GetEmailMessage(w http.ResponseWriter, r *http.Request, uid int
 	if params.Folder != nil {
 		folder = *params.Folder
 	}
-	msg, err := s.emailSvc.As(ident).Read(r.Context(), account, folder, imapUID)
+	msg, err := acc.Read(r.Context(), account, folder, imapUID)
 	if err != nil {
 		if errors.Is(err, email.ErrMessageNotFound) {
 			writeError(w, http.StatusNotFound, "message not found")
@@ -151,9 +165,8 @@ func (s *Server) GetEmailMessage(w http.ResponseWriter, r *http.Request, uid int
 
 // SendEmail handles POST /api/email/send.
 func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiserver.SendEmailParams) {
-	ident, ok := emailIdentity(r)
+	acc, ok := s.emailAccess(w, r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxEmailRequestBytes)
@@ -201,7 +214,7 @@ func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiser
 	if body.IdempotencyKey != nil {
 		idem = *body.IdempotencyKey
 	}
-	if _, err := s.emailSvc.As(ident).Send(r.Context(), account, opts, idem); err != nil {
+	if _, err := acc.Send(r.Context(), account, opts, idem); err != nil {
 		s.writeEmailError(w, err)
 		return
 	}
@@ -210,9 +223,8 @@ func (s *Server) SendEmail(w http.ResponseWriter, r *http.Request, params apiser
 
 // MarkEmailMessage handles POST /api/email/messages/{uid}/mark.
 func (s *Server) MarkEmailMessage(w http.ResponseWriter, r *http.Request, uid int, params apiserver.MarkEmailMessageParams) {
-	ident, ok := emailIdentity(r)
+	acc, ok := s.emailAccess(w, r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	imapUID, ok := parseIMAPUID(w, uid)
@@ -239,7 +251,7 @@ func (s *Server) MarkEmailMessage(w http.ResponseWriter, r *http.Request, uid in
 	if params.Folder != nil {
 		folder = *params.Folder
 	}
-	if err := s.emailSvc.As(ident).MarkSeen(r.Context(), account, folder, imapUID, *body.Seen); err != nil {
+	if err := acc.MarkSeen(r.Context(), account, folder, imapUID, *body.Seen); err != nil {
 		if errors.Is(err, email.ErrMessageNotFound) {
 			writeError(w, http.StatusNotFound, "message not found")
 		} else {

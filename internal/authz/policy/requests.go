@@ -154,6 +154,71 @@ func SkillListRequest() (authz.Request, error) {
 	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
 }
 
+// VaultRequest builds an action against one durable Vault entry (or a scope
+// bucket for create/list, where the id is the effective owner key).
+func VaultRequest(action authz.Action, id, ownerID string, facts VaultFacts) (authz.Request, error) {
+	res, err := VaultResource(id, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// ConnectionRequest builds an action against one user OAuth connection.
+func ConnectionRequest(action authz.Action, id, ownerID string, facts ConnectionFacts) (authz.Request, error) {
+	res, err := ConnectionResource(id, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// ConnectionListRequest builds the collection-level connection list request.
+func ConnectionListRequest() (authz.Request, error) {
+	return listRequest(authz.ResourceConnection)
+}
+
+// EmailRequest builds an action against the caller's email resource.
+func EmailRequest(action authz.Action, id, ownerID string, facts OwnedFacts) (authz.Request, error) {
+	return ownedRequest(authz.ResourceEmail, action, id, ownerID, facts)
+}
+
+// EmailListRequest builds the collection-level email list request.
+func EmailListRequest() (authz.Request, error) { return listRequest(authz.ResourceEmail) }
+
+// ShareRequest builds an action against one durable Share.
+func ShareRequest(action authz.Action, id, ownerID string, facts OwnedFacts) (authz.Request, error) {
+	return ownedRequest(authz.ResourceShare, action, id, ownerID, facts)
+}
+
+// ShareListRequest builds the collection-level share list request. Per-row
+// visibility is decided separately with a ShareRequest read in the same eval.
+func ShareListRequest() (authz.Request, error) { return listRequest(authz.ResourceShare) }
+
+// RecallyRequest builds an action against the caller's recally library.
+func RecallyRequest(action authz.Action, id, ownerID string, facts OwnedFacts) (authz.Request, error) {
+	return ownedRequest(authz.ResourceRecally, action, id, ownerID, facts)
+}
+
+// RecallyListRequest builds the collection-level recally list request.
+func RecallyListRequest() (authz.Request, error) { return listRequest(authz.ResourceRecally) }
+
+func ownedRequest(rt authz.ResourceType, action authz.Action, id, ownerID string, facts OwnedFacts) (authz.Request, error) {
+	res, err := ownedResource(rt, id, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+func listRequest(rt authz.ResourceType) (authz.Request, error) {
+	res, err := authz.NewResource(rt, "", "")
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
+}
+
 // WorkspaceRequest builds an action against the workspace rooted by sessionID.
 func WorkspaceRequest(action authz.Action, sessionID, ownerID string, facts SessionFacts) (authz.Request, error) {
 	res, err := WorkspaceResource(sessionID, ownerID, facts)

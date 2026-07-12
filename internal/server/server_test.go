@@ -221,7 +221,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		PluginHost:          phost,
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
-		Email:               email.NewService(nil, sqlc.New(db)),
+		Email:               email.NewService(nil, sqlc.New(db), authorizer),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Assets:              assetStore,
 		Recally:             recally.NewService(recallyStore, t.TempDir()),

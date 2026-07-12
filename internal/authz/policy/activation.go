@@ -60,6 +60,11 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// DB-backed skill read and write against it; only filesystem project/built-in
 	// skills are exempt (they are not DB rows).
 	authz.ResourceSkill: activeActive,
+	// #711: Email is enforced only through internal/email.Service's Authority-based
+	// Access PEP (the legacy As(authz.Identity) facade is gone). The remaining
+	// user-capability resources (Vault/Connection/Share/Recally) are activated as
+	// each domain's PEP lands.
+	authz.ResourceEmail: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

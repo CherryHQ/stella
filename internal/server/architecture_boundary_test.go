@@ -596,7 +596,6 @@ func TestNoServerPlatformPluginImports(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 var authIdentityConstructorAllowlist = map[string]bool{
-	"emailIdentity": true, // internal/server/email.go
 	"shareIdentity": true, // internal/server/shares.go
 	"toolIdentity":  true, // internal/server/tool_identity.go (share only, post-#710)
 }

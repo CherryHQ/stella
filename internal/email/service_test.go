@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
@@ -20,14 +21,31 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
+func userAuthority(t *testing.T, id string) authz.Authority {
+	t.Helper()
+	rs, err := authz.NewRoleSet(authz.RoleUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
 func TestServiceNoConfigFriendlyError(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID := seedEmailUser(t, db, "no-config")
 	vaultSvc := newEmailVaultService(t, db, userID)
-	svc := email.NewService(vaultSvc, sqlc.New(db))
+	svc := email.NewService(vaultSvc, sqlc.New(db), policy.New(db))
 
-	_, err := svc.As(authz.Identity{UserID: userID}).Accounts(ctx)
+	acc, err := svc.Begin(ctx, userAuthority(t, userID))
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	_, err = acc.Accounts(ctx)
 	if err == nil || !strings.Contains(err.Error(), "no email account configured") {
 		t.Fatalf("Accounts err=%v, want friendly no-config error", err)
 	}
@@ -49,19 +67,26 @@ func TestServiceSendSuppressesDuplicate(t *testing.T) {
 		t.Fatalf("set EMAIL_CONFIG: %v", err)
 	}
 
-	svc := email.NewService(vaultSvc, sqlc.New(db))
+	svc := email.NewService(vaultSvc, sqlc.New(db), policy.New(db))
 	sends := 0
 	svc.SetSendFunc(func(email.EmailAccount, email.SendOptions) error {
 		sends++
 		return nil
 	})
-	ident := authz.Identity{UserID: userID}
 	opts := email.SendOptions{To: []string{"to@example.com"}, Subject: "hello", Body: "world"}
-	first, err := svc.As(ident).Send(ctx, "", opts, "k1")
+	acc1, err := svc.Begin(ctx, userAuthority(t, userID))
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	first, err := acc1.Send(ctx, "", opts, "k1")
 	if err != nil {
 		t.Fatalf("first Send: %v", err)
 	}
-	second, err := svc.As(ident).Send(ctx, "", opts, "k1")
+	acc2, err := svc.Begin(ctx, userAuthority(t, userID))
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	second, err := acc2.Send(ctx, "", opts, "k1")
 	if err != nil {
 		t.Fatalf("second Send: %v", err)
 	}

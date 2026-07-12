@@ -15,15 +15,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Authorized is the identity-scoped view of the service; all authorization
-// checks live on its methods.
-type Authorized struct {
-	*Service
-	ident authz.Identity
-}
-
-func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
-
 const noEmailConfigMessage = "no email account configured — ask the user to add one under Settings → Email"
 
 type Queries interface {
@@ -46,17 +37,18 @@ type AccountList struct {
 type Service struct {
 	vaultSvc *vault.Service
 	q        Queries
+	authz    authz.Authorizer
 	sendFunc func(EmailAccount, SendOptions) error
 }
 
-func NewService(vaultSvc *vault.Service, q Queries) *Service {
-	return &Service{vaultSvc: vaultSvc, q: q, sendFunc: Send}
+func NewService(vaultSvc *vault.Service, q Queries, az authz.Authorizer) *Service {
+	return &Service{vaultSvc: vaultSvc, q: q, authz: az, sendFunc: Send}
 }
 
 // NewServiceForPool creates an email service that owns the sqlc query set for
 // the email tables, so callers pass only the pgx pool.
-func NewServiceForPool(vaultSvc *vault.Service, pool *pgxpool.Pool) *Service {
-	return NewService(vaultSvc, sqlc.New(pool))
+func NewServiceForPool(vaultSvc *vault.Service, pool *pgxpool.Pool, az authz.Authorizer) *Service {
+	return NewService(vaultSvc, sqlc.New(pool), az)
 }
 
 func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {
@@ -67,57 +59,13 @@ func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {
 	s.sendFunc = fn
 }
 
-func (s Authorized) Accounts(ctx context.Context) (AccountList, error) {
-	ident := s.ident
-	cfg, err := s.loadConfig(ctx, ident)
-	if err != nil {
-		return AccountList{}, err
-	}
-	return AccountList{Accounts: cfg.AccountNames(), Default: cfg.Default}, nil
-}
-
-func (s Authorized) Folders(ctx context.Context, account string) ([]string, error) {
-	ident := s.ident
-	acct, err := s.loadAccount(ctx, ident, account)
-	if err != nil {
-		return nil, err
-	}
-	return Folders(acct)
-}
-
-func (s Authorized) List(ctx context.Context, account string, opts ListOptions) ([]Envelope, error) {
-	ident := s.ident
-	acct, err := s.loadAccount(ctx, ident, account)
-	if err != nil {
-		return nil, err
-	}
-	return List(acct, opts)
-}
-
-func (s Authorized) Read(ctx context.Context, account, folder string, uid uint32) (*Message, error) {
-	ident := s.ident
-	acct, err := s.loadAccount(ctx, ident, account)
-	if err != nil {
-		return nil, err
-	}
-	return Read(acct, folder, uid)
-}
-
-func (s Authorized) MarkSeen(ctx context.Context, account, folder string, uid uint32, seen bool) error {
-	ident := s.ident
-	acct, err := s.loadAccount(ctx, ident, account)
-	if err != nil {
-		return err
-	}
-	return MarkSeen(acct, folder, uid, seen)
-}
-
-func (s Authorized) Send(ctx context.Context, account string, opts SendOptions, idempotencyKey string) (SendResult, error) {
-	ident := s.ident
+// send performs the authorized send. Authorization is decided by the Access PEP
+// (Send); this method owns only the durable dedup + egress-validated delivery.
+func (s *Service) send(ctx context.Context, userID, account string, opts SendOptions, idempotencyKey string) (SendResult, error) {
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return SendResult{}, fmt.Errorf("idempotency_key is required — generate a stable unique key for this send and retry")
 	}
-	acct, err := s.loadAccount(ctx, ident, account)
+	acct, err := s.loadAccount(ctx, userID, account)
 	if err != nil {
 		return SendResult{}, err
 	}
@@ -125,7 +73,7 @@ func (s Authorized) Send(ctx context.Context, account string, opts SendOptions, 
 		return SendResult{}, fmt.Errorf("email idempotency store is unavailable — try again later")
 	}
 	_ = s.q.DeleteExpiredEmailSendDedup(ctx)
-	_, err = s.q.CreateEmailSendDedup(ctx, sqlc.CreateEmailSendDedupParams{UserID: ident.UserID, IdempotencyKey: idempotencyKey})
+	_, err = s.q.CreateEmailSendDedup(ctx, sqlc.CreateEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SendResult{Status: "already sent (duplicate suppressed)", Duplicate: true}, nil
@@ -133,7 +81,7 @@ func (s Authorized) Send(ctx context.Context, account string, opts SendOptions, 
 		return SendResult{}, err
 	}
 	if err := s.sendFunc(acct, opts); err != nil {
-		_ = s.q.DeleteEmailSendDedup(ctx, sqlc.DeleteEmailSendDedupParams{UserID: ident.UserID, IdempotencyKey: idempotencyKey})
+		_ = s.q.DeleteEmailSendDedup(ctx, sqlc.DeleteEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
 		return SendResult{}, err
 	}
 	return SendResult{Status: "sent"}, nil
@@ -143,8 +91,8 @@ func (s Authorized) Send(ctx context.Context, account string, opts SendOptions, 
 // dial, but only ValidateAccountEgress rejects imap_tls/smtp_tls "none", and
 // read paths log in over IMAP too — cleartext credentials must be blocked on
 // every operation, matching the old HTTP behavior.
-func (s *Service) loadAccount(ctx context.Context, ident authz.Identity, name string) (EmailAccount, error) {
-	cfg, err := s.loadConfig(ctx, ident)
+func (s *Service) loadAccount(ctx context.Context, userID, name string) (EmailAccount, error) {
+	cfg, err := s.loadConfig(ctx, userID)
 	if err != nil {
 		return EmailAccount{}, err
 	}
@@ -158,14 +106,14 @@ func (s *Service) loadAccount(ctx context.Context, ident authz.Identity, name st
 	return acct, nil
 }
 
-func (s *Service) loadConfig(ctx context.Context, ident authz.Identity) (*Config, error) {
-	if err := ident.RequireUser(); err != nil {
-		return nil, err
+func (s *Service) loadConfig(ctx context.Context, userID string) (*Config, error) {
+	if userID == "" {
+		return nil, authz.ErrUnauthenticated
 	}
 	if s == nil || s.vaultSvc == nil {
 		return nil, fmt.Errorf("vault not configured")
 	}
-	value, err := s.vaultSvc.Get(ctx, ident.UserID, "EMAIL_CONFIG")
+	value, err := s.vaultSvc.Get(ctx, userID, "EMAIL_CONFIG")
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, errors.New(noEmailConfigMessage)
