@@ -95,6 +95,8 @@ plugins/
 
 执行域采用相同形态：Workflow、Scheduler、Goal 由各自的域服务（`workflow.Service`、`scheduler.Service`、`goal.Service`）执行，Skills 由 `skillaccess` 执行，均取代了原先的 `Service.As(authz.Identity)` 门面与散落的 helper。每个传输层与工具用例只调用一次 `Begin`，并在该单一版本内决定域资源；跨资源的 agent 门禁通过 `agentaccess.AuthorizeWithin` 折叠进同一 evaluation。持久化 worker（goal attempt、触发的定时 workflow）从持久可信状态重建 owner/executor Authority，并在每次动作时重新决策。`admin` 通过内建的 `admin-full-access` 策略成为策略超级用户，而非散落的 `role == admin` 检查。
 
+用户能力域——Vault、Connections、Email、Share、Recally——同样由各自的域服务（`vault.Service`、`connections.Service`、`email.Service`、`share.Service`、`recally.Service`）执行。它们均为用户所有：被委派的 agent 回合以其用户的访问权限行事，而非受 executor 限制（agent 共享用户的邮件、连接与阅读库）。Vault 保留其四个持久 scope——`user`/`user_agent` 归用户所有（并折叠 agent-read 门禁），管理员管理的 `system`/`system_agent` 仅经 `admin-full-access` 可达——并保留静态加密、不回读密文、保留名保护与 runner 失效；其宿主侧调用方（MCP、OAuth、邮箱配置、频道配置、沙箱环境、密钥发放）仍作为原始服务方法的可信调用方。有两个面刻意留在按用户 PEP 之外：OAuth 回调与令牌刷新路径（以 flow/user 为键，而非实时请求），以及公开分享视图——它是一个不可猜测的能力 URL，仅凭 token 哈希与过期时间授权，无需会话。
+
 **静态 vs 动态。** 启动静态能力在启动前绑定一次并随后密封。热重配（插件工具/钩子/提供商重载、agent 同步、runner 失效）是独立接口，启动后仍可用并原子应用——绝不重跑一次性绑定。
 
 **关停顺序。** 首个 `SIGINT`/`SIGTERM` 启动优雅排空（第二个坍缩为硬停）。`drainSequence` 依次：标记 `/readyz` 不就绪并通知 SSE 流 → **停止每一个非 HTTP 入口源**（group 调度受理、通道 bot 轮询、以及 scheduler/goal/embedding 的 River 周期任务与一次性派发），各由幂等的 stop-once 闭包完成，故排空开始后不再有新工作或周期触发 → 在 `STELLA_HTTP_SHUTDOWN_TIMEOUT` 内排空在途 HTTP（超时强制关闭）→ 取消工作上下文，随后 River 在软停预算内排空其在途作业，LIFO defer 链逆序 Close 各子系统。group 调度循环跑在独立的 `ingressCtx`（errgroup 上下文的子上下文）上，故可在不取消工作上下文的情况下被叫停；出站依赖（池、notifier）在最终取消前保持存活，故排空前已接受的工作仍能完成并投递。同一批 stop-once 闭包同时支撑 `stopIngress` 与逆序 defer 清理，故崩溃/启动错误路径也能安全拆除、不重复停止。子系统崩溃取消 errgroup 并在无就绪排空的情况下拆除。
