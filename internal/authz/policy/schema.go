@@ -357,6 +357,30 @@ func WorkflowResource(id, ownerID string, facts WorkflowFacts) (authz.Resource, 
 		Build()
 }
 
+// SchedulerFacts is the complete durable fact set for a Scheduler job policy
+// resource. IsOwner/IsExecutor are derived by the PEP from the Authority and the
+// loaded job row; they are never caller-controlled.
+type SchedulerFacts struct {
+	Owner      string
+	Agent      string
+	Kind       string
+	State      string
+	IsOwner    bool
+	IsExecutor bool
+}
+
+// SchedulerResource builds a Scheduler resource carrying every accepted fact.
+func SchedulerResource(id, ownerID string, facts SchedulerFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceScheduler, id, ownerID).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("kind", facts.Kind).
+		WithString("state", facts.State).
+		WithBool("is_owner", facts.IsOwner).
+		WithBool("is_executor", facts.IsExecutor).
+		Build()
+}
+
 // predicate is one attribute comparison inside a custom policy.
 type predicate struct {
 	Attr  string   `json:"attr"`

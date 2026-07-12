@@ -208,7 +208,6 @@ var serverPersistenceAllowlist = map[string]map[string]bool{
 	"projects.go":        {capSQLC: true},
 	"profile.go":         {capSQLC: true},
 	"shares.go":          {capSQLC: true},
-	"scheduler.go":       {capSQLC: true},
 	"workflows.go":       {capSQLC: true},
 }
 

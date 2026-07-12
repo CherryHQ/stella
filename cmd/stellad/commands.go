@@ -182,7 +182,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	phost := ps.host
 
-	schedulerSvc, err := setupScheduler(db, phost)
+	schedulerSvc, err := setupScheduler(db, phost, authorizer, agentAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -544,13 +544,16 @@ func ensureEmbeddedAssets() error {
 	return nil
 }
 
-func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host) (*scheduler.Service, error) {
+func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, authorizer authz.Authorizer, agentAccess *agentaccess.Service) (*scheduler.Service, error) {
 	// External-river mode: the scheduler does not build its own River client. The
 	// composition root (buildSharedRiverClient) assembles the single process-wide
 	// working client from both the scheduler and goal queues and injects it back
 	// via BindRiverClient, so there is exactly one electable River client per
 	// database (see db.NewWorkingRiverClient).
-	svc, err := scheduler.New(db, scheduler.WithExternalRiver())
+	//
+	// WithAuthorization wires the unified Authorizer + agent-access gate so the
+	// scheduler Service is the sole PEP for job resources (HTTP + tool).
+	svc, err := scheduler.New(db, scheduler.WithExternalRiver(), scheduler.WithAuthorization(authorizer, agentAccess))
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}

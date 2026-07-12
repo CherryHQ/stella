@@ -48,6 +48,9 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// #710: Workflow is enforced only through internal/workflow.Service's
 	// Authority-based Access PEP (the legacy As(authz.Identity) facade is gone).
 	authz.ResourceWorkflow: activeActive,
+	// #710: Scheduler jobs are enforced only through internal/scheduler.Service's
+	// Authority-based Access PEP; system/plugin jobs are hidden before any decide.
+	authz.ResourceScheduler: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

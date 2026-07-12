@@ -398,5 +398,46 @@ func builtinPolicies() []compiledPolicy {
 				{Attr: "is_executor", Op: opEq, Value: "true"},
 			},
 		},
+		// A user may list their scheduler jobs (collection-level; per-row read
+		// filters by is_owner in the same evaluation).
+		{
+			id:       "builtin:user-list-scheduler",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceScheduler,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A user owns the scheduler jobs they created (read/create/update/delete/
+		// run). System- and plugin-owned jobs are hidden by the PEP before any
+		// decision, so is_owner alone confines a user to their own jobs.
+		{
+			id:         "builtin:user-own-scheduler",
+			effect:     effectAllow,
+			subjects:   userOnly,
+			resource:   authz.ResourceScheduler,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+		// A delegated agent may list scheduler jobs it owns as executor.
+		{
+			id:       "builtin:agent-list-scheduler",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceScheduler,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A delegated agent may act only on scheduler jobs whose durable facts
+		// match both its owner and its exact executor agent.
+		{
+			id:       "builtin:agent-own-scheduler",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceScheduler,
+			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+				{Attr: "is_executor", Op: opEq, Value: "true"},
+			},
+		},
 	}
 }
