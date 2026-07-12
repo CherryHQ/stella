@@ -551,11 +551,14 @@ func TestSystemPromptHandlerStaysTransportOnly(t *testing.T) {
 
 const pluginImplPrefix = "github.com/CherryHQ/stella/plugins/"
 
-var serverPluginImportAllowlist = map[string]map[string]bool{
-	"webhook_ingress.go":     {"github.com/CherryHQ/stella/plugins/channels/webhook": true},
-	"weixin_qr.go":           {"github.com/CherryHQ/stella/plugins/channels/weixin": true},
-	"weixin_registration.go": {"github.com/CherryHQ/stella/plugins/channels/weixin": true},
-}
+// serverPluginImportAllowlist is empty: issue #712 Item 4 removed every
+// internal/server import of a platform plugin implementation. The webhook config
+// decode now routes through pluginhost.DecodeWebhookRunConfig, and the WeChat
+// QR/registration handlers route through the server.WeixinRegistrar port whose
+// concrete adapter lives in the composition root. A NEW plugins/* import in any
+// non-test internal/server file must not reappear — depend on the plugin port
+// (pkg/plugins / pluginhost) or a narrow composition-root adapter instead.
+var serverPluginImportAllowlist = map[string]map[string]bool{}
 
 func TestNoServerPlatformPluginImports(t *testing.T) {
 	unused := map[string]map[string]bool{}

@@ -43,36 +43,37 @@ import (
 
 // Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
-	store          config.Store
-	authStore      auth.AuthStore
-	agentAccess    *agentaccess.Service
-	sessionAccess  *sessionaccess.Service
-	skillAccess    *skillaccess.Service
-	rateLimiter    *auth.RateLimiter
-	linkCodes      *auth.LinkCodeStore
-	mem            memory.Provider
-	poolManager    *agent.PoolManager
-	pluginHost     *pluginhost.Host
-	db             *pgxpool.Pool
-	q              *sqlc.Queries
-	mux            *http.ServeMux
-	log            *slog.Logger
-	vaultRecipient *age.X25519Recipient  // optional; if set, age keys are generated for new users
-	vaultSvc       *vault.Service        // optional; if nil, vault endpoints return 503
-	mcpSvc         *mcp.Service          // optional; if nil, MCP endpoints return 503
-	credResolver   *credential.Service   // unified bearer credential front door
-	oauthAS        *oidc.Service         // OAuth2 authorization server
-	controlPlane   *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
-	credSvc        *connections.Service  // shared credentials service
-	emailSvc       *email.Service        // shared email service
-	shareSvc       *sharepkg.Service     // shared share service
-	recallySvc     *recally.Service      // shared recally service
-	recally        *recallyHandlers      // recally HTTP API (articles, feeds, digest)
-	schedulerSvc   *scheduler.Service    // optional; if set, create/delete go through the live scheduler
-	goalSvc        *goal.Service         // optional; if nil, goal endpoints return 503
-	workflowSvc    *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
-	builtinTools   []agent.BuiltinTool
-	startedAt      time.Time
+	store           config.Store
+	authStore       auth.AuthStore
+	agentAccess     *agentaccess.Service
+	sessionAccess   *sessionaccess.Service
+	skillAccess     *skillaccess.Service
+	rateLimiter     *auth.RateLimiter
+	linkCodes       *auth.LinkCodeStore
+	mem             memory.Provider
+	poolManager     *agent.PoolManager
+	pluginHost      *pluginhost.Host
+	weixinRegistrar WeixinRegistrar
+	db              *pgxpool.Pool
+	q               *sqlc.Queries
+	mux             *http.ServeMux
+	log             *slog.Logger
+	vaultRecipient  *age.X25519Recipient  // optional; if set, age keys are generated for new users
+	vaultSvc        *vault.Service        // optional; if nil, vault endpoints return 503
+	mcpSvc          *mcp.Service          // optional; if nil, MCP endpoints return 503
+	credResolver    *credential.Service   // unified bearer credential front door
+	oauthAS         *oidc.Service         // OAuth2 authorization server
+	controlPlane    *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
+	credSvc         *connections.Service  // shared credentials service
+	emailSvc        *email.Service        // shared email service
+	shareSvc        *sharepkg.Service     // shared share service
+	recallySvc      *recally.Service      // shared recally service
+	recally         *recallyHandlers      // recally HTTP API (articles, feeds, digest)
+	schedulerSvc    *scheduler.Service    // optional; if set, create/delete go through the live scheduler
+	goalSvc         *goal.Service         // optional; if nil, goal endpoints return 503
+	workflowSvc     *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
+	builtinTools    []agent.BuiltinTool
+	startedAt       time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider
 	authSvc       *auth.AuthService
@@ -144,6 +145,11 @@ type Deps struct {
 	PoolManager  *agent.PoolManager
 	PluginHost   *pluginhost.Host
 	BuiltinTools []agent.BuiltinTool
+
+	// WeixinRegistrar reaches the iLink API for the WeChat QR/registration
+	// handlers. The composition root supplies the concrete adapter (which wraps
+	// the weixin plugin client) so internal/server never imports the plugin.
+	WeixinRegistrar WeixinRegistrar
 
 	// Public addressing, resolved once at the startup boundary. Never a
 	// localhost placeholder mutated later.
@@ -220,6 +226,7 @@ func (d Deps) validate() error {
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
 	req(d.PluginHost != nil, "PluginHost")
+	req(d.WeixinRegistrar != nil, "WeixinRegistrar")
 	req(d.BaseURL != "", "BaseURL")
 	req(d.Credentials != nil, "Credentials")
 	req(d.ControlPlane != nil, "ControlPlane")
@@ -266,6 +273,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		poolManager:     deps.PoolManager,
 		db:              deps.DB,
 		pluginHost:      deps.PluginHost,
+		weixinRegistrar: deps.WeixinRegistrar,
 		q:               sqlc.New(deps.DB),
 		mux:             http.NewServeMux(),
 		log:             log,

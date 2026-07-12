@@ -81,6 +81,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolMgr,
 		PluginHost:          phost,
+		WeixinRegistrar:     NewTestWeixinRegistrar(),
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
 		ControlPlane:        controlplane.NewService(authorizer, store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test")),

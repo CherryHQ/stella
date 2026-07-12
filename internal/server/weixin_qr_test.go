@@ -82,7 +82,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	}
 	srv := newTestServer(t, store, as, engine, mem, db, phost)
 
-	status := &weixinplugin.QRCodeStatusResponse{
+	status := WeixinQRCodeStatus{
 		Status:      "confirmed",
 		BotToken:    "wx-token",
 		BaseURL:     "https://wx.example",
