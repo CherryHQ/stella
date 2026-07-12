@@ -117,6 +117,64 @@ func (h *Host) ValidateRegistrations() error {
 				}
 			}
 		}
+		for _, capability := range meta.RequiredCapabilities {
+			if err := h.capabilityBackedLocked(capability); err != nil {
+				return fmt.Errorf("pluginhost: metadata for %q declares Platform capability %q but %w", meta.ID, capability, err)
+			}
+		}
+	}
+	return nil
+}
+
+// capabilityBackedLocked reports whether the host service that backs a declared
+// Platform capability is bound. Callers must hold h.mu (read or write). An
+// unbacked required capability is a fail-closed error: the plugin must not run
+// with a capability the host cannot actually serve.
+func (h *Host) capabilityBackedLocked(c pkgplugins.Capability) error {
+	backed := false
+	switch c {
+	case pkgplugins.CapabilityLogger:
+		backed = h.log != nil
+	case pkgplugins.CapabilityConfigStore:
+		backed = h.config != nil
+	case pkgplugins.CapabilityStateStore:
+		backed = h.stateStore != nil
+	case pkgplugins.CapabilityScheduler:
+		backed = h.scheduler != nil
+	case pkgplugins.CapabilityNotifier:
+		backed = h.notifications != nil
+	case pkgplugins.CapabilityAuth:
+		backed = h.authService != nil
+	case pkgplugins.CapabilityRuntimeLookup:
+		backed = h.runtimes != nil
+	case pkgplugins.CapabilityChannelPlatform:
+		backed = h.channelRuntime != nil
+	case pkgplugins.CapabilitySkillStore:
+		backed = h.skillStore != nil
+	default:
+		return fmt.Errorf("unknown Platform capability")
+	}
+	if !backed {
+		return fmt.Errorf("no host service is bound for it")
+	}
+	return nil
+}
+
+// verifyRuntimeCapabilities checks that every Platform capability the plugin
+// declared is granted (declared) and backed (bound), before its managed runtime
+// is built and started. A plugin with no registered metadata declares nothing
+// and passes. Fail-closed: an unbacked required capability refuses the start.
+func (h *Host) verifyRuntimeCapabilities(pluginID string) error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	info, ok := h.metadataRegs[pluginID]
+	if !ok {
+		return nil
+	}
+	for _, capability := range info.RequiredCapabilities {
+		if err := h.capabilityBackedLocked(capability); err != nil {
+			return fmt.Errorf("required Platform capability %q unavailable: %w", capability, err)
+		}
 	}
 	return nil
 }

@@ -222,15 +222,20 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 			if p.Prompt != "" {
 				caps = append(caps, pkgplugins.CapabilityPrompt)
 			}
+			var required []pkgplugins.Capability
+			for _, c := range p.Capabilities {
+				required = append(required, pkgplugins.Capability(c))
+			}
 			h.RegisterPluginID(p.ID)
 			h.SetInfo(pkgplugins.PluginInfo{
-				ID:           p.ID,
-				Kind:         p.Kind,
-				Name:         name,
-				DisplayName:  displayName,
-				Description:  p.Description,
-				AdminVisible: true,
-				Capabilities: caps,
+				ID:                   p.ID,
+				Kind:                 p.Kind,
+				Name:                 name,
+				DisplayName:          displayName,
+				Description:          p.Description,
+				AdminVisible:         true,
+				Capabilities:         caps,
+				RequiredCapabilities: required,
 			})
 		}
 

@@ -150,6 +150,11 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 	managed := entry.managed
 	h.mu.Unlock()
 	if managed == nil {
+		if err := h.host.verifyRuntimeCapabilities(reg.PluginID); err != nil {
+			h.host.log.Error("refusing to start managed runtime: capability unavailable",
+				"plugin", reg.PluginID, "runtime", reg.Name, "error", err)
+			return fmt.Errorf("start runtime %s/%s: %w", runtimeID, reg.Name, err)
+		}
 		build := reg.Build
 		if build == nil {
 			return fmt.Errorf("runtime %s/%s has no builder", runtimeID, reg.Name)
