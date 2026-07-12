@@ -4,14 +4,12 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agentaccess"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 )
 
 type testStoresWithEngine struct {
 	testStores
-	engine *auth.PolicyEngine
 	access *agentaccess.Service
 }
 
@@ -19,12 +17,7 @@ func setupStoresWithEngine(t *testing.T) testStoresWithEngine {
 	t.Helper()
 	ts := setupStores(t)
 
-	engine, err := auth.NewEngine(ts.ctx(), ts.authStore)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
-
-	return testStoresWithEngine{testStores: ts, engine: engine, access: agentaccess.NewService(ts.store, ts.authStore, policy.New(ts.db))}
+	return testStoresWithEngine{testStores: ts, access: agentaccess.NewService(ts.store, ts.authStore, policy.New(ts.db))}
 }
 
 func TestResolveAgentWithAuthSystemAgent(t *testing.T) {

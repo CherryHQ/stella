@@ -74,16 +74,8 @@ type Transactioner interface {
 	BeginAuthTx(ctx context.Context) (stores AuthStores, commit func() error, rollback func(), err error)
 }
 
-// AuthStore provides access to policies, user-agent assignments, and API tokens.
+// AuthStore provides access to user-agent assignments and API tokens.
 type AuthStore interface {
-	// Policies
-	CreatePolicy(ctx context.Context, p Policy) (Policy, error)
-	GetPolicy(ctx context.Context, id string) (Policy, error)
-	ListPolicies(ctx context.Context) ([]Policy, error)
-	ListEnabledPolicies(ctx context.Context) ([]Policy, error)
-	UpdatePolicy(ctx context.Context, p Policy) error
-	DeletePolicy(ctx context.Context, id string) error
-
 	// User-Agent assignments
 	AssignAgent(ctx context.Context, userID string, agentID string) error
 	RemoveAgent(ctx context.Context, userID string, agentID string) error

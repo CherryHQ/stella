@@ -32,7 +32,7 @@ import (
 // testServerDeps builds a full, valid Deps mirroring what the composition root
 // assembles — the same shared instances, no shadow construction. Optional
 // capabilities are left nil so their endpoints 503.
-func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *pgxpool.Pool, phost *pluginhost.Host) Deps {
+func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *pluginhost.Host) Deps {
 	t.Helper()
 	const baseURL = "http://localhost:25678"
 	oidcStore := appdb.NewOIDCStore(db)
@@ -103,9 +103,9 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 }
 
 // newTestServer builds a Server from testServerDeps.
-func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *pgxpool.Pool, phost *pluginhost.Host) *Server {
+func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem memory.Provider, db *pgxpool.Pool, phost *pluginhost.Host) *Server {
 	t.Helper()
-	srv, err := New(context.Background(), testServerDeps(t, store, as, engine, mem, db, phost))
+	srv, err := New(context.Background(), testServerDeps(t, store, as, mem, db, phost))
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
 	}

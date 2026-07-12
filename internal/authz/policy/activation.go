@@ -3,16 +3,23 @@ package policy
 import "github.com/CherryHQ/stella/internal/authz"
 
 // activation is the resource-activation catalog: which catalog resources may
-// carry custom policies in this subphase, and in what mode. It is in-code, not
-// operator data — activation is a property of which migration stack owns a
-// resource, so it belongs in the code that owns the cutover, not a mutable row.
+// carry custom policies, and in what mode. It is in-code, not operator data —
+// activation is a property of which migration stack owns a resource, so it
+// belongs in the code that owns the cutover, not a mutable row.
 //
-// Shadow-only rule for Stack 2 / #707 B: the ONE existing production resource
-// (Agent) is shadow-enabled — it accepts typed custom policies and is evaluated
-// by the new Authorizer, but the Authorizer is not yet wired into any production
-// decision path, so it is not authoritative. EVERY other resource is inactive:
-// a custom-policy write is rejected (fail closed) and any pre-existing row is
-// quarantined, until its owning stack cuts the resource over.
+// The catalog is now TOTAL: every authz.AllResourceTypes() member has an
+// explicit entry (enforced by TestActivationCatalogIsTotal), so every protected
+// resource carries a deliberate activation decision rather than falling through
+// to a silent default. The 16 Authorizer-governed resources are active — the
+// Authorizer is their authoritative production decision point. The remaining 11
+// are deliberately inactive: they are protected, just not by the custom-policy
+// Authorizer, each by a named dedicated mechanism spelled out at its entry. An
+// inactive resource rejects custom-policy writes (fail closed) and any
+// pre-existing row is quarantined.
+//
+// #712 is the FINAL stack: there is no future owner that will flip an inactive
+// resource to active, so an inactive entry is a permanent design decision, not a
+// not-yet-cut-over placeholder.
 type activation uint8
 
 const (
@@ -27,15 +34,11 @@ const (
 	activeActive
 )
 
-// activationCatalog maps each resource to its activation mode. Anything absent
-// is inactive by default (fail closed).
-//
-// System catalog and public/tool entries are explicitly inactive here: they are
-// authenticated read-only reference data (ResourceSystemCatalog) or pure public
-// capabilities (ResourceTool) whose custom-policy story is owned by the
-// platform/control-plane stack (Stack 7). They may permit custom policy later,
-// but not in this subphase, so they reject writes and quarantine existing rows
-// exactly like every other not-yet-cut-over resource.
+// activationCatalog maps every catalog resource to its activation mode. It is
+// total: activationFor still falls back to activeInactive defensively, but
+// TestActivationCatalogIsTotal asserts there is an explicit entry for every
+// authz.AllResourceTypes() member, so a newly added resource cannot ship without
+// a deliberate activation decision here.
 var activationCatalog = map[authz.ResourceType]activation{
 	// #709 cut the Agent vertical over: the Authorizer is the authoritative agent
 	// decision point (the legacy PolicyEngine agent path and the former shadow bridge
@@ -92,6 +95,36 @@ var activationCatalog = map[authz.ResourceType]activation{
 	authz.ResourceSettings: activeActive,
 	authz.ResourcePlugin:   activeActive,
 	authz.ResourceChannel:  activeActive,
+
+	// The remaining resources are deliberately inactive: protected, but by a
+	// dedicated mechanism rather than the custom-policy Authorizer. #712 is the
+	// final stack, so none of these will ever be flipped active.
+
+	// User-owned inbox/memory/notify data, authorized by session/user ownership
+	// at the transport; there is no custom-policy PEP over it.
+	authz.ResourceUserData: activeInactive,
+	// Public tool capability: the invocation is the protected thing, there is no
+	// owned resource to attach a policy to.
+	authz.ResourceTool: activeInactive,
+	// User administration, enforced by the requireAdmin / requireUserTarget gates.
+	authz.ResourceUser: activeInactive,
+	// Group administration, enforced by the requireGroupOwner gate.
+	authz.ResourceGroup: activeInactive,
+	// Group membership administration, enforced by the requireGroupOwner gate.
+	authz.ResourceMembership: activeInactive,
+	// Personal access tokens, enforced by the credential service.
+	authz.ResourceToken: activeInactive,
+	// MCP token/service, enforced by its own token auth.
+	authz.ResourceMCP: activeInactive,
+	// Login/session/provider, enforced by the auth service.
+	authz.ResourceAuth: activeInactive,
+	// Inbound webhook ingress, PAT self-authenticated at the edge.
+	authz.ResourceWebhook: activeInactive,
+	// System embedding worker, authorized by River queue-insert authority; there
+	// is no per-request auth.
+	authz.ResourceEmbeddingJob: activeInactive,
+	// Authenticated read-only reference data (models/status/builtins).
+	authz.ResourceSystemCatalog: activeInactive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

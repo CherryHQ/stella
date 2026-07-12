@@ -58,35 +58,6 @@ type Principal struct {
 // IsAdmin returns true if the principal holds the admin role.
 func (p Principal) IsAdmin() bool { return p.Role == RoleAdmin }
 
-// Policy represents an ABAC policy with JSON conditions.
-type Policy struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	Effect     string    `json:"effect"`
-	Subjects   string    `json:"subjects"`
-	Actions    string    `json:"actions"`
-	Resources  string    `json:"resources"`
-	Conditions string    `json:"conditions"`
-	Priority   int       `json:"priority"`
-	IsSystem   bool      `json:"is_system"`
-	Enabled    bool      `json:"enabled"`
-	CreatedAt  time.Time `json:"created_at"`
-}
-
-// Policy effect constants.
-const (
-	EffectAllow = "allow"
-	EffectDeny  = "deny"
-)
-
-// AccessRequest represents a request to check authorization.
-type AccessRequest struct {
-	Subject  Subject        `json:"subject"`
-	Action   Action         `json:"action"`
-	Resource Resource       `json:"resource"`
-	Context  map[string]any `json:"context,omitempty"`
-}
-
 // Subject represents the entity requesting access.
 type Subject struct {
 	UserID   string         `json:"user_id"`
@@ -98,16 +69,6 @@ type Subject struct {
 // Action is a string alias for authorization actions.
 type Action string
 
-// Action constants.
-const (
-	ActionRead    Action = "read"
-	ActionWrite   Action = "write"
-	ActionCreate  Action = "create"
-	ActionDelete  Action = "delete"
-	ActionExecute Action = "execute"
-	ActionManage  Action = "manage"
-)
-
 // Resource represents the target of an authorization request.
 type Resource struct {
 	Type    ResourceType   `json:"type"`
@@ -118,20 +79,6 @@ type Resource struct {
 
 // ResourceType is a string alias for resource types.
 type ResourceType string
-
-// ResourceType constants.
-const (
-	ResourceAgent     ResourceType = "agent"
-	ResourceAgentList ResourceType = "agent_list"
-	ResourceProvider  ResourceType = "provider"
-	ResourceChannel   ResourceType = "channel"
-	ResourceSession   ResourceType = "session"
-	ResourceUser      ResourceType = "user"
-	ResourceUserData  ResourceType = "user_data"
-	ResourceSkill     ResourceType = "skill"
-	ResourceScheduler ResourceType = "scheduler"
-	ResourceSetting   ResourceType = "setting"
-)
 
 // Session represents an HTTP session.
 // TokenHash is the SHA-256 hash of the raw token stored in the session cookie.
