@@ -9,14 +9,15 @@ import (
 
 	"github.com/google/uuid"
 
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/sessionaccess"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestToSessionResponse(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	info := memory.SessionInfo{
+	info := agentsession.Info{
 		ID:         "sess-1",
 		Channel:    "telegram",
 		Title:      "Hello",
@@ -26,7 +27,7 @@ func TestToSessionResponse(t *testing.T) {
 		LastActive: now.Add(time.Hour),
 		Archived:   true,
 	}
-	resp := toSessionResponse(info)
+	resp := sessionResponseFromInfo(info)
 	if resp.ID != "sess-1" {
 		t.Errorf("ID = %q", resp.ID)
 	}
@@ -69,7 +70,7 @@ func TestDecodeToolCallBlock_invalid(t *testing.T) {
 }
 
 func TestSerializeUserRow(t *testing.T) {
-	row := sqlc.CtxMessage{ID: "msg-u1", Role: "user", Content: "hello", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	row := sessionaccess.Message{ID: "msg-u1", Role: "user", Content: "hello", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 	m := serializeUserRow(row)
 	if m["role"] != "user" {
 		t.Errorf("role = %v", m["role"])
@@ -85,7 +86,7 @@ func TestSerializeUserRow(t *testing.T) {
 func TestSerializeToolRow(t *testing.T) {
 	env := map[string]any{"id": "c1", "tool": "bash", "result": "ok"}
 	b, _ := json.Marshal(env)
-	row := sqlc.CtxMessage{Role: "tool", Content: string(b)}
+	row := sessionaccess.Message{Role: "tool", Content: string(b)}
 	m := serializeToolRow(row)
 	if m["role"] != "tool" {
 		t.Errorf("role = %v", m["role"])
@@ -96,7 +97,7 @@ func TestSerializeToolRow(t *testing.T) {
 }
 
 func TestSerializeToolRow_invalidJSON(t *testing.T) {
-	row := sqlc.CtxMessage{Role: "tool", Content: "bad json"}
+	row := sessionaccess.Message{Role: "tool", Content: "bad json"}
 	m := serializeToolRow(row)
 	if m["content"] != "bad json" {
 		t.Errorf("content = %v, want 'bad json'", m["content"])
@@ -106,7 +107,7 @@ func TestSerializeToolRow_invalidJSON(t *testing.T) {
 func TestSerializeDBMessages_mixed(t *testing.T) {
 	toolCall, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "args": map[string]any{"command": "ls"}})
 	toolResult, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "result": "output"})
-	rows := []sqlc.CtxMessage{
+	rows := []sessionaccess.Message{
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", EventType: "text", Content: "world"},
 		{Role: "assistant", EventType: "tool_call", Content: string(toolCall)},
@@ -161,7 +162,7 @@ func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMessagesByConversation: %v", err)
 	}
-	all := serializeDBMessages(allRows)
+	all := serializeDBMessages(testMessagesFromRows(allRows))
 
 	pageRows, err := q.ListMessagesByLogicalPage(ctx, sqlc.ListMessagesByLogicalPageParams{
 		ConversationID: conv.ID,
@@ -171,15 +172,31 @@ func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListMessagesByLogicalPage: %v", err)
 	}
-	got := serializeDBMessages(logicalPageRowsToMessages(pageRows))
+	got := serializeDBMessages(testMessagesFromLogicalRows(pageRows))
 	want := all[1:4]
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("logical page mismatch\ngot:  %#v\nwant: %#v", got, want)
 	}
 }
 
+func testMessagesFromRows(rows []sqlc.CtxMessage) []sessionaccess.Message {
+	out := make([]sessionaccess.Message, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, sessionaccess.Message{ID: row.ID, Seq: row.Seq, Role: row.Role, EventType: row.EventType, Content: row.Content, TokenCount: row.TokenCount, CreatedAt: row.CreatedAt})
+	}
+	return out
+}
+
+func testMessagesFromLogicalRows(rows []sqlc.ListMessagesByLogicalPageRow) []sessionaccess.Message {
+	out := make([]sessionaccess.Message, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, sessionaccess.Message{ID: row.ID, Seq: row.Seq, Role: row.Role, EventType: row.EventType, Content: row.Content, TokenCount: row.TokenCount, CreatedAt: row.CreatedAt})
+	}
+	return out
+}
+
 func TestSerializeAssistantRows_text(t *testing.T) {
-	rows := []sqlc.CtxMessage{
+	rows := []sessionaccess.Message{
 		{ID: "msg-a1", Role: "assistant", EventType: "text", Content: "hi"},
 	}
 	m, consumed := serializeAssistantRows(rows, 0)
@@ -197,7 +214,7 @@ func TestSerializeAssistantRows_text(t *testing.T) {
 // Multiple consecutive assistant rows merge into one turn; the merged turn must
 // carry the first row's ID so historical pagination produces stable React keys.
 func TestSerializeAssistantRows_mergedFirstRowID(t *testing.T) {
-	rows := []sqlc.CtxMessage{
+	rows := []sessionaccess.Message{
 		{ID: "msg-a1", Role: "assistant", EventType: "thinking", Content: "..."},
 		{ID: "msg-a2", Role: "assistant", EventType: "tool_call", Content: `{"id":"c1","tool":"bash","args":{}}`},
 		{ID: "msg-a3", Role: "assistant", EventType: "text", Content: "ok"},

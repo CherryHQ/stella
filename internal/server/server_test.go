@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,6 +34,7 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/server"
+	"github.com/CherryHQ/stella/internal/sessionaccess"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
@@ -185,12 +187,33 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
+	authorizer := policy.New(db)
+	homeDir, _ := os.UserHomeDir()
+	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
+		StellaHome: config.StellaHome(),
+		HomeDir:    homeDir,
+		Memory:     mem,
+		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
+		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
+		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Plugins:    phost,
+		SkillStore: pluginhost.NewSkillStoreAdapter(skillStore),
+		Skills:     skills.BuildPromptSection,
+	})
+	if err != nil {
+		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
+	}
+	sessionSvc, err := sessionaccess.NewService(mem, db, store, as, assetStore, authorizer, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	if err != nil {
+		t.Fatalf("sessionaccess.NewService: %v", err)
+	}
 	deps := server.Deps{
 		Store:               store,
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
-		AgentAccess:         agentaccess.NewService(store, as, policy.New(db)),
+		AgentAccess:         agentaccess.NewService(store, as, authorizer),
+		SessionAccess:       sessionSvc,
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolManager,
 		PluginHost:          phost,

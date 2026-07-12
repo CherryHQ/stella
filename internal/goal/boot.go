@@ -14,6 +14,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agentaccess"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -158,6 +159,7 @@ type TaskChatParams struct {
 	ExtraTools       []tools.Tool
 	ExcludedTools    []string
 	OnSandboxSession func(sandbox.Session) error
+	Authority        authz.Authority
 }
 
 // TaskChatFunc runs one worker turn through the agent service layer so the

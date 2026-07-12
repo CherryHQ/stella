@@ -1,0 +1,461 @@
+package sessionaccess
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/asset"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
+	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorytest"
+	storepkg "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+)
+
+// matrixAuthorizer counts real PostgreSQL-backed policy snapshots. It proves
+// each Session/Workspace use case owns one evaluation even when it makes both
+// Agent and Session/Workspace decisions.
+type matrixAuthorizer struct {
+	authz.Authorizer
+	begins int
+}
+
+func (a *matrixAuthorizer) Begin(ctx context.Context, authority authz.Authority) (authz.Evaluation, error) {
+	a.begins++
+	return a.Authorizer.Begin(ctx, authority)
+}
+
+type sessionMatrix struct {
+	svc            *Service
+	policies       *policy.Service
+	az             *matrixAuthorizer
+	owner          string
+	other          string
+	group          string
+	agent          string
+	private        string
+	internal       string
+	groupSID       string
+	dedicatedAgent string
+	dedicatedChan  string
+}
+
+func TestEmbeddedPostgresSessionPolicyMatrix(t *testing.T) {
+	ctx := context.Background()
+	m := newSessionMatrix(t)
+
+	user := func(id string) authz.Authority {
+		t.Helper()
+		roles, err := authz.NewRoleSet(authz.RoleUser)
+		if err != nil {
+			t.Fatal(err)
+		}
+		authority, err := authz.NewUserAuthority(authz.UserID(id), roles, authz.GrantSet{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return authority
+	}
+	worker := func(owner, agent string) authz.Authority {
+		t.Helper()
+		authority, err := authz.NewAgentAuthority(authz.UserID(owner), authz.AgentID(agent), authz.RoleSet{}, authz.GrantSet{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return authority
+	}
+	group := func(id, agent string) authz.Authority {
+		t.Helper()
+		grant, err := authz.GroupToolGrant("agent.use")
+		if err != nil {
+			t.Fatal(err)
+		}
+		grants, err := authz.NewGrantSet(grant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		authority, err := authz.NewGroupAgentAuthority(authz.GroupID(id), authz.AgentID(agent), authz.RoleSet{}, grants)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return authority
+	}
+	dedicated := func(owner, channelID string) authz.Authority {
+		t.Helper()
+		roleSet, err := authz.NewRoleSet(authz.RoleUser)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grant, err := authz.ChannelBindingGrant(channelID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grants, err := authz.NewGrantSet(grant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		authority, err := authz.NewUserAuthority(authz.UserID(owner), roleSet, grants)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return authority
+	}
+	system := func() authz.Authority {
+		t.Helper()
+		grant, err := authz.SystemGrant("agent.use")
+		if err != nil {
+			t.Fatal(err)
+		}
+		grants, err := authz.NewGrantSet(grant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		authority, err := authz.NewSystemAuthority("session-matrix", grants)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return authority
+	}
+
+	cases := []struct {
+		name      string
+		authority authz.Authority
+		run       func(*Access) error
+		wantErr   error
+	}{
+		{
+			name:      "owner reads private session",
+			authority: user(m.owner),
+			run: func(a *Access) error {
+				_, err := a.Read(ctx, m.agent, m.private)
+				return err
+			},
+		},
+		{
+			name:      "foreign user is hidden",
+			authority: user(m.other),
+			run: func(a *Access) error {
+				_, err := a.Read(ctx, m.agent, m.private)
+				return err
+			},
+			wantErr: ErrNotFound,
+		},
+		{
+			name:      "group ingress cannot use a group session",
+			authority: mustGroupAuthority(t, m.group),
+			run: func(a *Access) error {
+				_, err := a.Use(ctx, m.agent, m.groupSID)
+				return err
+			},
+			wantErr: ErrNotFound,
+		},
+		{
+			name:      "exact group agent reads its group session during channel resolution",
+			authority: group(m.group, m.agent),
+			run: func(a *Access) error {
+				_, err := a.Read(ctx, m.agent, m.groupSID)
+				return err
+			},
+		},
+		{
+			name:      "exact group agent uses its group session",
+			authority: group(m.group, m.agent),
+			run: func(a *Access) error {
+				_, err := a.Use(ctx, m.agent, m.groupSID)
+				return err
+			},
+		},
+		{
+			name:      "other group agent cannot cross group boundary",
+			authority: group(uuid.NewString(), m.agent),
+			run: func(a *Access) error {
+				_, err := a.Use(ctx, m.agent, m.groupSID)
+				return err
+			},
+			wantErr: ErrNotFound,
+		},
+		{
+			name:      "durable agent uses exact owner executor",
+			authority: worker(m.owner, m.agent),
+			run: func(a *Access) error {
+				_, err := a.Use(ctx, m.agent, m.internal)
+				return err
+			},
+		},
+		{
+			name:      "durable agent authorizes archival of its worker session",
+			authority: worker(m.owner, m.agent),
+			run: func(a *Access) error {
+				_, err := a.Delete(ctx, m.agent, m.internal)
+				return err
+			},
+		},
+		{
+			name:      "dedicated channel resolves its exact restricted agent session",
+			authority: dedicated(m.owner, m.dedicatedChan),
+			run: func(a *Access) error {
+				_, err := a.EnsureRead(ctx, agentsession.Request{
+					ID: "dedicated-session", UserID: m.owner, AgentID: m.dedicatedAgent,
+					Kind: agentsession.KindChat, Channel: agentsession.ChannelTelegram,
+					CreateIfMissing: true, AllowExactIDCreate: true,
+				})
+				return err
+			},
+		},
+		{
+			name:      "durable agent cannot switch executor",
+			authority: worker(m.owner, "other-agent"),
+			run: func(a *Access) error {
+				_, err := a.Use(ctx, m.agent, m.internal)
+				return err
+			},
+			wantErr: ErrNotFound,
+		},
+		{
+			name:      "system actor with exact grant uses session",
+			authority: system(),
+			run: func(a *Access) error {
+				_, err := a.Use(ctx, m.agent, m.internal)
+				return err
+			},
+		},
+		{
+			// Internal sessions are omitted from default lists, but their owner may
+			// still inspect or resume one by exact ID. This preserves the existing
+			// human recovery contract while policy keeps every access explicit.
+			name:      "owner can read internal kind by exact ID",
+			authority: user(m.owner),
+			run: func(a *Access) error {
+				_, err := a.Read(ctx, m.agent, m.internal)
+				return err
+			},
+		},
+		{
+			name:      "route agent mismatch is hidden",
+			authority: user(m.owner),
+			run: func(a *Access) error {
+				_, err := a.Read(ctx, "other-agent", m.private)
+				return err
+			},
+			wantErr: ErrNotFound,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := m.az.begins
+			access, err := m.svc.Begin(ctx, tc.authority)
+			if err != nil {
+				t.Fatalf("Begin: %v", err)
+			}
+			err = tc.run(access)
+			if tc.wantErr == nil && err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+			if got := m.az.begins - before; got != 1 {
+				t.Fatalf("Begin calls=%d, want 1", got)
+			}
+		})
+	}
+
+	t.Run("workspace path escape stays rooted and begins once", func(t *testing.T) {
+		before := m.az.begins
+		access, err := m.svc.Begin(ctx, user(m.owner))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = access.CreateWorkspacePath(ctx, WorkspaceCreateInput{
+			AgentID: m.agent, SessionID: m.private, Scope: WorkspaceScopeUser,
+			Path: "../rooted.txt", Content: "safe",
+		})
+		if err != nil {
+			t.Fatalf("CreateWorkspacePath: %v", err)
+		}
+		root := workspaceRootForScope(m.owner, m.agent, WorkspaceScopeUser)
+		if _, err := os.Stat(filepath.Join(root, "rooted.txt")); err != nil {
+			t.Fatalf("rooted file: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(root), "rooted.txt")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("path escaped workspace: stat error=%v, want not exist", err)
+		}
+		if got := m.az.begins - before; got != 1 {
+			t.Fatalf("Begin calls=%d, want 1", got)
+		}
+	})
+
+	t.Run("list filters per-session visibility in one snapshot", func(t *testing.T) {
+		before := m.az.begins
+		access, err := m.svc.Begin(ctx, user(m.owner))
+		if err != nil {
+			t.Fatal(err)
+		}
+		infos, err := access.List(ctx, m.agent, agentsession.ListOptions{IncludeArchived: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(infos) != 2 {
+			t.Fatalf("list count=%d, want owner private and internal sessions", len(infos))
+		}
+		if got := m.az.begins - before; got != 1 {
+			t.Fatalf("Begin calls=%d, want 1", got)
+		}
+	})
+
+	// A real policy mutation commits a new revision. The next Begin must see the
+	// deny, hide the durable session, and remove it from collection visibility.
+	if _, _, err := m.policies.CreatePolicy(ctx, policy.PolicyInput{
+		Name:       "hide owner chat sessions",
+		Resource:   authz.ResourceSession,
+		Action:     authz.ActionRead,
+		Effect:     policy.EffectDeny,
+		Subjects:   policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
+		Predicates: []policy.Predicate{policy.Eq("kind", string(agentsession.KindChat))},
+	}); err != nil {
+		t.Fatalf("CreatePolicy: %v", err)
+	}
+	t.Run("custom deny remains opaque", func(t *testing.T) {
+		before := m.az.begins
+		access, err := m.svc.Begin(ctx, user(m.owner))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := access.Read(ctx, m.agent, m.private); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("custom deny error=%v, want opaque not found", err)
+		}
+		if got := m.az.begins - before; got != 1 {
+			t.Fatalf("Begin calls=%d, want 1", got)
+		}
+	})
+	t.Run("custom deny removes only matching row from list", func(t *testing.T) {
+		before := m.az.begins
+		access, err := m.svc.Begin(ctx, user(m.owner))
+		if err != nil {
+			t.Fatal(err)
+		}
+		infos, err := access.List(ctx, m.agent, agentsession.ListOptions{IncludeArchived: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(infos) != 1 || infos[0].ID != m.internal {
+			t.Fatalf("visible sessions=%v, want only %q", infos, m.internal)
+		}
+		if got := m.az.begins - before; got != 1 {
+			t.Fatalf("Begin calls=%d, want 1", got)
+		}
+	})
+
+	// Keep creation last because the matrix intentionally shares one durable
+	// fixture and list assertions above freeze its pre-create row set.
+	t.Run("durable agent creates a worker session for its owner", func(t *testing.T) {
+		before := m.az.begins
+		access, err := m.svc.Begin(ctx, worker(m.owner, m.agent))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := access.Create(ctx, m.owner, m.agent, "", agentsession.KindTask, agentsession.ChannelTask); err != nil {
+			t.Fatal(err)
+		}
+		if got := m.az.begins - before; got != 1 {
+			t.Fatalf("Begin calls=%d, want 1", got)
+		}
+	})
+}
+
+func newSessionMatrix(t *testing.T) sessionMatrix {
+	t.Helper()
+	config.ResetStellaHome()
+	t.Setenv("STELLA_HOME", t.TempDir())
+	t.Cleanup(config.ResetStellaHome)
+
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	store := storepkg.NewDBStore(pool)
+	owner, other, groupID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	const (
+		agentID        = "matrix-system-agent"
+		dedicatedAgent = "matrix-dedicated-agent"
+		dedicatedChan  = "matrix-dedicated-channel"
+	)
+	if err := store.CreateAgent(ctx, config.Agent{ID: agentID, Name: "matrix", Model: "test/model", Scope: config.AgentScopeSystem, Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if err := store.CreateAgent(ctx, config.Agent{ID: dedicatedAgent, Name: "dedicated", Model: "test/model", Scope: config.AgentScopeRestricted, Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent(dedicated): %v", err)
+	}
+	if err := store.UpsertChannel(ctx, config.Channel{ID: dedicatedChan, Name: "dedicated", Type: "telegram", AgentID: dedicatedAgent, Enabled: true, Config: `{}`}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
+	mem := memorytest.New()
+	q := sqlc.New(pool)
+	save := func(id, userID, groupID, kind string) {
+		t.Helper()
+		now := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
+		if err := mem.SaveInfo(ctx, memory.SessionInfo{
+			ID: id, UserID: userID, GroupID: groupID, AgentID: agentID,
+			Channel: string(agentsession.ChannelWeb), Kind: kind, CreatedAt: now, LastActive: now,
+		}); err != nil {
+			t.Fatalf("SaveInfo(%s): %v", id, err)
+		}
+		if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
+			ID: uuid.NewString(), SessionID: id, Channel: string(agentsession.ChannelWeb), Kind: kind, LastActive: now,
+			AgentID: pgtype.Text{String: agentID, Valid: true}, UserID: pgtype.Text{String: userID, Valid: true},
+			GroupID: pgtype.Text{String: groupID, Valid: groupID != ""},
+		}); err != nil {
+			t.Fatalf("CreateConversation(%s): %v", id, err)
+		}
+	}
+	private, internal, groupSession := "private", "internal", "group"
+	if _, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
+		ID: groupID, Platform: "test", PlatformGroupID: "group", GroupName: "matrix group",
+	}); err != nil {
+		t.Fatalf("CreateGroupState: %v", err)
+	}
+	save(private, owner, "", string(agentsession.KindChat))
+	save(internal, owner, "", string(agentsession.KindTask))
+	save(groupSession, groupID, groupID, string(agentsession.KindChat))
+
+	blobStore, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assets, err := asset.NewStore(t.TempDir(), blobStore, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner := policy.New(pool)
+	az := &matrixAuthorizer{Authorizer: inner}
+	svc, err := NewService(mem, pool, store, appdb.NewAuthStore(pool), assets, az)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	return sessionMatrix{
+		svc: svc, policies: policy.NewService(inner), az: az,
+		owner: owner, other: other, group: groupID, agent: agentID,
+		private: private, internal: internal, groupSID: groupSession,
+		dedicatedAgent: dedicatedAgent, dedicatedChan: dedicatedChan,
+	}
+}
+
+func mustGroupAuthority(t *testing.T, groupID string) authz.Authority {
+	t.Helper()
+	authority, err := authz.NewGroupAuthority(authz.GroupID(groupID), authz.RoleSet{}, authz.GrantSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authority
+}

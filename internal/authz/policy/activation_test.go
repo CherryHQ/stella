@@ -8,12 +8,12 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
-// In this shadow subphase exactly one resource (Agent) is activated; every other
-// catalog resource — including the system catalog and public tool entries — is
-// inactive and rejects custom-policy writes. This freezes the shadow-only scope.
-func TestOnlyAgentIsActivated(t *testing.T) {
+// #709 makes Agent, Session, and Workspace authoritative. Every other catalog
+// resource — including the system catalog and public tool entries — remains
+// inactive and rejects custom-policy writes.
+func TestOnlySessionVerticalIsActivated(t *testing.T) {
 	for _, rt := range authz.AllResourceTypes() {
-		wantShadow := rt == authz.ResourceAgent
+		wantShadow := rt == authz.ResourceAgent || rt == authz.ResourceSession || rt == authz.ResourceWorkspace
 		if got := resourceAcceptsCustomPolicy(rt); got != wantShadow {
 			t.Errorf("resource %s: accepts custom policy = %v, want %v", rt, got, wantShadow)
 		}

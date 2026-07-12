@@ -290,6 +290,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		AuthStore:           as,
 		Mem:                 s.mem,
 		AgentAccess:         agentAccess,
+		SessionAccess:       s.sessionAccess,
 		LinkCodes:           linkCodes,
 		PoolManager:         s.poolManager,
 		PluginHost:          s.pluginHost,

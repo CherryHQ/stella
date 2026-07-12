@@ -49,12 +49,12 @@ func (rc *ResolvedChat) sessionUserID() string {
 
 func (rc *ResolvedChat) ResolveSession(ctx context.Context) (session.Info, error) {
 	if rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:") {
-		return rc.Service.ResolveMainSession(ctx, rc.User.ID, rc.AgentID)
+		return rc.Service.ResolveMainSession(ctx, rc.Authority, rc.User.ID, rc.AgentID)
 	}
 	if rc.GroupID != "" {
-		return rc.Service.ResolveGroupChannelSession(ctx, rc.SessionKey, rc.GroupID, rc.AgentID, rc.Channel)
+		return rc.Service.ResolveGroupChannelSession(ctx, rc.Authority, rc.SessionKey, rc.GroupID, rc.AgentID, rc.Channel)
 	}
-	return rc.Service.ResolvePrivateChannelSession(ctx, rc.SessionKey, rc.sessionUserID(), rc.AgentID, rc.Channel)
+	return rc.Service.ResolvePrivateChannelSession(ctx, rc.Authority, rc.SessionKey, rc.sessionUserID(), rc.AgentID, rc.Channel)
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
@@ -104,6 +104,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		Channel:        rc.Channel,
 		Message:        message,
 		CurrentSpeaker: rc.CurrentSpeaker,
+		Authority:      rc.Authority,
 	})
 	return stream, info.ID, nil
 }

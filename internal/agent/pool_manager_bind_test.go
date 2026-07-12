@@ -37,8 +37,14 @@ type fakeVaultEnvLoader struct{}
 
 type fakeAgentAccess struct{}
 
+type fakePoolSessionAccess struct{}
+
 func (fakeAgentAccess) Use(context.Context, authz.Authority, string) (config.Agent, error) {
 	return config.Agent{}, nil
+}
+
+func (fakePoolSessionAccess) Begin(context.Context, authz.Authority) (SessionAccess, error) {
+	return nil, nil
 }
 
 func (fakeVaultEnvLoader) LoadEnvForAgent(context.Context, string, string) (map[string]string, error) {
@@ -59,6 +65,9 @@ func startPool(t *testing.T, pm *PoolManager) {
 	t.Helper()
 	if err := pm.BindAgentAccess(fakeAgentAccess{}); err != nil {
 		t.Fatalf("BindAgentAccess: %v", err)
+	}
+	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
+		t.Fatalf("BindSessionAccess: %v", err)
 	}
 	if err := pm.StartAll(context.Background()); err != nil {
 		t.Fatalf("StartAll: %v", err)
@@ -119,6 +128,12 @@ func TestBindAgentAccessGuards(t *testing.T) {
 	}
 	if err := pm2.BindAgentAccess(fakeAgentAccess{}); err != nil {
 		t.Fatalf("BindAgentAccess after rejected StartAll: %v", err)
+	}
+	if err := pm2.StartAll(context.Background()); err == nil {
+		t.Error("StartAll without SessionAccess should error")
+	}
+	if err := pm2.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
+		t.Fatalf("BindSessionAccess after rejected StartAll: %v", err)
 	}
 	if err := pm2.StartAll(context.Background()); err != nil {
 		t.Fatalf("StartAll after bind: %v", err)

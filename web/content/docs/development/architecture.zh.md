@@ -91,7 +91,7 @@ plugins/
 
 **不可变 Server Deps。** `server.Deps` 是按域分组的值结构体（持久化、授权、运行时、共享服务、可选能力）。它携带具体域服务，而非宽泛的影子 store；一个 reflection/AST 三线闸冻结剩余的宽持久化债（DB 池、`config.Store`、auth stores）并禁止新增宽字段。可选能力容忍 nil，退化为单一集中的 503 映射。
 
-**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `agentaccess` 策略执行服务。服务加载类型化 Agent 事实，并在每个用例中以一个绑定策略版本的 `authz.Authority` evaluation 作出决定；旧策略引擎不再有任何 Agent 决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）铸造；请求 body/path 字段永远不能铸造或覆写 actor。
+**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `agentaccess` 策略执行服务。Session 与 Workspace 用例使用 `sessionaccess`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并在一个绑定策略版本的 `authz.Authority` evaluation 中决定 Agent、Session 和 Workspace 请求；旧策略引擎不再有任何 Agent、Session 或 Workspace 决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）铸造；请求 body/path 字段永远不能铸造或覆写 actor。
 
 **静态 vs 动态。** 启动静态能力在启动前绑定一次并随后密封。热重配（插件工具/钩子/提供商重载、agent 同步、runner 失效）是独立接口，启动后仍可用并原子应用——绝不重跑一次性绑定。
 

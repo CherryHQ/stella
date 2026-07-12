@@ -40,7 +40,9 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/sessionaccess"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
@@ -86,6 +88,7 @@ type setupResult struct {
 	store                    config.Store
 	authStore                *appdb.AuthStore
 	agentAccess              *agentaccess.Service
+	sessionAccess            *sessionaccess.Service
 	pluginHost               *pluginhost.Host
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
@@ -155,7 +158,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Construct the one Agent PDP/PEP at the composition root before any agent
 	// Service is built. HTTP, channels, and durable workers all share it.
 	authStore := appdb.NewAuthStore(db)
-	agentAccess := agentaccess.NewService(store, authStore, policy.New(db))
+	// Every #709 PEP shares this one revision-bound policy authorizer. A use
+	// case begins it once and may decide its agent/session/workspace resources
+	// against that immutable revision without a second snapshot.
+	authorizer := policy.New(db)
+	agentAccess := agentaccess.NewService(store, authStore, authorizer)
 
 	if err := ensureEmbeddedAssets(); err != nil {
 		return nil, err
@@ -230,6 +237,25 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, cfg.RequireSharedAssets, slog.Default())
 	if err != nil {
 		return nil, err
+	}
+	homeDir, _ := os.UserHomeDir()
+	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
+		StellaHome: config.StellaHome(),
+		HomeDir:    homeDir,
+		Memory:     memProvider,
+		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
+		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
+		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Plugins:    phost,
+		SkillStore: skillStoreAdapter,
+		Skills:     skills.BuildPromptSection,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build session prompt service: %w", err)
+	}
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, authStore, assetStore, authorizer, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	if err != nil {
+		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
@@ -320,6 +346,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 				ExtraTools:       p.ExtraTools,
 				ExcludedTools:    p.ExcludedTools,
 				OnSandboxSession: p.OnSandboxSession,
+				Authority:        p.Authority,
 			}
 			// Decomposition runs on the goal's KindDelegate planning session;
 			// execution on the KindTask worker session. They resolve differently.
@@ -411,6 +438,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := poolMgr.BindAgentAccess(agentAccess); err != nil {
 		return nil, fmt.Errorf("bind agent access: %w", err)
 	}
+	if err := poolMgr.BindSessionAccess(sessionaccess.NewAgentSessionAccess(sessionAccess)); err != nil {
+		return nil, fmt.Errorf("bind session access: %w", err)
+	}
+	if err := sessionAccess.BindRuntimeManager(sessionaccess.NewRuntimeManager(poolMgr)); err != nil {
+		return nil, fmt.Errorf("bind session runtime manager: %w", err)
+	}
 	if err := poolMgr.BindMCPToolProvider(mcp.NewToolProvider(mcpSvc)); err != nil {
 		return nil, fmt.Errorf("bind mcp tool provider: %w", err)
 	}
@@ -462,6 +495,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		store:                    store,
 		authStore:                authStore,
 		agentAccess:              agentAccess,
+		sessionAccess:            sessionAccess,
 		pluginHost:               phost,
 		channelRuntimeServices:   ps.channelRuntimeServices,
 		poolManager:              poolMgr,
@@ -667,6 +701,7 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 			UserID:    job.UserID,
 			AgentID:   agentID,
 			Message:   schedulerJobMessage(job),
+			Authority: authority,
 		})
 		// Keep the last step's text — that's the final assistant answer;
 		// earlier steps are tool-call narration.
