@@ -41,33 +41,32 @@ Session keys are scoped per agent: `{agentID}:{platform}:{userID}:{context}`, en
 cmd/stellad/             Entry point, server commands, service wiring
 internal/
   config/              Store interface, DBStore (PostgreSQL), Snapshot, types
-  ai/                  Message/Content types, Model, Provider interface, streaming events
   agent/               Service, ServiceManager, session registry, runtime, runner factory
     session/           Session lifecycle, ownership, kind/channel policy
     runtime/           Runner cache, turn execution, event persistence
-    engine/            Agent loop engine (multi-turn tool execution)
     prompt/            System prompt builder and templates
-  channel/             Channel interface, identity resolution, slash commands, notify
-    cli/               Bubble Tea TUI
-    telegram/          Telegram bot
-    qq/                QQ bot
-    feishu/            Feishu bot
-  admin/               HTTP API + embedded React SPA
-  auth/                RBAC/ABAC policy engine, sessions, sandbox
+    sandbox/           Core sandbox tools (bash, read, write, edit)
+    delegate/          Delegate tool (isolated child loops)
+  channel/             Channel interface, identity resolution, slash commands, ingress lease, notify
+  memory/              Memory provider registry + implementations (lcm, simple)
+  server/              HTTP API + embedded React SPA
+  auth/                Login, sessions, and identity
+  authz/               Unified authorizer — capability/authority evaluation
+    policy/            Policy catalog, activation, compilation, evaluation
+  controlplane/        Control-plane PEP (providers, settings, plugins, channels)
+  pluginhost/          Capability-scoped plugin platform host
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries
   scheduler/           River-backed service (durable job scheduling for Web UI, CLI, and native agent tools)
   skills/              Skills tool (search/install/list/remove via skills.sh)
 pkg/
-  memory/              Memory Provider interface, types, Summarizer, tool auto-generation, test helpers
-  tools/               Tool interface, registry, built-in tools (read, bash, write, edit, agent)
+  ai/                  Message/Content types, Model, Provider interface, streaming events
+  tools/               Tool interface, registry, built-in tools (read, bash, write, edit, delegate)
 plugins/
-  memory/              Memory plugin registry + implementations
-    lcm/               Lossless Context Management (default) — DAG summaries, compaction, search
-    simple/            Sliding-window memory — last N messages, no summaries
   tools/               Plugin tool registry + plugin tools (webfetch)
   hooks/               Plugin hook registry + plugin hooks (rtk)
-  channels/            Channel plugins (telegram, qq, feishu, weixin)
+  channels/            Channel plugins (telegram, qq, feishu, weixin, webhook)
   providers/           Provider plugin registry + LLM adapters (anthropic, openai, openai-response)
+  sandbox/             Sandbox backend plugins
 ```
 
 ## Configuration
@@ -91,11 +90,13 @@ Configuration is stored in PostgreSQL and accessed through the `config.Store` in
 
 **Immutable Server Deps.** `server.Deps` is a value struct grouped by domain (persistence, authz, runtime, shared services, optional capabilities). It carries the concrete domain services, not broad shadow stores; a reflection/AST tripwire freezes the remaining broad-persistence debt (DB pool, `config.Store`, auth stores) and forbids adding a new broad field. Optional capabilities are nil-tolerant and degrade to a single centralized 503 mapping.
 
-**Authorization.** Agent HTTP, webhook, and channel entry points use the authoritative `internal/agent/access` policy-enforcement service. Session and workspace use cases use `internal/agent/session/access`: it loads durable owner, agent, kind, and lifecycle facts before creating a scoped registry access, then decides Agent, Session, and Workspace requests against one revision-bound `authz.Authority` evaluation. The legacy policy engine has no Agent, Session, or Workspace decision path. Authorities are minted only by trusted identity adapters (`internal/auth`, `internal/credential`, `internal/authz`) and the durable worker/group adapter in `internal/agent/access`; request body/path fields can never mint or overwrite an actor.
+**Authorization.** Agent HTTP, webhook, and channel entry points use the authoritative `internal/agent/access` policy-enforcement service. Session and workspace use cases use `internal/agent/session/access`: it loads durable owner, agent, kind, and lifecycle facts before creating a scoped registry access, then decides Agent, Session, and Workspace requests against one revision-bound `authz.Authority` evaluation. The former RBAC/ABAC policy engine is gone; there is no separate Agent, Session, or Workspace decision path. Authorities are minted only by trusted identity adapters (`internal/auth`, `internal/credential`, `internal/authz`) and the durable worker/group adapter in `internal/agent/access`; request body/path fields can never mint or overwrite an actor.
 
 The execution domains follow the same shape: Workflow, Scheduler, and Goal are enforced by their own domain services (`workflow.Service`, `scheduler.Service`, `goal.Service`) and Skills by `skillaccess`, each replacing the former `Service.As(authz.Identity)` facade and scattered helpers. Every transport and tool use case calls `Begin` once and decides the domain resource against that single revision; a cross-resource agent gate is folded into the same evaluation through `agentaccess.AuthorizeWithin`. Durable workers (goal attempts, fired scheduled workflows) reconstruct the owner/executor Authority from persisted trusted state and re-decide on every action. `admin` is a policy superuser via the built-in `admin-full-access` policy rather than scattered `role == admin` checks.
 
 The user-capability domains are all user-owned — a delegated agent turn acts with its user's access rather than an executor confinement (an agent shares a user's secrets, mail, connections, and reading library) — but they split by enforcement mechanism. **Vault is policy-backed**: `vault.Service` opens one `authz.Authorizer` evaluation per use case and decides `ResourceVault` against it, because vault entries have real `user`/`user_agent`/`system`/`system_agent` scope distinctions (`user`/`user_agent` are user-owned with an agent-read gate folded in; admin-managed `system`/`system_agent` reach only `admin-full-access`). It preserves at-rest encryption, no secret read-back, reserved-name guards, and runner invalidation. **Connections, Email, Share, and Recally are not policy-backed**: each is a coarse per-user capability with no scope or admin distinctions, so `connections.Service`, `email.Service`, `share.Service`, and `recally.Service` bind one trusted `authz.Authority` (a simple `Service.Access(authority)` constructor, not an `Authorizer` evaluation), capture the acting user, reject an invalid or no-user Authority up front, and enforce ownership through user-scoped durable queries — the account config lives in that user's vault namespace, OAuth bundles and flows are keyed by user, shares are deleted `WHERE user_id = ?`, and recally rows are uid-scoped so a foreign row is simply not found. Operations keyed only by a parent id (recally article content, feed entries) prove parent ownership with a uid-scoped load first, and Share artifacts keep os.Root workspace confinement for an agent-scoped actor. Several surfaces stay deliberately trusted or public: vault's host-side callers (MCP, OAuth, email config, channel config, sandbox env, key provisioning) use the raw service methods; the OAuth callback and token-refresh paths are keyed by the flow/user, not a live request; and the public share view is an unguessable capability URL authorized by token hash plus expiry with no session. See the [authorization guide](/docs/development/authorization) for the resource matrix and recipes.
+
+The control-plane domains close the loop. Provider, Settings, Plugin, and Channel management run through `internal/controlplane` — a `Begin(authority) → Access` PEP that replaces the old `requireAdmin` gate plus direct `config.Store` access. They are admin-only: the built-in `admin-full-access` policy is the sole grant. The plugin host is capability-scoped to match: `pluginhost`'s `Platform` is no longer ambient — a plugin reaches only the host capabilities it declares (`PluginInfo.RequiredCapabilities`), the host grants exactly those and returns `nil` for anything undeclared, and it validates a declared capability is backed by an injected service before a managed runtime starts. With this, the legacy `auth.PolicyEngine` is fully removed: authorization is entirely `internal/authz` (+ `internal/authz/policy`) and the per-domain PEP services. The activation catalog is total — 12 resources are Authorizer-governed (active), and every remaining resource is protected by a dedicated mechanism rather than left ungoverned.
 
 **Static vs dynamic.** Boot-static capabilities are bound once before start and then sealed. Live reconfiguration (plugin tool/hook/provider reloads, agent sync, runner invalidation) is a distinct surface that stays available after start and applies atomically — it never re-runs the one-shot binds.
 
@@ -132,6 +133,8 @@ LLM providers are plugin-based. Three built-in providers ship with Stella:
 Each provider implements the `ai.ProviderAdapter` interface for streaming responses and optionally `ai.ModelLister` for model discovery. All providers support multimodal input (text + images) via the `ImageContent` type, converting to their native image format (base64 blocks for Anthropic, data URI image_url for OpenAI).
 
 Providers live in `plugins/providers/` and self-register via `init()`. Adding a new provider requires creating a package under `plugins/providers/` -- no other wiring code is needed. See [plugin-system](/docs/development/plugin-system) for details.
+
+Managing providers (like settings, plugins, and channels) is a control-plane operation authorized through the unified Authorizer via `internal/controlplane`, not a bare role check. It is admin-only: the built-in `admin-full-access` policy is the sole grant.
 
 ## Tools
 
@@ -231,7 +234,7 @@ Delivery guarantees, stated honestly:
 
 ## Admin API
 
-The `internal/server/` package provides an HTTP API and embedded SPA for managing the system. Endpoints cover CRUD operations for providers, agents, channels, users, sessions, scheduler jobs, and global settings. The server reads and writes through `config.Store`, giving operators a web interface for configuration that was previously done via YAML files.
+The `internal/server/` package provides an HTTP API and embedded SPA for managing the system. Endpoints cover CRUD operations for providers, agents, channels, users, sessions, scheduler jobs, and global settings. Control-plane management — LLM providers, deployment settings, plugins, and channels — is authorized through the unified Authorizer via `internal/controlplane` (admin-only via the built-in `admin-full-access` policy), not a bare role check; the underlying reads and writes still flow through `config.Store`, giving operators a web interface for configuration that was previously done via YAML files.
 
 ## Notification Flow
 

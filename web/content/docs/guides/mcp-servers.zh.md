@@ -11,7 +11,7 @@ Stella 仅作为基于 HTTP 传输的 MCP **客户端**：
 - `streamable_http` — 可流式 HTTP 传输（默认）。
 - `sse` — HTTP + Server-Sent Events。
 
-本地 `stdio` 服务器有意不受支持：多租户沙箱绝不会启动本地进程。
+本地 `stdio` 服务器有意不受支持：多用户沙箱绝不会启动本地进程。
 
 ## 作用域
 
