@@ -358,5 +358,45 @@ func builtinPolicies() []compiledPolicy {
 				{Attr: "is_creator", Op: opEq, Value: "true"},
 			},
 		},
+		// A user may list their workflows (collection-level; per-row read filters
+		// by is_owner in the same evaluation).
+		{
+			id:       "builtin:user-list-workflows",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceWorkflow,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A user owns the workflows they created (read/create/update/delete/run).
+		// is_owner is derived at the PEP from the loaded row and the acting user.
+		{
+			id:         "builtin:user-own-workflows",
+			effect:     effectAllow,
+			subjects:   userOnly,
+			resource:   authz.ResourceWorkflow,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+		// A delegated agent may list workflows it owns as executor.
+		{
+			id:       "builtin:agent-list-workflows",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceWorkflow,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A delegated agent may read/save/run only the workflows whose durable
+		// facts match both its owner and its exact executor agent.
+		{
+			id:       "builtin:agent-own-workflows",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceWorkflow,
+			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionExecute},
+			predicates: []predicate{
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+				{Attr: "is_executor", Op: opEq, Value: "true"},
+			},
+		},
 	}
 }

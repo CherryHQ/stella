@@ -153,7 +153,12 @@ var schemas = map[authz.ResourceType]resourceSchema{
 }
 
 func ownerAgentState() map[string]attrSpec {
-	return map[string]attrSpec{"owner": stringAttr, "agent": stringAttr, "state": stringAttr}
+	return map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr, "state": stringAttr,
+		// Derived by the PEP from the immutable Authority and the durable
+		// resource facts; a route or request body can assert neither bit.
+		"is_owner": boolAttr, "is_executor": boolAttr,
+	}
 }
 
 func ownerAgentKindState() map[string]attrSpec {
@@ -327,6 +332,28 @@ func ownerAgentKindStateResource(rt authz.ResourceType, id, ownerID string, fact
 		WithBool("is_executor", facts.IsExecutor).
 		WithBool("is_group", facts.IsGroup).
 		WithBool("is_same_group", facts.IsSameGroup).
+		Build()
+}
+
+// WorkflowFacts is the complete durable fact set for a Workflow policy resource.
+// IsOwner/IsExecutor are derived by the PEP from the Authority and the loaded
+// workflow row; they are never caller-controlled.
+type WorkflowFacts struct {
+	Owner      string
+	Agent      string
+	State      string
+	IsOwner    bool
+	IsExecutor bool
+}
+
+// WorkflowResource builds a Workflow resource with every accepted durable fact.
+func WorkflowResource(id, ownerID string, facts WorkflowFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceWorkflow, id, ownerID).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("state", facts.State).
+		WithBool("is_owner", facts.IsOwner).
+		WithBool("is_executor", facts.IsExecutor).
 		Build()
 }
 

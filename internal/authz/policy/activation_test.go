@@ -8,14 +8,20 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
-// #709 makes Agent, Session, and Workspace authoritative. Every other catalog
-// resource — including the system catalog and public tool entries — remains
-// inactive and rejects custom-policy writes.
+// #709 made Agent, Session, and Workspace authoritative; #710 adds Workflow (the
+// first execution-domain vertical). Every other catalog resource — including the
+// system catalog and public tool entries — remains inactive and rejects
+// custom-policy writes until its owning stack cuts it over.
 func TestOnlySessionVerticalIsActivated(t *testing.T) {
+	active := map[authz.ResourceType]bool{
+		authz.ResourceAgent:     true,
+		authz.ResourceSession:   true,
+		authz.ResourceWorkspace: true,
+		authz.ResourceWorkflow:  true,
+	}
 	for _, rt := range authz.AllResourceTypes() {
-		wantShadow := rt == authz.ResourceAgent || rt == authz.ResourceSession || rt == authz.ResourceWorkspace
-		if got := resourceAcceptsCustomPolicy(rt); got != wantShadow {
-			t.Errorf("resource %s: accepts custom policy = %v, want %v", rt, got, wantShadow)
+		if got := resourceAcceptsCustomPolicy(rt); got != active[rt] {
+			t.Errorf("resource %s: accepts custom policy = %v, want %v", rt, got, active[rt])
 		}
 	}
 	// System catalog and public tool are explicitly inactive (documented owners).

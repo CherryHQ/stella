@@ -75,6 +75,26 @@ func SessionListRequest() (authz.Request, error) {
 	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
 }
 
+// WorkflowRequest builds an action against one durable Workflow.
+func WorkflowRequest(action authz.Action, workflowID, ownerID string, facts WorkflowFacts) (authz.Request, error) {
+	res, err := WorkflowResource(workflowID, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// WorkflowListRequest builds the collection-level workflow list request. Per-row
+// visibility is decided separately with a WorkflowRequest read in the same
+// evaluation.
+func WorkflowListRequest() (authz.Request, error) {
+	res, err := authz.NewResource(authz.ResourceWorkflow, "", "")
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
+}
+
 // WorkspaceRequest builds an action against the workspace rooted by sessionID.
 func WorkspaceRequest(action authz.Action, sessionID, ownerID string, facts SessionFacts) (authz.Request, error) {
 	res, err := WorkspaceResource(sessionID, ownerID, facts)

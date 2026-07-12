@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -259,6 +260,66 @@ func (a *Access) decideGate(build func() (authz.Request, error)) error {
 		return ErrForbidden
 	}
 	dec, err := a.eval.Decide(req)
+	if err != nil {
+		return fmt.Errorf("%w: decide: %w", ErrUnavailable, err)
+	}
+	if !dec.Allowed() {
+		return visibilityError(dec.Visibility())
+	}
+	return nil
+}
+
+// AuthorizeWithin authorizes an agent action against a caller's already-open
+// evaluation, so a use case in another domain (goal/workflow/scheduler) can gate
+// an agent under its single policy revision instead of opening a second
+// evaluation. It never widens access: the agent facts are loaded from durable
+// state and the passed Authority, and dedicated-channel use is not inferred here
+// (that grant is only honored at the dedicated agent-use boundary).
+func (s *Service) AuthorizeWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, agentID string, action authz.Action) error {
+	ag, err := s.agents.GetAgent(ctx, agentID)
+	if err != nil {
+		if isNotFound(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("%w: get agent: %w", ErrUnavailable, err)
+	}
+	scope, err := canonicalScope(ag.Scope)
+	if err != nil {
+		return ErrForbidden
+	}
+	userID := string(authority.Actor().UserID())
+	assigned := false
+	// System-scoped agents are readable without an assignment; skip the query.
+	if scope != "system" && userID != "" {
+		ids, err := s.assign.ListUserAgentIDs(ctx, userID)
+		if err != nil {
+			return fmt.Errorf("%w: list user agents: %w", ErrUnavailable, err)
+		}
+		assigned = slices.Contains(ids, agentID)
+	}
+	status := "disabled"
+	if ag.Enabled {
+		status = "enabled"
+	}
+	facts := policy.AgentFacts{
+		Scope: scope, Assigned: assigned, Creator: ag.CreatorID,
+		IsCreator:  userID != "" && ag.CreatorID == userID,
+		IsExecutor: string(authority.Actor().AgentID()) == ag.ID,
+		Status:     status,
+	}
+	var req authz.Request
+	switch action {
+	case authz.ActionRead:
+		req, err = policy.AgentReadRequest(ag.ID, ag.CreatorID, facts)
+	case authz.ActionExecute:
+		req, err = policy.AgentUseRequest(ag.ID, ag.CreatorID, facts)
+	default:
+		return ErrForbidden
+	}
+	if err != nil {
+		return ErrForbidden
+	}
+	dec, err := eval.Decide(req)
 	if err != nil {
 		return fmt.Errorf("%w: decide: %w", ErrUnavailable, err)
 	}

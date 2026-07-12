@@ -360,7 +360,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
-	workflowSvc := workflowpkg.New(db, goalSvc.Goal)
+	workflowSvc := workflowpkg.New(db, goalSvc.Goal, authorizer, agentAccess)
 	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc})
 
 	// Build the shared credentials/email/share services once, with the final
@@ -635,7 +635,18 @@ func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req sch
 }
 
 func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
-	run, _, err := a.svc.Instantiate(ctx, workflowpkg.InstantiateInput{UserID: req.UserID, AgentID: req.AgentID, WorkflowID: req.WorkflowID, Inputs: req.Inputs, IdempotencyKey: req.IdempotencyKey})
+	// A fired scheduled workflow is a durable worker action: reconstruct the
+	// owner+executor authority from the persisted job and begin a fresh workflow
+	// evaluation, so a since-revoked agent assignment stops the run.
+	authority, err := agentaccess.WorkerAgentAuthority(req.UserID, req.AgentID)
+	if err != nil {
+		return scheduler.WorkflowInstantiateResult{}, err
+	}
+	acc, err := a.svc.Begin(ctx, authority)
+	if err != nil {
+		return scheduler.WorkflowInstantiateResult{}, err
+	}
+	run, _, err := acc.Instantiate(ctx, req.WorkflowID, req.Inputs, req.IdempotencyKey)
 	if err != nil {
 		return scheduler.WorkflowInstantiateResult{}, err
 	}

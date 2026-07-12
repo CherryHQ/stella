@@ -45,6 +45,9 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// internal/sessionaccess.Service, including custom policy facts.
 	authz.ResourceSession:   activeActive,
 	authz.ResourceWorkspace: activeActive,
+	// #710: Workflow is enforced only through internal/workflow.Service's
+	// Authority-based Access PEP (the legacy As(authz.Identity) facade is gone).
+	authz.ResourceWorkflow: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {
