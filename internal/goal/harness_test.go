@@ -8,7 +8,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentaccess"
+	"github.com/CherryHQ/stella/internal/authz/policy"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -74,8 +78,10 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("seed user: %v", err)
 	}
 	agentID := uuid.NewString()
+	// System scope so the folded-in agent gate passes for the owner and the CRUD
+	// tests isolate goal ownership boundaries.
 	if _, err := db.Exec(ctx,
-		`INSERT INTO agent (id, name, workspace) VALUES ($1, 'test-agent', '/tmp')`,
+		`INSERT INTO agent (id, name, workspace, scope) VALUES ($1, 'test-agent', '/tmp', 'system')`,
 		agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
@@ -89,7 +95,8 @@ func newHarness(t *testing.T) *harness {
 	)
 	h.worker = NewWorker(h.svc, q)
 	h.worker.SetHeartbeat(0) // no heartbeat goroutine in tests
-	h.bundle = &Service{Queries: q, Goal: h.svc}
+	az := policy.New(db)
+	h.bundle = NewBundle(q, h.svc, az, agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), az))
 	return h
 }
 

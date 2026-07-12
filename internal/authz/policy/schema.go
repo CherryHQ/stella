@@ -335,6 +335,28 @@ func ownerAgentKindStateResource(rt authz.ResourceType, id, ownerID string, fact
 		Build()
 }
 
+// GoalFacts is the complete durable fact set for a Goal policy resource.
+// IsOwner/IsExecutor are derived by the PEP from the Authority and the loaded
+// goal row; they are never caller-controlled.
+type GoalFacts struct {
+	Owner      string
+	Agent      string
+	State      string
+	IsOwner    bool
+	IsExecutor bool
+}
+
+// GoalResource builds a Goal resource carrying every accepted durable fact.
+func GoalResource(id, ownerID string, facts GoalFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceGoal, id, ownerID).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("state", facts.State).
+		WithBool("is_owner", facts.IsOwner).
+		WithBool("is_executor", facts.IsExecutor).
+		Build()
+}
+
 // WorkflowFacts is the complete durable fact set for a Workflow policy resource.
 // IsOwner/IsExecutor are derived by the PEP from the Authority and the loaded
 // workflow row; they are never caller-controlled.

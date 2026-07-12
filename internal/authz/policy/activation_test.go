@@ -19,6 +19,7 @@ func TestOnlySessionVerticalIsActivated(t *testing.T) {
 		authz.ResourceWorkspace: true,
 		authz.ResourceWorkflow:  true,
 		authz.ResourceScheduler: true,
+		authz.ResourceGoal:      true,
 	}
 	for _, rt := range authz.AllResourceTypes() {
 		if got := resourceAcceptsCustomPolicy(rt); got != active[rt] {
@@ -39,7 +40,7 @@ func TestInactiveResourceWritesAreRejected(t *testing.T) {
 	svc := NewService(New(pool))
 
 	for _, rt := range []authz.ResourceType{
-		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceVault, authz.ResourceGoal,
+		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceVault, authz.ResourceSkill,
 	} {
 		_, _, err := svc.CreatePolicy(ctx, PolicyInput{
 			Resource: rt, Action: authz.ActionRead, Effect: EffectAllow,

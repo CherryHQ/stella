@@ -35,6 +35,12 @@ type Service struct {
 	Goal       *GoalService
 	Dispatcher *Dispatcher
 
+	// authz + agents back the Authority-based Access PEP (the sole policy
+	// enforcement point for Goal resources reached by HTTP and the agent tool).
+	// The durable worker executor keeps its own agentaccess re-check (executor.go).
+	authz  authz.Authorizer
+	agents *agentaccess.Service
+
 	// runner executes one claimed attempt; it backs both the goal River worker
 	// (RegisterRiverWorker) and is shared with nothing else. queueMaxWorkers and
 	// logger are captured at Boot so the composition root can assemble the shared
@@ -53,6 +59,14 @@ type Service struct {
 	river *river.Client[pgx.Tx]
 	// started flips true when StartDispatchTick runs, sealing BindRiverClient.
 	started bool
+}
+
+// NewBundle assembles the goal application Service from its parts and wires the
+// Authority-based Access PEP dependencies. Boot uses it after building the
+// executor and dispatcher; callers that assemble the pieces themselves (tests)
+// use it directly so the CRUD PEP is always authorizer-backed.
+func NewBundle(q *sqlc.Queries, gs *GoalService, az authz.Authorizer, agents *agentaccess.Service) *Service {
+	return &Service{Queries: q, Goal: gs, authz: az, agents: agents}
 }
 
 // RegisterRiverWorker registers the goal subsystem's workers into a shared
@@ -185,8 +199,12 @@ type BootConfig struct {
 	ExcludedTools []string
 	// AgentAccess is the trusted durable-worker PEP. A goal attempt must not
 	// invoke an executor agent unless its persisted owner/executor pair passes a
-	// fresh Agent execute decision.
+	// fresh Agent execute decision. It also backs the CRUD Access PEP's inline
+	// agent-execute gate.
 	AgentAccess *agentaccess.Service
+	// Authorizer is the unified policy decision point shared with every other PEP.
+	// Required for the transport/tool Access PEP; the worker path uses AgentAccess.
+	Authorizer authz.Authorizer
 }
 
 // Boot constructs the goal system and returns the bound bundle. The dispatcher is
@@ -240,6 +258,8 @@ func Boot(cfg BootConfig) (*Service, error) {
 		Queries:         q,
 		Goal:            svc,
 		Dispatcher:      disp,
+		authz:           cfg.Authorizer,
+		agents:          cfg.AgentAccess,
 		runner:          runner,
 		queueMaxWorkers: maxWorkers,
 		logger:          logger,
