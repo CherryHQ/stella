@@ -54,6 +54,7 @@ func TestEmbeddedPostgresSkillPolicyMatrix(t *testing.T) {
 	userSkillID := mustCreateSkill(t, skillStore, skills.Skill{Scope: ScopeUser, UserID: owner.ID, Name: "user-skill"})
 	userAgentSkillID := mustCreateSkill(t, skillStore, skills.Skill{Scope: ScopeUserAgent, UserID: owner.ID, AgentID: "sys", Name: "user-agent-skill"})
 	systemSkillID := mustCreateSkill(t, skillStore, skills.Skill{Scope: ScopeSystem, Name: "system-skill"})
+	systemAgentSkillID := mustCreateSkill(t, skillStore, skills.Skill{Scope: ScopeSystemAgent, AgentID: "sys", Name: "system-agent-skill"})
 
 	az := &countingAuthorizer{Authorizer: policy.New(pool)}
 	svc := NewService(skillStore, agentaccess.NewService(store, assign, az), az)
@@ -117,6 +118,63 @@ func TestEmbeddedPostgresSkillPolicyMatrix(t *testing.T) {
 			}
 		})
 	}
+
+	// AuthorizeRead is the tool/HTTP resolve/list read path: unlike the by-id
+	// management path it does not escalate system reads to admin, so any user or
+	// delegated agent may read shared system skills while owner rules still gate
+	// user scopes. One Begin per read use case.
+	userSkill := skills.Skill{ID: userSkillID, Scope: ScopeUser, UserID: owner.ID}
+	userAgentSkill := skills.Skill{ID: userAgentSkillID, Scope: ScopeUserAgent, UserID: owner.ID, AgentID: "sys"}
+	systemSkill := skills.Skill{ID: systemSkillID, Scope: ScopeSystem}
+	authorizeReadCases := []struct {
+		name      string
+		authority authz.Authority
+		skill     skills.Skill
+		wantErr   error
+	}{
+		{"owner reads own user skill", userAuth(owner.ID, false), userSkill, nil},
+		{"owner reads own user_agent skill", userAuth(owner.ID, false), userAgentSkill, nil},
+		{"foreign user cannot read user skill", userAuth(other.ID, false), userSkill, ErrNotFound},
+		{"any user reads system skill", userAuth(other.ID, false), systemSkill, nil},
+		{"delegated agent reads own user_agent skill", agentAuth(owner.ID, "sys"), userAgentSkill, nil},
+		{"delegated agent reads user-scope skill", agentAuth(owner.ID, "sys"), userSkill, nil},
+		{"delegated agent reads system skill", agentAuth(owner.ID, "sys"), systemSkill, nil},
+		{"foreign delegated cannot read user_agent skill", agentAuth(other.ID, "sys"), userAgentSkill, ErrNotFound},
+	}
+	for _, tc := range authorizeReadCases {
+		t.Run("read/"+tc.name, func(t *testing.T) {
+			before := az.begins
+			acc, err := svc.Begin(ctx, tc.authority)
+			if err != nil {
+				t.Fatalf("begin: %v", err)
+			}
+			err = acc.AuthorizeRead(ctx, tc.skill)
+			if tc.wantErr == nil && err != nil {
+				t.Fatalf("AuthorizeRead = %v, want nil", err)
+			}
+			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
+				t.Fatalf("AuthorizeRead = %v, want %v", err, tc.wantErr)
+			}
+			if az.begins != before+1 {
+				t.Fatalf("Begin count = %d, want 1", az.begins-before)
+			}
+		})
+	}
+
+	// A durable worker (reflect) write is authorized under a fresh reconstructed
+	// WorkerAgentAuthority; owner+executor user_agent writes pass, a foreign
+	// user/agent is denied.
+	t.Run("worker write authorization", func(t *testing.T) {
+		if err := svc.AuthorizeWorkerWrite(ctx, owner.ID, "sys", userAgentSkillID, false); err != nil {
+			t.Fatalf("owner worker write = %v, want nil", err)
+		}
+		if err := svc.AuthorizeWorkerWrite(ctx, owner.ID, "sys", "", true); err != nil {
+			t.Fatalf("owner worker create = %v, want nil", err)
+		}
+		if err := svc.AuthorizeWorkerWrite(ctx, other.ID, "sys", userAgentSkillID, false); err == nil {
+			t.Fatal("foreign worker write should be denied")
+		}
+	})
 
 	// Owner may write and delete own user/user_agent skills; a foreign user cannot.
 	writeCases := []struct {
@@ -185,6 +243,51 @@ func TestEmbeddedPostgresSkillPolicyMatrix(t *testing.T) {
 			}
 		})
 	}
+
+	// A group turn (GroupAgentActor, no user) reconstructed from context reads the
+	// shared system/system_agent skills it could see pre-cutover, but user-owned
+	// skills stay hidden — never a whole-call error.
+	t.Run("group turn reads system skills and hides user skills", func(t *testing.T) {
+		gctx := authz.WithGroupID(authz.WithAgentID(ctx, "sys"), "group-1")
+		dec, err := svc.BeginRead(gctx)
+		if err != nil {
+			t.Fatalf("group BeginRead: %v", err)
+		}
+		if ok, err := dec.AllowRead(gctx, systemSkillID, ScopeSystem, "", "", nil); err != nil || !ok {
+			t.Fatalf("group system read = (%v,%v), want (true,nil)", ok, err)
+		}
+		if ok, err := dec.AllowRead(gctx, systemAgentSkillID, ScopeSystemAgent, "", "sys", nil); err != nil || !ok {
+			t.Fatalf("group system_agent read = (%v,%v), want (true,nil)", ok, err)
+		}
+		if ok, err := dec.AllowRead(gctx, userSkillID, ScopeUser, owner.ID, "", nil); err != nil || ok {
+			t.Fatalf("group user read = (%v,%v), want (false,nil) — user skills hidden from a group turn", ok, err)
+		}
+	})
+
+	// The read port carries metadata, so a source-based custom deny applies to a
+	// tool/HTTP read exactly as it would with the row loaded server-side. The same
+	// skill is readable without the tainted source and hidden with it.
+	t.Run("source custom deny applies through the read port", func(t *testing.T) {
+		ps := policy.NewService(policy.New(pool))
+		if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
+			Name: "deny tainted-source skill read", Resource: authz.ResourceSkill, Action: authz.ActionRead,
+			Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Kinds(authz.ActorAgent).Build(),
+			Predicates: []policy.Predicate{policy.Eq("source", "tainted")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		actx := authz.WithAgentID(authz.WithUserID(ctx, owner.ID), "sys")
+		dec, err := svc.BeginRead(actx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := dec.AllowRead(actx, userSkillID, ScopeUser, owner.ID, "", []byte(`{}`)); err != nil || !ok {
+			t.Fatalf("clean-source read = (%v,%v), want (true,nil)", ok, err)
+		}
+		if ok, err := dec.AllowRead(actx, userSkillID, ScopeUser, owner.ID, "", []byte(`{"source":"tainted"}`)); err != nil || ok {
+			t.Fatalf("tainted-source read = (%v,%v), want (false,nil) — source policy must apply via the port", ok, err)
+		}
+	})
 
 	// An active custom deny overrides the owner built-in against the durable facts.
 	t.Run("custom deny hides own skill", func(t *testing.T) {

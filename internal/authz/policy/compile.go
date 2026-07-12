@@ -534,5 +534,32 @@ func builtinPolicies() []compiledPolicy {
 				{Attr: "is_owner", Op: opEq, Value: "true"},
 			},
 		},
+		// A delegated agent may read admin-managed system/system_agent skills (they
+		// are shared reference procedures loaded during a turn); it never writes
+		// them. system_agent rows are additionally confined to the agent by the
+		// PEP's folded agent-read gate.
+		{
+			id:       "builtin:agent-read-system-skills",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionRead},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"system", "system_agent"}},
+			},
+		},
+		// A group turn (GroupAgentActor, no user) may read the shared, non-personal
+		// system/system_agent skills it could see before the cutover — those are
+		// public reference procedures, not identity-scoped data. It has no user, so
+		// user/user_agent skills stay hidden. The group agent-use grant confines a
+		// system_agent read to the group's own agent via the folded agent gate.
+		{
+			id: "builtin:group-agent-read-system-skills", effect: effectAllow,
+			subjects: groupAgentUse, resource: authz.ResourceSkill,
+			actions: []authz.Action{authz.ActionRead},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"system", "system_agent"}},
+			},
+		},
 	}
 }

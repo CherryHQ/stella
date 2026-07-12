@@ -39,10 +39,11 @@ func TestUsageCuratorShadowReportsWithoutWriting(t *testing.T) {
 	skillWriter := &fakeUsageCuratorSkillWriter{}
 
 	report, err := runUsageCurator(context.Background(), usageCuratorRunConfig{
-		Store:       store,
-		FactWriter:  factWriter,
-		SkillWriter: skillWriter,
-		Pair:        usageCuratorPair{UserID: "user-1", AgentID: "agent-1"},
+		SkillAuthorizer: &stubSkillAuthorizer{},
+		Store:           store,
+		FactWriter:      factWriter,
+		SkillWriter:     skillWriter,
+		Pair:            usageCuratorPair{UserID: "user-1", AgentID: "agent-1"},
 		Settings: usageCuratorSettings{
 			Mode: usageCuratorModeShadow,
 			Now:  fixedUsageCuratorNow,
@@ -82,10 +83,11 @@ func TestUsageCuratorArmedDeprecatesKnowledgeAndSkills(t *testing.T) {
 	skillWriter := &fakeUsageCuratorSkillWriter{}
 
 	report, err := runUsageCurator(context.Background(), usageCuratorRunConfig{
-		Store:       store,
-		FactWriter:  factWriter,
-		SkillWriter: skillWriter,
-		Pair:        usageCuratorPair{UserID: "user-1", AgentID: "agent-1"},
+		SkillAuthorizer: &stubSkillAuthorizer{},
+		Store:           store,
+		FactWriter:      factWriter,
+		SkillWriter:     skillWriter,
+		Pair:            usageCuratorPair{UserID: "user-1", AgentID: "agent-1"},
 		Settings: usageCuratorSettings{
 			Mode: usageCuratorModeArmed,
 			Now:  fixedUsageCuratorNow,
@@ -457,7 +459,7 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 		t.Fatalf("TouchReflectSkillRuntimeUse: %v", err)
 	}
 
-	deprecated, err := deprecateCuratorSkills(ctx, skillStore, []usageCuratorSkillCandidate{{
+	deprecated, err := deprecateCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
 		SkillID:    created.ID,
 		UserID:     userID,
 		AgentID:    agentID,
@@ -509,7 +511,7 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 		t.Fatalf("archive conversation: %v", err)
 	}
 
-	deprecated, err := deprecateCuratorSkills(ctx, skillStore, []usageCuratorSkillCandidate{{
+	deprecated, err := deprecateCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
 		SkillID: created.ID, UserID: userID, AgentID: agentID, Version: created.Version,
 		UseCount: 2, LastUsedAt: lastUsed, PairLatestActivityAt: activityAt,
 		Rule: usageCuratorSkillRuleLowUse,

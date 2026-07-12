@@ -265,15 +265,18 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
-		Memory:            memProvider,
-		Store:             store,
-		SkillStore:        skillStoreAdapter,
-		UsageCuratorStore: reflect.NewSQLUsageCuratorStoreForPool(db),
-		Notifier:          dispatcher,
-		StateStore:        pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
-		Workspace:         config.StellaHome(),
-		Providers:         providerStreamBuilder,
-		Services:          &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
+		Memory:                   memProvider,
+		Store:                    store,
+		SkillStore:               skillStoreAdapter,
+		SkillAuthorizer:          skillAccess,
+		SkillReadAuthorizer:      skillAccess,
+		SkillToolWriteAuthorizer: skillAccess,
+		UsageCuratorStore:        reflect.NewSQLUsageCuratorStoreForPool(db),
+		Notifier:                 dispatcher,
+		StateStore:               pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
+		Workspace:                config.StellaHome(),
+		Providers:                providerStreamBuilder,
+		Services:                 &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 	}, cfg.Reflect.Interval, cfg.Reflect.CuratorMode); err != nil {
 		return nil, err
 	}
@@ -430,6 +433,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithToolLifecyclePM(toolLifecycle),
 		agent.WithToolOverrideFetcher(agent.NewToolOverrideStore(db).Fetch),
 		agent.WithSkillStore(skillStoreAdapter),
+		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithProjectEnsurerPM(projectStore.Ensure),
 	)

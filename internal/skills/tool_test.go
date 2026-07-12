@@ -253,7 +253,7 @@ func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) err
 
 func TestCreateIgnoresLegacyKnowledgeType(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), userID), agentID)
 
 	if _, err := tool.Execute(ctx, map[string]any{
@@ -385,7 +385,7 @@ func TestSearchInstalledRanksVisibleSkills(t *testing.T) {
 		t.Fatalf("create notes skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	out, err := tool.Execute(ctx, map[string]any{
 		"action": "search_installed",
 		"query":  "release checklist",
@@ -441,7 +441,7 @@ func TestSearchInstalledBoostsExactNameBeforeLimit(t *testing.T) {
 		t.Fatalf("create target skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	out, err := tool.Execute(ctx, map[string]any{
 		"action": "search_installed",
 		"query":  "target-skill",
@@ -478,7 +478,7 @@ func TestSearchInstalledAcceptsIntLimit(t *testing.T) {
 		}
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	out, err := tool.Execute(ctx, map[string]any{
 		"action": "search_installed",
 		"query":  "release checklist",
@@ -513,7 +513,7 @@ func TestSearchInstalledDoesNotSearchSkillBody(t *testing.T) {
 		t.Fatalf("create body-only skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	out, err := tool.Execute(ctx, map[string]any{
 		"action": "search_installed",
 		"query":  "secretbodytoken",
@@ -553,7 +553,7 @@ func TestRemoveInvalidName(t *testing.T) {
 func TestTargetScopeDefaultsToUser(t *testing.T) {
 	store, _, _ := newTestSkillStore(t)
 
-	tool := NewTool(store, "/tmp/stella", "")
+	tool := NewTool(store, "/tmp/stella", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	scope, err := tool.targetScope(ctxWithUser("7", "agent-1"), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -587,7 +587,7 @@ func TestTargetScopeGroupContext(t *testing.T) {
 func TestInstallProjectScopeIsRejected(t *testing.T) {
 	store, _, _ := newTestSkillStore(t)
 
-	tool := NewTool(store, "/tmp/stella", t.TempDir())
+	tool := NewTool(store, "/tmp/stella", t.TempDir()).WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	_, err := tool.install(context.Background(), map[string]any{
 		"source": t.TempDir(),
 		"scope":  "project",
@@ -617,6 +617,143 @@ func TestInstallRejectsNonStringScope(t *testing.T) {
 
 // --- Store-backed tests ---
 
+// TestToolWriteAuthorizationEnforced proves the reflect reviewer tool's
+// create/patch/deprecate are each authorized against ResourceSkill before the
+// store mutation: a denial rejects the write (and the store is untouched), an
+// allowed actor succeeds, and a missing authorizer fails closed.
+func TestToolWriteAuthorizationEnforced(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user", UserID: userID, Name: "existing", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "---\nname: existing\n---\nbody"}); err != nil {
+		t.Fatalf("seed skill: %v", err)
+	}
+
+	t.Run("denied create is rejected and not stored", func(t *testing.T) {
+		calls := 0
+		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(denySkillWrites{calls: &calls})
+		if _, err := tool.create(ctx, map[string]any{"name": "new-skill", "description": "a new skill"}); err == nil {
+			t.Fatal("expected denied create to fail")
+		}
+		if calls == 0 {
+			t.Fatal("write PEP was not consulted on create")
+		}
+		if sk, _ := store.Resolve(ctx, "new-skill", pkgplugins.SkillViewContext{UserID: userID}); sk != nil {
+			t.Fatal("denied create still wrote the skill to the store")
+		}
+	})
+
+	t.Run("denied patch and deprecate are rejected", func(t *testing.T) {
+		calls := 0
+		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(denySkillWrites{calls: &calls})
+		if _, err := tool.patch(ctx, map[string]any{"name": "existing", "description": "changed"}); err == nil {
+			t.Fatal("expected denied patch to fail")
+		}
+		if _, err := tool.deprecate(ctx, map[string]any{"name": "existing"}); err == nil {
+			t.Fatal("expected denied deprecate to fail")
+		}
+		if calls < 2 {
+			t.Fatalf("write PEP consulted %d times, want >= 2 (patch + deprecate)", calls)
+		}
+	})
+
+	t.Run("allowed create/patch/deprecate succeed", func(t *testing.T) {
+		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
+		if _, err := tool.create(ctx, map[string]any{"name": "ok-skill", "description": "an allowed skill"}); err != nil {
+			t.Fatalf("allowed create: %v", err)
+		}
+		if _, err := tool.patch(ctx, map[string]any{"name": "ok-skill", "description": "updated"}); err != nil {
+			t.Fatalf("allowed patch: %v", err)
+		}
+		if _, err := tool.deprecate(ctx, map[string]any{"name": "ok-skill"}); err != nil {
+			t.Fatalf("allowed deprecate: %v", err)
+		}
+	})
+
+	t.Run("no write authorizer fails closed", func(t *testing.T) {
+		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{})
+		if _, err := tool.create(ctx, map[string]any{"name": "nope", "description": "d"}); err == nil {
+			t.Fatal("expected nil write authorizer to fail closed on create")
+		}
+		if _, err := tool.patch(ctx, map[string]any{"name": "existing", "description": "d"}); err == nil {
+			t.Fatal("expected nil write authorizer to fail closed on patch")
+		}
+	})
+}
+
+// TestToolReadAuthorizationEnforced proves the ResourceSkill read PEP gates every
+// DB-backed skill read: a denied actor (custom deny / revoked grant) cannot load
+// or see a DB skill, an unexpected authorization failure propagates, and no
+// injected authorizer fails closed.
+func TestToolReadAuthorizationEnforced(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	if _, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user", UserID: userID, AgentID: agentID, Name: "secret-skill",
+		Description: "a private db skill", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "---\nname: secret-skill\n---\nbody"}); err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+
+	t.Run("denied load is not-found", func(t *testing.T) {
+		calls := 0
+		tool := NewTool(store, "", "").WithReadAuthorizer(denySkillReads{calls: &calls})
+		if _, err := tool.load(ctx, map[string]any{"name": "secret-skill"}); err == nil {
+			t.Fatal("expected denied DB skill load to fail")
+		}
+		if calls == 0 {
+			t.Fatal("read PEP was not consulted on load")
+		}
+	})
+
+	t.Run("denied list drops the db skill", func(t *testing.T) {
+		tool := NewTool(store, "", "").WithReadAuthorizer(denySkillReads{})
+		out, err := tool.list(ctx)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if strings.Contains(out, "secret-skill") {
+			t.Fatalf("denied db skill leaked into list: %s", out)
+		}
+	})
+
+	t.Run("denied search drops the db skill", func(t *testing.T) {
+		tool := NewTool(store, "", "").WithReadAuthorizer(denySkillReads{})
+		out, err := tool.searchInstalled(ctx, map[string]any{"query": "secret"})
+		if err != nil {
+			t.Fatalf("search_installed: %v", err)
+		}
+		if strings.Contains(out, "secret-skill") {
+			t.Fatalf("denied db skill leaked into search: %s", out)
+		}
+	})
+
+	t.Run("authorization error propagates", func(t *testing.T) {
+		tool := NewTool(store, "", "").WithReadAuthorizer(erroringSkillReads{})
+		if _, err := tool.load(ctx, map[string]any{"name": "secret-skill"}); err == nil {
+			t.Fatal("expected read authorization error to propagate on load")
+		}
+		if _, err := tool.list(ctx); err == nil {
+			t.Fatal("expected read authorization error to propagate on list")
+		}
+	})
+
+	t.Run("no authorizer fails closed", func(t *testing.T) {
+		tool := NewTool(store, "", "")
+		if _, err := tool.load(ctx, map[string]any{"name": "secret-skill"}); err == nil {
+			t.Fatal("expected nil authorizer to fail closed on load")
+		}
+		out, err := tool.list(ctx)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if strings.Contains(out, "secret-skill") {
+			t.Fatalf("nil authorizer leaked db skill: %s", out)
+		}
+	})
+}
+
 func TestLoadViaStore(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
@@ -635,7 +772,7 @@ func TestLoadViaStore(t *testing.T) {
 		t.Fatalf("create skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 
 	t.Run("loads existing skill default path", func(t *testing.T) {
 		result, err := tool.load(ctx, map[string]any{"name": "test-skill"})
@@ -690,7 +827,7 @@ func TestLoadWithPath(t *testing.T) {
 		t.Fatalf("upsert file: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	result, err := tool.load(ctx, map[string]any{"name": "multi-file", "path": "references/api.md"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -727,7 +864,7 @@ func TestLoadReflectOwnedUserAgentSkillTouchesRuntimeUsage(t *testing.T) {
 	}
 	seedSkillUsage(t, store, skillID, userID, agentID, 2, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	if _, err := tool.load(ctx, map[string]any{"name": "reflect-runtime-skill"}); err != nil {
 		t.Fatalf("load skill: %v", err)
 	}
@@ -779,7 +916,7 @@ func TestLoadReflectOwnedSkillBoundsUsageLatencyAndResolvesOnce(t *testing.T) {
 	}
 
 	started := time.Now()
-	out, err := NewTool(store, "", "").load(ctx, map[string]any{"name": "reflect-runtime-timeout"})
+	out, err := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).load(ctx, map[string]any{"name": "reflect-runtime-timeout"})
 	if err != nil {
 		t.Fatalf("load skill: %v", err)
 	}
@@ -817,7 +954,7 @@ func TestLoadNonReflectSkillDoesNotTouchRuntimeUsage(t *testing.T) {
 	seededAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	seedSkillUsage(t, store, skillID, userID, agentID, 2, seededAt)
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	if _, err := tool.load(ctx, map[string]any{"name": "manual-runtime-skill"}); err != nil {
 		t.Fatalf("load skill: %v", err)
 	}
@@ -850,7 +987,7 @@ func TestLoadMaterializesDBSkillDir(t *testing.T) {
 	}
 
 	agentBase := t.TempDir()
-	tool := NewTool(store, "", "").WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
 	result, err := tool.load(ctx, map[string]any{"name": "agent-db-skill"})
 	if err != nil {
 		t.Fatalf("load skill: %v", err)
@@ -922,7 +1059,7 @@ func TestLoadRefreshesStaleDBSkillDir(t *testing.T) {
 	}
 
 	agentBase := t.TempDir()
-	tool := NewTool(store, "", "").WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
 	result, err := tool.load(ctx, map[string]any{"name": "refresh-db-skill"})
 	if err != nil {
 		t.Fatalf("first load skill: %v", err)
@@ -978,7 +1115,7 @@ func TestLoadOmitsSkillDirWhenMaterializeFails(t *testing.T) {
 		t.Fatalf("write blocking file: %v", err)
 	}
 
-	tool := NewTool(store, "", "").WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
 	result, err := tool.load(ctx, map[string]any{"name": "unwritable-skill"})
 	if err != nil {
 		t.Fatalf("load should return DB content when materialization fails: %v", err)
@@ -1007,7 +1144,7 @@ func TestListViaStore(t *testing.T) {
 		t.Fatalf("create skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	result, err := tool.list(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1054,7 +1191,7 @@ func TestRemoveViaStore(t *testing.T) {
 		t.Fatalf("create skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	result, err := tool.remove(ctx, map[string]any{"name": "removable-skill"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1089,7 +1226,7 @@ func TestRemoveRespectsScope(t *testing.T) {
 		t.Fatalf("create user_agent skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 
 	// scope=agent must delete the per-agent (user_agent) row, leaving user alive.
 	if _, err := tool.remove(ctx, map[string]any{"name": "dup", "scope": "agent"}); err != nil {
@@ -1131,7 +1268,7 @@ func TestRemoveScopeNotFound(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	_, err := tool.remove(ctx, map[string]any{"name": "only-user", "scope": "agent"})
 	if err == nil {
 		t.Fatal("expected error when scope has no match")
@@ -1153,7 +1290,7 @@ func TestRemoveRejectsAdminScope(t *testing.T) {
 		t.Fatalf("create system_agent skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	if _, err := tool.remove(ctx, map[string]any{"name": "shared"}); err == nil {
 		t.Fatal("expected error removing a system_agent skill via the tool")
 	}
@@ -1176,7 +1313,7 @@ func TestPatchRespectsScope(t *testing.T) {
 		t.Fatalf("create user_agent skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "scope": "user", "status": "deprecated"}); err != nil {
 		t.Fatalf("patch user scope: %v", err)
 	}
@@ -1219,7 +1356,7 @@ func TestPatchDefaultScopeIsUser(t *testing.T) {
 		t.Fatalf("create disabled user skill: %v", err)
 	}
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "status": "deprecated"}); err != nil {
 		t.Fatalf("patch default scope: %v", err)
 	}
@@ -1260,7 +1397,7 @@ func TestInstallFromLocalDirViaStore(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	result, err := tool.install(ctx, map[string]any{"source": srcDir})
 	if err != nil {
 		t.Fatalf("install error: %v", err)
@@ -1324,7 +1461,7 @@ func TestListMergesProjectSkills(t *testing.T) {
 	// Create a project skill with same name as a DB skill to test shadowing.
 	makeProjectSkill(t, projectRoot, "db-skill", "Project override of db-skill")
 
-	tool := NewTool(store, "", projectRoot)
+	tool := NewTool(store, "", projectRoot).WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	result, err := tool.list(WithProjectRoot(ctx, projectRoot))
 	if err != nil {
 		t.Fatalf("list error: %v", err)
@@ -1383,7 +1520,7 @@ func TestLoadPrefersProjectSkill(t *testing.T) {
 	// Create a project skill with the same name.
 	makeProjectSkill(t, projectRoot, "shared", "Project version")
 
-	tool := NewTool(store, "", projectRoot)
+	tool := NewTool(store, "", projectRoot).WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	result, err := tool.load(WithProjectRoot(ctx, projectRoot), map[string]any{"name": "shared"})
 	if err != nil {
 		t.Fatalf("load error: %v", err)
@@ -1407,7 +1544,7 @@ func TestInstallAgentScope(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
-	tool := NewTool(store, "", "")
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 	result, err := tool.install(ctx, map[string]any{"source": srcDir, "scope": "agent"})
 	if err != nil {
 		t.Fatalf("install error: %v", err)

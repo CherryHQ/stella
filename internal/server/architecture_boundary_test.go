@@ -662,16 +662,18 @@ func TestNoNewResourceAuthIdentityConstructors(t *testing.T) {
 // same shape must be added here (with justification) or, preferably, routed
 // through the shared authorization core.
 var resourceAuthHelperAllowlist = map[string]bool{
-	"requireGroupOwner":  true, // groups.go — group ownership gate
-	"requireAuth":        true, // middleware.go — authentication (not resource authz)
-	"requireAdmin":       true, // middleware.go — admin gate
-	"requireUser":        true, // recally_handlers.go — recally user gate
-	"requireAgentAccess": true, // skills_scoped.go — agent access gate
-	"requireAgentUse":    true, // skills_scoped.go — agent execute gate
-	"requireAgentManage": true, // skills_scoped.go — agent manage gate
-	"requireAgentDelete": true, // skills_scoped.go — agent delete gate
-	"requireAgentAction": true, // skills_scoped.go — shared Agent PEP adapter
-	"requireUserTarget":  true, // users.go — target-user admin gate
+	"authorizeReadableDBSkills": true, // skills_scoped.go — routes DB-skill list reads through the skillaccess PEP
+	"authorizeDBSkillRead":      true, // skills_scoped.go — routes a single DB-skill read through the skillaccess PEP
+	"requireGroupOwner":         true, // groups.go — group ownership gate
+	"requireAuth":               true, // middleware.go — authentication (not resource authz)
+	"requireAdmin":              true, // middleware.go — admin gate
+	"requireUser":               true, // recally_handlers.go — recally user gate
+	"requireAgentAccess":        true, // skills_scoped.go — agent access gate
+	"requireAgentUse":           true, // skills_scoped.go — agent execute gate
+	"requireAgentManage":        true, // skills_scoped.go — agent manage gate
+	"requireAgentDelete":        true, // skills_scoped.go — agent delete gate
+	"requireAgentAction":        true, // skills_scoped.go — shared Agent PEP adapter
+	"requireUserTarget":         true, // users.go — target-user admin gate
 }
 
 // isResourceAuthHelperName reports whether an unexported function name has one of

@@ -65,6 +65,59 @@ func skillAccessError(err error) (int, string) {
 	}
 }
 
+// authorizeReadableDBSkills filters DB skill rows through the Skill read PEP under
+// one evaluation: it decides the collection once, then drops each row the caller
+// may not read. The FS project/built-in merge is applied by the caller afterward,
+// so filesystem skills are never gated here. On an unexpected authorization
+// failure it writes the response and returns ok=false.
+func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Request, dbSkills []skills.Skill) ([]skills.Skill, bool) {
+	acc, code, msg := s.beginSkillAccess(r.Context())
+	if code != 0 {
+		writeError(w, code, msg)
+		return nil, false
+	}
+	if err := acc.AuthorizeList(); err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return nil, false
+	}
+	out := make([]skills.Skill, 0, len(dbSkills))
+	for _, sk := range dbSkills {
+		err := acc.AuthorizeRead(r.Context(), sk)
+		switch {
+		case err == nil:
+			out = append(out, sk)
+		case errors.Is(err, skillaccess.ErrNotFound), errors.Is(err, skillaccess.ErrForbidden):
+			// filtered
+		default:
+			code, msg := skillAccessError(err)
+			writeError(w, code, msg)
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+// authorizeDBSkillRead authorizes reading one resolved DB-backed skill (Dir=="")
+// through the Skill read PEP. Filesystem project/built-in skills pass. On denial
+// it writes the response and returns false.
+func (s *Server) authorizeDBSkillRead(w http.ResponseWriter, r *http.Request, rs *skills.ResolvedSkill) bool {
+	if rs == nil || rs.Dir != "" {
+		return true
+	}
+	acc, code, msg := s.beginSkillAccess(r.Context())
+	if code != 0 {
+		writeError(w, code, msg)
+		return false
+	}
+	if err := acc.AuthorizeRead(r.Context(), resolvedToDBSkill(rs)); err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return false
+	}
+	return true
+}
+
 // resolvedToDBSkill projects a resolved (FS-or-DB) skill into the durable row
 // facts the Skill PEP authorizes against. Only DB rows reach it.
 func resolvedToDBSkill(rs *skills.ResolvedSkill) skills.Skill {
@@ -377,6 +430,12 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		s.writeInternalError(w, err)
 		return
 	}
+	// Every DB row is authorized under one ResourceSkill evaluation before it is
+	// merged with the (ungated) filesystem project/built-in skills.
+	dbSkills, ok := s.authorizeReadableDBSkills(w, r, dbSkills)
+	if !ok {
+		return
+	}
 	merged := s.skillService().ListMergedWithDB(dbSkillsToPluginSkills(dbSkills), projectRoot)
 	out := make([]skillView, 0, len(merged))
 	for _, rs := range merged {
@@ -451,6 +510,9 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 	}
 	if code != 0 {
 		writeError(w, code, msg)
+		return
+	}
+	if !s.authorizeDBSkillRead(w, r, rs) {
 		return
 	}
 	view := resolvedSkillToView(*rs)
@@ -619,6 +681,9 @@ func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id st
 	}
 	if code != 0 {
 		writeError(w, code, msg)
+		return
+	}
+	if !s.authorizeDBSkillRead(w, r, rs) {
 		return
 	}
 	content, err := s.loadSkillFile(r.Context(), rs, params.Path)
