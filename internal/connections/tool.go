@@ -25,11 +25,17 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// The runtime context identity is the trusted adapter: a delegated agent turn
+	// becomes a confined AgentActor. Model-supplied arguments never form identity.
+	authority, err := ident.ToAuthority()
+	if err != nil {
+		return "", mapOAuthToolError(err)
+	}
 	action, err := tools.ActionArg(args, "oauth")
 	if err != nil {
 		return "", err
 	}
-	out, err := Dispatch(ctx, oauthHandler{svc: t.svc, ident: ident}, action, args)
+	out, err := Dispatch(ctx, oauthHandler{svc: t.svc, authority: authority}, action, args)
 	if err != nil {
 		return "", mapOAuthToolError(err)
 	}
@@ -44,12 +50,20 @@ func mapOAuthToolError(err error) error {
 }
 
 type oauthHandler struct {
-	svc   *Service
-	ident authz.Identity
+	svc       *Service
+	authority authz.Authority
+}
+
+func (h oauthHandler) begin(ctx context.Context) (*Access, error) {
+	return h.svc.Begin(ctx, h.authority)
 }
 
 func (h oauthHandler) Connect(ctx context.Context, in ConnectInput) (any, error) {
-	status, err := h.svc.As(h.ident).StartFlow(ctx, in.Provider)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status, err := acc.StartFlow(ctx, in.Provider)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +71,11 @@ func (h oauthHandler) Connect(ctx context.Context, in ConnectInput) (any, error)
 }
 
 func (h oauthHandler) Status(ctx context.Context, in StatusInput) (any, error) {
-	status, _, err := h.svc.As(h.ident).PollFlow(ctx, in.Provider, in.FlowId)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	status, _, err := acc.PollFlow(ctx, in.Provider, in.FlowId)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +83,11 @@ func (h oauthHandler) Status(ctx context.Context, in StatusInput) (any, error) {
 }
 
 func (h oauthHandler) List(ctx context.Context, _ ListInput) (any, error) {
-	providers, err := h.svc.As(h.ident).Statuses(ctx)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	providers, err := acc.Statuses(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +99,11 @@ func (h oauthHandler) List(ctx context.Context, _ ListInput) (any, error) {
 }
 
 func (h oauthHandler) Disconnect(ctx context.Context, in DisconnectInput) (any, error) {
-	if err := h.svc.As(h.ident).Disconnect(ctx, in.Provider); err != nil {
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := acc.Disconnect(ctx, in.Provider); err != nil {
 		return nil, err
 	}
 	return map[string]any{"provider": in.Provider, "status": "disconnected"}, nil

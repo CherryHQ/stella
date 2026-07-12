@@ -203,7 +203,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 
 	flowStore := credoauth.NewFlowStore()
 	flowStore.Create(credoauth.FlowStatus{Provider: credoauth.ProviderGitHub, FlowID: "owner-flow", UserID: ownerUser, FlowType: "device_code"})
-	oauthSvc := connections.NewService(nil, nil, flowStore, "http://localhost:8080")
+	oauthSvc := connections.NewService(nil, nil, flowStore, "http://localhost:8080", policy.New(db))
 	registry := credoauth.NewProviderRegistry()
 	registry.Register(credoauth.ProviderConfig{ID: "github", VaultKey: credoauth.VaultKeyGitHub})
 	oauthSvc.SetRegistry(registry)
