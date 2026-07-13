@@ -17,6 +17,7 @@
     "rules/release",
     "rules/marketing",
     "architecture",
+    "authorization",
     "agent-architecture",
     "cli-as-client",
     "sandbox",

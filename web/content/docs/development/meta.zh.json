@@ -5,6 +5,7 @@
     "rules/schema-design",
     "rules/cli-design",
     "architecture",
+    "authorization",
     "agent-architecture",
     "cli-as-client",
     "sandbox",
