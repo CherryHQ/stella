@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -58,17 +59,49 @@ func (s *Server) readProfileChangelogScope(
 }
 
 func (s *Server) readKnowledgeChangelogPage(ctx context.Context, userID string, agentID string, cursor *memory.ChangelogCursor, limit int) ([]apiserver.ChangelogEntry, error) {
-	cursorCreatedAt, cursorID := serverChangelogCursorParams(cursor)
-	pageRows, err := s.q.ListFactChangelogBySubjectPage(ctx, sqlc.ListFactChangelogBySubjectPageParams{
-		UserID: userID, AgentID: agentID,
-		Subject:         pgtype.Text{String: string(memory.FactSubjectWorld), Valid: true},
-		CursorCreatedAt: cursorCreatedAt, CursorID: cursorID, LimitCount: int32(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list knowledge changelog page: %w", err)
-	}
+	entries := make([]apiserver.ChangelogEntry, 0, limit)
+	batchCursor := cursor
+	for len(entries) < limit {
+		// A raw memory-version group may not project to a user-visible entry, so
+		// keep advancing the keyset cursor until the logical page is full or empty.
+		batchLimit := limit - len(entries)
+		cursorCreatedAt, cursorID := serverChangelogCursorParams(batchCursor)
+		pageRows, err := s.q.ListFactChangelogBySubjectPage(ctx, sqlc.ListFactChangelogBySubjectPageParams{
+			UserID: userID, AgentID: agentID,
+			Subject:         pgtype.Text{String: string(memory.FactSubjectWorld), Valid: true},
+			CursorCreatedAt: cursorCreatedAt, CursorID: cursorID, LimitCount: int32(batchLimit),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list knowledge changelog page: %w", err)
+		}
 
-	groups := make([][]sqlc.CtxAgentMemoryChangelog, 0, limit)
+		groups := groupKnowledgeChangelogRows(pageRows)
+		if len(groups) == 0 {
+			break
+		}
+		for _, rows := range groups {
+			entry, ok, err := s.projectKnowledgeChangelogGroup(ctx, userID, agentID, rows)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				entries = append(entries, entry)
+			}
+		}
+
+		// The first row is the group's SQL key because rows are ordered by the
+		// selected group key and then by row timestamp/id descending.
+		lastGroupKey := groups[len(groups)-1][0]
+		batchCursor = &memory.ChangelogCursor{CreatedAt: lastGroupKey.CreatedAt, ID: lastGroupKey.ID}
+		if len(groups) < batchLimit {
+			break
+		}
+	}
+	return entries, nil
+}
+
+func groupKnowledgeChangelogRows(pageRows []sqlc.ListFactChangelogBySubjectPageRow) [][]sqlc.CtxAgentMemoryChangelog {
+	groups := make([][]sqlc.CtxAgentMemoryChangelog, 0, len(pageRows))
 	var currentVersion int64
 	for _, pageRow := range pageRows {
 		row := serverFactChangelogPageRow(pageRow)
@@ -78,18 +111,7 @@ func (s *Server) readKnowledgeChangelogPage(ctx context.Context, userID string, 
 		}
 		groups[len(groups)-1] = append(groups[len(groups)-1], row)
 	}
-
-	entries := make([]apiserver.ChangelogEntry, 0, len(groups))
-	for _, rows := range groups {
-		entry, ok, err := projectKnowledgeChangelogGroup(rows)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			entries = append(entries, entry)
-		}
-	}
-	return entries, nil
+	return groups
 }
 
 type knowledgeChangelogFactState struct {
@@ -98,7 +120,7 @@ type knowledgeChangelogFactState struct {
 	after  *memory.Fact
 }
 
-func projectKnowledgeChangelogGroup(rows []sqlc.CtxAgentMemoryChangelog) (apiserver.ChangelogEntry, bool, error) {
+func (s *Server) projectKnowledgeChangelogGroup(ctx context.Context, userID string, agentID string, rows []sqlc.CtxAgentMemoryChangelog) (apiserver.ChangelogEntry, bool, error) {
 	var active *knowledgeChangelogFactState
 	var deprecated *knowledgeChangelogFactState
 	for _, row := range rows {
@@ -129,7 +151,13 @@ func projectKnowledgeChangelogGroup(rows []sqlc.CtxAgentMemoryChangelog) (apiser
 		switch active.row.Action {
 		case "replace":
 			entry.Action = "edit"
-			if deprecated != nil && deprecated.before != nil {
+			beforeText, found, err := s.replacedKnowledgeBeforeText(ctx, userID, agentID, active.after.Metadata)
+			if err != nil {
+				return apiserver.ChangelogEntry{}, false, err
+			}
+			if found {
+				entry.BeforeText = stringPtrIfNotEmpty(beforeText)
+			} else if deprecated != nil && deprecated.before != nil {
 				entry.BeforeText = stringPtrIfNotEmpty(deprecated.before.Content)
 			}
 		case "create":
@@ -159,6 +187,33 @@ func projectKnowledgeChangelogGroup(rows []sqlc.CtxAgentMemoryChangelog) (apiser
 	entry.BeforeText = stringPtrIfNotEmpty(deprecated.before.Content)
 	entry.AfterText = nil
 	return entry, true, nil
+}
+
+func (s *Server) replacedKnowledgeBeforeText(ctx context.Context, userID string, agentID string, metadata json.RawMessage) (string, bool, error) {
+	if len(metadata) == 0 {
+		return "", false, nil
+	}
+	var replacement struct {
+		ReplacedFactIDs []string `json:"replaced_fact_ids"`
+	}
+	if err := json.Unmarshal(metadata, &replacement); err != nil {
+		return "", false, fmt.Errorf("parse replacement knowledge metadata: %w", err)
+	}
+	if len(replacement.ReplacedFactIDs) == 0 {
+		return "", false, nil
+	}
+
+	// Preserve replaced_fact_ids order because it is the writer's canonical
+	// predecessor order; fact contents remain immutable after deprecation.
+	contents := make([]string, 0, len(replacement.ReplacedFactIDs))
+	for _, factID := range replacement.ReplacedFactIDs {
+		fact, err := s.q.GetFact(ctx, sqlc.GetFactParams{ID: factID, UserID: userID, AgentID: agentID})
+		if err != nil {
+			return "", false, fmt.Errorf("read replaced knowledge fact %q: %w", factID, err)
+		}
+		contents = append(contents, fact.Content)
+	}
+	return strings.Join(contents, "\n\n"), true, nil
 }
 
 func logicalKnowledgeDeprecationAction(metadata pgtype.Text) (string, bool, error) {

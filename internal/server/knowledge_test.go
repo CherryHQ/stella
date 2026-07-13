@@ -6,12 +6,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -89,6 +94,77 @@ func TestKnowledgeAPIActiveCreateEditDeleteRemovedRestoreFlow(t *testing.T) {
 	rr = doRequest(t, env, http.MethodPost, knowledgeItemPath(agentID, edited.ID)+"/restore", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("idempotent restore status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
+func TestKnowledgeAPIMapsManualAndReflectSources(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+	manual := createKnowledgeAPI(t, env, agentID, "manual source")
+	reflectFact, err := memorywrite.CreateFact(context.Background(), env.db, sqlc.New(env.db), memory.FactWrite{
+		UserID: env.adminUser.ID, AgentID: agentID, Subject: memory.FactSubjectWorld, Content: "reflect source", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("create reflect knowledge: %v", err)
+	}
+
+	active := listKnowledgeAPI(t, env, agentID, "active", 20, "")
+	sources := make(map[string]string, len(active.Knowledge))
+	for _, item := range active.Knowledge {
+		sources[item.ID] = item.Source
+	}
+	if sources[manual.ID] != "manual" || sources[reflectFact.ID] != "reflect" {
+		t.Fatalf("active knowledge sources = %v, want manual=%s and reflect=%s", sources, manual.ID, reflectFact.ID)
+	}
+}
+
+func TestKnowledgeAPIPatchRejectsMalformedAndBlankContent(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+	created := createKnowledgeAPI(t, env, agentID, "original")
+
+	for name, body := range map[string]string{
+		"malformed JSON": "{",
+		"blank content":  `{"content":"   "}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPatch, knowledgeItemPath(agentID, created.ID), strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			if strings.HasPrefix(env.bearerToken, "stella_") {
+				req.Header.Set("Authorization", "Bearer "+env.bearerToken)
+			} else {
+				req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: env.bearerToken})
+			}
+			rr := httptest.NewRecorder()
+			env.srv.Handler().ServeHTTP(rr, req)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("PATCH invalid body status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestKnowledgePatchOpenAPIIncludesBadRequestResponse(t *testing.T) {
+	raw, err := os.ReadFile("../../api/spec/domain/profile/paths.yaml")
+	if err != nil {
+		t.Fatalf("read profile OpenAPI paths: %v", err)
+	}
+	var spec struct {
+		Paths map[string]struct {
+			Patch *struct {
+				Responses map[string]yaml.Node `yaml:"responses"`
+			} `yaml:"patch"`
+		} `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(raw, &spec); err != nil {
+		t.Fatalf("parse profile OpenAPI paths: %v", err)
+	}
+	operation := spec.Paths["/api/users/me/memories/{agentId}/knowledge/{factId}"].Patch
+	if operation == nil {
+		t.Fatal("Knowledge PATCH operation is missing from OpenAPI paths")
+	}
+	if _, ok := operation.Responses["400"]; !ok {
+		t.Fatal("Knowledge PATCH OpenAPI responses omit 400 BadRequest")
 	}
 }
 

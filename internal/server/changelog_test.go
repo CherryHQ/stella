@@ -84,6 +84,78 @@ func TestProfileChangelogProjectsLogicalKnowledgeActions(t *testing.T) {
 	}
 }
 
+func TestProfileChangelogProjectsReflectReplaceManyAcrossMemoryVersions(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+	predecessors, successor := createReflectKnowledgeReplacement(t, env, agentID)
+
+	logs, err := sqlc.New(env.db).ListMemoryChangelog(context.Background(), sqlc.ListMemoryChangelogParams{
+		UserID: env.adminUser.ID, AgentID: agentID, Scope: "fact", Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("list raw fact changelog: %v", err)
+	}
+	versions := make(map[string]int64)
+	for _, log := range logs {
+		if log.EntityID.Valid && log.MemoryVersionAfter.Valid && (log.Action == "deprecate" || log.Action == "replace") {
+			versions[log.EntityID.String] = log.MemoryVersionAfter.Int64
+		}
+	}
+	if versions[predecessors[0].ID] == 0 || versions[predecessors[1].ID] == 0 || versions[successor.ID] == 0 {
+		t.Fatalf("raw replacement versions = %v, want both predecessors and successor", versions)
+	}
+	if versions[predecessors[0].ID] == versions[predecessors[1].ID] ||
+		versions[predecessors[0].ID] == versions[successor.ID] ||
+		versions[predecessors[1].ID] == versions[successor.ID] {
+		t.Fatalf("raw replacement versions = %v, want one version per predecessor deprecate and successor replace", versions)
+	}
+
+	page, _ := listChangelogAPI(t, env, agentID, "knowledge", 20, "")
+	wantBefore := predecessors[0].Content + "\n\n" + predecessors[1].Content
+	for _, entry := range page.Entries {
+		if entry.Action != "edit" || entry.AfterText == nil || *entry.AfterText != successor.Content {
+			continue
+		}
+		if entry.BeforeText == nil || *entry.BeforeText != wantBefore {
+			t.Fatalf("replace_many before_text = %v, want %q in replaced_fact_ids order", entry.BeforeText, wantBefore)
+		}
+		return
+	}
+	t.Fatalf("knowledge changelog omitted replacement edit for %q: %+v", successor.Content, page.Entries)
+}
+
+func TestProfileChangelogPagesPastNonQualifyingKnowledgeGroups(t *testing.T) {
+	t.Run("knowledge scope", func(t *testing.T) {
+		env := setupAdmin(t)
+		agentID := findStellaID(t, env)
+		predecessors, successor := createReflectKnowledgeReplacement(t, env, agentID)
+
+		entries := collectChangelogPages(t, env, agentID, "knowledge", 1)
+		assertKnowledgeReplacementHistory(t, entries, predecessors, successor)
+	})
+
+	t.Run("all scopes", func(t *testing.T) {
+		env := setupAdmin(t)
+		agentID := findStellaID(t, env)
+		if rr := doRequest(t, env, http.MethodPatch, "/api/users/me/memories/"+agentID, map[string]string{"content": "profile before replacement"}); rr.Code != http.StatusOK {
+			t.Fatalf("set profile status = %d (body: %s)", rr.Code, rr.Body.String())
+		}
+		predecessors, successor := createReflectKnowledgeReplacement(t, env, agentID)
+
+		entries := collectChangelogPages(t, env, agentID, "", 1)
+		assertKnowledgeReplacementHistory(t, entries, predecessors, successor)
+		profileCount := 0
+		for _, entry := range entries {
+			if entry.Scope == "profile" && entry.AfterText != nil && *entry.AfterText == "profile before replacement" {
+				profileCount++
+			}
+		}
+		if profileCount != 1 {
+			t.Fatalf("all-scope pages contain profile entry %d times, want once: %+v", profileCount, entries)
+		}
+	})
+}
+
 func TestProfileChangelogMergedKeysetHasNoGapOrDuplicateAtEqualTimestamps(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := findStellaID(t, env)
@@ -220,4 +292,83 @@ func listChangelogAPI(t *testing.T, env *testEnv, agentID string, scope string, 
 
 func changelogPath(agentID string) string {
 	return "/api/users/me/memories/" + agentID + "/changelog"
+}
+
+func createReflectKnowledgeReplacement(t *testing.T, env *testEnv, agentID string) ([]memory.Fact, memory.Fact) {
+	t.Helper()
+	ctx := context.Background()
+	q := sqlc.New(env.db)
+	created, err := memorywrite.ApplyFactBatch(ctx, env.db, q, env.adminUser.ID, agentID, []memorywrite.FactBatchOperation{
+		{Action: memorywrite.FactBatchCreate, Subject: memory.FactSubjectWorld, Content: "first predecessor"},
+		{Action: memorywrite.FactBatchCreate, Subject: memory.FactSubjectWorld, Content: "second predecessor"},
+	})
+	if err != nil {
+		t.Fatalf("create reflect predecessors: %v", err)
+	}
+	if len(created) != 2 {
+		t.Fatalf("created predecessors = %d, want 2", len(created))
+	}
+
+	// Reverse creation order so the expected before_text proves that projection
+	// follows replaced_fact_ids, rather than timestamp or changelog row order.
+	predecessors := []memory.Fact{created[1], created[0]}
+	written, err := memorywrite.ApplyFactBatch(ctx, env.db, q, env.adminUser.ID, agentID, []memorywrite.FactBatchOperation{{
+		Action:        memorywrite.FactBatchReplaceMany,
+		Subject:       memory.FactSubjectWorld,
+		TargetFactIDs: []string{predecessors[0].ID, predecessors[1].ID},
+		Content:       "combined successor",
+	}})
+	if err != nil {
+		t.Fatalf("replace reflect predecessors: %v", err)
+	}
+	if len(written) != 1 {
+		t.Fatalf("written successors = %d, want 1", len(written))
+	}
+	return predecessors, written[0]
+}
+
+func collectChangelogPages(t *testing.T, env *testEnv, agentID string, scope string, pageSize int) []changelogAPIEntry {
+	t.Helper()
+	var entries []changelogAPIEntry
+	pageToken := ""
+	seenTokens := map[string]bool{}
+	for range 20 {
+		page, _ := listChangelogAPI(t, env, agentID, scope, pageSize, pageToken)
+		entries = append(entries, page.Entries...)
+		if page.NextPageToken == nil {
+			return entries
+		}
+		if seenTokens[*page.NextPageToken] {
+			t.Fatalf("changelog pagination repeated token %q", *page.NextPageToken)
+		}
+		seenTokens[*page.NextPageToken] = true
+		pageToken = *page.NextPageToken
+	}
+	t.Fatal("changelog pagination did not terminate")
+	return nil
+}
+
+func assertKnowledgeReplacementHistory(t *testing.T, entries []changelogAPIEntry, predecessors []memory.Fact, successor memory.Fact) {
+	t.Helper()
+	want := map[string]int{
+		"create\x00" + predecessors[0].Content: 1,
+		"create\x00" + predecessors[1].Content: 1,
+		"edit\x00" + successor.Content:         1,
+	}
+	got := make(map[string]int)
+	seenIDs := make(map[string]bool)
+	for _, entry := range entries {
+		if seenIDs[entry.ID] {
+			t.Fatalf("changelog entry %s appeared on multiple pages", entry.ID)
+		}
+		seenIDs[entry.ID] = true
+		if entry.Scope == "knowledge" && entry.AfterText != nil {
+			got[entry.Action+"\x00"+*entry.AfterText]++
+		}
+	}
+	for key, count := range want {
+		if got[key] != count {
+			t.Fatalf("paged knowledge history[%q] = %d, want %d; all entries: %+v", key, got[key], count, entries)
+		}
+	}
 }
