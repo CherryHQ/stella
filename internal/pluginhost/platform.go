@@ -2,9 +2,11 @@ package pluginhost
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -122,11 +124,30 @@ func (a skillStoreAdapter) DeleteFile(ctx context.Context, skillID, path string)
 }
 
 func (a skillStoreAdapter) Delete(ctx context.Context, id string) error {
-	vc, err := a.viewContextForSkill(ctx, id)
+	actorID := authz.UserIDFromContext(ctx)
+	if actorID == "" {
+		return fmt.Errorf("delete skill: authenticated actor is required")
+	}
+	rows, err := a.s.ListAll(ctx)
 	if err != nil {
 		return err
 	}
-	return a.s.Delete(ctx, id, vc)
+	for _, row := range rows {
+		if row.ID != id {
+			continue
+		}
+		if row.Scope != "user" && row.Scope != "user_agent" {
+			return fmt.Errorf("delete skill: scope %q is not user-owned", row.Scope)
+		}
+		if row.UserID != actorID {
+			return fmt.Errorf("delete skill: skill is not owned by authenticated actor")
+		}
+		_, err := a.s.DeprecateManagedSkill(ctx, skills.ManagedSkillDeprecate{
+			ID: id, UserID: row.UserID, AgentID: row.AgentID, Scope: row.Scope, DeprecatedBy: actorID,
+		})
+		return err
+	}
+	return fmt.Errorf("delete skill %q: not found", id)
 }
 
 func (a skillStoreAdapter) viewContextForSkill(ctx context.Context, id string) (skills.ViewContext, error) {

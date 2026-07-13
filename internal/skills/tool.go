@@ -659,9 +659,7 @@ func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, erro
 		return "", err
 	}
 
-	status := SkillStatusDeprecated
-	p := pkgplugins.SkillUpdatePatch{Status: &status}
-	if err := t.store.Update(ctx, s.ID, p); err != nil {
+	if err := t.store.Delete(ctx, s.ID); err != nil {
 		return "", fmt.Errorf("deprecate skill %q: %w", name, err)
 	}
 

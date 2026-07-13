@@ -126,6 +126,52 @@ func TestAgentSkillsLifecycleScopeCountsSearchAndReflectFilter(t *testing.T) {
 	}
 }
 
+func TestAgentSkillsLifecycleRemovedFiltersCountsAndAdminBoundary(t *testing.T) {
+	env := setupAdmin(t)
+	user, sid := newNonAdmin(t, env, "skill-lifecycle-removed-filters")
+	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-removed-filters-agent")
+	ctx := context.Background()
+	store := env.pluginHost.SkillStore()
+
+	userSkillID := createTestSkill(t, env, "user", user.ID, "", "removed-needle-user")
+	agentSkillID := createTestSkill(t, env, "user_agent", user.ID, agentID, "removed-needle-agent")
+	for _, item := range []struct {
+		id, scope, owner, agent string
+	}{
+		{id: userSkillID, scope: "user", owner: user.ID},
+		{id: agentSkillID, scope: "user_agent", owner: user.ID, agent: agentID},
+	} {
+		if _, err := store.DeprecateManagedSkill(ctx, skills.ManagedSkillDeprecate{
+			ID: item.id, UserID: item.owner, AgentID: item.agent, Scope: item.scope, DeprecatedBy: user.ID,
+		}); err != nil {
+			t.Fatalf("deprecate %s: %v", item.id, err)
+		}
+	}
+
+	userPage := listAgentSkillsLifecycle(t, env, sid, agentID, "?state=removed&scope_group=user&q=REMOVED-NEEDLE&created_by=manual&page_size=12")
+	if len(userPage.Skills) != 1 || userPage.Skills[0]["id"] != userSkillID || userPage.TotalSize != 1 {
+		t.Fatalf("removed user facet = %#v", userPage)
+	}
+	if userPage.ScopeCounts["all"] != 2 || userPage.ScopeCounts["user"] != 1 || userPage.ScopeCounts["agent"] != 1 {
+		t.Fatalf("removed user scope counts = %#v", userPage.ScopeCounts)
+	}
+
+	systemAgentID := createTestSkill(t, env, "system_agent", "", agentID, "removed-admin-only")
+	if _, err := store.DeprecateManagedSkill(ctx, skills.ManagedSkillDeprecate{
+		ID: systemAgentID, AgentID: agentID, Scope: "system_agent", DeprecatedBy: env.adminUser.ID,
+	}); err != nil {
+		t.Fatalf("deprecate system-agent skill: %v", err)
+	}
+	ordinary := listAgentSkillsLifecycle(t, env, sid, agentID, "?state=removed&scope_group=agent&q=ADMIN-ONLY&created_by=manual&page_size=12")
+	if ordinary.TotalSize != 0 || ordinary.ScopeCounts["all"] != 0 {
+		t.Fatalf("ordinary user saw admin removed skill: %#v", ordinary)
+	}
+	admin := listAgentSkillsLifecycle(t, env, env.bearerToken, agentID, "?state=removed&scope_group=agent&q=ADMIN-ONLY&created_by=manual&page_size=12")
+	if len(admin.Skills) != 1 || admin.Skills[0]["id"] != systemAgentID || admin.TotalSize != 1 || admin.ScopeCounts["agent"] != 1 {
+		t.Fatalf("admin removed facet = %#v", admin)
+	}
+}
+
 func TestAgentSkillsLifecycleRemovedStableIDDetailFilesAndRestore(t *testing.T) {
 	env := setupAdmin(t)
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-removed")

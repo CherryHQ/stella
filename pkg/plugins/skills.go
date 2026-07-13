@@ -70,6 +70,8 @@ type SkillStore interface {
 	UpsertFile(ctx context.Context, skillID, path, content string) error
 
 	DeleteFile(ctx context.Context, skillID, path string) error
+	// Delete performs recoverable manual deprecation for mutable user-owned
+	// database skills in Stella's adapter; it must not physically delete rows.
 	Delete(ctx context.Context, id string) error
 
 	// ExpireDrafts deprecates all draft skills whose created-at timestamp is

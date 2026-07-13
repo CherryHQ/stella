@@ -263,6 +263,153 @@ func TestManagedSkillRestoreRejectsDraftInsteadOfTreatingItAsIdempotent(t *testi
 	}
 }
 
+// TestManagedSkillDeprecateRollsBackWhenChangelogTriggerFails proves the row
+// update and lifecycle audit entry share one transaction.
+func TestManagedSkillDeprecateRollsBackWhenChangelogTriggerFails(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	created := mustCreateManagedSkill(t, store, ctx, Skill{
+		Scope: "user", UserID: userID, Name: "rollback-trigger", Description: "keep",
+	})
+
+	if _, err := db.Exec(ctx, `
+		CREATE OR REPLACE FUNCTION fail_skill_changelog_insert() RETURNS trigger AS $$
+		BEGIN
+			RAISE EXCEPTION 'test changelog trigger failure';
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER fail_skill_changelog_insert_trigger
+			BEFORE INSERT ON skill_changelog
+			FOR EACH ROW EXECUTE FUNCTION fail_skill_changelog_insert();`); err != nil {
+		t.Fatalf("create rollback trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(ctx, `DROP TRIGGER IF EXISTS fail_skill_changelog_insert_trigger ON skill_changelog`)
+		_, _ = db.Exec(ctx, `DROP FUNCTION IF EXISTS fail_skill_changelog_insert()`)
+	})
+
+	if _, err := store.DeprecateManagedSkill(ctx, ManagedSkillDeprecate{
+		ID: created.ID, UserID: userID, Scope: "user", DeprecatedBy: userID,
+	}); err == nil {
+		t.Fatal("deprecate succeeded with failing changelog trigger")
+	}
+	rows, err := store.ListByScope(ctx, "user", userID, "")
+	if err != nil {
+		t.Fatalf("list rolled-back skill: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Status != "active" || rows[0].Version != created.Version {
+		t.Fatalf("rolled-back skill = %#v, want original active version", rows)
+	}
+	logs, err := store.ListSkillChangelogBySkill(ctx, created.ID, 10)
+	if err != nil {
+		t.Fatalf("list rolled-back changelog: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Fatalf("rolled-back changelog = %#v, want empty", logs)
+	}
+}
+
+func TestManagedSkillUpdateRollsBackFilesOwnershipAndUsageWhenChangelogFails(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "update-rollback-trigger",
+		Description: "before", MainFileContent: "before body",
+	})
+	if err != nil {
+		t.Fatalf("create reflect skill: %v", err)
+	}
+	var changelogBefore int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM skill_changelog WHERE skill_id = $1`, created.ID).Scan(&changelogBefore); err != nil {
+		t.Fatalf("count initial changelog: %v", err)
+	}
+
+	if _, err := db.Exec(ctx, `
+		CREATE OR REPLACE FUNCTION fail_managed_update_changelog() RETURNS trigger AS $$
+		BEGIN
+			RAISE EXCEPTION 'test managed update changelog failure';
+		END;
+		$$ LANGUAGE plpgsql;
+		CREATE TRIGGER fail_managed_update_changelog_trigger
+			BEFORE INSERT ON skill_changelog
+			FOR EACH ROW EXECUTE FUNCTION fail_managed_update_changelog();`); err != nil {
+		t.Fatalf("create managed update trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(ctx, `DROP TRIGGER IF EXISTS fail_managed_update_changelog_trigger ON skill_changelog`)
+		_, _ = db.Exec(ctx, `DROP FUNCTION IF EXISTS fail_managed_update_changelog()`)
+	})
+
+	description := "after"
+	if _, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
+		ID: created.ID, UserID: userID, AgentID: agentID, Scope: "user_agent",
+		Patch: UpdatePatch{Description: &description}, ConvertToManual: true,
+		Files: map[string]string{MainFile: "after body", "references/new.md": "new"},
+	}); err == nil {
+		t.Fatal("managed update succeeded with failing changelog trigger")
+	}
+
+	rows, err := store.ListByScope(ctx, "user_agent", userID, agentID)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("list rolled-back managed skill = %#v, err=%v", rows, err)
+	}
+	if rows[0].Description != "before" || !IsReflectOwned(rows[0]) || rows[0].Version != created.Version {
+		t.Fatalf("rolled-back managed skill = %#v, want original Reflect row", rows[0])
+	}
+	mainFile, err := store.LoadFile(ctx, created.ID, MainFile)
+	if err != nil || mainFile != "before body" {
+		t.Fatalf("rolled-back main file = %q, err=%v", mainFile, err)
+	}
+	if _, err := store.LoadFile(ctx, created.ID, "references/new.md"); err == nil {
+		t.Fatal("new file survived rolled-back managed update")
+	}
+	var usageRows, changelogAfter int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&usageRows); err != nil {
+		t.Fatalf("count rolled-back usage: %v", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM skill_changelog WHERE skill_id = $1`, created.ID).Scan(&changelogAfter); err != nil {
+		t.Fatalf("count rolled-back changelog: %v", err)
+	}
+	if usageRows != 1 || changelogAfter != changelogBefore {
+		t.Fatalf("rolled-back usage/changelog = %d/%d, want 1/%d", usageRows, changelogAfter, changelogBefore)
+	}
+}
+
+func TestManagedSkillRemovedCombinationFiltersCountAndRows(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+
+	manualUser := mustCreateManagedSkill(t, store, ctx, Skill{
+		Scope: "user", UserID: userID, Name: "needle-user", Description: "needle",
+	})
+	manualAgent := mustCreateManagedSkill(t, store, ctx, Skill{
+		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "needle-agent", Description: "needle",
+	})
+	otherAgent := mustCreateManagedSkill(t, store, ctx, Skill{
+		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "other-agent", Description: "other",
+	})
+	for _, created := range []Skill{manualUser, manualAgent, otherAgent} {
+		if _, err := store.DeprecateManagedSkill(ctx, ManagedSkillDeprecate{
+			ID: created.ID, UserID: created.UserID, AgentID: created.AgentID,
+			Scope: created.Scope, DeprecatedBy: userID,
+		}); err != nil {
+			t.Fatalf("deprecate %q: %v", created.Name, err)
+		}
+	}
+
+	page, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, AgentID: agentID, Scopes: []string{"user_agent"},
+		CreatedBy: ManualSkillCreatedBy, Query: "NEEDLE", State: ManagedSkillStateRemoved,
+		Limit: 10, Now: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("list combined removed filter: %v", err)
+	}
+	if page.Total != 1 || len(page.Items) != 1 || page.Items[0].Skill.ID != manualAgent.ID {
+		t.Fatalf("combined removed page = %#v, want only %s with total 1", page, manualAgent.ID)
+	}
+}
+
 func TestManagedSkillListIncludesDraftAndPagesRecoverableRemovals(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)

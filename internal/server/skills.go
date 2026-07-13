@@ -157,51 +157,44 @@ func mergeMetadataVersion(metadata json.RawMessage, version string) (json.RawMes
 	return json.Marshal(m)
 }
 
-func skillOwnerViewContext(sk skills.Skill) skills.ViewContext {
-	switch sk.Scope {
-	case "system_agent":
-		return skills.ViewContext{AgentID: sk.AgentID}
-	case "user":
-		return skills.ViewContext{UserID: sk.UserID}
-	case "user_agent":
-		return skills.ViewContext{UserID: sk.UserID, AgentID: sk.AgentID}
-	default:
-		return skills.ViewContext{}
-	}
-}
-
 // doDeleteSkill is the shared body for DELETE .../skills/{id}.
-func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string, vc skills.ViewContext) {
+func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	if vc.AgentID == "" && vc.UserID == "" {
-		sk, err := s.findSkillByID(r.Context(), id)
-		if err != nil {
-			if isNotFound(err) {
-				writeError(w, http.StatusNotFound, "skill not found")
-			} else {
-				s.writeInternalError(w, err)
-			}
+	sk, err := s.findSkillByID(r.Context(), id)
+	if err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, "skill not found")
+		} else {
+			s.writeInternalError(w, err)
+		}
+		return
+	}
+	if sk.Scope == "system" {
+		writeError(w, http.StatusForbidden, "system skills are read-only")
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info == nil || info.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if sk.Scope != "user" && sk.Scope != "user_agent" && sk.Scope != "system_agent" {
+		// Project skills are deleted by their existing filesystem handler and do
+		// not reach this DB-backed lifecycle path.
+		writeError(w, http.StatusBadRequest, "skill scope is not lifecycle-managed")
+		return
+	}
+	if _, err := store.DeprecateManagedSkill(r.Context(), skills.ManagedSkillDeprecate{
+		ID: id, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope, DeprecatedBy: info.UserID,
+	}); err != nil {
+		if errors.Is(err, skills.ErrSkillNotMutable) {
+			writeError(w, http.StatusConflict, "skill is already deprecated or not mutable")
 			return
 		}
-		if sk.Scope == "system" {
-			if systemStore, ok := store.(interface {
-				DeleteSystemSkill(context.Context, string) error
-			}); ok {
-				if err := systemStore.DeleteSystemSkill(r.Context(), id); err != nil {
-					s.writeInternalError(w, err)
-					return
-				}
-				writeNoContent(w)
-				return
-			}
-		}
-		vc = skillOwnerViewContext(*sk)
-	}
-	if err := store.Delete(r.Context(), id, vc); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}

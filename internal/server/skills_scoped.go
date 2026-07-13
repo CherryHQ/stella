@@ -912,7 +912,7 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkill(w, r, rs.ID, vc)
+	s.doDeleteSkill(w, r, rs.ID)
 }
 
 func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {

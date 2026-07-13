@@ -235,6 +235,24 @@ func (s *testSkillStore) Delete(ctx context.Context, id string) error {
 	return s.q.DeleteSkill(ctx, params)
 }
 
+// recordingSkillStore proves tool actions delegate lifecycle ownership to the
+// adapter Delete method instead of mutating status through Update.
+type recordingSkillStore struct {
+	*testSkillStore
+	deleteCalls int
+	updateCalls int
+}
+
+func (s *recordingSkillStore) Delete(ctx context.Context, id string) error {
+	s.deleteCalls++
+	return nil
+}
+
+func (s *recordingSkillStore) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
+	s.updateCalls++
+	return nil
+}
+
 func (s *testSkillStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
 	_, err := s.db.Exec(ctx, `
 		UPDATE skill_usage
@@ -1067,6 +1085,30 @@ func TestRemoveViaStore(t *testing.T) {
 	_, err = tool.remove(ctx, map[string]any{"name": "removable-skill"})
 	if err == nil {
 		t.Error("expected error after double remove")
+	}
+}
+
+func TestToolRemoveAndDeprecateUseAdapterDelete(t *testing.T) {
+	base, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	for _, name := range []string{"tool-remove-lifecycle", "tool-deprecate-lifecycle"} {
+		if _, err := base.Create(ctx, pkgplugins.Skill{
+			Scope: "user", UserID: userID, Name: name, Status: "active",
+		}, map[string]string{pkgplugins.SkillMainFile: "# lifecycle"}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	store := &recordingSkillStore{testSkillStore: base}
+	tool := NewTool(store, "", "")
+
+	if _, err := tool.Execute(ctx, map[string]any{"action": "remove", "name": "tool-remove-lifecycle"}); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if _, err := tool.Execute(ctx, map[string]any{"action": "deprecate", "name": "tool-deprecate-lifecycle"}); err != nil {
+		t.Fatalf("deprecate: %v", err)
+	}
+	if store.deleteCalls != 2 || store.updateCalls != 0 {
+		t.Fatalf("tool lifecycle calls = delete %d, update %d; want delete 2, update 0", store.deleteCalls, store.updateCalls)
 	}
 }
 
