@@ -187,7 +187,7 @@ func TestBuildReviewUnit_ChronologicalWindow(t *testing.T) {
 	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
 		session:         sess,
 		privateOneToOne: true,
-	}, reviewWatermark{At: old.Add(time.Minute)}, 24)
+	}, reviewWatermark{At: old.Add(time.Minute)}, 32)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestBuildReviewUnit_UsesReviewSeqBoundary(t *testing.T) {
 	}
 }
 
-func TestBuildReviewUnit_SkipsOversizedSingleMessage(t *testing.T) {
+func TestBuildReviewUnitOversizedMessageStillAdvancesPastSkippedBoundary(t *testing.T) {
 	fake := memorytest.New()
 	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
 
@@ -327,6 +327,149 @@ func TestBuildReviewUnit_SkipsOversizedSingleMessage(t *testing.T) {
 	}
 	if len(unit.Skipped) != 1 || unit.Skipped[0].Reason != reviewSkipOversizedSingleMessage {
 		t.Fatalf("expected oversized skip, got %#v", unit.Skipped)
+	}
+}
+
+func TestBuildReviewUnitTotalTextNeverExceedsBudget(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+	ctx := context.Background()
+	priorAt := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+	freshAt := priorAt.Add(time.Minute)
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: strings.Repeat("p", 48), Timestamp: priorAt},
+		ai.UserMessage{Content: "fresh evidence", Timestamp: freshAt},
+		ai.AssistantMessage{
+			Timestamp: freshAt.Add(time.Minute),
+			Content: []ai.ContentBlock{ai.ToolCall{
+				ID:   "skill-call-1",
+				Name: "skills",
+				Arguments: map[string]any{
+					"action": "load",
+					"name":   "planner",
+				},
+			}},
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedWithoutPrior := "<fresh_conversation>\n" +
+		"[user] fresh evidence\n" +
+		"[assistant_tool_call] tool=skills call_id=skill-call-1 action=load name=planner\n" +
+		"</fresh_conversation>\n\n" +
+		"<session_skill_usage>\n" +
+		"- action=load skill=planner call_id=skill-call-1\n" +
+		"</session_skill_usage>\n"
+	budget := memory.EstimateTokens(expectedWithoutPrior)
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{session: sess, privateOneToOne: true}, reviewWatermark{At: priorAt}, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := memory.EstimateTokens(unit.Text); got > budget {
+		t.Fatalf("review unit exceeded budget: got %d, budget %d, text=%q", got, budget, unit.Text)
+	}
+}
+
+func TestBuildReviewUnitPrefersFreshThenSkillUsageThenPrior(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+	ctx := context.Background()
+	priorAt := time.Date(2026, 7, 2, 9, 0, 0, 0, time.UTC)
+	freshAt := priorAt.Add(time.Minute)
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "u1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: "prior tail", Timestamp: priorAt},
+		ai.UserMessage{Content: "fresh evidence", Timestamp: freshAt},
+		ai.AssistantMessage{
+			Timestamp: freshAt.Add(time.Minute),
+			Content: []ai.ContentBlock{ai.ToolCall{
+				ID:   "skill-call-1",
+				Name: "skills",
+				Arguments: map[string]any{
+					"action": "load",
+					"name":   "planner",
+				},
+			}},
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedWithoutPrior := "<fresh_conversation>\n" +
+		"[user] fresh evidence\n" +
+		"[assistant_tool_call] tool=skills call_id=skill-call-1 action=load name=planner\n" +
+		"</fresh_conversation>\n\n" +
+		"<session_skill_usage>\n" +
+		"- action=load skill=planner call_id=skill-call-1\n" +
+		"</session_skill_usage>\n"
+	budget := memory.EstimateTokens(expectedWithoutPrior)
+
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{session: sess, privateOneToOne: true}, reviewWatermark{At: priorAt}, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(unit.Text, "fresh evidence") || !strings.Contains(unit.Text, "skill=planner") {
+		t.Fatalf("expected fresh evidence and included skill usage, got %q", unit.Text)
+	}
+	if strings.Contains(unit.Text, "prior tail") {
+		t.Fatalf("prior context displaced higher-priority text, got %q", unit.Text)
+	}
+	if len(unit.SkillUsage) != 1 || unit.SkillUsage[0].Name != "planner" {
+		t.Fatalf("expected only rendered skill usage, got %#v", unit.SkillUsage)
+	}
+}
+
+func TestBuildReviewUnitOverflowStopsBeforeNextBoundary(t *testing.T) {
+	t1 := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	t2 := t1.Add(time.Minute)
+	svc := &Service{memory: &reviewHistoryProvider{messages: []memory.ReviewMessage{
+		{ID: "msg-1", FirstSeq: 1, LastSeq: 1, Message: ai.UserMessage{Content: "alpha", Timestamp: t1}},
+		{ID: "msg-2", FirstSeq: 2, LastSeq: 2, Message: ai.UserMessage{Content: "bravo", Timestamp: t2}},
+	}}, log: testLogger()}
+
+	firstBoundary := "<fresh_conversation>\n[user] alpha\n</fresh_conversation>\n"
+	budget := memory.EstimateTokens(firstBoundary)
+	unit, err := svc.buildReviewUnit(context.Background(), reviewTarget{
+		session:         memory.Session{ID: "s1", AgentID: "a", UserID: "u1"},
+		privateOneToOne: true,
+	}, reviewWatermark{}, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !unit.Truncated || unit.FreshCount != 1 || unit.LastIncludedSeq != 1 {
+		t.Fatalf("expected first boundary only with truncation, got %#v", unit)
+	}
+	if strings.Contains(unit.Text, "bravo") {
+		t.Fatalf("next fresh boundary should be left for the next review, got %q", unit.Text)
+	}
+}
+
+func TestBuildReviewUnitFailsClosedWhenFreshEnvelopeExceedsBudget(t *testing.T) {
+	t1 := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	svc := &Service{memory: &reviewHistoryProvider{messages: []memory.ReviewMessage{
+		{ID: "msg-1", FirstSeq: 1, LastSeq: 1, Message: ai.UserMessage{Content: "alpha", Timestamp: t1}},
+	}}, log: testLogger()}
+
+	freshBoundary := "<fresh_conversation>\n[user] alpha\n</fresh_conversation>\n"
+	budget := memory.EstimateTokens(freshBoundary) - 1
+	unit, err := svc.buildReviewUnit(context.Background(), reviewTarget{
+		session:         memory.Session{ID: "s1", AgentID: "a", UserID: "u1"},
+		privateOneToOne: true,
+	}, reviewWatermark{}, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unit.Text != "" || unit.FreshCount != 0 {
+		t.Fatalf("expected fail-closed unit without text, got %#v", unit)
 	}
 }
 
@@ -640,7 +783,7 @@ func TestBuildReviewUnitDoesNotInjectSkillUsageBeyondWindow(t *testing.T) {
 	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
 		session:         sess,
 		privateOneToOne: true,
-	}, reviewWatermark{}, 36)
+	}, reviewWatermark{}, memory.EstimateTokens("<fresh_conversation>\n[user] "+strings.Repeat("a", 100)+"\n</fresh_conversation>\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

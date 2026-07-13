@@ -96,54 +96,30 @@ func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark
 		budget = maxFallbackReviewTokens
 	}
 
-	var b strings.Builder
-	if len(priorLines) > 0 {
-		b.WriteString("<prior_context>\n")
-		for _, line := range tailByBudget(priorLines, budget/4) {
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
-		b.WriteString("</prior_context>\n\n")
-	}
-
-	b.WriteString("<fresh_conversation>\n")
-	remaining := budget
+	var includedFresh []reviewLine
 	for i := 0; i < len(fresh); {
 		group := nextReviewBoundaryGroup(fresh, i)
 		i += len(group)
 
-		included, skipped, groupCost := reviewBoundaryGroupPlan(group, budget)
-		if groupCost > remaining {
+		included, skipped := reviewBoundaryGroupPlan(group, budget)
+		if len(included) == 0 {
+			unit.Skipped = append(unit.Skipped, skipped...)
+			updateReviewUnitWatermark(&unit, group)
+			continue
+		}
+
+		candidateFresh := append(append([]reviewLine(nil), includedFresh...), included...)
+		// Fresh boundaries take priority, so reserve their protocol envelope before
+		// considering optional skill usage or prior context.
+		if !reviewTextFitsBudget(renderReviewUnitText(nil, candidateFresh, nil), budget) {
 			unit.Truncated = true
 			break
 		}
 
 		unit.Skipped = append(unit.Skipped, skipped...)
-		for _, item := range included {
-			b.WriteString(item.line.text)
-			b.WriteString("\n")
-			remaining -= item.cost
-			unit.FreshCount++
-			unit.SkillUsage = append(unit.SkillUsage, item.line.usages...)
-		}
-		if len(included) > 0 || len(skipped) > 0 {
-			last := group[len(group)-1]
-			if last.lastSeq > 0 {
-				unit.LastIncludedSeq = last.lastSeq
-			}
-			if !last.at.IsZero() {
-				unit.LastIncludedAt = last.at
-			}
-		}
-	}
-	b.WriteString("</fresh_conversation>\n")
-	if len(unit.SkillUsage) > 0 {
-		b.WriteString("\n<session_skill_usage>\n")
-		for _, usage := range unit.SkillUsage {
-			b.WriteString(usage.render())
-			b.WriteString("\n")
-		}
-		b.WriteString("</session_skill_usage>\n")
+		includedFresh = candidateFresh
+		unit.FreshCount += len(included)
+		updateReviewUnitWatermark(&unit, group)
 	}
 
 	if unit.FreshCount == 0 && len(unit.Skipped) == 0 {
@@ -152,8 +128,77 @@ func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark
 	if unit.FreshCount == 0 {
 		return unit, nil
 	}
-	unit.Text = b.String()
+
+	for _, line := range includedFresh {
+		for _, usage := range line.usages {
+			candidateUsage := append(append([]reviewSkillUsage(nil), unit.SkillUsage...), usage)
+			if !reviewTextFitsBudget(renderReviewUnitText(nil, includedFresh, candidateUsage), budget) {
+				break
+			}
+			unit.SkillUsage = candidateUsage
+		}
+	}
+
+	var includedPrior []string
+	for i := len(priorLines) - 1; i >= 0; i-- {
+		candidatePrior := append([]string{priorLines[i]}, includedPrior...)
+		if !reviewTextFitsBudget(renderReviewUnitText(candidatePrior, includedFresh, unit.SkillUsage), budget) {
+			break
+		}
+		includedPrior = candidatePrior
+	}
+
+	unit.Text = renderReviewUnitText(includedPrior, includedFresh, unit.SkillUsage)
+	if !reviewTextFitsBudget(unit.Text, budget) {
+		return ReviewUnit{}, fmt.Errorf("review unit rendered above token budget")
+	}
 	return unit, nil
+}
+
+func updateReviewUnitWatermark(unit *ReviewUnit, group []reviewLine) {
+	if len(group) == 0 {
+		return
+	}
+	last := group[len(group)-1]
+	if last.lastSeq > 0 {
+		unit.LastIncludedSeq = last.lastSeq
+	}
+	if !last.at.IsZero() {
+		unit.LastIncludedAt = last.at
+	}
+}
+
+func renderReviewUnitText(priorLines []string, fresh []reviewLine, usages []reviewSkillUsage) string {
+	var b strings.Builder
+	if len(priorLines) > 0 {
+		b.WriteString("<prior_context>\n")
+		for _, line := range priorLines {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString("</prior_context>\n\n")
+	}
+
+	b.WriteString("<fresh_conversation>\n")
+	for _, line := range fresh {
+		b.WriteString(line.text)
+		b.WriteString("\n")
+	}
+	b.WriteString("</fresh_conversation>\n")
+
+	if len(usages) > 0 {
+		b.WriteString("\n<session_skill_usage>\n")
+		for _, usage := range usages {
+			b.WriteString(usage.render())
+			b.WriteString("\n")
+		}
+		b.WriteString("</session_skill_usage>\n")
+	}
+	return b.String()
+}
+
+func reviewTextFitsBudget(text string, budget int) bool {
+	return memory.EstimateTokens(text) <= budget
 }
 
 func (s *Service) buildReviewLines(ctx context.Context, target reviewTarget, mark reviewWatermark) ([]string, []reviewLine, error) {
@@ -252,11 +297,6 @@ func (s *Service) buildReviewLinesFromLoadHistory(ctx context.Context, target re
 	return priorLines, fresh, nil
 }
 
-type reviewLineWithCost struct {
-	line reviewLine
-	cost int
-}
-
 type reviewLine struct {
 	id       string
 	role     string
@@ -295,13 +335,13 @@ func reviewLineBeforeOrAtWatermark(line reviewLine, mark reviewWatermark) bool {
 	return false
 }
 
-func reviewBoundaryGroupPlan(group []reviewLine, budget int) ([]reviewLineWithCost, []ReviewSkip, int) {
-	included := make([]reviewLineWithCost, 0, len(group))
+func reviewBoundaryGroupPlan(group []reviewLine, budget int) ([]reviewLine, []ReviewSkip) {
+	included := make([]reviewLine, 0, len(group))
 	var skipped []ReviewSkip
-	groupCost := 0
 	for _, line := range group {
-		cost := memory.EstimateTokens(line.text)
-		if cost > budget {
+		// Only a line that exceeds the whole budget by itself is permanently
+		// skipped; envelope or remaining-capacity overflow must be retried later.
+		if memory.EstimateTokens(line.text) > budget {
 			lastSeq := line.lastSeq
 			if lastSeq == 0 {
 				lastSeq = line.firstSeq
@@ -316,10 +356,9 @@ func reviewBoundaryGroupPlan(group []reviewLine, budget int) ([]reviewLineWithCo
 			})
 			continue
 		}
-		included = append(included, reviewLineWithCost{line: line, cost: cost})
-		groupCost += cost
+		included = append(included, line)
 	}
-	return included, skipped, groupCost
+	return included, skipped
 }
 
 func renderReviewLine(msg ai.Message, skillUsageByCall map[string]reviewSkillUsage) reviewLine {
