@@ -97,7 +97,7 @@ func oauthProviderRequiredBy(host *pluginhost.Host) map[string][]string {
 // StartOAuthFlow handles POST /api/users/me/oauth/{provider}/start.
 func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider string) {
 	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		writeCapabilityUnavailable(w, capVault)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -122,7 +122,7 @@ func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 // PollOAuthFlow handles GET /api/users/me/oauth/{provider}/status/{flowID}.
 func (s *Server) PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider string, flowID string) {
 	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		writeCapabilityUnavailable(w, capVault)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -143,7 +143,7 @@ func (s *Server) PollOAuthFlow(w http.ResponseWriter, r *http.Request, provider 
 // GetOAuthConnected handles GET /api/users/me/oauth/{provider}/connected.
 func (s *Server) GetOAuthConnected(w http.ResponseWriter, r *http.Request, provider string) {
 	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		writeCapabilityUnavailable(w, capVault)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -175,7 +175,7 @@ func (s *Server) GetOAuthConnected(w http.ResponseWriter, r *http.Request, provi
 // DisconnectOAuth handles DELETE /api/users/me/oauth/{provider}.
 func (s *Server) DisconnectOAuth(w http.ResponseWriter, r *http.Request, provider string) {
 	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		writeCapabilityUnavailable(w, capVault)
 		return
 	}
 	info := UserFromContext(r.Context())

@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/server"
 )
 
@@ -99,7 +98,10 @@ func TestEmptyBearerWithSessionHardDenied_E2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionManager: %v", err)
 	}
-	env.srv.SetOIDCAuth(&oidc.SetupResult{AuthSvc: authSvc, SessionMgr: sessionMgr})
+	env.rebuild(t, func(d *server.Deps) {
+		d.OIDC.AuthSvc = authSvc
+		d.OIDC.SessionMgr = sessionMgr
+	})
 	login, err := authSvc.ProcessOIDCLogin(ctx, auth.ExternalIdentity{
 		Provider: "test", Subject: "empty-bearer", Email: "empty-bearer@test.local", Name: "Empty Bearer",
 	}, sessionMgr)

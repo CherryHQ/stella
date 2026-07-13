@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"filippo.io/age"
@@ -18,7 +20,6 @@ import (
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
-	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/credential"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -86,8 +87,6 @@ type Server struct {
 	credentials auth.CredentialStore
 	// eventLog is the group event log store (optional; if nil, group chat returns 503).
 	eventLog *eventlog.Store
-	// arbiter decides which agents respond in Web group chat (optional; if nil, group chat returns 503).
-	arbiter *channel.Arbiter
 	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
 	groupDispatcher *channel.GroupDispatcher
 	// runtimeCtx is canceled by the process/service lifecycle; request handlers
@@ -100,56 +99,212 @@ type Server struct {
 	readiness *readiness
 }
 
-// New creates an admin server with all API routes mounted.
-// The linkCodes store is shared with channel bots so codes generated in the
-// Web UI can be consumed by channel handlers.
-func New(ctx context.Context, store config.Store, authStore auth.AuthStore, engine *auth.PolicyEngine, mem memory.Provider, db *pgxpool.Pool, linkCodes *auth.LinkCodeStore, poolManager *agent.PoolManager, pluginHost *pluginhost.Host) *Server {
+// Deps is the immutable, validated dependency set for the admin Server. The
+// composition root constructs every value exactly once — including the single
+// shared credentials/email/share/recally instances and the credential front
+// door, already resolved against the final base URL — and hands them here.
+// Server.New reads no environment, constructs no shadow service, and chooses no
+// implementation; it only wires these into HTTP routes. The struct is copied
+// into the Server at construction and never mutated afterward: there are no
+// post-construction setters.
+type Deps struct {
+	// Persistence reached directly by handlers not yet migrated onto narrow
+	// ports. This is the frozen per-file persistence debt tracked by the
+	// architecture boundary test — carried explicitly here rather than hidden
+	// behind a facade, and shrunk as later stacks migrate each handler onto a
+	// domain service.
+	Store     config.Store
+	DB        *pgxpool.Pool
+	AuthStore auth.AuthStore
+	Mem       memory.Provider
+
+	// Authorization.
+	Engine    *auth.PolicyEngine
+	LinkCodes *auth.LinkCodeStore
+	OIDC      OIDCDeps
+
+	// Agent runtime + plugins.
+	PoolManager  *agent.PoolManager
+	PluginHost   *pluginhost.Host
+	BuiltinTools []agent.BuiltinTool
+
+	// Public addressing, resolved once at the startup boundary. Never a
+	// localhost placeholder mutated later.
+	BaseURL string
+
+	// Shared domain services — single, fully-wired instances built by the
+	// composition root. The same instances back both the agent tools and the
+	// HTTP endpoints, so there is one source of truth per capability.
+	Credentials         *connections.Service
+	Email               *email.Service
+	Share               *sharepkg.Service
+	Recally             *recally.Service
+	CredentialFrontDoor *credential.Service
+	OAuthAuthServer     *oidc.Service
+	EventLog            *eventlog.Store
+	GroupDispatcher     *channel.GroupDispatcher
+
+	// Optional capabilities. A nil field is a supported configuration: the
+	// matching endpoints report 503 through the centralized unavailable mapping
+	// (see capabilityUnavailable). Presence is never inferred from the
+	// environment inside the server.
+	Vault          *vault.Service
+	VaultRecipient *age.X25519Recipient
+	MCP            *mcp.Service
+	Scheduler      *scheduler.Service
+	Goal           *goal.Service
+	Workflow       *workflowpkg.Service
+}
+
+// OIDCDeps groups the login-authentication components produced by oidc.Setup
+// plus the shared identity stores the auth handlers read. LocalAuth is nil in
+// external-OIDC mode; the identity stores are always present.
+type OIDCDeps struct {
+	Providers  []auth.AuthProvider
+	AuthSvc    *auth.AuthService
+	SessionMgr *auth.SessionManager
+	StateMgr   *authoidc.StateManager
+	LocalAuth  *local.Service
+
+	Logins auth.LoginIdentityStore
+	Users  interface {
+		auth.UserStore
+		auth.ChannelIdentityStore
+	}
+	Sessions    auth.SessionStore
+	Credentials auth.CredentialStore
+}
+
+// validate reports every missing required dependency at once (fail-fast). A
+// dependency is required only when the server dereferences it unconditionally
+// (no 503 gate). Optional capabilities — CredentialFrontDoor, OAuthAuthServer,
+// EventLog, GroupDispatcher, Vault, VaultRecipient, MCP, Scheduler,
+// Goal, Workflow, and OIDC.StateMgr/LocalAuth — are intentionally not checked:
+// a nil there is a supported configuration whose endpoints degrade to 503.
+func (d Deps) validate() error {
+	var missing []string
+	req := func(ok bool, name string) {
+		if !ok {
+			missing = append(missing, name)
+		}
+	}
+	req(d.Store != nil, "Store")
+	req(d.DB != nil, "DB")
+	req(d.AuthStore != nil, "AuthStore")
+	req(d.Mem != nil, "Mem")
+	req(d.Engine != nil, "Engine")
+	req(d.LinkCodes != nil, "LinkCodes")
+	req(d.PoolManager != nil, "PoolManager")
+	req(d.PluginHost != nil, "PluginHost")
+	req(d.BaseURL != "", "BaseURL")
+	req(d.Credentials != nil, "Credentials")
+	req(d.Email != nil, "Email")
+	req(d.Share != nil, "Share")
+	req(d.Recally != nil, "Recally")
+	req(d.OIDC.AuthSvc != nil, "OIDC.AuthSvc")
+	req(d.OIDC.SessionMgr != nil, "OIDC.SessionMgr")
+	req(d.OIDC.Logins != nil, "OIDC.Logins")
+	req(d.OIDC.Users != nil, "OIDC.Users")
+	req(d.OIDC.Sessions != nil, "OIDC.Sessions")
+	req(d.OIDC.Credentials != nil, "OIDC.Credentials")
+	if len(missing) > 0 {
+		return fmt.Errorf("server.New: missing required dependencies: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// New creates an admin server with all API routes mounted. It validates deps
+// and returns an error if any required dependency is missing. It reads no
+// environment, constructs no shared/shadow service, and installs no setters —
+// every dependency arrives through the immutable Deps. The server does not own
+// the lifecycle of any injected dependency and never closes one.
+func New(ctx context.Context, deps Deps) (*Server, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if pluginHost == nil {
-		panic("admin: plugin host is required")
+	if err := deps.validate(); err != nil {
+		return nil, err
 	}
-
-	defaultBaseURL := "http://localhost:25678"
-	flowStore := oauth.NewFlowStore()
-	credSvc := connections.NewService(nil, sqlc.New(db), flowStore, defaultBaseURL)
-	emailSvc := email.NewService(nil, sqlc.New(db))
-	recallyStore := recally.NewStore(db)
-	recallySvc := recally.NewService(recallyStore, config.StellaHome())
-	shareSvc := sharepkg.NewService(sqlc.New(db), mem, recallyStore, config.StellaHome(), defaultBaseURL)
 
 	log := slog.With("component", "admin")
 	s := &Server{
-		store:          store,
-		authStore:      authStore,
-		engine:         engine,
-		rateLimiter:    auth.NewRateLimiter(),
-		webhookLimiter: newWebhookLimiter(5, 20),
-		linkCodes:      linkCodes,
-		mem:            mem,
-		poolManager:    poolManager,
-		db:             db,
-		pluginHost:     pluginHost,
-		q:              sqlc.New(db),
-		mux:            http.NewServeMux(),
-		log:            log,
-		baseURL:        defaultBaseURL,
-		credSvc:        credSvc,
-		emailSvc:       emailSvc,
-		shareSvc:       shareSvc,
-		recallySvc:     recallySvc,
-		recally:        newRecallyHandlersWithService(recallyStore, recallySvc, log),
-		startedAt:      time.Now(),
-		runtimeCtx:     ctx,
+		store:           deps.Store,
+		authStore:       deps.AuthStore,
+		engine:          deps.Engine,
+		rateLimiter:     auth.NewRateLimiter(),
+		webhookLimiter:  newWebhookLimiter(5, 20),
+		linkCodes:       deps.LinkCodes,
+		mem:             deps.Mem,
+		poolManager:     deps.PoolManager,
+		db:              deps.DB,
+		pluginHost:      deps.PluginHost,
+		q:               sqlc.New(deps.DB),
+		mux:             http.NewServeMux(),
+		log:             log,
+		baseURL:         deps.BaseURL,
+		builtinTools:    append([]agent.BuiltinTool(nil), deps.BuiltinTools...),
+		vaultRecipient:  deps.VaultRecipient,
+		vaultSvc:        deps.Vault,
+		mcpSvc:          deps.MCP,
+		credResolver:    deps.CredentialFrontDoor,
+		oauthAS:         deps.OAuthAuthServer,
+		credSvc:         deps.Credentials,
+		emailSvc:        deps.Email,
+		shareSvc:        deps.Share,
+		recallySvc:      deps.Recally,
+		recally:         newRecallyHandlersWithService(deps.Recally.Store(), deps.Recally, log),
+		schedulerSvc:    deps.Scheduler,
+		goalSvc:         deps.Goal,
+		workflowSvc:     deps.Workflow,
+		eventLog:        deps.EventLog,
+		groupDispatcher: deps.GroupDispatcher,
+		authProviders:   deps.OIDC.Providers,
+		authSvc:         deps.OIDC.AuthSvc,
+		sessionMgr:      deps.OIDC.SessionMgr,
+		stateMgr:        deps.OIDC.StateMgr,
+		localAuth:       deps.OIDC.LocalAuth,
+		logins:          deps.OIDC.Logins,
+		users:           deps.OIDC.Users,
+		sessions:        deps.OIDC.Sessions,
+		credentials:     deps.OIDC.Credentials,
+		startedAt:       time.Now(),
+		runtimeCtx:      ctx,
+	}
+	if deps.Goal != nil {
+		s.goalQueries = deps.Goal.Queries
 	}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
 	// streaming handlers. The pool answers the /readyz liveness ping.
-	s.readiness = newReadiness(ctx, db)
+	s.readiness = newReadiness(ctx, deps.DB)
 
 	s.registerRoutes()
 
-	return s
+	return s, nil
+}
+
+// NewCredentialFrontDoor builds the unified bearer credential front door (PAT +
+// OAuth access storage over the shared queries) and the OAuth2 authorization
+// server that mints access tokens through it. The composition root calls this
+// once and injects both into server.Deps; Server.New never constructs them, so
+// the credential surface has a single owner. The authorization server mints
+// access tokens through the front door (never its own JWT) and owns the
+// client/code/refresh storage.
+func NewCredentialFrontDoor(db *pgxpool.Pool, log *slog.Logger) (*credential.Service, *oidc.Service) {
+	q := sqlc.New(db)
+	ps := patStore{q: q}
+	os := oauthStore{q: q}
+	resolver := credential.NewService(credential.Config{
+		PATs:   ps,
+		OAuth:  os,
+		Users:  ps,
+		Logger: log,
+	})
+	authServer := oidc.NewService(oidc.Config{
+		Store:  os,
+		Issuer: resolver,
+		Logger: log,
+	})
+	return resolver, authServer
 }
 
 // MarkStartupComplete makes /readyz eligible to report ready. The gateway calls
@@ -164,146 +319,6 @@ func (s *Server) BeginDrain() { s.readiness.beginDrain() }
 // LinkCodes returns the link code store for use by channel handlers.
 func (s *Server) LinkCodes() *auth.LinkCodeStore {
 	return s.linkCodes
-}
-
-// SetVaultRecipient sets the master age recipient so that new users created via
-// web registration receive an age keypair. Call before serving requests.
-// If not set (nil), vault key generation is skipped for new users.
-func (s *Server) SetVaultRecipient(r *age.X25519Recipient) {
-	s.vaultRecipient = r
-}
-
-// SetVaultService wires the vault service into the admin server.
-// Call before serving requests. If not set (nil), vault API endpoints
-// return 503 Service Unavailable.
-func (s *Server) SetVaultService(svc *vault.Service) {
-	s.vaultSvc = svc
-	s.credSvc.SetVaultService(svc)
-	s.emailSvc = email.NewService(svc, s.q)
-}
-
-// SetMCPService wires the MCP registration service into the admin server.
-// Call before serving requests. If not set (nil), MCP API endpoints return 503.
-func (s *Server) SetMCPService(svc *mcp.Service) {
-	s.mcpSvc = svc
-}
-
-func (s *Server) SetBuiltinTools(tools []agent.BuiltinTool) {
-	s.builtinTools = append([]agent.BuiltinTool(nil), tools...)
-}
-
-// InitCredentialFrontDoor builds the unified credential front door: PAT/OAuth
-// storage over the shared query set, and the authorization server that mints
-// access tokens through it.
-func (s *Server) InitCredentialFrontDoor() {
-	ps := patStore{q: s.q}
-	os := oauthStore{q: s.q}
-	s.credResolver = credential.NewService(credential.Config{
-		PATs:   ps,
-		OAuth:  os,
-		Users:  ps,
-		Logger: s.log,
-	})
-	// The authorization server mints access tokens through the credential front
-	// door (never its own JWT) and owns the client/code/refresh storage.
-	s.oauthAS = oidc.NewService(oidc.Config{
-		Store:  os,
-		Issuer: s.credResolver,
-		Logger: s.log,
-	})
-}
-
-// SetSchedulerService wires the live scheduler service into the admin server.
-// When set, create and delete job handlers go through the service (live + DB).
-// If not set, those handlers write DB-only.
-func (s *Server) SetSchedulerService(svc *scheduler.Service) {
-	s.schedulerSvc = svc
-}
-
-func (s *Server) SetEventLogStore(store *eventlog.Store) {
-	s.eventLog = store
-}
-
-func (s *Server) SetArbiter(a *channel.Arbiter) {
-	s.arbiter = a
-}
-
-func (s *Server) SetGroupDispatcher(dispatcher *channel.GroupDispatcher) {
-	s.groupDispatcher = dispatcher
-}
-
-// SetBaseURL sets the public base URL and propagates it to the credentials
-// service so OAuth redirect URIs use the externally reachable address.
-func (s *Server) SetBaseURL(url string) {
-	s.baseURL = url
-	s.credSvc.SetBaseURL(url)
-	s.shareSvc.SetBaseURL(url)
-}
-
-// SetLoginIdentityStore wires the OIDC login identity store so the admin API
-// can list and link login identities. Call before serving requests.
-func (s *Server) SetLoginIdentityStore(store auth.LoginIdentityStore) {
-	s.logins = store
-}
-
-// SetUserStore wires the OIDC user+identity store into the admin server.
-func (s *Server) SetUserStore(store interface {
-	auth.UserStore
-	auth.ChannelIdentityStore
-},
-) {
-	s.users = store
-}
-
-// SetSessionStore wires the session store into the admin server.
-func (s *Server) SetSessionStore(store auth.SessionStore) {
-	s.sessions = store
-}
-
-// SetCredentialStore wires the credential store into the admin server.
-func (s *Server) SetCredentialStore(store auth.CredentialStore) {
-	s.credentials = store
-}
-
-// SetOIDCAuth wires all OIDC authentication components into the server.
-// Call before serving requests. If not set, OIDC login is disabled and
-// ListAuthProviders returns an empty list.
-func (s *Server) SetOIDCAuth(result *authoidc.SetupResult) {
-	s.authProviders = result.Providers
-	s.authSvc = result.AuthSvc
-	s.sessionMgr = result.SessionMgr
-	s.stateMgr = result.StateMgr
-	s.localAuth = result.LocalAuth
-}
-
-// SetCredentialsService replaces the shared credentials service. Call before serving.
-func (s *Server) SetCredentialsService(svc *connections.Service) {
-	if svc != nil {
-		s.credSvc = svc
-	}
-}
-
-// SetShareService replaces the shared share service. Call before serving.
-func (s *Server) SetShareService(svc *sharepkg.Service) {
-	if svc != nil {
-		s.shareSvc = svc
-	}
-}
-
-// SetRecallyService replaces the shared recally service. Call before serving.
-func (s *Server) SetRecallyService(svc *recally.Service) {
-	if svc != nil {
-		s.recallySvc = svc
-		s.recally.svc = svc
-		s.recally.store = svc.Store()
-	}
-}
-
-// CredentialsService returns the shared credentials service.
-// Used by callers that need to wire in the runner invalidator or access
-// the credentials tool from outside the admin package.
-func (s *Server) CredentialsService() *connections.Service {
-	return s.credSvc
 }
 
 // Recally method delegations — Server implements apiserver.ServerInterface by

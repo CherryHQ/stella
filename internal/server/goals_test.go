@@ -11,6 +11,7 @@ import (
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -58,7 +59,7 @@ func setupGoalEnvWithOptions(t *testing.T, opts ...goal.Option) *testEnv {
 	baseOpts = append(baseOpts, opts...)
 	svc := goal.New(env.db, q, baseOpts...)
 	bundle := &goal.Service{Queries: q, Goal: svc}
-	env.srv.SetGoalService(bundle)
+	env.rebuild(t, func(d *server.Deps) { d.Goal = bundle })
 	return env
 }
 

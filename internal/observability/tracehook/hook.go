@@ -25,9 +25,10 @@ type Hook struct {
 	enabled  bool // mirrors whether OTel export is configured
 	recordIO bool // record full tool input/result text on spans (opt-in)
 
-	mu       sync.Mutex
-	sessions map[string]*sessionTrace
-	done     chan struct{}
+	mu        sync.Mutex
+	sessions  map[string]*sessionTrace
+	done      chan struct{}
+	startOnce sync.Once
 }
 
 // sessionKey builds a composite key to avoid collisions across agents.
@@ -62,17 +63,26 @@ type sessionTrace struct {
 // and the global provider share a single source of truth instead of each
 // reading the environment. Span export is handled by that global provider.
 func New(enabled, recordIO bool) *Hook {
-	h := &Hook{
+	// The constructor starts no goroutine (issue #708 Section D). The idle-session
+	// reaper is launched by the composition root via Start(ctx).
+	return &Hook{
 		log:      slog.With("hook", "trace"),
 		enabled:  enabled,
 		recordIO: recordIO,
 		sessions: make(map[string]*sessionTrace),
 		done:     make(chan struct{}),
 	}
-	if h.enabled {
-		go h.reaper()
+}
+
+// Start launches the idle-session reaper. It is a no-op when tracing is disabled
+// and is idempotent. The composition root calls it once after New with the
+// daemon lifecycle context, so the reaper exits on ctx cancellation; Close also
+// stops it during the reverse-Close shutdown phase.
+func (h *Hook) Start(ctx context.Context) {
+	if !h.enabled {
+		return
 	}
-	return h
+	h.startOnce.Do(func() { go h.reaper(ctx) })
 }
 
 func (*Hook) Name() string  { return "trace" }
@@ -160,12 +170,15 @@ func (h *Hook) endSession(st *sessionTrace) {
 	}
 }
 
-// reaper periodically cleans up idle sessions.
-func (h *Hook) reaper() {
+// reaper periodically cleans up idle sessions. It exits on ctx cancellation
+// (composition-root shutdown) or Close (done channel).
+func (h *Hook) reaper(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-h.done:
 			return
 		case <-ticker.C:

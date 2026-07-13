@@ -22,7 +22,7 @@ func (s *Server) ListOAuthClients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.oauthAS == nil {
-		writeError(w, http.StatusServiceUnavailable, "oauth authorization server not configured")
+		writeCapabilityUnavailable(w, capOAuthServer)
 		return
 	}
 	clients, err := s.oauthAS.ListClients(r.Context(), info.UserID)
@@ -45,7 +45,7 @@ func (s *Server) CreateOAuthClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.oauthAS == nil {
-		writeError(w, http.StatusServiceUnavailable, "oauth authorization server not configured")
+		writeCapabilityUnavailable(w, capOAuthServer)
 		return
 	}
 	var body apitypes.CreateOAuthClientRequest
@@ -81,7 +81,7 @@ func (s *Server) DisableOAuthClient(w http.ResponseWriter, r *http.Request, clie
 		return
 	}
 	if s.oauthAS == nil {
-		writeError(w, http.StatusServiceUnavailable, "oauth authorization server not configured")
+		writeCapabilityUnavailable(w, capOAuthServer)
 		return
 	}
 	ok, err := s.oauthAS.DisableClient(r.Context(), info.UserID, clientId)
@@ -103,7 +103,7 @@ func (s *Server) RotateOAuthClientSecret(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if s.oauthAS == nil {
-		writeError(w, http.StatusServiceUnavailable, "oauth authorization server not configured")
+		writeCapabilityUnavailable(w, capOAuthServer)
 		return
 	}
 	secret, err := s.oauthAS.RotateSecret(r.Context(), info.UserID, clientId)
@@ -145,7 +145,7 @@ func (s *Server) ListAuthorizedApps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.oauthAS == nil {
-		writeError(w, http.StatusServiceUnavailable, "oauth authorization server not configured")
+		writeCapabilityUnavailable(w, capOAuthServer)
 		return
 	}
 	apps, err := s.oauthAS.ListAuthorizedApps(r.Context(), info.UserID)
@@ -172,7 +172,7 @@ func (s *Server) RevokeAuthorizedApp(w http.ResponseWriter, r *http.Request, cli
 		return
 	}
 	if s.oauthAS == nil {
-		writeError(w, http.StatusServiceUnavailable, "oauth authorization server not configured")
+		writeCapabilityUnavailable(w, capOAuthServer)
 		return
 	}
 	if err := s.oauthAS.RevokeGrant(r.Context(), info.UserID, clientId); err != nil {

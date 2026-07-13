@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/server"
@@ -123,8 +122,8 @@ func TestExternalIdentityDoesNotAutoLinkByEmail(t *testing.T) {
 
 func TestLocalLoginURLWorksWithoutExternalProviders(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetOIDCAuth(&oidc.SetupResult{
-		LocalAuth: local.NewService(&local.Config{BootstrapRegistration: true}, env.oidcStore, env.oidcStore),
+	env.rebuild(t, func(d *server.Deps) {
+		d.OIDC.LocalAuth = local.NewService(&local.Config{BootstrapRegistration: true}, env.oidcStore, env.oidcStore)
 	})
 
 	rr := doUnauthRequest(t, env.srv, http.MethodGet, "/auth/login/local", nil)
@@ -204,9 +203,9 @@ func TestDeactivatedUserBlockedOnSessionAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionManager: %v", err)
 	}
-	env.srv.SetOIDCAuth(&oidc.SetupResult{
-		AuthSvc:    svc,
-		SessionMgr: sessionMgr,
+	env.rebuild(t, func(d *server.Deps) {
+		d.OIDC.AuthSvc = svc
+		d.OIDC.SessionMgr = sessionMgr
 	})
 
 	// Create a user via OIDC login flow — this produces a session token.
@@ -380,9 +379,9 @@ func TestRoleDemotionInvalidatesSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionManager: %v", err)
 	}
-	env.srv.SetOIDCAuth(&oidc.SetupResult{
-		AuthSvc:    svc,
-		SessionMgr: sessionMgr,
+	env.rebuild(t, func(d *server.Deps) {
+		d.OIDC.AuthSvc = svc
+		d.OIDC.SessionMgr = sessionMgr
 	})
 
 	// Create an admin user via OIDC flow.
@@ -428,9 +427,9 @@ func TestDeactivationInvalidatesSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSessionManager: %v", err)
 	}
-	env.srv.SetOIDCAuth(&oidc.SetupResult{
-		AuthSvc:    svc,
-		SessionMgr: sessionMgr,
+	env.rebuild(t, func(d *server.Deps) {
+		d.OIDC.AuthSvc = svc
+		d.OIDC.SessionMgr = sessionMgr
 	})
 
 	result, err := svc.ProcessOIDCLogin(ctx, auth.ExternalIdentity{

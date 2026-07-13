@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,7 +26,7 @@ import (
 //
 // The goal subsystem does NOT own a River client: it contributes its queue +
 // worker to the single process-wide client (RegisterRiverWorker / GoalQueueConfig)
-// and receives that client back as its dispatcher's enqueuer (SetRiverClient).
+// and receives that client back as its dispatcher's enqueuer (BindRiverClient).
 // The client's Start/Stop lifecycle belongs to the composition root.
 type Service struct {
 	Queries    *sqlc.Queries
@@ -40,10 +41,16 @@ type Service struct {
 	queueMaxWorkers int
 	logger          *slog.Logger
 
-	// river is the shared working client, injected via SetRiverClient. The
+	// mu guards the one-shot river bind (river/started). The lock is released
+	// before any external River call (PeriodicJobs().Add/Remove) so those never
+	// run under it.
+	mu sync.Mutex
+	// river is the shared working client, injected via BindRiverClient. The
 	// dispatcher uses it (as its enqueuer) to dispatch claimed attempts;
 	// StartDispatchTick uses it to register the single-leader convergence tick.
 	river *river.Client[pgx.Tx]
+	// started flips true when StartDispatchTick runs, sealing BindRiverClient.
+	started bool
 }
 
 // RegisterRiverWorker registers the goal subsystem's workers into a shared
@@ -68,12 +75,29 @@ func (s *Service) GoalTickQueueConfig() (string, river.QueueConfig) {
 	return GoalTickQueue, river.QueueConfig{MaxWorkers: 1}
 }
 
-// SetRiverClient injects the shared working River client: it becomes the
-// dispatcher's enqueuer and the target StartDispatchTick registers the periodic
-// against. Call after the client is built and before StartDispatchTick.
-func (s *Service) SetRiverClient(c *river.Client[pgx.Tx]) {
+// BindRiverClient binds the shared working River client before StartDispatchTick
+// and wires it as the dispatcher's enqueuer. One-shot pre-start bind: rejects a
+// nil client (missing), a second bind (duplicate), and any bind after
+// StartDispatchTick (late).
+func (s *Service) BindRiverClient(c *river.Client[pgx.Tx]) error {
+	if c == nil {
+		return fmt.Errorf("goal: BindRiverClient requires a non-nil client")
+	}
+	s.mu.Lock()
+	if s.started {
+		s.mu.Unlock()
+		return fmt.Errorf("goal: BindRiverClient after StartDispatchTick")
+	}
+	if s.river != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("goal: river client already bound")
+	}
 	s.river = c
+	s.mu.Unlock()
+	// SetEnqueuer sets the dispatcher's enqueuer once, by the single goroutine
+	// that won the bind above; run it outside the lock.
 	s.Dispatcher.SetEnqueuer(c)
+	return nil
 }
 
 // StartDispatchTick registers the convergence tick as a single-leader River
@@ -83,12 +107,17 @@ func (s *Service) SetRiverClient(c *river.Client[pgx.Tx]) {
 // tick worker may run a fired tick. RunOnStart fires an immediate tick on
 // (re-)election so convergence resumes promptly after a failover or cold start
 // rather than waiting a full interval (the cost is one extra idempotent pass on
-// failover). Returns the handle for StopDispatchTick. Requires SetRiverClient first.
+// failover). Returns the handle for StopDispatchTick. Requires BindRiverClient first.
 func (s *Service) StartDispatchTick() (rivertype.PeriodicJobHandle, error) {
-	if s.river == nil {
-		return 0, fmt.Errorf("goal: StartDispatchTick before SetRiverClient")
+	s.mu.Lock()
+	cl := s.river
+	if cl == nil {
+		s.mu.Unlock()
+		return 0, fmt.Errorf("goal: StartDispatchTick before BindRiverClient")
 	}
-	handle := s.river.PeriodicJobs().Add(river.NewPeriodicJob(
+	s.started = true
+	s.mu.Unlock()
+	handle := cl.PeriodicJobs().Add(river.NewPeriodicJob(
 		river.PeriodicInterval(s.Dispatcher.TickInterval()),
 		func() (river.JobArgs, *river.InsertOpts) {
 			return goalTickArgs{}, goalTickInsertOpts(s.Dispatcher.TickInterval())
@@ -101,10 +130,13 @@ func (s *Service) StartDispatchTick() (rivertype.PeriodicJobHandle, error) {
 // StopDispatchTick removes the convergence-tick periodic so no further ticks are
 // enqueued. In-flight ticks drain when the shared client stops.
 func (s *Service) StopDispatchTick(handle rivertype.PeriodicJobHandle) {
-	if s.river == nil {
+	s.mu.Lock()
+	cl := s.river
+	s.mu.Unlock()
+	if cl == nil {
 		return
 	}
-	s.river.PeriodicJobs().Remove(handle)
+	cl.PeriodicJobs().Remove(handle)
 }
 
 // TaskChatParams is the worker-turn request passed to BootConfig.Chat. It mirrors
@@ -152,7 +184,7 @@ type BootConfig struct {
 
 // Boot constructs the goal system and returns the bound bundle. The dispatcher is
 // built but not ticking; the composition root injects the shared client via
-// SetRiverClient and the server registers the single-leader tick via
+// BindRiverClient and the server registers the single-leader tick via
 // StartDispatchTick.
 //
 // (Named Boot, not New: the package's GoalService constructor already owns
@@ -185,7 +217,7 @@ func Boot(cfg BootConfig) (*Service, error) {
 	}
 	runner := workerRunner{w: NewWorker(svc, q)}
 
-	// The dispatcher's enqueuer is injected later via SetRiverClient (the shared
+	// The dispatcher's enqueuer is injected later via BindRiverClient (the shared
 	// client is built by the composition root once both subsystems have
 	// contributed their queue + worker). Until then Enqueuer is nil and the
 	// dispatcher skips dispatch — the state tests rely on (they drive Worker.Run).

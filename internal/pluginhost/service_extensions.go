@@ -20,6 +20,7 @@ func WithNotificationService(service pkgplugins.Notifier) Option {
 func (h *Host) SetNotificationService(service pkgplugins.Notifier) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetNotificationService")
 	h.notifications = service
 }
 
@@ -41,6 +42,7 @@ func WithSchedulerService(service SchedulerBackend) Option {
 func (h *Host) SetSchedulerService(service SchedulerBackend) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetSchedulerService")
 	h.scheduler = service
 }
 
@@ -62,6 +64,7 @@ func WithStateStore(store StateStoreBackend) Option {
 func (h *Host) SetStateStore(store StateStoreBackend) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetStateStore")
 	h.stateStore = store
 }
 
@@ -83,6 +86,7 @@ func WithAuthService(service pkgplugins.Auth) Option {
 func (h *Host) SetAuthService(service pkgplugins.Auth) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetAuthService")
 	h.authService = service
 }
 
@@ -104,6 +108,7 @@ func WithChannelRuntimeServices(services pkgplugins.ChannelPlatform) Option {
 func (h *Host) SetChannelRuntimeServices(services pkgplugins.ChannelPlatform) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetChannelRuntimeServices")
 	h.channelRuntime = services
 }
 
@@ -163,6 +168,7 @@ func WithSkillStore(store skills.Store) Option {
 func (h *Host) SetSkillStore(store skills.Store) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.requireUnsealedLocked("SetSkillStore")
 	h.skillStore = store
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -45,6 +46,13 @@ type Service struct {
 // rejected (there is nowhere to store the secret).
 func NewService(db DB, vault Vault) *Service {
 	return &Service{db: db, vault: vault}
+}
+
+// NewServiceForPool builds a Service backed by the given connection pool,
+// owning construction of its sqlc query set. vault may be nil, in which case
+// bearer auth is rejected (there is nowhere to store the secret).
+func NewServiceForPool(pool *pgxpool.Pool, vault Vault) *Service {
+	return NewService(sqlc.New(pool), vault)
 }
 
 // CreateInput describes a new registration. Token is the raw bearer token,

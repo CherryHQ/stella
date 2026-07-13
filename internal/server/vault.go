@@ -27,7 +27,7 @@ type vaultEntryResponse struct {
 // ListScopedVaultEntries handles GET /api/vault.
 func (s *Server) ListScopedVaultEntries(w http.ResponseWriter, r *http.Request, params apiserver.ListScopedVaultEntriesParams) {
 	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		writeCapabilityUnavailable(w, capVault)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -71,7 +71,7 @@ func (s *Server) ListScopedVaultEntries(w http.ResponseWriter, r *http.Request, 
 // GetScopedVaultEntry handles GET /api/vault/{name}.
 func (s *Server) GetScopedVaultEntry(w http.ResponseWriter, r *http.Request, name string, params apiserver.GetScopedVaultEntryParams) {
 	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		writeCapabilityUnavailable(w, capVault)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -113,7 +113,7 @@ func (s *Server) GetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 // SetScopedVaultEntry handles PUT /api/vault/{name}.
 func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, name string) {
 	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		writeCapabilityUnavailable(w, capVault)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -181,7 +181,7 @@ func (s *Server) SetScopedVaultEntry(w http.ResponseWriter, r *http.Request, nam
 // DeleteScopedVaultEntry handles DELETE /api/vault/{name}.
 func (s *Server) DeleteScopedVaultEntry(w http.ResponseWriter, r *http.Request, name string, params apiserver.DeleteScopedVaultEntryParams) {
 	if s.vaultSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "vault not configured")
+		writeCapabilityUnavailable(w, capVault)
 		return
 	}
 	info := UserFromContext(r.Context())

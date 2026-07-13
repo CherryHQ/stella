@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -123,10 +124,14 @@ func WithProjectEnsurerPM(fn ProjectEnsurerFunc) PoolManagerOption {
 // from the config Store and creates a Service (session.Registry + runtime.Runtime)
 // per agent.
 type PoolManager struct {
-	services                 map[string]*Service
-	store                    config.Store
-	mem                      memory.Provider
-	mu                       sync.RWMutex
+	services map[string]*Service
+	store    config.Store
+	mem      memory.Provider
+	mu       sync.RWMutex
+	// started is set true when StartAll runs. The one-shot pre-start binds
+	// (Bind* below) refuse to run once started, while the dynamic reconfigure
+	// surface (ReloadPlugin*/SyncAgent/Invalidate*) stays available afterward.
+	started                  bool
 	idleTimeout              time.Duration
 	compaction               CompactionConfig
 	builtinTools             []BuiltinTool
@@ -164,17 +169,44 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 	return pm
 }
 
-func (pm *PoolManager) SetOAuthRegistry(r *oauth.ProviderRegistry) {
+// BindOAuthRegistry binds the OAuth provider registry before StartAll. It is a
+// one-shot pre-start bind: it rejects a nil registry (missing), a second bind
+// (duplicate), and any bind after StartAll (late).
+func (pm *PoolManager) BindOAuthRegistry(r *oauth.ProviderRegistry) error {
+	if r == nil {
+		return errors.New("agent: BindOAuthRegistry requires a non-nil registry")
+	}
 	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.started {
+		return errors.New("agent: BindOAuthRegistry after StartAll")
+	}
+	if pm.oauthRegistry != nil {
+		return errors.New("agent: OAuth registry already bound")
+	}
 	pm.oauthRegistry = r
 	if pm.tokenManager != nil {
 		pm.tokenManager.SetRegistry(r)
 	}
-	pm.mu.Unlock()
+	return nil
 }
 
-func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnvLoader) {
+// BindVaultEnvLoader binds the sandbox vault env loader (and the derived OAuth
+// token manager) before StartAll. One-shot pre-start bind: rejects nil
+// (missing), a second bind (duplicate), and any bind after StartAll (late).
+// Because it runs before agents start, no runner rebuild is needed.
+func (pm *PoolManager) BindVaultEnvLoader(v sandbox.VaultEnvLoader) error {
+	if v == nil {
+		return errors.New("agent: BindVaultEnvLoader requires a non-nil loader")
+	}
 	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.started {
+		return errors.New("agent: BindVaultEnvLoader after StartAll")
+	}
+	if pm.vaultEnvLoader != nil {
+		return errors.New("agent: vault env loader already bound")
+	}
 	pm.vaultEnvLoader = v
 	if vs, ok := v.(oauth.VaultStore); ok {
 		pm.tokenManager = oauth.NewTokenManager(vs)
@@ -182,32 +214,27 @@ func (pm *PoolManager) SetVaultEnvLoader(ctx context.Context, v sandbox.VaultEnv
 			pm.tokenManager.SetRegistry(pm.oauthRegistry)
 		}
 	}
-	services := make(map[string]*Service, len(pm.services))
-	maps.Copy(services, pm.services)
-	pm.mu.Unlock()
-
-	for agentID := range services {
-		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
-			pm.log.Error("failed to rebuild factory after vault loader set", "agent_id", agentID, "error", err)
-		}
-	}
+	return nil
 }
 
-// SetMCPToolProvider wires (or replaces) the MCP tool provider and rebuilds
-// every runner factory so existing agents pick up external MCP-server tools.
-// It is called after the DB and vault are ready, mirroring SetVaultEnvLoader.
-func (pm *PoolManager) SetMCPToolProvider(ctx context.Context, p MCPToolProvider) {
-	pm.mu.Lock()
-	pm.mcpToolProvider = p
-	services := make(map[string]*Service, len(pm.services))
-	maps.Copy(services, pm.services)
-	pm.mu.Unlock()
-
-	for agentID := range services {
-		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
-			pm.log.Error("failed to rebuild factory after mcp provider set", "agent_id", agentID, "error", err)
-		}
+// BindMCPToolProvider binds the MCP tool provider before StartAll. One-shot
+// pre-start bind: rejects nil (missing), a second bind (duplicate), and any bind
+// after StartAll (late). No runner rebuild is needed because agents have not yet
+// started.
+func (pm *PoolManager) BindMCPToolProvider(p MCPToolProvider) error {
+	if p == nil {
+		return errors.New("agent: BindMCPToolProvider requires a non-nil provider")
 	}
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.started {
+		return errors.New("agent: BindMCPToolProvider after StartAll")
+	}
+	if pm.mcpToolProvider != nil {
+		return errors.New("agent: MCP tool provider already bound")
+	}
+	pm.mcpToolProvider = p
+	return nil
 }
 
 // HookPlugins returns a snapshot of the active hook plugins: the reloadable
@@ -224,6 +251,16 @@ func (pm *PoolManager) HookPlugins() []hooks.HookPlugin {
 
 // StartAll reads enabled agents from the store and creates a Service per agent.
 func (pm *PoolManager) StartAll(ctx context.Context) error {
+	// Seal the pre-start binds: after this point the static Vault/MCP/OAuth
+	// capabilities and builtin tools are fixed. StartAll is one-shot.
+	pm.mu.Lock()
+	if pm.started {
+		pm.mu.Unlock()
+		return errors.New("agent: PoolManager.StartAll called more than once")
+	}
+	pm.started = true
+	pm.mu.Unlock()
+
 	if pm.pluginHooksBuilder != nil {
 		pm.hookPlugins = pm.pluginHooksBuilder(ctx)
 	}
@@ -604,21 +641,27 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 	})
 }
 
-// AddBuiltinTool appends a tool and rebuilds all service factories.
-func (pm *PoolManager) AddBuiltinTool(ctx context.Context, tool tools.Tool) error {
-	pm.mu.Lock()
-	pm.builtinTools = append(pm.builtinTools, BuiltinTool{Tool: tool})
-	agentIDs := make([]string, 0, len(pm.services))
-	for id := range pm.services {
-		agentIDs = append(agentIDs, id)
+// AddBuiltinTool appends a builtin tool before StartAll. It is a one-shot
+// pre-start bind: it rejects a nil tool, a duplicate tool name, and any add
+// after StartAll (post-start rejection), since the builtin-tool set is sealed
+// once agents start. Runtime tool changes go through the plugin-tool path
+// (pluginToolsBuilder / ReloadPluginTools), not here.
+func (pm *PoolManager) AddBuiltinTool(_ context.Context, tool tools.Tool) error {
+	if tool == nil {
+		return errors.New("agent: AddBuiltinTool requires a non-nil tool")
 	}
-	pm.mu.Unlock()
-
-	for _, agentID := range agentIDs {
-		if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
-			pm.log.Error("failed to rebuild factory after adding builtin tool", "agent_id", agentID, "error", err)
+	name := tool.Definition().Name
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.started {
+		return fmt.Errorf("agent: AddBuiltinTool(%q) after StartAll", name)
+	}
+	for _, bt := range pm.builtinTools {
+		if bt.Tool != nil && bt.Tool.Definition().Name == name {
+			return fmt.Errorf("agent: builtin tool %q already registered", name)
 		}
 	}
+	pm.builtinTools = append(pm.builtinTools, BuiltinTool{Tool: tool})
 	return nil
 }
 

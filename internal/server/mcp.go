@@ -36,7 +36,7 @@ func mcpServerResponse(reg mcp.Registration) apitypes.MCPServer {
 // ListScopedMCPServers handles GET /api/mcp/servers.
 func (s *Server) ListScopedMCPServers(w http.ResponseWriter, r *http.Request, params apiserver.ListScopedMCPServersParams) {
 	if s.mcpSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "mcp not configured")
+		writeCapabilityUnavailable(w, capMCP)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -74,7 +74,7 @@ func (s *Server) ListScopedMCPServers(w http.ResponseWriter, r *http.Request, pa
 // CreateScopedMCPServer handles POST /api/mcp/servers.
 func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 	if s.mcpSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "mcp not configured")
+		writeCapabilityUnavailable(w, capMCP)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -138,7 +138,7 @@ func (s *Server) CreateScopedMCPServer(w http.ResponseWriter, r *http.Request) {
 // UpdateScopedMCPServer handles PATCH /api/mcp/servers/{id}.
 func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, id string, params apiserver.UpdateScopedMCPServerParams) {
 	if s.mcpSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "mcp not configured")
+		writeCapabilityUnavailable(w, capMCP)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -224,7 +224,7 @@ func (s *Server) UpdateScopedMCPServer(w http.ResponseWriter, r *http.Request, i
 // DeleteScopedMCPServer handles DELETE /api/mcp/servers/{id}.
 func (s *Server) DeleteScopedMCPServer(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteScopedMCPServerParams) {
 	if s.mcpSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "mcp not configured")
+		writeCapabilityUnavailable(w, capMCP)
 		return
 	}
 	info := UserFromContext(r.Context())

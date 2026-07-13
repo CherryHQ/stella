@@ -130,7 +130,7 @@ func RegisterRiverWorker(workers *river.Workers, svc *Service) {
 // newSchedulerRiverClient builds a self-contained River client that both works
 // the scheduler queue and hosts its periodic jobs. Used when the Service owns its
 // River client (the default / test path); production injects a shared client via
-// SetRiverClient instead (WithExternalRiver). s.river is assigned by the caller.
+// BindRiverClient instead (WithExternalRiver). s.river is assigned by the caller.
 func newSchedulerRiverClient(s *Service, pool *pgxpool.Pool) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	RegisterRiverWorker(workers, s)
@@ -144,6 +144,11 @@ func newSchedulerRiverClient(s *Service, pool *pgxpool.Pool) (*river.Client[pgx.
 // Caller must hold s.mu. The one-time insert runs on s.lifeCtx() (matching
 // unscheduleRef) so it is never handed a nil context before Start.
 func (s *Service) scheduleJob(job Job) error {
+	// Refuse to arm new River work once a graceful drain has begun. Callers hold
+	// s.mu, so the flag read is race-free with Quiesce.
+	if s.quiescing {
+		return ErrSchedulerQuiescing
+	}
 	switch {
 	case job.Schedule.Cron != "":
 		sched, err := cron.ParseStandard(job.Schedule.Cron)
