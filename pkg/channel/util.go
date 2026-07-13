@@ -37,6 +37,12 @@ Other commands
 If a short phrase is unclear, Stella treats it as a normal chat message.
 Just send a message to get started.`
 
+// GroupCompactUnsupportedMessage is the shared reply when a user asks to compact
+// a group chat. Group memory is assembled from the shared event log rather than a
+// per-agent LCM conversation, so manual compaction does not apply. Both the web
+// group endpoint and the shared channel command handler use this text.
+const GroupCompactUnsupportedMessage = "⚠️ Group memory is managed automatically from the shared event log, so manual compaction is not available in group chats."
+
 // SplitMessage splits text into chunks that fit within maxLen.
 // It tries to split at newline boundaries and avoids cutting multi-byte
 // UTF-8 characters.

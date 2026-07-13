@@ -13,9 +13,9 @@ import (
 )
 
 const createConversation = `-- name: CreateConversation :one
-INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at
+INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, group_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id
 `
 
 type CreateConversationParams struct {
@@ -29,6 +29,7 @@ type CreateConversationParams struct {
 	LastActive time.Time   `json:"last_active"`
 	AgentID    pgtype.Text `json:"agent_id"`
 	UserID     pgtype.Text `json:"user_id"`
+	GroupID    pgtype.Text `json:"group_id"`
 }
 
 func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversationParams) (CtxConversation, error) {
@@ -43,6 +44,7 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		arg.LastActive,
 		arg.AgentID,
 		arg.UserID,
+		arg.GroupID,
 	)
 	var i CtxConversation
 	err := row.Scan(
@@ -59,12 +61,13 @@ func (q *Queries) CreateConversation(ctx context.Context, arg CreateConversation
 		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupID,
 	)
 	return i, err
 }
 
 const getConversation = `-- name: GetConversation :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE id = $1
   AND user_id = $2
   AND agent_id IS NOT DISTINCT FROM $3
@@ -93,6 +96,7 @@ func (q *Queries) GetConversation(ctx context.Context, arg GetConversationParams
 		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupID,
 	)
 	return i, err
 }
@@ -116,7 +120,7 @@ func (q *Queries) GetConversationAgentBySessionID(ctx context.Context, arg GetCo
 }
 
 const getConversationBySessionID = `-- name: GetConversationBySessionID :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE session_id = $1
   AND user_id = $2
   AND agent_id IS NOT DISTINCT FROM $3
@@ -145,12 +149,13 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConvers
 		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupID,
 	)
 	return i, err
 }
 
 const getMainConversationByProject = `-- name: GetMainConversationByProject :one
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE project_id = $1
   AND user_id = $2
   AND agent_id IS NOT DISTINCT FROM $3
@@ -180,6 +185,7 @@ func (q *Queries) GetMainConversationByProject(ctx context.Context, arg GetMainC
 		&i.UserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.GroupID,
 	)
 	return i, err
 }
@@ -219,7 +225,7 @@ func (q *Queries) ListAgentConversationLastActive(ctx context.Context, userID pg
 }
 
 const listConversations = `-- name: ListConversations :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE user_id = $1
   AND ($2::text IS NULL OR agent_id = $2)
   AND archived = false
@@ -254,6 +260,7 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -266,7 +273,7 @@ func (q *Queries) ListConversations(ctx context.Context, arg ListConversationsPa
 }
 
 const listConversationsAll = `-- name: ListConversationsAll :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE user_id = $1
   AND ($2::text IS NULL OR agent_id = $2)
 ORDER BY last_active DESC
@@ -300,6 +307,7 @@ func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversation
 			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -312,7 +320,7 @@ func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversation
 }
 
 const listConversationsByKind = `-- name: ListConversationsByKind :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC
 `
 
 type ListConversationsByKindParams struct {
@@ -344,6 +352,7 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -356,7 +365,7 @@ func (q *Queries) ListConversationsByKind(ctx context.Context, arg ListConversat
 }
 
 const listConversationsFiltered = `-- name: ListConversationsFiltered :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE user_id = $1
   AND agent_id IS NOT DISTINCT FROM $2
   AND ($3 != 0 OR archived = false)
@@ -413,6 +422,7 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -425,12 +435,15 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 }
 
 const listConversationsForReviewByAgent = `-- name: ListConversationsForReviewByAgent :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE agent_id = $1
   AND archived = false
+  AND user_id IS NOT NULL AND user_id <> ''
 ORDER BY last_active DESC
 `
 
+// Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
+// and such rows were never review candidates.
 func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID pgtype.Text) ([]CtxConversation, error) {
 	rows, err := q.db.Query(ctx, listConversationsForReviewByAgent, agentID)
 	if err != nil {
@@ -454,6 +467,7 @@ func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID
 			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -466,9 +480,10 @@ func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID
 }
 
 const listConversationsForReviewFiltered = `-- name: ListConversationsForReviewFiltered :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at FROM ctx_conversation
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE agent_id = $1
   AND archived = false
+  AND user_id IS NOT NULL AND user_id <> ''
   AND ($2::text IS NULL OR kind = $2)
   AND ($3 = 0 OR project_id IS NULL)
   AND ($4::text IS NULL OR project_id = $4)
@@ -485,6 +500,8 @@ type ListConversationsForReviewFilteredParams struct {
 	Limit           interface{} `json:"limit"`
 }
 
+// Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
+// and such rows were never review candidates.
 func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]CtxConversation, error) {
 	rows, err := q.db.Query(ctx, listConversationsForReviewFiltered,
 		arg.AgentID,
@@ -515,6 +532,7 @@ func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg Li
 			&i.UserID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.GroupID,
 		); err != nil {
 			return nil, err
 		}
@@ -593,11 +611,17 @@ SET
     WHEN $4::text IS NOT NULL AND (project_id IS NULL OR project_id != $4) THEN $4
     ELSE project_id
   END,
+  -- Make a legacy canonical group row durable: adopt the supplied group_id only
+  -- when the stored value is NULL. Never overwrite or clear an existing group_id.
+  group_id = CASE
+    WHEN group_id IS NULL AND $5::uuid IS NOT NULL THEN $5
+    ELSE group_id
+  END,
   last_active = now(),
   updated_at = now()
-WHERE session_id = $5
-  AND user_id = $6
-  AND agent_id IS NOT DISTINCT FROM $7
+WHERE session_id = $6
+  AND user_id = $7
+  AND agent_id IS NOT DISTINCT FROM $8
 `
 
 type UpdateConversationInfoBySessionIDParams struct {
@@ -605,6 +629,7 @@ type UpdateConversationInfoBySessionIDParams struct {
 	Archived  bool        `json:"archived"`
 	Kind      pgtype.Text `json:"kind"`
 	ProjectID pgtype.Text `json:"project_id"`
+	GroupID   pgtype.Text `json:"group_id"`
 	SessionID string      `json:"session_id"`
 	UserID    pgtype.Text `json:"user_id"`
 	AgentID   pgtype.Text `json:"agent_id"`
@@ -616,6 +641,7 @@ func (q *Queries) UpdateConversationInfoBySessionID(ctx context.Context, arg Upd
 		arg.Archived,
 		arg.Kind,
 		arg.ProjectID,
+		arg.GroupID,
 		arg.SessionID,
 		arg.UserID,
 		arg.AgentID,

@@ -84,7 +84,7 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 
-	writeData(w, http.StatusCreated, toSessionResponse(info))
+	writeData(w, http.StatusCreated, sessionResponseFromInfo(info))
 }
 
 func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -514,6 +514,23 @@ type sessionDetailResponse struct {
 }
 
 func toSessionResponse(info memory.SessionInfo) sessionResponse {
+	return sessionResponse{
+		ID:         info.ID,
+		Channel:    info.Channel,
+		Kind:       info.Kind,
+		ProjectID:  info.ProjectID,
+		Title:      info.Title,
+		AgentID:    info.AgentID,
+		UserID:     info.UserID,
+		CreatedAt:  info.CreatedAt.UTC(),
+		LastActive: info.LastActive.UTC(),
+		Archived:   info.Archived,
+	}
+}
+
+// sessionResponseFromInfo renders a session-domain Info directly, without
+// round-tripping through the memory persistence record just to build a DTO.
+func sessionResponseFromInfo(info session.Info) sessionResponse {
 	return sessionResponse{
 		ID:         info.ID,
 		Channel:    info.Channel,
@@ -1975,7 +1992,11 @@ func handleSessionCommand(ctx context.Context, svc *agent.Service, si memory.Ses
 	}
 	switch cmd {
 	case "/compact":
-		summary, err := svc.CompactSession(ctx, si)
+		info, err := session.InfoFromRecord(si)
+		if err != nil {
+			return fmt.Sprintf("Compaction failed: %v", err), true
+		}
+		summary, err := svc.CompactSession(ctx, info)
 		if err != nil {
 			return fmt.Sprintf("Compaction failed: %v", err), true
 		}

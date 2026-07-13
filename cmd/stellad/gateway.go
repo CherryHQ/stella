@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"filippo.io/age"
+
 	ucli "github.com/urfave/cli/v2"
 
 	"golang.org/x/sync/errgroup"
@@ -23,17 +25,17 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/agentshadow"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
-	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
@@ -74,6 +76,18 @@ func serverAction(c *ucli.Context) error {
 		return err
 	}
 
+	// Parse the dynamic login-provider config (AUTH_OAUTH_*, LOCAL_*) at this same
+	// startup boundary, alongside ServerConfig, so the oidc package reads no
+	// environment of its own and a misconfigured provider fails fast here. The
+	// resolved base URL supplies OAuth redirect defaults.
+	adminHost := c.String("host")
+	adminPort := c.Int("port")
+	baseURL := resolveBaseURL(cfg.BaseURL, adminHost, adminPort)
+	loginCfg, err := oidc.LoadLoginConfig(os.LookupEnv, baseURL)
+	if err != nil {
+		return fmt.Errorf("load login config: %w", err)
+	}
+
 	// The vault key is required to run the server. Check it from the parsed
 	// config so there is a single reader; the key is a secret and never appears
 	// in this error text.
@@ -112,18 +126,14 @@ func serverAction(c *ucli.Context) error {
 	endStartupWatch := func() { handoff.Do(func() { close(startupDone) }) }
 	// Release the watcher even when startup fails before runServer hands off.
 	defer endStartupWatch()
-	go func() {
-		select {
-		case <-sigCh:
-			slog.Info("shutdown signal during startup; aborting")
-			cancel()
-		case <-startupDone:
-		}
-	}()
+	go watchStartupSignal(sigCh, startupDone, func() {
+		slog.Info("shutdown signal during startup; aborting")
+		cancel()
+	})
 
 	startDiagnostics(ctx, cfg.Diagnostics.PprofAddr)
 
-	s, err := setup(ctx, cfg)
+	s, err := setup(ctx, cfg, baseURL)
 	if err != nil {
 		cancel()
 		return err
@@ -168,14 +178,42 @@ func serverAction(c *ucli.Context) error {
 	}
 	switchFn := func(_, _ string) error { return nil }
 
-	return runServer(s.ctx, s, listFn, switchFn, c.String("host"), c.Int("port"), sigCh, endStartupWatch)
+	return runServer(s.ctx, s, loginCfg, baseURL, listFn, switchFn, adminHost, adminPort, sigCh, endStartupWatch)
+}
+
+// watchStartupSignal bridges signal ownership from startup to the drain
+// supervisor. Until startupDone is closed, the first SIGINT/SIGTERM aborts
+// startup via abort (cancelling the base context so partially-started subsystems
+// unwind). Once startup completes, the drain supervisor owns signal handling;
+// but this watcher and the supervisor can both be selecting on sigCh at the
+// instant of handoff, and Go's select picks a ready case at random. If this
+// watcher wins that race AFTER startupDone is closed, aborting would be wrong and
+// would lose the drain, so it hands the signal back to sigCh (buffered, and this
+// receive just freed a slot, so the nonblocking send succeeds) for the drain
+// supervisor to consume. Returns as soon as it consumes a signal or startup ends,
+// so it never leaks.
+func watchStartupSignal(sigCh chan os.Signal, startupDone <-chan struct{}, abort func()) {
+	select {
+	case sig := <-sigCh:
+		select {
+		case <-startupDone:
+			// Startup already finished; the drain supervisor owns this signal.
+			select {
+			case sigCh <- sig:
+			default:
+			}
+		default:
+			abort()
+		}
+	case <-startupDone:
+	}
 }
 
 // runServer starts every subsystem and blocks until shutdown. sigCh delivers
 // SIGINT/SIGTERM (registered by the caller, who owns signal.Stop); onServing is
 // called exactly once, when startup is complete and the two-phase drain
 // supervisor has taken over signal handling from the caller's startup watcher.
-func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int, sigCh <-chan os.Signal, onServing func()) error {
+func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig, baseURL string, listFn func() []pkgchannel.ModelOption, switchFn func(string, string) error, adminHost string, adminPort int, sigCh <-chan os.Signal, onServing func()) error {
 	// workCtx is the errgroup parent. Graceful drain cancels it only AFTER the
 	// HTTP server has drained, so the LIFO defer chain (goal tick/dispatcher,
 	// scheduler, riverClient.Stop) then tears subsystems down in order. A
@@ -186,7 +224,7 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	defer workCancel()
 	g, gctx := errgroup.WithContext(workCtx)
 
-	warnDeploymentBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort), s.cfg.OIDC.IssuerURL)
+	warnDeploymentBaseURL(baseURL, s.cfg.OIDC.IssuerURL, len(loginConfig.OAuth) > 0)
 
 	// Seed default data (channels, providers, default agent) if absent.
 	if err := s.store.Seed(gctx); err != nil {
@@ -195,7 +233,14 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Create auth store and policy engine for channel bots and Web UI.
 	as := appdb.NewAuthStore(s.db)
-	engine, err := auth.NewEngine(gctx, as)
+
+	// #707 subphase C — shadow authorization. Build exactly one revision-bound
+	// PostgreSQL Authorizer over the shared pool (before ingress) and inject it
+	// into the legacy engine's agent read/execute path in shadow only. It emits
+	// diagnostics on any mismatch/error but never changes the legacy decision;
+	// the whole seam is deleted when the Agent vertical cuts over (#709).
+	agentShadow := agentshadow.New(policy.New(s.db))
+	engine, err := auth.NewEngine(gctx, as, auth.WithAgentShadow(agentShadow))
 	if err != nil {
 		return fmt.Errorf("create auth engine: %w", err)
 	}
@@ -206,78 +251,37 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 		return fmt.Errorf("create link code store: %w", err)
 	}
 
-	// Admin server is always created so channel stop functions can be registered
-	// even when the panel is disabled.
-	adminSrv := server.New(gctx, s.store, as, engine, s.mem, s.db, linkCodes, s.poolManager, s.pluginHost)
-	adminSrv.SetBuiltinTools(s.builtinTools)
-	if s.credSvc != nil {
-		adminSrv.SetCredentialsService(s.credSvc)
-	}
-	if s.shareSvc != nil {
-		adminSrv.SetShareService(s.shareSvc)
-	}
-	if s.recallySvc != nil {
-		adminSrv.SetRecallyService(s.recallySvc)
-	}
-	adminSrv.SetBaseURL(resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort))
-	if s.schedulerSvc != nil {
-		adminSrv.SetSchedulerService(s.schedulerSvc)
-	}
-	if s.goalSvc != nil {
-		adminSrv.SetGoalService(s.goalSvc)
-	}
-	if s.workflowSvc != nil {
-		adminSrv.SetWorkflowService(s.workflowSvc)
-	}
+	// Unified bearer credential front door (PAT/OAuth storage) + OAuth2
+	// authorization server, built once by the composition root and injected into
+	// the admin server via Deps. Server.New never constructs the credential
+	// surface itself.
+	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(s.db, slog.With("component", "admin"))
 
-	// Wire the shared credentials service: inject invalidator so token
-	// refresh propagates to running pools.
-	credSvc := adminSrv.CredentialsService()
-	credSvc.SetInvalidator(s.poolManager)
-	if s.oauthRegistry != nil {
-		credSvc.SetRegistry(s.oauthRegistry)
-		s.poolManager.SetOAuthRegistry(s.oauthRegistry)
-	}
-
-	adminSrv.InitCredentialFrontDoor()
-
-	// Wire vault service if STELLA_VAULT_KEY was valid during setup.
+	// Vault recipient for the admin server (new-user age keygen) and the channel
+	// coordinator. The MCP service and the pool-side vault env loader / MCP tool
+	// provider were bound in setup, before StartAll.
 	var coordOpts []channel.CoordinatorOption
-	var mcpVault mcp.Vault // nil when the vault is unavailable; MCP bearer auth then rejected
+	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
 	if s.vaultSvc != nil {
-		mcpVault = s.vaultSvc
-		adminSrv.SetVaultService(s.vaultSvc)
-		adminSrv.SetVaultRecipient(s.vaultSvc.MasterRecipient())
-		s.poolManager.SetVaultEnvLoader(gctx, s.vaultSvc)
-		coordOpts = append(coordOpts, channel.WithVaultRecipient(s.vaultSvc.MasterRecipient()))
+		vaultRecipient = s.vaultSvc.MasterRecipient()
+		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))
 		coordOpts = append(coordOpts, channel.WithVaultService(s.vaultSvc))
 	}
 
-	// Wire the MCP client: one registration service shared by the HTTP API
-	// (add/list/remove) and the agent runtime (tool exposure). Servers using
-	// auth_type=none work even without the vault; bearer auth requires it.
-	mcpSvc := mcp.NewService(sqlc.New(s.db), mcpVault)
-	adminSrv.SetMCPService(mcpSvc)
-	s.poolManager.SetMCPToolProvider(gctx, mcp.NewToolProvider(mcpSvc))
-
-	// Wire authentication (external OIDC/OAuth providers and local password auth).
+	// Login authentication (external OIDC/OAuth providers and local password
+	// auth). The identity stores it produces back the auth handlers.
 	oidcStore := appdb.NewOIDCStore(s.db)
 	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
 		DB:         s.db,
-		BaseURL:    resolveBaseURL(s.cfg.BaseURL, adminHost, adminPort),
 		VaultKey:   s.cfg.Vault.Key,
 		OIDC:       s.cfg.OIDC,
+		Login:      loginConfig,
 		AuthStores: oidcStore,
 	})
 	if err != nil {
 		return fmt.Errorf("oidc: setup: %w", err)
 	}
-	adminSrv.SetLoginIdentityStore(oidcStore)
-	adminSrv.SetUserStore(oidcStore)
-	adminSrv.SetSessionStore(oidcStore)
-	adminSrv.SetCredentialStore(oidcStore)
-	adminSrv.SetOIDCAuth(oidcResult)
 	slog.Info("oidc: authentication configured")
 
 	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
@@ -288,10 +292,6 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	}
 
 	elStore := eventlog.NewStore(s.db)
-	adminSrv.SetEventLogStore(elStore)
-	adminSrv.SetArbiter(channel.NewArbiter(channel.ArbiterConfig{
-		MaxRepliesPerTrigger: 100,
-	}))
 	botRegistry := channel.NewBotIdentityRegistry()
 	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
@@ -301,70 +301,91 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	coordOpts = append(coordOpts, channel.WithArbiter(channel.NewArbiter(channel.ArbiterConfig{
 		MaxRepliesPerTrigger: 1,
 	})))
-	coordOpts = append(coordOpts, channel.WithGroupMemberLister(
-		channel.FuncGroupMemberLister(func(ctx context.Context, groupID string) ([]channel.GroupMember, error) {
-			rows, err := sqlc.New(s.db).ListGroupMembers(ctx, groupID)
-			if err != nil {
-				return nil, err
-			}
-			members := make([]channel.GroupMember, len(rows))
-			for i, r := range rows {
-				members[i] = channel.GroupMember{AgentID: r.AgentID, ReplyChannelID: r.ReplyChannelID}
-			}
-			return members, nil
-		}),
-	))
+	coordOpts = append(coordOpts, channel.WithGroupMemberLister(channel.NewDBGroupMemberLister(s.db)))
 
-	// Create the coordinator that implements MessageHandler for all channels.
-	coordinator := channel.NewCoordinator(
-		s.poolManager,
-		s.store,
-		listFn,
-		switchFn,
-		coordOpts...,
-	)
-	groupDispatcher := channel.NewGroupDispatcher(s.db, coordinator, publisherRegistry)
-	coordinator.SetGroupDispatcher(groupDispatcher)
-	adminSrv.SetGroupDispatcher(groupDispatcher)
-	g.Go(func() error {
-		if err := groupDispatcher.Run(gctx); err != nil && !errors.Is(err, context.Canceled) {
-			return err
-		}
-		return nil
+	// The channel domain builds the coordinator and its durable group dispatcher
+	// together and closes the coordinator<->dispatcher cycle; the HTTP server
+	// receives only the narrow group-dispatch port (Deps.GroupDispatcher).
+	coordination := channel.NewCoordination(s.db, s.poolManager, s.store, listFn, switchFn, coordOpts...)
+	coordinator := coordination.Coordinator
+	groupDispatcher := coordination.GroupDispatcher
+
+	// Assemble the immutable, validated admin-server dependency set and construct
+	// the server exactly once. Every shared instance above is passed in; the
+	// server creates no shadow service, reads no environment, and has no setters.
+	adminSrv, err := server.New(gctx, server.Deps{
+		Store:               s.store,
+		DB:                  s.db,
+		AuthStore:           as,
+		Mem:                 s.mem,
+		Engine:              engine,
+		LinkCodes:           linkCodes,
+		PoolManager:         s.poolManager,
+		PluginHost:          s.pluginHost,
+		BuiltinTools:        s.builtinTools,
+		BaseURL:             baseURL,
+		Credentials:         s.credSvc,
+		Email:               s.emailSvc,
+		Share:               s.shareSvc,
+		Recally:             s.recallySvc,
+		CredentialFrontDoor: credFrontDoor,
+		OAuthAuthServer:     oauthAuthServer,
+		EventLog:            elStore,
+		GroupDispatcher:     groupDispatcher,
+		Vault:               s.vaultSvc,
+		VaultRecipient:      vaultRecipient,
+		MCP:                 s.mcpSvc,
+		Scheduler:           s.schedulerSvc,
+		Goal:                s.goalSvc,
+		Workflow:            s.workflowSvc,
+		OIDC: server.OIDCDeps{
+			Providers:   oidcResult.Providers,
+			AuthSvc:     oidcResult.AuthSvc,
+			SessionMgr:  oidcResult.SessionMgr,
+			StateMgr:    oidcResult.StateMgr,
+			LocalAuth:   oidcResult.LocalAuth,
+			Logins:      oidcStore,
+			Users:       oidcStore,
+			Sessions:    oidcStore,
+			Credentials: oidcStore,
+		},
 	})
+	if err != nil {
+		return fmt.Errorf("build admin server: %w", err)
+	}
+
+	// ---- Static callbacks + backend startup (BEFORE any ingress) ------------
+	// Everything an inbound request or a River job might touch is wired and
+	// started here, so ingress (HTTP Serve, channel runtimes, group dispatch)
+	// never observes a half-wired backend — the #708 no-late-bind/ingress-window
+	// contract. The three setters below are mutex-guarded one-time writes that
+	// run before any concurrent reader exists.
+
+	// Notification auth directory: River scheduler/goal jobs route per-user
+	// notifications through it, so it must be set before River starts.
+	s.notifier.SetAuthService(s.pluginHost.Auth())
+
+	// Channel runtime back-edge: the coordinator + notifier the managed channel
+	// runtimes reach. Set before applyManagedChannelPlugins starts any bot.
 	if s.channelRuntimeServices != nil {
 		s.channelRuntimeServices.Set(gctx, coordinator, s.notifier)
 	}
 
-	// Apply managed channel plugins at startup.
-	applyManagedChannelPlugins(gctx, s.pluginHost)
-
-	// Start Web UI server.
-	listenAddr := adminListenAddress(adminHost, adminPort)
-	ln, err := net.Listen("tcp", listenAddr)
-	if err != nil {
-		return fmt.Errorf("admin listen: %w", err)
+	// Scheduler OnJob handler MUST be wired before River starts: River may pick up
+	// a persisted scheduler job the instant it starts, and this handler is what
+	// runs it.
+	if s.schedulerSvc != nil {
+		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
 	}
-	addr := ln.Addr().String()
-	slog.Info("starting Web UI", "addr", addr)
-	fmt.Printf("Web UI running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
 
-	httpSrv := &http.Server{Handler: adminSrv.Handler()}
-	g.Go(func() error {
-		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("admin serve: %w", err)
-		}
-		return nil
-	})
-
-	// Wire auth directory into dispatcher for per-user notification routing.
-	s.notifier.SetAuthService(s.pluginHost.Auth())
+	// Final channel teardown is registered before River's stop defer so LIFO
+	// drains River first while notifier senders are still registered. It is
+	// separate from drain-time Quiesce, which stops polling but preserves accepted
+	// operations and outbound delivery.
+	defer func() { _ = s.pluginHost.Stop(context.Background()) }()
 
 	// Start the single shared River client (composition root: buildSharedRiverClient
-	// assembled it from the scheduler and goal queues). It is started before the
-	// subsystems and, because defers run LIFO, its Stop runs last — after the goal
-	// tick and the scheduler have stopped — so in-flight attempt and scheduled jobs
-	// drain gracefully with no new work being enqueued.
+	// assembled it from the scheduler and goal queues).
 	if s.riverClient != nil {
 		// Decouple River from workCtx: graceful drain cancels workCtx/gctx, but
 		// in-flight goal/scheduler agent runs must keep executing until Stop drains
@@ -374,62 +395,98 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 			return fmt.Errorf("start river client: %w", err)
 		}
 		// Stop waits for in-flight jobs, then cancels their contexts after
-		// SoftStopTimeout (STELLA_RIVER_SOFT_STOP_TIMEOUT); River logs the jobs it
-		// force-cancels. A background context means we wait for that full escalation
-		// rather than giving up early.
-		//
-		// drain ceiling: a river job that completes after gctx is cancelled may fail
-		// its downstream delivery (notifier/channel runtime captured gctx); the goal
-		// lease-reaper / outbox retry heals it. Perfect ordering would move subsystem
-		// teardown out of these defers -- deferred to the multi-replica Phase 2 when
-		// it actually matters.
+		// SoftStopTimeout (STELLA_RIVER_SOFT_STOP_TIMEOUT). Drain-time quiesce has
+		// already stopped new dispatch when this defer runs; the channel teardown
+		// defer was registered earlier, so notifier senders remain alive until River
+		// has finished draining.
 		defer func() { _ = s.riverClient.Stop(context.Background()) }()
 	}
 
-	// Wire scheduler and start it. In external-river mode Start/Stop register and
-	// tear down the scheduler's periodic and one-time jobs against the shared
-	// client but do not start or stop it.
+	// Idempotent stop-once ingress closures. Each halts a source of NEW work; they
+	// are invoked by stopIngress at the start of a graceful drain AND deferred for
+	// the crash / startup-error teardown path, so double invocation is safe.
+	var quiesceChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce sync.Once
+	// quiesceChannelIngress stops channel polling but preserves work already
+	// accepted and the notifier senders that deliver it; the SEPARATE final Stop
+	// defer below (not sharing this once) tears the runtimes down fully.
+	quiesceChannelIngress := func() {
+		quiesceChanOnce.Do(func() { s.pluginHost.Quiesce(context.Background()) })
+	}
+
+	stopSchedulerDispatch := func() {}
 	if s.schedulerSvc != nil {
-		adminSrv.SetSchedulerService(s.schedulerSvc)
-		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
 		if err := s.schedulerSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start scheduler: %w", err)
 		}
 		s.schedulerSvc.EnsureBuiltinJobs()
+		// Drain stops NEW scheduled dispatch (periodic removal + late-schedule
+		// rejection) while durable one-time jobs and in-flight runs keep draining
+		// on the shared River client. The final Stop below is the lifecycle
+		// teardown; it must not share stopSchedOnce with the drain-time Quiesce.
+		stopSchedulerDispatch = func() { stopSchedOnce.Do(func() { s.schedulerSvc.Quiesce() }) }
+		// Registered before stopSchedulerDispatch so it runs AFTER it (LIFO):
+		// quiesce first, then final teardown.
 		defer func() { _ = s.schedulerSvc.Stop() }()
+		defer stopSchedulerDispatch()
 	}
 
-	// Goal execution substrate (River Phase 2a + 2b). The dispatcher enqueues
-	// claimed attempts onto the shared client (injected via SetRiverClient); its
-	// convergence tick runs as a single-leader River periodic job (StartDispatchTick)
-	// rather than a per-node in-process ticker, so the cluster runs ONE convergence
-	// loop instead of every node scanning redundantly.
-	// Shutdown (defers run LIFO): remove the periodic and quiet the dispatcher
-	// first so no new ticks/claims enqueue, then the scheduler, then drain
-	// in-flight jobs when the shared client stops.
+	// Goal execution substrate (River Phase 2a + 2b). Its convergence tick is a
+	// single-leader River periodic (StartDispatchTick). Stop order quiets the
+	// dispatcher BEFORE removing the periodic, so a tick already queued that a
+	// worker picks up during shutdown finds the dispatcher stopped and no-ops.
+	stopGoalDispatch := func() {}
 	if s.goalSvc != nil && s.riverClient != nil {
 		tick, err := s.goalSvc.StartDispatchTick()
 		if err != nil {
 			return fmt.Errorf("start goal dispatcher tick: %w", err)
 		}
-		// LIFO: quiet the dispatcher BEFORE removing the periodic, so any tick job
-		// already queued that a worker picks up during shutdown finds the dispatcher
-		// stopped and no-ops instead of claiming fresh work.
-		defer s.goalSvc.StopDispatchTick(tick)
-		defer s.goalSvc.Dispatcher.Stop()
+		stopGoalDispatch = func() {
+			stopGoalOnce.Do(func() {
+				s.goalSvc.Dispatcher.Stop()
+				s.goalSvc.StopDispatchTick(tick)
+			})
+		}
+		defer stopGoalDispatch()
 	}
 
-	// Embedding backfill periodic: a single-leader River job that drains the
-	// embedding backlog (RunOnStart kicks an initial pass). Registered against the
-	// same shared client; the defer removes it so no further firings enqueue on
-	// shutdown. Only present when the semantic lane is configured.
+	// Embedding backfill periodic (single-leader River job). Present only when the
+	// semantic lane is configured.
+	stopEmbeddingBackfill := func() {}
 	if s.embeddingSvc != nil && s.riverClient != nil {
 		handle, err := s.embeddingSvc.StartBackfill()
 		if err != nil {
 			return fmt.Errorf("start embedding backfill: %w", err)
 		}
-		defer s.embeddingSvc.StopBackfill(handle)
+		stopEmbeddingBackfill = func() { stopEmbedOnce.Do(func() { s.embeddingSvc.StopBackfill(handle) }) }
+		defer stopEmbeddingBackfill()
 	}
+
+	// ---- Ingress (starts only now, with every backend + callback ready) -----
+	// ingressCtx is a child of the errgroup context: stopIngress cancels it to
+	// halt the in-process group-dispatch loop WITHOUT cancelling workCtx, so River
+	// keeps draining in-flight jobs with outbound deps alive. A peer crash cancels
+	// gctx -> ingressCtx too, so unexpected-error teardown still holds.
+	ingressCtx, stopGroupDispatch := context.WithCancel(gctx)
+	defer stopGroupDispatch()
+
+	// The listener is bound now but not served until every backend is up.
+	listenAddr := adminListenAddress(adminHost, adminPort)
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("admin listen: %w", err)
+	}
+	addr := ln.Addr().String()
+	slog.Info("starting Web UI", "addr", addr)
+	fmt.Printf("Web UI running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
+	httpSrv := &http.Server{Handler: adminSrv.Handler()}
+
+	// Group-dispatch acceptance loop.
+	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
+	// Managed channel runtimes (bot pollers).
+	applyManagedChannelPlugins(gctx, s.pluginHost)
+	defer quiesceChannelIngress()
+	// HTTP serve — the final ingress source to come up.
+	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 
 	// Two-phase shutdown supervisor (runs OUTSIDE the errgroup). The first
 	// SIGINT/SIGTERM starts a graceful drain; a second collapses to a hard stop.
@@ -439,7 +496,19 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	// so partially-started subsystems unwind through the error path — the
 	// pre-existing abort-startup semantics. onServing hands signal ownership over.
 	drainer := &drainSequence{
-		beginDrain:   adminSrv.BeginDrain,
+		beginDrain: adminSrv.BeginDrain,
+		// Stop ALL new ingress before HTTP drains and before the work context is
+		// cancelled: group-dispatch acceptance, channel bot pollers, and every
+		// River-periodic/new-dispatch source (scheduler, goal, embedding). River
+		// workers then drain in-flight jobs with outbound deps still alive; no
+		// periodic or new dispatch runs after this point.
+		stopIngress: func() {
+			stopGroupDispatch()     // group-dispatch acceptance
+			quiesceChannelIngress() // channel / plugin runtimes (polling only)
+			stopSchedulerDispatch() // scheduler periodic + one-time dispatch
+			stopGoalDispatch()      // goal tick + dispatcher claims
+			stopEmbeddingBackfill() // embedding backfill periodic
+		},
 		httpTimeout:  s.cfg.Lifecycle.HTTPShutdownTimeout,
 		shutdownHTTP: httpSrv.Shutdown,
 		forceClose:   func() { _ = httpSrv.Close() },
@@ -458,16 +527,41 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 	return waitErr
 }
 
+// normalizeRunErr maps a Stella-owned Run(ctx) component's shutdown error to
+// nil: an orchestrated shutdown cancels the run context, so context.Canceled
+// from the loop is expected, not a failure. Any other error propagates to the
+// errgroup so it cancels peers and becomes the root error.
+func normalizeRunErr(err error) error {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
+}
+
+// normalizeServeErr maps http.Server.Serve's expected close error to nil.
+// http.ErrServerClosed means an orchestrated Shutdown/Close ran; anything else
+// is a real serve failure that must cancel peers.
+func normalizeServeErr(err error) error {
+	if err == nil || errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return fmt.Errorf("admin serve: %w", err)
+}
+
 // drainSequence runs the graceful shutdown steps in order. It is a struct of
 // side-effect hooks so the ordering can be asserted in tests without a live
-// server. The order is: flip not-ready + signal SSE (beginDrain) -> HTTP
-// shutdown within the budget -> force-close leftovers -> cancel work contexts.
+// server. The order is: flip not-ready + signal SSE (beginDrain) -> stop channel
+// ingress (stopIngress) -> HTTP shutdown within the budget -> force-close
+// leftovers -> cancel work contexts. Outbound dependencies (pools, notifier)
+// stay alive until the final cancel, so work accepted before the drain can still
+// complete and deliver.
 //
 // There is deliberately no in-process delay between not-ready and shutdown for
 // load-balancer propagation: that window is the platform's job (Kubernetes
 // preStop sleep), not the process's.
 type drainSequence struct {
 	beginDrain   func()
+	stopIngress  func()
 	httpTimeout  time.Duration
 	shutdownHTTP func(context.Context) error
 	forceClose   func()
@@ -479,15 +573,20 @@ func (d *drainSequence) run() {
 	//    observable before the listener is touched (happens-before), so a probe
 	//    can never see /readyz succeed once the drain has begun.
 	d.beginDrain()
-	// 2. Stop accepting and drain in-flight HTTP within the budget; force-close
+	// 2. Stop non-HTTP ingress (channel pollers) so no new inbound work starts,
+	//    while outbound dependencies remain alive for work already accepted.
+	if d.stopIngress != nil {
+		d.stopIngress()
+	}
+	// 3. Stop accepting and drain in-flight HTTP within the budget; force-close
 	//    anything still open when the budget is spent.
 	shutCtx, cancel := context.WithTimeout(context.Background(), d.httpTimeout)
 	defer cancel()
 	if err := d.shutdownHTTP(shutCtx); err != nil {
 		d.forceClose()
 	}
-	// 3. Cancel work contexts: gctx cancels, g.Wait returns, and the LIFO defer
-	//    chain drains the subsystems and River.
+	// 4. Cancel work contexts: gctx cancels, g.Wait returns, and the LIFO defer
+	//    chain drains River and reverse-closes the subsystems.
 	d.cancelWork()
 }
 
@@ -574,11 +673,11 @@ func resolveBaseURL(baseURL, adminHost string, adminPort int) string {
 // that emits such links is actually configured. Kubernetes charts enforce
 // STELLA_BASE_URL as a required value at the layer that knows it is behind an
 // ingress.
-func warnDeploymentBaseURL(baseURL, oidcIssuerURL string) {
+func warnDeploymentBaseURL(baseURL, oidcIssuerURL string, oauthConfigured bool) {
 	if !baseURLUnsafe(baseURL) {
 		return
 	}
-	if linkDependentFeaturesConfigured(oidcIssuerURL) {
+	if linkDependentFeaturesConfigured(oidcIssuerURL, oauthConfigured) {
 		slog.Warn("STELLA_BASE_URL is loopback/unspecified; OAuth callbacks and channel deep links will point back at this host and fail off-box. Set STELLA_BASE_URL to the public URL clients use", "base_url", baseURL)
 	}
 }
@@ -610,10 +709,10 @@ func baseURLUnsafe(raw string) bool {
 // linkDependentFeaturesConfigured reports whether a feature that emits absolute
 // links back to this server (external OIDC or an OAuth login provider) is
 // configured. The OIDC signal is the same OIDC_ISSUER_URL snapshot value that
-// drives the setup mode decision, so both agree; the dynamic AUTH_OAUTH_* probe
-// stays in the auth package.
-func linkDependentFeaturesConfigured(oidcIssuerURL string) bool {
-	return oidcIssuerURL != "" || oidc.OAuthConfiguredFromEnv()
+// drives the setup mode decision; oauthConfigured is derived from the login
+// config parsed once at the startup boundary, so both observe one generation.
+func linkDependentFeaturesConfigured(oidcIssuerURL string, oauthConfigured bool) bool {
+	return oidcIssuerURL != "" || oauthConfigured
 }
 
 func adminURLForDisplay(host string, port int, fallbackAddr string) string {

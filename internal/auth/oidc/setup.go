@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -16,12 +15,14 @@ import (
 // SetupParams contains dependencies for OIDC setup.
 type SetupParams struct {
 	DB       *pgxpool.Pool
-	BaseURL  string
 	VaultKey string
 	// OIDC is the static OIDC_* block from the server config snapshot. It drives
 	// both the external-vs-local mode decision and the external provider config,
 	// so both observe one generation.
 	OIDC config.OIDCConfig
+	// Login is the dynamic login-provider config (AUTH_OAUTH_*, LOCAL_*) parsed
+	// at the startup boundary. Setup reads no environment of its own.
+	Login LoginConfig
 	// AuthStores is a store that implements all auth store interfaces.
 	// In practice this is *db.OIDCStore.
 	AuthStores AuthStores
@@ -59,12 +60,12 @@ func Setup(ctx context.Context, p SetupParams) (*SetupResult, error) {
 	authSvc := auth.NewAuthService(p.DB, s, s, s)
 
 	if p.OIDC.IssuerURL != "" {
-		return setupExternal(ctx, p.OIDC, p.BaseURL, authSvc, sessionMgr, stateMgr)
+		return setupExternal(ctx, p.OIDC, p.Login.OAuth, authSvc, sessionMgr, stateMgr)
 	}
 	return setupLocal(ctx, p, authSvc, sessionMgr, stateMgr)
 }
 
-func setupExternal(ctx context.Context, oidcCfg config.OIDCConfig, baseURL string, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
+func setupExternal(ctx context.Context, oidcCfg config.OIDCConfig, oauthConfigs []*OAuthConfig, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
 	cfg, err := configFrom(oidcCfg)
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
@@ -74,7 +75,7 @@ func setupExternal(ctx context.Context, oidcCfg config.OIDCConfig, baseURL strin
 		return nil, fmt.Errorf("provider %q: %w", cfg.ProviderName, err)
 	}
 	providers := []auth.AuthProvider{provider}
-	oauthProviders, err := setupOAuthProviders(ctx, baseURL)
+	oauthProviders, err := setupOAuthProviders(ctx, oauthConfigs)
 	if err != nil {
 		return nil, err
 	}
@@ -104,13 +105,9 @@ func checkProviderNameConflicts(existing, added []auth.AuthProvider) error {
 	return nil
 }
 
-func setupOAuthProviders(ctx context.Context, baseURL string) ([]auth.AuthProvider, error) {
-	if !OAuthConfiguredFromEnv() {
+func setupOAuthProviders(ctx context.Context, configs []*OAuthConfig) ([]auth.AuthProvider, error) {
+	if len(configs) == 0 {
 		return nil, nil
-	}
-	configs, err := OAuthConfigsFromEnv(baseURL)
-	if err != nil {
-		return nil, fmt.Errorf("oauth providers: %w", err)
 	}
 	providers := make([]auth.AuthProvider, 0, len(configs))
 	for _, cfg := range configs {
@@ -164,15 +161,15 @@ func (p *emailDomainProvider) HandleCallback(ctx context.Context, r *http.Reques
 
 func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, sessionMgr *auth.SessionManager, stateMgr *StateManager) (*SetupResult, error) {
 	cfg := &local.Config{
-		AllowRegistration:     local.AllowRegistrationFromEnv(localPasswordEnv("ALLOW_REGISTRATION")),
+		AllowRegistration:     local.AllowRegistrationFromEnv(p.Login.Local.AllowRegistration),
 		BootstrapRegistration: true,
-		AllowedEmailDomains:   local.SplitTrimmed(localPasswordEnv("ALLOWED_EMAIL_DOMAINS")),
+		AllowedEmailDomains:   local.SplitTrimmed(p.Login.Local.AllowedEmailDomains),
 	}
 
 	s := p.AuthStores
 	localAuth := local.NewService(cfg, s, s)
 
-	oauthProviders, err := setupOAuthProviders(ctx, p.BaseURL)
+	oauthProviders, err := setupOAuthProviders(ctx, p.Login.OAuth)
 	if err != nil {
 		return nil, err
 	}
@@ -187,11 +184,4 @@ func setupLocal(ctx context.Context, p SetupParams, authSvc *auth.AuthService, s
 		StateMgr:   stateMgr,
 		LocalAuth:  localAuth,
 	}, nil
-}
-
-func localPasswordEnv(name string) string {
-	if v := os.Getenv("LOCAL_PASSWORD_" + name); v != "" {
-		return v
-	}
-	return os.Getenv("LOCAL_OIDC_" + name)
 }

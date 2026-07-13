@@ -39,7 +39,7 @@ func setupSchedulerEnv(t *testing.T) (*testEnv, *scheduler.Service, string) {
 	}
 	t.Cleanup(func() { _ = svc.Stop() })
 
-	env.srv.SetSchedulerService(svc)
+	env.rebuild(t, func(d *server.Deps) { d.Scheduler = svc })
 
 	return env, svc, agentID
 }
@@ -258,7 +258,7 @@ func setupSchedulerEnvWithBuiltin(t *testing.T, builtinName string) (*testEnv, *
 	// Persist the builtin row.
 	svc.EnsureBuiltinJobs()
 
-	env.srv.SetSchedulerService(svc)
+	env.rebuild(t, func(d *server.Deps) { d.Scheduler = svc })
 	return env, svc, agentID
 }
 

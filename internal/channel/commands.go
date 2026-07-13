@@ -2,9 +2,11 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -22,6 +24,9 @@ func HandleCommand(ctx context.Context, rc *ResolvedChat, text, senderID string)
 		return pkgchannel.WelcomeMessage, true
 	case "/new", "/compact":
 		if _, err := rc.CompactSession(ctx); err != nil {
+			if errors.Is(err, agent.ErrGroupCompactionUnsupported) {
+				return pkgchannel.GroupCompactUnsupportedMessage, true
+			}
 			return fmt.Sprintf("Compaction failed: %v", err), true
 		}
 		return "Session compacted.", true

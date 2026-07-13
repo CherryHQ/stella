@@ -247,3 +247,30 @@ func TestRuntimeChat_BeforeRunOverride(t *testing.T) {
 		t.Fatalf("runner system = %q, want hook override", runner.chatSystem)
 	}
 }
+
+// TestRunnerCache_InvalidGroupSessionFailsClosedWithoutRunner proves an invalid
+// group session (non-canonical group id) fails closed before any runner is built
+// or cached — the runner factory is never called.
+func TestRunnerCache_InvalidGroupSessionFailsClosedWithoutRunner(t *testing.T) {
+	var calls int
+	factory := func(context.Context, RunnerParams) (Runner, error) {
+		calls++
+		return newFakeRunner(), nil
+	}
+	cache := newRunnerCache(factory, fakeMemory{}, 10*time.Minute, slog.Default())
+
+	bad := session.Info{ID: "s1", AgentID: "a1", UserID: "not-a-uuid", GroupID: "not-a-uuid"}
+	cs, r, err := cache.getOrCreate(context.Background(), bad, "", "")
+	if err == nil {
+		t.Fatal("expected a fail-closed error for an invalid group session")
+	}
+	if cs != nil || r != nil {
+		t.Fatal("no cached session or runner should be returned on failure")
+	}
+	if calls != 0 {
+		t.Fatalf("runner factory called %d times; want 0", calls)
+	}
+	if _, ok := cache.sessions["s1"]; ok {
+		t.Fatal("no session entry should be installed for an invalid session")
+	}
+}

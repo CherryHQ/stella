@@ -84,7 +84,7 @@ const (
 // many across separate databases in one process. The composition root (cmd/stellad
 // buildSharedRiverClient) is the single production enforcement point: it assembles
 // one client from every subsystem's queues + workers and injects it back via
-// SetRiverClient, so no subsystem constructs its own electable client. A new
+// BindRiverClient, so no subsystem constructs its own electable client. A new
 // electable construction site is a bug; route subsystems through the composition
 // root instead. An insert-only client (no queues, never Started) must use
 // river.NewClient directly, not this constructor — which is what the guard below

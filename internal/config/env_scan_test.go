@@ -44,11 +44,10 @@ var envReadAllowlist = map[string]map[string]bool{
 	// Stella-built postgres runtime; not an operator-facing knob.
 	"internal/db/pgruntime.go": {nonLiteralRead: true},
 
-	// Dynamic prefix scans for the multi-provider OAuth block (AUTH_OAUTH_*) and
-	// local password auth (LOCAL_PASSWORD_/LOCAL_OIDC_). The static OIDC_* block
-	// is on ServerConfig; these enumerate an unbounded set of providers/keys.
-	"internal/auth/oidc/oauth_config.go": {nonLiteralRead: true},
-	"internal/auth/oidc/setup.go":        {nonLiteralRead: true},
+	// The multi-provider OAuth block (AUTH_OAUTH_*) and local password auth
+	// (LOCAL_PASSWORD_/LOCAL_OIDC_) are now parsed through oidc.LoadLoginConfig at
+	// the startup boundary (serverAction passes os.LookupEnv), so the oidc package
+	// reads no environment of its own — no allowlist entry is needed here.
 
 	// Standard OpenTelemetry SDK variables, owned by the OTEL spec/SDK, not by
 	// stella; mirroring them onto ServerConfig would fork their semantics.

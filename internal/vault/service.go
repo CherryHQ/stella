@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -74,6 +75,14 @@ func NewService(db DB, masterIdentityStr string) (*Service, error) {
 		systemManagedNames:    defaultSystemManagedNames(),
 		systemManagedPrefixes: []string{"OAUTH_", "MCP_TOKEN_"},
 	}, nil
+}
+
+// NewServiceForPool creates a vault Service backed by the given connection
+// pool, owning construction of its sqlc query set. masterIdentityStr is the raw
+// age secret key string (typically from the STELLA_VAULT_KEY environment
+// variable).
+func NewServiceForPool(pool *pgxpool.Pool, masterIdentityStr string) (*Service, error) {
+	return NewService(sqlc.New(pool), masterIdentityStr)
 }
 
 // MasterRecipient returns the master public key recipient.

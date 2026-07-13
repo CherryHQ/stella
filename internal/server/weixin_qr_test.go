@@ -80,7 +80,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	srv := New(context.Background(), store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
+	srv := newTestServer(t, store, as, engine, mem, db, phost)
 
 	status := &weixinplugin.QRCodeStatusResponse{
 		Status:      "confirmed",

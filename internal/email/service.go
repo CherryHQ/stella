@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -50,6 +51,12 @@ type Service struct {
 
 func NewService(vaultSvc *vault.Service, q Queries) *Service {
 	return &Service{vaultSvc: vaultSvc, q: q, sendFunc: Send}
+}
+
+// NewServiceForPool creates an email service that owns the sqlc query set for
+// the email tables, so callers pass only the pgx pool.
+func NewServiceForPool(vaultSvc *vault.Service, pool *pgxpool.Pool) *Service {
+	return NewService(vaultSvc, sqlc.New(pool))
 }
 
 func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {

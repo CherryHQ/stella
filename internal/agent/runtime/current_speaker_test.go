@@ -54,7 +54,7 @@ func TestRuntimeChatInjectsCurrentSpeakerIntoGroupTurnMessage(t *testing.T) {
 		t.Fatalf("new runtime: %v", err)
 	}
 
-	info := session.Info{ID: "sess-1", UserID: "group-1", AgentID: "agent-1", GroupID: "group-1"}
+	info := session.Info{ID: "sess-1", UserID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", GroupID: "11111111-1111-4111-8111-111111111111"}
 	out := make(chan Event, 10)
 	rt.chat(
 		memory.WithGroupSeq(context.Background(), 7),

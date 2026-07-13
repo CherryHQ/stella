@@ -82,6 +82,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			LastActive: lastActive.UTC(),
 			AgentID:    pgnull.Text(info.AgentID),
 			UserID:     pgtype.Text{String: info.UserID, Valid: true},
+			GroupID:    pgnull.Text(info.GroupID),
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -97,6 +98,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		Archived:  info.Archived,
 		Kind:      pgnull.Text(info.Kind),
 		ProjectID: pgnull.Text(info.ProjectID),
+		GroupID:   pgnull.Text(info.GroupID),
 		SessionID: info.ID,
 		UserID:    pgtype.Text{String: info.UserID, Valid: true},
 		AgentID:   pgnull.Text(info.AgentID),
@@ -254,6 +256,9 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 	}
 	if conv.UserID.Valid {
 		info.UserID = conv.UserID.String
+	}
+	if conv.GroupID.Valid {
+		info.GroupID = conv.GroupID.String
 	}
 	if conv.ProjectID.Valid {
 		info.ProjectID = conv.ProjectID.String

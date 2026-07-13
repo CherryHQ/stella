@@ -57,16 +57,11 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		ctx = withChannel(ctx, info.Channel)
 	}
 
-	memUserID := info.UserID
-	if info.GroupID != "" {
-		memUserID = info.GroupID
-	}
-	memSess := memory.Session{
-		ID:      info.ID,
-		AgentID: info.AgentID,
-		UserID:  memUserID,
-		Channel: info.Channel,
-		GroupID: info.GroupID,
+	memSess, err := info.MemoryScope()
+	if err != nil {
+		out <- Event{Err: fmt.Errorf("session scope: %w", err)}
+		close(out)
+		return
 	}
 
 	msgText := MessageText(msg)
@@ -117,7 +112,9 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		}
 		saveCtx := authz.WithUserID(ctx, info.UserID)
 		saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
-		if err := sm.SaveInfo(saveCtx, updated); err != nil {
+		if rec, err := updated.Record(); err != nil {
+			rt.log.Warn("skip saving invalid session info", "session_id", info.ID, "error", err)
+		} else if err := sm.SaveInfo(saveCtx, rec); err != nil {
 			rt.log.Warn("failed to save session info", "session_id", info.ID, "error", err)
 		}
 	}

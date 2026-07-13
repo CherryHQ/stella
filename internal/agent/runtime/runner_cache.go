@@ -60,14 +60,12 @@ func newRunnerCache(
 // Passing extraTools always builds a fresh runner (per-call tools defeat the
 // cache); the caller is expected to evict it afterwards via CloseSession.
 func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model string, thinking ai.ThinkingLevel, extraTools ...tools.Tool) (*cachedSession, Runner, error) {
-	if info.ID == "" {
-		return nil, nil, fmt.Errorf("session.Info.ID is required")
-	}
-	if info.UserID == "" {
-		return nil, nil, fmt.Errorf("session.Info.UserID is required")
-	}
-	if info.AgentID == "" {
-		return nil, nil, fmt.Errorf("session.Info.AgentID is required")
+	// Validate the session and derive its memory scope before any cache lookup or
+	// runner creation. An invalid session (missing owner, malformed group id) must
+	// fail closed here so a runner is never installed over an unusable scope.
+	memSess, err := info.MemoryScope()
+	if err != nil {
+		return nil, nil, fmt.Errorf("session scope: %w", err)
 	}
 
 	c.mu.Lock()
@@ -165,18 +163,7 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	cs.thinking = effectiveThinking
 	c.mu.Unlock()
 
-	// Bootstrap memory for this session.
-	memUserID := info.UserID
-	if info.GroupID != "" {
-		memUserID = info.GroupID
-	}
-	memSess := memory.Session{
-		ID:      info.ID,
-		AgentID: info.AgentID,
-		UserID:  memUserID,
-		Channel: info.Channel,
-		GroupID: info.GroupID,
-	}
+	// Bootstrap memory for this session using the scope derived up front.
 	if err := c.mem.Bootstrap(ctx, memSess); err != nil {
 		c.log.Warn("memory bootstrap failed", "session_id", info.ID, "error", err)
 	}

@@ -41,16 +41,15 @@ internal/agent.Service        业务意图 seam
 
 当前重要方法：
 
-| Method                  | 用途                                         | ID trust model                                        |
-| ----------------------- | -------------------------------------------- | ----------------------------------------------------- |
-| `Chat`                  | 前台 chat，使用已有 session 或生成新 session | caller-supplied `SessionID` 是 resume-only            |
-| `ChatForChannel`        | 非私有 channel/group chat                    | 允许 exact-create，因为 `SessionKey` 由 Stella 派生   |
-| `ChatForScheduler`      | scheduler 发起的 run                         | 允许 exact-create，因为 `SessionID` 由 scheduler 派生 |
-| `ResolveChannelSession` | 只解析 channel session，不执行 chat turn     | trusted channel key，要求 `KindChat`                  |
-| `NewSession`            | HTTP/Web UI 创建 session                     | 只能生成 ID                                           |
-| `MintTaskSession`       | task system 创建 worker session              | 在 resolved executor agent 名下生成 ID                |
-| `Delegate`              | 运行/恢复 delegate child session             | caller/model supplied `SessionID` 是 resume-only      |
-| `ResolveMainSession`    | 解析或创建 private main session              | 生成或提升 main session                               |
+| Method                                                        | 用途                                                      | ID trust model                                                    |
+| ------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------- |
+| `Chat`                                                        | 前台 chat，使用已有 session 或生成新 session              | caller-supplied `SessionID` 是 resume-only                        |
+| `ChatForScheduler`                                            | scheduler 发起的 run                                      | 允许 exact-create，因为 `SessionID` 由 scheduler 派生             |
+| `ResolvePrivateChannelSession` / `ResolveGroupChannelSession` | 只解析 private 或 group channel session，不执行 chat turn | trusted channel key，要求 `KindChat`；group id 拥有 group session |
+| `NewSession`                                                  | HTTP/Web UI 创建 session                                  | 只能生成 ID                                                       |
+| `MintTaskSession`                                             | task system 创建 worker session                           | 在 resolved executor agent 名下生成 ID                            |
+| `Delegate`                                                    | 运行/恢复 delegate child session                          | caller/model supplied `SessionID` 是 resume-only                  |
+| `ResolveMainSession`                                          | 解析或创建 private main session                           | 生成或提升 main session                                           |
 
 ### `session.Registry`
 
@@ -136,11 +135,12 @@ Memory 拥有：
 硬规则：
 
 ```go
-// 生产代码不应该手搓 memory.Session。
-scope := svc.Sessions.MemoryScope(validatedInfo)
+// 生产代码只从验证过的 session.Info 派生 memory scope。
+// MemoryScope 会校验 session invariant，遇到非法 Info 时 fail closed 返回错误。
+scope, err := svc.Sessions.MemoryScope(validatedInfo)
 ```
 
-低层 memory 测试是例外。生产代码应该从验证过的 `session.Info` 获取 `memory.Session`，这样 ownership 和 kind policy 不会被绕过。
+`session.Info` 是独立的、经过验证的 session-domain 类型，不是 `memory.SessionInfo` 的别名。所有生产代码（包括 `runtime.Runtime`）都只通过 `MemoryScope` 获取 `memory.Session`，不存在 runtime 直接构造的例外。group session 带有持久且经过验证的 `GroupID`（持久化在 `ctx_conversation.group_id`，且 `UserID == GroupID`）。对 private session，read、write、compaction 落在同一个 partition。group session 的 read 和 write 共享同一个持久 canonical scope；group compaction 不被支持——`CompactSession` 会用 `ErrGroupCompactionUnsupported` 拒绝它，因为 group history 来自 group event log，而不是 LCM conversation。低层 memory 测试仍可以直接构造 `memory.Session`。
 
 ## Session kinds 和 channels
 
@@ -149,7 +149,7 @@ Session kind 描述 session 为什么存在。Channel 描述 session 从哪里�
 | Kind        | Owner                 | 用户可见？ | 创建路径                               |
 | ----------- | --------------------- | ---------- | -------------------------------------- |
 | `main`      | private user chat     | 是         | `ResolveMainSession`                   |
-| `chat`      | 普通前台/channel chat | 是         | `Chat`、`ChatForChannel`、`NewSession` |
+| `chat`      | 普通前台/channel chat | 是         | channel resolver、`Chat`、`NewSession` |
 | `delegate`  | child agent work      | 通常隐藏   | `Delegate`                             |
 | `task`      | async task worker run | 默认隐藏   | `MintTaskSession`                      |
 | `scheduler` | scheduled job run     | 隐藏或过滤 | `ChatForScheduler`                     |
@@ -256,9 +256,10 @@ Private user channels 收敛到 main session。
 ### Group 或 shared channel message
 
 ```text
-channel derives SessionKey
-    -> Service.ChatForChannel(SessionKey, KindChat, Channel)
+channel 派生 SessionKey 并解析 canonical GroupID
+    -> Service.ResolveGroupChannelSession(SessionKey, GroupID, AgentID, Channel)
     -> Registry exact-create，因为 key 由 Stella 派生
+    -> Service.Chat(validated group session)
     -> Runtime.Chat
 ```
 
@@ -370,8 +371,8 @@ ID: req.SessionID,
 ```
 
 ```go
-// Runtime 使用未经过 Registry 验证的 session info。
-rt.Chat(ctx, memory.SessionInfo{ID: id}, msg)
+// Runtime 使用未经过 Registry 验证的 session.Info。
+rt.Chat(ctx, session.Info{ID: id}, msg)
 ```
 
 ```go

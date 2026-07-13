@@ -31,6 +31,12 @@ type RuntimeHost struct {
 	host *Host
 	mu   sync.RWMutex
 	rt   map[runtimeKey]*runtimeEntry
+
+	// applyMu serializes the rare runtime build/apply lifecycle against Quiesce
+	// and Stop. Without it, a runtime whose Build was in flight could be absent
+	// from Quiesce's snapshot and start polling after drain began.
+	applyMu  sync.Mutex
+	quiesced bool
 }
 
 func NewRuntimeHost(host *Host) *RuntimeHost {
@@ -140,6 +146,12 @@ func (h *RuntimeHost) applyOne(ctx context.Context, reg pkgplugins.RuntimeSpec, 
 }
 
 func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.RuntimeSpec, runtimeID string, desired pkgplugins.PluginState) error {
+	h.applyMu.Lock()
+	defer h.applyMu.Unlock()
+	if h.quiesced {
+		return fmt.Errorf("runtime host is quiescing")
+	}
+
 	key := runtimeKey{RuntimeID: runtimeID, RuntimeName: reg.Name}
 	h.mu.Lock()
 	entry := h.rt[key]
@@ -172,9 +184,51 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 	return nil
 }
 
+// ingressQuiescer is the optional two-phase-drain capability a managed runtime
+// may implement. Quiesce stops NEW ingress (e.g. channel polling) while leaving
+// already-accepted operations and any downstream registrations (e.g. notifier
+// senders) intact until the final Stop. Runtimes that have no ingress to quiesce
+// simply do not implement it; RuntimeHost skips them.
+type ingressQuiescer interface {
+	Quiesce(ctx context.Context)
+}
+
+// Quiesce invokes the optional ingress-quiescer on every managed runtime that
+// implements it, without clearing the runtime table: the subsequent Stop still
+// needs the entries to tear them down fully. This is the drain-phase counterpart
+// to Stop — it halts new ingress while preserving accepted work.
+func (h *RuntimeHost) Quiesce(ctx context.Context) {
+	h.applyMu.Lock()
+	defer h.applyMu.Unlock()
+	if h.quiesced {
+		return
+	}
+	h.quiesced = true
+
+	h.mu.RLock()
+	entries := make([]*runtimeEntry, 0, len(h.rt))
+	for _, entry := range h.rt {
+		entries = append(entries, entry)
+	}
+	h.mu.RUnlock()
+
+	for _, entry := range entries {
+		if entry.managed == nil {
+			continue
+		}
+		if q, ok := entry.managed.(ingressQuiescer); ok {
+			q.Quiesce(ctx)
+		}
+	}
+}
+
 // Stop tears down every managed runtime. Entries are removed from the map
 // before Stop is called so the lock isn't held while runtime teardown executes.
 func (h *RuntimeHost) Stop(ctx context.Context) error {
+	h.applyMu.Lock()
+	defer h.applyMu.Unlock()
+	h.quiesced = true
+
 	h.mu.Lock()
 	entries := h.rt
 	h.rt = map[runtimeKey]*runtimeEntry{}

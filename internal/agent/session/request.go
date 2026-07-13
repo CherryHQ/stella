@@ -7,6 +7,10 @@ type Request struct {
 	// UserID and AgentID are required for user-scoped operations.
 	UserID  string
 	AgentID string
+	// GroupID marks this as a group session owned by the group. When set it is
+	// the canonical ctx_group_state UUID and must equal UserID; it is persisted
+	// so the group identity survives reload. Empty for private sessions.
+	GroupID string
 	// ProjectID scopes the session to a project when non-empty.
 	ProjectID string
 	// Kind is the session kind to use when creating a new session.

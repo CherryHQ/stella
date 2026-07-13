@@ -46,7 +46,7 @@ func schedulerServiceError(w http.ResponseWriter, err error) {
 // Returns 503 when the scheduler service is not available.
 func (s *Server) ListJobTemplates(w http.ResponseWriter, r *http.Request) {
 	if s.schedulerSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		writeCapabilityUnavailable(w, capScheduler)
 		return
 	}
 	info := UserFromContext(r.Context())
@@ -93,7 +93,7 @@ func (s *Server) ListSchedulerJobs(w http.ResponseWriter, r *http.Request, agent
 	}
 	info := UserFromContext(r.Context())
 	if s.schedulerSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		writeCapabilityUnavailable(w, capScheduler)
 		return
 	}
 
@@ -121,7 +121,7 @@ func (s *Server) CreateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 	if s.schedulerSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		writeCapabilityUnavailable(w, capScheduler)
 		return
 	}
 
@@ -219,7 +219,7 @@ func (s *Server) GetSchedulerJob(w http.ResponseWriter, r *http.Request, agentID
 		return
 	}
 	if s.schedulerSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		writeCapabilityUnavailable(w, capScheduler)
 		return
 	}
 	job, err := s.schedulerSvc.As(toolIdentity(UserFromContext(r.Context()))).GetJob(r.Context(), agentID, jobID)
@@ -237,7 +237,7 @@ func (s *Server) UpdateSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 	}
 	info := UserFromContext(r.Context())
 	if s.schedulerSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		writeCapabilityUnavailable(w, capScheduler)
 		return
 	}
 	existing, err := s.schedulerSvc.As(toolIdentity(info)).GetJob(r.Context(), agentID, jobID)
@@ -309,7 +309,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 	}
 	info := UserFromContext(r.Context())
 	if s.schedulerSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		writeCapabilityUnavailable(w, capScheduler)
 		return
 	}
 
@@ -322,7 +322,7 @@ func (s *Server) DeleteSchedulerJob(w http.ResponseWriter, r *http.Request, agen
 
 func (s *Server) TriggerSchedulerJob(w http.ResponseWriter, r *http.Request, agentID string, jobID string) {
 	if s.schedulerSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		writeCapabilityUnavailable(w, capScheduler)
 		return
 	}
 	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
@@ -350,7 +350,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 		return
 	}
 	if s.schedulerSvc == nil {
-		writeError(w, http.StatusServiceUnavailable, "scheduler not available")
+		writeCapabilityUnavailable(w, capScheduler)
 		return
 	}
 

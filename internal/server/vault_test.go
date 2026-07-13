@@ -9,6 +9,8 @@ import (
 	"filippo.io/age"
 
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -54,7 +56,14 @@ func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	env.srv.SetVaultService(svc)
+	// Wire the vault into the shared credentials service (same instance the
+	// server holds) and rebuild the server with the vault + a vault-backed email
+	// service, mirroring the composition root's single-instance wiring.
+	env.credSvc.SetVaultService(svc)
+	env.rebuild(t, func(d *server.Deps) {
+		d.Vault = svc
+		d.Email = email.NewService(svc, sqlc.New(env.db))
+	})
 
 	// Provision age keys for the admin user.
 	pubKey, encPrivKey, err := vault.GenerateUserKeys(svc.MasterRecipient())
@@ -359,7 +368,7 @@ func TestVaultMutationsInvalidateUserRunners(t *testing.T) {
 	env, _ := setupVaultEnv(t)
 
 	inv := &fakeRunnerInvalidator{}
-	env.srv.CredentialsService().SetInvalidator(inv)
+	env.credSvc.SetInvalidator(inv)
 
 	// PUT triggers invalidate.
 	rr := doRequest(t, env, "PUT", "/api/vault/MY_TOKEN", map[string]string{"value": "v1"})
@@ -407,7 +416,7 @@ func TestSystemVaultMutationsInvalidateRunners(t *testing.T) {
 	}
 
 	inv := &fakeRunnerInvalidator{}
-	env.srv.CredentialsService().SetInvalidator(inv)
+	env.credSvc.SetInvalidator(inv)
 
 	// system scope → InvalidateAll on both PUT and DELETE.
 	rr := doRequest(t, env, "PUT", "/api/vault/SYS_TOKEN", map[string]string{"scope": "system", "value": "v"})

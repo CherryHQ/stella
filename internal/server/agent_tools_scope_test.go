@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 func TestUpdateAgentToolWritesEachScope(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetBuiltinTools([]agent.BuiltinTool{{Tool: fakeManagedTool{name: "vault"}}})
+	env.rebuild(t, func(d *server.Deps) { d.BuiltinTools = []agent.BuiltinTool{{Tool: fakeManagedTool{name: "vault"}}} })
 	user, userSession := newNonAdmin(t, env, "tool-scope-user")
 	agentID := createAgentAsUser(t, env, userSession, "tool-scope-agent")
 
@@ -42,7 +43,7 @@ func TestUpdateAgentToolWritesEachScope(t *testing.T) {
 
 func TestUpdateAgentToolRejectsSystemScopesForNonAdmin(t *testing.T) {
 	env := setupAdmin(t)
-	env.srv.SetBuiltinTools([]agent.BuiltinTool{{Tool: fakeManagedTool{name: "vault"}}})
+	env.rebuild(t, func(d *server.Deps) { d.BuiltinTools = []agent.BuiltinTool{{Tool: fakeManagedTool{name: "vault"}}} })
 	_, userSession := newNonAdmin(t, env, "tool-scope-denied")
 	agentID := createAgentAsUser(t, env, userSession, "tool-scope-denied-agent")
 

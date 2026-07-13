@@ -15,6 +15,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -46,6 +47,39 @@ type GroupDispatcher struct {
 	wakeC         chan struct{}
 	queue         *sessionQueue
 	chat          dispatchChatFunc
+}
+
+// Coordination bundles the coordinator and its durable group dispatcher. The
+// channel domain builds them together and closes the coordinator<->dispatcher
+// cycle, so the composition root does not assemble the cycle by hand.
+type Coordination struct {
+	// Coordinator is the channel MessageHandler for all channels.
+	Coordinator *Coordinator
+	// GroupDispatcher is the durable group-dispatch runner. The HTTP layer needs
+	// only this narrow port (Run + DispatchSync), not the whole coordinator.
+	GroupDispatcher *GroupDispatcher
+}
+
+// NewCoordination constructs the coordinator and its group dispatcher together
+// and closes the coordinator<->dispatcher cycle. The dispatcher reuses the
+// coordinator's publisher registry (supplied via WithPublisherRegistry). The
+// composition root receives the coordinator (as the channel Handler) and the
+// narrow GroupDispatcher port without wiring the cycle itself.
+func NewCoordination(
+	db *pgxpool.Pool,
+	pm interface {
+		agent.ServiceManager
+		userInvalidator
+	},
+	store config.Store,
+	listFn func() []pkgchannel.ModelOption,
+	switchFn func(provider, model string) error,
+	opts ...CoordinatorOption,
+) Coordination {
+	coord := NewCoordinator(pm, store, listFn, switchFn, opts...)
+	gd := NewGroupDispatcher(db, coord, nil)
+	coord.SetGroupDispatcher(gd)
+	return Coordination{Coordinator: coord, GroupDispatcher: gd}
 }
 
 func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *PublisherRegistry) *GroupDispatcher {
@@ -781,7 +815,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 	}
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
 	channelStr := "group:" + row.GroupID
-	info, err := svc.ResolveChannelSession(ctx, sessionKey, row.GroupID, row.AgentID, session.Channel(channelStr))
+	info, err := svc.ResolveGroupChannelSession(ctx, sessionKey, row.GroupID, row.AgentID, session.Channel(channelStr))
 	if err != nil {
 		return nil, fmt.Errorf("resolve session: %w", err)
 	}

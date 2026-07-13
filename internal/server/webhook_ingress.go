@@ -148,7 +148,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	var info session.Info
 	if cfg.Persistent() {
 		key := agent.BuildUserSessionKey(ch.AgentID, principal.UserID, "webhook:"+id)
-		info, err = svc.ResolveChannelSession(ctx, key, principal.UserID, ch.AgentID, session.ChannelWebhook)
+		info, err = svc.ResolvePrivateChannelSession(ctx, key, principal.UserID, ch.AgentID, session.ChannelWebhook)
 	} else {
 		info, err = svc.NewSession(ctx, principal.UserID, ch.AgentID, "", session.KindChat, session.ChannelWebhook)
 	}
