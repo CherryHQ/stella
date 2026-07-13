@@ -378,6 +378,12 @@ func TestManagedSkillActiveKeysetSurvivesEarlierInsertAndEqualTimestamp(t *testi
 	if err == nil {
 		t.Fatal("half-populated managed skill cursor was accepted")
 	}
+
+	if _, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, State: ManagedSkillStateActive, Limit: 0, Now: sortAt,
+	}); err == nil {
+		t.Fatal("zero managed skill page limit was accepted")
+	}
 }
 
 func TestManagedSkillRemovedKeysetOrdersByDeprecationAndID(t *testing.T) {

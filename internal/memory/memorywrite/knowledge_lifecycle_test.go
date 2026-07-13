@@ -112,6 +112,12 @@ func TestKnowledgeLifecycleActiveKeysetSurvivesEarlierInsertAndEqualTimestamp(t 
 	if err == nil {
 		t.Fatal("half-populated knowledge cursor was accepted")
 	}
+
+	if _, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateActive, Limit: 0,
+	}); err == nil {
+		t.Fatal("zero knowledge page limit was accepted")
+	}
 }
 
 func TestKnowledgeLifecycleRemovedKeysetOrdersByDeprecationAndID(t *testing.T) {

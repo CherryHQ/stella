@@ -28,8 +28,8 @@ var (
 // ListManagedSkills returns active rows or recoverable removed rows for mutable
 // PostgreSQL scopes. The caller's owner fields are interpreted per row scope.
 func (s *PGStore) ListManagedSkills(ctx context.Context, in ManagedSkillListQuery) (ManagedSkillPage, error) {
-	if in.Limit < 0 {
-		return ManagedSkillPage{}, fmt.Errorf("list managed skills: limit must be non-negative")
+	if in.Limit <= 0 {
+		return ManagedSkillPage{}, fmt.Errorf("list managed skills: limit must be positive")
 	}
 	if err := validateManagedSkillCursor(in.Cursor); err != nil {
 		return ManagedSkillPage{}, err

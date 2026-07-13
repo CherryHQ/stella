@@ -83,8 +83,8 @@ func ListKnowledge(ctx context.Context, q *sqlc.Queries, in KnowledgeListQuery) 
 	if q == nil {
 		return KnowledgePage{}, fmt.Errorf("list knowledge: sql queries are required")
 	}
-	if in.Limit < 0 {
-		return KnowledgePage{}, fmt.Errorf("list knowledge: limit must be non-negative")
+	if in.Limit <= 0 {
+		return KnowledgePage{}, fmt.Errorf("list knowledge: limit must be positive")
 	}
 	if err := validateKnowledgeCursor(in.Cursor); err != nil {
 		return KnowledgePage{}, err
