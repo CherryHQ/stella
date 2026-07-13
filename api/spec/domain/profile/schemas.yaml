@@ -158,6 +158,46 @@ components:
       properties:
         text: { type: string }
 
+    KnowledgeItem:
+      type: object
+      required: [id, content, source, created_at, updated_at, is_restorable]
+      properties:
+        id: { type: string }
+        content: { type: string }
+        source: { type: string, enum: [manual, reflect] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        is_restorable: { type: boolean }
+        removal_source: {
+          type: string,
+          enum: [manual, curator],
+          nullable: true,
+        }
+        deprecated_at: { type: string, format: date-time, nullable: true }
+        restore_deadline: { type: string, format: date-time, nullable: true }
+
+    KnowledgeList:
+      type: object
+      required: [knowledge, total_size]
+      properties:
+        knowledge:
+          type: array
+          items: { $ref: "#/components/schemas/KnowledgeItem" }
+        total_size: { type: integer }
+        next_page_token: { type: string, nullable: true }
+
+    CreateKnowledgeRequest:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string }
+
+    UpdateKnowledgeRequest:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string }
+
     ChangelogEntry:
       type: object
       required: [id, scope, action, source, created_at]
@@ -179,3 +219,4 @@ components:
         entries:
           type: array
           items: { $ref: "#/components/schemas/ChangelogEntry" }
+        next_page_token: { type: string, nullable: true }

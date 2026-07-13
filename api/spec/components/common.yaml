@@ -49,6 +49,11 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
+    Gone:
+      description: resource has been permanently removed or is no longer available
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     BadRequest:
       description: malformed request
       content:
