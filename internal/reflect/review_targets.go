@@ -15,7 +15,6 @@ type reviewTarget struct {
 	session         memory.Session
 	lastActive      time.Time // from SessionInfo — used as tiebreaker
 	lastReview      time.Time // zero if never reviewed
-	sourceGroupID   string
 	privateOneToOne bool
 }
 
@@ -85,7 +84,10 @@ func listSessionInfoForReview(ctx context.Context, sm memory.SessionManager, age
 }
 
 func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session.Registry, info session.Info) (reviewTarget, bool) {
-	if info.UserID == "" {
+	// Reflect currently mines private one-to-one history only. Exclude groups
+	// before watermark lookup and target limiting so skipped group sessions cannot
+	// permanently occupy the oldest-review slots and starve private sessions.
+	if info.UserID == "" || info.GroupID != "" {
 		return reviewTarget{}, false
 	}
 
@@ -103,20 +105,16 @@ func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session
 		s.log.Warn("reflect: invalid session scope, skipping session", "session", info.ID, "error", err)
 		return reviewTarget{}, false
 	}
-	// GroupID is durable now, so a group session (GroupID set) is correctly
-	// classified as not private-one-to-one and skipped by buildReviewUnit rather
-	// than reviewed as a personal 1:1 conversation.
 	return reviewTarget{
 		session:         scope,
 		lastActive:      info.LastActive,
 		lastReview:      wm,
-		sourceGroupID:   info.GroupID,
-		privateOneToOne: info.GroupID == "" && info.UserID != "",
+		privateOneToOne: true,
 	}, true
 }
 
 func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo) (reviewTarget, bool) {
-	if sess.UserID == "" {
+	if sess.UserID == "" || sess.GroupID != "" {
 		return reviewTarget{}, false
 	}
 
@@ -143,8 +141,7 @@ func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo)
 		session:         scope,
 		lastActive:      info.LastActive,
 		lastReview:      wm,
-		sourceGroupID:   info.GroupID,
-		privateOneToOne: info.GroupID == "" && info.UserID != "",
+		privateOneToOne: true,
 	}, true
 }
 

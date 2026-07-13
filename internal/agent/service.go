@@ -146,45 +146,6 @@ func (s *Service) SessionLive(sessionID string) bool {
 	return s.Runtime.SessionLive(sessionID)
 }
 
-// ChannelChatRequest describes a chat turn on a non-private channel/group session
-// identified by a Stella-derived session key.
-type ChannelChatRequest struct {
-	SessionKey string // system-derived session key (e.g. "agent:telegram:group:123")
-	UserID     string
-	AgentID    string
-	Channel    session.Channel
-	Message    MessageContent
-	Model      string
-}
-
-// ChatForChannel resolves or creates a channel/group chat session using a
-// trusted system-derived session key. Unlike Chat, this method allows exact-ID
-// creation because the key is derived by Stella, not by user/model input.
-func (s *Service) ChatForChannel(ctx context.Context, req ChannelChatRequest) <-chan Event {
-	info, err := s.Sessions.Ensure(ctx, session.Request{
-		ID:                 req.SessionKey,
-		UserID:             req.UserID,
-		AgentID:            req.AgentID,
-		Kind:               session.KindChat,
-		Channel:            req.Channel,
-		CreateIfMissing:    true,
-		AllowExactIDCreate: true,
-		RequireKind:        session.KindChat,
-	})
-	if err != nil {
-		out := make(chan Event, 1)
-		out <- Event{Err: fmt.Errorf("resolve channel session: %w", err)}
-		close(out)
-		return out
-	}
-
-	var opts []agentruntime.Option
-	if req.Model != "" {
-		opts = append(opts, agentruntime.WithModel(req.Model))
-	}
-	return s.Runtime.Chat(ctx, info, req.Message, opts...)
-}
-
 // SchedulerChatRequest describes a scheduler-initiated chat turn.
 type SchedulerChatRequest struct {
 	SessionID string // scheduler-derived session ID
@@ -310,9 +271,8 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 }
 
 // ResolvePrivateChannelSession resolves or creates a private channel chat session
-// using a trusted system-derived session key. It is the session-only variant of
-// ChatForChannel for a per-user channel; it returns the Info without executing a
-// chat turn. Private callers do not know about groups.
+// using a trusted system-derived session key. It returns the Info without
+// executing a chat turn. Private callers do not know about groups.
 func (s *Service) ResolvePrivateChannelSession(ctx context.Context, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
 	return s.Sessions.Ensure(ctx, session.Request{
 		ID:                 sessionKey,

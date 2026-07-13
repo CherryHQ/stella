@@ -44,7 +44,6 @@ internal/agent.Service        业务意图 seam
 | Method                                                        | 用途                                                      | ID trust model                                                    |
 | ------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------- |
 | `Chat`                                                        | 前台 chat，使用已有 session 或生成新 session              | caller-supplied `SessionID` 是 resume-only                        |
-| `ChatForChannel`                                              | 非私有 channel/group chat                                 | 允许 exact-create，因为 `SessionKey` 由 Stella 派生               |
 | `ChatForScheduler`                                            | scheduler 发起的 run                                      | 允许 exact-create，因为 `SessionID` 由 scheduler 派生             |
 | `ResolvePrivateChannelSession` / `ResolveGroupChannelSession` | 只解析 private 或 group channel session，不执行 chat turn | trusted channel key，要求 `KindChat`；group id 拥有 group session |
 | `NewSession`                                                  | HTTP/Web UI 创建 session                                  | 只能生成 ID                                                       |
@@ -150,7 +149,7 @@ Session kind 描述 session 为什么存在。Channel 描述 session 从哪里�
 | Kind        | Owner                 | 用户可见？ | 创建路径                               |
 | ----------- | --------------------- | ---------- | -------------------------------------- |
 | `main`      | private user chat     | 是         | `ResolveMainSession`                   |
-| `chat`      | 普通前台/channel chat | 是         | `Chat`、`ChatForChannel`、`NewSession` |
+| `chat`      | 普通前台/channel chat | 是         | channel resolver、`Chat`、`NewSession` |
 | `delegate`  | child agent work      | 通常隐藏   | `Delegate`                             |
 | `task`      | async task worker run | 默认隐藏   | `MintTaskSession`                      |
 | `scheduler` | scheduled job run     | 隐藏或过滤 | `ChatForScheduler`                     |
@@ -257,9 +256,10 @@ Private user channels 收敛到 main session。
 ### Group 或 shared channel message
 
 ```text
-channel derives SessionKey
-    -> Service.ChatForChannel(SessionKey, KindChat, Channel)
+channel 派生 SessionKey 并解析 canonical GroupID
+    -> Service.ResolveGroupChannelSession(SessionKey, GroupID, AgentID, Channel)
     -> Registry exact-create，因为 key 由 Stella 派生
+    -> Service.Chat(validated group session)
     -> Runtime.Chat
 ```
 
