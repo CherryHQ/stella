@@ -3,6 +3,7 @@ package reflect
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -136,17 +137,36 @@ func parseWatermarkSeq(raw any) (int64, bool, error) {
 	case nil:
 		return 0, false, nil
 	case int:
+		if v < 0 {
+			return 0, false, fmt.Errorf("negative seq %d", v)
+		}
 		return int64(v), true, nil
 	case int64:
+		if v < 0 {
+			return 0, false, fmt.Errorf("negative seq %d", v)
+		}
 		return v, true, nil
 	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) || math.Trunc(v) != v || v < 0 {
+			return 0, false, fmt.Errorf("invalid non-negative integral seq %v", v)
+		}
+		// float64(math.MaxInt64) rounds to 1<<63, so equality is out of range too.
+		if v >= float64(math.MaxInt64) {
+			return 0, false, fmt.Errorf("seq %v is out of int64 range", v)
+		}
 		return int64(v), true, nil
 	case string:
 		if v == "" {
 			return 0, false, nil
 		}
 		seq, err := strconv.ParseInt(v, 10, 64)
-		return seq, true, err
+		if err != nil {
+			return 0, false, err
+		}
+		if seq < 0 {
+			return 0, false, fmt.Errorf("negative seq %d", seq)
+		}
+		return seq, true, nil
 	default:
 		return 0, false, fmt.Errorf("unsupported seq type %T", raw)
 	}
