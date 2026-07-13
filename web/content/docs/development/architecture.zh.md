@@ -91,7 +91,7 @@ plugins/
 
 **不可变 Server Deps。** `server.Deps` 是按域分组的值结构体（持久化、授权、运行时、共享服务、可选能力）。它携带具体域服务，而非宽泛的影子 store；一个 reflection/AST 三线闸冻结剩余的宽持久化债（DB 池、`config.Store`、auth stores）并禁止新增宽字段。可选能力容忍 nil，退化为单一集中的 503 映射。
 
-**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `internal/agent/access` 策略执行服务。Session 与 Workspace 用例使用 `internal/agent/session/access`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并在一个绑定策略版本的 `authz.Authority` evaluation 中决定 Agent、Session 和 Workspace 请求；旧策略引擎不再有任何 Agent、Session 或 Workspace 决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）铸造；请求 body/path 字段永远不能铸造或覆写 actor。
+**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `internal/agent/access` 策略执行服务。Session 与 Workspace 用例使用 `internal/agent/session/access`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并在一个绑定策略版本的 `authz.Authority` evaluation 中决定 Agent、Session 和 Workspace 请求；旧策略引擎不再有任何 Agent、Session 或 Workspace 决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）以及 `internal/agent/access` 中的 durable worker/group 适配器铸造；请求 body/path 字段永远不能铸造或覆写 actor。
 
 执行域采用相同形态：Workflow、Scheduler、Goal 由各自的域服务（`workflow.Service`、`scheduler.Service`、`goal.Service`）执行，Skills 由 `skillaccess` 执行，均取代了原先的 `Service.As(authz.Identity)` 门面与散落的 helper。每个传输层与工具用例只调用一次 `Begin`，并在该单一版本内决定域资源；跨资源的 agent 门禁通过 `agentaccess.AuthorizeWithin` 折叠进同一 evaluation。持久化 worker（goal attempt、触发的定时 workflow）从持久可信状态重建 owner/executor Authority，并在每次动作时重新决策。`admin` 通过内建的 `admin-full-access` 策略成为策略超级用户，而非散落的 `role == admin` 检查。
 

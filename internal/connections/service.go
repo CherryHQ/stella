@@ -557,6 +557,9 @@ func (s *Service) PollFlow(ctx context.Context, userID string, provider, flowID 
 	if flow.UserID != userID {
 		return FlowStatus{}, false, fmt.Errorf("flow does not belong to this user")
 	}
+	if string(flow.Provider) != provider {
+		return FlowStatus{}, false, fmt.Errorf("unknown or expired flow")
+	}
 
 	broker, err := s.getBroker(ctx, provider, flow.FlowType)
 	if err != nil {
@@ -605,7 +608,7 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 	}
 
 	flow, ok := s.flowStore.Get(flowID)
-	if !ok {
+	if !ok || string(flow.Provider) != provider {
 		return fmt.Errorf("unknown or expired flow")
 	}
 

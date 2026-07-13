@@ -203,6 +203,9 @@ func TestOAuthPollFlowOwnership(t *testing.T) {
 	if _, _, err := accOwner.PollFlow(ctx, "github", "missing-flow"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("owner PollFlow missing err=%v, want not found", err)
 	}
+	if _, _, err := accOwner.PollFlow(ctx, "google", "owner-flow"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("owner PollFlow wrong provider err=%v, want not found", err)
+	}
 }
 
 // A delegated agent has the same connection access as its delegating user (an

@@ -276,8 +276,16 @@ func (a *Access) UpdateFeedEntry(ctx context.Context, feedID, id string, status 
 	default:
 		return nil, fmt.Errorf("invalid status")
 	}
-	if status == EntryStatusSaved && (articleID == nil || *articleID == "") {
-		return nil, fmt.Errorf("article_id required when status=saved")
+	if status == EntryStatusSaved {
+		if articleID == nil || *articleID == "" {
+			return nil, fmt.Errorf("article_id required when status=saved")
+		}
+		// Feed entries are parent-keyed and the FK alone does not enforce that the
+		// linked article belongs to the same user. Prove article ownership before
+		// creating the cross-reference; foreign and missing IDs stay opaque.
+		if _, err := a.loadArticle(ctx, *articleID); err != nil {
+			return nil, err
+		}
 	}
 	updated, err := a.svc.store.MarkFeedEntry(ctx, feedID, id, status, articleID, errorMsg)
 	if err != nil {

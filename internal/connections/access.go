@@ -64,6 +64,9 @@ func (a *Access) PollFlow(ctx context.Context, provider, flowID string) (FlowSta
 	if flow.UserID != a.userID {
 		return FlowStatus{}, false, authz.ErrForbidden
 	}
+	if string(flow.Provider) != provider {
+		return FlowStatus{}, false, authz.ErrNotFound
+	}
 	return a.svc.PollFlow(ctx, a.userID, provider, flowID)
 }
 

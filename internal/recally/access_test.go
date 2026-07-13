@@ -112,6 +112,33 @@ func TestRecallyForeignUserCannotRead(t *testing.T) {
 	}
 }
 
+func TestRecallyFeedEntryCannotLinkForeignArticle(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	ctx := t.Context()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, 'foreign-link@example.com')`, otherUserID); err != nil {
+		t.Fatalf("insert foreign user: %v", err)
+	}
+	store := NewStore(db)
+	svc := NewService(store, t.TempDir())
+	feed, err := store.CreateFeed(ctx, testUserID, "https://example.com/feed.xml", FeedKindRSS, nil, "Mine", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := store.CreateFeedEntry(ctx, feed.ID, "guid-1", "https://example.com/item", "Item")
+	if err != nil || entry == nil {
+		t.Fatalf("CreateFeedEntry: entry=%v err=%v", entry, err)
+	}
+	foreignArticle, err := mustAccess(t, svc, otherUserID).Save(ctx, SaveRequest{URL: "https://example.com/foreign", Title: "Foreign", Content: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	articleID := foreignArticle.Article.ID
+	if _, err := mustAccess(t, svc, testUserID).UpdateFeedEntry(ctx, feed.ID, entry.ID, EntryStatusSaved, &articleID, ""); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("link foreign article err=%v, want ErrNotFound", err)
+	}
+}
+
 // A delegated agent has the SAME access as its delegating user (recally is
 // user-owned, shared across the user's agents).
 func TestRecallyAgentActsAsUser(t *testing.T) {
