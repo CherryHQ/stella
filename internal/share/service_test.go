@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agentaccess"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/authz/policy"
@@ -204,6 +204,12 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	if _, err := acc.ShareArtifact(ctx, "owner-session", outside, "", agentID, "7d"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("absolute path err=%v, want ErrNotFound clamp", err)
 	}
+	symlink := filepath.Join(root, "escape-link.html")
+	if err := os.Symlink(outside, symlink); err == nil {
+		if _, err := acc.ShareArtifact(ctx, "owner-session", "escape-link.html", "", agentID, "7d"); !errors.Is(err, authz.ErrNotFound) {
+			t.Fatalf("escaping symlink err=%v, want ErrNotFound", err)
+		}
+	}
 	if _, err := acc.ShareArtifact(ctx, "owner-session", "bad.exe", "", agentID, "7d"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("missing unsupported file err=%v, want ErrNotFound before type", err)
 	}
@@ -252,7 +258,7 @@ func seedShareUser(t *testing.T, db *pgxpool.Pool, suffix string) string {
 
 func mustAssets(t *testing.T, home string, authority blob.Store) *asset.Store {
 	t.Helper()
-	a, err := asset.NewStore(home, authority, false, nil)
+	a, err := asset.NewStore(home, authority, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}

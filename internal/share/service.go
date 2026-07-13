@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"mime"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -133,11 +134,33 @@ func WorkspaceRootForScope(stellaHome, userID, agentID, scope string) string {
 }
 
 func SafePath(root, rel string) (string, error) {
-	abs := filepath.Join(root, filepath.Clean("/"+rel))
-	if abs != root && !strings.HasPrefix(abs, root+string(filepath.Separator)) {
+	name, err := safePathName(rel)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, name), nil
+}
+
+// OpenSafeRoot returns an os.Root and root-relative name. Security-sensitive
+// operations use Root methods so symlink swaps cannot escape the workspace.
+func OpenSafeRoot(root, rel string) (*os.Root, string, error) {
+	name, err := safePathName(rel)
+	if err != nil {
+		return nil, "", err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, "", err
+	}
+	return r, name, nil
+}
+
+func safePathName(rel string) (string, error) {
+	name := filepath.Clean(filepath.FromSlash(rel))
+	if !filepath.IsLocal(name) {
 		return "", ErrPathEscapes
 	}
-	return abs, nil
+	return name, nil
 }
 
 func ArtifactMediaType(path string) string {
