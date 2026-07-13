@@ -148,7 +148,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 				snap, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, info.UserID, info.AgentID)
 				if err != nil {
 					rt.log.Warn("snapshot lookup failed, using base system", "session_id", info.ID, "error", err)
-				} else if snap.Version > 0 {
+				} else {
 					baseSystem = rt.snapshotPrompt(ctx, info, snap)
 				}
 			}

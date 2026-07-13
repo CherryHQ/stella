@@ -544,7 +544,10 @@ func TestExecute_SearchKnowledgeBoundsBestEffortUsageLatency(t *testing.T) {
 
 type snapshotKnowledgeProvider struct {
 	*memorytest.Fake
-	atVersion int64
+	atVersion       int64
+	versionedCall   bool
+	currentCalls    int
+	snapshotVersion int64
 }
 
 func (p *snapshotKnowledgeProvider) GetOrCreateSessionSnapshot(_ context.Context, sessionID string, userID string, agentID string) (memory.SessionSnapshot, error) {
@@ -552,13 +555,14 @@ func (p *snapshotKnowledgeProvider) GetOrCreateSessionSnapshot(_ context.Context
 		SessionID: sessionID,
 		UserID:    userID,
 		AgentID:   agentID,
-		Version:   7,
+		Version:   p.snapshotVersion,
 		UpdatedAt: time.Now().UTC(),
 	}, nil
 }
 
 func (p *snapshotKnowledgeProvider) ListActiveFactsAt(_ context.Context, userID string, agentID string, subject memory.FactSubject, version int64) ([]memory.Fact, error) {
 	p.atVersion = version
+	p.versionedCall = true
 	return []memory.Fact{
 		{
 			ID:      "snapshot-world",
@@ -573,8 +577,35 @@ func (p *snapshotKnowledgeProvider) ListActiveFactsAt(_ context.Context, userID 
 	}, nil
 }
 
-func TestExecute_SearchKnowledgeUsesSessionSnapshot(t *testing.T) {
+func (p *snapshotKnowledgeProvider) ListActiveFacts(ctx context.Context, userID string, agentID string, subject memory.FactSubject) ([]memory.Fact, error) {
+	p.currentCalls++
+	return p.Fake.ListActiveFacts(ctx, userID, agentID, subject)
+}
+
+func TestSearchKnowledgeUsesFrozenVersionZero(t *testing.T) {
 	provider := &snapshotKnowledgeProvider{Fake: memorytest.New()}
+	tool := memory.BuildTool(provider)
+	execCtx := memory.WithSessionID(context.Background(), "s1")
+	execCtx = authz.WithUserID(execCtx, "1")
+	execCtx = authz.WithAgentID(execCtx, "agent1")
+
+	_, err := tool.Execute(execCtx, map[string]any{
+		"action": "search_knowledge",
+		"query":  "deployment region",
+	})
+	if err != nil {
+		t.Fatalf("search_knowledge: %v", err)
+	}
+	if !provider.versionedCall || provider.atVersion != 0 {
+		t.Fatalf("ListActiveFactsAt called at version %d, want 0", provider.atVersion)
+	}
+	if provider.currentCalls != 0 {
+		t.Fatalf("current fact reads = %d, want 0", provider.currentCalls)
+	}
+}
+
+func TestExecute_SearchKnowledgeUsesSessionSnapshot(t *testing.T) {
+	provider := &snapshotKnowledgeProvider{Fake: memorytest.New(), snapshotVersion: 7}
 	tool := memory.BuildTool(provider)
 	execCtx := memory.WithSessionID(context.Background(), "s1")
 	execCtx = authz.WithUserID(execCtx, "1")
