@@ -96,6 +96,11 @@ func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in 
 			if err != nil {
 				return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", patched.Name, err)
 			}
+			// An exact stale retry already has the requested DB state. Preserve the
+			// disk file too when its bytes match; read failures use the normal write path.
+			if current, readErr := os.ReadFile(diskPath); readErr == nil && bytes.Equal(current, []byte(*in.MainFileContent)) {
+				return patched, nil
+			}
 			if err := writeFile(diskPath, *in.MainFileContent); err != nil {
 				return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", patched.Name, err)
 			}

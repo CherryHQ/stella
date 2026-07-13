@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -17,7 +18,14 @@ const (
 func MarkReflectOwnedMetadata(metadata json.RawMessage) (json.RawMessage, error) {
 	fields := map[string]any{}
 	if len(metadata) > 0 && string(metadata) != "null" {
-		if err := json.Unmarshal(metadata, &fields); err != nil {
+		if !json.Valid(metadata) {
+			var invalid any
+			err := json.Unmarshal(metadata, &invalid)
+			return nil, fmt.Errorf("skills: decode metadata: %w", err)
+		}
+		decoder := json.NewDecoder(bytes.NewReader(metadata))
+		decoder.UseNumber()
+		if err := decoder.Decode(&fields); err != nil {
 			return nil, fmt.Errorf("skills: decode metadata: %w", err)
 		}
 	}

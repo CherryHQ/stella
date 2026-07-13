@@ -192,6 +192,29 @@ func TestCreateReflectOwnedSkillExactRetryReturnsExisting(t *testing.T) {
 	}
 }
 
+func TestCreateReflectOwnedSkillLargeIntegerMetadataConflict(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	request := ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "reflect-large-metadata",
+		Description:     "large integer metadata",
+		MainFileContent: "# Large Metadata\n",
+		Metadata:        json.RawMessage(`{"sequence":9007199254740992}`),
+	}
+	if _, err := store.CreateReflectOwnedUserAgentSkill(ctx, request); err != nil {
+		t.Fatalf("first CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+
+	request.Metadata = json.RawMessage(`{"sequence":9007199254740993}`)
+	_, err := store.CreateReflectOwnedUserAgentSkill(ctx, request)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" || pgErr.ConstraintName != "idx_skill_owner_name" {
+		t.Fatalf("different large-integer metadata error = %v, want owner/name conflict", err)
+	}
+}
+
 func TestCreateReflectOwnedSkillSameNameDifferentStateConflicts(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)

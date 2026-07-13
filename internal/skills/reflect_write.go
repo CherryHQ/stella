@@ -1,10 +1,12 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"reflect"
 	"regexp"
 	"strings"
@@ -371,14 +373,58 @@ func reflectSkillPatchAlreadyApplied(ctx context.Context, qtx *sqlc.Queries, bef
 
 func semanticJSONEqual(left json.RawMessage, right json.RawMessage) (bool, error) {
 	var leftValue any
-	if err := json.Unmarshal(left, &leftValue); err != nil {
+	leftDecoder := json.NewDecoder(bytes.NewReader(left))
+	leftDecoder.UseNumber()
+	if err := leftDecoder.Decode(&leftValue); err != nil {
 		return false, fmt.Errorf("skills: decode existing metadata: %w", err)
 	}
 	var rightValue any
-	if err := json.Unmarshal(right, &rightValue); err != nil {
+	rightDecoder := json.NewDecoder(bytes.NewReader(right))
+	rightDecoder.UseNumber()
+	if err := rightDecoder.Decode(&rightValue); err != nil {
 		return false, fmt.Errorf("skills: decode requested metadata: %w", err)
 	}
-	return reflect.DeepEqual(leftValue, rightValue), nil
+	return semanticJSONValueEqual(leftValue, rightValue), nil
+}
+
+// semanticJSONValueEqual compares JSON numbers as exact rationals so equivalent
+// spellings remain equal without collapsing integers beyond float64 precision.
+func semanticJSONValueEqual(left any, right any) bool {
+	switch left := left.(type) {
+	case json.Number:
+		right, ok := right.(json.Number)
+		if !ok {
+			return false
+		}
+		leftNumber, leftOK := new(big.Rat).SetString(left.String())
+		rightNumber, rightOK := new(big.Rat).SetString(right.String())
+		return leftOK && rightOK && leftNumber.Cmp(rightNumber) == 0
+	case map[string]any:
+		right, ok := right.(map[string]any)
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for key, leftValue := range left {
+			rightValue, ok := right[key]
+			if !ok || !semanticJSONValueEqual(leftValue, rightValue) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		right, ok := right.([]any)
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for i := range left {
+			if !semanticJSONValueEqual(left[i], right[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return reflect.DeepEqual(left, right)
+	}
 }
 
 // DeprecateReflectOwnedUserAgentSkill marks a Reflect-owned user_agent skill as
