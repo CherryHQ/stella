@@ -44,7 +44,6 @@ Current important methods:
 | Method                                                        | Purpose                                                           | ID trust model                                                          |
 | ------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `Chat`                                                        | Foreground chat for an existing or newly generated session        | caller-supplied `SessionID` is resume-only                              |
-| `ChatForChannel`                                              | Non-private channel/group chat                                    | exact-create allowed because Stella derives `SessionKey`                |
 | `ChatForScheduler`                                            | Scheduler-initiated run                                           | exact-create allowed because scheduler derives `SessionID`              |
 | `ResolvePrivateChannelSession` / `ResolveGroupChannelSession` | Resolve a private or group channel session without running a turn | trusted channel key, requires `KindChat`; group id owns a group session |
 | `NewSession`                                                  | HTTP/Web UI create session                                        | generated ID only                                                       |
@@ -147,13 +146,13 @@ scope, err := svc.Sessions.MemoryScope(validatedInfo)
 
 Session kind describes why the session exists. Channel describes where it originated.
 
-| Kind        | Owner                          | Visible to users?  | Creation path                          |
-| ----------- | ------------------------------ | ------------------ | -------------------------------------- |
-| `main`      | private user chat              | yes                | `ResolveMainSession`                   |
-| `chat`      | normal foreground/channel chat | yes                | `Chat`, `ChatForChannel`, `NewSession` |
-| `delegate`  | child agent work               | usually hidden     | `Delegate`                             |
-| `task`      | async task worker run          | hidden by default  | `MintTaskSession`                      |
-| `scheduler` | scheduled job run              | hidden or filtered | `ChatForScheduler`                     |
+| Kind        | Owner                          | Visible to users?  | Creation path                           |
+| ----------- | ------------------------------ | ------------------ | --------------------------------------- |
+| `main`      | private user chat              | yes                | `ResolveMainSession`                    |
+| `chat`      | normal foreground/channel chat | yes                | channel resolvers, `Chat`, `NewSession` |
+| `delegate`  | child agent work               | usually hidden     | `Delegate`                              |
+| `task`      | async task worker run          | hidden by default  | `MintTaskSession`                       |
+| `scheduler` | scheduled job run              | hidden or filtered | `ChatForScheduler`                      |
 
 Typed resume must validate kind. A scheduler run must not resume a delegate session even if the ID matches. A channel session must require `KindChat` even though channel keys are trusted.
 
@@ -257,9 +256,10 @@ Private user channels converge on the main session.
 ### Group or shared channel message
 
 ```text
-channel derives SessionKey
-    -> Service.ChatForChannel(SessionKey, KindChat, Channel)
+channel derives SessionKey and resolves the canonical GroupID
+    -> Service.ResolveGroupChannelSession(SessionKey, GroupID, AgentID, Channel)
     -> Registry exact-creates only because the key is Stella-derived
+    -> Service.Chat(validated group session)
     -> Runtime.Chat
 ```
 
