@@ -113,8 +113,8 @@ func (p *Provider) RemoveConstraint(ctx context.Context, userID string, agentID 
 
 // GetProfileAt implements memory.VersionedProfileStore.
 func (p *Provider) GetProfileAt(ctx context.Context, userID string, agentID string, version int64) (string, error) {
-	if version <= 0 {
-		return p.GetProfile(ctx, userID, agentID)
+	if version < 0 {
+		return "", fmt.Errorf("memory snapshot version must be non-negative: %d", version)
 	}
 	content, err := p.getIdentityFactAt(ctx, userID, agentID, memory.FactSubjectUser, "profile", version)
 	if err != nil {
@@ -125,8 +125,8 @@ func (p *Provider) GetProfileAt(ctx context.Context, userID string, agentID stri
 
 // GetAgentSoulAt implements memory.VersionedProfileStore.
 func (p *Provider) GetAgentSoulAt(ctx context.Context, userID string, agentID string, version int64) (string, error) {
-	if version <= 0 {
-		return p.GetAgentSoul(ctx, userID, agentID)
+	if version < 0 {
+		return "", fmt.Errorf("memory snapshot version must be non-negative: %d", version)
 	}
 	content, err := p.getIdentityFactAt(ctx, userID, agentID, memory.FactSubjectAgent, "soul", version)
 	if err != nil {
@@ -171,6 +171,10 @@ func (p *Provider) getLegacyIdentityAt(ctx context.Context, userID string, agent
 	if err != nil || row == nil {
 		return "", err
 	}
+	// The mutable legacy row cannot represent a snapshot older than its version.
+	if row.Version > version {
+		return "", nil
+	}
 	switch scope {
 	case "profile":
 		return row.Content, nil
@@ -194,8 +198,8 @@ func (p *Provider) ListActiveFactsAt(ctx context.Context, userID string, agentID
 
 // GetConstraintsAt implements memory.VersionedConstraintStore.
 func (p *Provider) GetConstraintsAt(ctx context.Context, userID string, agentID string, version int64) ([]memory.ConstraintEntry, error) {
-	if version <= 0 {
-		return p.GetConstraints(ctx, userID, agentID)
+	if version < 0 {
+		return nil, fmt.Errorf("memory snapshot version must be non-negative: %d", version)
 	}
 	entry, err := p.q.GetMemoryChangelogAtVersion(ctx, sqlc.GetMemoryChangelogAtVersionParams{
 		UserID:             userID,
@@ -210,7 +214,16 @@ func (p *Provider) GetConstraintsAt(ctx context.Context, userID string, agentID 
 		return []memory.ConstraintEntry{}, nil
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
-		return p.GetConstraints(ctx, userID, agentID)
+		row, rowErr := p.getMemoryRow(ctx, userID, agentID)
+		if rowErr != nil {
+			return nil, fmt.Errorf("get constraints at version %d: %w", version, rowErr)
+		}
+		// Legacy constraints have no changelog, so only use a row frozen no later
+		// than the requested snapshot.
+		if row == nil || row.Version > version {
+			return []memory.ConstraintEntry{}, nil
+		}
+		return memorywrite.ParseConstraintsJSON(string(row.Constraints))
 	}
 	return nil, fmt.Errorf("get constraints at version %d: %w", version, err)
 }

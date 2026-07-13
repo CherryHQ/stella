@@ -425,6 +425,26 @@ func TestListActiveFactsAt_UsesMemoryVersionSnapshot(t *testing.T) {
 	}
 }
 
+func TestListActiveFactsAt_VersionZeroStaysEmptyAfterLaterWrites(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := memory.WithChangeSource(context.Background(), memory.SourceReflect)
+	if _, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectWorld, Content: "Later world fact.", Source: memory.SourceReflect,
+	}); err != nil {
+		t.Fatalf("create fact: %v", err)
+	}
+
+	atVersionZero, err := ListActiveFactsAt(ctx, q, userID, agentID, memory.FactSubjectWorld, 0)
+	if err != nil {
+		t.Fatalf("ListActiveFactsAt version 0: %v", err)
+	}
+	if len(atVersionZero) != 0 {
+		t.Fatalf("facts at version 0 = %+v, want empty", atVersionZero)
+	}
+}
+
 func TestSetSingletonFact_DecidesCreateOrReplaceUnderLock(t *testing.T) {
 	db, q, userID, agentID, cleanup := setupTestDB(t)
 	defer cleanup()
