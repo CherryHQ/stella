@@ -170,7 +170,6 @@ func (s *Service) SessionLive(sessionID string) bool {
 	return s.Runtime.SessionLive(sessionID)
 }
 
-
 // SchedulerChatRequest describes a scheduler-initiated chat turn.
 type SchedulerChatRequest struct {
 	SessionID string // scheduler-derived session ID

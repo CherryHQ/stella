@@ -14,9 +14,9 @@ func TestNonHTTPSessionEntryCutoverTripwire(t *testing.T) {
 		t.Fatalf("parse service.go: %v", err)
 	}
 	entries := map[string]bool{
-		"Chat": true, "ChatForChannel": true, "ChatForScheduler": true,
-		"chatOnSession": true, "ResolvePrivateChannelSession": true,
-		"ResolveGroupChannelSession": true, "NewSession": true,
+		"Chat": true, "ChatForScheduler": true, "chatOnSession": true,
+		"ResolvePrivateChannelSession": true,
+		"ResolveGroupChannelSession":   true, "NewSession": true,
 		"MintTaskSession": true, "Delegate": true, "ArchiveSession": true,
 		"ResolveMainSession": true,
 	}
