@@ -57,6 +57,35 @@ func TestReviewConversationUsesLegacyCombinedPrompt(t *testing.T) {
 	}
 }
 
+func TestReviewConversationSkipsGroupTarget(t *testing.T) {
+	wm := newFakeWatermarks()
+	svc := &Service{
+		memory: memorytest.New(),
+		wm:     wm,
+		log:    testLogger(),
+		providers: func(string, string, string) (providers.StreamFunc, error) {
+			t.Fatal("group target must not construct a production reviewer")
+			return nil, nil
+		},
+	}
+	target := reviewTarget{
+		session: memory.Session{
+			ID:      "group-session",
+			AgentID: "agent-1",
+			UserID:  "01980f2d-e91d-7f99-ac5f-d36098e0c800",
+			GroupID: "01980f2d-e91d-7f99-ac5f-d36098e0c800",
+		},
+		privateOneToOne: false,
+	}
+
+	if err := svc.reviewConversation(context.Background(), testSnapshot(), target); err != nil {
+		t.Fatalf("review group target: %v", err)
+	}
+	if !wm.marks[target.session.ID].IsZero() {
+		t.Fatal("skipped group target must not advance the private review watermark")
+	}
+}
+
 func TestReviewConversationCandidatesEntryPointUsesCandidateRunners(t *testing.T) {
 	svc, target, wm, freshAt := newCandidatePipelineTestService(t)
 	stream := sequentialCaptureStream(t,
