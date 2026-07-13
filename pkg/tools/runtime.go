@@ -55,7 +55,14 @@ func ParsePage(pageSize int, pageToken string, defaultSize, maxSize int) (int, i
 
 func PageRows[T any](rows []T, limit, offset int) ([]T, string) {
 	if len(rows) > limit {
-		return rows[:limit], base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset + limit)))
+		return rows[:limit], OffsetToken(offset + limit)
 	}
 	return rows, ""
+}
+
+// OffsetToken encodes a resume offset into the same opaque page token PageRows
+// emits, so a caller that owns its own paging (e.g. a PEP that scans past denied
+// rows) can hand back a token clients decode identically.
+func OffsetToken(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(offset)))
 }

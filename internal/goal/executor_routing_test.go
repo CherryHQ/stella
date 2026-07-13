@@ -43,7 +43,7 @@ func TestExecutorWaitsForOneShotSessionClose(t *testing.T) {
 		return ch
 	}
 
-	ex := newWorkerExecutor(chat, nil, nil, nil)
+	ex := newWorkerExecutor(chat, nil, nil, allowAttempt)
 	go func() {
 		_, err := ex.Execute(context.Background(), ExecutorRequest{
 			Attempt: sqlc.AgentGoalAttempt{
@@ -118,7 +118,7 @@ func TestExecutorRunsSandboxCallbackOnlyForTerminalSubmitTurn(t *testing.T) {
 	}
 
 	callbacks := 0
-	ex := newWorkerExecutor(chat, nil, nil, nil)
+	ex := newWorkerExecutor(chat, nil, nil, allowAttempt)
 	if _, err := ex.Execute(context.Background(), ExecutorRequest{
 		Attempt: sqlc.AgentGoalAttempt{
 			Purpose:         PurposeExecution,
@@ -224,7 +224,7 @@ func TestExecutorRoutesDecomposeFlag(t *testing.T) {
 				return ch
 			}
 
-			ex := newWorkerExecutor(chat, nil, nil, nil)
+			ex := newWorkerExecutor(chat, nil, nil, allowAttempt)
 			if _, err := ex.Execute(context.Background(), ExecutorRequest{
 				Attempt: sqlc.AgentGoalAttempt{
 					Purpose:         tc.purpose,

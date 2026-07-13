@@ -227,7 +227,7 @@ func Boot(cfg BootConfig) (*Service, error) {
 	}
 
 	svc := New(cfg.DB, q,
-		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools, cfg.AgentAccess)),
+		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools, newWorkerAuthorizer(cfg.Authorizer, cfg.AgentAccess))),
 		WithCheckRunner(NewCheckRunner(q, 0)),
 		WithCapabilityProbe(cfg.Capabilities),
 		WithSessionMinter(RegistrySessionMinter(cfg.Services)),
@@ -267,14 +267,14 @@ func Boot(cfg BootConfig) (*Service, error) {
 }
 
 // bootExecutor picks the worker executor. With a Chat callback it runs persisted
-// agent turns (executor.go); without one it is a noop that fails non-retryably so
-// a misconfigured boot is loud, not silent.
-func bootExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string, access *agentaccess.Service) Executor {
+// agent turns (executor.go), gated by the durable-attempt PEP; without one it is a
+// noop that fails non-retryably so a misconfigured boot is loud, not silent.
+func bootExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string, wa *workerAuthorizer) Executor {
 	if chat == nil {
 		log.Warn("goal: no Chat wired; worker executor is a noop")
 		return noopExecutor{log: log}
 	}
-	return newWorkerExecutor(chat, log, excludedTools, access)
+	return newWorkerExecutor(chat, log, excludedTools, wa.authorize)
 }
 
 // noopExecutor fails every attempt non-retryably with a clear hint. It is the

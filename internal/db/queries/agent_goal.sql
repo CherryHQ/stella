@@ -61,6 +61,16 @@ WHERE parent_id IS NULL
   AND (sqlc.narg(q)::text IS NULL OR title ILIKE '%' || sqlc.narg(q) || '%' OR intent ILIKE '%' || sqlc.narg(q) || '%')
   AND (sqlc.arg(include_archived)::boolean OR archived_at IS NULL);
 
+-- ListGoalForHealthScope returns every goal (roots AND children) in the health
+-- report's window and user/agent scope so the Access PEP can authorize each row
+-- before aggregating; it mirrors the scoped_goal CTE of GetGoalHealthReport.
+-- name: ListGoalForHealthScope :many
+SELECT * FROM agent_goal
+WHERE created_at >= sqlc.arg(since_at)
+  AND (sqlc.narg(user_id)::uuid IS NULL OR user_id = sqlc.narg(user_id)::uuid)
+  AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id)::text)
+ORDER BY created_at DESC, id DESC;
+
 -- name: ListGoalChildren :many
 SELECT * FROM agent_goal
 WHERE parent_id = $1

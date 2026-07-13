@@ -175,12 +175,15 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 	if params.Archived != nil {
 		filter.Archived = *params.Archived
 	}
-	rows, err := acc.ListGoals(ctx, filter, int64(limit+1), int64(offset))
+	page, nextOffset, hasMore, err := acc.ListGoals(ctx, filter, int64(limit), int64(offset))
 	if err != nil {
 		goalError(w, err)
 		return
 	}
-	page, next := nextPageTokenForRows(rows, limit, offset)
+	next := ""
+	if hasMore {
+		next = encodeOffsetToken(int(nextOffset))
+	}
 	var total *int
 	if n, err := acc.CountGoals(ctx, filter); err == nil {
 		v := int(n)
@@ -190,13 +193,12 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 }
 
 // GetGoalHealth returns the aggregated execution health report for a time window.
+// The report is computed only over goals the caller may read (Access.HealthReport
+// authorizes every row under one evaluation), so a per-resource deny never leaks a
+// hidden goal into the totals.
 func (s *Server) GetGoalHealth(w http.ResponseWriter, r *http.Request, params apiserver.GetGoalHealthParams) {
-	if !s.goalsReady() {
-		writeCapabilityUnavailable(w, capGoal)
-		return
-	}
-	info := requireAuth(w, r)
-	if info == nil {
+	acc, info, ok := s.goalAccess(w, r)
+	if !ok {
 		return
 	}
 	userID := info.UserID
@@ -210,11 +212,10 @@ func (s *Server) GetGoalHealth(w http.ResponseWriter, r *http.Request, params ap
 		}
 		userID = *params.UserId
 	}
-	agentID := derefStr(params.AgentId)
-	report, err := s.goalSvc.Goal.HealthReport(r.Context(), goal.HealthFilter{
+	report, err := acc.HealthReport(r.Context(), goal.HealthFilter{
 		SinceAt: params.Since,
 		UserID:  userID,
-		AgentID: agentID,
+		AgentID: derefStr(params.AgentId),
 	})
 	if err != nil {
 		goalError(w, err)
@@ -239,12 +240,6 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Title == "" || body.AgentId == "" {
 		writeError(w, http.StatusBadRequest, "title and agent_id are required")
-		return
-	}
-	// A goal becomes executable after persistence; exact worker authority later
-	// confines the executor but cannot authorize this initiating user.
-	if _, code, msg := s.requireAgentUse(ctx, body.AgentId); code != 0 {
-		writeError(w, code, msg)
 		return
 	}
 	// Every user-created goal is a planned composite: it must go through plan +
@@ -343,11 +338,7 @@ func (s *Server) DeleteGoal(w http.ResponseWriter, r *http.Request, id string) {
 	if !ok {
 		return
 	}
-	ctx := r.Context()
-	if _, ok := s.loadGoalRead(ctx, w, acc, id); !ok {
-		return
-	}
-	if err := s.goalSvc.Goal.Archive(ctx, id); err != nil {
+	if err := acc.Archive(r.Context(), id); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -394,19 +385,16 @@ func (s *Server) CancelGoal(w http.ResponseWriter, r *http.Request, id string) {
 
 // AbandonGoal is the human give-up on a budget-exhausted block.
 func (s *Server) AbandonGoal(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalRead(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.AbandonRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.Goal.Abandon(ctx, id, derefStr(body.Reason), goal.UserActor(info.UserID)); err != nil {
+	if err := acc.Abandon(ctx, id, derefStr(body.Reason)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -437,10 +425,7 @@ func (s *Server) UnarchiveGoal(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalRead(ctx, w, acc, id); !ok {
-		return
-	}
-	if err := s.goalSvc.Goal.Unarchive(ctx, id); err != nil {
+	if err := acc.Unarchive(ctx, id); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -630,9 +615,6 @@ func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalRead(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.AddEdgeRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -640,12 +622,6 @@ func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	if body.UpstreamId == "" {
 		writeError(w, http.StatusBadRequest, "upstream_id is required")
-		return
-	}
-	// The upstream is caller-supplied — gate it through the same ownership check
-	// as the downstream, or a caller could wire in another tenant's goal
-	// and pull its frozen accepted_output into their own attempt's input context.
-	if _, ok := s.loadGoalRead(ctx, w, acc, body.UpstreamId); !ok {
 		return
 	}
 	kind := goal.EdgeHard
@@ -656,7 +632,10 @@ func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
 	if body.OnFailure != nil {
 		onFailure = string(*body.OnFailure)
 	}
-	edge, err := s.goalSvc.Goal.AddEdge(ctx, id, body.UpstreamId, kind, onFailure)
+	// Access.AddEdge authorizes a state change on BOTH the downstream and the
+	// caller-supplied upstream under one evaluation, so a caller cannot wire in
+	// another tenant's goal to pull its frozen accepted_output into their input.
+	edge, err := acc.AddEdge(ctx, id, body.UpstreamId, kind, onFailure)
 	if err != nil {
 		goalError(w, err)
 		return

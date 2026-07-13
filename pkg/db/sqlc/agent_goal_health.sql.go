@@ -20,6 +20,7 @@ WITH scoped_goal AS (
     WHERE g.created_at >= $1
       AND ($2::uuid IS NULL OR g.user_id = $2::uuid)
       AND ($3::text IS NULL OR g.agent_id = $3::text)
+      AND g.id = ANY($4::text[])
 ),
 scoped_attempt AS (
     SELECT a.id, a.goal_id, a.user_id, a.agent_id, a.executor_agent_id, a.session_id, a.purpose, a.attempt_no, a.status, a.input_context, a.evidence, a.output, a.gaps, a.error, a.heartbeat_at, a.lease_expires_at, a.worker_id, a.started_at, a.finished_at, a.created_at, a.updated_at, a.failure_class, a.repair_rounds, a.previous_failure_class
@@ -225,10 +226,16 @@ type GetGoalHealthReportParams struct {
 	SinceAt time.Time   `json:"since_at"`
 	UserID  pgtype.Text `json:"user_id"`
 	AgentID pgtype.Text `json:"agent_id"`
+	GoalIds []string    `json:"goal_ids"`
 }
 
 func (q *Queries) GetGoalHealthReport(ctx context.Context, arg GetGoalHealthReportParams) (json.RawMessage, error) {
-	row := q.db.QueryRow(ctx, getGoalHealthReport, arg.SinceAt, arg.UserID, arg.AgentID)
+	row := q.db.QueryRow(ctx, getGoalHealthReport,
+		arg.SinceAt,
+		arg.UserID,
+		arg.AgentID,
+		arg.GoalIds,
+	)
 	var report json.RawMessage
 	err := row.Scan(&report)
 	return report, err

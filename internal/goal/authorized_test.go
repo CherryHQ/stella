@@ -114,7 +114,7 @@ func TestGoalEnforcesOwnerAndExecutorBoundaries(t *testing.T) {
 	if _, err := h.begin(t, scoped).Get(ctx, otherGoal.ID); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("scoped Get other-agent goal err=%v, want not found", err)
 	}
-	if _, err := h.begin(t, scoped).ListGoals(ctx, GoalFilter{AgentID: otherAgentID}, 10, 0); !errors.Is(err, authz.ErrForbidden) {
+	if _, _, _, err := h.begin(t, scoped).ListGoals(ctx, GoalFilter{AgentID: otherAgentID}, 10, 0); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("scoped ListGoals other agent err=%v, want forbidden", err)
 	}
 	if _, err := h.begin(t, scoped).CreateGoal(ctx, CreateInput{AgentID: otherAgentID, Title: "bad", Kind: KindComposite}); !errors.Is(err, authz.ErrForbidden) {

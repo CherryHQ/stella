@@ -126,19 +126,33 @@ func (h goalHandler) List(ctx context.Context, in ListInput) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var rows []sqlc.AgentGoal
+	var page []sqlc.AgentGoal
+	var next string
 	switch {
 	case in.Parent != "":
-		rows, err = acc.ListChildren(ctx, in.Parent)
+		rows, lerr := acc.ListChildren(ctx, in.Parent)
+		if lerr != nil {
+			return nil, lerr
+		}
+		page, next = tools.PageRows(rows, limit, offset)
 	case in.Root != "":
-		rows, err = acc.ListSubtree(ctx, in.Root)
+		rows, lerr := acc.ListSubtree(ctx, in.Root)
+		if lerr != nil {
+			return nil, lerr
+		}
+		page, next = tools.PageRows(rows, limit, offset)
 	default:
-		rows, err = acc.ListGoals(ctx, filter, int64(limit+1), int64(offset))
+		// Access.ListGoals owns paging: it scans candidates past denied rows and
+		// returns the resume offset, so the token still round-trips as an offset.
+		rows, nextOffset, hasMore, lerr := acc.ListGoals(ctx, filter, int64(limit), int64(offset))
+		if lerr != nil {
+			return nil, lerr
+		}
+		page = rows
+		if hasMore {
+			next = tools.OffsetToken(int(nextOffset))
+		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	page, next := tools.PageRows(rows, limit, offset)
 	items := make([]goalResponse, 0, len(page))
 	for _, row := range page {
 		items = append(items, goalSummary(row))
