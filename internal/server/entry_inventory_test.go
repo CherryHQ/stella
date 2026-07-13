@@ -26,6 +26,8 @@ import (
 	"go/token"
 	"path/filepath"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/server"
 )
 
 type entryRow struct {
@@ -312,6 +314,42 @@ var channelGrantInventory = []channelSymbol{
 		Actor: "GroupIngressActor", Action: "execute", Resource: "group_turn",
 		Visibility: "private", Stack: "authz-core", Gate: "durable group outbox lease + membership",
 	}},
+}
+
+// TestEntryInventoryCatalogMapping proves every non-HTTP entry family's target
+// actor/action/resource resolves onto the closed authz catalog (issue #707
+// subphase A), using the same mapping bridge the /api route mapping uses. A new
+// worker/tool/channel-grant/webhook whose target names an action/resource/actor
+// outside the catalog fails here until the catalog is extended.
+func TestEntryInventoryCatalogMapping(t *testing.T) {
+	rows := []entryRow{webhookEntry}
+	for _, r := range riverWorkerInventory {
+		rows = append(rows, r)
+	}
+	for _, r := range builtinToolInventory {
+		rows = append(rows, r)
+	}
+	for _, c := range channelGrantInventory {
+		rows = append(rows, c.class)
+	}
+	for _, r := range rows {
+		if act, ok := server.CatalogActionFor(r.Action); !ok || !act.Valid() {
+			t.Errorf("entry actor=%q action %q has no valid authz.Action catalog member", r.Actor, r.Action)
+		}
+		if res, ok := server.CatalogResourceFor(r.Resource); !ok || !res.Valid() {
+			t.Errorf("entry actor=%q resource %q has no valid authz.ResourceType catalog member", r.Actor, r.Resource)
+		}
+		kinds, ok := server.CatalogActorKindsFor(r.Actor)
+		if !ok {
+			t.Errorf("entry actor %q has no valid authz.ActorKind mapping", r.Actor)
+			continue
+		}
+		for _, k := range kinds {
+			if !k.Valid() {
+				t.Errorf("entry actor %q mapped to invalid kind %v", r.Actor, k)
+			}
+		}
+	}
 }
 
 func TestChannelGrantInventory(t *testing.T) {

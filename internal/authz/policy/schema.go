@@ -1,0 +1,340 @@
+// Package policy is the concrete, PostgreSQL-backed implementation of the
+// authz.Authorizer / authz.Evaluation contract defined in internal/authz.
+//
+// It owns three things the pure authz leaf deliberately does not:
+//   - the per-resource custom-policy attribute schemas and the typed builders
+//     that produce validated authz.Resource values (no map[string]any ever
+//     crosses this boundary);
+//   - the revision-verified immutable evaluation snapshot, backed by a
+//     commit-ordered PostgreSQL revision counter;
+//   - the custom-policy mutation service that owns the transaction + revision
+//     bump, plus the resource-activation catalog that keeps not-yet-cut-over
+//     resources inert.
+//
+// This subphase (Stack 2 / #707 B) is shadow-only: nothing here is wired into a
+// production decision path, so it cannot create a dual-authoritative decision.
+package policy
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+
+	"github.com/CherryHQ/stella/internal/authz"
+)
+
+// ErrSchema is returned when an attribute name, operator, or value does not
+// satisfy a resource's custom-policy attribute schema.
+var ErrSchema = errors.New("authz/policy: attribute schema violation")
+
+// attrKind is the value domain of a custom-policy attribute.
+type attrKind uint8
+
+const (
+	kindString attrKind = iota // free-form string
+	kindBool                   // "true" / "false"
+	kindEnum                   // one of a fixed set
+)
+
+// operator is a custom-policy predicate operator. The set is intentionally
+// small and closed; an unknown operator fails schema validation.
+type operator string
+
+const (
+	opEq    operator = "eq"
+	opNeq   operator = "neq"
+	opIn    operator = "in"
+	opNotIn operator = "not_in"
+)
+
+// attrSpec describes one attribute of a resource: its value kind, the enum
+// members when kindEnum, and the operators a predicate may use against it.
+type attrSpec struct {
+	kind attrKind
+	enum []string
+	ops  []operator
+}
+
+func (s attrSpec) allowsOp(op operator) bool {
+	return slices.Contains(s.ops, op)
+}
+
+func (s attrSpec) validValue(v string) bool {
+	switch s.kind {
+	case kindBool:
+		return v == "true" || v == "false"
+	case kindEnum:
+		return slices.Contains(s.enum, v)
+	default:
+		return true
+	}
+}
+
+// resourceSchema is the closed set of custom-policy attributes for one resource
+// type. A resource with no meaningful policy attributes still has a schema (an
+// empty attribute set) so that every catalog member is covered and any predicate
+// against it fails validation.
+type resourceSchema struct {
+	attrs map[string]attrSpec
+}
+
+// reusable attribute specs.
+var (
+	boolAttr   = attrSpec{kind: kindBool, ops: []operator{opEq, opNeq}}
+	stringAttr = attrSpec{kind: kindString, ops: []operator{opEq, opNeq, opIn, opNotIn}}
+)
+
+func enumAttr(members ...string) attrSpec {
+	return attrSpec{kind: kindEnum, enum: members, ops: []operator{opEq, opNeq, opIn, opNotIn}}
+}
+
+// schemas is the per-resource custom-policy attribute schema for every catalog
+// ResourceType. Entries are grounded in the plan's authorization matrix
+// (owner/agent/scope/kind/state/status/…); only the Agent schema is exercised by
+// an active policy in this shadow subphase, but a schema exists for every
+// resource so validation is total and a coverage test can assert completeness.
+var schemas = map[authz.ResourceType]resourceSchema{
+	authz.ResourceAgent: {attrs: map[string]attrSpec{
+		"scope":    enumAttr("system", "user", "shared"),
+		"assigned": boolAttr,
+		"creator":  stringAttr,
+		"status":   stringAttr,
+	}},
+	authz.ResourceSession:   {attrs: ownerAgentKindState()},
+	authz.ResourceWorkspace: {attrs: ownerAgentKindState()},
+	authz.ResourceSkill: {attrs: map[string]attrSpec{
+		"scope":  enumAttr("system", "agent", "user"),
+		"owner":  stringAttr,
+		"agent":  stringAttr,
+		"source": stringAttr,
+	}},
+	authz.ResourceGoal:      {attrs: ownerAgentState()},
+	authz.ResourceWorkflow:  {attrs: ownerAgentState()},
+	authz.ResourceScheduler: {attrs: ownerAgentKindState()},
+	authz.ResourceVault:     {attrs: ownerAgentSensitivity()},
+	authz.ResourceConnection: {attrs: map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr, "type": stringAttr,
+	}},
+	authz.ResourceEmail: {attrs: map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr, "type": stringAttr,
+	}},
+	authz.ResourceShare: {attrs: ownerAgentSensitivity()},
+	authz.ResourceRecally: {attrs: map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr, "type": stringAttr,
+	}},
+	authz.ResourceUserData: {attrs: map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr,
+	}},
+	authz.ResourceProvider: {attrs: kindStatus()},
+	authz.ResourceSettings: {attrs: kindStatus()},
+	authz.ResourcePlugin:   {attrs: kindOwnerStatus()},
+	authz.ResourceChannel:  {attrs: kindOwnerStatus()},
+	authz.ResourceTool: {attrs: map[string]attrSpec{
+		"scope": enumAttr("public", "group"),
+		"owner": stringAttr,
+	}},
+	authz.ResourceUser:  {attrs: map[string]attrSpec{"owner": stringAttr}},
+	authz.ResourceGroup: {attrs: map[string]attrSpec{"owner": stringAttr}},
+	authz.ResourceMembership: {attrs: map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr,
+	}},
+	authz.ResourceToken:        {attrs: map[string]attrSpec{"owner": stringAttr}},
+	authz.ResourceMCP:          {attrs: ownerStatus()},
+	authz.ResourceAuth:         {attrs: map[string]attrSpec{"kind": stringAttr}},
+	authz.ResourceWebhook:      {attrs: ownerStatus()},
+	authz.ResourceEmbeddingJob: {attrs: ownerStatus()},
+	authz.ResourceSystemCatalog: {attrs: map[string]attrSpec{
+		"scope": enumAttr("public"),
+	}},
+}
+
+func ownerAgentState() map[string]attrSpec {
+	return map[string]attrSpec{"owner": stringAttr, "agent": stringAttr, "state": stringAttr}
+}
+
+func ownerAgentKindState() map[string]attrSpec {
+	return map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr, "kind": stringAttr, "state": stringAttr,
+	}
+}
+
+func ownerAgentSensitivity() map[string]attrSpec {
+	return map[string]attrSpec{"owner": stringAttr, "agent": stringAttr, "sensitivity": stringAttr}
+}
+
+func kindStatus() map[string]attrSpec {
+	return map[string]attrSpec{"kind": stringAttr, "status": stringAttr}
+}
+
+func kindOwnerStatus() map[string]attrSpec {
+	return map[string]attrSpec{"kind": stringAttr, "owner": stringAttr, "status": stringAttr}
+}
+
+func ownerStatus() map[string]attrSpec {
+	return map[string]attrSpec{"owner": stringAttr, "status": stringAttr}
+}
+
+// SchemaFor returns the custom-policy attribute schema for a resource type and
+// whether one exists. Every catalog member has a schema.
+func schemaFor(rt authz.ResourceType) (resourceSchema, bool) {
+	s, ok := schemas[rt]
+	return s, ok
+}
+
+// ResourceBuilder assembles a validated authz.Resource with typed attributes.
+// It is the ONLY sanctioned way for a domain to attach custom-policy attributes
+// to a resource: every WithString/WithBool/WithEnum call is checked against the
+// resource's schema, so an unknown attribute, wrong type, or bad enum value is
+// rejected at build time. Transport code never sees this — it produces typed
+// domain values, and the builder turns them into the internal string form.
+type ResourceBuilder struct {
+	typ     authz.ResourceType
+	id      string
+	ownerID string
+	attrs   map[string]string
+	err     error
+}
+
+// NewResourceBuilder starts a builder for a resource type/id/owner.
+func NewResourceBuilder(rt authz.ResourceType, id, ownerID string) *ResourceBuilder {
+	b := &ResourceBuilder{typ: rt, id: id, ownerID: ownerID, attrs: map[string]string{}}
+	if !rt.Valid() {
+		b.err = authz.ErrInvalidResource
+		return b
+	}
+	if _, ok := schemaFor(rt); !ok {
+		b.err = fmt.Errorf("%w: no schema for resource %s", ErrSchema, rt)
+	}
+	return b
+}
+
+func (b *ResourceBuilder) set(name, value string, want attrKind) *ResourceBuilder {
+	if b.err != nil {
+		return b
+	}
+	s, _ := schemaFor(b.typ)
+	spec, ok := s.attrs[name]
+	if !ok {
+		b.err = fmt.Errorf("%w: resource %s has no attribute %q", ErrSchema, b.typ, name)
+		return b
+	}
+	if spec.kind != want {
+		b.err = fmt.Errorf("%w: attribute %q on %s is not of the expected kind", ErrSchema, name, b.typ)
+		return b
+	}
+	if !spec.validValue(value) {
+		b.err = fmt.Errorf("%w: value %q is not valid for attribute %q on %s", ErrSchema, value, name, b.typ)
+		return b
+	}
+	b.attrs[name] = value
+	return b
+}
+
+// WithString sets a string attribute.
+func (b *ResourceBuilder) WithString(name, value string) *ResourceBuilder {
+	return b.set(name, value, kindString)
+}
+
+// WithEnum sets an enum attribute, validated against the allowed members.
+func (b *ResourceBuilder) WithEnum(name, value string) *ResourceBuilder {
+	return b.set(name, value, kindEnum)
+}
+
+// WithBool sets a boolean attribute.
+func (b *ResourceBuilder) WithBool(name string, value bool) *ResourceBuilder {
+	v := "false"
+	if value {
+		v = "true"
+	}
+	return b.set(name, v, kindBool)
+}
+
+// Build returns the validated resource, or the first error encountered.
+func (b *ResourceBuilder) Build() (authz.Resource, error) {
+	if b.err != nil {
+		return authz.Resource{}, b.err
+	}
+	return authz.NewResourceWithAttrs(b.typ, b.id, b.ownerID, b.attrs)
+}
+
+// AgentResource is the concrete typed builder for the one resource activated in
+// this subphase. scope is the agent's scope (system/user/shared) and assigned
+// reports whether the acting user has the agent assigned — the two attributes
+// the built-in agent policies evaluate.
+func AgentResource(id, ownerID, scope string, assigned bool) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceAgent, id, ownerID).
+		WithEnum("scope", scope).
+		WithBool("assigned", assigned).
+		Build()
+}
+
+// predicate is one attribute comparison inside a custom policy.
+type predicate struct {
+	Attr  string   `json:"attr"`
+	Op    operator `json:"op"`
+	Value string   `json:"value,omitempty"`
+	// Values holds the members for in/not_in operators.
+	Values []string `json:"values,omitempty"`
+}
+
+// attributeDoc is the JSON shape stored in authz_policy.attributes.
+type attributeDoc struct {
+	Predicates []predicate `json:"predicates"`
+}
+
+// validatePredicates checks a predicate set against a resource's schema.
+// Unknown attribute, disallowed operator, or invalid value fails closed.
+func validatePredicates(rt authz.ResourceType, preds []predicate) error {
+	s, ok := schemaFor(rt)
+	if !ok {
+		return fmt.Errorf("%w: no schema for resource %s", ErrSchema, rt)
+	}
+	for _, p := range preds {
+		spec, ok := s.attrs[p.Attr]
+		if !ok {
+			return fmt.Errorf("%w: unknown attribute %q for %s", ErrSchema, p.Attr, rt)
+		}
+		if !spec.allowsOp(p.Op) {
+			return fmt.Errorf("%w: operator %q not allowed on %q of %s", ErrSchema, p.Op, p.Attr, rt)
+		}
+		switch p.Op {
+		case opEq, opNeq:
+			if !spec.validValue(p.Value) {
+				return fmt.Errorf("%w: value %q invalid for %q of %s", ErrSchema, p.Value, p.Attr, rt)
+			}
+		case opIn, opNotIn:
+			if len(p.Values) == 0 {
+				return fmt.Errorf("%w: operator %q on %q needs values", ErrSchema, p.Op, p.Attr)
+			}
+			for _, v := range p.Values {
+				if !spec.validValue(v) {
+					return fmt.Errorf("%w: value %q invalid for %q of %s", ErrSchema, v, p.Attr, rt)
+				}
+			}
+		default:
+			return fmt.Errorf("%w: unknown operator %q", ErrSchema, p.Op)
+		}
+	}
+	return nil
+}
+
+// marshalAttributes encodes a predicate set for storage.
+func marshalAttributes(preds []predicate) (json.RawMessage, error) {
+	if len(preds) == 0 {
+		return json.RawMessage(`{}`), nil
+	}
+	return json.Marshal(attributeDoc{Predicates: preds})
+}
+
+// unmarshalAttributes decodes a stored predicate set.
+func unmarshalAttributes(raw json.RawMessage) ([]predicate, error) {
+	if len(raw) == 0 || string(raw) == "{}" || string(raw) == "null" {
+		return nil, nil
+	}
+	var doc attributeDoc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("authz/policy: decode attributes: %w", err)
+	}
+	return doc.Predicates, nil
+}

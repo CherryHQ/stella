@@ -264,6 +264,28 @@ type AuthUserToken struct {
 	UpdatedAt     time.Time          `json:"updated_at"`
 }
 
+type AuthzPolicy struct {
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	ResourceType     string          `json:"resource_type"`
+	Action           string          `json:"action"`
+	Effect           string          `json:"effect"`
+	Subjects         json.RawMessage `json:"subjects"`
+	Attributes       json.RawMessage `json:"attributes"`
+	CatalogVersion   int64           `json:"catalog_version"`
+	Status           string          `json:"status"`
+	QuarantineReason string          `json:"quarantine_reason"`
+	Priority         int64           `json:"priority"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+}
+
+type AuthzPolicyRevision struct {
+	ID        int32     `json:"id"`
+	Revision  int64     `json:"revision"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type Channel struct {
 	ID        string      `json:"id"`
 	Name      string      `json:"name"`

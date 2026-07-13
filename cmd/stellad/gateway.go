@@ -23,6 +23,8 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/agentshadow"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -195,7 +197,14 @@ func runServer(ctx context.Context, s *setupResult, listFn func() []pkgchannel.M
 
 	// Create auth store and policy engine for channel bots and Web UI.
 	as := appdb.NewAuthStore(s.db)
-	engine, err := auth.NewEngine(gctx, as)
+
+	// #707 subphase C — shadow authorization. Build exactly one revision-bound
+	// PostgreSQL Authorizer over the shared pool (before ingress) and inject it
+	// into the legacy engine's agent read/execute path in shadow only. It emits
+	// diagnostics on any mismatch/error but never changes the legacy decision;
+	// the whole seam is deleted when the Agent vertical cuts over (#709).
+	agentShadow := agentshadow.New(policy.New(s.db))
+	engine, err := auth.NewEngine(gctx, as, auth.WithAgentShadow(agentShadow))
 	if err != nil {
 		return fmt.Errorf("create auth engine: %w", err)
 	}
