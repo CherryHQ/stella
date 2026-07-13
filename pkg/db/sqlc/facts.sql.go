@@ -58,7 +58,7 @@ WHERE f.user_id = $1
     (d.metadata::jsonb)->>'deprecated_by' = 'manual'
     OR (d.metadata::jsonb)->>'curator' = 'usage'
   )
-  AND d.created_at > $3::timestamptz - interval '90 days'
+  AND d.created_at > $3::timestamptz - interval '2160 hours'
 `
 
 type CountRemovedKnowledgeParams struct {
@@ -674,7 +674,7 @@ WHERE f.user_id = $1
     (d.metadata::jsonb)->>'deprecated_by' = 'manual'
     OR (d.metadata::jsonb)->>'curator' = 'usage'
   )
-  AND d.created_at > $3::timestamptz - interval '90 days'
+  AND d.created_at > $3::timestamptz - interval '2160 hours'
 ORDER BY d.created_at DESC, f.id DESC
 LIMIT $5
 OFFSET $4

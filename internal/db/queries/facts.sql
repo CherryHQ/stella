@@ -108,7 +108,7 @@ WHERE f.user_id = sqlc.arg(user_id)
     (d.metadata::jsonb)->>'deprecated_by' = 'manual'
     OR (d.metadata::jsonb)->>'curator' = 'usage'
   )
-  AND d.created_at > sqlc.arg(now_at)::timestamptz - interval '90 days'
+  AND d.created_at > sqlc.arg(now_at)::timestamptz - interval '2160 hours'
 ORDER BY d.created_at DESC, f.id DESC
 LIMIT sqlc.arg(limit_count)
 OFFSET sqlc.arg(offset_count);
@@ -136,7 +136,7 @@ WHERE f.user_id = sqlc.arg(user_id)
     (d.metadata::jsonb)->>'deprecated_by' = 'manual'
     OR (d.metadata::jsonb)->>'curator' = 'usage'
   )
-  AND d.created_at > sqlc.arg(now_at)::timestamptz - interval '90 days';
+  AND d.created_at > sqlc.arg(now_at)::timestamptz - interval '2160 hours';
 
 -- name: GetLatestQualifyingKnowledgeDeprecateChangelog :one
 SELECT *

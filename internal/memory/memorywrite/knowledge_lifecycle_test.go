@@ -309,6 +309,68 @@ func TestKnowledgeLifecycleFiltersRemovedAndRejectsExpiredOrDuplicateRestore(t *
 	}
 }
 
+func TestKnowledgeLifecycleRemovedWindowUsesExactHoursAcrossDST(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	fact := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "DST boundary")
+	if _, err := DeprecateKnowledge(ctx, db, q, KnowledgeDeprecateInput{
+		FactID: fact.ID, UserID: userID, AgentID: agentID, DeprecatedBy: userID,
+	}); err != nil {
+		t.Fatalf("DeprecateKnowledge: %v", err)
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin timezone transaction: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// SET LOCAL keeps the DST-sensitive timezone scoped to this transaction.
+	if _, err := tx.Exec(ctx, "SET LOCAL TIME ZONE 'America/New_York'"); err != nil {
+		t.Fatalf("set local timezone: %v", err)
+	}
+	deprecatedAt := time.Date(2026, time.January, 1, 13, 0, 0, 0, time.UTC)
+	result, err := tx.Exec(ctx, `
+		UPDATE ctx_agent_memory_changelog
+		SET created_at = $1
+		WHERE user_id = $2
+		  AND agent_id = $3
+		  AND scope = 'fact'
+		  AND action = 'deprecate'
+		  AND entity_id = $4
+	`, deprecatedAt, userID, agentID, fact.ID)
+	if err != nil {
+		t.Fatalf("set deprecation timestamp: %v", err)
+	}
+	if result.RowsAffected() != 1 {
+		t.Fatalf("updated deprecation rows = %d, want 1", result.RowsAffected())
+	}
+
+	qtx := q.WithTx(tx)
+	inside, err := ListKnowledge(ctx, qtx, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateRemoved, Limit: 10,
+		Now: deprecatedAt.Add(KnowledgeRestoreWindow - time.Second),
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge inside window: %v", err)
+	}
+	if inside.Total != 1 || len(inside.Items) != 1 || inside.Items[0].Fact.ID != fact.ID {
+		t.Fatalf("inside exact-hour window page = %#v, want removed fact", inside)
+	}
+
+	atDeadline, err := ListKnowledge(ctx, qtx, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateRemoved, Limit: 10,
+		Now: deprecatedAt.Add(KnowledgeRestoreWindow),
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge at deadline: %v", err)
+	}
+	if atDeadline.Total != 0 || len(atDeadline.Items) != 0 {
+		t.Fatalf("deadline page = %#v, want expired fact excluded", atDeadline)
+	}
+}
+
 func TestKnowledgeLifecycleRejectsCrossOwnerAndRestoresReflectUsage(t *testing.T) {
 	db, q, userID, agentID, cleanup := setupTestDB(t)
 	defer cleanup()
