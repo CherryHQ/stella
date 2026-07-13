@@ -246,6 +246,42 @@ func TestBuildReviewUnit_DoesNotSplitSameTimestampBoundary(t *testing.T) {
 	}
 }
 
+func TestBuildReviewUnitKeepsOversizedSkipWhenSameTimestampBoundaryCannotFit(t *testing.T) {
+	fake := memorytest.New()
+	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
+	ctx := context.Background()
+	sharedAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
+	if err := fake.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.Append(ctx, sess,
+		ai.UserMessage{Content: strings.Repeat("h", 200), Timestamp: sharedAt},
+		ai.UserMessage{Content: "tiny", Timestamp: sharedAt},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// The small line fits alone but not with the mandatory fresh envelope.
+	budget := memory.EstimateTokens("<fresh_conversation>\n[user] tiny\n</fresh_conversation>\n") - 1
+	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
+		session:         sess,
+		privateOneToOne: true,
+	}, reviewWatermark{}, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unit.Skipped) != 1 || unit.Skipped[0].Reason != reviewSkipOversizedSingleMessage {
+		t.Fatalf("expected oversized line to remain recorded, got %#v", unit.Skipped)
+	}
+	if !unit.Truncated || unit.Text != "" || unit.FreshCount != 0 {
+		t.Fatalf("expected fail-closed truncated unit, got %#v", unit)
+	}
+	if !unit.LastIncludedAt.IsZero() || unit.LastIncludedSeq != 0 {
+		t.Fatalf("watermark must not advance across the unconsumed boundary, got %#v", unit)
+	}
+}
+
 func TestBuildReviewUnit_UsesReviewSeqBoundary(t *testing.T) {
 	at := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
 	svc := &Service{

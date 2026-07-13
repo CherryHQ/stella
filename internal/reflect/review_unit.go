@@ -112,6 +112,9 @@ func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark
 		// Fresh boundaries take priority, so reserve their protocol envelope before
 		// considering optional skill usage or prior context.
 		if !reviewTextFitsBudget(renderReviewUnitText(nil, candidateFresh, nil), budget) {
+			// Oversized lines are independently final, but this boundary still has
+			// ordinary content for the next cycle, so do not advance its watermark.
+			unit.Skipped = append(unit.Skipped, skipped...)
 			unit.Truncated = true
 			break
 		}
