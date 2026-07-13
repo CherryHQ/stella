@@ -68,6 +68,8 @@ var (
 		"</session_skill_usage>", "&lt;/session_skill_usage&gt;",
 		"<candidates_json>", "&lt;candidates_json&gt;",
 		"</candidates_json>", "&lt;/candidates_json&gt;",
+		"[tool_result_summary]", "&#91;tool_result_summary&#93;",
+		"[assistant_tool_call]", "&#91;assistant_tool_call&#93;",
 	)
 )
 
@@ -332,16 +334,19 @@ func renderReviewLine(msg ai.Message, skillUsageByCall map[string]reviewSkillUsa
 	}
 	if role == "tool" {
 		toolName, callID := toolResultSource(msg)
+		safeToolName := redactReviewText(toolName)
+		safeCallID := redactReviewText(callID)
 		if usage, ok := skillUsageByCall[callID]; ok && toolName == toolNameSkills && usage.Action == "load" {
 			return reviewLine{
 				role: role,
-				text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s loaded_skill_content_omitted", toolName, callID),
+				text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s loaded_skill_content_omitted", safeToolName, safeCallID),
 				at:   at,
 			}
 		}
 		return reviewLine{
 			role: role,
-			text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s %s", toolName, callID, summarizeToolResult(text)),
+			// The host prefix stays literal; all tool-provided fields are redacted first.
+			text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s %s", safeToolName, safeCallID, summarizeToolResult(text)),
 			at:   at,
 		}
 	}
@@ -367,19 +372,19 @@ func renderAssistantToolCallSummary(msg ai.Message) string {
 		name, _ := call.Arguments["name"].(string)
 		query, _ := call.Arguments["query"].(string)
 		var parts []string
-		parts = append(parts, fmt.Sprintf("[assistant_tool_call] tool=%s call_id=%s", call.Name, call.ID))
+		parts = append(parts, fmt.Sprintf("[assistant_tool_call] tool=%s call_id=%s", redactReviewText(call.Name), redactReviewText(call.ID)))
 		if action != "" {
-			parts = append(parts, "action="+action)
+			parts = append(parts, "action="+redactReviewText(action))
 		}
 		if name != "" {
-			parts = append(parts, "name="+name)
+			parts = append(parts, "name="+redactReviewText(name))
 		}
 		if query != "" {
-			parts = append(parts, "query="+query)
+			parts = append(parts, "query="+redactReviewText(query))
 		}
 		lines = append(lines, strings.Join(parts, " "))
 	}
-	return redactReviewText(strings.Join(lines, "\n"))
+	return strings.Join(lines, "\n")
 }
 
 func collectReviewSkillUsage(msg ai.Message) []reviewSkillUsage {
