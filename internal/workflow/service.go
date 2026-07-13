@@ -50,8 +50,40 @@ type Service struct {
 	goal GoalWriter
 }
 
-func New(db *pgxpool.Pool, q *sqlc.Queries, goalSvc GoalWriter) *Service {
-	return &Service{db: db, q: q, goal: goalSvc}
+func New(db *pgxpool.Pool, goalSvc GoalWriter) *Service {
+	return &Service{db: db, q: sqlc.New(db), goal: goalSvc}
+}
+
+// RunState is the latest-run snapshot the scheduler adapter needs to decide
+// whether a workflow run is in flight or has reached a terminal root goal.
+type RunState struct {
+	Found            bool
+	Status           string
+	IdempotencyKey   string
+	RootGoalID       string
+	RootGoalTerminal bool
+}
+
+// LatestRunState returns the state of the most recent run for a workflow.
+// Found is false when the workflow has no runs yet.
+func (s *Service) LatestRunState(ctx context.Context, workflowID string) (RunState, error) {
+	run, err := s.q.GetLatestWorkflowRun(ctx, workflowID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RunState{}, nil
+	}
+	if err != nil {
+		return RunState{}, err
+	}
+	state := RunState{Found: true, Status: run.Status, IdempotencyKey: run.IdempotencyKey}
+	if run.RootGoalID.Valid {
+		state.RootGoalID = run.RootGoalID.String
+		root, err := s.q.GetGoal(ctx, run.RootGoalID.String)
+		if err != nil {
+			return RunState{}, err
+		}
+		state.RootGoalTerminal = goal.IsTerminalLifecycle(root.Lifecycle)
+	}
+	return state, nil
 }
 
 type SaveInput struct {

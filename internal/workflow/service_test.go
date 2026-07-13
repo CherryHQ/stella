@@ -76,7 +76,7 @@ func newWorkflowHarness(t *testing.T) *workflowHarness {
 	}
 	q := sqlc.New(db)
 	goals := goal.New(db, q)
-	return &workflowHarness{t: t, ctx: ctx, db: db, q: q, goals: goals, svc: New(db, q, goals), userID: userID, agentID: agentID}
+	return &workflowHarness{t: t, ctx: ctx, db: db, q: q, goals: goals, svc: New(db, goals), userID: userID, agentID: agentID}
 }
 
 func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
@@ -220,7 +220,7 @@ func TestInstantiateConvergesWhenRunRootRaceIsLost(t *testing.T) {
 		t.Fatalf("claim run: %v", err)
 	}
 	writer := &racingGoalWriter{GoalService: h.goals, t: t, ctx: h.ctx, q: h.q, runID: runID, planHash: plan.Hash(), armed: true}
-	svc := New(h.db, h.q, writer)
+	svc := New(h.db, writer)
 
 	run, _, err := svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "same"})
 	if err != nil {

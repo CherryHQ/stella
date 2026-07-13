@@ -115,30 +115,11 @@ func localImportName(f *ast.File, importPath string) string {
 // intentionally out of scope here rather than folded in with weaker signals.
 // ---------------------------------------------------------------------------
 
-var serverWiringSetterAllowlist = map[string]bool{
-	// internal/server/server.go
-	"SetVaultRecipient":       true,
-	"SetVaultService":         true,
-	"SetMCPService":           true,
-	"SetBuiltinTools":         true,
-	"InitCredentialFrontDoor": true,
-	"SetSchedulerService":     true,
-	"SetEventLogStore":        true,
-	"SetArbiter":              true,
-	"SetGroupDispatcher":      true,
-	"SetBaseURL":              true,
-	"SetLoginIdentityStore":   true,
-	"SetUserStore":            true,
-	"SetSessionStore":         true,
-	"SetCredentialStore":      true,
-	"SetOIDCAuth":             true,
-	"SetCredentialsService":   true,
-	"SetShareService":         true,
-	"SetRecallyService":       true,
-	// internal/server/goals.go, workflows.go
-	"SetGoalService":     true,
-	"SetWorkflowService": true,
-}
+// serverWiringSetterAllowlist is empty: issue #708 Section C replaced every
+// post-construction *Server wiring setter with immutable constructor injection
+// through server.Deps. A NEW Set*/Init* method (that is not an OpenAPI operation
+// handler) must not reappear — inject it through server.New(ctx, Deps) instead.
+var serverWiringSetterAllowlist = map[string]bool{}
 
 func hasHTTPResponseWriterParam(ft *ast.FuncType) bool {
 	if ft.Params == nil {

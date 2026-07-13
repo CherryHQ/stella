@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,20 +15,26 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/auth"
-	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/connections"
+	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
+	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/server"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
@@ -52,6 +59,27 @@ type testEnv struct {
 	mem         memory.Provider
 	adminUser   auth.User
 	bearerToken string
+
+	// deps is the base dependency set used to build srv. Because the server is
+	// immutable (no setters), a test that needs an optional capability rebuilds
+	// the server via rebuild() with a mutated copy rather than mutating srv.
+	deps    server.Deps
+	credSvc *connections.Service
+}
+
+// rebuild constructs a fresh server from a copy of the base deps with mutate
+// applied, and swaps it into env.srv. It replaces the removed post-construction
+// setters: the composition contract is that a server is built once from a
+// complete Deps, so per-test configuration means a per-test build.
+func (env *testEnv) rebuild(t *testing.T, mutate func(*server.Deps)) {
+	t.Helper()
+	d := env.deps
+	mutate(&d)
+	srv, err := server.New(context.Background(), d)
+	if err != nil {
+		t.Fatalf("rebuild server.New: %v", err)
+	}
+	env.srv = srv
 }
 
 func enableChannelPlugin(t *testing.T, env *testEnv, channelType string) {
@@ -139,20 +167,50 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 	skillStore := skills.New(db)
 	phost.SetSkillStore(skillStore)
-	srv := server.New(ctx, store, as, engine, mem, db, auth.NewLinkCodeStore(), nil, phost)
 
 	oidcStore := appdb.NewOIDCStore(db)
-	srv.InitCredentialFrontDoor()
-	srv.SetUserStore(oidcStore)
-	srv.SetLoginIdentityStore(oidcStore)
-	srv.SetSessionStore(oidcStore)
-	srv.SetCredentialStore(oidcStore)
 	authSvc := auth.NewAuthService(db, oidcStore, oidcStore, oidcStore)
 	sessionMgr, err := auth.NewSessionManager(oidcStore, "test-vault-key")
 	if err != nil {
 		t.Fatalf("NewSessionManager: %v", err)
 	}
-	srv.SetOIDCAuth(&authoidc.SetupResult{AuthSvc: authSvc, SessionMgr: sessionMgr})
+
+	// Build the same shared instances the composition root builds, so the test
+	// server exercises the real, injected dependency set (no shadow construction).
+	const baseURL = "http://localhost:25678"
+	poolManager := agent.NewPoolManager(store, mem)
+	recallyStore := recally.NewStore(db)
+	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
+	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
+	deps := server.Deps{
+		Store:               store,
+		DB:                  db,
+		AuthStore:           as,
+		Mem:                 mem,
+		Engine:              engine,
+		LinkCodes:           auth.NewLinkCodeStore(),
+		PoolManager:         poolManager,
+		PluginHost:          phost,
+		BaseURL:             baseURL,
+		Credentials:         credSvc,
+		Email:               email.NewService(nil, sqlc.New(db)),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, t.TempDir(), baseURL),
+		Recally:             recally.NewService(recallyStore, t.TempDir()),
+		CredentialFrontDoor: credFrontDoor,
+		OAuthAuthServer:     oauthAuthServer,
+		OIDC: server.OIDCDeps{
+			AuthSvc:     authSvc,
+			SessionMgr:  sessionMgr,
+			Logins:      oidcStore,
+			Users:       oidcStore,
+			Sessions:    oidcStore,
+			Credentials: oidcStore,
+		},
+	}
+	srv, err := server.New(ctx, deps)
+	if err != nil {
+		t.Fatalf("server.New: %v", err)
+	}
 
 	// Create an admin user for authenticated requests.
 	adminUser, bearerToken := createTestUserWithToken(t, as, oidcStore, "testadmin", auth.RoleAdmin)
@@ -180,6 +238,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		mem:         mem,
 		adminUser:   adminUser,
 		bearerToken: bearerToken,
+		deps:        deps,
+		credSvc:     credSvc,
 	}
 }
 
@@ -208,14 +268,21 @@ func createTestUserWithToken(t *testing.T, as *appdb.AuthStore, oidcStore *appdb
 	return user, rawToken
 }
 
-func TestNewPanicsWithoutPluginHost(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic")
+func TestNewErrorsWithoutRequiredDeps(t *testing.T) {
+	// An empty Deps is missing every required dependency; New must fail fast with
+	// an error naming them, never panic or return a half-built server.
+	srv, err := server.New(context.Background(), server.Deps{})
+	if err == nil {
+		t.Fatal("expected error for missing required dependencies")
+	}
+	if srv != nil {
+		t.Fatal("expected nil server on validation failure")
+	}
+	for _, want := range []string{"PluginHost", "Store", "BaseURL"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention missing dep %q", err, want)
 		}
-	}()
-
-	_ = server.New(context.Background(), nil, nil, nil, nil, nil, nil, nil, nil)
+	}
 }
 
 func doRequest(t *testing.T, env *testEnv, method, path string, body any) *httptest.ResponseRecorder {

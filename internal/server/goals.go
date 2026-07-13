@@ -21,25 +21,15 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// SetGoalService wires the goal system into the admin server.
-// When unset, every /api/goals route returns 503.
-func (s *Server) SetGoalService(svc *goal.Service) {
-	if svc == nil {
-		s.goalSvc = nil
-		s.goalQueries = nil
-		return
-	}
-	s.goalSvc = svc
-	s.goalQueries = svc.Queries
-}
-
+// goalsReady reports whether the optional goal service was injected. When it
+// was not (Deps.Goal nil), every /api/goals route returns 503.
 func (s *Server) goalsReady() bool { return s.goalSvc != nil && s.goalQueries != nil }
 
 // goalAuth gates a handler on the goal system being wired and an
 // authenticated caller, returning the service-layer identity.
 func (s *Server) goalAuth(w http.ResponseWriter, r *http.Request) (authz.Identity, bool) {
 	if !s.goalsReady() {
-		writeError(w, http.StatusServiceUnavailable, "goals unavailable")
+		writeCapabilityUnavailable(w, capGoal)
 		return authz.Identity{}, false
 	}
 	info := UserFromContext(r.Context())
@@ -183,7 +173,7 @@ func (s *Server) ListGoals(w http.ResponseWriter, r *http.Request, params apiser
 // GetGoalHealth returns the aggregated execution health report for a time window.
 func (s *Server) GetGoalHealth(w http.ResponseWriter, r *http.Request, params apiserver.GetGoalHealthParams) {
 	if !s.goalsReady() {
-		writeError(w, http.StatusServiceUnavailable, "goals unavailable")
+		writeCapabilityUnavailable(w, capGoal)
 		return
 	}
 	info := requireAuth(w, r)

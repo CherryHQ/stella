@@ -34,6 +34,11 @@ func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Servic
 // it as a hard failure.
 var ErrOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 
+// ErrSchedulerQuiescing is returned by scheduling paths after Quiesce has been
+// called: during a graceful drain the scheduler stops accepting NEW dispatch so
+// in-flight and durable work can finish undisturbed.
+var ErrSchedulerQuiescing = errors.New("scheduler is quiescing")
+
 // OnJobFunc is called when a scheduled job fires.
 type OnJobFunc func(ctx context.Context, job Job) error
 
@@ -124,13 +129,19 @@ type Service struct {
 	// runtime registrations after that point to avoid persisted handler-mode
 	// jobs firing before their handler exists.
 	started bool
+
+	// quiescing flips to true inside Quiesce() at graceful drain. Once set, every
+	// scheduleJob and RunJobNow path refuses to enqueue NEW work, while durable
+	// one-time jobs already inserted into River and any in-flight run are left to
+	// drain. Distinct from a full Stop, which is the final lifecycle teardown.
+	quiescing bool
 }
 
 // Option configures a Service at construction.
 type Option func(*Service)
 
 // WithExternalRiver constructs the Service WITHOUT its own River client: the
-// caller injects the single process-wide working client via SetRiverClient
+// caller injects the single process-wide working client via BindRiverClient
 // before Start and owns its Start/Stop lifecycle. This is how the composition
 // root keeps exactly one electable River client per database while letting both
 // the scheduler and the goal subsystem work and enqueue jobs (see
@@ -165,12 +176,27 @@ func New(db *pgxpool.Pool, opts ...Option) (*Service, error) {
 	return s, nil
 }
 
-// SetRiverClient injects the shared working River client (external-river mode).
+// BindRiverClient injects the shared working River client (external-river mode).
 // Call after New(db, WithExternalRiver()) and before Start. The Service uses it
 // to enqueue and register periodic jobs but does NOT start or stop it — the
 // composition root owns the shared client's lifecycle.
-func (s *Service) SetRiverClient(c *river.Client[pgx.Tx]) {
+// BindRiverClient binds the shared working River client before start
+// (external-river mode). One-shot pre-start bind: rejects a nil client
+// (missing), a second bind (duplicate), and any bind after start (late).
+func (s *Service) BindRiverClient(c *river.Client[pgx.Tx]) error {
+	if c == nil {
+		return errors.New("scheduler: BindRiverClient requires a non-nil client")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started {
+		return errors.New("scheduler: BindRiverClient after start")
+	}
+	if s.river != nil {
+		return errors.New("scheduler: river client already bound")
+	}
 	s.river = c
+	return nil
 }
 
 // NewFromPath creates a scheduler service that opens its own PostgreSQL
@@ -231,11 +257,11 @@ func (s *Service) StartEphemeral(ctx context.Context) error {
 
 func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 	// External-river mode: the composition root must inject the shared working
-	// client via SetRiverClient before start. Without it, scheduleJob and
+	// client via BindRiverClient before start. Without it, scheduleJob and
 	// s.river.Start nil-deref. Fail fast with a clear error instead of panicking,
 	// mirroring goal.StartDispatchTick's guard.
 	if s.externalRiver && s.river == nil {
-		return fmt.Errorf("scheduler: external river mode requires SetRiverClient before start")
+		return fmt.Errorf("scheduler: external river mode requires BindRiverClient before start")
 	}
 
 	var jobs []Job
@@ -284,6 +310,39 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 		s.log.Info("scheduler service started without persisted jobs")
 	}
 	return nil
+}
+
+// Quiesce halts NEW scheduled dispatch during a graceful drain without tearing
+// down the durable River client. It atomically marks the service quiescing,
+// removes every recurring periodic registration (so no further tick enqueues a
+// firing), and makes subsequent scheduleJob / RunJobNow paths reject with
+// ErrSchedulerQuiescing. Durable one-time jobs already inserted into River are
+// deliberately preserved — they stay in the queue and fire under the shared
+// client's soft-stop budget — as is any run already in flight.
+//
+// Quiesce is idempotent and never blocks: it only mutates in-memory registration
+// state under s.mu (the same lock every scheduling method already takes) and
+// removes periodic handles, so it cannot deadlock against a concurrent fire.
+// This is what the gateway's stopSchedulerDispatch invokes at drain start; the
+// final teardown is still Stop.
+func (s *Service) Quiesce() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.quiescing {
+		return
+	}
+	s.quiescing = true
+	if s.river == nil {
+		return
+	}
+	for id, ref := range s.refs {
+		if ref.isOneTime {
+			// Durable one-time job already persisted in River; leave it to fire.
+			continue
+		}
+		s.river.PeriodicJobs().Remove(ref.periodic)
+		delete(s.refs, id)
+	}
 }
 
 // Stop shuts down the scheduler and closes the database if owned.
@@ -880,14 +939,20 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 // Use it for user-triggered "run now" actions, not for work that must survive a
 // restart — enqueue a River job for that.
 func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
+	// Hold the lifecycle lock through durable run acceptance. Quiesce takes the
+	// same lock, so either this run is fully accepted before drain begins or it is
+	// rejected; it cannot pass a stale pre-quiesce check and start afterward.
 	s.mu.Lock()
+	if s.quiescing {
+		s.mu.Unlock()
+		return "", ErrSchedulerQuiescing
+	}
 	job, ok := s.jobs[jobID]
-	svcCtx := s.ctx
-	s.mu.Unlock()
-
 	if !ok {
+		s.mu.Unlock()
 		return "", fmt.Errorf("job %q not found", jobID)
 	}
+	svcCtx := s.ctx
 
 	sessionID := job.SessionID()
 	if job.UserID != "" {
@@ -898,11 +963,13 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 
 	// Atomically check for an existing active run and create the new record.
 	if err := s.tryStartJobRun(ctx, runID, jobID, sessionID, job.UserID, startedAt); err != nil {
+		s.mu.Unlock()
 		if errors.Is(err, errJobAlreadyRunning) {
 			return "", fmt.Errorf("job %q already has a run in progress", jobID)
 		}
 		return "", fmt.Errorf("create run record: %w", err)
 	}
+	s.mu.Unlock()
 
 	go func() {
 		outputSink := &RunOutputSink{}
