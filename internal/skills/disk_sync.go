@@ -66,6 +66,11 @@ func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content s
 	if err != nil {
 		return err
 	}
+	// The database is authoritative for lifecycle state. Mirror only after it
+	// accepts the write so a removed skill cannot be changed on disk first.
+	if err := d.Store.UpsertFile(ctx, skillID, path, content); err != nil {
+		return err
+	}
 	if sk != nil {
 		base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
 		if base != "" {
@@ -78,7 +83,7 @@ func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content s
 			}
 		}
 	}
-	return d.Store.UpsertFile(ctx, skillID, path, content)
+	return nil
 }
 
 func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillPatch) (Skill, error) {
@@ -137,6 +142,10 @@ func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) er
 	if err != nil {
 		return err
 	}
+	// Keep retained mirrors intact when the lifecycle store rejects the delete.
+	if err := d.Store.DeleteFile(ctx, skillID, path); err != nil {
+		return err
+	}
 	if sk != nil {
 		base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
 		if base != "" {
@@ -149,7 +158,7 @@ func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) er
 			}
 		}
 	}
-	return d.Store.DeleteFile(ctx, skillID, path)
+	return nil
 }
 
 // Delete removes the DB row first, then removes the disk directory; a crash

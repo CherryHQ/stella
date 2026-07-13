@@ -225,8 +225,9 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 		t.Fatalf("mark skill draft: %v", err)
 	}
 	deprecatedID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "deprecated-skill")
-	deprecatedStatus := "deprecated"
-	if err := env.pluginHost.SkillStore().Update(orgCtx, deprecatedID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &deprecatedStatus}); err != nil {
+	if _, err := env.pluginHost.SkillStore().DeprecateManagedSkill(orgCtx, skills.ManagedSkillDeprecate{
+		ID: deprecatedID, Scope: "user_agent", UserID: creator.ID, AgentID: agentID, DeprecatedBy: creator.ID,
+	}); err != nil {
 		t.Fatalf("mark skill deprecated: %v", err)
 	}
 
@@ -380,12 +381,12 @@ func TestAgentSkills_DeleteRetainsUserAgentSkill(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	rows, err := env.pluginHost.SkillStore().ListByScope(ctx, "user_agent", user.ID, agentID)
-	if err != nil {
-		t.Fatalf("list deleted agent skill: %v", err)
+	var status string
+	if err := env.db.QueryRow(ctx, `SELECT status FROM skill WHERE id = $1`, id).Scan(&status); err != nil {
+		t.Fatalf("read deleted agent skill: %v", err)
 	}
-	if len(rows) != 1 || rows[0].ID != id || rows[0].Status != "deprecated" {
-		t.Fatalf("deleted agent rows = %#v, want retained deprecated row", rows)
+	if status != "deprecated" {
+		t.Fatalf("deleted agent status = %q, want deprecated", status)
 	}
 	files, err := env.pluginHost.SkillStore().ListFiles(ctx, id)
 	if err != nil || len(files) == 0 {

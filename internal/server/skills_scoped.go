@@ -884,7 +884,7 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 }
 
 func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillParams) {
-	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
+	rs, _, code, msg := s.resolveAgentSkillReference(r.Context(), id, skillId, string(params.Scope), true, params.SessionId)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -935,7 +935,7 @@ func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id st
 }
 
 func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillFileParams) {
-	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
+	rs, _, code, msg := s.resolveAgentSkillReference(r.Context(), id, skillId, string(params.Scope), true, params.SessionId)
 	if code != 0 {
 		writeError(w, code, msg)
 		return

@@ -1219,7 +1219,7 @@ func TestPatchRespectsScope(t *testing.T) {
 	}
 
 	tool := NewTool(store, "", "")
-	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "scope": "user", "status": "deprecated"}); err != nil {
+	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "scope": "user", "description": "updated user"}); err != nil {
 		t.Fatalf("patch user scope: %v", err)
 	}
 
@@ -1227,15 +1227,15 @@ func TestPatchRespectsScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list user scope: %v", err)
 	}
-	if len(userRows) != 1 || userRows[0].Status != "deprecated" {
-		t.Fatalf("user dup = %#v, want deprecated", userRows)
+	if len(userRows) != 1 || userRows[0].Description != "updated user" {
+		t.Fatalf("user dup = %#v, want updated description", userRows)
 	}
 	agentRows, err := store.ListByScope(ctx, "user_agent", userID, agentID)
 	if err != nil {
 		t.Fatalf("list user_agent scope: %v", err)
 	}
-	if len(agentRows) != 1 || agentRows[0].Status != "active" {
-		t.Fatalf("user_agent dup = %#v, want still active", agentRows)
+	if len(agentRows) != 1 || agentRows[0].Description != "a" {
+		t.Fatalf("user_agent dup = %#v, want unchanged description", agentRows)
 	}
 }
 
@@ -1262,7 +1262,7 @@ func TestPatchDefaultScopeIsUser(t *testing.T) {
 	}
 
 	tool := NewTool(store, "", "")
-	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "status": "deprecated"}); err != nil {
+	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "description": "updated default"}); err != nil {
 		t.Fatalf("patch default scope: %v", err)
 	}
 	if _, err := tool.patch(ctx, map[string]any{"name": "fact", "status": "active"}); err != nil {
@@ -1274,11 +1274,13 @@ func TestPatchDefaultScopeIsUser(t *testing.T) {
 		t.Fatalf("list user scope: %v", err)
 	}
 	statuses := map[string]string{}
+	descriptions := map[string]string{}
 	for _, row := range userRows {
 		statuses[row.Name] = row.Status
+		descriptions[row.Name] = row.Description
 	}
-	if statuses["dup"] != "deprecated" || statuses["fact"] != "active" {
-		t.Fatalf("user rows = %#v, want dup deprecated and fact active", userRows)
+	if descriptions["dup"] != "updated default" || statuses["fact"] != "active" {
+		t.Fatalf("user rows = %#v, want dup updated and fact active", userRows)
 	}
 	agentRows, err := store.ListByScope(ctx, "user_agent", userID, agentID)
 	if err != nil {

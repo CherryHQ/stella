@@ -65,11 +65,11 @@ JOIN LATERAL (
 ) d ON true
 WHERE s.scope = ANY($1::text[])
   AND s.status = 'deprecated'
-  AND ($2::text IS NULL OR s.metadata->>'created_by' = $2::text)
+  AND ($2::text IS NULL OR coalesce(s.metadata->>'created_by', 'manual') = $2::text)
   AND (
     $3::text IS NULL
-    OR lower(s.name) LIKE '%' || lower($3::text) || '%'
-    OR lower(s.description) LIKE '%' || lower($3::text) || '%'
+    OR strpos(lower(s.name), lower($3::text)) > 0
+    OR strpos(lower(s.description), lower($3::text)) > 0
   )
   AND (
     d.metadata->>'deprecated_by' = 'manual'
@@ -174,16 +174,26 @@ func (q *Queries) DeleteSkill(ctx context.Context, arg DeleteSkillParams) error 
 }
 
 const deleteSkillFile = `-- name: DeleteSkillFile :exec
-DELETE FROM skill_file WHERE skill_id = $1 AND path = $2
+WITH mutable_skill AS (
+  SELECT id
+  FROM skill
+  WHERE id = $2
+    AND status != 'deprecated'
+  FOR NO KEY UPDATE
+)
+DELETE FROM skill_file
+USING mutable_skill
+WHERE skill_file.skill_id = mutable_skill.id
+  AND skill_file.path = $1
 `
 
 type DeleteSkillFileParams struct {
-	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
+	SkillID string `json:"skill_id"`
 }
 
 func (q *Queries) DeleteSkillFile(ctx context.Context, arg DeleteSkillFileParams) error {
-	_, err := q.db.Exec(ctx, deleteSkillFile, arg.SkillID, arg.Path)
+	_, err := q.db.Exec(ctx, deleteSkillFile, arg.Path, arg.SkillID)
 	return err
 }
 
@@ -814,11 +824,11 @@ JOIN LATERAL (
 ) d ON true
 WHERE s.scope = ANY($1::text[])
   AND s.status = 'deprecated'
-  AND ($2::text IS NULL OR s.metadata->>'created_by' = $2::text)
+  AND ($2::text IS NULL OR coalesce(s.metadata->>'created_by', 'manual') = $2::text)
   AND (
     $3::text IS NULL
-    OR lower(s.name) LIKE '%' || lower($3::text) || '%'
-    OR lower(s.description) LIKE '%' || lower($3::text) || '%'
+    OR strpos(lower(s.name), lower($3::text)) > 0
+    OR strpos(lower(s.description), lower($3::text)) > 0
   )
   AND (
     d.metadata->>'deprecated_by' = 'manual'
@@ -1057,6 +1067,7 @@ func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFi
 const listSkillsByScope = `-- name: ListSkillsByScope :many
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill
 WHERE scope = $1
+  AND status != 'deprecated'
   AND coalesce(user_id::text, '') = coalesce($2::text, '')
   AND coalesce(agent_id, '') = coalesce($3, '')
 ORDER BY created_at
@@ -1540,6 +1551,7 @@ SET description              = $1,
     metadata                 = $4,
     updated_at               = now()
 WHERE id = $5
+  AND status != 'deprecated'
   AND ((scope='system_agent' AND agent_id=$6)
     OR (scope='user'         AND user_id=$7)
     OR (scope='user_agent'   AND user_id=$7 AND agent_id=$6))
@@ -1599,17 +1611,21 @@ func (q *Queries) UpdateSystemSkillMetadata(ctx context.Context, arg UpdateSyste
 
 const upsertSkillFile = `-- name: UpsertSkillFile :exec
 INSERT INTO skill_file (skill_id, path, content)
-VALUES ($1, $2, $3)
+SELECT id, $1, $2
+FROM skill
+WHERE id = $3
+  AND status != 'deprecated'
+FOR NO KEY UPDATE
 ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content
 `
 
 type UpsertSkillFileParams struct {
-	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	SkillID string `json:"skill_id"`
 }
 
 func (q *Queries) UpsertSkillFile(ctx context.Context, arg UpsertSkillFileParams) error {
-	_, err := q.db.Exec(ctx, upsertSkillFile, arg.SkillID, arg.Path, arg.Content)
+	_, err := q.db.Exec(ctx, upsertSkillFile, arg.Path, arg.Content, arg.SkillID)
 	return err
 }

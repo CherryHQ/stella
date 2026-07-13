@@ -112,8 +112,8 @@ func (s *PGStore) ListForAgentContext(ctx context.Context, userID string, agentI
 	return out, nil
 }
 
-// ListByScope returns every skill in exactly one scope/owner bucket, including
-// drafts and disabled skills, for management views.
+// ListByScope returns non-deprecated skills in exactly one scope/owner bucket,
+// including drafts and disabled skills, for active management views.
 func (s *PGStore) ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
 		Scope:   scope,
@@ -321,6 +321,9 @@ func (s *PGStore) Update(ctx context.Context, id string, vc ViewContext, patch U
 	if err != nil {
 		return fmt.Errorf("skills: update get %s: %w", id, err)
 	}
+	if err := rejectOrdinaryLifecycleWrite(row.Status, patch.Status); err != nil {
+		return err
+	}
 	p := applyPatch(row, patch)
 	if err := s.q.UpdateSkillMetadata(ctx, sqlc.UpdateSkillMetadataParams{
 		ID:                     id,
@@ -338,6 +341,9 @@ func (s *PGStore) Update(ctx context.Context, id string, vc ViewContext, patch U
 
 // UpsertFile creates or replaces a single file under a skill.
 func (s *PGStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
+	if err := s.requireMutableSkillFiles(ctx, skillID); err != nil {
+		return err
+	}
 	if err := s.q.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{
 		SkillID: skillID,
 		Path:    path,
@@ -350,6 +356,9 @@ func (s *PGStore) UpsertFile(ctx context.Context, skillID, path, content string)
 
 // DeleteFile removes a single file from a skill.
 func (s *PGStore) DeleteFile(ctx context.Context, skillID, path string) error {
+	if err := s.requireMutableSkillFiles(ctx, skillID); err != nil {
+		return err
+	}
 	if err := s.q.DeleteSkillFile(ctx, sqlc.DeleteSkillFileParams{
 		SkillID: skillID,
 		Path:    path,
@@ -376,6 +385,9 @@ func (s *PGStore) UpdateSystemSkill(ctx context.Context, id string, patch Update
 	if row.Scope != "system" {
 		return fmt.Errorf("skills: %s is not a system skill", id)
 	}
+	if err := rejectOrdinaryLifecycleWrite(row.Status, patch.Status); err != nil {
+		return err
+	}
 	p := applyPatch(row, patch)
 	if err := s.q.UpdateSystemSkillMetadata(ctx, sqlc.UpdateSystemSkillMetadataParams{
 		ID:                     id,
@@ -387,6 +399,23 @@ func (s *PGStore) UpdateSystemSkill(ctx context.Context, id string, patch Update
 		return fmt.Errorf("skills: system update %s: %w", id, err)
 	}
 	return nil
+}
+
+// Ordinary edits cannot enter or leave the recoverable removal state. Only the
+// lifecycle deprecate/restore methods may perform those transitions.
+func rejectOrdinaryLifecycleWrite(currentStatus string, requestedStatus *string) error {
+	if currentStatus == SkillStatusDeprecated || (requestedStatus != nil && *requestedStatus == SkillStatusDeprecated) {
+		return ErrSkillNotMutable
+	}
+	return nil
+}
+
+func (s *PGStore) requireMutableSkillFiles(ctx context.Context, id string) error {
+	row, err := s.q.GetSkillByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("skills: file write get %s: %w", id, err)
+	}
+	return rejectOrdinaryLifecycleWrite(row.Status, nil)
 }
 
 func (s *PGStore) DeleteSystemSkill(ctx context.Context, id string) error {

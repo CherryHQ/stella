@@ -60,6 +60,7 @@ ORDER BY CASE scope
 -- name: ListSkillsByScope :many
 SELECT * FROM skill
 WHERE scope = sqlc.arg(scope)
+  AND status != 'deprecated'
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
 ORDER BY created_at;
@@ -112,6 +113,7 @@ SET description              = sqlc.arg(description),
     metadata                 = sqlc.arg(metadata),
     updated_at               = now()
 WHERE id = sqlc.arg(id)
+  AND status != 'deprecated'
   AND ((scope='system_agent' AND agent_id=sqlc.narg(agent_id))
     OR (scope='user'         AND user_id=sqlc.narg(user_id))
     OR (scope='user_agent'   AND user_id=sqlc.narg(user_id) AND agent_id=sqlc.narg(agent_id)));
@@ -137,7 +139,11 @@ DELETE FROM skill WHERE id = $1 AND scope = 'system';
 
 -- name: UpsertSkillFile :exec
 INSERT INTO skill_file (skill_id, path, content)
-VALUES ($1, $2, $3)
+SELECT id, sqlc.arg(path), sqlc.arg(content)
+FROM skill
+WHERE id = sqlc.arg(skill_id)
+  AND status != 'deprecated'
+FOR NO KEY UPDATE
 ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content;
 
 -- name: UpdateReflectOwnedUserAgentSkill :one
@@ -228,7 +234,17 @@ FROM (
 WHERE latest.metadata->>'curator' = 'usage';
 
 -- name: DeleteSkillFile :exec
-DELETE FROM skill_file WHERE skill_id = $1 AND path = $2;
+WITH mutable_skill AS (
+  SELECT id
+  FROM skill
+  WHERE id = sqlc.arg(skill_id)
+    AND status != 'deprecated'
+  FOR NO KEY UPDATE
+)
+DELETE FROM skill_file
+USING mutable_skill
+WHERE skill_file.skill_id = mutable_skill.id
+  AND skill_file.path = sqlc.arg(path);
 
 -- name: GetSkillFile :one
 SELECT * FROM skill_file WHERE skill_id = $1 AND path = $2;
@@ -311,11 +327,11 @@ JOIN LATERAL (
 ) d ON true
 WHERE s.scope = ANY(sqlc.arg(scopes)::text[])
   AND s.status = 'deprecated'
-  AND (sqlc.narg(created_by)::text IS NULL OR s.metadata->>'created_by' = sqlc.narg(created_by)::text)
+  AND (sqlc.narg(created_by)::text IS NULL OR coalesce(s.metadata->>'created_by', 'manual') = sqlc.narg(created_by)::text)
   AND (
     sqlc.narg(search_query)::text IS NULL
-    OR lower(s.name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
-    OR lower(s.description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+    OR strpos(lower(s.name), lower(sqlc.narg(search_query)::text)) > 0
+    OR strpos(lower(s.description), lower(sqlc.narg(search_query)::text)) > 0
   )
   AND (
     d.metadata->>'deprecated_by' = 'manual'
@@ -347,11 +363,11 @@ JOIN LATERAL (
 ) d ON true
 WHERE s.scope = ANY(sqlc.arg(scopes)::text[])
   AND s.status = 'deprecated'
-  AND (sqlc.narg(created_by)::text IS NULL OR s.metadata->>'created_by' = sqlc.narg(created_by)::text)
+  AND (sqlc.narg(created_by)::text IS NULL OR coalesce(s.metadata->>'created_by', 'manual') = sqlc.narg(created_by)::text)
   AND (
     sqlc.narg(search_query)::text IS NULL
-    OR lower(s.name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
-    OR lower(s.description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+    OR strpos(lower(s.name), lower(sqlc.narg(search_query)::text)) > 0
+    OR strpos(lower(s.description), lower(sqlc.narg(search_query)::text)) > 0
   )
   AND (
     d.metadata->>'deprecated_by' = 'manual'

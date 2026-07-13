@@ -115,6 +115,32 @@ func (a skillStoreAdapter) Update(ctx context.Context, id string, patch pkgplugi
 	})
 }
 
+// ApplySkillUpgrade routes production upgrades through one lifecycle
+// transaction. UpgradeInStore discovers this capability by structural typing.
+func (a skillStoreAdapter) ApplySkillUpgrade(ctx context.Context, id string, files map[string]string, deleteFiles []string, patch pkgplugins.SkillUpdatePatch) error {
+	rows, err := a.s.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.ID != id {
+			continue
+		}
+		_, err := a.s.UpdateManagedSkill(ctx, skills.ManagedSkillUpdate{
+			ID: row.ID, UserID: row.UserID, AgentID: row.AgentID, Scope: row.Scope,
+			Files: files, DeleteFiles: deleteFiles,
+			Patch: skills.UpdatePatch{
+				Description:            patch.Description,
+				Status:                 patch.Status,
+				DisableModelInvocation: patch.DisableModelInvocation,
+				Metadata:               patch.Metadata,
+			},
+		})
+		return err
+	}
+	return fmt.Errorf("upgrade skill %q: not found", id)
+}
+
 func (a skillStoreAdapter) UpsertFile(ctx context.Context, skillID, path, content string) error {
 	return a.s.UpsertFile(ctx, skillID, path, content)
 }

@@ -134,6 +134,9 @@ func TestAgentSkillsLifecycleRemovedFiltersCountsAndAdminBoundary(t *testing.T) 
 	store := env.pluginHost.SkillStore()
 
 	userSkillID := createTestSkill(t, env, "user", user.ID, "", "removed-needle-user")
+	if _, err := env.db.Exec(ctx, `UPDATE skill SET metadata = '{}'::jsonb WHERE id = $1`, userSkillID); err != nil {
+		t.Fatalf("clear legacy created_by metadata: %v", err)
+	}
 	agentSkillID := createTestSkill(t, env, "user_agent", user.ID, agentID, "removed-needle-agent")
 	for _, item := range []struct {
 		id, scope, owner, agent string
@@ -154,6 +157,17 @@ func TestAgentSkillsLifecycleRemovedFiltersCountsAndAdminBoundary(t *testing.T) 
 	}
 	if userPage.ScopeCounts["all"] != 2 || userPage.ScopeCounts["user"] != 1 || userPage.ScopeCounts["agent"] != 1 {
 		t.Fatalf("removed user scope counts = %#v", userPage.ScopeCounts)
+	}
+
+	literalID := createTestSkill(t, env, "user_agent", user.ID, agentID, "literal-%-skill")
+	if _, err := store.DeprecateManagedSkill(ctx, skills.ManagedSkillDeprecate{
+		ID: literalID, UserID: user.ID, AgentID: agentID, Scope: "user_agent", DeprecatedBy: user.ID,
+	}); err != nil {
+		t.Fatalf("deprecate literal search skill: %v", err)
+	}
+	literal := listAgentSkillsLifecycle(t, env, sid, agentID, "?state=removed&q=%25&created_by=manual&page_size=12")
+	if len(literal.Skills) != 1 || literal.Skills[0]["id"] != literalID {
+		t.Fatalf("literal wildcard search = %#v, want only %s", literal.Skills, literalID)
 	}
 
 	systemAgentID := createTestSkill(t, env, "system_agent", "", agentID, "removed-admin-only")
@@ -206,6 +220,10 @@ func TestAgentSkillsLifecycleRemovedStableIDDetailFilesAndRestore(t *testing.T) 
 	if rr.Code != http.StatusOK || !json.Valid(rr.Body.Bytes()) || !containsResponseData(rr.Body.Bytes(), "reference content") {
 		t.Fatalf("removed file status = %d, body: %s", rr.Code, rr.Body.String())
 	}
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+id+"/file?scope=user_agent&path=reference.md", nil)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("removed file delete status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
+	}
 
 	// Stable IDs must still fail closed when the exact scope does not match.
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodGet, "/api/agents/"+agentID+"/skills/"+id+"?scope=user", nil)
@@ -226,6 +244,28 @@ func TestAgentSkillsLifecycleRemovedStableIDDetailFilesAndRestore(t *testing.T) 
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPost, "/api/agents/"+agentID+"/skills/"+id+"/restore?scope=user_agent", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("idempotent restore status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAgentSkillsLifecycleDeleteUsesStableIDAndActiveName(t *testing.T) {
+	env := setupAdmin(t)
+	user, sid := newNonAdmin(t, env, "skill-lifecycle-delete-reference")
+	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-delete-reference-agent")
+
+	stableID := createTestSkill(t, env, "user_agent", user.ID, agentID, "delete-by-id")
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+stableID+"?scope=user_agent", nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("stable ID delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	replacementID := createTestSkill(t, env, "user_agent", user.ID, agentID, "delete-by-id")
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/delete-by-id?scope=user_agent", nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("active-name delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+	var status string
+	if err := env.db.QueryRow(context.Background(), `SELECT status FROM skill WHERE id = $1`, replacementID).Scan(&status); err != nil || status != "deprecated" {
+		t.Fatalf("replacement status = %q, err=%v; want deprecated", status, err)
 	}
 }
 

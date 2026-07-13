@@ -115,16 +115,24 @@ func TestScopedSkills_DeleteDeprecatesMutableRows(t *testing.T) {
 	})
 
 	for _, tc := range []struct {
-		name, sid, id string
+		name, sid, id, scope, agent string
 	}{
-		{name: "user", sid: sid, id: userID},
-		{name: "user_agent", sid: sid, id: userAgentID},
-		{name: "system_agent", sid: env.bearerToken, id: systemAgentID},
+		{name: "user", sid: sid, id: userID, scope: "user"},
+		{name: "user_agent", sid: sid, id: userAgentID, scope: "user_agent", agent: agentID},
+		{name: "system_agent", sid: env.bearerToken, id: systemAgentID, scope: "system_agent", agent: agentID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rr := doRequestWithSession(t, env.srv, tc.sid, "DELETE", "/api/skills/"+tc.id, nil)
 			if rr.Code != http.StatusNoContent {
 				t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+			}
+			path := "/api/skills?scope=" + tc.scope
+			if tc.agent != "" {
+				path += "&agent_id=" + tc.agent
+			}
+			rr = doRequestWithSession(t, env.srv, tc.sid, "GET", path, nil)
+			if rr.Code != http.StatusOK || findSkill(decodeSkillList(t, rr), "settings-delete-"+tc.name) != nil {
+				t.Fatalf("default list still contains removed skill: status=%d body=%s", rr.Code, rr.Body.String())
 			}
 		})
 	}
@@ -149,12 +157,12 @@ func TestScopedSkills_DeleteDeprecatesMutableRows(t *testing.T) {
 		{name: "system_agent", scope: "system_agent", agent: agentID, id: systemAgentID, actor: env.adminUser.ID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rows, err := store.ListByScope(ctx, tc.scope, tc.owner, tc.agent)
-			if err != nil {
-				t.Fatalf("list retained row: %v", err)
+			var status string
+			if err := env.db.QueryRow(ctx, `SELECT status FROM skill WHERE id = $1`, tc.id).Scan(&status); err != nil {
+				t.Fatalf("read retained row: %v", err)
 			}
-			if len(rows) != 1 || rows[0].ID != tc.id || rows[0].Status != "deprecated" {
-				t.Fatalf("retained rows = %#v, want deprecated row %s", rows, tc.id)
+			if status != "deprecated" {
+				t.Fatalf("retained row status = %q, want deprecated", status)
 			}
 			files, err := store.ListFiles(ctx, tc.id)
 			if err != nil || len(files) < 2 {

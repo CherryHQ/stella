@@ -132,6 +132,7 @@ type ManagedSkillUpdate struct {
 	Scope           string
 	Patch           UpdatePatch
 	Files           map[string]string
+	DeleteFiles     []string
 	ConvertToManual bool
 }
 
@@ -182,8 +183,8 @@ type Store interface {
 	// ListForAgentContext returns system, agent, and current-user skills for one agent.
 	ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error)
 
-	// ListByScope returns every skill in exactly one scope/owner bucket (including
-	// drafts and disabled skills) for management views.
+	// ListByScope returns non-deprecated skills in exactly one scope/owner bucket,
+	// including drafts and disabled skills, for active management views.
 	ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error)
 
 	// ListForAdmin returns system and agent skills, plus the admin user's own user skills.

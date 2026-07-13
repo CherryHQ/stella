@@ -52,12 +52,12 @@ func TestSkillStoreAdapterDeleteDeprecatesOnlyUserOwnedRows(t *testing.T) {
 		t.Fatalf("delete user skill: %v", err)
 	}
 
-	rows, err := raw.ListByScope(ctx, "user", userID, "")
-	if err != nil {
-		t.Fatalf("list deprecated user skill: %v", err)
+	var status string
+	if err := db.QueryRow(ctx, `SELECT status FROM skill WHERE id = $1`, userSkillID).Scan(&status); err != nil {
+		t.Fatalf("read deprecated user skill: %v", err)
 	}
-	if len(rows) != 1 || rows[0].ID != userSkillID || rows[0].Status != "deprecated" {
-		t.Fatalf("adapter delete rows = %#v, want retained deprecated row", rows)
+	if status != "deprecated" {
+		t.Fatalf("adapter delete status = %q, want deprecated", status)
 	}
 	files, err := raw.ListFiles(ctx, userSkillID)
 	if err != nil || len(files) != 2 {

@@ -639,10 +639,13 @@ func TestManagedSkillUpdateConvertsReflectOwnershipIrreversibly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
 	}
+	if err := store.UpsertFile(ctx, created.ID, "stale.md", "remove me"); err != nil {
+		t.Fatalf("seed stale file: %v", err)
+	}
 	updated, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
 		ID: created.ID, UserID: userID, AgentID: agentID, Scope: "user_agent", ConvertToManual: true,
 		Patch: UpdatePatch{Metadata: json.RawMessage(`{"source":"edited","created_by":"reflect"}`)},
-		Files: map[string]string{MainFile: "after", "references/note.md": "note"},
+		Files: map[string]string{MainFile: "after", "references/note.md": "note"}, DeleteFiles: []string{"stale.md"},
 	})
 	if err != nil {
 		t.Fatalf("UpdateManagedSkill convert: %v", err)
@@ -669,7 +672,7 @@ func TestManagedSkillUpdateConvertsReflectOwnershipIrreversibly(t *testing.T) {
 		t.Fatalf("update changelog = %#v, %v", logs, err)
 	}
 	files, err := store.ListFilesWithContent(ctx, created.ID)
-	if err != nil || files[MainFile] != "after" || files["references/note.md"] != "note" {
+	if err != nil || files[MainFile] != "after" || files["references/note.md"] != "note" || files["stale.md"] != "" {
 		t.Fatalf("updated files = %#v, %v", files, err)
 	}
 }
