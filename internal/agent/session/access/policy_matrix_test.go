@@ -1,4 +1,4 @@
-package sessionaccess
+package access
 
 import (
 	"context"
@@ -433,7 +433,7 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assets, err := asset.NewStore(t.TempDir(), blobStore, false, nil)
+	assets, err := asset.NewStore(t.TempDir(), blobStore, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

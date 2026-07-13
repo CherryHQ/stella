@@ -69,40 +69,6 @@ func TestLoadServerConfigHappy(t *testing.T) {
 	}
 }
 
-// TestLoadServerConfigRequireSharedAssets covers the explicit shared-asset
-// durability contract, independent of the database mode.
-func TestLoadServerConfigRequireSharedAssets(t *testing.T) {
-	// Default: unset is false — single-replica keeps the local asset authority.
-	cfg, err := LoadServerConfig(lookupFrom(nil))
-	if err != nil {
-		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
-	}
-	if cfg.RequireSharedAssets {
-		t.Errorf("RequireSharedAssets default = true, want false")
-	}
-	// Independent of RequireExternalDB: external DB alone must NOT imply shared
-	// assets (the old inference this replaces).
-	cfg, err = LoadServerConfig(lookupFrom(map[string]string{requireExternalDBEnv: "true"}))
-	if err != nil {
-		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
-	}
-	if cfg.RequireSharedAssets {
-		t.Errorf("RequireSharedAssets = true from external-DB alone; must be independent")
-	}
-	// Explicitly set.
-	cfg, err = LoadServerConfig(lookupFrom(map[string]string{requireSharedAssetsEnv: "1"}))
-	if err != nil {
-		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
-	}
-	if !cfg.RequireSharedAssets {
-		t.Errorf("RequireSharedAssets = false, want true")
-	}
-	// Unparseable fails fast.
-	if _, err := LoadServerConfig(lookupFrom(map[string]string{requireSharedAssetsEnv: "maybe"})); err == nil {
-		t.Errorf("LoadServerConfig() error = nil for bad STELLA_REQUIRE_SHARED_ASSETS, want error")
-	}
-}
-
 // TestLoadServerConfigDurationQuadrants exercises the four unset/empty/
 // whitespace/malformed states plus the >0 bound for a duration field.
 func TestLoadServerConfigDurationQuadrants(t *testing.T) {

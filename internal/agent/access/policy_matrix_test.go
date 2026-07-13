@@ -1,4 +1,4 @@
-package agentaccess
+package access
 
 import (
 	"context"

@@ -16,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/authz/policy"
@@ -25,7 +26,6 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	"github.com/CherryHQ/stella/internal/sessionaccess"
 	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -177,7 +177,7 @@ func TestStreamAgentEventsConcurrentRevocationDoesNotEncodePostDenyEvent(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	assets, err := asset.NewStore(t.TempDir(), blobStore, false, nil)
+	assets, err := asset.NewStore(t.TempDir(), blobStore, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

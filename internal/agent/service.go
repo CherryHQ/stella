@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"

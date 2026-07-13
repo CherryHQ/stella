@@ -1,4 +1,4 @@
-package sessionaccess
+package access
 
 import (
 	"context"
@@ -192,7 +192,7 @@ func newRuntimeTestService(t *testing.T, denyAt map[int]bool) (*Service, *counte
 	if err != nil {
 		t.Fatalf("blob.NewFSStore: %v", err)
 	}
-	assets, err := asset.NewStore(t.TempDir(), blobStore, false, nil)
+	assets, err := asset.NewStore(t.TempDir(), blobStore, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}

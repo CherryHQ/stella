@@ -18,7 +18,8 @@ import (
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agentaccess"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/blob"
@@ -26,7 +27,6 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/sessionaccess"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 
@@ -36,12 +36,11 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 )
 
-// assetServer builds a Server backed by an asset store whose shared durable
-// authority is remote. This exercises the multi-replica path where the object
-// store is authoritative and the local filesystem is a materialization.
+// assetServer builds a Server backed by an asset store whose durable authority
+// is remote, so the local filesystem is only a materialization.
 func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Provider) *Server {
 	t.Helper()
-	assets, err := asset.NewStore(home, authority, false, nil)
+	assets, err := asset.NewStore(home, authority, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
@@ -428,8 +427,8 @@ func TestUploadWorkspaceFileMirrorsToAuthority(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	local := body.Path
-	if !filepath.IsAbs(local) {
-		rel := strings.TrimPrefix(body.Path, "/user/")
+	if after, ok := strings.CutPrefix(filepath.ToSlash(body.Path), "/user/"); ok {
+		rel := after
 		local = filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), filepath.FromSlash(rel))
 	}
 	key, err := blob.KeyForPath(home, local)

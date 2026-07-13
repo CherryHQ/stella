@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"

@@ -1,11 +1,11 @@
-// Package sessionaccess is the authoritative Session and Workspace application
+// Package access is the authoritative Session and Workspace application
 // service. It owns durable session lookup, session-registry access, workspace
 // materialization, and the policy enforcement point for those resources.
 //
 // Transport code passes a trusted authz.Authority and typed input; it never
 // receives a sqlc query handle, memory.SessionManager, config.Store, or asset
 // store. An Access is one use case and binds exactly one Authorizer evaluation.
-package sessionaccess
+package access
 
 import (
 	"context"
@@ -415,7 +415,7 @@ func agentAction(sessionAction authz.Action) authz.Action {
 }
 
 // authorizeAgent uses this Access's evaluation rather than calling
-// agentaccess.Service, so a Session use case cannot observe two policy
+// agent/access Service, so a Session use case cannot observe two policy
 // revisions between validating the persisted session and authorizing its agent.
 func (a *Access) authorizeAgent(ctx context.Context, agentID string, action authz.Action) error {
 	agent, err := a.svc.store.GetAgent(ctx, agentID)

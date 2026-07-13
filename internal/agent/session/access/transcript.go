@@ -1,4 +1,4 @@
-package sessionaccess
+package access
 
 import (
 	"context"

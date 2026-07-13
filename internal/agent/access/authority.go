@@ -1,4 +1,4 @@
-package agentaccess
+package access
 
 import "github.com/CherryHQ/stella/internal/authz"
 

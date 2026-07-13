@@ -1,5 +1,5 @@
-// Package agentaccess is the sole policy-enforcement point for Agent resources.
-package agentaccess
+// Package access is the sole policy-enforcement point for Agent resources.
+package access
 
 import (
 	"context"

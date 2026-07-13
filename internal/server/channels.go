@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/CherryHQ/stella/internal/agentaccess"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )

@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 )
@@ -95,7 +95,7 @@ func TestService_RunDelegateSessionUsesFreshPEP(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", res)
 	}
 	// The SessionAccess adapter owns the sole evaluation for this turn. Its
-	// policy/revocation semantics are covered by internal/sessionaccess tests.
+	// policy/revocation semantics are covered by internal/agent/session/access tests.
 }
 
 func TestService_RunDelegateSessionRejectsForeignOrSpoofedIdentityBeforePEP(t *testing.T) {

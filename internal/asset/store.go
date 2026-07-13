@@ -13,9 +13,9 @@
 //     an asset is never silently local-only. A newly scheduled pod restores the
 //     files it lacks from the authority (lazily on read-miss, eagerly per user).
 //
-// The multi-replica invariant is validated at construction: a deployment that
-// declares shared external state but configures no shared object store fails
-// fast rather than silently losing assets on the next pod reschedule.
+// Multi-replica deployment validation belongs to the one deployment mechanism
+// that enables that topology; AssetStore executes the selected authority's
+// semantics without a second, contradictory mode switch.
 package asset
 
 import (
@@ -51,24 +51,13 @@ type Store struct {
 	hydrated sync.Map // assetsDir -> struct{}
 }
 
-// NewStore builds the asset store. home is required. When requireSharedAuthority
-// is set, a shared object store must be configured (authority non-nil) or
-// construction fails: that combination declares that uploaded assets must be
-// durable across replicas (the local filesystem is treated as ephemeral), so a
-// local-only asset would be lost on the next reschedule. The signal is the
-// explicit STELLA_REQUIRE_SHARED_ASSETS deployment contract — not inferred from
-// the database mode — so a single-replica deployment with an external database
-// and a persistent asset volume stays on the local filesystem authority.
-func NewStore(home string, authority blob.Store, requireSharedAuthority bool, log *slog.Logger) (*Store, error) {
+// NewStore builds the asset store. home is required. A configured object store
+// is the shared durable authority; otherwise the local filesystem is the
+// single-node authority. There is deliberately no independent mode flag that
+// can disagree with the selected authority.
+func NewStore(home string, authority blob.Store, log *slog.Logger) (*Store, error) {
 	if home == "" {
 		return nil, fmt.Errorf("asset store: home directory is required")
-	}
-	if requireSharedAuthority && authority == nil {
-		return nil, fmt.Errorf("asset store: this deployment declares shared-asset durability " +
-			"(STELLA_REQUIRE_SHARED_ASSETS=1) — typically because it runs more than one replica — so the " +
-			"local filesystem is ephemeral and cannot be the durable authority for uploaded assets; " +
-			"configure a shared object store (STELLA_BLOB_S3_*), or unset STELLA_REQUIRE_SHARED_ASSETS " +
-			"for a single-replica deployment that keeps assets on a persistent local volume")
 	}
 	if log == nil {
 		log = slog.Default()

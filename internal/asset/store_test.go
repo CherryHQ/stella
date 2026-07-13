@@ -115,28 +115,29 @@ func assetsDirFor(home, userID string) string {
 
 func mustStore(t *testing.T, home string, authority blob.Store) *Store {
 	t.Helper()
-	s, err := NewStore(home, authority, false, nil)
+	s, err := NewStore(home, authority, nil)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
 	return s
 }
 
-func TestNewStoreRequiresSharedAuthorityForMultiReplica(t *testing.T) {
-	if _, err := NewStore(t.TempDir(), nil, true, nil); err == nil {
-		t.Fatal("expected NewStore to fail when multi-replica requires a shared authority but none is configured")
-	}
-	if _, err := NewStore(t.TempDir(), newMemAuthority(), true, nil); err != nil {
+func TestNewStoreSelectsConfiguredAuthority(t *testing.T) {
+	shared, err := NewStore(t.TempDir(), newMemAuthority(), nil)
+	if err != nil {
 		t.Fatalf("NewStore with shared authority: %v", err)
 	}
-	s, err := NewStore(t.TempDir(), nil, false, nil)
+	if !shared.SharedAuthority() {
+		t.Fatal("store with object authority must report it as shared")
+	}
+	local, err := NewStore(t.TempDir(), nil, nil)
 	if err != nil {
-		t.Fatalf("NewStore single-node: %v", err)
+		t.Fatalf("NewStore with local authority: %v", err)
 	}
-	if s.SharedAuthority() {
-		t.Fatal("single-node store must report no shared authority")
+	if local.SharedAuthority() {
+		t.Fatal("store without object authority must use the local authority")
 	}
-	if _, err := NewStore("", nil, false, nil); err == nil {
+	if _, err := NewStore("", nil, nil); err == nil {
 		t.Fatal("expected NewStore to reject empty home")
 	}
 }

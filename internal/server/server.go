@@ -14,7 +14,8 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agentaccess"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
@@ -32,7 +33,6 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
-	"github.com/CherryHQ/stella/internal/sessionaccess"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"

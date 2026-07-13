@@ -17,7 +17,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agentaccess"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz/policy"
@@ -34,7 +35,6 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/server"
-	"github.com/CherryHQ/stella/internal/sessionaccess"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
@@ -181,7 +181,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	poolManager := agent.NewPoolManager(store, mem)
 	recallyStore := recally.NewStore(db)
 	assetHome := t.TempDir()
-	assetStore, err := asset.NewStore(assetHome, nil, false, nil)
+	assetStore, err := asset.NewStore(assetHome, nil, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}

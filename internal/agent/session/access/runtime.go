@@ -1,4 +1,4 @@
-package sessionaccess
+package access
 
 import (
 	"context"
@@ -19,7 +19,7 @@ type RuntimeManager interface {
 }
 
 // AgentServiceManager is the production pool shape. The adapter keeps the
-// sessionaccess port narrow despite agent.PoolManager returning concrete
+// Session access port narrow despite agent.PoolManager returning concrete
 // services from its public API.
 type AgentServiceManager interface {
 	GetService(agentID string) *agent.Service
@@ -33,7 +33,7 @@ func NewRuntimeManager(inner AgentServiceManager) RuntimeManager {
 }
 
 // NewAgentSessionAccess adapts Service to agent.Service's narrow session PEP
-// port without making internal/agent import sessionaccess.
+// port without making internal/agent import Session access.
 func NewAgentSessionAccess(svc *Service) agent.SessionAccessService {
 	return agentSessionAccess{svc: svc}
 }
@@ -58,7 +58,7 @@ func (m agentRuntimeManager) Default() RuntimeService {
 	return m.inner.Default()
 }
 
-// RuntimeService is the narrow live-turn port sessionaccess needs from the
+// RuntimeService is the narrow live-turn port Session access needs from the
 // agent runtime. It deliberately excludes session lookup and policy concerns.
 type RuntimeService interface {
 	Chat(context.Context, agent.ChatRequest) <-chan agent.Event
@@ -94,7 +94,7 @@ type SendResult struct {
 }
 
 // Send authorizes and starts exactly one foreground turn. The returned event
-// chunks are not re-authorized by sessionaccess; the single Access evaluation
+// chunks are not re-authorized by Session access; the single Access evaluation
 // covers the turn initiation, matching the send semantics expected by the UI.
 func (s *Service) Send(ctx context.Context, in SendInput) (SendResult, error) {
 	access, err := s.Begin(ctx, in.Authority)

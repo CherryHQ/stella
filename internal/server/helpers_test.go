@@ -9,7 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agentaccess"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz/policy"
@@ -21,7 +22,6 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
-	"github.com/CherryHQ/stella/internal/sessionaccess"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -42,7 +42,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 	recallyStore := recally.NewStore(db)
 	credFrontDoor, oauthAuthServer := NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
 	assetHome := t.TempDir()
-	assetStore, err := asset.NewStore(assetHome, nil, false, nil)
+	assetStore, err := asset.NewStore(assetHome, nil, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}

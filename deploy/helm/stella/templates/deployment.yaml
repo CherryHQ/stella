@@ -72,13 +72,6 @@ spec:
               value: "0.0.0.0"
             - name: STELLA_REQUIRE_EXTERNAL_DB
               value: "1"
-            # Uploaded assets must live in a shared object store once more than one
-            # replica runs (local disk is per-pod and ephemeral). Derived from the
-            # replica count so a single-replica deployment keeps the local volume as
-            # the asset authority; a future multi-replica topology (niCount > 1) sets
-            # it, and stellad fails fast at startup unless STELLA_BLOB_S3_* is set.
-            - name: STELLA_REQUIRE_SHARED_ASSETS
-              value: {{ if gt (int .Values.niCount) 1 }}"1"{{ else }}"0"{{ end }}
             - name: STELLA_BASE_URL
               value: {{ .Values.baseURL | quote }}
             - name: STELLA_SANDBOX_BACKEND

@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/sessionaccess"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 

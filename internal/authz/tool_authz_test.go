@@ -310,7 +310,7 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 
 func mustAssetStore(t *testing.T, home string) *asset.Store {
 	t.Helper()
-	a, err := asset.NewStore(home, nil, false, nil)
+	a, err := asset.NewStore(home, nil, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}

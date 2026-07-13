@@ -228,7 +228,7 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 
 func mustAssets(t *testing.T, home string, authority blob.Store) *asset.Store {
 	t.Helper()
-	a, err := asset.NewStore(home, authority, false, nil)
+	a, err := asset.NewStore(home, authority, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}

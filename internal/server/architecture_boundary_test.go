@@ -287,7 +287,7 @@ func TestNoNewServerPersistenceCapabilities(t *testing.T) {
 // Tripwire 3: workspace HTTP handlers stay transport-only.
 //
 // The workspace filesystem, sandbox path, and AssetStore semantics belong to
-// internal/sessionaccess. These handlers may decode/encode HTTP and call typed
+// internal/agent/session/access. These handlers may decode/encode HTTP and call typed
 // sessionaccess use cases, but must not reach broad filesystem/config/sandbox
 // capabilities directly.
 // ---------------------------------------------------------------------------
@@ -335,11 +335,11 @@ func TestWorkspaceHandlersStayTransportOnly(t *testing.T) {
 			}
 			if id, ok := sel.X.(*ast.Ident); ok && forbiddenPkgs[id.Name][sel.Sel.Name] {
 				pos := sessions.fset.Position(sel.Pos())
-				t.Errorf("%s:%d: workspace handler %s directly uses %s.%s; route it through internal/sessionaccess", sessions.rel, pos.Line, fd.Name.Name, id.Name, sel.Sel.Name)
+				t.Errorf("%s:%d: workspace handler %s directly uses %s.%s; route it through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name, id.Name, sel.Sel.Name)
 			}
 			if sel.Sel.Name == "assets" {
 				pos := sessions.fset.Position(sel.Pos())
-				t.Errorf("%s:%d: workspace handler %s directly uses Server.assets; route it through internal/sessionaccess", sessions.rel, pos.Line, fd.Name.Name)
+				t.Errorf("%s:%d: workspace handler %s directly uses Server.assets; route it through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name)
 			}
 			return true
 		})
@@ -351,7 +351,7 @@ func TestWorkspaceHandlersStayTransportOnly(t *testing.T) {
 //
 // These handlers may parse request params, call sessionaccess use cases, and map
 // typed results to API DTOs. Raw sqlc/pgtype/query access belongs to
-// internal/sessionaccess so the policy read and DB operations cannot drift.
+// internal/agent/session/access so the policy read and DB operations cannot drift.
 // ---------------------------------------------------------------------------
 
 func TestTranscriptHandlersStayTransportOnly(t *testing.T) {
@@ -385,10 +385,10 @@ func TestTranscriptHandlersStayTransportOnly(t *testing.T) {
 				switch {
 				case id.Name == "sqlc" || id.Name == "pgtype":
 					pos := sessions.fset.Position(sel.Pos())
-					t.Errorf("%s:%d: %s directly uses %s.%s; route transcript persistence through internal/sessionaccess", sessions.rel, pos.Line, fd.Name.Name, id.Name, sel.Sel.Name)
+					t.Errorf("%s:%d: %s directly uses %s.%s; route transcript persistence through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name, id.Name, sel.Sel.Name)
 				case id.Name == "s" && sel.Sel.Name == "q":
 					pos := sessions.fset.Position(sel.Pos())
-					t.Errorf("%s:%d: %s directly uses Server.q; route transcript persistence through internal/sessionaccess", sessions.rel, pos.Line, fd.Name.Name)
+					t.Errorf("%s:%d: %s directly uses Server.q; route transcript persistence through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name)
 				}
 			}
 			return true
@@ -416,7 +416,7 @@ func TestSessionTransportHasNoBroadDomainCapabilities(t *testing.T) {
 	for _, imp := range sessions.file.Imports {
 		path := strings.Trim(imp.Path.Value, "`\"")
 		if forbiddenImports[path] {
-			t.Errorf("sessions.go imports broad domain capability %q; keep persistence and workspace behavior in internal/sessionaccess", path)
+			t.Errorf("sessions.go imports broad domain capability %q; keep persistence and workspace behavior in internal/agent/session/access", path)
 		}
 	}
 	ast.Inspect(sessions.file, func(n ast.Node) bool {
@@ -429,7 +429,7 @@ func TestSessionTransportHasNoBroadDomainCapabilities(t *testing.T) {
 			switch sel.Sel.Name {
 			case "q", "mem", "store", "assets", "poolManager", "checkSessionAccess":
 				pos := sessions.fset.Position(sel.Pos())
-				t.Errorf("sessions.go:%d uses Server.%s; route the use case through internal/sessionaccess", pos.Line, sel.Sel.Name)
+				t.Errorf("sessions.go:%d uses Server.%s; route the use case through internal/agent/session/access", pos.Line, sel.Sel.Name)
 			}
 		}
 		return true
@@ -439,7 +439,7 @@ func TestSessionTransportHasNoBroadDomainCapabilities(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Tripwire 5: Send/SSE handlers stay transport-only.
 //
-// Live session orchestration belongs to internal/sessionaccess: durable lookup,
+// Live session orchestration belongs to internal/agent/session/access: durable lookup,
 // runtime service resolution, send turn creation, attach subscription, and
 // per-event reauthorization. These handlers may parse/encode HTTP and call the
 // typed sessionaccess use cases only.
@@ -476,9 +476,9 @@ func TestSendAndStreamHandlersStayTransportOnly(t *testing.T) {
 			pos := sessions.fset.Position(sel.Pos())
 			switch {
 			case memoryName != "" && id.Name == memoryName && sel.Sel.Name == "SessionManager":
-				t.Errorf("%s:%d: %s directly uses memory.SessionManager; route session lookup through internal/sessionaccess", sessions.rel, pos.Line, fd.Name.Name)
+				t.Errorf("%s:%d: %s directly uses memory.SessionManager; route session lookup through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name)
 			case id.Name == "s" && (sel.Sel.Name == "mem" || sel.Sel.Name == "poolManager" || sel.Sel.Name == "checkSessionAccess"):
-				t.Errorf("%s:%d: %s directly uses Server.%s; route live session orchestration through internal/sessionaccess", sessions.rel, pos.Line, fd.Name.Name, sel.Sel.Name)
+				t.Errorf("%s:%d: %s directly uses Server.%s; route live session orchestration through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name, sel.Sel.Name)
 			}
 			return true
 		})
@@ -490,7 +490,7 @@ func TestSendAndStreamHandlersStayTransportOnly(t *testing.T) {
 //
 // The effective prompt is a session use case: session lookup, policy read,
 // plugin prompt construction, skill prompt construction, and filesystem roots
-// belong to internal/sessionaccess and its injected prompt collaborators.
+// belong to internal/agent/session/access and its injected prompt collaborators.
 // ---------------------------------------------------------------------------
 
 func TestSystemPromptHandlerStaysTransportOnly(t *testing.T) {
@@ -529,12 +529,12 @@ func TestSystemPromptHandlerStaysTransportOnly(t *testing.T) {
 			id, _ := sel.X.(*ast.Ident)
 			pos := sessions.fset.Position(sel.Pos())
 			if id != nil && forbiddenImports[id.Name][sel.Sel.Name] {
-				t.Errorf("%s:%d: system prompt handler directly uses %s.%s; route prompt construction through internal/sessionaccess", sessions.rel, pos.Line, id.Name, sel.Sel.Name)
+				t.Errorf("%s:%d: system prompt handler directly uses %s.%s; route prompt construction through internal/agent/session/access", sessions.rel, pos.Line, id.Name, sel.Sel.Name)
 			}
 			if id != nil && id.Name == "s" {
 				switch sel.Sel.Name {
 				case "mem", "store", "pluginHost", "q", "skillStore", "projectRootForSession", "checkSessionAccess":
-					t.Errorf("%s:%d: system prompt handler directly uses Server.%s; route prompt construction through internal/sessionaccess", sessions.rel, pos.Line, sel.Sel.Name)
+					t.Errorf("%s:%d: system prompt handler directly uses Server.%s; route prompt construction through internal/agent/session/access", sessions.rel, pos.Line, sel.Sel.Name)
 				}
 			}
 			return true

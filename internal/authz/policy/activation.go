@@ -42,7 +42,7 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// are deleted), so Agent is fully active rather than shadow.
 	authz.ResourceAgent: activeActive,
 	// #709: Session and Workspace are enforced only through
-	// internal/sessionaccess.Service, including custom policy facts.
+	// internal/agent/session/access.Service, including custom policy facts.
 	authz.ResourceSession:   activeActive,
 	authz.ResourceWorkspace: activeActive,
 }

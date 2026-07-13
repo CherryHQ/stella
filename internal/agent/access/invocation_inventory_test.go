@@ -1,4 +1,4 @@
-package agentaccess
+package access
 
 import (
 	"go/ast"
@@ -15,7 +15,7 @@ import (
 // invocationInventory is a deliberately exact AST inventory of production
 // service selection and turn-entry calls outside internal/agent. It is not a
 // grep: aliases and comments cannot satisfy it. Any new Agent invocation must
-// be routed through an existing agentaccess-authorized adapter first, then added
+// be routed through an existing Agent access-authorized adapter first, then added
 // here with its adapter rationale; deleting an entry is also reviewed.
 var invocationInventory = map[string]map[string]int{
 	"cmd/stellad/commands.go":              {"GetService": 2}, // goal worker + scheduler durable adapters
@@ -30,7 +30,7 @@ var invocationInventory = map[string]map[string]int{
 }
 
 func TestAgentInvocationInventoryIsExact(t *testing.T) {
-	root, err := filepath.Abs("../..")
+	root, err := filepath.Abs("../../..")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +107,6 @@ func TestAgentInvocationInventoryIsExact(t *testing.T) {
 	}
 	sort.Strings(diffs)
 	if len(diffs) != 0 {
-		t.Fatalf("Agent invocation inventory changed: %s; route new turn entry through an agentaccess-authorized adapter before changing this exact allowlist", strings.Join(diffs, ", "))
+		t.Fatalf("Agent invocation inventory changed: %s; route new turn entry through an Agent access-authorized adapter before changing this exact allowlist", strings.Join(diffs, ", "))
 	}
 }

@@ -17,11 +17,12 @@ import (
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/internal/agentaccess"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/authz/policy"
 
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/config"
@@ -40,7 +41,6 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
-	"github.com/CherryHQ/stella/internal/sessionaccess"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
@@ -224,17 +224,15 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
-	// Asset authority: single-node uses the local filesystem under STELLA_HOME;
-	// a deployment that declares shared-asset durability (STELLA_REQUIRE_SHARED_ASSETS,
-	// set by the Helm chart when it runs more than one replica) must configure a
-	// shared object store, else NewStore fails fast. This replaces the former blob
-	// process-global (blob.SetDefault/Default): the durable asset service is
-	// injected into every consumer instead.
+	// Asset authority is selected by capability: a configured object store is the
+	// shared authority; otherwise the local filesystem under STELLA_HOME is the
+	// single-node authority. This replaces the former blob process-global
+	// (blob.SetDefault/Default) with one service injected into every consumer.
 	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
 	if err != nil {
 		return nil, err
 	}
-	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, cfg.RequireSharedAssets, slog.Default())
+	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
 	if err != nil {
 		return nil, err
 	}

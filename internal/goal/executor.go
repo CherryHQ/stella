@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agentaccess"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
