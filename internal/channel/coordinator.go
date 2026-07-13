@@ -12,7 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -45,7 +48,7 @@ type Coordinator struct {
 	invalidator          userInvalidator
 	store                config.Store
 	auth                 channelAuthStore
-	engine               *auth.PolicyEngine
+	agentAccess          *agentaccess.Service
 	linkCodes            *auth.LinkCodeStore
 	vaultRecipient       *age.X25519Recipient
 	vaultSvc             *vault.Service
@@ -62,16 +65,17 @@ type Coordinator struct {
 	publisherRegistry    *PublisherRegistry
 	groupDispatcher      *GroupDispatcher
 	db                   *pgxpool.Pool
+	assets               *asset.Store
 }
 
 // CoordinatorOption configures the Coordinator.
 type CoordinatorOption func(*Coordinator)
 
 // WithCoordinatorAuth configures the coordinator with auth support.
-func WithCoordinatorAuth(store channelAuthStore, engine *auth.PolicyEngine, linkCodes *auth.LinkCodeStore) CoordinatorOption {
+func WithCoordinatorAuth(store channelAuthStore, agentAccess *agentaccess.Service, linkCodes *auth.LinkCodeStore) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.auth = store
-		c.engine = engine
+		c.agentAccess = agentAccess
 		c.linkCodes = linkCodes
 	}
 }
@@ -115,6 +119,14 @@ func NewCoordinator(
 func WithVaultService(svc *vault.Service) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.vaultSvc = svc
+	}
+}
+
+// WithCoordinatorAssets injects the authoritative asset store so inbound channel
+// attachments are persisted durably (satisfies pkgchannel.AssetSaver).
+func WithCoordinatorAssets(a *asset.Store) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.assets = a
 	}
 }
 
@@ -273,7 +285,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 		channelID = msg.Platform
 	}
 
-	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.engine, c.groupResolver, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
+	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.agentAccess, c.groupResolver, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -411,6 +423,11 @@ func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content 
 
 // chatWithRC streams a chat response using a pre-resolved chat.
 func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
+	// This closure runs only when the per-session queue dispatches. Re-authorize
+	// immediately before Chat so a policy change after Resolve cannot run a turn.
+	if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+		return nil, fmt.Errorf("agent execution denied: %w", err)
+	}
 	events, sessionID, err := rc.Chat(ctx, content)
 	if err != nil {
 		return nil, err
@@ -440,8 +457,12 @@ func (c *Coordinator) ListAgents(ctx context.Context, msg pkgchannel.IncomingMes
 		return nil, "", err
 	}
 
-	ac := NewAgentCommander(c.store, c.auth)
-	agents, err := ac.ListForChat(ctx, rc.ChatCtx)
+	authority, err := channelUserAuthority(rc.User)
+	if err != nil {
+		return nil, "", err
+	}
+	ac := NewAgentCommander(c.store, c.auth, c.agentAccess)
+	agents, err := ac.ListForChat(ctx, authority, rc.ChatCtx)
 	if err != nil {
 		return nil, "", err
 	}
@@ -460,8 +481,22 @@ func (c *Coordinator) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMe
 		return err
 	}
 
-	ac := NewAgentCommander(c.store, c.auth)
-	return ac.Switch(ctx, rc.User, rc.ChatCtx, agentSlug)
+	authority, err := channelUserAuthority(rc.User)
+	if err != nil {
+		return err
+	}
+	ac := NewAgentCommander(c.store, c.auth, c.agentAccess)
+	return ac.Switch(ctx, authority, rc.User, rc.ChatCtx, agentSlug)
+}
+
+// channelUserAuthority converts a resolved, persisted user into the same trusted
+// authority used by HTTP. An unlinked channel user has no authority and cannot
+// enumerate or switch agents.
+func channelUserAuthority(user auth.User) (authz.Authority, error) {
+	if user.ID == "" {
+		return authz.Authority{}, agentaccess.ErrForbidden
+	}
+	return (auth.Subject{UserID: user.ID, Roles: []string{user.Role}}).Authority()
 }
 
 // ListModels returns available models.
@@ -561,10 +596,21 @@ func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.Incomi
 	return userDir, nil
 }
 
+// SaveAsset persists an inbound channel attachment through the authoritative
+// asset store, satisfying pkgchannel.AssetSaver. It fails when no asset store is
+// configured rather than silently dropping the attachment.
+func (c *Coordinator) SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error) {
+	if c.assets == nil {
+		return "", fmt.Errorf("asset store is not configured")
+	}
+	return c.assets.SaveAsset(ctx, assetsDir, fileName, data)
+}
+
 // compile-time checks.
 var (
 	_ pkgchannel.Handler          = (*Coordinator)(nil)
 	_ pkgchannel.Provisioner      = (*Coordinator)(nil)
 	_ pkgchannel.UserRootResolver = (*Coordinator)(nil)
+	_ pkgchannel.AssetSaver       = (*Coordinator)(nil)
 	_ pkgchannel.BotRegistrar     = (*Coordinator)(nil)
 )

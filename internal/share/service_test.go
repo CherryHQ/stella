@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -32,7 +33,7 @@ func TestAuthorizedMethodsEnforceShareOwnership(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test")
 	owner := uuid.NewString()
 	foreign := uuid.NewString()
 	for _, userID := range []string{owner, foreign} {
@@ -62,7 +63,7 @@ func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 	mem := memorytest.New()
 	home := t.TempDir()
 	store := recally.NewStore(db)
-	svc := sharepkg.NewService(q, mem, store, home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, store, mustAssets(t, home, nil), home, "http://stella.test")
 	userID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
@@ -90,7 +91,6 @@ func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 }
 
 func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
-	defer blob.ResetDefaultForTest()
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -100,10 +100,7 @@ func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := blob.SetDefault(remote); err != nil {
-		t.Fatal(err)
-	}
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, remote), home, "http://stella.test")
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -133,16 +130,12 @@ func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
 }
 
 func TestShareArtifactRestoreMissLeavesNoAssetDir(t *testing.T) {
-	defer blob.ResetDefaultForTest()
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	if err := blob.SetDefault(lazyMissingStore{}); err != nil {
-		t.Fatal(err)
-	}
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, lazyMissingStore{}), home, "http://stella.test")
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -167,7 +160,7 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test")
 	userID := uuid.NewString()
 	foreignUser := uuid.NewString()
 	agentID := uuid.NewString()
@@ -203,7 +196,13 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 		t.Fatalf("../escape err=%v, want ErrNotFound clamp", err)
 	}
 	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", outside, "", "7d"); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("absolute path err=%v, want ErrNotFound clamp", err)
+		t.Fatalf("absolute path err=%v, want ErrNotFound", err)
+	}
+	symlink := filepath.Join(root, "escape-link.html")
+	if err := os.Symlink(outside, symlink); err == nil {
+		if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", "escape-link.html", "", "7d"); !errors.Is(err, authz.ErrNotFound) {
+			t.Fatalf("escaping symlink err=%v, want ErrNotFound", err)
+		}
 	}
 	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", "bad.exe", "", "7d"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("missing unsupported file err=%v, want ErrNotFound before type", err)
@@ -231,6 +230,15 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	if created.URL == "" || created.Token == "" {
 		t.Fatalf("created missing URL/token: %+v", created)
 	}
+}
+
+func mustAssets(t *testing.T, home string, authority blob.Store) *asset.Store {
+	t.Helper()
+	a, err := asset.NewStore(home, authority, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
+	}
+	return a
 }
 
 type lazyMissingStore struct{}

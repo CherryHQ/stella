@@ -1,0 +1,436 @@
+package access
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"mime"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/config"
+	sharepkg "github.com/CherryHQ/stella/internal/share"
+)
+
+var (
+	ErrInvalid = errors.New("invalid workspace request")
+	ErrIsDir   = errors.New("workspace path is a directory")
+	ErrBinary  = errors.New("workspace file appears to be binary")
+)
+
+type WorkspaceScope string
+
+const (
+	WorkspaceScopeAgent WorkspaceScope = "agent"
+	WorkspaceScopeUser  WorkspaceScope = "user"
+)
+
+type WorkspaceInfo struct {
+	Root        string   `json:"root"`
+	SandboxRoot string   `json:"sandbox_root"`
+	Paths       []string `json:"paths"`
+	TotalFiles  int      `json:"total_files"`
+	TotalDirs   int      `json:"total_dirs"`
+	TotalBytes  int64    `json:"total_bytes"`
+}
+
+type WorkspaceListInput struct {
+	AgentID    string
+	SessionID  string
+	Scope      WorkspaceScope
+	ShowHidden bool
+	Path       string
+	Depth      int
+}
+
+type WorkspacePathInput struct {
+	AgentID   string
+	SessionID string
+	Scope     WorkspaceScope
+	Path      string
+}
+
+type WorkspaceCreateInput struct {
+	AgentID   string
+	SessionID string
+	Scope     WorkspaceScope
+	Path      string
+	Content   string
+	IsDir     bool
+}
+
+type WorkspaceMoveInput struct {
+	AgentID   string
+	SessionID string
+	Scope     WorkspaceScope
+	Path      string
+	NewPath   string
+}
+
+type WorkspaceReadInput struct {
+	AgentID   string
+	SessionID string
+	Scope     WorkspaceScope
+	Path      string
+	Raw       bool
+}
+
+type WorkspaceReadResult struct {
+	Path         string `json:"path"`
+	Content      string `json:"content,omitempty"`
+	Language     string `json:"language,omitempty"`
+	Raw          bool   `json:"-"`
+	RawName      string `json:"-"`
+	RawMediaType string `json:"-"`
+	RawContent   []byte `json:"-"`
+}
+
+type WorkspaceWriteInput struct {
+	AgentID   string
+	SessionID string
+	Scope     WorkspaceScope
+	Path      string
+	Content   string
+}
+
+type WorkspaceUploadInput struct {
+	AgentID   string
+	SessionID string
+	Filename  string
+	Reader    io.Reader
+	Now       time.Time
+}
+
+type WorkspaceUploadResult struct {
+	Path string `json:"path"`
+}
+
+func (a *Access) ListWorkspace(ctx context.Context, in WorkspaceListInput) (WorkspaceInfo, error) {
+	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionList)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	depth := in.Depth
+	if depth <= 0 {
+		depth = 2
+	}
+	info, err := collectWorkspaceInfo(root, in.ShowHidden, in.Path, depth)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	info.SandboxRoot = scopeSandboxView(a.svc.sandboxBackend(ctx), root, in.Scope)
+	return info, nil
+}
+
+func (a *Access) CreateWorkspacePath(ctx context.Context, in WorkspaceCreateInput) (WorkspaceInfo, error) {
+	if in.Path == "" {
+		return WorkspaceInfo{}, ErrInvalid
+	}
+	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionCreate)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	abs, err := sharepkg.SafePath(root, in.Path)
+	if err != nil {
+		return WorkspaceInfo{}, ErrInvalid
+	}
+	if in.IsDir {
+		rootFS, name, err := sharepkg.OpenSafeRoot(root, in.Path)
+		if err != nil {
+			return WorkspaceInfo{}, ErrInvalid
+		}
+		defer func() { _ = rootFS.Close() }()
+		if err := rootFS.MkdirAll(name, 0o755); err != nil {
+			return WorkspaceInfo{}, err
+		}
+	} else if err := a.svc.assets.CreateFile(ctx, abs, []byte(in.Content), 0o644); err != nil {
+		return WorkspaceInfo{}, err
+	}
+	return collectWorkspaceInfo(root, false, "", 0)
+}
+
+func (a *Access) DeleteWorkspacePath(ctx context.Context, in WorkspacePathInput) error {
+	if in.Path == "" {
+		return ErrInvalid
+	}
+	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionDelete)
+	if err != nil {
+		return err
+	}
+	abs, err := sharepkg.SafePath(root, in.Path)
+	if err != nil {
+		return ErrInvalid
+	}
+	return a.svc.assets.RemoveFile(ctx, abs)
+}
+
+func (a *Access) MoveWorkspacePath(ctx context.Context, in WorkspaceMoveInput) (WorkspaceInfo, error) {
+	if in.Path == "" || in.NewPath == "" {
+		return WorkspaceInfo{}, ErrInvalid
+	}
+	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionWrite)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	src, err := sharepkg.SafePath(root, in.Path)
+	if err != nil {
+		return WorkspaceInfo{}, ErrInvalid
+	}
+	dst, err := sharepkg.SafePath(root, in.NewPath)
+	if err != nil {
+		return WorkspaceInfo{}, ErrInvalid
+	}
+	if err := a.svc.assets.MoveFile(ctx, src, dst); err != nil {
+		return WorkspaceInfo{}, err
+	}
+	return collectWorkspaceInfo(root, false, "", 0)
+}
+
+func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (WorkspaceReadResult, error) {
+	if in.Path == "" {
+		return WorkspaceReadResult{}, ErrInvalid
+	}
+	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionRead)
+	if err != nil {
+		return WorkspaceReadResult{}, err
+	}
+	rootFS, name, err := sharepkg.OpenSafeRoot(root, in.Path)
+	if err != nil {
+		return WorkspaceReadResult{}, ErrInvalid
+	}
+	defer func() { _ = rootFS.Close() }()
+	abs := filepath.Join(root, name)
+	info, err := rootFS.Stat(name)
+	if err != nil {
+		if os.IsNotExist(err) && a.svc.assets.Restore(ctx, abs) == nil {
+			info, err = rootFS.Stat(name)
+		}
+		if err != nil {
+			return WorkspaceReadResult{}, ErrNotFound
+		}
+	}
+	if info.IsDir() {
+		return WorkspaceReadResult{}, ErrIsDir
+	}
+	data, err := rootFS.ReadFile(name)
+	if err != nil {
+		return WorkspaceReadResult{}, err
+	}
+	if in.Raw {
+		mediaType := mime.TypeByExtension(filepath.Ext(in.Path))
+		if mediaType == "" {
+			mediaType = "application/octet-stream"
+		}
+		return WorkspaceReadResult{
+			Path: in.Path, Raw: true, RawName: filepath.Base(in.Path),
+			RawMediaType: mediaType, RawContent: data,
+		}, nil
+	}
+	probe := data
+	if len(probe) > 512 {
+		probe = probe[:512]
+	}
+	if slices.Contains(probe, 0) {
+		return WorkspaceReadResult{}, ErrBinary
+	}
+	return WorkspaceReadResult{Path: in.Path, Content: string(data), Language: DetectLanguage(in.Path)}, nil
+}
+
+func (a *Access) WriteWorkspacePath(ctx context.Context, in WorkspaceWriteInput) (WorkspaceReadResult, error) {
+	if in.Path == "" {
+		return WorkspaceReadResult{}, ErrInvalid
+	}
+	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionWrite)
+	if err != nil {
+		return WorkspaceReadResult{}, err
+	}
+	abs, err := sharepkg.SafePath(root, in.Path)
+	if err != nil {
+		return WorkspaceReadResult{}, ErrInvalid
+	}
+	if err := a.svc.assets.WriteFile(ctx, abs, []byte(in.Content), 0o644); err != nil {
+		return WorkspaceReadResult{}, err
+	}
+	return WorkspaceReadResult{Path: in.Path, Content: in.Content, Language: DetectLanguage(in.Path)}, nil
+}
+
+func (a *Access) UploadWorkspacePath(ctx context.Context, in WorkspaceUploadInput) (WorkspaceUploadResult, error) {
+	if in.Filename == "" || in.Reader == nil {
+		return WorkspaceUploadResult{}, ErrInvalid
+	}
+	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, WorkspaceScopeUser, authz.ActionCreate)
+	if err != nil {
+		return WorkspaceUploadResult{}, err
+	}
+	data, err := io.ReadAll(in.Reader)
+	if err != nil {
+		return WorkspaceUploadResult{}, err
+	}
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	hash := fmt.Sprintf("%06x", now.UnixNano()&0xFFFFFF)
+	dir := filepath.Join(root, "assets", now.Format("200601"))
+	name := fmt.Sprintf("%s-%s-%s", now.Format("20060102"), hash, filepath.Base(in.Filename))
+	abs := filepath.Join(dir, name)
+	if err := a.svc.assets.WriteFile(ctx, abs, data, 0o644); err != nil {
+		return WorkspaceUploadResult{}, err
+	}
+	rel, _ := filepath.Rel(root, abs)
+	sandboxRoot := sandbox.UserDataViewFor(a.svc.sandboxBackend(ctx), root)
+	return WorkspaceUploadResult{Path: filepath.ToSlash(filepath.Join(sandboxRoot, rel))}, nil
+}
+
+func (a *Access) workspaceRoot(ctx context.Context, agentID, sessionID string, scope WorkspaceScope, action authz.Action) (string, error) {
+	info, err := a.Workspace(ctx, agentID, sessionID, action)
+	if err != nil {
+		return "", err
+	}
+	if info.UserID == "" || info.AgentID == "" {
+		return "", ErrNotFound
+	}
+	if _, err := agent.SetupUserWorkspace(config.StellaHome(), info.UserID, info.AgentID); err != nil {
+		return "", err
+	}
+	return workspaceRootForScope(info.UserID, info.AgentID, scope), nil
+}
+
+func workspaceRootForScope(userID, agentID string, scope WorkspaceScope) string {
+	if scope == WorkspaceScopeUser {
+		return agent.UserDataDir(agent.UserHomeDir(config.StellaHome(), userID))
+	}
+	return agent.UserAgentDir(config.StellaHome(), userID, agentID)
+}
+
+func (s *Service) sandboxBackend(ctx context.Context) string {
+	plugins, _ := s.store.ListPlugins(ctx)
+	return config.ActiveSandboxBackend(plugins)
+}
+
+func scopeSandboxView(backend, root string, scope WorkspaceScope) string {
+	if scope == WorkspaceScopeUser {
+		return sandbox.UserDataViewFor(backend, root)
+	}
+	return sandbox.WorkspaceViewFor(backend, root)
+}
+
+func pathDepth(path string) int {
+	return len(strings.Split(filepath.ToSlash(path), "/"))
+}
+
+func collectWorkspaceInfo(root string, showHidden bool, listPath string, depth int) (WorkspaceInfo, error) {
+	info := WorkspaceInfo{Root: root, Paths: []string{}}
+	rootFS, listName, err := sharepkg.OpenSafeRoot(root, strings.TrimSuffix(listPath, "/"))
+	if err != nil {
+		return WorkspaceInfo{}, ErrInvalid
+	}
+	defer func() { _ = rootFS.Close() }()
+	if stat, statErr := rootFS.Stat(listName); statErr != nil {
+		return WorkspaceInfo{}, statErr
+	} else if !stat.IsDir() {
+		return WorkspaceInfo{}, ErrInvalid
+	}
+	err = fs.WalkDir(rootFS.FS(), filepath.ToSlash(listName), func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil //nolint:nilerr
+		}
+		scopeRel, scopeRelErr := filepath.Rel(listName, filepath.FromSlash(path))
+		if scopeRelErr != nil || scopeRel == "." {
+			return nil //nolint:nilerr
+		}
+		if depth > 0 && pathDepth(scopeRel) > depth {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel := filepath.FromSlash(path)
+		if rel == "." {
+			return nil
+		}
+		name := d.Name()
+		isDot := strings.HasPrefix(name, ".") || strings.Contains(rel, string(filepath.Separator)+".")
+		if isDot && !showHidden {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			info.TotalDirs++
+			info.Paths = append(info.Paths, filepath.ToSlash(rel)+"/")
+			return nil
+		}
+		entryInfo, statErr := d.Info()
+		if statErr != nil {
+			return nil //nolint:nilerr
+		}
+		info.TotalFiles++
+		if entryInfo.Mode().IsRegular() {
+			info.TotalBytes += entryInfo.Size()
+		}
+		info.Paths = append(info.Paths, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	return info, nil
+}
+
+func DetectLanguage(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".go":
+		return "go"
+	case ".js", ".mjs", ".cjs":
+		return "javascript"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".py":
+		return "python"
+	case ".json":
+		return "json"
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".md", ".mdx":
+		return "markdown"
+	case ".html":
+		return "html"
+	case ".css":
+		return "css"
+	case ".sh", ".bash":
+		return "shell"
+	case ".sql":
+		return "sql"
+	case ".toml":
+		return "toml"
+	case ".xml":
+		return "xml"
+	case ".rs":
+		return "rust"
+	case ".c", ".h":
+		return "c"
+	case ".cpp", ".cc", ".cxx":
+		return "cpp"
+	case ".java":
+		return "java"
+	case ".rb":
+		return "ruby"
+	case ".php":
+		return "php"
+	case ".txt":
+		return "text"
+	default:
+		return ""
+	}
+}

@@ -13,6 +13,8 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -157,6 +159,7 @@ type TaskChatParams struct {
 	ExtraTools       []tools.Tool
 	ExcludedTools    []string
 	OnSandboxSession func(sandbox.Session) error
+	Authority        authz.Authority
 }
 
 // TaskChatFunc runs one worker turn through the agent service layer so the
@@ -180,6 +183,10 @@ type BootConfig struct {
 	LeaseTTL      time.Duration
 	Logger        *slog.Logger
 	ExcludedTools []string
+	// AgentAccess is the trusted durable-worker PEP. A goal attempt must not
+	// invoke an executor agent unless its persisted owner/executor pair passes a
+	// fresh Agent execute decision.
+	AgentAccess *agentaccess.Service
 }
 
 // Boot constructs the goal system and returns the bound bundle. The dispatcher is
@@ -202,7 +209,7 @@ func Boot(cfg BootConfig) (*Service, error) {
 	}
 
 	svc := New(cfg.DB, q,
-		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools)),
+		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools, cfg.AgentAccess)),
 		WithCheckRunner(NewCheckRunner(q, 0)),
 		WithCapabilityProbe(cfg.Capabilities),
 		WithSessionMinter(RegistrySessionMinter(cfg.Services)),
@@ -242,12 +249,12 @@ func Boot(cfg BootConfig) (*Service, error) {
 // bootExecutor picks the worker executor. With a Chat callback it runs persisted
 // agent turns (executor.go); without one it is a noop that fails non-retryably so
 // a misconfigured boot is loud, not silent.
-func bootExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string) Executor {
+func bootExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string, access *agentaccess.Service) Executor {
 	if chat == nil {
 		log.Warn("goal: no Chat wired; worker executor is a noop")
 		return noopExecutor{log: log}
 	}
-	return newWorkerExecutor(chat, log, excludedTools)
+	return newWorkerExecutor(chat, log, excludedTools, access)
 }
 
 // noopExecutor fails every attempt non-retryably with a clear hint. It is the

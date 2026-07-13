@@ -155,7 +155,7 @@ func (s *Server) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, agentID := range req.AgentIds {
-		if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
+		if _, code, msg := s.requireAgentUse(ctx, agentID); code != 0 {
 			writeError(w, code, msg)
 			return
 		}
@@ -277,7 +277,7 @@ func (s *Server) AddGroupMember(w http.ResponseWriter, r *http.Request, groupId 
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(ctx, req.AgentId); code != 0 {
+	if _, code, msg := s.requireAgentUse(ctx, req.AgentId); code != 0 {
 		writeError(w, code, msg)
 		return
 	}

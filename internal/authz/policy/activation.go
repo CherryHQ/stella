@@ -21,6 +21,10 @@ const (
 	// activeShadow means custom policies are accepted and evaluated, but the
 	// Authorizer is not yet the production decision point for the resource.
 	activeShadow
+	// activeActive means the Authorizer is the authoritative production decision
+	// point for the resource: custom policies are accepted and evaluated, and the
+	// resource's PEP consults this Authorizer with no legacy engine behind it.
+	activeActive
 )
 
 // activationCatalog maps each resource to its activation mode. Anything absent
@@ -33,7 +37,14 @@ const (
 // but not in this subphase, so they reject writes and quarantine existing rows
 // exactly like every other not-yet-cut-over resource.
 var activationCatalog = map[authz.ResourceType]activation{
-	authz.ResourceAgent: activeShadow,
+	// #709 cut the Agent vertical over: the Authorizer is the authoritative agent
+	// decision point (the legacy PolicyEngine agent path and the former shadow bridge
+	// are deleted), so Agent is fully active rather than shadow.
+	authz.ResourceAgent: activeActive,
+	// #709: Session and Workspace are enforced only through
+	// internal/agent/session/access.Service, including custom policy facts.
+	authz.ResourceSession:   activeActive,
+	authz.ResourceWorkspace: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {
@@ -44,7 +55,13 @@ func activationFor(rt authz.ResourceType) activation {
 }
 
 // resourceAcceptsCustomPolicy reports whether a resource may currently receive a
-// custom-policy write. Only shadow-enabled resources do.
+// custom-policy write. Both shadow-enabled and authoritatively-active resources
+// do; only fully-inactive resources reject writes and quarantine existing rows.
 func resourceAcceptsCustomPolicy(rt authz.ResourceType) bool {
-	return activationFor(rt) == activeShadow
+	switch activationFor(rt) {
+	case activeShadow, activeActive:
+		return true
+	default:
+		return false
+	}
 }

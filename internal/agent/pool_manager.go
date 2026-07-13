@@ -14,6 +14,7 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -120,6 +121,12 @@ func WithProjectEnsurerPM(fn ProjectEnsurerFunc) PoolManagerOption {
 	return func(pm *PoolManager) { pm.projectEnsurer = fn }
 }
 
+// WithAssetStorePM injects the authoritative asset store used for cold-pod asset
+// hydration. When unset (e.g. in tests), hydration is skipped.
+func WithAssetStorePM(a *asset.Store) PoolManagerOption {
+	return func(pm *PoolManager) { pm.assets = a }
+}
+
 // PoolManager manages one Service per enabled agent. It reads enabled agents
 // from the config Store and creates a Service (session.Registry + runtime.Runtime)
 // per agent.
@@ -152,6 +159,8 @@ type PoolManager struct {
 	projectEnsurer           ProjectEnsurerFunc
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
+	assets                   *asset.Store
+	sessionAccess            SessionAccessService
 	log                      *slog.Logger
 }
 
@@ -217,6 +226,24 @@ func (pm *PoolManager) BindVaultEnvLoader(v sandbox.VaultEnvLoader) error {
 	return nil
 }
 
+// BindSessionAccess binds the shared Session PEP before StartAll. All non-HTTP
+// entry session lifecycle in Service goes through this port.
+func (pm *PoolManager) BindSessionAccess(access SessionAccessService) error {
+	if access == nil {
+		return errors.New("agent: BindSessionAccess requires a non-nil service")
+	}
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.started {
+		return errors.New("agent: BindSessionAccess after StartAll")
+	}
+	if pm.sessionAccess != nil {
+		return errors.New("agent: session access already bound")
+	}
+	pm.sessionAccess = access
+	return nil
+}
+
 // BindMCPToolProvider binds the MCP tool provider before StartAll. One-shot
 // pre-start bind: rejects nil (missing), a second bind (duplicate), and any bind
 // after StartAll (late). No runner rebuild is needed because agents have not yet
@@ -257,6 +284,10 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	if pm.started {
 		pm.mu.Unlock()
 		return errors.New("agent: PoolManager.StartAll called more than once")
+	}
+	if pm.sessionAccess == nil {
+		pm.mu.Unlock()
+		return errors.New("agent: PoolManager.StartAll requires SessionAccess")
 	}
 	pm.started = true
 	pm.mu.Unlock()
@@ -342,7 +373,13 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	}
 	go rt.StartReaper(ctx)
 
-	svc := &Service{Sessions: reg, Runtime: rt, AgentID: agentID}
+	pm.mu.RLock()
+	sessionAccess := pm.sessionAccess
+	pm.mu.RUnlock()
+	if sessionAccess == nil {
+		return nil, errors.New("session access is not bound")
+	}
+	svc := &Service{Sessions: reg, Runtime: rt, SessionAccess: sessionAccess, AgentID: agentID}
 	rt.SetDelegateRunner(svc)
 	return svc, nil
 }
@@ -368,14 +405,19 @@ func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot,
 	return userRoot, info.UserID, ""
 }
 
-// hydrateAssets restores the principal's assets subtree from the blob mirror in
-// the background, so a cold pod's empty assets tree fills in shortly after the
-// session starts without adding to startup latency. Single-flight per home lives
-// in HydrateUserAssets. context.Background() (not a request ctx) keeps the copy
-// from being cancelled when the caller returns.
+// hydrateAssets restores the principal's assets subtree from the shared asset
+// authority in the background, so a cold pod's empty assets tree fills in shortly
+// after the session starts without adding to startup latency. Single-flight per
+// tree lives in asset.Store.HydrateUser. context.Background() (not a request ctx)
+// keeps the copy from being cancelled when the caller returns. No-op when no asset
+// store is configured (e.g. tests) or the deployment has no shared authority.
 func (pm *PoolManager) hydrateAssets(home string) {
+	if pm.assets == nil {
+		return
+	}
+	assets := pm.assets
 	go func() {
-		if err := HydrateUserAssets(context.Background(), config.StellaHome(), home); err != nil {
+		if err := assets.HydrateUser(context.Background(), UserAssetsDir(home)); err != nil {
 			pm.log.Warn("hydrate user assets failed", "home", home, "error", err)
 		}
 	}()

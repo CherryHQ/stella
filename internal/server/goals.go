@@ -91,6 +91,22 @@ func (s *Server) loadGoal(ctx context.Context, w http.ResponseWriter, ident auth
 	return d, true
 }
 
+// loadGoalForUse loads the tenant-scoped persisted goal and verifies that the
+// initiating user still may execute its persisted agent. Continuation commands
+// must use this before mutating lifecycle state: request bodies are not an
+// authority source, and executor-time checks happen after work is enqueued.
+func (s *Server) loadGoalForUse(ctx context.Context, w http.ResponseWriter, ident authz.Identity, id string) (sqlc.AgentGoal, bool) {
+	d, ok := s.loadGoal(ctx, w, ident, id)
+	if !ok {
+		return sqlc.AgentGoal{}, false
+	}
+	if _, code, msg := s.requireAgentUse(ctx, d.AgentID); code != 0 {
+		writeError(w, code, msg)
+		return sqlc.AgentGoal{}, false
+	}
+	return d, true
+}
+
 // ── List / CRUD ──────────────────────────────────────────────────────────────
 
 // ListGoals lists root goals (goals) by default; `?parent={id}`
@@ -222,6 +238,12 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title and agent_id are required")
 		return
 	}
+	// A goal becomes executable after persistence; exact worker authority later
+	// confines the executor but cannot authorize this initiating user.
+	if _, code, msg := s.requireAgentUse(ctx, body.AgentId); code != 0 {
+		writeError(w, code, msg)
+		return
+	}
 	// Every user-created goal is a planned composite: it must go through plan +
 	// decomposition into verifiable sub-tasks before any work runs. There is no
 	// top-level direct-leaf execution — leaves exist only as planner-produced
@@ -279,7 +301,7 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
+	if _, ok := s.loadGoalForUse(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.UpdateGoalRequest
@@ -338,7 +360,7 @@ func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
+	if _, ok := s.loadGoalForUse(ctx, w, ident, id); !ok {
 		return
 	}
 	d, err := s.goalSvc.Goal.Activate(ctx, id)
@@ -395,7 +417,7 @@ func (s *Server) ReattemptGoal(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
+	if _, ok := s.loadGoalForUse(ctx, w, ident, id); !ok {
 		return
 	}
 	if err := s.goalSvc.Goal.Reattempt(ctx, id, goal.UserActor(ident.UserID)); err != nil {
@@ -549,7 +571,7 @@ func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
+	if _, ok := s.loadGoalForUse(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.GoalTimelineMessageRequest
@@ -578,7 +600,7 @@ func (s *Server) SubmitVerdict(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
+	if _, ok := s.loadGoalForUse(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.VerdictRequest
@@ -674,7 +696,7 @@ func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, up
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
+	if _, ok := s.loadGoalForUse(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.WaiveRequest
@@ -709,7 +731,7 @@ func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
+	if _, ok := s.loadGoalForUse(ctx, w, ident, id); !ok {
 		return
 	}
 	if err := s.goalSvc.Goal.ApprovePlan(ctx, id, goal.UserActor(ident.UserID)); err != nil {
@@ -732,7 +754,7 @@ func (s *Server) RejectPlan(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoal(ctx, w, ident, id); !ok {
+	if _, ok := s.loadGoalForUse(ctx, w, ident, id); !ok {
 		return
 	}
 	var body apitypes.DecisionRequest

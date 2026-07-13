@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -13,11 +14,10 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skills"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -40,37 +40,61 @@ func (s *Server) findSkillByID(ctx context.Context, id string) (*skills.Skill, e
 	return nil, pgx.ErrNoRows
 }
 
+// requireAgentAccess authorizes read/use access to an agent through the agent
+// PEP. It is the chokepoint every agent-scoped sub-resource handler calls.
 func (s *Server) requireAgentAccess(ctx context.Context, agentID string) (config.Agent, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return config.Agent{}, http.StatusUnauthorized, "unauthorized"
 	}
-	a, err := s.store.GetAgent(ctx, agentID)
+	authority, err := info.authority()
 	if err != nil {
-		if isNotFound(err) {
-			return config.Agent{}, http.StatusNotFound, "agent not found"
-		}
-		s.log.Error("get agent", "agent_id", agentID, "error", err)
-		return config.Agent{}, http.StatusInternalServerError, "internal error"
-	}
-	if !info.IsAdmin && !s.canAccessAgent(ctx, info, a) {
 		return config.Agent{}, http.StatusForbidden, "forbidden"
+	}
+	a, err := s.agentAccess.Read(ctx, authority, agentID)
+	if err != nil {
+		code, msg := agentAccessError(err)
+		if code == http.StatusInternalServerError {
+			s.log.Error("agent access", "agent_id", agentID, "error", err)
+		}
+		return config.Agent{}, code, msg
 	}
 	return a, 0, ""
 }
 
-// requireAgentManage verifies the caller is an admin or the agent creator.
+// requireAgentUse authorizes executing a turn against an agent.
+func (s *Server) requireAgentUse(ctx context.Context, agentID string) (config.Agent, int, string) {
+	return s.requireAgentAction(ctx, agentID, "use", s.agentAccess.Use)
+}
+
+// requireAgentManage authorizes managing (updating) an agent through the agent
+// PEP (admin, or the agent's creator via the creator-manage policy).
 func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config.Agent, int, string) {
+	return s.requireAgentAction(ctx, agentID, "manage", s.agentAccess.Manage)
+}
+
+// requireAgentDelete deliberately uses ActionDelete rather than Manage: custom
+// policies may grant editing while denying destructive operations.
+func (s *Server) requireAgentDelete(ctx context.Context, agentID string) (config.Agent, int, string) {
+	return s.requireAgentAction(ctx, agentID, "delete", s.agentAccess.Delete)
+}
+
+func (s *Server) requireAgentAction(ctx context.Context, agentID, action string, decide func(context.Context, authz.Authority, string) (config.Agent, error)) (config.Agent, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return config.Agent{}, http.StatusUnauthorized, "unauthorized"
 	}
-	a, code, msg := s.requireAgentAccess(ctx, agentID)
-	if code != 0 {
-		return config.Agent{}, code, msg
-	}
-	if !info.IsAdmin && a.CreatorID != info.UserID {
+	authority, err := info.authority()
+	if err != nil {
 		return config.Agent{}, http.StatusForbidden, "forbidden"
+	}
+	a, err := decide(ctx, authority, agentID)
+	if err != nil {
+		code, msg := agentAccessError(err)
+		if code == http.StatusInternalServerError {
+			s.log.Error("agent "+action, "agent_id", agentID, "error", err)
+		}
+		return config.Agent{}, code, msg
 	}
 	return a, 0, ""
 }
@@ -113,28 +137,19 @@ func (s *Server) projectRootForSession(ctx context.Context, agentID string, sess
 	if sessionID == nil || *sessionID == "" {
 		return "", nil
 	}
-	sm, ok := s.mem.(memory.SessionManager)
-	if !ok {
-		return "", nil
+	info := UserFromContext(ctx)
+	if info == nil {
+		return "", fmt.Errorf("unauthorized")
 	}
-	si, err := sm.LoadInfo(ctx, *sessionID)
-	if isNotFound(err) {
-		return "", nil
-	}
+	authority, err := info.authority()
 	if err != nil {
 		return "", err
 	}
-	if si.AgentID != agentID || si.ProjectID == "" {
-		return "", nil
-	}
-	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: si.ProjectID, UserID: si.UserID})
-	if isNotFound(err) {
-		return "", nil
-	}
+	access, err := s.sessionAccess.Begin(ctx, authority)
 	if err != nil {
 		return "", err
 	}
-	return p.BaseDir, nil
+	return access.ProjectRoot(ctx, agentID, sessionID)
 }
 
 func dbSkillsToPluginSkills(rows []skills.Skill) []pkgplugins.Skill {
@@ -264,7 +279,7 @@ func (s *Server) resolveSkillAny(ctx context.Context, agentID, skillName string,
 	if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
 		return nil, "", code, msg
 	}
-	projectRoot, _ := s.projectRootForSession(memoryContext2(ctx), agentID, sessionID)
+	projectRoot, _ := s.projectRootForSession(ctx, agentID, sessionID)
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
 	rs, err := s.skillService().Resolve(ctx, skillName, vc, projectRoot)
 	if err != nil {
@@ -286,7 +301,7 @@ func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope str
 	if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
 		return nil, "", code, msg
 	}
-	projectRoot, _ := s.projectRootForSession(memoryContext2(ctx), agentID, sessionID)
+	projectRoot, _ := s.projectRootForSession(ctx, agentID, sessionID)
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
 	rs, err := s.skillService().ResolveScoped(ctx, skillName, scope, vc, projectRoot)
 	if err != nil {
@@ -297,11 +312,6 @@ func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope str
 		return nil, "", http.StatusNotFound, "skill not found"
 	}
 	return rs, projectRoot, 0, ""
-}
-
-// memoryContext2 builds memory context from just ctx (no *http.Request).
-func memoryContext2(ctx context.Context) context.Context {
-	return ctx
 }
 
 // loadSkillFile loads a file from an already-resolved skill.
@@ -337,7 +347,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, code, msg)
 		return
 	}
-	projectRoot, err := s.projectRootForSession(memoryContext(r, agentID), agentID, params.SessionId)
+	projectRoot, err := s.projectRootForSession(r.Context(), agentID, params.SessionId)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return

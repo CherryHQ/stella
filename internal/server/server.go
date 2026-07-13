@@ -14,6 +14,9 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
@@ -40,7 +43,8 @@ import (
 type Server struct {
 	store          config.Store
 	authStore      auth.AuthStore
-	engine         *auth.PolicyEngine
+	agentAccess    *agentaccess.Service
+	sessionAccess  *sessionaccess.Service
 	rateLimiter    *auth.RateLimiter
 	linkCodes      *auth.LinkCodeStore
 	mem            memory.Provider
@@ -89,6 +93,9 @@ type Server struct {
 	eventLog *eventlog.Store
 	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
 	groupDispatcher *channel.GroupDispatcher
+	// assets is the authoritative asset persistence service backing the session
+	// workspace file handlers (durable-write/restore/move/delete for user assets).
+	assets *asset.Store
 	// runtimeCtx is canceled by the process/service lifecycle; request handlers
 	// derive long-running work from it instead of client connections.
 	runtimeCtx context.Context
@@ -118,10 +125,12 @@ type Deps struct {
 	AuthStore auth.AuthStore
 	Mem       memory.Provider
 
-	// Authorization.
-	Engine    *auth.PolicyEngine
-	LinkCodes *auth.LinkCodeStore
-	OIDC      OIDCDeps
+	// Authorization. AgentAccess is the agent policy-enforcement point (the unified
+	// Authorizer behind a deep agent service); there is no legacy PolicyEngine here.
+	AgentAccess   *agentaccess.Service
+	SessionAccess *sessionaccess.Service
+	LinkCodes     *auth.LinkCodeStore
+	OIDC          OIDCDeps
 
 	// Agent runtime + plugins.
 	PoolManager  *agent.PoolManager
@@ -143,6 +152,10 @@ type Deps struct {
 	OAuthAuthServer     *oidc.Service
 	EventLog            *eventlog.Store
 	GroupDispatcher     *channel.GroupDispatcher
+	// Assets is the authoritative asset persistence service. Session workspace
+	// handlers use its narrow durable-write/restore/move/delete ports instead of a
+	// raw blob store, so the HTTP transport never holds process-global blob state.
+	Assets *asset.Store
 
 	// Optional capabilities. A nil field is a supported configuration: the
 	// matching endpoints report 503 through the centralized unavailable mapping
@@ -192,7 +205,8 @@ func (d Deps) validate() error {
 	req(d.DB != nil, "DB")
 	req(d.AuthStore != nil, "AuthStore")
 	req(d.Mem != nil, "Mem")
-	req(d.Engine != nil, "Engine")
+	req(d.AgentAccess != nil, "AgentAccess")
+	req(d.SessionAccess != nil, "SessionAccess")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
 	req(d.PluginHost != nil, "PluginHost")
@@ -201,6 +215,7 @@ func (d Deps) validate() error {
 	req(d.Email != nil, "Email")
 	req(d.Share != nil, "Share")
 	req(d.Recally != nil, "Recally")
+	req(d.Assets != nil, "Assets")
 	req(d.OIDC.AuthSvc != nil, "OIDC.AuthSvc")
 	req(d.OIDC.SessionMgr != nil, "OIDC.SessionMgr")
 	req(d.OIDC.Logins != nil, "OIDC.Logins")
@@ -230,7 +245,8 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 	s := &Server{
 		store:           deps.Store,
 		authStore:       deps.AuthStore,
-		engine:          deps.Engine,
+		agentAccess:     deps.AgentAccess,
+		sessionAccess:   deps.SessionAccess,
 		rateLimiter:     auth.NewRateLimiter(),
 		webhookLimiter:  newWebhookLimiter(5, 20),
 		linkCodes:       deps.LinkCodes,
@@ -258,6 +274,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		workflowSvc:     deps.Workflow,
 		eventLog:        deps.EventLog,
 		groupDispatcher: deps.GroupDispatcher,
+		assets:          deps.Assets,
 		authProviders:   deps.OIDC.Providers,
 		authSvc:         deps.OIDC.AuthSvc,
 		sessionMgr:      deps.OIDC.SessionMgr,

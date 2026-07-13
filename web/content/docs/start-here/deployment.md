@@ -228,6 +228,8 @@ Binding to `0.0.0.0` (`HOST`) does **not** give you a public URL: with `STELLA_B
 
 The Docker image sets `STELLA_REQUIRE_EXTERNAL_DB=1`: startup fails with an actionable error when `STELLA_DATABASE_URL` is unset, instead of silently starting the embedded PostgreSQL cluster on the container's ephemeral filesystem — with multiple replicas, each pod would even create its own database. Point `STELLA_DATABASE_URL` at an external PostgreSQL with `pgvector` and `pg_search`. To deliberately run embedded PostgreSQL in a single container backed by a persistent volume, set `STELLA_REQUIRE_EXTERNAL_DB=0`.
 
+Uploaded user assets also need durable storage. Without `STELLA_BLOB_S3_*`, the filesystem under `STELLA_HOME` is the single-node authority and must be persisted. Configuring an S3-compatible object store makes it the shared authority and treats local files as materializations. Stella currently exposes only the single-replica Helm topology; the future multi-replica topology will require the shared authority directly rather than introducing a second mode switch.
+
 A loopback base URL is never a startup error — it is legitimate when you reach Stella via `localhost` or `kubectl port-forward` — but Stella logs a loud warning when OAuth/OIDC login is configured against one, because login redirects would point back at the pod. Deployment charts should make `STELLA_BASE_URL` a required value; that layer knows it sits behind an ingress.
 
 ### Required environment for a managed deployment

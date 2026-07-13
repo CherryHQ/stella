@@ -39,7 +39,7 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	ps := NewProjectStore(db, store.NewDBStore(db))
+	ps := NewProjectStore(db, store.NewDBStore(db), nil)
 
 	// Resolve returns the base_dir of an existing project.
 	var resolve ProjectResolverFunc = ps.Resolve

@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -80,6 +83,38 @@ func TestService_Delegate_EmptySessionIDCreatesNew(t *testing.T) {
 
 // TestService_Chat_WrongKindResume verifies that resuming a session with a
 // different kind is rejected (invariant 6).
+func TestService_RunDelegateSessionUsesFreshPEP(t *testing.T) {
+	svc, _ := newTestService(t, []agentruntime.Event{{Text: "done"}})
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "agent1")
+
+	res, err := svc.RunDelegateSession(ctx, delegatetool.SessionRunRequest{Task: "work"})
+	if err != nil {
+		t.Fatalf("RunDelegateSession: %v", err)
+	}
+	if !res.Complete || res.Output != "done" {
+		t.Fatalf("unexpected result: %#v", res)
+	}
+	// The SessionAccess adapter owns the sole evaluation for this turn. Its
+	// policy/revocation semantics are covered by internal/agent/session/access tests.
+}
+
+func TestService_RunDelegateSessionRejectsForeignOrSpoofedIdentityBeforePEP(t *testing.T) {
+	svc, mem := newTestService(t, nil)
+	foreign := memory.SessionInfo{ID: "foreign", UserID: "u2", AgentID: "agent1", Kind: "delegate", Channel: "delegate"}
+	ownerCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "u2"), "agent1")
+	if err := mem.SaveInfo(ownerCtx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "agent1")
+	if _, err := svc.RunDelegateSession(ctx, delegatetool.SessionRunRequest{SessionID: "foreign", Task: "work"}); err == nil {
+		t.Fatal("foreign resume succeeded")
+	}
+	spoofed := authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "other-agent")
+	if _, err := svc.RunDelegateSession(spoofed, delegatetool.SessionRunRequest{Task: "work"}); !errors.Is(err, agentaccess.ErrForbidden) {
+		t.Fatalf("spoofed executor error = %v, want forbidden", err)
+	}
+}
+
 func TestService_Chat_WrongKindResume(t *testing.T) {
 	svc, mem := newTestService(t, nil)
 

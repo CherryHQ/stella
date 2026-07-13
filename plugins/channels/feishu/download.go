@@ -6,8 +6,6 @@ import (
 	"net/http"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
-
-	"github.com/CherryHQ/stella/internal/agent"
 )
 
 // maxImageBytes caps a single downloaded image. base64-encoding holds ~1.33x of
@@ -81,5 +79,5 @@ func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (stri
 		return "", fmt.Errorf("read file: %w", err)
 	}
 
-	return agent.SaveAsset(assetsDir, fileName, data)
+	return b.saveAsset(b.ctx, assetsDir, fileName, data)
 }

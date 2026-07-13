@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -26,12 +27,28 @@ var ErrGroupCompactionUnsupported = errors.New("compaction is not supported for 
 // It provides ergonomic entry points for common use cases without hiding the
 // conceptual split: policy lives in Session, execution lives in Runtime.
 //
-// Callers that need fine-grained control can use Sessions and Runtime directly.
+// Runtime owns execution; SessionAccess owns every lifecycle and policy
+// decision. Sessions remains only as a legacy test fixture field and must not
+// become a production entry point again.
+type SessionAccessService interface {
+	Begin(context.Context, authz.Authority) (SessionAccess, error)
+}
+
+type SessionAccess interface {
+	Create(context.Context, string, string, string, session.Kind, session.Channel) (session.Info, error)
+	ResolveMain(context.Context, string, string) (session.Info, error)
+	Use(context.Context, string, string) (session.Info, error)
+	EnsureRead(context.Context, session.Request) (session.Info, error)
+	EnsureUse(context.Context, session.Request) (session.Info, error)
+	Delete(context.Context, string, string) (session.Info, error)
+	Archive(context.Context, session.Info) error
+}
+
 type Service struct {
-	Sessions *session.Registry
-	Runtime  *agentruntime.Runtime
-	// AgentID is the agent this service belongs to.
-	// Used by RunDelegateSession when the caller does not supply an agent ID.
+	Sessions      *session.Registry // legacy fallback for tests only; production lifecycle goes through SessionAccess.
+	Runtime       *agentruntime.Runtime
+	SessionAccess SessionAccessService
+	// AgentID is the executor this service belongs to.
 	AgentID string
 }
 
@@ -54,6 +71,9 @@ type ChatRequest struct {
 	CurrentSpeaker memory.CurrentSpeaker
 	// RuntimeOpts are forwarded verbatim to Runtime.Chat.
 	RuntimeOpts []agentruntime.Option
+	// Authority is the trusted capability for resolving/using this session. It is
+	// minted by the entry adapter from persisted identity, never from model text.
+	Authority authz.Authority
 }
 
 // DelegateRequest describes a delegate session turn.
@@ -68,6 +88,7 @@ type DelegateRequest struct {
 	System        string
 	Model         string
 	ExcludedTools []string
+	Authority     authz.Authority
 }
 
 // DelegateResult is the output of a delegate turn.
@@ -106,23 +127,20 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 		Channel:   req.Channel,
 	}
 	if req.SessionID != "" {
-		// Resume: enforce the caller-declared kind matches the stored session
-		// (any kind, including internal delegate/task/scheduler sessions).
 		if req.Kind != "" {
 			ensureReq.RequireKind = kind
 		}
 	} else {
 		ensureReq.CreateIfMissing = true
 	}
-	info, err := s.Sessions.Ensure(ctx, ensureReq)
+	access, err := s.beginSessionAccess(ctx, req.Authority)
 	if err != nil {
-		out := make(chan Event, 1)
-		out <- Event{Err: fmt.Errorf("resolve session: %w", err)}
-		close(out)
-		return out
+		return errorEvents(fmt.Errorf("begin session access: %w", err))
 	}
-	// GroupID is threaded through the Request and owned by the Registry (create
-	// persists it; resume overlays it), so info.GroupID is already set here.
+	info, err := access.EnsureUse(ctx, ensureReq)
+	if err != nil {
+		return errorEvents(fmt.Errorf("resolve session: %w", err))
+	}
 
 	opts := req.RuntimeOpts
 	if req.Model != "" {
@@ -153,13 +171,18 @@ type SchedulerChatRequest struct {
 	AgentID   string
 	Message   MessageContent
 	Model     string
+	Authority authz.Authority
 }
 
 // ChatForScheduler resolves or creates a scheduler session using a trusted
 // scheduler-derived session ID. Exact-ID creation is allowed because the
 // scheduler system owns the ID derivation.
 func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest) <-chan Event {
-	info, err := s.Sessions.Ensure(ctx, session.Request{
+	access, err := s.beginSessionAccess(ctx, req.Authority)
+	if err != nil {
+		return errorEvents(fmt.Errorf("begin scheduler session access: %w", err))
+	}
+	info, err := access.EnsureUse(ctx, session.Request{
 		ID:                 req.SessionID,
 		UserID:             req.UserID,
 		AgentID:            req.AgentID,
@@ -170,10 +193,7 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 		RequireKind:        session.KindScheduler,
 	})
 	if err != nil {
-		out := make(chan Event, 1)
-		out <- Event{Err: fmt.Errorf("resolve scheduler session: %w", err)}
-		close(out)
-		return out
+		return errorEvents(fmt.Errorf("resolve scheduler session: %w", err))
 	}
 
 	var opts []agentruntime.Option
@@ -193,6 +213,7 @@ type TaskChatRequest struct {
 	ExtraTools       []tools.Tool // per-run tools (e.g. task_control)
 	ExcludedTools    []string
 	OnSandboxSession func(sandbox.Session) error
+	Authority        authz.Authority
 }
 
 // ChatForTask runs one persisted chat turn on a task session. Exact-ID
@@ -237,12 +258,13 @@ func (s *Service) ChatForGoalDecomposition(ctx context.Context, req TaskChatRequ
 // ends. The per-run tools force a fresh runner that is evicted once the turn
 // finishes, so the tools never leak into later turns on the same session.
 func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req TaskChatRequest) <-chan Event {
-	info, err := s.Sessions.Ensure(ctx, sreq)
+	access, err := s.beginSessionAccess(ctx, req.Authority)
 	if err != nil {
-		out := make(chan Event, 1)
-		out <- Event{Err: fmt.Errorf("resolve worker session: %w", err)}
-		close(out)
-		return out
+		return errorEvents(fmt.Errorf("begin worker session access: %w", err))
+	}
+	info, err := access.EnsureUse(ctx, sreq)
+	if err != nil {
+		return errorEvents(fmt.Errorf("resolve worker session: %w", err))
 	}
 
 	opts := []agentruntime.Option{agentruntime.WithExtraTools(req.ExtraTools...)}
@@ -273,8 +295,20 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 // ResolvePrivateChannelSession resolves or creates a private channel chat session
 // using a trusted system-derived session key. It returns the Info without
 // executing a chat turn. Private callers do not know about groups.
-func (s *Service) ResolvePrivateChannelSession(ctx context.Context, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
-	return s.Sessions.Ensure(ctx, session.Request{
+func (s *Service) ResolvePrivateChannelSession(ctx context.Context, authority authz.Authority, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.resolvePrivateChannelSession(ctx, authority, sessionKey, userID, agentID, channel, false)
+}
+
+func (s *Service) ResolvePrivateChannelSessionForUse(ctx context.Context, authority authz.Authority, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.resolvePrivateChannelSession(ctx, authority, sessionKey, userID, agentID, channel, true)
+}
+
+func (s *Service) resolvePrivateChannelSession(ctx context.Context, authority authz.Authority, sessionKey, userID, agentID string, channel session.Channel, use bool) (session.Info, error) {
+	access, err := s.beginSessionAccess(ctx, authority)
+	if err != nil {
+		return session.Info{}, err
+	}
+	req := session.Request{
 		ID:                 sessionKey,
 		UserID:             userID,
 		AgentID:            agentID,
@@ -283,15 +317,31 @@ func (s *Service) ResolvePrivateChannelSession(ctx context.Context, sessionKey, 
 		CreateIfMissing:    true,
 		AllowExactIDCreate: true,
 		RequireKind:        session.KindChat,
-	})
+	}
+	if use {
+		return access.EnsureUse(ctx, req)
+	}
+	return access.EnsureRead(ctx, req)
 }
 
 // ResolveGroupChannelSession resolves or creates a group chat session owned by
 // the group. The caller passes the canonical group id once; the group-ownership
 // invariant (a group session is owned by its group, so UserID == GroupID) is
 // established here in one place rather than by callers repeating the id.
-func (s *Service) ResolveGroupChannelSession(ctx context.Context, sessionKey, groupID, agentID string, channel session.Channel) (session.Info, error) {
-	return s.Sessions.Ensure(ctx, session.Request{
+func (s *Service) ResolveGroupChannelSession(ctx context.Context, authority authz.Authority, sessionKey, groupID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.resolveGroupChannelSession(ctx, authority, sessionKey, groupID, agentID, channel, false)
+}
+
+func (s *Service) ResolveGroupChannelSessionForUse(ctx context.Context, authority authz.Authority, sessionKey, groupID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.resolveGroupChannelSession(ctx, authority, sessionKey, groupID, agentID, channel, true)
+}
+
+func (s *Service) resolveGroupChannelSession(ctx context.Context, authority authz.Authority, sessionKey, groupID, agentID string, channel session.Channel, use bool) (session.Info, error) {
+	access, err := s.beginSessionAccess(ctx, authority)
+	if err != nil {
+		return session.Info{}, err
+	}
+	req := session.Request{
 		ID:                 sessionKey,
 		UserID:             groupID,
 		AgentID:            agentID,
@@ -301,33 +351,31 @@ func (s *Service) ResolveGroupChannelSession(ctx context.Context, sessionKey, gr
 		CreateIfMissing:    true,
 		AllowExactIDCreate: true,
 		RequireKind:        session.KindChat,
-	})
+	}
+	if use {
+		return access.EnsureUse(ctx, req)
+	}
+	return access.EnsureRead(ctx, req)
 }
 
 // NewSession creates a new session with a generated ID. Used by the HTTP API
 // when the web UI creates a session — always new, never resume.
-func (s *Service) NewSession(ctx context.Context, userID, agentID, projectID string, kind session.Kind, channel session.Channel) (session.Info, error) {
-	return s.Sessions.Ensure(ctx, session.Request{
-		UserID:          userID,
-		AgentID:         agentID,
-		ProjectID:       projectID,
-		Kind:            kind,
-		Channel:         channel,
-		CreateIfMissing: true,
-	})
+func (s *Service) NewSession(ctx context.Context, authority authz.Authority, userID, agentID, projectID string, kind session.Kind, channel session.Channel) (session.Info, error) {
+	access, err := s.beginSessionAccess(ctx, authority)
+	if err != nil {
+		return session.Info{}, err
+	}
+	return access.Create(ctx, userID, agentID, projectID, kind, channel)
 }
 
 // MintTaskSession creates a new task worker session under the resolved agent.
 // The session is always new (generated ID) and uses KindTask/ChannelTask.
-func (s *Service) MintTaskSession(ctx context.Context, userID, executorAgentID, projectID string) (session.Info, error) {
-	return s.Sessions.Ensure(ctx, session.Request{
-		UserID:          userID,
-		AgentID:         executorAgentID,
-		ProjectID:       projectID,
-		Kind:            session.KindTask,
-		Channel:         session.ChannelTask,
-		CreateIfMissing: true,
-	})
+func (s *Service) MintTaskSession(ctx context.Context, authority authz.Authority, userID, executorAgentID, projectID string) (session.Info, error) {
+	access, err := s.beginSessionAccess(ctx, authority)
+	if err != nil {
+		return session.Info{}, err
+	}
+	return access.Create(ctx, userID, executorAgentID, projectID, session.KindTask, session.ChannelTask)
 }
 
 // Delegate runs a delegate turn through a persisted child session.
@@ -336,7 +384,24 @@ func (s *Service) MintTaskSession(ctx context.Context, userID, executorAgentID, 
 // When SessionID is non-empty, the session must already exist (resume-only);
 // this prevents model-supplied session_id from reserving arbitrary future IDs.
 func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateResult, error) {
-	ensureReq := session.Request{
+	if s.SessionAccess == nil || req.UserID == "" || req.AgentID == "" || req.AgentID != s.AgentID ||
+		authz.UserIDFromContext(ctx) != req.UserID || authz.AgentIDFromContext(ctx) != s.AgentID ||
+		(req.ProjectID != "" && req.ProjectID != memory.ProjectIDFromContext(ctx)) {
+		return DelegateResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
+	}
+	authority := req.Authority
+	if !authority.Valid() {
+		var err error
+		authority, err = agentaccess.WorkerAgentAuthority(req.UserID, s.AgentID)
+		if err != nil {
+			return DelegateResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
+		}
+	}
+	access, err := s.beginSessionAccess(ctx, authority)
+	if err != nil {
+		return DelegateResult{SessionID: req.SessionID}, fmt.Errorf("begin delegate session access: %w", err)
+	}
+	info, err := access.EnsureUse(ctx, session.Request{
 		ID:              req.SessionID,
 		UserID:          req.UserID,
 		AgentID:         req.AgentID,
@@ -345,11 +410,17 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 		Channel:         session.ChannelDelegate,
 		CreateIfMissing: req.SessionID == "",
 		RequireKind:     session.KindDelegate,
-	}
-	info, err := s.Sessions.Ensure(ctx, ensureReq)
+	})
 	if err != nil {
 		return DelegateResult{SessionID: req.SessionID}, fmt.Errorf("ensure delegate session: %w", err)
 	}
+	if info.UserID != req.UserID || info.AgentID != s.AgentID || info.GroupID != "" || info.ProjectID != req.ProjectID {
+		return DelegateResult{SessionID: info.ID}, agentaccess.ErrForbidden
+	}
+	// access.EnsureUse above already decided both the persisted Session and its
+	// backing Agent under this use case's single policy evaluation. Starting an
+	// AgentAccess evaluation here would create a revocation race and violate the
+	// one-Begin Session vertical contract.
 
 	opts := []agentruntime.Option{}
 	if req.Model != "" {
@@ -379,17 +450,22 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 }
 
 // RunDelegateSession implements delegatetool.SessionRunner so that Service can
-// be passed directly to delegate tool constructors.
-// UserID is resolved from ctx; AgentID falls back to s.AgentID.
+// be passed directly to delegate tool constructors. Its identity is the parent
+// runtime's validated session identity: a delegate tool cannot choose an owner,
+// executor, or project through its model arguments.
 func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.SessionRunRequest) (delegatetool.SessionRunResult, error) {
 	userID := authz.UserIDFromContext(ctx)
 	agentID := authz.AgentIDFromContext(ctx)
-	if agentID == "" {
-		agentID = s.AgentID
+	if userID == "" || agentID == "" || agentID != s.AgentID {
+		return delegatetool.SessionRunResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
 	}
-	projectID := req.ProjectID
-	if projectID == "" {
-		projectID = memory.ProjectIDFromContext(ctx)
+	projectID := memory.ProjectIDFromContext(ctx)
+	if req.ProjectID != "" && req.ProjectID != projectID {
+		return delegatetool.SessionRunResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(userID, agentID)
+	if err != nil {
+		return delegatetool.SessionRunResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
 	}
 	res, err := s.Delegate(ctx, DelegateRequest{
 		SessionID:     req.SessionID,
@@ -400,6 +476,7 @@ func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.Sessi
 		System:        req.System,
 		Model:         req.Model,
 		ExcludedTools: req.ExcludedTools,
+		Authority:     authority,
 	})
 	return delegatetool.SessionRunResult{
 		SessionID: res.SessionID,
@@ -408,17 +485,45 @@ func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.Sessi
 	}, err
 }
 
+func (s *Service) ArchiveSession(ctx context.Context, authority authz.Authority, userID, agentID, sessionID string) error {
+	access, err := s.beginSessionAccess(ctx, authority)
+	if err != nil {
+		return err
+	}
+	info, err := access.Delete(ctx, agentID, sessionID)
+	if err != nil {
+		return err
+	}
+	if info.UserID != userID || info.AgentID != agentID {
+		return agentaccess.ErrForbidden
+	}
+	return access.Archive(ctx, info)
+}
+
 // ResolveMainSession resolves the main session for a user+agent pair, creating
 // one if missing. It is the canonical replacement for Pool.ResolveSession on
 // private user channels.
-func (s *Service) ResolveMainSession(ctx context.Context, userID, agentID string) (session.Info, error) {
+func (s *Service) ResolveMainSession(ctx context.Context, authority authz.Authority, userID, agentID string) (session.Info, error) {
+	return s.resolveMainSession(ctx, authority, userID, agentID, false)
+}
+
+func (s *Service) ResolveMainSessionForUse(ctx context.Context, authority authz.Authority, userID, agentID string) (session.Info, error) {
+	return s.resolveMainSession(ctx, authority, userID, agentID, true)
+}
+
+func (s *Service) resolveMainSession(ctx context.Context, authority authz.Authority, userID, agentID string, use bool) (session.Info, error) {
 	if agentID == "" {
 		agentID = s.AgentID
 	}
-	return s.Sessions.ResolveMain(ctx, session.MainRequest{
-		UserID:  userID,
-		AgentID: agentID,
-	})
+	access, err := s.beginSessionAccess(ctx, authority)
+	if err != nil {
+		return session.Info{}, err
+	}
+	info, err := access.ResolveMain(ctx, userID, agentID)
+	if err != nil || !use {
+		return info, err
+	}
+	return access.Use(ctx, info.AgentID, info.ID)
 }
 
 // CompactSession runs full compaction on the session identified by sessionID.
@@ -429,7 +534,9 @@ func (s *Service) ResolveMainSession(ctx context.Context, userID, agentID string
 // manual path rejects a group session up front (before touching the compactor)
 // with ErrGroupCompactionUnsupported rather than run a private-style compaction
 // over an event-log conversation.
-func (s *Service) CompactSession(ctx context.Context, info session.Info) (string, error) {
+// CompactAuthorizedSession performs compaction after the caller has authorized
+// ActionExecute for info under its current Session Access evaluation.
+func (s *Service) CompactAuthorizedSession(ctx context.Context, info session.Info) (string, error) {
 	if info.GroupID != "" {
 		return "", ErrGroupCompactionUnsupported
 	}
@@ -457,6 +564,20 @@ func (s *Service) CompactSession(ctx context.Context, info session.Info) (string
 }
 
 // History returns the raw message history for the given session.
+func (s *Service) beginSessionAccess(ctx context.Context, authority authz.Authority) (SessionAccess, error) {
+	if s.SessionAccess == nil {
+		return nil, fmt.Errorf("session access is not bound")
+	}
+	return s.SessionAccess.Begin(ctx, authority)
+}
+
+func errorEvents(err error) <-chan Event {
+	out := make(chan Event, 1)
+	out <- Event{Err: err}
+	close(out)
+	return out
+}
+
 func (s *Service) History(ctx context.Context, info session.Info) []ai.Message {
 	mem := s.Runtime.Memory()
 	if mem == nil {

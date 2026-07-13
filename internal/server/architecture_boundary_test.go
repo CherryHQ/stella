@@ -196,12 +196,9 @@ const (
 
 // serverPersistenceAllowlist records, per file, the broad persistence
 // capabilities that file is permitted to reach directly today. server.go is the
-// composition root that injects these into the Server struct; sessions.go and
-// skills_scoped.go type-assert the memory session manager for session APIs.
+// composition root that injects these into the Server struct.
 var serverPersistenceAllowlist = map[string]map[string]bool{
 	"server.go":          {capSQLC: true, capPgxpool: true, capConfigStore: true, capAuthStore: true},
-	"sessions.go":        {capSQLC: true, capSessionManager: true},
-	"skills_scoped.go":   {capSQLC: true, capSessionManager: true},
 	"agent_tools.go":     {capSQLC: true},
 	"credential_wire.go": {capSQLC: true},
 	"goals.go":           {capSQLC: true},
@@ -287,7 +284,266 @@ func TestNoNewServerPersistenceCapabilities(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Tripwire 3: no new internal/server imports of platform plugin implementations.
+// Tripwire 3: workspace HTTP handlers stay transport-only.
+//
+// The workspace filesystem, sandbox path, and AssetStore semantics belong to
+// internal/agent/session/access. These handlers may decode/encode HTTP and call typed
+// sessionaccess use cases, but must not reach broad filesystem/config/sandbox
+// capabilities directly.
+// ---------------------------------------------------------------------------
+
+func TestWorkspaceHandlersStayTransportOnly(t *testing.T) {
+	var sessions serverFile
+	for _, sf := range parseServerPackage(t) {
+		if sf.rel == "sessions.go" {
+			sessions = sf
+			break
+		}
+	}
+	if sessions.file == nil {
+		t.Fatal("sessions.go not found")
+	}
+
+	workspaceHandlers := map[string]bool{
+		"GetSessionWorkspace":        true,
+		"CreateWorkspaceFile":        true,
+		"DeleteWorkspaceFile":        true,
+		"MoveWorkspaceFile":          true,
+		"GetWorkspaceFileContent":    true,
+		"UpdateWorkspaceFileContent": true,
+		"UploadWorkspaceFile":        true,
+	}
+	forbiddenPkgs := map[string]map[string]bool{
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent"):         {"SetupUserWorkspace": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent/sandbox"): {"UserDataViewFor": true, "WorkspaceViewFor": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/config"):        {"StellaHome": true, "Store": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/share"):         {"SafePath": true},
+		"os":       {"Stat": true, "ReadFile": true, "MkdirAll": true, "Remove": true, "RemoveAll": true, "Rename": true, "WriteFile": true},
+		"filepath": {"WalkDir": true, "Join": true, "Rel": true, "ToSlash": true, "Base": true, "Ext": true, "Clean": true},
+	}
+	delete(forbiddenPkgs, "")
+
+	for _, decl := range sessions.file.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || !workspaceHandlers[fd.Name.Name] {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := sel.X.(*ast.Ident); ok && forbiddenPkgs[id.Name][sel.Sel.Name] {
+				pos := sessions.fset.Position(sel.Pos())
+				t.Errorf("%s:%d: workspace handler %s directly uses %s.%s; route it through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name, id.Name, sel.Sel.Name)
+			}
+			if sel.Sel.Name == "assets" {
+				pos := sessions.fset.Position(sel.Pos())
+				t.Errorf("%s:%d: workspace handler %s directly uses Server.assets; route it through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name)
+			}
+			return true
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tripwire 4: transcript/context/summary HTTP handlers stay transport-only.
+//
+// These handlers may parse request params, call sessionaccess use cases, and map
+// typed results to API DTOs. Raw sqlc/pgtype/query access belongs to
+// internal/agent/session/access so the policy read and DB operations cannot drift.
+// ---------------------------------------------------------------------------
+
+func TestTranscriptHandlersStayTransportOnly(t *testing.T) {
+	var sessions serverFile
+	for _, sf := range parseServerPackage(t) {
+		if sf.rel == "sessions.go" {
+			sessions = sf
+			break
+		}
+	}
+	if sessions.file == nil {
+		t.Fatal("sessions.go not found")
+	}
+
+	handlers := map[string]bool{
+		"GetSessionMessages":     true,
+		"GetSessionContextItems": true,
+		"GetSessionSummary":      true,
+	}
+	for _, decl := range sessions.file.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || !handlers[fd.Name.Name] {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := sel.X.(*ast.Ident); ok {
+				switch {
+				case id.Name == "sqlc" || id.Name == "pgtype":
+					pos := sessions.fset.Position(sel.Pos())
+					t.Errorf("%s:%d: %s directly uses %s.%s; route transcript persistence through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name, id.Name, sel.Sel.Name)
+				case id.Name == "s" && sel.Sel.Name == "q":
+					pos := sessions.fset.Position(sel.Pos())
+					t.Errorf("%s:%d: %s directly uses Server.q; route transcript persistence through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name)
+				}
+			}
+			return true
+		})
+	}
+}
+
+func TestSessionTransportHasNoBroadDomainCapabilities(t *testing.T) {
+	var sessions serverFile
+	for _, sf := range parseServerPackage(t) {
+		if sf.rel == "sessions.go" {
+			sessions = sf
+			break
+		}
+	}
+	if sessions.file == nil {
+		t.Fatal("sessions.go not found")
+	}
+	forbiddenImports := map[string]bool{
+		"github.com/CherryHQ/stella/pkg/db/sqlc":     true,
+		"github.com/CherryHQ/stella/internal/memory": true,
+		"github.com/CherryHQ/stella/internal/config": true,
+		"github.com/CherryHQ/stella/internal/asset":  true,
+	}
+	for _, imp := range sessions.file.Imports {
+		path := strings.Trim(imp.Path.Value, "`\"")
+		if forbiddenImports[path] {
+			t.Errorf("sessions.go imports broad domain capability %q; keep persistence and workspace behavior in internal/agent/session/access", path)
+		}
+	}
+	ast.Inspect(sessions.file, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		id, ok := sel.X.(*ast.Ident)
+		if ok && id.Name == "s" {
+			switch sel.Sel.Name {
+			case "q", "mem", "store", "assets", "poolManager", "checkSessionAccess":
+				pos := sessions.fset.Position(sel.Pos())
+				t.Errorf("sessions.go:%d uses Server.%s; route the use case through internal/agent/session/access", pos.Line, sel.Sel.Name)
+			}
+		}
+		return true
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Tripwire 5: Send/SSE handlers stay transport-only.
+//
+// Live session orchestration belongs to internal/agent/session/access: durable lookup,
+// runtime service resolution, send turn creation, attach subscription, and
+// per-event reauthorization. These handlers may parse/encode HTTP and call the
+// typed sessionaccess use cases only.
+// ---------------------------------------------------------------------------
+
+func TestSendAndStreamHandlersStayTransportOnly(t *testing.T) {
+	var sessions serverFile
+	for _, sf := range parseServerPackage(t) {
+		if sf.rel == "sessions.go" {
+			sessions = sf
+			break
+		}
+	}
+	if sessions.file == nil {
+		t.Fatal("sessions.go not found")
+	}
+
+	handlers := map[string]bool{"SendSessionMessage": true, "StreamSessionEvents": true}
+	memoryName := localImportName(sessions.file, "github.com/CherryHQ/stella/internal/memory")
+	for _, decl := range sessions.file.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || !handlers[fd.Name.Name] {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			pos := sessions.fset.Position(sel.Pos())
+			switch {
+			case memoryName != "" && id.Name == memoryName && sel.Sel.Name == "SessionManager":
+				t.Errorf("%s:%d: %s directly uses memory.SessionManager; route session lookup through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name)
+			case id.Name == "s" && (sel.Sel.Name == "mem" || sel.Sel.Name == "poolManager" || sel.Sel.Name == "checkSessionAccess"):
+				t.Errorf("%s:%d: %s directly uses Server.%s; route live session orchestration through internal/agent/session/access", sessions.rel, pos.Line, fd.Name.Name, sel.Sel.Name)
+			}
+			return true
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tripwire 6: system-prompt handler stays transport-only.
+//
+// The effective prompt is a session use case: session lookup, policy read,
+// plugin prompt construction, skill prompt construction, and filesystem roots
+// belong to internal/agent/session/access and its injected prompt collaborators.
+// ---------------------------------------------------------------------------
+
+func TestSystemPromptHandlerStaysTransportOnly(t *testing.T) {
+	var sessions serverFile
+	for _, sf := range parseServerPackage(t) {
+		if sf.rel == "sessions.go" {
+			sessions = sf
+			break
+		}
+	}
+	if sessions.file == nil {
+		t.Fatal("sessions.go not found")
+	}
+
+	forbiddenImports := map[string]map[string]bool{
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent"):        {"SetupUserWorkspace": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent/prompt"): {"BuildSystemPromptFromDB": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/config"):       {"StellaHome": true, "Agent": true, "Store": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/memory"):       {"SessionManager": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/pluginhost"):   {"NewSkillStoreAdapter": true},
+		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/skills"):       {"BuildPromptSection": true},
+		"os": {"UserHomeDir": true},
+	}
+	delete(forbiddenImports, "")
+
+	for _, decl := range sessions.file.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != "GetSessionSystemPrompt" {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, _ := sel.X.(*ast.Ident)
+			pos := sessions.fset.Position(sel.Pos())
+			if id != nil && forbiddenImports[id.Name][sel.Sel.Name] {
+				t.Errorf("%s:%d: system prompt handler directly uses %s.%s; route prompt construction through internal/agent/session/access", sessions.rel, pos.Line, id.Name, sel.Sel.Name)
+			}
+			if id != nil && id.Name == "s" {
+				switch sel.Sel.Name {
+				case "mem", "store", "pluginHost", "q", "skillStore", "projectRootForSession", "checkSessionAccess":
+					t.Errorf("%s:%d: system prompt handler directly uses Server.%s; route prompt construction through internal/agent/session/access", sessions.rel, pos.Line, sel.Sel.Name)
+				}
+			}
+			return true
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tripwire 7: no new internal/server imports of platform plugin implementations.
 //
 // The transport layer must depend on plugin ports (pkg/plugins, pluginhost), not
 // concrete plugins/* implementations. The current channel-registration debt is
@@ -408,19 +664,19 @@ func TestNoNewResourceAuthIdentityConstructors(t *testing.T) {
 // same shape must be added here (with justification) or, preferably, routed
 // through the shared authorization core.
 var resourceAuthHelperAllowlist = map[string]bool{
-	"canAccessAgent":             true, // agent_access.go — agent read via PolicyEngine
-	"requireGroupOwner":          true, // groups.go — group ownership gate
-	"requireAuth":                true, // middleware.go — authentication (not resource authz)
-	"requireAdmin":               true, // middleware.go — admin gate
-	"requireUser":                true, // recally_handlers.go — recally user gate
-	"authorizeSkillManage":       true, // skills_manage.go — skill manage authorization
-	"requireAgentAccess":         true, // skills_scoped.go — agent access gate
-	"requireAgentManage":         true, // skills_scoped.go — agent manage gate
-	"requireSkillScope":          true, // skills_scoped.go — skill scope gate
-	"requireAgentSkillWrite":     true, // skills_scoped.go — agent skill write gate
-	"requireSessionConversation": true, // sessions.go — session ownership gate
-	"checkSessionAccess":         true, // sessions.go — session access check
-	"requireUserTarget":          true, // users.go — target-user admin gate
+	"requireGroupOwner":      true, // groups.go — group ownership gate
+	"requireAuth":            true, // middleware.go — authentication (not resource authz)
+	"requireAdmin":           true, // middleware.go — admin gate
+	"requireUser":            true, // recally_handlers.go — recally user gate
+	"authorizeSkillManage":   true, // skills_manage.go — skill manage authorization
+	"requireAgentAccess":     true, // skills_scoped.go — agent access gate
+	"requireAgentUse":        true, // skills_scoped.go — agent execute gate
+	"requireAgentManage":     true, // skills_scoped.go — agent manage gate
+	"requireAgentDelete":     true, // skills_scoped.go — agent delete gate
+	"requireAgentAction":     true, // skills_scoped.go — shared Agent PEP adapter
+	"requireSkillScope":      true, // skills_scoped.go — skill scope gate
+	"requireAgentSkillWrite": true, // skills_scoped.go — agent skill write gate
+	"requireUserTarget":      true, // users.go — target-user admin gate
 }
 
 // isResourceAuthHelperName reports whether an unexported function name has one of

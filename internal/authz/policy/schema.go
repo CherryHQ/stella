@@ -96,10 +96,13 @@ func enumAttr(members ...string) attrSpec {
 // resource so validation is total and a coverage test can assert completeness.
 var schemas = map[authz.ResourceType]resourceSchema{
 	authz.ResourceAgent: {attrs: map[string]attrSpec{
-		"scope":    enumAttr("system", "user", "shared"),
-		"assigned": boolAttr,
-		"creator":  stringAttr,
-		"status":   stringAttr,
+		"scope":       enumAttr("system", "user", "shared"),
+		"assigned":    boolAttr,
+		"creator":     stringAttr,
+		"is_creator":  boolAttr,
+		"is_executor": boolAttr,
+		"dedicated":   boolAttr,
+		"status":      enumAttr("enabled", "disabled"),
 	}},
 	authz.ResourceSession:   {attrs: ownerAgentKindState()},
 	authz.ResourceWorkspace: {attrs: ownerAgentKindState()},
@@ -156,6 +159,9 @@ func ownerAgentState() map[string]attrSpec {
 func ownerAgentKindState() map[string]attrSpec {
 	return map[string]attrSpec{
 		"owner": stringAttr, "agent": stringAttr, "kind": stringAttr, "state": stringAttr,
+		// Derived from the immutable Authority and the durable resource facts;
+		// callers cannot assert either bit through a route or request body.
+		"is_owner": boolAttr, "is_executor": boolAttr, "is_group": boolAttr, "is_same_group": boolAttr,
 	}
 }
 
@@ -258,14 +264,69 @@ func (b *ResourceBuilder) Build() (authz.Resource, error) {
 	return authz.NewResourceWithAttrs(b.typ, b.id, b.ownerID, b.attrs)
 }
 
-// AgentResource is the concrete typed builder for the one resource activated in
-// this subphase. scope is the agent's scope (system/user/shared) and assigned
-// reports whether the acting user has the agent assigned — the two attributes
-// the built-in agent policies evaluate.
-func AgentResource(id, ownerID, scope string, assigned bool) (authz.Resource, error) {
+// AgentFacts is the complete canonical set of per-agent policy facts. Every
+// agent request uses it so an accepted custom-policy predicate can never become
+// a silently missing attribute.
+type AgentFacts struct {
+	Scope     string
+	Assigned  bool
+	Creator   string
+	IsCreator bool
+	// IsExecutor is true only when an AgentActor or GroupAgentActor names
+	// this exact agent. It is never inferred from a role or assignment.
+	IsExecutor bool
+	Dedicated  bool
+	Status     string
+}
+
+// AgentResource builds an Agent resource carrying every accepted schema fact.
+func AgentResource(id, ownerID string, facts AgentFacts) (authz.Resource, error) {
 	return NewResourceBuilder(authz.ResourceAgent, id, ownerID).
-		WithEnum("scope", scope).
-		WithBool("assigned", assigned).
+		WithEnum("scope", facts.Scope).
+		WithBool("assigned", facts.Assigned).
+		WithString("creator", facts.Creator).
+		WithBool("is_creator", facts.IsCreator).
+		WithBool("is_executor", facts.IsExecutor).
+		WithBool("dedicated", facts.Dedicated).
+		WithEnum("status", facts.Status).
+		Build()
+}
+
+// SessionFacts is the complete durable fact set for both Session and Workspace
+// policy resources. The three boolean facts are derived by the PEP from the
+// Authority and loaded conversation; they are never caller-controlled.
+type SessionFacts struct {
+	Owner       string
+	Agent       string
+	Kind        string
+	State       string
+	IsOwner     bool
+	IsExecutor  bool
+	IsGroup     bool
+	IsSameGroup bool
+}
+
+// SessionResource builds a Session resource with every accepted durable fact.
+func SessionResource(id, ownerID string, facts SessionFacts) (authz.Resource, error) {
+	return ownerAgentKindStateResource(authz.ResourceSession, id, ownerID, facts)
+}
+
+// WorkspaceResource builds a Workspace resource with the same session-derived
+// facts. A workspace has no independent owner or executor.
+func WorkspaceResource(id, ownerID string, facts SessionFacts) (authz.Resource, error) {
+	return ownerAgentKindStateResource(authz.ResourceWorkspace, id, ownerID, facts)
+}
+
+func ownerAgentKindStateResource(rt authz.ResourceType, id, ownerID string, facts SessionFacts) (authz.Resource, error) {
+	return NewResourceBuilder(rt, id, ownerID).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("kind", facts.Kind).
+		WithString("state", facts.State).
+		WithBool("is_owner", facts.IsOwner).
+		WithBool("is_executor", facts.IsExecutor).
+		WithBool("is_group", facts.IsGroup).
+		WithBool("is_same_group", facts.IsSameGroup).
 		Build()
 }
 

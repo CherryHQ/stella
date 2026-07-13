@@ -3,12 +3,17 @@ package server
 import (
 	"context"
 	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -18,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -35,22 +41,49 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 	}
 	recallyStore := recally.NewStore(db)
 	credFrontDoor, oauthAuthServer := NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
+	assetHome := t.TempDir()
+	assetStore, err := asset.NewStore(assetHome, nil, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
+	}
+	authorizer := policy.New(db)
+	homeDir, _ := os.UserHomeDir()
+	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
+		StellaHome: config.StellaHome(),
+		HomeDir:    homeDir,
+		Memory:     mem,
+		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
+		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
+		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Plugins:    phost,
+		SkillStore: pluginhost.NewSkillStoreAdapter(phost.SkillStore()),
+		Skills:     skills.BuildPromptSection,
+	})
+	if err != nil {
+		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
+	}
+	sessionSvc, err := sessionaccess.NewService(mem, db, store, as, assetStore, authorizer, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	if err != nil {
+		t.Fatalf("sessionaccess.NewService: %v", err)
+	}
 	return Deps{
 		Store:               store,
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
-		Engine:              engine,
+		AgentAccess:         agentaccess.NewService(store, as, authorizer),
+		SessionAccess:       sessionSvc,
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         agent.NewPoolManager(store, mem),
 		PluginHost:          phost,
 		BaseURL:             baseURL,
 		Credentials:         connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL),
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, t.TempDir(), baseURL),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
+		Assets:              assetStore,
 		OIDC: OIDCDeps{
 			AuthSvc:     authSvc,
 			SessionMgr:  sessionMgr,

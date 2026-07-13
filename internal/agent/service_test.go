@@ -20,6 +20,42 @@ type fakeRunnerSvc struct {
 	events []agentruntime.Event
 }
 
+type fakeSessionAccessSvc struct{ reg *session.Registry }
+
+type fakeSessionAccess struct{ reg *session.Registry }
+
+func (s fakeSessionAccessSvc) Begin(context.Context, authz.Authority) (agent.SessionAccess, error) {
+	return fakeSessionAccess(s), nil
+}
+
+func (a fakeSessionAccess) Create(ctx context.Context, userID, agentID, projectID string, kind session.Kind, channel session.Channel) (session.Info, error) {
+	return a.reg.Ensure(ctx, session.Request{UserID: userID, AgentID: agentID, ProjectID: projectID, Kind: kind, Channel: channel, CreateIfMissing: true})
+}
+
+func (a fakeSessionAccess) ResolveMain(ctx context.Context, userID, agentID string) (session.Info, error) {
+	return a.reg.ResolveMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID})
+}
+
+func (a fakeSessionAccess) Use(ctx context.Context, agentID, sessionID string) (session.Info, error) {
+	return a.reg.Get(ctx, session.Scope{AgentID: agentID, System: true}, sessionID)
+}
+
+func (a fakeSessionAccess) EnsureRead(ctx context.Context, req session.Request) (session.Info, error) {
+	return a.reg.Ensure(ctx, req)
+}
+
+func (a fakeSessionAccess) EnsureUse(ctx context.Context, req session.Request) (session.Info, error) {
+	return a.reg.Ensure(ctx, req)
+}
+
+func (a fakeSessionAccess) Delete(ctx context.Context, agentID, sessionID string) (session.Info, error) {
+	return a.reg.Get(ctx, session.Scope{AgentID: agentID}, sessionID)
+}
+
+func (a fakeSessionAccess) Archive(ctx context.Context, info session.Info) error {
+	return a.reg.Archive(ctx, session.Scope{UserID: info.UserID, AgentID: info.AgentID}, info.ID)
+}
+
 func (r *fakeRunnerSvc) Chat(_ context.Context, _ []ai.Message, _ agentruntime.MessageContent) <-chan agentruntime.Event {
 	ch := make(chan agentruntime.Event, len(r.events)+1)
 	for _, e := range r.events {
@@ -56,9 +92,10 @@ func newTestService(t *testing.T, events []agentruntime.Event) (*agent.Service, 
 	}
 
 	svc := &agent.Service{
-		Sessions: reg,
-		Runtime:  rt,
-		AgentID:  "agent1",
+		Sessions:      reg,
+		Runtime:       rt,
+		SessionAccess: fakeSessionAccessSvc{reg: reg},
+		AgentID:       "agent1",
 	}
 	return svc, mem
 }

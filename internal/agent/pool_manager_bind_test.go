@@ -13,6 +13,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
@@ -33,6 +34,12 @@ func (fakeMCPToolProvider) ToolsForContext(context.Context, string, string) []to
 
 type fakeVaultEnvLoader struct{}
 
+type fakePoolSessionAccess struct{}
+
+func (fakePoolSessionAccess) Begin(context.Context, authz.Authority) (SessionAccess, error) {
+	return nil, nil
+}
+
 func (fakeVaultEnvLoader) LoadEnvForAgent(context.Context, string, string) (map[string]string, error) {
 	return nil, nil
 }
@@ -49,6 +56,9 @@ func newPool(t *testing.T) *PoolManager {
 
 func startPool(t *testing.T, pm *PoolManager) {
 	t.Helper()
+	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
+		t.Fatalf("BindSessionAccess: %v", err)
+	}
 	if err := pm.StartAll(context.Background()); err != nil {
 		t.Fatalf("StartAll: %v", err)
 	}
@@ -88,6 +98,22 @@ func TestBindOAuthRegistryGuards(t *testing.T) {
 	startPool(t, pm2)
 	if err := pm2.BindOAuthRegistry(oauth.NewProviderRegistry()); err == nil {
 		t.Error("BindOAuthRegistry after StartAll should error")
+	}
+}
+
+func TestBindSessionAccessRequired(t *testing.T) {
+	pm := newPool(t)
+	if err := pm.StartAll(context.Background()); err == nil {
+		t.Error("StartAll without SessionAccess should error")
+	}
+	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
+		t.Fatalf("BindSessionAccess after rejected StartAll: %v", err)
+	}
+	if err := pm.StartAll(context.Background()); err != nil {
+		t.Fatalf("StartAll after bind: %v", err)
+	}
+	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err == nil {
+		t.Error("BindSessionAccess after StartAll should error")
 	}
 }
 
