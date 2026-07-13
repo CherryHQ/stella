@@ -21,6 +21,8 @@ package asset
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -28,11 +30,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/blob"
 )
+
+var ErrDestinationExists = errors.New("asset destination already exists")
 
 // Store is the asset persistence service. It is safe for concurrent use.
 type Store struct {
@@ -45,6 +50,11 @@ type Store struct {
 	// itself durable.
 	authority blob.Store
 	log       *slog.Logger
+
+	// mu serializes local/authority transitions. The supported deployment is a
+	// single Stella replica; shared-authority multi-replica support will require
+	// object-version fencing before lifting that deployment ceiling.
+	mu sync.Mutex
 
 	// hydrated marks per-user asset trees this process has already restored from
 	// the authority, so a cold pod restores each user at most once.
@@ -78,13 +88,21 @@ func (s *Store) SharedAuthority() bool { return s.authority != nil }
 // local orphan it just created is removed, so a reported failure never leaves a
 // local-only "success" that a channel would treat as saved.
 func (s *Store) SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	name := fmt.Sprintf("%d_%s", time.Now().UnixNano(), filepath.Base(fileName))
 	dst := filepath.Join(assetsDir, name)
-	if err := os.WriteFile(dst, data, 0o600); err != nil {
+	root, rel, _, err := s.openPath(dst)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.WriteFile(rel, data, 0o600); err != nil {
 		return "", fmt.Errorf("write asset: %w", err)
 	}
 	if err := s.persist(ctx, dst, data); err != nil {
-		_ = os.Remove(dst) // the timestamped name is always new; drop the orphan
+		_ = root.Remove(rel) // the timestamped name is always new; drop the orphan
 		return "", err
 	}
 	return dst, nil
@@ -110,7 +128,15 @@ func (s *Store) CreateFile(ctx context.Context, abs string, content []byte, perm
 // paths are written locally only (rebuildable workspace state). With no shared
 // authority the local write is itself durable.
 func (s *Store) WriteFile(ctx context.Context, abs string, data []byte, perm os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	root, rel, _, err := s.openPath(abs)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 		return err
 	}
 	// Snapshot the prior content only when a durable write could actually fail
@@ -122,18 +148,18 @@ func (s *Store) WriteFile(ctx context.Context, abs string, data []byte, perm os.
 		willP    = s.willPersist(abs)
 	)
 	if willP {
-		if b, err := os.ReadFile(abs); err == nil {
+		if b, err := root.ReadFile(rel); err == nil {
 			prior, hadPrior = b, true
 		}
 	}
-	if err := os.WriteFile(abs, data, perm); err != nil {
+	if err := root.WriteFile(rel, data, perm); err != nil {
 		return err
 	}
 	if err := s.persist(ctx, abs, data); err != nil {
 		if hadPrior {
-			_ = os.WriteFile(abs, prior, perm) // restore prior content
+			_ = root.WriteFile(rel, prior, perm) // restore prior content
 		} else {
-			_ = os.Remove(abs) // remove the orphan we just created
+			_ = root.Remove(rel) // remove the orphan we just created
 		}
 		return err
 	}
@@ -151,10 +177,30 @@ func (s *Store) WriteFile(ctx context.Context, abs string, data []byte, perm os.
 // original state so the caller can retry once the authority recovers. Directories
 // are moved whole. With no shared authority the local rename is itself durable.
 func (s *Store) MoveFile(ctx context.Context, src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	root, srcRel, boundary, err := s.openPath(src)
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(src, dst); err != nil {
+	defer func() { _ = root.Close() }()
+	dstBoundary, dstRel, err := s.pathBoundary(dst)
+	if err != nil {
+		return err
+	}
+	if dstBoundary != boundary {
+		return fmt.Errorf("asset move crosses workspace boundary")
+	}
+	if _, err := root.Lstat(dstRel); err == nil {
+		return ErrDestinationExists
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := root.MkdirAll(filepath.Dir(dstRel), 0o755); err != nil {
+		return err
+	}
+	if err := root.Rename(srcRel, dstRel); err != nil {
 		return err
 	}
 	if s.authority == nil {
@@ -183,7 +229,12 @@ func (s *Store) MoveFile(ctx context.Context, src, dst string) error {
 // authority leaves local correctly at src and the operation retryable once the
 // authority recovers.
 func (s *Store) rollbackMove(ctx context.Context, src, dst string, written []string) {
-	_ = os.Rename(dst, src)
+	if root, srcRel, boundary, err := s.openPath(src); err == nil {
+		defer func() { _ = root.Close() }()
+		if dstBoundary, dstRel, err := s.pathBoundary(dst); err == nil && dstBoundary == boundary {
+			_ = root.Rename(dstRel, srcRel)
+		}
+	}
 	for _, k := range written {
 		_ = s.authority.Delete(ctx, k)
 	}
@@ -197,15 +248,20 @@ func (s *Store) rollbackMove(ctx context.Context, src, dst string, written []str
 // failure fails the call before touching local state, leaving it retry-safe.
 // With no shared authority only the local removal happens.
 func (s *Store) RemoveFile(ctx context.Context, abs string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.authority != nil {
 		if err := s.deleteTree(ctx, abs); err != nil {
 			return fmt.Errorf("delete asset in shared authority: %w", err)
 		}
 	}
-	if err := os.RemoveAll(abs); err != nil {
+	root, rel, _, err := s.openPath(abs)
+	if err != nil {
 		return err
 	}
-	return nil
+	defer func() { _ = root.Close() }()
+	return root.RemoveAll(rel)
 }
 
 // willPersist reports whether a write to abs would reach the shared authority
@@ -239,18 +295,24 @@ func (s *Store) persist(ctx context.Context, abs string, data []byte) error {
 // shared authority and returns the keys it wrote (so a caller can undo them on a
 // later failure). root may be a single file or a directory; non-asset files are
 // skipped. It stops and returns the keys written so far on the first Put failure.
-func (s *Store) persistTree(ctx context.Context, root string) ([]string, error) {
-	info, err := os.Stat(root)
+func (s *Store) persistTree(ctx context.Context, abs string) ([]string, error) {
+	root, rel, boundary, err := s.openPath(abs)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	info, err := root.Stat(rel)
 	if err != nil {
 		return nil, err
 	}
 	var written []string
-	putOne := func(p string) error {
-		key, ok := s.assetKey(p)
+	putOne := func(name string) error {
+		path := filepath.Join(boundary, filepath.FromSlash(name))
+		key, ok := s.assetKey(path)
 		if !ok {
 			return nil
 		}
-		data, err := os.ReadFile(p)
+		data, err := root.ReadFile(name)
 		if err != nil {
 			return err
 		}
@@ -261,19 +323,19 @@ func (s *Store) persistTree(ctx context.Context, root string) ([]string, error) 
 		return nil
 	}
 	if !info.IsDir() {
-		if err := putOne(root); err != nil {
+		if err := putOne(rel); err != nil {
 			return written, err
 		}
 		return written, nil
 	}
-	walkErr := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	walkErr := fs.WalkDir(root.FS(), filepath.ToSlash(rel), func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			return nil
 		}
-		return putOne(p)
+		return putOne(name)
 	})
 	return written, walkErr
 }
@@ -317,6 +379,9 @@ func (s *Store) deleteTree(ctx context.Context, abs string) error {
 // as "the local file now exists" and any error as "still missing". Callers must
 // re-stat abs after a nil return.
 func (s *Store) Restore(ctx context.Context, abs string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.authority == nil {
 		return os.ErrNotExist
 	}
@@ -336,6 +401,9 @@ func (s *Store) Restore(ctx context.Context, abs string) error {
 // overwritten. Per-file failures are logged and the marker is released so the
 // next call retries; only a List failure is returned.
 func (s *Store) HydrateUser(ctx context.Context, assetsDir string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.authority == nil {
 		return nil
 	}
@@ -365,10 +433,18 @@ func (s *Store) HydrateUser(ctx context.Context, assetsDir string) error {
 			continue
 		}
 		abs := filepath.Join(s.home, filepath.FromSlash(key))
-		if _, err := os.Stat(abs); err == nil {
+		root, rel, _, err := s.openPath(abs)
+		if err != nil {
+			s.log.Warn("asset hydration path failed", "key", key, "error", err)
+			failed++
+			continue
+		}
+		_, statErr := root.Stat(rel)
+		_ = root.Close()
+		if statErr == nil {
 			continue // local file wins; never overwrite
-		} else if !os.IsNotExist(err) {
-			s.log.Warn("asset hydration stat failed", "key", key, "error", err)
+		} else if !os.IsNotExist(statErr) {
+			s.log.Warn("asset hydration stat failed", "key", key, "error", statErr)
 			failed++
 			continue
 		}
@@ -391,6 +467,8 @@ func (s *Store) HydrateUser(ctx context.Context, assetsDir string) error {
 // resetHydrationForTest clears the single-flight markers so a test can drive
 // HydrateUser against a fresh tree.
 func (s *Store) resetHydrationForTest() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.hydrated.Range(func(k, _ any) bool {
 		s.hydrated.Delete(k)
 		return true
@@ -424,16 +502,20 @@ func (s *Store) restoreKey(ctx context.Context, key, abs string) error {
 		// backend) never leaves an empty asset directory behind.
 		return readErr
 	}
-	dir := filepath.Dir(abs)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".stella-asset-*")
+	root, rel, _, err := s.openPath(abs)
 	if err != nil {
 		return err
 	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
+	defer func() { _ = root.Close() }()
+	dir := filepath.Dir(rel)
+	if err := root.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, tmpName, err := createRootTemp(root, dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Remove(tmpName) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return err
@@ -447,11 +529,84 @@ func (s *Store) restoreKey(ctx context.Context, key, abs string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Link(tmpName, abs); err != nil {
+	if err := root.Link(tmpName, rel); err != nil {
 		if os.IsExist(err) {
 			return nil // concurrent local write wins
 		}
 		return err
 	}
 	return nil
+}
+
+func (s *Store) openPath(abs string) (*os.Root, string, string, error) {
+	boundary, rel, err := s.pathBoundary(abs)
+	if err != nil {
+		return nil, "", "", err
+	}
+	homeRoot, err := os.OpenRoot(s.home)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if boundary == s.home {
+		return homeRoot, rel, boundary, nil
+	}
+	boundaryRel, err := filepath.Rel(s.home, boundary)
+	if err != nil {
+		_ = homeRoot.Close()
+		return nil, "", "", err
+	}
+	if info, err := homeRoot.Lstat(boundaryRel); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			_ = homeRoot.Close()
+			return nil, "", "", fmt.Errorf("asset principal boundary is a symlink: %q", boundary)
+		}
+	} else if os.IsNotExist(err) {
+		if err := homeRoot.MkdirAll(boundaryRel, 0o755); err != nil {
+			_ = homeRoot.Close()
+			return nil, "", "", err
+		}
+	} else {
+		_ = homeRoot.Close()
+		return nil, "", "", err
+	}
+	root, err := homeRoot.OpenRoot(boundaryRel)
+	_ = homeRoot.Close()
+	if err != nil {
+		return nil, "", "", err
+	}
+	return root, rel, boundary, nil
+}
+
+// pathBoundary confines a user or system-agent path to that principal's own
+// subtree, not merely STELLA_HOME. os.Root then prevents symlink swaps from
+// crossing that boundary while the operation is in flight.
+func (s *Store) pathBoundary(abs string) (string, string, error) {
+	homeRel, err := filepath.Rel(s.home, abs)
+	if err != nil || filepath.IsAbs(homeRel) || homeRel == ".." || strings.HasPrefix(homeRel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("asset path escapes home: %q", abs)
+	}
+	parts := strings.Split(homeRel, string(filepath.Separator))
+	if len(parts) >= 3 && (parts[0] == "users" || parts[0] == "agents") {
+		boundary := filepath.Join(s.home, parts[0], parts[1])
+		return boundary, filepath.Join(parts[2:]...), nil
+	}
+	return s.home, homeRel, nil
+}
+
+func createRootTemp(root *os.Root, dir string) (*os.File, string, error) {
+	for range 100 {
+		var random [8]byte
+		if _, err := rand.Read(random[:]); err != nil {
+			return nil, "", err
+		}
+		name := filepath.Join(dir, ".stella-asset-"+hex.EncodeToString(random[:]))
+		f, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			return f, name, nil
+		}
+		if !os.IsExist(err) {
+			return nil, "", err
+		}
+	}
+	return nil, "", fmt.Errorf("create asset temp file: too many collisions")
 }

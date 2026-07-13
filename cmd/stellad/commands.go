@@ -433,9 +433,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			return nil, fmt.Errorf("bind vault env loader: %w", err)
 		}
 	}
-	if err := poolMgr.BindAgentAccess(agentAccess); err != nil {
-		return nil, fmt.Errorf("bind agent access: %w", err)
-	}
 	if err := poolMgr.BindSessionAccess(sessionaccess.NewAgentSessionAccess(sessionAccess)); err != nil {
 		return nil, fmt.Errorf("bind session access: %w", err)
 	}

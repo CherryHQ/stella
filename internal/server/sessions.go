@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -468,7 +470,6 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 
 	opts := session.ListOptions{
 		IncludeArchived: true,
-		Limit:           limit + 1,
 		Offset:          offset,
 	}
 	if params.Kind == nil {
@@ -479,20 +480,19 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	if params.ProjectId != nil {
 		opts.ProjectID = *params.ProjectId
 	}
-	sessions, err := access.List(r.Context(), agentID, opts)
+	page, err := access.ListPage(r.Context(), agentID, opts, limit)
 	if err != nil {
 		s.writeSessionAccessError(w, err)
 		return
 	}
 
-	sessions, nextToken := nextPageTokenForRows(sessions, limit, offset)
-	resp := make([]sessionResponse, 0, len(sessions))
-	for _, si := range sessions {
+	resp := make([]sessionResponse, 0, len(page.Sessions))
+	for _, si := range page.Sessions {
 		resp = append(resp, sessionResponseFromInfo(si))
 	}
 	out := map[string]any{"sessions": resp}
-	if nextToken != "" {
-		out["next_page_token"] = nextToken
+	if page.HasMore {
+		out["next_page_token"] = encodeOffsetToken(page.NextOffset)
 	}
 	writeData(w, http.StatusOK, out)
 }
@@ -864,10 +864,12 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 		s.writeWorkspaceError(w, err)
 		return
 	}
-	if result.RawFilePath != "" {
-		w.Header().Del("Content-Type")
-		w.Header().Set("Content-Disposition", "inline")
-		http.ServeFile(w, r, result.RawFilePath)
+	if result.Raw {
+		w.Header().Set("Content-Type", result.RawMediaType)
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": result.RawName}))
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeContent(w, r, result.RawName, time.Time{}, bytes.NewReader(result.RawContent))
 		return
 	}
 	writeData(w, http.StatusOK, result)

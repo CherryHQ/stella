@@ -11,7 +11,6 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -30,12 +29,7 @@ var ErrGroupCompactionUnsupported = errors.New("compaction is not supported for 
 //
 // Runtime owns execution; SessionAccess owns every lifecycle and policy
 // decision. Sessions remains only as a legacy test fixture field and must not
-// become a production entry point again. AgentAccess stays injected for other
-// agent-domain integrations, but Session lifecycle must never invoke it twice.
-type AgentUseAccess interface {
-	Use(context.Context, authz.Authority, string) (config.Agent, error)
-}
-
+// become a production entry point again.
 type SessionAccessService interface {
 	Begin(context.Context, authz.Authority) (SessionAccess, error)
 }
@@ -43,6 +37,7 @@ type SessionAccessService interface {
 type SessionAccess interface {
 	Create(context.Context, string, string, string, session.Kind, session.Channel) (session.Info, error)
 	ResolveMain(context.Context, string, string) (session.Info, error)
+	Use(context.Context, string, string) (session.Info, error)
 	EnsureRead(context.Context, session.Request) (session.Info, error)
 	EnsureUse(context.Context, session.Request) (session.Info, error)
 	Delete(context.Context, string, string) (session.Info, error)
@@ -52,7 +47,6 @@ type SessionAccess interface {
 type Service struct {
 	Sessions      *session.Registry // legacy fallback for tests only; production lifecycle goes through SessionAccess.
 	Runtime       *agentruntime.Runtime
-	AgentAccess   AgentUseAccess
 	SessionAccess SessionAccessService
 	// AgentID is the executor this service belongs to.
 	AgentID string
@@ -302,11 +296,19 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 // using a trusted system-derived session key. It returns the Info without
 // executing a chat turn. Private callers do not know about groups.
 func (s *Service) ResolvePrivateChannelSession(ctx context.Context, authority authz.Authority, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.resolvePrivateChannelSession(ctx, authority, sessionKey, userID, agentID, channel, false)
+}
+
+func (s *Service) ResolvePrivateChannelSessionForUse(ctx context.Context, authority authz.Authority, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.resolvePrivateChannelSession(ctx, authority, sessionKey, userID, agentID, channel, true)
+}
+
+func (s *Service) resolvePrivateChannelSession(ctx context.Context, authority authz.Authority, sessionKey, userID, agentID string, channel session.Channel, use bool) (session.Info, error) {
 	access, err := s.beginSessionAccess(ctx, authority)
 	if err != nil {
 		return session.Info{}, err
 	}
-	return access.EnsureRead(ctx, session.Request{
+	req := session.Request{
 		ID:                 sessionKey,
 		UserID:             userID,
 		AgentID:            agentID,
@@ -315,7 +317,11 @@ func (s *Service) ResolvePrivateChannelSession(ctx context.Context, authority au
 		CreateIfMissing:    true,
 		AllowExactIDCreate: true,
 		RequireKind:        session.KindChat,
-	})
+	}
+	if use {
+		return access.EnsureUse(ctx, req)
+	}
+	return access.EnsureRead(ctx, req)
 }
 
 // ResolveGroupChannelSession resolves or creates a group chat session owned by
@@ -323,11 +329,19 @@ func (s *Service) ResolvePrivateChannelSession(ctx context.Context, authority au
 // invariant (a group session is owned by its group, so UserID == GroupID) is
 // established here in one place rather than by callers repeating the id.
 func (s *Service) ResolveGroupChannelSession(ctx context.Context, authority authz.Authority, sessionKey, groupID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.resolveGroupChannelSession(ctx, authority, sessionKey, groupID, agentID, channel, false)
+}
+
+func (s *Service) ResolveGroupChannelSessionForUse(ctx context.Context, authority authz.Authority, sessionKey, groupID, agentID string, channel session.Channel) (session.Info, error) {
+	return s.resolveGroupChannelSession(ctx, authority, sessionKey, groupID, agentID, channel, true)
+}
+
+func (s *Service) resolveGroupChannelSession(ctx context.Context, authority authz.Authority, sessionKey, groupID, agentID string, channel session.Channel, use bool) (session.Info, error) {
 	access, err := s.beginSessionAccess(ctx, authority)
 	if err != nil {
 		return session.Info{}, err
 	}
-	return access.EnsureRead(ctx, session.Request{
+	req := session.Request{
 		ID:                 sessionKey,
 		UserID:             groupID,
 		AgentID:            agentID,
@@ -337,7 +351,11 @@ func (s *Service) ResolveGroupChannelSession(ctx context.Context, authority auth
 		CreateIfMissing:    true,
 		AllowExactIDCreate: true,
 		RequireKind:        session.KindChat,
-	})
+	}
+	if use {
+		return access.EnsureUse(ctx, req)
+	}
+	return access.EnsureRead(ctx, req)
 }
 
 // NewSession creates a new session with a generated ID. Used by the HTTP API
@@ -467,9 +485,6 @@ func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.Sessi
 	}, err
 }
 
-// ResolveMainSession resolves the main session for a user+agent pair, creating
-// one if missing. It is the canonical replacement for Pool.ResolveSession on
-// private user channels.
 func (s *Service) ArchiveSession(ctx context.Context, authority authz.Authority, userID, agentID, sessionID string) error {
 	access, err := s.beginSessionAccess(ctx, authority)
 	if err != nil {
@@ -485,7 +500,18 @@ func (s *Service) ArchiveSession(ctx context.Context, authority authz.Authority,
 	return access.Archive(ctx, info)
 }
 
+// ResolveMainSession resolves the main session for a user+agent pair, creating
+// one if missing. It is the canonical replacement for Pool.ResolveSession on
+// private user channels.
 func (s *Service) ResolveMainSession(ctx context.Context, authority authz.Authority, userID, agentID string) (session.Info, error) {
+	return s.resolveMainSession(ctx, authority, userID, agentID, false)
+}
+
+func (s *Service) ResolveMainSessionForUse(ctx context.Context, authority authz.Authority, userID, agentID string) (session.Info, error) {
+	return s.resolveMainSession(ctx, authority, userID, agentID, true)
+}
+
+func (s *Service) resolveMainSession(ctx context.Context, authority authz.Authority, userID, agentID string, use bool) (session.Info, error) {
 	if agentID == "" {
 		agentID = s.AgentID
 	}
@@ -493,7 +519,11 @@ func (s *Service) ResolveMainSession(ctx context.Context, authority authz.Author
 	if err != nil {
 		return session.Info{}, err
 	}
-	return access.ResolveMain(ctx, userID, agentID)
+	info, err := access.ResolveMain(ctx, userID, agentID)
+	if err != nil || !use {
+		return info, err
+	}
+	return access.Use(ctx, info.AgentID, info.ID)
 }
 
 // CompactSession runs full compaction on the session identified by sessionID.
@@ -504,7 +534,9 @@ func (s *Service) ResolveMainSession(ctx context.Context, authority authz.Author
 // manual path rejects a group session up front (before touching the compactor)
 // with ErrGroupCompactionUnsupported rather than run a private-style compaction
 // over an event-log conversation.
-func (s *Service) CompactSession(ctx context.Context, info session.Info) (string, error) {
+// CompactAuthorizedSession performs compaction after the caller has authorized
+// ActionExecute for info under its current Session Access evaluation.
+func (s *Service) CompactAuthorizedSession(ctx context.Context, info session.Info) (string, error) {
 	if info.GroupID != "" {
 		return "", ErrGroupCompactionUnsupported
 	}

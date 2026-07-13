@@ -160,7 +160,6 @@ type PoolManager struct {
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	assets                   *asset.Store
-	agentAccess              AgentUseAccess
 	sessionAccess            SessionAccessService
 	log                      *slog.Logger
 }
@@ -227,25 +226,6 @@ func (pm *PoolManager) BindVaultEnvLoader(v sandbox.VaultEnvLoader) error {
 	return nil
 }
 
-// BindAgentAccess binds the shared Agent PEP before StartAll. Every Service
-// built by this pool receives this exact instance; a missing or late bind fails
-// closed rather than leaving delegate execution on a bypass path.
-func (pm *PoolManager) BindAgentAccess(access AgentUseAccess) error {
-	if access == nil {
-		return errors.New("agent: BindAgentAccess requires a non-nil service")
-	}
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	if pm.started {
-		return errors.New("agent: BindAgentAccess after StartAll")
-	}
-	if pm.agentAccess != nil {
-		return errors.New("agent: agent access already bound")
-	}
-	pm.agentAccess = access
-	return nil
-}
-
 // BindSessionAccess binds the shared Session PEP before StartAll. All non-HTTP
 // entry session lifecycle in Service goes through this port.
 func (pm *PoolManager) BindSessionAccess(access SessionAccessService) error {
@@ -304,10 +284,6 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	if pm.started {
 		pm.mu.Unlock()
 		return errors.New("agent: PoolManager.StartAll called more than once")
-	}
-	if pm.agentAccess == nil {
-		pm.mu.Unlock()
-		return errors.New("agent: PoolManager.StartAll requires AgentAccess")
 	}
 	if pm.sessionAccess == nil {
 		pm.mu.Unlock()
@@ -398,16 +374,12 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	go rt.StartReaper(ctx)
 
 	pm.mu.RLock()
-	access := pm.agentAccess
 	sessionAccess := pm.sessionAccess
 	pm.mu.RUnlock()
-	if access == nil {
-		return nil, errors.New("agent access is not bound")
-	}
 	if sessionAccess == nil {
 		return nil, errors.New("session access is not bound")
 	}
-	svc := &Service{Sessions: reg, Runtime: rt, AgentAccess: access, SessionAccess: sessionAccess, AgentID: agentID}
+	svc := &Service{Sessions: reg, Runtime: rt, SessionAccess: sessionAccess, AgentID: agentID}
 	rt.SetDelegateRunner(svc)
 	return svc, nil
 }

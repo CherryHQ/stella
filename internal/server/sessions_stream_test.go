@@ -147,7 +147,7 @@ func (r *streamRuntime) SubscribeSession(string) (<-chan agent.Event, func()) {
 	return r.events, func() {}
 }
 func (r *streamRuntime) SessionLive(string) bool { return true }
-func (r *streamRuntime) CompactSession(context.Context, agentsession.Info) (string, error) {
+func (r *streamRuntime) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
 	return "", errors.New("Attach must not compact")
 }
 

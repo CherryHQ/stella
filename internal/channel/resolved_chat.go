@@ -58,11 +58,22 @@ func (rc *ResolvedChat) ResolveSession(ctx context.Context) (session.Info, error
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
-	info, err := rc.ResolveSession(ctx)
-	if err != nil {
-		return "", fmt.Errorf("resolve session: %w", err)
+	var (
+		info session.Info
+		err  error
+	)
+	switch {
+	case rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:"):
+		info, err = rc.Service.ResolveMainSessionForUse(ctx, rc.Authority, rc.User.ID, rc.AgentID)
+	case rc.GroupID != "":
+		info, err = rc.Service.ResolveGroupChannelSessionForUse(ctx, rc.Authority, rc.SessionKey, rc.GroupID, rc.AgentID, rc.Channel)
+	default:
+		info, err = rc.Service.ResolvePrivateChannelSessionForUse(ctx, rc.Authority, rc.SessionKey, rc.sessionUserID(), rc.AgentID, rc.Channel)
 	}
-	return rc.Service.CompactSession(ctx, info)
+	if err != nil {
+		return "", fmt.Errorf("resolve session for compaction: %w", err)
+	}
+	return rc.Service.CompactAuthorizedSession(ctx, info)
 }
 
 // AuthorizeUse performs the fresh execution decision at dequeue time. The

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"mime"
 	"os"
 	"path/filepath"
 	"slices"
@@ -82,10 +84,13 @@ type WorkspaceReadInput struct {
 }
 
 type WorkspaceReadResult struct {
-	Path        string `json:"path"`
-	Content     string `json:"content,omitempty"`
-	Language    string `json:"language,omitempty"`
-	RawFilePath string `json:"-"`
+	Path         string `json:"path"`
+	Content      string `json:"content,omitempty"`
+	Language     string `json:"language,omitempty"`
+	Raw          bool   `json:"-"`
+	RawName      string `json:"-"`
+	RawMediaType string `json:"-"`
+	RawContent   []byte `json:"-"`
 }
 
 type WorkspaceWriteInput struct {
@@ -138,7 +143,12 @@ func (a *Access) CreateWorkspacePath(ctx context.Context, in WorkspaceCreateInpu
 		return WorkspaceInfo{}, ErrInvalid
 	}
 	if in.IsDir {
-		if err := os.MkdirAll(abs, 0o755); err != nil {
+		rootFS, name, err := sharepkg.OpenSafeRoot(root, in.Path)
+		if err != nil {
+			return WorkspaceInfo{}, ErrInvalid
+		}
+		defer func() { _ = rootFS.Close() }()
+		if err := rootFS.MkdirAll(name, 0o755); err != nil {
 			return WorkspaceInfo{}, err
 		}
 	} else if err := a.svc.assets.CreateFile(ctx, abs, []byte(in.Content), 0o644); err != nil {
@@ -192,14 +202,16 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 	if err != nil {
 		return WorkspaceReadResult{}, err
 	}
-	abs, err := sharepkg.SafePath(root, in.Path)
+	rootFS, name, err := sharepkg.OpenSafeRoot(root, in.Path)
 	if err != nil {
 		return WorkspaceReadResult{}, ErrInvalid
 	}
-	info, err := os.Stat(abs)
+	defer func() { _ = rootFS.Close() }()
+	abs := filepath.Join(root, name)
+	info, err := rootFS.Stat(name)
 	if err != nil {
 		if os.IsNotExist(err) && a.svc.assets.Restore(ctx, abs) == nil {
-			info, err = os.Stat(abs)
+			info, err = rootFS.Stat(name)
 		}
 		if err != nil {
 			return WorkspaceReadResult{}, ErrNotFound
@@ -208,12 +220,19 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 	if info.IsDir() {
 		return WorkspaceReadResult{}, ErrIsDir
 	}
-	if in.Raw {
-		return WorkspaceReadResult{Path: in.Path, RawFilePath: abs}, nil
-	}
-	data, err := os.ReadFile(abs)
+	data, err := rootFS.ReadFile(name)
 	if err != nil {
 		return WorkspaceReadResult{}, err
+	}
+	if in.Raw {
+		mediaType := mime.TypeByExtension(filepath.Ext(in.Path))
+		if mediaType == "" {
+			mediaType = "application/octet-stream"
+		}
+		return WorkspaceReadResult{
+			Path: in.Path, Raw: true, RawName: filepath.Base(in.Path),
+			RawMediaType: mediaType, RawContent: data,
+		}, nil
 	}
 	probe := data
 	if len(probe) > 512 {
@@ -310,20 +329,21 @@ func pathDepth(path string) int {
 
 func collectWorkspaceInfo(root string, showHidden bool, listPath string, depth int) (WorkspaceInfo, error) {
 	info := WorkspaceInfo{Root: root, Paths: []string{}}
-	listRoot, err := sharepkg.SafePath(root, strings.TrimSuffix(listPath, "/"))
+	rootFS, listName, err := sharepkg.OpenSafeRoot(root, strings.TrimSuffix(listPath, "/"))
 	if err != nil {
 		return WorkspaceInfo{}, ErrInvalid
 	}
-	if stat, statErr := os.Stat(listRoot); statErr != nil {
+	defer func() { _ = rootFS.Close() }()
+	if stat, statErr := rootFS.Stat(listName); statErr != nil {
 		return WorkspaceInfo{}, statErr
 	} else if !stat.IsDir() {
 		return WorkspaceInfo{}, ErrInvalid
 	}
-	err = filepath.WalkDir(listRoot, func(path string, d os.DirEntry, walkErr error) error {
+	err = fs.WalkDir(rootFS.FS(), filepath.ToSlash(listName), func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil //nolint:nilerr
 		}
-		scopeRel, scopeRelErr := filepath.Rel(listRoot, path)
+		scopeRel, scopeRelErr := filepath.Rel(listName, filepath.FromSlash(path))
 		if scopeRelErr != nil || scopeRel == "." {
 			return nil //nolint:nilerr
 		}
@@ -333,9 +353,9 @@ func collectWorkspaceInfo(root string, showHidden bool, listPath string, depth i
 			}
 			return nil
 		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil || rel == "." {
-			return nil //nolint:nilerr
+		rel := filepath.FromSlash(path)
+		if rel == "." {
+			return nil
 		}
 		name := d.Name()
 		isDot := strings.HasPrefix(name, ".") || strings.Contains(rel, string(filepath.Separator)+".")

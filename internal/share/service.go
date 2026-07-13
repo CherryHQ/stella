@@ -111,14 +111,16 @@ func (s Authorized) ShareArtifact(ctx context.Context, sessionID, path, scope, e
 	if err != nil {
 		return Created{}, err
 	}
-	abs, err := SafePath(root, rel)
+	rootFS, name, err := OpenSafeRoot(root, rel)
 	if err != nil {
-		return Created{}, err
+		return Created{}, authz.ErrNotFound
 	}
-	fi, err := os.Stat(abs)
+	defer func() { _ = rootFS.Close() }()
+	abs := filepath.Join(root, name)
+	fi, err := rootFS.Stat(name)
 	if err != nil {
 		if os.IsNotExist(err) && s.assets.Restore(ctx, abs) == nil {
-			fi, err = os.Stat(abs)
+			fi, err = rootFS.Stat(name)
 		}
 		if err != nil {
 			return Created{}, authz.ErrNotFound
@@ -134,7 +136,7 @@ func (s Authorized) ShareArtifact(ctx context.Context, sessionID, path, scope, e
 	if mt == "" {
 		return Created{}, ErrUnsupportedType
 	}
-	data, err := os.ReadFile(abs)
+	data, err := rootFS.ReadFile(name)
 	if err != nil {
 		return Created{}, err
 	}
@@ -253,11 +255,34 @@ func WorkspaceRootForScope(stellaHome, userID, agentID, scope string) string {
 }
 
 func SafePath(root, rel string) (string, error) {
-	abs := filepath.Join(root, filepath.Clean("/"+rel))
-	if abs != root && !strings.HasPrefix(abs, root+string(filepath.Separator)) {
+	name, err := safePathName(rel)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, name), nil
+}
+
+// OpenSafeRoot returns an os.Root and a root-relative name. All security-
+// sensitive filesystem operations must use the Root methods rather than reopen
+// the absolute path, so symlink swaps cannot escape the workspace boundary.
+func OpenSafeRoot(root, rel string) (*os.Root, string, error) {
+	name, err := safePathName(rel)
+	if err != nil {
+		return nil, "", err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, "", err
+	}
+	return r, name, nil
+}
+
+func safePathName(rel string) (string, error) {
+	name := filepath.Clean(filepath.FromSlash(rel))
+	if !filepath.IsLocal(name) {
 		return "", ErrPathEscapes
 	}
-	return abs, nil
+	return name, nil
 }
 
 func ArtifactMediaType(path string) string {

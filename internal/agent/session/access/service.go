@@ -294,6 +294,75 @@ func (a *Access) List(ctx context.Context, agentID string, opts agentsession.Lis
 	return out, nil
 }
 
+type ListPage struct {
+	Sessions   []agentsession.Info
+	NextOffset int
+	HasMore    bool
+}
+
+// ListPage filters candidates through policy while retaining a cursor into the
+// unfiltered durable result set. The next page therefore cannot be stranded by
+// denied rows that happened to occupy the SQL page.
+func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession.ListOptions, limit int) (ListPage, error) {
+	if limit <= 0 {
+		return ListPage{}, ErrForbidden
+	}
+	request, err := policy.SessionListRequest()
+	if err != nil {
+		return ListPage{}, ErrForbidden
+	}
+	if err := a.decide(request); err != nil {
+		return ListPage{}, err
+	}
+	userID := string(a.authority.Actor().UserID())
+	if userID == "" {
+		return ListPage{}, ErrForbidden
+	}
+
+	kindAllowed := func(info agentsession.Info) bool {
+		if len(opts.Kinds) == 0 {
+			return true
+		}
+		return slices.Contains(opts.Kinds, agentsession.Kind(info.Kind))
+	}
+	batchSize := limit + 1
+	offset := opts.Offset
+	out := make([]agentsession.Info, 0, limit)
+	for {
+		query := opts
+		query.Kinds = nil // filter here so the durable cursor counts every candidate
+		query.Offset = offset
+		query.Limit = batchSize
+		candidates, err := a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, query)
+		if err != nil {
+			return ListPage{}, fmt.Errorf("%w: list sessions: %w", ErrUnavailable, err)
+		}
+		for i, info := range candidates {
+			if !kindAllowed(info) {
+				continue
+			}
+			readRequest, err := policy.SessionReadRequest(info.ID, info.UserID, factsFor(info, a.authority))
+			if err != nil {
+				return ListPage{}, ErrForbidden
+			}
+			if err := a.decide(readRequest); err != nil {
+				if errors.Is(err, ErrForbidden) || errors.Is(err, ErrNotFound) {
+					continue
+				}
+				return ListPage{}, err
+			}
+			if len(out) == limit {
+				return ListPage{Sessions: out, NextOffset: offset + i, HasMore: true}, nil
+			}
+			out = append(out, info)
+		}
+		offset += len(candidates)
+		if len(candidates) < batchSize {
+			return ListPage{Sessions: out}, nil
+		}
+	}
+}
+
 // UpdateTitle persists a title after Write has authorized the exact session.
 func (a *Access) UpdateTitle(ctx context.Context, info agentsession.Info, title string) error {
 	if err := a.svc.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{

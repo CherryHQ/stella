@@ -64,7 +64,7 @@ type RuntimeService interface {
 	Chat(context.Context, agent.ChatRequest) <-chan agent.Event
 	SubscribeSession(sessionID string) (<-chan agent.Event, func())
 	SessionLive(sessionID string) bool
-	CompactSession(context.Context, agentsession.Info) (string, error)
+	CompactAuthorizedSession(context.Context, agentsession.Info) (string, error)
 }
 
 // BindRuntimeManager wires the live runtime port after the pool has been
@@ -197,7 +197,7 @@ func handleCommand(ctx context.Context, runtime RuntimeService, info agentsessio
 	}
 	switch cmd {
 	case "/compact":
-		summary, err := runtime.CompactSession(ctx, info)
+		summary, err := runtime.CompactAuthorizedSession(ctx, info)
 		if err != nil {
 			return fmt.Sprintf("Compaction failed: %v", err), true
 		}

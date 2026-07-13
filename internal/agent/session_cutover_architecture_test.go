@@ -13,29 +13,39 @@ func TestNonHTTPSessionEntryCutoverTripwire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse service.go: %v", err)
 	}
-	entries := map[string]bool{
-		"Chat": true, "ChatForScheduler": true, "chatOnSession": true,
-		"ResolvePrivateChannelSession": true,
-		"ResolveGroupChannelSession":   true, "NewSession": true,
-		"MintTaskSession": true, "Delegate": true, "ArchiveSession": true,
-		"ResolveMainSession": true,
+	entries := map[string]map[string]bool{
+		"Chat": {"beginSessionAccess": true}, "ChatForScheduler": {"beginSessionAccess": true}, "chatOnSession": {"beginSessionAccess": true},
+		"ResolvePrivateChannelSession":       {"resolvePrivateChannelSession": true},
+		"ResolvePrivateChannelSessionForUse": {"resolvePrivateChannelSession": true},
+		"resolvePrivateChannelSession":       {"beginSessionAccess": true},
+		"ResolveGroupChannelSession":         {"resolveGroupChannelSession": true},
+		"ResolveGroupChannelSessionForUse":   {"resolveGroupChannelSession": true},
+		"resolveGroupChannelSession":         {"beginSessionAccess": true},
+		"NewSession":                         {"beginSessionAccess": true}, "MintTaskSession": {"beginSessionAccess": true},
+		"Delegate": {"beginSessionAccess": true}, "ArchiveSession": {"beginSessionAccess": true},
+		"ResolveMainSession":       {"resolveMainSession": true},
+		"ResolveMainSessionForUse": {"resolveMainSession": true},
+		"resolveMainSession":       {"beginSessionAccess": true},
 	}
 	seen := map[string]bool{}
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil || !entries[fn.Name.Name] {
+		if !ok || fn.Body == nil {
+			continue
+		}
+		if _, tracked := entries[fn.Name.Name]; !tracked {
 			continue
 		}
 		seen[fn.Name.Name] = true
-		callsSessionAccess := false
+		callsRequiredGate := false
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
 			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-				if sel.Sel.Name == "beginSessionAccess" {
-					callsSessionAccess = true
+				if entries[fn.Name.Name][sel.Sel.Name] {
+					callsRequiredGate = true
 				}
 				if recv, ok := sel.X.(*ast.SelectorExpr); ok && recv.Sel.Name == "Sessions" {
 					switch sel.Sel.Name {
@@ -47,8 +57,8 @@ func TestNonHTTPSessionEntryCutoverTripwire(t *testing.T) {
 			}
 			return true
 		})
-		if !callsSessionAccess {
-			t.Errorf("%s does not begin trusted SessionAccess", fn.Name.Name)
+		if !callsRequiredGate {
+			t.Errorf("%s does not call its trusted SessionAccess gate", fn.Name.Name)
 		}
 	}
 	for name := range entries {

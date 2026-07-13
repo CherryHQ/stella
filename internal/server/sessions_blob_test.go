@@ -186,6 +186,42 @@ func TestGetWorkspaceFileContentRestoresAssetFromAuthorityOnMiss(t *testing.T) {
 	}
 }
 
+func TestGetWorkspaceRawContentUsesConstrainedInlineResponse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "page.html")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("<script>parent.pwned=true</script>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	scope := apitypes.WorkspaceScopeUser
+	raw := true
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "page.html", Scope: &scope, Raw: &raw})
+	if rr.Code != http.StatusOK || rr.Body.String() != "<script>parent.pwned=true</script>" {
+		t.Fatalf("status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options=%q", got)
+	}
+	if got := rr.Header().Get("Content-Security-Policy"); !strings.Contains(got, "sandbox") || !strings.Contains(got, "default-src 'none'") {
+		t.Fatalf("Content-Security-Policy=%q", got)
+	}
+	if got := rr.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline") {
+		t.Fatalf("Content-Disposition=%q", got)
+	}
+}
+
 // failingPutStore is a blob authority whose writes always fail, used to assert
 // that a handler backed by the asset store rolls back local creation when the
 // durable write fails.

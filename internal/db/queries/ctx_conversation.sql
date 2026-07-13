@@ -76,13 +76,13 @@ SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id))
   AND archived = false
-ORDER BY last_active DESC;
+ORDER BY last_active DESC, session_id DESC;
 
 -- name: ListConversationsAll :many
 SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
   AND (sqlc.narg(agent_id)::text IS NULL OR agent_id = sqlc.narg(agent_id))
-ORDER BY last_active DESC;
+ORDER BY last_active DESC, session_id DESC;
 
 -- name: ListConversationsFiltered :many
 SELECT * FROM ctx_conversation
@@ -93,7 +93,7 @@ WHERE user_id = sqlc.arg(user_id)
   AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
   AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
   AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
-ORDER BY last_active DESC
+ORDER BY last_active DESC, session_id DESC
 LIMIT NULLIF(sqlc.arg('limit'), -1) OFFSET sqlc.arg('offset');
 
 -- name: ListAgentConversationLastActive :many
@@ -111,7 +111,7 @@ SELECT * FROM ctx_conversation
 WHERE agent_id = sqlc.arg(agent_id)
   AND archived = false
   AND user_id IS NOT NULL AND user_id <> ''
-ORDER BY last_active DESC;
+ORDER BY last_active DESC, session_id DESC;
 
 -- name: ListConversationsForReviewFiltered :many
 -- Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
@@ -123,11 +123,11 @@ WHERE agent_id = sqlc.arg(agent_id)
   AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
   AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
   AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
-ORDER BY last_active DESC
+ORDER BY last_active DESC, session_id DESC
 LIMIT NULLIF(sqlc.arg('limit'), -1) OFFSET sqlc.arg('offset');
 
 -- name: ListConversationsByKind :many
-SELECT * FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC;
+SELECT * FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC, session_id DESC;
 
 -- name: GetMainConversationByProject :one
 SELECT * FROM ctx_conversation

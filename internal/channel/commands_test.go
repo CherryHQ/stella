@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -93,9 +94,15 @@ func TestWelcomeMessageIncludesNaturalLanguagePhrases(t *testing.T) {
 
 // --- /compact group vs private mapping --------------------------------------
 
-type compactSessionAccessSvc struct{ reg *session.Registry }
+type compactSessionAccessSvc struct {
+	reg    *session.Registry
+	useErr error
+}
 
-type compactSessionAccess struct{ reg *session.Registry }
+type compactSessionAccess struct {
+	reg    *session.Registry
+	useErr error
+}
 
 func (s compactSessionAccessSvc) Begin(context.Context, authz.Authority) (agent.SessionAccess, error) {
 	return compactSessionAccess(s), nil
@@ -109,11 +116,21 @@ func (a compactSessionAccess) ResolveMain(ctx context.Context, userID, agentID s
 	return a.reg.ResolveMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID})
 }
 
+func (a compactSessionAccess) Use(ctx context.Context, agentID, sessionID string) (session.Info, error) {
+	if a.useErr != nil {
+		return session.Info{}, a.useErr
+	}
+	return a.reg.Get(ctx, session.Scope{AgentID: agentID, System: true}, sessionID)
+}
+
 func (a compactSessionAccess) EnsureRead(ctx context.Context, req session.Request) (session.Info, error) {
 	return a.reg.Ensure(ctx, req)
 }
 
 func (a compactSessionAccess) EnsureUse(ctx context.Context, req session.Request) (session.Info, error) {
+	if a.useErr != nil {
+		return session.Info{}, a.useErr
+	}
 	return a.reg.Ensure(ctx, req)
 }
 
@@ -190,6 +207,17 @@ func TestHandleCommandCompactGroupUsesGroupMemoryMessage(t *testing.T) {
 	}
 	if strings.Contains(resp, "Compaction failed") {
 		t.Fatal("group /compact must not surface the generic failure message")
+	}
+}
+
+func TestHandleCommandCompactRequiresSessionUse(t *testing.T) {
+	rc := newCompactTestChat(t, "", auth.User{ID: "user-1"})
+	denied := errors.New("session execute denied")
+	rc.Service.SessionAccess = compactSessionAccessSvc{reg: rc.Service.Sessions, useErr: denied}
+
+	resp, ok := HandleCommand(context.Background(), rc, "/compact", "sender-1")
+	if !ok || !strings.Contains(resp, denied.Error()) {
+		t.Fatalf("response=%q handled=%v, want execute denial", resp, ok)
 	}
 }
 

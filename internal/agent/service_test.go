@@ -9,7 +9,6 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -19,12 +18,6 @@ import (
 
 type fakeRunnerSvc struct {
 	events []agentruntime.Event
-}
-
-type fakeAgentAccessSvc struct {
-	uses      int
-	authority authz.Authority
-	err       error
 }
 
 type fakeSessionAccessSvc struct{ reg *session.Registry }
@@ -43,6 +36,10 @@ func (a fakeSessionAccess) ResolveMain(ctx context.Context, userID, agentID stri
 	return a.reg.ResolveMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID})
 }
 
+func (a fakeSessionAccess) Use(ctx context.Context, agentID, sessionID string) (session.Info, error) {
+	return a.reg.Get(ctx, session.Scope{AgentID: agentID, System: true}, sessionID)
+}
+
 func (a fakeSessionAccess) EnsureRead(ctx context.Context, req session.Request) (session.Info, error) {
 	return a.reg.Ensure(ctx, req)
 }
@@ -57,12 +54,6 @@ func (a fakeSessionAccess) Delete(ctx context.Context, agentID, sessionID string
 
 func (a fakeSessionAccess) Archive(ctx context.Context, info session.Info) error {
 	return a.reg.Archive(ctx, session.Scope{UserID: info.UserID, AgentID: info.AgentID}, info.ID)
-}
-
-func (a *fakeAgentAccessSvc) Use(_ context.Context, authority authz.Authority, _ string) (config.Agent, error) {
-	a.uses++
-	a.authority = authority
-	return config.Agent{}, a.err
 }
 
 func (r *fakeRunnerSvc) Chat(_ context.Context, _ []ai.Message, _ agentruntime.MessageContent) <-chan agentruntime.Event {
@@ -103,7 +94,6 @@ func newTestService(t *testing.T, events []agentruntime.Event) (*agent.Service, 
 	svc := &agent.Service{
 		Sessions:      reg,
 		Runtime:       rt,
-		AgentAccess:   &fakeAgentAccessSvc{},
 		SessionAccess: fakeSessionAccessSvc{reg: reg},
 		AgentID:       "agent1",
 	}

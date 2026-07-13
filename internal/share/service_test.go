@@ -196,7 +196,13 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 		t.Fatalf("../escape err=%v, want ErrNotFound clamp", err)
 	}
 	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", outside, "", "7d"); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("absolute path err=%v, want ErrNotFound clamp", err)
+		t.Fatalf("absolute path err=%v, want ErrNotFound", err)
+	}
+	symlink := filepath.Join(root, "escape-link.html")
+	if err := os.Symlink(outside, symlink); err == nil {
+		if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", "escape-link.html", "", "7d"); !errors.Is(err, authz.ErrNotFound) {
+			t.Fatalf("escaping symlink err=%v, want ErrNotFound", err)
+		}
 	}
 	if _, err := svc.As(ident(userID, agentID)).ShareArtifact(ctx, "owner-session", "bad.exe", "", "7d"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("missing unsupported file err=%v, want ErrNotFound before type", err)

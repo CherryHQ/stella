@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/blob"
 )
@@ -108,6 +109,27 @@ func (m *memAuthority) count() int {
 	return len(m.objs)
 }
 
+type firstPutFailsAfterRelease struct {
+	*memAuthority
+	firstStarted chan struct{}
+	releaseFirst chan struct{}
+	mu           sync.Mutex
+	calls        int
+}
+
+func (m *firstPutFailsAfterRelease) Put(ctx context.Context, key string, r io.Reader) error {
+	m.mu.Lock()
+	m.calls++
+	call := m.calls
+	m.mu.Unlock()
+	if call == 1 {
+		close(m.firstStarted)
+		<-m.releaseFirst
+		return errors.New("first authority Put failed")
+	}
+	return m.memAuthority.Put(ctx, key, r)
+}
+
 // assetsDirFor returns the canonical per-user assets directory under home.
 func assetsDirFor(home, userID string) string {
 	return filepath.Join(home, "users", userID, "data", "assets")
@@ -120,6 +142,110 @@ func mustStore(t *testing.T, home string, authority blob.Store) *Store {
 		t.Fatalf("NewStore: %v", err)
 	}
 	return s
+}
+
+func TestWriteFileSerializesRollbackAgainstLaterSuccess(t *testing.T) {
+	home := t.TempDir()
+	abs := filepath.Join(assetsDirFor(home, "u1"), "same.txt")
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := newMemAuthority()
+	authority := &firstPutFailsAfterRelease{memAuthority: base, firstStarted: make(chan struct{}), releaseFirst: make(chan struct{})}
+	s := mustStore(t, home, authority)
+
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- s.WriteFile(context.Background(), abs, []byte("B"), 0o644) }()
+	<-authority.firstStarted
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- s.WriteFile(context.Background(), abs, []byte("C"), 0o644) }()
+	select {
+	case err := <-secondDone:
+		t.Fatalf("later write completed before prior transition: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(authority.releaseFirst)
+	if err := <-firstDone; err == nil {
+		t.Fatal("first write should fail")
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+	local, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := blob.KeyForPath(home, abs)
+	remote := base.objs[key]
+	if string(local) != "C" || string(remote) != "C" {
+		t.Fatalf("local=%q remote=%q, want both C", local, remote)
+	}
+}
+
+func TestWriteFileCannotFollowSymlinkIntoAnotherPrincipal(t *testing.T) {
+	home := t.TempDir()
+	user1 := assetsDirFor(home, "u1")
+	user2 := assetsDirFor(home, "u2")
+	if err := os.MkdirAll(user1, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(user2, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(user2, "secret.txt")
+	if err := os.WriteFile(target, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(user1, "escape.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	s := mustStore(t, home, nil)
+	if err := s.WriteFile(context.Background(), link, []byte("overwritten"), 0o644); err == nil {
+		t.Fatal("WriteFile followed a symlink outside the principal boundary")
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || string(got) != "secret" {
+		t.Fatalf("target=%q err=%v, want unchanged secret", got, err)
+	}
+}
+
+func TestMoveFileRejectsExistingDestinationWithoutDataLoss(t *testing.T) {
+	home := t.TempDir()
+	assetsDir := assetsDirFor(home, "u1")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(assetsDir, "source.txt")
+	dst := filepath.Join(assetsDir, "destination.txt")
+	if err := os.WriteFile(src, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("destination"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	authority := newMemAuthority()
+	srcKey, _ := blob.KeyForPath(home, src)
+	dstKey, _ := blob.KeyForPath(home, dst)
+	authority.objs[srcKey] = []byte("source")
+	authority.objs[dstKey] = []byte("destination")
+	s := mustStore(t, home, authority)
+
+	if err := s.MoveFile(context.Background(), src, dst); !errors.Is(err, ErrDestinationExists) {
+		t.Fatalf("MoveFile error=%v, want ErrDestinationExists", err)
+	}
+	for path, want := range map[string]string{src: "source", dst: "destination"} {
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != want {
+			t.Fatalf("%s=%q, %v; want %q", path, got, err, want)
+		}
+	}
+	if string(authority.objs[srcKey]) != "source" || string(authority.objs[dstKey]) != "destination" {
+		t.Fatalf("authority changed: src=%q dst=%q", authority.objs[srcKey], authority.objs[dstKey])
+	}
 }
 
 func TestNewStoreSelectsConfiguredAuthority(t *testing.T) {

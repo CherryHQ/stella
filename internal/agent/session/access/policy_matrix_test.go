@@ -273,7 +273,7 @@ func TestEmbeddedPostgresSessionPolicyMatrix(t *testing.T) {
 		})
 	}
 
-	t.Run("workspace path escape stays rooted and begins once", func(t *testing.T) {
+	t.Run("workspace path traversal is rejected in one evaluation", func(t *testing.T) {
 		before := m.az.begins
 		access, err := m.svc.Begin(ctx, user(m.owner))
 		if err != nil {
@@ -281,20 +281,38 @@ func TestEmbeddedPostgresSessionPolicyMatrix(t *testing.T) {
 		}
 		_, err = access.CreateWorkspacePath(ctx, WorkspaceCreateInput{
 			AgentID: m.agent, SessionID: m.private, Scope: WorkspaceScopeUser,
-			Path: "../rooted.txt", Content: "safe",
+			Path: "../escaped.txt", Content: "unsafe",
 		})
-		if err != nil {
-			t.Fatalf("CreateWorkspacePath: %v", err)
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("CreateWorkspacePath error=%v, want ErrInvalid", err)
 		}
 		root := workspaceRootForScope(m.owner, m.agent, WorkspaceScopeUser)
-		if _, err := os.Stat(filepath.Join(root, "rooted.txt")); err != nil {
-			t.Fatalf("rooted file: %v", err)
-		}
-		if _, err := os.Stat(filepath.Join(filepath.Dir(root), "rooted.txt")); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(filepath.Dir(root), "escaped.txt")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("path escaped workspace: stat error=%v, want not exist", err)
 		}
 		if got := m.az.begins - before; got != 1 {
 			t.Fatalf("Begin calls=%d, want 1", got)
+		}
+	})
+
+	t.Run("workspace read cannot follow a symlink outside its root", func(t *testing.T) {
+		access, err := m.svc.Begin(ctx, user(m.owner))
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := workspaceRootForScope(m.owner, m.agent, WorkspaceScopeUser)
+		outside := filepath.Join(t.TempDir(), "secret.txt")
+		if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(root, "escape-link")); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		_, err = access.ReadWorkspacePath(ctx, WorkspaceReadInput{
+			AgentID: m.agent, SessionID: m.private, Scope: WorkspaceScopeUser, Path: "escape-link",
+		})
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("ReadWorkspacePath error=%v, want ErrNotFound", err)
 		}
 	})
 
@@ -315,6 +333,24 @@ func TestEmbeddedPostgresSessionPolicyMatrix(t *testing.T) {
 			t.Fatalf("Begin calls=%d, want 1", got)
 		}
 	})
+
+	// Put more denied rows ahead of allowed rows so authorized pagination must
+	// advance through the durable cursor rather than filtering one SQL page.
+	for range 3 {
+		if _, err := m.svc.registry.Ensure(ctx, agentsession.Request{
+			UserID: m.owner, AgentID: m.agent, Kind: agentsession.KindChat,
+			Channel: agentsession.ChannelWeb, CreateIfMissing: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	extraAllowed, err := m.svc.registry.Ensure(ctx, agentsession.Request{
+		UserID: m.owner, AgentID: m.agent, Kind: agentsession.KindTask,
+		Channel: agentsession.ChannelTask, CreateIfMissing: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// A real policy mutation commits a new revision. The next Begin must see the
 	// deny, hide the durable session, and remove it from collection visibility.
@@ -351,11 +387,35 @@ func TestEmbeddedPostgresSessionPolicyMatrix(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(infos) != 1 || infos[0].ID != m.internal {
-			t.Fatalf("visible sessions=%v, want only %q", infos, m.internal)
+		if len(infos) != 2 {
+			t.Fatalf("visible sessions=%v, want internal and task sessions", infos)
 		}
 		if got := m.az.begins - before; got != 1 {
 			t.Fatalf("Begin calls=%d, want 1", got)
+		}
+	})
+	t.Run("authorized pagination scans past denied rows without losing its cursor", func(t *testing.T) {
+		access, err := m.svc.Begin(ctx, user(m.owner))
+		if err != nil {
+			t.Fatal(err)
+		}
+		page1, err := access.ListPage(ctx, m.agent, agentsession.ListOptions{IncludeArchived: true}, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page1.Sessions) != 1 || !page1.HasMore {
+			t.Fatalf("page1=%+v, want one row and continuation", page1)
+		}
+		page2, err := access.ListPage(ctx, m.agent, agentsession.ListOptions{IncludeArchived: true, Offset: page1.NextOffset}, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page2.Sessions) != 1 || page2.HasMore {
+			t.Fatalf("page1=%+v page2=%+v, want final visible row", page1, page2)
+		}
+		got := map[string]bool{page1.Sessions[0].ID: true, page2.Sessions[0].ID: true}
+		if !got[m.internal] || !got[extraAllowed.ID] {
+			t.Fatalf("visible ids=%v, want %q and %q", got, m.internal, extraAllowed.ID)
 		}
 	})
 

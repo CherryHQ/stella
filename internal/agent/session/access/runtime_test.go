@@ -73,7 +73,7 @@ func (s *fakeRuntimeService) SubscribeSession(string) (<-chan agent.Event, func(
 	return s.events, func() {}
 }
 func (s *fakeRuntimeService) SessionLive(string) bool { return s.live }
-func (s *fakeRuntimeService) CompactSession(context.Context, agentsession.Info) (string, error) {
+func (s *fakeRuntimeService) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
 	return "", errors.New("not used")
 }
 
