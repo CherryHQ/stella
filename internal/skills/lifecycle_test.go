@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -224,6 +225,29 @@ func TestManagedSkillRestoreConflictExpiryAndDSTBoundary(t *testing.T) {
 	}
 }
 
+func TestManagedSkillRestoreMapsOwnerNameConstraintToConflict(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	retained := mustCreateManagedSkill(t, store, ctx, Skill{Scope: "user", UserID: userID, Name: "restore-race", Description: "d"})
+	if _, err := store.DeprecateManagedSkill(ctx, ManagedSkillDeprecate{
+		ID: retained.ID, UserID: userID, Scope: "user", DeprecatedBy: userID,
+	}); err != nil {
+		t.Fatalf("DeprecateManagedSkill: %v", err)
+	}
+	_ = mustCreateManagedSkill(t, store, ctx, Skill{Scope: "user", UserID: userID, Name: retained.Name, Description: "replacement"})
+
+	// The direct UPDATE deterministically takes the same partial-index branch
+	// that a create racing a restore would take after the precheck.
+	_, err := db.Exec(ctx, "UPDATE skill SET status = 'active' WHERE id = $1", retained.ID)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" || pgErr.ConstraintName != "idx_skill_owner_name" {
+		t.Fatalf("restore constraint error = %#v, want 23505/idx_skill_owner_name", err)
+	}
+	if got := managedRestoreUpdateError(err); !errors.Is(got, ErrSkillNameConflict) {
+		t.Fatalf("mapped restore error = %v, want ErrSkillNameConflict", got)
+	}
+}
+
 func TestManagedSkillRestoreRejectsDraftInsteadOfTreatingItAsIdempotent(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, _ := seedFixtures(t, db)
@@ -398,6 +422,56 @@ func TestManagedSkillDiskSyncRemovesAndRebuildsMirror(t *testing.T) {
 	reference, err := os.ReadFile(filepath.Join(base, updated.Name, "references", "retained.md"))
 	if err != nil || string(reference) != "reference" {
 		t.Fatalf("updated mirror reference = %q, %v", reference, err)
+	}
+}
+
+func TestManagedSkillDiskSyncDeprecateRetriesCommittedMirrorCleanup(t *testing.T) {
+	raw, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	base := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(base, []byte("file"), 0o644); err != nil {
+		t.Fatalf("create invalid mirror base: %v", err)
+	}
+	store := NewDiskSyncStore(raw, func(scope, agentID string, ownerID string) string { return base })
+	created := mustCreateManagedSkill(t, raw, ctx, Skill{Scope: "user", UserID: userID, Name: "cleanup-retry", Description: "d"})
+	in := ManagedSkillDeprecate{ID: created.ID, UserID: userID, Scope: "user", DeprecatedBy: userID}
+
+	deprecated, err := store.DeprecateManagedSkill(ctx, in)
+	if err == nil || deprecated.ID != created.ID || deprecated.Status != "deprecated" {
+		t.Fatalf("first deprecate = %#v, %v; want committed skill and cleanup error", deprecated, err)
+	}
+	row, err := raw.q.GetSkillByID(ctx, created.ID)
+	if err != nil || row.Status != "deprecated" || row.Version != created.Version+1 {
+		t.Fatalf("row after cleanup failure = %#v, %v", row, err)
+	}
+	logs, err := raw.ListSkillChangelogBySkill(ctx, created.ID, 10)
+	if err != nil || len(logs) != 1 || logs[0].Action != "deprecate" {
+		t.Fatalf("changelog after cleanup failure = %#v, %v", logs, err)
+	}
+	if err := store.SyncAllToDisk(ctx); err == nil {
+		t.Fatal("SyncAllToDisk accepted a deprecated mirror cleanup failure")
+	}
+
+	if err := os.Remove(base); err != nil {
+		t.Fatalf("remove invalid mirror base: %v", err)
+	}
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatalf("repair mirror base: %v", err)
+	}
+	retried, err := store.DeprecateManagedSkill(ctx, in)
+	if err != nil || retried.ID != created.ID || retried.Status != "deprecated" {
+		t.Fatalf("retry deprecate = %#v, %v", retried, err)
+	}
+	row, err = raw.q.GetSkillByID(ctx, created.ID)
+	if err != nil || row.Status != "deprecated" || row.Version != created.Version+1 {
+		t.Fatalf("row after cleanup retry = %#v, %v", row, err)
+	}
+	logs, err = raw.ListSkillChangelogBySkill(ctx, created.ID, 10)
+	if err != nil || len(logs) != 1 || logs[0].Action != "deprecate" {
+		t.Fatalf("changelog after cleanup retry = %#v, %v", logs, err)
+	}
+	if _, err := os.Stat(filepath.Join(base, created.Name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("mirror after cleanup retry stat error = %v, want absent", err)
 	}
 }
 

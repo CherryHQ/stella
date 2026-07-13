@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -197,7 +198,7 @@ func (s *PGStore) RestoreManagedSkill(ctx context.Context, in ManagedSkillRestor
 		return ManagedSkillRestoreResult{}, ErrSkillNotRestorable
 	}
 	if err != nil {
-		return ManagedSkillRestoreResult{}, fmt.Errorf("restore managed skill: %w", err)
+		return ManagedSkillRestoreResult{}, managedRestoreUpdateError(err)
 	}
 	after := mapRow(afterRow)
 	if IsReflectOwned(before) && before.Scope == "user_agent" {
@@ -215,6 +216,16 @@ func (s *PGStore) RestoreManagedSkill(ctx context.Context, in ManagedSkillRestor
 		return ManagedSkillRestoreResult{}, fmt.Errorf("commit managed skill restore: %w", err)
 	}
 	return ManagedSkillRestoreResult{Skill: after, Restored: true}, nil
+}
+
+// managedRestoreUpdateError closes the interval between the name-conflict
+// precheck and UPDATE. PostgreSQL remains the final concurrency authority.
+func managedRestoreUpdateError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_skill_owner_name" {
+		return ErrSkillNameConflict
+	}
+	return fmt.Errorf("restore managed skill: %w", err)
 }
 
 // UpdateManagedSkill atomically applies file upserts, metadata changes, an

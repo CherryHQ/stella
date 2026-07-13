@@ -110,11 +110,30 @@ func (d *DiskSyncStore) RestoreReflectOwnedUserAgentSkill(ctx context.Context, i
 // DeprecateManagedSkill changes the DB lifecycle state before removing its
 // mirror. A failed transaction therefore leaves the executable mirror intact.
 func (d *DiskSyncStore) DeprecateManagedSkill(ctx context.Context, in ManagedSkillDeprecate) (Skill, error) {
+	// A previous attempt may have committed the DB deprecation before its mirror
+	// cleanup failed. Retry that cleanup without touching version or changelog.
+	existing, err := d.findByID(ctx, in.ID)
+	if err != nil {
+		return Skill{}, err
+	}
+	if existing != nil && existing.Status == "deprecated" {
+		if err := validateDeprecatedMirrorRetry(*existing, in); err != nil {
+			return Skill{}, err
+		}
+		if err := d.removeSkillDir(ctx, existing); err != nil {
+			return *existing, fmt.Errorf("disk_sync deprecate %q: remove committed mirror: %w", existing.Name, err)
+		}
+		return *existing, nil
+	}
+
 	deprecated, err := d.Store.DeprecateManagedSkill(ctx, in)
 	if err != nil {
 		return Skill{}, err
 	}
-	d.removeSkillDir(ctx, &deprecated)
+	if err := d.removeSkillDir(ctx, &deprecated); err != nil {
+		// The DB transaction is already committed and must remain deprecated.
+		return deprecated, fmt.Errorf("disk_sync deprecate %q: remove committed mirror: %w", deprecated.Name, err)
+	}
 	return deprecated, nil
 }
 
@@ -174,7 +193,7 @@ func (d *DiskSyncStore) Delete(ctx context.Context, id string, vc ViewContext) e
 	if err := d.Store.Delete(ctx, id, vc); err != nil {
 		return err
 	}
-	d.removeSkillDir(ctx, sk)
+	_ = d.removeSkillDir(ctx, sk)
 	return nil
 }
 
@@ -202,26 +221,26 @@ func (d *DiskSyncStore) DeleteSystemSkill(ctx context.Context, id string) error 
 	if err := store.DeleteSystemSkill(ctx, id); err != nil {
 		return err
 	}
-	d.removeSkillDir(ctx, sk)
+	_ = d.removeSkillDir(ctx, sk)
 	return nil
 }
 
-func (d *DiskSyncStore) removeSkillDir(ctx context.Context, sk *Skill) {
+func (d *DiskSyncStore) removeSkillDir(ctx context.Context, sk *Skill) error {
 	if sk == nil {
-		return
+		return nil
 	}
 	base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
 	if base == "" {
-		return
+		return nil
 	}
 	skillDir, pathErr := safeDiskPath(base, sk.Name)
 	if pathErr != nil {
-		return
+		return fmt.Errorf("resolve mirror path for %q: %w", sk.Name, pathErr)
 	}
 	if err := os.RemoveAll(skillDir); err != nil {
-		slog.WarnContext(ctx, "disk_sync: failed to remove skill dir after DB delete",
-			"skill", sk.Name, "dir", skillDir, "err", err)
+		return fmt.Errorf("remove mirror directory %q: %w", skillDir, err)
 	}
+	return nil
 }
 
 // SyncAllToDisk materializes every skill in the DB to disk. The DB is the
@@ -238,7 +257,9 @@ func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 			continue
 		}
 		if sk.Status == "deprecated" {
-			d.removeSkillDir(ctx, &sk)
+			if err := d.removeSkillDir(ctx, &sk); err != nil {
+				return fmt.Errorf("disk_sync sync_all: remove deprecated mirror %q: %w", sk.Name, err)
+			}
 			continue
 		}
 		skillDir, pathErr := safeDiskPath(base, sk.Name)
@@ -264,6 +285,15 @@ func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 			}
 		}
 		removeOrphanDiskFiles(ctx, skillDir, files, sk.Name)
+	}
+	return nil
+}
+
+// validateDeprecatedMirrorRetry prevents an arbitrary ID from retrying a
+// mirror cleanup outside its mutable owner bucket.
+func validateDeprecatedMirrorRetry(sk Skill, in ManagedSkillDeprecate) error {
+	if !isMutableSkillScope(in.Scope) || sk.Scope != in.Scope || !managedOwnerMatches(sk, in.UserID, in.AgentID) {
+		return ErrSkillNotMutable
 	}
 	return nil
 }
