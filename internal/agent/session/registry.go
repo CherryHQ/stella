@@ -245,14 +245,13 @@ func (r *Registry) ListForReview(ctx context.Context, req ReviewRequest) ([]Info
 }
 
 // MemoryScope converts a validated session Info into a memory.Session scope.
-// This is the ONLY authorised way to produce memory.Session for production agent sessions.
-func (r *Registry) MemoryScope(info Info) memory.Session {
-	return memory.Session{
-		ID:      info.ID,
-		AgentID: info.AgentID,
-		UserID:  info.UserID,
-		Channel: info.Channel,
-	}
+// This is the ONLY authorised way to produce memory.Session for production agent
+// sessions; it delegates to the canonical Info.MemoryScope conversion. Private
+// read, write, and compaction resolve one partition; group read and write share
+// the durable canonical group scope (group compaction is unsupported, so
+// MemoryScope makes no claim about it). It fails closed on an invalid Info.
+func (r *Registry) MemoryScope(info Info) (memory.Session, error) {
+	return info.MemoryScope()
 }
 
 // --- internal helpers -------------------------------------------------------
@@ -300,6 +299,25 @@ func (r *Registry) validateResume(info Info, req Request) (Info, error) {
 	if !req.Channel.isZero() && info.Channel == "" {
 		info.Channel = string(req.Channel)
 	}
+	// Reconcile the requested group identity with the durable one.
+	if req.GroupID != "" {
+		switch {
+		case info.GroupID == req.GroupID:
+			// Durable group_id already matches; nothing to do.
+		case info.GroupID != "":
+			// A different durable group owns this session: reject rather than rebind.
+			return Info{}, fmt.Errorf("%w: session %s belongs to group %q, not %q", ErrForbidden, info.ID, info.GroupID, req.GroupID)
+		case info.UserID == req.GroupID:
+			// Legacy row with a NULL group_id whose owner is this group: reattach.
+			info.GroupID = req.GroupID
+		default:
+			return Info{}, fmt.Errorf("%w: group %q does not own session %s", ErrForbidden, req.GroupID, info.ID)
+		}
+	}
+	// Fail closed: never hand back a resumed Info that violates the invariant.
+	if err := info.Validate(); err != nil {
+		return Info{}, err
+	}
 	return info, nil
 }
 
@@ -308,6 +326,7 @@ func (r *Registry) createNew(ctx context.Context, req Request, agentID string) (
 	id := uuid.Must(uuid.NewV7()).String()
 	channel := defaultChannel(req.Channel, req.Kind)
 	info := NewInfo(id, agentID, req.UserID, channel, req.Kind, req.ProjectID, now)
+	info.GroupID = req.GroupID
 	info.Title = req.Title
 	if req.Kind == "" {
 		info.Kind = string(KindChat)
@@ -322,6 +341,7 @@ func (r *Registry) createWithID(ctx context.Context, id string, req Request, age
 	now := time.Now().UTC()
 	channel := defaultChannel(req.Channel, req.Kind)
 	info := NewInfo(id, agentID, req.UserID, channel, req.Kind, req.ProjectID, now)
+	info.GroupID = req.GroupID
 	info.Title = req.Title
 	if req.Kind == "" {
 		info.Kind = string(KindChat)

@@ -12,9 +12,6 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -559,32 +556,11 @@ func (s *Server) handleGroupCommand(ctx context.Context, groupID, content string
 	case "/config":
 		return "⚠️ /config is not available in group chats. Please use it in a direct message.", true
 	case "/compact":
-		var results []string
-		for _, m := range members {
-			svc := s.poolManager.GetService(m.AgentID)
-			if svc == nil {
-				continue
-			}
-			agentCtx := authz.WithAgentID(ctx, m.AgentID)
-			sessionKey := agent.BuildGroupSessionKey(m.AgentID, groupID)
-			channelStr := "group:" + groupID
-			info, err := svc.ResolveChannelSession(agentCtx, sessionKey, groupID, m.AgentID, session.Channel(channelStr))
-			if err != nil {
-				results = append(results, fmt.Sprintf("%s: failed to resolve session: %v", m.AgentID, err))
-				continue
-			}
-			info.GroupID = groupID
-			summary, err := svc.CompactSession(agentCtx, info)
-			if err != nil {
-				results = append(results, fmt.Sprintf("%s: compaction failed: %v", m.AgentID, err))
-				continue
-			}
-			results = append(results, fmt.Sprintf("%s: %s", m.AgentID, summary))
-		}
-		if len(results) == 0 {
-			return "No agents to compact.", true
-		}
-		return strings.Join(results, "\n"), true
+		// Group history is assembled from the group event log, not per-agent LCM
+		// conversations, so compaction does not apply here (see
+		// agent.ErrGroupCompactionUnsupported). Report it plainly instead of
+		// running a private-style compaction over an event-log conversation.
+		return pkgchannel.GroupCompactUnsupportedMessage, true
 	default:
 		return "", false
 	}

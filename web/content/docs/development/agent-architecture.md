@@ -41,16 +41,15 @@ The old `Pool` shape mixed these responsibilities. New code should not add behav
 
 Current important methods:
 
-| Method                  | Purpose                                                    | ID trust model                                             |
-| ----------------------- | ---------------------------------------------------------- | ---------------------------------------------------------- |
-| `Chat`                  | Foreground chat for an existing or newly generated session | caller-supplied `SessionID` is resume-only                 |
-| `ChatForChannel`        | Non-private channel/group chat                             | exact-create allowed because Stella derives `SessionKey`   |
-| `ChatForScheduler`      | Scheduler-initiated run                                    | exact-create allowed because scheduler derives `SessionID` |
-| `ResolveChannelSession` | Resolve channel session without running a turn             | trusted channel key, requires `KindChat`                   |
-| `NewSession`            | HTTP/Web UI create session                                 | generated ID only                                          |
-| `MintTaskSession`       | Task system creates a worker session                       | generated ID under resolved executor agent                 |
-| `Delegate`              | Run/resume delegate child session                          | caller/model supplied `SessionID` is resume-only           |
-| `ResolveMainSession`    | Resolve or create private main session                     | generated or promoted main session                         |
+| Method                                                        | Purpose                                                           | ID trust model                                                          |
+| ------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `Chat`                                                        | Foreground chat for an existing or newly generated session        | caller-supplied `SessionID` is resume-only                              |
+| `ChatForScheduler`                                            | Scheduler-initiated run                                           | exact-create allowed because scheduler derives `SessionID`              |
+| `ResolvePrivateChannelSession` / `ResolveGroupChannelSession` | Resolve a private or group channel session without running a turn | trusted channel key, requires `KindChat`; group id owns a group session |
+| `NewSession`                                                  | HTTP/Web UI create session                                        | generated ID only                                                       |
+| `MintTaskSession`                                             | Task system creates a worker session                              | generated ID under resolved executor agent                              |
+| `Delegate`                                                    | Run/resume delegate child session                                 | caller/model supplied `SessionID` is resume-only                        |
+| `ResolveMainSession`                                          | Resolve or create private main session                            | generated or promoted main session                                      |
 
 ### `session.Registry`
 
@@ -136,23 +135,24 @@ Memory owns:
 Hard rule:
 
 ```go
-// Production code should not hand-build memory.Session.
-scope := svc.Sessions.MemoryScope(validatedInfo)
+// Production code derives memory scope only from a validated session.Info.
+// MemoryScope validates the session invariant and fails closed on a bad Info.
+scope, err := svc.Sessions.MemoryScope(validatedInfo)
 ```
 
-Low-level memory tests are the exception. Production code should obtain `memory.Session` from a validated `session.Info` so ownership and kind policy cannot be bypassed.
+`session.Info` is a distinct, validated session-domain type — not an alias of `memory.SessionInfo`. All production code, including `runtime.Runtime`, obtains `memory.Session` only through `MemoryScope`; there is no runtime direct-construction exception. A group session carries a durable, validated `GroupID` (persisted on `ctx_conversation.group_id`, with `UserID == GroupID`). For a private session, read, write, and compaction resolve the same partition. A group session shares one durable canonical scope for read and write; group compaction is unsupported — `CompactSession` rejects it with `ErrGroupCompactionUnsupported` because group history is assembled from the group event log, not the LCM conversation. Low-level memory tests may still build a `memory.Session` directly.
 
 ## Session kinds and channels
 
 Session kind describes why the session exists. Channel describes where it originated.
 
-| Kind        | Owner                          | Visible to users?  | Creation path                          |
-| ----------- | ------------------------------ | ------------------ | -------------------------------------- |
-| `main`      | private user chat              | yes                | `ResolveMainSession`                   |
-| `chat`      | normal foreground/channel chat | yes                | `Chat`, `ChatForChannel`, `NewSession` |
-| `delegate`  | child agent work               | usually hidden     | `Delegate`                             |
-| `task`      | async task worker run          | hidden by default  | `MintTaskSession`                      |
-| `scheduler` | scheduled job run              | hidden or filtered | `ChatForScheduler`                     |
+| Kind        | Owner                          | Visible to users?  | Creation path                           |
+| ----------- | ------------------------------ | ------------------ | --------------------------------------- |
+| `main`      | private user chat              | yes                | `ResolveMainSession`                    |
+| `chat`      | normal foreground/channel chat | yes                | channel resolvers, `Chat`, `NewSession` |
+| `delegate`  | child agent work               | usually hidden     | `Delegate`                              |
+| `task`      | async task worker run          | hidden by default  | `MintTaskSession`                       |
+| `scheduler` | scheduled job run              | hidden or filtered | `ChatForScheduler`                      |
 
 Typed resume must validate kind. A scheduler run must not resume a delegate session even if the ID matches. A channel session must require `KindChat` even though channel keys are trusted.
 
@@ -256,9 +256,10 @@ Private user channels converge on the main session.
 ### Group or shared channel message
 
 ```text
-channel derives SessionKey
-    -> Service.ChatForChannel(SessionKey, KindChat, Channel)
+channel derives SessionKey and resolves the canonical GroupID
+    -> Service.ResolveGroupChannelSession(SessionKey, GroupID, AgentID, Channel)
     -> Registry exact-creates only because the key is Stella-derived
+    -> Service.Chat(validated group session)
     -> Runtime.Chat
 ```
 
@@ -370,8 +371,8 @@ ID: req.SessionID,
 ```
 
 ```go
-// Runtime called with session info that did not come from Registry.
-rt.Chat(ctx, memory.SessionInfo{ID: id}, msg)
+// Runtime called with a session.Info that did not come from Registry.
+rt.Chat(ctx, session.Info{ID: id}, msg)
 ```
 
 ```go

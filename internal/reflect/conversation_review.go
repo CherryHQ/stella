@@ -19,6 +19,14 @@ import (
 )
 
 func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot, target reviewTarget) error {
+	// The production reviewer predates the candidate pipeline, whose
+	// buildReviewUnit also enforces this boundary. Keep the live path fail-closed:
+	// group history is assembled from the shared event log and must not be mined
+	// as a private one-to-one conversation.
+	if !target.privateOneToOne {
+		return nil
+	}
+
 	ctx, span := startConversationSpan(ctx, target)
 	defer span.End()
 
