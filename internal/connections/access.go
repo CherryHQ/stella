@@ -51,9 +51,8 @@ func (a *Access) StartFlow(ctx context.Context, provider string, origin ...strin
 	return a.svc.StartFlow(ctx, a.userID, provider)
 }
 
-// PollFlow polls an in-flight OAuth flow, hiding a flow owned by another user.
-// Ownership is proven against the persisted flow owner: a foreign flow is
-// indistinguishable from an unknown one (opaque ErrNotFound).
+// PollFlow polls an in-flight OAuth flow. Ownership is proven against the
+// persisted flow owner; a foreign flow preserves the existing forbidden contract.
 func (a *Access) PollFlow(ctx context.Context, provider, flowID string) (FlowStatus, bool, error) {
 	if a.svc.flowStore == nil {
 		return FlowStatus{}, false, authz.ErrNotFound
@@ -63,7 +62,7 @@ func (a *Access) PollFlow(ctx context.Context, provider, flowID string) (FlowSta
 		return FlowStatus{}, false, authz.ErrNotFound
 	}
 	if flow.UserID != a.userID {
-		return FlowStatus{}, false, authz.ErrNotFound
+		return FlowStatus{}, false, authz.ErrForbidden
 	}
 	return a.svc.PollFlow(ctx, a.userID, provider, flowID)
 }

@@ -193,8 +193,8 @@ func TestOAuthPollFlowOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Access foreign: %v", err)
 	}
-	if _, _, err := accForeign.PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("foreign PollFlow err=%v, want not found (foreign flow hidden)", err)
+	if _, _, err := accForeign.PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("foreign PollFlow err=%v, want forbidden", err)
 	}
 	accOwner, err := svc.Access(userAuthority(t, "owner"))
 	if err != nil {

@@ -220,10 +220,8 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	registry.Register(credoauth.ProviderConfig{ID: "github", VaultKey: credoauth.VaultKeyGitHub})
 	oauthSvc.SetRegistry(registry)
 	oauthTool := connections.NewTool(oauthSvc)
-	// A foreign flow is hidden by the persisted flow owner, indistinguishable from
-	// a missing one — the tool never reveals that another user's flow exists.
-	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "owner-flow"}); err == nil || !strings.Contains(err.Error(), "flow expired or unknown") || out != "" {
-		t.Fatalf("oauth foreign status out=%q err=%v, want expired/unknown (hidden)", out, err)
+	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "owner-flow"}); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
+		t.Fatalf("oauth foreign status out=%q err=%v, want access denied", out, err)
 	}
 	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "missing-flow"}); err == nil || !strings.Contains(err.Error(), "flow expired or unknown") || out != "" {
 		t.Fatalf("oauth missing status out=%q err=%v, want expired/unknown", out, err)
