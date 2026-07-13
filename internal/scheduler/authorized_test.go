@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -15,6 +16,14 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	storepkg "github.com/CherryHQ/stella/internal/store"
 )
+
+func TestSchedulerIdempotencyConflictMatchesOnlyItsIndex(t *testing.T) {
+	idem := &pgconn.PgError{Code: "23505", ConstraintName: "idx_sched_job_idem"}
+	primary := &pgconn.PgError{Code: "23505", ConstraintName: "sched_job_pkey"}
+	if !isSchedulerIdempotencyConflict(idem) || isSchedulerIdempotencyConflict(primary) {
+		t.Fatal("scheduler idempotency conflict classifier matched the wrong unique index")
+	}
+}
 
 // pepEnv builds a PEP-enabled scheduler service with two system-scoped agents so
 // the folded-in agent-read gate always passes and the tests isolate job-resource

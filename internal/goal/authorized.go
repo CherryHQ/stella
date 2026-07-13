@@ -200,15 +200,15 @@ func (a *Access) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoal
 		return sqlc.AgentGoal{}, err
 	}
 	created, err := a.svc.Goal.CreateRoot(ctx, in)
-	if err == nil || in.IdempotencyKey == "" || !isGoalUniqueViolation(err) {
+	if err == nil || in.IdempotencyKey == "" || !isGoalIdempotencyConflict(err) {
 		return created, err
 	}
 	return replay()
 }
 
-func isGoalUniqueViolation(err error) bool {
+func isGoalIdempotencyConflict(err error) bool {
 	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_agent_goal_idem"
 }
 
 // Cancel authorizes a state change on a goal and cancels it (cascade handled by

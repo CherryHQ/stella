@@ -150,7 +150,7 @@ func (a *Access) createJob(ctx context.Context, name, message string, sched Sche
 		return Job{}, err
 	}
 	created, err := a.svc.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: a.userID, OwnerKind: JobOwnerUser, ExecScope: ExecScopeUser, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
-	if err == nil || idempotencyKey == "" || !isSchedulerUniqueViolation(err) {
+	if err == nil || idempotencyKey == "" || !isSchedulerIdempotencyConflict(err) {
 		return created, err
 	}
 	return replay()
@@ -445,9 +445,9 @@ func (a *Access) decideJob(action authz.Action, job Job) error {
 	return a.decideReq(req)
 }
 
-func isSchedulerUniqueViolation(err error) bool {
+func isSchedulerIdempotencyConflict(err error) bool {
 	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_sched_job_idem"
 }
 
 func (a *Access) decideReq(req authz.Request) error {

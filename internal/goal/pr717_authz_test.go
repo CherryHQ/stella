@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/authz/policy"
@@ -84,6 +85,14 @@ func (h *harness) seedRoot(t *testing.T, agentID string, createdAt time.Time) sq
 		t.Fatalf("stamp created_at: %v", err)
 	}
 	return d
+}
+
+func TestGoalIdempotencyConflictMatchesOnlyItsIndex(t *testing.T) {
+	idem := &pgconn.PgError{Code: "23505", ConstraintName: "idx_agent_goal_idem"}
+	primary := &pgconn.PgError{Code: "23505", ConstraintName: "agent_goal_pkey"}
+	if !isGoalIdempotencyConflict(idem) || isGoalIdempotencyConflict(primary) {
+		t.Fatal("goal idempotency conflict classifier matched the wrong unique index")
+	}
 }
 
 // TestGoalExecuteDeniedBlocksMutations proves lifecycle mutations gate on execute
