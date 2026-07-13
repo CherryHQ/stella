@@ -328,6 +328,47 @@ func TestManagedSkillListIncludesDraftAndPagesRecoverableRemovals(t *testing.T) 
 	}
 }
 
+func TestManagedSkillRemovedSearchFiltersBeforeCountAndKeysetPage(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	now := time.Now().UTC()
+
+	for _, sk := range []Skill{
+		{Scope: "user", UserID: userID, Name: "needle-name", Description: "other"},
+		{Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "other-name", Description: "Needle Description"},
+		{Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "unrelated", Description: "other"},
+	} {
+		created := mustCreateManagedSkill(t, store, ctx, sk)
+		if _, err := store.DeprecateManagedSkill(ctx, ManagedSkillDeprecate{
+			ID: created.ID, UserID: created.UserID, AgentID: created.AgentID,
+			Scope: created.Scope, DeprecatedBy: userID,
+		}); err != nil {
+			t.Fatalf("DeprecateManagedSkill %q: %v", created.Name, err)
+		}
+	}
+
+	first, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, AgentID: agentID, State: ManagedSkillStateRemoved,
+		Query: "nEeDlE", Limit: 1, Now: now,
+	})
+	if err != nil {
+		t.Fatalf("ListManagedSkills first search page: %v", err)
+	}
+	if first.Total != 2 || len(first.Items) != 1 || !first.HasMore || first.NextCursor == nil {
+		t.Fatalf("first searched removed page = %#v, want 1/2 with cursor", first)
+	}
+	second, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, AgentID: agentID, State: ManagedSkillStateRemoved,
+		Query: "NEEDLE", Limit: 1, Now: now, Cursor: first.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("ListManagedSkills second search page: %v", err)
+	}
+	if second.Total != 2 || len(second.Items) != 1 || second.Items[0].Skill.ID == first.Items[0].Skill.ID {
+		t.Fatalf("second searched removed page = %#v", second)
+	}
+}
+
 func TestManagedSkillActiveKeysetSurvivesEarlierInsertAndEqualTimestamp(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, _ := seedFixtures(t, db)

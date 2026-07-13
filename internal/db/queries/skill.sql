@@ -262,6 +262,11 @@ WHERE scope = ANY(sqlc.arg(scopes)::text[])
   AND status <> 'deprecated'
   AND (sqlc.narg(created_by)::text IS NULL OR metadata->>'created_by' = sqlc.narg(created_by)::text)
   AND (
+    sqlc.narg(search_query)::text IS NULL
+    OR lower(name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+    OR lower(description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+  )
+  AND (
     (scope = 'user' AND user_id = sqlc.narg(user_id)::uuid)
     OR (scope = 'user_agent' AND user_id = sqlc.narg(user_id)::uuid AND agent_id = sqlc.narg(agent_id)::text)
     OR (scope = 'system_agent' AND agent_id = sqlc.narg(agent_id)::text)
@@ -279,6 +284,11 @@ FROM skill
 WHERE scope = ANY(sqlc.arg(scopes)::text[])
   AND status <> 'deprecated'
   AND (sqlc.narg(created_by)::text IS NULL OR metadata->>'created_by' = sqlc.narg(created_by)::text)
+  AND (
+    sqlc.narg(search_query)::text IS NULL
+    OR lower(name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+    OR lower(description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+  )
   AND (
     (scope = 'user' AND user_id = sqlc.narg(user_id)::uuid)
     OR (scope = 'user_agent' AND user_id = sqlc.narg(user_id)::uuid AND agent_id = sqlc.narg(agent_id)::text)
@@ -302,6 +312,11 @@ JOIN LATERAL (
 WHERE s.scope = ANY(sqlc.arg(scopes)::text[])
   AND s.status = 'deprecated'
   AND (sqlc.narg(created_by)::text IS NULL OR s.metadata->>'created_by' = sqlc.narg(created_by)::text)
+  AND (
+    sqlc.narg(search_query)::text IS NULL
+    OR lower(s.name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+    OR lower(s.description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+  )
   AND (
     d.metadata->>'deprecated_by' = 'manual'
     OR d.metadata->>'curator' = 'usage'
@@ -333,6 +348,11 @@ JOIN LATERAL (
 WHERE s.scope = ANY(sqlc.arg(scopes)::text[])
   AND s.status = 'deprecated'
   AND (sqlc.narg(created_by)::text IS NULL OR s.metadata->>'created_by' = sqlc.narg(created_by)::text)
+  AND (
+    sqlc.narg(search_query)::text IS NULL
+    OR lower(s.name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+    OR lower(s.description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+  )
   AND (
     d.metadata->>'deprecated_by' = 'manual'
     OR d.metadata->>'curator' = 'usage'

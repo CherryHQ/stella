@@ -44,6 +44,7 @@ func (s *PGStore) ListManagedSkills(ctx context.Context, in ManagedSkillListQuer
 		in.Now = in.Now.UTC()
 	}
 	createdBy := pgtype.Text{String: in.CreatedBy, Valid: in.CreatedBy != ""}
+	query := pgtype.Text{String: in.Query, Valid: in.Query != ""}
 	userID, agentID := managedOwnerParams(in.UserID, in.AgentID)
 	limitPlusOne := in.Limit + 1
 	cursorTimestamp, cursorID := managedSkillCursorParams(in.Cursor)
@@ -51,13 +52,13 @@ func (s *PGStore) ListManagedSkills(ctx context.Context, in ManagedSkillListQuer
 	switch in.State {
 	case ManagedSkillStateActive:
 		total, err := s.q.CountManagedActiveSkills(ctx, sqlc.CountManagedActiveSkillsParams{
-			Scopes: scopes, CreatedBy: createdBy, UserID: userID, AgentID: agentID,
+			Scopes: scopes, CreatedBy: createdBy, SearchQuery: query, UserID: userID, AgentID: agentID,
 		})
 		if err != nil {
 			return ManagedSkillPage{}, fmt.Errorf("count managed active skills: %w", err)
 		}
 		rows, err := s.q.ListManagedActiveSkills(ctx, sqlc.ListManagedActiveSkillsParams{
-			Scopes: scopes, CreatedBy: createdBy, UserID: userID, AgentID: agentID,
+			Scopes: scopes, CreatedBy: createdBy, SearchQuery: query, UserID: userID, AgentID: agentID,
 			CursorTimestamp: cursorTimestamp, CursorID: cursorID, LimitCount: limitPlusOne,
 		})
 		if err != nil {
@@ -71,13 +72,13 @@ func (s *PGStore) ListManagedSkills(ctx context.Context, in ManagedSkillListQuer
 		return managedSkillPage(items, total, in.Limit), nil
 	case ManagedSkillStateRemoved:
 		total, err := s.q.CountManagedRemovedSkills(ctx, sqlc.CountManagedRemovedSkillsParams{
-			Scopes: scopes, CreatedBy: createdBy, NowAt: in.Now, UserID: userID, AgentID: agentID,
+			Scopes: scopes, CreatedBy: createdBy, SearchQuery: query, NowAt: in.Now, UserID: userID, AgentID: agentID,
 		})
 		if err != nil {
 			return ManagedSkillPage{}, fmt.Errorf("count managed removed skills: %w", err)
 		}
 		rows, err := s.q.ListManagedRemovedSkills(ctx, sqlc.ListManagedRemovedSkillsParams{
-			Scopes: scopes, CreatedBy: createdBy, NowAt: in.Now, UserID: userID, AgentID: agentID,
+			Scopes: scopes, CreatedBy: createdBy, SearchQuery: query, NowAt: in.Now, UserID: userID, AgentID: agentID,
 			CursorTimestamp: cursorTimestamp, CursorID: cursorID, LimitCount: limitPlusOne,
 		})
 		if err != nil {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	"github.com/CherryHQ/stella/internal/skills"
 )
 
 const (
@@ -50,6 +51,8 @@ const knowledgePageTokenKind = "knowledge"
 
 const changelogPageTokenKind = "changelog"
 
+const skillPageTokenKind = "skill"
+
 type knowledgePageToken struct {
 	Kind   string    `json:"kind"`
 	State  string    `json:"state"`
@@ -62,6 +65,13 @@ type changelogPageToken struct {
 	Scope  string    `json:"scope"`
 	SortAt time.Time `json:"sort_at"`
 	ID     string    `json:"id"`
+}
+
+type skillPageToken struct {
+	Kind   string     `json:"kind"`
+	State  string     `json:"state"`
+	SortAt *time.Time `json:"sort_at"`
+	ID     string     `json:"id"`
 }
 
 // encodeKnowledgePageToken keeps lifecycle positions opaque to clients and
@@ -92,6 +102,38 @@ func decodeKnowledgePageToken(token string, state memorywrite.KnowledgeState) (*
 		return nil, fmt.Errorf("page_token does not match the knowledge query")
 	}
 	return &memorywrite.KnowledgeCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
+}
+
+// encodeSkillPageToken binds a merged Skill cursor to its lifecycle state.
+func encodeSkillPageToken(state skills.ManagedSkillState, cursor skills.ManagedSkillCursor) (string, error) {
+	sortAt := cursor.Timestamp.UTC()
+	payload, err := json.Marshal(skillPageToken{
+		Kind: skillPageTokenKind, State: string(state), SortAt: &sortAt, ID: cursor.ID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode skill page token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeSkillPageToken(token string, state skills.ManagedSkillState) (*skills.ManagedSkillCursor, error) {
+	if token == "" {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	var decoded skillPageToken
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	// Filesystem skills intentionally have a zero timestamp, so their stable ID
+	// is sufficient to continue the final timestamp bucket.
+	if decoded.Kind != skillPageTokenKind || decoded.State != string(state) || decoded.SortAt == nil || decoded.ID == "" {
+		return nil, fmt.Errorf("page_token does not match the skill query")
+	}
+	return &skills.ManagedSkillCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
 }
 
 func encodeChangelogPageToken(scope string, cursor memory.ChangelogCursor) (string, error) {

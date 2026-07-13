@@ -84,6 +84,7 @@ type ManagedSkillListQuery struct {
 	AgentID   string
 	Scopes    []string
 	CreatedBy string
+	Query     string
 	State     ManagedSkillState
 	Limit     int32
 	Now       time.Time

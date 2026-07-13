@@ -399,7 +399,7 @@ func assertKnowledgeRecordNotFound(t *testing.T, env *testEnv, method string, pa
 	}
 }
 
-func mutateOpaqueToken(t *testing.T, token string, key string, value string) string {
+func mutateOpaqueToken(t *testing.T, token string, key string, value any) string {
 	t.Helper()
 	raw, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {

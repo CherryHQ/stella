@@ -20,23 +20,30 @@ WHERE scope = ANY($1::text[])
   AND status <> 'deprecated'
   AND ($2::text IS NULL OR metadata->>'created_by' = $2::text)
   AND (
-    (scope = 'user' AND user_id = $3::uuid)
-    OR (scope = 'user_agent' AND user_id = $3::uuid AND agent_id = $4::text)
-    OR (scope = 'system_agent' AND agent_id = $4::text)
+    $3::text IS NULL
+    OR lower(name) LIKE '%' || lower($3::text) || '%'
+    OR lower(description) LIKE '%' || lower($3::text) || '%'
+  )
+  AND (
+    (scope = 'user' AND user_id = $4::uuid)
+    OR (scope = 'user_agent' AND user_id = $4::uuid AND agent_id = $5::text)
+    OR (scope = 'system_agent' AND agent_id = $5::text)
   )
 `
 
 type CountManagedActiveSkillsParams struct {
-	Scopes    []string    `json:"scopes"`
-	CreatedBy pgtype.Text `json:"created_by"`
-	UserID    pgtype.Text `json:"user_id"`
-	AgentID   pgtype.Text `json:"agent_id"`
+	Scopes      []string    `json:"scopes"`
+	CreatedBy   pgtype.Text `json:"created_by"`
+	SearchQuery pgtype.Text `json:"search_query"`
+	UserID      pgtype.Text `json:"user_id"`
+	AgentID     pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) CountManagedActiveSkills(ctx context.Context, arg CountManagedActiveSkillsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countManagedActiveSkills,
 		arg.Scopes,
 		arg.CreatedBy,
+		arg.SearchQuery,
 		arg.UserID,
 		arg.AgentID,
 	)
@@ -60,29 +67,36 @@ WHERE s.scope = ANY($1::text[])
   AND s.status = 'deprecated'
   AND ($2::text IS NULL OR s.metadata->>'created_by' = $2::text)
   AND (
+    $3::text IS NULL
+    OR lower(s.name) LIKE '%' || lower($3::text) || '%'
+    OR lower(s.description) LIKE '%' || lower($3::text) || '%'
+  )
+  AND (
     d.metadata->>'deprecated_by' = 'manual'
     OR d.metadata->>'curator' = 'usage'
   )
-  AND d.created_at > $3::timestamptz - interval '2160 hours'
+  AND d.created_at > $4::timestamptz - interval '2160 hours'
   AND (
-    (s.scope = 'user' AND s.user_id = $4::uuid)
-    OR (s.scope = 'user_agent' AND s.user_id = $4::uuid AND s.agent_id = $5::text)
-    OR (s.scope = 'system_agent' AND s.agent_id = $5::text)
+    (s.scope = 'user' AND s.user_id = $5::uuid)
+    OR (s.scope = 'user_agent' AND s.user_id = $5::uuid AND s.agent_id = $6::text)
+    OR (s.scope = 'system_agent' AND s.agent_id = $6::text)
   )
 `
 
 type CountManagedRemovedSkillsParams struct {
-	Scopes    []string    `json:"scopes"`
-	CreatedBy pgtype.Text `json:"created_by"`
-	NowAt     time.Time   `json:"now_at"`
-	UserID    pgtype.Text `json:"user_id"`
-	AgentID   pgtype.Text `json:"agent_id"`
+	Scopes      []string    `json:"scopes"`
+	CreatedBy   pgtype.Text `json:"created_by"`
+	SearchQuery pgtype.Text `json:"search_query"`
+	NowAt       time.Time   `json:"now_at"`
+	UserID      pgtype.Text `json:"user_id"`
+	AgentID     pgtype.Text `json:"agent_id"`
 }
 
 func (q *Queries) CountManagedRemovedSkills(ctx context.Context, arg CountManagedRemovedSkillsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countManagedRemovedSkills,
 		arg.Scopes,
 		arg.CreatedBy,
+		arg.SearchQuery,
 		arg.NowAt,
 		arg.UserID,
 		arg.AgentID,
@@ -714,21 +728,27 @@ WHERE scope = ANY($1::text[])
   AND status <> 'deprecated'
   AND ($2::text IS NULL OR metadata->>'created_by' = $2::text)
   AND (
-    (scope = 'user' AND user_id = $3::uuid)
-    OR (scope = 'user_agent' AND user_id = $3::uuid AND agent_id = $4::text)
-    OR (scope = 'system_agent' AND agent_id = $4::text)
+    $3::text IS NULL
+    OR lower(name) LIKE '%' || lower($3::text) || '%'
+    OR lower(description) LIKE '%' || lower($3::text) || '%'
   )
   AND (
-    ($5::timestamptz IS NULL AND $6::text IS NULL)
-    OR (updated_at, id) < ($5::timestamptz, $6::text)
+    (scope = 'user' AND user_id = $4::uuid)
+    OR (scope = 'user_agent' AND user_id = $4::uuid AND agent_id = $5::text)
+    OR (scope = 'system_agent' AND agent_id = $5::text)
+  )
+  AND (
+    ($6::timestamptz IS NULL AND $7::text IS NULL)
+    OR (updated_at, id) < ($6::timestamptz, $7::text)
   )
 ORDER BY updated_at DESC, id DESC
-LIMIT $7
+LIMIT $8
 `
 
 type ListManagedActiveSkillsParams struct {
 	Scopes          []string           `json:"scopes"`
 	CreatedBy       pgtype.Text        `json:"created_by"`
+	SearchQuery     pgtype.Text        `json:"search_query"`
 	UserID          pgtype.Text        `json:"user_id"`
 	AgentID         pgtype.Text        `json:"agent_id"`
 	CursorTimestamp pgtype.Timestamptz `json:"cursor_timestamp"`
@@ -740,6 +760,7 @@ func (q *Queries) ListManagedActiveSkills(ctx context.Context, arg ListManagedAc
 	rows, err := q.db.Query(ctx, listManagedActiveSkills,
 		arg.Scopes,
 		arg.CreatedBy,
+		arg.SearchQuery,
 		arg.UserID,
 		arg.AgentID,
 		arg.CursorTimestamp,
@@ -795,26 +816,32 @@ WHERE s.scope = ANY($1::text[])
   AND s.status = 'deprecated'
   AND ($2::text IS NULL OR s.metadata->>'created_by' = $2::text)
   AND (
+    $3::text IS NULL
+    OR lower(s.name) LIKE '%' || lower($3::text) || '%'
+    OR lower(s.description) LIKE '%' || lower($3::text) || '%'
+  )
+  AND (
     d.metadata->>'deprecated_by' = 'manual'
     OR d.metadata->>'curator' = 'usage'
   )
-  AND d.created_at > $3::timestamptz - interval '2160 hours'
+  AND d.created_at > $4::timestamptz - interval '2160 hours'
   AND (
-    (s.scope = 'user' AND s.user_id = $4::uuid)
-    OR (s.scope = 'user_agent' AND s.user_id = $4::uuid AND s.agent_id = $5::text)
-    OR (s.scope = 'system_agent' AND s.agent_id = $5::text)
+    (s.scope = 'user' AND s.user_id = $5::uuid)
+    OR (s.scope = 'user_agent' AND s.user_id = $5::uuid AND s.agent_id = $6::text)
+    OR (s.scope = 'system_agent' AND s.agent_id = $6::text)
   )
   AND (
-    ($6::timestamptz IS NULL AND $7::text IS NULL)
-    OR (d.created_at, s.id) < ($6::timestamptz, $7::text)
+    ($7::timestamptz IS NULL AND $8::text IS NULL)
+    OR (d.created_at, s.id) < ($7::timestamptz, $8::text)
   )
 ORDER BY d.created_at DESC, s.id DESC
-LIMIT $8
+LIMIT $9
 `
 
 type ListManagedRemovedSkillsParams struct {
 	Scopes          []string           `json:"scopes"`
 	CreatedBy       pgtype.Text        `json:"created_by"`
+	SearchQuery     pgtype.Text        `json:"search_query"`
 	NowAt           time.Time          `json:"now_at"`
 	UserID          pgtype.Text        `json:"user_id"`
 	AgentID         pgtype.Text        `json:"agent_id"`
@@ -844,6 +871,7 @@ func (q *Queries) ListManagedRemovedSkills(ctx context.Context, arg ListManagedR
 	rows, err := q.db.Query(ctx, listManagedRemovedSkills,
 		arg.Scopes,
 		arg.CreatedBy,
+		arg.SearchQuery,
 		arg.NowAt,
 		arg.UserID,
 		arg.AgentID,
