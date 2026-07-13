@@ -254,6 +254,50 @@ func TestSchedulerAuthorizeDurableFire(t *testing.T) {
 
 // TestSchedulerAuthorizeDurableFireNilPEPFailsClosed proves a scheduler built
 // without an authorizer refuses to authorize any durable fire.
+func TestSchedulerDispatchReauthorizesWorkflowAndSystemHandler(t *testing.T) {
+	t.Run("workflow", func(t *testing.T) {
+		e := newPEPEnv(t)
+		runner := &fakeWorkflowRunner{wf: ScheduledWorkflow{ID: "wf", FullyFrozen: true}}
+		e.svc.SetWorkflowRunner(runner)
+		ps := policy.NewService(policy.New(e.svc.db))
+		if _, _, err := ps.CreatePolicy(context.Background(), policy.PolicyInput{
+			Name: "deny workflow job fire", Resource: authz.ResourceScheduler, Action: authz.ActionExecute,
+			Effect: policy.EffectDeny, Subjects: policy.AnySubject(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		job := Job{ID: "wf-job", UserID: e.ownerA, AgentID: "agent-a", OwnerKind: JobOwnerUser, DispatchKind: DispatchKindWorkflow, Payload: map[string]any{"workflow_id": "wf"}}
+		if err := e.svc.dispatchJob(context.Background(), job); err == nil {
+			t.Fatal("custom-denied workflow job dispatched")
+		}
+		if runner.authorizeCalls != 0 || runner.instantiateCalls != 0 {
+			t.Fatalf("workflow touched before Scheduler PEP: authorize=%d instantiate=%d", runner.authorizeCalls, runner.instantiateCalls)
+		}
+	})
+
+	t.Run("system handler", func(t *testing.T) {
+		e := newPEPEnv(t)
+		called := false
+		e.svc.mu.Lock()
+		e.svc.runtimeBuiltins = map[string]BuiltinJob{"native": {Name: "native", Handler: func(context.Context, Job) error { called = true; return nil }}}
+		e.svc.mu.Unlock()
+		ps := policy.NewService(policy.New(e.svc.db))
+		if _, _, err := ps.CreatePolicy(context.Background(), policy.PolicyInput{
+			Name: "deny native fire", Resource: authz.ResourceScheduler, Action: authz.ActionExecute,
+			Effect: policy.EffectDeny, Subjects: policy.AnySubject(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		job := Job{ID: "native-job", Name: "native", OwnerKind: JobOwnerSystem, DispatchKind: DispatchKindChat}
+		if err := e.svc.dispatchJob(context.Background(), job); err == nil {
+			t.Fatal("custom-denied system handler dispatched")
+		}
+		if called {
+			t.Fatal("system handler ran before Scheduler PEP")
+		}
+	})
+}
+
 func TestSchedulerAuthorizeDurableFireNilPEPFailsClosed(t *testing.T) {
 	svc, err := New(testDB(t))
 	if err != nil {
@@ -295,6 +339,41 @@ func TestSchedulerCreateJobIdempotencyReauthorizes(t *testing.T) {
 	if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "third", "msg", Schedule{Every: "3h"}, SessionReuse, "agent-a", "key"); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("deny-after-create idempotency err=%v, want forbidden", err)
 	}
+}
+
+func TestSchedulerCreateUsesActualStateAndReplaySkipsCreateDecision(t *testing.T) {
+	ctx := context.Background()
+	t.Run("disabled state", func(t *testing.T) {
+		e := newPEPEnv(t)
+		ps := policy.NewService(policy.New(e.svc.db))
+		if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
+			Name: "deny disabled create", Resource: authz.ResourceScheduler, Action: authz.ActionCreate,
+			Effect: policy.EffectDeny, Subjects: policy.AnySubject(),
+			Predicates: []policy.Predicate{policy.Eq("state", "disabled")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJobWithEnabled(ctx, "disabled", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", "", false); !errors.Is(err, authz.ErrForbidden) {
+			t.Fatalf("disabled Create err=%v, want forbidden", err)
+		}
+	})
+
+	t.Run("existing replay", func(t *testing.T) {
+		e := newPEPEnv(t)
+		if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "first", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", "replay"); err != nil {
+			t.Fatal(err)
+		}
+		ps := policy.NewService(policy.New(e.svc.db))
+		if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
+			Name: "deny future creates", Resource: authz.ResourceScheduler, Action: authz.ActionCreate,
+			Effect: policy.EffectDeny, Subjects: policy.AnySubject(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "ignored", "msg", Schedule{Every: "2h"}, SessionReuse, "agent-a", "replay"); err != nil {
+			t.Fatalf("authorized existing replay was blocked by Create deny: %v", err)
+		}
+	})
 }
 
 // TestSchedulerCreateWorkflowJobAuthorizesWorkflow proves the dispatch-target

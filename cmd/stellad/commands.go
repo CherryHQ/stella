@@ -651,19 +651,8 @@ func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req sch
 	}, nil
 }
 
-func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
-	// A fired scheduled workflow is a durable worker action: reconstruct the
-	// owner+executor authority from the persisted job and begin a fresh workflow
-	// evaluation, so a since-revoked agent assignment stops the run.
-	authority, err := agentaccess.WorkerAgentAuthority(req.UserID, req.AgentID)
-	if err != nil {
-		return scheduler.WorkflowInstantiateResult{}, err
-	}
-	acc, err := a.svc.Begin(ctx, authority)
-	if err != nil {
-		return scheduler.WorkflowInstantiateResult{}, err
-	}
-	run, _, err := acc.Instantiate(ctx, req.WorkflowID, req.Inputs, req.IdempotencyKey)
+func (a schedulerWorkflowAdapter) InstantiateWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
+	run, _, err := a.svc.InstantiateWithin(ctx, eval, authority, req.WorkflowID, req.Inputs, req.IdempotencyKey)
 	if err != nil {
 		return scheduler.WorkflowInstantiateResult{}, err
 	}
@@ -678,21 +667,10 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 	if svc == nil {
 		return
 	}
-	svc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
-		if job.OwnerKind == scheduler.JobOwnerPlugin {
-			return nil
-		}
-		// The scheduler domain owns the fire-time authorization: it reconstructs the
-		// authority from the job's persisted owner (never a request), then decides —
-		// under one revision-bound evaluation — the job's ActionExecute and its bound
-		// agent's ActionExecute. A revoked owner grant, custom deny, or revoked agent
-		// assignment fails the fire closed. The composition root only wires it and
-		// runs the turn under the returned authority.
-		authority, err := svc.AuthorizeDurableFire(ctx, job)
-		if err != nil {
-			return fmt.Errorf("scheduler: durable fire authorization denied for job %s: %w", job.ID, err)
-		}
-
+	svc.SetOnJob(func(ctx context.Context, job scheduler.Job, authority authz.Authority) error {
+		// Scheduler dispatch already decided the durable Job and actual Agent under
+		// one evaluation. The composition root only selects the implementation and
+		// runs the turn under that explicit authority.
 		agentSvc := poolMgr.GetService(job.AgentID)
 		if agentSvc == nil && job.AgentID == "" {
 			agentSvc = poolMgr.Default()

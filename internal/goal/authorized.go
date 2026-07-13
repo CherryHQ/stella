@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
@@ -161,23 +162,26 @@ func (a *Access) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoal
 		return sqlc.AgentGoal{}, authz.ErrForbidden
 	}
 	in.UserID = a.userID
-	// Idempotency replay: a goal already minted under this key is authorized
-	// against ITS OWN durable facts and persisted agent in this same evaluation,
-	// never the requested route. A reused key that names a different agent (or a
-	// goal since custom-denied) therefore fails closed instead of handing back a
-	// differently bound goal the caller may no longer touch.
-	if in.IdempotencyKey != "" {
+	// Idempotency replay is authorized against the existing row's durable facts,
+	// never the requested route. The same reload path also handles a concurrent
+	// creator winning the unique key between this lookup and the insert.
+	replay := func() (sqlc.AgentGoal, error) {
 		existing, err := a.svc.Queries.GetGoalByIdempotencyKey(ctx, sqlc.GetGoalByIdempotencyKeyParams{UserID: a.userID, IdempotencyKey: pgnull.Text(in.IdempotencyKey)})
-		switch {
-		case err == nil:
-			if derr := a.decide(authz.ActionRead, existing); derr != nil {
-				return sqlc.AgentGoal{}, derr
-			}
-			if derr := a.authorizeAgent(ctx, existing.AgentID); derr != nil {
-				return sqlc.AgentGoal{}, derr
-			}
+		if err != nil {
+			return sqlc.AgentGoal{}, err
+		}
+		if err := a.decide(authz.ActionRead, existing); err != nil {
+			return sqlc.AgentGoal{}, err
+		}
+		if err := a.authorizeAgent(ctx, existing.AgentID); err != nil {
+			return sqlc.AgentGoal{}, err
+		}
+		return existing, nil
+	}
+	if in.IdempotencyKey != "" {
+		if existing, err := replay(); err == nil {
 			return existing, nil
-		case !errors.Is(err, pgx.ErrNoRows):
+		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return sqlc.AgentGoal{}, err
 		}
 	}
@@ -195,7 +199,16 @@ func (a *Access) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoal
 	if err := a.authorizeAgent(ctx, in.AgentID); err != nil {
 		return sqlc.AgentGoal{}, err
 	}
-	return a.svc.Goal.CreateRoot(ctx, in)
+	created, err := a.svc.Goal.CreateRoot(ctx, in)
+	if err == nil || in.IdempotencyKey == "" || !isGoalUniqueViolation(err) {
+		return created, err
+	}
+	return replay()
+}
+
+func isGoalUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // Cancel authorizes a state change on a goal and cancels it (cascade handled by

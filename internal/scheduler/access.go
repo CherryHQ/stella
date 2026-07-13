@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/authz/policy"
@@ -57,27 +60,40 @@ func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access
 // durable agent-dispatch owner. Plugin jobs never dispatch through here; passing
 // one is rejected explicitly.
 func (s *Service) AuthorizeDurableFire(ctx context.Context, job Job) (authz.Authority, error) {
-	if s.authz == nil || s.agents == nil {
-		return authz.Authority{}, fmt.Errorf("scheduler authorization unavailable: authorizer not configured")
+	acc, err := s.beginDurableFire(ctx, job)
+	if err != nil {
+		return authz.Authority{}, err
 	}
-	if job.AgentID == "" {
-		return authz.Authority{}, fmt.Errorf("scheduler: durable job %s has no agent to authorize", job.ID)
+	return acc.authority, nil
+}
+
+// beginDurableFire returns the scheduler Access whose single evaluation protects
+// the entire dispatch. System handler jobs may have no agent, but still require
+// their Scheduler Execute decision. User and agent-dispatch system jobs also
+// decide the actual bound Agent Execute under that same revision.
+func (s *Service) beginDurableFire(ctx context.Context, job Job) (*Access, error) {
+	if s.authz == nil || s.agents == nil {
+		return nil, fmt.Errorf("scheduler authorization unavailable: authorizer not configured")
 	}
 	authority, err := durableFireAuthority(job)
 	if err != nil {
-		return authz.Authority{}, err
+		return nil, err
 	}
 	acc, err := s.Begin(ctx, authority)
 	if err != nil {
-		return authz.Authority{}, err
+		return nil, err
 	}
 	if err := acc.decideJob(authz.ActionExecute, job); err != nil {
-		return authz.Authority{}, err
+		return nil, err
 	}
-	if err := acc.authorizeAgentAction(ctx, job.AgentID, authz.ActionExecute); err != nil {
-		return authz.Authority{}, err
+	if job.AgentID != "" {
+		if err := acc.authorizeAgentAction(ctx, job.AgentID, authz.ActionExecute); err != nil {
+			return nil, err
+		}
+	} else if job.OwnerKind != JobOwnerSystem {
+		return nil, fmt.Errorf("scheduler: durable job %s has no agent to authorize", job.ID)
 	}
-	return authority, nil
+	return acc, nil
 }
 
 // durableFireAuthority reconstructs the sole authority shape a persisted job may
@@ -109,28 +125,35 @@ func (a *Access) CreateJobWithEnabled(ctx context.Context, name, message string,
 }
 
 func (a *Access) createJob(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID, idempotencyKey string, enabled bool) (Job, error) {
-	if err := a.authorizeCreate(ctx, agentID); err != nil {
-		return Job{}, err
+	replay := func() (Job, error) {
+		row, err := a.svc.q.GetSchedulerJobByIdempotencyKey(ctx, sqlc.GetSchedulerJobByIdempotencyKeyParams{UserID: pgnull.Text(a.userID), IdempotencyKey: pgnull.Text(idempotencyKey)})
+		if err != nil {
+			return Job{}, err
+		}
+		existing, err := a.loadAndAuthorize(ctx, agentID, row.ID, authz.ActionRead)
+		if err != nil {
+			return Job{}, err
+		}
+		if !enabled {
+			return a.SetJobEnabled(ctx, agentID, existing.ID, false)
+		}
+		return existing, nil
 	}
 	if idempotencyKey != "" {
-		row, err := a.svc.q.GetSchedulerJobByIdempotencyKey(ctx, sqlc.GetSchedulerJobByIdempotencyKeyParams{UserID: pgnull.Text(a.userID), IdempotencyKey: pgnull.Text(idempotencyKey)})
-		if err == nil {
-			// An idempotency hit returns a pre-existing job, so re-decide that job's
-			// real durable facts and its agent under this same evaluation — the create
-			// decision above only covered the requested shape. A requested-agent
-			// mismatch (same key, different agent) is hidden as not-found, and a
-			// since-created custom deny stops the raw row from being handed back.
-			existing, aerr := a.loadAndAuthorize(ctx, agentID, row.ID, authz.ActionRead)
-			if aerr != nil {
-				return Job{}, aerr
-			}
-			if !enabled {
-				return a.SetJobEnabled(ctx, agentID, existing.ID, false)
-			}
+		if existing, err := replay(); err == nil {
 			return existing, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return Job{}, err
 		}
 	}
-	return a.svc.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: a.userID, OwnerKind: JobOwnerUser, ExecScope: ExecScopeUser, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
+	if err := a.authorizeCreate(ctx, agentID, enabled); err != nil {
+		return Job{}, err
+	}
+	created, err := a.svc.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: a.userID, OwnerKind: JobOwnerUser, ExecScope: ExecScopeUser, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
+	if err == nil || idempotencyKey == "" || !isSchedulerUniqueViolation(err) {
+		return created, err
+	}
+	return replay()
 }
 
 // CreateWorkflowJob creates a user-owned workflow-dispatch job. The dispatch
@@ -139,7 +162,7 @@ func (a *Access) createJob(ctx context.Context, name, message string, sched Sche
 // fire time, so the caller must be able to execute it now. The actual fire
 // re-authorizes again from the persisted job.
 func (a *Access) CreateWorkflowJob(ctx context.Context, name string, sched Schedule, sessionMode, agentID, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
-	if err := a.authorizeCreate(ctx, agentID); err != nil {
+	if err := a.authorizeCreate(ctx, agentID, true); err != nil {
 		return Job{}, err
 	}
 	runner := a.svc.workflowRunnerRef()
@@ -154,7 +177,7 @@ func (a *Access) CreateWorkflowJob(ctx context.Context, name string, sched Sched
 
 // Subscribe creates a user-owned template-subscription job.
 func (a *Access) Subscribe(ctx context.Context, agentID, key string, schedOverride Schedule) (Job, error) {
-	if err := a.authorizeCreate(ctx, agentID); err != nil {
+	if err := a.authorizeCreate(ctx, agentID, true); err != nil {
 		return Job{}, err
 	}
 	return a.svc.Subscribe(ctx, a.userID, agentID, key, schedOverride)
@@ -291,15 +314,19 @@ func (a *Access) ListRuns(ctx context.Context, agentID, jobID string, fetch, off
 
 // authorizeCreate gates a new user-owned job: authenticated, agent-confined for a
 // delegated actor, agent-read on the target agent, and a scheduler create policy.
-func (a *Access) authorizeCreate(ctx context.Context, agentID string) error {
+func (a *Access) authorizeCreate(ctx context.Context, agentID string, enabled bool) error {
 	if a.userID == "" {
 		return authz.ErrUnauthenticated
 	}
 	if a.scopeAgentID != "" && a.scopeAgentID != agentID {
 		return authz.ErrForbidden
 	}
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
 	facts := policy.SchedulerFacts{
-		Owner: a.userID, Agent: agentID, Kind: JobOwnerUser, State: "enabled", IsOwner: true,
+		Owner: a.userID, Agent: agentID, Kind: JobOwnerUser, State: state, IsOwner: true,
 		IsExecutor: a.scopeAgentID != "" && a.scopeAgentID == agentID,
 	}
 	req, err := policy.SchedulerRequest(authz.ActionCreate, a.userID, a.userID, facts)
@@ -416,6 +443,11 @@ func (a *Access) decideJob(action authz.Action, job Job) error {
 		return authz.ErrForbidden
 	}
 	return a.decideReq(req)
+}
+
+func isSchedulerUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 func (a *Access) decideReq(req authz.Request) error {

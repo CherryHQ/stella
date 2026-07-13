@@ -48,12 +48,26 @@ func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access
 	if err != nil {
 		return nil, fmt.Errorf("%w: begin: %w", ErrUnavailable, err)
 	}
+	return s.accessWithin(eval, authority), nil
+}
+
+func (s *Service) accessWithin(eval authz.Evaluation, authority authz.Authority) *Access {
 	actor := authority.Actor()
 	agentID := ""
 	if actor.Kind() == authz.ActorAgent {
 		agentID = string(actor.AgentID())
 	}
-	return &Access{svc: s, eval: eval, authority: authority, userID: string(actor.UserID()), agentID: agentID}, nil
+	return &Access{svc: s, eval: eval, authority: authority, userID: string(actor.UserID()), agentID: agentID}
+}
+
+// InstantiateWithin executes the Workflow use case inside a caller's already-open
+// evaluation. Scheduler durable fire uses it so Job, Workflow, and Agent decisions
+// are pinned to one policy revision.
+func (s *Service) InstantiateWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, id string, inputs map[string]string, idempotencyKey string) (sqlc.AgentWorkflowRun, bool, error) {
+	if eval == nil || !authority.Valid() {
+		return sqlc.AgentWorkflowRun{}, false, ErrForbidden
+	}
+	return s.accessWithin(eval, authority).Instantiate(ctx, id, inputs, idempotencyKey)
 }
 
 // List lists the caller's workflows and filters every row through the same
@@ -140,6 +154,9 @@ func (a *Access) Delete(ctx context.Context, id string) error {
 // both create authority on the workflow (owner) and execute authority on the
 // workflow's bound agent, decided under this single evaluation.
 func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.AgentWorkflow, error) {
+	if a.svc.agents == nil {
+		return sqlc.AgentWorkflow{}, fmt.Errorf("%w: agent authorization is not configured", ErrUnavailable)
+	}
 	if a.userID == "" {
 		return sqlc.AgentWorkflow{}, ErrForbidden
 	}
@@ -189,6 +206,9 @@ func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Age
 // executes under the workflow's own persisted agent; the caller must own the
 // workflow (execute) and be able to execute that agent, both decided here.
 func (a *Access) Instantiate(ctx context.Context, id string, inputs map[string]string, idempotencyKey string) (sqlc.AgentWorkflowRun, bool, error) {
+	if a.svc.agents == nil {
+		return sqlc.AgentWorkflowRun{}, false, fmt.Errorf("%w: agent authorization is not configured", ErrUnavailable)
+	}
 	wf, err := a.load(ctx, id)
 	if err != nil {
 		return sqlc.AgentWorkflowRun{}, false, err

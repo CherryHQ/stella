@@ -1,9 +1,13 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 )
 
 // createScopedSkill posts to /api/skills as the given session and returns the
@@ -91,6 +95,36 @@ func TestScopedSkills_CrossUserIsolation(t *testing.T) {
 
 // TestScopedSkills_ListScopeGuard verifies listing a system scope requires admin
 // and that a scope returns only its own bucket.
+func TestScopedSkills_ListHonorsPerRowPolicy(t *testing.T) {
+	env := setupAdmin(t)
+	_, sid := newNonAdmin(t, env, "scoped-policy")
+	visibleID := createScopedSkill(t, env, sid, map[string]any{"name": "visible", "scope": "user"})
+	hiddenID := createScopedSkill(t, env, sid, map[string]any{"name": "hidden", "scope": "user"})
+	if _, err := env.db.Exec(context.Background(), `UPDATE skill SET metadata = '{"source":"tainted"}'::jsonb WHERE id = $1`, hiddenID); err != nil {
+		t.Fatal(err)
+	}
+	ps := policy.NewService(policy.New(env.db))
+	if _, _, err := ps.CreatePolicy(context.Background(), policy.PolicyInput{
+		Name: "hide tainted skill", Resource: authz.ResourceSkill, Action: authz.ActionRead,
+		Effect: policy.EffectDeny, Subjects: policy.AnySubject(),
+		Predicates: []policy.Predicate{policy.Eq("source", "tainted")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := doRequestWithSession(t, env.srv, sid, "GET", "/api/skills?scope=user", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rr.Code, rr.Body.String())
+	}
+	list := decodeSkillList(t, rr)
+	if findSkill(list, visibleID) == nil && findSkill(list, "visible") == nil {
+		t.Fatalf("visible skill missing: %#v", list)
+	}
+	if findSkill(list, hiddenID) != nil || findSkill(list, "hidden") != nil {
+		t.Fatalf("custom-denied skill leaked: %#v", list)
+	}
+}
+
 func TestScopedSkills_ListScopeGuard(t *testing.T) {
 	env := setupAdmin(t)
 	_, sid := newNonAdmin(t, env, "scoped-list")

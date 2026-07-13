@@ -31,6 +31,29 @@ func (a *countingAuthorizer) Begin(ctx context.Context, authority authz.Authorit
 	return a.Authorizer.Begin(ctx, authority)
 }
 
+func TestWorkflowMissingAgentPEPFailsClosed(t *testing.T) {
+	pool := dbtest.New(t)
+	svc := New(pool, nil, policy.New(pool), nil)
+	rss, err := authz.NewRoleSet(authz.RoleUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := authz.NewUserAuthority(authz.UserID(uuid.NewString()), rss, authz.GrantSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc, err := svc.Begin(context.Background(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := acc.Instantiate(context.Background(), "missing", nil, ""); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Instantiate missing Agent PEP err=%v, want unavailable", err)
+	}
+	if _, err := acc.SaveGoalAsWorkflow(context.Background(), SaveInput{GoalID: "missing"}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("SaveGoalAsWorkflow missing Agent PEP err=%v, want unavailable", err)
+	}
+}
+
 func TestEmbeddedPostgresWorkflowPolicyMatrix(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)

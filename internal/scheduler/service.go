@@ -30,13 +30,18 @@ var ErrOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 // in-flight and durable work can finish undisturbed.
 var ErrSchedulerQuiescing = errors.New("scheduler is quiescing")
 
-// OnJobFunc is called when a scheduled job fires.
+// OnJobFunc observes a scheduled job after its primary dispatch attempt.
 type OnJobFunc func(ctx context.Context, job Job) error
+
+// AuthorizedJobFunc runs the primary agent dispatch with the authority already
+// decided by the scheduler's durable-fire PEP. Keeping it explicit prevents the
+// composition callback from opening a second policy revision.
+type AuthorizedJobFunc func(ctx context.Context, job Job, authority authz.Authority) error
 
 type WorkflowRunner interface {
 	ValidateScheduledWorkflow(ctx context.Context, req WorkflowValidateRequest) (ScheduledWorkflow, error)
 	LatestWorkflowRun(ctx context.Context, req WorkflowLatestRunRequest) (WorkflowRunState, error)
-	InstantiateWorkflow(ctx context.Context, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error)
+	InstantiateWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error)
 	// AuthorizeWorkflowWithin decides the workflow resource through its own policy
 	// inside a caller's already-open evaluation, so a scheduler use case can gate a
 	// dispatch target workflow under its single revision instead of trusting a raw
@@ -97,8 +102,9 @@ type Service struct {
 	river           *river.Client[pgx.Tx]
 	ownsRiver       bool // true when Service built its own River client (default/test); false in external-river mode
 	externalRiver   bool // set by WithExternalRiver: caller injects+owns the shared client
-	onJob           OnJobFunc
+	onJob           AuthorizedJobFunc
 	listeners       []OnJobFunc
+	authorizeFire   func(context.Context, Job) (*Access, error)
 	workflowRunner  WorkflowRunner
 	db              *pgxpool.Pool
 	q               *sqlc.Queries
@@ -151,8 +157,7 @@ func WithExternalRiver() Option {
 
 // WithAuthorization injects the unified Authorizer and the agent-access gate used
 // by the Authority-based Access PEP. Without it, Begin fails closed and every
-// transport/tool use case is denied — the raw *Service methods (worker dispatch,
-// builtin/ensure jobs) remain callable for trusted internal wiring.
+// transport/tool use case and every Stella-owned durable fire is denied.
 func WithAuthorization(az authz.Authorizer, agents *agentaccess.Service) Option {
 	return func(s *Service) {
 		s.authz = az
@@ -174,6 +179,9 @@ func New(db *pgxpool.Pool, opts ...Option) (*Service, error) {
 	for _, o := range opts {
 		o(s)
 	}
+	// Production dispatch is hard-wired to the domain PEP. Tests in this package
+	// may replace the unexported seam when exercising unrelated River mechanics.
+	s.authorizeFire = s.beginDurableFire
 	if !s.externalRiver {
 		client, err := newSchedulerRiverClient(s, db)
 		if err != nil {
@@ -231,8 +239,9 @@ func (s *Service) SetUserJobsEnabled(enabled bool) {
 	s.userJobsEnabled = enabled
 }
 
-// SetOnJob sets the primary callback invoked when a job fires.
-func (s *Service) SetOnJob(fn OnJobFunc) {
+// SetOnJob sets the primary agent callback invoked after the scheduler has
+// authorized the durable fire. The callback receives that exact authority.
+func (s *Service) SetOnJob(fn AuthorizedJobFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onJob = fn
@@ -957,8 +966,27 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	listeners := append([]OnJobFunc(nil), s.listeners...)
 	s.mu.Unlock()
 
+	// Plugin-owned jobs are delivered only to their registered plugin listeners;
+	// they carry no user/system authority and never enter Stella's agent/workflow
+	// execution paths. Every Stella-owned durable fire is authorized here before
+	// branching, including workflow and handler-mode system jobs.
+	var fire *Access
+	if job.OwnerKind != JobOwnerPlugin {
+		if s.authorizeFire == nil {
+			return fmt.Errorf("scheduler: durable fire authorization is not configured")
+		}
+		var err error
+		fire, err = s.authorizeFire(ctx, job)
+		if err != nil {
+			return fmt.Errorf("scheduler: durable fire authorization denied for job %s: %w", job.ID, err)
+		}
+	}
+
 	if normalizeDispatchKind(job.DispatchKind) == DispatchKindWorkflow {
-		return s.dispatchWorkflowJob(ctx, job, workflowRunner, listeners)
+		if fire == nil {
+			return fmt.Errorf("scheduler: plugin job %s cannot dispatch a workflow", job.ID)
+		}
+		return s.dispatchWorkflowJob(ctx, job, workflowRunner, listeners, fire)
 	}
 
 	// Subscription instances carry an empty message; resolve from the template
@@ -978,6 +1006,8 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 
 	var runErr error
 	switch {
+	case job.OwnerKind == JobOwnerPlugin:
+		// Plugin jobs are dispatched exclusively by listeners below.
 	case handler != nil && job.OwnerKind == JobOwnerSystem:
 		// Handler-mode builtin: bypass the default agent dispatch. Gated on
 		// system ownership so a user- or plugin-owned job that happens to
@@ -990,7 +1020,7 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 		runErr = fmt.Errorf("scheduler: system job %q has no handler registered and no message", job.Name)
 		s.log.Error("scheduler: dropping orphan system job run", "job_id", job.ID, "name", job.Name)
 	case fn != nil:
-		runErr = fn(ctx, job)
+		runErr = fn(ctx, job, fire.authority)
 	}
 	for _, listener := range listeners {
 		if err := listener(ctx, job); err != nil && runErr == nil {
@@ -1000,7 +1030,7 @@ func (s *Service) dispatchJob(ctx context.Context, job Job) error {
 	return runErr
 }
 
-func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner WorkflowRunner, listeners []OnJobFunc) error {
+func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner WorkflowRunner, listeners []OnJobFunc, fire *Access) error {
 	if runner == nil {
 		return fmt.Errorf("workflow scheduler dispatch is not configured")
 	}
@@ -1011,6 +1041,11 @@ func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner Workf
 	runID := RunIDFromContext(ctx)
 	if runID == "" {
 		return fmt.Errorf("scheduler run id missing from context")
+	}
+	// The Scheduler job, Workflow target, and Agent execute decisions share the
+	// durable fire's single evaluation. Authorize before even reading run state.
+	if err := runner.AuthorizeWorkflowWithin(ctx, fire.eval, fire.authority, workflowID, authz.ActionExecute); err != nil {
+		return err
 	}
 	latest, err := runner.LatestWorkflowRun(ctx, WorkflowLatestRunRequest{WorkflowID: workflowID})
 	if err != nil {
@@ -1038,7 +1073,7 @@ func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner Workf
 			}
 		}
 	}
-	result, err := runner.InstantiateWorkflow(ctx, WorkflowInstantiateRequest{UserID: job.UserID, AgentID: job.AgentID, WorkflowID: workflowID, Inputs: payloadStringMap(job.Payload, "inputs"), IdempotencyKey: idempotencyKey})
+	result, err := runner.InstantiateWorkflowWithin(ctx, fire.eval, fire.authority, WorkflowInstantiateRequest{UserID: job.UserID, AgentID: job.AgentID, WorkflowID: workflowID, Inputs: payloadStringMap(job.Payload, "inputs"), IdempotencyKey: idempotencyKey})
 	if err != nil {
 		return err
 	}
