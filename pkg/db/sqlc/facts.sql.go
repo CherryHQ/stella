@@ -13,6 +13,67 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countActiveKnowledge = `-- name: CountActiveKnowledge :one
+SELECT count(*)
+FROM facts
+WHERE user_id = $1
+  AND agent_id = $2
+  AND scope = 'user_agent'
+  AND subject = 'world'
+  AND status = 'active'
+`
+
+type CountActiveKnowledgeParams struct {
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) CountActiveKnowledge(ctx context.Context, arg CountActiveKnowledgeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveKnowledge, arg.UserID, arg.AgentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countRemovedKnowledge = `-- name: CountRemovedKnowledge :one
+SELECT count(*)
+FROM facts f
+JOIN LATERAL (
+  SELECT c.created_at, c.metadata
+  FROM ctx_agent_memory_changelog c
+  WHERE c.user_id = f.user_id
+    AND c.agent_id = f.agent_id
+    AND c.scope = 'fact'
+    AND c.action = 'deprecate'
+    AND c.entity_id = f.id::text
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE f.user_id = $1
+  AND f.agent_id = $2
+  AND f.scope = 'user_agent'
+  AND f.subject = 'world'
+  AND f.status = 'deprecated'
+  AND (
+    (d.metadata::jsonb)->>'deprecated_by' = 'manual'
+    OR (d.metadata::jsonb)->>'curator' = 'usage'
+  )
+  AND d.created_at > $3::timestamptz - interval '90 days'
+`
+
+type CountRemovedKnowledgeParams struct {
+	UserID  string    `json:"user_id"`
+	AgentID string    `json:"agent_id"`
+	NowAt   time.Time `json:"now_at"`
+}
+
+func (q *Queries) CountRemovedKnowledge(ctx context.Context, arg CountRemovedKnowledgeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRemovedKnowledge, arg.UserID, arg.AgentID, arg.NowAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deprecateFact = `-- name: DeprecateFact :one
 UPDATE facts
 SET status = 'deprecated',
@@ -165,6 +226,51 @@ func (q *Queries) GetLatestCuratorDeprecateFactChangelog(ctx context.Context, ar
 	return i, err
 }
 
+const getLatestQualifyingKnowledgeDeprecateChangelog = `-- name: GetLatestQualifyingKnowledgeDeprecateChangelog :one
+SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at
+FROM (
+  SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at
+  FROM ctx_agent_memory_changelog
+  WHERE user_id = $1
+    AND agent_id = $2
+    AND scope = 'fact'
+    AND action = 'deprecate'
+    AND entity_id = $3::text
+  ORDER BY created_at DESC, id DESC
+  LIMIT 1
+) latest
+WHERE (latest.metadata::jsonb)->>'deprecated_by' = 'manual'
+   OR (latest.metadata::jsonb)->>'curator' = 'usage'
+`
+
+type GetLatestQualifyingKnowledgeDeprecateChangelogParams struct {
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+	FactID  string `json:"fact_id"`
+}
+
+func (q *Queries) GetLatestQualifyingKnowledgeDeprecateChangelog(ctx context.Context, arg GetLatestQualifyingKnowledgeDeprecateChangelogParams) (CtxAgentMemoryChangelog, error) {
+	row := q.db.QueryRow(ctx, getLatestQualifyingKnowledgeDeprecateChangelog, arg.UserID, arg.AgentID, arg.FactID)
+	var i CtxAgentMemoryChangelog
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.AgentID,
+		&i.SessionID,
+		&i.EntityID,
+		&i.Scope,
+		&i.Action,
+		&i.Source,
+		&i.MemoryVersionBefore,
+		&i.MemoryVersionAfter,
+		&i.BeforeText,
+		&i.AfterText,
+		&i.Metadata,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertFact = `-- name: InsertFact :one
 INSERT INTO facts (id, subject, scope, user_id, agent_id, content, status, metadata, supersedes, version, source, created_at, updated_at)
 VALUES ($1, $2, 'user_agent', $3, $4, $5, 'active', $6, $7, 1, $8, now(), now())
@@ -254,6 +360,100 @@ func (q *Queries) ListActiveFactsBySubject(ctx context.Context, arg ListActiveFa
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveKnowledge = `-- name: ListActiveKnowledge :many
+SELECT id, subject, scope, user_id, agent_id, content, status, metadata, supersedes, version, source, created_at, updated_at
+FROM facts
+WHERE user_id = $1
+  AND agent_id = $2
+  AND scope = 'user_agent'
+  AND subject = 'world'
+  AND status = 'active'
+ORDER BY updated_at DESC, id DESC
+LIMIT $4
+OFFSET $3
+`
+
+type ListActiveKnowledgeParams struct {
+	UserID      string `json:"user_id"`
+	AgentID     string `json:"agent_id"`
+	OffsetCount int32  `json:"offset_count"`
+	LimitCount  int32  `json:"limit_count"`
+}
+
+func (q *Queries) ListActiveKnowledge(ctx context.Context, arg ListActiveKnowledgeParams) ([]Fact, error) {
+	rows, err := q.db.Query(ctx, listActiveKnowledge,
+		arg.UserID,
+		arg.AgentID,
+		arg.OffsetCount,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Fact{}
+	for rows.Next() {
+		var i Fact
+		if err := rows.Scan(
+			&i.ID,
+			&i.Subject,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Content,
+			&i.Status,
+			&i.Metadata,
+			&i.Supersedes,
+			&i.Version,
+			&i.Source,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveKnowledgeContents = `-- name: ListActiveKnowledgeContents :many
+SELECT content
+FROM facts
+WHERE user_id = $1
+  AND agent_id = $2
+  AND scope = 'user_agent'
+  AND subject = 'world'
+  AND status = 'active'
+`
+
+type ListActiveKnowledgeContentsParams struct {
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) ListActiveKnowledgeContents(ctx context.Context, arg ListActiveKnowledgeContentsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listActiveKnowledgeContents, arg.UserID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var content string
+		if err := rows.Scan(&content); err != nil {
+			return nil, err
+		}
+		items = append(items, content)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -446,6 +646,147 @@ func (q *Queries) ListRecentlyForgottenReflectKnowledge(ctx context.Context, arg
 		return nil, err
 	}
 	return items, nil
+}
+
+const listRemovedKnowledge = `-- name: ListRemovedKnowledge :many
+SELECT
+  f.id, f.subject, f.scope, f.user_id, f.agent_id, f.content, f.status, f.metadata, f.supersedes, f.version, f.source, f.created_at, f.updated_at,
+  d.created_at AS deprecated_at,
+  d.metadata AS deprecate_metadata
+FROM facts f
+JOIN LATERAL (
+  SELECT c.created_at, c.metadata
+  FROM ctx_agent_memory_changelog c
+  WHERE c.user_id = f.user_id
+    AND c.agent_id = f.agent_id
+    AND c.scope = 'fact'
+    AND c.action = 'deprecate'
+    AND c.entity_id = f.id::text
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE f.user_id = $1
+  AND f.agent_id = $2
+  AND f.scope = 'user_agent'
+  AND f.subject = 'world'
+  AND f.status = 'deprecated'
+  AND (
+    (d.metadata::jsonb)->>'deprecated_by' = 'manual'
+    OR (d.metadata::jsonb)->>'curator' = 'usage'
+  )
+  AND d.created_at > $3::timestamptz - interval '90 days'
+ORDER BY d.created_at DESC, f.id DESC
+LIMIT $5
+OFFSET $4
+`
+
+type ListRemovedKnowledgeParams struct {
+	UserID      string    `json:"user_id"`
+	AgentID     string    `json:"agent_id"`
+	NowAt       time.Time `json:"now_at"`
+	OffsetCount int32     `json:"offset_count"`
+	LimitCount  int32     `json:"limit_count"`
+}
+
+type ListRemovedKnowledgeRow struct {
+	ID                string          `json:"id"`
+	Subject           string          `json:"subject"`
+	Scope             string          `json:"scope"`
+	UserID            string          `json:"user_id"`
+	AgentID           string          `json:"agent_id"`
+	Content           string          `json:"content"`
+	Status            string          `json:"status"`
+	Metadata          json.RawMessage `json:"metadata"`
+	Supersedes        pgtype.Text     `json:"supersedes"`
+	Version           int64           `json:"version"`
+	Source            string          `json:"source"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+	DeprecatedAt      time.Time       `json:"deprecated_at"`
+	DeprecateMetadata pgtype.Text     `json:"deprecate_metadata"`
+}
+
+func (q *Queries) ListRemovedKnowledge(ctx context.Context, arg ListRemovedKnowledgeParams) ([]ListRemovedKnowledgeRow, error) {
+	rows, err := q.db.Query(ctx, listRemovedKnowledge,
+		arg.UserID,
+		arg.AgentID,
+		arg.NowAt,
+		arg.OffsetCount,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRemovedKnowledgeRow{}
+	for rows.Next() {
+		var i ListRemovedKnowledgeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Subject,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Content,
+			&i.Status,
+			&i.Metadata,
+			&i.Supersedes,
+			&i.Version,
+			&i.Source,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeprecatedAt,
+			&i.DeprecateMetadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const restoreKnowledgeFact = `-- name: RestoreKnowledgeFact :one
+UPDATE facts
+SET status = 'active',
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+  AND user_id = $2
+  AND agent_id = $3
+  AND scope = 'user_agent'
+  AND subject = 'world'
+  AND status = 'deprecated'
+RETURNING id, subject, scope, user_id, agent_id, content, status, metadata, supersedes, version, source, created_at, updated_at
+`
+
+type RestoreKnowledgeFactParams struct {
+	ID      string `json:"id"`
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) RestoreKnowledgeFact(ctx context.Context, arg RestoreKnowledgeFactParams) (Fact, error) {
+	row := q.db.QueryRow(ctx, restoreKnowledgeFact, arg.ID, arg.UserID, arg.AgentID)
+	var i Fact
+	err := row.Scan(
+		&i.ID,
+		&i.Subject,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Content,
+		&i.Status,
+		&i.Metadata,
+		&i.Supersedes,
+		&i.Version,
+		&i.Source,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const restoreReflectWorldFact = `-- name: RestoreReflectWorldFact :one

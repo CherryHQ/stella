@@ -40,6 +40,19 @@ WHERE id = sqlc.arg(id)
   AND source = 'reflect'
 RETURNING *;
 
+-- name: RestoreKnowledgeFact :one
+UPDATE facts
+SET status = 'active',
+    version = version + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = 'user_agent'
+  AND subject = 'world'
+  AND status = 'deprecated'
+RETURNING *;
+
 -- name: ListActiveFactsBySubject :many
 SELECT * FROM facts
 WHERE user_id = $1
@@ -47,6 +60,108 @@ WHERE user_id = $1
   AND subject = $3
   AND status = 'active'
 ORDER BY created_at, id;
+
+-- name: ListActiveKnowledge :many
+SELECT *
+FROM facts
+WHERE user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = 'user_agent'
+  AND subject = 'world'
+  AND status = 'active'
+ORDER BY updated_at DESC, id DESC
+LIMIT sqlc.arg(limit_count)
+OFFSET sqlc.arg(offset_count);
+
+-- name: CountActiveKnowledge :one
+SELECT count(*)
+FROM facts
+WHERE user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = 'user_agent'
+  AND subject = 'world'
+  AND status = 'active';
+
+-- name: ListRemovedKnowledge :many
+SELECT
+  f.*,
+  d.created_at AS deprecated_at,
+  d.metadata AS deprecate_metadata
+FROM facts f
+JOIN LATERAL (
+  SELECT c.created_at, c.metadata
+  FROM ctx_agent_memory_changelog c
+  WHERE c.user_id = f.user_id
+    AND c.agent_id = f.agent_id
+    AND c.scope = 'fact'
+    AND c.action = 'deprecate'
+    AND c.entity_id = f.id::text
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE f.user_id = sqlc.arg(user_id)
+  AND f.agent_id = sqlc.arg(agent_id)
+  AND f.scope = 'user_agent'
+  AND f.subject = 'world'
+  AND f.status = 'deprecated'
+  AND (
+    (d.metadata::jsonb)->>'deprecated_by' = 'manual'
+    OR (d.metadata::jsonb)->>'curator' = 'usage'
+  )
+  AND d.created_at > sqlc.arg(now_at)::timestamptz - interval '90 days'
+ORDER BY d.created_at DESC, f.id DESC
+LIMIT sqlc.arg(limit_count)
+OFFSET sqlc.arg(offset_count);
+
+-- name: CountRemovedKnowledge :one
+SELECT count(*)
+FROM facts f
+JOIN LATERAL (
+  SELECT c.created_at, c.metadata
+  FROM ctx_agent_memory_changelog c
+  WHERE c.user_id = f.user_id
+    AND c.agent_id = f.agent_id
+    AND c.scope = 'fact'
+    AND c.action = 'deprecate'
+    AND c.entity_id = f.id::text
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE f.user_id = sqlc.arg(user_id)
+  AND f.agent_id = sqlc.arg(agent_id)
+  AND f.scope = 'user_agent'
+  AND f.subject = 'world'
+  AND f.status = 'deprecated'
+  AND (
+    (d.metadata::jsonb)->>'deprecated_by' = 'manual'
+    OR (d.metadata::jsonb)->>'curator' = 'usage'
+  )
+  AND d.created_at > sqlc.arg(now_at)::timestamptz - interval '90 days';
+
+-- name: GetLatestQualifyingKnowledgeDeprecateChangelog :one
+SELECT *
+FROM (
+  SELECT *
+  FROM ctx_agent_memory_changelog
+  WHERE user_id = sqlc.arg(user_id)
+    AND agent_id = sqlc.arg(agent_id)
+    AND scope = 'fact'
+    AND action = 'deprecate'
+    AND entity_id = sqlc.arg(fact_id)::text
+  ORDER BY created_at DESC, id DESC
+  LIMIT 1
+) latest
+WHERE (latest.metadata::jsonb)->>'deprecated_by' = 'manual'
+   OR (latest.metadata::jsonb)->>'curator' = 'usage';
+
+-- name: ListActiveKnowledgeContents :many
+SELECT content
+FROM facts
+WHERE user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = 'user_agent'
+  AND subject = 'world'
+  AND status = 'active';
 
 -- name: ListFactChangelogUpToVersion :many
 SELECT * FROM ctx_agent_memory_changelog

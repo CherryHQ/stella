@@ -1,0 +1,362 @@
+package memorywrite
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+)
+
+func TestKnowledgeLifecycleListActiveOrdersAndPaginates(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	first := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "first")
+	second := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "second")
+	third := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "third")
+	for _, update := range []struct {
+		id string
+		at time.Time
+	}{
+		{first.ID, time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC)},
+		{second.ID, time.Date(2026, 7, 10, 2, 0, 0, 0, time.UTC)},
+		{third.ID, time.Date(2026, 7, 10, 3, 0, 0, 0, time.UTC)},
+	} {
+		if _, err := db.Exec(ctx, "UPDATE facts SET updated_at = $1 WHERE id = $2", update.at, update.id); err != nil {
+			t.Fatalf("set fact update time: %v", err)
+		}
+	}
+
+	page, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateActive, Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge: %v", err)
+	}
+	if page.Total != 3 || !page.HasMore || len(page.Items) != 2 {
+		t.Fatalf("active page = %#v, want total 3 and two items with more", page)
+	}
+	if page.Items[0].Fact.ID != third.ID || page.Items[1].Fact.ID != second.ID {
+		t.Fatalf("active order = [%s, %s], want [%s, %s]", page.Items[0].Fact.ID, page.Items[1].Fact.ID, third.ID, second.ID)
+	}
+
+	page, err = ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateActive, Limit: 2, Offset: 2,
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge offset: %v", err)
+	}
+	if page.Total != 3 || page.HasMore || len(page.Items) != 1 || page.Items[0].Fact.ID != first.ID {
+		t.Fatalf("active offset page = %#v, want final fact", page)
+	}
+}
+
+func TestKnowledgeLifecycleManualCreateAndReflectReplacement(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	created := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "  durable manual content  ")
+	if created.Content != "durable manual content" || created.Source != memory.SourceManual || created.Subject != memory.FactSubjectWorld {
+		t.Fatalf("created fact = %#v", created)
+	}
+	if _, err := q.GetKnowledgeUsageForUpdate(ctx, sqlc.GetKnowledgeUsageForUpdateParams{FactID: created.ID, UserID: userID, AgentID: agentID}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("manual knowledge usage err = %v, want no rows", err)
+	}
+
+	reflectFact, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectWorld, Content: "reflect content", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("CreateFact reflect: %v", err)
+	}
+	replaced, err := ReplaceKnowledge(ctx, db, q, KnowledgeReplaceInput{
+		FactID: reflectFact.ID, UserID: userID, AgentID: agentID, Content: "  manual replacement  ",
+	})
+	if err != nil {
+		t.Fatalf("ReplaceKnowledge: %v", err)
+	}
+	if replaced.Content != "manual replacement" || replaced.Source != memory.SourceManual || replaced.Supersedes != reflectFact.ID {
+		t.Fatalf("replacement = %#v", replaced)
+	}
+	old, err := q.GetFact(ctx, sqlc.GetFactParams{ID: reflectFact.ID, UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("GetFact replaced fact: %v", err)
+	}
+	if old.Status != string(memory.FactStatusDeprecated) {
+		t.Fatalf("replaced fact status = %q, want deprecated", old.Status)
+	}
+}
+
+func TestKnowledgeLifecycleRejectsEmptyContent(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	_, err := CreateKnowledge(context.Background(), db, q, KnowledgeCreateInput{
+		UserID: userID, AgentID: agentID, Content: " \t\n ",
+	})
+	if err == nil {
+		t.Fatal("CreateKnowledge accepted empty trimmed content")
+	}
+}
+
+func TestKnowledgeLifecycleConcurrentReplaceHasOneWinner(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	target := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "replace target")
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, content := range []string{"replacement one", "replacement two"} {
+		go func(content string) {
+			<-start
+			_, err := ReplaceKnowledge(ctx, db, q, KnowledgeReplaceInput{
+				FactID: target.ID, UserID: userID, AgentID: agentID, Content: content,
+			})
+			results <- err
+		}(content)
+	}
+	close(start)
+
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		} else if !errors.Is(err, ErrFactNotRestorable) {
+			t.Fatalf("concurrent ReplaceKnowledge err = %v", err)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("concurrent replacement successes = %d, want 1", successes)
+	}
+}
+
+func TestKnowledgeLifecycleManualDeleteAndRestore(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	created := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "durable content")
+	removed, err := DeprecateKnowledge(ctx, db, q, KnowledgeDeprecateInput{
+		FactID: created.ID, UserID: userID, AgentID: agentID, DeprecatedBy: userID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed.Status != memory.FactStatusDeprecated {
+		t.Fatalf("status = %q", removed.Status)
+	}
+
+	removedPage, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateRemoved, Limit: 10, Now: removed.UpdatedAt.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge removed: %v", err)
+	}
+	if len(removedPage.Items) != 1 || removedPage.Items[0].RemovalSource != KnowledgeRemovalManual || !removedPage.Items[0].IsRestorable {
+		t.Fatalf("removed page = %#v", removedPage)
+	}
+	if removedPage.Items[0].DeprecatedAt == nil || removedPage.Items[0].RestoreDeadline == nil {
+		t.Fatalf("removed item missing lifecycle timestamps: %#v", removedPage.Items[0])
+	}
+
+	restored, err := RestoreKnowledge(ctx, db, q, KnowledgeRestoreInput{
+		FactID: created.ID, UserID: userID, AgentID: agentID, RestoredBy: userID,
+		Now: removed.UpdatedAt.Add(89 * 24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !restored.Restored || restored.Fact.Source != memory.SourceManual || restored.Fact.Status != memory.FactStatusActive {
+		t.Fatalf("restore = %#v", restored)
+	}
+	noOp, err := RestoreKnowledge(ctx, db, q, KnowledgeRestoreInput{
+		FactID: created.ID, UserID: userID, AgentID: agentID, RestoredBy: userID,
+	})
+	if err != nil {
+		t.Fatalf("idempotent restore: %v", err)
+	}
+	if noOp.Restored || noOp.Fact.ID != created.ID {
+		t.Fatalf("idempotent restore = %#v", noOp)
+	}
+	memoryRow, err := q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("GetUserAgentMemory: %v", err)
+	}
+	if memoryRow.Version != 3 {
+		t.Fatalf("memory version = %d, want 3", memoryRow.Version)
+	}
+	logs, err := q.ListFactChangelogUpToVersion(ctx, sqlc.ListFactChangelogUpToVersionParams{
+		UserID: userID, AgentID: agentID, MemoryVersionAfter: pgtype.Int8{Int64: memoryRow.Version, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("ListFactChangelogUpToVersion: %v", err)
+	}
+	if len(logs) != 3 || logs[0].Action != "create" || logs[1].Action != "deprecate" || logs[2].Action != "restore" {
+		t.Fatalf("lifecycle changelog = %#v", logs)
+	}
+	var metadata map[string]string
+	if err := json.Unmarshal([]byte(logs[1].Metadata.String), &metadata); err != nil {
+		t.Fatalf("parse deprecate metadata: %v", err)
+	}
+	if metadata["deprecated_by"] != "manual" || metadata["deprecated_by_user_id"] != userID {
+		t.Fatalf("deprecate metadata = %#v", metadata)
+	}
+}
+
+func TestKnowledgeLifecycleFiltersRemovedAndRejectsExpiredOrDuplicateRestore(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	manual := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "manual removed")
+	removed, err := DeprecateKnowledge(ctx, db, q, KnowledgeDeprecateInput{
+		FactID: manual.ID, UserID: userID, AgentID: agentID, DeprecatedBy: userID,
+	})
+	if err != nil {
+		t.Fatalf("DeprecateKnowledge: %v", err)
+	}
+
+	curator, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectWorld, Content: "curator removed", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("CreateFact curator: %v", err)
+	}
+	if _, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
+		Action: FactBatchDeprecateMany, Subject: memory.FactSubjectWorld, TargetFactIDs: []string{curator.ID},
+		Metadata: json.RawMessage(`{"curator":"usage"}`),
+	}}); err != nil {
+		t.Fatalf("ApplyFactBatch curator deprecate: %v", err)
+	}
+
+	replaced := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "replacement removed")
+	if _, err := ReplaceKnowledge(ctx, db, q, KnowledgeReplaceInput{
+		FactID: replaced.ID, UserID: userID, AgentID: agentID, Content: "replacement active",
+	}); err != nil {
+		t.Fatalf("ReplaceKnowledge: %v", err)
+	}
+
+	page, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateRemoved, Limit: 10, Now: removed.UpdatedAt.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge removed: %v", err)
+	}
+	if page.Total != 2 || len(page.Items) != 2 {
+		t.Fatalf("removed page = %#v, want only manual and curator removals", page)
+	}
+	expiredPage, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateRemoved, Limit: 10, Now: removed.UpdatedAt.Add(KnowledgeRestoreWindow),
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge expired removed: %v", err)
+	}
+	for _, item := range expiredPage.Items {
+		if item.Fact.ID == manual.ID {
+			t.Fatalf("expired manual fact %s was listed", manual.ID)
+		}
+	}
+
+	_, err = RestoreKnowledge(ctx, db, q, KnowledgeRestoreInput{
+		FactID: manual.ID, UserID: userID, AgentID: agentID, RestoredBy: userID,
+		Now: removed.UpdatedAt.Add(KnowledgeRestoreWindow),
+	})
+	if !errors.Is(err, ErrFactRestoreExpired) {
+		t.Fatalf("expired restore err = %v, want ErrFactRestoreExpired", err)
+	}
+
+	duplicate := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "duplicate content")
+	if _, err := DeprecateKnowledge(ctx, db, q, KnowledgeDeprecateInput{
+		FactID: duplicate.ID, UserID: userID, AgentID: agentID, DeprecatedBy: userID,
+	}); err != nil {
+		t.Fatalf("deprecate duplicate: %v", err)
+	}
+	mustCreateKnowledge(t, ctx, db, q, userID, agentID, "duplicate content")
+	_, err = RestoreKnowledge(ctx, db, q, KnowledgeRestoreInput{
+		FactID: duplicate.ID, UserID: userID, AgentID: agentID, RestoredBy: userID,
+	})
+	if !errors.Is(err, ErrFactDuplicateContent) {
+		t.Fatalf("duplicate restore err = %v, want ErrFactDuplicateContent", err)
+	}
+
+	trimmed := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "trimmed duplicate")
+	if _, err := DeprecateKnowledge(ctx, db, q, KnowledgeDeprecateInput{
+		FactID: trimmed.ID, UserID: userID, AgentID: agentID, DeprecatedBy: userID,
+	}); err != nil {
+		t.Fatalf("deprecate trimmed duplicate: %v", err)
+	}
+	if _, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectWorld, Content: "  trimmed duplicate  ", Source: memory.SourceReflect,
+	}); err != nil {
+		t.Fatalf("CreateFact spaced duplicate: %v", err)
+	}
+	_, err = RestoreKnowledge(ctx, db, q, KnowledgeRestoreInput{
+		FactID: trimmed.ID, UserID: userID, AgentID: agentID, RestoredBy: userID,
+	})
+	if !errors.Is(err, ErrFactDuplicateContent) {
+		t.Fatalf("trimmed duplicate restore err = %v, want ErrFactDuplicateContent", err)
+	}
+}
+
+func TestKnowledgeLifecycleRejectsCrossOwnerAndRestoresReflectUsage(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	fact, err := CreateFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectWorld, Content: "reflect restoration", Source: memory.SourceReflect,
+	})
+	if err != nil {
+		t.Fatalf("CreateFact: %v", err)
+	}
+	if _, err := DeprecateKnowledge(ctx, db, q, KnowledgeDeprecateInput{
+		FactID: fact.ID, UserID: userID, AgentID: agentID, DeprecatedBy: userID,
+	}); err != nil {
+		t.Fatalf("DeprecateKnowledge: %v", err)
+	}
+	if _, err := q.GetKnowledgeUsageForUpdate(ctx, sqlc.GetKnowledgeUsageForUpdateParams{FactID: fact.ID, UserID: userID, AgentID: agentID}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("usage after deprecate err = %v, want no rows", err)
+	}
+
+	_, err = RestoreKnowledge(ctx, db, q, KnowledgeRestoreInput{
+		FactID: fact.ID, UserID: "00000000-0000-0000-0000-000000000001", AgentID: agentID, RestoredBy: userID,
+	})
+	if !errors.Is(err, ErrFactNotRestorable) {
+		t.Fatalf("cross-owner restore err = %v, want ErrFactNotRestorable", err)
+	}
+	owned := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "cross-owner replacement")
+	_, err = ReplaceKnowledge(ctx, db, q, KnowledgeReplaceInput{
+		FactID: owned.ID, UserID: "00000000-0000-0000-0000-000000000001", AgentID: agentID, Content: "must not write",
+	})
+	if !errors.Is(err, ErrFactNotRestorable) {
+		t.Fatalf("cross-owner replace err = %v, want ErrFactNotRestorable", err)
+	}
+	if _, err := RestoreKnowledge(ctx, db, q, KnowledgeRestoreInput{
+		FactID: fact.ID, UserID: userID, AgentID: agentID, RestoredBy: userID,
+	}); err != nil {
+		t.Fatalf("RestoreKnowledge reflect: %v", err)
+	}
+	if _, err := q.GetKnowledgeUsageForUpdate(ctx, sqlc.GetKnowledgeUsageForUpdateParams{FactID: fact.ID, UserID: userID, AgentID: agentID}); err != nil {
+		t.Fatalf("reflect usage after restore: %v", err)
+	}
+}
+
+func mustCreateKnowledge(t *testing.T, ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, content string) memory.Fact {
+	t.Helper()
+	fact, err := CreateKnowledge(ctx, db, q, KnowledgeCreateInput{UserID: userID, AgentID: agentID, Content: content})
+	if err != nil {
+		t.Fatalf("CreateKnowledge: %v", err)
+	}
+	return fact
+}
