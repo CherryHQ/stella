@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
   getClawhubSkill,
   listAgents,
@@ -8,7 +8,24 @@ import {
   listProfileMemories,
   listSchedulerJobs,
 } from "@/lib/api-client/sdk.gen";
+import type { ComponentsSkillList, ListAgentSkillsData } from "@/lib/api-client/types.gen";
 import type { Agent, Skill, Tool, UserMemory } from "@/lib/types";
+
+type AgentSkillState = NonNullable<ListAgentSkillsData["query"]>["state"];
+type AgentSkillScopeGroup = NonNullable<ListAgentSkillsData["query"]>["scope_group"];
+type AgentSkillCreatedBy = NonNullable<ListAgentSkillsData["query"]>["created_by"];
+
+export interface AgentSkillsPageFilters {
+  agentId: string;
+  projectId?: string;
+  sessionId?: string;
+  state: AgentSkillState;
+  scopeGroup?: AgentSkillScopeGroup;
+  createdBy?: AgentSkillCreatedBy;
+  q?: string;
+}
+
+const AGENT_SKILLS_PAGE_SIZE = 12;
 
 export function clawhubSkillsOptions(query: string) {
   const q = query.trim();
@@ -70,6 +87,7 @@ export function agentSkillsOptions(agentId: string) {
   return queryOptions({
     queryKey: ["agent-skills", agentId],
     queryFn: async () => {
+      // Runtime/session consumers require the complete merged active set.
       const combined =
         (await listAgentSkills({ path: { id: agentId }, throwOnError: true })
           .then(({ data }) => data?.skills ?? [])
@@ -83,6 +101,46 @@ export function agentSkillsOptions(agentId: string) {
     },
     enabled: !!agentId,
   });
+}
+
+export function agentSkillsInfiniteQueryOptions(filters: AgentSkillsPageFilters) {
+  const q = filters.q?.trim() ?? "";
+  return infiniteQueryOptions({
+    queryKey: [
+      "agent-skills-management",
+      filters.agentId,
+      filters.projectId ?? "",
+      filters.sessionId ?? "",
+      filters.state,
+      filters.scopeGroup ?? "all",
+      filters.createdBy ?? "all",
+      q,
+      AGENT_SKILLS_PAGE_SIZE,
+    ],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      const { data } = await listAgentSkills({
+        path: { id: filters.agentId },
+        query: {
+          state: filters.state,
+          ...(filters.scopeGroup ? { scope_group: filters.scopeGroup } : {}),
+          ...(filters.createdBy ? { created_by: filters.createdBy } : {}),
+          ...(q ? { q } : {}),
+          page_size: AGENT_SKILLS_PAGE_SIZE,
+          ...(filters.sessionId ? { session_id: filters.sessionId } : {}),
+          ...(pageParam ? { page_token: pageParam } : {}),
+        },
+        throwOnError: true,
+      });
+      return data;
+    },
+    getNextPageParam: (lastPage) => lastPage.next_page_token ?? undefined,
+    enabled: !!filters.agentId,
+  });
+}
+
+export function flattenAgentSkillPages(pages?: ComponentsSkillList[]) {
+  return pages?.flatMap((page) => page.skills) ?? [];
 }
 
 export function agentMemoriesOptions(agentId: string) {
