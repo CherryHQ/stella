@@ -127,15 +127,20 @@ var schemas = map[authz.ResourceType]resourceSchema{
 		"agent":    stringAttr,
 		"is_owner": boolAttr,
 	}},
-	// #711: Connections/Email/Share/Recally are user-owned. is_owner is derived by
-	// the domain PEP from the immutable Authority and the durable resource owner;
-	// a route or request body can never assert it.
+	// Connection/Email/Share/Recally are Authority-bound user capabilities enforced
+	// by their domain Access services and user-scoped durable queries, not custom
+	// policy. These dormant schemas exist only so schema coverage stays total for
+	// every catalog member; no active policy ever evaluates them.
 	authz.ResourceConnection: {attrs: map[string]attrSpec{
-		"owner": stringAttr, "agent": stringAttr, "type": stringAttr, "is_owner": boolAttr,
+		"owner": stringAttr, "agent": stringAttr, "type": stringAttr,
 	}},
-	authz.ResourceEmail:   {attrs: ownerAgentOwned()},
-	authz.ResourceShare:   {attrs: ownerAgentOwned()},
-	authz.ResourceRecally: {attrs: ownerAgentOwned()},
+	authz.ResourceEmail: {attrs: map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr, "type": stringAttr,
+	}},
+	authz.ResourceShare: {attrs: ownerAgentSensitivity()},
+	authz.ResourceRecally: {attrs: map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr, "type": stringAttr,
+	}},
 	authz.ResourceUserData: {attrs: map[string]attrSpec{
 		"owner": stringAttr, "agent": stringAttr,
 	}},
@@ -180,11 +185,11 @@ func ownerAgentKindState() map[string]attrSpec {
 	}
 }
 
-// ownerAgentOwned is the shared fact shape for the user-owned #711 domains
-// (Email, Share, Recally). owner is the durable user id, agent records the
-// delegating/attributing agent, and is_owner is derived by the PEP.
-func ownerAgentOwned() map[string]attrSpec {
-	return map[string]attrSpec{"owner": stringAttr, "agent": stringAttr, "is_owner": boolAttr}
+// ownerAgentSensitivity is the dormant fact shape for the Share catalog
+// placeholder. Share is enforced by its domain Access service, not policy; this
+// schema exists only so schema coverage stays total for every catalog member.
+func ownerAgentSensitivity() map[string]attrSpec {
+	return map[string]attrSpec{"owner": stringAttr, "agent": stringAttr, "sensitivity": stringAttr}
 }
 
 func kindStatus() map[string]attrSpec {
@@ -459,57 +464,6 @@ func VaultResource(id, ownerID string, facts VaultFacts) (authz.Resource, error)
 		WithString("agent", facts.Agent).
 		WithBool("is_owner", facts.IsOwner).
 		Build()
-}
-
-// ConnectionFacts is the complete durable fact set for a Connection policy
-// resource. Type is the OAuth provider id; IsOwner is derived by the PEP.
-type ConnectionFacts struct {
-	Owner   string
-	Agent   string
-	Type    string
-	IsOwner bool
-}
-
-// ConnectionResource builds a Connection resource carrying every accepted fact.
-func ConnectionResource(id, ownerID string, facts ConnectionFacts) (authz.Resource, error) {
-	return NewResourceBuilder(authz.ResourceConnection, id, ownerID).
-		WithString("owner", facts.Owner).
-		WithString("agent", facts.Agent).
-		WithString("type", facts.Type).
-		WithBool("is_owner", facts.IsOwner).
-		Build()
-}
-
-// OwnedFacts is the complete durable fact set shared by the user-owned #711
-// domains (Email, Share, Recally). IsOwner is derived by each domain PEP from the
-// Authority and the durable resource owner; a route/body can never assert it.
-type OwnedFacts struct {
-	Owner   string
-	Agent   string
-	IsOwner bool
-}
-
-func ownedResource(rt authz.ResourceType, id, ownerID string, facts OwnedFacts) (authz.Resource, error) {
-	return NewResourceBuilder(rt, id, ownerID).
-		WithString("owner", facts.Owner).
-		WithString("agent", facts.Agent).
-		WithBool("is_owner", facts.IsOwner).
-		Build()
-}
-
-// EmailResource builds an Email resource carrying every accepted durable fact.
-func EmailResource(id, ownerID string, facts OwnedFacts) (authz.Resource, error) {
-	return ownedResource(authz.ResourceEmail, id, ownerID, facts)
-}
-
-// ShareResource builds a Share resource carrying every accepted durable fact.
-func ShareResource(id, ownerID string, facts OwnedFacts) (authz.Resource, error) {
-	return ownedResource(authz.ResourceShare, id, ownerID, facts)
-}
-
-// RecallyResource builds a Recally resource carrying every accepted durable fact.
-func RecallyResource(id, ownerID string, facts OwnedFacts) (authz.Resource, error) {
-	return ownedResource(authz.ResourceRecally, id, ownerID, facts)
 }
 
 // predicate is one attribute comparison inside a custom policy.

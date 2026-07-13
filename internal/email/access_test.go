@@ -8,23 +8,11 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
-
-// countingAuthorizer proves the PEP opens exactly one Begin per use case.
-type countingAuthorizer struct {
-	authz.Authorizer
-	begins int
-}
-
-func (a *countingAuthorizer) Begin(ctx context.Context, authority authz.Authority) (authz.Evaluation, error) {
-	a.begins++
-	return a.Authorizer.Begin(ctx, authority)
-}
 
 func seedEmailConfig(t *testing.T, vaultSvc *vault.Service, userID string) {
 	t.Helper()
@@ -40,18 +28,29 @@ func seedEmailConfig(t *testing.T, vaultSvc *vault.Service, userID string) {
 	}
 }
 
-func TestEmailBeginRejectsInvalidAuthority(t *testing.T) {
+// Access rejects an invalid Authority (403) and a valid Authority carrying no
+// user (a system agent → 401) before any operation. Email is a user-owned
+// capability; a request without a user has nothing to act on.
+func TestEmailAccessRejectsInvalidAndSystemAuthority(t *testing.T) {
 	db := dbtest.New(t)
-	userID := seedEmailUser(t, db, "invalid")
+	userID := seedEmailUser(t, db, "reject")
 	vaultSvc := newEmailVaultService(t, db, userID)
-	svc := email.NewService(vaultSvc, sqlc.New(db), policy.New(db))
-	if _, err := svc.Begin(context.Background(), authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("Begin(zero) err=%v, want forbidden", err)
+	svc := email.NewService(vaultSvc, sqlc.New(db))
+
+	if _, err := svc.Access(authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("Access(zero) err=%v, want forbidden", err)
+	}
+	sysAuth, err := agentaccess.SystemAgentAuthority("test")
+	if err != nil {
+		t.Fatalf("SystemAgentAuthority: %v", err)
+	}
+	if _, err := svc.Access(sysAuth); !errors.Is(err, authz.ErrUnauthenticated) {
+		t.Fatalf("Access(system) err=%v, want unauthenticated", err)
 	}
 }
 
 // A delegated agent has the same email access as its delegating user (email is
-// user-owned, not agent-confined); exactly one Begin is opened per use case.
+// user-owned: the account config lives in that user's vault).
 func TestEmailAgentActsAsUser(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
@@ -59,27 +58,21 @@ func TestEmailAgentActsAsUser(t *testing.T) {
 	vaultSvc := newEmailVaultService(t, db, userID)
 	seedEmailConfig(t, vaultSvc, userID)
 
-	az := &countingAuthorizer{Authorizer: policy.New(db)}
-	svc := email.NewService(vaultSvc, sqlc.New(db), az)
-
+	svc := email.NewService(vaultSvc, sqlc.New(db))
 	authority, err := agentaccess.WorkerAgentAuthority(userID, "agent-x")
 	if err != nil {
 		t.Fatalf("WorkerAgentAuthority: %v", err)
 	}
-	acc, err := svc.Begin(ctx, authority)
+	acc, err := svc.Access(authority)
 	if err != nil {
-		t.Fatalf("Begin: %v", err)
+		t.Fatalf("Access: %v", err)
 	}
-	before := az.begins
 	accounts, err := acc.Accounts(ctx)
 	if err != nil {
 		t.Fatalf("agent Accounts: %v", err)
 	}
 	if len(accounts.Accounts) != 1 || accounts.Default != "work" {
 		t.Fatalf("Accounts=%+v, want the user's single account", accounts)
-	}
-	if az.begins != before {
-		t.Fatalf("Accounts opened %d extra Begins, want 0 within one Access", az.begins-before)
 	}
 }
 
@@ -93,38 +86,12 @@ func TestEmailForeignUserIsolated(t *testing.T) {
 	seedEmailConfig(t, vaultSvc, ownerID)
 	foreignID := seedEmailUser(t, db, "foreign")
 
-	svc := email.NewService(vaultSvc, sqlc.New(db), policy.New(db))
-	acc, err := svc.Begin(ctx, userAuthority(t, foreignID))
+	svc := email.NewService(vaultSvc, sqlc.New(db))
+	acc, err := svc.Access(userAuthority(t, foreignID))
 	if err != nil {
-		t.Fatalf("Begin: %v", err)
+		t.Fatalf("Access: %v", err)
 	}
 	if _, err := acc.Accounts(ctx); err == nil {
 		t.Fatal("foreign Accounts succeeded, want isolation error")
-	}
-}
-
-// A custom deny on is_owner read overrides the owner built-in.
-func TestEmailCustomDenyHidesOwnAccounts(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	userID := seedEmailUser(t, db, "deny")
-	vaultSvc := newEmailVaultService(t, db, userID)
-	seedEmailConfig(t, vaultSvc, userID)
-
-	ps := policy.NewService(policy.New(db))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny own email read", Resource: authz.ResourceEmail, Action: authz.ActionRead,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	svc := email.NewService(vaultSvc, sqlc.New(db), policy.New(db))
-	acc, err := svc.Begin(ctx, userAuthority(t, userID))
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	if _, err := acc.Accounts(ctx); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("custom deny Accounts err=%v, want forbidden", err)
 	}
 }

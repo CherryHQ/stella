@@ -17,9 +17,9 @@ import (
 const maxEmailRequestBytes = 5 << 20
 
 // emailAccess derives the trusted Authority for the authenticated caller and
-// opens one email Authorizer evaluation. The email Service is the sole PEP; the
-// handler never inspects identity beyond deriving the Authority from verified
-// session claims.
+// binds one email use case to it. Email is a user-owned capability enforced by
+// the captured user's vault namespace; the handler never inspects identity
+// beyond deriving the Authority from verified session claims.
 func (s *Server) emailAccess(w http.ResponseWriter, r *http.Request) (*email.Access, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -31,7 +31,7 @@ func (s *Server) emailAccess(w http.ResponseWriter, r *http.Request) (*email.Acc
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return nil, false
 	}
-	acc, err := s.emailSvc.Begin(r.Context(), authority)
+	acc, err := s.emailSvc.Access(authority)
 	if err != nil {
 		s.writeEmailError(w, err)
 		return nil, false

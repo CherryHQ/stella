@@ -8,45 +8,46 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// Access is one share use case bound to exactly one Authorizer evaluation. The
-// share Service is the sole policy-enforcement point for the ResourceShare
-// capability: transports and the agent tool pass a trusted authz.Authority and
-// never a bare identity. A share is user-owned — is_owner is always true for the
-// acting user's own shares. agentScoped/agentID record the actor: an AgentActor
+// Access is one share use case bound to one trusted Authority. A share is a
+// user-owned capability: ownership is the captured userID, and every durable
+// query is scoped to it. agentScoped/agentID record the actor so an AgentActor
 // (agent tool) is confined to its bound agent's workspace, while a UserActor
 // (HTTP) selects the workspace agent from the request body, not from identity.
+// There is no policy evaluation; the acting user (and, for artifacts, the
+// os.Root-confined workspace) is the boundary. The public capability-URL view
+// (token hash + expiry, no session) is served outside Access entirely.
 type Access struct {
 	svc         *Service
-	eval        authz.Evaluation
 	userID      string
 	agentID     string
 	agentScoped bool
 }
 
-// Begin opens exactly one evaluation for one share use case.
-func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access, error) {
-	if s == nil || s.authz == nil {
-		return nil, fmt.Errorf("share authorization unavailable: authorizer not configured")
+// Access binds one share use case to a trusted Authority. It rejects an invalid
+// Authority (403) and one carrying no user (401) up front, so every method can
+// assume a non-empty acting user.
+func (s *Service) Access(authority authz.Authority) (*Access, error) {
+	if s == nil {
+		return nil, fmt.Errorf("share service is unavailable — try again later")
 	}
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden
 	}
-	eval, err := s.authz.Begin(ctx, authority)
-	if err != nil {
-		return nil, fmt.Errorf("share authorization begin: %w", err)
-	}
 	actor := authority.Actor()
+	userID := string(actor.UserID())
+	if userID == "" {
+		return nil, authz.ErrUnauthenticated
+	}
 	agentScoped := actor.Kind() == authz.ActorAgent
 	agentID := ""
 	if agentScoped {
 		agentID = string(actor.AgentID())
 	}
-	return &Access{svc: s, eval: eval, userID: string(actor.UserID()), agentID: agentID, agentScoped: agentScoped}, nil
+	return &Access{svc: s, userID: userID, agentID: agentID, agentScoped: agentScoped}, nil
 }
 
 // ShareArtifact publishes a workspace file for the acting user. requestedAgentID
@@ -54,11 +55,8 @@ func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access
 // agent id (a resource selector, not identity); for an agent-scoped AgentActor it
 // must equal the bound agent, so a delegated turn can never reach another agent's
 // workspace. The UserID/AgentID/AgentScoped semantics passed to
-// sessionWorkspaceRoot preserve the pre-cutover confinement exactly.
+// sessionWorkspaceRoot preserve the workspace confinement exactly.
 func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requestedAgentID, expiresIn string) (Created, error) {
-	if err := a.authorize(authz.ActionCreate); err != nil {
-		return Created{}, err
-	}
 	if a.agentScoped && requestedAgentID != a.agentID {
 		return Created{}, authz.ErrForbidden
 	}
@@ -117,9 +115,6 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 
 // ShareArticle publishes a rendered Recally article owned by the acting user.
 func (a *Access) ShareArticle(ctx context.Context, articleID, expiresIn string) (Created, error) {
-	if err := a.authorize(authz.ActionCreate); err != nil {
-		return Created{}, err
-	}
 	if articleID == "" {
 		return Created{}, fmt.Errorf("article_id is required for article shares: %w", ErrInvalidInput)
 	}
@@ -144,18 +139,9 @@ func (a *Access) ShareArticle(ctx context.Context, articleID, expiresIn string) 
 	return a.svc.create(ctx, a.userID, article.Title, "text/html; charset=utf-8", rendered, expiresIn)
 }
 
-// List returns the acting user's own shares.
+// List returns the acting user's own shares. The query is scoped to the captured
+// userID, so it can never surface another user's shares.
 func (a *Access) List(ctx context.Context, limit, offset int) (ListResult, error) {
-	if a.userID == "" {
-		return ListResult{}, authz.ErrUnauthenticated
-	}
-	req, err := policy.ShareListRequest()
-	if err != nil {
-		return ListResult{}, authz.ErrForbidden
-	}
-	if err := a.decide(req); err != nil {
-		return ListResult{}, err
-	}
 	rows, err := a.svc.q.ListSharesByUser(ctx, sqlc.ListSharesByUserParams{UserID: a.userID, Limit: int32(limit + 1), Offset: int32(offset)})
 	if err != nil {
 		return ListResult{}, err
@@ -164,44 +150,16 @@ func (a *Access) List(ctx context.Context, limit, offset int) (ListResult, error
 	return ListResult{Shares: page, NextPageToken: next}, nil
 }
 
-// Revoke disables one of the acting user's shares. A missing row is ErrNotFound
-// (from the store), not a policy denial.
+// Revoke disables one of the acting user's shares. The delete is scoped to the
+// captured userID, so a share owned by another user is never touched; a missing
+// (or foreign) row is ErrNotFound.
 func (a *Access) Revoke(ctx context.Context, id string) error {
-	if err := a.authorize(authz.ActionDelete); err != nil {
-		return err
-	}
 	rows, err := a.svc.q.DeleteShareByUser(ctx, sqlc.DeleteShareByUserParams{ID: id, UserID: a.userID})
 	if err != nil {
 		return err
 	}
 	if rows == 0 {
 		return authz.ErrNotFound
-	}
-	return nil
-}
-
-// authorize decides one share action for the acting user under this Access's
-// single revision. is_owner is always true: the resource is the acting user's own
-// share. A denial is an authenticated 403 (ErrForbidden).
-func (a *Access) authorize(action authz.Action) error {
-	if a.userID == "" {
-		return authz.ErrUnauthenticated
-	}
-	facts := policy.OwnedFacts{Owner: a.userID, Agent: a.agentID, IsOwner: true}
-	req, err := policy.ShareRequest(action, a.userID, a.userID, facts)
-	if err != nil {
-		return authz.ErrForbidden
-	}
-	return a.decide(req)
-}
-
-func (a *Access) decide(req authz.Request) error {
-	dec, err := a.eval.Decide(req)
-	if err != nil {
-		return fmt.Errorf("share decide: %w", err)
-	}
-	if !dec.Allowed() {
-		return authz.ErrForbidden
 	}
 	return nil
 }

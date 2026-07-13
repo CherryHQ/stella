@@ -54,12 +54,12 @@ type oauthHandler struct {
 	authority authz.Authority
 }
 
-func (h oauthHandler) begin(ctx context.Context) (*Access, error) {
-	return h.svc.Begin(ctx, h.authority)
+func (h oauthHandler) access() (*Access, error) {
+	return h.svc.Access(h.authority)
 }
 
 func (h oauthHandler) Connect(ctx context.Context, in ConnectInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (h oauthHandler) Connect(ctx context.Context, in ConnectInput) (any, error)
 }
 
 func (h oauthHandler) Status(ctx context.Context, in StatusInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (h oauthHandler) Status(ctx context.Context, in StatusInput) (any, error) {
 }
 
 func (h oauthHandler) List(ctx context.Context, _ ListInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (h oauthHandler) List(ctx context.Context, _ ListInput) (any, error) {
 }
 
 func (h oauthHandler) Disconnect(ctx context.Context, in DisconnectInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}

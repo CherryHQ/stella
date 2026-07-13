@@ -60,28 +60,17 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// DB-backed skill read and write against it; only filesystem project/built-in
 	// skills are exempt (they are not DB rows).
 	authz.ResourceSkill: activeActive,
-	// #711: Email is enforced only through internal/email.Service's Authority-based
-	// Access PEP (the legacy As(authz.Identity) facade is gone). The remaining
-	// user-capability resources (Vault/Connection/Share/Recally) are activated as
-	// each domain's PEP lands.
-	authz.ResourceEmail: activeActive,
-	// #711: Connections (user-facing OAuth) are enforced only through
-	// internal/connections.Service's Authority-based Access PEP. Admin
-	// provider-config CRUD and the OAuth callback / token-refresh paths are
-	// separate trusted surfaces that do not open a user Access.
-	authz.ResourceConnection: activeActive,
 	// #711: Vault entries are enforced only through internal/vault.Service's
 	// Authority-based Access PEP. user/user_agent scopes are user-owned (with an
 	// agent-read gate folded in); system/system_agent scopes are reachable only via
 	// admin-full-access. Trusted host-side callers use the raw Service methods.
+	//
+	// Email, Connection, Share, and Recally are deliberately NOT policy-backed: they
+	// are Authority-bound user capabilities enforced by their own domain Access
+	// services plus user-scoped durable queries (see internal/{email,connections,
+	// share,recally}). Their catalog entries stay inactive so a stray custom-policy
+	// write for them fails closed.
 	authz.ResourceVault: activeActive,
-	// #711: Share owner operations are enforced through internal/share.Service's
-	// Access PEP; the public capability-URL view (token-hash + expiry) is not a
-	// ResourceShare decision and stays outside the PEP. Recally is enforced through
-	// internal/recally.Service's Access PEP (user-owned, shared across the user's
-	// agents — a delegated agent has the same access, not executor-confined).
-	authz.ResourceShare:   activeActive,
-	authz.ResourceRecally: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

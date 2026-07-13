@@ -62,12 +62,12 @@ type shareHandler struct {
 	authority authz.Authority
 }
 
-func (h shareHandler) begin(ctx context.Context) (*Access, error) {
-	return h.svc.Begin(ctx, h.authority)
+func (h shareHandler) access() (*Access, error) {
+	return h.svc.Access(h.authority)
 }
 
 func (h shareHandler) Artifact(ctx context.Context, in ArtifactInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (h shareHandler) Artifact(ctx context.Context, in ArtifactInput) (any, erro
 }
 
 func (h shareHandler) Article(ctx context.Context, in ArticleInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (h shareHandler) List(ctx context.Context, in ListInput) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (h shareHandler) List(ctx context.Context, in ListInput) (any, error) {
 }
 
 func (h shareHandler) Revoke(ctx context.Context, in RevokeInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}

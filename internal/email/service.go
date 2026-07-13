@@ -37,18 +37,17 @@ type AccountList struct {
 type Service struct {
 	vaultSvc *vault.Service
 	q        Queries
-	authz    authz.Authorizer
 	sendFunc func(EmailAccount, SendOptions) error
 }
 
-func NewService(vaultSvc *vault.Service, q Queries, az authz.Authorizer) *Service {
-	return &Service{vaultSvc: vaultSvc, q: q, authz: az, sendFunc: Send}
+func NewService(vaultSvc *vault.Service, q Queries) *Service {
+	return &Service{vaultSvc: vaultSvc, q: q, sendFunc: Send}
 }
 
 // NewServiceForPool creates an email service that owns the sqlc query set for
 // the email tables, so callers pass only the pgx pool.
-func NewServiceForPool(vaultSvc *vault.Service, pool *pgxpool.Pool, az authz.Authorizer) *Service {
-	return NewService(vaultSvc, sqlc.New(pool), az)
+func NewServiceForPool(vaultSvc *vault.Service, pool *pgxpool.Pool) *Service {
+	return NewService(vaultSvc, sqlc.New(pool))
 }
 
 func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {

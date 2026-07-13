@@ -376,8 +376,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// owns its own sqlc query set (the *ForPool constructors), so the composition
 	// root passes only the pool. These same instances back both the agent tools
 	// (below) and the HTTP endpoints (via server.Deps).
-	credSvc := connections.NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), baseURL, authorizer)
-	emailSvc := email.NewServiceForPool(vaultSvc, db, authorizer)
+	credSvc := connections.NewServiceForPool(vaultSvc, db, oauth.NewFlowStore(), baseURL)
+	emailSvc := email.NewServiceForPool(vaultSvc, db)
 	if ps.oauthRegistry != nil {
 		credSvc.SetRegistry(ps.oauthRegistry)
 		if vaultSvc != nil {
@@ -385,8 +385,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		}
 	}
 	recallyStore := recally.NewStore(db)
-	recallySvc := recally.NewService(recallyStore, config.StellaHome(), authorizer)
-	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL, authorizer)
+	recallySvc := recally.NewService(recallyStore, config.StellaHome())
+	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL)
 
 	// MCP registration service: one instance shared by the HTTP API and the agent
 	// runtime. Built here (before StartAll) so its tool provider can be bound into

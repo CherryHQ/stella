@@ -51,12 +51,12 @@ type emailHandler struct {
 	authority authz.Authority
 }
 
-func (h emailHandler) begin(ctx context.Context) (*Access, error) {
-	return h.svc.Begin(ctx, h.authority)
+func (h emailHandler) access() (*Access, error) {
+	return h.svc.Access(h.authority)
 }
 
 func (h emailHandler) Accounts(ctx context.Context, _ AccountsInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (h emailHandler) List(ctx context.Context, in ListInput) (any, error) {
 			opts.Before = &t
 		}
 	}
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (h emailHandler) List(ctx context.Context, in ListInput) (any, error) {
 }
 
 func (h emailHandler) Read(ctx context.Context, in ReadInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (h emailHandler) Send(ctx context.Context, in SendInput) (any, error) {
 	if in.Html != nil {
 		opts.HTML = *in.Html
 	}
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}

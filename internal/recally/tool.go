@@ -55,12 +55,12 @@ type recallyHandler struct {
 	authority authz.Authority
 }
 
-func (h recallyHandler) begin(ctx context.Context) (*Access, error) {
-	return h.svc.Begin(ctx, h.authority)
+func (h recallyHandler) access() (*Access, error) {
+	return h.svc.Access(h.authority)
 }
 
 func (h recallyHandler) Save(ctx context.Context, in SaveInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) 
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) 
 }
 
 func (h recallyHandler) GetArticle(ctx context.Context, in GetArticleInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (h recallyHandler) GetArticle(ctx context.Context, in GetArticleInput) (any
 }
 
 func (h recallyHandler) FeedAdd(ctx context.Context, in FeedAddInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (h recallyHandler) FeedList(ctx context.Context, in FeedListInput) (any, er
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (h recallyHandler) FeedPoll(ctx context.Context, in FeedPollInput) (any, er
 	if limit < 1 || limit > 500 {
 		return nil, fmt.Errorf("invalid limit — use limit between 1 and 500")
 	}
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +223,7 @@ func (h recallyHandler) FeedPoll(ctx context.Context, in FeedPollInput) (any, er
 }
 
 func (h recallyHandler) FeedRemove(ctx context.Context, in FeedRemoveInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func (h recallyHandler) EntryList(ctx context.Context, in EntryListInput) (any, 
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +255,7 @@ func (h recallyHandler) EntryList(ctx context.Context, in EntryListInput) (any, 
 }
 
 func (h recallyHandler) EntryAdd(ctx context.Context, in EntryAddInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (h recallyHandler) EntryUpdate(ctx context.Context, in EntryUpdateInput) (a
 	if in.ArticleId != "" {
 		articleID = &in.ArticleId
 	}
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +288,7 @@ func (h recallyHandler) EntryUpdate(ctx context.Context, in EntryUpdateInput) (a
 }
 
 func (h recallyHandler) Digest(ctx context.Context, _ DigestInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +300,7 @@ func (h recallyHandler) Digest(ctx context.Context, _ DigestInput) (any, error) 
 }
 
 func (h recallyHandler) DigestSave(ctx context.Context, in DigestSaveInput) (any, error) {
-	acc, err := h.begin(ctx)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}

@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 )
 
 // Sentinels the HTTP layer maps to specific statuses; the tool surfaces them as
@@ -20,69 +19,39 @@ var (
 	ErrFeedFetch  = errors.New("failed to fetch feed")
 )
 
-// Access is one recally use case bound to exactly one Authorizer evaluation. The
-// recally Service is the sole policy-enforcement point for the library: transports
-// and the agent tool pass a trusted authz.Authority and never a bare identity.
-// Recally is user-owned and shared across all of a user's agents — a delegated
-// AgentActor has the SAME access as its delegating user, so every operation is
-// authorized as the acting user's own library (is_owner is always true; the
-// store's uid-scoping guarantees loaded rows belong to that user). A denial is
-// opaque (authz.ErrNotFound), preserving recally's 404 semantics.
+// Access is one recally use case bound to one trusted Authority. Recally is a
+// user-owned library shared across all of a user's agents: every store call is
+// scoped to the captured userID, so a foreign user's row is simply not found
+// (opaque 404) and there is nothing else to enforce. A delegated AgentActor has
+// the SAME access as its delegating user (an agent shares its user's library).
+// There is no policy evaluation; the acting user is the boundary. Operations on
+// content and feed entries — which are keyed only by their parent id, not by user
+// — prove parent ownership through a uid-scoped parent load before mutating.
 type Access struct {
-	svc     *Service
-	eval    authz.Evaluation
-	userID  string
-	agentID string
+	svc    *Service
+	userID string
 }
 
-// Begin opens exactly one evaluation for one recally use case.
-func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access, error) {
-	if s == nil || s.authz == nil {
-		return nil, fmt.Errorf("recally authorization unavailable: authorizer not configured")
+// Access binds one recally use case to a trusted Authority. It rejects an invalid
+// Authority (403) and one carrying no user (401) up front, so every method can
+// assume a non-empty acting user.
+func (s *Service) Access(authority authz.Authority) (*Access, error) {
+	if s == nil {
+		return nil, fmt.Errorf("recally service is unavailable — try again later")
 	}
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden
 	}
-	eval, err := s.authz.Begin(ctx, authority)
-	if err != nil {
-		return nil, fmt.Errorf("recally authorization begin: %w", err)
+	userID := string(authority.Actor().UserID())
+	if userID == "" {
+		return nil, authz.ErrUnauthenticated
 	}
-	actor := authority.Actor()
-	agentID := ""
-	if actor.Kind() == authz.ActorAgent {
-		agentID = string(actor.AgentID())
-	}
-	return &Access{svc: s, eval: eval, userID: string(actor.UserID()), agentID: agentID}, nil
+	return &Access{svc: s, userID: userID}, nil
 }
 
-// authorize decides one recally action for the acting user under this Access's
-// single revision. is_owner is always true: the resource is the acting user's own
-// library. A denial is opaque (ErrNotFound) — a policy-hidden library is
-// indistinguishable from an empty one.
-func (a *Access) authorize(action authz.Action) error {
-	if a.userID == "" {
-		return authz.ErrUnauthenticated
-	}
-	req, err := policy.RecallyRequest(action, a.userID, a.userID, policy.OwnedFacts{Owner: a.userID, Agent: a.agentID, IsOwner: true})
-	if err != nil {
-		return authz.ErrNotFound
-	}
-	dec, err := a.eval.Decide(req)
-	if err != nil {
-		return fmt.Errorf("recally decide: %w", err)
-	}
-	if !dec.Allowed() {
-		return authz.ErrNotFound
-	}
-	return nil
-}
-
-// loadArticle authorizes `action` then loads one article. The store is uid-scoped,
-// so a foreign user's row is simply not found (opaque 404).
-func (a *Access) loadArticle(ctx context.Context, action authz.Action, id string) (*Article, error) {
-	if err := a.authorize(action); err != nil {
-		return nil, err
-	}
+// loadArticle loads one article scoped to the acting user. The store is
+// uid-scoped, so a foreign user's row is simply not found (opaque 404).
+func (a *Access) loadArticle(ctx context.Context, id string) (*Article, error) {
 	article, err := a.svc.store.GetArticle(ctx, a.userID, id)
 	if err != nil {
 		return nil, mapMissing(err)
@@ -90,11 +59,8 @@ func (a *Access) loadArticle(ctx context.Context, action authz.Action, id string
 	return article, nil
 }
 
-// loadFeed authorizes `action` then loads one feed (uid-scoped, opaque 404).
-func (a *Access) loadFeed(ctx context.Context, action authz.Action, id string) (*Feed, error) {
-	if err := a.authorize(action); err != nil {
-		return nil, err
-	}
+// loadFeed loads one feed scoped to the acting user (uid-scoped, opaque 404).
+func (a *Access) loadFeed(ctx context.Context, id string) (*Feed, error) {
 	feed, err := a.svc.store.GetFeed(ctx, a.userID, id)
 	if err != nil {
 		return nil, mapMissing(err)
@@ -105,9 +71,6 @@ func (a *Access) loadFeed(ctx context.Context, action authz.Action, id string) (
 // ------------------------------- articles -----------------------------------
 
 func (a *Access) Save(ctx context.Context, req SaveRequest) (SaveResult, error) {
-	if err := a.authorize(authz.ActionWrite); err != nil {
-		return SaveResult{}, err
-	}
 	article, created, err := a.svc.save(ctx, a.userID, req)
 	if err != nil {
 		return SaveResult{}, err
@@ -116,27 +79,18 @@ func (a *Access) Save(ctx context.Context, req SaveRequest) (SaveResult, error) 
 }
 
 func (a *Access) GetArticle(ctx context.Context, id string) (*Article, error) {
-	return a.loadArticle(ctx, authz.ActionRead, id)
+	return a.loadArticle(ctx, id)
 }
 
 func (a *Access) ListArticles(ctx context.Context, filter ArticleFilter) ([]Article, error) {
-	if err := a.authorize(authz.ActionRead); err != nil {
-		return nil, err
-	}
 	return a.svc.store.ListArticles(ctx, a.userID, filter)
 }
 
 func (a *Access) SearchArticles(ctx context.Context, query string, limit int) ([]Article, error) {
-	if err := a.authorize(authz.ActionRead); err != nil {
-		return nil, err
-	}
 	return a.svc.store.SearchArticles(ctx, a.userID, query, limit)
 }
 
 func (a *Access) GetArticleByCanonicalURL(ctx context.Context, canonicalURL string) (*Article, error) {
-	if err := a.authorize(authz.ActionRead); err != nil {
-		return nil, err
-	}
 	article, err := a.svc.store.GetArticleByCanonicalURL(ctx, a.userID, canonicalURL)
 	if err != nil {
 		return nil, mapMissing(err)
@@ -145,9 +99,6 @@ func (a *Access) GetArticleByCanonicalURL(ctx context.Context, canonicalURL stri
 }
 
 func (a *Access) UpdateArticle(ctx context.Context, id string, updates map[string]any) (*Article, error) {
-	if err := a.authorize(authz.ActionWrite); err != nil {
-		return nil, err
-	}
 	article, err := a.svc.store.UpdateArticle(ctx, a.userID, id, updates)
 	if err != nil {
 		return nil, mapMissing(err)
@@ -156,51 +107,38 @@ func (a *Access) UpdateArticle(ctx context.Context, id string, updates map[strin
 }
 
 func (a *Access) DeleteArticle(ctx context.Context, id string) error {
-	if err := a.authorize(authz.ActionDelete); err != nil {
-		return err
-	}
 	return a.svc.store.DeleteArticle(ctx, a.userID, id)
 }
 
 // UpsertArticleContent rewrites one owner-scoped article body. The content
 // table is keyed only by article id, so this boundary must prove ownership
-// itself rather than trusting a caller to have loaded the article first.
+// itself: it loads the article uid-scoped first, so a foreign article is not
+// found rather than silently overwritten.
 func (a *Access) UpsertArticleContent(ctx context.Context, articleID, content string) error {
-	if err := a.authorize(authz.ActionWrite); err != nil {
-		return err
-	}
 	if _, err := a.svc.store.GetArticle(ctx, a.userID, articleID); err != nil {
 		return mapMissing(err)
 	}
 	return a.svc.store.UpsertArticleContent(ctx, articleID, content)
 }
 
-// ReadArticleBody authorizes a read then delegates to the unauthenticated Service
-// body reader. The Service helper stays PEP-free (the startup backfill uses it).
+// ReadArticleBody delegates to the unauthenticated Service body reader. The
+// article is already loaded uid-scoped by the caller; the Service helper stays
+// identity-free (the startup backfill uses it too).
 func (a *Access) ReadArticleBody(ctx context.Context, article *Article) (string, error) {
-	if err := a.authorize(authz.ActionRead); err != nil {
-		return "", err
-	}
 	return a.svc.ReadArticleBody(ctx, article)
 }
 
 // -------------------------------- feeds -------------------------------------
 
 func (a *Access) ListFeeds(ctx context.Context, limit, offset int) ([]Feed, error) {
-	if err := a.authorize(authz.ActionRead); err != nil {
-		return nil, err
-	}
 	return a.svc.store.ListFeeds(ctx, a.userID, limit, offset)
 }
 
 func (a *Access) GetFeed(ctx context.Context, feedID string) (*Feed, error) {
-	return a.loadFeed(ctx, authz.ActionRead, feedID)
+	return a.loadFeed(ctx, feedID)
 }
 
 func (a *Access) GetFeedByURL(ctx context.Context, feedURL string) (*Feed, error) {
-	if err := a.authorize(authz.ActionRead); err != nil {
-		return nil, err
-	}
 	feed, err := a.svc.store.GetFeedByURL(ctx, a.userID, feedURL)
 	if err != nil {
 		return nil, mapMissing(err)
@@ -209,9 +147,6 @@ func (a *Access) GetFeedByURL(ctx context.Context, feedURL string) (*Feed, error
 }
 
 func (a *Access) CreateFeed(ctx context.Context, feedURL string, kind FeedKind, title string, agentID *string) (*Feed, error) {
-	if err := a.authorize(authz.ActionWrite); err != nil {
-		return nil, err
-	}
 	if feedURL == "" {
 		return nil, fmt.Errorf("url is required")
 	}
@@ -244,7 +179,7 @@ func (a *Access) CreateFeed(ctx context.Context, feedURL string, kind FeedKind, 
 }
 
 func (a *Access) UpdateFeed(ctx context.Context, id string, updates map[string]any) (*Feed, error) {
-	if _, err := a.loadFeed(ctx, authz.ActionWrite, id); err != nil {
+	if _, err := a.loadFeed(ctx, id); err != nil {
 		return nil, err
 	}
 	updated, err := a.svc.store.UpdateFeed(ctx, a.userID, id, updates)
@@ -255,7 +190,7 @@ func (a *Access) UpdateFeed(ctx context.Context, id string, updates map[string]a
 }
 
 func (a *Access) DeleteFeed(ctx context.Context, id string) error {
-	if _, err := a.loadFeed(ctx, authz.ActionDelete, id); err != nil {
+	if _, err := a.loadFeed(ctx, id); err != nil {
 		return err
 	}
 	if err := a.svc.store.DeleteFeed(ctx, a.userID, id); err != nil {
@@ -268,7 +203,7 @@ func (a *Access) DeleteFeed(ctx context.Context, id string) error {
 }
 
 func (a *Access) PollFeed(ctx context.Context, id string, limit int) (FeedPollResult, error) {
-	feed, err := a.loadFeed(ctx, authz.ActionExecute, id)
+	feed, err := a.loadFeed(ctx, id)
 	if err != nil {
 		return FeedPollResult{}, err
 	}
@@ -276,9 +211,6 @@ func (a *Access) PollFeed(ctx context.Context, id string, limit int) (FeedPollRe
 }
 
 func (a *Access) PollFeeds(ctx context.Context, limit int) ([]FeedPollResult, error) {
-	if err := a.authorize(authz.ActionExecute); err != nil {
-		return nil, err
-	}
 	const pageSize = 500
 	results := []FeedPollResult{}
 	for offset := 0; ; offset += pageSize {
@@ -302,7 +234,7 @@ func (a *Access) PollFeeds(ctx context.Context, limit int) ([]FeedPollResult, er
 // ----------------------------- feed entries ---------------------------------
 
 func (a *Access) ListFeedEntries(ctx context.Context, feedID string, filter FeedEntryFilter) ([]FeedEntry, error) {
-	if _, err := a.loadFeed(ctx, authz.ActionRead, feedID); err != nil {
+	if _, err := a.loadFeed(ctx, feedID); err != nil {
 		return nil, err
 	}
 	status := filter.Status
@@ -316,7 +248,7 @@ func (a *Access) ListFeedEntries(ctx context.Context, feedID string, filter Feed
 }
 
 func (a *Access) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, title string) (*FeedEntry, bool, error) {
-	if _, err := a.loadFeed(ctx, authz.ActionWrite, feedID); err != nil {
+	if _, err := a.loadFeed(ctx, feedID); err != nil {
 		return nil, false, err
 	}
 	if guid == "" {
@@ -330,7 +262,7 @@ func (a *Access) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, ti
 }
 
 func (a *Access) UpdateFeedEntry(ctx context.Context, feedID, id string, status RSSEntryStatus, articleID *string, errorMsg string) (*FeedEntry, error) {
-	if _, err := a.loadFeed(ctx, authz.ActionWrite, feedID); err != nil {
+	if _, err := a.loadFeed(ctx, feedID); err != nil {
 		return nil, err
 	}
 	if _, err := a.svc.store.GetFeedEntry(ctx, feedID, id); err != nil {
@@ -357,16 +289,10 @@ func (a *Access) UpdateFeedEntry(ctx context.Context, feedID, id string, status 
 // -------------------------------- digest ------------------------------------
 
 func (a *Access) GetDigest(ctx context.Context) (*Digest, error) {
-	if err := a.authorize(authz.ActionRead); err != nil {
-		return nil, err
-	}
 	return a.svc.store.GetDigest(ctx, a.userID)
 }
 
 func (a *Access) SaveDigest(ctx context.Context, narrative, date string) (*StoredDigest, error) {
-	if err := a.authorize(authz.ActionWrite); err != nil {
-		return nil, err
-	}
 	if narrative == "" {
 		return nil, fmt.Errorf("narrative is required")
 	}
@@ -377,16 +303,10 @@ func (a *Access) SaveDigest(ctx context.Context, narrative, date string) (*Store
 }
 
 func (a *Access) ListStoredDigests(ctx context.Context, limit, offset int64) ([]StoredDigestSummary, int64, error) {
-	if err := a.authorize(authz.ActionRead); err != nil {
-		return nil, 0, err
-	}
 	return a.svc.store.ListStoredDigests(ctx, a.userID, limit, offset)
 }
 
 func (a *Access) GetStoredDigest(ctx context.Context, date string) (*StoredDigest, error) {
-	if err := a.authorize(authz.ActionRead); err != nil {
-		return nil, err
-	}
 	stored, err := a.svc.store.GetStoredDigestByDate(ctx, a.userID, date)
 	if err != nil {
 		// GetStoredDigestByDate wraps pgx.ErrNoRows (message lacks "not found"), so

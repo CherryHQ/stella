@@ -8,7 +8,6 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -22,7 +21,7 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 func newService(t *testing.T) *connections.Service {
 	t.Helper()
 	flowStore := oauth.NewFlowStore()
-	return connections.NewService(nil, nil, flowStore, "http://localhost:8080", nil)
+	return connections.NewService(nil, nil, flowStore, "http://localhost:8080")
 }
 
 func userAuthority(t *testing.T, id string) authz.Authority {
@@ -166,90 +165,62 @@ func TestDisconnectUnsupportedProvider(t *testing.T) {
 	}
 }
 
-// countingAuthorizer proves the PEP opens exactly one Begin per use case.
-type countingAuthorizer struct {
-	authz.Authorizer
-	begins int
+// A zero (invalid) Authority is refused up front, and a valid Authority carrying
+// no user (a system agent) cannot bind a user capability.
+func TestOAuthAccessRejectsInvalidAndSystemAuthority(t *testing.T) {
+	svc := newService(t)
+	if _, err := svc.Access(authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("Access(zero) err=%v, want forbidden", err)
+	}
+	sysAuth, err := agentaccess.SystemAgentAuthority("test")
+	if err != nil {
+		t.Fatalf("SystemAgentAuthority: %v", err)
+	}
+	if _, err := svc.Access(sysAuth); !errors.Is(err, authz.ErrUnauthenticated) {
+		t.Fatalf("Access(system) err=%v, want unauthenticated", err)
+	}
 }
 
-func (a *countingAuthorizer) Begin(ctx context.Context, authority authz.Authority) (authz.Evaluation, error) {
-	a.begins++
-	return a.Authorizer.Begin(ctx, authority)
-}
-
-func TestOAuthAccessEnforcesUserIdentity(t *testing.T) {
-	db := dbtest.New(t)
+// A foreign user cannot poll another user's flow: the persisted flow owner hides
+// it as an opaque not-found. The owner polling a missing flow is also not-found.
+func TestOAuthPollFlowOwnership(t *testing.T) {
 	ctx := context.Background()
 	flowStore := oauth.NewFlowStore()
 	flowStore.Create(oauth.FlowStatus{Provider: oauth.ProviderGitHub, FlowID: "owner-flow", UserID: "owner", FlowType: "device_code"})
-	svc := connections.NewService(nil, nil, flowStore, "http://localhost:8080", policy.New(db))
+	svc := connections.NewService(nil, nil, flowStore, "http://localhost:8080")
 
-	// A zero (invalid) Authority is refused before any evaluation.
-	if _, err := svc.Begin(ctx, authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("Begin(zero) err=%v, want forbidden", err)
-	}
-	// A foreign user cannot poll the owner's flow (is_owner=false → denied).
-	accForeign, err := svc.Begin(ctx, userAuthority(t, "foreign"))
+	accForeign, err := svc.Access(userAuthority(t, "foreign"))
 	if err != nil {
-		t.Fatalf("Begin foreign: %v", err)
+		t.Fatalf("Access foreign: %v", err)
 	}
-	if _, _, err := accForeign.PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("foreign PollFlow err=%v, want forbidden", err)
+	if _, _, err := accForeign.PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("foreign PollFlow err=%v, want not found (foreign flow hidden)", err)
 	}
-	// The owner polling a missing flow is opaque not-found.
-	accOwner, err := svc.Begin(ctx, userAuthority(t, "owner"))
+	accOwner, err := svc.Access(userAuthority(t, "owner"))
 	if err != nil {
-		t.Fatalf("Begin owner: %v", err)
+		t.Fatalf("Access owner: %v", err)
 	}
 	if _, _, err := accOwner.PollFlow(ctx, "github", "missing-flow"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("owner PollFlow missing err=%v, want not found", err)
 	}
 }
 
-// A delegated agent has the same connection access as its delegating user; the
-// PEP opens exactly one Begin per use case.
+// A delegated agent has the same connection access as its delegating user (an
+// agent shares its user's connections).
 func TestOAuthAgentActsAsUser(t *testing.T) {
-	db := dbtest.New(t)
 	ctx := context.Background()
-	az := &countingAuthorizer{Authorizer: policy.New(db)}
-	svc := connections.NewService(nil, nil, oauth.NewFlowStore(), "http://localhost:8080", az)
-
+	svc := newService(t)
 	authority, err := agentaccess.WorkerAgentAuthority("user-1", "agent-x")
 	if err != nil {
 		t.Fatalf("WorkerAgentAuthority: %v", err)
 	}
-	acc, err := svc.Begin(ctx, authority)
+	acc, err := svc.Access(authority)
 	if err != nil {
-		t.Fatalf("Begin: %v", err)
+		t.Fatalf("Access: %v", err)
 	}
-	before := az.begins
-	// No registry configured → empty status list, but the list decision is allowed.
+	// No registry configured → empty status list, no error.
 	if _, err := acc.Statuses(ctx); err != nil {
 		t.Fatalf("agent Statuses: %v", err)
-	}
-	if az.begins != before {
-		t.Fatalf("Statuses opened %d extra Begins, want 0 within one Access", az.begins-before)
-	}
-}
-
-// A custom deny on the connection list overrides the owner built-in.
-func TestOAuthCustomDenyHidesStatuses(t *testing.T) {
-	db := dbtest.New(t)
-	ctx := context.Background()
-	ps := policy.NewService(policy.New(db))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny connection list", Resource: authz.ResourceConnection, Action: authz.ActionList,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	svc := connections.NewService(nil, nil, oauth.NewFlowStore(), "http://localhost:8080", policy.New(db))
-	acc, err := svc.Begin(ctx, userAuthority(t, "u1"))
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	if _, err := acc.Statuses(ctx); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("custom deny Statuses err=%v, want forbidden", err)
 	}
 }
 
@@ -296,7 +267,7 @@ func TestSetOAuthProviderConfigNilDB(t *testing.T) {
 func TestSetAndGetOAuthProviderConfig(t *testing.T) {
 	db := dbtest.New(t)
 
-	svc := connections.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080", policy.New(db))
+	svc := connections.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080")
 	ctx := context.Background()
 
 	if err := svc.SetOAuthProviderConfig(ctx, connections.OAuthProviderConfig{ProviderID: "github", ClientID: "my-client"}); err != nil {

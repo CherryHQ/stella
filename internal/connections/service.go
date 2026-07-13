@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -19,10 +18,11 @@ import (
 
 // Service is the shared host-side credential manager. It owns vault secret
 // operations and OAuth orchestration. The user-facing HTTP handlers and the
-// built-in oauth tool both reach it through the Authority-based Access PEP
-// (Begin); admin provider-config CRUD is a control-plane concern gated
-// separately, and the OAuth callback / token-refresh paths are trusted internal
-// callers of the raw Service methods.
+// built-in oauth tool both reach it through the Authority-bound Access
+// (Service.Access), which scopes every operation to the acting user; admin
+// provider-config CRUD is a control-plane concern gated separately, and the
+// OAuth callback / token-refresh paths are trusted internal callers of the raw
+// Service methods.
 type Service struct {
 	vaultSvc    *vault.Service
 	q           *pkgdb.Queries
@@ -30,7 +30,6 @@ type Service struct {
 	registry    *oauth.ProviderRegistry
 	invalidator RunnerInvalidator // optional; nil = no invalidation
 	corsOrigin  string
-	authz       authz.Authorizer
 	log         *slog.Logger
 }
 
@@ -41,14 +40,12 @@ func NewService(
 	q *pkgdb.Queries,
 	flowStore *oauth.FlowStore,
 	corsOrigin string,
-	az authz.Authorizer,
 ) *Service {
 	return &Service{
 		vaultSvc:   vaultSvc,
 		q:          q,
 		flowStore:  flowStore,
 		corsOrigin: corsOrigin,
-		authz:      az,
 		log:        slog.With("component", "credentials"),
 	}
 }
@@ -60,9 +57,8 @@ func NewServiceForPool(
 	pool *pgxpool.Pool,
 	flowStore *oauth.FlowStore,
 	corsOrigin string,
-	az authz.Authorizer,
 ) *Service {
-	return NewService(vaultSvc, pkgdb.New(pool), flowStore, corsOrigin, az)
+	return NewService(vaultSvc, pkgdb.New(pool), flowStore, corsOrigin)
 }
 
 // SetRegistry wires the OAuth provider registry used for generic provider operations.

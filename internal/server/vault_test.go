@@ -67,7 +67,7 @@ func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 	env.credSvc.SetVaultService(svc)
 	env.rebuild(t, func(d *server.Deps) {
 		d.Vault = svc
-		d.Email = email.NewService(svc, sqlc.New(env.db), policy.New(env.db))
+		d.Email = email.NewService(svc, sqlc.New(env.db))
 	})
 
 	// Provision age keys for the admin user.

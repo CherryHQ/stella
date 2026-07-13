@@ -14,15 +14,15 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 )
 
-// Service is the recally library. Authorization lives on Access (access.go): the
-// Service holds only unauthenticated internals (save/read/poll/backfill) that the
-// PEP and the startup backfill call.
+// Service is the recally library. Ownership lives on Access (access.go), which
+// scopes every store call to the acting user; the Service holds only identity-free
+// internals (save/read/poll/backfill) that the Access and the startup backfill
+// call.
 type Service struct {
 	store      *Store
 	files      *FileManager
 	feeds      *gofeed.Parser
 	stellaHome string
-	authz      authz.Authorizer
 }
 
 type SaveResult struct {
@@ -30,13 +30,13 @@ type SaveResult struct {
 	Created bool
 }
 
-func NewService(store *Store, stellaHome string, az authz.Authorizer) *Service {
+func NewService(store *Store, stellaHome string) *Service {
 	p := gofeed.NewParser()
 	p.Client = &http.Client{Timeout: 30 * time.Second}
 	p.RSSTranslator = &gofeed.DefaultRSSTranslator{}
 	p.AtomTranslator = &gofeed.DefaultAtomTranslator{}
 	p.JSONTranslator = &gofeed.DefaultJSONTranslator{}
-	return &Service{store: store, files: newFileManager(stellaHome), feeds: p, stellaHome: stellaHome, authz: az}
+	return &Service{store: store, files: newFileManager(stellaHome), feeds: p, stellaHome: stellaHome}
 }
 
 func (s *Service) Store() *Store { return s.store }

@@ -18,7 +18,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -36,7 +35,7 @@ func TestAuthorizedMethodsEnforceShareOwnership(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test", policy.New(db))
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test")
 	owner := uuid.NewString()
 	foreign := uuid.NewString()
 	for _, userID := range []string{owner, foreign} {
@@ -49,7 +48,7 @@ func TestAuthorizedMethodsEnforceShareOwnership(t *testing.T) {
 		t.Fatalf("CreateShare: %v", err)
 	}
 	// A foreign user sees none of the owner's shares and cannot revoke one.
-	foreignAcc := mustBegin(t, svc, userAuthority(t, foreign))
+	foreignAcc := mustAccess(t, svc, userAuthority(t, foreign))
 	if got, err := foreignAcc.List(ctx, 10, 0); err != nil || len(got.Shares) != 0 {
 		t.Fatalf("foreign List got=%+v err=%v, want empty", got, err)
 	}
@@ -65,14 +64,14 @@ func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 	mem := memorytest.New()
 	home := t.TempDir()
 	store := recally.NewStore(db)
-	svc := sharepkg.NewService(q, mem, store, mustAssets(t, home, nil), home, "http://stella.test", policy.New(db))
+	svc := sharepkg.NewService(q, mem, store, mustAssets(t, home, nil), home, "http://stella.test")
 	userID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	recallyAcc, err := recally.NewService(store, home, policy.New(db)).Begin(ctx, userAuthority(t, userID))
+	recallyAcc, err := recally.NewService(store, home).Access(userAuthority(t, userID))
 	if err != nil {
-		t.Fatalf("recally Begin: %v", err)
+		t.Fatalf("recally Access: %v", err)
 	}
 	saved, err := recallyAcc.Save(ctx, recally.SaveRequest{URL: "https://example.com/share", Title: "Share", Content: "share body"})
 	if err != nil {
@@ -86,7 +85,7 @@ func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 		t.Fatalf("remove mirror: %v", err)
 	}
 
-	created, err := mustBegin(t, svc, userAuthority(t, userID)).ShareArticle(ctx, saved.Article.ID, "7d")
+	created, err := mustAccess(t, svc, userAuthority(t, userID)).ShareArticle(ctx, saved.Article.ID, "7d")
 	if err != nil {
 		t.Fatalf("ShareArticle: %v", err)
 	}
@@ -105,7 +104,7 @@ func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, remote), home, "http://stella.test", policy.New(db))
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, remote), home, "http://stella.test")
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -122,7 +121,7 @@ func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
 	if err := remote.Put(ctx, key, strings.NewReader("restored")); err != nil {
 		t.Fatalf("remote Put: %v", err)
 	}
-	created, err := mustBegin(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/restored.html", "user", agentID, "7d")
+	created, err := mustAccess(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/restored.html", "user", agentID, "7d")
 	if err != nil {
 		t.Fatalf("ShareArtifact: %v", err)
 	}
@@ -140,7 +139,7 @@ func TestShareArtifactRestoreMissLeavesNoAssetDir(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, lazyMissingStore{}), home, "http://stella.test", policy.New(db))
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, lazyMissingStore{}), home, "http://stella.test")
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -149,7 +148,7 @@ func TestShareArtifactRestoreMissLeavesNoAssetDir(t *testing.T) {
 	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "session", UserID: userID, AgentID: agentID}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := mustBegin(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/missing.html", "user", agentID, "7d")
+	_, err := mustAccess(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/missing.html", "user", agentID, "7d")
 	if !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("ShareArtifact err=%v, want ErrNotFound", err)
 	}
@@ -165,7 +164,7 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test", policy.New(db))
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test")
 	userID := uuid.NewString()
 	foreignUser := uuid.NewString()
 	agentID := uuid.NewString()
@@ -197,7 +196,7 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	acc := mustBegin(t, svc, agentAuthority(t, userID, agentID))
+	acc := mustAccess(t, svc, agentAuthority(t, userID, agentID))
 	if _, err := acc.ShareArtifact(ctx, "owner-session", "../escape.html", "", agentID, "7d"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("../escape err=%v, want ErrNotFound clamp", err)
 	}
@@ -243,7 +242,7 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 func newShareService(t *testing.T, db *pgxpool.Pool) *sharepkg.Service {
 	t.Helper()
 	home := t.TempDir()
-	return sharepkg.NewService(sqlc.New(db), memorytest.New(), recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test", policy.New(db))
+	return sharepkg.NewService(sqlc.New(db), memorytest.New(), recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test")
 }
 
 // seedShareUser inserts a durable user and returns its id.
@@ -265,12 +264,12 @@ func mustAssets(t *testing.T, home string, authority blob.Store) *asset.Store {
 	return a
 }
 
-// mustBegin opens exactly one share Access for an authority.
-func mustBegin(t *testing.T, svc *sharepkg.Service, authority authz.Authority) *sharepkg.Access {
+// mustAccess opens exactly one share Access for an authority.
+func mustAccess(t *testing.T, svc *sharepkg.Service, authority authz.Authority) *sharepkg.Access {
 	t.Helper()
-	acc, err := svc.Begin(context.Background(), authority)
+	acc, err := svc.Access(authority)
 	if err != nil {
-		t.Fatalf("Begin: %v", err)
+		t.Fatalf("Access: %v", err)
 	}
 	return acc
 }

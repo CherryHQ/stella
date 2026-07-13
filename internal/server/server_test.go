@@ -188,7 +188,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
 	authorizer := policy.New(db)
-	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL, authorizer)
+	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		StellaHome: config.StellaHome(),
@@ -221,10 +221,10 @@ func setupAdmin(t *testing.T) *testEnv {
 		PluginHost:          phost,
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
-		Email:               email.NewService(nil, sqlc.New(db), authorizer),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL, authorizer),
+		Email:               email.NewService(nil, sqlc.New(db)),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Assets:              assetStore,
-		Recally:             recally.NewService(recallyStore, t.TempDir(), authorizer),
+		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
 		OIDC: server.OIDCDeps{

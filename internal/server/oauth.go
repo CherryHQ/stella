@@ -9,9 +9,9 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 )
 
-// credAccess derives the trusted Authority for the authenticated caller and opens
-// one connections Authorizer evaluation. The connections Service is the sole PEP
-// for the user-facing OAuth capability.
+// credAccess derives the trusted Authority for the authenticated caller and
+// binds one connections use case to it. The user-facing OAuth capability is
+// user-owned: bundles and flows are scoped to the captured user.
 func (s *Server) credAccess(w http.ResponseWriter, r *http.Request) (*connections.Access, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -23,7 +23,7 @@ func (s *Server) credAccess(w http.ResponseWriter, r *http.Request) (*connection
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return nil, false
 	}
-	acc, err := s.credSvc.Begin(r.Context(), authority)
+	acc, err := s.credSvc.Access(authority)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return nil, false

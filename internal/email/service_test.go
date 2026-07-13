@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
@@ -39,11 +38,11 @@ func TestServiceNoConfigFriendlyError(t *testing.T) {
 	db := dbtest.New(t)
 	userID := seedEmailUser(t, db, "no-config")
 	vaultSvc := newEmailVaultService(t, db, userID)
-	svc := email.NewService(vaultSvc, sqlc.New(db), policy.New(db))
+	svc := email.NewService(vaultSvc, sqlc.New(db))
 
-	acc, err := svc.Begin(ctx, userAuthority(t, userID))
+	acc, err := svc.Access(userAuthority(t, userID))
 	if err != nil {
-		t.Fatalf("Begin: %v", err)
+		t.Fatalf("Access: %v", err)
 	}
 	_, err = acc.Accounts(ctx)
 	if err == nil || !strings.Contains(err.Error(), "no email account configured") {
@@ -67,24 +66,24 @@ func TestServiceSendSuppressesDuplicate(t *testing.T) {
 		t.Fatalf("set EMAIL_CONFIG: %v", err)
 	}
 
-	svc := email.NewService(vaultSvc, sqlc.New(db), policy.New(db))
+	svc := email.NewService(vaultSvc, sqlc.New(db))
 	sends := 0
 	svc.SetSendFunc(func(email.EmailAccount, email.SendOptions) error {
 		sends++
 		return nil
 	})
 	opts := email.SendOptions{To: []string{"to@example.com"}, Subject: "hello", Body: "world"}
-	acc1, err := svc.Begin(ctx, userAuthority(t, userID))
+	acc1, err := svc.Access(userAuthority(t, userID))
 	if err != nil {
-		t.Fatalf("Begin: %v", err)
+		t.Fatalf("Access: %v", err)
 	}
 	first, err := acc1.Send(ctx, "", opts, "k1")
 	if err != nil {
 		t.Fatalf("first Send: %v", err)
 	}
-	acc2, err := svc.Begin(ctx, userAuthority(t, userID))
+	acc2, err := svc.Access(userAuthority(t, userID))
 	if err != nil {
-		t.Fatalf("Begin: %v", err)
+		t.Fatalf("Access: %v", err)
 	}
 	second, err := acc2.Send(ctx, "", opts, "k1")
 	if err != nil {

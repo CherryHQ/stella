@@ -208,20 +208,22 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := vaultSvc.SetScoped(ctx, vault.ScopeUser, ownerUser, "", "EMAIL_CONFIG", `{"default":"work","accounts":{"work":{"imap_host":"8.8.8.8","smtp_host":"1.1.1.1","username":"owner@example.com","password":"secret","from":"owner@example.com"}}}`); err != nil {
 		t.Fatalf("set owner email config: %v", err)
 	}
-	emailTool := emailpkg.NewTool(emailpkg.NewService(vaultSvc, q, policy.New(db)))
+	emailTool := emailpkg.NewTool(emailpkg.NewService(vaultSvc, q))
 	if out, err := emailTool.Execute(foreignCtx, map[string]any{"action": "accounts"}); err == nil || !strings.Contains(err.Error(), "no email account configured") || strings.Contains(out, "work") || strings.Contains(out, "secret") {
 		t.Fatalf("email foreign accounts out=%q err=%v, want no leak", out, err)
 	}
 
 	flowStore := credoauth.NewFlowStore()
 	flowStore.Create(credoauth.FlowStatus{Provider: credoauth.ProviderGitHub, FlowID: "owner-flow", UserID: ownerUser, FlowType: "device_code"})
-	oauthSvc := connections.NewService(nil, nil, flowStore, "http://localhost:8080", policy.New(db))
+	oauthSvc := connections.NewService(nil, nil, flowStore, "http://localhost:8080")
 	registry := credoauth.NewProviderRegistry()
 	registry.Register(credoauth.ProviderConfig{ID: "github", VaultKey: credoauth.VaultKeyGitHub})
 	oauthSvc.SetRegistry(registry)
 	oauthTool := connections.NewTool(oauthSvc)
-	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "owner-flow"}); err == nil || !strings.Contains(err.Error(), "access denied") || out != "" {
-		t.Fatalf("oauth foreign status out=%q err=%v, want access denied", out, err)
+	// A foreign flow is hidden by the persisted flow owner, indistinguishable from
+	// a missing one — the tool never reveals that another user's flow exists.
+	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "owner-flow"}); err == nil || !strings.Contains(err.Error(), "flow expired or unknown") || out != "" {
+		t.Fatalf("oauth foreign status out=%q err=%v, want expired/unknown (hidden)", out, err)
 	}
 	if out, err := oauthTool.Execute(foreignCtx, map[string]any{"action": "status", "provider": "github", "flow_id": "missing-flow"}); err == nil || !strings.Contains(err.Error(), "flow expired or unknown") || out != "" {
 		t.Fatalf("oauth missing status out=%q err=%v, want expired/unknown", out, err)
@@ -252,7 +254,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test", policy.New(db))
+	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test")
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
@@ -276,7 +278,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("share unauthenticated err=%v, want no user identity", err)
 	}
 
-	recallySvc := recally.NewService(recally.NewStore(db), home, policy.New(db))
+	recallySvc := recally.NewService(recally.NewStore(db), home)
 	recallyTool := recally.NewTool(recallySvc)
 	recallyOwnerAuth, err := ownerIdentity(ownerUser, agentID).ToAuthority()
 	if err != nil {
@@ -294,7 +296,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if !strings.Contains(out, "created") || !strings.Contains(out, "updated") || !strings.Contains(out, "error") {
 		t.Fatalf("recally save did not report partial results: %s", out)
 	}
-	recallyAcc, err := recallySvc.Begin(ctx, recallyOwnerAuth)
+	recallyAcc, err := recallySvc.Access(recallyOwnerAuth)
 	if err != nil {
 		t.Fatalf("recally begin: %v", err)
 	}

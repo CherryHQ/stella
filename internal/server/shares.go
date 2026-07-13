@@ -138,9 +138,10 @@ func (s *Server) GetShareContent(w http.ResponseWriter, r *http.Request, token s
 }
 
 // shareAccess derives the trusted Authority for the authenticated caller and
-// opens one share Authorizer evaluation. The share Service is the sole PEP; the
-// handler never inspects identity beyond deriving the Authority from verified
-// session claims.
+// binds one share use case to it. Share is a user-owned capability enforced by the
+// captured user (and, for artifacts, os.Root workspace confinement); the handler
+// never inspects identity beyond deriving the Authority from verified session
+// claims.
 func (s *Server) shareAccess(w http.ResponseWriter, r *http.Request) (*sharepkg.Access, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -152,7 +153,7 @@ func (s *Server) shareAccess(w http.ResponseWriter, r *http.Request) (*sharepkg.
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return nil, false
 	}
-	acc, err := s.shareSvc.Begin(r.Context(), authority)
+	acc, err := s.shareSvc.Access(authority)
 	if err != nil {
 		s.writeShareError(w, err)
 		return nil, false

@@ -46,9 +46,6 @@ type Service struct {
 	assets     *asset.Store
 	stellaHome string
 	baseURL    string
-	// authz is the unified policy PEP; the Access opened via Begin is the sole
-	// enforcement point for the user-owned ResourceShare capability.
-	authz authz.Authorizer
 }
 
 type Created struct {
@@ -62,14 +59,14 @@ type ListResult struct {
 	NextPageToken string
 }
 
-func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, az authz.Authorizer) *Service {
-	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome, az), assets: assets, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/"), authz: az}
+func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string) *Service {
+	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), assets: assets, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
 // NewServiceForPool creates a share service that owns the sqlc query set for the
 // share tables, so callers pass only the pgx pool.
-func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, az authz.Authorizer) *Service {
-	return NewService(sqlc.New(pool), mem, store, assets, stellaHome, baseURL, az)
+func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string) *Service {
+	return NewService(sqlc.New(pool), mem, store, assets, stellaHome, baseURL)
 }
 
 func (s *Service) PublicURL(token string) string {

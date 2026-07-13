@@ -36,9 +36,10 @@ func (h *recallyHandlers) writeBadGatewayError(w http.ResponseWriter, err error)
 	writeLoggedError(w, h.log, http.StatusBadGateway, "upstream service error", err)
 }
 
-// access derives the trusted Authority for the authenticated caller and opens one
-// recally Access evaluation. The Service is the sole PEP; the handler never
-// inspects identity beyond deriving the Authority from verified session claims.
+// access derives the trusted Authority for the authenticated caller and binds one
+// recally use case to it. Recally is a user-owned library scoped to the captured
+// user; the handler never inspects identity beyond deriving the Authority from
+// verified session claims.
 func (h *recallyHandlers) access(w http.ResponseWriter, r *http.Request) (*recally.Access, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
@@ -50,7 +51,7 @@ func (h *recallyHandlers) access(w http.ResponseWriter, r *http.Request) (*recal
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return nil, false
 	}
-	acc, err := h.svc.Begin(r.Context(), authority)
+	acc, err := h.svc.Access(authority)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return nil, false
