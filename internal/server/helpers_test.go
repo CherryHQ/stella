@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -73,6 +74,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 		Mem:                 mem,
 		AgentAccess:         agentaccess.NewService(store, as, authorizer),
 		SessionAccess:       sessionSvc,
+		SkillAccess:         skillaccess.NewService(phost.SkillStore(), agentaccess.NewService(store, as, authorizer), authorizer),
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         agent.NewPoolManager(store, mem),
 		PluginHost:          phost,

@@ -358,5 +358,221 @@ func builtinPolicies() []compiledPolicy {
 				{Attr: "is_creator", Op: opEq, Value: "true"},
 			},
 		},
+		// A user may list their workflows (collection-level; per-row read filters
+		// by is_owner in the same evaluation).
+		{
+			id:       "builtin:user-list-workflows",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceWorkflow,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A user owns the workflows they created (read/create/update/delete/run).
+		// is_owner is derived at the PEP from the loaded row and the acting user.
+		{
+			id:         "builtin:user-own-workflows",
+			effect:     effectAllow,
+			subjects:   userOnly,
+			resource:   authz.ResourceWorkflow,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+		// A delegated agent may list workflows it owns as executor.
+		{
+			id:       "builtin:agent-list-workflows",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceWorkflow,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A delegated agent may read/save/run only the workflows whose durable
+		// facts match both its owner and its exact executor agent.
+		{
+			id:       "builtin:agent-own-workflows",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceWorkflow,
+			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionExecute},
+			predicates: []predicate{
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+				{Attr: "is_executor", Op: opEq, Value: "true"},
+			},
+		},
+		// A user may list their goals (collection-level; per-row read filters by
+		// is_owner in the same evaluation).
+		{
+			id:       "builtin:user-list-goals",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceGoal,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A user owns the goals they created (read/create/update/delete/run).
+		{
+			id:         "builtin:user-own-goals",
+			effect:     effectAllow,
+			subjects:   userOnly,
+			resource:   authz.ResourceGoal,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+		// A delegated agent may list goals it owns as executor.
+		{
+			id:       "builtin:agent-list-goals",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceGoal,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A delegated agent may act only on goals whose durable facts match both
+		// its owner and its exact executor agent.
+		{
+			id:       "builtin:agent-own-goals",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceGoal,
+			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+				{Attr: "is_executor", Op: opEq, Value: "true"},
+			},
+		},
+		// A user may list their scheduler jobs (collection-level; per-row read
+		// filters by is_owner in the same evaluation).
+		{
+			id:       "builtin:user-list-scheduler",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceScheduler,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A user owns the scheduler jobs they created (read/create/update/delete/
+		// run). System- and plugin-owned jobs are hidden by the PEP before any
+		// decision, so is_owner alone confines a user to their own jobs.
+		{
+			id:         "builtin:user-own-scheduler",
+			effect:     effectAllow,
+			subjects:   userOnly,
+			resource:   authz.ResourceScheduler,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
+		},
+		// A delegated agent may list scheduler jobs it owns as executor.
+		{
+			id:       "builtin:agent-list-scheduler",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceScheduler,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A delegated agent may act only on scheduler jobs whose durable facts
+		// match both its owner and its exact executor agent.
+		{
+			id:       "builtin:agent-own-scheduler",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceScheduler,
+			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
+			predicates: []predicate{
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+				{Attr: "is_executor", Op: opEq, Value: "true"},
+			},
+		},
+		// A named system worker fires the platform's own system-owned scheduler jobs
+		// (builtin digests, RSS ticks). Like the system session/agent grants this is
+		// capability-based, never role-based: the scheduler's durable fire path
+		// re-decides the job's ActionExecute under a reconstructed SystemAgentAuthority
+		// before dispatching a system job's turn.
+		{
+			id:         "builtin:system-scheduler",
+			effect:     effectAllow,
+			subjects:   systemUse,
+			resource:   authz.ResourceScheduler,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionExecute},
+			predicates: []predicate{{Attr: "kind", Op: opEq, Value: "system"}},
+		},
+		// A user may list their skills (collection-level; per-scope management
+		// filters by owner/admin in the same evaluation).
+		{
+			id:       "builtin:user-list-skills",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A user owns the user/user_agent skills they created (read/create/write/
+		// delete). is_owner is derived at the PEP from the loaded row (or write
+		// target) and the acting user; admin-managed system scopes are excluded.
+		{
+			id:       "builtin:user-own-skills",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}},
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+			},
+		},
+		// Any user may read admin-managed system/system_agent skills (they are
+		// shared reference procedures); only admins may write them.
+		{
+			id:       "builtin:user-read-system-skills",
+			effect:   effectAllow,
+			subjects: userOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionRead},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"system", "system_agent"}},
+			},
+		},
+		// A delegated agent may list skills it owns as the delegating user.
+		{
+			id:       "builtin:agent-list-skills",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionList},
+		},
+		// A delegated agent may act only on user/user_agent skills owned by its
+		// delegating user (is_owner). It never writes admin-managed system scopes.
+		{
+			id:       "builtin:agent-own-skills",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}},
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+			},
+		},
+		// A delegated agent may read admin-managed system/system_agent skills (they
+		// are shared reference procedures loaded during a turn); it never writes
+		// them. system_agent rows are additionally confined to the agent by the
+		// PEP's folded agent-read gate.
+		{
+			id:       "builtin:agent-read-system-skills",
+			effect:   effectAllow,
+			subjects: agentOnly,
+			resource: authz.ResourceSkill,
+			actions:  []authz.Action{authz.ActionRead},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"system", "system_agent"}},
+			},
+		},
+		// A group turn (GroupAgentActor, no user) may read the shared, non-personal
+		// system/system_agent skills it could see before the cutover — those are
+		// public reference procedures, not identity-scoped data. It has no user, so
+		// user/user_agent skills stay hidden. The group agent-use grant confines a
+		// system_agent read to the group's own agent via the folded agent gate.
+		{
+			id: "builtin:group-agent-read-system-skills", effect: effectAllow,
+			subjects: groupAgentUse, resource: authz.ResourceSkill,
+			actions: []authz.Action{authz.ActionRead},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"system", "system_agent"}},
+			},
+		},
 	}
 }

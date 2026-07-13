@@ -53,7 +53,7 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 	if scope == "" {
 		scope = defaultAgentSkillScope(r.Context())
 	}
-	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), agentID, scope)
+	userID, code, msg := s.agentSkillWriteScope(r.Context(), agentID, scope)
 	if code != 0 {
 		writeError(w, code, msg)
 		return

@@ -35,7 +35,8 @@ func TestHealthReportAggregatesGoalExecutionMetrics(t *testing.T) {
 	h.insertAcceptanceEvent(accepted.ID, acceptedExec2, 0, "pass")
 	h.insertAcceptanceEvent(accepted.ID, acceptedExec2, 1, "fail")
 
-	report, err := h.svc.HealthReport(ctx, HealthFilter{SinceAt: now.Add(-14 * 24 * time.Hour), UntilAt: now, UserID: h.userID})
+	// Route through the Access PEP so the aggregation runs over authorized rows.
+	report, err := h.begin(t, h.userAuth(t, h.userID)).HealthReport(ctx, HealthFilter{SinceAt: now.Add(-14 * 24 * time.Hour), UntilAt: now, UserID: h.userID})
 	if err != nil {
 		t.Fatalf("HealthReport: %v", err)
 	}

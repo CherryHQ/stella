@@ -18,8 +18,10 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"
@@ -29,6 +31,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -45,7 +48,10 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 			t.Fatalf("seed user: %v", err)
 		}
 	}
-	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, 'agent', '/tmp')`, agentID); err != nil {
+	// System scope so both the owner and the foreign delegated agent (both exact
+	// executors of this agent) pass the folded-in agent-read gate; the scheduler
+	// job-ownership decision is what differentiates them.
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace, scope) VALUES ($1, 'agent', '/tmp', 'system')`, agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 
@@ -58,13 +64,25 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 			uuid.NewString(), sessionID, agentID, userID, now, now, now)
 		return sessionID, err
 	}))
-	goalBundle := &goal.Service{Queries: q, Goal: goalSvc}
-	ownerGoal, err := goalBundle.As(ownerIdentity(ownerUser, agentID)).CreateGoal(ctx, goal.CreateInput{AgentID: agentID, Title: "owner goal", Kind: goal.KindComposite})
+	goalAuthorizer := policy.New(db)
+	goalAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), goalAuthorizer)
+	goalBundle := goal.NewBundle(q, goalSvc, goalAuthorizer, goalAgents)
+	ownerGoalAuthority, err := ownerIdentity(ownerUser, agentID).ToAuthority()
+	if err != nil {
+		t.Fatalf("owner goal authority: %v", err)
+	}
+	ownerGoalAcc, err := goalBundle.Begin(ctx, ownerGoalAuthority)
+	if err != nil {
+		t.Fatalf("goal begin: %v", err)
+	}
+	ownerGoal, err := ownerGoalAcc.CreateGoal(ctx, goal.CreateInput{AgentID: agentID, Title: "owner goal", Kind: goal.KindComposite})
 	if err != nil {
 		t.Fatalf("create owner goal: %v", err)
 	}
 
-	schedulerSvc, err := scheduler.New(db)
+	schedAuthorizer := policy.New(db)
+	schedAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), schedAuthorizer)
+	schedulerSvc, err := scheduler.New(db, scheduler.WithAuthorization(schedAuthorizer, schedAgents))
 	if err != nil {
 		t.Fatalf("scheduler.New: %v", err)
 	}
@@ -72,7 +90,15 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("scheduler.Start: %v", err)
 	}
 	t.Cleanup(func() { _ = schedulerSvc.Stop() })
-	ownerJob, err := schedulerSvc.As(ownerIdentity(ownerUser, agentID)).CreateJob(ctx, "owner job", "run", scheduler.Schedule{Every: "1h"}, scheduler.SessionReuse, agentID, "")
+	ownerAuthority, err := ownerIdentity(ownerUser, agentID).ToAuthority()
+	if err != nil {
+		t.Fatalf("owner authority: %v", err)
+	}
+	ownerAcc, err := schedulerSvc.Begin(ctx, ownerAuthority)
+	if err != nil {
+		t.Fatalf("scheduler begin: %v", err)
+	}
+	ownerJob, err := ownerAcc.CreateJob(ctx, "owner job", "run", scheduler.Schedule{Every: "1h"}, scheduler.SessionReuse, agentID, "")
 	if err != nil {
 		t.Fatalf("create owner job: %v", err)
 	}

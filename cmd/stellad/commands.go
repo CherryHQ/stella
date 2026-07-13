@@ -42,6 +42,7 @@ import (
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -89,6 +90,7 @@ type setupResult struct {
 	authStore                *appdb.AuthStore
 	agentAccess              *agentaccess.Service
 	sessionAccess            *sessionaccess.Service
+	skillAccess              *skillaccess.Service
 	pluginHost               *pluginhost.Host
 	channelRuntimeServices   *pluginhost.ChannelPlatform
 	poolManager              *agent.PoolManager
@@ -172,6 +174,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := ss.diskSync.SyncAllToDisk(parent); err != nil {
 		return nil, fmt.Errorf("sync DB skills to disk: %w", err)
 	}
+	// The Skill PEP shares the same revision-bound authorizer and agent PEP as the
+	// other #710 execution domains; the disk-sync store is the single DB skill
+	// read port (its ListAll reaches the same rows the transports resolve).
+	skillAccess := skillaccess.NewService(ss.diskSync, agentAccess, authorizer)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -182,7 +188,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	phost := ps.host
 
-	schedulerSvc, err := setupScheduler(db, phost)
+	schedulerSvc, err := setupScheduler(db, phost, authorizer, agentAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -257,15 +263,18 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
-		Memory:            memProvider,
-		Store:             store,
-		SkillStore:        skillStoreAdapter,
-		UsageCuratorStore: reflect.NewSQLUsageCuratorStoreForPool(db),
-		Notifier:          dispatcher,
-		StateStore:        pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
-		Workspace:         config.StellaHome(),
-		Providers:         providerStreamBuilder,
-		Services:          &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
+		Memory:                   memProvider,
+		Store:                    store,
+		SkillStore:               skillStoreAdapter,
+		SkillAuthorizer:          skillAccess,
+		SkillReadAuthorizer:      skillAccess,
+		SkillToolWriteAuthorizer: skillAccess,
+		UsageCuratorStore:        reflect.NewSQLUsageCuratorStoreForPool(db),
+		Notifier:                 dispatcher,
+		StateStore:               pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
+		Workspace:                config.StellaHome(),
+		Providers:                providerStreamBuilder,
+		Services:                 &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 	}, cfg.Reflect.Interval, cfg.Reflect.CuratorMode); err != nil {
 		return nil, err
 	}
@@ -314,6 +323,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 		ExcludedTools: workerExcludedTools,
 		AgentAccess:   goalAgentAccess,
+		Authorizer:    authorizer,
 		Capabilities: goal.CapabilityProbeFunc(func() bool {
 			plugins, err := store.ListPlugins(context.Background())
 			if err != nil {
@@ -358,7 +368,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
-	workflowSvc := workflowpkg.New(db, goalSvc.Goal)
+	workflowSvc := workflowpkg.New(db, goalSvc.Goal, authorizer, agentAccess)
 	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc})
 
 	// Build the shared credentials/email/share services once, with the final
@@ -421,6 +431,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithToolLifecyclePM(toolLifecycle),
 		agent.WithToolOverrideFetcher(agent.NewToolOverrideStore(db).Fetch),
 		agent.WithSkillStore(skillStoreAdapter),
+		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithProjectEnsurerPM(projectStore.Ensure),
 	)
@@ -491,6 +502,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		authStore:                authStore,
 		agentAccess:              agentAccess,
 		sessionAccess:            sessionAccess,
+		skillAccess:              skillAccess,
 		pluginHost:               phost,
 		channelRuntimeServices:   ps.channelRuntimeServices,
 		poolManager:              poolMgr,
@@ -539,13 +551,16 @@ func ensureEmbeddedAssets() error {
 	return nil
 }
 
-func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host) (*scheduler.Service, error) {
+func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, authorizer authz.Authorizer, agentAccess *agentaccess.Service) (*scheduler.Service, error) {
 	// External-river mode: the scheduler does not build its own River client. The
 	// composition root (buildSharedRiverClient) assembles the single process-wide
 	// working client from both the scheduler and goal queues and injects it back
 	// via BindRiverClient, so there is exactly one electable River client per
 	// database (see db.NewWorkingRiverClient).
-	svc, err := scheduler.New(db, scheduler.WithExternalRiver())
+	//
+	// WithAuthorization wires the unified Authorizer + agent-access gate so the
+	// scheduler Service is the sole PEP for job resources (HTTP + tool).
+	svc, err := scheduler.New(db, scheduler.WithExternalRiver(), scheduler.WithAuthorization(authorizer, agentAccess))
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
@@ -615,6 +630,13 @@ func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context,
 	return scheduler.ScheduledWorkflow{ID: wf.ID, FullyFrozen: wf.FullyFrozen}, nil
 }
 
+// AuthorizeWorkflowWithin folds the workflow domain's policy decision into a
+// scheduler use case's evaluation, so CreateWorkflowJob gates its dispatch target
+// through the workflow's own policy under one revision.
+func (a schedulerWorkflowAdapter) AuthorizeWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, workflowID string, action authz.Action) error {
+	return a.svc.AuthorizeWithin(ctx, eval, authority, workflowID, action)
+}
+
 func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req scheduler.WorkflowLatestRunRequest) (scheduler.WorkflowRunState, error) {
 	rs, err := a.svc.LatestRunState(ctx, req.WorkflowID)
 	if err != nil {
@@ -629,8 +651,8 @@ func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req sch
 	}, nil
 }
 
-func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
-	run, _, err := a.svc.Instantiate(ctx, workflowpkg.InstantiateInput{UserID: req.UserID, AgentID: req.AgentID, WorkflowID: req.WorkflowID, Inputs: req.Inputs, IdempotencyKey: req.IdempotencyKey})
+func (a schedulerWorkflowAdapter) InstantiateWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
+	run, _, err := a.svc.InstantiateWithin(ctx, eval, authority, req.WorkflowID, req.Inputs, req.IdempotencyKey)
 	if err != nil {
 		return scheduler.WorkflowInstantiateResult{}, err
 	}
@@ -641,39 +663,14 @@ func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req s
 	return scheduler.WorkflowInstantiateResult{RunID: run.ID, RootGoalID: rootID}, nil
 }
 
-func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher, access *agentaccess.Service) {
+func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher) {
 	if svc == nil {
 		return
 	}
-	svc.SetOnJob(func(ctx context.Context, job scheduler.Job) error {
-		if job.OwnerKind == scheduler.JobOwnerPlugin {
-			return nil
-		}
-		// Every durable execution reconstructs its authority from persisted owner
-		// data and performs a fresh PEP use. Ownerless user rows fail closed.
-		if access == nil || job.AgentID == "" {
-			return fmt.Errorf("scheduler: missing agent authorization data for job %s", job.ID)
-		}
-		var authorityErr error
-		var authority authz.Authority
-		switch job.OwnerKind {
-		case scheduler.JobOwnerUser:
-			if job.UserID == "" {
-				return fmt.Errorf("scheduler: user job %s has no persisted owner", job.ID)
-			}
-			authority, authorityErr = agentaccess.WorkerAgentAuthority(job.UserID, job.AgentID)
-		case scheduler.JobOwnerSystem:
-			authority, authorityErr = agentaccess.SystemAgentAuthority("scheduler")
-		default:
-			return fmt.Errorf("scheduler: unsupported durable owner kind %q", job.OwnerKind)
-		}
-		if authorityErr != nil {
-			return authorityErr
-		}
-		if _, err := access.Use(ctx, authority, job.AgentID); err != nil {
-			return fmt.Errorf("scheduler: agent use denied for job %s: %w", job.ID, err)
-		}
-
+	svc.SetOnJob(func(ctx context.Context, job scheduler.Job, authority authz.Authority) error {
+		// Scheduler dispatch already decided the durable Job and actual Agent under
+		// one evaluation. The composition root only selects the implementation and
+		// runs the turn under that explicit authority.
 		agentSvc := poolMgr.GetService(job.AgentID)
 		if agentSvc == nil && job.AgentID == "" {
 			agentSvc = poolMgr.Default()

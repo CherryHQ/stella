@@ -11,12 +11,15 @@ import (
 	"github.com/google/uuid"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/server"
+	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -63,7 +66,9 @@ func setupGoalEnvWithOptions(t *testing.T, opts ...goal.Option) *testEnv {
 	}
 	baseOpts = append(baseOpts, opts...)
 	svc := goal.New(env.db, q, baseOpts...)
-	bundle := &goal.Service{Queries: q, Goal: svc}
+	az := policy.New(env.db)
+	agents := agentaccess.NewService(storepkg.NewDBStore(env.db), appdb.NewAuthStore(env.db), az)
+	bundle := goal.NewBundle(q, svc, az, agents)
 	env.rebuild(t, func(d *server.Deps) { d.Goal = bundle })
 	return env
 }
@@ -132,18 +137,20 @@ func TestGoals_AddEdge_CrossTenant_404(t *testing.T) {
 	env := setupGoalEnv(t)
 	agentID := findStellaID(t, env)
 
-	// User B + token. Reuse the same agent — there is no per-user agent ownership
-	// gate at create time, so the only tenant boundary exercised here is the
-	// goal's user_id.
+	// Two regular users A and B. Reuse the same agent — there is no per-user agent
+	// ownership gate at create time, so the only tenant boundary exercised here is
+	// the goal's user_id. A is a regular user (not the admin bearer) because admin
+	// is a policy superuser and would legitimately see B's goal.
+	_, tokenA := createTestUserWithToken(t, env.authStore, env.oidcStore, "tenant-a", "user")
 	_, tokenB := createTestUserWithToken(t, env.authStore, env.oidcStore, "tenant-b", "user")
 
 	// A's two own goals and B's one.
-	dA := createGoal(t, env, env.bearerToken, agentID, "A-root")
-	dA2 := createGoal(t, env, env.bearerToken, agentID, "A-sibling")
+	dA := createGoal(t, env, tokenA, agentID, "A-root")
+	dA2 := createGoal(t, env, tokenA, agentID, "A-sibling")
 	dB := createGoal(t, env, tokenB, agentID, "B-root")
 
 	// As A, declare dA depends on B's goal as upstream → 404 (upstream gated).
-	rr := doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals/"+dA+"/edges", apitypes.AddEdgeRequest{
+	rr := doRequestWithSession(t, env.srv, tokenA, "POST", "/api/goals/"+dA+"/edges", apitypes.AddEdgeRequest{
 		UpstreamId: dB,
 	})
 	if rr.Code != http.StatusNotFound {
@@ -164,7 +171,7 @@ func TestGoals_AddEdge_CrossTenant_404(t *testing.T) {
 
 	// Cross-tenant downstream: as A, target B's goal as the path id → the
 	// downstream gate fails first → 404.
-	rr = doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals/"+dB+"/edges", apitypes.AddEdgeRequest{
+	rr = doRequestWithSession(t, env.srv, tokenA, "POST", "/api/goals/"+dB+"/edges", apitypes.AddEdgeRequest{
 		UpstreamId: dA,
 	})
 	if rr.Code != http.StatusNotFound {
@@ -172,7 +179,7 @@ func TestGoals_AddEdge_CrossTenant_404(t *testing.T) {
 	}
 
 	// Same-tenant edge between A's two own siblings → 201.
-	rr = doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals/"+dA+"/edges", apitypes.AddEdgeRequest{
+	rr = doRequestWithSession(t, env.srv, tokenA, "POST", "/api/goals/"+dA+"/edges", apitypes.AddEdgeRequest{
 		UpstreamId: dA2,
 	})
 	if rr.Code != http.StatusCreated {
@@ -193,10 +200,13 @@ func TestGoals_GetCrossTenant_404(t *testing.T) {
 	env := setupGoalEnv(t)
 	agentID := findStellaID(t, env)
 
+	// Regular user A must not see regular user B's goal (admin is a policy
+	// superuser and is intentionally not used as the cross-tenant probe).
+	_, tokenA := createTestUserWithToken(t, env.authStore, env.oidcStore, "tenant-a-get", "user")
 	_, tokenB := createTestUserWithToken(t, env.authStore, env.oidcStore, "tenant-b-get", "user")
 	dB := createGoal(t, env, tokenB, agentID, "B-private")
 
-	rr := doRequestWithSession(t, env.srv, env.bearerToken, "GET", "/api/goals/"+dB, nil)
+	rr := doRequestWithSession(t, env.srv, tokenA, "GET", "/api/goals/"+dB, nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("A GET B's goal: status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
 	}

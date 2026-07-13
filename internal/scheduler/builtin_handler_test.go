@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/authz"
 )
 
 func TestBuiltinHandlerDispatch(t *testing.T) {
@@ -15,7 +17,7 @@ func TestBuiltinHandlerDispatch(t *testing.T) {
 	var handlerCalls int32
 	var fallbackCalls int32
 
-	svc.SetOnJob(func(_ context.Context, _ Job) error {
+	svc.SetOnJob(func(_ context.Context, _ Job, _ authz.Authority) error {
 		atomic.AddInt32(&fallbackCalls, 1)
 		return nil
 	})

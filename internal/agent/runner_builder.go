@@ -46,6 +46,7 @@ type runnerBuilderConfig struct {
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	SkillStore               pkgplugins.SkillStore
+	SkillReadAuthorizer      skillstool.SkillReadAuthorizer
 	MCPToolProvider          MCPToolProvider
 	ToolOverrideFetcher      ToolOverrideFetcher
 	ToolLifecycle            *coreagent.ToolLifecycle
@@ -239,6 +240,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			BuiltinParams:       params,
 			PerRunTools:         perRunTools,
 			SkillStore:          cfg.SkillStore,
+			SkillReadAuthorizer: cfg.SkillReadAuthorizer,
 			PluginView:          pluginView,
 			MCPToolProvider:     cfg.MCPToolProvider,
 			ToolOverrideFetcher: cfg.ToolOverrideFetcher,

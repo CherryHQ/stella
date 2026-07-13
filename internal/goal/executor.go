@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -124,19 +125,26 @@ func terminalSubmitSandboxCallback(rec *terminalRecorder, cb func(sandbox.Sessio
 // attempts. It wires a recording goal_control tool, runs each turn
 // through ChatFunc (which persists the transcript to the goal session),
 // and pumps the chat loop until a terminal action fires or the channel closes.
+// attemptAuthorizeFunc fresh-authorizes one durable attempt's execution against
+// the persisted goal and the attempt's actual executor. It is the executor's
+// single seam onto the durable-worker PEP (workerAuthorizer.authorize); production
+// wires the real PEP, and a nil value fails closed at the call site.
+type attemptAuthorizeFunc func(ctx context.Context, goal sqlc.AgentGoal, executorAgentID string) error
+
 type workerExecutor struct {
 	chat          TaskChatFunc
 	log           *slog.Logger
 	excludedTools []string
-	access        *agentaccess.Service
+	authorize     attemptAuthorizeFunc
 }
 
-// newWorkerExecutor builds the default agent-backed executor.
-func newWorkerExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string, access *agentaccess.Service) *workerExecutor {
+// newWorkerExecutor builds the default agent-backed executor. authorize is the
+// durable-attempt PEP; a nil authorize denies every attempt (fail closed).
+func newWorkerExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string, authorize attemptAuthorizeFunc) *workerExecutor {
 	if log == nil {
 		log = slog.Default().With("component", "goal/executor")
 	}
-	return &workerExecutor{chat: chat, log: log, excludedTools: append([]string(nil), excludedTools...), access: access}
+	return &workerExecutor{chat: chat, log: log, excludedTools: append([]string(nil), excludedTools...), authorize: authorize}
 }
 
 // Execute runs one attempt and returns the frozen ExecutorResult. All outcomes
@@ -167,8 +175,9 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 		return failResult("no executor agent on attempt", FailureClassEnvironment, BlockEnvUnavailable), nil
 	}
 	// This is the durable execution boundary: owner and executor come only from
-	// the persisted attempt. A worker never inherits a triggering user's request
-	// authority, and a missing PEP fails closed rather than running the model.
+	// the persisted attempt/goal. A worker never inherits a triggering user's
+	// request authority, and a missing PEP fails closed rather than running the
+	// model.
 	if req.Attempt.UserID == "" {
 		return failResult("goal agent authorization is unavailable", FailureClassEnvironment, BlockEnvUnavailable), nil
 	}
@@ -176,10 +185,14 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 	if err != nil {
 		return Result{}, fmt.Errorf("goal agent authority is invalid: %w", err)
 	}
-	if e.access != nil {
-		if _, err := e.access.Use(ctx, authority, agentID); err != nil {
-			return Result{}, fmt.Errorf("goal agent execution denied: %w", err)
-		}
+	// Fresh-authorize this attempt on every dequeue: the persisted goal's execute
+	// and the actual persisted executor agent under one revision-bound evaluation.
+	// A missing PEP is a boot misconfiguration — block rather than run.
+	if e.authorize == nil {
+		return failResult("goal attempt authorization is unavailable", FailureClassEnvironment, BlockEnvUnavailable), nil
+	}
+	if err := e.authorize(ctx, req.Goal, agentID); err != nil {
+		return Result{}, fmt.Errorf("goal attempt execution denied: %w", err)
 	}
 
 	decompose := req.Attempt.Purpose == PurposeDecomposition

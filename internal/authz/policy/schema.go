@@ -107,10 +107,13 @@ var schemas = map[authz.ResourceType]resourceSchema{
 	authz.ResourceSession:   {attrs: ownerAgentKindState()},
 	authz.ResourceWorkspace: {attrs: ownerAgentKindState()},
 	authz.ResourceSkill: {attrs: map[string]attrSpec{
-		"scope":  enumAttr("system", "agent", "user"),
+		"scope":  enumAttr("system", "system_agent", "user", "user_agent"),
 		"owner":  stringAttr,
 		"agent":  stringAttr,
 		"source": stringAttr,
+		// Derived by the PEP from the immutable Authority and the loaded skill
+		// row; a route or request body can never assert it.
+		"is_owner": boolAttr,
 	}},
 	authz.ResourceGoal:      {attrs: ownerAgentState()},
 	authz.ResourceWorkflow:  {attrs: ownerAgentState()},
@@ -153,7 +156,12 @@ var schemas = map[authz.ResourceType]resourceSchema{
 }
 
 func ownerAgentState() map[string]attrSpec {
-	return map[string]attrSpec{"owner": stringAttr, "agent": stringAttr, "state": stringAttr}
+	return map[string]attrSpec{
+		"owner": stringAttr, "agent": stringAttr, "state": stringAttr,
+		// Derived by the PEP from the immutable Authority and the durable
+		// resource facts; a route or request body can assert neither bit.
+		"is_owner": boolAttr, "is_executor": boolAttr,
+	}
 }
 
 func ownerAgentKindState() map[string]attrSpec {
@@ -327,6 +335,98 @@ func ownerAgentKindStateResource(rt authz.ResourceType, id, ownerID string, fact
 		WithBool("is_executor", facts.IsExecutor).
 		WithBool("is_group", facts.IsGroup).
 		WithBool("is_same_group", facts.IsSameGroup).
+		Build()
+}
+
+// GoalFacts is the complete durable fact set for a Goal policy resource.
+// IsOwner/IsExecutor are derived by the PEP from the Authority and durable state:
+// interactive use compares the loaded goal binding, while a dequeue use compares
+// the persisted attempt executor. They are never caller-controlled.
+type GoalFacts struct {
+	Owner      string
+	Agent      string
+	State      string
+	IsOwner    bool
+	IsExecutor bool
+}
+
+// GoalResource builds a Goal resource carrying every accepted durable fact.
+func GoalResource(id, ownerID string, facts GoalFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceGoal, id, ownerID).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("state", facts.State).
+		WithBool("is_owner", facts.IsOwner).
+		WithBool("is_executor", facts.IsExecutor).
+		Build()
+}
+
+// WorkflowFacts is the complete durable fact set for a Workflow policy resource.
+// IsOwner/IsExecutor are derived by the PEP from the Authority and the loaded
+// workflow row; they are never caller-controlled.
+type WorkflowFacts struct {
+	Owner      string
+	Agent      string
+	State      string
+	IsOwner    bool
+	IsExecutor bool
+}
+
+// WorkflowResource builds a Workflow resource with every accepted durable fact.
+func WorkflowResource(id, ownerID string, facts WorkflowFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceWorkflow, id, ownerID).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("state", facts.State).
+		WithBool("is_owner", facts.IsOwner).
+		WithBool("is_executor", facts.IsExecutor).
+		Build()
+}
+
+// SchedulerFacts is the complete durable fact set for a Scheduler job policy
+// resource. IsOwner/IsExecutor are derived by the PEP from the Authority and the
+// loaded job row; they are never caller-controlled.
+type SchedulerFacts struct {
+	Owner      string
+	Agent      string
+	Kind       string
+	State      string
+	IsOwner    bool
+	IsExecutor bool
+}
+
+// SchedulerResource builds a Scheduler resource carrying every accepted fact.
+func SchedulerResource(id, ownerID string, facts SchedulerFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceScheduler, id, ownerID).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("kind", facts.Kind).
+		WithString("state", facts.State).
+		WithBool("is_owner", facts.IsOwner).
+		WithBool("is_executor", facts.IsExecutor).
+		Build()
+}
+
+// SkillFacts is the complete durable fact set for a Skill policy resource. The
+// four scopes are the durable DB buckets (system, system_agent, user,
+// user_agent). IsOwner is derived by the PEP from the Authority and the loaded
+// skill row (or the write target's owner columns); it is never caller-supplied.
+type SkillFacts struct {
+	Scope   string
+	Owner   string
+	Agent   string
+	Source  string
+	IsOwner bool
+}
+
+// SkillResource builds a Skill resource carrying every accepted durable fact.
+func SkillResource(id, ownerID string, facts SkillFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceSkill, id, ownerID).
+		WithEnum("scope", facts.Scope).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
+		WithString("source", facts.Source).
+		WithBool("is_owner", facts.IsOwner).
 		Build()
 }
 

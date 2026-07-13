@@ -24,11 +24,17 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// The runtime context identity is the trusted adapter: a delegated agent turn
+	// becomes a confined AgentActor. Model-supplied arguments never form identity.
+	authority, err := ident.ToAuthority()
+	if err != nil {
+		return "", authz.MapError("scheduler", err)
+	}
 	action, err := tools.ActionArg(args, "scheduler")
 	if err != nil {
 		return "", err
 	}
-	out, err := Dispatch(ctx, schedulerHandler{svc: t.svc, ident: ident}, action, args)
+	out, err := Dispatch(ctx, schedulerHandler{svc: t.svc, authority: authority, agentID: ident.AgentID}, action, args)
 	if err != nil {
 		return "", authz.MapError("scheduler", err)
 	}
@@ -36,22 +42,30 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 }
 
 type schedulerHandler struct {
-	svc   *Service
-	ident authz.Identity
+	svc       *Service
+	authority authz.Authority
+	agentID   string
+}
+
+func (h schedulerHandler) begin(ctx context.Context) (*Access, error) {
+	return h.svc.Begin(ctx, h.authority)
 }
 
 func (h schedulerHandler) Create(ctx context.Context, in CreateInput) (any, error) {
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
 	sched := Schedule{Cron: in.Cron, Every: in.Every, At: in.At}
 	var job Job
-	var err error
 	if in.TemplateKey != "" {
-		job, err = h.svc.As(h.ident).Subscribe(ctx, h.ident.AgentID, in.TemplateKey, sched)
+		job, err = acc.Subscribe(ctx, h.agentID, in.TemplateKey, sched)
 	} else {
 		enabled := true
 		if in.Enabled != nil {
 			enabled = *in.Enabled
 		}
-		job, err = h.svc.As(h.ident).CreateJobWithEnabled(ctx, in.Name, in.Message, sched, in.SessionMode, h.ident.AgentID, in.IdempotencyKey, enabled)
+		job, err = acc.CreateJobWithEnabled(ctx, in.Name, in.Message, sched, in.SessionMode, h.agentID, in.IdempotencyKey, enabled)
 	}
 	if err != nil {
 		return nil, err
@@ -60,7 +74,11 @@ func (h schedulerHandler) Create(ctx context.Context, in CreateInput) (any, erro
 }
 
 func (h schedulerHandler) Get(ctx context.Context, in GetInput) (any, error) {
-	job, err := h.svc.As(h.ident).GetJob(ctx, h.ident.AgentID, in.Id)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	job, err := acc.GetJob(ctx, h.agentID, in.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +86,11 @@ func (h schedulerHandler) Get(ctx context.Context, in GetInput) (any, error) {
 }
 
 func (h schedulerHandler) List(ctx context.Context, _ ListInput) (any, error) {
-	jobs, err := h.svc.As(h.ident).ListJobs(ctx, h.ident.AgentID)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	jobs, err := acc.ListJobs(ctx, h.agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +102,10 @@ func (h schedulerHandler) List(ctx context.Context, _ ListInput) (any, error) {
 }
 
 func (h schedulerHandler) Update(ctx context.Context, in UpdateInput) (any, error) {
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
 	update := JobUpdate{}
 	if in.Name != "" {
 		update.Name = &in.Name
@@ -97,7 +123,7 @@ func (h schedulerHandler) Update(ctx context.Context, in UpdateInput) (any, erro
 	if in.Enabled != nil {
 		update.Enabled = in.Enabled
 	}
-	job, err := h.svc.As(h.ident).UpdateJob(ctx, h.ident.AgentID, in.Id, update)
+	job, err := acc.UpdateJob(ctx, h.agentID, in.Id, update)
 	if err != nil {
 		return nil, err
 	}
@@ -105,14 +131,22 @@ func (h schedulerHandler) Update(ctx context.Context, in UpdateInput) (any, erro
 }
 
 func (h schedulerHandler) Delete(ctx context.Context, in DeleteInput) (any, error) {
-	if err := h.svc.As(h.ident).DeleteJob(ctx, h.ident.AgentID, in.Id); err != nil {
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := acc.DeleteJob(ctx, h.agentID, in.Id); err != nil {
 		return nil, err
 	}
 	return map[string]any{"id": in.Id, "status": "deleted"}, nil
 }
 
 func (h schedulerHandler) Pause(ctx context.Context, in PauseInput) (any, error) {
-	job, err := h.svc.As(h.ident).SetJobEnabled(ctx, h.ident.AgentID, in.Id, false)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	job, err := acc.SetJobEnabled(ctx, h.agentID, in.Id, false)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +154,11 @@ func (h schedulerHandler) Pause(ctx context.Context, in PauseInput) (any, error)
 }
 
 func (h schedulerHandler) Resume(ctx context.Context, in ResumeInput) (any, error) {
-	job, err := h.svc.As(h.ident).SetJobEnabled(ctx, h.ident.AgentID, in.Id, true)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	job, err := acc.SetJobEnabled(ctx, h.agentID, in.Id, true)
 	if err != nil {
 		return nil, err
 	}

@@ -34,6 +34,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -45,6 +46,7 @@ type Server struct {
 	authStore      auth.AuthStore
 	agentAccess    *agentaccess.Service
 	sessionAccess  *sessionaccess.Service
+	skillAccess    *skillaccess.Service
 	rateLimiter    *auth.RateLimiter
 	linkCodes      *auth.LinkCodeStore
 	mem            memory.Provider
@@ -66,7 +68,6 @@ type Server struct {
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
 	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
-	goalQueries    *sqlc.Queries        // optional; read side for goal endpoints
 	workflowSvc    *workflowpkg.Service // optional; if nil, workflow endpoints return 503
 	builtinTools   []agent.BuiltinTool
 	startedAt      time.Time
@@ -129,8 +130,11 @@ type Deps struct {
 	// Authorizer behind a deep agent service); there is no legacy PolicyEngine here.
 	AgentAccess   *agentaccess.Service
 	SessionAccess *sessionaccess.Service
-	LinkCodes     *auth.LinkCodeStore
-	OIDC          OIDCDeps
+	// SkillAccess is the DB-backed Skill policy-enforcement point. When nil the
+	// skill endpoints report 503 through the centralized unavailable mapping.
+	SkillAccess *skillaccess.Service
+	LinkCodes   *auth.LinkCodeStore
+	OIDC        OIDCDeps
 
 	// Agent runtime + plugins.
 	PoolManager  *agent.PoolManager
@@ -247,6 +251,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		authStore:       deps.AuthStore,
 		agentAccess:     deps.AgentAccess,
 		sessionAccess:   deps.SessionAccess,
+		skillAccess:     deps.SkillAccess,
 		rateLimiter:     auth.NewRateLimiter(),
 		webhookLimiter:  newWebhookLimiter(5, 20),
 		linkCodes:       deps.LinkCodes,
@@ -286,9 +291,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		credentials:     deps.OIDC.Credentials,
 		startedAt:       time.Now(),
 		runtimeCtx:      ctx,
-	}
-	if deps.Goal != nil {
-		s.goalQueries = deps.Goal.Queries
 	}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
 	// streaming handlers. The pool answers the /readyz liveness ping.

@@ -75,6 +75,85 @@ func SessionListRequest() (authz.Request, error) {
 	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
 }
 
+// WorkflowRequest builds an action against one durable Workflow.
+func WorkflowRequest(action authz.Action, workflowID, ownerID string, facts WorkflowFacts) (authz.Request, error) {
+	res, err := WorkflowResource(workflowID, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// WorkflowListRequest builds the collection-level workflow list request. Per-row
+// visibility is decided separately with a WorkflowRequest read in the same
+// evaluation.
+func WorkflowListRequest() (authz.Request, error) {
+	res, err := authz.NewResource(authz.ResourceWorkflow, "", "")
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
+}
+
+// GoalRequest builds an action against one durable Goal.
+func GoalRequest(action authz.Action, goalID, ownerID string, facts GoalFacts) (authz.Request, error) {
+	res, err := GoalResource(goalID, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// GoalListRequest builds the collection-level goal list request. Per-row
+// visibility is decided separately with a GoalRequest read in the same
+// evaluation.
+func GoalListRequest() (authz.Request, error) {
+	res, err := authz.NewResource(authz.ResourceGoal, "", "")
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
+}
+
+// SchedulerRequest builds an action against one durable Scheduler job.
+func SchedulerRequest(action authz.Action, jobID, ownerID string, facts SchedulerFacts) (authz.Request, error) {
+	res, err := SchedulerResource(jobID, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// SchedulerListRequest builds the collection-level scheduler list request. Per-row
+// visibility is decided separately with a SchedulerRequest read in the same
+// evaluation.
+func SchedulerListRequest() (authz.Request, error) {
+	res, err := authz.NewResource(authz.ResourceScheduler, "", "")
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
+}
+
+// SkillRequest builds an action against one durable Skill.
+func SkillRequest(action authz.Action, skillID, ownerID string, facts SkillFacts) (authz.Request, error) {
+	res, err := SkillResource(skillID, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
+// SkillListRequest builds the collection-level skill list request. Per-scope
+// visibility is decided separately with a SkillRequest in the same evaluation.
+func SkillListRequest() (authz.Request, error) {
+	res, err := authz.NewResource(authz.ResourceSkill, "", "")
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
+}
+
 // WorkspaceRequest builds an action against the workspace rooted by sessionID.
 func WorkspaceRequest(action authz.Action, sessionID, ownerID string, facts SessionFacts) (authz.Request, error) {
 	res, err := WorkspaceResource(sessionID, ownerID, facts)

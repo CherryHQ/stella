@@ -5,6 +5,7 @@ WITH scoped_goal AS (
     WHERE g.created_at >= sqlc.arg(since_at)
       AND (sqlc.narg(user_id)::uuid IS NULL OR g.user_id = sqlc.narg(user_id)::uuid)
       AND (sqlc.narg(agent_id)::text IS NULL OR g.agent_id = sqlc.narg(agent_id)::text)
+      AND g.id = ANY(sqlc.arg(goal_ids)::text[])
 ),
 scoped_attempt AS (
     SELECT a.*

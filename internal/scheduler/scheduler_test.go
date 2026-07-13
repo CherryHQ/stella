@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -23,12 +25,28 @@ func testDB(t *testing.T) *pgxpool.Pool {
 	return dbtest.New(t)
 }
 
-// newTestService wraps New.
+type allowFireEvaluation struct{}
+
+func (allowFireEvaluation) Decide(authz.Request) (authz.Decision, error) {
+	return authz.Allow("test:allow-fire", authz.AuditRecord{}), nil
+}
+func (allowFireEvaluation) Revision() int64 { return 1 }
+
+// newTestService wraps New and explicitly replaces the unexported durable-fire
+// PEP seam for legacy scheduler mechanics tests. Authorization tests construct
+// Service directly with the real policy engine.
 func newTestService(t *testing.T, db *pgxpool.Pool) *Service {
 	t.Helper()
 	svc, err := New(db)
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	svc.authorizeFire = func(context.Context, Job) (*Access, error) {
+		authority, err := agentaccess.SystemAgentAuthority("scheduler")
+		if err != nil {
+			return nil, err
+		}
+		return &Access{svc: svc, eval: allowFireEvaluation{}, authority: authority}, nil
 	}
 	return svc
 }
@@ -74,6 +92,8 @@ type fakeWorkflowRunner struct {
 	result           WorkflowInstantiateResult
 	instantiateReq   WorkflowInstantiateRequest
 	instantiateCalls int
+	authorizeErr     error
+	authorizeCalls   int
 }
 
 func (f *fakeWorkflowRunner) ValidateScheduledWorkflow(context.Context, WorkflowValidateRequest) (ScheduledWorkflow, error) {
@@ -87,10 +107,15 @@ func (f *fakeWorkflowRunner) LatestWorkflowRun(context.Context, WorkflowLatestRu
 	return f.latest, nil
 }
 
-func (f *fakeWorkflowRunner) InstantiateWorkflow(_ context.Context, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error) {
+func (f *fakeWorkflowRunner) InstantiateWorkflowWithin(_ context.Context, _ authz.Evaluation, _ authz.Authority, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error) {
 	f.instantiateReq = req
 	f.instantiateCalls++
 	return f.result, nil
+}
+
+func (f *fakeWorkflowRunner) AuthorizeWorkflowWithin(context.Context, authz.Evaluation, authz.Authority, string, authz.Action) error {
+	f.authorizeCalls++
+	return f.authorizeErr
 }
 
 func TestAddWorkflowJobValidation(t *testing.T) {
@@ -245,7 +270,7 @@ func TestDispatchWorkflowJobSkipsActivePreviousRun(t *testing.T) {
 func TestDispatchChatJobStillUsesOnJob(t *testing.T) {
 	svc := testService(t)
 	called := false
-	svc.SetOnJob(func(ctx context.Context, job Job) error {
+	svc.SetOnJob(func(ctx context.Context, job Job, _ authz.Authority) error {
 		called = true
 		if job.DispatchKind != DispatchKindChat {
 			t.Fatalf("dispatch_kind = %q", job.DispatchKind)
@@ -403,7 +428,7 @@ func TestOnJobCallbackFires(t *testing.T) {
 
 	var mu sync.Mutex
 	var fired []string
-	svc.SetOnJob(func(_ context.Context, job Job) error {
+	svc.SetOnJob(func(_ context.Context, job Job, _ authz.Authority) error {
 		mu.Lock()
 		fired = append(fired, job.ID)
 		mu.Unlock()
@@ -479,7 +504,7 @@ func TestOneTimeJobFiresAndRetires(t *testing.T) {
 
 	var mu sync.Mutex
 	var fired []string
-	svc.SetOnJob(func(_ context.Context, job Job) error {
+	svc.SetOnJob(func(_ context.Context, job Job, _ authz.Authority) error {
 		mu.Lock()
 		fired = append(fired, job.ID)
 		mu.Unlock()
@@ -737,7 +762,7 @@ func TestRunJobNow_SingleRun(t *testing.T) {
 
 	var fired []string
 	var mu sync.Mutex
-	svc.SetOnJob(func(_ context.Context, job Job) error {
+	svc.SetOnJob(func(_ context.Context, job Job, _ authz.Authority) error {
 		mu.Lock()
 		fired = append(fired, job.ID)
 		mu.Unlock()
@@ -801,7 +826,7 @@ func TestRunJobNow_PreventsConcurrentRun(t *testing.T) {
 	// Slow job so we can attempt a second trigger while it's still running.
 	started := make(chan struct{})
 	unblock := make(chan struct{})
-	svc.SetOnJob(func(_ context.Context, _ Job) error {
+	svc.SetOnJob(func(_ context.Context, _ Job, _ authz.Authority) error {
 		close(started)
 		<-unblock
 		return nil

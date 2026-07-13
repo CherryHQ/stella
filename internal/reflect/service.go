@@ -7,6 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/memory"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -20,18 +21,32 @@ const (
 	defaultReflectRunSoftBudget     = 15 * time.Minute
 )
 
+// skillWriteAuthorizer authorizes reflect's staged skill writes (create/patch/
+// deprecate) under a fresh trusted WorkerAgentAuthority per operation. It is
+// satisfied by *skillaccess.Service; when unset, reflect skill writes fail closed.
+type skillWriteAuthorizer interface {
+	AuthorizeWorkerWrite(ctx context.Context, userID, agentID, skillID string, create bool) error
+}
+
 // Config holds dependencies for the reflect service.
 type Config struct {
-	StateStore        pkgplugins.StateStore
-	Memory            memory.Provider
-	Store             Store
-	SkillStore        pkgplugins.SkillStore
-	UsageCuratorStore UsageCuratorStore
-	Notifier          pkgplugins.Notifier
-	Workspace         string
-	Log               *slog.Logger
-	Providers         func(api, apiKey, baseURL string) (providers.StreamFunc, error)
-	CandidateGates    CandidateGateSettings
+	StateStore pkgplugins.StateStore
+	Memory     memory.Provider
+	Store      Store
+	SkillStore pkgplugins.SkillStore
+	// SkillAuthorizer is the ResourceSkill PEP for reflect's staged writes (the
+	// reconciliation-plan/usage-curator path); when nil those fail closed.
+	// SkillReadAuthorizer gates the reviewer tool's DB-skill reads and
+	// SkillToolWriteAuthorizer gates its prompt-driven create/patch/deprecate.
+	SkillAuthorizer          skillWriteAuthorizer
+	SkillReadAuthorizer      skillstool.SkillReadAuthorizer
+	SkillToolWriteAuthorizer skillstool.SkillWriteAuthorizer
+	UsageCuratorStore        UsageCuratorStore
+	Notifier                 pkgplugins.Notifier
+	Workspace                string
+	Log                      *slog.Logger
+	Providers                func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	CandidateGates           CandidateGateSettings
 	// UsageCuratorSettings defaults to shadow mode. Production may enable armed
 	// mode explicitly via host wiring; restore remains an internal/admin path.
 	UsageCuratorSettings UsageCuratorSettings
@@ -54,6 +69,9 @@ type Service struct {
 	memory                   memory.Provider
 	store                    Store
 	skillStore               pkgplugins.SkillStore
+	skillAuthorizer          skillWriteAuthorizer
+	skillReadAuthz           skillstool.SkillReadAuthorizer
+	skillToolWriteAuthz      skillstool.SkillWriteAuthorizer
 	stateStore               pkgplugins.StateStore
 	usageCuratorStore        UsageCuratorStore
 	notifier                 pkgplugins.Notifier
@@ -78,6 +96,9 @@ func New(cfg Config) *Service {
 		memory:                   cfg.Memory,
 		store:                    cfg.Store,
 		skillStore:               cfg.SkillStore,
+		skillAuthorizer:          cfg.SkillAuthorizer,
+		skillReadAuthz:           cfg.SkillReadAuthorizer,
+		skillToolWriteAuthz:      cfg.SkillToolWriteAuthorizer,
 		stateStore:               cfg.StateStore,
 		usageCuratorStore:        cfg.UsageCuratorStore,
 		notifier:                 cfg.Notifier,
