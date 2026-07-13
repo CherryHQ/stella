@@ -8,7 +8,13 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-const defaultMaxRelatedPerCandidate = 10
+const (
+	defaultMaxRelatedKnowledgePerCandidate = 10
+	defaultMaxRelatedSkillsPerCandidate    = 5
+
+	// Keep fact reconciliation's pre-split fallback at the Knowledge limit.
+	defaultMaxRelatedPerCandidate = defaultMaxRelatedKnowledgePerCandidate
+)
 
 // factRelatedBundle is the host-side package that feeds fact reconciliation.
 // Profile and soul are singleton inputs; only knowledge receives a catalog for
@@ -110,7 +116,7 @@ func buildFactRelatedBundle(ctx context.Context, facts memory.FactStore, constra
 			Candidates: knowledgeCandidates,
 			Catalog:    catalog,
 			Limits: relatedBundleLimits{
-				MaxRelatedPerCandidate: defaultMaxRelatedPerCandidate,
+				MaxRelatedPerCandidate: defaultMaxRelatedKnowledgePerCandidate,
 			},
 		},
 	}, nil
@@ -223,7 +229,7 @@ func buildSkillRelatedBundle(ctx context.Context, store skillRelatedBundleStore,
 	if err != nil {
 		return skillRelatedBundle{}, err
 	}
-	limits := relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedPerCandidate}
+	limits := relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedSkillsPerCandidate}
 	if err := validateSkillRelatedDiscovery(candidates, catalog, selections, limits.MaxRelatedPerCandidate); err != nil {
 		return skillRelatedBundle{}, err
 	}
