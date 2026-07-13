@@ -12,8 +12,8 @@ import (
 func TestLifecycleSchemasJSONContract(t *testing.T) {
 	now := time.Date(2026, time.July, 13, 12, 0, 0, 0, time.UTC)
 	nextPageToken := "next-page"
-	removalSource := apitypes.KnowledgeItemRemovalSource("curator")
-	skillRemovalSource := apitypes.SkillRemovalSource("manual")
+	removalSource := apitypes.RemovalSource("curator")
+	skillRemovalSource := apitypes.RemovalSource("manual")
 	installVersion := "1.2.3"
 	convertToManual := true
 
@@ -26,9 +26,9 @@ func TestLifecycleSchemasJSONContract(t *testing.T) {
 	if apitypes.KnowledgeItemSource("unknown").Valid() {
 		t.Error("unknown KnowledgeItemSource should be invalid")
 	}
-	for _, value := range []apitypes.KnowledgeItemRemovalSource{"manual", "curator"} {
+	for _, value := range []apitypes.RemovalSource{"manual", "curator"} {
 		if !value.Valid() {
-			t.Errorf("KnowledgeItemRemovalSource(%q).Valid() = false", value)
+			t.Errorf("RemovalSource(%q).Valid() = false", value)
 		}
 	}
 	for _, value := range []apitypes.SkillCreatedBy{"manual", "reflect"} {
@@ -36,12 +36,6 @@ func TestLifecycleSchemasJSONContract(t *testing.T) {
 			t.Errorf("SkillCreatedBy(%q).Valid() = false", value)
 		}
 	}
-	for _, value := range []apitypes.SkillRemovalSource{"manual", "curator"} {
-		if !value.Valid() {
-			t.Errorf("SkillRemovalSource(%q).Valid() = false", value)
-		}
-	}
-
 	knowledge := apitypes.KnowledgeItem{
 		Id:              "knowledge-1",
 		Content:         "remember this",
@@ -88,14 +82,36 @@ func TestLifecycleSchemasJSONContract(t *testing.T) {
 	scopeCounts := apitypes.SkillScopeCounts{All: 4, System: 1, Agent: 1, User: 1, Project: 1}
 	skillList := apitypes.SkillList{
 		Skills:        []apitypes.Skill{skill},
-		TotalSize:     intPtr(1),
-		ScopeCounts:   &scopeCounts,
+		TotalSize:     1,
+		ScopeCounts:   scopeCounts,
 		NextPageToken: &nextPageToken,
 	}
 	assertJSONField(t, skillList, "total_size", 1.0)
 	assertJSONField(t, skillList, "scope_counts", map[string]any{"all": 4.0, "system": 1.0, "agent": 1.0, "user": 1.0, "project": 1.0})
 	assertJSONField(t, skillList, "next_page_token", "next-page")
 	assertJSONField(t, apitypes.UpdateSkillRequest{ConvertToManual: &convertToManual}, "convert_to_manual", true)
+
+	assertRemovalSourceNull(t)
+}
+
+func assertRemovalSourceNull(t *testing.T) {
+	t.Helper()
+
+	var knowledge apitypes.KnowledgeItem
+	if err := json.Unmarshal([]byte(`{"removal_source":null}`), &knowledge); err != nil {
+		t.Fatalf("unmarshal KnowledgeItem null removal_source: %v", err)
+	}
+	if knowledge.RemovalSource != nil {
+		t.Fatalf("KnowledgeItem removal_source = %v, want nil", *knowledge.RemovalSource)
+	}
+
+	var skill apitypes.Skill
+	if err := json.Unmarshal([]byte(`{"removal_source":null}`), &skill); err != nil {
+		t.Fatalf("unmarshal Skill null removal_source: %v", err)
+	}
+	if skill.RemovalSource != nil {
+		t.Fatalf("Skill removal_source = %v, want nil", *skill.RemovalSource)
+	}
 }
 
 func assertJSONField(t *testing.T, value any, field string, want any) {
@@ -111,8 +127,4 @@ func assertJSONField(t *testing.T, value any, field string, want any) {
 	if got := object[field]; !reflect.DeepEqual(got, want) {
 		t.Errorf("%T JSON field %q = %#v, want %#v", value, field, got, want)
 	}
-}
-
-func intPtr(value int) *int {
-	return &value
 }

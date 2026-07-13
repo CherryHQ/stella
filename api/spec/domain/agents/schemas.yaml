@@ -140,11 +140,10 @@ components:
         lifecycle_version: { type: integer, format: int64 }
         created_by: { type: string, enum: [manual, reflect] }
         is_restorable: { type: boolean }
-        removal_source: {
-          type: string,
-          enum: [manual, curator],
-          nullable: true,
-        }
+        removal_source:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/RemovalSource"
         deprecated_at: { type: string, format: date-time, nullable: true }
         restore_deadline: { type: string, format: date-time, nullable: true }
 
@@ -160,7 +159,7 @@ components:
 
     SkillList:
       type: object
-      required: [skills]
+      required: [skills, total_size, scope_counts]
       properties:
         skills: { type: array, items: { $ref: "#/components/schemas/Skill" } }
         total_size: { type: integer }

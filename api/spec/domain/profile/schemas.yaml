@@ -168,11 +168,10 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         is_restorable: { type: boolean }
-        removal_source: {
-          type: string,
-          enum: [manual, curator],
-          nullable: true,
-        }
+        removal_source:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/RemovalSource"
         deprecated_at: { type: string, format: date-time, nullable: true }
         restore_deadline: { type: string, format: date-time, nullable: true }
 

@@ -32,6 +32,9 @@ components:
               type: object
               additionalProperties: true
               description: optional machine-readable error details; keys use snake_case
+    RemovalSource:
+      type: string
+      enum: [manual, curator]
     SandboxNetworkConfig:
       type: object
       properties:
@@ -227,9 +230,9 @@ components:
         is_restorable:
           type: boolean
         removal_source:
-          type: string
-          enum: [manual, curator]
           nullable: true
+          allOf:
+            - $ref: "#/components/schemas/RemovalSource"
         deprecated_at:
           type: string
           format: date-time
@@ -254,7 +257,7 @@ components:
           type: integer
     SkillList:
       type: object
-      required: [skills]
+      required: [skills, total_size, scope_counts]
       properties:
         skills:
           type: array
@@ -2651,9 +2654,9 @@ components:
         is_restorable:
           type: boolean
         removal_source:
-          type: string
-          enum: [manual, curator]
           nullable: true
+          allOf:
+            - $ref: "#/components/schemas/RemovalSource"
         deprecated_at:
           type: string
           format: date-time

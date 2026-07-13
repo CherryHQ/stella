@@ -426,6 +426,9 @@ components:
       $ref: "./components.yaml#/components/securitySchemes/BearerAuth"
 
   schemas:
+    RemovalSource: {
+      $ref: "./components.yaml#/components/schemas/RemovalSource",
+    }
     Error: { $ref: "./components.yaml#/components/schemas/Error" }
     ArticleStatus: {
       $ref: "./components.yaml#/components/schemas/ArticleStatus",
@@ -557,6 +560,18 @@ components:
     }
     CreateSkillRequest: {
       $ref: "./components.yaml#/components/schemas/CreateSkillRequest",
+    }
+    KnowledgeItem: {
+      $ref: "./components.yaml#/components/schemas/KnowledgeItem",
+    }
+    KnowledgeList: {
+      $ref: "./components.yaml#/components/schemas/KnowledgeList",
+    }
+    CreateKnowledgeRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateKnowledgeRequest",
+    }
+    UpdateKnowledgeRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateKnowledgeRequest",
     }
     SkillSearchResult: {
       $ref: "./components.yaml#/components/schemas/SkillSearchResult",
