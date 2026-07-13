@@ -17,20 +17,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
-
-// Authorized is the identity-scoped view of the service; all authorization
-// checks live on its methods.
-type Authorized struct {
-	*Service
-	ident authz.Identity
-}
-
-func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Service: s, ident: ident} }
 
 const (
 	ScopeUser        = "user"
@@ -56,14 +48,21 @@ type Service struct {
 	masterIdentity  *age.X25519Identity
 	masterRecipient *age.X25519Recipient
 
+	// authz + agents power the ResourceVault PEP (see access.go). They may be nil
+	// for trusted-only Service instances that never open an Access (e.g. tests of
+	// the raw crypto/persistence methods).
+	authz  authz.Authorizer
+	agents *agentaccess.Service
+
 	systemManagedMu       sync.RWMutex
 	systemManagedNames    map[string]struct{}
 	systemManagedPrefixes []string
 }
 
 // NewService creates a vault Service. masterIdentityStr is the raw age secret
-// key string (typically from the STELLA_VAULT_KEY environment variable).
-func NewService(db DB, masterIdentityStr string) (*Service, error) {
+// key string (typically from the STELLA_VAULT_KEY environment variable). az and
+// agents back the ResourceVault PEP; pass nil only for trusted-only instances.
+func NewService(db DB, masterIdentityStr string, az authz.Authorizer, agents *agentaccess.Service) (*Service, error) {
 	id, recipient, err := ParseMasterIdentity(masterIdentityStr)
 	if err != nil {
 		return nil, fmt.Errorf("vault: new service: %w", err)
@@ -72,6 +71,8 @@ func NewService(db DB, masterIdentityStr string) (*Service, error) {
 		db:                    db,
 		masterIdentity:        id,
 		masterRecipient:       recipient,
+		authz:                 az,
+		agents:                agents,
 		systemManagedNames:    defaultSystemManagedNames(),
 		systemManagedPrefixes: []string{"OAUTH_", "MCP_TOKEN_"},
 	}, nil
@@ -81,8 +82,8 @@ func NewService(db DB, masterIdentityStr string) (*Service, error) {
 // pool, owning construction of its sqlc query set. masterIdentityStr is the raw
 // age secret key string (typically from the STELLA_VAULT_KEY environment
 // variable).
-func NewServiceForPool(pool *pgxpool.Pool, masterIdentityStr string) (*Service, error) {
-	return NewService(sqlc.New(pool), masterIdentityStr)
+func NewServiceForPool(pool *pgxpool.Pool, masterIdentityStr string, az authz.Authorizer, agents *agentaccess.Service) (*Service, error) {
+	return NewService(sqlc.New(pool), masterIdentityStr, az, agents)
 }
 
 // MasterRecipient returns the master public key recipient.
@@ -106,6 +107,12 @@ type SetOptions struct {
 	Description *string
 }
 
+// ScopeRequest / ResolvedScope / ResolveScope compute the durable owner columns
+// for a vault-style scope. They are NOT the ResourceVault PEP (see access.go) —
+// vault entries are authorized through the Authorizer. They remain here as a pure
+// utility because unrelated resources that reuse the vault scope vocabulary
+// (agent tool overrides, MCP connection tokens) still resolve their own columns
+// this way. Their admin gate is a coarse structural check, not a policy decision.
 type ScopeRequest struct {
 	Scope        string
 	UserID       string
@@ -199,18 +206,6 @@ func (s *Service) SetScopedWithOptions(ctx context.Context, scope string, userID
 	return s.set(ctx, scope, userID, agentID, name, plaintext, true, opts)
 }
 
-func (s Authorized) Set(ctx context.Context, scope string, name string, plaintext string) (EntryMeta, error) {
-	ident := s.ident
-	resolved, err := ownedScope(ident, scope)
-	if err != nil {
-		return EntryMeta{}, err
-	}
-	if err := s.SetScoped(ctx, resolved.Scope, resolved.UserID, resolved.AgentID, name, plaintext); err != nil {
-		return EntryMeta{}, err
-	}
-	return s.GetScopedMeta(ctx, resolved.Scope, resolved.UserID, resolved.AgentID, name)
-}
-
 // SetSystemScoped stores an admin-managed secret. Call only after an explicit
 // admin authorization check at the API boundary.
 func (s *Service) SetSystemScoped(ctx context.Context, scope string, agentID string, name string, plaintext string) error {
@@ -295,15 +290,6 @@ func (s *Service) DeleteScoped(ctx context.Context, scope string, userID string,
 	return s.deleteScoped(ctx, scope, userID, agentID, name)
 }
 
-func (s Authorized) Delete(ctx context.Context, scope string, name string) error {
-	ident := s.ident
-	resolved, err := ownedScope(ident, scope)
-	if err != nil {
-		return err
-	}
-	return s.DeleteScoped(ctx, resolved.Scope, resolved.UserID, resolved.AgentID, name)
-}
-
 // DeleteSystemScoped removes an admin-managed vault entry by name and scope.
 func (s *Service) DeleteSystemScoped(ctx context.Context, scope string, agentID string, name string) error {
 	if !isSystemScope(scope) {
@@ -378,34 +364,6 @@ func (s *Service) ListScoped(ctx context.Context, scope string, userID string, a
 		return nil, fmt.Errorf("vault: system scope requires privileged caller")
 	}
 	return s.listScoped(ctx, scope, userID, agentID)
-}
-
-func (s Authorized) List(ctx context.Context, scope string) ([]EntryMeta, error) {
-	ident := s.ident
-	if scope == "" {
-		userScope, err := ownedScope(ident, ScopeUser)
-		if err != nil {
-			return nil, err
-		}
-		userEntries, err := s.ListScoped(ctx, userScope.Scope, userScope.UserID, userScope.AgentID)
-		if err != nil {
-			return nil, err
-		}
-		agentScope, err := ownedScope(ident, ScopeUserAgent)
-		if err != nil {
-			return nil, err
-		}
-		agentEntries, err := s.ListScoped(ctx, agentScope.Scope, agentScope.UserID, agentScope.AgentID)
-		if err != nil {
-			return nil, err
-		}
-		return append(userEntries, agentEntries...), nil
-	}
-	resolved, err := ownedScope(ident, scope)
-	if err != nil {
-		return nil, err
-	}
-	return s.ListScoped(ctx, resolved.Scope, resolved.UserID, resolved.AgentID)
 }
 
 // ListSystemScoped returns metadata for admin-managed vault entries in one effective scope.
@@ -573,28 +531,6 @@ func (s *Service) metasFromEntries(ctx context.Context, entries []sqlc.VaultEntr
 		meta[i] = s.metaFromEntry(ctx, e)
 	}
 	return meta
-}
-
-func ownedScope(ident authz.Identity, scope string) (ResolvedScope, error) {
-	if err := ident.RequireUser(); err != nil {
-		return ResolvedScope{}, err
-	}
-	if scope == "" {
-		scope = ScopeUser
-	}
-	if ident.AgentScoped {
-		if scope == ScopeUserAgent && ident.AgentID == "" {
-			return ResolvedScope{}, authz.ErrForbidden
-		}
-		return ResolveScope(ScopeRequest{
-			Scope:        scope,
-			UserID:       ident.UserID,
-			AgentID:      ident.AgentID,
-			AgentScoped:  true,
-			BoundAgentID: ident.AgentID,
-		})
-	}
-	return ResolveScope(ScopeRequest{Scope: scope, UserID: ident.UserID, AgentID: ident.AgentID})
 }
 
 func isSystemScope(scope string) bool {

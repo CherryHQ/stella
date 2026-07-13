@@ -8,10 +8,11 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
-// #709 made Agent, Session, and Workspace authoritative; #710 adds Workflow (the
-// first execution-domain vertical). Every other catalog resource — including the
-// system catalog and public tool entries — remains inactive and rejects
-// custom-policy writes until its owning stack cuts it over.
+// #709 made Agent, Session, and Workspace authoritative; #710 added the execution
+// domains; #711 makes Vault policy-backed. The other user capabilities (Email,
+// Connection, Share, Recally) are enforced by their own domain Access services, not
+// custom policy, so they stay inactive — as do the system catalog, public tool, and
+// Stack 7 providers/settings/plugins/channels — and reject custom-policy writes.
 func TestOnlySessionVerticalIsActivated(t *testing.T) {
 	active := map[authz.ResourceType]bool{
 		authz.ResourceAgent:     true,
@@ -21,6 +22,7 @@ func TestOnlySessionVerticalIsActivated(t *testing.T) {
 		authz.ResourceScheduler: true,
 		authz.ResourceGoal:      true,
 		authz.ResourceSkill:     true,
+		authz.ResourceVault:     true,
 	}
 	for _, rt := range authz.AllResourceTypes() {
 		if got := resourceAcceptsCustomPolicy(rt); got != active[rt] {
@@ -41,7 +43,10 @@ func TestInactiveResourceWritesAreRejected(t *testing.T) {
 	svc := NewService(New(pool))
 
 	for _, rt := range []authz.ResourceType{
-		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceVault, authz.ResourceConnection,
+		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceProvider, authz.ResourceSettings,
+		// Email/Connection/Share/Recally are Authority-bound user capabilities, not
+		// policy-backed: a custom-policy write for them must fail closed.
+		authz.ResourceEmail, authz.ResourceConnection, authz.ResourceShare, authz.ResourceRecally,
 	} {
 		_, _, err := svc.CreatePolicy(ctx, PolicyInput{
 			Resource: rt, Action: authz.ActionRead, Effect: EffectAllow,

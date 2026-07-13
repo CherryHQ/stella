@@ -48,11 +48,13 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// #710: Workflow is enforced only through internal/workflow.Service's
 	// Authority-based Access PEP (the legacy As(authz.Identity) facade is gone).
 	authz.ResourceWorkflow: activeActive,
-	// #710: Scheduler jobs are enforced only through internal/scheduler.Service's
-	// Authority-based Access PEP; system/plugin jobs are hidden before any decide.
+	// #710: Scheduler jobs are enforced through internal/scheduler.Service's
+	// Authority-based Access PEP. User and system fires are re-decided at the
+	// unified dispatch boundary; plugin listener jobs remain an explicit host path.
 	authz.ResourceScheduler: activeActive,
-	// #710: Goals are enforced only through internal/goal.Service's Authority-based
-	// Access PEP; the durable worker executor already reconstructs authority (#709).
+	// #710: Goals are enforced through internal/goal.Service's Authority-based
+	// Access PEP; each durable attempt reconstructs owner/executor authority and
+	// re-decides the Goal plus actual Agent before running.
 	authz.ResourceGoal: activeActive,
 	// #710: Skills are enforced only through internal/skillaccess.Service's
 	// Authority-based Access PEP. HTTP transports, the agent skills tool (via the
@@ -60,6 +62,17 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// DB-backed skill read and write against it; only filesystem project/built-in
 	// skills are exempt (they are not DB rows).
 	authz.ResourceSkill: activeActive,
+	// #711: Vault entries are enforced only through internal/vault.Service's
+	// Authority-based Access PEP. user/user_agent scopes are user-owned (with an
+	// agent-read gate folded in); system/system_agent scopes are reachable only via
+	// admin-full-access. Trusted host-side callers use the raw Service methods.
+	//
+	// Email, Connection, Share, and Recally are deliberately NOT policy-backed: they
+	// are Authority-bound user capabilities enforced by their own domain Access
+	// services plus user-scoped durable queries (see internal/{email,connections,
+	// share,recally}). Their catalog entries stay inactive so a stray custom-policy
+	// write for them fails closed.
+	authz.ResourceVault: activeActive,
 }
 
 func activationFor(rt authz.ResourceType) activation {

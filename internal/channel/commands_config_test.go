@@ -28,7 +28,7 @@ func testVaultService(t *testing.T) (*vault.Service, string) {
 		t.Fatal(err)
 	}
 
-	svc, err := vault.NewService(q, masterID.String())
+	svc, err := vault.NewService(q, masterID.String(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestHandleConfigNotLoggedIn(t *testing.T) {
 	db := dbtest.New(t)
 
 	masterID, _ := age.GenerateX25519Identity()
-	svc, _ := vault.NewService(sqlc.New(db), masterID.String())
+	svc, _ := vault.NewService(sqlc.New(db), masterID.String(), nil, nil)
 
 	resp, ok := handleConfig(context.Background(), svc, "", "MY_KEY value")
 	if ok {

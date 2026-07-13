@@ -31,11 +31,19 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// The runtime context identity is the trusted adapter: a delegated agent turn
+	// becomes an AgentActor that acts as its delegating user (recally is user-owned
+	// and shared across the user's agents). Model-supplied arguments never form
+	// identity.
+	authority, err := ident.ToAuthority()
+	if err != nil {
+		return "", authz.MapError("recally", err)
+	}
 	action, err := tools.ActionArg(args, "recally")
 	if err != nil {
 		return "", err
 	}
-	out, err := Dispatch(ctx, recallyHandler{svc: t.svc, ident: ident}, action, args)
+	out, err := Dispatch(ctx, recallyHandler{svc: t.svc, authority: authority}, action, args)
 	if err != nil {
 		return "", authz.MapError("recally", err)
 	}
@@ -43,15 +51,23 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 }
 
 type recallyHandler struct {
-	svc   *Service
-	ident authz.Identity
+	svc       *Service
+	authority authz.Authority
+}
+
+func (h recallyHandler) access() (*Access, error) {
+	return h.svc.Access(h.authority)
 }
 
 func (h recallyHandler) Save(ctx context.Context, in SaveInput) (any, error) {
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
 	results := make([]recallySaveResult, 0, len(in.Items))
 	for _, item := range in.Items {
 		result := recallySaveResult{URL: item.Url}
-		saved, err := h.svc.As(h.ident).Save(ctx, recallySaveRequest(item))
+		saved, err := acc.Save(ctx, recallySaveRequest(item))
 		if err != nil {
 			result.Status = "error"
 			result.Error = err.Error()
@@ -77,8 +93,12 @@ func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) 
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
 	if in.CanonicalUrl != "" {
-		article, err := h.svc.As(h.ident).GetArticleByCanonicalURL(ctx, in.CanonicalUrl)
+		article, err := acc.GetArticleByCanonicalURL(ctx, in.CanonicalUrl)
 		if err != nil {
 			if errors.Is(err, authz.ErrNotFound) {
 				return listResponse[recallyArticleListItem]{Items: []recallyArticleListItem{}, HasMore: false}, nil
@@ -89,9 +109,9 @@ func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) 
 	}
 	var articles []Article
 	if in.Q != "" {
-		articles, err = h.svc.As(h.ident).SearchArticles(ctx, in.Q, limit)
+		articles, err = acc.SearchArticles(ctx, in.Q, limit)
 	} else {
-		articles, err = h.svc.As(h.ident).ListArticles(ctx, ArticleFilter{Status: ArticleStatus(in.Status), SourceType: SourceType(in.SourceType), Starred: in.Starred, Limit: limit + 1, Offset: offset})
+		articles, err = acc.ListArticles(ctx, ArticleFilter{Status: ArticleStatus(in.Status), SourceType: SourceType(in.SourceType), Starred: in.Starred, Limit: limit + 1, Offset: offset})
 	}
 	if err != nil {
 		return nil, err
@@ -105,11 +125,15 @@ func (h recallyHandler) ListArticles(ctx context.Context, in ListArticlesInput) 
 }
 
 func (h recallyHandler) GetArticle(ctx context.Context, in GetArticleInput) (any, error) {
-	article, err := h.svc.As(h.ident).GetArticle(ctx, in.Id)
+	acc, err := h.access()
 	if err != nil {
 		return nil, err
 	}
-	content, err := h.svc.ReadArticleBody(ctx, article)
+	article, err := acc.GetArticle(ctx, in.Id)
+	if err != nil {
+		return nil, err
+	}
+	content, err := acc.ReadArticleBody(ctx, article)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +142,11 @@ func (h recallyHandler) GetArticle(ctx context.Context, in GetArticleInput) (any
 }
 
 func (h recallyHandler) FeedAdd(ctx context.Context, in FeedAddInput) (any, error) {
-	feed, err := h.svc.As(h.ident).CreateFeed(ctx, in.Url, FeedKind(in.Kind), in.Title, nil)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	feed, err := acc.CreateFeed(ctx, in.Url, FeedKind(in.Kind), in.Title, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -130,8 +158,12 @@ func (h recallyHandler) FeedList(ctx context.Context, in FeedListInput) (any, er
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
 	if in.Url != "" {
-		feed, err := h.svc.As(h.ident).GetFeedByURL(ctx, in.Url)
+		feed, err := acc.GetFeedByURL(ctx, in.Url)
 		if err != nil {
 			if errors.Is(err, authz.ErrNotFound) {
 				return listResponse[recallyFeedItem]{Items: []recallyFeedItem{}, HasMore: false}, nil
@@ -140,7 +172,7 @@ func (h recallyHandler) FeedList(ctx context.Context, in FeedListInput) (any, er
 		}
 		return listResponse[recallyFeedItem]{Items: []recallyFeedItem{recallyFeedSummary(*feed)}, HasMore: false}, nil
 	}
-	feeds, err := h.svc.As(h.ident).ListFeeds(ctx, limit+1, offset)
+	feeds, err := acc.ListFeeds(ctx, limit+1, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -160,13 +192,16 @@ func (h recallyHandler) FeedPoll(ctx context.Context, in FeedPollInput) (any, er
 	if limit < 1 || limit > 500 {
 		return nil, fmt.Errorf("invalid limit — use limit between 1 and 500")
 	}
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
 	var results []FeedPollResult
-	var err error
 	if in.Id == "" {
-		results, err = h.svc.As(h.ident).PollFeeds(ctx, limit)
+		results, err = acc.PollFeeds(ctx, limit)
 	} else {
 		var result FeedPollResult
-		result, err = h.svc.As(h.ident).PollFeed(ctx, in.Id, limit)
+		result, err = acc.PollFeed(ctx, in.Id, limit)
 		results = []FeedPollResult{result}
 	}
 	if err != nil {
@@ -188,7 +223,11 @@ func (h recallyHandler) FeedPoll(ctx context.Context, in FeedPollInput) (any, er
 }
 
 func (h recallyHandler) FeedRemove(ctx context.Context, in FeedRemoveInput) (any, error) {
-	if err := h.svc.As(h.ident).DeleteFeed(ctx, in.Id); err != nil {
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	if err := acc.DeleteFeed(ctx, in.Id); err != nil {
 		return nil, err
 	}
 	return map[string]any{"id": in.Id, "status": "removed"}, nil
@@ -199,7 +238,11 @@ func (h recallyHandler) EntryList(ctx context.Context, in EntryListInput) (any, 
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
-	entries, err := h.svc.As(h.ident).ListFeedEntries(ctx, in.FeedId, FeedEntryFilter{Status: RSSEntryStatus(in.Status), Limit: limit + 1, Offset: offset})
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := acc.ListFeedEntries(ctx, in.FeedId, FeedEntryFilter{Status: RSSEntryStatus(in.Status), Limit: limit + 1, Offset: offset})
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +255,11 @@ func (h recallyHandler) EntryList(ctx context.Context, in EntryListInput) (any, 
 }
 
 func (h recallyHandler) EntryAdd(ctx context.Context, in EntryAddInput) (any, error) {
-	entry, created, err := h.svc.As(h.ident).CreateFeedEntry(ctx, in.FeedId, in.Guid, in.Url, in.Title)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	entry, created, err := acc.CreateFeedEntry(ctx, in.FeedId, in.Guid, in.Url, in.Title)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +276,11 @@ func (h recallyHandler) EntryUpdate(ctx context.Context, in EntryUpdateInput) (a
 	if in.ArticleId != "" {
 		articleID = &in.ArticleId
 	}
-	entry, err := h.svc.As(h.ident).UpdateFeedEntry(ctx, in.FeedId, in.Id, RSSEntryStatus(in.Status), articleID, in.ErrorMsg)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	entry, err := acc.UpdateFeedEntry(ctx, in.FeedId, in.Id, RSSEntryStatus(in.Status), articleID, in.ErrorMsg)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +288,11 @@ func (h recallyHandler) EntryUpdate(ctx context.Context, in EntryUpdateInput) (a
 }
 
 func (h recallyHandler) Digest(ctx context.Context, _ DigestInput) (any, error) {
-	digest, err := h.svc.As(h.ident).GetDigest(ctx)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	digest, err := acc.GetDigest(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +300,11 @@ func (h recallyHandler) Digest(ctx context.Context, _ DigestInput) (any, error) 
 }
 
 func (h recallyHandler) DigestSave(ctx context.Context, in DigestSaveInput) (any, error) {
-	stored, err := h.svc.As(h.ident).SaveDigest(ctx, in.Narrative, in.Date)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	stored, err := acc.SaveDigest(ctx, in.Narrative, in.Date)
 	if err != nil {
 		return nil, err
 	}

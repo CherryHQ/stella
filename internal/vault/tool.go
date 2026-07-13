@@ -30,11 +30,17 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// The runtime context identity is the trusted adapter: a delegated agent turn
+	// becomes a confined AgentActor. Model-supplied arguments never form identity.
+	authority, err := ident.ToAuthority()
+	if err != nil {
+		return "", authz.MapError("vault", err)
+	}
 	action, err := tools.ActionArg(args, "vault")
 	if err != nil {
 		return "", err
 	}
-	out, err := Dispatch(ctx, vaultHandler{svc: t.svc, invalidator: t.invalidator, ident: ident}, action, args)
+	out, err := Dispatch(ctx, vaultHandler{svc: t.svc, invalidator: t.invalidator, authority: authority, agentID: ident.AgentID}, action, args)
 	if err != nil {
 		return "", authz.MapError("vault", err)
 	}
@@ -44,11 +50,20 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 type vaultHandler struct {
 	svc         *Service
 	invalidator RunnerInvalidator
-	ident       authz.Identity
+	authority   authz.Authority
+	agentID     string
+}
+
+func (h vaultHandler) begin(ctx context.Context) (*Access, error) {
+	return h.svc.Begin(ctx, h.authority)
 }
 
 func (h vaultHandler) List(ctx context.Context, in ListInput) (any, error) {
-	entries, err := h.svc.As(h.ident).List(ctx, in.Scope)
+	acc, err := h.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := acc.ListScoped(ctx, in.Scope, "")
 	if err != nil {
 		return nil, err
 	}
@@ -63,15 +78,20 @@ func (h vaultHandler) Set(ctx context.Context, in SetInput) (any, error) {
 	if err := h.svc.ValidateUserFacingName(in.Name); err != nil {
 		return nil, err
 	}
-	resolved, err := ownedScope(h.ident, in.Scope)
+	acc, err := h.begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := h.svc.SetScoped(ctx, resolved.Scope, resolved.UserID, resolved.AgentID, in.Name, in.Value); err != nil {
+	scope := in.Scope
+	if scope == "" {
+		scope = ScopeUser
+	}
+	// The tool acts as an agent turn, so a user_agent write targets the bound agent.
+	if err := acc.SetScoped(ctx, scope, h.agentID, in.Name, in.Value, SetOptions{}); err != nil {
 		return nil, err
 	}
-	h.invalidate(resolved.Scope, resolved.UserID, resolved.AgentID, in.Name, "set")
-	meta, err := h.svc.GetScopedMeta(ctx, resolved.Scope, resolved.UserID, resolved.AgentID, in.Name)
+	h.invalidate(scope, acc.userID, in.Name, "set")
+	meta, err := acc.GetScopedMeta(ctx, scope, h.agentID, in.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -79,18 +99,27 @@ func (h vaultHandler) Set(ctx context.Context, in SetInput) (any, error) {
 }
 
 func (h vaultHandler) Delete(ctx context.Context, in DeleteInput) (any, error) {
-	resolved, err := ownedScope(h.ident, in.Scope)
+	acc, err := h.begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := h.svc.DeleteScoped(ctx, resolved.Scope, resolved.UserID, resolved.AgentID, in.Name); err != nil {
+	scope := in.Scope
+	if scope == "" {
+		scope = ScopeUser
+	}
+	if err := acc.DeleteScoped(ctx, scope, h.agentID, in.Name); err != nil {
 		return nil, err
 	}
-	h.invalidate(resolved.Scope, resolved.UserID, resolved.AgentID, in.Name, "delete")
-	return map[string]any{"name": in.Name, "scope": resolved.Scope, "status": "deleted"}, nil
+	h.invalidate(scope, acc.userID, in.Name, "delete")
+	return map[string]any{"name": in.Name, "scope": scope, "status": "deleted"}, nil
 }
 
-func (h vaultHandler) invalidate(scope, userID, agentID, name, op string) {
+func (h vaultHandler) invalidate(scope, userID, name, op string) {
+	// A user_agent write binds to the acting agent; a plain user scope has none.
+	agentID := h.agentID
+	if scope == ScopeUser {
+		agentID = ""
+	}
 	if err := InvalidateForScope(h.invalidator, scope, userID, agentID); err != nil {
 		slog.Warn("invalidate runners after vault tool "+op, "scope", scope, "user_id", userID, "agent_id", agentID, "name", name, "error", err)
 	}

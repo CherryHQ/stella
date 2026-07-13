@@ -305,7 +305,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	var vaultSvc *vault.Service
 	if vaultKey := cfg.Vault.Key; vaultKey != "" {
 		var err error
-		vaultSvc, err = vault.NewServiceForPool(db, vaultKey)
+		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, authorizer, agentAccess)
 		if err != nil {
 			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
 			vaultSvc = nil

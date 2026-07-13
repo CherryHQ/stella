@@ -118,7 +118,19 @@ var schemas = map[authz.ResourceType]resourceSchema{
 	authz.ResourceGoal:      {attrs: ownerAgentState()},
 	authz.ResourceWorkflow:  {attrs: ownerAgentState()},
 	authz.ResourceScheduler: {attrs: ownerAgentKindState()},
-	authz.ResourceVault:     {attrs: ownerAgentSensitivity()},
+	// #711: Vault entries live in four durable scopes (user/user_agent are
+	// user-owned; system/system_agent are admin-managed). is_owner is derived by
+	// the vault PEP from the Authority and the loaded entry's owner/agent columns.
+	authz.ResourceVault: {attrs: map[string]attrSpec{
+		"scope":    enumAttr("user", "user_agent", "system", "system_agent"),
+		"owner":    stringAttr,
+		"agent":    stringAttr,
+		"is_owner": boolAttr,
+	}},
+	// Connection/Email/Share/Recally are Authority-bound user capabilities enforced
+	// by their domain Access services and user-scoped durable queries, not custom
+	// policy. These dormant schemas exist only so schema coverage stays total for
+	// every catalog member; no active policy ever evaluates them.
 	authz.ResourceConnection: {attrs: map[string]attrSpec{
 		"owner": stringAttr, "agent": stringAttr, "type": stringAttr,
 	}},
@@ -173,6 +185,9 @@ func ownerAgentKindState() map[string]attrSpec {
 	}
 }
 
+// ownerAgentSensitivity is the dormant fact shape for the Share catalog
+// placeholder. Share is enforced by its domain Access service, not policy; this
+// schema exists only so schema coverage stays total for every catalog member.
 func ownerAgentSensitivity() map[string]attrSpec {
 	return map[string]attrSpec{"owner": stringAttr, "agent": stringAttr, "sensitivity": stringAttr}
 }
@@ -426,6 +441,27 @@ func SkillResource(id, ownerID string, facts SkillFacts) (authz.Resource, error)
 		WithString("owner", facts.Owner).
 		WithString("agent", facts.Agent).
 		WithString("source", facts.Source).
+		WithBool("is_owner", facts.IsOwner).
+		Build()
+}
+
+// VaultFacts is the complete durable fact set for a Vault entry policy resource.
+// Scope is the durable bucket; IsOwner is derived by the vault PEP from the
+// Authority and the entry's owner/agent columns (and, for an agent-scoped actor,
+// the exact bound agent). It is never caller-supplied.
+type VaultFacts struct {
+	Scope   string
+	Owner   string
+	Agent   string
+	IsOwner bool
+}
+
+// VaultResource builds a Vault resource carrying every accepted durable fact.
+func VaultResource(id, ownerID string, facts VaultFacts) (authz.Resource, error) {
+	return NewResourceBuilder(authz.ResourceVault, id, ownerID).
+		WithEnum("scope", facts.Scope).
+		WithString("owner", facts.Owner).
+		WithString("agent", facts.Agent).
 		WithBool("is_owner", facts.IsOwner).
 		Build()
 }

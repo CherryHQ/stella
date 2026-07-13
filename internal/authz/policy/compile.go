@@ -574,5 +574,46 @@ func builtinPolicies() []compiledPolicy {
 				{Attr: "scope", Op: opIn, Values: []string{"system", "system_agent"}},
 			},
 		},
+
+		// ---- #711 Vault ---------------------------------------------------
+		// A user may list their vault entries in the user/user_agent scopes; a
+		// per-scope read decision filters rows in the same evaluation.
+		{
+			id: "builtin:user-list-vault", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceVault,
+			actions:    []authz.Action{authz.ActionList},
+			predicates: []predicate{{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}}},
+		},
+		// A user owns their user/user_agent vault entries. system/system_agent
+		// scopes are admin-managed (admin-full-access only); is_owner is derived by
+		// the PEP from the entry's owner/agent columns.
+		{
+			id: "builtin:user-own-vault", effect: effectAllow,
+			subjects: userOnly, resource: authz.ResourceVault,
+			actions: []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}},
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+			},
+		},
+		// A delegated agent may list its delegating user's user/user_agent vault.
+		{
+			id: "builtin:agent-list-vault", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceVault,
+			actions:    []authz.Action{authz.ActionList},
+			predicates: []predicate{{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}}},
+		},
+		// A delegated agent acts only on its delegating user's user/user_agent vault
+		// entries (is_owner). The PEP additionally confines an agent-scoped actor to
+		// its own user_agent bucket before setting is_owner.
+		{
+			id: "builtin:agent-own-vault", effect: effectAllow,
+			subjects: agentOnly, resource: authz.ResourceVault,
+			actions: []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete},
+			predicates: []predicate{
+				{Attr: "scope", Op: opIn, Values: []string{"user", "user_agent"}},
+				{Attr: "is_owner", Op: opEq, Value: "true"},
+			},
+		},
 	}
 }

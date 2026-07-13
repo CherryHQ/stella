@@ -1,14 +1,12 @@
 package server
 
 import (
-	"context"
+	"errors"
 	"log/slog"
 	"maps"
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/mmcdole/gofeed"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -17,17 +15,17 @@ import (
 )
 
 // recallyHandlers implements the recally portion of apiserver.ServerInterface and is the
-// single entry point through which CLI/web/SDK clients reach the recally store.
-// Article bodies live in PostgreSQL; clients are purely HTTP.
+// single entry point through which CLI/web/SDK clients reach the recally library.
+// The recally Service is the sole policy-enforcement point: every handler derives
+// the caller's trusted Authority and opens one Access evaluation; article bodies
+// live in PostgreSQL and clients are purely HTTP.
 type recallyHandlers struct {
-	store *recally.Store
-	svc   *recally.Service
-	feeds *gofeed.Parser
-	log   *slog.Logger
+	svc *recally.Service
+	log *slog.Logger
 }
 
-func newRecallyHandlersWithService(store *recally.Store, svc *recally.Service, log *slog.Logger) *recallyHandlers {
-	return &recallyHandlers{store: store, svc: svc, feeds: gofeed.NewParser(), log: log.With("component", "recally-api")}
+func newRecallyHandlersWithService(svc *recally.Service, log *slog.Logger) *recallyHandlers {
+	return &recallyHandlers{svc: svc, log: log.With("component", "recally-api")}
 }
 
 func (h *recallyHandlers) writeInternalError(w http.ResponseWriter, err error) {
@@ -38,57 +36,45 @@ func (h *recallyHandlers) writeBadGatewayError(w http.ResponseWriter, err error)
 	writeLoggedError(w, h.log, http.StatusBadGateway, "upstream service error", err)
 }
 
-// requireUser enforces bearer/session auth and returns the user ID. It writes
-// the 401 response itself so callers can return early.
-func (h *recallyHandlers) requireUser(w http.ResponseWriter, r *http.Request) (string, bool) {
+// access derives the trusted Authority for the authenticated caller and binds one
+// recally use case to it. Recally is a user-owned library scoped to the captured
+// user; the handler never inspects identity beyond deriving the Authority from
+// verified session claims.
+func (h *recallyHandlers) access(w http.ResponseWriter, r *http.Request) (*recally.Access, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
-		return "", false
+		return nil, false
 	}
-	return info.UserID, true
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	acc, err := h.svc.Access(authority)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	return acc, true
 }
 
-// loadArticle loads an article and returns it only if the caller owns it.
-// Returns false (with the appropriate error response written) otherwise.
-func (h *recallyHandlers) loadArticle(w http.ResponseWriter, ctx context.Context, articleID string, userID string) (*recally.Article, bool) {
-	article, err := h.store.GetArticle(ctx, userID, articleID)
-	if err != nil {
-		if isNotFound(err) {
-			writeError(w, http.StatusNotFound, "not found")
-		} else {
-			h.writeInternalError(w, err)
-		}
-		return nil, false
+// writeRecallyError maps a recally Access error to a status. A policy denial is
+// opaque (authz.ErrNotFound / ErrForbidden both surface as 404); everything else
+// is a 500.
+func (h *recallyHandlers) writeRecallyError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, authz.ErrNotFound), errors.Is(err, authz.ErrForbidden):
+		writeError(w, http.StatusNotFound, "not found")
+	default:
+		h.writeInternalError(w, err)
 	}
-	if article.UserID != userID {
-		writeError(w, http.StatusNotFound, "article not found")
-		return nil, false
-	}
-	return article, true
-}
-
-func (h *recallyHandlers) loadFeed(w http.ResponseWriter, ctx context.Context, feedID string, userID string) (*recally.Feed, bool) {
-	feed, err := h.store.GetFeed(ctx, userID, feedID)
-	if err != nil {
-		if isNotFound(err) {
-			writeError(w, http.StatusNotFound, "not found")
-		} else {
-			h.writeInternalError(w, err)
-		}
-		return nil, false
-	}
-	if feed.UserID != userID {
-		writeError(w, http.StatusNotFound, "feed not found")
-		return nil, false
-	}
-	return feed, true
 }
 
 // ----------------------------- articles -------------------------------------
 
 func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, params apiserver.ListArticlesParams) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
@@ -100,7 +86,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 	}
 
 	if params.CanonicalUrl != nil && *params.CanonicalUrl != "" {
-		article, err := h.store.GetArticleByCanonicalURL(ctx, userID, *params.CanonicalUrl)
+		article, err := acc.GetArticleByCanonicalURL(ctx, *params.CanonicalUrl)
 		if err != nil {
 			writeData(w, http.StatusOK, apiserver.ArticleList{Articles: []apiserver.Article{}})
 			return
@@ -110,9 +96,9 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 	}
 
 	if params.Q != nil && *params.Q != "" {
-		articles, err := h.store.SearchArticles(ctx, userID, *params.Q, limit)
+		articles, err := acc.SearchArticles(ctx, *params.Q, limit)
 		if err != nil {
-			h.writeInternalError(w, err)
+			h.writeRecallyError(w, err)
 			return
 		}
 		writeData(w, http.StatusOK, apiserver.ArticleList{Articles: toAPIArticles(articles)})
@@ -129,9 +115,9 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 	if params.Starred != nil {
 		filter.Starred = params.Starred
 	}
-	articles, err := h.store.ListArticles(ctx, userID, filter)
+	articles, err := acc.ListArticles(ctx, filter)
 	if err != nil {
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
 	articles, nextToken := nextPageTokenForRows(articles, limit, offset)
@@ -143,7 +129,7 @@ func (h *recallyHandlers) ListArticles(w http.ResponseWriter, r *http.Request, p
 }
 
 func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
@@ -180,13 +166,13 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 		AgentID:      body.AgentId,
 	}
 
-	result, err := h.svc.As(authz.Identity{UserID: userID}).Save(r.Context(), req)
+	result, err := acc.Save(r.Context(), req)
 	if err != nil {
 		if strings.Contains(err.Error(), "content is required") {
 			writeError(w, http.StatusBadRequest, "content is required for new articles")
 			return
 		}
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
 	article, isNew := result.Article, result.Created
@@ -200,12 +186,13 @@ func (h *recallyHandlers) SaveArticle(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetArticleParams) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
-	article, ok := h.loadArticle(w, r.Context(), id, userID)
-	if !ok {
+	article, err := acc.GetArticle(r.Context(), id)
+	if err != nil {
+		h.writeRecallyError(w, err)
 		return
 	}
 	include := ""
@@ -213,9 +200,9 @@ func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id 
 		include = *params.Include
 	}
 	if includesContent(include) {
-		body, err := h.readArticleBody(r.Context(), article)
+		body, err := acc.ReadArticleBody(r.Context(), article)
 		if err != nil {
-			h.writeInternalError(w, err)
+			h.writeRecallyError(w, err)
 			return
 		}
 		writeData(w, http.StatusOK, toAPIArticle(article, body))
@@ -225,12 +212,13 @@ func (h *recallyHandlers) GetArticle(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
-	article, ok := h.loadArticle(w, r.Context(), id, userID)
-	if !ok {
+	article, err := acc.GetArticle(r.Context(), id)
+	if err != nil {
+		h.writeRecallyError(w, err)
 		return
 	}
 	var body apiserver.UpdateArticleRequest
@@ -270,9 +258,9 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 
 	updated := article
 	if len(updates) > 0 {
-		next, err := h.store.UpdateArticle(r.Context(), userID, id, updates)
+		next, err := acc.UpdateArticle(r.Context(), id, updates)
 		if err != nil {
-			h.writeInternalError(w, err)
+			h.writeRecallyError(w, err)
 			return
 		}
 		updated = next
@@ -281,8 +269,8 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 	// Body lives in PostgreSQL; only rewrite it when the client sent new content.
 	// Metadata-only updates leave the stored body untouched.
 	if body.Content != nil {
-		if err := h.store.UpsertArticleContent(r.Context(), id, *body.Content); err != nil {
-			h.writeInternalError(w, err)
+		if err := acc.UpsertArticleContent(r.Context(), id, *body.Content); err != nil {
+			h.writeRecallyError(w, err)
 			return
 		}
 	}
@@ -291,17 +279,18 @@ func (h *recallyHandlers) UpdateArticle(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
-	if _, ok := h.loadArticle(w, r.Context(), id, userID); !ok {
+	if _, err := acc.GetArticle(r.Context(), id); err != nil {
+		h.writeRecallyError(w, err)
 		return
 	}
 	// The article row and its content row cascade-delete in the DB; there is no
 	// on-disk mirror to clean up (legacy files, if any, are left inert).
-	if err := h.store.DeleteArticle(r.Context(), userID, id); err != nil {
-		h.writeInternalError(w, err)
+	if err := acc.DeleteArticle(r.Context(), id); err != nil {
+		h.writeRecallyError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -310,12 +299,12 @@ func (h *recallyHandlers) DeleteArticle(w http.ResponseWriter, r *http.Request, 
 // ------------------------------- feeds --------------------------------------
 
 func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, params apiserver.ListFeedsParams) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
 	if params.Url != nil && *params.Url != "" {
-		feed, err := h.store.GetFeedByURL(r.Context(), userID, *params.Url)
+		feed, err := acc.GetFeedByURL(r.Context(), *params.Url)
 		if err != nil {
 			writeData(w, http.StatusOK, apiserver.FeedList{Feeds: []apiserver.Feed{}})
 			return
@@ -328,9 +317,9 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	feeds, err := h.store.ListFeeds(r.Context(), userID, limit+1, offset)
+	feeds, err := acc.ListFeeds(r.Context(), limit+1, offset)
 	if err != nil {
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
 	feeds, nextToken := nextPageTokenForRows(feeds, limit, offset)
@@ -346,7 +335,7 @@ func (h *recallyHandlers) ListFeeds(w http.ResponseWriter, r *http.Request, para
 }
 
 func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
@@ -359,11 +348,12 @@ func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "url is required")
 		return
 	}
-	if existing, _ := h.store.GetFeedByURL(r.Context(), userID, body.Url); existing != nil {
+	// Pre-validate input the same way the store path used to, so the 409/400
+	// distinctions keep their exact messages before the (parsing) Access call.
+	if existing, _ := acc.GetFeedByURL(r.Context(), body.Url); existing != nil {
 		writeError(w, http.StatusConflict, "feed already subscribed")
 		return
 	}
-
 	kind := recally.SniffFeedKind(body.Url)
 	if body.Kind != nil {
 		kind = recally.FeedKind(*body.Kind)
@@ -377,26 +367,16 @@ func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	title := strDeref(body.Title)
-	description := ""
-	// Only rss kinds are parsed server-side; skill-driven kinds backfill metadata later.
-	if kind == recally.FeedKindRSS {
-		parseCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-		parsed, err := h.feeds.ParseURLWithContext(body.Url, parseCtx)
-		cancel()
-		if err != nil {
-			h.writeBadGatewayError(w, err)
-			return
-		}
-		if title == "" {
-			title = parsed.Title
-		}
-		description = parsed.Description
-	}
-
-	feed, err := h.store.CreateFeed(r.Context(), userID, body.Url, kind, nil, title, description, body.AgentId)
+	feed, err := acc.CreateFeed(r.Context(), body.Url, kind, strDeref(body.Title), body.AgentId)
 	if err != nil {
-		h.writeInternalError(w, err)
+		switch {
+		case errors.Is(err, recally.ErrFeedExists):
+			writeError(w, http.StatusConflict, "feed already subscribed")
+		case errors.Is(err, recally.ErrFeedFetch):
+			h.writeBadGatewayError(w, err)
+		default:
+			h.writeRecallyError(w, err)
+		}
 		return
 	}
 	w.Header().Set("Location", "/api/recally/feeds/"+feed.ID)
@@ -404,23 +384,21 @@ func (h *recallyHandlers) CreateFeed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *recallyHandlers) GetFeed(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
-	feed, ok := h.loadFeed(w, r.Context(), id, userID)
-	if !ok {
+	feed, err := acc.GetFeed(r.Context(), id)
+	if err != nil {
+		h.writeRecallyError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, toAPIFeed(feed))
 }
 
 func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
-		return
-	}
-	if _, ok := h.loadFeed(w, r.Context(), id, userID); !ok {
 		return
 	}
 	var body apiserver.UpdateFeedRequest
@@ -441,35 +419,28 @@ func (h *recallyHandlers) UpdateFeed(w http.ResponseWriter, r *http.Request, id 
 	if body.Enabled != nil {
 		updates["enabled"] = *body.Enabled
 	}
-	updated, err := h.store.UpdateFeed(r.Context(), userID, id, updates)
+	updated, err := acc.UpdateFeed(r.Context(), id, updates)
 	if err != nil {
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, toAPIFeed(updated))
 }
 
 func (h *recallyHandlers) DeleteFeed(w http.ResponseWriter, r *http.Request, id string) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
-	if _, ok := h.loadFeed(w, r.Context(), id, userID); !ok {
-		return
-	}
-	if err := h.store.DeleteFeed(r.Context(), userID, id); err != nil {
-		h.writeInternalError(w, err)
+	if err := acc.DeleteFeed(r.Context(), id); err != nil {
+		h.writeRecallyError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id string, params apiserver.PollFeedParams) {
-	userID, ok := h.requireUser(w, r)
-	if !ok {
-		return
-	}
-	feed, ok := h.loadFeed(w, r.Context(), id, userID)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
@@ -477,53 +448,21 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 	if params.Limit != nil && *params.Limit > 0 {
 		limit = *params.Limit
 	}
-	result := apiserver.FeedPollResult{Feed: toAPIFeed(feed), NewEntries: []apiserver.FeedEntry{}}
-	if !feed.Enabled {
-		writeData(w, http.StatusOK, result)
-		return
-	}
-	// Only rss feeds are polled server-side; skill-driven kinds discover entries
-	// via the recally extraction workflow, so this is a no-op for them.
-	if feed.Kind != recally.FeedKindRSS {
-		writeData(w, http.StatusOK, result)
-		return
-	}
-
-	parseCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	parsed, err := h.feeds.ParseURLWithContext(feed.URL, parseCtx)
-	cancel()
+	// Access.PollFeed loads the feed (404 if missing/foreign), skips disabled and
+	// non-RSS kinds, and folds any upstream fetch failure into result.Errors — so
+	// the poll stays a 200 with the error surfaced in the body, as before.
+	res, err := acc.PollFeed(r.Context(), id, limit)
 	if err != nil {
-		h.log.Warn("feed poll upstream error", "feed_id", feed.ID, "url", feed.URL, "error", err)
+		h.writeRecallyError(w, err)
+		return
+	}
+	result := apiserver.FeedPollResult{Feed: toAPIFeed(&res.Feed), NewEntries: []apiserver.FeedEntry{}}
+	for i := range res.NewEntries {
+		result.NewEntries = append(result.NewEntries, toAPIFeedEntry(&res.NewEntries[i]))
+	}
+	if len(res.Errors) > 0 {
 		msg := "failed to fetch feed"
 		result.Error = &msg
-		writeData(w, http.StatusOK, result)
-		return
-	}
-
-	for _, item := range parsed.Items {
-		entryURL := item.Link
-		if entryURL == "" && item.GUID != "" {
-			entryURL = item.GUID
-		}
-		guid := item.GUID
-		if guid == "" {
-			guid = entryURL
-		}
-		entry, cerr := h.store.CreateFeedEntry(r.Context(), feed.ID, guid, entryURL, item.Title)
-		if cerr != nil || entry == nil {
-			continue
-		}
-		result.NewEntries = append(result.NewEntries, toAPIFeedEntry(entry))
-		if len(result.NewEntries) >= limit {
-			break
-		}
-	}
-
-	now := time.Now().UTC()
-	if updated, err := h.store.UpdateFeed(r.Context(), userID, feed.ID, map[string]any{"last_checked_at": &now}); err == nil {
-		result.Feed = toAPIFeed(updated)
-	} else {
-		slog.Warn("failed to update feed last_checked_at", "feed_id", feed.ID, "error", err)
 	}
 	writeData(w, http.StatusOK, result)
 }
@@ -531,11 +470,8 @@ func (h *recallyHandlers) PollFeed(w http.ResponseWriter, r *http.Request, id st
 // ---------------------------- feed entries ----------------------------------
 
 func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request, feedId string, params apiserver.ListFeedEntriesParams) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
-		return
-	}
-	if _, ok := h.loadFeed(w, r.Context(), feedId, userID); !ok {
 		return
 	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
@@ -552,9 +488,9 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "only status=pending is supported")
 		return
 	}
-	entries, err := h.store.ListPendingFeedEntries(r.Context(), feedId, limit+1, offset)
+	entries, err := acc.ListFeedEntries(r.Context(), feedId, recally.FeedEntryFilter{Status: status, Limit: limit + 1, Offset: offset})
 	if err != nil {
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
 	entries, nextToken := nextPageTokenForRows(entries, limit, offset)
@@ -570,11 +506,8 @@ func (h *recallyHandlers) ListFeedEntries(w http.ResponseWriter, r *http.Request
 }
 
 func (h *recallyHandlers) CreateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
-		return
-	}
-	if _, ok := h.loadFeed(w, r.Context(), feedId, userID); !ok {
 		return
 	}
 	var body apitypes.CreateFeedEntryRequest
@@ -586,12 +519,12 @@ func (h *recallyHandlers) CreateFeedEntry(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "guid is required")
 		return
 	}
-	entry, err := h.store.CreateFeedEntry(r.Context(), feedId, body.Guid, strDeref(body.Url), strDeref(body.Title))
+	entry, created, err := acc.CreateFeedEntry(r.Context(), feedId, body.Guid, strDeref(body.Url), strDeref(body.Title))
 	if err != nil {
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
-	result := apitypes.CreateFeedEntryResult{Created: entry != nil}
+	result := apitypes.CreateFeedEntryResult{Created: created}
 	if entry != nil {
 		apiEntry := toAPIFeedEntry(entry)
 		result.Entry = &apiEntry
@@ -600,20 +533,8 @@ func (h *recallyHandlers) CreateFeedEntry(w http.ResponseWriter, r *http.Request
 }
 
 func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request, feedId string, id string) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
-		return
-	}
-	if _, ok := h.loadFeed(w, r.Context(), feedId, userID); !ok {
-		return
-	}
-	entry, err := h.store.GetFeedEntry(r.Context(), feedId, id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	if entry.FeedID != feedId {
-		writeError(w, http.StatusNotFound, "entry not found in this feed")
 		return
 	}
 	var body apiserver.UpdateFeedEntryRequest
@@ -632,9 +553,9 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "article_id required when status=saved")
 		return
 	}
-	updated, err := h.store.MarkFeedEntry(r.Context(), feedId, id, status, body.ArticleId, strDeref(body.ErrorMsg))
+	updated, err := acc.UpdateFeedEntry(r.Context(), feedId, id, status, body.ArticleId, strDeref(body.ErrorMsg))
 	if err != nil {
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, toAPIFeedEntry(updated))
@@ -643,20 +564,20 @@ func (h *recallyHandlers) UpdateFeedEntry(w http.ResponseWriter, r *http.Request
 // ------------------------------- digest -------------------------------------
 
 func (h *recallyHandlers) GetDigest(w http.ResponseWriter, r *http.Request) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
-	digest, err := h.store.GetDigest(r.Context(), userID)
+	digest, err := acc.GetDigest(r.Context())
 	if err != nil {
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, toAPIDigest(digest))
 }
 
 func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Request, params apiserver.ListStoredDigestsParams) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
@@ -666,9 +587,9 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	limit, offset := int64(limitInt), int64(offsetInt)
-	summaries, total, err := h.store.ListStoredDigests(r.Context(), userID, limit, offset)
+	summaries, total, err := acc.ListStoredDigests(r.Context(), limit, offset)
 	if err != nil {
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
 	items := make([]apitypes.StoredDigestSummary, 0, len(summaries))
@@ -684,7 +605,7 @@ func (h *recallyHandlers) ListStoredDigests(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
@@ -701,9 +622,9 @@ func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {
 	if body.Date != nil && *body.Date != "" {
 		date = *body.Date
 	}
-	stored, err := h.store.SaveDigest(r.Context(), userID, body.Narrative, date)
+	stored, err := acc.SaveDigest(r.Context(), body.Narrative, date)
 	if err != nil {
-		h.writeInternalError(w, err)
+		h.writeRecallyError(w, err)
 		return
 	}
 	w.Header().Set("Location", "/api/recally/digests/"+stored.Date)
@@ -711,16 +632,16 @@ func (h *recallyHandlers) SaveDigest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *recallyHandlers) GetStoredDigest(w http.ResponseWriter, r *http.Request, date string) {
-	userID, ok := h.requireUser(w, r)
+	acc, ok := h.access(w, r)
 	if !ok {
 		return
 	}
-	stored, err := h.store.GetStoredDigestByDate(r.Context(), userID, date)
+	stored, err := acc.GetStoredDigest(r.Context(), date)
 	if err != nil {
-		if isNotFound(err) {
+		if errors.Is(err, authz.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "digest not found")
 		} else {
-			h.writeInternalError(w, err)
+			h.writeRecallyError(w, err)
 		}
 		return
 	}
@@ -736,10 +657,6 @@ func includesContent(include string) bool {
 		}
 	}
 	return false
-}
-
-func (h *recallyHandlers) readArticleBody(ctx context.Context, article *recally.Article) (string, error) {
-	return h.svc.ReadArticleBody(ctx, article)
 }
 
 func strDeref(p *string) string {

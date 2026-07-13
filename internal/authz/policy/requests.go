@@ -154,6 +154,16 @@ func SkillListRequest() (authz.Request, error) {
 	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
 }
 
+// VaultRequest builds an action against one durable Vault entry (or a scope
+// bucket for create/list, where the id is the effective owner key).
+func VaultRequest(action authz.Action, id, ownerID string, facts VaultFacts) (authz.Request, error) {
+	res, err := VaultResource(id, ownerID, facts)
+	if err != nil {
+		return authz.Request{}, err
+	}
+	return authz.NewRequest(action, res, authz.InvocationFacts{})
+}
+
 // WorkspaceRequest builds an action against the workspace rooted by sessionID.
 func WorkspaceRequest(action authz.Action, sessionID, ownerID string, facts SessionFacts) (authz.Request, error) {
 	res, err := WorkspaceResource(sessionID, ownerID, facts)

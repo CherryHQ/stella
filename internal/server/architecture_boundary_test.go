@@ -595,11 +595,7 @@ func TestNoServerPlatformPluginImports(t *testing.T) {
 // authz.Identity" shape, not that any check is semantically complete.
 // ---------------------------------------------------------------------------
 
-var authIdentityConstructorAllowlist = map[string]bool{
-	"emailIdentity": true, // internal/server/email.go
-	"shareIdentity": true, // internal/server/shares.go
-	"toolIdentity":  true, // internal/server/tool_identity.go (share only, post-#710)
-}
+var authIdentityConstructorAllowlist = map[string]bool{}
 
 func resultHasAuthzIdentity(ft *ast.FuncType) bool {
 	if ft.Results == nil {
@@ -667,7 +663,6 @@ var resourceAuthHelperAllowlist = map[string]bool{
 	"requireGroupOwner":         true, // groups.go — group ownership gate
 	"requireAuth":               true, // middleware.go — authentication (not resource authz)
 	"requireAdmin":              true, // middleware.go — admin gate
-	"requireUser":               true, // recally_handlers.go — recally user gate
 	"requireAgentAccess":        true, // skills_scoped.go — agent access gate
 	"requireAgentUse":           true, // skills_scoped.go — agent execute gate
 	"requireAgentManage":        true, // skills_scoped.go — agent manage gate

@@ -104,10 +104,18 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 
 	vaultSvc := newVaultToolTestService(t, db, ownerUser, foreignUser)
-	if _, err := vaultSvc.As(ownerIdentity(ownerUser, agentID)).Set(ctx, vault.ScopeUser, "OWNER_USER_SECRET", "secret"); err != nil {
+	vaultOwnerAuth, err := ownerIdentity(ownerUser, agentID).ToAuthority()
+	if err != nil {
+		t.Fatalf("vault owner authority: %v", err)
+	}
+	vaultAcc, err := vaultSvc.Begin(ctx, vaultOwnerAuth)
+	if err != nil {
+		t.Fatalf("vault begin: %v", err)
+	}
+	if err := vaultAcc.SetScoped(ctx, vault.ScopeUser, "", "OWNER_USER_SECRET", "secret", vault.SetOptions{}); err != nil {
 		t.Fatalf("set owner user vault: %v", err)
 	}
-	if _, err := vaultSvc.As(ownerIdentity(ownerUser, agentID)).Set(ctx, vault.ScopeUserAgent, "OWNER_AGENT_SECRET", "secret"); err != nil {
+	if err := vaultAcc.SetScoped(ctx, vault.ScopeUserAgent, agentID, "OWNER_AGENT_SECRET", "secret", vault.SetOptions{}); err != nil {
 		t.Fatalf("set owner agent vault: %v", err)
 	}
 
@@ -186,7 +194,11 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	} else if strings.Contains(out, "secret") {
 		t.Fatalf("vault delete leaked value: %s", out)
 	}
-	if entries, err := vaultSvc.As(ownerIdentity(ownerUser, agentID)).List(ctx, vault.ScopeUserAgent); err != nil || len(entries) != 1 {
+	vaultListAcc, err := vaultSvc.Begin(ctx, vaultOwnerAuth)
+	if err != nil {
+		t.Fatalf("vault begin: %v", err)
+	}
+	if entries, err := vaultListAcc.ListScoped(ctx, vault.ScopeUserAgent, agentID); err != nil || len(entries) != 1 {
 		t.Fatalf("owner agent vault entry affected by foreign delete: entries=%+v err=%v", entries, err)
 	}
 	if _, err := vaultTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
@@ -266,6 +278,10 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 
 	recallySvc := recally.NewService(recally.NewStore(db), home)
 	recallyTool := recally.NewTool(recallySvc)
+	recallyOwnerAuth, err := ownerIdentity(ownerUser, agentID).ToAuthority()
+	if err != nil {
+		t.Fatalf("recally owner authority: %v", err)
+	}
 	ownerRecallyCtx := authz.WithAgentID(authz.WithUserID(ctx, ownerUser), agentID)
 	out, err = recallyTool.Execute(ownerRecallyCtx, map[string]any{"action": "save", "articles": []any{
 		map[string]any{"url": "https://example.com/one", "title": "One", "content": "one body"},
@@ -278,10 +294,14 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if !strings.Contains(out, "created") || !strings.Contains(out, "updated") || !strings.Contains(out, "error") {
 		t.Fatalf("recally save did not report partial results: %s", out)
 	}
-	if articles, err := recallySvc.As(ownerIdentity(ownerUser, agentID)).ListArticles(ctx, recally.ArticleFilter{Limit: 10}); err != nil || len(articles) != 1 {
+	recallyAcc, err := recallySvc.Access(recallyOwnerAuth)
+	if err != nil {
+		t.Fatalf("recally begin: %v", err)
+	}
+	if articles, err := recallyAcc.ListArticles(ctx, recally.ArticleFilter{Limit: 10}); err != nil || len(articles) != 1 {
 		t.Fatalf("recally dedup articles=%d err=%v, want one", len(articles), err)
 	}
-	ownerFeed, err := recallySvc.As(ownerIdentity(ownerUser, agentID)).CreateFeed(ctx, "https://x.com/cherry", recally.FeedKindTwitter, "Cherry", nil)
+	ownerFeed, err := recallyAcc.CreateFeed(ctx, "https://x.com/cherry", recally.FeedKindTwitter, "Cherry", nil)
 	if err != nil {
 		t.Fatalf("CreateFeed: %v", err)
 	}
@@ -317,7 +337,9 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 	if err != nil {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
-	svc, err := vault.NewService(sqlc.New(db), masterID.String())
+	authorizer := policy.New(db)
+	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), authorizer)
+	svc, err := vault.NewService(sqlc.New(db), masterID.String(), authorizer, agents)
 	if err != nil {
 		t.Fatalf("vault.NewService: %v", err)
 	}

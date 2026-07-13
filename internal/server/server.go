@@ -273,7 +273,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		emailSvc:        deps.Email,
 		shareSvc:        deps.Share,
 		recallySvc:      deps.Recally,
-		recally:         newRecallyHandlersWithService(deps.Recally.Store(), deps.Recally, log),
+		recally:         newRecallyHandlersWithService(deps.Recally, log),
 		schedulerSvc:    deps.Scheduler,
 		goalSvc:         deps.Goal,
 		workflowSvc:     deps.Workflow,
