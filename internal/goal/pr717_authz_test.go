@@ -46,6 +46,31 @@ func (h *harness) seedSystemAgent(t *testing.T) string {
 	return id
 }
 
+func (h *harness) seedUserAgent(t *testing.T) string {
+	t.Helper()
+	id := uuid.NewString()
+	if _, err := h.db.Exec(context.Background(),
+		`INSERT INTO agent (id, name, workspace, scope, creator_id) VALUES ($1, 'override-agent', '/tmp', 'user', $2)`, id, h.userID); err != nil {
+		t.Fatalf("seed user agent: %v", err)
+	}
+	return id
+}
+
+func (h *harness) denyAgentExecute(t *testing.T, scope string) {
+	t.Helper()
+	ps := policy.NewService(policy.New(h.db))
+	if _, _, err := ps.CreatePolicy(context.Background(), policy.PolicyInput{
+		Name:       "deny-agent-" + uuid.NewString()[:8],
+		Resource:   authz.ResourceAgent,
+		Action:     authz.ActionExecute,
+		Effect:     policy.EffectDeny,
+		Subjects:   policy.AnySubject(),
+		Predicates: []policy.Predicate{policy.Eq("scope", scope)},
+	}); err != nil {
+		t.Fatalf("create agent deny policy: %v", err)
+	}
+}
+
 // seedRoot mints a root goal bound to agentID and stamps its created_at so a test
 // can control list ordering deterministically.
 func (h *harness) seedRoot(t *testing.T, agentID string, createdAt time.Time) sqlc.AgentGoal {
@@ -85,19 +110,19 @@ func TestGoalExecuteDeniedBlocksMutations(t *testing.T) {
 	}
 }
 
-// TestGoalAddEdgeGatesBothGoalsOnExecute proves AddEdge authorizes a state change
-// on the caller-supplied upstream too, so a denied upstream cannot be wired in.
-func TestGoalAddEdgeGatesBothGoalsOnExecute(t *testing.T) {
+// TestGoalAddEdgeGatesDownstreamExecuteAndUpstreamRead proves AddEdge requires
+// mutation authority on the downstream and visibility of the referenced upstream.
+func TestGoalAddEdgeGatesDownstreamExecuteAndUpstreamRead(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	deniedAgent := h.seedSystemAgent(t)
 	down := h.createRoot(KindComposite, AcceptanceContract{})
 	up := h.seedRoot(t, deniedAgent, time.Now())
-	// Deny execute only on the upstream's agent.
-	h.denyGoal(t, authz.ActionExecute, policy.Eq("agent", deniedAgent))
+	// A hidden upstream cannot be wired in even when the downstream is executable.
+	h.denyGoal(t, authz.ActionRead, policy.Eq("agent", deniedAgent))
 
 	if _, err := h.begin(t, h.userAuth(t, h.userID)).AddEdge(ctx, down.ID, up.ID, EdgeHard, OnFailureBlock); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("AddEdge with denied upstream err=%v, want opaque not-found", err)
+		t.Fatalf("AddEdge with hidden upstream err=%v, want opaque not-found", err)
 	}
 }
 
@@ -110,13 +135,23 @@ func TestWorkerAuthorizerDeniedFailsClosed(t *testing.T) {
 	g := h.createRoot(KindComposite, AcceptanceContract{})
 	wa := newWorkerAuthorizer(h.bundle.authz, h.bundle.agents)
 
-	// With no deny in force the worker authorizes the persisted goal + agent.
-	if err := wa.authorize(ctx, g); err != nil {
+	// With no deny in force the worker authorizes the persisted goal + actual executor.
+	if err := wa.authorize(ctx, g, g.AgentID); err != nil {
 		t.Fatalf("worker authorize clean goal: %v", err)
+	}
+	// A durable executor override is the agent that actually runs the turn and must
+	// therefore be the Agent resource decided by this same evaluation.
+	overrideAgent := h.seedUserAgent(t)
+	if err := wa.authorize(ctx, g, overrideAgent); err != nil {
+		t.Fatalf("worker authorize durable executor override: %v", err)
+	}
+	h.denyAgentExecute(t, "user")
+	if err := wa.authorize(ctx, g, overrideAgent); err == nil {
+		t.Fatal("worker authorized a denied actual executor")
 	}
 	// A goal-execute deny fails the same attempt closed on the next dequeue.
 	h.denyGoal(t, authz.ActionExecute)
-	if err := wa.authorize(ctx, g); !errors.Is(err, authz.ErrNotFound) {
+	if err := wa.authorize(ctx, g, g.AgentID); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("worker authorize under execute-deny err=%v, want denied", err)
 	}
 }
@@ -131,7 +166,7 @@ func TestWorkerAuthorizerNilPEPFailsClosed(t *testing.T) {
 		"nil authorizer": newWorkerAuthorizer(nil, nil),
 	}
 	for name, wa := range cases {
-		if err := wa.authorize(ctx, g); err == nil {
+		if err := wa.authorize(ctx, g, g.AgentID); err == nil {
 			t.Fatalf("%s: authorize returned nil, want fail closed", name)
 		}
 	}

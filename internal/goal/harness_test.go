@@ -22,7 +22,7 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 // allowAttempt is the permissive durable-attempt authorizer for executor routing
 // tests, which exercise turn/callback plumbing rather than policy. Authorization
 // itself is covered against the real workerAuthorizer in worker_authz_test.go.
-func allowAttempt(context.Context, sqlc.AgentGoal) error { return nil }
+func allowAttempt(context.Context, sqlc.AgentGoal, string) error { return nil }
 
 // scriptedExecutor is the test executor: by default it submits a trivial output
 // (hash derived from the attempt id so each attempt is distinct); a test swaps

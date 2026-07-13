@@ -126,10 +126,10 @@ func terminalSubmitSandboxCallback(rec *terminalRecorder, cb func(sandbox.Sessio
 // through ChatFunc (which persists the transcript to the goal session),
 // and pumps the chat loop until a terminal action fires or the channel closes.
 // attemptAuthorizeFunc fresh-authorizes one durable attempt's execution against
-// the persisted goal's own facts (owner + bound agent). It is the executor's
+// the persisted goal and the attempt's actual executor. It is the executor's
 // single seam onto the durable-worker PEP (workerAuthorizer.authorize); production
 // wires the real PEP, and a nil value fails closed at the call site.
-type attemptAuthorizeFunc func(ctx context.Context, goal sqlc.AgentGoal) error
+type attemptAuthorizeFunc func(ctx context.Context, goal sqlc.AgentGoal, executorAgentID string) error
 
 type workerExecutor struct {
 	chat          TaskChatFunc
@@ -186,13 +186,12 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 		return Result{}, fmt.Errorf("goal agent authority is invalid: %w", err)
 	}
 	// Fresh-authorize this attempt on every dequeue: the persisted goal's execute
-	// AND its bound agent under one revision-bound evaluation, from durable facts
-	// only. A missing PEP is a boot misconfiguration — block the goal rather than
-	// run an unauthorized turn.
+	// and the actual persisted executor agent under one revision-bound evaluation.
+	// A missing PEP is a boot misconfiguration — block rather than run.
 	if e.authorize == nil {
 		return failResult("goal attempt authorization is unavailable", FailureClassEnvironment, BlockEnvUnavailable), nil
 	}
-	if err := e.authorize(ctx, req.Goal); err != nil {
+	if err := e.authorize(ctx, req.Goal, agentID); err != nil {
 		return Result{}, fmt.Errorf("goal attempt execution denied: %w", err)
 	}
 

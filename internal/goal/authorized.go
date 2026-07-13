@@ -66,18 +66,19 @@ func newWorkerAuthorizer(az authz.Authorizer, agents *agentaccess.Service) *work
 	return &workerAuthorizer{authz: az, agents: agents}
 }
 
-// authorize denies execution unless the goal's own durable facts pass a fresh
-// Goal-execute decision and its bound agent passes an agent-execute decision, both
-// under the single evaluation opened here. The authority is minted from the goal's
-// durable owner and bound agent, mirroring the transport's execute path
-// (Access.Use authorizes d.AgentID); a runtime executor override is a dispatch
-// detail, never an authority source. A nil PEP (unconfigured boot) or an unusable
-// owner/agent fails closed.
-func (wa *workerAuthorizer) authorize(ctx context.Context, goal sqlc.AgentGoal) error {
+// authorize denies execution unless the goal's durable facts pass a fresh
+// Goal-execute decision and the attempt's persisted executor passes an
+// agent-execute decision, both under the single evaluation opened here. A runtime
+// executor override is authority-bearing durable state: the model turn runs as
+// that agent, so authorizing only goal.AgentID would leave the real executor
+// unchecked. is_executor is true because the worker reached this boundary from a
+// persisted attempt assigned to executorAgentID, not from request input. A nil PEP
+// or unusable owner/executor fails closed.
+func (wa *workerAuthorizer) authorize(ctx context.Context, goal sqlc.AgentGoal, executorAgentID string) error {
 	if wa == nil || wa.authz == nil || wa.agents == nil {
 		return fmt.Errorf("goal worker authorization unavailable: PEP not configured")
 	}
-	authority, err := agentaccess.WorkerAgentAuthority(goal.UserID, goal.AgentID)
+	authority, err := agentaccess.WorkerAgentAuthority(goal.UserID, executorAgentID)
 	if err != nil {
 		return fmt.Errorf("goal worker authority invalid: %w", err)
 	}
@@ -85,10 +86,22 @@ func (wa *workerAuthorizer) authorize(ctx context.Context, goal sqlc.AgentGoal) 
 	if err != nil {
 		return fmt.Errorf("goal worker authorization begin: %w", err)
 	}
-	if err := decideGoal(eval, authz.ActionExecute, goal.UserID, goal.AgentID, goal); err != nil {
-		return err
+	facts := policy.GoalFacts{
+		Owner: goal.UserID, Agent: goal.AgentID, State: goal.Lifecycle,
+		IsOwner: true, IsExecutor: true,
 	}
-	return authorizeAgentWithin(ctx, wa.agents, eval, authority, goal.AgentID)
+	req, err := policy.GoalRequest(authz.ActionExecute, goal.ID, goal.UserID, facts)
+	if err != nil {
+		return authz.ErrForbidden
+	}
+	dec, err := eval.Decide(req)
+	if err != nil {
+		return fmt.Errorf("goal decide: %w", err)
+	}
+	if !dec.Allowed() {
+		return authz.ErrNotFound
+	}
+	return authorizeAgentWithin(ctx, wa.agents, eval, authority, executorAgentID)
 }
 
 // GoalFilter narrows a root-goal list. The zero value lists active
@@ -222,16 +235,16 @@ func (a *Access) Abandon(ctx context.Context, id, reason string) error {
 	return a.svc.Goal.Abandon(ctx, id, reason, UserActor(d.UserID))
 }
 
-// AddEdge authorizes a state change on BOTH the downstream and the caller-supplied
-// upstream goal, then inserts the upstream dependency edge (cycle-checked). The
-// upstream is gated under the same execute decision as the downstream so a caller
-// cannot wire in another tenant's goal and pull its frozen accepted_output into
-// their own attempt's input context.
+// AddEdge authorizes mutation of the downstream and reading the caller-supplied
+// upstream goal, then inserts the dependency edge (cycle-checked). Referencing an
+// upstream requires visibility of its output, not execute authority over its
+// agent; requiring Execute on both resources would reject valid cross-agent
+// dependencies without adding protection.
 func (a *Access) AddEdge(ctx context.Context, downstreamID, upstreamID, kind, onFailure string) (sqlc.AgentGoalEdge, error) {
 	if _, err := a.Use(ctx, downstreamID); err != nil {
 		return sqlc.AgentGoalEdge{}, err
 	}
-	if _, err := a.Use(ctx, upstreamID); err != nil {
+	if _, err := a.Get(ctx, upstreamID); err != nil {
 		return sqlc.AgentGoalEdge{}, err
 	}
 	return a.svc.Goal.AddEdge(ctx, downstreamID, upstreamID, kind, onFailure)

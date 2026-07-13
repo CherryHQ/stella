@@ -339,8 +339,9 @@ func ownerAgentKindStateResource(rt authz.ResourceType, id, ownerID string, fact
 }
 
 // GoalFacts is the complete durable fact set for a Goal policy resource.
-// IsOwner/IsExecutor are derived by the PEP from the Authority and the loaded
-// goal row; they are never caller-controlled.
+// IsOwner/IsExecutor are derived by the PEP from the Authority and durable state:
+// interactive use compares the loaded goal binding, while a dequeue use compares
+// the persisted attempt executor. They are never caller-controlled.
 type GoalFacts struct {
 	Owner      string
 	Agent      string
