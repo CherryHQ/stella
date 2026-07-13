@@ -15,7 +15,6 @@ import (
 // SetupParams contains dependencies for OIDC setup.
 type SetupParams struct {
 	DB       *pgxpool.Pool
-	BaseURL  string
 	VaultKey string
 	// OIDC is the static OIDC_* block from the server config snapshot. It drives
 	// both the external-vs-local mode decision and the external provider config,

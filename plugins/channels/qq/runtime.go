@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -40,6 +41,7 @@ func NewQQManagedRuntime(deps QQRuntimeDeps) pkgplugins.Runtime {
 		ValidateConfig:  validateConfig,
 		NewChannel:      deps.NewChannel,
 		Snapshot:        runtimeSnapshot,
+		WrapHandler:     internalchannel.WrapOperationHandler,
 	})
 }
 

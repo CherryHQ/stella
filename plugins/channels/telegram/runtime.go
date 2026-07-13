@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -50,6 +51,7 @@ func newBotManagedRuntime(deps botRuntimeDeps) pkgplugins.Runtime {
 		NewChannel:      deps.NewChannel,
 		Snapshot:        runtimeSnapshot,
 		Now:             deps.Now,
+		WrapHandler:     internalchannel.WrapOperationHandler,
 	})
 }
 

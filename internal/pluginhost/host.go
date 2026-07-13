@@ -470,6 +470,11 @@ func (h *Host) ApplyChannel(ctx context.Context, channel config.Channel) error {
 	return h.runtimes.ApplyChannel(ctx, channel)
 }
 
+// Quiesce halts new ingress on managed runtimes (channel pollers) for a graceful
+// drain while preserving already-accepted operations and notifier senders. The
+// runtime table is left intact so a later Stop can fully tear them down.
+func (h *Host) Quiesce(ctx context.Context) { h.runtimes.Quiesce(ctx) }
+
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
 
 func (h *Host) PromptTools(ctx context.Context, pluginID string) ([]pkgplugins.PromptToolInfo, error) {

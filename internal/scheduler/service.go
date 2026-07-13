@@ -34,6 +34,11 @@ func (s *Service) As(ident authz.Identity) Authorized { return Authorized{Servic
 // it as a hard failure.
 var ErrOneTimeJobPast = errors.New("one-time job timestamp is in the past")
 
+// ErrSchedulerQuiescing is returned by scheduling paths after Quiesce has been
+// called: during a graceful drain the scheduler stops accepting NEW dispatch so
+// in-flight and durable work can finish undisturbed.
+var ErrSchedulerQuiescing = errors.New("scheduler is quiescing")
+
 // OnJobFunc is called when a scheduled job fires.
 type OnJobFunc func(ctx context.Context, job Job) error
 
@@ -124,6 +129,12 @@ type Service struct {
 	// runtime registrations after that point to avoid persisted handler-mode
 	// jobs firing before their handler exists.
 	started bool
+
+	// quiescing flips to true inside Quiesce() at graceful drain. Once set, every
+	// scheduleJob and RunJobNow path refuses to enqueue NEW work, while durable
+	// one-time jobs already inserted into River and any in-flight run are left to
+	// drain. Distinct from a full Stop, which is the final lifecycle teardown.
+	quiescing bool
 }
 
 // Option configures a Service at construction.
@@ -299,6 +310,39 @@ func (s *Service) start(ctx context.Context, loadPersisted bool) error {
 		s.log.Info("scheduler service started without persisted jobs")
 	}
 	return nil
+}
+
+// Quiesce halts NEW scheduled dispatch during a graceful drain without tearing
+// down the durable River client. It atomically marks the service quiescing,
+// removes every recurring periodic registration (so no further tick enqueues a
+// firing), and makes subsequent scheduleJob / RunJobNow paths reject with
+// ErrSchedulerQuiescing. Durable one-time jobs already inserted into River are
+// deliberately preserved — they stay in the queue and fire under the shared
+// client's soft-stop budget — as is any run already in flight.
+//
+// Quiesce is idempotent and never blocks: it only mutates in-memory registration
+// state under s.mu (the same lock every scheduling method already takes) and
+// removes periodic handles, so it cannot deadlock against a concurrent fire.
+// This is what the gateway's stopSchedulerDispatch invokes at drain start; the
+// final teardown is still Stop.
+func (s *Service) Quiesce() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.quiescing {
+		return
+	}
+	s.quiescing = true
+	if s.river == nil {
+		return
+	}
+	for id, ref := range s.refs {
+		if ref.isOneTime {
+			// Durable one-time job already persisted in River; leave it to fire.
+			continue
+		}
+		s.river.PeriodicJobs().Remove(ref.periodic)
+		delete(s.refs, id)
+	}
 }
 
 // Stop shuts down the scheduler and closes the database if owned.
@@ -895,14 +939,20 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 // Use it for user-triggered "run now" actions, not for work that must survive a
 // restart — enqueue a River job for that.
 func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
+	// Hold the lifecycle lock through durable run acceptance. Quiesce takes the
+	// same lock, so either this run is fully accepted before drain begins or it is
+	// rejected; it cannot pass a stale pre-quiesce check and start afterward.
 	s.mu.Lock()
+	if s.quiescing {
+		s.mu.Unlock()
+		return "", ErrSchedulerQuiescing
+	}
 	job, ok := s.jobs[jobID]
-	svcCtx := s.ctx
-	s.mu.Unlock()
-
 	if !ok {
+		s.mu.Unlock()
 		return "", fmt.Errorf("job %q not found", jobID)
 	}
+	svcCtx := s.ctx
 
 	sessionID := job.SessionID()
 	if job.UserID != "" {
@@ -913,11 +963,13 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 
 	// Atomically check for an existing active run and create the new record.
 	if err := s.tryStartJobRun(ctx, runID, jobID, sessionID, job.UserID, startedAt); err != nil {
+		s.mu.Unlock()
 		if errors.Is(err, errJobAlreadyRunning) {
 			return "", fmt.Errorf("job %q already has a run in progress", jobID)
 		}
 		return "", fmt.Errorf("create run record: %w", err)
 	}
+	s.mu.Unlock()
 
 	go func() {
 		outputSink := &RunOutputSink{}

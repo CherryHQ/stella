@@ -87,8 +87,6 @@ type Server struct {
 	credentials auth.CredentialStore
 	// eventLog is the group event log store (optional; if nil, group chat returns 503).
 	eventLog *eventlog.Store
-	// arbiter decides which agents respond in Web group chat (optional; if nil, group chat returns 503).
-	arbiter *channel.Arbiter
 	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
 	groupDispatcher *channel.GroupDispatcher
 	// runtimeCtx is canceled by the process/service lifecycle; request handlers
@@ -144,7 +142,6 @@ type Deps struct {
 	CredentialFrontDoor *credential.Service
 	OAuthAuthServer     *oidc.Service
 	EventLog            *eventlog.Store
-	Arbiter             *channel.Arbiter
 	GroupDispatcher     *channel.GroupDispatcher
 
 	// Optional capabilities. A nil field is a supported configuration: the
@@ -181,7 +178,7 @@ type OIDCDeps struct {
 // validate reports every missing required dependency at once (fail-fast). A
 // dependency is required only when the server dereferences it unconditionally
 // (no 503 gate). Optional capabilities — CredentialFrontDoor, OAuthAuthServer,
-// EventLog, GroupDispatcher, Arbiter, Vault, VaultRecipient, MCP, Scheduler,
+// EventLog, GroupDispatcher, Vault, VaultRecipient, MCP, Scheduler,
 // Goal, Workflow, and OIDC.StateMgr/LocalAuth — are intentionally not checked:
 // a nil there is a supported configuration whose endpoints degrade to 503.
 func (d Deps) validate() error {
@@ -260,7 +257,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		goalSvc:         deps.Goal,
 		workflowSvc:     deps.Workflow,
 		eventLog:        deps.EventLog,
-		arbiter:         deps.Arbiter,
 		groupDispatcher: deps.GroupDispatcher,
 		authProviders:   deps.OIDC.Providers,
 		authSvc:         deps.OIDC.AuthSvc,

@@ -126,14 +126,10 @@ func serverAction(c *ucli.Context) error {
 	endStartupWatch := func() { handoff.Do(func() { close(startupDone) }) }
 	// Release the watcher even when startup fails before runServer hands off.
 	defer endStartupWatch()
-	go func() {
-		select {
-		case <-sigCh:
-			slog.Info("shutdown signal during startup; aborting")
-			cancel()
-		case <-startupDone:
-		}
-	}()
+	go watchStartupSignal(sigCh, startupDone, func() {
+		slog.Info("shutdown signal during startup; aborting")
+		cancel()
+	})
 
 	startDiagnostics(ctx, cfg.Diagnostics.PprofAddr)
 
@@ -183,6 +179,34 @@ func serverAction(c *ucli.Context) error {
 	switchFn := func(_, _ string) error { return nil }
 
 	return runServer(s.ctx, s, loginCfg, baseURL, listFn, switchFn, adminHost, adminPort, sigCh, endStartupWatch)
+}
+
+// watchStartupSignal bridges signal ownership from startup to the drain
+// supervisor. Until startupDone is closed, the first SIGINT/SIGTERM aborts
+// startup via abort (cancelling the base context so partially-started subsystems
+// unwind). Once startup completes, the drain supervisor owns signal handling;
+// but this watcher and the supervisor can both be selecting on sigCh at the
+// instant of handoff, and Go's select picks a ready case at random. If this
+// watcher wins that race AFTER startupDone is closed, aborting would be wrong and
+// would lose the drain, so it hands the signal back to sigCh (buffered, and this
+// receive just freed a slot, so the nonblocking send succeeds) for the drain
+// supervisor to consume. Returns as soon as it consumes a signal or startup ends,
+// so it never leaks.
+func watchStartupSignal(sigCh chan os.Signal, startupDone <-chan struct{}, abort func()) {
+	select {
+	case sig := <-sigCh:
+		select {
+		case <-startupDone:
+			// Startup already finished; the drain supervisor owns this signal.
+			select {
+			case sigCh <- sig:
+			default:
+			}
+		default:
+			abort()
+		}
+	case <-startupDone:
+	}
 }
 
 // runServer starts every subsystem and blocks until shutdown. sigCh delivers
@@ -250,7 +274,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	oidcStore := appdb.NewOIDCStore(s.db)
 	oidcResult, err := oidc.Setup(gctx, oidc.SetupParams{
 		DB:         s.db,
-		BaseURL:    baseURL,
 		VaultKey:   s.cfg.Vault.Key,
 		OIDC:       s.cfg.OIDC,
 		Login:      loginConfig,
@@ -269,10 +292,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	}
 
 	elStore := eventlog.NewStore(s.db)
-	// The admin group-chat arbiter allows up to 100 replies per trigger; the
-	// coordinator's own arbiter (below) caps at 1. They are deliberately distinct
-	// instances with different budgets.
-	adminArbiter := channel.NewArbiter(channel.ArbiterConfig{MaxRepliesPerTrigger: 100})
 	botRegistry := channel.NewBotIdentityRegistry()
 	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
@@ -312,7 +331,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
 		EventLog:            elStore,
-		Arbiter:             adminArbiter,
 		GroupDispatcher:     groupDispatcher,
 		Vault:               s.vaultSvc,
 		VaultRecipient:      vaultRecipient,
@@ -360,6 +378,12 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
 	}
 
+	// Final channel teardown is registered before River's stop defer so LIFO
+	// drains River first while notifier senders are still registered. It is
+	// separate from drain-time Quiesce, which stops polling but preserves accepted
+	// operations and outbound delivery.
+	defer func() { _ = s.pluginHost.Stop(context.Background()) }()
+
 	// Start the single shared River client (composition root: buildSharedRiverClient
 	// assembled it from the scheduler and goal queues).
 	if s.riverClient != nil {
@@ -371,18 +395,22 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 			return fmt.Errorf("start river client: %w", err)
 		}
 		// Stop waits for in-flight jobs, then cancels their contexts after
-		// SoftStopTimeout (STELLA_RIVER_SOFT_STOP_TIMEOUT). It is deferred FIRST so
-		// it runs LAST (LIFO), after every ingress source has been quieted, so
-		// in-flight jobs drain with their outbound deps still alive.
+		// SoftStopTimeout (STELLA_RIVER_SOFT_STOP_TIMEOUT). Drain-time quiesce has
+		// already stopped new dispatch when this defer runs; the channel teardown
+		// defer was registered earlier, so notifier senders remain alive until River
+		// has finished draining.
 		defer func() { _ = s.riverClient.Stop(context.Background()) }()
 	}
 
 	// Idempotent stop-once ingress closures. Each halts a source of NEW work; they
 	// are invoked by stopIngress at the start of a graceful drain AND deferred for
 	// the crash / startup-error teardown path, so double invocation is safe.
-	var stopChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce sync.Once
-	stopChannelIngress := func() {
-		stopChanOnce.Do(func() { _ = s.pluginHost.Stop(context.Background()) })
+	var quiesceChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce sync.Once
+	// quiesceChannelIngress stops channel polling but preserves work already
+	// accepted and the notifier senders that deliver it; the SEPARATE final Stop
+	// defer below (not sharing this once) tears the runtimes down fully.
+	quiesceChannelIngress := func() {
+		quiesceChanOnce.Do(func() { s.pluginHost.Quiesce(context.Background()) })
 	}
 
 	stopSchedulerDispatch := func() {}
@@ -391,7 +419,14 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 			return fmt.Errorf("start scheduler: %w", err)
 		}
 		s.schedulerSvc.EnsureBuiltinJobs()
-		stopSchedulerDispatch = func() { stopSchedOnce.Do(func() { _ = s.schedulerSvc.Stop() }) }
+		// Drain stops NEW scheduled dispatch (periodic removal + late-schedule
+		// rejection) while durable one-time jobs and in-flight runs keep draining
+		// on the shared River client. The final Stop below is the lifecycle
+		// teardown; it must not share stopSchedOnce with the drain-time Quiesce.
+		stopSchedulerDispatch = func() { stopSchedOnce.Do(func() { s.schedulerSvc.Quiesce() }) }
+		// Registered before stopSchedulerDispatch so it runs AFTER it (LIFO):
+		// quiesce first, then final teardown.
+		defer func() { _ = s.schedulerSvc.Stop() }()
 		defer stopSchedulerDispatch()
 	}
 
@@ -449,7 +484,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
 	// Managed channel runtimes (bot pollers).
 	applyManagedChannelPlugins(gctx, s.pluginHost)
-	defer stopChannelIngress()
+	defer quiesceChannelIngress()
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 
@@ -469,7 +504,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		// periodic or new dispatch runs after this point.
 		stopIngress: func() {
 			stopGroupDispatch()     // group-dispatch acceptance
-			stopChannelIngress()    // channel / plugin runtimes
+			quiesceChannelIngress() // channel / plugin runtimes (polling only)
 			stopSchedulerDispatch() // scheduler periodic + one-time dispatch
 			stopGoalDispatch()      // goal tick + dispatcher claims
 			stopEmbeddingBackfill() // embedding backfill periodic
