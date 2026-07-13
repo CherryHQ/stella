@@ -7,13 +7,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 const maxKnowledgePageSize = 100
@@ -56,7 +54,7 @@ func (s *Server) ListProfileKnowledge(w http.ResponseWriter, r *http.Request, ag
 			return
 		}
 	}
-	page, err := memorywrite.ListKnowledge(r.Context(), s.q, memorywrite.KnowledgeListQuery{
+	page, err := s.memoryManagement.ListKnowledge(r.Context(), memorywrite.KnowledgeListQuery{
 		UserID: info.UserID, AgentID: agentID, State: state, Limit: int32(pageSize), Now: time.Now().UTC(), Cursor: cursor,
 	})
 	if err != nil {
@@ -81,8 +79,13 @@ func (s *Server) ListProfileKnowledge(w http.ResponseWriter, r *http.Request, ag
 
 // CreateProfileKnowledge handles POST /api/users/me/memories/{agentId}/knowledge.
 func (s *Server) CreateProfileKnowledge(w http.ResponseWriter, r *http.Request, agentID string) {
-	info, ok := s.authorizeKnowledgeAgent(w, r, agentID)
-	if !ok {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 	var body apitypes.CreateKnowledgeRequest
@@ -95,7 +98,7 @@ func (s *Server) CreateProfileKnowledge(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	fact, err := memorywrite.CreateKnowledge(r.Context(), s.db, s.q, memorywrite.KnowledgeCreateInput{
+	fact, err := s.memoryManagement.CreateKnowledge(r.Context(), memorywrite.KnowledgeCreateInput{
 		UserID: info.UserID, AgentID: agentID, Content: body.Content,
 	})
 	if err != nil {
@@ -107,8 +110,13 @@ func (s *Server) CreateProfileKnowledge(w http.ResponseWriter, r *http.Request, 
 
 // UpdateProfileKnowledge handles PATCH /api/users/me/memories/{agentId}/knowledge/{factId}.
 func (s *Server) UpdateProfileKnowledge(w http.ResponseWriter, r *http.Request, agentID string, factID string) {
-	info, ok := s.authorizeKnowledgeAgent(w, r, agentID)
-	if !ok {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 	if !validKnowledgeFactID(factID) {
@@ -125,7 +133,7 @@ func (s *Server) UpdateProfileKnowledge(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	fact, err := memorywrite.ReplaceKnowledge(r.Context(), s.db, s.q, memorywrite.KnowledgeReplaceInput{
+	fact, err := s.memoryManagement.ReplaceKnowledge(r.Context(), memorywrite.KnowledgeReplaceInput{
 		FactID: factID, UserID: info.UserID, AgentID: agentID, Content: body.Content,
 	})
 	if errors.Is(err, memorywrite.ErrFactNotRestorable) {
@@ -141,15 +149,20 @@ func (s *Server) UpdateProfileKnowledge(w http.ResponseWriter, r *http.Request, 
 
 // DeleteProfileKnowledge handles DELETE /api/users/me/memories/{agentId}/knowledge/{factId}.
 func (s *Server) DeleteProfileKnowledge(w http.ResponseWriter, r *http.Request, agentID string, factID string) {
-	info, ok := s.authorizeKnowledgeAgent(w, r, agentID)
-	if !ok {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 	if !validKnowledgeFactID(factID) {
 		writeError(w, http.StatusNotFound, "knowledge not found")
 		return
 	}
-	_, err := memorywrite.DeprecateKnowledge(r.Context(), s.db, s.q, memorywrite.KnowledgeDeprecateInput{
+	_, err := s.memoryManagement.DeprecateKnowledge(r.Context(), memorywrite.KnowledgeDeprecateInput{
 		FactID: factID, UserID: info.UserID, AgentID: agentID, DeprecatedBy: info.UserID,
 	})
 	if errors.Is(err, memorywrite.ErrFactNotRestorable) {
@@ -165,27 +178,26 @@ func (s *Server) DeleteProfileKnowledge(w http.ResponseWriter, r *http.Request, 
 
 // RestoreProfileKnowledge handles POST /api/users/me/memories/{agentId}/knowledge/{factId}/restore.
 func (s *Server) RestoreProfileKnowledge(w http.ResponseWriter, r *http.Request, agentID string, factID string) {
-	info, ok := s.authorizeKnowledgeAgent(w, r, agentID)
-	if !ok {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+		writeError(w, code, msg)
 		return
 	}
 	if !validKnowledgeFactID(factID) {
 		writeError(w, http.StatusNotFound, "knowledge not found")
 		return
 	}
-	// Resolve only inside the authorized owner tuple so foreign IDs fail closed.
-	if _, err := s.q.GetFact(r.Context(), sqlc.GetFactParams{ID: factID, UserID: info.UserID, AgentID: agentID}); errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "knowledge not found")
-		return
-	} else if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-
-	result, err := memorywrite.RestoreKnowledge(r.Context(), s.db, s.q, memorywrite.KnowledgeRestoreInput{
+	result, err := s.memoryManagement.RestoreKnowledge(r.Context(), memorywrite.KnowledgeRestoreInput{
 		FactID: factID, UserID: info.UserID, AgentID: agentID, RestoredBy: info.UserID, Now: time.Now().UTC(),
 	})
 	switch {
+	case errors.Is(err, memorywrite.ErrFactNotFound):
+		writeError(w, http.StatusNotFound, "knowledge not found")
+		return
 	case errors.Is(err, memorywrite.ErrFactDuplicateContent):
 		writeError(w, http.StatusConflict, "active knowledge already has this content")
 		return
@@ -200,19 +212,6 @@ func (s *Server) RestoreProfileKnowledge(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	writeData(w, http.StatusOK, activeKnowledgeToAPI(result.Fact))
-}
-
-func (s *Server) authorizeKnowledgeAgent(w http.ResponseWriter, r *http.Request, agentID string) (*AuthInfo, bool) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return nil, false
-	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return nil, false
-	}
-	return info, true
 }
 
 func knowledgeItemsToAPI(items []memorywrite.KnowledgeItem) []apitypes.KnowledgeItem {

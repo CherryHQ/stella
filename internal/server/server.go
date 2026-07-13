@@ -26,6 +26,7 @@ import (
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -38,34 +39,35 @@ import (
 
 // Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
-	store          config.Store
-	authStore      auth.AuthStore
-	engine         *auth.PolicyEngine
-	rateLimiter    *auth.RateLimiter
-	linkCodes      *auth.LinkCodeStore
-	mem            memory.Provider
-	poolManager    *agent.PoolManager
-	pluginHost     *pluginhost.Host
-	db             *pgxpool.Pool
-	q              *sqlc.Queries
-	mux            *http.ServeMux
-	log            *slog.Logger
-	vaultRecipient *age.X25519Recipient // optional; if set, age keys are generated for new users
-	vaultSvc       *vault.Service       // optional; if nil, vault endpoints return 503
-	mcpSvc         *mcp.Service         // optional; if nil, MCP endpoints return 503
-	credResolver   *credential.Service  // unified bearer credential front door
-	oauthAS        *oidc.Service        // OAuth2 authorization server
-	credSvc        *connections.Service // shared credentials service
-	emailSvc       *email.Service       // shared email service
-	shareSvc       *sharepkg.Service    // shared share service
-	recallySvc     *recally.Service     // shared recally service
-	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
-	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
-	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
-	goalQueries    *sqlc.Queries        // optional; read side for goal endpoints
-	workflowSvc    *workflowpkg.Service // optional; if nil, workflow endpoints return 503
-	builtinTools   []agent.BuiltinTool
-	startedAt      time.Time
+	store            config.Store
+	authStore        auth.AuthStore
+	engine           *auth.PolicyEngine
+	rateLimiter      *auth.RateLimiter
+	linkCodes        *auth.LinkCodeStore
+	mem              memory.Provider
+	memoryManagement *memorywrite.ManagementService
+	poolManager      *agent.PoolManager
+	pluginHost       *pluginhost.Host
+	db               *pgxpool.Pool
+	q                *sqlc.Queries
+	mux              *http.ServeMux
+	log              *slog.Logger
+	vaultRecipient   *age.X25519Recipient // optional; if set, age keys are generated for new users
+	vaultSvc         *vault.Service       // optional; if nil, vault endpoints return 503
+	mcpSvc           *mcp.Service         // optional; if nil, MCP endpoints return 503
+	credResolver     *credential.Service  // unified bearer credential front door
+	oauthAS          *oidc.Service        // OAuth2 authorization server
+	credSvc          *connections.Service // shared credentials service
+	emailSvc         *email.Service       // shared email service
+	shareSvc         *sharepkg.Service    // shared share service
+	recallySvc       *recally.Service     // shared recally service
+	recally          *recallyHandlers     // recally HTTP API (articles, feeds, digest)
+	schedulerSvc     *scheduler.Service   // optional; if set, create/delete go through the live scheduler
+	goalSvc          *goal.Service        // optional; if nil, goal endpoints return 503
+	goalQueries      *sqlc.Queries        // optional; read side for goal endpoints
+	workflowSvc      *workflowpkg.Service // optional; if nil, workflow endpoints return 503
+	builtinTools     []agent.BuiltinTool
+	startedAt        time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider
 	authSvc       *auth.AuthService
@@ -113,10 +115,11 @@ type Deps struct {
 	// architecture boundary test — carried explicitly here rather than hidden
 	// behind a facade, and shrunk as later stacks migrate each handler onto a
 	// domain service.
-	Store     config.Store
-	DB        *pgxpool.Pool
-	AuthStore auth.AuthStore
-	Mem       memory.Provider
+	Store            config.Store
+	DB               *pgxpool.Pool
+	AuthStore        auth.AuthStore
+	Mem              memory.Provider
+	MemoryManagement *memorywrite.ManagementService
 
 	// Authorization.
 	Engine    *auth.PolicyEngine
@@ -192,6 +195,7 @@ func (d Deps) validate() error {
 	req(d.DB != nil, "DB")
 	req(d.AuthStore != nil, "AuthStore")
 	req(d.Mem != nil, "Mem")
+	req(d.MemoryManagement != nil, "MemoryManagement")
 	req(d.Engine != nil, "Engine")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
@@ -228,47 +232,48 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 
 	log := slog.With("component", "admin")
 	s := &Server{
-		store:           deps.Store,
-		authStore:       deps.AuthStore,
-		engine:          deps.Engine,
-		rateLimiter:     auth.NewRateLimiter(),
-		webhookLimiter:  newWebhookLimiter(5, 20),
-		linkCodes:       deps.LinkCodes,
-		mem:             deps.Mem,
-		poolManager:     deps.PoolManager,
-		db:              deps.DB,
-		pluginHost:      deps.PluginHost,
-		q:               sqlc.New(deps.DB),
-		mux:             http.NewServeMux(),
-		log:             log,
-		baseURL:         deps.BaseURL,
-		builtinTools:    append([]agent.BuiltinTool(nil), deps.BuiltinTools...),
-		vaultRecipient:  deps.VaultRecipient,
-		vaultSvc:        deps.Vault,
-		mcpSvc:          deps.MCP,
-		credResolver:    deps.CredentialFrontDoor,
-		oauthAS:         deps.OAuthAuthServer,
-		credSvc:         deps.Credentials,
-		emailSvc:        deps.Email,
-		shareSvc:        deps.Share,
-		recallySvc:      deps.Recally,
-		recally:         newRecallyHandlersWithService(deps.Recally.Store(), deps.Recally, log),
-		schedulerSvc:    deps.Scheduler,
-		goalSvc:         deps.Goal,
-		workflowSvc:     deps.Workflow,
-		eventLog:        deps.EventLog,
-		groupDispatcher: deps.GroupDispatcher,
-		authProviders:   deps.OIDC.Providers,
-		authSvc:         deps.OIDC.AuthSvc,
-		sessionMgr:      deps.OIDC.SessionMgr,
-		stateMgr:        deps.OIDC.StateMgr,
-		localAuth:       deps.OIDC.LocalAuth,
-		logins:          deps.OIDC.Logins,
-		users:           deps.OIDC.Users,
-		sessions:        deps.OIDC.Sessions,
-		credentials:     deps.OIDC.Credentials,
-		startedAt:       time.Now(),
-		runtimeCtx:      ctx,
+		store:            deps.Store,
+		authStore:        deps.AuthStore,
+		engine:           deps.Engine,
+		rateLimiter:      auth.NewRateLimiter(),
+		webhookLimiter:   newWebhookLimiter(5, 20),
+		linkCodes:        deps.LinkCodes,
+		mem:              deps.Mem,
+		memoryManagement: deps.MemoryManagement,
+		poolManager:      deps.PoolManager,
+		db:               deps.DB,
+		pluginHost:       deps.PluginHost,
+		q:                sqlc.New(deps.DB),
+		mux:              http.NewServeMux(),
+		log:              log,
+		baseURL:          deps.BaseURL,
+		builtinTools:     append([]agent.BuiltinTool(nil), deps.BuiltinTools...),
+		vaultRecipient:   deps.VaultRecipient,
+		vaultSvc:         deps.Vault,
+		mcpSvc:           deps.MCP,
+		credResolver:     deps.CredentialFrontDoor,
+		oauthAS:          deps.OAuthAuthServer,
+		credSvc:          deps.Credentials,
+		emailSvc:         deps.Email,
+		shareSvc:         deps.Share,
+		recallySvc:       deps.Recally,
+		recally:          newRecallyHandlersWithService(deps.Recally.Store(), deps.Recally, log),
+		schedulerSvc:     deps.Scheduler,
+		goalSvc:          deps.Goal,
+		workflowSvc:      deps.Workflow,
+		eventLog:         deps.EventLog,
+		groupDispatcher:  deps.GroupDispatcher,
+		authProviders:    deps.OIDC.Providers,
+		authSvc:          deps.OIDC.AuthSvc,
+		sessionMgr:       deps.OIDC.SessionMgr,
+		stateMgr:         deps.OIDC.StateMgr,
+		localAuth:        deps.OIDC.LocalAuth,
+		logins:           deps.OIDC.Logins,
+		users:            deps.OIDC.Users,
+		sessions:         deps.OIDC.Sessions,
+		credentials:      deps.OIDC.Credentials,
+		startedAt:        time.Now(),
+		runtimeCtx:       ctx,
 	}
 	if deps.Goal != nil {
 		s.goalQueries = deps.Goal.Queries

@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -478,41 +476,12 @@ func memoryChangelogEntryToAPI(entry memory.ChangeEntry) apiserver.ChangelogEntr
 	}
 }
 
-func profileChangelogEntryToAPI(row sqlc.CtxAgentMemoryChangelog) apiserver.ChangelogEntry {
-	return apiserver.ChangelogEntry{
-		Id:                  row.ID,
-		Scope:               row.Scope,
-		Action:              row.Action,
-		Source:              row.Source,
-		MemoryVersionBefore: nullIntToPtr(row.MemoryVersionBefore),
-		MemoryVersionAfter:  nullIntToPtr(row.MemoryVersionAfter),
-		BeforeText:          nullStringToPtr(row.BeforeText),
-		AfterText:           nullStringToPtr(row.AfterText),
-		CreatedAt:           row.CreatedAt.UTC(),
-	}
-}
-
 func int64PtrToIntPtr(value *int64) *int {
 	if value == nil {
 		return nil
 	}
 	v := int(*value)
 	return &v
-}
-
-func nullIntToPtr(value pgtype.Int8) *int {
-	if !value.Valid {
-		return nil
-	}
-	v := int(value.Int64)
-	return &v
-}
-
-func nullStringToPtr(value pgtype.Text) *string {
-	if !value.Valid {
-		return nil
-	}
-	return &value.String
 }
 
 func stringPtrIfNotEmpty(value string) *string {

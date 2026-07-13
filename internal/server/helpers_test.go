@@ -15,6 +15,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -35,11 +36,16 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, engin
 	}
 	recallyStore := recally.NewStore(db)
 	credFrontDoor, oauthAuthServer := NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
+	changelogPageReader, ok := mem.(memory.ChangelogPageReader)
+	if !ok {
+		t.Fatal("test memory provider does not implement ChangelogPageReader")
+	}
 	return Deps{
 		Store:               store,
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
+		MemoryManagement:    memorywrite.NewManagementService(db, changelogPageReader),
 		Engine:              engine,
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         agent.NewPoolManager(store, mem),
