@@ -47,6 +47,57 @@ func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access
 	return &Access{svc: s, eval: eval, authority: authority, userID: string(actor.UserID()), scopeAgentID: agentID}, nil
 }
 
+// AuthorizeDurableFire re-authorizes a persisted job at fire time. It
+// reconstructs the sole permitted authority from the job's durable owner (never a
+// request), opens one evaluation, and decides — under that single revision — both
+// the job's ActionExecute against its real facts and its bound agent's
+// ActionExecute. It returns the reconstructed authority so the caller runs the
+// turn under the same identity. Fails closed when authorization is unavailable,
+// the job has no agent, the owner data is missing, or the owner kind is not a
+// durable agent-dispatch owner. Plugin jobs never dispatch through here; passing
+// one is rejected explicitly.
+func (s *Service) AuthorizeDurableFire(ctx context.Context, job Job) (authz.Authority, error) {
+	if s.authz == nil || s.agents == nil {
+		return authz.Authority{}, fmt.Errorf("scheduler authorization unavailable: authorizer not configured")
+	}
+	if job.AgentID == "" {
+		return authz.Authority{}, fmt.Errorf("scheduler: durable job %s has no agent to authorize", job.ID)
+	}
+	authority, err := durableFireAuthority(job)
+	if err != nil {
+		return authz.Authority{}, err
+	}
+	acc, err := s.Begin(ctx, authority)
+	if err != nil {
+		return authz.Authority{}, err
+	}
+	if err := acc.decideJob(authz.ActionExecute, job); err != nil {
+		return authz.Authority{}, err
+	}
+	if err := acc.authorizeAgentAction(ctx, job.AgentID, authz.ActionExecute); err != nil {
+		return authz.Authority{}, err
+	}
+	return authority, nil
+}
+
+// durableFireAuthority reconstructs the sole authority shape a persisted job may
+// fire under, from its durable owner. A user job runs as its owner+executor
+// worker; a system job runs under the named system grant. Plugin-owned jobs carry
+// no user/agent authority and never reach the agent-dispatch fire path.
+func durableFireAuthority(job Job) (authz.Authority, error) {
+	switch job.OwnerKind {
+	case JobOwnerUser:
+		if job.UserID == "" {
+			return authz.Authority{}, fmt.Errorf("scheduler: user job %s has no persisted owner", job.ID)
+		}
+		return agentaccess.WorkerAgentAuthority(job.UserID, job.AgentID)
+	case JobOwnerSystem:
+		return agentaccess.SystemAgentAuthority("scheduler")
+	default:
+		return authz.Authority{}, fmt.Errorf("scheduler: unsupported durable owner kind %q for job %s", job.OwnerKind, job.ID)
+	}
+}
+
 // CreateJob creates an enabled user-owned chat job.
 func (a *Access) CreateJob(ctx context.Context, name, message string, sched Schedule, sessionMode, agentID, idempotencyKey string) (Job, error) {
 	return a.createJob(ctx, name, message, sched, sessionMode, agentID, idempotencyKey, true)
@@ -64,19 +115,38 @@ func (a *Access) createJob(ctx context.Context, name, message string, sched Sche
 	if idempotencyKey != "" {
 		row, err := a.svc.q.GetSchedulerJobByIdempotencyKey(ctx, sqlc.GetSchedulerJobByIdempotencyKeyParams{UserID: pgnull.Text(a.userID), IdempotencyKey: pgnull.Text(idempotencyKey)})
 		if err == nil {
-			job := dbRowToJob(row)
-			if !enabled {
-				return a.SetJobEnabled(ctx, agentID, job.ID, false)
+			// An idempotency hit returns a pre-existing job, so re-decide that job's
+			// real durable facts and its agent under this same evaluation — the create
+			// decision above only covered the requested shape. A requested-agent
+			// mismatch (same key, different agent) is hidden as not-found, and a
+			// since-created custom deny stops the raw row from being handed back.
+			existing, aerr := a.loadAndAuthorize(ctx, agentID, row.ID, authz.ActionRead)
+			if aerr != nil {
+				return Job{}, aerr
 			}
-			return job, nil
+			if !enabled {
+				return a.SetJobEnabled(ctx, agentID, existing.ID, false)
+			}
+			return existing, nil
 		}
 	}
 	return a.svc.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: a.userID, OwnerKind: JobOwnerUser, ExecScope: ExecScopeUser, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
 }
 
-// CreateWorkflowJob creates a user-owned workflow-dispatch job.
+// CreateWorkflowJob creates a user-owned workflow-dispatch job. The dispatch
+// target workflow is decided through its own policy inside this scheduler
+// evaluation (not a raw scoped Get): a scheduled job instantiates the workflow at
+// fire time, so the caller must be able to execute it now. The actual fire
+// re-authorizes again from the persisted job.
 func (a *Access) CreateWorkflowJob(ctx context.Context, name string, sched Schedule, sessionMode, agentID, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
 	if err := a.authorizeCreate(ctx, agentID); err != nil {
+		return Job{}, err
+	}
+	runner := a.svc.workflowRunnerRef()
+	if runner == nil {
+		return Job{}, fmt.Errorf("workflow scheduler dispatch is not configured")
+	}
+	if err := runner.AuthorizeWorkflowWithin(ctx, a.eval, a.authority, workflowID, authz.ActionExecute); err != nil {
 		return Job{}, err
 	}
 	return a.svc.AddWorkflowJobWithOwner(ctx, name, sched, sessionMode, agentID, a.userID, workflowID, inputs, allowReplan)
@@ -273,10 +343,17 @@ func (a *Access) loadAndAuthorize(ctx context.Context, agentID, jobID string, ac
 // authorizeAgent folds the former requireAgentAccess (agent read) into this
 // evaluation. Every scheduler use case requires read access to the job's agent.
 func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
+	return a.authorizeAgentAction(ctx, agentID, authz.ActionRead)
+}
+
+// authorizeAgentAction folds an agent decision into this evaluation. Read gates
+// the common use cases; the durable fire path additionally requires ActionExecute
+// on the bound agent, since a scheduled turn actually executes it.
+func (a *Access) authorizeAgentAction(ctx context.Context, agentID string, action authz.Action) error {
 	if agentID == "" {
 		return authz.ErrNotFound
 	}
-	err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, agentID, authz.ActionRead)
+	err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, agentID, action)
 	switch {
 	case err == nil:
 		return nil
@@ -285,6 +362,47 @@ func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
 	default:
 		return err
 	}
+}
+
+// SubscribedTemplates returns the caller's own template-subscription jobs (those
+// carrying a template job_key), each authorized through the same evaluation: the
+// collection list decision once, then a per-row read plus the row's agent gate.
+// It is how the template catalog resolves subscription metadata without a raw
+// ListJobs bypass. A delegated agent sees only its own agent's subscriptions.
+func (a *Access) SubscribedTemplates(ctx context.Context) ([]Job, error) {
+	if a.userID == "" {
+		return nil, authz.ErrUnauthenticated
+	}
+	req, err := policy.SchedulerListRequest()
+	if err != nil {
+		return nil, authz.ErrForbidden
+	}
+	if err := a.decideReq(req); err != nil {
+		return nil, err
+	}
+	out := make([]Job, 0)
+	for _, job := range a.svc.ListJobs() {
+		if job.OwnerKind != JobOwnerUser || job.UserID != a.userID || job.JobKey == "" {
+			continue
+		}
+		if a.scopeAgentID != "" && job.AgentID != a.scopeAgentID {
+			continue
+		}
+		if job.AgentID != "" {
+			if err := a.authorizeAgent(ctx, job.AgentID); err != nil {
+				if errors.Is(err, authz.ErrNotFound) || errors.Is(err, authz.ErrForbidden) {
+					continue
+				}
+				return nil, err
+			}
+		}
+		if err := a.decideJob(authz.ActionRead, job); err == nil {
+			out = append(out, job)
+		} else if !errors.Is(err, authz.ErrNotFound) && !errors.Is(err, authz.ErrForbidden) {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func (a *Access) decideJob(action authz.Action, job Job) error {

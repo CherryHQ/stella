@@ -25,7 +25,7 @@ type pepEnv struct {
 	ownerA, ownerB string
 }
 
-func newPEPEnv(t *testing.T) *pepEnv {
+func newPEPEnv(t *testing.T, templates ...JobTemplate) *pepEnv {
 	t.Helper()
 	db := testDB(t)
 	ctx := context.Background()
@@ -51,6 +51,11 @@ func newPEPEnv(t *testing.T) *pepEnv {
 	svc, err := New(db, WithAuthorization(az, agentaccess.NewService(store, assign, az)))
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	for _, tmpl := range templates {
+		if err := svc.RegisterTemplate(tmpl); err != nil {
+			t.Fatalf("RegisterTemplate(%q): %v", tmpl.Key, err)
+		}
 	}
 	if err := svc.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -199,6 +204,159 @@ func TestSchedulerHidesPlatformJobsFromUsers(t *testing.T) {
 	}
 	if len(jobs) != 1 || jobs[0].ID != userJob.ID {
 		t.Fatalf("ListJobs returned %+v, want only %s", jobs, userJob.ID)
+	}
+}
+
+// TestSchedulerAuthorizeDurableFire proves the durable fire worker API
+// reconstructs the owner authority from the persisted job and re-decides both the
+// job's ActionExecute and its agent's ActionExecute under one evaluation: a
+// user-owned and a system-owned job authorize, a plugin row is rejected, and a
+// custom deny added later stops the fire.
+func TestSchedulerAuthorizeDurableFire(t *testing.T) {
+	e := newPEPEnv(t)
+	ctx := context.Background()
+
+	userJob, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "job", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", "")
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	if _, err := e.svc.AuthorizeDurableFire(ctx, userJob); err != nil {
+		t.Fatalf("durable fire (user job): %v", err)
+	}
+
+	sysJob, err := e.svc.EnsureJob("sys", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", ExecScopeSystem)
+	if err != nil {
+		t.Fatalf("EnsureJob: %v", err)
+	}
+	if _, err := e.svc.AuthorizeDurableFire(ctx, sysJob); err != nil {
+		t.Fatalf("durable fire (system job): %v", err)
+	}
+
+	// Plugin-owned rows never dispatch through the agent-execution path.
+	if _, err := e.svc.AuthorizeDurableFire(ctx, Job{ID: "p", OwnerKind: JobOwnerPlugin, AgentID: "agent-a"}); err == nil {
+		t.Fatal("durable fire (plugin job) must fail closed")
+	}
+
+	// A custom deny on scheduler execute against the reconstructed agent owner stops
+	// a previously-firing user job.
+	ps := policy.NewService(policy.New(e.svc.db))
+	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
+		Name: "deny scheduler execute", Resource: authz.ResourceScheduler, Action: authz.ActionExecute,
+		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Kinds(authz.ActorAgent).Build(),
+		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.AuthorizeDurableFire(ctx, userJob); err == nil {
+		t.Fatal("custom deny must stop the durable fire")
+	}
+}
+
+// TestSchedulerAuthorizeDurableFireNilPEPFailsClosed proves a scheduler built
+// without an authorizer refuses to authorize any durable fire.
+func TestSchedulerAuthorizeDurableFireNilPEPFailsClosed(t *testing.T) {
+	svc, err := New(testDB(t))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := svc.AuthorizeDurableFire(context.Background(), Job{ID: "j", OwnerKind: JobOwnerUser, UserID: "u", AgentID: "a"}); err == nil {
+		t.Fatal("nil authorizer must fail the durable fire closed")
+	}
+}
+
+// TestSchedulerCreateJobIdempotencyReauthorizes proves an idempotency-key hit
+// re-authorizes the existing job under the same evaluation instead of handing back
+// the raw row: a mismatched requested agent is hidden as not-found, and a custom
+// deny added after creation blocks the enabled=true replay.
+func TestSchedulerCreateJobIdempotencyReauthorizes(t *testing.T) {
+	e := newPEPEnv(t)
+	ctx := context.Background()
+
+	if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "first", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", "key"); err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	// Same key, different requested agent: a mismatch, hidden as not-found — never
+	// the raw agent-a row.
+	if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "second", "msg", Schedule{Every: "2h"}, SessionReuse, "agent-b", "key"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("wrong-agent idempotency err=%v, want not found", err)
+	}
+
+	// A custom deny added after creation stops the enabled=true replay from
+	// returning the pre-existing row.
+	ps := policy.NewService(policy.New(e.svc.db))
+	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
+		Name: "deny own scheduler read replay", Resource: authz.ResourceScheduler, Action: authz.ActionRead,
+		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
+		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "third", "msg", Schedule{Every: "3h"}, SessionReuse, "agent-a", "key"); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("deny-after-create idempotency err=%v, want forbidden", err)
+	}
+}
+
+// TestSchedulerCreateWorkflowJobAuthorizesWorkflow proves the dispatch-target
+// workflow is decided through its own policy inside the scheduler evaluation: a
+// denied workflow refuses job creation, and a missing runner fails closed.
+func TestSchedulerCreateWorkflowJobAuthorizesWorkflow(t *testing.T) {
+	ctx := context.Background()
+
+	e := newPEPEnv(t)
+	e.svc.SetWorkflowRunner(&fakeWorkflowRunner{authorizeErr: authz.ErrNotFound})
+	if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateWorkflowJob(ctx, "wf", Schedule{Every: "1h"}, SessionReuse, "agent-a", "wf-1", nil, false); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("workflow-denied CreateWorkflowJob err=%v, want not found", err)
+	}
+
+	e2 := newPEPEnv(t)
+	if _, err := e2.begin(t, userAuthority(t, e2.ownerA)).CreateWorkflowJob(ctx, "wf", Schedule{Every: "1h"}, SessionReuse, "agent-a", "wf-1", nil, false); err == nil {
+		t.Fatal("missing workflow runner must fail closed")
+	}
+}
+
+// TestSchedulerSubscribedTemplates proves template-subscription metadata is
+// resolved through the scheduler PEP: the owner sees their subscription, a foreign
+// user sees none, and a custom deny on the owner's scheduler read hides the row.
+func TestSchedulerSubscribedTemplates(t *testing.T) {
+	tmpl := JobTemplate{Key: "digest", Name: "Digest", Message: "do digest", DefaultSchedule: Schedule{Every: "1h"}, SessionMode: SessionReuse}
+	e := newPEPEnv(t, tmpl)
+	ctx := context.Background()
+
+	if _, err := e.begin(t, userAuthority(t, e.ownerA)).Subscribe(ctx, "agent-a", "digest", Schedule{}); err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+
+	subs, err := e.begin(t, userAuthority(t, e.ownerA)).SubscribedTemplates(ctx)
+	if err != nil {
+		t.Fatalf("SubscribedTemplates: %v", err)
+	}
+	if len(subs) != 1 || subs[0].JobKey != "digest" || subs[0].AgentID != "agent-a" {
+		t.Fatalf("owner subs = %+v, want one digest job on agent-a", subs)
+	}
+
+	foreignSubs, err := e.begin(t, userAuthority(t, e.ownerB)).SubscribedTemplates(ctx)
+	if err != nil {
+		t.Fatalf("foreign SubscribedTemplates: %v", err)
+	}
+	if len(foreignSubs) != 0 {
+		t.Fatalf("foreign subs = %+v, want none", foreignSubs)
+	}
+
+	ps := policy.NewService(policy.New(e.svc.db))
+	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
+		Name: "deny own scheduler read subs", Resource: authz.ResourceScheduler, Action: authz.ActionRead,
+		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
+		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	denied, err := e.begin(t, userAuthority(t, e.ownerA)).SubscribedTemplates(ctx)
+	if err != nil {
+		t.Fatalf("denied SubscribedTemplates: %v", err)
+	}
+	if len(denied) != 0 {
+		t.Fatalf("denied subs = %+v, want hidden", denied)
 	}
 }
 

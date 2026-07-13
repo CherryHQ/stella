@@ -368,7 +368,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// a persisted scheduler job the instant it starts, and this handler is what
 	// runs it.
 	if s.schedulerSvc != nil {
-		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier, agentAccess)
+		wireSchedulerCallbacks(s.schedulerSvc, s.poolManager, s.notifier)
 	}
 
 	// Final channel teardown is registered before River's stop defer so LIFO

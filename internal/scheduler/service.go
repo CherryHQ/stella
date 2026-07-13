@@ -37,6 +37,11 @@ type WorkflowRunner interface {
 	ValidateScheduledWorkflow(ctx context.Context, req WorkflowValidateRequest) (ScheduledWorkflow, error)
 	LatestWorkflowRun(ctx context.Context, req WorkflowLatestRunRequest) (WorkflowRunState, error)
 	InstantiateWorkflow(ctx context.Context, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error)
+	// AuthorizeWorkflowWithin decides the workflow resource through its own policy
+	// inside a caller's already-open evaluation, so a scheduler use case can gate a
+	// dispatch target workflow under its single revision instead of trusting a raw
+	// scoped lookup. It returns authz.ErrNotFound / authz.ErrForbidden on denial.
+	AuthorizeWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, workflowID string, action authz.Action) error
 }
 
 type WorkflowValidateRequest struct {
@@ -237,6 +242,14 @@ func (s *Service) SetWorkflowRunner(r WorkflowRunner) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.workflowRunner = r
+}
+
+// workflowRunnerRef reads the injected workflow runner under the lifecycle lock,
+// mirroring the dispatch read path so a use case never races SetWorkflowRunner.
+func (s *Service) workflowRunnerRef() WorkflowRunner {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.workflowRunner
 }
 
 // AddOnJobListener appends an additional callback invoked when a job fires.

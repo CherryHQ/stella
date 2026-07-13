@@ -225,6 +225,15 @@ func (a *Access) AuthorizeList() error {
 	return nil
 }
 
+// AuthorizeAgent folds the route agent's read gate into this evaluation. The
+// agent-scoped skill endpoints reach a skill through /api/agents/{id}/skills, so
+// the path agent {id} is gated under the same revision as the skill decision, for
+// every scope — including user and system DB skills whose own row is not
+// agent-bound. This replaces the preliminary requireAgentAccess split evaluation.
+func (a *Access) AuthorizeAgent(ctx context.Context, agentID string) error {
+	return a.authorizeAgent(ctx, agentID)
+}
+
 // load resolves a skill row by id, opaque on a miss. The store has no Get-by-id,
 // so it scans ListAll — correct at current volumes, matching the transports.
 func (a *Access) load(ctx context.Context, id string) (skills.Skill, error) {

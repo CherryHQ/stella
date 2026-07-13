@@ -58,16 +58,10 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 	if !ok {
 		return
 	}
-	// The source goal's ownership and agent binding are resolved through the goal
-	// PEP; the workflow PEP then re-authorizes the resulting workflow + agent.
-	gacc, _, ok := s.goalAccess(w, r)
-	if !ok {
-		return
-	}
-	goalRow, ok := s.loadGoalRead(r.Context(), w, gacc, id)
-	if !ok {
-		return
-	}
+	// One evaluation owns the whole decision: the workflow PEP folds the source
+	// goal's read (through the Goal-owned AuthorizeWithin port) and the target
+	// workflow create + agent execute into a single revision. The goal's persisted
+	// agent binds the workflow — the request never supplies it.
 	acc, ok := s.workflowAccess(w, r, info)
 	if !ok {
 		return
@@ -81,7 +75,7 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	wf, err := acc.SaveGoalAsWorkflow(r.Context(), workflowpkg.SaveInput{AgentID: goalRow.AgentID, GoalID: id, Name: body.Name, Inputs: workflowInputSpecs(body.Inputs)})
+	wf, err := acc.SaveGoalAsWorkflow(r.Context(), workflowpkg.SaveInput{GoalID: id, Name: body.Name, Inputs: workflowInputSpecs(body.Inputs)})
 	if err != nil {
 		workflowError(w, err)
 		return

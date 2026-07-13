@@ -630,6 +630,13 @@ func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context,
 	return scheduler.ScheduledWorkflow{ID: wf.ID, FullyFrozen: wf.FullyFrozen}, nil
 }
 
+// AuthorizeWorkflowWithin folds the workflow domain's policy decision into a
+// scheduler use case's evaluation, so CreateWorkflowJob gates its dispatch target
+// through the workflow's own policy under one revision.
+func (a schedulerWorkflowAdapter) AuthorizeWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, workflowID string, action authz.Action) error {
+	return a.svc.AuthorizeWithin(ctx, eval, authority, workflowID, action)
+}
+
 func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req scheduler.WorkflowLatestRunRequest) (scheduler.WorkflowRunState, error) {
 	rs, err := a.svc.LatestRunState(ctx, req.WorkflowID)
 	if err != nil {
@@ -667,7 +674,7 @@ func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, req s
 	return scheduler.WorkflowInstantiateResult{RunID: run.ID, RootGoalID: rootID}, nil
 }
 
-func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher, access *agentaccess.Service) {
+func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, dispatcher *notify.Dispatcher) {
 	if svc == nil {
 		return
 	}
@@ -675,29 +682,15 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		if job.OwnerKind == scheduler.JobOwnerPlugin {
 			return nil
 		}
-		// Every durable execution reconstructs its authority from persisted owner
-		// data and performs a fresh PEP use. Ownerless user rows fail closed.
-		if access == nil || job.AgentID == "" {
-			return fmt.Errorf("scheduler: missing agent authorization data for job %s", job.ID)
-		}
-		var authorityErr error
-		var authority authz.Authority
-		switch job.OwnerKind {
-		case scheduler.JobOwnerUser:
-			if job.UserID == "" {
-				return fmt.Errorf("scheduler: user job %s has no persisted owner", job.ID)
-			}
-			authority, authorityErr = agentaccess.WorkerAgentAuthority(job.UserID, job.AgentID)
-		case scheduler.JobOwnerSystem:
-			authority, authorityErr = agentaccess.SystemAgentAuthority("scheduler")
-		default:
-			return fmt.Errorf("scheduler: unsupported durable owner kind %q", job.OwnerKind)
-		}
-		if authorityErr != nil {
-			return authorityErr
-		}
-		if _, err := access.Use(ctx, authority, job.AgentID); err != nil {
-			return fmt.Errorf("scheduler: agent use denied for job %s: %w", job.ID, err)
+		// The scheduler domain owns the fire-time authorization: it reconstructs the
+		// authority from the job's persisted owner (never a request), then decides —
+		// under one revision-bound evaluation — the job's ActionExecute and its bound
+		// agent's ActionExecute. A revoked owner grant, custom deny, or revoked agent
+		// assignment fails the fire closed. The composition root only wires it and
+		// runs the turn under the returned authority.
+		authority, err := svc.AuthorizeDurableFire(ctx, job)
+		if err != nil {
+			return fmt.Errorf("scheduler: durable fire authorization denied for job %s: %w", job.ID, err)
 		}
 
 		agentSvc := poolMgr.GetService(job.AgentID)

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -74,6 +75,8 @@ type fakeWorkflowRunner struct {
 	result           WorkflowInstantiateResult
 	instantiateReq   WorkflowInstantiateRequest
 	instantiateCalls int
+	authorizeErr     error
+	authorizeCalls   int
 }
 
 func (f *fakeWorkflowRunner) ValidateScheduledWorkflow(context.Context, WorkflowValidateRequest) (ScheduledWorkflow, error) {
@@ -91,6 +94,11 @@ func (f *fakeWorkflowRunner) InstantiateWorkflow(_ context.Context, req Workflow
 	f.instantiateReq = req
 	f.instantiateCalls++
 	return f.result, nil
+}
+
+func (f *fakeWorkflowRunner) AuthorizeWorkflowWithin(context.Context, authz.Evaluation, authz.Authority, string, authz.Action) error {
+	f.authorizeCalls++
+	return f.authorizeErr
 }
 
 func TestAddWorkflowJobValidation(t *testing.T) {

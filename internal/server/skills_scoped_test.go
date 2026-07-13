@@ -208,6 +208,31 @@ func TestAgentSkills_ReadCustomDenyHidesDBSkill(t *testing.T) {
 	}
 }
 
+// TestAgentSkills_RouteAgentGateAppliesToUserScope proves the route agent's read
+// gate is folded into the single Skill evaluation for every scope: a caller who
+// cannot read the route agent is denied a user-scoped DB skill reached through
+// that agent, even though the skill's own row is not agent-bound.
+func TestAgentSkills_RouteAgentGateAppliesToUserScope(t *testing.T) {
+	env := setupAdmin(t)
+	creator, creatorSID := newNonAdmin(t, env, "route-gate-creator")
+	_, otherSID := newNonAdmin(t, env, "route-gate-other")
+	agentID := createAgentAsUser(t, env, creatorSID, "route-gate-agent")
+	createTestSkill(t, env, "user", creator.ID, "", "user-scope-skill")
+
+	// The creator can read the route agent and their own user-scoped skill.
+	rr := doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills/user-scope-skill?scope=user", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("creator get status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// A caller with no access to the route agent is denied, gated by the folded
+	// agent-read decision even though the target skill's scope is not agent-bound.
+	rr = doRequestWithSession(t, env.srv, otherSID, "GET", "/api/agents/"+agentID+"/skills/user-scope-skill?scope=user", nil)
+	if rr.Code != http.StatusForbidden && rr.Code != http.StatusNotFound {
+		t.Fatalf("other get status = %d, want 403/404 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
 func TestSessionSystemPromptAdvertisesSkillSearch(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := createAgentAsUser(t, env, env.bearerToken, "prompt-skills-agent")

@@ -144,11 +144,19 @@ func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Age
 		return sqlc.AgentWorkflow{}, ErrForbidden
 	}
 	in.UserID = a.userID
-	// A delegated agent binds the workflow to itself; a user actor keeps the
-	// caller-supplied agent (the source goal's agent), which the raw service
-	// re-verifies against the persisted goal row so it cannot be spoofed.
-	if a.agentID != "" {
-		in.AgentID = a.agentID
+	// Decide the SOURCE goal's read within this same evaluation through the
+	// Goal-owned port, so the goal-read and workflow-create decisions share one
+	// revision (no separate goal Begin then workflow Begin). The workflow binds to
+	// the goal's persisted agent — never a caller-supplied one — and the raw service
+	// re-verifies goal ownership/agent so it cannot be spoofed.
+	goalRow, err := a.svc.goal.AuthorizeWithin(ctx, a.eval, a.authority, in.GoalID, authz.ActionRead)
+	if err != nil {
+		return sqlc.AgentWorkflow{}, mapGoalAuthzError(err)
+	}
+	in.AgentID = goalRow.AgentID
+	// A delegated agent may only turn its own agent's goals into workflows.
+	if a.agentID != "" && a.agentID != in.AgentID {
+		return sqlc.AgentWorkflow{}, ErrNotFound
 	}
 	facts := policy.WorkflowFacts{
 		Owner: a.userID, Agent: in.AgentID, IsOwner: true,
@@ -261,6 +269,20 @@ func mapAgentAuthzError(err error) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, agentaccess.ErrNotFound), errors.Is(err, agentaccess.ErrForbidden):
+		return ErrNotFound
+	default:
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+}
+
+// mapGoalAuthzError folds the Goal-owned AuthorizeWithin denial (authz sentinels)
+// into the workflow-opaque contract: a foreign, revoked, or missing source goal
+// is indistinguishable from a missing workflow (ErrNotFound).
+func mapGoalAuthzError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, authz.ErrNotFound), errors.Is(err, authz.ErrForbidden):
 		return ErrNotFound
 	default:
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)

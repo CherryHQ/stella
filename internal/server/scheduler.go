@@ -42,25 +42,27 @@ func schedulerServiceError(w http.ResponseWriter, err error) {
 // status resolved for the current user.
 // Returns 503 when the scheduler service is not available.
 func (s *Server) ListJobTemplates(w http.ResponseWriter, r *http.Request) {
-	if s.schedulerSvc == nil {
-		writeCapabilityUnavailable(w, capScheduler)
-		return
-	}
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	// The static template catalog is public to any authenticated caller, but the
+	// per-user subscription metadata (which job/agent a template is bound to) is a
+	// durable resource: resolve it through the scheduler PEP's List + per-row Read
+	// under one evaluation, never a raw ListJobs bypass.
+	acc, ok := s.schedulerAccess(w, r)
+	if !ok {
 		return
 	}
 
 	templates := s.schedulerSvc.Templates()
 
+	subs, err := acc.SubscribedTemplates(r.Context())
+	if err != nil {
+		schedulerServiceError(w, err)
+		return
+	}
 	// Build a lookup: template key → (subscribed job ID, agent ID) for this user.
 	type subInfo struct{ jobID, agentID string }
 	subscriptions := make(map[string]subInfo)
-	for _, job := range s.schedulerSvc.ListJobs() {
-		if job.OwnerKind == scheduler.JobOwnerUser && job.UserID == info.UserID && job.JobKey != "" {
-			subscriptions[job.JobKey] = subInfo{jobID: job.ID, agentID: job.AgentID}
-		}
+	for _, job := range subs {
+		subscriptions[job.JobKey] = subInfo{jobID: job.ID, agentID: job.AgentID}
 	}
 
 	out := make([]apitypes.JobTemplate, 0, len(templates))

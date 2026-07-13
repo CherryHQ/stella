@@ -592,3 +592,45 @@ func (a *Access) filterReadable(rows []sqlc.AgentGoal) ([]sqlc.AgentGoal, error)
 	}
 	return out, nil
 }
+
+// AuthorizeWithin decides a goal action against a caller's already-open
+// evaluation and returns the loaded row, so another domain (workflow's
+// SaveGoalAsWorkflow) can gate a source goal under its single policy revision
+// instead of opening a second evaluation. It is a narrow Goal-owned port,
+// mirroring agentaccess.AuthorizeWithin; facts come only from the durable row and
+// the passed Authority, so it never widens access. A missing or denied goal is
+// opaque (authz.ErrNotFound).
+func (s *GoalService) AuthorizeWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, goalID string, action authz.Action) (sqlc.AgentGoal, error) {
+	d, err := getGoal(ctx, s.q, goalID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return sqlc.AgentGoal{}, authz.ErrNotFound
+		}
+		return sqlc.AgentGoal{}, err
+	}
+	actor := authority.Actor()
+	userID := string(actor.UserID())
+	agentID := ""
+	if actor.Kind() == authz.ActorAgent {
+		agentID = string(actor.AgentID())
+	}
+	facts := policy.GoalFacts{
+		Owner:      d.UserID,
+		Agent:      d.AgentID,
+		State:      d.Lifecycle,
+		IsOwner:    userID != "" && userID == d.UserID,
+		IsExecutor: agentID != "" && agentID == d.AgentID,
+	}
+	req, err := policy.GoalRequest(action, d.ID, d.UserID, facts)
+	if err != nil {
+		return sqlc.AgentGoal{}, authz.ErrForbidden
+	}
+	dec, err := eval.Decide(req)
+	if err != nil {
+		return sqlc.AgentGoal{}, fmt.Errorf("goal decide: %w", err)
+	}
+	if !dec.Allowed() {
+		return sqlc.AgentGoal{}, authz.ErrNotFound
+	}
+	return d, nil
+}

@@ -478,6 +478,19 @@ func builtinPolicies() []compiledPolicy {
 				{Attr: "is_executor", Op: opEq, Value: "true"},
 			},
 		},
+		// A named system worker fires the platform's own system-owned scheduler jobs
+		// (builtin digests, RSS ticks). Like the system session/agent grants this is
+		// capability-based, never role-based: the scheduler's durable fire path
+		// re-decides the job's ActionExecute under a reconstructed SystemAgentAuthority
+		// before dispatching a system job's turn.
+		{
+			id:         "builtin:system-scheduler",
+			effect:     effectAllow,
+			subjects:   systemUse,
+			resource:   authz.ResourceScheduler,
+			actions:    []authz.Action{authz.ActionRead, authz.ActionExecute},
+			predicates: []predicate{{Attr: "kind", Op: opEq, Value: "system"}},
+		},
 		// A user may list their skills (collection-level; per-scope management
 		// filters by owner/admin in the same evaluation).
 		{

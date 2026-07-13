@@ -682,6 +682,86 @@ func TestToolWriteAuthorizationEnforced(t *testing.T) {
 	})
 }
 
+// TestToolInstallRemoveWriteAuthorizationEnforced proves install (create) and
+// remove (write) enforce the ResourceSkill write PEP internally even though the
+// model-facing tool never exposes them (actionsOnly): a denial rejects the
+// mutation and leaves the store untouched, an allowed actor succeeds, and a
+// missing authorizer fails closed.
+func TestToolInstallRemoveWriteAuthorizationEnforced(t *testing.T) {
+	srcDir := t.TempDir()
+	skillDir := filepath.Join(srcDir, "install-me")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: install-me\ndescription: install target\nstatus: active\n---\n# Install Me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+
+	installArgs := func() map[string]any { return map[string]any{"source": srcDir} }
+
+	t.Run("denied install is rejected and not stored", func(t *testing.T) {
+		calls := 0
+		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(denySkillWrites{calls: &calls})
+		if _, err := tool.install(ctx, installArgs()); err == nil {
+			t.Fatal("expected denied install to fail")
+		}
+		if calls == 0 {
+			t.Fatal("write PEP was not consulted on install")
+		}
+		if sk, _ := store.Resolve(ctx, "install-me", pkgplugins.SkillViewContext{UserID: userID}); sk != nil {
+			t.Fatal("denied install still wrote the skill to the store")
+		}
+	})
+
+	t.Run("no write authorizer fails closed on install", func(t *testing.T) {
+		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{})
+		if _, err := tool.install(ctx, installArgs()); err == nil {
+			t.Fatal("expected nil write authorizer to fail closed on install")
+		}
+		if sk, _ := store.Resolve(ctx, "install-me", pkgplugins.SkillViewContext{UserID: userID}); sk != nil {
+			t.Fatal("nil-authorizer install still wrote the skill to the store")
+		}
+	})
+
+	t.Run("allowed install then denied remove keeps the skill", func(t *testing.T) {
+		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
+		if _, err := tool.install(ctx, installArgs()); err != nil {
+			t.Fatalf("allowed install: %v", err)
+		}
+
+		calls := 0
+		denyTool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(denySkillWrites{calls: &calls})
+		if _, err := denyTool.remove(ctx, map[string]any{"name": "install-me"}); err == nil {
+			t.Fatal("expected denied remove to fail")
+		}
+		if calls == 0 {
+			t.Fatal("write PEP was not consulted on remove")
+		}
+		if sk, _ := store.Resolve(ctx, "install-me", pkgplugins.SkillViewContext{UserID: userID}); sk == nil {
+			t.Fatal("denied remove still deleted the skill")
+		}
+
+		nilTool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{})
+		if _, err := nilTool.remove(ctx, map[string]any{"name": "install-me"}); err == nil {
+			t.Fatal("expected nil write authorizer to fail closed on remove")
+		}
+		if sk, _ := store.Resolve(ctx, "install-me", pkgplugins.SkillViewContext{UserID: userID}); sk == nil {
+			t.Fatal("nil-authorizer remove still deleted the skill")
+		}
+
+		allowTool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
+		if _, err := allowTool.remove(ctx, map[string]any{"name": "install-me"}); err != nil {
+			t.Fatalf("allowed remove: %v", err)
+		}
+		if sk, _ := store.Resolve(ctx, "install-me", pkgplugins.SkillViewContext{UserID: userID}); sk != nil {
+			t.Fatal("allowed remove did not delete the skill")
+		}
+	})
+}
+
 // TestToolReadAuthorizationEnforced proves the ResourceSkill read PEP gates every
 // DB-backed skill read: a denied actor (custom deny / revoked grant) cannot load
 // or see a DB skill, an unexpected authorization failure propagates, and no

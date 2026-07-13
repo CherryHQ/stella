@@ -868,6 +868,14 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 		return "", err
 	}
 
+	// Removing a DB skill is a durable write; authorize it against ResourceSkill
+	// before the store mutation. install/remove are unreachable through the current
+	// model-facing tool (actionsOnly), but the PEP is enforced internally regardless
+	// so a nil write authorizer fails closed rather than deleting unguarded.
+	if err := t.authorizeWrite(ctx, s.ID); err != nil {
+		return "", err
+	}
+
 	if err := t.store.Delete(ctx, s.ID); err != nil {
 		return "", fmt.Errorf("delete skill %q: %w", name, err)
 	}

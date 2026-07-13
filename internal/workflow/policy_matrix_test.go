@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/goal"
 	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -164,6 +165,104 @@ func TestEmbeddedPostgresWorkflowPolicyMatrix(t *testing.T) {
 			t.Fatalf("custom deny Get = %v, want ErrNotFound", err)
 		}
 	})
+}
+
+// TestSaveGoalAsWorkflowAuthorizesSourceGoal proves SaveGoalAsWorkflow decides the
+// source goal read and the target workflow create under one evaluation: the owner
+// succeeds (and the workflow binds to the goal's persisted agent), while a foreign
+// user and a custom deny on the goal read are both hidden as ErrNotFound.
+func TestSaveGoalAsWorkflowAuthorizesSourceGoal(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	store := storepkg.NewDBStore(pool)
+	oidc := appdb.NewOIDCStore(pool)
+	assign := appdb.NewAuthStore(pool)
+	q := sqlc.New(pool)
+
+	owner, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "owner@save.test", Name: "owner", Role: auth.RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "other@save.test", Name: "other", Role: auth.RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateAgent(ctx, config.Agent{ID: "owned", Name: "owned", Model: "p/m", Workspace: "/tmp/owned", Scope: config.AgentScopeRestricted, CreatorID: owner.ID, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := assign.AssignAgent(ctx, owner.ID, "owned"); err != nil {
+		t.Fatal(err)
+	}
+
+	goals := goal.New(pool, q)
+	root, err := goals.CreateRoot(ctx, goal.CreateInput{UserID: owner.ID, AgentID: "owned", Title: "t", Intent: "i", Kind: goal.KindComposite, Required: true})
+	if err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+	// A savable workflow needs an accepted root composite with a materialized plan.
+	rootPlan := goal.DecompositionContent{Children: []goal.ProposedChild{
+		{Key: "leaf", Title: "Leaf", Intent: "do leaf", Kind: goal.KindLeaf, Required: true},
+	}}
+	if err := goals.MaterializeFrozenLayer(ctx, root.ID, rootPlan, goal.FrozenStamp{}); err != nil {
+		t.Fatalf("materialize plan: %v", err)
+	}
+	if err := goals.ActivateFrozenComposite(ctx, root.ID); err != nil {
+		t.Fatalf("activate root: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE agent_goal SET lifecycle='done', done_reason='accepted', acceptance_state='passed', accepted_output='{}', accepted_at=now() WHERE id=$1`, root.ID); err != nil {
+		t.Fatalf("force accept: %v", err)
+	}
+
+	az := &countingAuthorizer{Authorizer: policy.New(pool)}
+	svc := New(pool, goals, az, agentaccess.NewService(store, assign, az))
+
+	userAuth := func(id string) authz.Authority {
+		rs, err := authz.NewRoleSet(authz.RoleUser)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+
+	ownerAcc, err := svc.Begin(ctx, userAuth(owner.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf, err := ownerAcc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: root.ID, Name: "wf"})
+	if err != nil {
+		t.Fatalf("owner SaveGoalAsWorkflow: %v", err)
+	}
+	if wf.AgentID.String != "owned" {
+		t.Fatalf("workflow agent = %q, want owned (from source goal)", wf.AgentID.String)
+	}
+
+	foreignAcc, err := svc.Begin(ctx, userAuth(other.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := foreignAcc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: root.ID, Name: "wf-foreign"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("foreign SaveGoalAsWorkflow = %v, want ErrNotFound", err)
+	}
+
+	ps := policy.NewService(policy.New(pool))
+	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
+		Name: "deny own goal read", Resource: authz.ResourceGoal, Action: authz.ActionRead,
+		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
+		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	denyAcc, err := svc.Begin(ctx, userAuth(owner.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := denyAcc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: root.ID, Name: "wf-denied"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("goal-read-denied SaveGoalAsWorkflow = %v, want ErrNotFound", err)
+	}
 }
 
 func createWorkflow(t *testing.T, q *sqlc.Queries, userID, agentID string) sqlc.AgentWorkflow {
