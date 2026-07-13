@@ -1,6 +1,13 @@
 package server
 
-import "fmt"
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+)
 
 const (
 	defaultPageSize = 20
@@ -36,4 +43,43 @@ func nextPageTokenForRows[T any](rows []T, limit, offset int) (page []T, nextTok
 		return rows[:limit], encodeOffsetToken(offset + limit)
 	}
 	return rows, ""
+}
+
+const knowledgePageTokenKind = "knowledge"
+
+type knowledgePageToken struct {
+	Kind   string    `json:"kind"`
+	State  string    `json:"state"`
+	SortAt time.Time `json:"sort_at"`
+	ID     string    `json:"id"`
+}
+
+// encodeKnowledgePageToken keeps lifecycle positions opaque to clients and
+// separate from the legacy offset-token format.
+func encodeKnowledgePageToken(state memorywrite.KnowledgeState, cursor memorywrite.KnowledgeCursor) (string, error) {
+	payload, err := json.Marshal(knowledgePageToken{
+		Kind: knowledgePageTokenKind, State: string(state), SortAt: cursor.Timestamp.UTC(), ID: cursor.ID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode knowledge page token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeKnowledgePageToken(token string, state memorywrite.KnowledgeState) (*memorywrite.KnowledgeCursor, error) {
+	if token == "" {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	var decoded knowledgePageToken
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	if decoded.Kind != knowledgePageTokenKind || decoded.State != string(state) || decoded.SortAt.IsZero() || decoded.ID == "" {
+		return nil, fmt.Errorf("page_token does not match the knowledge query")
+	}
+	return &memorywrite.KnowledgeCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
 }
