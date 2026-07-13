@@ -1,6 +1,9 @@
 package memory
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // ChangeSource identifies who triggered a memory write.
 type ChangeSource string
@@ -39,6 +42,18 @@ type ChangelogWriter interface {
 type ChangelogReader interface {
 	// ReadChangelog returns the last N changelog entries for a given scope.
 	ReadChangelog(ctx context.Context, userID string, agentID string, scope string, limit int) ([]ChangeEntry, error)
+}
+
+// ChangelogCursor identifies the last logical entry in a stable changelog page.
+type ChangelogCursor struct {
+	CreatedAt time.Time
+	ID        string
+}
+
+// ChangelogPageReader is an optional capability for keyset-paginated history.
+// ChangelogReader remains available for memory tools that only need recent rows.
+type ChangelogPageReader interface {
+	ReadChangelogPage(ctx context.Context, userID string, agentID string, scope string, cursor *ChangelogCursor, limit int) ([]ChangeEntry, error)
 }
 
 type changeSourceKey struct{}

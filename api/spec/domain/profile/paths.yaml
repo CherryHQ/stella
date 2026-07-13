@@ -409,12 +409,14 @@ paths:
       parameters:
         - name: scope
           in: query
-          schema: { type: string }
-          description: Filter by scope (profile, soul, constraint)
-        - name: limit
+          schema: { type: string, enum: [profile, soul, knowledge, constraint] }
+          description: Filter by scope; omitted merges all four memory scopes
+        - name: page_size
           in: query
-          schema: { type: integer, default: 20 }
-          description: Maximum number of entries to return
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: page_token
+          in: query
+          schema: { type: string }
       responses:
         "200":
           description: ok
@@ -423,9 +425,14 @@ paths:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/ChangelogList",
               }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   # ── Vault ───────────────────────────────────────────────────────────────────
   /api/vault:

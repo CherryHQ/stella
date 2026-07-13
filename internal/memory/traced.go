@@ -383,6 +383,15 @@ func (t *tracedProvider) ReadChangelog(ctx context.Context, userID string, agent
 	return cr.ReadChangelog(ctx, userID, agentID, scope, limit)
 }
 
+// ReadChangelogPage forwards the optional keyset reader through tracing.
+func (t *tracedProvider) ReadChangelogPage(ctx context.Context, userID string, agentID string, scope string, cursor *ChangelogCursor, limit int) ([]ChangeEntry, error) {
+	cr, ok := t.inner.(ChangelogPageReader)
+	if !ok {
+		return nil, errCapabilityNotSupported("ChangelogPageReader")
+	}
+	return cr.ReadChangelogPage(ctx, userID, agentID, scope, cursor, limit)
+}
+
 // ---------------------------------------------------------------------------
 // ConstraintStore
 // ---------------------------------------------------------------------------

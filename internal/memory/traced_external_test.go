@@ -362,6 +362,25 @@ func TestTracedProvider_SetAgentSoul(t *testing.T) {
 	}
 }
 
+func TestTracedProvider_ReadChangelogPage(t *testing.T) {
+	fake := memorytest.New()
+	entry := memory.ChangeEntry{
+		ID: "change-1", UserID: "1", AgentID: "agent-1", Scope: "constraint",
+		Action: "create", CreatedAt: time.Date(2026, 7, 13, 8, 0, 0, 0, time.UTC).Format(time.RFC3339Nano),
+	}
+	if err := fake.WriteChangelog(context.Background(), entry); err != nil {
+		t.Fatalf("write fake changelog: %v", err)
+	}
+	traced, _ := newTracedWithCollector(fake)
+	rows, err := traced.(memory.ChangelogPageReader).ReadChangelogPage(context.Background(), "1", "agent-1", "constraint", nil, 1)
+	if err != nil {
+		t.Fatalf("read traced changelog page: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != entry.ID {
+		t.Fatalf("traced changelog page = %+v, want forwarded entry", rows)
+	}
+}
+
 func TestTracedProvider_SaveInfo(t *testing.T) {
 	fake := memorytest.New()
 	traced, col := newTracedWithCollector(fake)

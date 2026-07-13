@@ -8,6 +8,19 @@ WHERE user_id = $1 AND agent_id = $2 AND scope = $3
 ORDER BY id DESC
 LIMIT $4;
 
+-- name: ListMemoryChangelogPage :many
+SELECT *
+FROM ctx_agent_memory_changelog
+WHERE user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = sqlc.arg(scope)
+  AND (
+    (sqlc.narg(cursor_created_at)::timestamptz IS NULL AND sqlc.narg(cursor_id)::text IS NULL)
+    OR (created_at, id::text) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::text)
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg(limit_count);
+
 -- name: GetMemoryChangelogAtVersion :one
 SELECT * FROM ctx_agent_memory_changelog
 WHERE user_id = $1 AND agent_id = $2 AND scope = $3 AND memory_version_after <= $4

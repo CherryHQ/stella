@@ -526,6 +526,109 @@ func (q *Queries) ListFactChangelogBySubject(ctx context.Context, arg ListFactCh
 	return items, nil
 }
 
+const listFactChangelogBySubjectPage = `-- name: ListFactChangelogBySubjectPage :many
+WITH subject_rows AS (
+  SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at
+  FROM ctx_agent_memory_changelog
+  WHERE user_id = $1
+    AND agent_id = $2
+    AND scope = 'fact'
+    AND memory_version_after IS NOT NULL
+    AND (
+      (before_text IS NOT NULL AND before_text::jsonb->>'subject' = $3)
+      OR (after_text IS NOT NULL AND after_text::jsonb->>'subject' = $3)
+    )
+), group_keys AS (
+  SELECT DISTINCT ON (memory_version_after)
+    memory_version_after,
+    created_at AS key_created_at,
+    id AS key_id
+  FROM subject_rows
+  ORDER BY memory_version_after, created_at DESC, id DESC
+), selected_groups AS (
+  SELECT memory_version_after, key_created_at, key_id
+  FROM group_keys
+  WHERE (
+    ($4::timestamptz IS NULL AND $5::text IS NULL)
+    OR (key_created_at, key_id::text) < ($4::timestamptz, $5::text)
+  )
+  ORDER BY key_created_at DESC, key_id DESC
+  LIMIT $6
+)
+SELECT r.id, r.user_id, r.agent_id, r.session_id, r.entity_id, r.scope, r.action, r.source, r.memory_version_before, r.memory_version_after, r.before_text, r.after_text, r.metadata, r.created_at
+FROM subject_rows r
+JOIN selected_groups g USING (memory_version_after)
+ORDER BY g.key_created_at DESC, g.key_id DESC, r.created_at DESC, r.id DESC
+`
+
+type ListFactChangelogBySubjectPageParams struct {
+	UserID          string             `json:"user_id"`
+	AgentID         string             `json:"agent_id"`
+	Subject         pgtype.Text        `json:"subject"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.Text        `json:"cursor_id"`
+	LimitCount      int32              `json:"limit_count"`
+}
+
+type ListFactChangelogBySubjectPageRow struct {
+	ID                  string      `json:"id"`
+	UserID              string      `json:"user_id"`
+	AgentID             string      `json:"agent_id"`
+	SessionID           pgtype.Text `json:"session_id"`
+	EntityID            pgtype.Text `json:"entity_id"`
+	Scope               string      `json:"scope"`
+	Action              string      `json:"action"`
+	Source              string      `json:"source"`
+	MemoryVersionBefore pgtype.Int8 `json:"memory_version_before"`
+	MemoryVersionAfter  pgtype.Int8 `json:"memory_version_after"`
+	BeforeText          pgtype.Text `json:"before_text"`
+	AfterText           pgtype.Text `json:"after_text"`
+	Metadata            pgtype.Text `json:"metadata"`
+	CreatedAt           time.Time   `json:"created_at"`
+}
+
+func (q *Queries) ListFactChangelogBySubjectPage(ctx context.Context, arg ListFactChangelogBySubjectPageParams) ([]ListFactChangelogBySubjectPageRow, error) {
+	rows, err := q.db.Query(ctx, listFactChangelogBySubjectPage,
+		arg.UserID,
+		arg.AgentID,
+		arg.Subject,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFactChangelogBySubjectPageRow{}
+	for rows.Next() {
+		var i ListFactChangelogBySubjectPageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.SessionID,
+			&i.EntityID,
+			&i.Scope,
+			&i.Action,
+			&i.Source,
+			&i.MemoryVersionBefore,
+			&i.MemoryVersionAfter,
+			&i.BeforeText,
+			&i.AfterText,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFactChangelogUpToVersion = `-- name: ListFactChangelogUpToVersion :many
 SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at FROM ctx_agent_memory_changelog
 WHERE user_id = $1

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 )
 
@@ -47,9 +48,18 @@ func nextPageTokenForRows[T any](rows []T, limit, offset int) (page []T, nextTok
 
 const knowledgePageTokenKind = "knowledge"
 
+const changelogPageTokenKind = "changelog"
+
 type knowledgePageToken struct {
 	Kind   string    `json:"kind"`
 	State  string    `json:"state"`
+	SortAt time.Time `json:"sort_at"`
+	ID     string    `json:"id"`
+}
+
+type changelogPageToken struct {
+	Kind   string    `json:"kind"`
+	Scope  string    `json:"scope"`
 	SortAt time.Time `json:"sort_at"`
 	ID     string    `json:"id"`
 }
@@ -82,4 +92,32 @@ func decodeKnowledgePageToken(token string, state memorywrite.KnowledgeState) (*
 		return nil, fmt.Errorf("page_token does not match the knowledge query")
 	}
 	return &memorywrite.KnowledgeCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
+}
+
+func encodeChangelogPageToken(scope string, cursor memory.ChangelogCursor) (string, error) {
+	payload, err := json.Marshal(changelogPageToken{
+		Kind: changelogPageTokenKind, Scope: scope, SortAt: cursor.CreatedAt.UTC(), ID: cursor.ID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode changelog page token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeChangelogPageToken(token string, scope string) (*memory.ChangelogCursor, error) {
+	if token == "" {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	var decoded changelogPageToken
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	if decoded.Kind != changelogPageTokenKind || decoded.Scope != scope || decoded.SortAt.IsZero() || decoded.ID == "" {
+		return nil, fmt.Errorf("page_token does not match the changelog query")
+	}
+	return &memory.ChangelogCursor{CreatedAt: decoded.SortAt.UTC(), ID: decoded.ID}, nil
 }

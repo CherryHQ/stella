@@ -303,6 +303,89 @@ func (p *Provider) ReadChangelog(ctx context.Context, userID string, agentID str
 	return entries, nil
 }
 
+// ReadChangelogPage implements memory.ChangelogPageReader without changing the
+// recent-only ChangelogReader contract used by memory tools.
+func (p *Provider) ReadChangelogPage(ctx context.Context, userID string, agentID string, scope string, cursor *memory.ChangelogCursor, limit int) ([]memory.ChangeEntry, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("list changelog page: limit must be positive")
+	}
+	cursorCreatedAt, cursorID, err := changelogCursorParams(cursor)
+	if err != nil {
+		return nil, err
+	}
+	if subject, ok := identitySubjectForHistoryScope(scope); ok {
+		return p.readIdentityFactChangelogPage(ctx, userID, agentID, scope, subject, cursorCreatedAt, cursorID, limit)
+	}
+	rows, err := p.q.ListMemoryChangelogPage(ctx, sqlc.ListMemoryChangelogPageParams{
+		UserID: userID, AgentID: agentID, Scope: scope,
+		CursorCreatedAt: cursorCreatedAt, CursorID: cursorID, LimitCount: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list changelog page: %w", err)
+	}
+	entries := make([]memory.ChangeEntry, len(rows))
+	for i, row := range rows {
+		entries[i] = changelogRowToEntry(row)
+	}
+	return entries, nil
+}
+
+func (p *Provider) readIdentityFactChangelogPage(
+	ctx context.Context,
+	userID string,
+	agentID string,
+	scope string,
+	subject memory.FactSubject,
+	cursorCreatedAt pgtype.Timestamptz,
+	cursorID pgtype.Text,
+	limit int,
+) ([]memory.ChangeEntry, error) {
+	pageRows, err := p.q.ListFactChangelogBySubjectPage(ctx, sqlc.ListFactChangelogBySubjectPageParams{
+		UserID: userID, AgentID: agentID, Subject: pgtype.Text{String: string(subject), Valid: true},
+		CursorCreatedAt: cursorCreatedAt, CursorID: cursorID, LimitCount: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list fact changelog page: %w", err)
+	}
+
+	groups := make([][]sqlc.CtxAgentMemoryChangelog, 0, limit)
+	var currentVersion int64
+	for _, pageRow := range pageRows {
+		row := factChangelogPageRow(pageRow)
+		if len(groups) == 0 || row.MemoryVersionAfter.Int64 != currentVersion {
+			currentVersion = row.MemoryVersionAfter.Int64
+			groups = append(groups, []sqlc.CtxAgentMemoryChangelog{})
+		}
+		groups[len(groups)-1] = append(groups[len(groups)-1], row)
+	}
+
+	entries := make([]memory.ChangeEntry, 0, len(groups))
+	for _, rows := range groups {
+		entry, ok, err := projectIdentityFactChangelogGroup(scope, subject, rows)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			entries = append(entries, entry)
+		}
+	}
+	return entries, nil
+}
+
+func changelogCursorParams(cursor *memory.ChangelogCursor) (pgtype.Timestamptz, pgtype.Text, error) {
+	if cursor == nil {
+		return pgtype.Timestamptz{}, pgtype.Text{}, nil
+	}
+	if cursor.CreatedAt.IsZero() || cursor.ID == "" {
+		return pgtype.Timestamptz{}, pgtype.Text{}, fmt.Errorf("changelog cursor created_at and id are required")
+	}
+	return pgtype.Timestamptz{Time: cursor.CreatedAt.UTC(), Valid: true}, pgtype.Text{String: cursor.ID, Valid: true}, nil
+}
+
+func factChangelogPageRow(row sqlc.ListFactChangelogBySubjectPageRow) sqlc.CtxAgentMemoryChangelog {
+	return sqlc.CtxAgentMemoryChangelog(row)
+}
+
 func identitySubjectForHistoryScope(scope string) (memory.FactSubject, bool) {
 	switch scope {
 	case "profile":
@@ -463,7 +546,7 @@ func changelogRowToEntry(r sqlc.CtxAgentMemoryChangelog) memory.ChangeEntry {
 		Scope:     r.Scope,
 		Action:    r.Action,
 		Source:    memory.ChangeSource(r.Source),
-		CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339),
+		CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if r.SessionID.Valid {
 		e.SessionID = r.SessionID.String

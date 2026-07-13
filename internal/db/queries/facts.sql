@@ -189,6 +189,40 @@ WHERE user_id = $1
 ORDER BY memory_version_after DESC NULLS LAST, id DESC
 LIMIT sqlc.arg(limit_count);
 
+-- name: ListFactChangelogBySubjectPage :many
+WITH subject_rows AS (
+  SELECT *
+  FROM ctx_agent_memory_changelog
+  WHERE user_id = sqlc.arg(user_id)
+    AND agent_id = sqlc.arg(agent_id)
+    AND scope = 'fact'
+    AND memory_version_after IS NOT NULL
+    AND (
+      (before_text IS NOT NULL AND before_text::jsonb->>'subject' = sqlc.arg(subject))
+      OR (after_text IS NOT NULL AND after_text::jsonb->>'subject' = sqlc.arg(subject))
+    )
+), group_keys AS (
+  SELECT DISTINCT ON (memory_version_after)
+    memory_version_after,
+    created_at AS key_created_at,
+    id AS key_id
+  FROM subject_rows
+  ORDER BY memory_version_after, created_at DESC, id DESC
+), selected_groups AS (
+  SELECT *
+  FROM group_keys
+  WHERE (
+    (sqlc.narg(cursor_created_at)::timestamptz IS NULL AND sqlc.narg(cursor_id)::text IS NULL)
+    OR (key_created_at, key_id::text) < (sqlc.narg(cursor_created_at)::timestamptz, sqlc.narg(cursor_id)::text)
+  )
+  ORDER BY key_created_at DESC, key_id DESC
+  LIMIT sqlc.arg(limit_count)
+)
+SELECT r.*
+FROM subject_rows r
+JOIN selected_groups g USING (memory_version_after)
+ORDER BY g.key_created_at DESC, g.key_id DESC, r.created_at DESC, r.id DESC;
+
 -- name: GetLatestCuratorDeprecateFactChangelog :one
 SELECT *
 FROM (
