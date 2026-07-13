@@ -2,8 +2,10 @@ package reflect
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -81,9 +83,70 @@ func TestExecuteSkillReconciliationPlanRejectsInvalidPlanBeforeWriting(t *testin
 	}
 }
 
+func TestExecuteSkillPlanCanRetryAfterPartialCommit(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	userID, agentID := seedUsageCuratorDB(t, ctx, db)
+	inner := skills.New(db)
+	wantFailure := errors.New("injected second operation failure")
+	writer := &failOnceReflectSkillWriter{inner: inner, failCall: 2, err: wantFailure}
+	bundle := skillRelatedBundle{
+		Candidates: []skillCandidate{validSkillCandidate("skill-0001"), validSkillCandidate("skill-0002")},
+	}
+	plan := skillReconciliationPlan{Operations: []skillWriteOperation{
+		{
+			Operation:       skillOperationCreate,
+			CandidateRefs:   []CandidateRef{"skill-0001"},
+			Name:            "partial-commit-first",
+			Description:     "first committed skill",
+			MainFileContent: "# First\n",
+		},
+		{
+			Operation:       skillOperationCreate,
+			CandidateRefs:   []CandidateRef{"skill-0002"},
+			Name:            "partial-commit-second",
+			Description:     "second committed skill",
+			MainFileContent: "# Second\n",
+		},
+	}}
+
+	if _, err := executeSkillReconciliationPlan(ctx, writer, userID, agentID, bundle, plan); !errors.Is(err, wantFailure) {
+		t.Fatalf("first execute error = %v, want injected failure", err)
+	}
+	written, err := executeSkillReconciliationPlan(ctx, writer, userID, agentID, bundle, plan)
+	if err != nil {
+		t.Fatalf("retry executeSkillReconciliationPlan: %v", err)
+	}
+	if len(written) != 2 || written[0].Name != "partial-commit-first" || written[1].Name != "partial-commit-second" {
+		t.Fatalf("retry written skills = %#v", written)
+	}
+	if written[0].Version != 1 || written[1].Version != 1 {
+		t.Fatalf("retry versions = %d/%d, want 1/1", written[0].Version, written[1].Version)
+	}
+}
+
 type fakeReflectSkillWriter struct {
 	creates []skills.ReflectSkillCreate
 	patches []skills.ReflectSkillPatch
+}
+
+type failOnceReflectSkillWriter struct {
+	inner    reflectSkillWriter
+	calls    int
+	failCall int
+	err      error
+}
+
+func (w *failOnceReflectSkillWriter) CreateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillCreate) (skills.Skill, error) {
+	w.calls++
+	if w.calls == w.failCall {
+		return skills.Skill{}, w.err
+	}
+	return w.inner.CreateReflectOwnedUserAgentSkill(ctx, in)
+}
+
+func (w *failOnceReflectSkillWriter) PatchReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillPatch) (skills.Skill, error) {
+	return w.inner.PatchReflectOwnedUserAgentSkill(ctx, in)
 }
 
 func (w *fakeReflectSkillWriter) CreateReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillCreate) (skills.Skill, error) {
