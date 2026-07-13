@@ -718,18 +718,22 @@ WHERE scope = ANY($1::text[])
     OR (scope = 'user_agent' AND user_id = $3::uuid AND agent_id = $4::text)
     OR (scope = 'system_agent' AND agent_id = $4::text)
   )
+  AND (
+    ($5::timestamptz IS NULL AND $6::text IS NULL)
+    OR (updated_at, id) < ($5::timestamptz, $6::text)
+  )
 ORDER BY updated_at DESC, id DESC
-LIMIT $6
-OFFSET $5
+LIMIT $7
 `
 
 type ListManagedActiveSkillsParams struct {
-	Scopes      []string    `json:"scopes"`
-	CreatedBy   pgtype.Text `json:"created_by"`
-	UserID      pgtype.Text `json:"user_id"`
-	AgentID     pgtype.Text `json:"agent_id"`
-	OffsetCount int32       `json:"offset_count"`
-	LimitCount  int32       `json:"limit_count"`
+	Scopes          []string           `json:"scopes"`
+	CreatedBy       pgtype.Text        `json:"created_by"`
+	UserID          pgtype.Text        `json:"user_id"`
+	AgentID         pgtype.Text        `json:"agent_id"`
+	CursorTimestamp pgtype.Timestamptz `json:"cursor_timestamp"`
+	CursorID        pgtype.Text        `json:"cursor_id"`
+	LimitCount      int32              `json:"limit_count"`
 }
 
 func (q *Queries) ListManagedActiveSkills(ctx context.Context, arg ListManagedActiveSkillsParams) ([]Skill, error) {
@@ -738,7 +742,8 @@ func (q *Queries) ListManagedActiveSkills(ctx context.Context, arg ListManagedAc
 		arg.CreatedBy,
 		arg.UserID,
 		arg.AgentID,
-		arg.OffsetCount,
+		arg.CursorTimestamp,
+		arg.CursorID,
 		arg.LimitCount,
 	)
 	if err != nil {
@@ -799,19 +804,23 @@ WHERE s.scope = ANY($1::text[])
     OR (s.scope = 'user_agent' AND s.user_id = $4::uuid AND s.agent_id = $5::text)
     OR (s.scope = 'system_agent' AND s.agent_id = $5::text)
   )
+  AND (
+    ($6::timestamptz IS NULL AND $7::text IS NULL)
+    OR (d.created_at, s.id) < ($6::timestamptz, $7::text)
+  )
 ORDER BY d.created_at DESC, s.id DESC
-LIMIT $7
-OFFSET $6
+LIMIT $8
 `
 
 type ListManagedRemovedSkillsParams struct {
-	Scopes      []string    `json:"scopes"`
-	CreatedBy   pgtype.Text `json:"created_by"`
-	NowAt       time.Time   `json:"now_at"`
-	UserID      pgtype.Text `json:"user_id"`
-	AgentID     pgtype.Text `json:"agent_id"`
-	OffsetCount int32       `json:"offset_count"`
-	LimitCount  int32       `json:"limit_count"`
+	Scopes          []string           `json:"scopes"`
+	CreatedBy       pgtype.Text        `json:"created_by"`
+	NowAt           time.Time          `json:"now_at"`
+	UserID          pgtype.Text        `json:"user_id"`
+	AgentID         pgtype.Text        `json:"agent_id"`
+	CursorTimestamp pgtype.Timestamptz `json:"cursor_timestamp"`
+	CursorID        pgtype.Text        `json:"cursor_id"`
+	LimitCount      int32              `json:"limit_count"`
 }
 
 type ListManagedRemovedSkillsRow struct {
@@ -838,7 +847,8 @@ func (q *Queries) ListManagedRemovedSkills(ctx context.Context, arg ListManagedR
 		arg.NowAt,
 		arg.UserID,
 		arg.AgentID,
-		arg.OffsetCount,
+		arg.CursorTimestamp,
+		arg.CursorID,
 		arg.LimitCount,
 	)
 	if err != nil {

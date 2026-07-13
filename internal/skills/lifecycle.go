@@ -28,8 +28,11 @@ var (
 // ListManagedSkills returns active rows or recoverable removed rows for mutable
 // PostgreSQL scopes. The caller's owner fields are interpreted per row scope.
 func (s *PGStore) ListManagedSkills(ctx context.Context, in ManagedSkillListQuery) (ManagedSkillPage, error) {
-	if in.Limit < 0 || in.Offset < 0 {
-		return ManagedSkillPage{}, fmt.Errorf("list managed skills: limit and offset must be non-negative")
+	if in.Limit < 0 {
+		return ManagedSkillPage{}, fmt.Errorf("list managed skills: limit must be non-negative")
+	}
+	if err := validateManagedSkillCursor(in.Cursor); err != nil {
+		return ManagedSkillPage{}, err
 	}
 	scopes, err := managedScopes(in.Scopes)
 	if err != nil {
@@ -43,6 +46,7 @@ func (s *PGStore) ListManagedSkills(ctx context.Context, in ManagedSkillListQuer
 	createdBy := pgtype.Text{String: in.CreatedBy, Valid: in.CreatedBy != ""}
 	userID, agentID := managedOwnerParams(in.UserID, in.AgentID)
 	limitPlusOne := in.Limit + 1
+	cursorTimestamp, cursorID := managedSkillCursorParams(in.Cursor)
 
 	switch in.State {
 	case ManagedSkillStateActive:
@@ -54,7 +58,7 @@ func (s *PGStore) ListManagedSkills(ctx context.Context, in ManagedSkillListQuer
 		}
 		rows, err := s.q.ListManagedActiveSkills(ctx, sqlc.ListManagedActiveSkillsParams{
 			Scopes: scopes, CreatedBy: createdBy, UserID: userID, AgentID: agentID,
-			OffsetCount: in.Offset, LimitCount: limitPlusOne,
+			CursorTimestamp: cursorTimestamp, CursorID: cursorID, LimitCount: limitPlusOne,
 		})
 		if err != nil {
 			return ManagedSkillPage{}, fmt.Errorf("list managed active skills: %w", err)
@@ -74,7 +78,7 @@ func (s *PGStore) ListManagedSkills(ctx context.Context, in ManagedSkillListQuer
 		}
 		rows, err := s.q.ListManagedRemovedSkills(ctx, sqlc.ListManagedRemovedSkillsParams{
 			Scopes: scopes, CreatedBy: createdBy, NowAt: in.Now, UserID: userID, AgentID: agentID,
-			OffsetCount: in.Offset, LimitCount: limitPlusOne,
+			CursorTimestamp: cursorTimestamp, CursorID: cursorID, LimitCount: limitPlusOne,
 		})
 		if err != nil {
 			return ManagedSkillPage{}, fmt.Errorf("list managed removed skills: %w", err)
@@ -347,7 +351,29 @@ func managedSkillPage(items []ManagedSkillItem, total int64, limit int32) Manage
 		page.Items = page.Items[:limit]
 		page.HasMore = true
 	}
+	if len(page.Items) > 0 {
+		last := page.Items[len(page.Items)-1]
+		sortTimestamp := last.Skill.UpdatedAt
+		if last.DeprecatedAt != nil {
+			sortTimestamp = *last.DeprecatedAt
+		}
+		page.NextCursor = &ManagedSkillCursor{Timestamp: sortTimestamp, ID: last.Skill.ID}
+	}
 	return page
+}
+
+func validateManagedSkillCursor(cursor *ManagedSkillCursor) error {
+	if cursor != nil && (cursor.Timestamp.IsZero() || cursor.ID == "") {
+		return fmt.Errorf("list managed skills: cursor timestamp and id must be provided together")
+	}
+	return nil
+}
+
+func managedSkillCursorParams(cursor *ManagedSkillCursor) (pgtype.Timestamptz, pgtype.Text) {
+	if cursor == nil {
+		return pgtype.Timestamptz{}, pgtype.Text{}
+	}
+	return pgtype.Timestamptz{Time: cursor.Timestamp.UTC(), Valid: true}, pgtype.Text{String: cursor.ID, Valid: true}
 }
 
 func managedRemovedItem(row sqlc.ListManagedRemovedSkillsRow) (ManagedSkillItem, error) {

@@ -50,13 +50,124 @@ func TestKnowledgeLifecycleListActiveOrdersAndPaginates(t *testing.T) {
 	}
 
 	page, err = ListKnowledge(ctx, q, KnowledgeListQuery{
-		UserID: userID, AgentID: agentID, State: KnowledgeStateActive, Limit: 2, Offset: 2,
+		UserID: userID, AgentID: agentID, State: KnowledgeStateActive, Limit: 2, Cursor: page.NextCursor,
 	})
 	if err != nil {
-		t.Fatalf("ListKnowledge offset: %v", err)
+		t.Fatalf("ListKnowledge cursor: %v", err)
 	}
 	if page.Total != 3 || page.HasMore || len(page.Items) != 1 || page.Items[0].Fact.ID != first.ID {
-		t.Fatalf("active offset page = %#v, want final fact", page)
+		t.Fatalf("active cursor page = %#v, want final fact", page)
+	}
+}
+
+func TestKnowledgeLifecycleActiveKeysetSurvivesEarlierInsertAndEqualTimestamp(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	sortAt := time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC)
+	for _, content := range []string{"first", "second", "third"} {
+		fact := mustCreateKnowledge(t, ctx, db, q, userID, agentID, content)
+		if _, err := db.Exec(ctx, "UPDATE facts SET updated_at = $1 WHERE id = $2", sortAt, fact.ID); err != nil {
+			t.Fatalf("set fact update time: %v", err)
+		}
+	}
+
+	initial, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateActive, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge initial: %v", err)
+	}
+	firstPage, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateActive, Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge first page: %v", err)
+	}
+	if firstPage.NextCursor == nil || !firstPage.HasMore {
+		t.Fatalf("first page cursor = %#v, want cursor and more", firstPage)
+	}
+
+	// This row sorts before the first page and must not shift the saved boundary.
+	inserted := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "inserted before cursor")
+	if _, err := db.Exec(ctx, "UPDATE facts SET updated_at = $1 WHERE id = $2", sortAt.Add(time.Hour), inserted.ID); err != nil {
+		t.Fatalf("set inserted fact update time: %v", err)
+	}
+
+	secondPage, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateActive, Limit: 2, Cursor: firstPage.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge second page: %v", err)
+	}
+	if len(secondPage.Items) != 1 || secondPage.Items[0].Fact.ID != initial.Items[2].Fact.ID {
+		t.Fatalf("second page = %#v, want pre-existing third row %s without a duplicate", secondPage, initial.Items[2].Fact.ID)
+	}
+
+	_, err = ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateActive, Limit: 2,
+		Cursor: &KnowledgeCursor{Timestamp: firstPage.NextCursor.Timestamp},
+	})
+	if err == nil {
+		t.Fatal("half-populated knowledge cursor was accepted")
+	}
+}
+
+func TestKnowledgeLifecycleRemovedKeysetOrdersByDeprecationAndID(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	sortAt := time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC)
+	for _, content := range []string{"removed first", "removed second", "removed third"} {
+		fact := mustCreateKnowledge(t, ctx, db, q, userID, agentID, content)
+		if _, err := DeprecateKnowledge(ctx, db, q, KnowledgeDeprecateInput{
+			FactID: fact.ID, UserID: userID, AgentID: agentID, DeprecatedBy: userID,
+		}); err != nil {
+			t.Fatalf("DeprecateKnowledge: %v", err)
+		}
+		if _, err := db.Exec(ctx, `UPDATE ctx_agent_memory_changelog SET created_at = $1
+WHERE entity_id = $2 AND scope = 'fact' AND action = 'deprecate'`, sortAt, fact.ID); err != nil {
+			t.Fatalf("set deprecation time: %v", err)
+		}
+	}
+
+	initial, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateRemoved, Limit: 10, Now: sortAt.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge removed initial: %v", err)
+	}
+	firstPage, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateRemoved, Limit: 2, Now: sortAt.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge removed first page: %v", err)
+	}
+	if firstPage.NextCursor == nil || !firstPage.HasMore {
+		t.Fatalf("removed first page cursor = %#v, want cursor and more", firstPage)
+	}
+
+	inserted := mustCreateKnowledge(t, ctx, db, q, userID, agentID, "removed inserted before cursor")
+	if _, err := DeprecateKnowledge(ctx, db, q, KnowledgeDeprecateInput{
+		FactID: inserted.ID, UserID: userID, AgentID: agentID, DeprecatedBy: userID,
+	}); err != nil {
+		t.Fatalf("DeprecateKnowledge inserted: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE ctx_agent_memory_changelog SET created_at = $1
+WHERE entity_id = $2 AND scope = 'fact' AND action = 'deprecate'`, sortAt.Add(time.Hour), inserted.ID); err != nil {
+		t.Fatalf("set inserted deprecation time: %v", err)
+	}
+
+	secondPage, err := ListKnowledge(ctx, q, KnowledgeListQuery{
+		UserID: userID, AgentID: agentID, State: KnowledgeStateRemoved, Limit: 2, Now: sortAt.Add(2 * time.Hour), Cursor: firstPage.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("ListKnowledge removed second page: %v", err)
+	}
+	if len(secondPage.Items) != 1 || secondPage.Items[0].Fact.ID != initial.Items[2].Fact.ID {
+		t.Fatalf("removed second page = %#v, want ID tie-broken third row %s", secondPage, initial.Items[2].Fact.ID)
 	}
 }
 

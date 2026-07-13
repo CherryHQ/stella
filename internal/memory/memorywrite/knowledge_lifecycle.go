@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/memory"
@@ -39,19 +40,26 @@ type KnowledgeItem struct {
 	IsRestorable    bool
 }
 
+// KnowledgeCursor identifies the last visible row in a stable lifecycle page.
+type KnowledgeCursor struct {
+	Timestamp time.Time
+	ID        string
+}
+
 type KnowledgeListQuery struct {
 	UserID  string
 	AgentID string
 	State   KnowledgeState
 	Limit   int32
-	Offset  int32
 	Now     time.Time
+	Cursor  *KnowledgeCursor
 }
 
 type KnowledgePage struct {
-	Items   []KnowledgeItem
-	Total   int64
-	HasMore bool
+	Items      []KnowledgeItem
+	Total      int64
+	HasMore    bool
+	NextCursor *KnowledgeCursor
 }
 
 type KnowledgeCreateInput struct{ UserID, AgentID, Content string }
@@ -75,8 +83,11 @@ func ListKnowledge(ctx context.Context, q *sqlc.Queries, in KnowledgeListQuery) 
 	if q == nil {
 		return KnowledgePage{}, fmt.Errorf("list knowledge: sql queries are required")
 	}
-	if in.Limit < 0 || in.Offset < 0 {
-		return KnowledgePage{}, fmt.Errorf("list knowledge: limit and offset must be non-negative")
+	if in.Limit < 0 {
+		return KnowledgePage{}, fmt.Errorf("list knowledge: limit must be non-negative")
+	}
+	if err := validateKnowledgeCursor(in.Cursor); err != nil {
+		return KnowledgePage{}, err
 	}
 	if in.Now.IsZero() {
 		in.Now = time.Now().UTC()
@@ -84,6 +95,7 @@ func ListKnowledge(ctx context.Context, q *sqlc.Queries, in KnowledgeListQuery) 
 		in.Now = in.Now.UTC()
 	}
 	limitPlusOne := in.Limit + 1
+	cursorTimestamp, cursorID := knowledgeCursorParams(in.Cursor)
 
 	switch in.State {
 	case KnowledgeStateActive:
@@ -92,7 +104,7 @@ func ListKnowledge(ctx context.Context, q *sqlc.Queries, in KnowledgeListQuery) 
 			return KnowledgePage{}, fmt.Errorf("count active knowledge: %w", err)
 		}
 		rows, err := q.ListActiveKnowledge(ctx, sqlc.ListActiveKnowledgeParams{
-			UserID: in.UserID, AgentID: in.AgentID, LimitCount: limitPlusOne, OffsetCount: in.Offset,
+			UserID: in.UserID, AgentID: in.AgentID, CursorTimestamp: cursorTimestamp, CursorID: cursorID, LimitCount: limitPlusOne,
 		})
 		if err != nil {
 			return KnowledgePage{}, fmt.Errorf("list active knowledge: %w", err)
@@ -110,7 +122,7 @@ func ListKnowledge(ctx context.Context, q *sqlc.Queries, in KnowledgeListQuery) 
 			return KnowledgePage{}, fmt.Errorf("count removed knowledge: %w", err)
 		}
 		rows, err := q.ListRemovedKnowledge(ctx, sqlc.ListRemovedKnowledgeParams{
-			UserID: in.UserID, AgentID: in.AgentID, NowAt: in.Now, LimitCount: limitPlusOne, OffsetCount: in.Offset,
+			UserID: in.UserID, AgentID: in.AgentID, NowAt: in.Now, CursorTimestamp: cursorTimestamp, CursorID: cursorID, LimitCount: limitPlusOne,
 		})
 		if err != nil {
 			return KnowledgePage{}, fmt.Errorf("list removed knowledge: %w", err)
@@ -369,7 +381,29 @@ func knowledgePage(items []KnowledgeItem, total int64, limit int32) KnowledgePag
 		page.Items = page.Items[:limit]
 		page.HasMore = true
 	}
+	if len(page.Items) > 0 {
+		last := page.Items[len(page.Items)-1]
+		sortTimestamp := last.Fact.UpdatedAt
+		if last.DeprecatedAt != nil {
+			sortTimestamp = *last.DeprecatedAt
+		}
+		page.NextCursor = &KnowledgeCursor{Timestamp: sortTimestamp, ID: last.Fact.ID}
+	}
 	return page
+}
+
+func validateKnowledgeCursor(cursor *KnowledgeCursor) error {
+	if cursor != nil && (cursor.Timestamp.IsZero() || cursor.ID == "") {
+		return fmt.Errorf("list knowledge: cursor timestamp and id must be provided together")
+	}
+	return nil
+}
+
+func knowledgeCursorParams(cursor *KnowledgeCursor) (pgtype.Timestamptz, pgtype.Text) {
+	if cursor == nil {
+		return pgtype.Timestamptz{}, pgtype.Text{}
+	}
+	return pgtype.Timestamptz{Time: cursor.Timestamp.UTC(), Valid: true}, pgtype.Text{String: cursor.ID, Valid: true}
 }
 
 func knowledgeItemFromRemovedRow(row sqlc.ListRemovedKnowledgeRow) (KnowledgeItem, error) {

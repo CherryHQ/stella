@@ -375,23 +375,28 @@ WHERE user_id = $1
   AND scope = 'user_agent'
   AND subject = 'world'
   AND status = 'active'
+  AND (
+    ($3::timestamptz IS NULL AND $4::text IS NULL)
+    OR (updated_at, id::text) < ($3::timestamptz, $4::text)
+  )
 ORDER BY updated_at DESC, id DESC
-LIMIT $4
-OFFSET $3
+LIMIT $5
 `
 
 type ListActiveKnowledgeParams struct {
-	UserID      string `json:"user_id"`
-	AgentID     string `json:"agent_id"`
-	OffsetCount int32  `json:"offset_count"`
-	LimitCount  int32  `json:"limit_count"`
+	UserID          string             `json:"user_id"`
+	AgentID         string             `json:"agent_id"`
+	CursorTimestamp pgtype.Timestamptz `json:"cursor_timestamp"`
+	CursorID        pgtype.Text        `json:"cursor_id"`
+	LimitCount      int32              `json:"limit_count"`
 }
 
 func (q *Queries) ListActiveKnowledge(ctx context.Context, arg ListActiveKnowledgeParams) ([]Fact, error) {
 	rows, err := q.db.Query(ctx, listActiveKnowledge,
 		arg.UserID,
 		arg.AgentID,
-		arg.OffsetCount,
+		arg.CursorTimestamp,
+		arg.CursorID,
 		arg.LimitCount,
 	)
 	if err != nil {
@@ -675,17 +680,21 @@ WHERE f.user_id = $1
     OR (d.metadata::jsonb)->>'curator' = 'usage'
   )
   AND d.created_at > $3::timestamptz - interval '2160 hours'
+  AND (
+    ($4::timestamptz IS NULL AND $5::text IS NULL)
+    OR (d.created_at, f.id::text) < ($4::timestamptz, $5::text)
+  )
 ORDER BY d.created_at DESC, f.id DESC
-LIMIT $5
-OFFSET $4
+LIMIT $6
 `
 
 type ListRemovedKnowledgeParams struct {
-	UserID      string    `json:"user_id"`
-	AgentID     string    `json:"agent_id"`
-	NowAt       time.Time `json:"now_at"`
-	OffsetCount int32     `json:"offset_count"`
-	LimitCount  int32     `json:"limit_count"`
+	UserID          string             `json:"user_id"`
+	AgentID         string             `json:"agent_id"`
+	NowAt           time.Time          `json:"now_at"`
+	CursorTimestamp pgtype.Timestamptz `json:"cursor_timestamp"`
+	CursorID        pgtype.Text        `json:"cursor_id"`
+	LimitCount      int32              `json:"limit_count"`
 }
 
 type ListRemovedKnowledgeRow struct {
@@ -711,7 +720,8 @@ func (q *Queries) ListRemovedKnowledge(ctx context.Context, arg ListRemovedKnowl
 		arg.UserID,
 		arg.AgentID,
 		arg.NowAt,
-		arg.OffsetCount,
+		arg.CursorTimestamp,
+		arg.CursorID,
 		arg.LimitCount,
 	)
 	if err != nil {

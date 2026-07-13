@@ -266,9 +266,12 @@ WHERE scope = ANY(sqlc.arg(scopes)::text[])
     OR (scope = 'user_agent' AND user_id = sqlc.narg(user_id)::uuid AND agent_id = sqlc.narg(agent_id)::text)
     OR (scope = 'system_agent' AND agent_id = sqlc.narg(agent_id)::text)
   )
+  AND (
+    (sqlc.narg(cursor_timestamp)::timestamptz IS NULL AND sqlc.narg(cursor_id)::text IS NULL)
+    OR (updated_at, id) < (sqlc.narg(cursor_timestamp)::timestamptz, sqlc.narg(cursor_id)::text)
+  )
 ORDER BY updated_at DESC, id DESC
-LIMIT sqlc.arg(limit_count)
-OFFSET sqlc.arg(offset_count);
+LIMIT sqlc.arg(limit_count);
 
 -- name: CountManagedActiveSkills :one
 SELECT count(*)
@@ -309,9 +312,12 @@ WHERE s.scope = ANY(sqlc.arg(scopes)::text[])
     OR (s.scope = 'user_agent' AND s.user_id = sqlc.narg(user_id)::uuid AND s.agent_id = sqlc.narg(agent_id)::text)
     OR (s.scope = 'system_agent' AND s.agent_id = sqlc.narg(agent_id)::text)
   )
+  AND (
+    (sqlc.narg(cursor_timestamp)::timestamptz IS NULL AND sqlc.narg(cursor_id)::text IS NULL)
+    OR (d.created_at, s.id) < (sqlc.narg(cursor_timestamp)::timestamptz, sqlc.narg(cursor_id)::text)
+  )
 ORDER BY d.created_at DESC, s.id DESC
-LIMIT sqlc.arg(limit_count)
-OFFSET sqlc.arg(offset_count);
+LIMIT sqlc.arg(limit_count);
 
 -- name: CountManagedRemovedSkills :one
 SELECT count(*)

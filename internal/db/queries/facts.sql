@@ -69,9 +69,12 @@ WHERE user_id = sqlc.arg(user_id)
   AND scope = 'user_agent'
   AND subject = 'world'
   AND status = 'active'
+  AND (
+    (sqlc.narg(cursor_timestamp)::timestamptz IS NULL AND sqlc.narg(cursor_id)::text IS NULL)
+    OR (updated_at, id::text) < (sqlc.narg(cursor_timestamp)::timestamptz, sqlc.narg(cursor_id)::text)
+  )
 ORDER BY updated_at DESC, id DESC
-LIMIT sqlc.arg(limit_count)
-OFFSET sqlc.arg(offset_count);
+LIMIT sqlc.arg(limit_count);
 
 -- name: CountActiveKnowledge :one
 SELECT count(*)
@@ -109,9 +112,12 @@ WHERE f.user_id = sqlc.arg(user_id)
     OR (d.metadata::jsonb)->>'curator' = 'usage'
   )
   AND d.created_at > sqlc.arg(now_at)::timestamptz - interval '2160 hours'
+  AND (
+    (sqlc.narg(cursor_timestamp)::timestamptz IS NULL AND sqlc.narg(cursor_id)::text IS NULL)
+    OR (d.created_at, f.id::text) < (sqlc.narg(cursor_timestamp)::timestamptz, sqlc.narg(cursor_id)::text)
+  )
 ORDER BY d.created_at DESC, f.id DESC
-LIMIT sqlc.arg(limit_count)
-OFFSET sqlc.arg(offset_count);
+LIMIT sqlc.arg(limit_count);
 
 -- name: CountRemovedKnowledge :one
 SELECT count(*)

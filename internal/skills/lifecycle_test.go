@@ -328,6 +328,114 @@ func TestManagedSkillListIncludesDraftAndPagesRecoverableRemovals(t *testing.T) 
 	}
 }
 
+func TestManagedSkillActiveKeysetSurvivesEarlierInsertAndEqualTimestamp(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	sortAt := time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC)
+
+	for _, name := range []string{"first", "second", "third"} {
+		skill := mustCreateManagedSkill(t, store, ctx, Skill{Scope: "user", UserID: userID, Name: name, Description: name})
+		if _, err := db.Exec(ctx, "UPDATE skill SET updated_at = $1 WHERE id = $2", sortAt, skill.ID); err != nil {
+			t.Fatalf("set skill update time: %v", err)
+		}
+	}
+
+	initial, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, State: ManagedSkillStateActive, Limit: 10, Now: sortAt,
+	})
+	if err != nil {
+		t.Fatalf("ListManagedSkills initial: %v", err)
+	}
+	firstPage, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, State: ManagedSkillStateActive, Limit: 2, Now: sortAt,
+	})
+	if err != nil {
+		t.Fatalf("ListManagedSkills first page: %v", err)
+	}
+	if firstPage.NextCursor == nil || !firstPage.HasMore {
+		t.Fatalf("first page cursor = %#v, want cursor and more", firstPage)
+	}
+
+	inserted := mustCreateManagedSkill(t, store, ctx, Skill{Scope: "user", UserID: userID, Name: "inserted-before-cursor", Description: "new"})
+	if _, err := db.Exec(ctx, "UPDATE skill SET updated_at = $1 WHERE id = $2", sortAt.Add(time.Hour), inserted.ID); err != nil {
+		t.Fatalf("set inserted skill update time: %v", err)
+	}
+
+	secondPage, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, State: ManagedSkillStateActive, Limit: 2, Now: sortAt, Cursor: firstPage.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("ListManagedSkills second page: %v", err)
+	}
+	if len(secondPage.Items) != 1 || secondPage.Items[0].Skill.ID != initial.Items[2].Skill.ID {
+		t.Fatalf("second page = %#v, want pre-existing third row %s without a duplicate", secondPage, initial.Items[2].Skill.ID)
+	}
+
+	_, err = store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, State: ManagedSkillStateActive, Limit: 2, Now: sortAt,
+		Cursor: &ManagedSkillCursor{Timestamp: firstPage.NextCursor.Timestamp},
+	})
+	if err == nil {
+		t.Fatal("half-populated managed skill cursor was accepted")
+	}
+}
+
+func TestManagedSkillRemovedKeysetOrdersByDeprecationAndID(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	sortAt := time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC)
+
+	for _, name := range []string{"removed-first", "removed-second", "removed-third"} {
+		skill := mustCreateManagedSkill(t, store, ctx, Skill{Scope: "user", UserID: userID, Name: name, Description: name})
+		if _, err := store.DeprecateManagedSkill(ctx, ManagedSkillDeprecate{
+			ID: skill.ID, UserID: userID, Scope: "user", DeprecatedBy: userID,
+		}); err != nil {
+			t.Fatalf("DeprecateManagedSkill: %v", err)
+		}
+		if _, err := db.Exec(ctx, `UPDATE skill_changelog SET created_at = $1
+WHERE skill_id = $2 AND action = 'deprecate'`, sortAt, skill.ID); err != nil {
+			t.Fatalf("set skill deprecation time: %v", err)
+		}
+	}
+
+	initial, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, State: ManagedSkillStateRemoved, Limit: 10, Now: sortAt.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("ListManagedSkills removed initial: %v", err)
+	}
+	firstPage, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, State: ManagedSkillStateRemoved, Limit: 2, Now: sortAt.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("ListManagedSkills removed first page: %v", err)
+	}
+	if firstPage.NextCursor == nil || !firstPage.HasMore {
+		t.Fatalf("removed first page cursor = %#v, want cursor and more", firstPage)
+	}
+
+	inserted := mustCreateManagedSkill(t, store, ctx, Skill{Scope: "user", UserID: userID, Name: "removed-inserted-before-cursor", Description: "new"})
+	if _, err := store.DeprecateManagedSkill(ctx, ManagedSkillDeprecate{
+		ID: inserted.ID, UserID: userID, Scope: "user", DeprecatedBy: userID,
+	}); err != nil {
+		t.Fatalf("DeprecateManagedSkill inserted: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE skill_changelog SET created_at = $1
+WHERE skill_id = $2 AND action = 'deprecate'`, sortAt.Add(time.Hour), inserted.ID); err != nil {
+		t.Fatalf("set inserted skill deprecation time: %v", err)
+	}
+
+	secondPage, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
+		UserID: userID, State: ManagedSkillStateRemoved, Limit: 2, Now: sortAt.Add(2 * time.Hour), Cursor: firstPage.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("ListManagedSkills removed second page: %v", err)
+	}
+	if len(secondPage.Items) != 1 || secondPage.Items[0].Skill.ID != initial.Items[2].Skill.ID {
+		t.Fatalf("removed second page = %#v, want ID tie-broken third row %s", secondPage, initial.Items[2].Skill.ID)
+	}
+}
+
 func TestManagedSkillUpdateConvertsReflectOwnershipIrreversibly(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)

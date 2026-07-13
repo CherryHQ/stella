@@ -72,6 +72,12 @@ type ManagedSkillItem struct {
 	IsRestorable    bool
 }
 
+// ManagedSkillCursor identifies the last visible row in a stable lifecycle page.
+type ManagedSkillCursor struct {
+	Timestamp time.Time
+	ID        string
+}
+
 // ManagedSkillListQuery scopes a lifecycle list to one caller's owner buckets.
 type ManagedSkillListQuery struct {
 	UserID    string
@@ -80,15 +86,16 @@ type ManagedSkillListQuery struct {
 	CreatedBy string
 	State     ManagedSkillState
 	Limit     int32
-	Offset    int32
 	Now       time.Time
+	Cursor    *ManagedSkillCursor
 }
 
-// ManagedSkillPage is an offset page with the complete matching count.
+// ManagedSkillPage carries the complete matching count and the next keyset position.
 type ManagedSkillPage struct {
-	Items   []ManagedSkillItem
-	Total   int64
-	HasMore bool
+	Items      []ManagedSkillItem
+	Total      int64
+	HasMore    bool
+	NextCursor *ManagedSkillCursor
 }
 
 // ManagedSkillDeprecate identifies a mutable skill and the manual operator.
