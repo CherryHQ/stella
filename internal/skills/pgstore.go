@@ -231,9 +231,9 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 		sk.Status = "active"
 	}
 
-	meta := "{}"
-	if len(sk.Metadata) > 0 {
-		meta = string(sk.Metadata)
+	metadata, err := MarkManualOwnedMetadata(sk.Metadata)
+	if err != nil {
+		return "", err
 	}
 
 	params := sqlc.CreateSkillParams{
@@ -243,7 +243,7 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 		Description:            sk.Description,
 		Status:                 sk.Status,
 		DisableModelInvocation: sk.DisableModelInvocation,
-		Metadata:               json.RawMessage(meta),
+		Metadata:               metadata,
 	}
 
 	// Set nullable owner fields based on scope.

@@ -446,11 +446,11 @@ func (q *Queries) UpsertSkillUsageOnReflectCreate(ctx context.Context, arg Upser
 
 const upsertSkillUsageOnReflectRestore = `-- name: UpsertSkillUsageOnReflectRestore :exec
 INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-SELECT s.id, s.user_id, s.agent_id, $1::bigint, now()
+SELECT s.id, s.user_id, s.agent_id, $1::bigint, $2::timestamptz
 FROM skill s
-WHERE s.id = $2
-  AND s.user_id = $3::uuid
-  AND s.agent_id = $4::text
+WHERE s.id = $3
+  AND s.user_id = $4::uuid
+  AND s.agent_id = $5::text
   AND s.scope = 'user_agent'
   AND s.status = 'active'
   AND s.metadata->>'created_by' = 'reflect'
@@ -462,15 +462,17 @@ SET user_id = excluded.user_id,
 `
 
 type UpsertSkillUsageOnReflectRestoreParams struct {
-	UseCount int64  `json:"use_count"`
-	SkillID  string `json:"skill_id"`
-	UserID   string `json:"user_id"`
-	AgentID  string `json:"agent_id"`
+	UseCount   int64     `json:"use_count"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	SkillID    string    `json:"skill_id"`
+	UserID     string    `json:"user_id"`
+	AgentID    string    `json:"agent_id"`
 }
 
 func (q *Queries) UpsertSkillUsageOnReflectRestore(ctx context.Context, arg UpsertSkillUsageOnReflectRestoreParams) error {
 	_, err := q.db.Exec(ctx, upsertSkillUsageOnReflectRestore,
 		arg.UseCount,
+		arg.LastUsedAt,
 		arg.SkillID,
 		arg.UserID,
 		arg.AgentID,

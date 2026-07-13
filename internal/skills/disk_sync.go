@@ -107,6 +107,43 @@ func (d *DiskSyncStore) RestoreReflectOwnedUserAgentSkill(ctx context.Context, i
 	return d.Store.RestoreReflectOwnedUserAgentSkill(ctx, in)
 }
 
+// DeprecateManagedSkill changes the DB lifecycle state before removing its
+// mirror. A failed transaction therefore leaves the executable mirror intact.
+func (d *DiskSyncStore) DeprecateManagedSkill(ctx context.Context, in ManagedSkillDeprecate) (Skill, error) {
+	deprecated, err := d.Store.DeprecateManagedSkill(ctx, in)
+	if err != nil {
+		return Skill{}, err
+	}
+	d.removeSkillDir(ctx, &deprecated)
+	return deprecated, nil
+}
+
+// RestoreManagedSkill rebuilds the mirror from DB-retained files after the
+// lifecycle transaction commits, including idempotent active-row restores.
+func (d *DiskSyncStore) RestoreManagedSkill(ctx context.Context, in ManagedSkillRestore) (ManagedSkillRestoreResult, error) {
+	result, err := d.Store.RestoreManagedSkill(ctx, in)
+	if err != nil {
+		return ManagedSkillRestoreResult{}, err
+	}
+	if err := d.materializeSkill(ctx, result.Skill); err != nil {
+		return ManagedSkillRestoreResult{}, err
+	}
+	return result, nil
+}
+
+// UpdateManagedSkill mirrors all retained DB files only after its atomic DB
+// update succeeds, preventing an uncommitted file body from reaching disk.
+func (d *DiskSyncStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (Skill, error) {
+	updated, err := d.Store.UpdateManagedSkill(ctx, in)
+	if err != nil {
+		return Skill{}, err
+	}
+	if err := d.materializeSkill(ctx, updated); err != nil {
+		return Skill{}, err
+	}
+	return updated, nil
+}
+
 func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) error {
 	sk, err := d.findByID(ctx, skillID)
 	if err != nil {
@@ -200,6 +237,10 @@ func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 		if base == "" {
 			continue
 		}
+		if sk.Status == "deprecated" {
+			d.removeSkillDir(ctx, &sk)
+			continue
+		}
 		skillDir, pathErr := safeDiskPath(base, sk.Name)
 		if pathErr != nil {
 			slog.WarnContext(ctx, "disk_sync sync_all: skipping skill with unsafe name", "name", sk.Name, "err", pathErr)
@@ -224,6 +265,27 @@ func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 		}
 		removeOrphanDiskFiles(ctx, skillDir, files, sk.Name)
 	}
+	return nil
+}
+
+// materializeSkill replaces a skill mirror from its committed DB file set.
+func (d *DiskSyncStore) materializeSkill(ctx context.Context, sk Skill) error {
+	base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
+	if base == "" {
+		return nil
+	}
+	files, err := d.ListFilesWithContent(ctx, sk.ID)
+	if err != nil {
+		return fmt.Errorf("disk_sync: list retained files for %q: %w", sk.Name, err)
+	}
+	if err := d.writeFilesToDisk(base, sk.Name, files); err != nil {
+		return fmt.Errorf("disk_sync: materialize %q: %w", sk.Name, err)
+	}
+	skillDir, err := safeDiskPath(base, sk.Name)
+	if err != nil {
+		return fmt.Errorf("disk_sync: materialize path %q: %w", sk.Name, err)
+	}
+	removeOrphanDiskFiles(ctx, skillDir, files, sk.Name)
 	return nil
 }
 
