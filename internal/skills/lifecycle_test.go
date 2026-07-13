@@ -372,7 +372,7 @@ func TestManagedSkillUpdateConvertsReflectOwnershipIrreversibly(t *testing.T) {
 	}
 }
 
-func TestManagedSkillDiskSyncRemovesAndRebuildsMirror(t *testing.T) {
+func TestManagedSkillDiskSyncPreservesInertMirrorUntilUpdate(t *testing.T) {
 	raw, db, ctx := newTestStore(t)
 	userID, _ := seedFixtures(t, db)
 	base := t.TempDir()
@@ -388,15 +388,23 @@ func TestManagedSkillDiskSyncRemovesAndRebuildsMirror(t *testing.T) {
 	if _, err := store.DeprecateManagedSkill(ctx, ManagedSkillDeprecate{ID: created.ID, UserID: userID, Scope: "user", DeprecatedBy: userID}); err != nil {
 		t.Fatalf("DeprecateManagedSkill: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(base, created.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("mirror after deprecate stat error = %v, want absent", err)
+	content, err := os.ReadFile(filepath.Join(base, created.Name, MainFile))
+	if err != nil || string(content) != "stale" {
+		t.Fatalf("mirror after deprecate = %q, %v; want retained inert mirror", content, err)
+	}
+	if err := store.SyncAllToDisk(ctx); err != nil {
+		t.Fatalf("SyncAllToDisk deprecated mirror: %v", err)
+	}
+	content, err = os.ReadFile(filepath.Join(base, created.Name, MainFile))
+	if err != nil || string(content) != "stale" {
+		t.Fatalf("mirror after sync = %q, %v; want retained inert mirror", content, err)
 	}
 	if _, err := store.RestoreManagedSkill(ctx, ManagedSkillRestore{ID: created.ID, UserID: userID, Scope: "user", RestoredBy: userID, Now: time.Now().UTC()}); err != nil {
 		t.Fatalf("RestoreManagedSkill: %v", err)
 	}
-	content, err := os.ReadFile(filepath.Join(base, created.Name, MainFile))
-	if err != nil || string(content) != "body" {
-		t.Fatalf("restored mirror = %q, %v", content, err)
+	content, err = os.ReadFile(filepath.Join(base, created.Name, MainFile))
+	if err != nil || string(content) != "stale" {
+		t.Fatalf("mirror after restore = %q, %v; want retained inert mirror", content, err)
 	}
 	_, err = store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
 		ID: created.ID, UserID: userID, Scope: "system", Files: map[string]string{MainFile: "must-not-write"},
@@ -405,7 +413,7 @@ func TestManagedSkillDiskSyncRemovesAndRebuildsMirror(t *testing.T) {
 		t.Fatalf("failed disk update error = %v, want ErrSkillNotMutable", err)
 	}
 	content, err = os.ReadFile(filepath.Join(base, created.Name, MainFile))
-	if err != nil || string(content) != "body" {
+	if err != nil || string(content) != "stale" {
 		t.Fatalf("mirror changed after failed DB update = %q, %v", content, err)
 	}
 	updated, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
@@ -422,56 +430,6 @@ func TestManagedSkillDiskSyncRemovesAndRebuildsMirror(t *testing.T) {
 	reference, err := os.ReadFile(filepath.Join(base, updated.Name, "references", "retained.md"))
 	if err != nil || string(reference) != "reference" {
 		t.Fatalf("updated mirror reference = %q, %v", reference, err)
-	}
-}
-
-func TestManagedSkillDiskSyncDeprecateRetriesCommittedMirrorCleanup(t *testing.T) {
-	raw, db, ctx := newTestStore(t)
-	userID, _ := seedFixtures(t, db)
-	base := filepath.Join(t.TempDir(), "not-a-directory")
-	if err := os.WriteFile(base, []byte("file"), 0o644); err != nil {
-		t.Fatalf("create invalid mirror base: %v", err)
-	}
-	store := NewDiskSyncStore(raw, func(scope, agentID string, ownerID string) string { return base })
-	created := mustCreateManagedSkill(t, raw, ctx, Skill{Scope: "user", UserID: userID, Name: "cleanup-retry", Description: "d"})
-	in := ManagedSkillDeprecate{ID: created.ID, UserID: userID, Scope: "user", DeprecatedBy: userID}
-
-	deprecated, err := store.DeprecateManagedSkill(ctx, in)
-	if err == nil || deprecated.ID != created.ID || deprecated.Status != "deprecated" {
-		t.Fatalf("first deprecate = %#v, %v; want committed skill and cleanup error", deprecated, err)
-	}
-	row, err := raw.q.GetSkillByID(ctx, created.ID)
-	if err != nil || row.Status != "deprecated" || row.Version != created.Version+1 {
-		t.Fatalf("row after cleanup failure = %#v, %v", row, err)
-	}
-	logs, err := raw.ListSkillChangelogBySkill(ctx, created.ID, 10)
-	if err != nil || len(logs) != 1 || logs[0].Action != "deprecate" {
-		t.Fatalf("changelog after cleanup failure = %#v, %v", logs, err)
-	}
-	if err := store.SyncAllToDisk(ctx); err == nil {
-		t.Fatal("SyncAllToDisk accepted a deprecated mirror cleanup failure")
-	}
-
-	if err := os.Remove(base); err != nil {
-		t.Fatalf("remove invalid mirror base: %v", err)
-	}
-	if err := os.MkdirAll(base, 0o755); err != nil {
-		t.Fatalf("repair mirror base: %v", err)
-	}
-	retried, err := store.DeprecateManagedSkill(ctx, in)
-	if err != nil || retried.ID != created.ID || retried.Status != "deprecated" {
-		t.Fatalf("retry deprecate = %#v, %v", retried, err)
-	}
-	row, err = raw.q.GetSkillByID(ctx, created.ID)
-	if err != nil || row.Status != "deprecated" || row.Version != created.Version+1 {
-		t.Fatalf("row after cleanup retry = %#v, %v", row, err)
-	}
-	logs, err = raw.ListSkillChangelogBySkill(ctx, created.ID, 10)
-	if err != nil || len(logs) != 1 || logs[0].Action != "deprecate" {
-		t.Fatalf("changelog after cleanup retry = %#v, %v", logs, err)
-	}
-	if _, err := os.Stat(filepath.Join(base, created.Name)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("mirror after cleanup retry stat error = %v, want absent", err)
 	}
 }
 
