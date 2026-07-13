@@ -29,6 +29,10 @@ func MarkReflectOwnedMetadata(metadata json.RawMessage) (json.RawMessage, error)
 			return nil, fmt.Errorf("skills: decode metadata: %w", err)
 		}
 	}
+	// Decoding JSON null replaces the initialized map with nil.
+	if fields == nil {
+		fields = map[string]any{}
+	}
 	fields[reflectSkillCreatedByKey] = ReflectSkillCreatedBy
 
 	out, err := json.Marshal(fields)
