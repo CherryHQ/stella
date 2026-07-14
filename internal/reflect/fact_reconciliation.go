@@ -131,7 +131,7 @@ func validateKnowledgePlan(bundle knowledgeRelatedBundle, plan knowledgeWritePla
 	allowedRefs := factRefsFromCandidates(bundle.Candidates)
 	limit := bundle.Limits.MaxRelatedPerCandidate
 	if limit <= 0 {
-		limit = defaultMaxRelatedPerCandidate
+		limit = defaultMaxRelatedKnowledgePerCandidate
 	}
 
 	for _, op := range plan.Operations {

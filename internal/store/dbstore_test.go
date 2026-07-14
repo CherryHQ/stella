@@ -2,6 +2,8 @@ package store_test
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -369,6 +371,45 @@ func TestChannelCRUD(t *testing.T) {
 	}
 	if len(channels) != 1 {
 		t.Errorf("expected 1 channel, got %d", len(channels))
+	}
+}
+
+func TestChannelBindingIsAtomic(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+	if err := s.CreateAgent(ctx, config.Agent{ID: "agent-1", Name: "Agent", Model: "anthropic/test", Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, id := range []string{"telegram-a", "telegram-b"} {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			<-start
+			errs <- s.UpsertChannel(ctx, config.Channel{ID: id, Type: "telegram", AgentID: "agent-1", Enabled: true, Config: `{}`})
+		}(id)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	var succeeded, conflicted int
+	for err := range errs {
+		if err == nil {
+			succeeded++
+			continue
+		}
+		var conflict *config.ChannelBindingConflictError
+		if errors.As(err, &conflict) {
+			conflicted++
+			continue
+		}
+		t.Fatalf("UpsertChannel error = %v", err)
+	}
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("successes=%d conflicts=%d, want exactly one of each", succeeded, conflicted)
 	}
 }
 

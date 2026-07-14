@@ -261,6 +261,13 @@ SELECT * FROM skill WHERE scope = 'system_agent' AND agent_id = $1 AND name = $2
 -- name: GetUserSkillByName :one
 SELECT * FROM skill WHERE scope = 'user' AND user_id = $1 AND name = $2;
 
+-- name: GetUserAgentSkillByName :one
+SELECT * FROM skill
+WHERE scope = 'user_agent'
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id = sqlc.arg(agent_id)
+  AND name = sqlc.arg(name);
+
 -- name: DeprecateExpiredDrafts :exec
 UPDATE skill
 SET status = 'deprecated', updated_at = now()

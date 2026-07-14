@@ -269,7 +269,7 @@ func TestBuildReviewUnitMarksTruncatedWhenBudgetLeavesFreshContent(t *testing.T)
 	unit, err := svc.buildReviewUnit(context.Background(), reviewTarget{
 		session:         memory.Session{ID: "s1", AgentID: "a", UserID: "u1"},
 		privateOneToOne: true,
-	}, reviewWatermark{}, 32)
+	}, reviewWatermark{}, memory.EstimateTokens("<fresh_conversation>\n[user] "+strings.Repeat("a", 80)+"\n</fresh_conversation>\n"))
 	if err != nil {
 		t.Fatal(err)
 	}

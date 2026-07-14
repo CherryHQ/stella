@@ -245,34 +245,97 @@ func skillFromPlugin(s pkgplugins.Skill) skills.Skill {
 }
 
 func (h *Host) platform(pluginID string) pkgplugins.Platform {
-	return pluginPlatform{host: h, pluginID: pluginID}
+	return pluginPlatform{host: h, pluginID: pluginID, granted: h.grantedCapabilities(pluginID)}
+}
+
+// grantedCapabilities returns the set of Platform capabilities declared by the
+// plugin's registered metadata. A plugin with no metadata (or none declared)
+// gets an empty set, so every gated accessor fails closed.
+func (h *Host) grantedCapabilities(pluginID string) map[pkgplugins.Capability]struct{} {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	info, ok := h.metadataRegs[pluginID]
+	if !ok || len(info.RequiredCapabilities) == 0 {
+		return nil
+	}
+	set := make(map[pkgplugins.Capability]struct{}, len(info.RequiredCapabilities))
+	for _, c := range info.RequiredCapabilities {
+		set[c] = struct{}{}
+	}
+	return set
 }
 
 type pluginPlatform struct {
 	host     *Host
 	pluginID string
+	granted  map[pkgplugins.Capability]struct{}
 }
 
-func (p pluginPlatform) Logger() *slog.Logger { return p.host.Logger(p.pluginID) }
+func (p pluginPlatform) has(c pkgplugins.Capability) bool {
+	_, ok := p.granted[c]
+	return ok
+}
+
+func (p pluginPlatform) Logger() *slog.Logger {
+	if !p.has(pkgplugins.CapabilityLogger) {
+		return nil
+	}
+	return p.host.Logger(p.pluginID)
+}
+
 func (p pluginPlatform) ConfigStore() pkgplugins.ConfigStore {
+	if !p.has(pkgplugins.CapabilityConfigStore) {
+		return nil
+	}
 	return scopedConfigStore{service: p.host.config, pluginID: p.pluginID}
 }
 
 func (p pluginPlatform) StateStore() pkgplugins.StateStore {
+	if !p.has(pkgplugins.CapabilityStateStore) {
+		return nil
+	}
 	return scopedStateStore{store: p.host.stateStore, pluginID: p.pluginID}
 }
 
 func (p pluginPlatform) Scheduler() pkgplugins.Scheduler {
+	if !p.has(pkgplugins.CapabilityScheduler) {
+		return nil
+	}
 	return scopedScheduler{scheduler: p.host.scheduler, pluginID: p.pluginID}
 }
-func (p pluginPlatform) Notifier() pkgplugins.Notifier           { return p.host.Notifications() }
-func (p pluginPlatform) Auth() pkgplugins.Auth                   { return p.host.Auth() }
-func (p pluginPlatform) RuntimeLookup() pkgplugins.RuntimeLookup { return p.host.Runtime() }
+
+func (p pluginPlatform) Notifier() pkgplugins.Notifier {
+	if !p.has(pkgplugins.CapabilityNotifier) {
+		return nil
+	}
+	return p.host.Notifications()
+}
+
+func (p pluginPlatform) Auth() pkgplugins.Auth {
+	if !p.has(pkgplugins.CapabilityAuth) {
+		return nil
+	}
+	return p.host.Auth()
+}
+
+func (p pluginPlatform) RuntimeLookup() pkgplugins.RuntimeLookup {
+	if !p.has(pkgplugins.CapabilityRuntimeLookup) {
+		return nil
+	}
+	return p.host.Runtime()
+}
+
 func (p pluginPlatform) ChannelPlatform() pkgplugins.ChannelPlatform {
+	if !p.has(pkgplugins.CapabilityChannelPlatform) {
+		return nil
+	}
 	return p.host.ChannelRuntime()
 }
 
 func (p pluginPlatform) SkillStore() pkgplugins.SkillStore {
+	if !p.has(pkgplugins.CapabilitySkillStore) {
+		return nil
+	}
 	s := p.host.SkillStore()
 	if s == nil {
 		return nil

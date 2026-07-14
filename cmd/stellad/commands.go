@@ -28,6 +28,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
@@ -98,6 +99,7 @@ type setupResult struct {
 	goalSvc                  *goal.Service
 	vaultSvc                 *vault.Service
 	mcpSvc                   *mcp.Service
+	controlPlane             *controlplane.Service
 	credSvc                  *connections.Service
 	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
@@ -469,6 +471,13 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
 
+	// Control-plane PEP: the single policy-enforcement point for the admin-only
+	// deployment resources (providers/settings/plugins/channels). It shares the one
+	// revision-bound authorizer and owns the persistence + hot-reload each mutation
+	// performs, so the HTTP transport keeps only decode/shape. Built here, after the
+	// pool and shared connections service are fully wired.
+	controlPlaneSvc := controlplane.NewService(authorizer, store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
@@ -510,6 +519,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		goalSvc:                  goalSvc,
 		vaultSvc:                 vaultSvc,
 		mcpSvc:                   mcpSvc,
+		controlPlane:             controlPlaneSvc,
 		credSvc:                  credSvc,
 		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,

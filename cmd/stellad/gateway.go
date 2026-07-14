@@ -322,9 +322,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		LinkCodes:           linkCodes,
 		PoolManager:         s.poolManager,
 		PluginHost:          s.pluginHost,
+		WeixinRegistrar:     newWeixinRegistrar(),
 		BuiltinTools:        s.builtinTools,
 		BaseURL:             baseURL,
 		Credentials:         s.credSvc,
+		ControlPlane:        s.controlPlane,
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,
@@ -479,13 +481,22 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	addr := ln.Addr().String()
 	slog.Info("starting Web UI", "addr", addr)
 	fmt.Printf("Web UI running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
-	httpSrv := &http.Server{Handler: adminSrv.Handler()}
+	// Root mux: the inbound webhook ingress (POST /webhooks/{id}) is mounted here,
+	// ahead of the admin handler, so it bypasses the admin middleware chain (it
+	// authenticates itself via the caller's PAT). It is wrapped in the same OTel
+	// instrumentation the admin handler uses so the webhook request still produces
+	// a server span. Everything else falls through to the admin handler.
+	rootMux := http.NewServeMux()
+	rootMux.Handle("POST /webhooks/{id}", observability.Handler(adminSrv.WebhookIngressHandler()))
+	rootMux.Handle("/", adminSrv.Handler())
+	httpSrv := &http.Server{Handler: rootMux}
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
-	// Managed channel runtimes (bot pollers).
-	applyManagedChannelPlugins(gctx, s.pluginHost)
-	defer quiesceChannelIngress()
+	// Helm enforces one replica with a Recreate rollout, so managed channel
+	// pollers start unconditionally after their dependencies are wired. Drain-time
+	// Quiesce stops new polling; the final Stop remains after River drains.
+	applyManagedChannelPlugins(ingressCtx, s.pluginHost)
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 

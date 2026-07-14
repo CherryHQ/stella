@@ -83,7 +83,7 @@ Any other value than `true`/`false` (or `1`/`0`) for `?wait=` is rejected with `
 
 > **Persistent sessions and concurrency:** a persistent session runs one trigger at a time. If a trigger arrives while a previous run is still in flight, it is rejected with `429 Too Many Requests` (in both reply modes) -- wait for the in-flight run to finish and retry. Ephemeral mode is not affected: every trigger gets its own session.
 
-> **Persistent sessions and multiple replicas:** persistent mode assumes a single agent runner. If you run Stella across several replicas, concurrent triggers to the same persistent webhook may interleave. For high-frequency persistent webhooks, keep the agent on one replica.
+> **Persistent sessions:** persistent mode uses one long-lived agent runner per caller. Stella supports one server replica; the Helm chart enforces that topology.
 
 ## Response codes
 

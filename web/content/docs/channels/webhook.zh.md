@@ -83,7 +83,7 @@ curl -X POST 'https://your-host/webhooks/deploy-notify?wait=true' \
 
 > **持久会话与并发：** 持久会话同一时间只处理一次触发。如果上一次运行还未结束时又有触发到达，该请求会被拒绝并返回 `429 Too Many Requests`（两种回复模式都如此）——请等在途运行结束后重试。临时模式不受影响：每次触发都有自己的会话。
 
-> **持久会话与多副本：** 持久模式假设只有单个 Agent 运行实例。如果你在多个副本上运行 Stella，对同一持久 webhook 的并发触发可能会交错。对于高频持久 webhook，请把该 Agent 固定在单个副本上。
+> **持久会话：** 持久模式为每个调用方使用一个长期运行的 Agent runner。Stella 只支持一个服务副本；Helm chart 会强制该拓扑。
 
 ## 响应码
 

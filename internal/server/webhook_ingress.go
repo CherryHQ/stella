@@ -14,7 +14,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/credential"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	webhookplugin "github.com/CherryHQ/stella/plugins/channels/webhook"
 )
 
 const (
@@ -104,7 +103,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "invalid webhook config")
 		return
 	}
-	cfg, err := webhookplugin.DecodeConfig(cfgMap)
+	cfg, err := s.pluginHost.DecodeWebhookRunConfig(cfgMap)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "invalid webhook config")
 		return
@@ -145,7 +144,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 
 	// --- Resolve the session (ephemeral by default; persistent when configured). ---
 	var info session.Info
-	if cfg.Persistent() {
+	if cfg.Persistent {
 		key := agent.BuildUserSessionKey(ch.AgentID, principal.UserID, "webhook:"+id)
 		info, err = svc.ResolvePrivateChannelSession(ctx, authority, key, principal.UserID, ch.AgentID, session.ChannelWebhook)
 	} else {
@@ -164,7 +163,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Run the agent on a detached, bounded context (never the request ctx). ---
-	runCtx, cancel := context.WithTimeout(s.runtimeCtx, time.Duration(cfg.EffectiveMaxRunTimeout())*time.Second)
+	runCtx, cancel := context.WithTimeout(s.runtimeCtx, time.Duration(cfg.MaxRunTimeoutSeconds)*time.Second)
 	// done releases everything tied to the run's lifetime; every path that
 	// consumes the drain result calls it exactly once.
 	done := func() {
@@ -226,7 +225,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		}
 		s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "ok", start, nil)
 		writeData(w, http.StatusOK, map[string]any{"session_id": info.ID, "output": res.output})
-	case <-time.After(time.Duration(cfg.EffectiveWaitTimeout()) * time.Second):
+	case <-time.After(time.Duration(cfg.WaitTimeoutSeconds) * time.Second):
 		// Stop waiting, but the drainer keeps consuming the stream to
 		// completion; the terminal status lands in the log.
 		s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "timeout", start, nil)

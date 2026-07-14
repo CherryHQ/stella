@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/auth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
@@ -22,17 +21,13 @@ func TestNewUsesInjectedInstances(t *testing.T) {
 	db := dbtest.New(t)
 	store := cfgstore.NewDBStore(db)
 	as := appdb.NewAuthStore(db)
-	engine, err := auth.NewEngine(context.Background(), as)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
 	mem, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("lcm.New: %v", err)
 	}
 	phost := pluginhost.New(store)
 
-	deps := testServerDeps(t, store, as, engine, mem, db, phost)
+	deps := testServerDeps(t, store, as, mem, db, phost)
 	srv, err := New(context.Background(), deps)
 	if err != nil {
 		t.Fatalf("server.New: %v", err)

@@ -15,7 +15,7 @@ func TestAttachKnowledgeRelatedRecordsUsesSelectedFacts(t *testing.T) {
 			{ID: "fact-a", Record: memory.Fact{ID: "fact-a", Content: "First related fact."}},
 			{ID: "fact-b", Record: memory.Fact{ID: "fact-b", Content: "Second related fact."}},
 		},
-		Limits: relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedPerCandidate},
+		Limits: relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedKnowledgePerCandidate},
 	}
 
 	updated, err := attachKnowledgeRelatedRecords(bundle, []knowledgeRelatedSelection{{

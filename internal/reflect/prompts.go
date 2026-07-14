@@ -408,6 +408,7 @@ Your job:
 - For knowledge, decide noop, create, replace_many, or deprecate_many using only candidates and related records from the bundle.
 - If a candidate is equivalent to existing content, hard noop it.
 - If proposed profile or soul content is equivalent to the current singleton, use noop. Do not replace a singleton only to cover a candidate.
+- For profile and soul, wording polish, synonym substitution, tone-only rephrasing, and equally specific paraphrases are equivalent content, not durable deltas. Replace only when a candidate adds, contradicts, or makes obsolete a material meaning.
 - When a knowledge candidate is the durable replacement for related old facts, use one replace_many operation.
 - Do not split the same replacement into create plus deprecate_many.
 - Use deprecate_many when fresh evidence invalidates existing related world facts and no durable replacement fact should be retained.

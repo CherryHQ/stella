@@ -21,7 +21,11 @@ type Host interface {
 	AddBundledSkill(BundledSkillSpec)
 }
 
-// Platform is the plugin-scoped service surface available during build/runtime work.
+// Platform is the plugin-scoped service surface available during build/runtime
+// work. It is capability-gated: each accessor returns its scoped service only if
+// the plugin declared the matching Capability in PluginInfo.RequiredCapabilities.
+// An accessor for an undeclared capability returns nil (fail-closed) — there is
+// no ambient, all-capabilities Platform.
 type Platform interface {
 	Logger() *slog.Logger
 	ConfigStore() ConfigStore

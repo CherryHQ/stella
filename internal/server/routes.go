@@ -43,10 +43,10 @@ func (s *Server) registerStaticRoutes() {
 	s.mux.HandleFunc("GET /oauth/authorize", s.handleOAuthAuthorize)
 	s.mux.HandleFunc("POST /oauth/authorize", s.handleOAuthAuthorize)
 	s.mux.HandleFunc("POST /oauth/token", s.handleOAuthToken)
-	// Inbound webhook channel ingress — a PAT-authenticated trigger, not an
-	// OpenAPI/JSON API route. It authenticates itself (auth-exempt in
-	// middleware.go) via the caller's personal access token.
-	s.mux.HandleFunc("POST /webhooks/{id}", s.handleWebhookIngress)
+	// The inbound webhook channel ingress (POST /webhooks/{id}) is NOT registered
+	// here: it is a PAT-authenticated trigger that authenticates itself and must
+	// bypass the admin middleware chain, so the composition root mounts
+	// s.WebhookIngressHandler() on the HTTP root ahead of the admin mux.
 }
 
 func (s *Server) registerPageRoutes() {

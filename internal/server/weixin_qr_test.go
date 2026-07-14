@@ -8,6 +8,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -52,10 +53,6 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	}
 
 	as := appdb.NewAuthStore(db)
-	engine, err := auth.NewEngine(ctx, as)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
 	mem, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
 		t.Fatalf("Build lcm provider: %v", err)
@@ -80,16 +77,32 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	srv := newTestServer(t, store, as, engine, mem, db, phost)
+	srv := newTestServer(t, store, as, mem, db, phost)
 
-	status := &weixinplugin.QRCodeStatusResponse{
+	status := WeixinQRCodeStatus{
 		Status:      "confirmed",
 		BotToken:    "wx-token",
 		BaseURL:     "https://wx.example",
 		ILinkBotID:  "bot-1",
 		ILinkUserID: "user-1",
 	}
-	if err := srv.saveWeixinCredentials(ctx, status); err != nil {
+	roles, err := authz.NewRoleSet(authz.RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := authz.NewUserAuthority("admin", roles, authz.GrantSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := srv.controlPlane.Begin(ctx, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, err := access.ManageChannel(pkgchannel.PlatformWeixin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.saveWeixinCredentials(ctx, operation, status); err != nil {
 		t.Fatalf("saveWeixinCredentials: %v", err)
 	}
 

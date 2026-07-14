@@ -96,6 +96,14 @@ const (
 	stackTransport = "transports"
 )
 
+// gateControlPlane is the entry gate for the admin-only deployment control-plane
+// families (providers/settings/plugins/channels) after #712: each handler derives
+// a trusted Authority and decides through controlplane.Service, whose sole grant
+// is admin-full-access — so a non-admin is default-denied exactly as the legacy
+// requireAdmin gate denied them. The target shape (admin visibility, admin actor)
+// is unchanged; only the enforcement mechanism moved off requireAdmin.
+const gateControlPlane = "controlplane.Service Authority PEP (#712)"
+
 // classifyAPIRoute is the rule-based classifier. It returns ok=false for any
 // route family / sub-resource it does not explicitly recognise, so a newly
 // generated route fails the coverage test until classified.
@@ -118,9 +126,11 @@ func classifyAPIRoute(method, path string) (routeClass, bool) {
 			Visibility: "private", Stack: stackAuthz,
 		}, true
 	}
-	adminResource := func(resource, stack string) (routeClass, bool) {
+	// controlPlaneResource classifies the admin-only deployment control-plane
+	// families now gated by controlplane.Service (providers/settings/plugins).
+	controlPlaneResource := func(resource, stack string) (routeClass, bool) {
 		return routeClass{
-			CurrentGate: "admin (requireAdmin)",
+			CurrentGate: gateControlPlane,
 			Actor:       "UserActor(admin)", Action: act, Resource: resource,
 			Visibility: "admin", Stack: stack,
 		}, true
@@ -195,15 +205,15 @@ func classifyAPIRoute(method, path string) (routeClass, bool) {
 	case "status":
 		return authenticated("status")
 	case "provider-types", "providers":
-		return adminResource("provider", stackAuthz)
+		return controlPlaneResource("provider", stackAuthz)
 	case "plugins", "manifest-plugins":
-		return adminResource("plugin", stackPlugin)
+		return controlPlaneResource("plugin", stackPlugin)
 	case "cli-tools":
-		return adminResource("cli", stackAuthz)
+		return controlPlaneResource("cli", stackAuthz)
 	case "embedding-settings":
-		return adminResource("embedding", stackAuthz)
+		return controlPlaneResource("embedding", stackAuthz)
 	case "admin":
-		return adminResource("oauth_provider_config", stackAuthz)
+		return controlPlaneResource("oauth_provider_config", stackAuthz)
 	}
 	return routeClass{}, false
 }
@@ -349,7 +359,7 @@ func classifyChannels(act string, segs []string) (routeClass, bool) {
 		}, true
 	}
 	return routeClass{
-		CurrentGate: "admin (requireAdmin)",
+		CurrentGate: gateControlPlane,
 		Actor:       "UserActor(admin)", Action: act, Resource: "channel",
 		Visibility: "admin", Stack: stackTransport,
 	}, true

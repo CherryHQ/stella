@@ -61,6 +61,11 @@ func init() {
 					pkgplugins.CapabilityConfig,
 					pkgplugins.CapabilityStatus,
 				},
+				RequiredCapabilities: []pkgplugins.Capability{
+					pkgplugins.CapabilityChannelPlatform,
+					pkgplugins.CapabilityLogger,
+					pkgplugins.CapabilityRuntimeLookup,
+				},
 			},
 			DefaultConfig: func() map[string]any { return map[string]any{} },
 			Schema:        configSchema(),

@@ -194,6 +194,13 @@ func TestSkillCandidateEvaluationPrompt_UsesDetailedScoreRubric(t *testing.T) {
 	})
 }
 
+func TestFactReconciliationPrompt_RejectsSingletonWordingOnlyChanges(t *testing.T) {
+	assertPromptContainsAll(t, factReconciliationPrompt, []string{
+		"wording polish, synonym substitution, tone-only rephrasing, and equally specific paraphrases are equivalent content",
+		"Replace only when a candidate adds, contradicts, or makes obsolete a material meaning",
+	})
+}
+
 func assertPromptContainsAll(t *testing.T, prompt string, phrases []string) {
 	t.Helper()
 	for _, phrase := range phrases {

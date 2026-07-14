@@ -5,7 +5,7 @@ description: Positioning and copy rules for Stella marketing surfaces.
 
 **Read this before writing any landing page, hero section, README opener, docs index, feature pitch, screenshot caption, social post, or release announcement.** Anything a prospective user reads _before_ they decide to try Stella is governed by this file. Reference docs, API specs, and in-app UI copy are not — those follow [`doc-style.md`](./doc-style.md) and [`web-design.md`](./web-design.md).
 
-The source for these principles is field-tested app marketing practice, adapted to Stella's reality: a self-hosted, multi-tenant, multi-agent platform sold primarily to organizations.
+The source for these principles is field-tested app marketing practice, adapted to Stella's reality: a self-hosted, single-tenant, multi-user, multi-agent platform sold primarily to organizations.
 
 ## Audience priority
 
@@ -35,7 +35,7 @@ Engineering describes Stella in feature language. Users don't buy features; they
 
 | Feature layer (how we build it)                | Value layer (what the reader gets)                                                         |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Multi-tenant, multi-user, multi-agent          | Anyone on the team just asks — no new system to learn, no seat-by-seat setup               |
+| One deployment, many users and agents          | Anyone on the team just asks — no new system to learn, no seat-by-seat setup               |
 | Per-user-per-agent memory                      | The agent remembers each teammate's context, so nobody re-explains themselves              |
 | Telegram / QQ / Feishu / WeChat / Web channels | It shows up in the group chat you already live in — no new app to install                  |
 | Skills, tools, sandbox policy                  | It does the work, not just chats — and only within boundaries you set                      |
@@ -45,7 +45,7 @@ Engineering describes Stella in feature language. Users don't buy features; they
 
 The test for any marketing sentence: a reader should feel **"this is about me,"** not "this is impressive engineering." If a sentence only makes sense to someone who already knows the architecture, it belongs in `development/`, not on a landing page.
 
-Banned on marketing surfaces unless immediately translated: `multi-tenant`, `multi-agent`, `sandbox policy`, `durable jobs`, `pgxpool`, `River`, model/library names, and any other internal mechanism. Naming the mechanism is fine _after_ the value lands ("…because each agent runs in its own sandbox").
+Banned on marketing surfaces unless immediately translated: `single-tenant`, `multi-agent`, `sandbox policy`, `durable jobs`, `pgxpool`, `River`, model/library names, and any other internal mechanism. Naming the mechanism is fine _after_ the value lands ("…because each agent runs in its own sandbox").
 
 ## Write for a specific person, not a persona
 

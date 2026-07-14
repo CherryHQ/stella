@@ -10,8 +10,8 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/plugins/channels/weixin"
 )
 
 const weixinRegistrationPollInterval = 2
@@ -31,14 +31,6 @@ func validateWeixinChannelID(id string) error {
 	return nil
 }
 
-var weixinRegistrationEndpoint = weixin.DefaultBaseURL
-
-func SetWeixinRegistrationEndpointForTesting(endpoint string) func() {
-	previous := weixinRegistrationEndpoint
-	weixinRegistrationEndpoint = endpoint
-	return func() { weixinRegistrationEndpoint = previous }
-}
-
 type weixinRegistrationPollRequest struct {
 	QRCode    string         `json:"qrcode"`
 	ChannelID string         `json:"channel_id"`
@@ -47,19 +39,16 @@ type weixinRegistrationPollRequest struct {
 	Config    map[string]any `json:"config"`
 }
 
-func getWeixinRegistrationQRCode() (*weixin.QRCodeResponse, error) {
-	return weixin.NewClient(weixinRegistrationEndpoint, "", "", "").GetQRCode()
-}
-
-func getWeixinRegistrationStatus(qrcode string) (*weixin.QRCodeStatusResponse, error) {
-	return weixin.NewClient(weixinRegistrationEndpoint, "", "", "").GetQRCodeStatus(qrcode)
-}
-
 func (s *Server) BeginWeixinRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
-	qr, err := getWeixinRegistrationQRCode()
+	if _, err := access.ManageChannel(pkgchannel.PlatformWeixin); err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	qr, err := s.weixinRegistrar.GetQRCode()
 	if err != nil {
 		s.writeBadGatewayError(w, err)
 		return
@@ -72,7 +61,8 @@ func (s *Server) BeginWeixinRegistration(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
 	var req weixinRegistrationPollRequest
@@ -98,6 +88,12 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "agent_id is required; bind this WeChat channel to an agent")
 		return
 	}
+	prospective := config.Channel{ID: pkgchannel.PlatformWeixin, Type: pkgchannel.PlatformWeixin, AgentID: req.AgentID}
+	operation, err := access.ManageChannel(pkgchannel.PlatformWeixin)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
 	agent, err := s.store.GetAgent(r.Context(), req.AgentID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "agent_id must reference an existing agent")
@@ -107,16 +103,12 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "agent_id must reference an enabled agent")
 		return
 	}
-	ch := config.Channel{ID: pkgchannel.PlatformWeixin, Type: pkgchannel.PlatformWeixin, AgentID: req.AgentID}
-	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), ch); err != nil {
-		s.writeInternalError(w, err)
-		return
-	} else if conflict != "" {
-		writeError(w, http.StatusBadRequest, conflict)
+	if err := operation.ValidateBinding(r.Context(), prospective); err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 
-	status, err := getWeixinRegistrationStatus(req.QRCode)
+	status, err := s.weixinRegistrar.GetQRCodeStatus(req.QRCode)
 	if err != nil {
 		s.writeBadGatewayError(w, err)
 		return
@@ -134,13 +126,13 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 	if name == "" {
 		name = "WeChat"
 	}
-	saved, err := s.saveWeixinSingletonChannel(r.Context(), name, req.AgentID, true, req.Config, status)
+	saved, err := s.saveWeixinSingletonChannel(r.Context(), operation, name, req.AgentID, true, req.Config, status)
 	if errors.Is(err, errWeixinConfigInvalid) {
 		writeError(w, http.StatusBadRequest, "invalid channel config")
 		return
 	}
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"status": "created", "channel": channelToView(saved)})
@@ -151,7 +143,7 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 // always win. name and agentID are applied only when non-empty; enable only
 // ever turns the channel on (a confirmed registration enables it; the
 // identity-link path passes false to leave the existing state untouched).
-func (s *Server) saveWeixinSingletonChannel(ctx context.Context, name, agentID string, enable bool, cfgPatch map[string]any, status *weixin.QRCodeStatusResponse) (config.Channel, error) {
+func (s *Server) saveWeixinSingletonChannel(ctx context.Context, operation *controlplane.ChannelManagement, name, agentID string, enable bool, cfgPatch map[string]any, status WeixinQRCodeStatus) (config.Channel, error) {
 	ch, err := s.store.GetChannel(ctx, pkgchannel.PlatformWeixin)
 	cfg := map[string]any{}
 	if err != nil {
@@ -180,29 +172,15 @@ func (s *Server) saveWeixinSingletonChannel(ctx context.Context, name, agentID s
 	cfg["bot_id"] = status.ILinkBotID
 	cfg["user_id"] = status.ILinkUserID
 
-	pluginID := config.PluginID(config.PluginKindChannel, pkgchannel.PlatformWeixin)
-	if s.pluginHost != nil {
-		if err := s.pluginHost.ValidateConfig(pluginID, cfg); err != nil {
-			return config.Channel{}, fmt.Errorf("%w: %w", errWeixinConfigInvalid, err)
-		}
-	}
-	if err := s.store.UpsertPlugin(ctx, config.Plugin{ID: pluginID, Kind: config.PluginKindChannel, Name: pkgchannel.PlatformWeixin, Enabled: ch.Enabled, Config: cfg}); err != nil {
-		return config.Channel{}, err
-	}
-	cfgJSON, err := json.Marshal(cfg)
-	if err != nil {
-		return config.Channel{}, err
+	if operation == nil {
+		return config.Channel{}, errors.New("missing authorized channel operation")
 	}
 	ch.ID = pkgchannel.PlatformWeixin
 	ch.Type = pkgchannel.PlatformWeixin
-	ch.Config = string(cfgJSON)
-	if err := s.store.UpsertChannel(ctx, ch); err != nil {
-		return config.Channel{}, err
-	}
 	if s.pluginHost != nil {
-		if err := s.pluginHost.ApplyChannel(ctx, ch); err != nil {
-			s.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
+		if err := s.pluginHost.ValidateConfig(config.PluginID(config.PluginKindChannel, ch.Type), cfg); err != nil {
+			return config.Channel{}, fmt.Errorf("%w: %w", errWeixinConfigInvalid, err)
 		}
 	}
-	return s.store.GetChannel(ctx, ch.ID)
+	return operation.Save(ctx, ch, cfg, false)
 }

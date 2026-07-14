@@ -11,22 +11,13 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
-// RunOnce executes a single review cycle across all enabled agents.
-// Returns the first cycle-level error (e.g. listing agents failed, ctx
-// cancelled) so the scheduler can record the run as errored. Per-agent
-// failures are logged inside runCycle and do not surface here.
+// RunOnce executes the scheduler-owned review cycle across all enabled agents.
+// Production and immediate operator runs must go through the registered
+// scheduler builtin (using scheduler.RunJobNow for the latter) so concurrency
+// control and run records are preserved. It returns the first cycle-level error;
+// per-agent failures are logged inside runCycle and do not surface here.
 func (s *Service) RunOnce(ctx context.Context) error {
 	return s.runCycle(ctx)
-}
-
-// ReviewNow triggers an immediate review cycle for a single agent.
-// Returns the number of sessions reviewed.
-func (s *Service) ReviewNow(ctx context.Context, agentID string) (int, error) {
-	snap, err := s.store.Snapshot(ctx, agentID)
-	if err != nil {
-		return 0, fmt.Errorf("snapshot: %w", err)
-	}
-	return s.reviewAgent(ctx, snap)
 }
 
 func (s *Service) runCycle(ctx context.Context) error {
@@ -91,11 +82,6 @@ func (s *Service) runCycleWithReviewer(ctx context.Context, review reviewTargetF
 	expireDrafts(s.skillStore, defaultDraftMaxAge, s.log)
 	s.maybeRunUsageCurator(ctx)
 	return nil
-}
-
-func (s *Service) reviewAgent(ctx context.Context, snap *config.Snapshot) (int, error) {
-	reviewed, _, err := s.reviewAgentWithReviewer(ctx, snap, time.Time{}, s.reviewConversation)
-	return reviewed, err
 }
 
 func (s *Service) reviewAgentWithReviewer(ctx context.Context, snap *config.Snapshot, deadline time.Time, review reviewTargetFunc) (int, bool, error) {

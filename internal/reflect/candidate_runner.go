@@ -222,6 +222,8 @@ func captureRepairRetryEnabled(submitName string) bool {
 		toolSubmitFactEvaluations,
 		toolSubmitSkillGeneration,
 		toolSubmitSkillEvaluations,
+		toolSubmitKnowledgeRelatedDiscovery,
+		toolSubmitSkillRelatedDiscovery,
 		toolSubmitFactReconciliation,
 		toolSubmitSkillReconciliation:
 		return true

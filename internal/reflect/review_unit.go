@@ -16,6 +16,7 @@ type ReviewSkipReason string
 
 const (
 	reviewSkipOversizedSingleMessage ReviewSkipReason = "oversized_single_message_skipped"
+	reviewSkipOversizedBoundaryGroup ReviewSkipReason = "oversized_boundary_group_skipped"
 	reviewSkipNoFreshContent         ReviewSkipReason = "no_fresh_content"
 	reviewSkipNotPrivateOneToOne     ReviewSkipReason = "not_private_one_to_one"
 )
@@ -54,7 +55,16 @@ type reviewSkillUsage struct {
 	CallID string
 }
 
-const maxToolSummaryChars = 1200
+const (
+	maxToolSummaryChars = 1200
+
+	priorContextOpen       = "<prior_context>\n"
+	priorContextClose      = "</prior_context>\n\n"
+	freshConversationOpen  = "<fresh_conversation>\n"
+	freshConversationClose = "</fresh_conversation>\n"
+	skillUsageOpen         = "\n<session_skill_usage>\n"
+	skillUsageClose        = "</session_skill_usage>\n"
+)
 
 var (
 	tokenLikePattern        = regexp.MustCompile(`(?i)\b(?:ghp_[a-z0-9_]{16,}|github_pat_[a-z0-9_]{16,}|sk-[a-z0-9_-]{16,})\b`)
@@ -68,6 +78,12 @@ var (
 		"</session_skill_usage>", "&lt;/session_skill_usage&gt;",
 		"<candidates_json>", "&lt;candidates_json&gt;",
 		"</candidates_json>", "&lt;/candidates_json&gt;",
+		"[tool_result_summary]", "&#91;tool_result_summary&#93;",
+		"[assistant_tool_call]", "&#91;assistant_tool_call&#93;",
+		"[user]", "&#91;user&#93;",
+		"[assistant]", "&#91;assistant&#93;",
+		"[tool]", "&#91;tool&#93;",
+		"[system]", "&#91;system&#93;",
 	)
 )
 
@@ -94,54 +110,38 @@ func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark
 		budget = maxFallbackReviewTokens
 	}
 
-	var b strings.Builder
-	if len(priorLines) > 0 {
-		b.WriteString("<prior_context>\n")
-		for _, line := range tailByBudget(priorLines, budget/4) {
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
-		b.WriteString("</prior_context>\n\n")
-	}
-
-	b.WriteString("<fresh_conversation>\n")
-	remaining := budget
+	includedFresh := make([]reviewLine, 0, len(fresh))
+	renderedLength := len(freshConversationOpen) + len(freshConversationClose)
 	for i := 0; i < len(fresh); {
 		group := nextReviewBoundaryGroup(fresh, i)
 		i += len(group)
 
-		included, skipped, groupCost := reviewBoundaryGroupPlan(group, budget)
-		if groupCost > remaining {
+		included, skipped := reviewBoundaryGroupPlan(group, budget)
+		unit.Skipped = append(unit.Skipped, skipped...)
+		if len(included) == 0 {
+			updateReviewUnitWatermark(&unit, group)
+			continue
+		}
+
+		// Fresh boundaries take priority, so reserve their protocol envelope before
+		// considering optional skill usage or prior context.
+		candidateLength := renderedLength + renderedReviewLinesLength(included)
+		if !reviewTextLengthFitsBudget(candidateLength, budget) {
+			if len(includedFresh) == 0 {
+				// Timestamp-only history cannot safely split equal-timestamp messages.
+				// Skip an impossible boundary as a unit so later reviews can progress.
+				unit.Skipped = append(unit.Skipped, oversizedBoundaryGroupSkip(group))
+				updateReviewUnitWatermark(&unit, group)
+				continue
+			}
 			unit.Truncated = true
 			break
 		}
 
-		unit.Skipped = append(unit.Skipped, skipped...)
-		for _, item := range included {
-			b.WriteString(item.line.text)
-			b.WriteString("\n")
-			remaining -= item.cost
-			unit.FreshCount++
-			unit.SkillUsage = append(unit.SkillUsage, item.line.usages...)
-		}
-		if len(included) > 0 || len(skipped) > 0 {
-			last := group[len(group)-1]
-			if last.lastSeq > 0 {
-				unit.LastIncludedSeq = last.lastSeq
-			}
-			if !last.at.IsZero() {
-				unit.LastIncludedAt = last.at
-			}
-		}
-	}
-	b.WriteString("</fresh_conversation>\n")
-	if len(unit.SkillUsage) > 0 {
-		b.WriteString("\n<session_skill_usage>\n")
-		for _, usage := range unit.SkillUsage {
-			b.WriteString(usage.render())
-			b.WriteString("\n")
-		}
-		b.WriteString("</session_skill_usage>\n")
+		includedFresh = append(includedFresh, included...)
+		renderedLength = candidateLength
+		unit.FreshCount += len(included)
+		updateReviewUnitWatermark(&unit, group)
 	}
 
 	if unit.FreshCount == 0 && len(unit.Skipped) == 0 {
@@ -150,8 +150,101 @@ func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark
 	if unit.FreshCount == 0 {
 		return unit, nil
 	}
-	unit.Text = b.String()
+
+	for _, line := range includedFresh {
+		for _, usage := range line.usages {
+			renderedUsage := usage.render()
+			candidateLength := renderedLength + len(renderedUsage) + 1
+			if len(unit.SkillUsage) == 0 {
+				candidateLength += len(skillUsageOpen) + len(skillUsageClose)
+			}
+			if !reviewTextLengthFitsBudget(candidateLength, budget) {
+				break
+			}
+			unit.SkillUsage = append(unit.SkillUsage, usage)
+			renderedLength = candidateLength
+		}
+	}
+
+	includedPriorStart := len(priorLines)
+	for i := len(priorLines) - 1; i >= 0; i-- {
+		candidateLength := renderedLength + len(priorLines[i]) + 1
+		if includedPriorStart == len(priorLines) {
+			candidateLength += len(priorContextOpen) + len(priorContextClose)
+		}
+		if !reviewTextLengthFitsBudget(candidateLength, budget) {
+			break
+		}
+		includedPriorStart = i
+		renderedLength = candidateLength
+	}
+
+	includedPrior := priorLines[includedPriorStart:]
+	unit.Text = renderReviewUnitText(includedPrior, includedFresh, unit.SkillUsage)
+	if !reviewTextFitsBudget(unit.Text, budget) {
+		return ReviewUnit{}, fmt.Errorf("review unit rendered above token budget")
+	}
 	return unit, nil
+}
+
+func updateReviewUnitWatermark(unit *ReviewUnit, group []reviewLine) {
+	if len(group) == 0 {
+		return
+	}
+	last := group[len(group)-1]
+	if last.lastSeq > 0 {
+		unit.LastIncludedSeq = last.lastSeq
+	}
+	if !last.at.IsZero() {
+		unit.LastIncludedAt = last.at
+	}
+}
+
+func renderReviewUnitText(priorLines []string, fresh []reviewLine, usages []reviewSkillUsage) string {
+	var b strings.Builder
+	if len(priorLines) > 0 {
+		b.WriteString(priorContextOpen)
+		for _, line := range priorLines {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString(priorContextClose)
+	}
+
+	b.WriteString(freshConversationOpen)
+	for _, line := range fresh {
+		b.WriteString(line.text)
+		b.WriteString("\n")
+	}
+	b.WriteString(freshConversationClose)
+
+	if len(usages) > 0 {
+		b.WriteString(skillUsageOpen)
+		for _, usage := range usages {
+			b.WriteString(usage.render())
+			b.WriteString("\n")
+		}
+		b.WriteString(skillUsageClose)
+	}
+	return b.String()
+}
+
+func reviewTextFitsBudget(text string, budget int) bool {
+	return memory.EstimateTokens(text) <= budget
+}
+
+func reviewTextLengthFitsBudget(length int, budget int) bool {
+	// EstimateTokens is byte-length based. Keep the same calculation here so
+	// incremental packing does not repeatedly materialize the whole review unit.
+	return (length+3)/4 <= budget
+}
+
+func renderedReviewLinesLength(lines []reviewLine) int {
+	length := 0
+	for _, line := range lines {
+		length += len(line.text) + 1
+	}
+	return length
 }
 
 func (s *Service) buildReviewLines(ctx context.Context, target reviewTarget, mark reviewWatermark) ([]string, []reviewLine, error) {
@@ -250,11 +343,6 @@ func (s *Service) buildReviewLinesFromLoadHistory(ctx context.Context, target re
 	return priorLines, fresh, nil
 }
 
-type reviewLineWithCost struct {
-	line reviewLine
-	cost int
-}
-
 type reviewLine struct {
 	id       string
 	role     string
@@ -293,13 +381,14 @@ func reviewLineBeforeOrAtWatermark(line reviewLine, mark reviewWatermark) bool {
 	return false
 }
 
-func reviewBoundaryGroupPlan(group []reviewLine, budget int) ([]reviewLineWithCost, []ReviewSkip, int) {
-	included := make([]reviewLineWithCost, 0, len(group))
+func reviewBoundaryGroupPlan(group []reviewLine, budget int) ([]reviewLine, []ReviewSkip) {
+	included := make([]reviewLine, 0, len(group))
 	var skipped []ReviewSkip
-	groupCost := 0
 	for _, line := range group {
-		cost := memory.EstimateTokens(line.text)
-		if cost > budget {
+		// A line is permanently oversized only when it cannot fit in the smallest
+		// valid review unit, including the mandatory fresh-conversation envelope.
+		minimalLength := len(freshConversationOpen) + len(line.text) + 1 + len(freshConversationClose)
+		if !reviewTextLengthFitsBudget(minimalLength, budget) {
 			lastSeq := line.lastSeq
 			if lastSeq == 0 {
 				lastSeq = line.firstSeq
@@ -314,10 +403,29 @@ func reviewBoundaryGroupPlan(group []reviewLine, budget int) ([]reviewLineWithCo
 			})
 			continue
 		}
-		included = append(included, reviewLineWithCost{line: line, cost: cost})
-		groupCost += cost
+		included = append(included, line)
 	}
-	return included, skipped, groupCost
+	return included, skipped
+}
+
+func oversizedBoundaryGroupSkip(group []reviewLine) ReviewSkip {
+	if len(group) == 0 {
+		return ReviewSkip{Reason: reviewSkipOversizedBoundaryGroup}
+	}
+	first := group[0]
+	last := group[len(group)-1]
+	firstSeq := first.firstSeq
+	lastSeq := last.lastSeq
+	if lastSeq == 0 {
+		lastSeq = last.firstSeq
+	}
+	return ReviewSkip{
+		Reason:   reviewSkipOversizedBoundaryGroup,
+		At:       last.at,
+		FirstSeq: firstSeq,
+		LastSeq:  lastSeq,
+		Size:     renderedReviewLinesLength(group),
+	}
 }
 
 func renderReviewLine(msg ai.Message, skillUsageByCall map[string]reviewSkillUsage) reviewLine {
@@ -332,16 +440,19 @@ func renderReviewLine(msg ai.Message, skillUsageByCall map[string]reviewSkillUsa
 	}
 	if role == "tool" {
 		toolName, callID := toolResultSource(msg)
+		safeToolName := redactReviewText(toolName)
+		safeCallID := redactReviewText(callID)
 		if usage, ok := skillUsageByCall[callID]; ok && toolName == toolNameSkills && usage.Action == "load" {
 			return reviewLine{
 				role: role,
-				text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s loaded_skill_content_omitted", toolName, callID),
+				text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s loaded_skill_content_omitted", safeToolName, safeCallID),
 				at:   at,
 			}
 		}
 		return reviewLine{
 			role: role,
-			text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s %s", toolName, callID, summarizeToolResult(text)),
+			// The host prefix stays literal; all tool-provided fields are redacted first.
+			text: fmt.Sprintf("[tool_result_summary] tool=%s call_id=%s %s", safeToolName, safeCallID, summarizeToolResult(text)),
 			at:   at,
 		}
 	}
@@ -367,19 +478,19 @@ func renderAssistantToolCallSummary(msg ai.Message) string {
 		name, _ := call.Arguments["name"].(string)
 		query, _ := call.Arguments["query"].(string)
 		var parts []string
-		parts = append(parts, fmt.Sprintf("[assistant_tool_call] tool=%s call_id=%s", call.Name, call.ID))
+		parts = append(parts, fmt.Sprintf("[assistant_tool_call] tool=%s call_id=%s", redactReviewText(call.Name), redactReviewText(call.ID)))
 		if action != "" {
-			parts = append(parts, "action="+action)
+			parts = append(parts, "action="+redactReviewText(action))
 		}
 		if name != "" {
-			parts = append(parts, "name="+name)
+			parts = append(parts, "name="+redactReviewText(name))
 		}
 		if query != "" {
-			parts = append(parts, "query="+query)
+			parts = append(parts, "query="+redactReviewText(query))
 		}
 		lines = append(lines, strings.Join(parts, " "))
 	}
-	return redactReviewText(strings.Join(lines, "\n"))
+	return strings.Join(lines, "\n")
 }
 
 func collectReviewSkillUsage(msg ai.Message) []reviewSkillUsage {

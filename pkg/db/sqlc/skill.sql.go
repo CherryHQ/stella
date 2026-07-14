@@ -521,6 +521,40 @@ func (q *Queries) GetSystemSkillByName(ctx context.Context, name string) (Skill,
 	return i, err
 }
 
+const getUserAgentSkillByName = `-- name: GetUserAgentSkillByName :one
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill
+WHERE scope = 'user_agent'
+  AND user_id = $1
+  AND agent_id = $2
+  AND name = $3
+`
+
+type GetUserAgentSkillByNameParams struct {
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Name    string      `json:"name"`
+}
+
+func (q *Queries) GetUserAgentSkillByName(ctx context.Context, arg GetUserAgentSkillByNameParams) (Skill, error) {
+	row := q.db.QueryRow(ctx, getUserAgentSkillByName, arg.UserID, arg.AgentID, arg.Name)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
 const getUserSkillByName = `-- name: GetUserSkillByName :one
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill WHERE scope = 'user' AND user_id = $1 AND name = $2
 `

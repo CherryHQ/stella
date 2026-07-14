@@ -61,9 +61,11 @@ Stella 在多个领域提供内置插件：
 | memory   | `lcm`、`simple`                          |
 | runtime  | `reflect`                                |
 
-## 按 Org 隔离
+## 声明式能力
 
-Stella 是多租户系统。每个插件运行时、manifest override、OAuth provider 配置、channel 回调都通过 `context.Context` 归属到单个 org。详见[插件按 Org 隔离](/docs/development/plugin-org-isolation)。
+Stella 是单租户、多用户、多代理系统：一个部署服务众多用户与代理，不做按 org 的分区。
+
+插件 `Platform` **并非**环境式（ambient）——插件只能触达它在 `PluginInfo.RequiredCapabilities` 中声明的宿主能力。宿主只授予这些能力、对任何未声明者返回 `nil`，并在密封（seal）时校验每个所声明能力都有注入的宿主服务支撑，然后才启动托管运行时。旧的"每个插件都能看到每个服务"的接口已不复存在。能力清单与访问器契约详见[平台 API](/docs/extend-stella/platform)。
 
 ## 阅读插件文档
 

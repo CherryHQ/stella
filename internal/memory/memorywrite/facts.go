@@ -811,9 +811,8 @@ func ListActiveFactsAt(ctx context.Context, q *sqlc.Queries, userID string, agen
 // fact changelog existed for that subject. Callers use the flag to distinguish
 // "facts prove this version is empty" from "this snapshot predates facts".
 func ListActiveFactsAtSnapshot(ctx context.Context, q *sqlc.Queries, userID string, agentID string, subject memory.FactSubject, version int64) ([]memory.Fact, bool, error) {
-	if version <= 0 {
-		facts, err := ListActiveFacts(ctx, q, userID, agentID, subject)
-		return facts, true, err
+	if version < 0 {
+		return nil, false, fmt.Errorf("memory snapshot version must be non-negative: %d", version)
 	}
 	rows, err := q.ListFactChangelogUpToVersion(ctx, sqlc.ListFactChangelogUpToVersionParams{
 		UserID:             userID,

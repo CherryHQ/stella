@@ -31,7 +31,7 @@ expose.
 **How it breaks.** In PR #670, bash-output redaction was read through the
 vault-capability resolver. That resolver returns nil for group sessions, so a
 scoped token was recorded into the redaction set but dropped on the read side,
-leaking plaintext into a multi-tenant group transcript.
+leaking plaintext into a multi-user group transcript.
 
 **Fix.** Gate only capability methods. In review, trace the record path and read
 path separately; redaction paths must not depend on session capability.

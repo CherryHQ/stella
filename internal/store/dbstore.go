@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -313,7 +314,7 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 	if channelType == "" {
 		channelType = ch.ID
 	}
-	return s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
+	err := s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
 		ID:      ch.ID,
 		Name:    ch.Name,
 		Type:    channelType,
@@ -321,6 +322,25 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 		Enabled: ch.Enabled,
 		Config:  ch.Config,
 	})
+	if !isChannelBindingViolation(err) {
+		return err
+	}
+	rows, listErr := s.q.ListChannels(ctx)
+	if listErr != nil {
+		return err
+	}
+	for _, row := range rows {
+		existing := channelFromDB(row)
+		if existing.ID != ch.ID && existing.AgentID == ch.AgentID && existing.Type == channelType {
+			return &config.ChannelBindingConflictError{AgentID: ch.AgentID, Type: channelType, ChannelID: existing.ID}
+		}
+	}
+	return err
+}
+
+func isChannelBindingViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_channel_agent_id_type"
 }
 
 func (s *DBStore) DeleteChannel(ctx context.Context, id string) error {

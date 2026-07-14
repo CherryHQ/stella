@@ -71,20 +71,21 @@ type promptData struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt    string          // agent's base system prompt from DB
-	AgentSoul       string          // agent's default soul from DB (fallback for all users)
-	Memory          memory.Provider // active provider for profile loading (may be nil)
-	UserID          string          // auth user ID for profile lookup
-	AgentID         string          // agent ID for profile lookup
-	GroupID         string          // group ID for group memory lookup (D4); mutually exclusive with UserID
-	GroupMemory     string          // pre-loaded group memory content; injected when non-empty
-	StellaHome      string
-	AgentRoot       string
-	ProjectRoot     string // optional project root for local/project-attached runs
-	UserRoot        string // per-user writable root
-	Sections        []pkgplugins.SystemPromptSection
-	Host            sandbox.Host
-	SnapshotVersion int64 // frozen memory version for this session; 0 means current
+	SystemPrompt string          // agent's base system prompt from DB
+	AgentSoul    string          // agent's default soul from DB (fallback for all users)
+	Memory       memory.Provider // active provider for profile loading (may be nil)
+	UserID       string          // auth user ID for profile lookup
+	AgentID      string          // agent ID for profile lookup
+	GroupID      string          // group ID for group memory lookup (D4); mutually exclusive with UserID
+	GroupMemory  string          // pre-loaded group memory content; injected when non-empty
+	StellaHome   string
+	AgentRoot    string
+	ProjectRoot  string // optional project root for local/project-attached runs
+	UserRoot     string // per-user writable root
+	Sections     []pkgplugins.SystemPromptSection
+	Host         sandbox.Host
+	// nil means current memory; non-nil values, including zero, are frozen snapshots.
+	SnapshotVersion *int64
 
 	// CurrentSpeaker is retained for compatibility with callers/tests that still
 	// populate it, but it is intentionally not rendered into the system prompt.
@@ -122,25 +123,26 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 
 	// Memory: per-user soul overrides the agent default when set.
 	if p.UserID != "" && p.AgentID != "" {
-		if p.SnapshotVersion > 0 {
+		if p.SnapshotVersion != nil {
+			version := *p.SnapshotVersion
 			// Versioned reads: use frozen version for stable session identity.
 			if vps, ok := p.Memory.(memory.VersionedProfileStore); ok {
-				if s, err := vps.GetAgentSoulAt(ctx, p.UserID, p.AgentID, p.SnapshotVersion); err == nil {
+				if s, err := vps.GetAgentSoulAt(ctx, p.UserID, p.AgentID, version); err == nil {
 					if soul := strings.TrimRight(s, "\n"); soul != "" {
 						data.AgentSoul = soul
 					}
 				}
-				if c, err := vps.GetProfileAt(ctx, p.UserID, p.AgentID, p.SnapshotVersion); err == nil {
+				if c, err := vps.GetProfileAt(ctx, p.UserID, p.AgentID, version); err == nil {
 					data.UserProfile = strings.TrimRight(c, "\n")
 				}
 			}
 			if vcs, ok := p.Memory.(memory.VersionedConstraintStore); ok {
-				if constraints, err := vcs.GetConstraintsAt(ctx, p.UserID, p.AgentID, p.SnapshotVersion); err == nil {
+				if constraints, err := vcs.GetConstraintsAt(ctx, p.UserID, p.AgentID, version); err == nil {
 					data.Constraints = constraints
 				}
 			}
 		} else {
-			// Current reads: standard behavior (no snapshot, or version 0).
+			// Current reads: standard behavior when no session snapshot exists.
 			if ps, ok := p.Memory.(memory.ProfileStore); ok {
 				if s, err := ps.GetAgentSoul(ctx, p.UserID, p.AgentID); err == nil {
 					if soul := strings.TrimRight(s, "\n"); soul != "" {
