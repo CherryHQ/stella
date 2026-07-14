@@ -2,12 +2,16 @@ package oauth
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
 
-// mockVaultStore is a simple in-memory VaultStore for testing.
+// mockVaultStore is a simple in-memory VaultStore for testing. Its mutex lets the
+// concurrent-reload test write a winning bundle from one goroutine while GetToken
+// reloads from another.
 type mockVaultStore struct {
+	mu   sync.RWMutex
 	data map[string]string // keyed by "userID:name"
 }
 
@@ -20,16 +24,22 @@ func (m *mockVaultStore) key(userID string, name string) string {
 }
 
 func (m *mockVaultStore) Set(_ context.Context, userID string, name string, plaintext string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.data[m.key(userID, name)] = plaintext
 	return nil
 }
 
 func (m *mockVaultStore) Delete(_ context.Context, userID string, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.data, m.key(userID, name))
 	return nil
 }
 
 func (m *mockVaultStore) Lookup(_ context.Context, userID string, name string) (string, bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	value, ok := m.data[m.key(userID, name)]
 	return value, ok, nil
 }

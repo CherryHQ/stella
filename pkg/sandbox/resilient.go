@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync"
 )
 
@@ -16,11 +17,12 @@ type SessionCreator func(ctx context.Context) (Session, error)
 // sandbox process crashed). Explicit Close calls are permanent — no recreation
 // after that.
 type ResilientSession struct {
-	create SessionCreator
-	mu     sync.Mutex
-	inner  Session
-	closed bool
-	log    *slog.Logger
+	create     SessionCreator
+	mu         sync.Mutex
+	inner      Session
+	envUpdates map[string]string
+	closed     bool
+	log        *slog.Logger
 }
 
 // NewResilientSession wraps an existing session with auto-recreation support.
@@ -53,17 +55,24 @@ func (r *ResilientSession) ensureAlive(ctx context.Context) (Session, error) {
 	}
 
 	r.inner = session
+	// The creator rebuilds the session from current credential state. Discard
+	// overlays applied to the dead inner session so stale values cannot override
+	// that newly built environment.
+	r.envUpdates = nil
 	return session, nil
 }
 
 func (r *ResilientSession) Policy() Policy {
 	r.mu.Lock()
 	s := r.inner
+	updates := maps.Clone(r.envUpdates)
 	r.mu.Unlock()
 	if s == nil {
 		return Policy{}
 	}
-	return s.Policy()
+	policy := s.Policy()
+	policy.Env = mergeEnvUpdates(policy.Env, updates)
+	return policy
 }
 
 func (r *ResilientSession) WorkingDir() string {
@@ -115,6 +124,10 @@ func (r *ResilientSession) Exec(ctx context.Context, command string, opts ExecOp
 	if err != nil {
 		return ExecResult{}, err
 	}
+	r.mu.Lock()
+	updates := maps.Clone(r.envUpdates)
+	r.mu.Unlock()
+	opts.Env = mergeEnvUpdates(updates, opts.Env)
 	return s.Exec(ctx, command, opts)
 }
 
@@ -123,7 +136,36 @@ func (r *ResilientSession) StartProcess(ctx context.Context, req ProcessRequest)
 	if err != nil {
 		return nil, err
 	}
+	r.mu.Lock()
+	updates := maps.Clone(r.envUpdates)
+	r.mu.Unlock()
+	req.Env = mergeEnvUpdates(updates, req.Env)
 	return s.StartProcess(ctx, req)
+}
+
+// RefreshEnv overlays injected env entries for subsequent Exec and StartProcess
+// calls. Keeping the overlay at this wrapper boundary makes credential rotation
+// backend-independent. A recreated inner session is built from current state and
+// clears the overlay in ensureAlive.
+func (r *ResilientSession) RefreshEnv(updates map[string]string) {
+	if len(updates) == 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.envUpdates = mergeEnvUpdates(r.envUpdates, updates)
+}
+
+func mergeEnvUpdates(base, overrides map[string]string) map[string]string {
+	if len(base) == 0 && len(overrides) == 0 {
+		return nil
+	}
+	merged := maps.Clone(base)
+	if merged == nil {
+		merged = make(map[string]string, len(overrides))
+	}
+	maps.Copy(merged, overrides)
+	return merged
 }
 
 func (r *ResilientSession) ResolvePath(path string) (string, error) {

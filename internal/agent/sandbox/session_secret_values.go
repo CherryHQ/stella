@@ -22,6 +22,32 @@ func (s *SessionSecretValues) Set(values []string) {
 	s.values = append([]string(nil), values...)
 }
 
+// Add appends values to the recorded set, retaining the existing ones and
+// skipping empties and duplicates. Live refresh uses it to register rotated
+// OAuth secret values (access/refresh tokens, client id) for redaction without
+// dropping the values captured at session start.
+func (s *SessionSecretValues) Add(values ...string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := make(map[string]struct{}, len(s.values))
+	for _, v := range s.values {
+		seen[v] = struct{}{}
+	}
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		s.values = append(s.values, v)
+	}
+}
+
 func (s *SessionSecretValues) Values() []string {
 	if s == nil {
 		return nil
