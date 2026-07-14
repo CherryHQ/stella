@@ -25,28 +25,16 @@ func testDB(t *testing.T) *pgxpool.Pool {
 	return dbtest.New(t)
 }
 
-type allowFireEvaluation struct{}
-
-func (allowFireEvaluation) Decide(authz.Request) (authz.Decision, error) {
-	return authz.Allow("test:allow-fire", authz.AuditRecord{}), nil
-}
-func (allowFireEvaluation) Revision() int64 { return 1 }
-
 // newTestService wraps New and explicitly replaces the unexported durable-fire
-// PEP seam for legacy scheduler mechanics tests. Authorization tests construct
-// Service directly with the real policy engine.
+// boundary for scheduler mechanics tests. Access tests use the real direct rules.
 func newTestService(t *testing.T, db *pgxpool.Pool) *Service {
 	t.Helper()
 	svc, err := New(db)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	svc.authorizeFire = func(context.Context, Job) (*Access, error) {
-		authority, err := agentaccess.SystemAgentAuthority("scheduler")
-		if err != nil {
-			return nil, err
-		}
-		return &Access{svc: svc, eval: allowFireEvaluation{}, authority: authority}, nil
+	svc.authorizeFire = func(context.Context, Job) (authz.Authority, error) {
+		return agentaccess.SystemAgentAuthority("scheduler")
 	}
 	return svc
 }

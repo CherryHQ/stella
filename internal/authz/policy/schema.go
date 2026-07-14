@@ -84,26 +84,6 @@ func WorkflowResource(id, ownerID string, facts WorkflowFacts) (authz.Resource, 
 	return ownerExecutorResource(authz.ResourceWorkflow, id, ownerID, facts.Owner, facts.Agent, facts.State, facts.IsOwner, facts.IsExecutor)
 }
 
-type SchedulerFacts struct {
-	Owner      string
-	Agent      string
-	Kind       string
-	State      string
-	IsOwner    bool
-	IsExecutor bool
-}
-
-func SchedulerResource(id, ownerID string, facts SchedulerFacts) (authz.Resource, error) {
-	return resource(authz.ResourceScheduler, id, ownerID, map[string]string{
-		"owner":       facts.Owner,
-		"agent":       facts.Agent,
-		"kind":        facts.Kind,
-		"state":       facts.State,
-		"is_owner":    boolString(facts.IsOwner),
-		"is_executor": boolString(facts.IsExecutor),
-	})
-}
-
 type SkillFacts struct {
 	Scope   string
 	Owner   string

@@ -114,26 +114,6 @@ func GoalListRequest() (authz.Request, error) {
 	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
 }
 
-// SchedulerRequest builds an action against one durable Scheduler job.
-func SchedulerRequest(action authz.Action, jobID, ownerID string, facts SchedulerFacts) (authz.Request, error) {
-	res, err := SchedulerResource(jobID, ownerID, facts)
-	if err != nil {
-		return authz.Request{}, err
-	}
-	return authz.NewRequest(action, res, authz.InvocationFacts{})
-}
-
-// SchedulerListRequest builds the collection-level scheduler list request. Per-row
-// visibility is decided separately with a SchedulerRequest read in the same
-// evaluation.
-func SchedulerListRequest() (authz.Request, error) {
-	res, err := authz.NewResource(authz.ResourceScheduler, "", "")
-	if err != nil {
-		return authz.Request{}, err
-	}
-	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
-}
-
 // SkillRequest builds an action against one durable Skill.
 func SkillRequest(action authz.Action, skillID, ownerID string, facts SkillFacts) (authz.Request, error) {
 	res, err := SkillResource(skillID, ownerID, facts)

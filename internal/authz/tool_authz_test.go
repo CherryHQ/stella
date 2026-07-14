@@ -79,9 +79,8 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("create owner goal: %v", err)
 	}
 
-	schedAuthorizer := policy.New()
 	schedAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
-	schedulerSvc, err := scheduler.New(db, scheduler.WithAuthorization(schedAuthorizer, schedAgents))
+	schedulerSvc, err := scheduler.New(db, scheduler.WithAgentAccess(schedAgents))
 	if err != nil {
 		t.Fatalf("scheduler.New: %v", err)
 	}

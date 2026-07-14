@@ -309,55 +309,6 @@ func builtinPolicies() []compiledPolicy {
 				{Attr: "is_executor", Op: opEq, Value: "true"},
 			},
 		},
-		// A user may list their scheduler jobs (collection-level; per-row read
-		// filters by is_owner in the same evaluation).
-		{
-			id:       "builtin:user-list-scheduler",
-			subjects: userOnly,
-			resource: authz.ResourceScheduler,
-			actions:  []authz.Action{authz.ActionList},
-		},
-		// A user owns the scheduler jobs they created (read/create/update/delete/
-		// run). System- and plugin-owned jobs are hidden by the PEP before any
-		// decision, so is_owner alone confines a user to their own jobs.
-		{
-			id:         "builtin:user-own-scheduler",
-			subjects:   userOnly,
-			resource:   authz.ResourceScheduler,
-			actions:    []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
-			predicates: []predicate{{Attr: "is_owner", Op: opEq, Value: "true"}},
-		},
-		// A delegated agent may list scheduler jobs it owns as executor.
-		{
-			id:       "builtin:agent-list-scheduler",
-			subjects: agentOnly,
-			resource: authz.ResourceScheduler,
-			actions:  []authz.Action{authz.ActionList},
-		},
-		// A delegated agent may act only on scheduler jobs whose durable facts
-		// match both its owner and its exact executor agent.
-		{
-			id:       "builtin:agent-own-scheduler",
-			subjects: agentOnly,
-			resource: authz.ResourceScheduler,
-			actions:  []authz.Action{authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute},
-			predicates: []predicate{
-				{Attr: "is_owner", Op: opEq, Value: "true"},
-				{Attr: "is_executor", Op: opEq, Value: "true"},
-			},
-		},
-		// A named system worker fires the platform's own system-owned scheduler jobs
-		// (builtin digests, RSS ticks). Like the system session/agent grants this is
-		// capability-based, never role-based: the scheduler's durable fire path
-		// re-decides the job's ActionExecute under a reconstructed SystemAgentAuthority
-		// before dispatching a system job's turn.
-		{
-			id:         "builtin:system-scheduler",
-			subjects:   systemUse,
-			resource:   authz.ResourceScheduler,
-			actions:    []authz.Action{authz.ActionRead, authz.ActionExecute},
-			predicates: []predicate{{Attr: "kind", Op: opEq, Value: "system"}},
-		},
 		// A user may list their skills (collection-level; per-scope management
 		// filters by owner/admin in the same evaluation).
 		{

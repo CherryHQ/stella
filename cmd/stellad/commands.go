@@ -189,7 +189,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	phost := ps.host
 
-	schedulerSvc, err := setupScheduler(db, phost, authorizer, agentAccess)
+	schedulerSvc, err := setupScheduler(db, phost, agentAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -553,16 +553,16 @@ func ensureEmbeddedAssets() error {
 	return nil
 }
 
-func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, authorizer authz.Authorizer, agentAccess *agentaccess.Service) (*scheduler.Service, error) {
+func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agentaccess.Service) (*scheduler.Service, error) {
 	// External-river mode: the scheduler does not build its own River client. The
 	// composition root (buildSharedRiverClient) assembles the single process-wide
 	// working client from both the scheduler and goal queues and injects it back
 	// via BindRiverClient, so there is exactly one electable River client per
 	// database (see db.NewWorkingRiverClient).
 	//
-	// WithAuthorization wires the unified Authorizer + agent-access gate so the
-	// scheduler Service is the sole PEP for job resources (HTTP + tool).
-	svc, err := scheduler.New(db, scheduler.WithExternalRiver(), scheduler.WithAuthorization(authorizer, agentAccess))
+	// WithAgentAccess wires Scheduler to Agent's direct access port. Scheduler
+	// itself owns durable-job rules for HTTP and tool use cases.
+	svc, err := scheduler.New(db, scheduler.WithExternalRiver(), scheduler.WithAgentAccess(agentAccess))
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
@@ -668,9 +668,9 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		return
 	}
 	svc.SetOnJob(func(ctx context.Context, job scheduler.Job, authority authz.Authority) error {
-		// Scheduler dispatch already decided the durable Job and actual Agent under
-		// one evaluation. The composition root only selects the implementation and
-		// runs the turn under that explicit authority.
+		// Scheduler dispatch already directly rechecked the durable Job and current
+		// Agent. The composition root only selects the implementation and runs the
+		// turn under that explicit authority.
 		agentSvc := poolMgr.GetService(job.AgentID)
 		if agentSvc == nil && job.AgentID == "" {
 			agentSvc = poolMgr.Default()

@@ -44,8 +44,8 @@ func schedulerServiceError(w http.ResponseWriter, err error) {
 func (s *Server) ListJobTemplates(w http.ResponseWriter, r *http.Request) {
 	// The static template catalog is public to any authenticated caller, but the
 	// per-user subscription metadata (which job/agent a template is bound to) is a
-	// durable resource: resolve it through the scheduler PEP's List + per-row Read
-	// under one evaluation, never a raw ListJobs bypass.
+	// durable resource: resolve it through Scheduler's List + per-row Read rules,
+	// never a raw ListJobs bypass.
 	acc, ok := s.schedulerAccess(w, r)
 	if !ok {
 		return
@@ -85,10 +85,10 @@ func (s *Server) ListJobTemplates(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, apitypes.JobTemplateList{JobTemplates: out})
 }
 
-// schedulerAccess begins one scheduler policy evaluation for an authenticated
-// caller. The Authority carries the verified session role; the former
-// requireAgentAccess agent-read gate now runs inside the PEP under this same
-// evaluation, so request path/body fields never contribute to authorization.
+// schedulerAccess captures Scheduler's direct authority for an authenticated
+// caller. The Authority carries the verified session role, and Scheduler asks
+// Agent to validate durable job targets so request path/body fields never
+// contribute to authorization.
 func (s *Server) schedulerAccess(w http.ResponseWriter, r *http.Request) (*scheduler.Access, bool) {
 	if s.schedulerSvc == nil {
 		writeCapabilityUnavailable(w, capScheduler)
@@ -347,7 +347,7 @@ func (s *Server) ListSchedulerJobRuns(w http.ResponseWriter, r *http.Request, ag
 	}
 	// The scheduler service owns the run read model (including the session's
 	// executing agent), so the transport never queries scheduler or conversation
-	// tables directly. It authorizes the job read under the same evaluation.
+	// tables directly. It authorizes the job read through Scheduler's direct rule.
 	rows, err := acc.ListRuns(r.Context(), agentID, jobID, limit+1, offset)
 	if err != nil {
 		schedulerServiceError(w, err)
