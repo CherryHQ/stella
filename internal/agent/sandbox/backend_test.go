@@ -467,9 +467,10 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 	if _, ok := env["GH_TOKEN"]; ok {
 		t.Fatal("GH_TOKEN should be skipped when access token is empty")
 	}
-	// Lark token is loaded by GetOAuthToken regardless of expiry (no refresh check).
-	if got := env["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; got != "token" {
-		t.Fatalf("LARKSUITE_CLI_USER_ACCESS_TOKEN = %q, want %q", got, "token")
+	// The lark bundle is expired with an expired refresh token, so it cannot be
+	// renewed; it must be skipped rather than injected as a dead credential (#722).
+	if got, ok := env["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; ok {
+		t.Fatalf("expired lark token must be skipped, got LARKSUITE_CLI_USER_ACCESS_TOKEN = %q", got)
 	}
 	if _, ok := env[oauth.VaultKeyGitHub]; ok {
 		t.Fatal("GH_OAUTH must still be stripped when token injection fails")

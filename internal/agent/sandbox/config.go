@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/credentials/oauth"
@@ -47,4 +48,9 @@ type Config struct {
 	VaultEnvLoader   VaultEnvLoader
 	TokenEnsurer     TokenEnsurer
 	TokenManager     *oauth.TokenManager
+	// ChatTimeout is the wall-clock budget for one chat turn. OAuth-derived env
+	// is refreshed to stay valid for at least this long plus a safety margin so a
+	// token injected at turn start outlives the turn (#722). Zero uses the
+	// runner's default turn budget.
+	ChatTimeout time.Duration
 }
