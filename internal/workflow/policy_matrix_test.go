@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -323,6 +324,12 @@ func createAcceptedWorkflowGoal(t *testing.T, ctx context.Context, pool *pgxpool
 
 func createWorkflow(t *testing.T, q *sqlc.Queries, userID, agentID string) sqlc.AgentWorkflow {
 	t.Helper()
+	payload, err := json.Marshal(FrozenPlan{Children: []FrozenNode{{Child: goal.ProposedChild{
+		Key: "leaf", Title: "Leaf", Intent: "do leaf", Kind: goal.KindLeaf, Required: true,
+	}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	wf, err := q.CreateWorkflow(context.Background(), sqlc.CreateWorkflowParams{
 		ID:                 uuid.NewString(),
 		OwnerKind:          OwnerAgent,
@@ -335,7 +342,7 @@ func createWorkflow(t *testing.T, q *sqlc.Queries, userID, agentID string) sqlc.
 		ConvergencePolicy:  []byte(`{}`),
 		Inputs:             []byte(`[]`),
 		PayloadFormat:      PayloadFormatFrozenV0,
-		Payload:            []byte(`{"children":[],"edges":[]}`),
+		Payload:            payload,
 		FullyFrozen:        true,
 	})
 	if err != nil {
