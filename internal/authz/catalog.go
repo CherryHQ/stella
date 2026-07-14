@@ -2,17 +2,17 @@ package authz
 
 // Closed authorization catalogs.
 //
-// Action, ActorKind, and GrantKind are each a member of a fixed set fixed at
-// compile time. Values outside the set are invalid and fail validation — every
-// domain's rules are default-deny, so an unrecognised catalog value must never
-// silently widen access. The zero value of every catalog type is the invalid
-// member, so a zero-initialised struct field fails closed rather than aliasing a
-// real permission.
+// Action and ActorKind are each a member of a fixed set fixed at compile time.
+// Values outside the set are invalid and fail validation — every domain's rules
+// are default-deny, so an unrecognised catalog value must never silently widen
+// access. The zero value of every catalog type is the invalid member, so a
+// zero-initialised struct field fails closed rather than aliasing a real
+// permission.
 //
 // This file defines the shared Action vocabulary. Each domain owns its own static
 // rules (agent/session/skill/vault/scheduler/…); the Action verbs are the common
-// cross-domain language those rules speak. The Actor/Authority values that carry
-// these catalog members live in actor.go / authority.go / grant.go.
+// cross-domain language those rules speak. The ActorKind/Authority values that
+// carry these catalog members live in authority.go.
 
 // Action is a closed catalog of the verbs an Authority can be authorised to
 // perform on a resource.

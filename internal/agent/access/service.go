@@ -31,7 +31,7 @@ type AssignmentStore interface {
 }
 
 // dedicatedChannelStore is intentionally asserted at the dedicated-use boundary:
-// a channel-binding grant alone is not authority for an arbitrary agent.
+// a held channel binding alone is not authority for an arbitrary agent.
 type dedicatedChannelStore interface {
 	GetChannel(ctx context.Context, id string) (config.Channel, error)
 }
@@ -60,7 +60,7 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 	if !authority.Valid() {
 		return nil, ErrForbidden
 	}
-	return &Access{svc: s, authority: authority, userID: string(authority.Actor().UserID())}, nil
+	return &Access{svc: s, authority: authority, userID: string(authority.UserID())}, nil
 }
 
 func (a *Access) Read(ctx context.Context, agentID string) (config.Agent, error) {
@@ -79,12 +79,11 @@ func (a *Access) Delete(ctx context.Context, agentID string) (config.Agent, erro
 	return a.decide(ctx, agentID, authz.ActionDelete, false)
 }
 
-// UseDedicated requires both an exact persisted channel-binding grant and a
+// UseDedicated requires both the authority's exact held channel binding and a
 // current DB binding from that channel to this exact agent. Either mismatch
 // fails closed; channel ID by itself is never an agent-use capability.
 func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (config.Agent, error) {
-	grant, err := authz.ChannelBindingGrant(channelID)
-	if err != nil || a.authority.Kind() != authz.ActorUser || !a.authority.HasRole(authz.RoleUser) || !a.authority.HasGrant(grant) {
+	if channelID == "" || a.authority.Kind() != authz.ActorUser || a.authority.ChannelBindingID() != channelID {
 		return config.Agent{}, ErrForbidden
 	}
 	channels, ok := a.svc.agents.(dedicatedChannelStore)
@@ -105,31 +104,29 @@ func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (c
 }
 
 // AuthorizeViaChannelBinding authorizes read/execute of agentID for a trusted
-// dedicated-channel Authority: any held ChannelBinding grant whose CURRENT
+// dedicated-channel Authority: the exact held channel binding whose CURRENT
 // persisted channel→agent binding names this exact agent. It is the Agent PEP's
 // sole interpretation of a dedicated channel, so cross-domain callers (the
 // session flow's Agent gate) never re-derive channel bindings themselves. A held
-// grant alone is never authority for an arbitrary agent; every mismatch fails
+// binding alone is never authority for an arbitrary agent; every mismatch fails
 // closed.
 func (s *Service) AuthorizeViaChannelBinding(ctx context.Context, authority authz.Authority, agentID string) error {
 	a, err := s.Begin(ctx, authority)
 	if err != nil {
 		return err
 	}
-	for _, grant := range authority.Grants() {
-		if grant.Kind() != authz.GrantChannelBinding {
-			continue
-		}
-		switch _, err := a.UseDedicated(ctx, agentID, grant.Key()); {
-		case err == nil:
-			return nil
-		case errors.Is(err, ErrForbidden), errors.Is(err, ErrNotFound):
-			continue
-		default:
-			return err
-		}
+	binding := authority.ChannelBindingID()
+	if binding == "" {
+		return ErrForbidden
 	}
-	return ErrForbidden
+	switch _, err := a.UseDedicated(ctx, agentID, binding); {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrForbidden), errors.Is(err, ErrNotFound):
+		return ErrForbidden
+	default:
+		return err
+	}
 }
 
 func (a *Access) CanUse(ctx context.Context, agentID string) (bool, error) {
@@ -144,14 +141,14 @@ func (a *Access) CanUse(ctx context.Context, agentID string) (bool, error) {
 }
 
 func (a *Access) CanList() error {
-	if a.authority.IsAdmin() || (a.authority.Kind() == authz.ActorUser && a.authority.HasRole(authz.RoleUser)) {
+	if a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser {
 		return nil
 	}
 	return ErrForbidden
 }
 
 func (a *Access) CanCreate() error {
-	if a.authority.IsAdmin() || (a.authority.Kind() == authz.ActorUser && a.authority.HasRole(authz.RoleUser)) {
+	if a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser {
 		return nil
 	}
 	return ErrForbidden
@@ -224,7 +221,7 @@ func (s *Service) ListReadable(ctx context.Context, authority authz.Authority, i
 
 // Authorize is the narrow cross-domain Agent port. It reads the durable Agent
 // and applies the same direct Agent rules as the public access methods; a
-// dedicated-channel grant is intentionally not inferred here.
+// dedicated-channel binding is intentionally not inferred here.
 func (s *Service) Authorize(ctx context.Context, authority authz.Authority, agentID string, action authz.Action) error {
 	_, err := oneShot(s, ctx, authority, func(a *Access) (config.Agent, error) {
 		return a.decide(ctx, agentID, action, false)
@@ -245,50 +242,56 @@ func (a *Access) decide(ctx context.Context, agentID string, action authz.Action
 	if err != nil {
 		return config.Agent{}, err
 	}
-	assigned, err := a.assignedTo(ctx, agentID)
-	if err != nil {
-		return config.Agent{}, err
-	}
 	scope, err := canonicalScope(ag.Scope)
 	if err != nil {
 		return config.Agent{}, ErrForbidden
 	}
-	if a.allowed(ag, scope, assigned, action, dedicated) {
+	ok, err := a.allowed(ctx, ag, scope, action, dedicated)
+	if err != nil {
+		return config.Agent{}, err
+	}
+	if ok {
 		return ag, nil
 	}
 	return config.Agent{}, ErrForbidden
 }
 
-func (a *Access) allowed(ag config.Agent, scope string, assigned bool, action authz.Action, dedicated bool) bool {
+// allowed applies the direct Agent rules. It consults the user's agent
+// assignments only on the single path that needs them — an ordinary UserActor
+// reading or using a non-system, non-dedicated agent. Admin, system-scope,
+// dedicated-channel, delegated-agent, group-agent, and system actors are decided
+// without touching the AssignmentStore, so their availability no longer couples to
+// an assignment lookup. When the assignment lookup is required and fails, the
+// error propagates and the decision fails closed.
+func (a *Access) allowed(ctx context.Context, ag config.Agent, scope string, action authz.Action, dedicated bool) (bool, error) {
 	switch action {
 	case authz.ActionRead, authz.ActionExecute, authz.ActionManage, authz.ActionDelete:
 	default:
-		return false
+		return false, nil
 	}
 	if a.authority.IsAdmin() {
-		return true
+		return true, nil
 	}
 
 	switch action {
 	case authz.ActionRead, authz.ActionExecute:
 		switch a.authority.Kind() {
 		case authz.ActorUser:
-			return a.authority.HasRole(authz.RoleUser) && (scope == "system" || assigned || dedicated)
-		case authz.ActorAgent:
-			return string(a.authority.Actor().AgentID()) == ag.ID
-		case authz.ActorGroupAgent:
-			grant, err := authz.GroupToolGrant("agent.use")
-			return err == nil && a.authority.HasGrant(grant) && string(a.authority.Actor().AgentID()) == ag.ID
+			if scope == "system" || dedicated {
+				return true, nil
+			}
+			return a.assignedTo(ctx, ag.ID)
+		case authz.ActorAgent, authz.ActorGroupAgent:
+			return string(a.authority.AgentID()) == ag.ID, nil
 		case authz.ActorSystem:
-			grant, err := authz.SystemGrant("agent.use")
-			return err == nil && a.authority.HasGrant(grant)
+			return true, nil
 		default:
-			return false
+			return false, nil
 		}
 	case authz.ActionManage, authz.ActionDelete:
-		return a.authority.Kind() == authz.ActorUser && a.authority.HasRole(authz.RoleUser) && a.userID != "" && a.userID == ag.CreatorID
+		return a.authority.Kind() == authz.ActorUser && a.userID != "" && a.userID == ag.CreatorID, nil
 	default:
-		return false
+		return false, nil
 	}
 }
 

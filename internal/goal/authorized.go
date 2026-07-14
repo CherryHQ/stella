@@ -37,12 +37,11 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden
 	}
-	actor := authority.Actor()
 	executor := ""
-	if actor.Kind() == authz.ActorAgent {
-		executor = string(actor.AgentID())
+	if authority.Kind() == authz.ActorAgent {
+		executor = string(authority.AgentID())
 	}
-	return &Access{svc: s, authority: authority, userID: string(actor.UserID()), agentID: executor}, nil
+	return &Access{svc: s, authority: authority, userID: string(authority.UserID()), agentID: executor}, nil
 }
 
 // workerAuthorizer is the durable-attempt authorization boundary. It needs only
@@ -68,7 +67,7 @@ func (wa *workerAuthorizer) authorize(ctx context.Context, goal sqlc.AgentGoal, 
 	// The attempt's executor is durable authority-bearing state. It may be a
 	// dispatch override, so it must be checked directly rather than replaced by
 	// the goal's default AgentID.
-	if goal.UserID == "" || executorAgentID == "" || string(authority.Actor().UserID()) != goal.UserID || string(authority.Actor().AgentID()) != executorAgentID {
+	if goal.UserID == "" || executorAgentID == "" || string(authority.UserID()) != goal.UserID || string(authority.AgentID()) != executorAgentID {
 		return authz.ErrNotFound
 	}
 	return authorizeAgentWithin(ctx, wa.agents, authority, executorAgentID)
@@ -483,9 +482,6 @@ func (a *Access) allowed(action authz.Action, d sqlc.AgentGoal) bool {
 	}
 	switch a.authority.Kind() {
 	case authz.ActorUser:
-		if !a.authority.HasRole(authz.RoleUser) {
-			return false
-		}
 		switch action {
 		case authz.ActionList:
 			return true
@@ -586,10 +582,9 @@ func (s *GoalService) Authorize(ctx context.Context, authority authz.Authority, 
 		}
 		return sqlc.AgentGoal{}, err
 	}
-	actor := authority.Actor()
-	access := Access{authority: authority, userID: string(actor.UserID())}
-	if actor.Kind() == authz.ActorAgent {
-		access.agentID = string(actor.AgentID())
+	access := Access{authority: authority, userID: string(authority.UserID())}
+	if authority.Kind() == authz.ActorAgent {
+		access.agentID = string(authority.AgentID())
 	}
 	if err := access.authorize(action, d); err != nil {
 		return sqlc.AgentGoal{}, err

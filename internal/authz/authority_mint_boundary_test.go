@@ -3,8 +3,8 @@ package authz_test
 // Architecture boundary tripwire for #707: Authority issuance.
 //
 // An authz.Authority is the trusted, immutable capability every policy decision
-// is evaluated against. Its constructors (NewUserAuthority / NewAgentAuthority /
-// NewGroupAuthority / NewGroupAgentAuthority / NewSystemAuthority) are the ONLY
+// is evaluated against. Its constructors (NewUserAuthority / NewChannelAuthority /
+// NewAgentAuthority / NewGroupAgentAuthority / NewSystemAuthority) are the ONLY
 // way to mint one, so whoever may call them is exactly whoever the system trusts
 // to assert identity. That set must stay small and reviewed: a transport,
 // request-payload, channel-message, or plugin package that could mint an
@@ -39,8 +39,8 @@ import (
 // compiling and the boundary test fails loudly instead of going vacuous.
 var (
 	_ = authz.NewUserAuthority
+	_ = authz.NewChannelAuthority
 	_ = authz.NewAgentAuthority
-	_ = authz.NewGroupAuthority
 	_ = authz.NewGroupAgentAuthority
 	_ = authz.NewSystemAuthority
 )
@@ -48,8 +48,8 @@ var (
 // authorityConstructors is the closed set of Authority-minting functions.
 var authorityConstructors = map[string]bool{
 	"NewUserAuthority":       true,
+	"NewChannelAuthority":    true,
 	"NewAgentAuthority":      true,
-	"NewGroupAuthority":      true,
 	"NewGroupAgentAuthority": true,
 	"NewSystemAuthority":     true,
 }
@@ -182,7 +182,7 @@ import "github.com/CherryHQ/stella/internal/authz"
 // Simulated abuse: a transport handler mints an Authority straight from a
 // request-supplied user id. This must be caught.
 func handle(userID string) {
-	_, _ = authz.NewUserAuthority(authz.UserID(userID), authz.RoleSet{}, authz.GrantSet{})
+	_, _ = authz.NewUserAuthority(authz.UserID(userID), false)
 }
 `
 	fset := token.NewFileSet()
@@ -202,7 +202,7 @@ func handle(userID string) {
 
 import az "github.com/CherryHQ/stella/internal/authz"
 
-func handle2() { _, _ = az.NewSystemAuthority("x", az.GrantSet{}) }
+func handle2() { _, _ = az.NewSystemAuthority("x") }
 `
 	fa, err := parser.ParseFile(fset, "internal/server/handler2.go", aliasedSrc, 0)
 	if err != nil {

@@ -46,21 +46,12 @@ func TestEmbeddedPostgresSkillAccessMatrix(t *testing.T) {
 
 	svc := NewService(skillStore, agentaccess.NewService(store, assign))
 
-	// A UUID-shaped admin id: admin authorization ignores the specific id, but the
-	// folded agent-read gate loads the user's agent assignments through a uuid
-	// column, so the id must parse as a uuid.
+	// Admin authorization ignores the specific id and no longer loads any agent
+	// assignments, so the admin id need not parse as a uuid.
 	adminID := uuid.NewString()
 
 	userAuth := func(id string, admin bool) authz.Authority {
-		role := authz.RoleUser
-		if admin {
-			role = authz.RoleAdmin
-		}
-		rs, err := authz.NewRoleSet(role)
-		if err != nil {
-			t.Fatal(err)
-		}
-		a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+		a, err := authz.NewUserAuthority(authz.UserID(id), admin)
 		if err != nil {
 			t.Fatal(err)
 		}

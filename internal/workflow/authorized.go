@@ -42,12 +42,11 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 }
 
 func (s *Service) access(authority authz.Authority) *Access {
-	actor := authority.Actor()
 	executor := ""
-	if actor.Kind() == authz.ActorAgent {
-		executor = string(actor.AgentID())
+	if authority.Kind() == authz.ActorAgent {
+		executor = string(authority.AgentID())
 	}
-	return &Access{svc: s, authority: authority, userID: string(actor.UserID()), agentID: executor}
+	return &Access{svc: s, authority: authority, userID: string(authority.UserID()), agentID: executor}
 }
 
 // InstantiateAs authorizes and instantiates a workflow under authority. It is the
@@ -234,9 +233,6 @@ func (a *Access) allowed(action authz.Action, wf sqlc.AgentWorkflow) bool {
 	}
 	switch a.authority.Kind() {
 	case authz.ActorUser:
-		if !a.authority.HasRole(authz.RoleUser) {
-			return false
-		}
 		if action == authz.ActionList {
 			return true
 		}

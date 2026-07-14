@@ -68,7 +68,9 @@ func CatalogActorKindsFor(label string) ([]authz.ActorKind, bool) {
 		case "AgentActor":
 			kinds = append(kinds, authz.ActorAgent)
 		case "GroupIngressActor":
-			kinds = append(kinds, authz.ActorGroup)
+			// A group-ingress turn is realized as a group-agent actor; there is no
+			// separate plain-group actor kind.
+			kinds = append(kinds, authz.ActorGroupAgent)
 		case "GroupAgentActor":
 			kinds = append(kinds, authz.ActorGroupAgent)
 		case "SystemActor":

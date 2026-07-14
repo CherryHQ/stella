@@ -17,11 +17,7 @@ func newService() *Service {
 
 func adminAuthority(t *testing.T) authz.Authority {
 	t.Helper()
-	rs, err := authz.NewRoleSet(authz.RoleAdmin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewUserAuthority(authz.UserID("admin-1"), rs, authz.GrantSet{})
+	a, err := authz.NewUserAuthority(authz.UserID("admin-1"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,11 +26,7 @@ func adminAuthority(t *testing.T) authz.Authority {
 
 func userAuthority(t *testing.T) authz.Authority {
 	t.Helper()
-	rs, err := authz.NewRoleSet(authz.RoleUser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewUserAuthority(authz.UserID("user-1"), rs, authz.GrantSet{})
+	a, err := authz.NewUserAuthority(authz.UserID("user-1"), false)
 	if err != nil {
 		t.Fatal(err)
 	}

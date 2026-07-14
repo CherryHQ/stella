@@ -151,7 +151,6 @@ func TestEmbeddedPostgresWorkflowDirectAccess(t *testing.T) {
 		t.Fatalf("invalid authority Begin = %v, want forbidden", err)
 	}
 	for _, authority := range []authz.Authority{
-		workflowRolelessUserAuthority(t, owner.ID),
 		workflowGroupAuthority(t),
 		workflowSystemAuthority(t),
 	} {
@@ -260,24 +259,7 @@ func TestSaveGoalAsWorkflowAuthorizesSourceGoal(t *testing.T) {
 
 func workflowUserAuthority(t *testing.T, id string, admin bool) authz.Authority {
 	t.Helper()
-	role := authz.RoleUser
-	if admin {
-		role = authz.RoleAdmin
-	}
-	roles, err := authz.NewRoleSet(role)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority, err := authz.NewUserAuthority(authz.UserID(id), roles, authz.GrantSet{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return authority
-}
-
-func workflowRolelessUserAuthority(t *testing.T, userID string) authz.Authority {
-	t.Helper()
-	authority, err := authz.NewUserAuthority(authz.UserID(userID), authz.RoleSet{}, authz.GrantSet{})
+	authority, err := authz.NewUserAuthority(authz.UserID(id), admin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +268,7 @@ func workflowRolelessUserAuthority(t *testing.T, userID string) authz.Authority 
 
 func workflowGroupAuthority(t *testing.T) authz.Authority {
 	t.Helper()
-	authority, err := authz.NewGroupAuthority("workflow-test", authz.RoleSet{}, authz.GrantSet{})
+	authority, err := authz.NewGroupAgentAuthority("workflow-test", "workflow-agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,15 +277,7 @@ func workflowGroupAuthority(t *testing.T) authz.Authority {
 
 func workflowSystemAuthority(t *testing.T) authz.Authority {
 	t.Helper()
-	grant, err := authz.SystemGrant("workflow-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	grants, err := authz.NewGrantSet(grant)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority, err := authz.NewSystemAuthority("workflow-test", grants)
+	authority, err := authz.NewSystemAuthority("workflow-test")
 	if err != nil {
 		t.Fatal(err)
 	}

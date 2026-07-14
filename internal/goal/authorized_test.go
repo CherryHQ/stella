@@ -13,11 +13,7 @@ import (
 
 func (h *harness) userAuth(t *testing.T, id string) authz.Authority {
 	t.Helper()
-	rs, err := authz.NewRoleSet(authz.RoleUser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	a, err := authz.NewUserAuthority(authz.UserID(id), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,11 +62,7 @@ func TestGoalDirectRulesAdminAndNonUserActors(t *testing.T) {
 		t.Fatalf("create foreign root: %v", err)
 	}
 
-	roles, err := authz.NewRoleSet(authz.RoleAdmin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	admin, err := authz.NewUserAuthority(authz.UserID(uuid.NewString()), roles, authz.GrantSet{})
+	admin, err := authz.NewUserAuthority(authz.UserID(uuid.NewString()), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,22 +81,14 @@ func TestGoalDirectRulesAdminAndNonUserActors(t *testing.T) {
 		t.Fatalf("admin CountGoals = %d, %v; want 2, nil", got, err)
 	}
 
-	group, err := authz.NewGroupAuthority("group", authz.RoleSet{}, authz.GrantSet{})
+	group, err := authz.NewGroupAgentAuthority("group", authz.AgentID(h.agentID))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.begin(t, group).Get(ctx, own.ID); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("group Get err=%v, want opaque not found", err)
 	}
-	grant, err := authz.SystemGrant("goal.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	grants, err := authz.NewGrantSet(grant)
-	if err != nil {
-		t.Fatal(err)
-	}
-	system, err := authz.NewSystemAuthority("test", grants)
+	system, err := authz.NewSystemAuthority("test")
 	if err != nil {
 		t.Fatal(err)
 	}

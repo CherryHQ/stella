@@ -76,7 +76,7 @@ var (
 // BeginRead implements skills.SkillReadAuthorizer for the skills tool. It derives
 // the trusted turn/worker identity from the runtime context (an agent turn or the
 // reflect reviewer's WithUserID+WithAgentID review context, both of which
-// ToAuthority resolves to a roleless AgentActor — the same shape as a
+// ToAuthority resolves to an AgentActor — the same shape as a
 // reconstructed WorkerAgentAuthority) and returns a per-row read decider. A
 // missing/invalid identity fails closed. Writes never flow through this path.
 func (s *Service) BeginRead(ctx context.Context) (skills.SkillReadDecision, error) {
@@ -117,7 +117,7 @@ func contextReadAuthority(ctx context.Context) (authz.Authority, error) {
 
 // BeginWrite implements skills.SkillWriteAuthorizer for the reflect reviewer
 // tool. It reconstructs the trusted turn identity from context (the reflect
-// review target's WithUserID+WithAgentID → a roleless AgentActor) and authorizes
+// review target's WithUserID+WithAgentID → an AgentActor) and authorizes
 // each create/patch/deprecate before the store mutation.
 func (s *Service) BeginWrite(ctx context.Context) (skills.SkillWriteDecision, error) {
 	if s.agents == nil {

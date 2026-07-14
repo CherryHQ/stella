@@ -61,13 +61,9 @@ func (s *testAssignments) ListUserAgentIDs(context.Context, string) ([]string, e
 	return s.ids, s.err
 }
 
-func userAuthority(t *testing.T, userID string, roles ...authz.Role) authz.Authority {
+func userAuthority(t *testing.T, userID string, admin bool) authz.Authority {
 	t.Helper()
-	roleSet, err := authz.NewRoleSet(roles...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority, err := authz.NewUserAuthority(authz.UserID(userID), roleSet, authz.GrantSet{})
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), admin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +76,7 @@ func TestListReadableFiltersEachRowAndCachesAssignments(t *testing.T) {
 		"deny":  {ID: "deny", Scope: config.AgentScopeRestricted, CreatorID: "creator", Enabled: true},
 	}}
 	assign := &testAssignments{}
-	got, err := NewService(store, assign).ListReadable(context.Background(), userAuthority(t, "u1", authz.RoleUser), false)
+	got, err := NewService(store, assign).ListReadable(context.Background(), userAuthority(t, "u1", false), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,17 +90,63 @@ func TestListReadableFiltersEachRowAndCachesAssignments(t *testing.T) {
 
 func TestFailuresFailClosed(t *testing.T) {
 	ctx := context.Background()
-	user := userAuthority(t, "u1", authz.RoleUser)
+	user := userAuthority(t, "u1", false)
 	if _, err := NewService(testStore{getErr: errors.New("db")}, &testAssignments{}).Read(ctx, user, "a"); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("get error = %v", err)
 	}
 	if _, err := NewService(testStore{agents: map[string]config.Agent{"a": {ID: "a", Scope: "bad"}}}, &testAssignments{}).Read(ctx, user, "a"); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("bad scope = %v", err)
 	}
-	if _, err := NewService(testStore{agents: map[string]config.Agent{"a": {ID: "a", Scope: config.AgentScopeSystem}}}, &testAssignments{err: errors.New("db")}).Read(ctx, user, "a"); !errors.Is(err, ErrUnavailable) {
+	// An ordinary user reading a non-system agent needs the assignment lookup, so a
+	// failing store fails closed.
+	if _, err := NewService(testStore{agents: map[string]config.Agent{"a": {ID: "a", Scope: config.AgentScopeRestricted}}}, &testAssignments{err: errors.New("db")}).Read(ctx, user, "a"); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("assignment error = %v", err)
 	}
 	if err := NewService(testStore{}, &testAssignments{}).CanList(ctx, authz.Authority{}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("invalid authority = %v", err)
+	}
+}
+
+// TestNoNeedlessAssignmentQuery proves the decision paths that do not depend on a
+// user's agent assignments never touch the AssignmentStore: admin, a system
+// actor, and an ordinary user reading a system-scope agent all succeed through a
+// store that would error the moment it were consulted, and none of them consult
+// it. This removes the former admin/availability coupling to the assignment query
+// without weakening any access.
+func TestNoNeedlessAssignmentQuery(t *testing.T) {
+	ctx := context.Background()
+	store := testStore{agents: map[string]config.Agent{
+		"sys":        {ID: "sys", Scope: config.AgentScopeSystem, Enabled: true},
+		"restricted": {ID: "restricted", Scope: config.AgentScopeRestricted, CreatorID: "creator", Enabled: true},
+	}}
+
+	admin := userAuthority(t, "admin", true)
+	adminAssign := &testAssignments{err: errors.New("db")}
+	if _, err := NewService(store, adminAssign).Read(ctx, admin, "restricted"); err != nil {
+		t.Fatalf("admin read = %v, want nil despite failing assignment store", err)
+	}
+	if adminAssign.calls != 0 {
+		t.Fatalf("admin touched the assignment store %d times, want 0", adminAssign.calls)
+	}
+
+	system, err := SystemAgentAuthority("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sysAssign := &testAssignments{err: errors.New("db")}
+	if _, err := NewService(store, sysAssign).Read(ctx, system, "restricted"); err != nil {
+		t.Fatalf("system read = %v, want nil despite failing assignment store", err)
+	}
+	if sysAssign.calls != 0 {
+		t.Fatalf("system touched the assignment store %d times, want 0", sysAssign.calls)
+	}
+
+	user := userAuthority(t, "u1", false)
+	userAssign := &testAssignments{err: errors.New("db")}
+	if _, err := NewService(store, userAssign).Read(ctx, user, "sys"); err != nil {
+		t.Fatalf("user system-scope read = %v, want nil despite failing assignment store", err)
+	}
+	if userAssign.calls != 0 {
+		t.Fatalf("user system-scope read touched the assignment store %d times, want 0", userAssign.calls)
 	}
 }

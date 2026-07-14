@@ -24,9 +24,9 @@ func TestAgentAccessMatrix(t *testing.T) {
 	}
 	assign := &testAssignments{ids: []string{"assigned"}}
 	access := NewService(store, assign)
-	owner := userAuthority(t, "owner", authz.RoleUser)
-	other := userAuthority(t, "other", authz.RoleUser)
-	admin := userAuthority(t, "admin", authz.RoleAdmin)
+	owner := userAuthority(t, "owner", false)
+	other := userAuthority(t, "other", false)
+	admin := userAuthority(t, "admin", true)
 
 	for _, tc := range []struct {
 		name      string
@@ -49,12 +49,10 @@ func TestAgentAccessMatrix(t *testing.T) {
 		{"delegated exact executor executes", mustWorkerAuthority(t, "owner", "owned"), authz.ActionExecute, "owned", nil},
 		{"delegated actor cannot switch executor", mustWorkerAuthority(t, "owner", "system"), authz.ActionExecute, "owned", ErrForbidden},
 		{"delegated actor cannot manage", mustWorkerAuthority(t, "owner", "owned"), authz.ActionManage, "owned", ErrForbidden},
-		{"group grant exact executor", mustGroupAuthority(t, "g1", "owned"), authz.ActionExecute, "owned", nil},
-		{"group grant cannot switch executor", mustGroupAuthority(t, "g1", "system"), authz.ActionRead, "owned", ErrForbidden},
-		{"group without grant denied", groupAuthorityWithoutGrant(t, "g1", "owned"), authz.ActionExecute, "owned", ErrForbidden},
-		{"system grant reads", mustSystemAuthority(t), authz.ActionRead, "owned", nil},
-		{"system grant executes", mustSystemAuthority(t), authz.ActionExecute, "owned", nil},
-		{"system wrong grant denied", systemAuthorityWithGrant(t, "other"), authz.ActionExecute, "owned", ErrForbidden},
+		{"group agent exact executor", mustGroupAuthority(t, "g1", "owned"), authz.ActionExecute, "owned", nil},
+		{"group agent cannot switch executor", mustGroupAuthority(t, "g1", "system"), authz.ActionRead, "owned", ErrForbidden},
+		{"system reads", mustSystemAuthority(t), authz.ActionRead, "owned", nil},
+		{"system executes", mustSystemAuthority(t), authz.ActionExecute, "owned", nil},
 		{"unknown action denies", owner, authz.ActionWrite, "owned", ErrForbidden},
 		{"unknown action denies admin", admin, authz.ActionWrite, "owned", ErrForbidden},
 		{"missing agent remains not found", owner, authz.ActionRead, "missing", ErrNotFound},
@@ -84,21 +82,9 @@ func TestAgentAccessMatrix(t *testing.T) {
 	}
 }
 
-func TestDedicatedChannelUseRequiresExactGrantAndCurrentBinding(t *testing.T) {
+func TestDedicatedChannelUseRequiresExactBindingAndCurrentBinding(t *testing.T) {
 	ctx := context.Background()
-	grant, err := authz.ChannelBindingGrant("channel-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	roles, err := authz.NewRoleSet(authz.RoleUser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	grants, err := authz.NewGrantSet(grant)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority, err := authz.NewUserAuthority("user", roles, grants)
+	authority, err := authz.NewChannelAuthority("user", false, "channel-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,8 +93,10 @@ func TestDedicatedChannelUseRequiresExactGrantAndCurrentBinding(t *testing.T) {
 		channels: map[string]config.Channel{"channel-1": {ID: "channel-1", AgentID: "dedicated"}},
 	}
 	access := NewService(store, &testAssignments{})
+	// The plain Use path never infers a dedicated channel binding: a held binding
+	// alone is not authority for an arbitrary agent.
 	if _, err := access.Use(ctx, authority, "dedicated"); !errors.Is(err, ErrForbidden) {
-		t.Fatalf("bare channel grant must not authorize use: %v", err)
+		t.Fatalf("bare channel binding must not authorize use: %v", err)
 	}
 	bound, err := access.Begin(ctx, authority)
 	if err != nil {
@@ -124,7 +112,9 @@ func TestDedicatedChannelUseRequiresExactGrantAndCurrentBinding(t *testing.T) {
 	if _, err := bound.UseDedicated(ctx, "other", "channel-1"); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("mismatched binding = %v", err)
 	}
-	delegated, err := authz.NewAgentAuthority("user", "dedicated", roles, grants)
+	// A delegated agent has no channel binding to hold, so the dedicated path is
+	// closed to it.
+	delegated, err := authz.NewAgentAuthority("user", "dedicated")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +123,7 @@ func TestDedicatedChannelUseRequiresExactGrantAndCurrentBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := bound.UseDedicated(ctx, "dedicated", "channel-1"); !errors.Is(err, ErrForbidden) {
-		t.Fatalf("delegated channel grant = %v", err)
+		t.Fatalf("delegated channel use = %v", err)
 	}
 	if _, err := access.Begin(ctx, authz.Authority{}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("invalid authority = %v", err)
@@ -147,14 +137,14 @@ func TestListFilteringAndAssignmentFailureFailClosed(t *testing.T) {
 		"assigned": {ID: "assigned", Scope: config.AgentScopeRestricted, Enabled: true},
 		"hidden":   {ID: "hidden", Scope: config.AgentScopeRestricted, Enabled: true},
 	}}
-	visible, err := NewService(store, &testAssignments{ids: []string{"assigned"}}).ListReadable(ctx, userAuthority(t, "u1", authz.RoleUser), false)
+	visible, err := NewService(store, &testAssignments{ids: []string{"assigned"}}).ListReadable(ctx, userAuthority(t, "u1", false), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(visible) != 2 {
 		t.Fatalf("visible = %#v, want system and assigned", visible)
 	}
-	if _, err := NewService(store, &testAssignments{err: errors.New("db")}).ListReadable(ctx, userAuthority(t, "u1", authz.RoleUser), false); !errors.Is(err, ErrUnavailable) {
+	if _, err := NewService(store, &testAssignments{err: errors.New("db")}).ListReadable(ctx, userAuthority(t, "u1", false), false); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("assignment failure = %v", err)
 	}
 }
@@ -180,32 +170,6 @@ func mustSystemAuthority(t *testing.T) authz.Authority {
 func mustGroupAuthority(t *testing.T, group, executor string) authz.Authority {
 	t.Helper()
 	a, err := GroupAgentAuthority(group, executor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return a
-}
-
-func groupAuthorityWithoutGrant(t *testing.T, group, executor string) authz.Authority {
-	t.Helper()
-	a, err := authz.NewGroupAgentAuthority(authz.GroupID(group), authz.AgentID(executor), authz.RoleSet{}, authz.GrantSet{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return a
-}
-
-func systemAuthorityWithGrant(t *testing.T, grantName string) authz.Authority {
-	t.Helper()
-	grant, err := authz.SystemGrant(grantName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	grants, err := authz.NewGrantSet(grant)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewSystemAuthority("test", grants)
 	if err != nil {
 		t.Fatal(err)
 	}

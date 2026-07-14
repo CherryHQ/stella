@@ -37,14 +37,13 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden
 	}
-	actor := authority.Actor()
 	agentID := ""
 	agentScoped := false
-	if actor.Kind() == authz.ActorAgent {
-		agentID = string(actor.AgentID())
+	if authority.Kind() == authz.ActorAgent {
+		agentID = string(authority.AgentID())
 		agentScoped = true
 	}
-	return &Access{svc: s, authority: authority, userID: string(actor.UserID()), agentID: agentID, agentScoped: agentScoped}, nil
+	return &Access{svc: s, authority: authority, userID: string(authority.UserID()), agentID: agentID, agentScoped: agentScoped}, nil
 }
 
 // ListScoped lists entry metadata for one scope, or (scope == "") the caller's
@@ -195,7 +194,7 @@ func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
 	}
 }
 
-// allow is Vault's static rule table. Admin holds every scope; a user (RoleUser)
+// allow is Vault's static rule table. Admin holds every scope; an ordinary user
 // or a delegated agent may list, and read/create/write/delete only its own
 // user/user_agent entries (isOwner). No other actor and no non-admin system-scope
 // access exists.
@@ -207,11 +206,7 @@ func (a *Access) allow(action authz.Action, scope string, isOwner bool) bool {
 		return true
 	}
 	switch a.authority.Kind() {
-	case authz.ActorUser:
-		if !a.authority.HasRole(authz.RoleUser) {
-			return false
-		}
-	case authz.ActorAgent:
+	case authz.ActorUser, authz.ActorAgent:
 	default:
 		return false
 	}

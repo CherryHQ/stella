@@ -21,21 +21,17 @@ import (
 
 func userAuthority(t *testing.T, id string) authz.Authority {
 	t.Helper()
-	return roledAuthority(t, id, authz.RoleUser)
+	return mintUserAuthority(t, id, false)
 }
 
 func adminAuthority(t *testing.T, id string) authz.Authority {
 	t.Helper()
-	return roledAuthority(t, id, authz.RoleAdmin)
+	return mintUserAuthority(t, id, true)
 }
 
-func roledAuthority(t *testing.T, id string, role authz.Role) authz.Authority {
+func mintUserAuthority(t *testing.T, id string, admin bool) authz.Authority {
 	t.Helper()
-	rs, err := authz.NewRoleSet(role)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	a, err := authz.NewUserAuthority(authz.UserID(id), admin)
 	if err != nil {
 		t.Fatal(err)
 	}

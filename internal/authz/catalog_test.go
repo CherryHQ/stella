@@ -38,8 +38,8 @@ func TestActionCatalog(t *testing.T) {
 // TestActorKindCatalog covers the actor-kind catalog.
 func TestActorKindCatalog(t *testing.T) {
 	all := authz.AllActorKinds()
-	if len(all) != 5 {
-		t.Fatalf("actor-kind catalog size = %d, want 5", len(all))
+	if len(all) != 4 {
+		t.Fatalf("actor-kind catalog size = %d, want 4", len(all))
 	}
 	seen := map[string]bool{}
 	for _, k := range all {
@@ -56,29 +56,5 @@ func TestActorKindCatalog(t *testing.T) {
 	}
 	if authz.ActorKind(200).Valid() {
 		t.Error("out-of-range actor kind must be invalid")
-	}
-}
-
-// TestGrantKindCatalog covers the grant-kind catalog.
-func TestGrantKindCatalog(t *testing.T) {
-	all := authz.AllGrantKinds()
-	if len(all) == 0 {
-		t.Fatal("empty grant-kind catalog")
-	}
-	seen := map[string]bool{}
-	for _, k := range all {
-		if !k.Valid() {
-			t.Errorf("catalog grant kind %v reports invalid", k)
-		}
-		if seen[k.String()] {
-			t.Errorf("duplicate grant-kind name %q", k.String())
-		}
-		seen[k.String()] = true
-	}
-	if authz.GrantInvalid.Valid() {
-		t.Error("GrantInvalid must be invalid")
-	}
-	if authz.GrantKind(200).Valid() {
-		t.Error("out-of-range grant kind must be invalid")
 	}
 }

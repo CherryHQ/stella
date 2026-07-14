@@ -210,13 +210,13 @@ func (a *Access) Workspace(ctx context.Context, agentID, sessionID string, actio
 // Create creates a user-owned session after one create decision. It uses the
 // registry rather than making a second, transport-owned persistence path.
 func (a *Access) Create(ctx context.Context, userID, agentID, projectID string, kind agentsession.Kind, channel agentsession.Channel) (agentsession.Info, error) {
-	if userID == "" || agentID == "" || string(a.authority.Actor().UserID()) != userID {
+	if userID == "" || agentID == "" || string(a.authority.UserID()) != userID {
 		return agentsession.Info{}, ErrForbidden
 	}
 	if err := a.authorizeAgent(ctx, agentID, authz.ActionRead); err != nil {
 		return agentsession.Info{}, err
 	}
-	actor := a.authority.Actor()
+	actor := a.authority
 	facts := sessionFacts{
 		isOwner:    true,
 		isExecutor: string(actor.AgentID()) != "" && string(actor.AgentID()) == agentID,
@@ -229,13 +229,13 @@ func (a *Access) Create(ctx context.Context, userID, agentID, projectID string, 
 
 // ResolveMain resolves the caller's durable main session in this Access.
 func (a *Access) ResolveMain(ctx context.Context, userID, agentID string) (agentsession.Info, error) {
-	if userID == "" || agentID == "" || string(a.authority.Actor().UserID()) != userID {
+	if userID == "" || agentID == "" || string(a.authority.UserID()) != userID {
 		return agentsession.Info{}, ErrForbidden
 	}
 	if err := a.authorizeAgent(ctx, agentID, authz.ActionRead); err != nil {
 		return agentsession.Info{}, err
 	}
-	actor := a.authority.Actor()
+	actor := a.authority
 	facts := sessionFacts{
 		isOwner:    true,
 		isExecutor: string(actor.AgentID()) != "" && string(actor.AgentID()) == agentID,
@@ -253,7 +253,7 @@ func (a *Access) List(ctx context.Context, agentID string, opts agentsession.Lis
 	if !a.allowSessionList() {
 		return nil, ErrNotFound
 	}
-	userID := string(a.authority.Actor().UserID())
+	userID := string(a.authority.UserID())
 	if userID == "" {
 		return nil, ErrForbidden
 	}
@@ -286,7 +286,7 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 	if !a.allowSessionList() {
 		return ListPage{}, ErrNotFound
 	}
-	userID := string(a.authority.Actor().UserID())
+	userID := string(a.authority.UserID())
 	if userID == "" {
 		return ListPage{}, ErrForbidden
 	}
@@ -361,7 +361,7 @@ func (a *Access) ensure(ctx context.Context, req agentsession.Request, action au
 		if err := a.authorizeAgent(ctx, req.AgentID, agentAction(action)); err != nil {
 			return agentsession.Info{}, err
 		}
-		actor := a.authority.Actor()
+		actor := a.authority
 		facts := sessionFacts{
 			isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == req.UserID,
 			isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == req.AgentID,
@@ -474,7 +474,7 @@ type sessionFacts struct {
 }
 
 func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionFacts {
-	actor := authority.Actor()
+	actor := authority
 	return sessionFacts{
 		isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
 		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == info.AgentID,
@@ -486,14 +486,14 @@ func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionF
 // allowSessionList is the collection-level Session decision: admin and any
 // user-role actor may list; every other actor is denied.
 func (a *Access) allowSessionList() bool {
-	return a.authority.IsAdmin() || (a.authority.Kind() == authz.ActorUser && a.authority.HasRole(authz.RoleUser))
+	return a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser
 }
 
 // allowSession decides one non-list action against a durable Session's facts.
 // It reproduces the current builtin Session rules directly: a user owns every
-// action on their sessions; a durable worker, a group turn, and a granted system
-// worker may read/execute/create/delete — but never write — sessions matching
-// their respective owner/executor, exact group/executor, or system grant.
+// action on their sessions; a durable worker, a group turn, and a system worker
+// may read/execute/create/delete — but never write — sessions matching their
+// respective owner/executor, exact group/executor, or system actor.
 func (a *Access) allowSession(action authz.Action, f sessionFacts) bool {
 	if !isSessionAction(action) {
 		return false
@@ -503,15 +503,13 @@ func (a *Access) allowSession(action authz.Action, f sessionFacts) bool {
 	}
 	switch a.authority.Kind() {
 	case authz.ActorUser:
-		return a.authority.HasRole(authz.RoleUser) && f.isOwner
+		return f.isOwner
 	case authz.ActorAgent:
 		return isWorkerSessionAction(action) && f.isOwner && f.isExecutor
 	case authz.ActorGroupAgent:
-		grant, err := authz.GroupToolGrant("agent.use")
-		return err == nil && a.authority.HasGrant(grant) && isWorkerSessionAction(action) && f.isGroup && f.isSameGroup && f.isExecutor
+		return isWorkerSessionAction(action) && f.isGroup && f.isSameGroup && f.isExecutor
 	case authz.ActorSystem:
-		grant, err := authz.SystemGrant("agent.use")
-		return err == nil && a.authority.HasGrant(grant) && isWorkerSessionAction(action)
+		return isWorkerSessionAction(action)
 	default:
 		return false
 	}
@@ -551,5 +549,5 @@ func (a *Access) allowWorkspace(action authz.Action, f sessionFacts) bool {
 	if a.authority.IsAdmin() {
 		return true
 	}
-	return a.authority.Kind() == authz.ActorUser && a.authority.HasRole(authz.RoleUser) && f.isOwner
+	return a.authority.Kind() == authz.ActorUser && f.isOwner
 }

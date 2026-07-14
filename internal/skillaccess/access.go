@@ -31,12 +31,11 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 	if !authority.Valid() {
 		return nil, ErrForbidden
 	}
-	actor := authority.Actor()
 	agentID := ""
-	if actor.Kind() == authz.ActorAgent {
-		agentID = string(actor.AgentID())
+	if authority.Kind() == authz.ActorAgent {
+		agentID = string(authority.AgentID())
 	}
-	return &Access{svc: s, authority: authority, userID: string(actor.UserID()), scopeAgentID: agentID}, nil
+	return &Access{svc: s, authority: authority, userID: string(authority.UserID()), scopeAgentID: agentID}, nil
 }
 
 // AuthorizeManageScope authorizes managing a whole scope bucket — create,
@@ -232,22 +231,15 @@ func (a *Access) allow(action authz.Action, scope string, isOwner bool) bool {
 		return true
 	}
 	switch a.authority.Kind() {
-	case authz.ActorUser:
-		if !a.authority.HasRole(authz.RoleUser) {
-			return false
-		}
-		return actorSkillAllowed(action, scope, isOwner)
-	case authz.ActorAgent:
+	case authz.ActorUser, authz.ActorAgent:
 		// A delegated agent shares the delegating user's skill rules; its executor
 		// confinement and folded agent gate are enforced by the callers.
 		return actorSkillAllowed(action, scope, isOwner)
 	case authz.ActorGroupAgent:
 		// A group turn has no user: it reads only the shared, non-personal
-		// system/system_agent reference procedures, and only with the explicit
-		// group agent-use grant. Its system_agent read is confined to the group's
-		// own agent by the folded agent gate.
-		grant, err := authz.GroupToolGrant("agent.use")
-		return err == nil && a.authority.HasGrant(grant) && action == authz.ActionRead && adminScope(scope)
+		// system/system_agent reference procedures. Its system_agent read is
+		// confined to the group's own agent by the folded agent gate.
+		return action == authz.ActionRead && adminScope(scope)
 	default:
 		return false
 	}

@@ -39,12 +39,11 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 }
 
 func (s *Service) access(authority authz.Authority) *Access {
-	actor := authority.Actor()
 	executor := ""
-	if actor.Kind() == authz.ActorAgent {
-		executor = string(actor.AgentID())
+	if authority.Kind() == authz.ActorAgent {
+		executor = string(authority.AgentID())
 	}
-	return &Access{svc: s, authority: authority, userID: string(actor.UserID()), agentID: executor}
+	return &Access{svc: s, authority: authority, userID: string(authority.UserID()), agentID: executor}
 }
 
 // AuthorizeDurableFire reconstructs the sole authority shape permitted by a
@@ -75,7 +74,7 @@ func (s *Service) AuthorizeDurableFire(ctx context.Context, job Job) (authz.Auth
 
 // durableFireAuthority reconstructs the sole authority shape a persisted job may
 // fire under, from its durable owner. A user job runs as its owner+executor
-// worker; a system job runs under the named system grant. Plugin-owned jobs carry
+// worker; a system job runs under the named system authority. Plugin-owned jobs carry
 // no user/agent authority and never reach the agent-dispatch fire path.
 func durableFireAuthority(job Job) (authz.Authority, error) {
 	switch job.OwnerKind {
@@ -397,9 +396,6 @@ func (a *Access) allowed(action authz.Action, job Job) bool {
 	}
 	switch a.authority.Kind() {
 	case authz.ActorUser:
-		if !a.authority.HasRole(authz.RoleUser) {
-			return false
-		}
 		if action == authz.ActionList {
 			return true
 		}
@@ -410,8 +406,7 @@ func (a *Access) allowed(action authz.Action, job Job) bool {
 		}
 		return job.OwnerKind == JobOwnerUser && a.userID != "" && a.userID == job.UserID && a.agentID != "" && a.agentID == job.AgentID
 	case authz.ActorSystem:
-		grant, err := authz.SystemGrant("agent.use")
-		return err == nil && a.authority.HasGrant(grant) && job.OwnerKind == JobOwnerSystem && (action == authz.ActionRead || action == authz.ActionExecute)
+		return job.OwnerKind == JobOwnerSystem && (action == authz.ActionRead || action == authz.ActionExecute)
 	default:
 		return false
 	}

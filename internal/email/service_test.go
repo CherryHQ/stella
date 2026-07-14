@@ -22,11 +22,7 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func userAuthority(t *testing.T, id string) authz.Authority {
 	t.Helper()
-	rs, err := authz.NewRoleSet(authz.RoleUser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	a, err := authz.NewUserAuthority(authz.UserID(id), false)
 	if err != nil {
 		t.Fatal(err)
 	}

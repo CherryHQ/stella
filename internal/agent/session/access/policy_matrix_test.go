@@ -48,11 +48,7 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 
 	user := func(id string) authz.Authority {
 		t.Helper()
-		roles, err := authz.NewRoleSet(authz.RoleUser)
-		if err != nil {
-			t.Fatal(err)
-		}
-		authority, err := authz.NewUserAuthority(authz.UserID(id), roles, authz.GrantSet{})
+		authority, err := authz.NewUserAuthority(authz.UserID(id), false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -60,7 +56,7 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 	}
 	worker := func(owner, agent string) authz.Authority {
 		t.Helper()
-		authority, err := authz.NewAgentAuthority(authz.UserID(owner), authz.AgentID(agent), authz.RoleSet{}, authz.GrantSet{})
+		authority, err := authz.NewAgentAuthority(authz.UserID(owner), authz.AgentID(agent))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -68,15 +64,7 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 	}
 	group := func(id, agent string) authz.Authority {
 		t.Helper()
-		grant, err := authz.GroupToolGrant("agent.use")
-		if err != nil {
-			t.Fatal(err)
-		}
-		grants, err := authz.NewGrantSet(grant)
-		if err != nil {
-			t.Fatal(err)
-		}
-		authority, err := authz.NewGroupAgentAuthority(authz.GroupID(id), authz.AgentID(agent), authz.RoleSet{}, grants)
+		authority, err := authz.NewGroupAgentAuthority(authz.GroupID(id), authz.AgentID(agent))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,19 +72,7 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 	}
 	dedicated := func(owner, channelID string) authz.Authority {
 		t.Helper()
-		roleSet, err := authz.NewRoleSet(authz.RoleUser)
-		if err != nil {
-			t.Fatal(err)
-		}
-		grant, err := authz.ChannelBindingGrant(channelID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		grants, err := authz.NewGrantSet(grant)
-		if err != nil {
-			t.Fatal(err)
-		}
-		authority, err := authz.NewUserAuthority(authz.UserID(owner), roleSet, grants)
+		authority, err := authz.NewChannelAuthority(authz.UserID(owner), false, channelID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -104,15 +80,7 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 	}
 	system := func() authz.Authority {
 		t.Helper()
-		grant, err := authz.SystemGrant("agent.use")
-		if err != nil {
-			t.Fatal(err)
-		}
-		grants, err := authz.NewGrantSet(grant)
-		if err != nil {
-			t.Fatal(err)
-		}
-		authority, err := authz.NewSystemAuthority("session-matrix", grants)
+		authority, err := authz.NewSystemAuthority("session-matrix")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -138,15 +106,6 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 			authority: user(m.other),
 			run: func(a *Access) error {
 				_, err := a.Read(ctx, m.agent, m.private)
-				return err
-			},
-			wantErr: ErrNotFound,
-		},
-		{
-			name:      "group ingress cannot use a group session",
-			authority: mustGroupAuthority(t, m.group),
-			run: func(a *Access) error {
-				_, err := a.Use(ctx, m.agent, m.groupSID)
 				return err
 			},
 			wantErr: ErrNotFound,
@@ -424,13 +383,4 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 		private: private, internal: internal, groupSID: groupSession,
 		dedicatedAgent: dedicatedAgent, dedicatedChan: dedicatedChan,
 	}
-}
-
-func mustGroupAuthority(t *testing.T, groupID string) authz.Authority {
-	t.Helper()
-	authority, err := authz.NewGroupAuthority(authz.GroupID(groupID), authz.RoleSet{}, authz.GrantSet{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return authority
 }

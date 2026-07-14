@@ -72,11 +72,7 @@ func newPEPEnv(t *testing.T, templates ...JobTemplate) *pepEnv {
 
 func userAuthority(t *testing.T, id string) authz.Authority {
 	t.Helper()
-	rs, err := authz.NewRoleSet(authz.RoleUser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	a, err := authz.NewUserAuthority(authz.UserID(id), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,19 +106,12 @@ func TestSchedulerBeginRejectsInvalidAuthority(t *testing.T) {
 
 func TestSchedulerDirectRules(t *testing.T) {
 	e := newPEPEnv(t)
-	adminRoles, err := authz.NewRoleSet(authz.RoleAdmin)
+	admin, err := authz.NewUserAuthority(authz.UserID(uuid.NewString()), true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	admin, err := authz.NewUserAuthority(authz.UserID(uuid.NewString()), adminRoles, authz.GrantSet{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	roleless, err := authz.NewUserAuthority(authz.UserID(e.ownerA), authz.RoleSet{}, authz.GrantSet{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	group, err := authz.NewGroupAuthority("group", authz.RoleSet{}, authz.GrantSet{})
+	// A group turn is a non-user actor with no user-owned scheduler access.
+	group, err := authz.NewGroupAgentAuthority("group", "agent-a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,8 +148,7 @@ func TestSchedulerDirectRules(t *testing.T) {
 		{"exact executor writes", agentAuthority(t, e.ownerA, "agent-a"), authz.ActionWrite, owned, true},
 		{"wrong executor denied", agentAuthority(t, e.ownerA, "agent-b"), authz.ActionRead, owned, false},
 		{"foreign executor denied", agentAuthority(t, e.ownerB, "agent-a"), authz.ActionExecute, owned, false},
-		{"roleless user denied", roleless, authz.ActionList, Job{}, false},
-		{"group denied", group, authz.ActionRead, owned, false},
+		{"group turn denied", group, authz.ActionRead, owned, false},
 		{"system reads system job", system, authz.ActionRead, systemJob, true},
 		{"system executes system job", system, authz.ActionExecute, systemJob, true},
 		{"system cannot read user job", system, authz.ActionRead, owned, false},
@@ -282,8 +270,8 @@ func TestSchedulerAuthorizeDurableFire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("durable fire (user job): %v", err)
 	}
-	if authority.Kind() != authz.ActorAgent || string(authority.Actor().UserID()) != userJob.UserID || string(authority.Actor().AgentID()) != userJob.AgentID {
-		t.Fatalf("user fire authority = %+v, want persisted owner and executor", authority.Actor())
+	if authority.Kind() != authz.ActorAgent || string(authority.UserID()) != userJob.UserID || string(authority.AgentID()) != userJob.AgentID {
+		t.Fatalf("user fire authority = %+v, want persisted owner and executor", authority)
 	}
 	if _, err := e.svc.AuthorizeDurableFire(ctx, Job{ID: "no-executor", OwnerKind: JobOwnerUser, UserID: e.ownerA}); err == nil {
 		t.Fatal("durable fire without persisted executor must fail closed")

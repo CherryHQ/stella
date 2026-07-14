@@ -22,9 +22,9 @@ package authz
 // group or unauthenticated identity (no user id) has no user-owned Authority and
 // returns ErrUnauthenticated — the same fail-closed rule FromContext applies.
 //
-// The legacy Identity carries no roles or grants, so the Authority is minted
-// with an empty RoleSet/GrantSet; this adapter only carries identity. Each
-// domain resolves the durable facts its rules need at decision time.
+// The legacy Identity carries no admin flag, so a bare user maps to an ordinary
+// (non-admin) UserActor; this adapter only carries identity. Each domain resolves
+// the durable facts its rules need at decision time.
 func (id Identity) ToAuthority() (Authority, error) {
 	if id.UserID == "" {
 		return Authority{}, ErrUnauthenticated
@@ -37,7 +37,7 @@ func (id Identity) ToAuthority() (Authority, error) {
 		if id.AgentID == "" {
 			return Authority{}, ErrForbidden
 		}
-		return NewAgentAuthority(UserID(id.UserID), AgentID(id.AgentID), RoleSet{}, GrantSet{})
+		return NewAgentAuthority(UserID(id.UserID), AgentID(id.AgentID))
 	}
-	return NewUserAuthority(UserID(id.UserID), RoleSet{}, GrantSet{})
+	return NewUserAuthority(UserID(id.UserID), false)
 }
