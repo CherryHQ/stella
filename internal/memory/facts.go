@@ -58,8 +58,9 @@ type FactStore interface {
 	ListActiveFacts(ctx context.Context, userID string, agentID string, subject FactSubject) ([]Fact, error)
 }
 
-// VersionedFactStore is implemented by providers that can reconstruct facts at
-// a frozen memory version from the fact changelog.
+// VersionedFactStore reconstructs facts at a frozen memory version from the
+// fact changelog. Version 0 is the valid empty baseline before the first write;
+// callers that need current state must use FactStore.
 type VersionedFactStore interface {
 	ListActiveFactsAt(ctx context.Context, userID string, agentID string, subject FactSubject, version int64) ([]Fact, error)
 }

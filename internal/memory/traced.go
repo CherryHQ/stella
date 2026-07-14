@@ -553,7 +553,7 @@ func (t *tracedProvider) GetOrCreateSessionSnapshot(ctx context.Context, session
 	ctx, start := t.begin(ctx, hctx)
 	snap, err := sss.GetOrCreateSessionSnapshot(ctx, sessionID, userID, agentID)
 	hctx.Error = err
-	if snap.Version > 0 {
+	if err == nil {
 		hctx.Detail = fmt.Sprintf("version=%d updated_at=%s", snap.Version, snap.UpdatedAt.Format(time.RFC3339))
 	}
 	t.finish(ctx, start, hctx)

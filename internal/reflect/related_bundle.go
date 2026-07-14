@@ -11,9 +11,6 @@ import (
 const (
 	defaultMaxRelatedKnowledgePerCandidate = 10
 	defaultMaxRelatedSkillsPerCandidate    = 5
-
-	// Keep fact reconciliation's pre-split fallback at the Knowledge limit.
-	defaultMaxRelatedPerCandidate = defaultMaxRelatedKnowledgePerCandidate
 )
 
 // factRelatedBundle is the host-side package that feeds fact reconciliation.

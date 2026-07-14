@@ -16,6 +16,7 @@ type ReviewSkipReason string
 
 const (
 	reviewSkipOversizedSingleMessage ReviewSkipReason = "oversized_single_message_skipped"
+	reviewSkipOversizedBoundaryGroup ReviewSkipReason = "oversized_boundary_group_skipped"
 	reviewSkipNoFreshContent         ReviewSkipReason = "no_fresh_content"
 	reviewSkipNotPrivateOneToOne     ReviewSkipReason = "not_private_one_to_one"
 )
@@ -54,7 +55,16 @@ type reviewSkillUsage struct {
 	CallID string
 }
 
-const maxToolSummaryChars = 1200
+const (
+	maxToolSummaryChars = 1200
+
+	priorContextOpen       = "<prior_context>\n"
+	priorContextClose      = "</prior_context>\n\n"
+	freshConversationOpen  = "<fresh_conversation>\n"
+	freshConversationClose = "</fresh_conversation>\n"
+	skillUsageOpen         = "\n<session_skill_usage>\n"
+	skillUsageClose        = "</session_skill_usage>\n"
+)
 
 var (
 	tokenLikePattern        = regexp.MustCompile(`(?i)\b(?:ghp_[a-z0-9_]{16,}|github_pat_[a-z0-9_]{16,}|sk-[a-z0-9_-]{16,})\b`)
@@ -70,6 +80,10 @@ var (
 		"</candidates_json>", "&lt;/candidates_json&gt;",
 		"[tool_result_summary]", "&#91;tool_result_summary&#93;",
 		"[assistant_tool_call]", "&#91;assistant_tool_call&#93;",
+		"[user]", "&#91;user&#93;",
+		"[assistant]", "&#91;assistant&#93;",
+		"[tool]", "&#91;tool&#93;",
+		"[system]", "&#91;system&#93;",
 	)
 )
 
@@ -96,31 +110,36 @@ func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark
 		budget = maxFallbackReviewTokens
 	}
 
-	var includedFresh []reviewLine
+	includedFresh := make([]reviewLine, 0, len(fresh))
+	renderedLength := len(freshConversationOpen) + len(freshConversationClose)
 	for i := 0; i < len(fresh); {
 		group := nextReviewBoundaryGroup(fresh, i)
 		i += len(group)
 
 		included, skipped := reviewBoundaryGroupPlan(group, budget)
+		unit.Skipped = append(unit.Skipped, skipped...)
 		if len(included) == 0 {
-			unit.Skipped = append(unit.Skipped, skipped...)
 			updateReviewUnitWatermark(&unit, group)
 			continue
 		}
 
-		candidateFresh := append(append([]reviewLine(nil), includedFresh...), included...)
 		// Fresh boundaries take priority, so reserve their protocol envelope before
 		// considering optional skill usage or prior context.
-		if !reviewTextFitsBudget(renderReviewUnitText(nil, candidateFresh, nil), budget) {
-			// Oversized lines are independently final, but this boundary still has
-			// ordinary content for the next cycle, so do not advance its watermark.
-			unit.Skipped = append(unit.Skipped, skipped...)
+		candidateLength := renderedLength + renderedReviewLinesLength(included)
+		if !reviewTextLengthFitsBudget(candidateLength, budget) {
+			if len(includedFresh) == 0 {
+				// Timestamp-only history cannot safely split equal-timestamp messages.
+				// Skip an impossible boundary as a unit so later reviews can progress.
+				unit.Skipped = append(unit.Skipped, oversizedBoundaryGroupSkip(group))
+				updateReviewUnitWatermark(&unit, group)
+				continue
+			}
 			unit.Truncated = true
 			break
 		}
 
-		unit.Skipped = append(unit.Skipped, skipped...)
-		includedFresh = candidateFresh
+		includedFresh = append(includedFresh, included...)
+		renderedLength = candidateLength
 		unit.FreshCount += len(included)
 		updateReviewUnitWatermark(&unit, group)
 	}
@@ -134,23 +153,33 @@ func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark
 
 	for _, line := range includedFresh {
 		for _, usage := range line.usages {
-			candidateUsage := append(append([]reviewSkillUsage(nil), unit.SkillUsage...), usage)
-			if !reviewTextFitsBudget(renderReviewUnitText(nil, includedFresh, candidateUsage), budget) {
+			renderedUsage := usage.render()
+			candidateLength := renderedLength + len(renderedUsage) + 1
+			if len(unit.SkillUsage) == 0 {
+				candidateLength += len(skillUsageOpen) + len(skillUsageClose)
+			}
+			if !reviewTextLengthFitsBudget(candidateLength, budget) {
 				break
 			}
-			unit.SkillUsage = candidateUsage
+			unit.SkillUsage = append(unit.SkillUsage, usage)
+			renderedLength = candidateLength
 		}
 	}
 
-	var includedPrior []string
+	includedPriorStart := len(priorLines)
 	for i := len(priorLines) - 1; i >= 0; i-- {
-		candidatePrior := append([]string{priorLines[i]}, includedPrior...)
-		if !reviewTextFitsBudget(renderReviewUnitText(candidatePrior, includedFresh, unit.SkillUsage), budget) {
+		candidateLength := renderedLength + len(priorLines[i]) + 1
+		if includedPriorStart == len(priorLines) {
+			candidateLength += len(priorContextOpen) + len(priorContextClose)
+		}
+		if !reviewTextLengthFitsBudget(candidateLength, budget) {
 			break
 		}
-		includedPrior = candidatePrior
+		includedPriorStart = i
+		renderedLength = candidateLength
 	}
 
+	includedPrior := priorLines[includedPriorStart:]
 	unit.Text = renderReviewUnitText(includedPrior, includedFresh, unit.SkillUsage)
 	if !reviewTextFitsBudget(unit.Text, budget) {
 		return ReviewUnit{}, fmt.Errorf("review unit rendered above token budget")
@@ -174,34 +203,48 @@ func updateReviewUnitWatermark(unit *ReviewUnit, group []reviewLine) {
 func renderReviewUnitText(priorLines []string, fresh []reviewLine, usages []reviewSkillUsage) string {
 	var b strings.Builder
 	if len(priorLines) > 0 {
-		b.WriteString("<prior_context>\n")
+		b.WriteString(priorContextOpen)
 		for _, line := range priorLines {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
-		b.WriteString("</prior_context>\n\n")
+		b.WriteString(priorContextClose)
 	}
 
-	b.WriteString("<fresh_conversation>\n")
+	b.WriteString(freshConversationOpen)
 	for _, line := range fresh {
 		b.WriteString(line.text)
 		b.WriteString("\n")
 	}
-	b.WriteString("</fresh_conversation>\n")
+	b.WriteString(freshConversationClose)
 
 	if len(usages) > 0 {
-		b.WriteString("\n<session_skill_usage>\n")
+		b.WriteString(skillUsageOpen)
 		for _, usage := range usages {
 			b.WriteString(usage.render())
 			b.WriteString("\n")
 		}
-		b.WriteString("</session_skill_usage>\n")
+		b.WriteString(skillUsageClose)
 	}
 	return b.String()
 }
 
 func reviewTextFitsBudget(text string, budget int) bool {
 	return memory.EstimateTokens(text) <= budget
+}
+
+func reviewTextLengthFitsBudget(length int, budget int) bool {
+	// EstimateTokens is byte-length based. Keep the same calculation here so
+	// incremental packing does not repeatedly materialize the whole review unit.
+	return (length+3)/4 <= budget
+}
+
+func renderedReviewLinesLength(lines []reviewLine) int {
+	length := 0
+	for _, line := range lines {
+		length += len(line.text) + 1
+	}
+	return length
 }
 
 func (s *Service) buildReviewLines(ctx context.Context, target reviewTarget, mark reviewWatermark) ([]string, []reviewLine, error) {
@@ -342,9 +385,10 @@ func reviewBoundaryGroupPlan(group []reviewLine, budget int) ([]reviewLine, []Re
 	included := make([]reviewLine, 0, len(group))
 	var skipped []ReviewSkip
 	for _, line := range group {
-		// Only a line that exceeds the whole budget by itself is permanently
-		// skipped; envelope or remaining-capacity overflow must be retried later.
-		if memory.EstimateTokens(line.text) > budget {
+		// A line is permanently oversized only when it cannot fit in the smallest
+		// valid review unit, including the mandatory fresh-conversation envelope.
+		minimalLength := len(freshConversationOpen) + len(line.text) + 1 + len(freshConversationClose)
+		if !reviewTextLengthFitsBudget(minimalLength, budget) {
 			lastSeq := line.lastSeq
 			if lastSeq == 0 {
 				lastSeq = line.firstSeq
@@ -362,6 +406,26 @@ func reviewBoundaryGroupPlan(group []reviewLine, budget int) ([]reviewLine, []Re
 		included = append(included, line)
 	}
 	return included, skipped
+}
+
+func oversizedBoundaryGroupSkip(group []reviewLine) ReviewSkip {
+	if len(group) == 0 {
+		return ReviewSkip{Reason: reviewSkipOversizedBoundaryGroup}
+	}
+	first := group[0]
+	last := group[len(group)-1]
+	firstSeq := first.firstSeq
+	lastSeq := last.lastSeq
+	if lastSeq == 0 {
+		lastSeq = last.firstSeq
+	}
+	return ReviewSkip{
+		Reason:   reviewSkipOversizedBoundaryGroup,
+		At:       last.at,
+		FirstSeq: firstSeq,
+		LastSeq:  lastSeq,
+		Size:     renderedReviewLinesLength(group),
+	}
 }
 
 func renderReviewLine(msg ai.Message, skillUsageByCall map[string]reviewSkillUsage) reviewLine {
