@@ -222,20 +222,15 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 			if p.Prompt != "" {
 				caps = append(caps, pkgplugins.CapabilityPrompt)
 			}
-			var required []pkgplugins.Capability
-			for _, c := range p.Capabilities {
-				required = append(required, pkgplugins.Capability(c))
-			}
 			h.RegisterPluginID(p.ID)
 			h.SetInfo(pkgplugins.PluginInfo{
-				ID:                   p.ID,
-				Kind:                 p.Kind,
-				Name:                 name,
-				DisplayName:          displayName,
-				Description:          p.Description,
-				AdminVisible:         true,
-				Capabilities:         caps,
-				RequiredCapabilities: required,
+				ID:           p.ID,
+				Kind:         p.Kind,
+				Name:         name,
+				DisplayName:  displayName,
+				Description:  p.Description,
+				AdminVisible: true,
+				Capabilities: caps,
 			})
 		}
 
@@ -479,10 +474,6 @@ func (h *Host) ApplyChannel(ctx context.Context, channel config.Channel) error {
 // drain while preserving already-accepted operations and notifier senders. The
 // runtime table is left intact so a later Stop can fully tear them down.
 func (h *Host) Quiesce(ctx context.Context) { h.runtimes.Quiesce(ctx) }
-
-// Release tears down managed runtimes while allowing a later Apply. Channel
-// ingress leadership uses it when a replica loses its lease.
-func (h *Host) Release(ctx context.Context) error { return h.runtimes.Release(ctx) }
 
 func (h *Host) Stop(ctx context.Context) error { return h.runtimes.Stop(ctx) }
 

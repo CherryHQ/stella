@@ -34,7 +34,7 @@ type RuntimeHost struct {
 	rt   map[runtimeKey]*runtimeEntry
 
 	// applyMu serializes lifecycle state transitions and map membership. A
-	// per-entry mutex serializes Build/Apply without blocking a lease-loss Stop.
+	// per-entry mutex serializes Build/Apply with drain-time Quiesce.
 	applyMu  sync.Mutex
 	quiesced bool
 }
@@ -164,7 +164,7 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 	entry.applyMu.Lock()
 	defer entry.applyMu.Unlock()
 
-	// A release can evict the entry before this apply generation begins.
+	// Shutdown can evict the entry before this apply generation begins.
 	h.applyMu.Lock()
 	h.mu.RLock()
 	current := !h.quiesced && h.rt[key] == entry
@@ -200,9 +200,8 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 		h.mu.Unlock()
 	}
 
-	// Quiesce serializes through entry.applyMu, but Stop/Release deliberately do
-	// not: a slow platform handshake must not delay lease revocation. Avoid Apply
-	// if either already evicted this generation.
+	// Quiesce serializes through entry.applyMu; Stop evicts the generation before
+	// teardown so a slow platform handshake cannot admit a runtime after shutdown.
 	h.applyMu.Lock()
 	h.mu.RLock()
 	current = !h.quiesced && h.rt[key] == entry
@@ -220,8 +219,8 @@ func (h *RuntimeHost) applyOneWithKey(ctx context.Context, reg pkgplugins.Runtim
 		return fmt.Errorf("apply runtime %s/%s: %w", runtimeID, reg.Name, err)
 	}
 
-	// Stop/Release may replace the runtime table while Apply performs platform
-	// I/O. Recheck membership so a late-started poller cannot escape revocation.
+	// Stop may replace the runtime table while Apply performs platform I/O.
+	// Recheck membership so a late-started poller cannot escape shutdown.
 	h.applyMu.Lock()
 	h.mu.RLock()
 	current = !h.quiesced && h.rt[key] == entry
@@ -280,18 +279,17 @@ func (h *RuntimeHost) Quiesce(ctx context.Context) {
 	}
 }
 
-// Release tears down every managed runtime without making the host terminal. It
-// is used when a channel-ingress lease is lost: a later lease acquisition must be
-// able to rebuild the pollers. Entries are removed before Stop is called so the
-// lock isn't held while runtime teardown executes.
-func (h *RuntimeHost) Release(ctx context.Context) error {
+// Stop tears down every managed runtime permanently. It prevents any later
+// Apply, which keeps a graceful drain from admitting new ingress. Entries are
+// removed before Stop is called so no lock is held while runtime teardown runs.
+func (h *RuntimeHost) Stop(ctx context.Context) error {
 	h.applyMu.Lock()
-	defer h.applyMu.Unlock()
-
+	h.quiesced = true
 	h.mu.Lock()
 	entries := h.rt
 	h.rt = map[runtimeKey]*runtimeEntry{}
 	h.mu.Unlock()
+	h.applyMu.Unlock()
 
 	var lastErr error
 	for _, entry := range entries {
@@ -303,15 +301,6 @@ func (h *RuntimeHost) Release(ctx context.Context) error {
 		}
 	}
 	return lastErr
-}
-
-// Stop tears down every managed runtime permanently. It also prevents any later
-// Apply, which keeps a graceful drain from admitting new ingress.
-func (h *RuntimeHost) Stop(ctx context.Context) error {
-	h.applyMu.Lock()
-	h.quiesced = true
-	h.applyMu.Unlock()
-	return h.Release(ctx)
 }
 
 func (h *RuntimeHost) Snapshot(ctx context.Context, runtimeID string, runtimeName string) (pkgplugins.RuntimeStatus, error) {

@@ -96,7 +96,7 @@ plugins/
 
 用户能力域均为用户所有——被委派的 agent 回合以其用户的访问权限行事，而非受 executor 限制（agent 共享用户的密钥、邮件、连接与阅读库）——但按执行机制分为两类。**Vault 由策略支撑**：`vault.Service` 每个用例开一次 `authz.Authorizer` evaluation 并据此决定 `ResourceVault`，因为 vault 条目具有真实的 `user`/`user_agent`/`system`/`system_agent` scope 区分（`user`/`user_agent` 归用户所有并折叠 agent-read 门禁；管理员管理的 `system`/`system_agent` 仅经 `admin-full-access` 可达）。它保留静态加密、不回读密文、保留名保护与 runner 失效。**Connections、Email、Share、Recally 不由策略支撑**：它们是粗粒度的按用户能力，没有 scope 或管理员区分，因此 `connections.Service`、`email.Service`、`share.Service`、`recally.Service` 绑定一个可信的 `authz.Authority`（用简单的 `Service.Access(authority)` 构造器，而非 `Authorizer` evaluation），捕获行为用户，先行拒绝无效或无用户的 Authority，并通过按用户限定的持久查询强制归属——邮箱配置存于该用户的 vault 命名空间，OAuth bundle 与 flow 以用户为键，share 以 `WHERE user_id = ?` 删除，recally 行按 uid 限定故外来行直接不存在。仅以父 id 为键的操作（recally 文章正文、feed entry）先做一次 uid 限定的父加载以证明父归属，Share 工件对 agent 作用域的行为方保留 os.Root 工作区限制。有若干面刻意保持可信或公开：vault 的宿主侧调用方（MCP、OAuth、邮箱配置、频道配置、沙箱环境、密钥发放）使用原始服务方法；OAuth 回调与令牌刷新路径以 flow/user 为键，而非实时请求；公开分享视图是一个不可猜测的能力 URL，仅凭 token 哈希与过期时间授权，无需会话。参见[授权指南](/docs/development/authorization)了解资源矩阵与配方。
 
-控制面各域收尾闭环。Provider、Settings、Plugin 与 Channel 管理经由 `internal/controlplane`——一个 `Begin(authority) → Access` 的 PEP，取代了旧的 `requireAdmin` 门禁加直接访问 `config.Store` 的做法。它们仅限管理员：内建的 `admin-full-access` 策略是唯一授权。插件宿主随之按能力限定：`pluginhost` 的 `Platform` 不再是环境式（ambient）——插件只能触达它所声明的宿主能力（`PluginInfo.RequiredCapabilities`），宿主只授予这些、对任何未声明者返回 `nil`，并在托管运行时启动前校验所声明能力确有注入服务支撑。至此，旧的 `auth.PolicyEngine` 已彻底移除：授权完全由 `internal/authz`（+ `internal/authz/policy`）与各域 PEP 服务承担。激活目录是完备的——12 个资源由 Authorizer 治理（active），其余每个资源都由专门机制保护，而非放任不治。
+控制面各域收尾闭环。Provider、Settings、Plugin 与 Channel 管理经由 `internal/controlplane`——一个 `Begin(authority) → Access` 的 PEP，取代旧的 `requireAdmin` 门禁加直接访问 `config.Store` 的做法。它们仅限管理员：内建的 `admin-full-access` 策略是唯一授权，四者都刻意不接受自定义策略。Channel 管理是一个能力：一次决策同时覆盖通道持久化及其 channel plugin 的启用和应用，而不是再做一次 Plugin 决策。插件宿主也按能力限定：`pluginhost` 的 `Platform` 不再是环境式（ambient）；只有静态 Go `PluginInfo.RequiredCapabilities` 声明可访问宿主端口，并且启动托管运行时前会校验其注入支撑。manifest 插件可以描述插件特征，但不能请求宿主端口。至此，旧的 `auth.PolicyEngine` 已彻底移除：授权完全由 `internal/authz`（+ `internal/authz/policy`）与各域 PEP 服务承担。激活目录是完备的——8 个资源接受并评估自定义策略，其余资源由专门机制或内建策略保护，而非放任不治。
 
 **静态 vs 动态。** 启动静态能力在启动前绑定一次并随后密封。热重配（插件工具/钩子/提供商重载、agent 同步、runner 失效）是独立接口，启动后仍可用并原子应用——绝不重跑一次性绑定。
 
@@ -221,16 +221,15 @@ type Channel interface {
 
 ### 通道入口归属
 
-托管通道机器人轮询器必须**同一时刻只在一个副本上运行**。两个副本轮询同一平台会导致 Telegram 409 冲突以及微信/QQ/Feishu 的重复投递，因此通道入口由一个单一持有者的 **Postgres 租约**（`channel_ingress_lease`，单行单例）来把关。每个副本都运行一个 `IngressLease`（`internal/channel/ingress_lease.go`），但只有当前持有者通过 `applyManagedChannelPlugins` 启动轮询器，其余副本待命。持有者每 `ttl/3` 续约一次，并用**数据库时钟**盖上 `lease_expires_at`，因此故障切换时机绝不依赖某个副本的本地时钟。崩溃时租约过期，备用副本在 `~ttl` 内接管；优雅关闭时持有者立即释放租约，故障切换即时完成。这是对**所有**通道的单主设计（一个主副本运行全部轮询器）——最简单的正确形态，而非按通道分片。
+Stella 只支持一个服务副本。Helm chart 强制 `replicaCount: 1` 和 `Recreate` 发布策略，因此托管通道机器人会在依赖完成装配后无条件启动。针对同一份通道配置运行两个 `stellad` 进程不受支持：Telegram 可能返回 409，微信、QQ 和 Feishu 可能重复投递。多副本通道入口需要完整的 offset 与 fencing 设计；单独的数据库租约并不能解决它。
 
-该租约对脑裂是**故障安全**的：一旦续约不再成功（数据库错误，或对端已夺取租约），持有者会在其租约可能过期*之前*、根据一个保守的本地截止时间停止领导。失去数据库意味着不轮询——绝不会出现两个并发轮询器。租约始终开启且无配置分支：单副本部署只需在首次尝试中以近乎零的成本赢得它。停止轮询器完全由 `pluginHost.Stop` 完成，它天然仅作用于通道（插件运行时宿主只持有托管通道运行时），因此失去通道领导权绝不会影响非通道插件能力（工具、供应商、沙箱）。
+优雅排空时，`pluginHost.Quiesce` 停止新的通道轮询，同时保留已接受的工作和通知发送器。最终的 `pluginHost.Stop` 只在 River 排空后执行，确保已接受工作仍可向外投递。
 
-投递保证（如实陈述）：
+投递保证如实陈述：
 
-- **群消息为至少一次（at-least-once）。** 入库是持久的（事件日志去重），派发是一个在 CAS 租约下认领的持久发件箱（`ctx_group_outbox`），因此丢失的派发者会把工作交给另一个。当派发租约过期、消息在部分发送后被重新发布时，可能出现一次重复的**平台**发送。
-- **内联私聊轮次为至多一次（at-most-once）。** 它们没有持久队列：被崩溃或领导权切换打断的轮次会被丢弃，不会重试。这是一个有记录的限制，而非相对既有行为的倒退。
-- 通道入口的任何环节都**不声称也未实现精确一次（exactly-once）**。
-- **轮询偏移由单一租约持有者拥有。** 它们存活于各平台 SDK 的内存中（telebot 长轮询游标、微信游标），在同一时刻只在一个消费者下推进；它们没有被外部化——这正是为什么由单一持有者入口（而非偏移栅栏）来保证消费一致性。
+- **群消息至少一次。** 入口由 event-log 去重并持久化，派发使用 CAS 租约认领的 durable outbox；分发器丢失后另一个可接管。租约过期且部分发送后重投时，平台侧可能收到重复消息。
+- **内联 DM 回合至多一次。** 没有持久队列；进程崩溃中断的回合会丢失而不是重试。
+- **通道入口不宣称也未实现 exactly-once。**
 
 ## Admin API
 

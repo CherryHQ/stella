@@ -52,7 +52,7 @@ In group chats the bot participates automatically and group routing is decided s
 
 ### Access control
 
-Access control is handled by the RBAC system (auth_identities + policy engine). Use the Web UI to manage user roles and permissions.
+Channel access is enforced by Stella's Authority-based services. Use the Web UI to manage users and channel configuration.
 
 ### Notifications
 

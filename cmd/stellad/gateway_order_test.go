@@ -2,15 +2,8 @@ package main
 
 // Issue #708 lifecycle contract: no late-bind / ingress window. This AST guard
 // freezes the source ordering inside runServer so a future edit cannot move an
-// ingress source (HTTP Serve, group-dispatch Run, the channel ingress lease Run)
-// ahead of the static callbacks and River/scheduler/goal/embedding startup they
-// depend on.
-//
-// #712 Item 3: channel bot pollers are now gated behind channelLease.Run (single
-// replica leadership) instead of a bare applyManagedChannelPlugins call, so the
-// lease Run is the channel ingress source this guard tracks. It is a SelectorExpr
-// named "Run" like groupDispatcher.Run, so it is disambiguated by its
-// channelLease receiver below.
+// ingress source (HTTP Serve, group-dispatch Run, managed channel startup) ahead
+// of the static callbacks and River/scheduler/goal/embedding startup they need.
 
 import (
 	"go/ast"
@@ -62,13 +55,6 @@ func runServerCallLines(t *testing.T) map[string]int {
 					record("riverClient.Start", line)
 				}
 			}
-			// Distinguish the channel ingress lease's Run from groupDispatcher.Run
-			// by receiver: channelLease.Run is the gated channel ingress source.
-			if fun.Sel.Name == "Run" {
-				if inner, ok := fun.X.(*ast.Ident); ok && inner.Name == "channelLease" {
-					record("channelLease.Run", line)
-				}
-			}
 			record(fun.Sel.Name, line) // SetAuthService, StartDispatchTick, StartBackfill, Run, Serve
 		}
 		return true
@@ -95,9 +81,9 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	embedStart := mustHave("StartBackfill")
 
 	// Ingress sources.
-	groupRun := mustHave("Run")              // groupDispatcher.Run (first Run in source)
-	channels := mustHave("channelLease.Run") // channel ingress lease (gates bot pollers)
-	serve := mustHave("Serve")               // httpSrv.Serve
+	groupRun := mustHave("Run")                        // groupDispatcher.Run (first Run in source)
+	channels := mustHave("applyManagedChannelPlugins") // managed channel startup
+	serve := mustHave("Serve")                         // httpSrv.Serve
 
 	// 1. The scheduler OnJob handler and the notification auth directory must be
 	//    wired before River starts (River may run a persisted job immediately).
@@ -112,7 +98,7 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	backendMax := maxInt(setAuth, wireSched, riverStart, goalTick, embedStart)
 	ingressMin := minInt(groupRun, channels, serve)
 	if backendMax >= ingressMin {
-		t.Errorf("ingress must not start before backends: last backend line %d, first ingress line %d (SetAuthService=%d wireSchedulerCallbacks=%d riverClient.Start=%d StartDispatchTick=%d StartBackfill=%d | Run=%d channelLease.Run=%d Serve=%d)",
+		t.Errorf("ingress must not start before backends: last backend line %d, first ingress line %d (SetAuthService=%d wireSchedulerCallbacks=%d riverClient.Start=%d StartDispatchTick=%d StartBackfill=%d | Run=%d applyManagedChannelPlugins=%d Serve=%d)",
 			backendMax, ingressMin, setAuth, wireSched, riverStart, goalTick, embedStart, groupRun, channels, serve)
 	}
 }
