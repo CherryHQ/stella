@@ -58,10 +58,9 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 	if !ok {
 		return
 	}
-	// One evaluation owns the whole decision: the workflow PEP folds the source
-	// goal's read (through the Goal-owned AuthorizeWithin port) and the target
-	// workflow create + agent execute into a single revision. The goal's persisted
-	// agent binds the workflow — the request never supplies it.
+	// Workflow owns the whole decision: it asks Goal to read the durable source
+	// and Agent to execute the durable target under the same trusted Authority.
+	// The goal's persisted agent binds the workflow — the request never supplies it.
 	acc, ok := s.workflowAccess(w, r, info)
 	if !ok {
 		return

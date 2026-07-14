@@ -157,10 +157,10 @@ func (a *Access) createJob(ctx context.Context, name, message string, sched Sche
 }
 
 // CreateWorkflowJob creates a user-owned workflow-dispatch job. The dispatch
-// target workflow is decided through its own policy inside this scheduler
-// evaluation (not a raw scoped Get): a scheduled job instantiates the workflow at
-// fire time, so the caller must be able to execute it now. The actual fire
-// re-authorizes again from the persisted job.
+// target workflow is decided by Workflow from the caller's Authority (not a raw
+// scoped Get): a scheduled job instantiates the workflow at fire time, so the
+// caller must be able to execute it now. The actual fire re-authorizes again from
+// the persisted job.
 func (a *Access) CreateWorkflowJob(ctx context.Context, name string, sched Schedule, sessionMode, agentID, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
 	if err := a.authorizeCreate(ctx, agentID, true); err != nil {
 		return Job{}, err
@@ -169,7 +169,7 @@ func (a *Access) CreateWorkflowJob(ctx context.Context, name string, sched Sched
 	if runner == nil {
 		return Job{}, fmt.Errorf("workflow scheduler dispatch is not configured")
 	}
-	if err := runner.AuthorizeWorkflowWithin(ctx, a.eval, a.authority, workflowID, authz.ActionExecute); err != nil {
+	if err := runner.AuthorizeWorkflow(ctx, a.authority, workflowID, authz.ActionExecute); err != nil {
 		return Job{}, err
 	}
 	return a.svc.AddWorkflowJobWithOwner(ctx, name, sched, sessionMode, agentID, a.userID, workflowID, inputs, allowReplan)

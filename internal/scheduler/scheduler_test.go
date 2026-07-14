@@ -107,13 +107,13 @@ func (f *fakeWorkflowRunner) LatestWorkflowRun(context.Context, WorkflowLatestRu
 	return f.latest, nil
 }
 
-func (f *fakeWorkflowRunner) InstantiateWorkflowWithin(_ context.Context, _ authz.Evaluation, _ authz.Authority, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error) {
+func (f *fakeWorkflowRunner) InstantiateWorkflow(_ context.Context, _ authz.Authority, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error) {
 	f.instantiateReq = req
 	f.instantiateCalls++
 	return f.result, nil
 }
 
-func (f *fakeWorkflowRunner) AuthorizeWorkflowWithin(context.Context, authz.Evaluation, authz.Authority, string, authz.Action) error {
+func (f *fakeWorkflowRunner) AuthorizeWorkflow(context.Context, authz.Authority, string, authz.Action) error {
 	f.authorizeCalls++
 	return f.authorizeErr
 }

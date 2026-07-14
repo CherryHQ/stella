@@ -363,7 +363,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
-	workflowSvc := workflowpkg.New(db, goalSvc.Goal, authorizer, agentAccess)
+	workflowSvc := workflowpkg.New(db, goalSvc.Goal, agentAccess)
 	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc})
 
 	// Build the shared credentials/email/share services once, with the final
@@ -632,11 +632,9 @@ func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context,
 	return scheduler.ScheduledWorkflow{ID: wf.ID, FullyFrozen: wf.FullyFrozen}, nil
 }
 
-// AuthorizeWorkflowWithin folds the workflow domain's policy decision into a
-// scheduler use case's evaluation, so CreateWorkflowJob gates its dispatch target
-// through the workflow's own policy under one revision.
-func (a schedulerWorkflowAdapter) AuthorizeWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, workflowID string, action authz.Action) error {
-	return a.svc.AuthorizeWithin(ctx, eval, authority, workflowID, action)
+// AuthorizeWorkflow delegates the target's durable access decision to Workflow.
+func (a schedulerWorkflowAdapter) AuthorizeWorkflow(ctx context.Context, authority authz.Authority, workflowID string, action authz.Action) error {
+	return a.svc.Authorize(ctx, authority, workflowID, action)
 }
 
 func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req scheduler.WorkflowLatestRunRequest) (scheduler.WorkflowRunState, error) {
@@ -653,8 +651,8 @@ func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req sch
 	}, nil
 }
 
-func (a schedulerWorkflowAdapter) InstantiateWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
-	run, _, err := a.svc.InstantiateWithin(ctx, eval, authority, req.WorkflowID, req.Inputs, req.IdempotencyKey)
+func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, authority authz.Authority, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
+	run, _, err := a.svc.InstantiateAs(ctx, authority, req.WorkflowID, req.Inputs, req.IdempotencyKey)
 	if err != nil {
 		return scheduler.WorkflowInstantiateResult{}, err
 	}

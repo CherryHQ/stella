@@ -41,12 +41,11 @@ type AuthorizedJobFunc func(ctx context.Context, job Job, authority authz.Author
 type WorkflowRunner interface {
 	ValidateScheduledWorkflow(ctx context.Context, req WorkflowValidateRequest) (ScheduledWorkflow, error)
 	LatestWorkflowRun(ctx context.Context, req WorkflowLatestRunRequest) (WorkflowRunState, error)
-	InstantiateWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error)
-	// AuthorizeWorkflowWithin decides the workflow resource through its own policy
-	// inside a caller's already-open evaluation, so a scheduler use case can gate a
-	// dispatch target workflow under its single revision instead of trusting a raw
-	// scoped lookup. It returns authz.ErrNotFound / authz.ErrForbidden on denial.
-	AuthorizeWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, workflowID string, action authz.Action) error
+	InstantiateWorkflow(ctx context.Context, authority authz.Authority, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error)
+	// AuthorizeWorkflow delegates the target's durable access decision to Workflow.
+	// Scheduler retains its own evaluation for scheduler jobs; domains receive only
+	// trusted Authority across this boundary.
+	AuthorizeWorkflow(ctx context.Context, authority authz.Authority, workflowID string, action authz.Action) error
 }
 
 type WorkflowValidateRequest struct {
@@ -1042,9 +1041,10 @@ func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner Workf
 	if runID == "" {
 		return fmt.Errorf("scheduler run id missing from context")
 	}
-	// The Scheduler job, Workflow target, and Agent execute decisions share the
-	// durable fire's single evaluation. Authorize before even reading run state.
-	if err := runner.AuthorizeWorkflowWithin(ctx, fire.eval, fire.authority, workflowID, authz.ActionExecute); err != nil {
+	// Authorize the Workflow target before reading run state, so a revoked target
+	// cannot reveal run history. Workflow evaluates its own direct rules from the
+	// durable row; Scheduler retains fire.eval for its own job decision only.
+	if err := runner.AuthorizeWorkflow(ctx, fire.authority, workflowID, authz.ActionExecute); err != nil {
 		return err
 	}
 	latest, err := runner.LatestWorkflowRun(ctx, WorkflowLatestRunRequest{WorkflowID: workflowID})
@@ -1073,7 +1073,7 @@ func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner Workf
 			}
 		}
 	}
-	result, err := runner.InstantiateWorkflowWithin(ctx, fire.eval, fire.authority, WorkflowInstantiateRequest{UserID: job.UserID, AgentID: job.AgentID, WorkflowID: workflowID, Inputs: payloadStringMap(job.Payload, "inputs"), IdempotencyKey: idempotencyKey})
+	result, err := runner.InstantiateWorkflow(ctx, fire.authority, WorkflowInstantiateRequest{UserID: job.UserID, AgentID: job.AgentID, WorkflowID: workflowID, Inputs: payloadStringMap(job.Payload, "inputs"), IdempotencyKey: idempotencyKey})
 	if err != nil {
 		return err
 	}
