@@ -10,9 +10,9 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// stubSkillAuthorizer is the test double for the ResourceSkill write PEP: it
-// records calls and returns a fixed error so a denial (custom deny / revoked
-// grant) can be asserted to block the store write.
+// stubSkillAuthorizer is the test double for the Skill write authorizer: it
+// records calls and returns a fixed error so a denial can be asserted to block
+// the store write.
 type stubSkillAuthorizer struct {
 	err   error
 	calls int

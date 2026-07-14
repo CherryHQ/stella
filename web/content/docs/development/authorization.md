@@ -6,7 +6,7 @@ title: Authorization
 
 Every protected operation in Stella starts from a trusted `authz.Authority` — the verified identity of the caller (a user, a delegated agent, a group turn, or a named system worker). Transports derive it from session claims or the runtime context; model-supplied arguments never form identity. What happens next depends on the resource.
 
-Authorization is **domain-owned**: there is no central policy engine, rule table, or revision. Each domain service binds the trusted Authority to an `Access` object and decides against its own static rules, reading only the immutable Authority plus the durable facts it loads. `internal/authz` provides the shared vocabulary — the `Authority`/`Actor`/`Grant`/`Role` values and the `Action` verbs — and nothing else.
+Authorization is **domain-owned**: there is no central policy engine, rule table, or revision. Each domain service binds the trusted Authority to an `Access` object and decides against its own static rules, reading only the immutable Authority plus the durable facts it loads. `internal/authz` provides the shared vocabulary — the `Authority` immutable actor shape and the `Action` verbs — and nothing else.
 
 There are two shapes a domain takes, and choosing the wrong one is the most common mistake in this area.
 
@@ -73,7 +73,7 @@ func (s *Service) Access(authority authz.Authority) (*Access, error) {
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden        // invalid identity
 	}
-	userID := string(authority.Actor().UserID())
+	userID := string(authority.UserID())
 	if userID == "" {
 		return nil, authz.ErrUnauthenticated  // valid but no user (e.g. a system agent)
 	}

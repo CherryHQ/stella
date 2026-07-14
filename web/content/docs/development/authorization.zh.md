@@ -6,7 +6,7 @@ title: 授权
 
 Stella 中每个受保护的操作都从一个可信的 `authz.Authority` 开始——调用方（用户、被委派的 agent、group 回合或具名系统 worker）的已验证身份。传输层从会话声明或运行时上下文派生它；模型提供的参数绝不构成身份。之后发生什么，取决于资源。
 
-授权是**域自持**的：没有中心化的策略引擎、规则表或修订版本。每个域服务把可信的 Authority 绑定到一个 `Access` 对象，并据其自身的静态规则决定，只读取不可变的 Authority 加上它自己加载的持久事实。`internal/authz` 只提供共享的词汇——`Authority`/`Actor`/`Grant`/`Role` 这些值以及 `Action` 动词——除此之外别无其他。
+授权是**域自持**的：没有中心化的策略引擎、规则表或修订版本。每个域服务把可信的 Authority 绑定到一个 `Access` 对象，并据其自身的静态规则决定，只读取不可变的 Authority 加上它自己加载的持久事实。`internal/authz` 只提供共享的词汇——`Authority` 不可变行为者形状以及 `Action` 动词——除此之外别无其他。
 
 一个域有两种形态，选错是本领域最常见的错误。
 
@@ -73,7 +73,7 @@ func (s *Service) Access(authority authz.Authority) (*Access, error) {
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden        // invalid identity
 	}
-	userID := string(authority.Actor().UserID())
+	userID := string(authority.UserID())
 	if userID == "" {
 		return nil, authz.ErrUnauthenticated  // valid but no user (e.g. a system agent)
 	}

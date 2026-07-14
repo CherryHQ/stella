@@ -51,7 +51,7 @@ internal/
   memory/              Memory provider registry + implementations (lcm, simple)
   server/              HTTP API + embedded React SPA
   auth/                Login, sessions, and identity
-  authz/               Shared authorization vocabulary (Authority, Actor, Grant, Action)
+  authz/               Shared authorization vocabulary (Authority, Action)
   controlplane/        Control-plane domain (providers, settings, plugins, channels)
   pluginhost/          Capability-scoped plugin platform host
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries

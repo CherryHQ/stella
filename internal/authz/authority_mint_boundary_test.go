@@ -62,7 +62,7 @@ var authorityMintAllowset = map[string]string{
 	"internal/authz":        "defines the constructors and the runtime Identity→Authority adapter (adapt.go)",
 	"internal/auth":         "auth.Subject session → Authority adapter (authority.go)",
 	"internal/credential":   "credential.Principal → Authority adapter (authority.go)",
-	"internal/agent/access": "trusted worker/group authority adapter; PEP-owned capability reconstruction",
+	"internal/agent/access": "trusted worker/group authority adapter; durable capability reconstruction",
 }
 
 const authzImportPath = "github.com/CherryHQ/stella/internal/authz"
@@ -133,7 +133,7 @@ func TestAuthorityMintersRestrictedToTrustedAdapters(t *testing.T) {
 			return nil
 		}
 		// Only production Go files. Tests are exempt: they legitimately construct
-		// authorities to exercise the policy engine.
+		// authorities to test the authorization boundary.
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}

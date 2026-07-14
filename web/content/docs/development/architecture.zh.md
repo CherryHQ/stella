@@ -51,7 +51,7 @@ internal/
   memory/              记忆 provider 注册表 + 实现（lcm、simple）
   server/              HTTP API + 嵌入式 React SPA
   auth/                登录、会话与身份
-  authz/               共享授权词汇（Authority、Actor、Grant、Action）
+  authz/               共享授权词汇（Authority、Action）
   controlplane/        控制面域（providers、settings、plugins、channels）
   pluginhost/          按能力限定的插件平台宿主
   db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询

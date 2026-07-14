@@ -179,8 +179,8 @@ func (s *Server) InstantiateWorkflow(w http.ResponseWriter, r *http.Request, id 
 	if body.Inputs != nil {
 		inputs = *body.Inputs
 	}
-	// The PEP loads the workflow, authorizes both the workflow (execute) and its
-	// persisted bound agent (execute) under one revision, then claims the run.
+	// The workflow access service loads the workflow, authorizes both the workflow
+	// and its persisted bound agent in one decision, then claims the run.
 	run, created, err := acc.Instantiate(r.Context(), id, inputs, key)
 	if err != nil {
 		workflowError(w, err)
