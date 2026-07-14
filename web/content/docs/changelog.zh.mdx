@@ -11,6 +11,14 @@ icon: History
 
 ## [Unreleased]
 
+## [0.50.6] - 2026-07-14
+
+### 🐛 修复
+
+- OAuth：在每轮对话前刷新凭证，避免长期会话继续使用已过期的 access token 快照。多副本并发刷新时会收敛到 vault 中的新凭证，且不会在请求 OAuth provider 期间占用数据库连接。([#730](https://github.com/CherryHQ/stella/pull/730))
+
+**完整变更日志**：[v0.50.5...v0.50.6](https://github.com/CherryHQ/stella/compare/v0.50.5...v0.50.6)
+
 ## [0.50.5] - 2026-06-26
 
 ### ♻️ 重构
