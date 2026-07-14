@@ -2,14 +2,10 @@ package goal
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
-
-	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 )
 
 func (h *harness) seedSystemAgent(t *testing.T) string {
@@ -29,11 +25,19 @@ func TestGoalIdempotencyConflictMatchesOnlyItsIndex(t *testing.T) {
 	}
 }
 
+func TestWorkerAuthorizerMissingAgentAccessFailsClosed(t *testing.T) {
+	h := newHarness(t)
+	goal := h.createRoot(KindComposite, AcceptanceContract{})
+	if err := newWorkerAuthorizer(nil).authorize(context.Background(), goal, goal.AgentID); err == nil {
+		t.Fatal("worker authorized without Agent access")
+	}
+}
+
 func TestWorkerAuthorizerRevokedExecutorFailsClosed(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	goal := h.createRoot(KindComposite, AcceptanceContract{})
-	worker := newWorkerAuthorizer(h.bundle.authz, h.bundle.agents)
+	worker := newWorkerAuthorizer(h.bundle.agents)
 
 	if err := worker.authorize(ctx, goal, goal.AgentID); err != nil {
 		t.Fatalf("authorize active executor: %v", err)
@@ -45,44 +49,14 @@ func TestWorkerAuthorizerRevokedExecutorFailsClosed(t *testing.T) {
 	if _, err := h.db.Exec(ctx, `DELETE FROM agent WHERE id = $1`, goal.AgentID); err != nil {
 		t.Fatalf("revoke executor: %v", err)
 	}
-	if err := worker.authorize(ctx, goal, goal.AgentID); err == nil {
+	// The worker receives the freshly loaded durable row at dequeue, not the
+	// stale row held before revocation. A stale test input would only test its own
+	// artifact, not the worker contract.
+	dequeued, err := h.q.GetGoal(ctx, goal.ID)
+	if err != nil {
+		t.Fatalf("reload dequeued goal: %v", err)
+	}
+	if err := worker.authorize(ctx, dequeued, goal.AgentID); err == nil {
 		t.Fatal("worker authorized a revoked executor")
 	}
-}
-
-func TestGoalListPropagatesDecisionError(t *testing.T) {
-	h := newHarness(t)
-	h.createRoot(KindComposite, AcceptanceContract{})
-	h.bundle.authz = &erroringAuthorizer{Authorizer: policy.New(), pass: 1}
-
-	_, _, _, err := h.begin(t, h.userAuth(t, h.userID)).ListGoals(context.Background(), GoalFilter{}, 10, 0)
-	if err == nil || errors.Is(err, authz.ErrNotFound) || errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("ListGoals err=%v, want a propagated backend error", err)
-	}
-}
-
-type erroringAuthorizer struct {
-	authz.Authorizer
-	pass int
-}
-
-func (a *erroringAuthorizer) Begin(ctx context.Context, authority authz.Authority) (authz.Evaluation, error) {
-	evaluation, err := a.Authorizer.Begin(ctx, authority)
-	if err != nil {
-		return nil, err
-	}
-	return &erroringEvaluation{Evaluation: evaluation, remaining: a.pass}, nil
-}
-
-type erroringEvaluation struct {
-	authz.Evaluation
-	remaining int
-}
-
-func (e *erroringEvaluation) Decide(request authz.Request) (authz.Decision, error) {
-	if e.remaining <= 0 {
-		return authz.Decision{}, errors.New("pdp backend unavailable")
-	}
-	e.remaining--
-	return e.Evaluation.Decide(request)
 }

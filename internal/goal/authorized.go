@@ -12,19 +12,16 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Access is one Goal use case bound to exactly one Authorizer evaluation. The
-// goal Service is the sole policy-enforcement point: transports and the agent
-// tool pass a trusted authz.Authority and never a scoped query handle. A goal
-// denial is opaque (authz.ErrNotFound) so a foreign goal cannot be told from a
-// missing one; an agent-execute denial keeps its 403/404 visibility.
+// Access captures one validated authority for a Goal use case. The goal Service
+// owns the direct rules; transports and the agent tool pass trusted authority,
+// never a scoped query handle. A goal denial is opaque (authz.ErrNotFound) so a
+// foreign goal cannot be told from a missing one.
 type Access struct {
 	svc       *Service
-	eval      authz.Evaluation
 	authority authz.Authority
 	userID    string
 	// agentID is the executor confinement: empty for a plain user actor, the
@@ -32,74 +29,46 @@ type Access struct {
 	agentID string
 }
 
-// Begin opens exactly one evaluation for one Goal use case.
-func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access, error) {
-	if s.authz == nil || s.agents == nil {
-		return nil, fmt.Errorf("goal authorization unavailable: authorizer not configured")
+// Begin captures validated authority for one Goal use case.
+func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, error) {
+	if s.agents == nil {
+		return nil, fmt.Errorf("goal authorization unavailable: agent access not configured")
 	}
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden
 	}
-	eval, err := s.authz.Begin(ctx, authority)
-	if err != nil {
-		return nil, fmt.Errorf("goal authorization begin: %w", err)
-	}
 	actor := authority.Actor()
-	agentID := ""
+	executor := ""
 	if actor.Kind() == authz.ActorAgent {
-		agentID = string(actor.AgentID())
+		executor = string(actor.AgentID())
 	}
-	return &Access{svc: s, eval: eval, authority: authority, userID: string(actor.UserID()), agentID: agentID}, nil
+	return &Access{svc: s, authority: authority, userID: string(actor.UserID()), agentID: executor}, nil
 }
 
-// workerAuthorizer is the durable-attempt policy-enforcement point. On every
-// dequeue the worker calls it to fresh-authorize one attempt's execution: the
-// persisted goal's ActionExecute and the executor agent, folded into ONE
-// evaluation bound to a worker authority minted from the goal's durable owner.
-// Facts come only from durable goal/attempt rows — a triggering request is never
-// trusted — and any missing dependency fails closed rather than running the model.
+// workerAuthorizer is the durable-attempt authorization boundary. It needs only
+// the Agent domain port: on every dequeue it reconstructs authority from the
+// durable goal owner and actual persisted executor, then checks both before a
+// model turn. Missing owner, executor, or Agent PEP fails closed.
 type workerAuthorizer struct {
-	authz  authz.Authorizer
 	agents *agentaccess.Service
 }
 
-func newWorkerAuthorizer(az authz.Authorizer, agents *agentaccess.Service) *workerAuthorizer {
-	return &workerAuthorizer{authz: az, agents: agents}
+func newWorkerAuthorizer(agents *agentaccess.Service) *workerAuthorizer {
+	return &workerAuthorizer{agents: agents}
 }
 
-// authorize denies execution unless the goal's durable facts pass a fresh
-// Goal-execute decision and the attempt's persisted executor passes an
-// agent-execute decision, both under the single evaluation opened here. A runtime
-// executor override is authority-bearing durable state: the model turn runs as
-// that agent, so authorizing only goal.AgentID would leave the real executor
-// unchecked. is_executor is true because the worker reached this boundary from a
-// persisted attempt assigned to executorAgentID, not from request input. A nil PEP
-// or unusable owner/executor fails closed.
 func (wa *workerAuthorizer) authorize(ctx context.Context, goal sqlc.AgentGoal, executorAgentID string) error {
-	if wa == nil || wa.authz == nil || wa.agents == nil {
-		return fmt.Errorf("goal worker authorization unavailable: PEP not configured")
+	if wa == nil || wa.agents == nil {
+		return fmt.Errorf("goal worker authorization unavailable: agent access not configured")
 	}
 	authority, err := agentaccess.WorkerAgentAuthority(goal.UserID, executorAgentID)
 	if err != nil {
 		return fmt.Errorf("goal worker authority invalid: %w", err)
 	}
-	eval, err := wa.authz.Begin(ctx, authority)
-	if err != nil {
-		return fmt.Errorf("goal worker authorization begin: %w", err)
-	}
-	facts := policy.GoalFacts{
-		Owner: goal.UserID, Agent: goal.AgentID, State: goal.Lifecycle,
-		IsOwner: true, IsExecutor: true,
-	}
-	req, err := policy.GoalRequest(authz.ActionExecute, goal.ID, goal.UserID, facts)
-	if err != nil {
-		return authz.ErrForbidden
-	}
-	dec, err := eval.Decide(req)
-	if err != nil {
-		return fmt.Errorf("goal decide: %w", err)
-	}
-	if !dec.Allowed() {
+	// The attempt's executor is durable authority-bearing state. It may be a
+	// dispatch override, so it must be checked directly rather than replaced by
+	// the goal's default AgentID.
+	if goal.UserID == "" || executorAgentID == "" || string(authority.Actor().UserID()) != goal.UserID || string(authority.Actor().AgentID()) != executorAgentID {
 		return authz.ErrNotFound
 	}
 	return authorizeAgentWithin(ctx, wa.agents, authority, executorAgentID)
@@ -185,15 +154,7 @@ func (a *Access) CreateGoal(ctx context.Context, in CreateInput) (sqlc.AgentGoal
 			return sqlc.AgentGoal{}, err
 		}
 	}
-	facts := policy.GoalFacts{
-		Owner: a.userID, Agent: in.AgentID, State: "draft", IsOwner: true,
-		IsExecutor: a.agentID != "" && a.agentID == in.AgentID,
-	}
-	req, err := policy.GoalRequest(authz.ActionCreate, a.userID, a.userID, facts)
-	if err != nil {
-		return sqlc.AgentGoal{}, authz.ErrForbidden
-	}
-	if err := a.decideReq(req); err != nil {
+	if err := a.authorize(authz.ActionCreate, sqlc.AgentGoal{UserID: a.userID, AgentID: in.AgentID}); err != nil {
 		return sqlc.AgentGoal{}, err
 	}
 	if err := a.authorizeAgent(ctx, in.AgentID); err != nil {
@@ -266,7 +227,7 @@ func (a *Access) AddEdge(ctx context.Context, downstreamID, upstreamID, kind, on
 // listRootParams builds the durable candidate query for a scanned page.
 func (a *Access) listRootParams(filter GoalFilter, limit, offset int64) sqlc.ListRootGoalParams {
 	return sqlc.ListRootGoalParams{
-		UserID:          a.userID,
+		UserID:          pgnull.Text(a.listUserID()),
 		AgentID:         pgnull.Text(filter.AgentID),
 		ProjectID:       pgnull.Text(filter.ProjectID),
 		WorkflowID:      pgnull.Text(filter.WorkflowID),
@@ -279,12 +240,19 @@ func (a *Access) listRootParams(filter GoalFilter, limit, offset int64) sqlc.Lis
 	}
 }
 
+func (a *Access) listUserID() string {
+	if a.authority.IsAdmin() {
+		return ""
+	}
+	return a.userID
+}
+
 // ListGoals fills a page of up to `limit` root goals the caller may read. It scans
-// durable candidates from `offset` and authorizes each under this evaluation,
+// durable candidates from `offset` and applies Goal's direct rules to each,
 // skipping denied rows without shrinking the page or dropping a visible row that
 // sits behind one. It returns the page, the candidate offset to resume from, and
 // whether more candidates remain — so the opaque offset token still advances by
-// candidates consumed. An unexpected PDP error fails the whole page closed.
+// candidates consumed. Storage failures fail the whole page closed.
 func (a *Access) ListGoals(ctx context.Context, filter GoalFilter, limit, offset int64) (page []sqlc.AgentGoal, nextOffset int64, hasMore bool, err error) {
 	if err := a.decideList(); err != nil {
 		return nil, 0, false, err
@@ -330,9 +298,9 @@ func (a *Access) ListGoals(ctx context.Context, filter GoalFilter, limit, offset
 }
 
 // CountGoals counts the root goals in the caller's scope that the caller may read.
-// It scans candidates and authorizes every row under this evaluation so a
-// per-resource custom deny never leaks a hidden goal into the reported total. An
-// unexpected PDP error fails the count closed.
+// It scans candidates and applies the same direct read rule to every row, so
+// the reported total cannot leak a hidden goal. Storage failures fail the count
+// closed.
 func (a *Access) CountGoals(ctx context.Context, filter GoalFilter) (int64, error) {
 	if err := a.decideList(); err != nil {
 		return 0, err
@@ -366,7 +334,7 @@ func (a *Access) CountGoals(ctx context.Context, filter GoalFilter) (int64, erro
 }
 
 // ListChildren authorizes the parent goal, then lists the direct children the
-// caller may read, authorizing each under this evaluation.
+// caller may read, applying the same direct read rule to each.
 func (a *Access) ListChildren(ctx context.Context, parentID string) ([]sqlc.AgentGoal, error) {
 	if _, err := a.Get(ctx, parentID); err != nil {
 		return nil, err
@@ -379,7 +347,7 @@ func (a *Access) ListChildren(ctx context.Context, parentID string) ([]sqlc.Agen
 }
 
 // ListSubtree authorizes the root goal, then lists the tree rows the caller may
-// read, authorizing each under this evaluation.
+// read, applying the same direct read rule to each.
 func (a *Access) ListSubtree(ctx context.Context, rootID string) ([]sqlc.AgentGoal, error) {
 	if _, err := a.Get(ctx, rootID); err != nil {
 		return nil, err
@@ -393,10 +361,9 @@ func (a *Access) ListSubtree(ctx context.Context, rootID string) ([]sqlc.AgentGo
 
 // HealthReport gates the aggregated execution-health view on the collection list
 // decision, then computes it only over goals the caller may read. It scans the
-// window's candidate goals, authorizes each under this evaluation, and passes the
-// authorized id set to the aggregation so a per-resource custom deny never leaks a
-// hidden goal's attempts/events into the totals. An unexpected PDP error fails the
-// report closed.
+// window's candidate goals, applies the direct read rule to each, and passes the
+// visible id set to the aggregation so hidden goals' attempts/events never leak
+// into totals. Storage failures fail the report closed.
 func (a *Access) HealthReport(ctx context.Context, filter HealthFilter) (HealthReport, error) {
 	if err := a.decideList(); err != nil {
 		return HealthReport{}, err
@@ -497,72 +464,61 @@ func (a *Access) load(ctx context.Context, id string) (sqlc.AgentGoal, error) {
 }
 
 func (a *Access) decide(action authz.Action, d sqlc.AgentGoal) error {
-	return decideGoal(a.eval, action, a.userID, a.agentID, d)
+	return a.authorize(action, d)
 }
 
-// readable reports whether the caller may read a goal under this evaluation. A
-// clean deny (foreign/hidden goal) drops the row from a collection; an unexpected
-// PDP error propagates so a decision-backend failure fails the whole list closed
-// instead of silently shrinking it.
-func (a *Access) readable(d sqlc.AgentGoal) (bool, error) {
-	err := a.decide(authz.ActionRead, d)
-	switch {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, authz.ErrNotFound), errors.Is(err, authz.ErrForbidden):
-		return false, nil
+// authorize applies Goal's fixed rules only to a loaded durable row. Goal
+// denials are opaque, including collection actions, so callers cannot use this
+// boundary to distinguish a forbidden goal from a missing one.
+func (a *Access) authorize(action authz.Action, d sqlc.AgentGoal) error {
+	if a.allowed(action, d) {
+		return nil
+	}
+	return authz.ErrNotFound
+}
+
+func (a *Access) allowed(action authz.Action, d sqlc.AgentGoal) bool {
+	if a.authority.IsAdmin() {
+		return true
+	}
+	switch a.authority.Kind() {
+	case authz.ActorUser:
+		if !a.authority.HasRole(authz.RoleUser) {
+			return false
+		}
+		switch action {
+		case authz.ActionList:
+			return true
+		case authz.ActionCreate, authz.ActionRead, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute:
+			return a.userID != "" && a.userID == d.UserID
+		default:
+			return false
+		}
+	case authz.ActorAgent:
+		switch action {
+		case authz.ActionList:
+			return true
+		case authz.ActionCreate, authz.ActionRead, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute:
+			return a.userID != "" && a.userID == d.UserID && a.agentID != "" && a.agentID == d.AgentID
+		default:
+			return false
+		}
 	default:
-		return false, err
+		return false
 	}
 }
 
-// decideGoal evaluates one Goal action against durable facts within an already
-// open evaluation. It is the single Goal decision seam shared by the transport
-// PEP (Access) and the durable-worker PEP (workerAuthorizer): both derive
-// IsOwner/IsExecutor from the caller identity and the loaded row, never from a
-// request. A denial is opaque (ErrNotFound) so it never reveals a goal's
-// existence; an unexpected PDP error surfaces so callers can fail closed.
-func decideGoal(eval authz.Evaluation, action authz.Action, actorUserID, actorAgentID string, d sqlc.AgentGoal) error {
-	facts := policy.GoalFacts{
-		Owner: d.UserID, Agent: d.AgentID, State: d.Lifecycle,
-		IsOwner:    actorUserID != "" && actorUserID == d.UserID,
-		IsExecutor: actorAgentID != "" && actorAgentID == d.AgentID,
-	}
-	req, err := policy.GoalRequest(action, d.ID, d.UserID, facts)
-	if err != nil {
-		return authz.ErrForbidden
-	}
-	dec, err := eval.Decide(req)
-	if err != nil {
-		return fmt.Errorf("goal decide: %w", err)
-	}
-	if !dec.Allowed() {
-		return authz.ErrNotFound
-	}
-	return nil
+// readable reports whether the caller may read a goal. A clean deny drops the
+// row from a collection; storage errors remain visible to the caller.
+func (a *Access) readable(d sqlc.AgentGoal) (bool, error) {
+	return a.allowed(authz.ActionRead, d), nil
 }
 
 func (a *Access) decideList() error {
 	if a.userID == "" {
 		return authz.ErrUnauthenticated
 	}
-	req, err := policy.GoalListRequest()
-	if err != nil {
-		return authz.ErrForbidden
-	}
-	return a.decideReq(req)
-}
-
-func (a *Access) decideReq(req authz.Request) error {
-	dec, err := a.eval.Decide(req)
-	if err != nil {
-		return fmt.Errorf("goal decide: %w", err)
-	}
-	if !dec.Allowed() {
-		// Goals are opaque: a denial never reveals existence.
-		return authz.ErrNotFound
-	}
-	return nil
+	return a.authorize(authz.ActionList, sqlc.AgentGoal{})
 }
 
 // authorizeAgent requires the caller may still execute the goal's persisted
@@ -600,10 +556,8 @@ func (a *Access) scopeAgent(requested string) (string, error) {
 	return a.agentID, nil
 }
 
-// filterReadable keeps only the rows the caller may read, authorizing each under
-// this evaluation. It never swallows a decision-backend error: an unexpected PDP
-// failure propagates so the collection fails closed instead of silently omitting
-// rows it could not decide.
+// filterReadable keeps only the rows the caller may read. Storage failures are
+// returned by their query before this point, so filtering cannot hide one.
 func (a *Access) filterReadable(rows []sqlc.AgentGoal) ([]sqlc.AgentGoal, error) {
 	out := rows[:0]
 	for _, d := range rows {
@@ -618,14 +572,13 @@ func (a *Access) filterReadable(rows []sqlc.AgentGoal) ([]sqlc.AgentGoal, error)
 	return out, nil
 }
 
-// AuthorizeWithin decides a goal action against a caller's already-open
-// evaluation and returns the loaded row, so another domain (workflow's
-// SaveGoalAsWorkflow) can gate a source goal under its single policy revision
-// instead of opening a second evaluation. It is a narrow Goal-owned port,
-// mirroring agentaccess.AuthorizeWithin; facts come only from the durable row and
-// the passed Authority, so it never widens access. A missing or denied goal is
-// opaque (authz.ErrNotFound).
-func (s *GoalService) AuthorizeWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, goalID string, action authz.Action) (sqlc.AgentGoal, error) {
+// Authorize is Goal's narrow direct port for another domain. It loads the
+// durable row before applying the same fixed Goal rules as Access; no caller can
+// supply ownership or executor facts. A missing or denied goal is opaque.
+func (s *GoalService) Authorize(ctx context.Context, authority authz.Authority, goalID string, action authz.Action) (sqlc.AgentGoal, error) {
+	if !authority.Valid() {
+		return sqlc.AgentGoal{}, authz.ErrForbidden
+	}
 	d, err := getGoal(ctx, s.q, goalID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -634,28 +587,12 @@ func (s *GoalService) AuthorizeWithin(ctx context.Context, eval authz.Evaluation
 		return sqlc.AgentGoal{}, err
 	}
 	actor := authority.Actor()
-	userID := string(actor.UserID())
-	agentID := ""
+	access := Access{authority: authority, userID: string(actor.UserID())}
 	if actor.Kind() == authz.ActorAgent {
-		agentID = string(actor.AgentID())
+		access.agentID = string(actor.AgentID())
 	}
-	facts := policy.GoalFacts{
-		Owner:      d.UserID,
-		Agent:      d.AgentID,
-		State:      d.Lifecycle,
-		IsOwner:    userID != "" && userID == d.UserID,
-		IsExecutor: agentID != "" && agentID == d.AgentID,
-	}
-	req, err := policy.GoalRequest(action, d.ID, d.UserID, facts)
-	if err != nil {
-		return sqlc.AgentGoal{}, authz.ErrForbidden
-	}
-	dec, err := eval.Decide(req)
-	if err != nil {
-		return sqlc.AgentGoal{}, fmt.Errorf("goal decide: %w", err)
-	}
-	if !dec.Allowed() {
-		return sqlc.AgentGoal{}, authz.ErrNotFound
+	if err := access.authorize(action, d); err != nil {
+		return sqlc.AgentGoal{}, err
 	}
 	return d, nil
 }

@@ -314,17 +314,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	workerExcludedTools := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName}
-	// The goal River worker is a durable Agent invocation boundary. It gets the
-	// same authoritative PEP as HTTP/channel paths, but reconstructs authority
-	// exclusively from the persisted attempt owner and executor.
-	goalAgentAccess := agentAccess
-
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 		ExcludedTools: workerExcludedTools,
-		AgentAccess:   goalAgentAccess,
-		Authorizer:    authorizer,
+		AgentAccess:   agentAccess,
 		Capabilities: goal.CapabilityProbeFunc(func() bool {
 			plugins, err := store.ListPlugins(context.Background())
 			if err != nil {

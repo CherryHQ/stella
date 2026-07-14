@@ -161,15 +161,13 @@ func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Age
 		return sqlc.AgentWorkflow{}, ErrForbidden
 	}
 	in.UserID = a.userID
-	// Decide the SOURCE goal's read within this same evaluation through the
-	// Goal-owned port, so the goal-read and workflow-create decisions share one
-	// revision (no separate goal Begin then workflow Begin). The workflow binds to
-	// the goal's persisted agent — never a caller-supplied one — and the raw service
+	// Goal owns the source-read decision directly. The workflow binds to the
+	// goal's persisted agent — never a caller-supplied one — and the raw service
 	// re-verifies goal ownership/agent so it cannot be spoofed.
 	if a.svc.goal == nil {
 		return sqlc.AgentWorkflow{}, fmt.Errorf("%w: goal authorization is not configured", ErrUnavailable)
 	}
-	goalRow, err := a.svc.goal.AuthorizeWithin(ctx, a.eval, a.authority, in.GoalID, authz.ActionRead)
+	goalRow, err := a.svc.goal.Authorize(ctx, a.authority, in.GoalID, authz.ActionRead)
 	if err != nil {
 		return sqlc.AgentWorkflow{}, mapGoalAuthzError(err)
 	}
@@ -298,7 +296,7 @@ func mapAgentAuthzError(err error) error {
 	}
 }
 
-// mapGoalAuthzError folds the Goal-owned AuthorizeWithin denial (authz sentinels)
+// mapGoalAuthzError folds the Goal-owned direct authorization denial (authz sentinels)
 // into the workflow-opaque contract: a foreign, revoked, or missing source goal
 // is indistinguishable from a missing workflow (ErrNotFound).
 func mapGoalAuthzError(err error) error {

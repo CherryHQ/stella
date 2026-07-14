@@ -64,9 +64,8 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 			uuid.NewString(), sessionID, agentID, userID, now, now, now)
 		return sessionID, err
 	}))
-	goalAuthorizer := policy.New()
 	goalAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
-	goalBundle := goal.NewBundle(q, goalSvc, goalAuthorizer, goalAgents)
+	goalBundle := goal.NewBundle(q, goalSvc, goalAgents)
 	ownerGoalAuthority, err := ownerIdentity(ownerUser, agentID).ToAuthority()
 	if err != nil {
 		t.Fatalf("owner goal authority: %v", err)

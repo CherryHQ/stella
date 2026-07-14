@@ -41,16 +41,14 @@ var (
 	ErrInvalidWorkflowInput = errors.New("invalid workflow input")
 )
 
-// GoalWriter is the workflow domain's narrow port into the goal domain: the
-// frozen-tree writes SaveGoalAsWorkflow/Instantiate perform, plus AuthorizeWithin,
-// the Goal-owned read-authorization used to gate a source goal inside the
-// workflow's own evaluation. It is consumer-owned here so no goal→workflow cycle
-// forms; *goal.GoalService satisfies it.
+// GoalWriter is the workflow domain's narrow port into Goal: frozen-tree writes
+// plus Goal's direct source-read authorization. The port is consumer-owned here
+// so no goal→workflow cycle forms; *goal.GoalService satisfies it.
 type GoalWriter interface {
 	CreateRoot(ctx context.Context, in goal.CreateInput) (sqlc.AgentGoal, error)
 	MaterializeFrozenLayer(ctx context.Context, parentID string, content goal.DecompositionContent, frozen goal.FrozenStamp) error
 	ActivateFrozenComposite(ctx context.Context, id string) error
-	AuthorizeWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, goalID string, action authz.Action) (sqlc.AgentGoal, error)
+	Authorize(ctx context.Context, authority authz.Authority, goalID string, action authz.Action) (sqlc.AgentGoal, error)
 }
 
 type Service struct {
