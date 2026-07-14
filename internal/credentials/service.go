@@ -375,7 +375,7 @@ func (s *Service) GitHubAccessToken(ctx context.Context, userID string) string {
 	if s.registry == nil || s.vaultSvc == nil {
 		return ""
 	}
-	bundle, err := s.registry.GetToken(ctx, s.vaultSvc, string(oauth.ProviderGitHub), userID)
+	bundle, err := s.registry.GetToken(ctx, s.vaultSvc, string(oauth.ProviderGitHub), userID, 0)
 	if err != nil {
 		// Not-connected surfaces here as an error too; log at debug so a genuine
 		// vault/refresh failure leaves a breadcrumb without spamming on the common

@@ -2,12 +2,14 @@ package oauth
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 )
 
 // mockVaultStore is a simple in-memory VaultStore for testing.
 type mockVaultStore struct {
+	mu   sync.RWMutex
 	data map[string]string // keyed by "userID:name"
 }
 
@@ -20,16 +22,22 @@ func (m *mockVaultStore) key(userID string, name string) string {
 }
 
 func (m *mockVaultStore) Set(_ context.Context, userID string, name string, plaintext string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.data[m.key(userID, name)] = plaintext
 	return nil
 }
 
 func (m *mockVaultStore) Delete(_ context.Context, userID string, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.data, m.key(userID, name))
 	return nil
 }
 
 func (m *mockVaultStore) LoadEnv(_ context.Context, userID string) (map[string]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	out := make(map[string]string)
 	prefix := userID + ":"
 	for k, v := range m.data {

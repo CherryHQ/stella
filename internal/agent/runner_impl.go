@@ -62,7 +62,7 @@ type runner struct {
 	toolLifecycle *coreagent.ToolLifecycle
 	chatTimeout   time.Duration
 	session       pkgsandbox.Session // runner-owned sandbox session lifecycle
-	sandboxCfg    sandbox.Config     // retained to re-sign the sandbox STELLA_TOKEN on long-lived runners
+	sandboxCfg    sandbox.Config     // retained to refresh sandbox credentials on long-lived runners
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -80,6 +80,11 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	systemPrompt := cfg.System
 
 	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL}
+
+	// Propagate the turn budget into the sandbox config so both initial OAuth env
+	// injection and per-turn refresh size their min-validity to the actual chat
+	// timeout (#722). cfg is a value copy, so this stays local to this runner.
+	cfg.Sandbox.ChatTimeout = cfg.ChatTimeout
 
 	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
 	if err != nil {
@@ -390,11 +395,13 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			return &msg
 		})
 
-		// Re-sign the sandbox STELLA_TOKEN if it is near expiry, so a long-lived
-		// cached runner (kept warm by frequent scheduler fires) never hands tools an
-		// expired token. No-op on a fresh token (#490).
+		// Re-sign the sandbox STELLA_TOKEN if it is near expiry, and reload the
+		// OAuth-derived env so a long-lived cached runner (kept warm by frequent
+		// scheduler fires) never hands tools an expired token. Both are no-ops on a
+		// fresh credential (#490, #722).
 		if r.session != nil {
 			sandbox.RefreshScopedToken(ctx, r.session, r.sandboxCfg)
+			sandbox.RefreshSessionEnv(ctx, r.session, r.sandboxCfg)
 		}
 
 		messages := make([]ai.Message, len(history))

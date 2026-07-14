@@ -35,7 +35,7 @@ func TestGetOAuthToken_Success(t *testing.T) {
 		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
-	got, err := tm.GetOAuthToken(ctx, "github", userID)
+	got, err := tm.GetOAuthToken(ctx, "github", userID, 0)
 	if err != nil {
 		t.Fatalf("GetOAuthToken: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestGetOAuthToken_NoBundle(t *testing.T) {
 	tm := NewTokenManager(vs)
 	tm.SetRegistry(registry)
 
-	_, err := tm.GetOAuthToken(ctx, "github", userID)
+	_, err := tm.GetOAuthToken(ctx, "github", userID, 0)
 	if err == nil {
 		t.Fatal("GetOAuthToken expected error for missing bundle")
 	}
@@ -81,7 +81,7 @@ func TestGetOAuthToken_EmptyToken(t *testing.T) {
 		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
-	_, err := tm.GetOAuthToken(ctx, "github", userID)
+	_, err := tm.GetOAuthToken(ctx, "github", userID, 0)
 	if err == nil {
 		t.Fatal("GetOAuthToken expected error for empty token")
 	}
@@ -94,7 +94,7 @@ func TestGetOAuthToken_NoRegistry(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()
 
-	_, err := NewTokenManager(vs).GetOAuthToken(ctx, "github", "1")
+	_, err := NewTokenManager(vs).GetOAuthToken(ctx, "github", "1", 0)
 	if err == nil {
 		t.Fatal("GetOAuthToken expected error when registry not set")
 	}

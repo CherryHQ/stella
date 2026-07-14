@@ -3,6 +3,7 @@ package oauth
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // TokenManager provides host-side token validation and reads from/writes to
@@ -22,21 +23,22 @@ func (m *TokenManager) SetRegistry(r *ProviderRegistry) {
 	m.registry = r
 }
 
-// GetOAuthToken returns the generic OAuthBundle for providerID and userID.
-// It delegates to the ProviderRegistry to load the bundle from vault.
-func (m *TokenManager) GetOAuthToken(ctx context.Context, providerID string, userID string) (*OAuthBundle, error) {
+// GetOAuthToken returns the generic OAuthBundle for providerID and userID,
+// guaranteed valid for at least minValidity (0 uses the registry default). It
+// delegates to the ProviderRegistry to load, refresh, and validate the bundle.
+func (m *TokenManager) GetOAuthToken(ctx context.Context, providerID string, userID string, minValidity time.Duration) (*OAuthBundle, error) {
 	if m.registry == nil {
 		return nil, fmt.Errorf("oauth: provider registry not set")
 	}
-	return m.registry.GetToken(ctx, m.vs, providerID, userID)
+	return m.registry.GetToken(ctx, m.vs, providerID, userID, minValidity)
 }
 
 // GetOAuthTokenFromEnv is like GetOAuthToken but reads the bundle from an
 // already-decrypted vault snapshot instead of decrypting the vault again.
 // Used by the sandbox env path, which has already loaded the full vault.
-func (m *TokenManager) GetOAuthTokenFromEnv(ctx context.Context, env map[string]string, providerID string, userID string) (*OAuthBundle, error) {
+func (m *TokenManager) GetOAuthTokenFromEnv(ctx context.Context, env map[string]string, providerID string, userID string, minValidity time.Duration) (*OAuthBundle, error) {
 	if m.registry == nil {
 		return nil, fmt.Errorf("oauth: provider registry not set")
 	}
-	return m.registry.GetTokenFromEnv(ctx, m.vs, env, providerID, userID)
+	return m.registry.GetTokenFromEnv(ctx, m.vs, env, providerID, userID, minValidity)
 }
