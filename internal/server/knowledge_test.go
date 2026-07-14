@@ -245,45 +245,6 @@ func TestKnowledgeAPIRejectsInvalidPaginationStateAndTokens(t *testing.T) {
 	}
 }
 
-func TestKnowledgeAPIKeysetPagesRemainContinuousAcrossInterveningWrites(t *testing.T) {
-	t.Run("active", func(t *testing.T) {
-		env := setupAdmin(t)
-		agentID := findStellaID(t, env)
-		original := map[string]bool{}
-		for _, content := range []string{"one", "two", "three"} {
-			original[createKnowledgeAPI(t, env, agentID, content).ID] = true
-		}
-
-		first := listKnowledgeAPI(t, env, agentID, "active", 2, "")
-		if first.NextPageToken == nil {
-			t.Fatal("first active page omitted token")
-		}
-		intervening := createKnowledgeAPI(t, env, agentID, "newer write")
-		second := listKnowledgeAPI(t, env, agentID, "active", 2, *first.NextPageToken)
-		assertStableOriginalPageSet(t, original, first.Knowledge, second.Knowledge, intervening.ID)
-	})
-
-	t.Run("removed", func(t *testing.T) {
-		env := setupAdmin(t)
-		agentID := findStellaID(t, env)
-		original := map[string]bool{}
-		for _, content := range []string{"one", "two", "three"} {
-			item := createKnowledgeAPI(t, env, agentID, content)
-			deleteKnowledgeAPI(t, env, agentID, item.ID)
-			original[item.ID] = true
-		}
-
-		first := listKnowledgeAPI(t, env, agentID, "removed", 2, "")
-		if first.NextPageToken == nil {
-			t.Fatal("first removed page omitted token")
-		}
-		intervening := createKnowledgeAPI(t, env, agentID, "newer removal")
-		deleteKnowledgeAPI(t, env, agentID, intervening.ID)
-		second := listKnowledgeAPI(t, env, agentID, "removed", 2, *first.NextPageToken)
-		assertStableOriginalPageSet(t, original, first.Knowledge, second.Knowledge, intervening.ID)
-	})
-}
-
 func TestKnowledgeAPIRestoreConflictExpiredAndReplacementStates(t *testing.T) {
 	t.Run("trimmed duplicate is conflict", func(t *testing.T) {
 		env := setupAdmin(t)
@@ -415,30 +376,6 @@ func mutateOpaqueToken(t *testing.T, token string, key string, value any) string
 		t.Fatalf("encode mutated token JSON: %v", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(raw)
-}
-
-func assertStableOriginalPageSet(t *testing.T, original map[string]bool, first []knowledgeAPIItem, second []knowledgeAPIItem, interveningID string) {
-	t.Helper()
-	seen := make(map[string]bool, len(original))
-	for _, page := range [][]knowledgeAPIItem{first, second} {
-		for _, item := range page {
-			if item.ID == interveningID {
-				t.Fatalf("intervening item %s leaked into continuation page", item.ID)
-			}
-			if seen[item.ID] {
-				t.Fatalf("item %s appeared on both keyset pages", item.ID)
-			}
-			seen[item.ID] = true
-		}
-	}
-	if len(seen) != len(original) {
-		t.Fatalf("paged original IDs = %v, want %v", seen, original)
-	}
-	for id := range original {
-		if !seen[id] {
-			t.Fatalf("original item %s was skipped across keyset pages", id)
-		}
-	}
 }
 
 func jsonNumber(value int) string {

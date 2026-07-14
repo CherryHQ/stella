@@ -9,9 +9,6 @@ catalogs:
     vite-plus:
       specifier: ^0.1.24
       version: 0.1.24
-    vitest:
-      specifier: npm:@voidzero-dev/vite-plus-test@latest
-      version: 0.1.24
 
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@latest
@@ -150,9 +147,6 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.1)(@voidzero-dev/vite-plus-core@0.1.22(@types/node@25.9.1)(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.0))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.0)
-      vitest:
-        specifier: npm:@voidzero-dev/vite-plus-test@latest
-        version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.1)(@voidzero-dev/vite-plus-core@0.1.22(@types/node@25.9.1)(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.0))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.0)'
 
 packages:
 

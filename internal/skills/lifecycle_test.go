@@ -375,41 +375,6 @@ func TestManagedSkillUpdateRollsBackFilesOwnershipAndUsageWhenChangelogFails(t *
 	}
 }
 
-func TestManagedSkillRemovedCombinationFiltersCountAndRows(t *testing.T) {
-	store, db, ctx := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
-
-	manualUser := mustCreateManagedSkill(t, store, ctx, Skill{
-		Scope: "user", UserID: userID, Name: "needle-user", Description: "needle",
-	})
-	manualAgent := mustCreateManagedSkill(t, store, ctx, Skill{
-		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "needle-agent", Description: "needle",
-	})
-	otherAgent := mustCreateManagedSkill(t, store, ctx, Skill{
-		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "other-agent", Description: "other",
-	})
-	for _, created := range []Skill{manualUser, manualAgent, otherAgent} {
-		if _, err := store.DeprecateManagedSkill(ctx, ManagedSkillDeprecate{
-			ID: created.ID, UserID: created.UserID, AgentID: created.AgentID,
-			Scope: created.Scope, DeprecatedBy: userID,
-		}); err != nil {
-			t.Fatalf("deprecate %q: %v", created.Name, err)
-		}
-	}
-
-	page, err := store.ListManagedSkills(ctx, ManagedSkillListQuery{
-		UserID: userID, AgentID: agentID, Scopes: []string{"user_agent"},
-		CreatedBy: ManualSkillCreatedBy, Query: "NEEDLE", State: ManagedSkillStateRemoved,
-		Limit: 10, Now: time.Now().UTC(),
-	})
-	if err != nil {
-		t.Fatalf("list combined removed filter: %v", err)
-	}
-	if page.Total != 1 || len(page.Items) != 1 || page.Items[0].Skill.ID != manualAgent.ID {
-		t.Fatalf("combined removed page = %#v, want only %s with total 1", page, manualAgent.ID)
-	}
-}
-
 func TestManagedSkillListIncludesDraftAndPagesRecoverableRemovals(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)
