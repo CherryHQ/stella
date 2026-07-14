@@ -228,6 +228,8 @@ Stella 使用三个不同的地址，务必区分：
 
 Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL` 未设置时，启动会以可操作的错误快速失败，而不是在容器的临时文件系统上静默启动内嵌 PostgreSQL 集群——多副本时每个 pod 甚至会各建一套数据库。请将 `STELLA_DATABASE_URL` 指向带 `pgvector` 与 `pg_search` 的外部 PostgreSQL。若要有意在挂载持久卷的单容器中运行内嵌 PostgreSQL，设置 `STELLA_REQUIRE_EXTERNAL_DB=0`。
 
+上传的用户资产同样需要持久化。未配置 `STELLA_BLOB_S3_*` 时，`STELLA_HOME` 下的文件系统是单节点权威，必须挂载持久卷；配置 S3 兼容对象存储后，它成为共享权威，本地文件只作为 materialization。Stella 当前只开放单副本 Helm 拓扑；未来唯一的多副本拓扑会直接要求共享权威，而不是再引入一个可能与实际存储冲突的模式开关。
+
 loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl port-forward` 访问 Stella 时它是合法的——但当配置了 OAuth/OIDC 登录时 Stella 会发出响亮警告，因为登录跳转会指回 pod 自身。部署 chart 应将 `STELLA_BASE_URL` 作为必填值：那一层才知道自己位于 ingress 之后。
 
 ### 受管部署所需的环境变量

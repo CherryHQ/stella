@@ -18,7 +18,10 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"
@@ -28,6 +31,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -44,7 +48,10 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 			t.Fatalf("seed user: %v", err)
 		}
 	}
-	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, 'agent', '/tmp')`, agentID); err != nil {
+	// System scope so both the owner and the foreign delegated agent (both exact
+	// executors of this agent) pass the folded-in agent-read gate; the scheduler
+	// job-ownership decision is what differentiates them.
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace, scope) VALUES ($1, 'agent', '/tmp', 'system')`, agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 
@@ -57,13 +64,25 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 			uuid.NewString(), sessionID, agentID, userID, now, now, now)
 		return sessionID, err
 	}))
-	goalBundle := &goal.Service{Queries: q, Goal: goalSvc}
-	ownerGoal, err := goalBundle.As(ownerIdentity(ownerUser, agentID)).CreateGoal(ctx, goal.CreateInput{AgentID: agentID, Title: "owner goal", Kind: goal.KindComposite})
+	goalAuthorizer := policy.New(db)
+	goalAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), goalAuthorizer)
+	goalBundle := goal.NewBundle(q, goalSvc, goalAuthorizer, goalAgents)
+	ownerGoalAuthority, err := ownerIdentity(ownerUser, agentID).ToAuthority()
+	if err != nil {
+		t.Fatalf("owner goal authority: %v", err)
+	}
+	ownerGoalAcc, err := goalBundle.Begin(ctx, ownerGoalAuthority)
+	if err != nil {
+		t.Fatalf("goal begin: %v", err)
+	}
+	ownerGoal, err := ownerGoalAcc.CreateGoal(ctx, goal.CreateInput{AgentID: agentID, Title: "owner goal", Kind: goal.KindComposite})
 	if err != nil {
 		t.Fatalf("create owner goal: %v", err)
 	}
 
-	schedulerSvc, err := scheduler.New(db)
+	schedAuthorizer := policy.New(db)
+	schedAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), schedAuthorizer)
+	schedulerSvc, err := scheduler.New(db, scheduler.WithAuthorization(schedAuthorizer, schedAgents))
 	if err != nil {
 		t.Fatalf("scheduler.New: %v", err)
 	}
@@ -71,16 +90,32 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("scheduler.Start: %v", err)
 	}
 	t.Cleanup(func() { _ = schedulerSvc.Stop() })
-	ownerJob, err := schedulerSvc.As(ownerIdentity(ownerUser, agentID)).CreateJob(ctx, "owner job", "run", scheduler.Schedule{Every: "1h"}, scheduler.SessionReuse, agentID, "")
+	ownerAuthority, err := ownerIdentity(ownerUser, agentID).ToAuthority()
+	if err != nil {
+		t.Fatalf("owner authority: %v", err)
+	}
+	ownerAcc, err := schedulerSvc.Begin(ctx, ownerAuthority)
+	if err != nil {
+		t.Fatalf("scheduler begin: %v", err)
+	}
+	ownerJob, err := ownerAcc.CreateJob(ctx, "owner job", "run", scheduler.Schedule{Every: "1h"}, scheduler.SessionReuse, agentID, "")
 	if err != nil {
 		t.Fatalf("create owner job: %v", err)
 	}
 
 	vaultSvc := newVaultToolTestService(t, db, ownerUser, foreignUser)
-	if _, err := vaultSvc.As(ownerIdentity(ownerUser, agentID)).Set(ctx, vault.ScopeUser, "OWNER_USER_SECRET", "secret"); err != nil {
+	vaultOwnerAuth, err := ownerIdentity(ownerUser, agentID).ToAuthority()
+	if err != nil {
+		t.Fatalf("vault owner authority: %v", err)
+	}
+	vaultAcc, err := vaultSvc.Begin(ctx, vaultOwnerAuth)
+	if err != nil {
+		t.Fatalf("vault begin: %v", err)
+	}
+	if err := vaultAcc.SetScoped(ctx, vault.ScopeUser, "", "OWNER_USER_SECRET", "secret", vault.SetOptions{}); err != nil {
 		t.Fatalf("set owner user vault: %v", err)
 	}
-	if _, err := vaultSvc.As(ownerIdentity(ownerUser, agentID)).Set(ctx, vault.ScopeUserAgent, "OWNER_AGENT_SECRET", "secret"); err != nil {
+	if err := vaultAcc.SetScoped(ctx, vault.ScopeUserAgent, agentID, "OWNER_AGENT_SECRET", "secret", vault.SetOptions{}); err != nil {
 		t.Fatalf("set owner agent vault: %v", err)
 	}
 
@@ -159,7 +194,11 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	} else if strings.Contains(out, "secret") {
 		t.Fatalf("vault delete leaked value: %s", out)
 	}
-	if entries, err := vaultSvc.As(ownerIdentity(ownerUser, agentID)).List(ctx, vault.ScopeUserAgent); err != nil || len(entries) != 1 {
+	vaultListAcc, err := vaultSvc.Begin(ctx, vaultOwnerAuth)
+	if err != nil {
+		t.Fatalf("vault begin: %v", err)
+	}
+	if entries, err := vaultListAcc.ListScoped(ctx, vault.ScopeUserAgent, agentID); err != nil || len(entries) != 1 {
 		t.Fatalf("owner agent vault entry affected by foreign delete: entries=%+v err=%v", entries, err)
 	}
 	if _, err := vaultTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
@@ -213,7 +252,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test")
+	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test")
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
@@ -239,6 +278,10 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 
 	recallySvc := recally.NewService(recally.NewStore(db), home)
 	recallyTool := recally.NewTool(recallySvc)
+	recallyOwnerAuth, err := ownerIdentity(ownerUser, agentID).ToAuthority()
+	if err != nil {
+		t.Fatalf("recally owner authority: %v", err)
+	}
 	ownerRecallyCtx := authz.WithAgentID(authz.WithUserID(ctx, ownerUser), agentID)
 	out, err = recallyTool.Execute(ownerRecallyCtx, map[string]any{"action": "save", "articles": []any{
 		map[string]any{"url": "https://example.com/one", "title": "One", "content": "one body"},
@@ -251,10 +294,14 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if !strings.Contains(out, "created") || !strings.Contains(out, "updated") || !strings.Contains(out, "error") {
 		t.Fatalf("recally save did not report partial results: %s", out)
 	}
-	if articles, err := recallySvc.As(ownerIdentity(ownerUser, agentID)).ListArticles(ctx, recally.ArticleFilter{Limit: 10}); err != nil || len(articles) != 1 {
+	recallyAcc, err := recallySvc.Access(recallyOwnerAuth)
+	if err != nil {
+		t.Fatalf("recally begin: %v", err)
+	}
+	if articles, err := recallyAcc.ListArticles(ctx, recally.ArticleFilter{Limit: 10}); err != nil || len(articles) != 1 {
 		t.Fatalf("recally dedup articles=%d err=%v, want one", len(articles), err)
 	}
-	ownerFeed, err := recallySvc.As(ownerIdentity(ownerUser, agentID)).CreateFeed(ctx, "https://x.com/cherry", recally.FeedKindTwitter, "Cherry", nil)
+	ownerFeed, err := recallyAcc.CreateFeed(ctx, "https://x.com/cherry", recally.FeedKindTwitter, "Cherry", nil)
 	if err != nil {
 		t.Fatalf("CreateFeed: %v", err)
 	}
@@ -290,7 +337,9 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 	if err != nil {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
-	svc, err := vault.NewService(sqlc.New(db), masterID.String())
+	authorizer := policy.New(db)
+	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), authorizer)
+	svc, err := vault.NewService(sqlc.New(db), masterID.String(), authorizer, agents)
 	if err != nil {
 		t.Fatalf("vault.NewService: %v", err)
 	}
@@ -305,4 +354,13 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 		}
 	}
 	return svc
+}
+
+func mustAssetStore(t *testing.T, home string) *asset.Store {
+	t.Helper()
+	a, err := asset.NewStore(home, nil, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
+	}
+	return a
 }

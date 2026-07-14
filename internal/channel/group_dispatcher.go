@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -809,17 +810,30 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 }
 
 func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage) (*pkgchannel.ChatStream, error) {
+	speaker := webGroupSpeaker(message)
+	// A persisted group membership is not an execute grant forever. The human
+	// speaker is audit/personalization only; never borrow their private user
+	// authority to execute a group turn.
+	if d.coord == nil || d.coord.agentAccess == nil {
+		return nil, ErrAgentAccessDenied
+	}
+	authority, err := agentaccess.GroupAgentAuthority(row.GroupID, row.AgentID)
+	if err != nil {
+		return nil, ErrAgentAccessDenied
+	}
+	if _, err := d.coord.agentAccess.Use(ctx, authority, row.AgentID); err != nil {
+		return nil, ErrAgentAccessDenied
+	}
 	svc := d.coord.serviceManager.GetService(row.AgentID)
 	if svc == nil {
 		return nil, fmt.Errorf("agent service %q not found", row.AgentID)
 	}
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
 	channelStr := "group:" + row.GroupID
-	info, err := svc.ResolveGroupChannelSession(ctx, sessionKey, row.GroupID, row.AgentID, session.Channel(channelStr))
+	info, err := svc.ResolveGroupChannelSession(ctx, authority, sessionKey, row.GroupID, row.AgentID, session.Channel(channelStr))
 	if err != nil {
 		return nil, fmt.Errorf("resolve session: %w", err)
 	}
-	speaker := webGroupSpeaker(message)
 	// CtxGroupMessage carries no display name; fill it best-effort from the auth
 	// user so the prompt shows a real name instead of "Unknown". Fail-soft.
 	if speaker.UserID != "" && speaker.DisplayName == "" && d.coord.auth != nil {
@@ -836,6 +850,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 		Channel:        session.Channel(channelStr),
 		Message:        message.Content,
 		CurrentSpeaker: speaker,
+		Authority:      authority,
 	})
 	out := make(chan pkgchannel.Event, 100)
 	go func() {

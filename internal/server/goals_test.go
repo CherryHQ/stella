@@ -4,14 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
+	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/server"
+	storepkg "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -58,7 +66,9 @@ func setupGoalEnvWithOptions(t *testing.T, opts ...goal.Option) *testEnv {
 	}
 	baseOpts = append(baseOpts, opts...)
 	svc := goal.New(env.db, q, baseOpts...)
-	bundle := &goal.Service{Queries: q, Goal: svc}
+	az := policy.New(env.db)
+	agents := agentaccess.NewService(storepkg.NewDBStore(env.db), appdb.NewAuthStore(env.db), az)
+	bundle := goal.NewBundle(q, svc, az, agents)
 	env.rebuild(t, func(d *server.Deps) { d.Goal = bundle })
 	return env
 }
@@ -127,18 +137,20 @@ func TestGoals_AddEdge_CrossTenant_404(t *testing.T) {
 	env := setupGoalEnv(t)
 	agentID := findStellaID(t, env)
 
-	// User B + token. Reuse the same agent — there is no per-user agent ownership
-	// gate at create time, so the only tenant boundary exercised here is the
-	// goal's user_id.
+	// Two regular users A and B. Reuse the same agent — there is no per-user agent
+	// ownership gate at create time, so the only tenant boundary exercised here is
+	// the goal's user_id. A is a regular user (not the admin bearer) because admin
+	// is a policy superuser and would legitimately see B's goal.
+	_, tokenA := createTestUserWithToken(t, env.authStore, env.oidcStore, "tenant-a", "user")
 	_, tokenB := createTestUserWithToken(t, env.authStore, env.oidcStore, "tenant-b", "user")
 
 	// A's two own goals and B's one.
-	dA := createGoal(t, env, env.bearerToken, agentID, "A-root")
-	dA2 := createGoal(t, env, env.bearerToken, agentID, "A-sibling")
+	dA := createGoal(t, env, tokenA, agentID, "A-root")
+	dA2 := createGoal(t, env, tokenA, agentID, "A-sibling")
 	dB := createGoal(t, env, tokenB, agentID, "B-root")
 
 	// As A, declare dA depends on B's goal as upstream → 404 (upstream gated).
-	rr := doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals/"+dA+"/edges", apitypes.AddEdgeRequest{
+	rr := doRequestWithSession(t, env.srv, tokenA, "POST", "/api/goals/"+dA+"/edges", apitypes.AddEdgeRequest{
 		UpstreamId: dB,
 	})
 	if rr.Code != http.StatusNotFound {
@@ -159,7 +171,7 @@ func TestGoals_AddEdge_CrossTenant_404(t *testing.T) {
 
 	// Cross-tenant downstream: as A, target B's goal as the path id → the
 	// downstream gate fails first → 404.
-	rr = doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals/"+dB+"/edges", apitypes.AddEdgeRequest{
+	rr = doRequestWithSession(t, env.srv, tokenA, "POST", "/api/goals/"+dB+"/edges", apitypes.AddEdgeRequest{
 		UpstreamId: dA,
 	})
 	if rr.Code != http.StatusNotFound {
@@ -167,7 +179,7 @@ func TestGoals_AddEdge_CrossTenant_404(t *testing.T) {
 	}
 
 	// Same-tenant edge between A's two own siblings → 201.
-	rr = doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/goals/"+dA+"/edges", apitypes.AddEdgeRequest{
+	rr = doRequestWithSession(t, env.srv, tokenA, "POST", "/api/goals/"+dA+"/edges", apitypes.AddEdgeRequest{
 		UpstreamId: dA2,
 	})
 	if rr.Code != http.StatusCreated {
@@ -188,10 +200,13 @@ func TestGoals_GetCrossTenant_404(t *testing.T) {
 	env := setupGoalEnv(t)
 	agentID := findStellaID(t, env)
 
+	// Regular user A must not see regular user B's goal (admin is a policy
+	// superuser and is intentionally not used as the cross-tenant probe).
+	_, tokenA := createTestUserWithToken(t, env.authStore, env.oidcStore, "tenant-a-get", "user")
 	_, tokenB := createTestUserWithToken(t, env.authStore, env.oidcStore, "tenant-b-get", "user")
 	dB := createGoal(t, env, tokenB, agentID, "B-private")
 
-	rr := doRequestWithSession(t, env.srv, env.bearerToken, "GET", "/api/goals/"+dB, nil)
+	rr := doRequestWithSession(t, env.srv, tokenA, "GET", "/api/goals/"+dB, nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("A GET B's goal: status = %d, want %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
 	}
@@ -241,6 +256,105 @@ func TestGoals_TimelinePaginationAndPost(t *testing.T) {
 	if page2.Events[0].EventType != apitypes.HumanMessage || page2.Events[0].Payload["text"] != "three" {
 		t.Fatalf("page2 event=%+v want third human message", page2.Events[0])
 	}
+}
+
+// TestGoalContinuationCommandsRequireFreshAgentUse proves that every command
+// which can resume or release goal work re-checks the persisted goal agent
+// before it writes any lifecycle, event, edge, or attempt state.
+func TestGoalContinuationCommandsRequireFreshAgentUse(t *testing.T) {
+	type command struct {
+		name string
+		path func(string) string
+		body any
+	}
+	commands := []command{
+		{name: "activate", path: func(id string) string { return "/api/goals/" + id + "/activate" }},
+		{name: "reattempt", path: func(id string) string { return "/api/goals/" + id + "/reattempt" }},
+		{name: "human_message", path: func(id string) string { return "/api/goals/" + id + "/timeline" }, body: apitypes.GoalTimelineMessageRequest{Text: "resume"}},
+		{name: "verdict", path: func(id string) string { return "/api/goals/" + id + "/verdict" }, body: apitypes.VerdictRequest{ItemId: "item", Result: apitypes.VerdictRequestResult("pass")}},
+		{name: "waive_edge", path: func(id string) string { return "/api/goals/" + id + "/edges/upstream/waive" }},
+		{name: "approve_plan", path: func(id string) string { return "/api/goals/" + id + "/plan/approve" }},
+		{name: "reject_plan", path: func(id string) string { return "/api/goals/" + id + "/plan/reject" }, body: apitypes.DecisionRequest{}},
+	}
+
+	for _, denial := range []string{"assignment_revoked", "custom_deny"} {
+		for _, command := range commands {
+			t.Run(denial+"/"+command.name, func(t *testing.T) {
+				env := setupGoalEnv(t)
+				ctx := context.Background()
+				user, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "goal-use-"+uuid.NewString(), auth.RoleUser)
+				agentID := uuid.NewString()
+				if err := env.store.CreateAgent(ctx, config.Agent{ID: agentID, Name: "restricted", Model: "test/model", Scope: config.AgentScopeRestricted, Enabled: true}); err != nil {
+					t.Fatalf("create restricted agent: %v", err)
+				}
+				if err := env.authStore.AssignAgent(ctx, user.ID, agentID); err != nil {
+					t.Fatalf("assign restricted agent: %v", err)
+				}
+				id := createGoal(t, env, token, agentID, command.name)
+
+				switch denial {
+				case "assignment_revoked":
+					if err := env.authStore.RemoveAgent(ctx, user.ID, agentID); err != nil {
+						t.Fatalf("revoke assignment: %v", err)
+					}
+				case "custom_deny":
+					_, _, err := policy.NewService(policy.New(env.db)).CreatePolicy(ctx, policy.PolicyInput{
+						Name:       "deny goal continuation use",
+						Resource:   authz.ResourceAgent,
+						Action:     authz.ActionExecute,
+						Effect:     policy.EffectDeny,
+						Subjects:   policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
+						Predicates: []policy.Predicate{policy.Eq("scope", "user")},
+					})
+					if err != nil {
+						t.Fatalf("create custom deny: %v", err)
+					}
+				}
+
+				before := snapshotGoalCommandState(t, env, id)
+				rr := doRequestWithSession(t, env.srv, token, http.MethodPost, command.path(id), command.body)
+				if rr.Code != http.StatusForbidden {
+					t.Fatalf("status=%d want %d body=%s", rr.Code, http.StatusForbidden, rr.Body.String())
+				}
+				after := snapshotGoalCommandState(t, env, id)
+				if !reflect.DeepEqual(after, before) {
+					t.Fatalf("denied %s mutated goal state\nbefore: %#v\nafter:  %#v", command.name, before, after)
+				}
+			})
+		}
+	}
+}
+
+type goalCommandState struct {
+	goal       sqlc.AgentGoal
+	events     []sqlc.AgentGoalEvent
+	acceptance []sqlc.AgentGoalAcceptanceEvent
+	edges      []sqlc.AgentGoalEdge
+	attempts   []sqlc.AgentGoalAttempt
+}
+
+func snapshotGoalCommandState(t *testing.T, env *testEnv, id string) goalCommandState {
+	t.Helper()
+	ctx := context.Background()
+	q := sqlc.New(env.db)
+	state := goalCommandState{}
+	var err error
+	if state.goal, err = q.GetGoal(ctx, id); err != nil {
+		t.Fatalf("get goal state: %v", err)
+	}
+	if state.events, err = q.ListGoalEventByGoal(ctx, sqlc.ListGoalEventByGoalParams{GoalID: id, Limit: 100}); err != nil {
+		t.Fatalf("list goal events: %v", err)
+	}
+	if state.acceptance, err = q.ListAcceptanceEventByGoal(ctx, id); err != nil {
+		t.Fatalf("list acceptance events: %v", err)
+	}
+	if state.edges, err = q.ListEdgeByGoal(ctx, id); err != nil {
+		t.Fatalf("list goal edges: %v", err)
+	}
+	if state.attempts, err = q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: id}); err != nil {
+		t.Fatalf("list goal attempts: %v", err)
+	}
+	return state
 }
 
 func TestGoals_CreateAndGet(t *testing.T) {

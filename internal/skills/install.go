@@ -178,6 +178,14 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 		sk.AgentID = vc.AgentID
 	}
 
+	// Authorize the create against ResourceSkill before touching the store. Even
+	// though the model-facing tool never exposes install today (actionsOnly),
+	// installing a DB skill is a durable write and must fail closed without an
+	// injected write authorizer, matching create/patch/deprecate.
+	if err := t.authorizeCreate(ctx, scope, sk.AgentID); err != nil {
+		return "", err
+	}
+
 	if _, err := t.store.Create(ctx, sk, files); err != nil {
 		return "", fmt.Errorf("store skill %q: %w", name, err)
 	}

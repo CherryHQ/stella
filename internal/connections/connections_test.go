@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -21,6 +22,19 @@ func newService(t *testing.T) *connections.Service {
 	t.Helper()
 	flowStore := oauth.NewFlowStore()
 	return connections.NewService(nil, nil, flowStore, "http://localhost:8080")
+}
+
+func userAuthority(t *testing.T, id string) authz.Authority {
+	t.Helper()
+	rs, err := authz.NewRoleSet(authz.RoleUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
 }
 
 func testProviderConfig(id, vaultKey string) oauth.ProviderConfig {
@@ -151,29 +165,65 @@ func TestDisconnectUnsupportedProvider(t *testing.T) {
 	}
 }
 
-func TestOAuthAuthorizedMethodsEnforceUserIdentity(t *testing.T) {
+// A zero (invalid) Authority is refused up front, and a valid Authority carrying
+// no user (a system agent) cannot bind a user capability.
+func TestOAuthAccessRejectsInvalidAndSystemAuthority(t *testing.T) {
+	svc := newService(t)
+	if _, err := svc.Access(authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("Access(zero) err=%v, want forbidden", err)
+	}
+	sysAuth, err := agentaccess.SystemAgentAuthority("test")
+	if err != nil {
+		t.Fatalf("SystemAgentAuthority: %v", err)
+	}
+	if _, err := svc.Access(sysAuth); !errors.Is(err, authz.ErrUnauthenticated) {
+		t.Fatalf("Access(system) err=%v, want unauthenticated", err)
+	}
+}
+
+// A foreign user cannot poll another user's flow: the persisted flow owner hides
+// it as an opaque not-found. The owner polling a missing flow is also not-found.
+func TestOAuthPollFlowOwnership(t *testing.T) {
 	ctx := context.Background()
 	flowStore := oauth.NewFlowStore()
 	flowStore.Create(oauth.FlowStatus{Provider: oauth.ProviderGitHub, FlowID: "owner-flow", UserID: "owner", FlowType: "device_code"})
 	svc := connections.NewService(nil, nil, flowStore, "http://localhost:8080")
 
-	if _, err := svc.As(authz.Identity{}).Statuses(ctx); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("Statuses unauth err=%v, want ErrUnauthenticated", err)
+	accForeign, err := svc.Access(userAuthority(t, "foreign"))
+	if err != nil {
+		t.Fatalf("Access foreign: %v", err)
 	}
-	if _, err := svc.As(authz.Identity{}).StartFlow(ctx, "github"); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("StartFlow unauth err=%v, want ErrUnauthenticated", err)
+	if _, _, err := accForeign.PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("foreign PollFlow err=%v, want forbidden", err)
 	}
-	if _, _, err := svc.As(authz.Identity{}).PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("PollFlow unauth err=%v, want ErrUnauthenticated", err)
+	accOwner, err := svc.Access(userAuthority(t, "owner"))
+	if err != nil {
+		t.Fatalf("Access owner: %v", err)
 	}
-	if err := svc.As(authz.Identity{}).Disconnect(ctx, "github"); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("Disconnect unauth err=%v, want ErrUnauthenticated", err)
+	if _, _, err := accOwner.PollFlow(ctx, "github", "missing-flow"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("owner PollFlow missing err=%v, want not found", err)
 	}
-	if _, _, err := svc.As(authz.Identity{UserID: "foreign"}).PollFlow(ctx, "github", "owner-flow"); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("PollFlow foreign err=%v, want ErrForbidden", err)
+	if _, _, err := accOwner.PollFlow(ctx, "google", "owner-flow"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("owner PollFlow wrong provider err=%v, want not found", err)
 	}
-	if _, _, err := svc.As(authz.Identity{UserID: "owner"}).PollFlow(ctx, "github", "missing-flow"); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("PollFlow missing err=%v, want ErrNotFound", err)
+}
+
+// A delegated agent has the same connection access as its delegating user (an
+// agent shares its user's connections).
+func TestOAuthAgentActsAsUser(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(t)
+	authority, err := agentaccess.WorkerAgentAuthority("user-1", "agent-x")
+	if err != nil {
+		t.Fatalf("WorkerAgentAuthority: %v", err)
+	}
+	acc, err := svc.Access(authority)
+	if err != nil {
+		t.Fatalf("Access: %v", err)
+	}
+	// No registry configured → empty status list, no error.
+	if _, err := acc.Statuses(ctx); err != nil {
+		t.Fatalf("agent Statuses: %v", err)
 	}
 }
 

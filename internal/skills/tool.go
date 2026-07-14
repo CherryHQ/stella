@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -88,7 +89,23 @@ type Tool struct {
 	// prompt search instructions use the same visible system-skill set.
 	registeredPluginIDs []string
 	enabledPluginIDs    []string
+	// readAuthz enforces ResourceSkill on every DB-backed skill this tool reads
+	// (load/search_installed/list). Injected from the composition root; when nil,
+	// DB-backed reads fail closed (the row is dropped or reported not-found).
+	readAuthz SkillReadAuthorizer
+	// writeAuthz enforces ResourceSkill on every DB-backed create/patch/deprecate.
+	// Only callers that expose write actions (the reflect reviewer) inject it; when
+	// a write action runs without it, the write fails closed.
+	writeAuthz SkillWriteAuthorizer
 }
+
+// errSkillNotFound is the opaque result of a denied or missing DB skill read; the
+// tool never distinguishes "forbidden" from "missing" to the model.
+var errSkillNotFound = errors.New("skill not found")
+
+// errSkillWriteUnauthorized is returned when a write action runs without an
+// injected write authorizer (fail closed).
+var errSkillWriteUnauthorized = errors.New("skill write is not authorized in this context")
 
 type reflectSkillRuntimeUsageTracker interface {
 	TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error
@@ -124,6 +141,116 @@ func (t *Tool) WithPluginVisibility(registered, enabled []string) *Tool {
 	t.registeredPluginIDs = append([]string(nil), registered...)
 	t.enabledPluginIDs = append([]string(nil), enabled...)
 	return t
+}
+
+// WithReadAuthorizer injects the ResourceSkill read PEP. Every DB-backed skill
+// the tool would return or load is authorized under one evaluation per tool
+// invocation; a denied row is dropped (list/search) or reported not-found (load).
+func (t *Tool) WithReadAuthorizer(a SkillReadAuthorizer) *Tool {
+	t.readAuthz = a
+	return t
+}
+
+// authorizeReadable filters merged skills through the read PEP: filesystem
+// project/built-in skills pass unchanged; each DB row is authorized under one
+// evaluation. When no authorizer is injected, DB rows fail closed (are dropped).
+func (t *Tool) authorizeReadable(ctx context.Context, merged []ResolvedSkill) ([]ResolvedSkill, error) {
+	anyDB := slices.ContainsFunc(merged, isDBSkill)
+	if !anyDB {
+		return merged, nil
+	}
+	out := make([]ResolvedSkill, 0, len(merged))
+	var dec SkillReadDecision
+	if t.readAuthz != nil {
+		d, err := t.readAuthz.BeginRead(ctx)
+		switch {
+		case err == nil:
+			dec = d
+		case errors.Is(err, authz.ErrUnauthenticated):
+			// No authorizable identity (e.g. a group turn without a group id): drop
+			// DB rows (fail hidden) rather than failing the whole read; FS project/
+			// built-in skills below still pass.
+			dec = nil
+		default:
+			return nil, err
+		}
+	}
+	for _, rs := range merged {
+		if !isDBSkill(rs) {
+			out = append(out, rs)
+			continue
+		}
+		if dec == nil {
+			continue // fail closed: no decider, drop the DB row
+		}
+		allowed, err := dec.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID, rs.Metadata)
+		if err != nil {
+			return nil, err
+		}
+		if allowed {
+			out = append(out, rs)
+		}
+	}
+	return out, nil
+}
+
+// authorizeLoadable authorizes a single resolved skill for load. A denied or
+// unauthorized DB row is reported not-found; filesystem skills pass.
+func (t *Tool) authorizeLoadable(ctx context.Context, rs *ResolvedSkill) error {
+	if rs == nil || !isDBSkill(*rs) {
+		return nil
+	}
+	if t.readAuthz == nil {
+		return errSkillNotFound
+	}
+	dec, err := t.readAuthz.BeginRead(ctx)
+	if err != nil {
+		if errors.Is(err, authz.ErrUnauthenticated) {
+			// No authorizable identity: hide the DB skill (fail hidden), don't error.
+			return errSkillNotFound
+		}
+		return err
+	}
+	allowed, err := dec.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID, rs.Metadata)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return errSkillNotFound
+	}
+	return nil
+}
+
+// WithWriteAuthorizer injects the ResourceSkill write PEP. Every DB-backed
+// create/patch/deprecate is authorized under one evaluation before the store
+// mutation; a denial fails the write.
+func (t *Tool) WithWriteAuthorizer(a SkillWriteAuthorizer) *Tool {
+	t.writeAuthz = a
+	return t
+}
+
+// authorizeCreate authorizes minting a new DB skill in scope for agentID.
+func (t *Tool) authorizeCreate(ctx context.Context, scope, agentID string) error {
+	if t.writeAuthz == nil {
+		return errSkillWriteUnauthorized
+	}
+	dec, err := t.writeAuthz.BeginWrite(ctx)
+	if err != nil {
+		return err
+	}
+	return dec.AllowCreate(ctx, scope, agentID)
+}
+
+// authorizeWrite authorizes mutating an existing DB skill by id (patch/deprecate).
+func (t *Tool) authorizeWrite(ctx context.Context, id string) error {
+	if t.writeAuthz == nil {
+		return errSkillWriteUnauthorized
+	}
+	dec, err := t.writeAuthz.BeginWrite(ctx)
+	if err != nil {
+		return err
+	}
+	return dec.AllowWrite(ctx, id)
 }
 
 // WithActionsOnly restricts the model-facing tool to the named actions. The
@@ -377,6 +504,11 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// A DB-backed skill is served only after a ResourceSkill read decision; a
+	// filesystem project/built-in skill is not gated. A denial is opaque.
+	if err := t.authorizeLoadable(ctx, resolved); err != nil {
+		return "", err
+	}
 
 	if path == "" {
 		path = pkgplugins.SkillMainFile
@@ -534,6 +666,9 @@ func (t *Tool) list(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("list skills: %w", err)
 	}
+	if merged, err = t.authorizeReadable(ctx, merged); err != nil {
+		return "", fmt.Errorf("list skills: %w", err)
+	}
 
 	if len(merged) == 0 {
 		return "No skills installed.", nil
@@ -607,6 +742,11 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 		sk.AgentID = vc.AgentID
 	}
 
+	// Authorize the create against ResourceSkill before touching the store.
+	if err := t.authorizeCreate(ctx, scope, sk.AgentID); err != nil {
+		return "", err
+	}
+
 	files := map[string]string{pkgplugins.SkillMainFile: mainContent}
 	if _, err := t.store.Create(ctx, sk, files); err != nil {
 		return "", fmt.Errorf("create skill %q: %w", name, err)
@@ -623,6 +763,9 @@ func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
 
 	s, err := t.resolveWritableSkill(ctx, name, args)
 	if err != nil {
+		return "", err
+	}
+	if err := t.authorizeWrite(ctx, s.ID); err != nil {
 		return "", err
 	}
 
@@ -656,6 +799,9 @@ func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, erro
 
 	s, err := t.resolveWritableSkill(ctx, name, args)
 	if err != nil {
+		return "", err
+	}
+	if err := t.authorizeWrite(ctx, s.ID); err != nil {
 		return "", err
 	}
 
@@ -717,6 +863,14 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 
 	s, err := t.resolveWritableSkill(ctx, name, args)
 	if err != nil {
+		return "", err
+	}
+
+	// Removing a DB skill is a durable write; authorize it against ResourceSkill
+	// before the store mutation. install/remove are unreachable through the current
+	// model-facing tool (actionsOnly), but the PEP is enforced internally regardless
+	// so a nil write authorizer fails closed rather than deleting unguarded.
+	if err := t.authorizeWrite(ctx, s.ID); err != nil {
 		return "", err
 	}
 

@@ -68,7 +68,7 @@ func setup(t *testing.T) (svc *mcp.Service, q *sqlc.Queries, userID, agentID str
 	if err != nil {
 		t.Fatalf("master identity: %v", err)
 	}
-	vaultSvc, err := vault.NewService(&vaultDB{oidc: oidc, q: q}, masterID.String())
+	vaultSvc, err := vault.NewService(&vaultDB{oidc: oidc, q: q}, masterID.String(), nil, nil)
 	if err != nil {
 		t.Fatalf("vault.NewService: %v", err)
 	}

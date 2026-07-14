@@ -41,7 +41,7 @@ func createTestAgent(t *testing.T, env *testEnv, a config.Agent) string {
 	return created.ID
 }
 
-func TestListAgents_AdminUsesAccessibleListUnlessIncludeAll(t *testing.T) {
+func TestListAgents_AdminVisibilityIsAuthorizedByPEP(t *testing.T) {
 	env := setupAdmin(t)
 
 	stellaID := findStellaID(t, env)
@@ -78,8 +78,8 @@ func TestListAgents_AdminUsesAccessibleListUnlessIncludeAll(t *testing.T) {
 	if !contains(regular, stellaID) {
 		t.Fatalf("regular agent list omitted system agent %s: %+v", stellaID, regular)
 	}
-	if contains(regular, restrictedID) {
-		t.Fatalf("regular agent list leaked unassigned restricted agent %s", restrictedID)
+	if !contains(regular, restrictedID) {
+		t.Fatalf("regular agent list omitted PEP-authorized restricted agent %s", restrictedID)
 	}
 
 	management := decodeAgents("/api/agents?include_all=true")

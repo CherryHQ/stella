@@ -492,6 +492,9 @@ func (f *Fake) ListInfo(_ context.Context, opts memory.ListOptions) ([]memory.Se
 
 	// Sort by LastActive descending for deterministic output.
 	sort.Slice(results, func(i, j int) bool {
+		if results[i].LastActive.Equal(results[j].LastActive) {
+			return results[i].ID > results[j].ID
+		}
 		return results[i].LastActive.After(results[j].LastActive)
 	})
 

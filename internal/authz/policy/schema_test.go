@@ -23,11 +23,11 @@ func TestEveryResourceHasSchema(t *testing.T) {
 
 func TestAgentResourceBuilderValidatesAttributes(t *testing.T) {
 	// Valid scope + assigned.
-	if _, err := AgentResource("a1", "u1", "system", true); err != nil {
+	if _, err := AgentResource("a1", "u1", AgentFacts{Scope: "system", Assigned: true, Creator: "u1", Status: "enabled"}); err != nil {
 		t.Fatalf("valid agent resource rejected: %v", err)
 	}
 	// Unknown enum value fails.
-	if _, err := AgentResource("a1", "u1", "galaxy", true); !errors.Is(err, ErrSchema) {
+	if _, err := AgentResource("a1", "u1", AgentFacts{Scope: "galaxy", Assigned: true, Creator: "u1", Status: "enabled"}); !errors.Is(err, ErrSchema) {
 		t.Fatalf("bad scope enum: got %v, want ErrSchema", err)
 	}
 	// Unknown attribute fails.
@@ -43,7 +43,7 @@ func TestAgentResourceBuilderValidatesAttributes(t *testing.T) {
 }
 
 func TestResourceAttributesAreImmutable(t *testing.T) {
-	res, err := AgentResource("a1", "u1", "system", true)
+	res, err := AgentResource("a1", "u1", AgentFacts{Scope: "system", Assigned: true, Creator: "u1", Status: "enabled"})
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}

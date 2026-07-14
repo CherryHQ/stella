@@ -12,9 +12,14 @@ type reflectSkillWriter interface {
 	PatchReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillPatch) (skills.Skill, error)
 }
 
-func executeSkillReconciliationPlan(ctx context.Context, writer reflectSkillWriter, userID string, agentID string, bundle skillRelatedBundle, plan skillReconciliationPlan) ([]skills.Skill, error) {
+func executeSkillReconciliationPlan(ctx context.Context, writer reflectSkillWriter, authorizer skillWriteAuthorizer, userID string, agentID string, bundle skillRelatedBundle, plan skillReconciliationPlan) ([]skills.Skill, error) {
 	if writer == nil {
 		return nil, fmt.Errorf("skill reconciliation: reflect skill writer is required")
+	}
+	// Every DB-backed write is authorized under a fresh WorkerAgentAuthority; a
+	// missing authorizer fails closed rather than silently trusting the worker.
+	if authorizer == nil {
+		return nil, fmt.Errorf("skill reconciliation: skill authorizer is required")
 	}
 	if err := validateSkillReconciliationPlan(bundle, plan); err != nil {
 		return nil, err
@@ -29,6 +34,9 @@ func executeSkillReconciliationPlan(ctx context.Context, writer reflectSkillWrit
 		case skillOperationNoop:
 			continue
 		case skillOperationCreate:
+			if err := authorizer.AuthorizeWorkerWrite(ctx, userID, agentID, "", true); err != nil {
+				return nil, err
+			}
 			skill, err := writer.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 				UserID:          userID,
 				AgentID:         agentID,
@@ -41,6 +49,9 @@ func executeSkillReconciliationPlan(ctx context.Context, writer reflectSkillWrit
 			}
 			written = append(written, skill)
 		case skillOperationPatch:
+			if err := authorizer.AuthorizeWorkerWrite(ctx, userID, agentID, op.TargetSkillID, false); err != nil {
+				return nil, err
+			}
 			mainFile := op.MainFileContent
 			patch := skills.ReflectSkillPatch{
 				ID:              op.TargetSkillID,

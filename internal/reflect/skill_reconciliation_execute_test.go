@@ -2,11 +2,25 @@ package reflect
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
+
+// stubSkillAuthorizer is the test double for the ResourceSkill write PEP: it
+// records calls and returns a fixed error so a denial (custom deny / revoked
+// grant) can be asserted to block the store write.
+type stubSkillAuthorizer struct {
+	err   error
+	calls int
+}
+
+func (s *stubSkillAuthorizer) AuthorizeWorkerWrite(_ context.Context, _, _, _ string, _ bool) error {
+	s.calls++
+	return s.err
+}
 
 func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
 	writer := &fakeReflectSkillWriter{}
@@ -41,12 +55,29 @@ func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
 		},
 	}}
 
-	if _, err := executeSkillReconciliationPlan(context.Background(), writer, "user-1", "agent-1", bundle, plan); err != nil {
+	if _, err := executeSkillReconciliationPlan(context.Background(), writer, &stubSkillAuthorizer{}, "user-1", "agent-1", bundle, plan); err != nil {
 		t.Fatalf("executeSkillReconciliationPlan: %v", err)
 	}
 
 	if len(writer.creates) != 1 || writer.creates[0].Name != "new-reflect-skill" {
 		t.Fatalf("unexpected creates: %#v", writer.creates)
+	}
+
+	// A denied authorization (custom deny / revoked agent grant) blocks the write
+	// before it reaches the store, and a nil authorizer fails closed.
+	denyWriter := &fakeReflectSkillWriter{}
+	denied := &stubSkillAuthorizer{err: errors.New("forbidden")}
+	if _, err := executeSkillReconciliationPlan(context.Background(), denyWriter, denied, "user-1", "agent-1", bundle, plan); err == nil {
+		t.Fatal("expected authorization denial to block the write")
+	}
+	if denied.calls == 0 {
+		t.Fatal("authorizer was not consulted before the write")
+	}
+	if len(denyWriter.creates) != 0 || len(denyWriter.patches) != 0 {
+		t.Fatalf("writer must not be called on denial: creates=%#v patches=%#v", denyWriter.creates, denyWriter.patches)
+	}
+	if _, err := executeSkillReconciliationPlan(context.Background(), denyWriter, nil, "user-1", "agent-1", bundle, plan); err == nil {
+		t.Fatal("expected nil authorizer to fail closed")
 	}
 	if writer.creates[0].UserID != "user-1" || writer.creates[0].AgentID != "agent-1" {
 		t.Fatalf("wrong create owner: %#v", writer.creates[0])
@@ -73,7 +104,7 @@ func TestExecuteSkillReconciliationPlanRejectsInvalidPlanBeforeWriting(t *testin
 		MainFileContent:      "# Invalid\n",
 	}}}
 
-	if _, err := executeSkillReconciliationPlan(context.Background(), writer, "user-1", "agent-1", bundle, plan); err == nil {
+	if _, err := executeSkillReconciliationPlan(context.Background(), writer, &stubSkillAuthorizer{}, "user-1", "agent-1", bundle, plan); err == nil {
 		t.Fatal("expected invalid plan error")
 	}
 	if len(writer.creates) != 0 || len(writer.patches) != 0 {

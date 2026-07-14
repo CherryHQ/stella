@@ -77,16 +77,16 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, params apise
 	}
 	ctx := r.Context()
 
-	includeAll := info.IsAdmin && params.IncludeAll != nil && *params.IncludeAll
-	var agents []config.Agent
-	var err error
-	if includeAll {
-		agents, err = s.store.ListAgents(ctx)
-	} else {
-		agents, err = s.store.ListAccessibleAgents(ctx, info.UserID)
-	}
+	authority, err := info.authority()
 	if err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	includeAll := info.IsAdmin && params.IncludeAll != nil && *params.IncludeAll
+	agents, err := s.agentAccess.ListReadable(ctx, authority, includeAll)
+	if err != nil {
+		code, msg := agentAccessError(err)
+		writeError(w, code, msg)
 		return
 	}
 
@@ -126,6 +126,16 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	info := requireAuth(w, r)
 	if info == nil {
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	if err := s.agentAccess.CanCreate(ctx, authority); err != nil {
+		code, msg := agentAccessError(err)
+		writeError(w, code, msg)
 		return
 	}
 
@@ -274,7 +284,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 
 func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
-	if _, code, msg := s.requireAgentManage(ctx, id); code != 0 {
+	if _, code, msg := s.requireAgentDelete(ctx, id); code != 0 {
 		writeError(w, code, msg)
 		return
 	}

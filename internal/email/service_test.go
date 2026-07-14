@@ -20,6 +20,19 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
+func userAuthority(t *testing.T, id string) authz.Authority {
+	t.Helper()
+	rs, err := authz.NewRoleSet(authz.RoleUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
 func TestServiceNoConfigFriendlyError(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
@@ -27,7 +40,11 @@ func TestServiceNoConfigFriendlyError(t *testing.T) {
 	vaultSvc := newEmailVaultService(t, db, userID)
 	svc := email.NewService(vaultSvc, sqlc.New(db))
 
-	_, err := svc.As(authz.Identity{UserID: userID}).Accounts(ctx)
+	acc, err := svc.Access(userAuthority(t, userID))
+	if err != nil {
+		t.Fatalf("Access: %v", err)
+	}
+	_, err = acc.Accounts(ctx)
 	if err == nil || !strings.Contains(err.Error(), "no email account configured") {
 		t.Fatalf("Accounts err=%v, want friendly no-config error", err)
 	}
@@ -55,13 +72,20 @@ func TestServiceSendSuppressesDuplicate(t *testing.T) {
 		sends++
 		return nil
 	})
-	ident := authz.Identity{UserID: userID}
 	opts := email.SendOptions{To: []string{"to@example.com"}, Subject: "hello", Body: "world"}
-	first, err := svc.As(ident).Send(ctx, "", opts, "k1")
+	acc1, err := svc.Access(userAuthority(t, userID))
+	if err != nil {
+		t.Fatalf("Access: %v", err)
+	}
+	first, err := acc1.Send(ctx, "", opts, "k1")
 	if err != nil {
 		t.Fatalf("first Send: %v", err)
 	}
-	second, err := svc.As(ident).Send(ctx, "", opts, "k1")
+	acc2, err := svc.Access(userAuthority(t, userID))
+	if err != nil {
+		t.Fatalf("Access: %v", err)
+	}
+	second, err := acc2.Send(ctx, "", opts, "k1")
 	if err != nil {
 		t.Fatalf("second Send: %v", err)
 	}
@@ -85,7 +109,7 @@ func newEmailVaultService(t *testing.T, db *pgxpool.Pool, userID string) *vault.
 	if err != nil {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
-	svc, err := vault.NewService(sqlc.New(db), masterID.String())
+	svc, err := vault.NewService(sqlc.New(db), masterID.String(), nil, nil)
 	if err != nil {
 		t.Fatalf("vault.NewService: %v", err)
 	}

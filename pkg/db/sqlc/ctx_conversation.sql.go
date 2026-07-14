@@ -154,6 +154,35 @@ func (q *Queries) GetConversationBySessionID(ctx context.Context, arg GetConvers
 	return i, err
 }
 
+const getConversationForSessionAccess = `-- name: GetConversationForSessionAccess :one
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
+WHERE session_id = $1
+`
+
+// Private PEP lookup: it obtains durable owner/executor facts before the
+// SessionManager receives the resulting tenant scope. No transport may call it.
+func (q *Queries) GetConversationForSessionAccess(ctx context.Context, sessionID string) (CtxConversation, error) {
+	row := q.db.QueryRow(ctx, getConversationForSessionAccess, sessionID)
+	var i CtxConversation
+	err := row.Scan(
+		&i.ID,
+		&i.SessionID,
+		&i.Title,
+		&i.Channel,
+		&i.Kind,
+		&i.ProjectID,
+		&i.Archived,
+		&i.LastActive,
+		&i.BootstrappedAt,
+		&i.AgentID,
+		&i.UserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupID,
+	)
+	return i, err
+}
+
 const getMainConversationByProject = `-- name: GetMainConversationByProject :one
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE project_id = $1
@@ -229,7 +258,7 @@ SELECT id, session_id, title, channel, kind, project_id, archived, last_active, 
 WHERE user_id = $1
   AND ($2::text IS NULL OR agent_id = $2)
   AND archived = false
-ORDER BY last_active DESC
+ORDER BY last_active DESC, session_id DESC
 `
 
 type ListConversationsParams struct {
@@ -276,7 +305,7 @@ const listConversationsAll = `-- name: ListConversationsAll :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
 WHERE user_id = $1
   AND ($2::text IS NULL OR agent_id = $2)
-ORDER BY last_active DESC
+ORDER BY last_active DESC, session_id DESC
 `
 
 type ListConversationsAllParams struct {
@@ -320,7 +349,7 @@ func (q *Queries) ListConversationsAll(ctx context.Context, arg ListConversation
 }
 
 const listConversationsByKind = `-- name: ListConversationsByKind :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation WHERE agent_id = $1 AND user_id = $2 AND kind = $3 AND archived = false ORDER BY last_active DESC, session_id DESC
 `
 
 type ListConversationsByKindParams struct {
@@ -373,7 +402,7 @@ WHERE user_id = $1
   AND ($5::text IS NULL OR kind = $5)
   AND ($6 = 0 OR project_id IS NULL)
   AND ($7::text IS NULL OR project_id = $7)
-ORDER BY last_active DESC
+ORDER BY last_active DESC, session_id DESC
 LIMIT NULLIF($9, -1) OFFSET $8
 `
 
@@ -439,7 +468,7 @@ SELECT id, session_id, title, channel, kind, project_id, archived, last_active, 
 WHERE agent_id = $1
   AND archived = false
   AND user_id IS NOT NULL AND user_id <> ''
-ORDER BY last_active DESC
+ORDER BY last_active DESC, session_id DESC
 `
 
 // Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
@@ -487,7 +516,7 @@ WHERE agent_id = $1
   AND ($2::text IS NULL OR kind = $2)
   AND ($3 = 0 OR project_id IS NULL)
   AND ($4::text IS NULL OR project_id = $4)
-ORDER BY last_active DESC
+ORDER BY last_active DESC, session_id DESC
 LIMIT NULLIF($6, -1) OFFSET $5
 `
 

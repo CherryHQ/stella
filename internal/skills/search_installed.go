@@ -33,6 +33,9 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 	if err != nil {
 		return "", fmt.Errorf("search installed skills: %w", err)
 	}
+	if merged, err = t.authorizeReadable(ctx, merged); err != nil {
+		return "", fmt.Errorf("search installed skills: %w", err)
+	}
 
 	skills := t.visibleSearchableSkills(merged)
 	if len(skills) == 0 {

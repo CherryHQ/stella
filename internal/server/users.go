@@ -42,7 +42,7 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	if !info.IsAdmin {
-		if _, code, msg := s.requireAgentAccess(r.Context(), body.DefaultAgentID); code != 0 {
+		if _, code, msg := s.requireAgentUse(r.Context(), body.DefaultAgentID); code != 0 {
 			writeError(w, code, msg)
 			return
 		}

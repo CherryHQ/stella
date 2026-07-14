@@ -13,6 +13,8 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -33,6 +35,12 @@ type Service struct {
 	Goal       *GoalService
 	Dispatcher *Dispatcher
 
+	// authz + agents back the Authority-based Access PEP (the sole policy
+	// enforcement point for Goal resources reached by HTTP and the agent tool).
+	// The durable worker executor keeps its own agentaccess re-check (executor.go).
+	authz  authz.Authorizer
+	agents *agentaccess.Service
+
 	// runner executes one claimed attempt; it backs both the goal River worker
 	// (RegisterRiverWorker) and is shared with nothing else. queueMaxWorkers and
 	// logger are captured at Boot so the composition root can assemble the shared
@@ -51,6 +59,14 @@ type Service struct {
 	river *river.Client[pgx.Tx]
 	// started flips true when StartDispatchTick runs, sealing BindRiverClient.
 	started bool
+}
+
+// NewBundle assembles the goal application Service from its parts and wires the
+// Authority-based Access PEP dependencies. Boot uses it after building the
+// executor and dispatcher; callers that assemble the pieces themselves (tests)
+// use it directly so the CRUD PEP is always authorizer-backed.
+func NewBundle(q *sqlc.Queries, gs *GoalService, az authz.Authorizer, agents *agentaccess.Service) *Service {
+	return &Service{Queries: q, Goal: gs, authz: az, agents: agents}
 }
 
 // RegisterRiverWorker registers the goal subsystem's workers into a shared
@@ -157,6 +173,7 @@ type TaskChatParams struct {
 	ExtraTools       []tools.Tool
 	ExcludedTools    []string
 	OnSandboxSession func(sandbox.Session) error
+	Authority        authz.Authority
 }
 
 // TaskChatFunc runs one worker turn through the agent service layer so the
@@ -180,6 +197,14 @@ type BootConfig struct {
 	LeaseTTL      time.Duration
 	Logger        *slog.Logger
 	ExcludedTools []string
+	// AgentAccess is the trusted durable-worker PEP. A goal attempt must not
+	// invoke an executor agent unless its persisted owner/executor pair passes a
+	// fresh Agent execute decision. It also backs the CRUD Access PEP's inline
+	// agent-execute gate.
+	AgentAccess *agentaccess.Service
+	// Authorizer is the unified policy decision point shared with every other PEP.
+	// Required for the transport/tool Access PEP; the worker path uses AgentAccess.
+	Authorizer authz.Authorizer
 }
 
 // Boot constructs the goal system and returns the bound bundle. The dispatcher is
@@ -202,7 +227,7 @@ func Boot(cfg BootConfig) (*Service, error) {
 	}
 
 	svc := New(cfg.DB, q,
-		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools)),
+		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools, newWorkerAuthorizer(cfg.Authorizer, cfg.AgentAccess))),
 		WithCheckRunner(NewCheckRunner(q, 0)),
 		WithCapabilityProbe(cfg.Capabilities),
 		WithSessionMinter(RegistrySessionMinter(cfg.Services)),
@@ -233,6 +258,8 @@ func Boot(cfg BootConfig) (*Service, error) {
 		Queries:         q,
 		Goal:            svc,
 		Dispatcher:      disp,
+		authz:           cfg.Authorizer,
+		agents:          cfg.AgentAccess,
 		runner:          runner,
 		queueMaxWorkers: maxWorkers,
 		logger:          logger,
@@ -240,14 +267,14 @@ func Boot(cfg BootConfig) (*Service, error) {
 }
 
 // bootExecutor picks the worker executor. With a Chat callback it runs persisted
-// agent turns (executor.go); without one it is a noop that fails non-retryably so
-// a misconfigured boot is loud, not silent.
-func bootExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string) Executor {
+// agent turns (executor.go), gated by the durable-attempt PEP; without one it is a
+// noop that fails non-retryably so a misconfigured boot is loud, not silent.
+func bootExecutor(chat TaskChatFunc, log *slog.Logger, excludedTools []string, wa *workerAuthorizer) Executor {
 	if chat == nil {
 		log.Warn("goal: no Chat wired; worker executor is a noop")
 		return noopExecutor{log: log}
 	}
-	return newWorkerExecutor(chat, log, excludedTools)
+	return newWorkerExecutor(chat, log, excludedTools, wa.authorize)
 }
 
 // noopExecutor fails every attempt non-retryably with a clear hint. It is the

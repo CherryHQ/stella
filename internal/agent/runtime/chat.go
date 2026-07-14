@@ -44,10 +44,15 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 
 	if info.GroupID == "" {
 		ctx = authz.WithUserID(ctx, info.UserID)
-	} else if co.hasSpeaker {
-		// Group turns: attach the speaker as a personalization target only.
-		// authz.WithUserID stays unset so runtime identity remains the group (D9).
-		ctx = memory.WithCurrentSpeaker(ctx, co.currentSpeaker)
+	} else {
+		// Group turns: carry the group id (not a user) so trusted adapters can mint
+		// a confined GroupAgentActor. authz.WithUserID stays unset so runtime
+		// identity remains the group (D9).
+		ctx = authz.WithGroupID(ctx, info.GroupID)
+		if co.hasSpeaker {
+			// Attach the speaker as a personalization target only.
+			ctx = memory.WithCurrentSpeaker(ctx, co.currentSpeaker)
+		}
 	}
 	ctx = authz.WithAgentID(ctx, info.AgentID)
 	if info.ProjectID != "" {

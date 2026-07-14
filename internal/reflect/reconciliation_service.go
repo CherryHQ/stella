@@ -74,6 +74,6 @@ func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTar
 	if err != nil {
 		return err
 	}
-	_, err = executeSkillReconciliationPlan(ctx, writer, userID, agentID, bundle, plan)
+	_, err = executeSkillReconciliationPlan(ctx, writer, s.skillAuthorizer, userID, agentID, bundle, plan)
 	return err
 }

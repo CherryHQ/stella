@@ -32,11 +32,17 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// The runtime context identity is the trusted adapter: a delegated agent turn
+	// becomes a confined AgentActor. Model-supplied arguments never form identity.
+	authority, err := ident.ToAuthority()
+	if err != nil {
+		return "", authz.MapError("share", err)
+	}
 	action, err := tools.ActionArg(args, "share")
 	if err != nil {
 		return "", err
 	}
-	out, err := Dispatch(ctx, shareHandler{svc: t.svc, ident: ident}, action, args)
+	out, err := Dispatch(ctx, shareHandler{svc: t.svc, authority: authority}, action, args)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrPathEscapes):
@@ -52,12 +58,21 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 }
 
 type shareHandler struct {
-	svc   *Service
-	ident authz.Identity
+	svc       *Service
+	authority authz.Authority
+}
+
+func (h shareHandler) access() (*Access, error) {
+	return h.svc.Access(h.authority)
 }
 
 func (h shareHandler) Artifact(ctx context.Context, in ArtifactInput) (any, error) {
-	created, err := h.svc.As(h.ident).ShareArtifact(ctx, memory.SessionIDFromContext(ctx), in.Path, in.Scope, in.ExpiresIn)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	// An agent tool is confined to its own workspace: the bound agent selects it.
+	created, err := acc.ShareArtifact(ctx, memory.SessionIDFromContext(ctx), in.Path, in.Scope, acc.agentID, in.ExpiresIn)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +80,11 @@ func (h shareHandler) Artifact(ctx context.Context, in ArtifactInput) (any, erro
 }
 
 func (h shareHandler) Article(ctx context.Context, in ArticleInput) (any, error) {
-	created, err := h.svc.As(h.ident).ShareArticle(ctx, in.ArticleId, in.ExpiresIn)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	created, err := acc.ShareArticle(ctx, in.ArticleId, in.ExpiresIn)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +96,11 @@ func (h shareHandler) List(ctx context.Context, in ListInput) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxToolPageSize)
 	}
-	result, err := h.svc.As(h.ident).List(ctx, limit, offset)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	result, err := acc.List(ctx, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +112,11 @@ func (h shareHandler) List(ctx context.Context, in ListInput) (any, error) {
 }
 
 func (h shareHandler) Revoke(ctx context.Context, in RevokeInput) (any, error) {
-	if err := h.svc.As(h.ident).Revoke(ctx, in.Id); err != nil {
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	if err := acc.Revoke(ctx, in.Id); err != nil {
 		return nil, err
 	}
 	return map[string]any{"id": in.Id, "status": "revoked"}, nil

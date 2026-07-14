@@ -155,8 +155,8 @@ func TestActivateRejectsAlreadyActive(t *testing.T) {
 	}
 }
 
-// Activation can only target a shadow-enabled resource (Agent); a non-Agent
-// input is rejected before any row is touched.
+// Activation can only target an active vertical; an inactive resource is
+// rejected before any row is touched.
 func TestActivateRejectsInactiveResource(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
@@ -164,7 +164,7 @@ func TestActivateRejectsInactiveResource(t *testing.T) {
 
 	seedRow(t, pool, "q1", statusQuarantined)
 	in := agentAllow()
-	in.Resource = authz.ResourceSession // not shadow-enabled
+	in.Resource = authz.ResourceProvider // not active (Stack 7)
 	in.Predicates = nil
 	if _, err := svc.ActivatePolicy(ctx, "q1", in); !errors.Is(err, ErrResourceInactive) {
 		t.Fatalf("activate inactive resource = %v, want ErrResourceInactive", err)

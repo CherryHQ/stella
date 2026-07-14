@@ -15,9 +15,8 @@ func TestServiceSaveStoresBodyInDBAndDedups(t *testing.T) {
 	defer cleanup()
 	home := t.TempDir()
 	svc := NewService(NewStore(db), home)
-	ident := authz.Identity{UserID: testUserID, AgentID: "agent-a", AgentScoped: true}
 
-	first, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/a", Title: "A", Content: "first"})
+	first, err := mustAccess(t, svc, testUserID).Save(t.Context(), SaveRequest{URL: "https://example.com/a", Title: "A", Content: "first"})
 	if err != nil {
 		t.Fatalf("Save first: %v", err)
 	}
@@ -29,14 +28,14 @@ func TestServiceSaveStoresBodyInDBAndDedups(t *testing.T) {
 	if err != nil || body != "first" {
 		t.Fatalf("ReadArticleBody body=%q err=%v", body, err)
 	}
-	second, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/a?utm_source=x", CanonicalURL: first.Article.CanonicalURL, Title: "A2", Content: "second"})
+	second, err := mustAccess(t, svc, testUserID).Save(t.Context(), SaveRequest{URL: "https://example.com/a?utm_source=x", CanonicalURL: first.Article.CanonicalURL, Title: "A2", Content: "second"})
 	if err != nil {
 		t.Fatalf("Save second: %v", err)
 	}
 	if second.Created || second.Article.ID != first.Article.ID {
 		t.Fatalf("second=%+v, want update of same article %s", second, first.Article.ID)
 	}
-	articles, err := svc.As(ident).ListArticles(t.Context(), ArticleFilter{Limit: 10})
+	articles, err := mustAccess(t, svc, testUserID).ListArticles(t.Context(), ArticleFilter{Limit: 10})
 	if err != nil || len(articles) != 1 {
 		t.Fatalf("ListArticles len=%d err=%v", len(articles), err)
 	}
@@ -47,9 +46,8 @@ func TestServiceReadArticleBodyReadsFromDatabase(t *testing.T) {
 	defer cleanup()
 	home := t.TempDir()
 	svc := NewService(NewStore(db), home)
-	ident := authz.Identity{UserID: testUserID}
 
-	saved, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/db-body", Title: "DB Body", Content: "from database"})
+	saved, err := mustAccess(t, svc, testUserID).Save(t.Context(), SaveRequest{URL: "https://example.com/db-body", Title: "DB Body", Content: "from database"})
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -150,7 +148,6 @@ func TestServiceSaveMetadataOnlyDoesNotStrandLegacyBody(t *testing.T) {
 	home := t.TempDir()
 	store := NewStore(db)
 	svc := NewService(store, home)
-	ident := authz.Identity{UserID: testUserID}
 
 	// store.SaveArticle inserts no content row, so this stands in for a legacy
 	// file-only article the backfill has not yet reached.
@@ -163,7 +160,7 @@ func TestServiceSaveMetadataOnlyDoesNotStrandLegacyBody(t *testing.T) {
 	}
 
 	// Metadata-only update (no Content) on the same canonical URL.
-	res, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/meta-only", CanonicalURL: article.CanonicalURL, Title: "Meta Updated"})
+	res, err := mustAccess(t, svc, testUserID).Save(t.Context(), SaveRequest{URL: "https://example.com/meta-only", CanonicalURL: article.CanonicalURL, Title: "Meta Updated"})
 	if err != nil {
 		t.Fatalf("Save metadata-only: %v", err)
 	}
@@ -197,9 +194,8 @@ func TestServiceDeleteArticleCascadesContent(t *testing.T) {
 	defer cleanup()
 	store := NewStore(db)
 	svc := NewService(store, t.TempDir())
-	ident := authz.Identity{UserID: testUserID}
 
-	saved, err := svc.As(ident).Save(t.Context(), SaveRequest{URL: "https://example.com/delete", Title: "Delete", Content: "delete me"})
+	saved, err := mustAccess(t, svc, testUserID).Save(t.Context(), SaveRequest{URL: "https://example.com/delete", Title: "Delete", Content: "delete me"})
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -272,17 +268,16 @@ func TestServiceBackfillMissingContent(t *testing.T) {
 	}
 }
 
-func TestServiceAuthorizedIdentityAndMissingMapping(t *testing.T) {
+func TestServiceMissingMappingAndValidation(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	svc := NewService(NewStore(db), t.TempDir())
-	if _, err := svc.As(authz.Identity{}).ListArticles(t.Context(), ArticleFilter{}); !errors.Is(err, authz.ErrUnauthenticated) {
-		t.Fatalf("ListArticles unauth err=%v, want ErrUnauthenticated", err)
-	}
-	if _, err := svc.As(authz.Identity{UserID: testUserID}).GetArticle(t.Context(), "missing"); !errors.Is(err, authz.ErrNotFound) {
+	// A missing article is opaque not-found (recally's 404 contract). Begin(zero)
+	// -> ErrForbidden is covered in access_test.go.
+	if _, err := mustAccess(t, svc, testUserID).GetArticle(t.Context(), "missing"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("GetArticle missing err=%v, want ErrNotFound", err)
 	}
-	_, err := svc.As(authz.Identity{UserID: testUserID}).Save(t.Context(), SaveRequest{URL: "https://example.com/new"})
+	_, err := mustAccess(t, svc, testUserID).Save(t.Context(), SaveRequest{URL: "https://example.com/new"})
 	if err == nil || !strings.Contains(err.Error(), "content is required") {
 		t.Fatalf("Save missing content err=%v", err)
 	}

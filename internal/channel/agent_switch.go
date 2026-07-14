@@ -5,33 +5,47 @@ import (
 	"fmt"
 	"strings"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
+// AgentCommander owns /agent selection. It never reads an Agent or persists a
+// selection without an Agent PEP decision.
 type AgentCommander struct {
-	store config.Store
-	users auth.UserStore
+	store  config.Store
+	users  auth.UserStore
+	access *agentaccess.Service
 }
 
-func NewAgentCommander(store config.Store, users auth.UserStore) *AgentCommander {
-	return &AgentCommander{store: store, users: users}
+func NewAgentCommander(store config.Store, users auth.UserStore, access *agentaccess.Service) *AgentCommander {
+	return &AgentCommander{store: store, users: users, access: access}
 }
 
-func (ac *AgentCommander) List(ctx context.Context) ([]config.Agent, error) {
-	return ac.store.ListEnabledAgents(ctx)
-}
-
-func (ac *AgentCommander) ListForChat(ctx context.Context, chat ChatContext) ([]config.Agent, error) {
-	agents, err := ac.store.ListEnabledAgents(ctx)
+func (ac *AgentCommander) ListForChat(ctx context.Context, authority authz.Authority, chat ChatContext) ([]config.Agent, error) {
+	access, err := ac.access.Begin(ctx, authority)
 	if err != nil {
 		return nil, err
 	}
-	return filterDedicatedAgents(ctx, ac.store, agents, chat)
+	agents, err := access.ListReadable(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	usable := make([]config.Agent, 0, len(agents))
+	for _, agent := range agents {
+		ok, err := access.CanUse(ctx, agent.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			usable = append(usable, agent)
+		}
+	}
+	return filterDedicatedAgents(ctx, ac.store, usable, chat)
 }
 
-func (ac *AgentCommander) Switch(ctx context.Context, user auth.User, chat ChatContext, agentSlug string) error {
+func (ac *AgentCommander) Switch(ctx context.Context, authority authz.Authority, user auth.User, chat ChatContext, agentSlug string) error {
 	agentSlug = strings.TrimSpace(agentSlug)
 	if agentSlug == "" {
 		return fmt.Errorf("agent slug is required")
@@ -44,69 +58,39 @@ func (ac *AgentCommander) Switch(ctx context.Context, user auth.User, chat ChatC
 	if channelID != "" {
 		ch, err := ac.store.GetChannel(ctx, channelID)
 		if err == nil && ch.AgentID != "" {
-			return fmt.Errorf("channel %q is dedicated to agent %q", channelID, ch.AgentID)
+			return fmt.Errorf("this channel has a dedicated agent")
+		}
+		if err != nil && !isNotFound(err) {
+			return fmt.Errorf("load channel binding: %w", err)
 		}
 	}
 
-	ag, err := ac.store.GetAgent(ctx, agentSlug)
+	// Begin and Use are deliberately adjacent to the state write below. A denied
+	// target is never loaded directly and never persisted as a chat/default agent.
+	access, err := ac.access.Begin(ctx, authority)
 	if err != nil {
-		return fmt.Errorf("agent %q not found", agentSlug)
+		return err
+	}
+	ag, err := access.Use(ctx, agentSlug)
+	if err != nil {
+		return err
 	}
 	if !ag.Enabled {
 		return fmt.Errorf("agent %q is not enabled", agentSlug)
 	}
-	if dedicated, ok := agentDedicatedToOtherChannel(ctx, ac.store, ag.ID, channelID); ok {
-		return fmt.Errorf("agent %q is dedicated to channel %q", ag.ID, dedicated)
+	if _, dedicated, err := agentDedicatedToOtherChannel(ctx, ac.store, ag.ID, channelID); err != nil {
+		return fmt.Errorf("load channel bindings: %w", err)
+	} else if dedicated {
+		return fmt.Errorf("agent is dedicated to another channel")
 	}
 
 	if chat.IsGroup && chat.ChatID != "" {
 		return ac.store.SetChatAgent(ctx, channelID, chat.Platform, chat.ChatID, ag.ID)
 	}
-
 	if user.ID == "" {
 		return fmt.Errorf("link your account first to set a default agent")
 	}
 	return ac.users.UpdateUserDefaultAgent(ctx, user.ID, ag.ID)
-}
-
-var ParseCommandArgs = pkgchannel.ParseCommandArgs
-
-type IndexedAgent struct {
-	config.Agent
-	GlobalIdx int
-}
-
-func IndexAgents(agents []config.Agent) []IndexedAgent {
-	out := make([]IndexedAgent, len(agents))
-	for i, a := range agents {
-		out[i] = IndexedAgent{Agent: a, GlobalIdx: i + 1}
-	}
-	return out
-}
-
-func HandleAgentCommand(ctx context.Context, ac *AgentCommander, rc *ResolvedChat, args string, reply func(string)) {
-	slug := strings.TrimSpace(args)
-
-	if slug != "" {
-		if err := ac.Switch(ctx, rc.User, rc.ChatCtx, slug); err != nil {
-			reply(fmt.Sprintf("Error switching agent: %v", err))
-			return
-		}
-		reply(fmt.Sprintf("Switched to agent: %s", slug))
-		return
-	}
-
-	agents, err := ac.List(ctx)
-	if err != nil {
-		reply(fmt.Sprintf("Error listing agents: %v", err))
-		return
-	}
-	agents, err = filterDedicatedAgents(ctx, ac.store, agents, rc.ChatCtx)
-	if err != nil {
-		reply(fmt.Sprintf("Error listing agents: %v", err))
-		return
-	}
-	reply(FormatAgentList(agents, rc.AgentID))
 }
 
 func filterDedicatedAgents(ctx context.Context, store config.Store, agents []config.Agent, chat ChatContext) ([]config.Agent, error) {
@@ -125,10 +109,9 @@ func filterDedicatedAgents(ctx context.Context, store config.Store, agents []con
 			currentDedicatedAgent = ch.AgentID
 			continue
 		}
-		if ch.AgentID == "" {
-			continue
+		if ch.AgentID != "" {
+			dedicated[ch.AgentID] = ch.ID
 		}
-		dedicated[ch.AgentID] = ch.ID
 	}
 	out := make([]config.Agent, 0, len(agents))
 	for _, ag := range agents {
@@ -142,24 +125,23 @@ func filterDedicatedAgents(ctx context.Context, store config.Store, agents []con
 	return out, nil
 }
 
-func agentDedicatedToOtherChannel(ctx context.Context, store config.Store, agentID, channelID string) (string, bool) {
+func agentDedicatedToOtherChannel(ctx context.Context, store config.Store, agentID, channelID string) (string, bool, error) {
 	channels, err := store.ListChannels(ctx)
 	if err != nil {
-		return "", false
+		return "", false, err
 	}
 	for _, ch := range channels {
 		if ch.AgentID == agentID && ch.ID != channelID {
-			return ch.ID, true
+			return ch.ID, true, nil
 		}
 	}
-	return "", false
+	return "", false, nil
 }
 
 func FormatAgentList(agents []config.Agent, currentAgentID string) string {
 	if len(agents) == 0 {
 		return "No agents available."
 	}
-
 	var b strings.Builder
 	b.WriteString("Available agents:\n")
 	for _, ag := range agents {

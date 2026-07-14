@@ -17,8 +17,8 @@ func setupSeedStore(t *testing.T) auth.AuthStore {
 
 func TestBuiltinPolicies(t *testing.T) {
 	policies := auth.BuiltinPolicies()
-	if len(policies) != 9 {
-		t.Errorf("expected 9 builtin policies, got %d", len(policies))
+	if len(policies) != 6 {
+		t.Errorf("expected 6 builtin policies, got %d", len(policies))
 	}
 
 	policyIDs := make(map[string]bool)
@@ -30,13 +30,10 @@ func TestBuiltinPolicies(t *testing.T) {
 	}
 	expectedPolicies := []string{
 		"system:admin-full-access",
-		"system:user-system-agents",
-		"system:user-assigned-agents",
 		"system:user-own-sessions",
 		"system:user-own-data",
 		"system:user-own-skills",
 		"system:user-own-profile",
-		"system:user-view-agents-list",
 		"system:user-own-scheduler",
 	}
 	for _, id := range expectedPolicies {
@@ -54,8 +51,8 @@ func TestListEnabledPolicies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEnabledPolicies: %v", err)
 	}
-	if len(policies) != 9 {
-		t.Errorf("expected 9 builtin policies, got %d", len(policies))
+	if len(policies) != 6 {
+		t.Errorf("expected 6 builtin policies, got %d", len(policies))
 	}
 }
 

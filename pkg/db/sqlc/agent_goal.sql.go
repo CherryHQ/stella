@@ -837,6 +837,82 @@ func (q *Queries) ListGoalChildren(ctx context.Context, parentID pgtype.Text) ([
 	return items, nil
 }
 
+const listGoalForHealthScope = `-- name: ListGoalForHealthScope :many
+SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
+WHERE created_at >= $1
+  AND ($2::uuid IS NULL OR user_id = $2::uuid)
+  AND ($3::text IS NULL OR agent_id = $3::text)
+ORDER BY created_at DESC, id DESC
+`
+
+type ListGoalForHealthScopeParams struct {
+	SinceAt time.Time   `json:"since_at"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+}
+
+// ListGoalForHealthScope returns every goal (roots AND children) in the health
+// report's window and user/agent scope so the Access PEP can authorize each row
+// before aggregating; it mirrors the scoped_goal CTE of GetGoalHealthReport.
+func (q *Queries) ListGoalForHealthScope(ctx context.Context, arg ListGoalForHealthScopeParams) ([]AgentGoal, error) {
+	rows, err := q.db.Query(ctx, listGoalForHealthScope, arg.SinceAt, arg.UserID, arg.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentGoal{}
+	for rows.Next() {
+		var i AgentGoal
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.ProjectID,
+			&i.ParentID,
+			&i.RootID,
+			&i.Depth,
+			&i.Position,
+			&i.Title,
+			&i.Intent,
+			&i.Kind,
+			&i.Priority,
+			&i.Required,
+			&i.AcceptanceContract,
+			&i.ConvergencePolicy,
+			&i.ReviewPolicy,
+			&i.Lifecycle,
+			&i.BlockReason,
+			&i.AcceptanceState,
+			&i.AcceptedOutput,
+			&i.AcceptanceSeq,
+			&i.ActiveAttemptID,
+			&i.AttemptCount,
+			&i.Context,
+			&i.DispatchHint,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AcceptedAt,
+			&i.CancelledAt,
+			&i.ArchivedAt,
+			&i.Plan,
+			&i.PlannedAt,
+			&i.FlakyCount,
+			&i.BudgetBonus,
+			&i.DoneReason,
+			&i.WorkflowID,
+			&i.WorkflowVersion,
+			&i.IdempotencyKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGoalSubtree = `-- name: ListGoalSubtree :many
 WITH RECURSIVE subtree(id) AS (
     SELECT d0.id FROM agent_goal d0 WHERE d0.id = $1
