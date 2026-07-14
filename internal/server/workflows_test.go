@@ -20,7 +20,7 @@ func setupWorkflowEnv(t *testing.T) *testEnv {
 	t.Helper()
 	env := setupAdmin(t)
 	env.rebuild(t, func(d *server.Deps) {
-		d.Workflow = workflowpkg.New(env.db, nil, policy.New(env.db), d.AgentAccess)
+		d.Workflow = workflowpkg.New(env.db, nil, policy.New(), d.AgentAccess)
 	})
 	return env
 }

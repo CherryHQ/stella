@@ -18,7 +18,7 @@ type Access struct {
 }
 
 // Begin opens exactly one evaluation for one control-plane use case. It mirrors
-// the email PEP: validate the Authority, acquire one revision-bound Evaluation,
+// the email PEP: validate the Authority, acquire one immutable Evaluation,
 // and fail closed when the authorizer is not configured.
 func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access, error) {
 	if s == nil || s.authz == nil {
@@ -35,7 +35,7 @@ func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access
 }
 
 // decide answers one control-plane request against this Access's single revision.
-// Control-plane resources deliberately carry no custom-policy facts: they are
+// Control-plane resources deliberately carry no policy facts: they are
 // admin-only, and the built-in admin-full-access policy is their sole grant.
 func (a *Access) decide(req authz.Request, buildErr error) error {
 	if buildErr != nil {

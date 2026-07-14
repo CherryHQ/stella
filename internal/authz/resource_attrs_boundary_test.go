@@ -1,15 +1,10 @@
 package authz_test
 
-// Architecture boundary tripwire for #707 subphase B.
+// Architecture boundary tripwire for the static policy bridge.
 //
-// authz.NewResourceWithAttrs stamps a resource with its typed custom-policy
-// attributes. Those attributes must originate ONLY from the schema-validated
-// typed builders in internal/authz/policy (ResourceBuilder / AgentResource);
-// letting a transport or domain construct an attributed resource directly would
-// smuggle unvalidated policy facts past the schema. The contract layer cannot
-// hide the constructor (internal/authz/policy is a separate package and needs to
-// call it), so this guard freezes the ONLY permitted caller package —
-// internal/authz/policy — and fails on any production call from anywhere else.
+// authz.NewResourceWithAttrs stamps a resource with domain-derived facts. The
+// static evaluator is their only consumer, so only internal/authz/policy may
+// construct attributed resources. Transport code must not supply facts directly.
 //
 // It walks the whole module and resolves the internal/authz import's local name
 // per file, so an aliased import cannot evade it. It also references the symbol
@@ -120,6 +115,6 @@ func TestNewResourceWithAttrsCallersRestrictedToPolicy(t *testing.T) {
 		t.Fatalf("walk module: %v", err)
 	}
 	for _, file := range offenders {
-		t.Errorf("%s: calls authz.NewResourceWithAttrs outside internal/authz/policy; build attributed resources through the typed schema-validated builders (policy.ResourceBuilder / policy.AgentResource) instead", file)
+		t.Errorf("%s: calls authz.NewResourceWithAttrs outside internal/authz/policy; build attributed resources through the static policy fact builders instead", file)
 	}
 }

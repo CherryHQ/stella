@@ -84,7 +84,7 @@ func testServiceWithQueries(t *testing.T) (*vault.Service, *appdb.OIDCStore, str
 	}
 
 	testDB := &vaultTestDB{oidc: oidc, q: q}
-	authorizer := policy.New(db)
+	authorizer := policy.New()
 	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), authorizer)
 	svc, err := vault.NewService(testDB, masterID.String(), authorizer, agents)
 	if err != nil {

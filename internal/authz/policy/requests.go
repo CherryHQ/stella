@@ -2,9 +2,8 @@ package policy
 
 import "github.com/CherryHQ/stella/internal/authz"
 
-// Typed agent request builders are the only sanctioned way to turn loaded
-// agent facts into an authz.Request. Keeping the complete fact set in every
-// request makes custom-policy predicates total rather than accidentally absent.
+// Typed request builders turn loaded domain facts into authz.Request values for
+// the static built-in evaluator. Facts remain domain-derived, never caller input.
 
 func AgentReadRequest(agentID, ownerID string, facts AgentFacts) (authz.Request, error) {
 	return agentActionRequest(authz.ActionRead, agentID, ownerID, facts)

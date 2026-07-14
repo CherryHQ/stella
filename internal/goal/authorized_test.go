@@ -81,7 +81,7 @@ func TestGoalCreateIdempotencyReturnsExistingGoal(t *testing.T) {
 func TestGoalEnforcesOwnerAndExecutorBoundaries(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	az := &countingAuthorizer{Authorizer: policy.New(h.db)}
+	az := &countingAuthorizer{Authorizer: policy.New()}
 	h.bundle.authz = az
 
 	g := h.createRoot(KindComposite, AcceptanceContract{})
@@ -127,23 +127,5 @@ func TestGoalEnforcesOwnerAndExecutorBoundaries(t *testing.T) {
 	}
 	if _, err := h.begin(t, scoped).Get(ctx, g.ID); err != nil {
 		t.Fatalf("delegated executor Get: %v", err)
-	}
-}
-
-// A custom deny overrides the owner built-in against the durable facts.
-func TestGoalCustomDenyHidesOwnGoal(t *testing.T) {
-	h := newHarness(t)
-	ctx := context.Background()
-	g := h.createRoot(KindComposite, AcceptanceContract{})
-	ps := policy.NewService(policy.New(h.db))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny own goal read", Resource: authz.ResourceGoal, Action: authz.ActionRead,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.begin(t, h.userAuth(t, h.userID)).Get(ctx, g.ID); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("custom deny Get err=%v, want not found", err)
 	}
 }

@@ -107,7 +107,6 @@ func (a *Access) AuthorizeManage(ctx context.Context, sk skills.Skill, action au
 		Scope:   sk.Scope,
 		Owner:   sk.UserID,
 		Agent:   sk.AgentID,
-		Source:  skillSource(sk.Metadata),
 		IsOwner: a.userID != "" && a.userID == sk.UserID,
 	}
 	req, err := policy.SkillRequest(decided, sk.ID, sk.UserID, facts)
@@ -146,7 +145,6 @@ func (a *Access) AuthorizeRead(ctx context.Context, sk skills.Skill) error {
 		Scope:   sk.Scope,
 		Owner:   sk.UserID,
 		Agent:   sk.AgentID,
-		Source:  skillSource(sk.Metadata),
 		IsOwner: a.userID != "" && a.userID == sk.UserID,
 	}
 	req, err := policy.SkillRequest(authz.ActionRead, sk.ID, sk.UserID, facts)

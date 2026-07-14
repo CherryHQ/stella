@@ -1,6 +1,6 @@
 package authz
 
-// Closed, versioned authorization catalogs.
+// Closed authorization catalogs.
 //
 // Every Action, ResourceType, Visibility, ActorKind, and GrantKind is a member
 // of a fixed set fixed at compile time. Values outside the set are invalid and
@@ -13,13 +13,6 @@ package authz
 // This file defines the vocabulary only. The Actor/Authority values that carry
 // these catalog members live in actor.go / authority.go / grant.go, and the
 // request/decision shapes that consume them live in decision.go.
-
-// CatalogVersion is the schema version of the authorization catalogs below. A
-// breaking change to the meaning or membership of any catalog (a removed value,
-// or a repurposed one) increments this. Additive members that preserve the
-// meaning of existing values do not. Persistence and audit records that pin a
-// decision to a catalog interpretation record this version.
-const CatalogVersion = 1
 
 // Action is a closed catalog of the verbs an Authority can be authorised to
 // perform on a resource.

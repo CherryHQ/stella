@@ -33,7 +33,7 @@ func (a *countingAuthorizer) Begin(ctx context.Context, authority authz.Authorit
 
 func TestWorkflowMissingAgentPEPFailsClosed(t *testing.T) {
 	pool := dbtest.New(t)
-	svc := New(pool, nil, policy.New(pool), nil)
+	svc := New(pool, nil, policy.New(), nil)
 	rss, err := authz.NewRoleSet(authz.RoleUser)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestEmbeddedPostgresWorkflowPolicyMatrix(t *testing.T) {
 	// A workflow owned by `owner`, bound to the `owned` agent.
 	wf := createWorkflow(t, q, owner.ID, "owned")
 
-	az := &countingAuthorizer{Authorizer: policy.New(pool)}
+	az := &countingAuthorizer{Authorizer: policy.New()}
 	svc := New(pool, nil, az, agentaccess.NewService(store, assign, az))
 
 	userAuth := func(id string, admin bool) authz.Authority {
@@ -169,25 +169,6 @@ func TestEmbeddedPostgresWorkflowPolicyMatrix(t *testing.T) {
 			t.Fatalf("foreign list = %d rows, want 0", len(frows))
 		}
 	})
-
-	// An active custom deny overrides the owner built-in against the durable facts.
-	t.Run("custom deny hides own workflow", func(t *testing.T) {
-		ps := policy.NewService(policy.New(pool))
-		if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-			Name: "deny own workflow read", Resource: authz.ResourceWorkflow, Action: authz.ActionRead,
-			Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-			Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		acc, err := svc.Begin(ctx, userAuth(owner.ID, false))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := acc.Get(ctx, wf.ID); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("custom deny Get = %v, want ErrNotFound", err)
-		}
-	})
 }
 
 // TestSaveGoalAsWorkflowAuthorizesSourceGoal proves SaveGoalAsWorkflow decides the
@@ -236,7 +217,7 @@ func TestSaveGoalAsWorkflowAuthorizesSourceGoal(t *testing.T) {
 		t.Fatalf("force accept: %v", err)
 	}
 
-	az := &countingAuthorizer{Authorizer: policy.New(pool)}
+	az := &countingAuthorizer{Authorizer: policy.New()}
 	svc := New(pool, goals, az, agentaccess.NewService(store, assign, az))
 
 	userAuth := func(id string) authz.Authority {
@@ -269,22 +250,6 @@ func TestSaveGoalAsWorkflowAuthorizesSourceGoal(t *testing.T) {
 	}
 	if _, err := foreignAcc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: root.ID, Name: "wf-foreign"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign SaveGoalAsWorkflow = %v, want ErrNotFound", err)
-	}
-
-	ps := policy.NewService(policy.New(pool))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny own goal read", Resource: authz.ResourceGoal, Action: authz.ActionRead,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	denyAcc, err := svc.Begin(ctx, userAuth(owner.ID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := denyAcc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: root.ID, Name: "wf-denied"}); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("goal-read-denied SaveGoalAsWorkflow = %v, want ErrNotFound", err)
 	}
 }
 

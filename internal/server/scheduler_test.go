@@ -22,7 +22,7 @@ import (
 // the folded-in agent-read decision runs the same way it does in production.
 func newTestScheduler(t *testing.T, db *pgxpool.Pool) *scheduler.Service {
 	t.Helper()
-	az := policy.New(db)
+	az := policy.New()
 	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), az)
 	svc, err := scheduler.New(db, scheduler.WithAuthorization(az, agents))
 	if err != nil {

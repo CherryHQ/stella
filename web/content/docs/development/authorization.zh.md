@@ -10,9 +10,9 @@ Stella 中每个受保护的操作都从一个可信的 `authz.Authority` 开始
 
 ## 两种机制
 
-**由策略支撑的资源**开一次 `authz.Authorizer` evaluation，并据此决定一个类型化的 `authz.Request`。当资源存在必须由策略表达的真实区分时使用它：多个持久 scope、管理员管理的层级、按角色的差异，或需要运营者自定义策略。Agent、Session、Workspace、Goal、Workflow、Scheduler、Skill、Vault 均由策略支撑。它们的内建规则位于 `internal/authz/policy`，且每个资源在该包的 activation 目录中标记为 active。
+**由策略支撑的资源**开一次 `authz.Authorizer` evaluation，并据其固定的内建规则决定一个类型化的 `authz.Request`。当资源存在真实区分时使用它：多个持久 scope、管理员管理的层级或按角色的差异。Agent、Session、Workspace、Goal、Workflow、Scheduler、Skill、Vault 均由策略支撑。它们的内建规则位于 `internal/authz/policy`，由域 PEP 提供持久事实。
 
-**由归属/能力支撑的资源**把 Authority 绑定到域 `Access` 对象上，并用按用户限定的持久查询强制边界——完全没有策略 evaluation。当资源是单一、粗粒度的按用户能力、没有 scope、管理员或角色区分时使用它：把它交给策略引擎只会写出四条复制粘贴的规则，且永远只说“owner 可操作自己的”。Connections、Email、Share、Recally 由能力支撑。它们的目录项保持 **inactive**，故为它们误写自定义策略会 fail closed。
+**由归属/能力支撑的资源**把 Authority 绑定到域 `Access` 对象上，并用按用户限定的持久查询强制边界——完全没有策略 evaluation。当资源是单一、粗粒度的按用户能力、没有 scope、管理员或角色区分时使用它：把它交给策略引擎只会写出四条复制粘贴的规则，且永远只说“owner 可操作自己的”。Connections、Email、Share、Recally 由能力支撑。
 
 不要“为了对称”而新增策略资源。如果你唯一会写的规则是“owner 可操作自己的”，那就该用能力机制。反过来，如果你发现自己在域内手写 scope 或管理员检查，那就该用策略机制。
 
@@ -43,7 +43,7 @@ Stella 中每个受保护的操作都从一个可信的 `authz.Authority` 开始
 ```go
 authority, err := info.authority()      // 来自请求的 AuthInfo
 acc, err := s.vaultSvc.Begin(r.Context(), authority)
-// acc 的方法在单一版本内决定 ResourceVault。
+// acc 的方法针对一组不可变内建规则决定 ResourceVault。
 ```
 
 ### 授权一个集合（由策略支撑）
@@ -56,7 +56,7 @@ worker 没有实时请求。从持久可信状态重建 Authority——`agentacc
 
 ### 折叠跨域门禁（由策略支撑）
 
-当一个决策需要另一资源的门禁（例如 agent 作用域的 vault 操作还须证明对该 agent 的读权限）时，复用已打开的 evaluation：`agents.AuthorizeWithin(ctx, eval, authority, agentID, authz.ActionRead)`。不要再开一次 `Begin`——那会在不同版本上决策。
+当一个决策需要另一资源的门禁（例如 agent 作用域的 vault 操作还须证明对该 agent 的读权限）时，复用已打开的 evaluation：`agents.AuthorizeWithin(ctx, eval, authority, agentID, authz.ActionRead)`。
 
 ### 授权一个用户能力（由归属/能力支撑）
 

@@ -183,7 +183,7 @@ func (t *Tool) authorizeReadable(ctx context.Context, merged []ResolvedSkill) ([
 		if dec == nil {
 			continue // fail closed: no decider, drop the DB row
 		}
-		allowed, err := dec.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID, rs.Metadata)
+		allowed, err := dec.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID)
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +211,7 @@ func (t *Tool) authorizeLoadable(ctx context.Context, rs *ResolvedSkill) error {
 		}
 		return err
 	}
-	allowed, err := dec.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID, rs.Metadata)
+	allowed, err := dec.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID)
 	if err != nil {
 		return err
 	}

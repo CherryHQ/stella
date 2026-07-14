@@ -56,7 +56,7 @@ func TestEmbeddedPostgresSkillPolicyMatrix(t *testing.T) {
 	systemSkillID := mustCreateSkill(t, skillStore, skills.Skill{Scope: ScopeSystem, Name: "system-skill"})
 	systemAgentSkillID := mustCreateSkill(t, skillStore, skills.Skill{Scope: ScopeSystemAgent, AgentID: "sys", Name: "system-agent-skill"})
 
-	az := &countingAuthorizer{Authorizer: policy.New(pool)}
+	az := &countingAuthorizer{Authorizer: policy.New()}
 	svc := NewService(skillStore, agentaccess.NewService(store, assign, az), az)
 
 	userAuth := func(id string, admin bool) authz.Authority {
@@ -253,58 +253,14 @@ func TestEmbeddedPostgresSkillPolicyMatrix(t *testing.T) {
 		if err != nil {
 			t.Fatalf("group BeginRead: %v", err)
 		}
-		if ok, err := dec.AllowRead(gctx, systemSkillID, ScopeSystem, "", "", nil); err != nil || !ok {
+		if ok, err := dec.AllowRead(gctx, systemSkillID, ScopeSystem, "", ""); err != nil || !ok {
 			t.Fatalf("group system read = (%v,%v), want (true,nil)", ok, err)
 		}
-		if ok, err := dec.AllowRead(gctx, systemAgentSkillID, ScopeSystemAgent, "", "sys", nil); err != nil || !ok {
+		if ok, err := dec.AllowRead(gctx, systemAgentSkillID, ScopeSystemAgent, "", "sys"); err != nil || !ok {
 			t.Fatalf("group system_agent read = (%v,%v), want (true,nil)", ok, err)
 		}
-		if ok, err := dec.AllowRead(gctx, userSkillID, ScopeUser, owner.ID, "", nil); err != nil || ok {
+		if ok, err := dec.AllowRead(gctx, userSkillID, ScopeUser, owner.ID, ""); err != nil || ok {
 			t.Fatalf("group user read = (%v,%v), want (false,nil) — user skills hidden from a group turn", ok, err)
-		}
-	})
-
-	// The read port carries metadata, so a source-based custom deny applies to a
-	// tool/HTTP read exactly as it would with the row loaded server-side. The same
-	// skill is readable without the tainted source and hidden with it.
-	t.Run("source custom deny applies through the read port", func(t *testing.T) {
-		ps := policy.NewService(policy.New(pool))
-		if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-			Name: "deny tainted-source skill read", Resource: authz.ResourceSkill, Action: authz.ActionRead,
-			Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Kinds(authz.ActorAgent).Build(),
-			Predicates: []policy.Predicate{policy.Eq("source", "tainted")},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		actx := authz.WithAgentID(authz.WithUserID(ctx, owner.ID), "sys")
-		dec, err := svc.BeginRead(actx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if ok, err := dec.AllowRead(actx, userSkillID, ScopeUser, owner.ID, "", []byte(`{}`)); err != nil || !ok {
-			t.Fatalf("clean-source read = (%v,%v), want (true,nil)", ok, err)
-		}
-		if ok, err := dec.AllowRead(actx, userSkillID, ScopeUser, owner.ID, "", []byte(`{"source":"tainted"}`)); err != nil || ok {
-			t.Fatalf("tainted-source read = (%v,%v), want (false,nil) — source policy must apply via the port", ok, err)
-		}
-	})
-
-	// An active custom deny overrides the owner built-in against the durable facts.
-	t.Run("custom deny hides own skill", func(t *testing.T) {
-		ps := policy.NewService(policy.New(pool))
-		if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-			Name: "deny own skill read", Resource: authz.ResourceSkill, Action: authz.ActionRead,
-			Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-			Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		acc, err := svc.Begin(ctx, userAuth(owner.ID, false))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := acc.AuthorizeManageByID(ctx, userSkillID, authz.ActionRead); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("custom deny read = %v, want ErrNotFound", err)
 		}
 	})
 }

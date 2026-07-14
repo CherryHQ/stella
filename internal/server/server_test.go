@@ -188,7 +188,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
 	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
-	authorizer := policy.New(db)
+	authorizer := policy.New()
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{

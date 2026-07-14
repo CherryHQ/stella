@@ -55,7 +55,7 @@ func setupVaultEnv(t *testing.T) (*testEnv, *vault.Service) {
 	}
 
 	vaultDB := &oidcVaultDB{OIDCStore: env.oidcStore, q: sqlc.New(env.db)}
-	authorizer := policy.New(env.db)
+	authorizer := policy.New()
 	agents := agentaccess.NewService(storepkg.NewDBStore(env.db), appdb.NewAuthStore(env.db), authorizer)
 	svc, err := vault.NewService(vaultDB, masterID.String(), authorizer, agents)
 	if err != nil {

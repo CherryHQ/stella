@@ -16,7 +16,7 @@ func (allowAllSkillReads) BeginRead(context.Context) (SkillReadDecision, error) 
 
 type allowAllSkillReadDecision struct{}
 
-func (allowAllSkillReadDecision) AllowRead(context.Context, string, string, string, string, []byte) (bool, error) {
+func (allowAllSkillReadDecision) AllowRead(context.Context, string, string, string, string) (bool, error) {
 	return true, nil
 }
 
@@ -30,7 +30,7 @@ func (d denySkillReads) BeginRead(context.Context) (SkillReadDecision, error) {
 
 type denySkillReadDecision struct{ calls *int }
 
-func (d denySkillReadDecision) AllowRead(context.Context, string, string, string, string, []byte) (bool, error) {
+func (d denySkillReadDecision) AllowRead(context.Context, string, string, string, string) (bool, error) {
 	if d.calls != nil {
 		*d.calls++
 	}

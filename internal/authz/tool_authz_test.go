@@ -64,7 +64,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 			uuid.NewString(), sessionID, agentID, userID, now, now, now)
 		return sessionID, err
 	}))
-	goalAuthorizer := policy.New(db)
+	goalAuthorizer := policy.New()
 	goalAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), goalAuthorizer)
 	goalBundle := goal.NewBundle(q, goalSvc, goalAuthorizer, goalAgents)
 	ownerGoalAuthority, err := ownerIdentity(ownerUser, agentID).ToAuthority()
@@ -80,7 +80,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("create owner goal: %v", err)
 	}
 
-	schedAuthorizer := policy.New(db)
+	schedAuthorizer := policy.New()
 	schedAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), schedAuthorizer)
 	schedulerSvc, err := scheduler.New(db, scheduler.WithAuthorization(schedAuthorizer, schedAgents))
 	if err != nil {
@@ -337,7 +337,7 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 	if err != nil {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
-	authorizer := policy.New(db)
+	authorizer := policy.New()
 	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), authorizer)
 	svc, err := vault.NewService(sqlc.New(db), masterID.String(), authorizer, agents)
 	if err != nil {

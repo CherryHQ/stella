@@ -48,7 +48,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
-	authorizer := policy.New(db)
+	authorizer := policy.New()
 	poolMgr := agent.NewPoolManager(store, mem)
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	homeDir, _ := os.UserHomeDir()

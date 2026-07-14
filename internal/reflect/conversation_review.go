@@ -205,7 +205,7 @@ func (s *Service) loadExistingSkillSummaries(ctx context.Context, userID string)
 		if dec == nil {
 			continue
 		}
-		allowed, err := dec.AllowRead(ctx, sk.ID, sk.Scope, sk.UserID, sk.AgentID, sk.Metadata)
+		allowed, err := dec.AllowRead(ctx, sk.ID, sk.Scope, sk.UserID, sk.AgentID)
 		if err != nil || !allowed {
 			continue
 		}

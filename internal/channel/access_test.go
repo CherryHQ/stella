@@ -17,7 +17,7 @@ func setupStoresWithEngine(t *testing.T) testStoresWithEngine {
 	t.Helper()
 	ts := setupStores(t)
 
-	return testStoresWithEngine{testStores: ts, access: agentaccess.NewService(ts.store, ts.authStore, policy.New(ts.db))}
+	return testStoresWithEngine{testStores: ts, access: agentaccess.NewService(ts.store, ts.authStore, policy.New())}
 }
 
 func TestResolveAgentWithAuthSystemAgent(t *testing.T) {

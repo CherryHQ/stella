@@ -56,7 +56,7 @@ func newPEPEnv(t *testing.T, templates ...JobTemplate) *pepEnv {
 		}
 	}
 
-	az := &countingAuthorizer{Authorizer: policy.New(db)}
+	az := &countingAuthorizer{Authorizer: policy.New()}
 	svc, err := New(db, WithAuthorization(az, agentaccess.NewService(store, assign, az)))
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -220,7 +220,7 @@ func TestSchedulerHidesPlatformJobsFromUsers(t *testing.T) {
 // reconstructs the owner authority from the persisted job and re-decides both the
 // job's ActionExecute and its agent's ActionExecute under one evaluation: a
 // user-owned and a system-owned job authorize, a plugin row is rejected, and a
-// custom deny added later stops the fire.
+// removed executor stops a later fire.
 func TestSchedulerAuthorizeDurableFire(t *testing.T) {
 	e := newPEPEnv(t)
 	ctx := context.Background()
@@ -246,67 +246,18 @@ func TestSchedulerAuthorizeDurableFire(t *testing.T) {
 		t.Fatal("durable fire (plugin job) must fail closed")
 	}
 
-	// A custom deny on scheduler execute against the reconstructed agent owner stops
-	// a previously-firing user job.
-	ps := policy.NewService(policy.New(e.svc.db))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny scheduler execute", Resource: authz.ResourceScheduler, Action: authz.ActionExecute,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Kinds(authz.ActorAgent).Build(),
-		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-	}); err != nil {
-		t.Fatal(err)
+	// Reconstructing an authority is not enough: the fresh agent decision must
+	// reject an executor that was removed after the job was persisted.
+	if _, err := e.svc.db.Exec(ctx, `DELETE FROM agent WHERE id = 'agent-a'`); err != nil {
+		t.Fatalf("revoke scheduler executor: %v", err)
 	}
 	if _, err := e.svc.AuthorizeDurableFire(ctx, userJob); err == nil {
-		t.Fatal("custom deny must stop the durable fire")
+		t.Fatal("durable fire authorized a revoked executor")
 	}
 }
 
 // TestSchedulerAuthorizeDurableFireNilPEPFailsClosed proves a scheduler built
 // without an authorizer refuses to authorize any durable fire.
-func TestSchedulerDispatchReauthorizesWorkflowAndSystemHandler(t *testing.T) {
-	t.Run("workflow", func(t *testing.T) {
-		e := newPEPEnv(t)
-		runner := &fakeWorkflowRunner{wf: ScheduledWorkflow{ID: "wf", FullyFrozen: true}}
-		e.svc.SetWorkflowRunner(runner)
-		ps := policy.NewService(policy.New(e.svc.db))
-		if _, _, err := ps.CreatePolicy(context.Background(), policy.PolicyInput{
-			Name: "deny workflow job fire", Resource: authz.ResourceScheduler, Action: authz.ActionExecute,
-			Effect: policy.EffectDeny, Subjects: policy.AnySubject(),
-		}); err != nil {
-			t.Fatal(err)
-		}
-		job := Job{ID: "wf-job", UserID: e.ownerA, AgentID: "agent-a", OwnerKind: JobOwnerUser, DispatchKind: DispatchKindWorkflow, Payload: map[string]any{"workflow_id": "wf"}}
-		if err := e.svc.dispatchJob(context.Background(), job); err == nil {
-			t.Fatal("custom-denied workflow job dispatched")
-		}
-		if runner.authorizeCalls != 0 || runner.instantiateCalls != 0 {
-			t.Fatalf("workflow touched before Scheduler PEP: authorize=%d instantiate=%d", runner.authorizeCalls, runner.instantiateCalls)
-		}
-	})
-
-	t.Run("system handler", func(t *testing.T) {
-		e := newPEPEnv(t)
-		called := false
-		e.svc.mu.Lock()
-		e.svc.runtimeBuiltins = map[string]BuiltinJob{"native": {Name: "native", Handler: func(context.Context, Job) error { called = true; return nil }}}
-		e.svc.mu.Unlock()
-		ps := policy.NewService(policy.New(e.svc.db))
-		if _, _, err := ps.CreatePolicy(context.Background(), policy.PolicyInput{
-			Name: "deny native fire", Resource: authz.ResourceScheduler, Action: authz.ActionExecute,
-			Effect: policy.EffectDeny, Subjects: policy.AnySubject(),
-		}); err != nil {
-			t.Fatal(err)
-		}
-		job := Job{ID: "native-job", Name: "native", OwnerKind: JobOwnerSystem, DispatchKind: DispatchKindChat}
-		if err := e.svc.dispatchJob(context.Background(), job); err == nil {
-			t.Fatal("custom-denied system handler dispatched")
-		}
-		if called {
-			t.Fatal("system handler ran before Scheduler PEP")
-		}
-	})
-}
-
 func TestSchedulerAuthorizeDurableFireNilPEPFailsClosed(t *testing.T) {
 	svc, err := New(testDB(t))
 	if err != nil {
@@ -318,9 +269,8 @@ func TestSchedulerAuthorizeDurableFireNilPEPFailsClosed(t *testing.T) {
 }
 
 // TestSchedulerCreateJobIdempotencyReauthorizes proves an idempotency-key hit
-// re-authorizes the existing job under the same evaluation instead of handing back
-// the raw row: a mismatched requested agent is hidden as not-found, and a custom
-// deny added after creation blocks the enabled=true replay.
+// re-authorizes the existing job under the same evaluation instead of handing
+// back the raw row: a mismatched requested agent is hidden as not-found.
 func TestSchedulerCreateJobIdempotencyReauthorizes(t *testing.T) {
 	e := newPEPEnv(t)
 	ctx := context.Background()
@@ -334,55 +284,6 @@ func TestSchedulerCreateJobIdempotencyReauthorizes(t *testing.T) {
 	if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "second", "msg", Schedule{Every: "2h"}, SessionReuse, "agent-b", "key"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("wrong-agent idempotency err=%v, want not found", err)
 	}
-
-	// A custom deny added after creation stops the enabled=true replay from
-	// returning the pre-existing row.
-	ps := policy.NewService(policy.New(e.svc.db))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny own scheduler read replay", Resource: authz.ResourceScheduler, Action: authz.ActionRead,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "third", "msg", Schedule{Every: "3h"}, SessionReuse, "agent-a", "key"); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("deny-after-create idempotency err=%v, want forbidden", err)
-	}
-}
-
-func TestSchedulerCreateUsesActualStateAndReplaySkipsCreateDecision(t *testing.T) {
-	ctx := context.Background()
-	t.Run("disabled state", func(t *testing.T) {
-		e := newPEPEnv(t)
-		ps := policy.NewService(policy.New(e.svc.db))
-		if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-			Name: "deny disabled create", Resource: authz.ResourceScheduler, Action: authz.ActionCreate,
-			Effect: policy.EffectDeny, Subjects: policy.AnySubject(),
-			Predicates: []policy.Predicate{policy.Eq("state", "disabled")},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJobWithEnabled(ctx, "disabled", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", "", false); !errors.Is(err, authz.ErrForbidden) {
-			t.Fatalf("disabled Create err=%v, want forbidden", err)
-		}
-	})
-
-	t.Run("existing replay", func(t *testing.T) {
-		e := newPEPEnv(t)
-		if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "first", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", "replay"); err != nil {
-			t.Fatal(err)
-		}
-		ps := policy.NewService(policy.New(e.svc.db))
-		if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-			Name: "deny future creates", Resource: authz.ResourceScheduler, Action: authz.ActionCreate,
-			Effect: policy.EffectDeny, Subjects: policy.AnySubject(),
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "ignored", "msg", Schedule{Every: "2h"}, SessionReuse, "agent-a", "replay"); err != nil {
-			t.Fatalf("authorized existing replay was blocked by Create deny: %v", err)
-		}
-	})
 }
 
 // TestSchedulerCreateWorkflowJobAuthorizesWorkflow proves the dispatch-target
@@ -404,8 +305,8 @@ func TestSchedulerCreateWorkflowJobAuthorizesWorkflow(t *testing.T) {
 }
 
 // TestSchedulerSubscribedTemplates proves template-subscription metadata is
-// resolved through the scheduler PEP: the owner sees their subscription, a foreign
-// user sees none, and a custom deny on the owner's scheduler read hides the row.
+// resolved through the scheduler PEP: the owner sees their subscription and a
+// foreign user sees none.
 func TestSchedulerSubscribedTemplates(t *testing.T) {
 	tmpl := JobTemplate{Key: "digest", Name: "Digest", Message: "do digest", DefaultSchedule: Schedule{Every: "1h"}, SessionMode: SessionReuse}
 	e := newPEPEnv(t, tmpl)
@@ -429,43 +330,5 @@ func TestSchedulerSubscribedTemplates(t *testing.T) {
 	}
 	if len(foreignSubs) != 0 {
 		t.Fatalf("foreign subs = %+v, want none", foreignSubs)
-	}
-
-	ps := policy.NewService(policy.New(e.svc.db))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny own scheduler read subs", Resource: authz.ResourceScheduler, Action: authz.ActionRead,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	denied, err := e.begin(t, userAuthority(t, e.ownerA)).SubscribedTemplates(ctx)
-	if err != nil {
-		t.Fatalf("denied SubscribedTemplates: %v", err)
-	}
-	if len(denied) != 0 {
-		t.Fatalf("denied subs = %+v, want hidden", denied)
-	}
-}
-
-// A custom deny overrides the owner built-in against the durable facts.
-func TestSchedulerCustomDenyHidesOwnJob(t *testing.T) {
-	e := newPEPEnv(t)
-	ctx := context.Background()
-	db := e.svc.db
-	job, err := e.begin(t, userAuthority(t, e.ownerA)).CreateJob(ctx, "job", "msg", Schedule{Every: "1h"}, SessionReuse, "agent-a", "")
-	if err != nil {
-		t.Fatalf("CreateJob: %v", err)
-	}
-	ps := policy.NewService(policy.New(db))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny own scheduler read", Resource: authz.ResourceScheduler, Action: authz.ActionRead,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := e.begin(t, userAuthority(t, e.ownerA)).GetJob(ctx, "agent-a", job.ID); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("custom deny GetJob err=%v, want forbidden", err)
 	}
 }

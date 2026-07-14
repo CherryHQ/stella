@@ -54,7 +54,7 @@ func TestEmbeddedPostgresAgentPolicyMatrix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	az := &countingAuthorizer{Authorizer: policy.New(pool)}
+	az := &countingAuthorizer{Authorizer: policy.New()}
 	access := NewService(store, assign, az)
 	user := func(id string) authz.Authority {
 		rs, err := authz.NewRoleSet(authz.RoleUser)
@@ -97,21 +97,6 @@ func TestEmbeddedPostgresAgentPolicyMatrix(t *testing.T) {
 				t.Fatalf("Begin count = %d, want %d", az.begins-before, 1)
 			}
 		})
-	}
-
-	// Active custom deny overrides built-ins against the persisted facts. The
-	// PEP returns its forbidden visibility, not a made-up success/not-found.
-	ps := policy.NewService(policy.New(pool))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny system use", Resource: authz.ResourceAgent, Action: authz.ActionExecute,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("scope", "system")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	_, err = access.Use(ctx, user(owner.ID), "system")
-	if !errors.Is(err, ErrForbidden) {
-		t.Fatalf("custom deny error = %v, want forbidden", err)
 	}
 }
 

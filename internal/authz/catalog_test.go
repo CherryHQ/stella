@@ -6,14 +6,6 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 )
 
-// TestCatalogVersion pins the catalog schema version so a breaking catalog
-// change is a conscious edit.
-func TestCatalogVersion(t *testing.T) {
-	if authz.CatalogVersion != 1 {
-		t.Fatalf("CatalogVersion = %d; a breaking catalog change must be intentional", authz.CatalogVersion)
-	}
-}
-
 // TestActionCatalog covers uniqueness, validity of every member, string
 // round-trip distinctness, and fail-closed on the zero and out-of-range values.
 func TestActionCatalog(t *testing.T) {

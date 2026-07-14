@@ -10,9 +10,9 @@ There are two enforcement mechanisms, and choosing the wrong one is the most com
 
 ## Two mechanisms
 
-**Policy-backed resources** open an `authz.Authorizer` evaluation and decide a typed `authz.Request` against it. Use this when a resource has real distinctions that a policy must express: multiple durable scopes, an admin-managed tier, per-role differences, or a need for operator-authored custom policies. Agent, Session, Workspace, Goal, Workflow, Scheduler, Skill, and Vault are policy-backed. Their built-in rules live in `internal/authz/policy` and each resource is marked active in that package's activation catalog.
+**Policy-backed resources** open an `authz.Authorizer` evaluation and decide a typed `authz.Request` against its fixed built-in rules. Use this when a resource has real distinctions to express: multiple durable scopes, an admin-managed tier, or per-role differences. Agent, Session, Workspace, Goal, Workflow, Scheduler, Skill, and Vault are policy-backed. Their built-in rules live in `internal/authz/policy`; the domain PEP supplies the durable facts.
 
-**Ownership/capability-backed resources** bind the Authority to a domain `Access` object and enforce the boundary with user-scoped durable queries — no policy evaluation at all. Use this when a resource is a single coarse per-user capability with no scope, admin, or role distinctions: authorizing it against a policy engine would be four copy-pasted rules that only ever say "the owner may act on their own." Connections, Email, Share, and Recally are capability-backed. Their catalog entries stay **inactive**, so a stray custom-policy write for them fails closed.
+**Ownership/capability-backed resources** bind the Authority to a domain `Access` object and enforce the boundary with user-scoped durable queries — no policy evaluation at all. Use this when a resource is a single coarse per-user capability with no scope, admin, or role distinctions: authorizing it against a policy engine would be four copy-pasted rules that only ever say "the owner may act on their own." Connections, Email, Share, and Recally are capability-backed.
 
 Do not add a policy resource "for symmetry." If the only rule you would write is "owner may act on their own," you want the capability mechanism. Conversely, if you find yourself hand-rolling scope or admin checks inside a domain, you want the policy mechanism.
 
@@ -43,7 +43,7 @@ Derive the Authority from verified session claims, open one evaluation, decide t
 ```go
 authority, err := info.authority()      // from the request's AuthInfo
 acc, err := s.vaultSvc.Begin(r.Context(), authority)
-// acc's methods decide ResourceVault against a single revision.
+// acc's methods decide ResourceVault against one immutable built-in rule set.
 ```
 
 ### Authorize a collection (policy-backed)
@@ -56,7 +56,7 @@ A worker has no live request. Reconstruct the Authority from persisted trusted s
 
 ### Fold in a cross-domain gate (policy-backed)
 
-When one decision needs another resource's gate (e.g. an agent-scoped vault op must also prove read access to that agent), reuse the open evaluation: `agents.AuthorizeWithin(ctx, eval, authority, agentID, authz.ActionRead)`. Do not open a second `Begin` — it would decide against a different revision.
+When one decision needs another resource's gate (e.g. an agent-scoped vault op must also prove read access to that agent), reuse the open evaluation: `agents.AuthorizeWithin(ctx, eval, authority, agentID, authz.ActionRead)`.
 
 ### Authorize a user capability (ownership/capability-backed)
 

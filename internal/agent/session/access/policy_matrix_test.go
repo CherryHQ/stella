@@ -25,7 +25,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// matrixAuthorizer counts real PostgreSQL-backed policy snapshots. It proves
+// matrixAuthorizer counts static policy evaluations. It proves
 // each Session/Workspace use case owns one evaluation even when it makes both
 // Agent and Session/Workspace decisions.
 type matrixAuthorizer struct {
@@ -40,7 +40,6 @@ func (a *matrixAuthorizer) Begin(ctx context.Context, authority authz.Authority)
 
 type sessionMatrix struct {
 	svc            *Service
-	policies       *policy.Service
 	az             *matrixAuthorizer
 	owner          string
 	other          string
@@ -334,91 +333,6 @@ func TestEmbeddedPostgresSessionPolicyMatrix(t *testing.T) {
 		}
 	})
 
-	// Put more denied rows ahead of allowed rows so authorized pagination must
-	// advance through the durable cursor rather than filtering one SQL page.
-	for range 3 {
-		if _, err := m.svc.registry.Ensure(ctx, agentsession.Request{
-			UserID: m.owner, AgentID: m.agent, Kind: agentsession.KindChat,
-			Channel: agentsession.ChannelWeb, CreateIfMissing: true,
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	extraAllowed, err := m.svc.registry.Ensure(ctx, agentsession.Request{
-		UserID: m.owner, AgentID: m.agent, Kind: agentsession.KindTask,
-		Channel: agentsession.ChannelTask, CreateIfMissing: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// A real policy mutation commits a new revision. The next Begin must see the
-	// deny, hide the durable session, and remove it from collection visibility.
-	if _, _, err := m.policies.CreatePolicy(ctx, policy.PolicyInput{
-		Name:       "hide owner chat sessions",
-		Resource:   authz.ResourceSession,
-		Action:     authz.ActionRead,
-		Effect:     policy.EffectDeny,
-		Subjects:   policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("kind", string(agentsession.KindChat))},
-	}); err != nil {
-		t.Fatalf("CreatePolicy: %v", err)
-	}
-	t.Run("custom deny remains opaque", func(t *testing.T) {
-		before := m.az.begins
-		access, err := m.svc.Begin(ctx, user(m.owner))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := access.Read(ctx, m.agent, m.private); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("custom deny error=%v, want opaque not found", err)
-		}
-		if got := m.az.begins - before; got != 1 {
-			t.Fatalf("Begin calls=%d, want 1", got)
-		}
-	})
-	t.Run("custom deny removes only matching row from list", func(t *testing.T) {
-		before := m.az.begins
-		access, err := m.svc.Begin(ctx, user(m.owner))
-		if err != nil {
-			t.Fatal(err)
-		}
-		infos, err := access.List(ctx, m.agent, agentsession.ListOptions{IncludeArchived: true})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(infos) != 2 {
-			t.Fatalf("visible sessions=%v, want internal and task sessions", infos)
-		}
-		if got := m.az.begins - before; got != 1 {
-			t.Fatalf("Begin calls=%d, want 1", got)
-		}
-	})
-	t.Run("authorized pagination scans past denied rows without losing its cursor", func(t *testing.T) {
-		access, err := m.svc.Begin(ctx, user(m.owner))
-		if err != nil {
-			t.Fatal(err)
-		}
-		page1, err := access.ListPage(ctx, m.agent, agentsession.ListOptions{IncludeArchived: true}, 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(page1.Sessions) != 1 || !page1.HasMore {
-			t.Fatalf("page1=%+v, want one row and continuation", page1)
-		}
-		page2, err := access.ListPage(ctx, m.agent, agentsession.ListOptions{IncludeArchived: true, Offset: page1.NextOffset}, 1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(page2.Sessions) != 1 || page2.HasMore {
-			t.Fatalf("page1=%+v page2=%+v, want final visible row", page1, page2)
-		}
-		got := map[string]bool{page1.Sessions[0].ID: true, page2.Sessions[0].ID: true}
-		if !got[m.internal] || !got[extraAllowed.ID] {
-			t.Fatalf("visible ids=%v, want %q and %q", got, m.internal, extraAllowed.ID)
-		}
-	})
-
 	// Keep creation last because the matrix intentionally shares one durable
 	// fixture and list assertions above freeze its pre-create row set.
 	t.Run("durable agent creates a worker session for its owner", func(t *testing.T) {
@@ -497,14 +411,14 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inner := policy.New(pool)
+	inner := policy.New()
 	az := &matrixAuthorizer{Authorizer: inner}
 	svc, err := NewService(mem, pool, store, appdb.NewAuthStore(pool), assets, az)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
 	return sessionMatrix{
-		svc: svc, policies: policy.NewService(inner), az: az,
+		svc: svc, az: az,
 		owner: owner, other: other, group: groupID, agent: agentID,
 		private: private, internal: internal, groupSID: groupSession,
 		dedicatedAgent: dedicatedAgent, dedicatedChan: dedicatedChan,

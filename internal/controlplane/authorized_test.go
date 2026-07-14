@@ -7,13 +7,10 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/authz/policy"
-	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
-func TestMain(m *testing.M) { dbtest.Main(m) }
-
 // countingAuthorizer proves the control-plane PEP opens exactly one Begin per use
-// case, wrapping the real revision-bound policy authorizer.
+// case, wrapping the real static policy authorizer.
 type countingAuthorizer struct {
 	authz.Authorizer
 	begins int
@@ -26,8 +23,7 @@ func (a *countingAuthorizer) Begin(ctx context.Context, authority authz.Authorit
 
 func newService(t *testing.T) (*Service, *countingAuthorizer) {
 	t.Helper()
-	db := dbtest.New(t)
-	az := &countingAuthorizer{Authorizer: policy.New(db)}
+	az := &countingAuthorizer{Authorizer: policy.New()}
 	// The authorization matrix exercises only the decision path (Begin + Decide),
 	// so the persistence/runtime handles are intentionally nil: a denied use case
 	// returns before touching them, and an allowed decision is asserted directly.

@@ -17,12 +17,10 @@ type SkillReadAuthorizer interface {
 
 // SkillReadDecision decides individual DB-skill reads within one evaluation.
 type SkillReadDecision interface {
-	// AllowRead reports whether the actor may read this DB skill row. metadata is
-	// the row's raw metadata JSON so a source-based custom policy applies to tool
-	// reads identically to HTTP reads. A policy denial returns (false, nil); only
-	// an unexpected authorization failure (revision lookup, decode) returns a
+	// AllowRead reports whether the actor may read this DB skill row. A policy
+	// denial returns (false, nil); an unexpected authorization failure returns a
 	// non-nil error.
-	AllowRead(ctx context.Context, id, scope, ownerUserID, agentID string, metadata []byte) (bool, error)
+	AllowRead(ctx context.Context, id, scope, ownerUserID, agentID string) (bool, error)
 }
 
 // SkillWriteAuthorizer authorizes DB-backed skill writes (create/patch/deprecate)

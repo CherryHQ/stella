@@ -19,7 +19,6 @@ package skillaccess
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
@@ -156,8 +155,8 @@ func (d *writeDecision) AllowWrite(ctx context.Context, id string) error {
 // policy denial to (false, nil) and only surfacing unexpected failures.
 type readDecision struct{ acc *Access }
 
-func (d *readDecision) AllowRead(ctx context.Context, id, scope, ownerUserID, agentID string, metadata []byte) (bool, error) {
-	err := d.acc.AuthorizeRead(ctx, skills.Skill{ID: id, Scope: scope, UserID: ownerUserID, AgentID: agentID, Metadata: metadata})
+func (d *readDecision) AllowRead(ctx context.Context, id, scope, ownerUserID, agentID string) (bool, error) {
+	err := d.acc.AuthorizeRead(ctx, skills.Skill{ID: id, Scope: scope, UserID: ownerUserID, AgentID: agentID})
 	switch {
 	case err == nil:
 		return true, nil
@@ -197,17 +196,4 @@ func agentBound(scope string) bool {
 // superuser policy grants it, and a denial is Forbidden (403) rather than opaque.
 func adminScope(scope string) bool {
 	return scope == ScopeSystem || scope == ScopeSystemAgent
-}
-
-// skillSource extracts the install source recorded in a skill's metadata, if any,
-// so a custom policy may match on it. It is informational; no built-in uses it.
-func skillSource(metadata json.RawMessage) string {
-	if len(metadata) == 0 {
-		return ""
-	}
-	var m struct {
-		Source string `json:"source"`
-	}
-	_ = json.Unmarshal(metadata, &m)
-	return m.Source
 }

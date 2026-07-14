@@ -13,7 +13,6 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -66,7 +65,7 @@ func setupGoalEnvWithOptions(t *testing.T, opts ...goal.Option) *testEnv {
 	}
 	baseOpts = append(baseOpts, opts...)
 	svc := goal.New(env.db, q, baseOpts...)
-	az := policy.New(env.db)
+	az := policy.New()
 	agents := agentaccess.NewService(storepkg.NewDBStore(env.db), appdb.NewAuthStore(env.db), az)
 	bundle := goal.NewBundle(q, svc, az, agents)
 	env.rebuild(t, func(d *server.Deps) { d.Goal = bundle })
@@ -277,51 +276,34 @@ func TestGoalContinuationCommandsRequireFreshAgentUse(t *testing.T) {
 		{name: "reject_plan", path: func(id string) string { return "/api/goals/" + id + "/plan/reject" }, body: apitypes.DecisionRequest{}},
 	}
 
-	for _, denial := range []string{"assignment_revoked", "custom_deny"} {
-		for _, command := range commands {
-			t.Run(denial+"/"+command.name, func(t *testing.T) {
-				env := setupGoalEnv(t)
-				ctx := context.Background()
-				user, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "goal-use-"+uuid.NewString(), auth.RoleUser)
-				agentID := uuid.NewString()
-				if err := env.store.CreateAgent(ctx, config.Agent{ID: agentID, Name: "restricted", Model: "test/model", Scope: config.AgentScopeRestricted, Enabled: true}); err != nil {
-					t.Fatalf("create restricted agent: %v", err)
-				}
-				if err := env.authStore.AssignAgent(ctx, user.ID, agentID); err != nil {
-					t.Fatalf("assign restricted agent: %v", err)
-				}
-				id := createGoal(t, env, token, agentID, command.name)
+	for _, command := range commands {
+		t.Run("assignment_revoked/"+command.name, func(t *testing.T) {
+			env := setupGoalEnv(t)
+			ctx := context.Background()
+			user, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "goal-use-"+uuid.NewString(), auth.RoleUser)
+			agentID := uuid.NewString()
+			if err := env.store.CreateAgent(ctx, config.Agent{ID: agentID, Name: "restricted", Model: "test/model", Scope: config.AgentScopeRestricted, Enabled: true}); err != nil {
+				t.Fatalf("create restricted agent: %v", err)
+			}
+			if err := env.authStore.AssignAgent(ctx, user.ID, agentID); err != nil {
+				t.Fatalf("assign restricted agent: %v", err)
+			}
+			id := createGoal(t, env, token, agentID, command.name)
 
-				switch denial {
-				case "assignment_revoked":
-					if err := env.authStore.RemoveAgent(ctx, user.ID, agentID); err != nil {
-						t.Fatalf("revoke assignment: %v", err)
-					}
-				case "custom_deny":
-					_, _, err := policy.NewService(policy.New(env.db)).CreatePolicy(ctx, policy.PolicyInput{
-						Name:       "deny goal continuation use",
-						Resource:   authz.ResourceAgent,
-						Action:     authz.ActionExecute,
-						Effect:     policy.EffectDeny,
-						Subjects:   policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-						Predicates: []policy.Predicate{policy.Eq("scope", "user")},
-					})
-					if err != nil {
-						t.Fatalf("create custom deny: %v", err)
-					}
-				}
+			if err := env.authStore.RemoveAgent(ctx, user.ID, agentID); err != nil {
+				t.Fatalf("revoke assignment: %v", err)
+			}
 
-				before := snapshotGoalCommandState(t, env, id)
-				rr := doRequestWithSession(t, env.srv, token, http.MethodPost, command.path(id), command.body)
-				if rr.Code != http.StatusForbidden {
-					t.Fatalf("status=%d want %d body=%s", rr.Code, http.StatusForbidden, rr.Body.String())
-				}
-				after := snapshotGoalCommandState(t, env, id)
-				if !reflect.DeepEqual(after, before) {
-					t.Fatalf("denied %s mutated goal state\nbefore: %#v\nafter:  %#v", command.name, before, after)
-				}
-			})
-		}
+			before := snapshotGoalCommandState(t, env, id)
+			rr := doRequestWithSession(t, env.srv, token, http.MethodPost, command.path(id), command.body)
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("status=%d want %d body=%s", rr.Code, http.StatusForbidden, rr.Body.String())
+			}
+			after := snapshotGoalCommandState(t, env, id)
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("denied %s mutated goal state\nbefore: %#v\nafter:  %#v", command.name, before, after)
+			}
+		})
 	}
 }
 

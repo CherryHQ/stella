@@ -100,7 +100,7 @@ func newHarness(t *testing.T) *harness {
 	)
 	h.worker = NewWorker(h.svc, q)
 	h.worker.SetHeartbeat(0) // no heartbeat goroutine in tests
-	az := policy.New(db)
+	az := policy.New()
 	h.bundle = NewBundle(q, h.svc, az, agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), az))
 	return h
 }

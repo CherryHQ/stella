@@ -30,7 +30,7 @@ func (a summaryReadAuthz) BeginRead(context.Context) (skillstool.SkillReadDecisi
 
 type summaryReadDecision struct{ deny map[string]bool }
 
-func (d summaryReadDecision) AllowRead(_ context.Context, id, _, _, _ string, _ []byte) (bool, error) {
+func (d summaryReadDecision) AllowRead(_ context.Context, id, _, _, _ string) (bool, error) {
 	return !d.deny[id], nil
 }
 

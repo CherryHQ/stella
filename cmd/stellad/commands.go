@@ -162,10 +162,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Construct the one Agent PDP/PEP at the composition root before any agent
 	// Service is built. HTTP, channels, and durable workers all share it.
 	authStore := appdb.NewAuthStore(db)
-	// Every #709 PEP shares this one revision-bound policy authorizer. A use
-	// case begins it once and may decide its agent/session/workspace resources
-	// against that immutable revision without a second snapshot.
-	authorizer := policy.New(db)
+	// Every domain PEP shares the static built-in authorizer. Domain PEPs load
+	// durable facts before deciding; the authorizer itself has no DB dependency.
+	authorizer := policy.New()
 	agentAccess := agentaccess.NewService(store, authStore, authorizer)
 
 	if err := ensureEmbeddedAssets(); err != nil {
@@ -176,9 +175,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := ss.diskSync.SyncAllToDisk(parent); err != nil {
 		return nil, fmt.Errorf("sync DB skills to disk: %w", err)
 	}
-	// The Skill PEP shares the same revision-bound authorizer and agent PEP as the
-	// other #710 execution domains; the disk-sync store is the single DB skill
-	// read port (its ListAll reaches the same rows the transports resolve).
+	// The Skill PEP shares the static built-in authorizer and agent PEP with the
+	// other execution domains; the disk-sync store is the single DB skill read
+	// port (its ListAll reaches the same rows the transports resolve).
 	skillAccess := skillaccess.NewService(ss.diskSync, agentAccess, authorizer)
 
 	dispatcher := notify.NewDispatcher()
@@ -472,10 +471,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	credSvc.SetInvalidator(poolMgr)
 
 	// Control-plane PEP: the single policy-enforcement point for the admin-only
-	// deployment resources (providers/settings/plugins/channels). It shares the one
-	// revision-bound authorizer and owns the persistence + hot-reload each mutation
-	// performs, so the HTTP transport keeps only decode/shape. Built here, after the
-	// pool and shared connections service are fully wired.
+	// deployment resources (providers/settings/plugins/channels). It shares the
+	// static built-in authorizer, so the HTTP transport keeps only decode/shape.
+	// Built here, after the pool and shared connections service are fully wired.
 	controlPlaneSvc := controlplane.NewService(authorizer, store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
 
 	// Composition root for River: both the scheduler and goal subsystems are now
