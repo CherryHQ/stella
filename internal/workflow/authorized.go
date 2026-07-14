@@ -151,8 +151,8 @@ func (a *Access) Delete(ctx context.Context, id string) error {
 }
 
 // SaveGoalAsWorkflow freezes an accepted goal tree into a workflow. It requires
-// both create authority on the workflow (owner) and execute authority on the
-// workflow's bound agent, decided under this single evaluation.
+// workflow-create authority plus Agent-domain execute authority on the workflow's
+// bound agent.
 func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.AgentWorkflow, error) {
 	if a.svc.agents == nil {
 		return sqlc.AgentWorkflow{}, fmt.Errorf("%w: agent authorization is not configured", ErrUnavailable)
@@ -191,7 +191,7 @@ func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Age
 	}
 	// The workflow will execute under in.AgentID; require execute authority on it.
 	if in.AgentID != "" {
-		if err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, in.AgentID, authz.ActionExecute); err != nil {
+		if err := a.svc.agents.Authorize(ctx, a.authority, in.AgentID, authz.ActionExecute); err != nil {
 			return sqlc.AgentWorkflow{}, mapAgentAuthzError(err)
 		}
 	}
@@ -221,7 +221,7 @@ func (a *Access) Instantiate(ctx context.Context, id string, inputs map[string]s
 	}
 	// The workflow's bound agent is persisted authority-bearing state, not a route
 	// parameter; execute authority on it is required before claiming a run.
-	if err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, wf.AgentID.String, authz.ActionExecute); err != nil {
+	if err := a.svc.agents.Authorize(ctx, a.authority, wf.AgentID.String, authz.ActionExecute); err != nil {
 		return sqlc.AgentWorkflowRun{}, false, mapAgentAuthzError(err)
 	}
 	run, created, err := a.svc.Instantiate(ctx, InstantiateInput{UserID: a.userID, AgentID: a.agentID, WorkflowID: id, Inputs: inputs, IdempotencyKey: idempotencyKey})

@@ -102,7 +102,7 @@ func (wa *workerAuthorizer) authorize(ctx context.Context, goal sqlc.AgentGoal, 
 	if !dec.Allowed() {
 		return authz.ErrNotFound
 	}
-	return authorizeAgentWithin(ctx, wa.agents, eval, authority, executorAgentID)
+	return authorizeAgentWithin(ctx, wa.agents, authority, executorAgentID)
 }
 
 // GoalFilter narrows a root-goal list. The zero value lists active
@@ -565,18 +565,17 @@ func (a *Access) decideReq(req authz.Request) error {
 	return nil
 }
 
-// authorizeAgent folds the former requireAgentUse gate into this evaluation: a
-// state change requires the caller may still execute the goal's persisted agent.
+// authorizeAgent requires the caller may still execute the goal's persisted
+// agent through the Agent domain's direct authorization port.
 func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
-	return authorizeAgentWithin(ctx, a.svc.agents, a.eval, a.authority, agentID)
+	return authorizeAgentWithin(ctx, a.svc.agents, a.authority, agentID)
 }
 
-// authorizeAgentWithin folds an agent execute decision into an already open
-// evaluation and maps the agent PEP's typed denials back to the goal domain's
-// opaque errors. Shared by Access and the durable-worker PEP so the agent gate is
-// evaluated under the same revision as the goal decision, never a second one.
-func authorizeAgentWithin(ctx context.Context, agents *agentaccess.Service, eval authz.Evaluation, authority authz.Authority, agentID string) error {
-	err := agents.AuthorizeWithin(ctx, eval, authority, agentID, authz.ActionExecute)
+// authorizeAgentWithin maps the Agent domain's direct execute decision back to
+// the goal domain's opaque errors. It is shared by Access and the durable-worker
+// PEP.
+func authorizeAgentWithin(ctx context.Context, agents *agentaccess.Service, authority authz.Authority, agentID string) error {
+	err := agents.Authorize(ctx, authority, agentID, authz.ActionExecute)
 	switch {
 	case err == nil:
 		return nil

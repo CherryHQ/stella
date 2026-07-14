@@ -23,7 +23,7 @@ import (
 func newTestScheduler(t *testing.T, db *pgxpool.Pool) *scheduler.Service {
 	t.Helper()
 	az := policy.New()
-	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), az)
+	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
 	svc, err := scheduler.New(db, scheduler.WithAuthorization(az, agents))
 	if err != nil {
 		t.Fatalf("scheduler.New: %v", err)

@@ -57,7 +57,7 @@ func vaultPEP(t *testing.T) (*vault.Service, *pgxpool.Pool, string) {
 	}
 	testDB := &vaultTestDB{oidc: oidc, q: sqlc.New(db)}
 	authorizer := policy.New()
-	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), authorizer)
+	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
 	svc, err := vault.NewService(testDB, masterID.String(), authorizer, agents)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)

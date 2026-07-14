@@ -181,8 +181,7 @@ func (a *Access) authorizeScoped(ctx context.Context, action authz.Action, scope
 	if err := validateScope(scope, entryUserID, entryAgentID); err != nil {
 		return "", "", err
 	}
-	// Every agent-scoped bucket additionally requires read access to that agent,
-	// folding the former requireAgentAccess into this single evaluation.
+	// Every agent-scoped bucket additionally requires Agent-domain read access.
 	if entryAgentID != "" {
 		if err := a.authorizeAgent(ctx, entryAgentID); err != nil {
 			return "", "", err
@@ -195,7 +194,7 @@ func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
 	if a.svc.agents == nil {
 		return authz.ErrForbidden
 	}
-	err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, agentID, authz.ActionRead)
+	err := a.svc.agents.Authorize(ctx, a.authority, agentID, authz.ActionRead)
 	switch {
 	case err == nil:
 		return nil

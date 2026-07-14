@@ -263,13 +263,13 @@ func (a *Access) decide(scope string, req authz.Request) error {
 	return nil
 }
 
-// authorizeAgent folds the former requireAgentAccess (agent read) into this
-// evaluation, preserving its 404-not-found / 403-forbidden visibility split.
+// authorizeAgent asks the Agent domain for read access, preserving its
+// 404-not-found / 403-forbidden visibility split.
 func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
 	if agentID == "" {
 		return ErrNotFound
 	}
-	err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, agentID, authz.ActionRead)
+	err := a.svc.agents.Authorize(ctx, a.authority, agentID, authz.ActionRead)
 	switch {
 	case err == nil:
 		return nil

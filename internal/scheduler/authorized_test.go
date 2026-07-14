@@ -57,7 +57,7 @@ func newPEPEnv(t *testing.T, templates ...JobTemplate) *pepEnv {
 	}
 
 	az := &countingAuthorizer{Authorizer: policy.New()}
-	svc, err := New(db, WithAuthorization(az, agentaccess.NewService(store, assign, az)))
+	svc, err := New(db, WithAuthorization(az, agentaccess.NewService(store, assign)))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

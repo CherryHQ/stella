@@ -57,7 +57,7 @@ func TestEmbeddedPostgresSkillPolicyMatrix(t *testing.T) {
 	systemAgentSkillID := mustCreateSkill(t, skillStore, skills.Skill{Scope: ScopeSystemAgent, AgentID: "sys", Name: "system-agent-skill"})
 
 	az := &countingAuthorizer{Authorizer: policy.New()}
-	svc := NewService(skillStore, agentaccess.NewService(store, assign, az), az)
+	svc := NewService(skillStore, agentaccess.NewService(store, assign), az)
 
 	userAuth := func(id string, admin bool) authz.Authority {
 		role := authz.RoleUser

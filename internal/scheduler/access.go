@@ -367,20 +367,19 @@ func (a *Access) loadAndAuthorize(ctx context.Context, agentID, jobID string, ac
 	return job, nil
 }
 
-// authorizeAgent folds the former requireAgentAccess (agent read) into this
-// evaluation. Every scheduler use case requires read access to the job's agent.
+// authorizeAgent requires Agent-domain read access to the job's agent.
 func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
 	return a.authorizeAgentAction(ctx, agentID, authz.ActionRead)
 }
 
-// authorizeAgentAction folds an agent decision into this evaluation. Read gates
-// the common use cases; the durable fire path additionally requires ActionExecute
-// on the bound agent, since a scheduled turn actually executes it.
+// authorizeAgentAction asks the Agent domain directly. Read gates the common use
+// cases; the durable fire path additionally requires ActionExecute on the bound
+// agent, since a scheduled turn actually executes it.
 func (a *Access) authorizeAgentAction(ctx context.Context, agentID string, action authz.Action) error {
 	if agentID == "" {
 		return authz.ErrNotFound
 	}
-	err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, agentID, action)
+	err := a.svc.agents.Authorize(ctx, a.authority, agentID, action)
 	switch {
 	case err == nil:
 		return nil

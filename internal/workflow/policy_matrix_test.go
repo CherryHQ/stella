@@ -86,7 +86,7 @@ func TestEmbeddedPostgresWorkflowPolicyMatrix(t *testing.T) {
 	wf := createWorkflow(t, q, owner.ID, "owned")
 
 	az := &countingAuthorizer{Authorizer: policy.New()}
-	svc := New(pool, nil, az, agentaccess.NewService(store, assign, az))
+	svc := New(pool, nil, az, agentaccess.NewService(store, assign))
 
 	userAuth := func(id string, admin bool) authz.Authority {
 		role := authz.RoleUser
@@ -218,7 +218,7 @@ func TestSaveGoalAsWorkflowAuthorizesSourceGoal(t *testing.T) {
 	}
 
 	az := &countingAuthorizer{Authorizer: policy.New()}
-	svc := New(pool, goals, az, agentaccess.NewService(store, assign, az))
+	svc := New(pool, goals, az, agentaccess.NewService(store, assign))
 
 	userAuth := func(id string) authz.Authority {
 		rs, err := authz.NewRoleSet(authz.RoleUser)

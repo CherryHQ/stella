@@ -74,7 +74,7 @@ func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Pro
 		assets:        assets,
 		sessionAccess: sessions,
 		log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
-		agentAccess:   agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}, authorizer),
+		agentAccess:   agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}),
 	}
 }
 
@@ -129,7 +129,7 @@ func TestSessionFileAccessHidesRevokedAgentAndBeginsOnce(t *testing.T) {
 	s := assetServer(t, home, remote, mem)
 	begins := 0
 	counted := assetSessionAuthorizer{begins: &begins, allow: true}
-	s.agentAccess = agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}, counted)
+	s.agentAccess = agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{})
 	s.sessionAccess, err = sessionaccess.NewService(mem, s.db, s.store, s.authStore.(*appdb.AuthStore), s.assets, counted)
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)

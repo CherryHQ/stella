@@ -66,7 +66,7 @@ func setupGoalEnvWithOptions(t *testing.T, opts ...goal.Option) *testEnv {
 	baseOpts = append(baseOpts, opts...)
 	svc := goal.New(env.db, q, baseOpts...)
 	az := policy.New()
-	agents := agentaccess.NewService(storepkg.NewDBStore(env.db), appdb.NewAuthStore(env.db), az)
+	agents := agentaccess.NewService(storepkg.NewDBStore(env.db), appdb.NewAuthStore(env.db))
 	bundle := goal.NewBundle(q, svc, az, agents)
 	env.rebuild(t, func(d *server.Deps) { d.Goal = bundle })
 	return env

@@ -159,13 +159,13 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	store := cfgstore.NewDBStore(db)
-	// Construct the one Agent PDP/PEP at the composition root before any agent
-	// Service is built. HTTP, channels, and durable workers all share it.
+	// Construct the Agent PEP at the composition root before any agent Service is
+	// built. HTTP, channels, and durable workers all share its direct decisions.
 	authStore := appdb.NewAuthStore(db)
 	// Every domain PEP shares the static built-in authorizer. Domain PEPs load
 	// durable facts before deciding; the authorizer itself has no DB dependency.
 	authorizer := policy.New()
-	agentAccess := agentaccess.NewService(store, authStore, authorizer)
+	agentAccess := agentaccess.NewService(store, authStore)
 
 	if err := ensureEmbeddedAssets(); err != nil {
 		return nil, err
