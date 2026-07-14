@@ -28,7 +28,7 @@ This skill aggregates Lark/Feishu CLI modules synced from `larksuite/cli` and ad
 
 **Identity** — default to `--as user` for personal resources (calendar, docs, tasks, mail). `--as bot` requires manual app configuration outside Stella and cannot see user-private resources.
 
-**Token expiry** — user access tokens expire after ~2 hours. Stella proactively refreshes them within 10 minutes of expiry. If a token expires mid-session, use the `oauth` tool (oauth status, then oauth connect with provider=lark) or go to Credentials → OAuth CLI Credentials to reconnect; Stella restarts the sandbox automatically on the next message.
+**Token expiry** — user access tokens expire after ~2 hours. Stella proactively refreshes them within 10 minutes of expiry. If a token expires mid-session, use the `oauth` tool (oauth status, then oauth connect with provider=feishu) or go to Credentials → OAuth CLI Credentials to reconnect; Stella restarts the sandbox automatically on the next message.
 
 ## Modules
 
