@@ -9,27 +9,11 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 )
-
-// countingAuthorizer proves the PEP owns exactly one Begin per use case.
-type countingAuthorizer struct {
-	authz.Authorizer
-	begins int
-}
-
-func (a *countingAuthorizer) Begin(ctx context.Context, authority authz.Authority) (authz.Evaluation, error) {
-	a.begins++
-	return a.Authorizer.Begin(ctx, authority)
-}
 
 func (h *harness) userAuth(t *testing.T, id string) authz.Authority {
 	t.Helper()
-	rs, err := authz.NewRoleSet(authz.RoleUser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	a, err := authz.NewUserAuthority(authz.UserID(id), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,6 +43,58 @@ func TestGoalBeginRejectsInvalidAuthority(t *testing.T) {
 	if _, err := h.bundle.Begin(context.Background(), authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("Begin(zero) err=%v, want forbidden", err)
 	}
+	h.bundle.agents = nil
+	if _, err := h.bundle.Begin(context.Background(), h.userAuth(t, h.userID)); err == nil {
+		t.Fatal("Begin authorized without Agent access")
+	}
+}
+
+func TestGoalDirectRulesAdminAndNonUserActors(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	own := h.createRoot(KindComposite, AcceptanceContract{})
+	foreignUserID := uuid.NewString()
+	if _, err := h.db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, foreignUserID, "foreign-"+foreignUserID[:8]+"@example.com"); err != nil {
+		t.Fatalf("seed foreign user: %v", err)
+	}
+	foreign, err := h.svc.CreateRoot(ctx, CreateInput{UserID: foreignUserID, AgentID: h.agentID, Title: "foreign", Kind: KindComposite})
+	if err != nil {
+		t.Fatalf("create foreign root: %v", err)
+	}
+
+	admin, err := authz.NewUserAuthority(authz.UserID(uuid.NewString()), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _, _, err := h.begin(t, admin).ListGoals(ctx, GoalFilter{}, 10, 0)
+	if err != nil {
+		t.Fatalf("admin ListGoals: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		seen[row.ID] = true
+	}
+	if !seen[own.ID] || !seen[foreign.ID] {
+		t.Fatalf("admin list=%v, want own %s and foreign %s", seen, own.ID, foreign.ID)
+	}
+	if got, err := h.begin(t, admin).CountGoals(ctx, GoalFilter{}); err != nil || got != 2 {
+		t.Fatalf("admin CountGoals = %d, %v; want 2, nil", got, err)
+	}
+
+	group, err := authz.NewGroupAgentAuthority("group", authz.AgentID(h.agentID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.begin(t, group).Get(ctx, own.ID); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("group Get err=%v, want opaque not found", err)
+	}
+	system, err := authz.NewSystemAuthority("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.begin(t, system).Get(ctx, own.ID); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("system Get err=%v, want opaque not found", err)
+	}
 }
 
 func TestGoalCreateIdempotencyReturnsExistingGoal(t *testing.T) {
@@ -78,22 +114,63 @@ func TestGoalCreateIdempotencyReturnsExistingGoal(t *testing.T) {
 	}
 }
 
+func TestGoalListPaginatesOnlyVisibleRowsAndCountMatches(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	for range 3 {
+		h.createRoot(KindComposite, AcceptanceContract{})
+	}
+	foreignUserID := uuid.NewString()
+	if _, err := h.db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, foreignUserID, "foreign-page-"+foreignUserID[:8]+"@example.com"); err != nil {
+		t.Fatalf("seed foreign user: %v", err)
+	}
+	if _, err := h.svc.CreateRoot(ctx, CreateInput{UserID: foreignUserID, AgentID: h.agentID, Title: "foreign", Kind: KindComposite}); err != nil {
+		t.Fatalf("create foreign root: %v", err)
+	}
+
+	acc := h.begin(t, h.userAuth(t, h.userID))
+	first, next, more, err := acc.ListGoals(ctx, GoalFilter{}, 1, 0)
+	if err != nil || len(first) != 1 || !more {
+		t.Fatalf("page one = %d, next=%d, more=%v, err=%v; want one visible row and continuation", len(first), next, more, err)
+	}
+	second, _, _, err := acc.ListGoals(ctx, GoalFilter{}, 10, next)
+	if err != nil {
+		t.Fatalf("page two: %v", err)
+	}
+	if len(second) != 2 || second[0].ID == first[0].ID || second[1].ID == first[0].ID {
+		t.Fatalf("page two=%v, want remaining two distinct owner rows", second)
+	}
+	if got, err := acc.CountGoals(ctx, GoalFilter{}); err != nil || got != 3 {
+		t.Fatalf("CountGoals = %d, %v; want 3, nil", got, err)
+	}
+}
+
+func TestGoalIdempotencyReplayUsesDurableGoalFacts(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	key := "durable-replay"
+	first, err := h.begin(t, h.agentAuth(t, h.userID, h.agentID)).CreateGoal(ctx, CreateInput{AgentID: h.agentID, Title: "first", Kind: KindComposite, IdempotencyKey: key})
+	if err != nil {
+		t.Fatalf("first CreateGoal: %v", err)
+	}
+	otherAgentID := h.seedSystemAgent(t)
+	if _, err := h.db.Exec(ctx, `UPDATE agent_goal SET agent_id = $2 WHERE id = $1`, first.ID, otherAgentID); err != nil {
+		t.Fatalf("change durable executor: %v", err)
+	}
+	if _, err := h.begin(t, h.agentAuth(t, h.userID, h.agentID)).CreateGoal(ctx, CreateInput{AgentID: h.agentID, Title: "replay", Kind: KindComposite, IdempotencyKey: key}); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("replay err=%v, want opaque denial from durable executor", err)
+	}
+}
+
 func TestGoalEnforcesOwnerAndExecutorBoundaries(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	az := &countingAuthorizer{Authorizer: policy.New(h.db)}
-	h.bundle.authz = az
-
 	g := h.createRoot(KindComposite, AcceptanceContract{})
 
 	// A foreign user cannot read or cancel the goal (opaque not-found).
 	foreign := h.userAuth(t, uuid.NewString())
-	before := az.begins
 	if _, err := h.begin(t, foreign).Get(ctx, g.ID); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("foreign Get err=%v, want not found", err)
-	}
-	if az.begins != before+1 {
-		t.Fatalf("Begin count = %d, want 1 per use case", az.begins-before)
 	}
 	if err := h.begin(t, foreign).Cancel(ctx, g.ID, ""); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("foreign Cancel err=%v, want not found", err)
@@ -128,22 +205,8 @@ func TestGoalEnforcesOwnerAndExecutorBoundaries(t *testing.T) {
 	if _, err := h.begin(t, scoped).Get(ctx, g.ID); err != nil {
 		t.Fatalf("delegated executor Get: %v", err)
 	}
-}
-
-// A custom deny overrides the owner built-in against the durable facts.
-func TestGoalCustomDenyHidesOwnGoal(t *testing.T) {
-	h := newHarness(t)
-	ctx := context.Background()
-	g := h.createRoot(KindComposite, AcceptanceContract{})
-	ps := policy.NewService(policy.New(h.db))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny own goal read", Resource: authz.ResourceGoal, Action: authz.ActionRead,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := h.begin(t, h.userAuth(t, h.userID)).Get(ctx, g.ID); !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("custom deny Get err=%v, want not found", err)
+	rows, _, _, err := h.begin(t, scoped).ListGoals(ctx, GoalFilter{}, 10, 0)
+	if err != nil || len(rows) != 1 || rows[0].ID != g.ID {
+		t.Fatalf("delegated executor ListGoals = %v, %v; want only %s", rows, err, g.ID)
 	}
 }

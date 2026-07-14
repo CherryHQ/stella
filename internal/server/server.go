@@ -132,11 +132,11 @@ type Deps struct {
 	Mem              memory.Provider
 	MemoryManagement *memorywrite.ManagementService
 
-	// Authorization. AgentAccess is the agent policy-enforcement point (the unified
-	// Authorizer behind a deep agent service); there is no legacy PolicyEngine here.
+	// Authorization. AgentAccess and SessionAccess own their domain rules over
+	// trusted Authority values and durable state.
 	AgentAccess   *agentaccess.Service
 	SessionAccess *sessionaccess.Service
-	// SkillAccess is the DB-backed Skill policy-enforcement point. When nil the
+	// SkillAccess is the DB-backed Skill enforcement point. When nil the
 	// skill endpoints report 503 through the centralized unavailable mapping.
 	SkillAccess *skillaccess.Service
 	LinkCodes   *auth.LinkCodeStore

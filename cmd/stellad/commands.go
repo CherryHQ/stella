@@ -20,7 +20,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
@@ -159,14 +158,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	store := cfgstore.NewDBStore(db)
-	// Construct the one Agent PDP/PEP at the composition root before any agent
-	// Service is built. HTTP, channels, and durable workers all share it.
+	// Construct the Agent PEP at the composition root before any agent Service is
+	// built. HTTP, channels, and durable workers all share its direct decisions.
 	authStore := appdb.NewAuthStore(db)
-	// Every #709 PEP shares this one revision-bound policy authorizer. A use
-	// case begins it once and may decide its agent/session/workspace resources
-	// against that immutable revision without a second snapshot.
-	authorizer := policy.New(db)
-	agentAccess := agentaccess.NewService(store, authStore, authorizer)
+	// Every authorization domain owns its own static rules and loads durable facts
+	// before deciding; the Agent domain is the shared read gate the others fold in.
+	agentAccess := agentaccess.NewService(store, authStore)
 
 	if err := ensureEmbeddedAssets(); err != nil {
 		return nil, err
@@ -176,10 +173,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := ss.diskSync.SyncAllToDisk(parent); err != nil {
 		return nil, fmt.Errorf("sync DB skills to disk: %w", err)
 	}
-	// The Skill PEP shares the same revision-bound authorizer and agent PEP as the
-	// other #710 execution domains; the disk-sync store is the single DB skill
-	// read port (its ListAll reaches the same rows the transports resolve).
-	skillAccess := skillaccess.NewService(ss.diskSync, agentAccess, authorizer)
+	// The Skill domain shares the Agent read gate with the other execution
+	// domains; the disk-sync store is the single DB skill read port (its ListAll
+	// reaches the same rows the transports resolve).
+	skillAccess := skillaccess.NewService(ss.diskSync, agentAccess)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -190,7 +187,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	phost := ps.host
 
-	schedulerSvc, err := setupScheduler(db, phost, authorizer, agentAccess)
+	schedulerSvc, err := setupScheduler(db, phost, agentAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +256,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, authStore, assetStore, authorizer, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
@@ -307,7 +304,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	var vaultSvc *vault.Service
 	if vaultKey := cfg.Vault.Key; vaultKey != "" {
 		var err error
-		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, authorizer, agentAccess)
+		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, agentAccess)
 		if err != nil {
 			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
 			vaultSvc = nil
@@ -315,17 +312,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	workerExcludedTools := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName}
-	// The goal River worker is a durable Agent invocation boundary. It gets the
-	// same authoritative PEP as HTTP/channel paths, but reconstructs authority
-	// exclusively from the persisted attempt owner and executor.
-	goalAgentAccess := agentAccess
-
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
 		Services:      &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 		ExcludedTools: workerExcludedTools,
-		AgentAccess:   goalAgentAccess,
-		Authorizer:    authorizer,
+		AgentAccess:   agentAccess,
 		Capabilities: goal.CapabilityProbeFunc(func() bool {
 			plugins, err := store.ListPlugins(context.Background())
 			if err != nil {
@@ -370,7 +361,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
-	workflowSvc := workflowpkg.New(db, goalSvc.Goal, authorizer, agentAccess)
+	workflowSvc := workflowpkg.New(db, goalSvc.Goal, agentAccess)
 	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc})
 
 	// Build the shared credentials/email/share services once, with the final
@@ -471,12 +462,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
 
-	// Control-plane PEP: the single policy-enforcement point for the admin-only
-	// deployment resources (providers/settings/plugins/channels). It shares the one
-	// revision-bound authorizer and owns the persistence + hot-reload each mutation
-	// performs, so the HTTP transport keeps only decode/shape. Built here, after the
+	// Control-plane domain for the admin-only deployment resources
+	// (providers/settings/plugins/channels). Authorization is the admin gate in
+	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
 	// pool and shared connections service are fully wired.
-	controlPlaneSvc := controlplane.NewService(authorizer, store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
@@ -561,16 +551,16 @@ func ensureEmbeddedAssets() error {
 	return nil
 }
 
-func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, authorizer authz.Authorizer, agentAccess *agentaccess.Service) (*scheduler.Service, error) {
+func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agentaccess.Service) (*scheduler.Service, error) {
 	// External-river mode: the scheduler does not build its own River client. The
 	// composition root (buildSharedRiverClient) assembles the single process-wide
 	// working client from both the scheduler and goal queues and injects it back
 	// via BindRiverClient, so there is exactly one electable River client per
 	// database (see db.NewWorkingRiverClient).
 	//
-	// WithAuthorization wires the unified Authorizer + agent-access gate so the
-	// scheduler Service is the sole PEP for job resources (HTTP + tool).
-	svc, err := scheduler.New(db, scheduler.WithExternalRiver(), scheduler.WithAuthorization(authorizer, agentAccess))
+	// WithAgentAccess wires Scheduler to Agent's direct access port. Scheduler
+	// itself owns durable-job rules for HTTP and tool use cases.
+	svc, err := scheduler.New(db, scheduler.WithExternalRiver(), scheduler.WithAgentAccess(agentAccess))
 	if err != nil {
 		return nil, fmt.Errorf("create scheduler service: %w", err)
 	}
@@ -640,11 +630,9 @@ func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context,
 	return scheduler.ScheduledWorkflow{ID: wf.ID, FullyFrozen: wf.FullyFrozen}, nil
 }
 
-// AuthorizeWorkflowWithin folds the workflow domain's policy decision into a
-// scheduler use case's evaluation, so CreateWorkflowJob gates its dispatch target
-// through the workflow's own policy under one revision.
-func (a schedulerWorkflowAdapter) AuthorizeWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, workflowID string, action authz.Action) error {
-	return a.svc.AuthorizeWithin(ctx, eval, authority, workflowID, action)
+// AuthorizeWorkflow delegates the target's durable access decision to Workflow.
+func (a schedulerWorkflowAdapter) AuthorizeWorkflow(ctx context.Context, authority authz.Authority, workflowID string, action authz.Action) error {
+	return a.svc.Authorize(ctx, authority, workflowID, action)
 }
 
 func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req scheduler.WorkflowLatestRunRequest) (scheduler.WorkflowRunState, error) {
@@ -661,8 +649,8 @@ func (a schedulerWorkflowAdapter) LatestWorkflowRun(ctx context.Context, req sch
 	}, nil
 }
 
-func (a schedulerWorkflowAdapter) InstantiateWorkflowWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
-	run, _, err := a.svc.InstantiateWithin(ctx, eval, authority, req.WorkflowID, req.Inputs, req.IdempotencyKey)
+func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, authority authz.Authority, req scheduler.WorkflowInstantiateRequest) (scheduler.WorkflowInstantiateResult, error) {
+	run, _, err := a.svc.InstantiateAs(ctx, authority, req.WorkflowID, req.Inputs, req.IdempotencyKey)
 	if err != nil {
 		return scheduler.WorkflowInstantiateResult{}, err
 	}
@@ -678,9 +666,9 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		return
 	}
 	svc.SetOnJob(func(ctx context.Context, job scheduler.Job, authority authz.Authority) error {
-		// Scheduler dispatch already decided the durable Job and actual Agent under
-		// one evaluation. The composition root only selects the implementation and
-		// runs the turn under that explicit authority.
+		// Scheduler dispatch already directly rechecked the durable Job and current
+		// Agent. The composition root only selects the implementation and runs the
+		// turn under that explicit authority.
 		agentSvc := poolMgr.GetService(job.AgentID)
 		if agentSvc == nil && job.AgentID == "" {
 			agentSvc = poolMgr.Default()

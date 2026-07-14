@@ -6,14 +6,14 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Errors returned by the Workflow policy-enforcement point. Denials are opaque
+// Errors returned by the Workflow access boundary. Denials are opaque
 // (ErrNotFound) so a foreign or revoked workflow cannot be distinguished from a
 // missing one, preserving the pre-cutover 404 contract.
 var (
@@ -22,64 +22,49 @@ var (
 	ErrUnavailable = errors.New("workflow authorization unavailable")
 )
 
-// Access is one Workflow use case bound to exactly one Authorizer evaluation.
-// Do not retain it across use cases.
+// Access captures one validated authority for a Workflow use case. Workflow owns
+// the direct rules; transports pass a trusted Authority, never a scoped query.
 type Access struct {
 	svc       *Service
-	eval      authz.Evaluation
 	authority authz.Authority
 	userID    string
-	// agentID is the executor scope: empty for a plain user actor (all their
-	// workflows), the bound agent for a delegated AgentActor.
+	// agentID is the executor scope: empty for a plain user actor, the bound
+	// agent for a delegated AgentActor.
 	agentID string
 }
 
-// Begin opens exactly one evaluation for one Workflow use case. The Workflow
-// service is the sole policy-enforcement point; transports pass a trusted
-// Authority and never a scoped query handle.
-func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access, error) {
-	if s.authz == nil {
-		return nil, fmt.Errorf("%w: authorizer not configured", ErrUnavailable)
-	}
+// Begin captures validated authority for one Workflow use case.
+func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, error) {
 	if !authority.Valid() {
 		return nil, ErrForbidden
 	}
-	eval, err := s.authz.Begin(ctx, authority)
-	if err != nil {
-		return nil, fmt.Errorf("%w: begin: %w", ErrUnavailable, err)
-	}
-	return s.accessWithin(eval, authority), nil
+	return s.access(authority), nil
 }
 
-func (s *Service) accessWithin(eval authz.Evaluation, authority authz.Authority) *Access {
-	actor := authority.Actor()
-	agentID := ""
-	if actor.Kind() == authz.ActorAgent {
-		agentID = string(actor.AgentID())
+func (s *Service) access(authority authz.Authority) *Access {
+	executor := ""
+	if authority.Kind() == authz.ActorAgent {
+		executor = string(authority.AgentID())
 	}
-	return &Access{svc: s, eval: eval, authority: authority, userID: string(actor.UserID()), agentID: agentID}
+	return &Access{svc: s, authority: authority, userID: string(authority.UserID()), agentID: executor}
 }
 
-// InstantiateWithin executes the Workflow use case inside a caller's already-open
-// evaluation. Scheduler durable fire uses it so Job, Workflow, and Agent decisions
-// are pinned to one policy revision.
-func (s *Service) InstantiateWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, id string, inputs map[string]string, idempotencyKey string) (sqlc.AgentWorkflowRun, bool, error) {
-	if eval == nil || !authority.Valid() {
+// InstantiateAs authorizes and instantiates a workflow under authority. It is the
+// narrow cross-domain entry point used by scheduler dispatch; request fields never
+// establish ownership or the executor.
+func (s *Service) InstantiateAs(ctx context.Context, authority authz.Authority, id string, inputs map[string]string, idempotencyKey string) (sqlc.AgentWorkflowRun, bool, error) {
+	if !authority.Valid() {
 		return sqlc.AgentWorkflowRun{}, false, ErrForbidden
 	}
-	return s.accessWithin(eval, authority).Instantiate(ctx, id, inputs, idempotencyKey)
+	return s.access(authority).Instantiate(ctx, id, inputs, idempotencyKey)
 }
 
-// List lists the caller's workflows and filters every row through the same
-// evaluation, so collection and individual visibility cannot drift apart. A
-// user actor may narrow the query to one agent (agentFilter); a delegated agent
-// is always confined to its own bound agent regardless of the filter.
+// List lists the caller's workflows and filters every durable row through the
+// same direct read rule. A user actor may narrow the query to one agent; a
+// delegated agent is always confined to its own bound agent regardless of the
+// filter. The query remains owner-scoped even for admins by established contract.
 func (a *Access) List(ctx context.Context, agentFilter string) ([]sqlc.AgentWorkflow, error) {
-	req, err := policy.WorkflowListRequest()
-	if err != nil {
-		return nil, ErrForbidden
-	}
-	if err := a.decide(req); err != nil {
+	if err := a.authorize(authz.ActionList, sqlc.AgentWorkflow{}); err != nil {
 		return nil, err
 	}
 	scope := a.agentID
@@ -92,14 +77,8 @@ func (a *Access) List(ctx context.Context, agentFilter string) ([]sqlc.AgentWork
 	}
 	out := rows[:0]
 	for _, wf := range rows {
-		req, err := policy.WorkflowRequest(authz.ActionRead, wf.ID, wf.UserID.String, a.factsFor(wf))
-		if err != nil {
-			return nil, ErrForbidden
-		}
-		if err := a.decide(req); err == nil {
+		if a.allowed(authz.ActionRead, wf) {
 			out = append(out, wf)
-		} else if !errors.Is(err, ErrForbidden) && !errors.Is(err, ErrNotFound) {
-			return nil, err
 		}
 	}
 	return out, nil
@@ -150,9 +129,9 @@ func (a *Access) Delete(ctx context.Context, id string) error {
 	return a.svc.deleteLoaded(ctx, wf.ID)
 }
 
-// SaveGoalAsWorkflow freezes an accepted goal tree into a workflow. It requires
-// both create authority on the workflow (owner) and execute authority on the
-// workflow's bound agent, decided under this single evaluation.
+// SaveGoalAsWorkflow freezes an accepted goal tree into a workflow. The source
+// Goal owns its read decision; its persisted agent determines the workflow's
+// target, and Agent owns the target execute decision.
 func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.AgentWorkflow, error) {
 	if a.svc.agents == nil {
 		return sqlc.AgentWorkflow{}, fmt.Errorf("%w: agent authorization is not configured", ErrUnavailable)
@@ -160,38 +139,28 @@ func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Age
 	if a.userID == "" {
 		return sqlc.AgentWorkflow{}, ErrForbidden
 	}
-	in.UserID = a.userID
-	// Decide the SOURCE goal's read within this same evaluation through the
-	// Goal-owned port, so the goal-read and workflow-create decisions share one
-	// revision (no separate goal Begin then workflow Begin). The workflow binds to
-	// the goal's persisted agent — never a caller-supplied one — and the raw service
-	// re-verifies goal ownership/agent so it cannot be spoofed.
 	if a.svc.goal == nil {
 		return sqlc.AgentWorkflow{}, fmt.Errorf("%w: goal authorization is not configured", ErrUnavailable)
 	}
-	goalRow, err := a.svc.goal.AuthorizeWithin(ctx, a.eval, a.authority, in.GoalID, authz.ActionRead)
+	// The source row is durable authority-bearing state. Do not trust request
+	// ownership or target-agent fields.
+	goalRow, err := a.svc.goal.Authorize(ctx, a.authority, in.GoalID, authz.ActionRead)
 	if err != nil {
 		return sqlc.AgentWorkflow{}, mapGoalAuthzError(err)
 	}
+	in.UserID = goalRow.UserID
 	in.AgentID = goalRow.AgentID
-	// A delegated agent may only turn its own agent's goals into workflows.
 	if a.agentID != "" && a.agentID != in.AgentID {
 		return sqlc.AgentWorkflow{}, ErrNotFound
 	}
-	facts := policy.WorkflowFacts{
-		Owner: a.userID, Agent: in.AgentID, IsOwner: true,
-		IsExecutor: a.agentID != "" && a.agentID == in.AgentID,
-	}
-	req, err := policy.WorkflowRequest(authz.ActionCreate, a.userID, a.userID, facts)
-	if err != nil {
-		return sqlc.AgentWorkflow{}, ErrForbidden
-	}
-	if err := a.decide(req); err != nil {
+	if err := a.authorize(authz.ActionCreate, sqlc.AgentWorkflow{
+		UserID:  pgtype.Text{String: a.userID, Valid: a.userID != ""},
+		AgentID: pgtype.Text{String: in.AgentID, Valid: in.AgentID != ""},
+	}); err != nil {
 		return sqlc.AgentWorkflow{}, err
 	}
-	// The workflow will execute under in.AgentID; require execute authority on it.
 	if in.AgentID != "" {
-		if err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, in.AgentID, authz.ActionExecute); err != nil {
+		if err := a.svc.agents.Authorize(ctx, a.authority, in.AgentID, authz.ActionExecute); err != nil {
 			return sqlc.AgentWorkflow{}, mapAgentAuthzError(err)
 		}
 	}
@@ -202,9 +171,9 @@ func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Age
 	return row, nil
 }
 
-// Instantiate claims a run and materializes the workflow's goal tree. The run
-// executes under the workflow's own persisted agent; the caller must own the
-// workflow (execute) and be able to execute that agent, both decided here.
+// Instantiate claims a run and materializes the workflow's goal tree. It checks
+// both the loaded durable workflow and its persisted target agent before claim or
+// materialization; neither request fields nor a stale route can widen access.
 func (a *Access) Instantiate(ctx context.Context, id string, inputs map[string]string, idempotencyKey string) (sqlc.AgentWorkflowRun, bool, error) {
 	if a.svc.agents == nil {
 		return sqlc.AgentWorkflowRun{}, false, fmt.Errorf("%w: agent authorization is not configured", ErrUnavailable)
@@ -219,20 +188,19 @@ func (a *Access) Instantiate(ctx context.Context, id string, inputs map[string]s
 	if !wf.AgentID.Valid || wf.AgentID.String == "" {
 		return sqlc.AgentWorkflowRun{}, false, ErrNotFound
 	}
-	// The workflow's bound agent is persisted authority-bearing state, not a route
-	// parameter; execute authority on it is required before claiming a run.
-	if err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, wf.AgentID.String, authz.ActionExecute); err != nil {
+	if err := a.svc.agents.Authorize(ctx, a.authority, wf.AgentID.String, authz.ActionExecute); err != nil {
 		return sqlc.AgentWorkflowRun{}, false, mapAgentAuthzError(err)
 	}
-	run, created, err := a.svc.Instantiate(ctx, InstantiateInput{UserID: a.userID, AgentID: a.agentID, WorkflowID: id, Inputs: inputs, IdempotencyKey: idempotencyKey})
+	// The raw materializer still scopes its lookup. It must receive the loaded
+	// workflow owner, not the caller: an admin may execute another owner's
+	// workflow after this direct check, and roots belong to that durable owner.
+	run, created, err := a.svc.Instantiate(ctx, InstantiateInput{UserID: wf.UserID.String, AgentID: a.agentID, WorkflowID: id, Inputs: inputs, IdempotencyKey: idempotencyKey})
 	if err != nil {
 		return sqlc.AgentWorkflowRun{}, false, mapDomainError(err)
 	}
 	return run, created, nil
 }
 
-// load fetches a workflow unscoped; the policy decision, not the query, is the
-// authority. A missing row is opaque (ErrNotFound).
 func (a *Access) load(ctx context.Context, id string) (sqlc.AgentWorkflow, error) {
 	wf, err := a.svc.q.GetWorkflow(ctx, id)
 	if err != nil {
@@ -244,33 +212,53 @@ func (a *Access) load(ctx context.Context, id string) (sqlc.AgentWorkflow, error
 	return wf, nil
 }
 
+// authorize applies Workflow's fixed rules only to a loaded durable row. Denials
+// are opaque so callers cannot distinguish a forbidden workflow from a missing one.
 func (a *Access) authorize(action authz.Action, wf sqlc.AgentWorkflow) error {
-	req, err := policy.WorkflowRequest(action, wf.ID, wf.UserID.String, a.factsFor(wf))
-	if err != nil {
-		return ErrForbidden
+	if a.allowed(action, wf) {
+		return nil
 	}
-	return a.decide(req)
+	return ErrNotFound
 }
 
-func (a *Access) factsFor(wf sqlc.AgentWorkflow) policy.WorkflowFacts {
-	return policy.WorkflowFacts{
-		Owner:      wf.UserID.String,
-		Agent:      wf.AgentID.String,
-		IsOwner:    a.userID != "" && a.userID == wf.UserID.String,
-		IsExecutor: a.agentID != "" && a.agentID == wf.AgentID.String,
+func (a *Access) allowed(action authz.Action, wf sqlc.AgentWorkflow) bool {
+	if !action.Valid() {
+		return false
+	}
+	if a.authority.IsAdmin() {
+		return true
+	}
+	if !isWorkflowAction(action) {
+		return false
+	}
+	switch a.authority.Kind() {
+	case authz.ActorUser:
+		if action == authz.ActionList {
+			return true
+		}
+		return a.userID != "" && wf.UserID.Valid && a.userID == wf.UserID.String
+	case authz.ActorAgent:
+		if action == authz.ActionList {
+			return true
+		}
+		switch action {
+		case authz.ActionCreate, authz.ActionRead, authz.ActionExecute:
+			return a.userID != "" && wf.UserID.Valid && a.userID == wf.UserID.String && a.agentID != "" && wf.AgentID.Valid && a.agentID == wf.AgentID.String
+		default:
+			return false
+		}
+	default:
+		return false
 	}
 }
 
-func (a *Access) decide(req authz.Request) error {
-	dec, err := a.eval.Decide(req)
-	if err != nil {
-		return fmt.Errorf("%w: decide: %w", ErrUnavailable, err)
+func isWorkflowAction(action authz.Action) bool {
+	switch action {
+	case authz.ActionList, authz.ActionCreate, authz.ActionRead, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute:
+		return true
+	default:
+		return false
 	}
-	if !dec.Allowed() {
-		// Workflows are opaque: a denial never reveals existence.
-		return ErrNotFound
-	}
-	return nil
 }
 
 // mapDomainError preserves the workflow domain's own typed errors (conflicts,
@@ -285,8 +273,7 @@ func mapDomainError(err error) error {
 	return err
 }
 
-// mapAgentAuthzError folds an agentaccess denial into the workflow-opaque
-// contract without leaking the agent layer's sentinels to transports.
+// mapAgentAuthzError folds an Agent denial into Workflow's opaque contract.
 func mapAgentAuthzError(err error) error {
 	switch {
 	case err == nil:
@@ -298,9 +285,9 @@ func mapAgentAuthzError(err error) error {
 	}
 }
 
-// mapGoalAuthzError folds the Goal-owned AuthorizeWithin denial (authz sentinels)
-// into the workflow-opaque contract: a foreign, revoked, or missing source goal
-// is indistinguishable from a missing workflow (ErrNotFound).
+// mapGoalAuthzError folds Goal's direct authorization result into Workflow's
+// opaque contract: a foreign, revoked, or missing source goal is indistinguishable
+// from a missing workflow.
 func mapGoalAuthzError(err error) error {
 	switch {
 	case err == nil:

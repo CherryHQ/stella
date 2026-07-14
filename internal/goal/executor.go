@@ -186,7 +186,7 @@ func (e *workerExecutor) run(ctx context.Context, req ExecutorRequest) (Result, 
 		return Result{}, fmt.Errorf("goal agent authority is invalid: %w", err)
 	}
 	// Fresh-authorize this attempt on every dequeue: the persisted goal's execute
-	// and the actual persisted executor agent under one revision-bound evaluation.
+	// and the actual persisted executor agent under one immutable evaluation.
 	// A missing PEP is a boot misconfiguration — block rather than run.
 	if e.authorize == nil {
 		return failResult("goal attempt authorization is unavailable", FailureClassEnvironment, BlockEnvUnavailable), nil

@@ -13,7 +13,6 @@ import (
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -53,7 +52,6 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
-	authorizer := policy.New(db)
 	poolMgr := agent.NewPoolManager(store, mem)
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	homeDir, _ := os.UserHomeDir()
@@ -71,7 +69,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
 	}
-	sessionSvc, err := sessionaccess.NewService(mem, db, store, as, assetStore, authorizer, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	agentAccess := agentaccess.NewService(store, as)
+	sessionSvc, err := sessionaccess.NewService(mem, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
@@ -81,16 +80,16 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		AuthStore:           as,
 		Mem:                 mem,
 		MemoryManagement:    memorywrite.NewManagementService(db, changelogPageReader),
-		AgentAccess:         agentaccess.NewService(store, as, authorizer),
+		AgentAccess:         agentAccess,
 		SessionAccess:       sessionSvc,
-		SkillAccess:         skillaccess.NewService(phost.SkillStore(), agentaccess.NewService(store, as, authorizer), authorizer),
+		SkillAccess:         skillaccess.NewService(phost.SkillStore(), agentAccess),
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolMgr,
 		PluginHost:          phost,
 		WeixinRegistrar:     NewTestWeixinRegistrar(),
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
-		ControlPlane:        controlplane.NewService(authorizer, store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test")),
+		ControlPlane:        controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test")),
 		Email:               email.NewService(nil, sqlc.New(db)),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Recally:             recally.NewService(recallyStore, t.TempDir()),

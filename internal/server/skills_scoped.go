@@ -67,11 +67,12 @@ func skillAccessError(err error) (int, string) {
 	}
 }
 
-// beginAgentSkillAccess opens one Skill evaluation and folds the route agent's
-// read gate into it, so a skill decision and its path-agent gate share a single
-// revision for every scope (including user/system DB skills). It replaces the
-// preliminary requireAgentAccess split evaluation on the agent-scoped skill
-// endpoints. Returns (code, msg) != 0 for the caller to write on failure.
+// beginAgentSkillAccess opens one Skill authorization decision and folds the
+// route agent's read gate into it, so both the skill and its path-agent gate
+// share a single authorization for every scope (including user/system DB skills).
+// It replaces the preliminary requireAgentAccess split decision on the
+// agent-scoped skill endpoints. Returns (code, msg) != 0 for the caller to write
+// on failure.
 func (s *Server) beginAgentSkillAccess(ctx context.Context, agentID string) (*skillaccess.Access, int, string) {
 	acc, code, msg := s.beginSkillAccess(ctx)
 	if code != 0 {

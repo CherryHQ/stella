@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	storepkg "github.com/CherryHQ/stella/internal/store"
@@ -20,8 +19,7 @@ import (
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
 // allowAttempt is the permissive durable-attempt authorizer for executor routing
-// tests, which exercise turn/callback plumbing rather than policy. Authorization
-// itself is covered against the real workerAuthorizer in worker_authz_test.go.
+// tests, which exercise turn/callback plumbing rather than authorization.
 func allowAttempt(context.Context, sqlc.AgentGoal, string) error { return nil }
 
 // scriptedExecutor is the test executor: by default it submits a trivial output
@@ -100,8 +98,7 @@ func newHarness(t *testing.T) *harness {
 	)
 	h.worker = NewWorker(h.svc, q)
 	h.worker.SetHeartbeat(0) // no heartbeat goroutine in tests
-	az := policy.New(db)
-	h.bundle = NewBundle(q, h.svc, az, agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), az))
+	h.bundle = NewBundle(q, h.svc, agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db)))
 	return h
 }
 

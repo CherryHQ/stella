@@ -33,6 +33,6 @@ func checkSandboxRequirements() error { return nil }
 
 // wrapCommand is a no-op on platforms other than Linux and macOS.
 // Commands run unwrapped on the host OS.
-func wrapCommand(_ sandboxpkg.Policy, sandboxCwd string, _ []tmpMount, _ string, name string, args []string) (string, []string, string, error) {
-	return name, args, sandboxCwd, nil
+func wrapCommand(_ sandboxpkg.Policy, _ string, _ []tmpMount, _ string, name string, args []string) (string, []string, error) {
+	return name, args, nil
 }

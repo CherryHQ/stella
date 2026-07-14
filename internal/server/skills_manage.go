@@ -50,11 +50,10 @@ func skillScopeOwner(scope, userID, agentID string) (uid, aid string) {
 }
 
 // resolveSkillManageScope validates the requested management scope shape and
-// authorizes managing that scope bucket through the Skill PEP, returning the
-// owner columns a row of that scope carries. user/user_agent bind the acting
-// user; system/system_agent require the admin superuser; agent-bound scopes fold
-// an agent-read gate into the PEP evaluation. On failure it writes the response
-// and returns ok=false.
+// authorizes managing that scope bucket, returning the owner columns a row of
+// that scope carries. user/user_agent bind the acting user; system/system_agent
+// require the admin superuser; agent-bound scopes fold an agent-read gate into
+// the authorization. On failure it writes the response and returns ok=false.
 func (s *Server) resolveSkillManageScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope, agentID string) (string, string, *skillaccess.Access, bool) {
 	switch scope {
 	case "user", "system":
@@ -87,10 +86,10 @@ func (s *Server) resolveSkillManageScope(w http.ResponseWriter, r *http.Request,
 	return uid, aid, acc, true
 }
 
-// scopedSkillByID loads a DB skill by id and authorizes the given action through
-// the Skill PEP. It writes the error response and returns nil when the caller may
-// not perform the action (opaque 404 for a foreign user skill, 403 for an
-// admin-managed system skill).
+// scopedSkillByID loads a DB skill by id and authorizes the given action. It
+// writes the error response and returns nil when the caller may not perform the
+// action (opaque 404 for a foreign user skill, 403 for an admin-managed system
+// skill).
 func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id string, action authz.Action) *skills.Skill {
 	acc, code, msg := s.beginSkillAccess(r.Context())
 	if code != 0 {

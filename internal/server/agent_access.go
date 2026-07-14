@@ -10,14 +10,13 @@ import (
 )
 
 // authority builds the trusted UserActor Authority for an authenticated HTTP
-// caller from its verified session claims. The mint happens inside internal/auth
-// (the trusted producer of a session subject); the server never constructs an
-// Authority from request-supplied path/body fields. Roles come from the verified
-// session role exactly as the legacy subject did.
+// caller. The mint happens inside internal/auth; the server never constructs an
+// Authority from request fields. IsAdmin is the credential/session gate's
+// effective privilege, so a bearer for an admin account remains non-admin.
 func (info *AuthInfo) authority() (authz.Authority, error) {
-	role := info.Role
-	if role == "" {
-		role = auth.RoleUser
+	role := auth.RoleUser
+	if info.IsAdmin {
+		role = auth.RoleAdmin
 	}
 	return auth.Subject{UserID: info.UserID, Roles: []string{role}}.Authority()
 }
