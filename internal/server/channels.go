@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"sort"
@@ -354,45 +353,6 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 		AgentID: agentID,
 		Enabled: enabled,
 	}
-}
-
-// channelAgentPlatformBindingConflict enforces one bidirectional-channel binding
-// per (agent, platform). The admin channel CRUD path enforces the same rule
-// inside internal/controlplane; this copy remains for the feishu/weixin
-// registration handlers (a separate migration item) that still call it.
-func (s *Server) channelAgentPlatformBindingConflict(ctx context.Context, ch config.Channel) (string, error) {
-	if ch.AgentID == "" || ch.Type == "" {
-		return "", nil
-	}
-	// Webhooks are inbound triggers, not a single bidirectional binding: an agent
-	// may back many webhook endpoints, so the one-per-agent rule does not apply.
-	if ch.Type == pkgchannel.PlatformWebhook {
-		return "", nil
-	}
-	channels, err := s.store.ListChannels(ctx)
-	if err != nil {
-		return "", err
-	}
-	for _, existing := range channels {
-		if existing.ID == ch.ID {
-			continue
-		}
-		if effectiveChannelType(existing) == ch.Type && existing.AgentID == ch.AgentID {
-			return "agent is already bound to " + ch.Type + " channel " + existing.ID, nil
-		}
-	}
-	return "", nil
-}
-
-func (s *Server) ensureChannelPluginEnabled(ctx context.Context, channelType string) error {
-	pluginID := config.PluginID(config.PluginKindChannel, channelType)
-	return s.store.UpsertPlugin(ctx, config.Plugin{
-		ID:      pluginID,
-		Kind:    config.PluginKindChannel,
-		Name:    channelType,
-		Enabled: true,
-		Config:  map[string]any{},
-	})
 }
 
 func parseChannelConfig(raw string) (map[string]any, error) {

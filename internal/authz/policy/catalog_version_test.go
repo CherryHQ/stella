@@ -66,6 +66,39 @@ func TestActiveRowWrongCatalogVersionFailsBegin(t *testing.T) {
 // A matching current-version active row is interpreted normally, and a
 // quarantined legacy catalog_version=0 row stays inert (never reaches reload),
 // so Begin succeeds in both cases.
+func TestInactiveControlPlanePolicyRowsAreIgnored(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.New(t)
+	_, err := sqlc.New(pool).CreateAuthzPolicy(ctx, sqlc.CreateAuthzPolicyParams{
+		ID: "legacy-provider", Name: "legacy-provider", ResourceType: authz.ResourceProvider.String(),
+		Action: "invalid", Effect: string(EffectAllow), Subjects: []byte(`{}`), Attributes: []byte(`{}`),
+		CatalogVersion: 0, Status: statusActive,
+	})
+	if err != nil {
+		t.Fatalf("seed inactive control-plane row: %v", err)
+	}
+	az := New(pool)
+	eval, err := az.Begin(ctx, userAuthority(t, "u1", false))
+	if err != nil {
+		t.Fatalf("Begin must ignore inactive control-plane policy: %v", err)
+	}
+	res, err := authz.NewResource(authz.ResourceProvider, "p", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := authz.NewRequest(authz.ActionRead, res, authz.InvocationFacts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, err := eval.Decide(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec.Allowed() {
+		t.Fatal("inactive control-plane custom policy must not grant access")
+	}
+}
+
 func TestCatalogVersionAcceptsCurrentAndIgnoresQuarantined(t *testing.T) {
 	ctx := context.Background()
 

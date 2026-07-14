@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 )
 
 // Access is one control-plane use case bound to exactly one Authorizer
@@ -36,8 +35,8 @@ func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access
 }
 
 // decide answers one control-plane request against this Access's single revision.
-// A build error is treated as a denial (never leaks an internal build failure as
-// success); a decide error is wrapped; a not-allowed decision is a 403.
+// Control-plane resources deliberately carry no custom-policy facts: they are
+// admin-only, and the built-in admin-full-access policy is their sole grant.
 func (a *Access) decide(req authz.Request, buildErr error) error {
 	if buildErr != nil {
 		return authz.ErrForbidden
@@ -52,45 +51,39 @@ func (a *Access) decide(req authz.Request, buildErr error) error {
 	return nil
 }
 
-// ---- Provider ----
-
-func (a *Access) authorizeProvider(action authz.Action, id string, f policy.ProviderFacts) error {
-	req, err := policy.ProviderRequest(action, id, "", f)
+func (a *Access) authorize(resource authz.ResourceType, action authz.Action, id string) error {
+	res, err := authz.NewResource(resource, id, "")
+	if err != nil {
+		return a.decide(authz.Request{}, err)
+	}
+	req, err := authz.NewRequest(action, res, authz.InvocationFacts{})
 	return a.decide(req, err)
+}
+
+func (a *Access) authorizeProvider(action authz.Action, id string) error {
+	return a.authorize(authz.ResourceProvider, action, id)
 }
 
 func (a *Access) authorizeProviderList() error {
-	req, err := policy.ProviderListRequest()
-	return a.decide(req, err)
+	return a.authorizeProvider(authz.ActionList, "")
 }
 
-// ---- Settings ----
-
-func (a *Access) authorizeSettings(action authz.Action, id string, f policy.SettingsFacts) error {
-	req, err := policy.SettingsRequest(action, id, "", f)
-	return a.decide(req, err)
+func (a *Access) authorizeSettings(action authz.Action, id string) error {
+	return a.authorize(authz.ResourceSettings, action, id)
 }
 
-// ---- Plugin ----
-
-func (a *Access) authorizePlugin(action authz.Action, id string, f policy.PluginFacts) error {
-	req, err := policy.PluginRequest(action, id, "", f)
-	return a.decide(req, err)
+func (a *Access) authorizePlugin(action authz.Action, id string) error {
+	return a.authorize(authz.ResourcePlugin, action, id)
 }
 
 func (a *Access) authorizePluginList() error {
-	req, err := policy.PluginListRequest()
-	return a.decide(req, err)
+	return a.authorizePlugin(authz.ActionList, "")
 }
 
-// ---- Channel ----
-
-func (a *Access) authorizeChannel(action authz.Action, id string, f policy.ChannelFacts) error {
-	req, err := policy.ChannelRequest(action, id, "", f)
-	return a.decide(req, err)
+func (a *Access) authorizeChannel(action authz.Action, id string) error {
+	return a.authorize(authz.ResourceChannel, action, id)
 }
 
 func (a *Access) authorizeChannelList() error {
-	req, err := policy.ChannelListRequest()
-	return a.decide(req, err)
+	return a.authorizeChannel(authz.ActionList, "")
 }

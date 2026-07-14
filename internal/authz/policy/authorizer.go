@@ -96,6 +96,12 @@ func (az *Authorizer) reload(ctx context.Context) (*snapshot, error) {
 
 	policies := builtinPolicies()
 	for _, row := range rows {
+		// Inactive resources are never custom-policy decision points. Historical
+		// rows remain diagnostic data, but cannot affect an evaluation.
+		rt, known := parseResourceType(row.ResourceType)
+		if known && !resourceAcceptsCustomPolicy(rt) {
+			continue
+		}
 		// An active row must be pinned to the CURRENT catalog version. A lower
 		// (stale) or higher (future) version cannot be interpreted under current
 		// semantics without silently widening or narrowing access, so it fails the

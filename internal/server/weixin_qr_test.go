@@ -8,6 +8,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -85,7 +86,23 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		ILinkBotID:  "bot-1",
 		ILinkUserID: "user-1",
 	}
-	if err := srv.saveWeixinCredentials(ctx, status); err != nil {
+	roles, err := authz.NewRoleSet(authz.RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := authz.NewUserAuthority("admin", roles, authz.GrantSet{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := srv.controlPlane.Begin(ctx, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, err := access.ManageChannel(pkgchannel.PlatformWeixin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.saveWeixinCredentials(ctx, operation, status); err != nil {
 		t.Fatalf("saveWeixinCredentials: %v", err)
 	}
 

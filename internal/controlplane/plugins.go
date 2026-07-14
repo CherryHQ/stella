@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -35,7 +34,7 @@ func (a *Access) ListPlugins(ctx context.Context) ([]pkgplugins.RegisteredPlugin
 
 // GetPluginStatus returns a plugin's admin status payload.
 func (a *Access) GetPluginStatus(ctx context.Context, kind, name string) (any, error) {
-	if err := a.authorizePlugin(authz.ActionRead, pluginRouteID(kind, name), policy.PluginFacts{Kind: kind}); err != nil {
+	if err := a.authorizePlugin(authz.ActionRead, pluginRouteID(kind, name)); err != nil {
 		return nil, err
 	}
 	return a.svc.plugins.Status(ctx, pluginRouteID(kind, name))
@@ -44,7 +43,7 @@ func (a *Access) GetPluginStatus(ctx context.Context, kind, name string) (any, e
 // GetPluginConfig returns a plugin's stored config. Channel plugins are rejected:
 // their instance config lives on /channels.
 func (a *Access) GetPluginConfig(ctx context.Context, kind, name string) (map[string]any, error) {
-	if err := a.authorizePlugin(authz.ActionRead, pluginRouteID(kind, name), policy.PluginFacts{Kind: kind}); err != nil {
+	if err := a.authorizePlugin(authz.ActionRead, pluginRouteID(kind, name)); err != nil {
 		return nil, err
 	}
 	if kind == config.PluginKindChannel {
@@ -59,7 +58,7 @@ func (a *Access) GetPluginConfig(ctx context.Context, kind, name string) (map[st
 
 // GetPluginConfigSchema returns a plugin's admin config schema.
 func (a *Access) GetPluginConfigSchema(ctx context.Context, kind, name string) (map[string]any, error) {
-	if err := a.authorizePlugin(authz.ActionRead, pluginRouteID(kind, name), policy.PluginFacts{Kind: kind}); err != nil {
+	if err := a.authorizePlugin(authz.ActionRead, pluginRouteID(kind, name)); err != nil {
 		return nil, err
 	}
 	return a.svc.plugins.ConfigSchema(pluginRouteID(kind, name)), nil
@@ -69,7 +68,7 @@ func (a *Access) GetPluginConfigSchema(ctx context.Context, kind, name string) (
 // backend pinned by STELLA_SANDBOX_BACKEND cannot be toggled.
 func (a *Access) TogglePlugin(ctx context.Context, kind, name string, enabled bool) (config.Plugin, error) {
 	id := pluginRouteID(kind, name)
-	if err := a.authorizePlugin(authz.ActionManage, id, policy.PluginFacts{Kind: kind, Status: providerStatus(enabled)}); err != nil {
+	if err := a.authorizePlugin(authz.ActionManage, id); err != nil {
 		return config.Plugin{}, err
 	}
 	if kind == config.PluginKindSandbox && config.SandboxBackendEnvOverride() != "" {
@@ -90,7 +89,7 @@ func (a *Access) TogglePlugin(ctx context.Context, kind, name string, enabled bo
 // its runtime. Channel plugins are rejected (config lives on /channels).
 func (a *Access) UpdatePluginConfig(ctx context.Context, kind, name string, cfg map[string]any) (config.Plugin, error) {
 	id := pluginRouteID(kind, name)
-	if err := a.authorizePlugin(authz.ActionManage, id, policy.PluginFacts{Kind: kind}); err != nil {
+	if err := a.authorizePlugin(authz.ActionManage, id); err != nil {
 		return config.Plugin{}, err
 	}
 	if kind == config.PluginKindChannel {
@@ -155,7 +154,7 @@ func (a *Access) ListManifestPlugins(ctx context.Context) (*manifestplugins.Mani
 // toggle), re-registers the merged manifest, hot-reloads plugin tools/hooks, and
 // returns the merged manifest.
 func (a *Access) SaveManifestPlugins(ctx context.Context, plugins []manifestplugins.ManifestPlugin) (*manifestplugins.Manifest, error) {
-	if err := a.authorizePlugin(authz.ActionManage, "", policy.PluginFacts{}); err != nil {
+	if err := a.authorizePlugin(authz.ActionManage, ""); err != nil {
 		return nil, err
 	}
 
@@ -251,7 +250,7 @@ func (a *Access) SaveManifestPlugins(ctx context.Context, plugins []manifestplug
 // SyncManifestPlugins reconciles the merged manifest against the filesystem
 // (installs binaries/skills) and returns the reconcile result.
 func (a *Access) SyncManifestPlugins(ctx context.Context) (manifestplugins.ReconcileResult, error) {
-	if err := a.authorizePlugin(authz.ActionManage, "", policy.PluginFacts{}); err != nil {
+	if err := a.authorizePlugin(authz.ActionManage, ""); err != nil {
 		return manifestplugins.ReconcileResult{}, err
 	}
 	merged, err := a.svc.resolveManifestPlugins(ctx)

@@ -75,7 +75,6 @@ func resolvePlugin(rp rawManifestPlugin) ManifestPlugin {
 		Category:      rp.Category,
 		Essential:     rp.Essential,
 		Prompt:        rp.Prompt,
-		Capabilities:  rp.Capabilities,
 		Binaries:      rp.Binaries,
 		Skills:        rp.Skills,
 		SessionEnvs:   rp.SessionEnvs,

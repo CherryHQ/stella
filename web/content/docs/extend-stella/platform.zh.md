@@ -35,7 +35,7 @@ Meta: pkgplugins.PluginInfo{
 },
 ```
 
-调用未声明的访问器返回 `nil` — 始终 nil 检查服务（`if svc := ctx.Platform.Notifier(); svc == nil { ... }`）而不是假设环境访问。
+调用未声明的访问器返回 `nil` — 始终 nil 检查服务（`if svc := ctx.Platform.Notifier(); svc == nil { ... }`）而不是假设环境访问。这些声明只能来自静态 Go 注册；manifest 插件不能声明或获得 `Platform` 能力。
 
 ## 可用服务
 

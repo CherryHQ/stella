@@ -10,8 +10,7 @@ import "github.com/CherryHQ/stella/internal/authz"
 // The catalog is now TOTAL: every authz.AllResourceTypes() member has an
 // explicit entry (enforced by TestActivationCatalogIsTotal), so every protected
 // resource carries a deliberate activation decision rather than falling through
-// to a silent default. The 12 Authorizer-governed resources are active — the
-// Authorizer is their authoritative production decision point. The remaining 11
+// to a silent default. The eight policy-backed resources are active. The remaining 15
 // are deliberately inactive: they are protected, just not by the custom-policy
 // Authorizer, each by a named dedicated mechanism spelled out at its entry. An
 // inactive resource rejects custom-policy writes (fail closed) and any
@@ -76,21 +75,25 @@ var activationCatalog = map[authz.ResourceType]activation{
 	// share,recally}). Their catalog entries stay inactive so a stray custom-policy
 	// write for them fails closed.
 	authz.ResourceVault: activeActive,
-	// #712: the deployment control-plane resources are enforced only through
-	// internal/controlplane.Service's Authority-based Access PEP. They are
-	// administered, not user-owned: the built-in admin-full-access policy is the
-	// sole grant, so a non-admin actor is default-denied exactly as the legacy
-	// requireAdmin gate was. Activating them lets an operator additionally author a
-	// custom policy along the kind/status/owner facts.
-	authz.ResourceProvider: activeActive,
-	authz.ResourceSettings: activeActive,
-	authz.ResourcePlugin:   activeActive,
-	authz.ResourceChannel:  activeActive,
+	// #712: control-plane resources use internal/controlplane.Service's
+	// Authority-based PEP but intentionally reject custom policy. They are
+	// deployment-administered, not user-owned: admin-full-access is the sole
+	// grant, and default deny protects every other authority.
+	authz.ResourceProvider: activeInactive,
+	authz.ResourceSettings: activeInactive,
+	authz.ResourcePlugin:   activeInactive,
+	authz.ResourceChannel:  activeInactive,
 
 	// The remaining resources are deliberately inactive: protected, but by a
 	// dedicated mechanism rather than the custom-policy Authorizer. #712 is the
 	// final stack, so none of these will ever be flipped active.
 
+	// Connection, Email, Share, and Recally are Authority-bound user capabilities,
+	// not custom-policy resources.
+	authz.ResourceConnection: activeInactive,
+	authz.ResourceEmail:      activeInactive,
+	authz.ResourceShare:      activeInactive,
+	authz.ResourceRecally:    activeInactive,
 	// User-owned inbox/memory/notify data, authorized by session/user ownership
 	// at the transport; there is no custom-policy PEP over it.
 	authz.ResourceUserData: activeInactive,

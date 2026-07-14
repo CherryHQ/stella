@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/server"
 )
@@ -130,6 +131,28 @@ func TestPollFeishuRegistrationRequiresAgent(t *testing.T) {
 	}
 	if got := parseResponse(t, rr).Error; got != "agent_id is required; bind this Feishu channel to an agent" {
 		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestPollFeishuRegistrationDeniesNonAdminBeforeAgentLookup(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+	for _, agent := range []config.Agent{
+		{ID: "feishu-enabled", Name: "Enabled", Model: "test", Enabled: true},
+		{ID: "feishu-disabled", Name: "Disabled", Model: "test", Enabled: false},
+	} {
+		if err := env.store.CreateAgent(ctx, agent); err != nil {
+			t.Fatalf("CreateAgent(%s): %v", agent.ID, err)
+		}
+	}
+	_, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "feishu-regular", auth.RoleUser)
+	for _, agentID := range []string{"missing-agent", "feishu-disabled", "feishu-enabled"} {
+		rr := doRequestWithSession(t, env.srv, token, "POST", "/api/channels/feishu/register/poll", map[string]any{
+			"device_code": "code", "channel_id": "feishu-test", "agent_id": agentID,
+		})
+		if rr.Code != http.StatusForbidden {
+			t.Fatalf("agent %q: status = %d, want 403 (body: %s)", agentID, rr.Code, rr.Body.String())
+		}
 	}
 }
 

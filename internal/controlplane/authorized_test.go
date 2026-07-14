@@ -70,20 +70,20 @@ func controlPlaneCases() []struct {
 		name string
 		fn   func(a *Access) error
 	}{
-		{"provider.manage", func(a *Access) error { return a.authorizeProvider(authz.ActionManage, "p", policy.ProviderFacts{}) }},
-		{"provider.read", func(a *Access) error { return a.authorizeProvider(authz.ActionRead, "p", policy.ProviderFacts{}) }},
+		{"provider.manage", func(a *Access) error { return a.authorizeProvider(authz.ActionManage, "p") }},
+		{"provider.read", func(a *Access) error { return a.authorizeProvider(authz.ActionRead, "p") }},
 		{"provider.list", func(a *Access) error { return a.authorizeProviderList() }},
 		{"settings.manage", func(a *Access) error {
-			return a.authorizeSettings(authz.ActionManage, "embedding", policy.SettingsFacts{})
+			return a.authorizeSettings(authz.ActionManage, "embedding")
 		}},
 		{"settings.read", func(a *Access) error {
-			return a.authorizeSettings(authz.ActionRead, "embedding", policy.SettingsFacts{})
+			return a.authorizeSettings(authz.ActionRead, "embedding")
 		}},
-		{"plugin.manage", func(a *Access) error { return a.authorizePlugin(authz.ActionManage, "tool/x", policy.PluginFacts{}) }},
-		{"plugin.read", func(a *Access) error { return a.authorizePlugin(authz.ActionRead, "tool/x", policy.PluginFacts{}) }},
+		{"plugin.manage", func(a *Access) error { return a.authorizePlugin(authz.ActionManage, "tool/x") }},
+		{"plugin.read", func(a *Access) error { return a.authorizePlugin(authz.ActionRead, "tool/x") }},
 		{"plugin.list", func(a *Access) error { return a.authorizePluginList() }},
-		{"channel.manage", func(a *Access) error { return a.authorizeChannel(authz.ActionManage, "c", policy.ChannelFacts{}) }},
-		{"channel.read", func(a *Access) error { return a.authorizeChannel(authz.ActionRead, "c", policy.ChannelFacts{}) }},
+		{"channel.manage", func(a *Access) error { return a.authorizeChannel(authz.ActionManage, "c") }},
+		{"channel.read", func(a *Access) error { return a.authorizeChannel(authz.ActionRead, "c") }},
 		{"channel.list", func(a *Access) error { return a.authorizeChannelList() }},
 	}
 }

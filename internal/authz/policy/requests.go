@@ -164,61 +164,6 @@ func VaultRequest(action authz.Action, id, ownerID string, facts VaultFacts) (au
 	return authz.NewRequest(action, res, authz.InvocationFacts{})
 }
 
-// ---- #712 control-plane requests ----------------------------------------
-
-// ProviderRequest builds an action against one LLM provider config.
-func ProviderRequest(action authz.Action, id, ownerID string, facts ProviderFacts) (authz.Request, error) {
-	res, err := ProviderResource(id, ownerID, facts)
-	if err != nil {
-		return authz.Request{}, err
-	}
-	return authz.NewRequest(action, res, authz.InvocationFacts{})
-}
-
-// ProviderListRequest builds the collection-level provider list request.
-func ProviderListRequest() (authz.Request, error) { return listRequest(authz.ResourceProvider) }
-
-// SettingsRequest builds an action against one deployment settings resource.
-func SettingsRequest(action authz.Action, id, ownerID string, facts SettingsFacts) (authz.Request, error) {
-	res, err := SettingsResource(id, ownerID, facts)
-	if err != nil {
-		return authz.Request{}, err
-	}
-	return authz.NewRequest(action, res, authz.InvocationFacts{})
-}
-
-// PluginRequest builds an action against one plugin control-plane resource.
-func PluginRequest(action authz.Action, id, ownerID string, facts PluginFacts) (authz.Request, error) {
-	res, err := PluginResource(id, ownerID, facts)
-	if err != nil {
-		return authz.Request{}, err
-	}
-	return authz.NewRequest(action, res, authz.InvocationFacts{})
-}
-
-// PluginListRequest builds the collection-level plugin list request.
-func PluginListRequest() (authz.Request, error) { return listRequest(authz.ResourcePlugin) }
-
-// ChannelRequest builds an action against one channel control-plane resource.
-func ChannelRequest(action authz.Action, id, ownerID string, facts ChannelFacts) (authz.Request, error) {
-	res, err := ChannelResource(id, ownerID, facts)
-	if err != nil {
-		return authz.Request{}, err
-	}
-	return authz.NewRequest(action, res, authz.InvocationFacts{})
-}
-
-// ChannelListRequest builds the collection-level channel list request.
-func ChannelListRequest() (authz.Request, error) { return listRequest(authz.ResourceChannel) }
-
-func listRequest(rt authz.ResourceType) (authz.Request, error) {
-	res, err := authz.NewResource(rt, "", "")
-	if err != nil {
-		return authz.Request{}, err
-	}
-	return authz.NewRequest(authz.ActionList, res, authz.InvocationFacts{})
-}
-
 // WorkspaceRequest builds an action against the workspace rooted by sessionID.
 func WorkspaceRequest(action authz.Action, sessionID, ownerID string, facts SessionFacts) (authz.Request, error) {
 	res, err := WorkspaceResource(sessionID, ownerID, facts)

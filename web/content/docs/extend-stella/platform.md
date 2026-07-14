@@ -36,7 +36,7 @@ Meta: pkgplugins.PluginInfo{
 },
 ```
 
-Calling an accessor you did not declare returns `nil` — always nil-check services (`if svc := ctx.Platform.Notifier(); svc == nil { ... }`) rather than assuming ambient access.
+Calling an accessor you did not declare returns `nil` — always nil-check services (`if svc := ctx.Platform.Notifier(); svc == nil { ... }`) rather than assuming ambient access. These declarations are static Go registration only: manifest plugins cannot declare or gain `Platform` capabilities.
 
 ## Available Services
 

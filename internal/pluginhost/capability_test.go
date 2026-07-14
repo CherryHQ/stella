@@ -183,49 +183,22 @@ func TestStartAllowedWhenRequiredCapabilityBacked(t *testing.T) {
 	}
 }
 
-// TestManifestCapabilitiesThreadIntoRequiredCapabilities proves manifest-declared
-// capabilities become RequiredCapabilities and are validated like Go plugins.
-func TestManifestCapabilitiesThreadIntoRequiredCapabilities(t *testing.T) {
-	// Unbacked manifest capability is rejected.
-	host := New(&stubStore{plugins: map[string]config.Plugin{}})
-	host.RegisterManifestPlugins(&manifestplugins.Manifest{
-		Plugins: []manifestplugins.ManifestPlugin{{
-			ID:           "tool/manifestchan",
-			Kind:         "tool",
-			Name:         "manifestchan",
-			Enabled:      true,
-			Capabilities: []string{string(pkgplugins.CapabilityChannelPlatform)},
-		}},
-	})
-	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), string(pkgplugins.CapabilityChannelPlatform)) {
-		t.Fatalf("ValidateRegistrations error = %v, want unbacked manifest capability", err)
-	}
-
-	// Backed manifest capability is accepted and recorded on the registered info.
-	host = New(&stubStore{plugins: map[string]config.Plugin{}},
+// TestManifestPluginsReceiveNoPlatformCapabilities proves a user-editable
+// manifest cannot grant its plugin host ports after static composition seals.
+func TestManifestPluginsReceiveNoPlatformCapabilities(t *testing.T) {
+	host := New(&stubStore{plugins: map[string]config.Plugin{}},
 		WithChannelRuntimeServices(NewChannelRuntimeServices()))
 	host.RegisterManifestPlugins(&manifestplugins.Manifest{
 		Plugins: []manifestplugins.ManifestPlugin{{
-			ID:           "tool/manifestchan",
-			Kind:         "tool",
-			Name:         "manifestchan",
-			Enabled:      true,
-			Capabilities: []string{string(pkgplugins.CapabilityChannelPlatform)},
+			ID: "tool/manifest", Kind: "tool", Name: "manifest", Enabled: true, Prompt: "Use this tool.",
 		}},
 	})
-	if err := host.ValidateRegistrations(); err != nil {
-		t.Fatalf("ValidateRegistrations with backed manifest capability: %v", err)
+	if host.platform("tool/manifest").ChannelPlatform() != nil {
+		t.Fatal("manifest plugin must not receive a Platform capability")
 	}
-	var found bool
 	for _, meta := range host.ListRegisteredPlugins() {
-		if meta.ID == "tool/manifestchan" {
-			found = true
-			if !meta.RequiresCapability(pkgplugins.CapabilityChannelPlatform) {
-				t.Fatalf("manifest capability not threaded into RequiredCapabilities: %#v", meta)
-			}
+		if meta.ID == "tool/manifest" && len(meta.RequiredCapabilities) != 0 {
+			t.Fatalf("manifest mutated RequiredCapabilities: %#v", meta)
 		}
-	}
-	if !found {
-		t.Fatal("manifest plugin not registered")
 	}
 }

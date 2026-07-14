@@ -55,7 +55,6 @@ func init() {
 				},
 				RequiredCapabilities: []pkgplugins.Capability{
 					pkgplugins.CapabilityChannelPlatform,
-					pkgplugins.CapabilityLogger,
 					pkgplugins.CapabilityRuntimeLookup,
 				},
 			},

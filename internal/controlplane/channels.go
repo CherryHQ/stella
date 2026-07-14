@@ -3,30 +3,46 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-func channelFacts(ch config.Channel) policy.ChannelFacts {
-	return policy.ChannelFacts{Kind: ch.Type, Status: providerStatus(ch.Enabled)}
-}
+// ChannelManagement is one authorized channel-management operation. Its Save
+// method owns the channel row plus the required channel plugin enable/apply, so
+// callers never need (or get) a second Plugin policy decision.
+type ChannelManagement struct{ access *Access }
 
-// AuthorizeChannelRegistration gates specialized channel enrollment flows that
-// must perform platform handshakes before they can call SaveChannel. The
-// transport supplies only the prospective channel shape; policy facts remain
-// typed and this Access keeps the same revision for the whole enrollment use case.
-func (a *Access) AuthorizeChannelRegistration(ch config.Channel) error {
-	id := ch.ID
+// ManageChannel makes the sole authorization decision for a channel-management
+// operation. Registration flows keep this capability across their platform
+// handshake, then call Save after credentials arrive.
+func (a *Access) ManageChannel(id string) (*ChannelManagement, error) {
 	if id == "" {
 		id = "registration"
 	}
-	return a.authorizeChannel(authz.ActionManage, id, channelFacts(ch))
+	if err := a.authorizeChannel(authz.ActionManage, id); err != nil {
+		return nil, err
+	}
+	return &ChannelManagement{access: a}, nil
 }
 
 // ListChannels returns every configured channel.
+// ValidateBinding checks the durable channel-binding invariant before an
+// enrollment flow performs an external handshake. Save repeats the check and the
+// database unique index closes the concurrent-write race.
+func (m *ChannelManagement) ValidateBinding(ctx context.Context, ch config.Channel) error {
+	conflict, err := m.access.svc.channelAgentPlatformBindingConflict(ctx, ch)
+	if err != nil {
+		return err
+	}
+	if conflict != "" {
+		return invalid(conflict)
+	}
+	return nil
+}
+
 func (a *Access) ListChannels(ctx context.Context) ([]config.Channel, error) {
 	if err := a.authorizeChannelList(); err != nil {
 		return nil, err
@@ -36,7 +52,7 @@ func (a *Access) ListChannels(ctx context.Context) ([]config.Channel, error) {
 
 // GetChannel returns one channel by id (opaque 404 when missing).
 func (a *Access) GetChannel(ctx context.Context, id string) (config.Channel, error) {
-	if err := a.authorizeChannel(authz.ActionRead, id, policy.ChannelFacts{}); err != nil {
+	if err := a.authorizeChannel(authz.ActionRead, id); err != nil {
 		return config.Channel{}, err
 	}
 	ch, err := a.svc.store.GetChannel(ctx, id)
@@ -50,9 +66,17 @@ func (a *Access) GetChannel(ctx context.Context, id string) (config.Channel, err
 // and applies its runtime. create=true rejects an id that already exists (the
 // create-only POST contract). It returns the reloaded channel.
 func (a *Access) SaveChannel(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error) {
-	if err := a.authorizeChannel(authz.ActionManage, ch.ID, channelFacts(ch)); err != nil {
+	operation, err := a.ManageChannel(ch.ID)
+	if err != nil {
 		return config.Channel{}, err
 	}
+	return operation.Save(ctx, ch, cfgMap, create)
+}
+
+// Save persists the already-authorized channel and applies its plugin as one
+// control-plane operation. It intentionally makes no further authorization call.
+func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error) {
+	a := m.access
 	// POST is create-only: a silent upsert would let a re-POST overwrite an existing
 	// channel's config and flip a deliberately disabled webhook back on.
 	if create {
@@ -65,10 +89,8 @@ func (a *Access) SaveChannel(ctx context.Context, ch config.Channel, cfgMap map[
 	if ch.Type == pkgchannel.PlatformWebhook && ch.AgentID == "" {
 		return config.Channel{}, invalid("webhook channel requires a bound agent")
 	}
-	if conflict, err := a.svc.channelAgentPlatformBindingConflict(ctx, ch); err != nil {
+	if err := m.ValidateBinding(ctx, ch); err != nil {
 		return config.Channel{}, err
-	} else if conflict != "" {
-		return config.Channel{}, invalid(conflict)
 	}
 	pluginID := config.PluginID(config.PluginKindChannel, ch.Type)
 	if err := a.svc.plugins.ValidateConfig(pluginID, cfgMap); err != nil {
@@ -80,9 +102,13 @@ func (a *Access) SaveChannel(ctx context.Context, ch config.Channel, cfgMap map[
 	}
 	ch.Config = string(cfgJSON)
 	if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
+		var conflict *config.ChannelBindingConflictError
+		if errors.As(err, &conflict) {
+			return config.Channel{}, invalid(conflict.Error())
+		}
 		return config.Channel{}, err
 	}
-	if err := a.svc.ensureChannelPluginEnabled(ctx, ch.Type); err != nil {
+	if err := a.svc.ensureChannelPluginEnabled(ctx, ch.Type, cfgMap); err != nil {
 		return config.Channel{}, err
 	}
 	if err := a.svc.plugins.ApplyChannel(ctx, ch); err != nil {
@@ -97,7 +123,7 @@ func (a *Access) SaveChannel(ctx context.Context, ch config.Channel, cfgMap map[
 
 // DeleteChannel stops a channel's runtime and removes it.
 func (a *Access) DeleteChannel(ctx context.Context, id string) error {
-	if err := a.authorizeChannel(authz.ActionManage, id, policy.ChannelFacts{}); err != nil {
+	if err := a.authorizeChannel(authz.ActionManage, id); err != nil {
 		return err
 	}
 	ch, err := a.svc.store.GetChannel(ctx, id)
@@ -146,13 +172,19 @@ func (s *Service) channelAgentPlatformBindingConflict(ctx context.Context, ch co
 
 // ensureChannelPluginEnabled upserts the channel-kind plugin row as enabled so a
 // newly saved channel's runtime is registered.
-func (s *Service) ensureChannelPluginEnabled(ctx context.Context, channelType string) error {
+func (s *Service) ensureChannelPluginEnabled(ctx context.Context, channelType string, cfg map[string]any) error {
 	pluginID := config.PluginID(config.PluginKindChannel, channelType)
+	pluginConfig := map[string]any{}
+	// Weixin's status surface reads its singleton credentials from the channel
+	// plugin row. Other channel instances keep credentials only on their rows.
+	if channelType == pkgchannel.PlatformWeixin {
+		pluginConfig = cfg
+	}
 	return s.store.UpsertPlugin(ctx, config.Plugin{
 		ID:      pluginID,
 		Kind:    config.PluginKindChannel,
 		Name:    channelType,
 		Enabled: true,
-		Config:  map[string]any{},
+		Config:  pluginConfig,
 	})
 }

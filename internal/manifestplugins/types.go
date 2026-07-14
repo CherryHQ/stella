@@ -16,11 +16,7 @@ type ManifestPlugin struct {
 	// Grep/Glob tools); the UI guards against disabling it.
 	Essential bool `json:"essential,omitempty" yaml:"essential,omitempty"`
 
-	Prompt string `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	// Capabilities lists the host Platform ports this plugin requires. Threaded
-	// into PluginInfo.RequiredCapabilities so manifest plugins declare, and the
-	// host validates, their capability needs like Go-registered plugins.
-	Capabilities  []string             `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	Prompt        string               `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Binaries      []ManifestBinary     `json:"binaries,omitempty" yaml:"binaries,omitempty"`
 	Skills        []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
 	SessionEnvs   []ManifestSessionEnv `json:"session_env,omitempty" yaml:"session_env,omitempty"`
@@ -88,7 +84,6 @@ type rawManifestPlugin struct {
 	Category      string               `yaml:"category,omitempty"`
 	Essential     bool                 `yaml:"essential,omitempty"`
 	Prompt        string               `yaml:"prompt,omitempty"`
-	Capabilities  []string             `yaml:"capabilities,omitempty"`
 	Binaries      []ManifestBinary     `yaml:"binaries,omitempty"`
 	Skills        []ManifestSkill      `yaml:"skills,omitempty"`
 	SessionEnvs   []ManifestSessionEnv `yaml:"session_env,omitempty"`

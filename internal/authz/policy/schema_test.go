@@ -7,14 +7,19 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 )
 
-// Every catalog resource must have a custom-policy attribute schema and be
-// buildable, so coverage is total and a new resource without a schema fails.
-func TestEveryResourceHasSchema(t *testing.T) {
+// Control-plane resources intentionally have no custom-policy schema: their
+// Authorizer PEP uses only resource/action/id and built-in admin access.
+func TestPolicyResourcesHaveSchemas(t *testing.T) {
 	for _, rt := range authz.AllResourceTypes() {
+		if rt == authz.ResourceProvider || rt == authz.ResourceSettings || rt == authz.ResourcePlugin || rt == authz.ResourceChannel {
+			if _, ok := schemaFor(rt); ok {
+				t.Errorf("control-plane resource %s must not have custom-policy facts", rt)
+			}
+			continue
+		}
 		if _, ok := schemaFor(rt); !ok {
 			t.Errorf("resource %s has no custom-policy attribute schema", rt)
 		}
-		// The generic builder must accept the resource type (no schema error).
 		if _, err := NewResourceBuilder(rt, "id", "owner").Build(); err != nil {
 			t.Errorf("resource %s: builder rejected bare resource: %v", rt, err)
 		}
