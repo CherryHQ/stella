@@ -200,14 +200,12 @@ describe("lifecycle route search", () => {
       validateSkillsSearch({
         source: "removed",
         fscope: "agent",
-        generated: "true",
         sel: "skill-1",
         new: "true",
       }),
     ).toEqual({
       source: "removed",
       fscope: "agent",
-      generated: true,
       sel: "skill-1",
       new: true,
     });
@@ -215,8 +213,6 @@ describe("lifecycle route search", () => {
 
   it("discards invalid values instead of throwing", () => {
     expect(validateMemorySearch({ knowledge: "archive" })).toEqual({});
-    expect(validateSkillsSearch({ source: "archive", fscope: "global", generated: "yes" })).toEqual(
-      { new: false, generated: false },
-    );
+    expect(validateSkillsSearch({ source: "archive", fscope: "global" })).toEqual({ new: false });
   });
 });

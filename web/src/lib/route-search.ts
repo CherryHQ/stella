@@ -6,7 +6,6 @@ export interface SkillsSearch {
   new?: boolean;
   source?: "installed" | "removed" | "market" | "manual";
   fscope?: "project" | "user" | "agent" | "system";
-  generated?: boolean;
   sel?: string;
 }
 
@@ -26,7 +25,6 @@ export function validateSkillsSearch(search: Record<string, unknown>): SkillsSea
     fscope: SKILL_SCOPES.has(search.fscope as string)
       ? (search.fscope as SkillsSearch["fscope"])
       : undefined,
-    generated: search.generated === true || search.generated === "true",
     sel: typeof search.sel === "string" ? search.sel : undefined,
   };
 }

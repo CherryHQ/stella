@@ -19,7 +19,6 @@ import {
   PackagePlus,
   RefreshCw,
   Search,
-  Sparkles,
   Store,
   Trash2,
   Upload,
@@ -120,7 +119,6 @@ const tabPillCls = (active: boolean, size: "sm" | "xs" = "sm") =>
 interface SkillsSearch {
   source?: Source;
   fscope?: Exclude<ScopeFilter, "all">;
-  generated?: boolean;
   sel?: string;
   new?: boolean;
 }
@@ -247,7 +245,6 @@ export function SkillsListPage() {
 
   const source: Source = search.source ?? (search.new ? "manual" : "installed");
   const fscope: ScopeFilter = search.fscope ?? "all";
-  const generated = search.generated ?? false;
   const sel = search.sel;
   const params = projectId ? { agentId, projectId } : { agentId };
 
@@ -271,7 +268,6 @@ export function SkillsListPage() {
       projectId,
       state: source === "removed" ? "removed" : "active",
       ...(fscope !== "all" ? { scopeGroup: fscope } : {}),
-      ...(generated ? { createdBy: "reflect" } : {}),
       ...(debounced ? { q: debounced } : {}),
     }),
     enabled: managementSource,
@@ -301,14 +297,11 @@ export function SkillsListPage() {
   );
   const marketRows = market.data ?? [];
 
-  function go(
-    next: Partial<{ source: Source; fscope: ScopeFilter; generated: boolean; sel?: string }>,
-  ) {
-    const merged = { source, fscope, generated, sel, ...next };
+  function go(next: Partial<{ source: Source; fscope: ScopeFilter; sel?: string }>) {
+    const merged = { source, fscope, sel, ...next };
     const s: SkillsSearch = {};
     if (merged.source !== "installed") s.source = merged.source;
     if (merged.fscope !== "all") s.fscope = merged.fscope;
-    if (merged.generated) s.generated = true;
     if (merged.sel) s.sel = merged.sel;
     void navigate({ to: route(projectId), params, search: s, replace: true });
   }
@@ -454,15 +447,6 @@ export function SkillsListPage() {
                 </button>
               );
             })}
-            <button
-              type="button"
-              aria-pressed={generated}
-              onClick={() => go({ generated: !generated, sel: undefined })}
-              className={cn(tabPillCls(generated, "xs"), "ml-auto")}
-            >
-              <Sparkles className="size-4" />
-              {t("sessions.skillsList.generatedOnly")}
-            </button>
           </div>
         )}
       </div>
@@ -645,6 +629,13 @@ function ManagedSkillCard({
   onOpen: () => void;
 }) {
   const { t } = useI18n();
+  // Keep the card footer dedicated to provenance across active and removed views.
+  const sourceLabel =
+    skill.scope === "system"
+      ? t("sessions.skillsList.builtin")
+      : skill.created_by === "reflect"
+        ? t("sessions.skillsList.generated")
+        : t("sessions.skillsList.manualMaintenance");
   return (
     <button
       type="button"
@@ -673,14 +664,6 @@ function ManagedSkillCard({
               {t("sessions.skillsList.manual")}
             </Badge>
           )}
-          {(removed || skill.created_by === "reflect") && (
-            <Badge variant="secondary" size="sm">
-              {skill.created_by === "reflect" && <Sparkles />}
-              {skill.created_by === "reflect"
-                ? t("sessions.skillsList.generated")
-                : t("sessions.skillsList.manualMaintenance")}
-            </Badge>
-          )}
         </div>
       </div>
       <p className="line-clamp-2 min-h-9 text-xs text-muted-foreground">{skill.description}</p>
@@ -695,14 +678,10 @@ function ManagedSkillCard({
                 ? t("sessions.skillsList.removedByCurator")
                 : t("sessions.skillsList.removedManually")}
             </Badge>
-            <span className="ml-auto">{formatTime(skill.deprecated_at)}</span>
+            <span className="ml-auto">{sourceLabel}</span>
           </>
         ) : (
-          <span className="ml-auto">
-            {skill.scope === "system"
-              ? t("sessions.skillsList.builtin")
-              : formatTime(skill.updated_at)}
-          </span>
+          <span className="ml-auto">{sourceLabel}</span>
         )}
       </div>
       {removed && skill.restore_deadline && (
