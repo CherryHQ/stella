@@ -42,21 +42,6 @@ export function constraintsQueryOptions(agentId: string) {
   });
 }
 
-export function changelogQueryOptions(agentId: string, scope?: ChangelogScope) {
-  return queryOptions({
-    queryKey: ["agent-changelog", agentId, scope],
-    queryFn: async () => {
-      const { data } = await listProfileChangelog({
-        path: { agentId },
-        query: { scope, page_size: 20 },
-        throwOnError: true,
-      });
-      return data.entries;
-    },
-    enabled: !!agentId,
-  });
-}
-
 export function knowledgeInfiniteQueryOptions(agentId: string, state: KnowledgeState) {
   return infiniteQueryOptions({
     queryKey: ["agent-knowledge", agentId, state, MEMORY_PAGE_SIZE],

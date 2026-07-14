@@ -1,40 +1,46 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import type { ComponentsChangelogEntry } from "@/lib/api-client/types.gen";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { changelogQueryOptions } from "@/lib/queries/memories";
+import {
+  flattenMemoryChangelogPages,
+  memoryChangelogInfiniteQueryOptions,
+} from "@/lib/queries/memories";
 import { MemorySection } from "./MemorySection";
 
 interface Props {
   agentId: string;
 }
 
-interface ChangelogEntry {
-  id: string;
-  scope: string;
-  action: string;
-  source: string;
-  memory_version_before?: number | null;
-  memory_version_after?: number | null;
-  before_text?: string | null;
-  after_text?: string | null;
-  created_at: string;
-}
+const scopeLabels = {
+  soul: "memories.changelog.scopeSoul",
+  profile: "memories.changelog.scopeProfile",
+  knowledge: "memories.changelog.scopeKnowledge",
+  constraint: "memories.changelog.scopeConstraint",
+} as const;
 
-const scopeStyles: Record<string, string> = {
-  soul: "bg-primary/10 text-primary",
-  profile: "bg-primary/10 text-primary",
-  constraint: "bg-muted text-muted-foreground",
-  compaction: "bg-muted text-muted-foreground",
-};
+const actionLabels = {
+  create: "memories.changelog.actionCreate",
+  edit: "memories.changelog.actionEdit",
+  update: "memories.changelog.actionEdit",
+  delete: "memories.changelog.actionManualDelete",
+  manual_delete: "memories.changelog.actionManualDelete",
+  curator_remove: "memories.changelog.actionCuratorRemove",
+  restore: "memories.changelog.actionRestore",
+} as const;
 
-const sourceStyles: Record<string, string> = {
-  user: "bg-primary/10 text-primary",
-  agent: "bg-muted text-muted-foreground",
-  reflect: "bg-muted text-muted-foreground",
-  system: "bg-muted text-muted-foreground",
-};
+const sourceLabels = {
+  manual: "memories.changelog.sourceManual",
+  reflect: "memories.changelog.sourceReflect",
+  user: "memories.changelog.sourceUser",
+  agent: "memories.changelog.sourceAgent",
+  system: "memories.changelog.sourceSystem",
+} as const;
 
 interface DiffLine {
   type: "added" | "removed" | "context";
@@ -98,28 +104,18 @@ function DiffView({ before, after }: { before: string; after: string }) {
   );
 }
 
-function ChangelogRow({ entry }: { entry: ChangelogEntry }) {
+function ChangelogRow({ entry }: { entry: ComponentsChangelogEntry }) {
+  const { t } = useI18n();
   const hasDetail = Boolean(entry.before_text || entry.after_text);
+  const scopeKey = scopeLabels[entry.scope as keyof typeof scopeLabels];
+  const actionKey = actionLabels[entry.action as keyof typeof actionLabels];
+  const sourceKey = sourceLabels[entry.source as keyof typeof sourceLabels];
 
   const summary = (
-    <div className="flex items-center gap-2 text-xs">
-      <span
-        className={cn(
-          "shrink-0 rounded-sm px-1.5 py-0.5 text-xs font-medium",
-          scopeStyles[entry.scope] || "bg-muted text-muted-foreground",
-        )}
-      >
-        {entry.scope}
-      </span>
-      <span className="font-medium">{entry.action}</span>
-      <span
-        className={cn(
-          "shrink-0 rounded-sm px-1.5 py-0.5 text-xs font-medium",
-          sourceStyles[entry.source] || "bg-muted text-muted-foreground",
-        )}
-      >
-        {entry.source}
-      </span>
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <Badge variant="secondary">{scopeKey ? t(scopeKey) : entry.scope}</Badge>
+      <span className="font-medium">{actionKey ? t(actionKey) : entry.action}</span>
+      <Badge variant="outline">{sourceKey ? t(sourceKey) : entry.source}</Badge>
       {entry.memory_version_after != null && (
         <span className="text-muted-foreground font-mono">v{entry.memory_version_after}</span>
       )}
@@ -157,25 +153,42 @@ function ChangelogRow({ entry }: { entry: ChangelogEntry }) {
 
 export function ChangelogSection({ agentId }: Props) {
   const { t } = useI18n();
-  const { data: entries = [], isLoading } = useQuery(changelogQueryOptions(agentId));
+  const query = useInfiniteQuery(memoryChangelogInfiniteQueryOptions(agentId));
+  const entries = flattenMemoryChangelogPages(query.data?.pages);
 
   return (
     <MemorySection
       title={t("memories.changelog.title")}
       description={t("memories.changelog.description")}
     >
-      {isLoading ? (
+      {query.isLoading ? (
         <div className="flex items-center justify-center py-6">
-          <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+          <Spinner />
         </div>
+      ) : query.isError ? (
+        <p className="text-sm text-destructive">{t("memories.changelog.error")}</p>
       ) : entries.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">{t("memories.changelog.empty")}</p>
       ) : (
-        <div className="space-y-0.5">
-          {(entries as ChangelogEntry[]).map((entry) => (
-            <ChangelogRow key={entry.id} entry={entry} />
-          ))}
-        </div>
+        <>
+          <div className="space-y-0.5">
+            {entries.map((entry) => (
+              <ChangelogRow key={entry.id} entry={entry} />
+            ))}
+          </div>
+          {query.hasNextPage && (
+            <div className="flex justify-center pt-4">
+              <Button
+                variant="outline"
+                size="sm"
+                loading={query.isFetchingNextPage}
+                onClick={() => void query.fetchNextPage()}
+              >
+                {t("common.loadMore")}
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </MemorySection>
   );
