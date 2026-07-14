@@ -175,20 +175,20 @@ func appendSeatbeltWritableEnvDirs(sb *strings.Builder, env map[string]string) {
 // wrapCommand wraps name+args with sandbox-exec for macOS Seatbelt isolation.
 // tmpMounts is accepted for signature compatibility with the Linux backend but
 // is not used here — macOS bash and file tools share the same host filesystem.
-func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, _ []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
+func wrapCommand(policy sandboxpkg.Policy, _ string, _ []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, err error) {
 	if !seatbeltFunctional() {
-		return "", nil, "", fmt.Errorf(
+		return "", nil, fmt.Errorf(
 			"local sandbox: sandbox-exec (macOS Seatbelt) is required but not available",
 		)
 	}
 
 	resolved, lookErr := exec.LookPath(name)
 	if lookErr != nil {
-		return "", nil, "", fmt.Errorf("local exec: look up %q: %w", name, lookErr)
+		return "", nil, fmt.Errorf("local exec: look up %q: %w", name, lookErr)
 	}
 
 	profile := buildSeatbeltProfile(policy, stellaHomeHost)
 	seatbeltArgs := []string{"-p", profile, resolved}
 	seatbeltArgs = append(seatbeltArgs, args...)
-	return seatbeltExecPath, seatbeltArgs, sandboxCwd, nil
+	return seatbeltExecPath, seatbeltArgs, nil
 }

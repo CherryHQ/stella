@@ -494,12 +494,12 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		defer cancel()
 	}
 
-	sandboxCwd, _, err := s.resolveCwd(sandboxCwd)
+	sandboxCwd, realCwd, err := s.resolveCwd(sandboxCwd)
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, hostCwd, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, "sh", []string{"-c", command})
+	execPath, execArgs, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, "sh", []string{"-c", command})
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
 	}
@@ -507,7 +507,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	// Finding 2: do NOT use exec.CommandContext — it only kills the leader PID,
 	// leaving process-group children alive. We manage cancellation manually.
 	cmd := exec.Command(execPath, execArgs...)
-	cmd.Dir = hostCwd
+	cmd.Dir = realCwd
 	cmd.Env = buildEnv(policy, opts.Env)
 	setSysProcAttr(cmd)
 
@@ -584,13 +584,13 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 	args := make([]string, 0, len(req.Args))
 	args = append(args, req.Args...)
 
-	sandboxCwd, _, err := s.resolveCwd(sandboxCwd)
+	sandboxCwd, realCwd, err := s.resolveCwd(sandboxCwd)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, hostCwd, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, req.Path, args)
+	execPath, execArgs, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, req.Path, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)
@@ -598,7 +598,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 
 	// Finding 2: do NOT use exec.CommandContext — kill the process group instead.
 	cmd := exec.Command(execPath, execArgs...)
-	cmd.Dir = hostCwd
+	cmd.Dir = realCwd
 	cmd.Env = buildEnv(policy, req.Env)
 	setSysProcAttr(cmd)
 
