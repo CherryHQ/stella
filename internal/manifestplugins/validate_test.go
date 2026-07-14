@@ -13,7 +13,7 @@ func TestValidate_NoID(t *testing.T) {
 	}
 }
 
-func TestValidate_NoCapabilities(t *testing.T) {
+func TestValidate_RequiresManifestContent(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{ID: "tool/empty"},
 	}}

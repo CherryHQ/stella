@@ -14,9 +14,33 @@ It exists to solve two problems:
 
 Instead of handing plugins a global service container, Stella passes `Platform` through typed contexts such as `ToolContext`, `RuntimeContext`, and `AdminContext`.
 
+## Declared Capabilities
+
+`Platform` is **not** ambient. A plugin only reaches the host ports it declares in
+`PluginInfo.RequiredCapabilities`. The host:
+
+- **grants** only the declared capabilities,
+- **validates** at seal time that each declared capability is backed by an injected host service (an undeclared-but-needed or unbacked capability fails closed), and
+- **exposes** a plugin-scoped `Platform` whose accessor for an undeclared capability returns `nil`.
+
+Declare what you need with the typed `pkgplugins.Capability` values, e.g. a managed channel runtime:
+
+```go
+Meta: pkgplugins.PluginInfo{
+    // ...
+    RequiredCapabilities: []pkgplugins.Capability{
+        pkgplugins.CapabilityChannelPlatform,
+        pkgplugins.CapabilityLogger,
+        pkgplugins.CapabilityRuntimeLookup,
+    },
+},
+```
+
+Calling an accessor you did not declare returns `nil` — always nil-check services (`if svc := ctx.Platform.Notifier(); svc == nil { ... }`) rather than assuming ambient access. These declarations are static Go registration only: manifest plugins cannot declare or gain `Platform` capabilities.
+
 ## Available Services
 
-`Platform` exposes:
+`Platform` exposes (each gated by the matching `Capability`):
 
 - `Logger()`
 - `ConfigStore()`

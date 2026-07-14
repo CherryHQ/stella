@@ -71,7 +71,12 @@ type feishuRegistrationUpstream struct {
 }
 
 func (s *Server) InitFeishuRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
+		return
+	}
+	if _, err := access.ManageChannel("registration"); err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	var req feishuRegistrationBrandRequest
@@ -88,7 +93,12 @@ func (s *Server) InitFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) BeginFeishuRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
+		return
+	}
+	if _, err := access.ManageChannel("registration"); err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	var req feishuRegistrationBrandRequest
@@ -124,7 +134,8 @@ func (s *Server) BeginFeishuRegistration(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
 		return
 	}
 	var req feishuRegistrationPollRequest
@@ -143,6 +154,12 @@ func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "agent_id is required; bind this Feishu channel to an agent")
 		return
 	}
+	prospective := config.Channel{ID: req.ChannelID, Type: pkgchannel.PlatformFeishu, AgentID: req.AgentID}
+	operation, err := access.ManageChannel(req.ChannelID)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
 	agent, err := s.store.GetAgent(r.Context(), req.AgentID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "agent_id must reference an existing agent")
@@ -152,11 +169,8 @@ func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "agent_id must reference an enabled agent")
 		return
 	}
-	if conflict, err := s.channelAgentPlatformBindingConflict(r.Context(), config.Channel{ID: req.ChannelID, Type: pkgchannel.PlatformFeishu, AgentID: req.AgentID}); err != nil {
-		s.writeInternalError(w, err)
-		return
-	} else if conflict != "" {
-		writeError(w, http.StatusBadRequest, conflict)
+	if err := operation.ValidateBinding(r.Context(), prospective); err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	brand := registrationBrand(req.Brand)
@@ -197,14 +211,9 @@ func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 		name = "Feishu"
 	}
 	ch := config.Channel{ID: req.ChannelID, Name: name, Type: pkgchannel.PlatformFeishu, AgentID: req.AgentID, Enabled: enabled}
-	pluginID := config.PluginID(config.PluginKindChannel, ch.Type)
-	if err := s.pluginHost.ValidateConfig(pluginID, cfg); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request")
-		return
-	}
-	saved, err := s.saveFeishuRegistrationChannel(r, ch, cfg)
+	saved, err := operation.Save(r.Context(), ch, cfg, true)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeControlPlaneError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{
@@ -212,24 +221,6 @@ func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 		"tenant_brand": tenantBrand(upstream),
 		"channel":      channelToView(saved),
 	})
-}
-
-func (s *Server) saveFeishuRegistrationChannel(r *http.Request, ch config.Channel, cfgMap map[string]any) (config.Channel, error) {
-	cfgJSON, err := json.Marshal(cfgMap)
-	if err != nil {
-		return config.Channel{}, err
-	}
-	ch.Config = string(cfgJSON)
-	if err := s.store.UpsertChannel(r.Context(), ch); err != nil {
-		return config.Channel{}, err
-	}
-	if err := s.ensureChannelPluginEnabled(r.Context(), ch.Type); err != nil {
-		return config.Channel{}, err
-	}
-	if err := s.pluginHost.ApplyChannel(r.Context(), ch); err != nil {
-		s.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
-	}
-	return s.store.GetChannel(r.Context(), ch.ID)
 }
 
 func tenantBrand(upstream feishuRegistrationUpstream) string {

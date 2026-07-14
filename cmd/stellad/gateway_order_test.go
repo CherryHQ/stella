@@ -2,9 +2,8 @@ package main
 
 // Issue #708 lifecycle contract: no late-bind / ingress window. This AST guard
 // freezes the source ordering inside runServer so a future edit cannot move an
-// ingress source (HTTP Serve, group-dispatch Run, managed channel runtimes)
-// ahead of the static callbacks and River/scheduler/goal/embedding startup they
-// depend on.
+// ingress source (HTTP Serve, group-dispatch Run, managed channel startup) ahead
+// of the static callbacks and River/scheduler/goal/embedding startup they need.
 
 import (
 	"go/ast"
@@ -82,9 +81,9 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	embedStart := mustHave("StartBackfill")
 
 	// Ingress sources.
-	groupRun := mustHave("Run") // groupDispatcher.Run
-	channels := mustHave("applyManagedChannelPlugins")
-	serve := mustHave("Serve") // httpSrv.Serve
+	groupRun := mustHave("Run")                        // groupDispatcher.Run (first Run in source)
+	channels := mustHave("applyManagedChannelPlugins") // managed channel startup
+	serve := mustHave("Serve")                         // httpSrv.Serve
 
 	// 1. The scheduler OnJob handler and the notification auth directory must be
 	//    wired before River starts (River may run a persisted job immediately).

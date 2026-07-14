@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/server"
 )
@@ -103,6 +104,28 @@ func TestPollWeixinRegistrationCreatesChannel(t *testing.T) {
 	}
 	if cfg["bot_token"] != "wx-token" || cfg["base_url"] != "https://wx.example" || cfg["bot_id"] != "bot-1" || cfg["user_id"] != "user-1" || cfg["sk_route_tag"] != "stella-test" {
 		t.Fatalf("config = %#v", cfg)
+	}
+}
+
+func TestPollWeixinRegistrationDeniesNonAdminBeforeAgentLookup(t *testing.T) {
+	env := setupAdmin(t)
+	ctx := context.Background()
+	for _, agent := range []config.Agent{
+		{ID: "weixin-enabled", Name: "Enabled", Model: "test", Enabled: true},
+		{ID: "weixin-disabled", Name: "Disabled", Model: "test", Enabled: false},
+	} {
+		if err := env.store.CreateAgent(ctx, agent); err != nil {
+			t.Fatalf("CreateAgent(%s): %v", agent.ID, err)
+		}
+	}
+	_, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "weixin-regular", auth.RoleUser)
+	for _, agentID := range []string{"missing-agent", "weixin-disabled", "weixin-enabled"} {
+		rr := doRequestWithSession(t, env.srv, token, "POST", "/api/channels/weixin/register/poll", map[string]any{
+			"qrcode": "qr", "agent_id": agentID,
+		})
+		if rr.Code != http.StatusForbidden {
+			t.Fatalf("agent %q: status = %d, want 403 (body: %s)", agentID, rr.Code, rr.Body.String())
+		}
 	}
 }
 

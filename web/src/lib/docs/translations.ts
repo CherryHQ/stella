@@ -65,7 +65,7 @@ const translations = {
     capNotifications: "Proactive notifications",
     capNotificationsDesc:
       "Stella reaches out when something needs attention. Task done, job failed, or something you should know.",
-    capUsers: "Multi-tenant identity",
+    capUsers: "Multi-user identity",
     capUsersDesc:
       "Run one Stella for many people. Users get their own secrets, tasks, memories, and agent relationships.",
     capSandbox: "Sandboxed execution",

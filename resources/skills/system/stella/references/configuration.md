@@ -48,7 +48,7 @@ Channels are stored in `settings_channels`. Each row is a channel instance with 
 - `channel_id` -- Broadcast channel ID or @username
 - `enable_notify` -- Allow notify tool for this channel
 
-Access control is handled by RBAC (auth_identities + policy engine). Notification targets are resolved from auth_identities.
+Channel access is enforced by Stella's trusted Authority-based domain services; notification targets are resolved from linked identities.
 
 **QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 

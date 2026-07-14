@@ -33,6 +33,9 @@ func applyManagedChannelPlugins(ctx context.Context, host managedChannelRuntimeH
 	if err == nil && len(channels) > 0 {
 		summary.Registered = len(channels)
 		for _, ch := range channels {
+			if ctx.Err() != nil {
+				return summary
+			}
 			configured := host.ChannelInstanceConfigured(ch)
 			if configured {
 				summary.Configured++
@@ -52,6 +55,9 @@ func applyManagedChannelPlugins(ctx context.Context, host managedChannelRuntimeH
 	}
 
 	for _, meta := range host.ListRegisteredPlugins() {
+		if ctx.Err() != nil {
+			return summary
+		}
 		if meta.Kind != "channel" {
 			continue
 		}

@@ -27,87 +27,6 @@ func NewAuthStore(db *pgxpool.Pool) *AuthStore {
 	return &AuthStore{OIDCStore: NewOIDCStore(db), q: sqlc.New(db)}
 }
 
-// --- Policies ---
-
-func (s *AuthStore) CreatePolicy(ctx context.Context, p auth.Policy) (auth.Policy, error) {
-	r, err := s.q.CreateAuthPolicy(ctx, sqlc.CreateAuthPolicyParams{
-		ID:         p.ID,
-		Name:       p.Name,
-		Effect:     p.Effect,
-		Subjects:   p.Subjects,
-		Actions:    p.Actions,
-		Resources:  p.Resources,
-		Conditions: p.Conditions,
-		Priority:   int64(p.Priority),
-		IsSystem:   p.IsSystem,
-		Enabled:    p.Enabled,
-	})
-	if err != nil {
-		return auth.Policy{}, fmt.Errorf("create policy %q: %w", p.ID, err)
-	}
-	return policyFromDB(r), nil
-}
-
-func (s *AuthStore) GetPolicy(ctx context.Context, id string) (auth.Policy, error) {
-	r, err := s.q.GetAuthPolicy(ctx, id)
-	if err != nil {
-		return auth.Policy{}, fmt.Errorf("get policy %q: %w", id, err)
-	}
-	return policyFromDB(r), nil
-}
-
-func (s *AuthStore) ListPolicies(ctx context.Context) ([]auth.Policy, error) {
-	rows, err := s.q.ListAuthPolicies(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list policies: %w", err)
-	}
-	out := make([]auth.Policy, len(rows))
-	for i, r := range rows {
-		out[i] = policyFromDB(r)
-	}
-	return out, nil
-}
-
-func (s *AuthStore) ListEnabledPolicies(ctx context.Context) ([]auth.Policy, error) {
-	out := auth.BuiltinPolicies()
-
-	rows, err := s.q.ListEnabledAuthPolicies(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list enabled policies: %w", err)
-	}
-	for _, r := range rows {
-		p := policyFromDB(r)
-		if !p.IsSystem {
-			out = append(out, p)
-		}
-	}
-	return out, nil
-}
-
-func (s *AuthStore) UpdatePolicy(ctx context.Context, p auth.Policy) error {
-	if err := s.q.UpdateAuthPolicy(ctx, sqlc.UpdateAuthPolicyParams{
-		ID:         p.ID,
-		Name:       p.Name,
-		Effect:     p.Effect,
-		Subjects:   p.Subjects,
-		Actions:    p.Actions,
-		Resources:  p.Resources,
-		Conditions: p.Conditions,
-		Priority:   int64(p.Priority),
-		Enabled:    p.Enabled,
-	}); err != nil {
-		return fmt.Errorf("update policy %q: %w", p.ID, err)
-	}
-	return nil
-}
-
-func (s *AuthStore) DeletePolicy(ctx context.Context, id string) error {
-	if err := s.q.DeleteAuthPolicy(ctx, id); err != nil {
-		return fmt.Errorf("delete policy %q: %w", id, err)
-	}
-	return nil
-}
-
 // --- User-Agent assignments ---
 
 func (s *AuthStore) AssignAgent(ctx context.Context, userID string, agentID string) error {
@@ -217,22 +136,6 @@ func (s *AuthStore) UpdateUserTokenLastUsed(ctx context.Context, id string) (int
 }
 
 // --- Helpers ---
-
-func policyFromDB(r sqlc.AuthPolicy) auth.Policy {
-	return auth.Policy{
-		ID:         r.ID,
-		Name:       r.Name,
-		Effect:     r.Effect,
-		Subjects:   r.Subjects,
-		Actions:    r.Actions,
-		Resources:  r.Resources,
-		Conditions: r.Conditions,
-		Priority:   int(r.Priority),
-		IsSystem:   r.IsSystem,
-		Enabled:    r.Enabled,
-		CreatedAt:  r.CreatedAt.UTC(),
-	}
-}
 
 func userTokenFromDB(r sqlc.AuthUserToken) auth.UserToken {
 	return auth.UserToken{

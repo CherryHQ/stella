@@ -144,10 +144,6 @@ var schemas = map[authz.ResourceType]resourceSchema{
 	authz.ResourceUserData: {attrs: map[string]attrSpec{
 		"owner": stringAttr, "agent": stringAttr,
 	}},
-	authz.ResourceProvider: {attrs: kindStatus()},
-	authz.ResourceSettings: {attrs: kindStatus()},
-	authz.ResourcePlugin:   {attrs: kindOwnerStatus()},
-	authz.ResourceChannel:  {attrs: kindOwnerStatus()},
 	authz.ResourceTool: {attrs: map[string]attrSpec{
 		"scope": enumAttr("public", "group"),
 		"owner": stringAttr,
@@ -190,14 +186,6 @@ func ownerAgentKindState() map[string]attrSpec {
 // schema exists only so schema coverage stays total for every catalog member.
 func ownerAgentSensitivity() map[string]attrSpec {
 	return map[string]attrSpec{"owner": stringAttr, "agent": stringAttr, "sensitivity": stringAttr}
-}
-
-func kindStatus() map[string]attrSpec {
-	return map[string]attrSpec{"kind": stringAttr, "status": stringAttr}
-}
-
-func kindOwnerStatus() map[string]attrSpec {
-	return map[string]attrSpec{"kind": stringAttr, "owner": stringAttr, "status": stringAttr}
 }
 
 func ownerStatus() map[string]attrSpec {

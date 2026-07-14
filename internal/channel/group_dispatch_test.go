@@ -192,16 +192,13 @@ func TestResolveMentionAgents(t *testing.T) {
 	})
 
 	t.Run("known bot not in group not resolved", func(t *testing.T) {
-		// Register another bot that is NOT a group member.
-		if _, err := ts.db.Exec(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('ch-bot2', 'Bot2', 'telegram', $1, true)`, agentID); err != nil {
-			t.Fatalf("create channel: %v", err)
-		}
-		// Create a second agent for the non-member channel.
+		// Register another bot that is NOT a group member. Its distinct agent is
+		// required by the one-bidirectional-channel-per-(agent,type) invariant.
 		if _, err := ts.db.Exec(ctx, `INSERT INTO agent (id, name, model, enabled, workspace) VALUES ('agent-non-member', 'NonMember', 'test', true, 'default')`); err != nil {
 			t.Fatalf("create agent: %v", err)
 		}
-		if _, err := ts.db.Exec(ctx, `UPDATE channel SET agent_id = 'agent-non-member' WHERE id = 'ch-bot2'`); err != nil {
-			t.Fatalf("update channel: %v", err)
+		if _, err := ts.db.Exec(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('ch-bot2', 'Bot2', 'telegram', 'agent-non-member', true)`); err != nil {
+			t.Fatalf("create channel: %v", err)
 		}
 		reg.Register("telegram", "bot2_username", "ch-bot2")
 

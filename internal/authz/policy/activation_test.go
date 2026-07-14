@@ -9,11 +9,10 @@ import (
 )
 
 // #709 made Agent, Session, and Workspace authoritative; #710 added the execution
-// domains; #711 makes Vault policy-backed. The other user capabilities (Email,
-// Connection, Share, Recally) are enforced by their own domain Access services, not
-// custom policy, so they stay inactive — as do the system catalog, public tool, and
-// Stack 7 providers/settings/plugins/channels — and reject custom-policy writes.
-func TestOnlySessionVerticalIsActivated(t *testing.T) {
+// domains; #711 makes Vault policy-backed. #712 keeps the deployment control
+// plane Authority-bound with built-in admin access only; it has no custom-policy
+// authoring surface.
+func TestOnlyPolicyBackedResourcesAreActivated(t *testing.T) {
 	active := map[authz.ResourceType]bool{
 		authz.ResourceAgent:     true,
 		authz.ResourceSession:   true,
@@ -37,16 +36,39 @@ func TestOnlySessionVerticalIsActivated(t *testing.T) {
 	}
 }
 
+// TestActivationCatalogIsTotal asserts the catalog carries an explicit entry for
+// every catalog resource — never relying on activationFor's defensive default.
+// This keeps activation a deliberate, reviewed decision: a newly added
+// authz.AllResourceTypes() member cannot ship without an entry here.
+func TestActivationCatalogIsTotal(t *testing.T) {
+	for _, rt := range authz.AllResourceTypes() {
+		if _, ok := activationCatalog[rt]; !ok {
+			t.Errorf("resource %s has no explicit activationCatalog entry; every catalog resource needs a deliberate activation decision", rt)
+		}
+	}
+	// The catalog must not carry entries outside the closed catalog either.
+	all := make(map[authz.ResourceType]bool, len(authz.AllResourceTypes()))
+	for _, rt := range authz.AllResourceTypes() {
+		all[rt] = true
+	}
+	for rt := range activationCatalog {
+		if !all[rt] {
+			t.Errorf("activationCatalog has entry for %s, which is not in authz.AllResourceTypes()", rt)
+		}
+	}
+}
+
 func TestInactiveResourceWritesAreRejected(t *testing.T) {
 	ctx := context.Background()
 	pool := dbtest.New(t)
 	svc := NewService(New(pool))
 
 	for _, rt := range []authz.ResourceType{
-		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceProvider, authz.ResourceSettings,
+		authz.ResourceSystemCatalog, authz.ResourceTool, authz.ResourceUser, authz.ResourceMCP,
 		// Email/Connection/Share/Recally are Authority-bound user capabilities, not
 		// policy-backed: a custom-policy write for them must fail closed.
 		authz.ResourceEmail, authz.ResourceConnection, authz.ResourceShare, authz.ResourceRecally,
+		authz.ResourceProvider, authz.ResourceSettings, authz.ResourcePlugin, authz.ResourceChannel,
 	} {
 		_, _, err := svc.CreatePolicy(ctx, PolicyInput{
 			Resource: rt, Action: authz.ActionRead, Effect: EffectAllow,

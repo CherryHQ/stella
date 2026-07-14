@@ -150,15 +150,15 @@ socket）。
   的 seccomp profile 默认设为 `RuntimeDefault`。若工具报 `bwrap:` / `unshare` /
   “Operation not permitted” 错误，先设 `sandbox.seccompProfile=Unconfined`（某些集群
   的默认 profile 会拦掉 bubblewrap 的 namespace 系统调用）；若还不够，再把集群/节点改成
-  允许非特权 user namespace —— 在多租户部署上不要用切到 `none` 来绕过。
+  允许非特权 user namespace —— 在多用户部署上不要用切到 `none` 来绕过。
 - **`none`** —— 无隔离。`none` 不会禁用 agent 工具；它让工具以同一用户、同一进程
   namespace 直接在 Stella pod 内运行。
 
   > **`none` 会把部署密钥暴露给 agent 代码。** 没有进程隔离，工具可以读取 Stella
   > 进程的环境变量（如 `/proc/1/environ`），拿到 `STELLA_VAULT_KEY`——解密**每一个
-  > 租户**密钥与 token 的主密钥——以及 `STELLA_DATABASE_URL`。`secretKeyRef` 和
+  > 用户**密钥与 token 的主密钥——以及 `STELLA_DATABASE_URL`。`secretKeyRef` 和
   > `extraEnv` 防护都挡不住这条路径。只有当每个能驱动 agent 的用户都完全可信时
-  > （例如单运维者的私有部署）才用 `none`，绝不要用于多租户或公开部署。加固 `none`
+  > （例如单运维者的私有部署）才用 `none`，绝不要用于多用户或公开部署。加固 `none`
   > 后端本身的工作追踪在 [#705](https://github.com/CherryHQ/stella/issues/705)。
 
   正因如此，`none` 还要求 `sandbox.allowUnsafeHostExecution=true` 才能渲染。这种模式
@@ -298,7 +298,7 @@ spec:
   设好属主，或选一个驱动尊重 `fsGroup` 的 StorageClass。
 - **agent 工具报 `bwrap` / `unshare` 错误。** 你在一个禁止非特权 user namespace 的
   集群上用 `sandbox.backend=local`。把节点改成允许它们。切到 `sandbox.backend=none`
-  也能让错误消失，但在多租户部署上这是用一个隔离错误换来一个密钥暴露问题 —— 请先看
+  也能让错误消失，但在多用户部署上这是用一个隔离错误换来一个密钥暴露问题 —— 请先看
   [沙箱后端](#sandbox-backend)。
 - **OAuth/通道链接指向 localhost。** 上游的 `baseURL` 错了或没设 —— 把它设成公网
   ingress URL。
