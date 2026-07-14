@@ -71,6 +71,7 @@ type runner struct {
 	toolLifecycle *coreagent.ToolLifecycle
 	chatTimeout   time.Duration
 	session       pkgsandbox.Session // runner-owned sandbox session lifecycle
+	sandboxCfg    sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -88,6 +89,11 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	systemPrompt := cfg.System
 
 	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL}
+
+	// Propagate the turn budget into the sandbox config so both initial OAuth env
+	// injection and per-turn refresh size their min-validity to the actual chat
+	// timeout (#722). cfg is a value copy, so this stays local to this runner.
+	cfg.Sandbox.ChatTimeout = cfg.ChatTimeout
 
 	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
 	if err != nil {
@@ -137,6 +143,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		toolLifecycle: cfg.ToolLifecycle,
 		chatTimeout:   cfg.ChatTimeout,
 		session:       session,
+		sandboxCfg:    cfg.Sandbox,
 		lastActivity:  time.Now(),
 		log:           slog.With("component", "go_runner"),
 	}, nil
@@ -452,6 +459,14 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			}
 			return &msg
 		})
+
+		// Reload the OAuth-derived session env before each turn so a long-lived
+		// cached runner (kept warm by frequent scheduler fires) never hands tools
+		// an expired OAuth token. A no-op on a fresh credential, on group
+		// sessions, and on sessions without OAuth-sourced env (#722).
+		if r.session != nil {
+			sandbox.RefreshSessionEnv(ctx, r.session, r.sandboxCfg)
+		}
 
 		messages := make([]ai.Message, len(history))
 		copy(messages, history)

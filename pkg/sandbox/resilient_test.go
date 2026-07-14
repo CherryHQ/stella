@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,11 +11,13 @@ import (
 
 // mockSession is a controllable Session for testing ResilientSession.
 type mockSession struct {
-	mu        sync.Mutex
-	alive     bool
-	closed    bool
-	execCount int
-	done      chan struct{}
+	mu             sync.Mutex
+	alive          bool
+	closed         bool
+	execCount      int
+	lastExecEnv    map[string]string
+	lastProcessEnv map[string]string
+	done           chan struct{}
 }
 
 func newMockSession() *mockSession {
@@ -39,14 +42,18 @@ func (m *mockSession) Close() error {
 	return nil
 }
 
-func (m *mockSession) Exec(_ context.Context, _ string, _ ExecOptions) (ExecResult, error) {
+func (m *mockSession) Exec(_ context.Context, _ string, opts ExecOptions) (ExecResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.execCount++
+	m.lastExecEnv = maps.Clone(opts.Env)
 	return ExecResult{Stdout: "ok"}, nil
 }
 
-func (m *mockSession) StartProcess(_ context.Context, _ ProcessRequest) (ProcessHandle, error) {
+func (m *mockSession) StartProcess(_ context.Context, req ProcessRequest) (ProcessHandle, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastProcessEnv = maps.Clone(req.Env)
 	return nil, nil
 }
 
@@ -69,6 +76,32 @@ func TestResilientSession_ExecUsesExistingSession(t *testing.T) {
 	}
 }
 
+func TestResilientSessionRefreshEnvOverlaysSubsequentProcesses(t *testing.T) {
+	inner := newMockSession()
+	rs := NewResilientSession(inner, nil)
+	rs.RefreshEnv(map[string]string{"TOKEN": "new", "CALLER": "overlay"})
+
+	if _, err := rs.Exec(context.Background(), "true", ExecOptions{Env: map[string]string{"CALLER": "exec"}}); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if got := inner.lastExecEnv["TOKEN"]; got != "new" {
+		t.Fatalf("Exec TOKEN = %q, want new", got)
+	}
+	if got := inner.lastExecEnv["CALLER"]; got != "exec" {
+		t.Fatalf("per-exec env must win; CALLER = %q", got)
+	}
+
+	if _, err := rs.StartProcess(context.Background(), ProcessRequest{}); err != nil {
+		t.Fatalf("StartProcess: %v", err)
+	}
+	if got := inner.lastProcessEnv["TOKEN"]; got != "new" {
+		t.Fatalf("StartProcess TOKEN = %q, want new", got)
+	}
+	if got := rs.Policy().Env["TOKEN"]; got != "new" {
+		t.Fatalf("Policy TOKEN = %q, want new", got)
+	}
+}
+
 func TestResilientSession_RecreatesAfterClose(t *testing.T) {
 	first := newMockSession()
 	second := newMockSession()
@@ -78,8 +111,10 @@ func TestResilientSession_RecreatesAfterClose(t *testing.T) {
 		createCount.Add(1)
 		return second, nil
 	})
+	rs.RefreshEnv(map[string]string{"TOKEN": "old-overlay"})
 
-	// Close the underlying session (simulates reaper).
+	// Close the underlying session (simulates reaper). The recreated session is
+	// built from current state, so the dead session's overlay must be discarded.
 	_ = first.Close()
 
 	result, err := rs.Exec(context.Background(), "echo hi", ExecOptions{})
@@ -91,6 +126,9 @@ func TestResilientSession_RecreatesAfterClose(t *testing.T) {
 	}
 	if createCount.Load() != 1 {
 		t.Errorf("create called %d times, want 1", createCount.Load())
+	}
+	if _, ok := second.lastExecEnv["TOKEN"]; ok {
+		t.Fatal("recreated session inherited a stale env overlay")
 	}
 
 	// Second exec should reuse the recreated session.

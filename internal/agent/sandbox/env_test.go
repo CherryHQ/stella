@@ -105,6 +105,7 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 		name          string
 		vaultSecret   bool
 		wantToken     string
+		wantOAuthBind bool
 		wantRedacted  []string
 		absentSecrets []string
 	}{
@@ -118,6 +119,7 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 		{
 			name:          "oauth injects without vault collision",
 			wantToken:     "oauth_access_token",
+			wantOAuthBind: true,
 			wantRedacted:  []string{"oauth_access_token"},
 			absentSecrets: []string{"vault_pat"},
 		},
@@ -143,12 +145,14 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 				}
 			}
 			secretValues := NewSessionSecretValues()
+			oauthBindings := NewOAuthEnvBindings()
 			env, err := buildSandboxEnv(ctx, Config{
 				UserID:              userID,
 				AgentID:             "agent-1",
 				VaultEnvLoader:      store,
 				SessionSecretValues: secretValues,
 				TokenManager:        tm,
+				OAuthEnvBindings:    oauthBindings,
 				SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
 					{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
 				},
@@ -161,6 +165,9 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 			}
 			if _, ok := env[oauth.VaultKeyGitHub]; ok {
 				t.Fatalf("%s must not appear in sandbox env", oauth.VaultKeyGitHub)
+			}
+			if got := oauthBindings.Has("GH_TOKEN"); got != tt.wantOAuthBind {
+				t.Fatalf("OAuth binding recorded = %v, want %v", got, tt.wantOAuthBind)
 			}
 			requireSessionSecretValues(t, secretValues.Values(), tt.wantRedacted, tt.absentSecrets)
 		})
