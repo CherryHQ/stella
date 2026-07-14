@@ -48,10 +48,9 @@ type Service struct {
 	masterIdentity  *age.X25519Identity
 	masterRecipient *age.X25519Recipient
 
-	// authz + agents power the ResourceVault PEP (see access.go). They may be nil
+	// agents powers the ResourceVault access rules (see access.go). It may be nil
 	// for trusted-only Service instances that never open an Access (e.g. tests of
 	// the raw crypto/persistence methods).
-	authz  authz.Authorizer
 	agents *agentaccess.Service
 
 	systemManagedMu       sync.RWMutex
@@ -60,9 +59,9 @@ type Service struct {
 }
 
 // NewService creates a vault Service. masterIdentityStr is the raw age secret
-// key string (typically from the STELLA_VAULT_KEY environment variable). az and
-// agents back the ResourceVault PEP; pass nil only for trusted-only instances.
-func NewService(db DB, masterIdentityStr string, az authz.Authorizer, agents *agentaccess.Service) (*Service, error) {
+// key string (typically from the STELLA_VAULT_KEY environment variable). agents
+// backs the ResourceVault access rules; pass nil only for trusted-only instances.
+func NewService(db DB, masterIdentityStr string, agents *agentaccess.Service) (*Service, error) {
 	id, recipient, err := ParseMasterIdentity(masterIdentityStr)
 	if err != nil {
 		return nil, fmt.Errorf("vault: new service: %w", err)
@@ -71,7 +70,6 @@ func NewService(db DB, masterIdentityStr string, az authz.Authorizer, agents *ag
 		db:                    db,
 		masterIdentity:        id,
 		masterRecipient:       recipient,
-		authz:                 az,
 		agents:                agents,
 		systemManagedNames:    defaultSystemManagedNames(),
 		systemManagedPrefixes: []string{"OAUTH_", "MCP_TOKEN_"},
@@ -82,8 +80,8 @@ func NewService(db DB, masterIdentityStr string, az authz.Authorizer, agents *ag
 // pool, owning construction of its sqlc query set. masterIdentityStr is the raw
 // age secret key string (typically from the STELLA_VAULT_KEY environment
 // variable).
-func NewServiceForPool(pool *pgxpool.Pool, masterIdentityStr string, az authz.Authorizer, agents *agentaccess.Service) (*Service, error) {
-	return NewService(sqlc.New(pool), masterIdentityStr, az, agents)
+func NewServiceForPool(pool *pgxpool.Pool, masterIdentityStr string, agents *agentaccess.Service) (*Service, error) {
+	return NewService(sqlc.New(pool), masterIdentityStr, agents)
 }
 
 // MasterRecipient returns the master public key recipient.
@@ -108,8 +106,8 @@ type SetOptions struct {
 }
 
 // ScopeRequest / ResolvedScope / ResolveScope compute the durable owner columns
-// for a vault-style scope. They are NOT the ResourceVault PEP (see access.go) —
-// vault entries are authorized through the Authorizer. They remain here as a pure
+// for a vault-style scope. They are NOT the ResourceVault access rules (see
+// access.go) — vault entries are authorized there. They remain here as a pure
 // utility because unrelated resources that reuse the vault scope vocabulary
 // (agent tool overrides, MCP connection tokens) still resolve their own columns
 // this way. Their admin gate is a coarse structural check, not a policy decision.

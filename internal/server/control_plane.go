@@ -8,12 +8,11 @@ import (
 	"github.com/CherryHQ/stella/internal/controlplane"
 )
 
-// beginControlPlane derives the trusted Authority for the authenticated caller
-// and opens one control-plane Authorizer evaluation. The controlplane Service is
-// the sole PEP for provider/settings/plugin/channel operations; these resources
-// are admin-only, so a non-admin is default-denied inside each Access method
-// exactly as the legacy requireAdmin gate denied them. The handler never inspects
-// identity beyond deriving the Authority from verified session claims.
+// beginControlPlane derives the trusted Authority for the authenticated caller.
+// The controlplane Service is the sole enforcement point for provider, settings,
+// plugin, and channel operations; Begin rejects non-admin actors before returning
+// an Access. The handler never inspects identity beyond deriving the Authority
+// from verified session claims.
 func (s *Server) beginControlPlane(w http.ResponseWriter, r *http.Request) (*controlplane.Access, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {

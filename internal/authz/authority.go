@@ -1,215 +1,187 @@
 package authz
 
-import (
-	"errors"
-	"slices"
-)
+import "errors"
 
-// Authority is the immutable capability an application service authorises
-// against. It binds a closed Actor identity to an immutable RoleSet and
-// GrantSet. Only trusted entry, agent-runtime, and durable-worker adapters may
-// construct one (dependency rules enforce this); request payloads, paths, model
-// arguments, and channel fields cannot.
+// Authority is the immutable, trusted capability every application service
+// authorises against. It is a closed value with unexported fields and no
+// exported struct literal, so the constructors below are the only way to obtain a
+// valid one, and their validation cannot be bypassed. Only trusted entry,
+// agent-runtime, and durable-worker adapters may call them (the mint-boundary
+// test enforces this); request payloads, paths, model arguments, and channel
+// fields cannot.
 //
-// The zero Authority is invalid and fails closed. The type has unexported
-// fields and no exported struct literal, so the constructors below are the only
-// way to obtain a valid value, and their validation cannot be bypassed.
+// The zero Authority is invalid and fails closed. Stella is single-tenant, so an
+// Authority is pure identity plus two trusted bits — the admin superuser flag and
+// one exact dedicated channel binding — never a generic role/grant framework. The
+// durable facts each domain's rules need are resolved at decision time, not
+// carried here.
 
-var (
-	// ErrInvalidActor is returned when actor fields do not satisfy the
-	// requested variant (missing required id, or a foreign id set).
-	ErrInvalidActor = errors.New("authz: invalid actor")
-	// ErrGrantNotAllowed is returned when a grant's privacy class is not
-	// holdable by the actor variant (e.g. a user-private grant on a group turn).
-	ErrGrantNotAllowed = errors.New("authz: grant not allowed for actor")
-	// ErrInvalidRole is returned when a role is not a member of the role
-	// catalog.
-	ErrInvalidRole = errors.New("authz: invalid role")
-	// ErrSystemActorNeedsGrant is returned when a SystemActor is constructed
-	// without at least one named grant. There is no omnipotent implicit system
-	// actor.
-	ErrSystemActorNeedsGrant = errors.New("authz: system actor requires a named grant")
-	// ErrRolesNotAllowed is returned when roles are attached to an actor variant
-	// that has no user/admin role — group ingress and group turns carry no role.
-	ErrRolesNotAllowed = errors.New("authz: roles not allowed for actor")
-)
+// ErrInvalidActor is returned when constructor arguments do not satisfy the
+// requested variant (missing required id).
+var ErrInvalidActor = errors.New("authz: invalid actor")
 
-// Role is the closed catalog of authorization roles. Stella is single-tenant,
-// so the role set is small and fixed; an unknown role fails validation.
-type Role uint8
+// ActorKind is the closed catalog of actor variants an Authority discriminates.
+type ActorKind uint8
 
 const (
-	// RoleInvalid is the zero value and grants nothing.
-	RoleInvalid Role = iota
-	// RoleUser is an ordinary user.
-	RoleUser
-	// RoleAdmin is a deployment administrator.
-	RoleAdmin
+	// ActorInvalid is the zero value. A zero Authority is invalid and fails
+	// closed.
+	ActorInvalid ActorKind = iota
+	// ActorUser is a human user acting through HTTP or a linked private channel,
+	// optionally the admin superuser.
+	ActorUser
+	// ActorAgent is an agent delegated by a user and confined to one agent,
+	// either a live private-session tool call or reconstructed durable work.
+	ActorAgent
+	// ActorGroupAgent is a group turn executing as one agent inside one group; it
+	// carries no user and can never reach user-private capabilities.
+	ActorGroupAgent
+	// ActorSystem is named maintenance / control-plane work. It has no user or
+	// admin identity and is never an implicit omnipotent actor.
+	ActorSystem
 )
 
-var allRoles = []Role{RoleUser, RoleAdmin}
+var allActorKinds = []ActorKind{ActorUser, ActorAgent, ActorGroupAgent, ActorSystem}
 
-// AllRoles returns the closed role catalog.
-func AllRoles() []Role { return append([]Role(nil), allRoles...) }
+// AllActorKinds returns the closed actor-kind catalog.
+func AllActorKinds() []ActorKind { return append([]ActorKind(nil), allActorKinds...) }
 
-// Valid reports whether the role is a member of the catalog.
-func (r Role) Valid() bool { return r == RoleUser || r == RoleAdmin }
+// Valid reports whether the actor kind is a member of the catalog.
+func (k ActorKind) Valid() bool { return k >= ActorUser && k <= ActorSystem }
 
-func (r Role) String() string {
-	switch r {
-	case RoleUser:
+func (k ActorKind) String() string {
+	switch k {
+	case ActorUser:
 		return "user"
-	case RoleAdmin:
-		return "admin"
+	case ActorAgent:
+		return "agent"
+	case ActorGroupAgent:
+		return "group_agent"
+	case ActorSystem:
+		return "system"
 	default:
 		return "invalid"
 	}
 }
 
-// RoleSet is an immutable, deduplicated set of roles. Like GrantSet it never
-// shares its backing slice with callers.
-type RoleSet struct {
-	roles []Role
-}
+// UserID, AgentID, GroupID, and Component are distinct string types so a caller
+// cannot accidentally pass an agent id where a user id is required. Component
+// names the maintenance class of a SystemActor.
+type (
+	UserID    string
+	AgentID   string
+	GroupID   string
+	Component string
+)
 
-// NewRoleSet validates and copies roles into an immutable set, dropping
-// duplicates. It returns ErrInvalidRole on the first unknown role.
-func NewRoleSet(roles ...Role) (RoleSet, error) {
-	if len(roles) == 0 {
-		return RoleSet{}, nil
-	}
-	out := make([]Role, 0, len(roles))
-	seen := make(map[Role]struct{}, len(roles))
-	for _, r := range roles {
-		if !r.Valid() {
-			return RoleSet{}, ErrInvalidRole
-		}
-		if _, dup := seen[r]; dup {
-			continue
-		}
-		seen[r] = struct{}{}
-		out = append(out, r)
-	}
-	return RoleSet{roles: out}, nil
-}
-
-// Roles returns a defensive copy of the role set.
-func (s RoleSet) Roles() []Role { return append([]Role(nil), s.roles...) }
-
-// Has reports whether a role is present.
-func (s RoleSet) Has(r Role) bool {
-	return slices.Contains(s.roles, r)
-}
-
-// Len returns the number of roles.
-func (s RoleSet) Len() int { return len(s.roles) }
-
-// Authority binds an actor to its roles and grants. All fields are unexported
-// and immutable after construction.
+// Authority is the immutable identity plus trusted attributes, discriminated by
+// kind. Owner/executor for a delegated AgentActor are (userID, agentID). A
+// GroupAgentActor carries only (groupID, agentID): the triggering group member is
+// request/audit attribution resolved by the transport, never part of the
+// authority, so it cannot grant that member's private-user capabilities to the
+// group turn. admin marks the user superuser; channelBindingID, when set, is the
+// one exact dedicated channel binding the Agent PEP may consume.
 type Authority struct {
-	actor  Actor
-	roles  RoleSet
-	grants GrantSet
+	kind             ActorKind
+	userID           UserID
+	agentID          AgentID
+	groupID          GroupID
+	component        Component
+	admin            bool
+	channelBindingID string
 }
 
-// newAuthority is the shared constructor tail: it validates the assembled actor
-// and checks the grant classes against the actor variant. RoleSet/GrantSet are
-// already immutable copies by the time they reach here.
-func newAuthority(actor Actor, roles RoleSet, grants GrantSet) (Authority, error) {
-	if !actor.Valid() {
-		return Authority{}, ErrInvalidActor
-	}
-	if err := checkGrantsForActor(actor.kind, grants); err != nil {
-		return Authority{}, err
-	}
-	return Authority{actor: actor, roles: roles, grants: grants}, nil
-}
-
-// NewUserAuthority constructs a UserActor authority. The user id is required.
-func NewUserAuthority(user UserID, roles RoleSet, grants GrantSet) (Authority, error) {
+// NewUserAuthority constructs a UserActor authority. Every valid user is an
+// ordinary user, optionally the admin superuser. The user id is required.
+func NewUserAuthority(user UserID, admin bool) (Authority, error) {
 	if user == "" {
 		return Authority{}, ErrInvalidActor
 	}
-	return newAuthority(Actor{kind: ActorUser, userID: user}, roles, grants)
+	return Authority{kind: ActorUser, userID: user, admin: admin}, nil
+}
+
+// NewChannelAuthority constructs a UserActor authority that additionally holds
+// one exact dedicated channel binding. channelID is read from the persisted
+// channel configuration by the channel adapter; it is never request-payload
+// identity, and it is consumed only by the Agent PEP's dedicated-channel decision.
+func NewChannelAuthority(user UserID, admin bool, channelID string) (Authority, error) {
+	if user == "" || channelID == "" {
+		return Authority{}, ErrInvalidActor
+	}
+	return Authority{kind: ActorUser, userID: user, admin: admin, channelBindingID: channelID}, nil
 }
 
 // NewAgentAuthority constructs an AgentActor authority delegated by owner and
 // confined to executor. Both ids are required; this is also the shape a durable
-// worker reconstructs from a persisted owner + executor agent.
-func NewAgentAuthority(owner UserID, executor AgentID, roles RoleSet, grants GrantSet) (Authority, error) {
+// worker reconstructs from a persisted owner + executor agent. A delegated agent
+// never carries admin or a channel binding.
+func NewAgentAuthority(owner UserID, executor AgentID) (Authority, error) {
 	if owner == "" || executor == "" {
 		return Authority{}, ErrInvalidActor
 	}
-	return newAuthority(Actor{kind: ActorAgent, userID: owner, agentID: executor}, roles, grants)
-}
-
-// NewGroupAuthority constructs a GroupActor authority for group ingress. The
-// group id is required; there is no user owner and no user/admin role, so a
-// non-empty RoleSet is rejected.
-func NewGroupAuthority(group GroupID, roles RoleSet, grants GrantSet) (Authority, error) {
-	if group == "" {
-		return Authority{}, ErrInvalidActor
-	}
-	if roles.Len() != 0 {
-		return Authority{}, ErrRolesNotAllowed
-	}
-	return newAuthority(Actor{kind: ActorGroup, groupID: group}, roles, grants)
+	return Authority{kind: ActorAgent, userID: owner, agentID: executor}, nil
 }
 
 // NewGroupAgentAuthority constructs a GroupAgentActor authority: one agent
-// executing inside one group. It carries no user id and no user/admin role (a
-// non-empty RoleSet is rejected), and grant-class checking rejects any
-// user-private grant. The triggering group member is not an argument here — it
-// is audit attribution carried in InvocationFacts.
-func NewGroupAgentAuthority(group GroupID, agent AgentID, roles RoleSet, grants GrantSet) (Authority, error) {
+// executing inside one group. It carries no user id and no admin identity, so
+// user-private access is structurally impossible.
+func NewGroupAgentAuthority(group GroupID, agent AgentID) (Authority, error) {
 	if group == "" || agent == "" {
 		return Authority{}, ErrInvalidActor
 	}
-	if roles.Len() != 0 {
-		return Authority{}, ErrRolesNotAllowed
-	}
-	return newAuthority(Actor{kind: ActorGroupAgent, groupID: group, agentID: agent}, roles, grants)
+	return Authority{kind: ActorGroupAgent, groupID: group, agentID: agent}, nil
 }
 
-// NewSystemAuthority constructs a named SystemActor. The component name and at
-// least one grant are required, and every grant must be a system grant. There
-// is no implicit omnipotent system actor.
-func NewSystemAuthority(name Component, grants GrantSet) (Authority, error) {
+// NewSystemAuthority constructs a named SystemActor. The component name is
+// required. A system actor has no user or admin identity; it is named maintenance
+// work, never an implicit omnipotent identity.
+func NewSystemAuthority(name Component) (Authority, error) {
 	if name == "" {
 		return Authority{}, ErrInvalidActor
 	}
-	if grants.Len() == 0 {
-		return Authority{}, ErrSystemActorNeedsGrant
-	}
-	return newAuthority(Actor{kind: ActorSystem, component: name}, RoleSet{}, grants)
+	return Authority{kind: ActorSystem, component: name}, nil
 }
 
-// Valid reports whether the authority was produced by a constructor and remains
-// well-formed. A zero Authority is invalid.
+// Valid reports whether the authority is a well-formed member of its variant. It
+// mirrors the constructor invariants so a value that somehow bypassed a
+// constructor (e.g. a zero value) still fails closed. Only a UserActor may carry
+// admin or a channel binding.
 func (a Authority) Valid() bool {
-	if !a.actor.Valid() {
+	switch a.kind {
+	case ActorUser:
+		return a.userID != "" && a.agentID == "" && a.groupID == "" && a.component == ""
+	case ActorAgent:
+		return a.userID != "" && a.agentID != "" && a.groupID == "" && a.component == "" && !a.admin && a.channelBindingID == ""
+	case ActorGroupAgent:
+		return a.groupID != "" && a.agentID != "" && a.userID == "" && a.component == "" && !a.admin && a.channelBindingID == ""
+	case ActorSystem:
+		return a.component != "" && a.userID == "" && a.agentID == "" && a.groupID == "" && !a.admin && a.channelBindingID == ""
+	default:
 		return false
 	}
-	return checkGrantsForActor(a.actor.kind, a.grants) == nil
 }
 
-// Actor returns the immutable actor identity.
-func (a Authority) Actor() Actor { return a.actor }
+// Kind returns the actor variant. A zero Authority returns ActorInvalid.
+func (a Authority) Kind() ActorKind { return a.kind }
 
-// Kind is a shortcut for a.Actor().Kind().
-func (a Authority) Kind() ActorKind { return a.actor.kind }
+// UserID returns the owning/acting user for UserActor and AgentActor, empty for
+// group/system actors that have no user owner.
+func (a Authority) UserID() UserID { return a.userID }
 
-// Roles returns a defensive copy of the authority's roles.
-func (a Authority) Roles() []Role { return a.roles.Roles() }
+// AgentID returns the confined/executing agent for AgentActor and
+// GroupAgentActor, empty otherwise.
+func (a Authority) AgentID() AgentID { return a.agentID }
 
-// HasRole reports whether the authority holds a role.
-func (a Authority) HasRole(r Role) bool { return a.roles.Has(r) }
+// GroupID returns the group for GroupAgentActor, empty otherwise.
+func (a Authority) GroupID() GroupID { return a.groupID }
 
-// IsAdmin reports whether the authority holds the admin role.
-func (a Authority) IsAdmin() bool { return a.roles.Has(RoleAdmin) }
+// Component returns the maintenance class for SystemActor, empty otherwise.
+func (a Authority) Component() Component { return a.component }
 
-// Grants returns a defensive copy of the authority's grants.
-func (a Authority) Grants() []Grant { return a.grants.Grants() }
+// IsAdmin reports whether the authority is the admin superuser.
+func (a Authority) IsAdmin() bool { return a.admin }
 
-// HasGrant reports whether the authority holds an exact grant.
-func (a Authority) HasGrant(g Grant) bool { return a.grants.Has(g) }
+// ChannelBindingID returns the exact dedicated channel binding this authority
+// holds, or empty when it holds none. Only a UserActor minted by
+// NewChannelAuthority carries one.
+func (a Authority) ChannelBindingID() string { return a.channelBindingID }

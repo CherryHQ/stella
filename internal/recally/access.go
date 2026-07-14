@@ -42,7 +42,7 @@ func (s *Service) Access(authority authz.Authority) (*Access, error) {
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden
 	}
-	userID := string(authority.Actor().UserID())
+	userID := string(authority.UserID())
 	if userID == "" {
 		return nil, authz.ErrUnauthenticated
 	}

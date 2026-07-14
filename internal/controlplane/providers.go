@@ -5,7 +5,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -24,17 +23,11 @@ type ProviderModelItem struct {
 
 // ListProviders returns every configured LLM provider.
 func (a *Access) ListProviders(ctx context.Context) ([]config.Provider, error) {
-	if err := a.authorizeProviderList(); err != nil {
-		return nil, err
-	}
 	return a.svc.store.ListProviders(ctx)
 }
 
 // CreateProvider persists a new provider and hot-reloads the pool.
 func (a *Access) CreateProvider(ctx context.Context, p config.Provider) error {
-	if err := a.authorizeProvider(authz.ActionManage, p.ID); err != nil {
-		return err
-	}
 	if err := a.svc.store.CreateProvider(ctx, p); err != nil {
 		return err
 	}
@@ -44,9 +37,6 @@ func (a *Access) CreateProvider(ctx context.Context, p config.Provider) error {
 
 // GetProvider returns one provider by id (opaque 404 when missing).
 func (a *Access) GetProvider(ctx context.Context, id string) (config.Provider, error) {
-	if err := a.authorizeProvider(authz.ActionRead, id); err != nil {
-		return config.Provider{}, err
-	}
 	p, err := a.svc.store.GetProvider(ctx, id)
 	if err != nil {
 		return config.Provider{}, notFound("provider not found")
@@ -58,9 +48,6 @@ func (a *Access) GetProvider(ctx context.Context, id string) (config.Provider, e
 // defaulting Name), persists it, and hot-reloads the pool. It returns the merged
 // provider so the transport can echo it.
 func (a *Access) UpdateProvider(ctx context.Context, id string, p config.Provider) (config.Provider, error) {
-	if err := a.authorizeProvider(authz.ActionManage, id); err != nil {
-		return config.Provider{}, err
-	}
 	existing, err := a.svc.store.GetProvider(ctx, id)
 	if err != nil {
 		return config.Provider{}, notFound("provider not found")
@@ -81,9 +68,6 @@ func (a *Access) UpdateProvider(ctx context.Context, id string, p config.Provide
 
 // DeleteProvider removes a provider and hot-reloads the pool.
 func (a *Access) DeleteProvider(ctx context.Context, id string) error {
-	if err := a.authorizeProvider(authz.ActionManage, id); err != nil {
-		return err
-	}
 	if _, err := a.svc.store.GetProvider(ctx, id); err != nil {
 		return notFound("provider not found")
 	}
@@ -96,9 +80,6 @@ func (a *Access) DeleteProvider(ctx context.Context, id string) error {
 
 // ListProviderModels returns the merged custom+fetched model list for a provider.
 func (a *Access) ListProviderModels(ctx context.Context, id string) ([]ProviderModelItem, error) {
-	if err := a.authorizeProvider(authz.ActionRead, id); err != nil {
-		return nil, err
-	}
 	provider, err := a.svc.store.GetProvider(ctx, id)
 	if err != nil {
 		return nil, notFound("provider not found")
@@ -112,10 +93,6 @@ func (a *Access) ListProviderModels(ctx context.Context, id string) ([]ProviderM
 // missing provider during the credential fallback is a 400 "api_key is required",
 // while the authoritative load is a 404.
 func (a *Access) FetchProviderModels(ctx context.Context, id, apiKey, baseURL string) ([]ProviderModelItem, error) {
-	if err := a.authorizeProvider(authz.ActionManage, id); err != nil {
-		return nil, err
-	}
-
 	if apiKey == "" {
 		p, err := a.svc.store.GetProvider(ctx, id)
 		if err != nil {
@@ -182,9 +159,6 @@ func (a *Access) FetchProviderModels(ctx context.Context, id, apiKey, baseURL st
 
 // ListProviderTypes returns the provider plugin types the deployment can add.
 func (a *Access) ListProviderTypes() ([]pluginhost.ProviderType, error) {
-	if err := a.authorizeProviderList(); err != nil {
-		return nil, err
-	}
 	return a.svc.plugins.ListProviderTypes(), nil
 }
 

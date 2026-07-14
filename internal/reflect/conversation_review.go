@@ -56,9 +56,9 @@ func (s *Service) reviewConversation(ctx context.Context, snap *config.Snapshot,
 		return s.wm.set(ctx, target.session.ID, watermark)
 	}
 
-	// Build the trusted review identity up front so the reviewer's existing-skill
-	// summaries and its tool reads/writes all decide against the same ResourceSkill
-	// evaluation (AgentActor for this user+agent), never a context.Background bypass.
+	// Build the trusted review identity up front so existing-skill summaries and
+	// tool reads/writes all use the same confined user+agent identity, never a
+	// context.Background bypass.
 	reviewCtx := authz.WithUserID(ctx, userID)
 	reviewCtx = authz.WithAgentID(reviewCtx, snap.AgentID)
 	reviewCtx = memory.WithChangeSource(reviewCtx, memory.SourceReflect)
@@ -164,9 +164,9 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 		// No skill-disk layout: reflect runs host-identity and reads/writes skill
 		// content through the DB store, which mirrors to disk itself. The reviewer
 		// prompt drives create/patch/deprecate, so those stay enabled — but every
-		// DB read and every write is authorized against ResourceSkill under the
-		// review target's identity (WithUserID+WithAgentID on reviewCtx →
-		// AgentActor). remove/install/search/list are not exposed. The separate
+		// DB read and write passes through Skill access under the review target's
+		// confined identity (WithUserID+WithAgentID on reviewCtx). remove/install/
+		// search/list are not exposed. The separate
 		// staged reconciliation-plan writer is authorized independently.
 		SkillsTool: skillstool.NewTool(s.skillStore, "", "").
 			WithReadAuthorizer(s.skillReadAuthz).
@@ -179,11 +179,10 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 }
 
 // loadExistingSkillSummaries lists the reviewer's visible skills for the prompt.
-// It runs under the review identity (ctx carries WithUserID+WithAgentID) and
-// filters every DB row through the same ResourceSkill read evaluation the tool
-// uses, so a custom deny or a revoked grant hides a skill from the prompt exactly
-// as it hides it from load/search. A read-authz failure fails hidden (the summary
-// is dropped) rather than leaking an unauthorized skill.
+// It runs under the confined review identity (ctx carries WithUserID+WithAgentID)
+// and filters every DB row through the same Skill read rules as the tool. A
+// revoked owner or agent binding hides the skill from both the prompt and
+// load/search. Authorization failures fail hidden rather than leaking a row.
 func (s *Service) loadExistingSkillSummaries(ctx context.Context, userID string) []string {
 	if s.skillStore == nil {
 		return nil
@@ -205,7 +204,7 @@ func (s *Service) loadExistingSkillSummaries(ctx context.Context, userID string)
 		if dec == nil {
 			continue
 		}
-		allowed, err := dec.AllowRead(ctx, sk.ID, sk.Scope, sk.UserID, sk.AgentID, sk.Metadata)
+		allowed, err := dec.AllowRead(ctx, sk.ID, sk.Scope, sk.UserID, sk.AgentID)
 		if err != nil || !allowed {
 			continue
 		}

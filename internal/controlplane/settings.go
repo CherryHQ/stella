@@ -3,17 +3,9 @@ package controlplane
 import (
 	"context"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
-)
-
-// settings resource IDs distinguish the deployment-wide settings endpoints.
-const (
-	settingsKindEmbedding = "embedding"
-	settingsKindCLI       = "cli"
-	settingsKindOAuth     = "oauth_provider_config"
 )
 
 // EmbeddingUpdate carries a validated embedding-settings write. APIKey is nil to
@@ -29,9 +21,6 @@ type EmbeddingUpdate struct {
 
 // GetEmbeddingSettings returns the deployment-wide embedding configuration.
 func (a *Access) GetEmbeddingSettings(ctx context.Context) (config.EmbeddingSettings, error) {
-	if err := a.authorizeSettings(authz.ActionRead, settingsKindEmbedding); err != nil {
-		return config.EmbeddingSettings{}, err
-	}
 	return config.LoadEmbeddingSettings(ctx, a.svc.store)
 }
 
@@ -39,9 +28,6 @@ func (a *Access) GetEmbeddingSettings(ctx context.Context) (config.EmbeddingSett
 // write-only: an omitted or empty key keeps the stored one. Enabling the lane
 // without a key is rejected (it would silently no-op).
 func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) (config.EmbeddingSettings, error) {
-	if err := a.authorizeSettings(authz.ActionManage, settingsKindEmbedding); err != nil {
-		return config.EmbeddingSettings{}, err
-	}
 	existing, err := config.LoadEmbeddingSettings(ctx, a.svc.store)
 	if err != nil {
 		return config.EmbeddingSettings{}, err
@@ -69,34 +55,22 @@ func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) 
 // SearchCliToolRegistry searches the mise tool registry so the UI can add a CLI
 // tool by name instead of a hand-written backend key.
 func (a *Access) SearchCliToolRegistry(ctx context.Context, query string, limit int) ([]manifestplugins.RegistryTool, error) {
-	if err := a.authorizeSettings(authz.ActionRead, settingsKindCLI); err != nil {
-		return nil, err
-	}
 	return manifestplugins.SearchRegistry(ctx, config.StellaHome(), query, limit)
 }
 
 // CliToolLatest resolves the latest installable version for a mise tool key.
 func (a *Access) CliToolLatest(ctx context.Context, tool string) (string, error) {
-	if err := a.authorizeSettings(authz.ActionRead, settingsKindCLI); err != nil {
-		return "", err
-	}
 	return manifestplugins.LatestVersion(ctx, config.StellaHome(), tool)
 }
 
 // GetOAuthProviderConfig returns the stored OAuth provider client configuration.
 func (a *Access) GetOAuthProviderConfig(ctx context.Context, id string) (connections.OAuthProviderConfig, error) {
-	if err := a.authorizeSettings(authz.ActionRead, id); err != nil {
-		return connections.OAuthProviderConfig{}, err
-	}
 	return a.svc.conns.GetOAuthProviderConfig(ctx, id)
 }
 
 // SetOAuthProviderConfig persists an OAuth provider client configuration and
 // returns the refreshed stored value.
 func (a *Access) SetOAuthProviderConfig(ctx context.Context, cfg connections.OAuthProviderConfig) (connections.OAuthProviderConfig, error) {
-	if err := a.authorizeSettings(authz.ActionManage, cfg.ProviderID); err != nil {
-		return connections.OAuthProviderConfig{}, err
-	}
 	if err := a.svc.conns.SetOAuthProviderConfig(ctx, cfg); err != nil {
 		return connections.OAuthProviderConfig{}, err
 	}
@@ -105,8 +79,5 @@ func (a *Access) SetOAuthProviderConfig(ctx context.Context, cfg connections.OAu
 
 // DeleteOAuthProviderConfig removes an OAuth provider client configuration.
 func (a *Access) DeleteOAuthProviderConfig(ctx context.Context, id string) error {
-	if err := a.authorizeSettings(authz.ActionManage, id); err != nil {
-		return err
-	}
 	return a.svc.conns.DeleteOAuthProviderConfig(ctx, id)
 }

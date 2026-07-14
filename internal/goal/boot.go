@@ -35,10 +35,8 @@ type Service struct {
 	Goal       *GoalService
 	Dispatcher *Dispatcher
 
-	// authz + agents back the Authority-based Access PEP (the sole policy
-	// enforcement point for Goal resources reached by HTTP and the agent tool).
-	// The durable worker executor keeps its own agentaccess re-check (executor.go).
-	authz  authz.Authorizer
+	// agents backs the Authority-based Goal Access PEP's persisted-agent gate.
+	// The durable worker executor independently rechecks it on every dequeue.
 	agents *agentaccess.Service
 
 	// runner executes one claimed attempt; it backs both the goal River worker
@@ -61,12 +59,11 @@ type Service struct {
 	started bool
 }
 
-// NewBundle assembles the goal application Service from its parts and wires the
-// Authority-based Access PEP dependencies. Boot uses it after building the
-// executor and dispatcher; callers that assemble the pieces themselves (tests)
-// use it directly so the CRUD PEP is always authorizer-backed.
-func NewBundle(q *sqlc.Queries, gs *GoalService, az authz.Authorizer, agents *agentaccess.Service) *Service {
-	return &Service{Queries: q, Goal: gs, authz: az, agents: agents}
+// NewBundle assembles the goal application Service and its direct Agent port.
+// Boot uses it after building the executor and dispatcher; tests that assemble
+// pieces directly use the same constructor.
+func NewBundle(q *sqlc.Queries, gs *GoalService, agents *agentaccess.Service) *Service {
+	return &Service{Queries: q, Goal: gs, agents: agents}
 }
 
 // RegisterRiverWorker registers the goal subsystem's workers into a shared
@@ -197,14 +194,9 @@ type BootConfig struct {
 	LeaseTTL      time.Duration
 	Logger        *slog.Logger
 	ExcludedTools []string
-	// AgentAccess is the trusted durable-worker PEP. A goal attempt must not
-	// invoke an executor agent unless its persisted owner/executor pair passes a
-	// fresh Agent execute decision. It also backs the CRUD Access PEP's inline
-	// agent-execute gate.
+	// AgentAccess is Goal's direct cross-domain port. It gates persisted target
+	// agents for CRUD and is rechecked from the durable owner/executor on dequeue.
 	AgentAccess *agentaccess.Service
-	// Authorizer is the unified policy decision point shared with every other PEP.
-	// Required for the transport/tool Access PEP; the worker path uses AgentAccess.
-	Authorizer authz.Authorizer
 }
 
 // Boot constructs the goal system and returns the bound bundle. The dispatcher is
@@ -227,7 +219,7 @@ func Boot(cfg BootConfig) (*Service, error) {
 	}
 
 	svc := New(cfg.DB, q,
-		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools, newWorkerAuthorizer(cfg.Authorizer, cfg.AgentAccess))),
+		WithExecutor(bootExecutor(cfg.Chat, logger, cfg.ExcludedTools, newWorkerAuthorizer(cfg.AgentAccess))),
 		WithCheckRunner(NewCheckRunner(q, 0)),
 		WithCapabilityProbe(cfg.Capabilities),
 		WithSessionMinter(RegistrySessionMinter(cfg.Services)),
@@ -258,7 +250,6 @@ func Boot(cfg BootConfig) (*Service, error) {
 		Queries:         q,
 		Goal:            svc,
 		Dispatcher:      disp,
-		authz:           cfg.Authorizer,
 		agents:          cfg.AgentAccess,
 		runner:          runner,
 		queueMaxWorkers: maxWorkers,

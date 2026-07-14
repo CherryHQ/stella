@@ -12,7 +12,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	storepkg "github.com/CherryHQ/stella/internal/store"
@@ -22,21 +21,17 @@ import (
 
 func userAuthority(t *testing.T, id string) authz.Authority {
 	t.Helper()
-	return roledAuthority(t, id, authz.RoleUser)
+	return mintUserAuthority(t, id, false)
 }
 
 func adminAuthority(t *testing.T, id string) authz.Authority {
 	t.Helper()
-	return roledAuthority(t, id, authz.RoleAdmin)
+	return mintUserAuthority(t, id, true)
 }
 
-func roledAuthority(t *testing.T, id string, role authz.Role) authz.Authority {
+func mintUserAuthority(t *testing.T, id string, admin bool) authz.Authority {
 	t.Helper()
-	rs, err := authz.NewRoleSet(role)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	a, err := authz.NewUserAuthority(authz.UserID(id), admin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +39,7 @@ func roledAuthority(t *testing.T, id string, role authz.Role) authz.Authority {
 }
 
 // vaultPEP builds a PEP-enabled vault Service over a fresh pool, returning the
-// pool so a test can install custom policies the service's authorizer will read,
+// pool so the service and its agent gate share the same durable test state,
 // and a seeded owner user with age keys provisioned.
 func vaultPEP(t *testing.T) (*vault.Service, *pgxpool.Pool, string) {
 	t.Helper()
@@ -56,9 +51,8 @@ func vaultPEP(t *testing.T) (*vault.Service, *pgxpool.Pool, string) {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
 	testDB := &vaultTestDB{oidc: oidc, q: sqlc.New(db)}
-	authorizer := policy.New(db)
-	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), authorizer)
-	svc, err := vault.NewService(testDB, masterID.String(), authorizer, agents)
+	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
+	svc, err := vault.NewService(testDB, masterID.String(), agents)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -110,29 +104,5 @@ func TestVaultAccessOwnerAdminAndForeign(t *testing.T) {
 	}
 	if got, err := begin(adminAuthority(t, "admin-1")).GetScoped(ctx, vault.ScopeSystem, "", "SYS"); err != nil || got != "s" {
 		t.Fatalf("admin system Get = %q, %v; want s", got, err)
-	}
-}
-
-// A custom deny on is_owner user-scope read overrides the owner built-in.
-func TestVaultAccessCustomDeny(t *testing.T) {
-	svc, db, ownerID := vaultPEP(t)
-	ctx := context.Background()
-	if err := svc.Set(ctx, ownerID, "MY_SECRET", "v"); err != nil {
-		t.Fatalf("seed secret: %v", err)
-	}
-	ps := policy.NewService(policy.New(db))
-	if _, _, err := ps.CreatePolicy(ctx, policy.PolicyInput{
-		Name: "deny own vault read", Resource: authz.ResourceVault, Action: authz.ActionRead,
-		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
-		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	acc, err := svc.Begin(ctx, userAuthority(t, ownerID))
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	if _, err := acc.GetScoped(ctx, vault.ScopeUser, "", "MY_SECRET"); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("custom deny Get err=%v, want forbidden", err)
 	}
 }

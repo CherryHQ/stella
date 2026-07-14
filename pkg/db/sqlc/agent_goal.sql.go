@@ -126,7 +126,7 @@ func (q *Queries) ClearGoalActiveAttempt(ctx context.Context, id string) error {
 const countRootGoal = `-- name: CountRootGoal :one
 SELECT CAST(COUNT(*) AS BIGINT) FROM agent_goal
 WHERE parent_id IS NULL
-  AND user_id = $1
+  AND ($1::uuid IS NULL OR user_id = $1::uuid)
   AND ($2::text IS NULL OR agent_id = $2::text)
   AND ($3::uuid IS NULL OR project_id = $3::uuid)
   AND ($4::uuid IS NULL OR workflow_id = $4::uuid)
@@ -138,7 +138,7 @@ WHERE parent_id IS NULL
 `
 
 type CountRootGoalParams struct {
-	UserID          string      `json:"user_id"`
+	UserID          pgtype.Text `json:"user_id"`
 	AgentID         pgtype.Text `json:"agent_id"`
 	ProjectID       pgtype.Text `json:"project_id"`
 	WorkflowID      pgtype.Text `json:"workflow_id"`
@@ -1279,7 +1279,7 @@ func (q *Queries) ListRollupCandidates(ctx context.Context, limit int32) ([]Agen
 const listRootGoal = `-- name: ListRootGoal :many
 SELECT id, user_id, agent_id, project_id, parent_id, root_id, depth, position, title, intent, kind, priority, required, acceptance_contract, convergence_policy, review_policy, lifecycle, block_reason, acceptance_state, accepted_output, acceptance_seq, active_attempt_id, attempt_count, context, dispatch_hint, created_at, updated_at, accepted_at, cancelled_at, archived_at, plan, planned_at, flaky_count, budget_bonus, done_reason, workflow_id, workflow_version, idempotency_key FROM agent_goal
 WHERE parent_id IS NULL
-  AND user_id = $1
+  AND ($1::uuid IS NULL OR user_id = $1::uuid)
   AND ($2::text IS NULL OR agent_id = $2::text)
   AND ($3::uuid IS NULL OR project_id = $3::uuid)
   AND ($4::uuid IS NULL OR workflow_id = $4::uuid)
@@ -1293,7 +1293,7 @@ LIMIT $10 OFFSET $9
 `
 
 type ListRootGoalParams struct {
-	UserID          string      `json:"user_id"`
+	UserID          pgtype.Text `json:"user_id"`
 	AgentID         pgtype.Text `json:"agent_id"`
 	ProjectID       pgtype.Text `json:"project_id"`
 	WorkflowID      pgtype.Text `json:"workflow_id"`

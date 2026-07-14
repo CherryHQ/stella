@@ -7,51 +7,43 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 )
 
-// Access is one vault use case bound to exactly one Authorizer evaluation. The
-// vault Service is the sole policy-enforcement point for ResourceVault: the HTTP
-// handlers and the agent tool pass a trusted authz.Authority and never a bare
-// identity or an IsAdmin bool. The four durable scopes map to policy this way:
+// Access captures one validated authority for a vault use case. Vault owns the
+// direct rules for ResourceVault: the HTTP handlers and the agent tool pass a
+// trusted authz.Authority and never a bare identity or an IsAdmin bool. The four
+// durable scopes decide this way:
 //   - user / user_agent are user-owned (is_owner is derived from the entry's
 //     owner column; an agent-scoped actor is confined to its own user_agent
 //     bucket, and every agent-scoped op folds an agent-read gate);
-//   - system / system_agent are admin-managed and reachable only through
-//     admin-full-access (there is no owner built-in for them).
+//   - system / system_agent are admin-managed and reachable only by an admin.
 //
 // Trusted internal callers (MCP, connections/OAuth, email, channel config,
 // sandbox env loader, key provisioning) keep using the raw Service methods; they
 // are host-side credential plumbing, not user requests, and never open an Access.
 type Access struct {
 	svc         *Service
-	eval        authz.Evaluation
 	authority   authz.Authority
 	userID      string
 	agentID     string
 	agentScoped bool
 }
 
-// Begin opens exactly one evaluation for one vault use case.
-func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access, error) {
-	if s == nil || s.authz == nil {
-		return nil, fmt.Errorf("vault authorization unavailable: authorizer not configured")
+// Begin captures validated authority for one vault use case.
+func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, error) {
+	if s == nil || s.agents == nil {
+		return nil, fmt.Errorf("vault authorization unavailable: agent access not configured")
 	}
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden
 	}
-	eval, err := s.authz.Begin(ctx, authority)
-	if err != nil {
-		return nil, fmt.Errorf("vault authorization begin: %w", err)
-	}
-	actor := authority.Actor()
 	agentID := ""
 	agentScoped := false
-	if actor.Kind() == authz.ActorAgent {
-		agentID = string(actor.AgentID())
+	if authority.Kind() == authz.ActorAgent {
+		agentID = string(authority.AgentID())
 		agentScoped = true
 	}
-	return &Access{svc: s, eval: eval, authority: authority, userID: string(actor.UserID()), agentID: agentID, agentScoped: agentScoped}, nil
+	return &Access{svc: s, authority: authority, userID: string(authority.UserID()), agentID: agentID, agentScoped: agentScoped}, nil
 }
 
 // ListScoped lists entry metadata for one scope, or (scope == "") the caller's
@@ -163,16 +155,11 @@ func (a *Access) authorizeScoped(ctx context.Context, action authz.Action, scope
 	default:
 		return "", "", fmt.Errorf("vault: invalid scope %q", scope)
 	}
-	// Decide the policy FIRST so a caller with no grant for a scope is denied
-	// before any structural validation of that scope's columns.
+	// Decide the rule FIRST so a caller with no access to a scope is denied before
+	// any structural validation of that scope's columns.
 	isOwner := !isSystemScope(scope) && a.userID != "" && entryUserID == a.userID
-	facts := policy.VaultFacts{Scope: scope, Owner: entryUserID, Agent: entryAgentID, IsOwner: isOwner}
-	req, err := policy.VaultRequest(action, entryUserID, entryUserID, facts)
-	if err != nil {
+	if !a.allow(action, scope, isOwner) {
 		return "", "", authz.ErrForbidden
-	}
-	if err := a.decideReq(req); err != nil {
-		return "", "", err
 	}
 	// The authorized caller must still name a valid bucket.
 	if (scope == ScopeUserAgent || scope == ScopeSystemAgent) && entryAgentID == "" {
@@ -181,8 +168,7 @@ func (a *Access) authorizeScoped(ctx context.Context, action authz.Action, scope
 	if err := validateScope(scope, entryUserID, entryAgentID); err != nil {
 		return "", "", err
 	}
-	// Every agent-scoped bucket additionally requires read access to that agent,
-	// folding the former requireAgentAccess into this single evaluation.
+	// Every agent-scoped bucket additionally requires Agent-domain read access.
 	if entryAgentID != "" {
 		if err := a.authorizeAgent(ctx, entryAgentID); err != nil {
 			return "", "", err
@@ -195,7 +181,7 @@ func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
 	if a.svc.agents == nil {
 		return authz.ErrForbidden
 	}
-	err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, agentID, authz.ActionRead)
+	err := a.svc.agents.Authorize(ctx, a.authority, agentID, authz.ActionRead)
 	switch {
 	case err == nil:
 		return nil
@@ -208,13 +194,31 @@ func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
 	}
 }
 
-func (a *Access) decideReq(req authz.Request) error {
-	dec, err := a.eval.Decide(req)
-	if err != nil {
-		return fmt.Errorf("vault decide: %w", err)
+// allow is Vault's static rule table. Admin holds every scope; an ordinary user
+// or a delegated agent may list, and read/create/write/delete only its own
+// user/user_agent entries (isOwner). No other actor and no non-admin system-scope
+// access exists.
+func (a *Access) allow(action authz.Action, scope string, isOwner bool) bool {
+	if !action.Valid() {
+		return false
 	}
-	if !dec.Allowed() {
-		return authz.ErrForbidden
+	if a.authority.IsAdmin() {
+		return true
 	}
-	return nil
+	switch a.authority.Kind() {
+	case authz.ActorUser, authz.ActorAgent:
+	default:
+		return false
+	}
+	if isSystemScope(scope) {
+		return false
+	}
+	switch action {
+	case authz.ActionList:
+		return true
+	case authz.ActionRead, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete:
+		return isOwner
+	default:
+		return false
+	}
 }

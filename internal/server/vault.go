@@ -192,10 +192,10 @@ func (s *Server) invalidateVaultRunners(scope, userID, agentID, name, op string)
 	}
 }
 
-// vaultAccess derives the trusted Authority for the authenticated caller and
-// opens one vault Authorizer evaluation. The vault Service is the sole PEP: it
-// decides the scope (including admin-only system scopes) and folds the agent-read
-// gate, so the handler no longer resolves scope or checks IsAdmin here.
+// vaultAccess derives the trusted Authority for the authenticated caller. The
+// vault Service is the sole enforcement point: it decides the scope (including
+// admin-only system scopes) and folds the agent-read gate, so the handler never
+// resolves scope or checks IsAdmin itself.
 func (s *Server) vaultAccess(w http.ResponseWriter, r *http.Request) (*vault.Access, bool) {
 	info := UserFromContext(r.Context())
 	if info == nil {

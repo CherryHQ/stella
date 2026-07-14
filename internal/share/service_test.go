@@ -277,11 +277,7 @@ func mustAccess(t *testing.T, svc *sharepkg.Service, authority authz.Authority) 
 // userAuthority mints a trusted UserActor authority for a durable user.
 func userAuthority(t *testing.T, id string) authz.Authority {
 	t.Helper()
-	rs, err := authz.NewRoleSet(authz.RoleUser)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := authz.NewUserAuthority(authz.UserID(id), rs, authz.GrantSet{})
+	a, err := authz.NewUserAuthority(authz.UserID(id), false)
 	if err != nil {
 		t.Fatal(err)
 	}

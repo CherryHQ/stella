@@ -21,7 +21,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"
@@ -64,9 +63,8 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 			uuid.NewString(), sessionID, agentID, userID, now, now, now)
 		return sessionID, err
 	}))
-	goalAuthorizer := policy.New(db)
-	goalAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), goalAuthorizer)
-	goalBundle := goal.NewBundle(q, goalSvc, goalAuthorizer, goalAgents)
+	goalAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
+	goalBundle := goal.NewBundle(q, goalSvc, goalAgents)
 	ownerGoalAuthority, err := ownerIdentity(ownerUser, agentID).ToAuthority()
 	if err != nil {
 		t.Fatalf("owner goal authority: %v", err)
@@ -80,9 +78,8 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("create owner goal: %v", err)
 	}
 
-	schedAuthorizer := policy.New(db)
-	schedAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), schedAuthorizer)
-	schedulerSvc, err := scheduler.New(db, scheduler.WithAuthorization(schedAuthorizer, schedAgents))
+	schedAgents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
+	schedulerSvc, err := scheduler.New(db, scheduler.WithAgentAccess(schedAgents))
 	if err != nil {
 		t.Fatalf("scheduler.New: %v", err)
 	}
@@ -337,9 +334,8 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 	if err != nil {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
-	authorizer := policy.New(db)
-	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), authorizer)
-	svc, err := vault.NewService(sqlc.New(db), masterID.String(), authorizer, agents)
+	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
+	svc, err := vault.NewService(sqlc.New(db), masterID.String(), agents)
 	if err != nil {
 		t.Fatalf("vault.NewService: %v", err)
 	}
