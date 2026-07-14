@@ -18,7 +18,7 @@ func TestValidateFactReconciliationPlanAcceptsSingletonsAndKnowledgeCreate(t *te
 		},
 		Knowledge: knowledgeRelatedBundle{
 			Candidates: []factCandidate{validFactCandidate("fact-0003", factSubjectWorld)},
-			Limits:     relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedPerCandidate},
+			Limits:     relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedKnowledgePerCandidate},
 		},
 	}
 	plan := factReconciliationPlan{
@@ -100,7 +100,7 @@ func TestValidateFactReconciliationPlanRejectsKnowledgeTargetOutsideBundle(t *te
 				Status:  memory.FactStatusActive,
 				Source:  memory.SourceReflect,
 			}},
-			Limits: relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedPerCandidate},
+			Limits: relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedKnowledgePerCandidate},
 		},
 	}
 	plan := factReconciliationPlan{

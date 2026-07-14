@@ -31,6 +31,27 @@ func TestMarkReflectOwnedMetadataPreservesExistingFields(t *testing.T) {
 	}
 }
 
+func TestMarkReflectOwnedMetadataAcceptsWhitespaceNull(t *testing.T) {
+	metadata, err := MarkReflectOwnedMetadata(json.RawMessage(" \nnull\t"))
+	if err != nil {
+		t.Fatalf("MarkReflectOwnedMetadata: %v", err)
+	}
+	if !json.Valid(metadata) {
+		t.Fatalf("metadata is not valid JSON: %q", metadata)
+	}
+	if !IsReflectOwned(Skill{Metadata: metadata}) {
+		t.Fatalf("metadata is not reflect-owned: %s", metadata)
+	}
+
+	var fields map[string]any
+	if err := json.Unmarshal(metadata, &fields); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if len(fields) != 1 || fields[reflectSkillCreatedByKey] != ReflectSkillCreatedBy {
+		t.Fatalf("metadata fields = %#v, want only reflect ownership", fields)
+	}
+}
+
 func TestListActiveReflectOwnedUserAgentSkills(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)

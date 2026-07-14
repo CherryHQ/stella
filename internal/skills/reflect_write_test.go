@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestCreateReflectOwnedUserAgentSkillRecordsVersionAndChangelog(t *testing.T) {
@@ -140,6 +142,168 @@ func TestCreateReflectOwnedUserAgentSkillInitializesUsage(t *testing.T) {
 	}
 }
 
+func TestCreateReflectOwnedSkillExactRetryReturnsExisting(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	request := ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "reflect-create-retry",
+		Description:     "  created by reflect  ",
+		MainFileContent: "# Create Retry\n",
+		Metadata:        json.RawMessage(`{"source":"review","created-at":"2026-07-13T00:00:00Z"}`),
+	}
+
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, request)
+	if err != nil {
+		t.Fatalf("first CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+	var firstLastUsedAt time.Time
+	if err := db.QueryRow(ctx, `SELECT last_used_at FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&firstLastUsedAt); err != nil {
+		t.Fatalf("read initial usage timestamp: %v", err)
+	}
+
+	// Different JSON formatting represents the same requested metadata state.
+	request.Metadata = json.RawMessage("{\n  \"created-at\": \"2026-07-13T00:00:00Z\",\n  \"source\": \"review\"\n}")
+	retried, err := store.CreateReflectOwnedUserAgentSkill(ctx, request)
+	if err != nil {
+		t.Fatalf("retry CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+	if retried.ID != created.ID || retried.Version != created.Version {
+		t.Fatalf("retry returned id/version = %s/%d, want %s/%d", retried.ID, retried.Version, created.ID, created.Version)
+	}
+	if retried.Description != "created by reflect" {
+		t.Fatalf("normalized description = %q, want %q", retried.Description, "created by reflect")
+	}
+
+	var changelogCount int
+	var retriedLastUsedAt time.Time
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM skill_changelog WHERE skill_id = $1`, created.ID).Scan(&changelogCount); err != nil {
+		t.Fatalf("count retry changelog: %v", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT last_used_at FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&retriedLastUsedAt); err != nil {
+		t.Fatalf("read retried usage timestamp: %v", err)
+	}
+	if changelogCount != 1 {
+		t.Fatalf("retry changelog count = %d, want 1", changelogCount)
+	}
+	if !retriedLastUsedAt.Equal(firstLastUsedAt) {
+		t.Fatalf("retry refreshed usage timestamp from %v to %v", firstLastUsedAt, retriedLastUsedAt)
+	}
+}
+
+func TestCreateReflectOwnedSkillLargeIntegerMetadataConflict(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	request := ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "reflect-large-metadata",
+		Description:     "large integer metadata",
+		MainFileContent: "# Large Metadata\n",
+		Metadata:        json.RawMessage(`{"sequence":9007199254740992}`),
+	}
+	if _, err := store.CreateReflectOwnedUserAgentSkill(ctx, request); err != nil {
+		t.Fatalf("first CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+
+	request.Metadata = json.RawMessage(`{"sequence":9007199254740993}`)
+	_, err := store.CreateReflectOwnedUserAgentSkill(ctx, request)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" || pgErr.ConstraintName != "idx_skill_owner_name" {
+		t.Fatalf("different large-integer metadata error = %v, want owner/name conflict", err)
+	}
+}
+
+func TestCreateReflectOwnedSkillSameNameDifferentStateConflicts(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	request := ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "reflect-create-conflict",
+		Description:     "original description",
+		MainFileContent: "# Original\n",
+		Metadata:        json.RawMessage(`{"source":"review"}`),
+	}
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, request)
+	if err != nil {
+		t.Fatalf("first CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*ReflectSkillCreate)
+	}{
+		{name: "description", mutate: func(in *ReflectSkillCreate) { in.Description = "different description" }},
+		{name: "metadata", mutate: func(in *ReflectSkillCreate) { in.Metadata = json.RawMessage(`{"source":"other"}`) }},
+		{name: "main file", mutate: func(in *ReflectSkillCreate) { in.MainFileContent = "# Different\n" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conflicting := request
+			tt.mutate(&conflicting)
+			if _, err := store.CreateReflectOwnedUserAgentSkill(ctx, conflicting); err == nil {
+				t.Fatal("same-name create with different desired state succeeded")
+			}
+		})
+	}
+
+	content, err := store.LoadFile(ctx, created.ID, MainFile)
+	if err != nil {
+		t.Fatalf("LoadFile after conflicts: %v", err)
+	}
+	if content != request.MainFileContent {
+		t.Fatalf("conflicting create changed SKILL.md to %q", content)
+	}
+
+	stateTests := []struct {
+		name   string
+		slug   string
+		update string
+	}{
+		{name: "inactive", slug: "inactive", update: `UPDATE skill SET status = 'deprecated' WHERE id = $1`},
+		{name: "manual ownership", slug: "manual", update: `UPDATE skill SET metadata = '{}' WHERE id = $1`},
+		{name: "model invocation disabled", slug: "disabled", update: `UPDATE skill SET disable_model_invocation = true WHERE id = $1`},
+	}
+	for _, tt := range stateTests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateRequest := request
+			stateRequest.Name += "-" + tt.slug
+			stateCreated, err := store.CreateReflectOwnedUserAgentSkill(ctx, stateRequest)
+			if err != nil {
+				t.Fatalf("create state fixture: %v", err)
+			}
+			if _, err := db.Exec(ctx, tt.update, stateCreated.ID); err != nil {
+				t.Fatalf("mutate state fixture: %v", err)
+			}
+			if _, err := store.CreateReflectOwnedUserAgentSkill(ctx, stateRequest); err == nil {
+				t.Fatal("same-name retry accepted an ineligible existing skill")
+			}
+		})
+	}
+}
+
+func TestReflectCreateRetryOnlyRecognizesOwnerNameUniqueConflict(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "owner name", err: &pgconn.PgError{Code: "23505", ConstraintName: "idx_skill_owner_name"}, want: true},
+		{name: "primary key", err: &pgconn.PgError{Code: "23505", ConstraintName: "skill_pkey"}, want: false},
+		{name: "other database error", err: &pgconn.PgError{Code: "23503", ConstraintName: "idx_skill_owner_name"}, want: false},
+		{name: "plain error", err: errors.New("database unavailable"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSkillOwnerNameUniqueViolation(tt.err); got != tt.want {
+				t.Fatalf("isSkillOwnerNameUniqueViolation() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPatchReflectOwnedUserAgentSkillUsesOptimisticVersionAndChangelog(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)
@@ -207,15 +371,18 @@ func TestPatchReflectOwnedUserAgentSkillUsesOptimisticVersionAndChangelog(t *tes
 		t.Fatalf("oldest changelog = %#v, want create v1", logs[1])
 	}
 
-	_, err = store.PatchReflectOwnedUserAgentSkill(ctx, ReflectSkillPatch{
+	retried, err := store.PatchReflectOwnedUserAgentSkill(ctx, ReflectSkillPatch{
 		ID:              created.ID,
 		UserID:          userID,
 		AgentID:         agentID,
 		ExpectedVersion: created.Version,
 		MainFileContent: &afterContent,
 	})
-	if !errors.Is(err, ErrSkillVersionConflict) {
-		t.Fatalf("stale patch error = %v, want ErrSkillVersionConflict", err)
+	if err != nil {
+		t.Fatalf("exact stale patch retry: %v", err)
+	}
+	if retried.Version != patched.Version {
+		t.Fatalf("exact stale retry version = %d, want %d", retried.Version, patched.Version)
 	}
 }
 
@@ -267,6 +434,100 @@ func TestPatchReflectOwnedUserAgentSkillRefreshesUsageWithoutIncrementingCount(t
 	}
 	if !lastUsedAt.After(oldLastUsed) {
 		t.Fatalf("patched skill last_used_at = %v, want after %v", lastUsedAt, oldLastUsed)
+	}
+}
+
+func TestPatchReflectOwnedSkillExactStaleRetryIsNoop(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "reflect-patch-retry",
+		Description:     "before",
+		MainFileContent: "# Before\n",
+		Metadata:        json.RawMessage(`{"source":"before"}`),
+	})
+	if err != nil {
+		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+
+	description := "after"
+	content := "# After\n"
+	metadata := json.RawMessage(`{"source":"after","score":1}`)
+	request := ReflectSkillPatch{
+		ID:              created.ID,
+		UserID:          userID,
+		AgentID:         agentID,
+		ExpectedVersion: created.Version,
+		Description:     &description,
+		MainFileContent: &content,
+		Metadata:        metadata,
+	}
+	patched, err := store.PatchReflectOwnedUserAgentSkill(ctx, request)
+	if err != nil {
+		t.Fatalf("first PatchReflectOwnedUserAgentSkill: %v", err)
+	}
+
+	// A concurrent change to an unspecified field must not invalidate this retry.
+	if _, err := db.Exec(ctx, `UPDATE skill SET status = 'draft' WHERE id = $1`, created.ID); err != nil {
+		t.Fatalf("seed concurrent unspecified-field change: %v", err)
+	}
+	var firstLastUsedAt time.Time
+	if err := db.QueryRow(ctx, `SELECT last_used_at FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&firstLastUsedAt); err != nil {
+		t.Fatalf("read patched usage timestamp: %v", err)
+	}
+	request.Metadata = json.RawMessage(`{"score":1.0,"source":"after"}`)
+	retried, err := store.PatchReflectOwnedUserAgentSkill(ctx, request)
+	if err != nil {
+		t.Fatalf("retry PatchReflectOwnedUserAgentSkill: %v", err)
+	}
+	if retried.Version != patched.Version || retried.Status != "draft" {
+		t.Fatalf("retry returned version/status = %d/%q, want %d/draft", retried.Version, retried.Status, patched.Version)
+	}
+
+	var changelogCount int
+	var retriedLastUsedAt time.Time
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM skill_changelog WHERE skill_id = $1`, created.ID).Scan(&changelogCount); err != nil {
+		t.Fatalf("count patch retry changelog: %v", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT last_used_at FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&retriedLastUsedAt); err != nil {
+		t.Fatalf("read patch retry usage timestamp: %v", err)
+	}
+	if changelogCount != 2 {
+		t.Fatalf("patch retry changelog count = %d, want create+patch only", changelogCount)
+	}
+	if !retriedLastUsedAt.Equal(firstLastUsedAt) {
+		t.Fatalf("patch retry refreshed usage timestamp from %v to %v", firstLastUsedAt, retriedLastUsedAt)
+	}
+}
+
+func TestPatchReflectOwnedSkillStaleDifferentStateConflicts(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID:          userID,
+		AgentID:         agentID,
+		Name:            "reflect-patch-conflict",
+		Description:     "before",
+		MainFileContent: "# Before\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+	applied := "applied"
+	if _, err := store.PatchReflectOwnedUserAgentSkill(ctx, ReflectSkillPatch{
+		ID: created.ID, UserID: userID, AgentID: agentID, ExpectedVersion: created.Version, Description: &applied,
+	}); err != nil {
+		t.Fatalf("advance skill version: %v", err)
+	}
+
+	different := "different"
+	_, err = store.PatchReflectOwnedUserAgentSkill(ctx, ReflectSkillPatch{
+		ID: created.ID, UserID: userID, AgentID: agentID, ExpectedVersion: created.Version, Description: &different,
+	})
+	if !errors.Is(err, ErrSkillVersionConflict) {
+		t.Fatalf("stale different-state patch error = %v, want ErrSkillVersionConflict", err)
 	}
 }
 

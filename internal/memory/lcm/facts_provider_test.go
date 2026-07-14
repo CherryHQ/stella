@@ -6,6 +6,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -199,5 +200,187 @@ func TestProviderSoulUsesFactsAndSnapshotVersions(t *testing.T) {
 	}
 	if frozen != "first soul" {
 		t.Fatalf("frozen soul = %q, want first soul", frozen)
+	}
+}
+
+func TestProviderVersionZeroSnapshotStaysEmptyAfterFactsAreWritten(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer db.Close()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := context.Background()
+	profiles := memory.ProfileStore(p)
+	constraints := memory.ConstraintStore(p)
+	facts := memory.FactStore(p)
+	versionedProfiles := memory.VersionedProfileStore(p)
+	versionedConstraints := memory.VersionedConstraintStore(p)
+	versionedFacts := memory.VersionedFactStore(p)
+	snapshots := memory.SessionSnapshotStore(p)
+
+	snapshot, err := snapshots.GetOrCreateSessionSnapshot(ctx, "version-zero", testUserID, "test")
+	if err != nil {
+		t.Fatalf("create session snapshot: %v", err)
+	}
+	if snapshot.Version != 0 {
+		t.Fatalf("snapshot version = %d, want 0", snapshot.Version)
+	}
+
+	if err := profiles.SetProfile(ctx, testUserID, "test", "user profile"); err != nil {
+		t.Fatalf("set profile: %v", err)
+	}
+	if err := profiles.SetAgentSoul(ctx, testUserID, "test", "agent soul"); err != nil {
+		t.Fatalf("set agent soul: %v", err)
+	}
+	if _, err := p.ApplyFactBatch(ctx, testUserID, "test", []memorywrite.FactBatchOperation{{
+		Action:  memorywrite.FactBatchCreate,
+		Subject: memory.FactSubjectWorld,
+		Content: "world fact",
+	}}); err != nil {
+		t.Fatalf("write world fact: %v", err)
+	}
+	if _, err := constraints.AddConstraint(ctx, testUserID, "test", "constraint"); err != nil {
+		t.Fatalf("add constraint: %v", err)
+	}
+
+	profileAtSnapshot, err := versionedProfiles.GetProfileAt(ctx, testUserID, "test", snapshot.Version)
+	if err != nil {
+		t.Fatalf("get profile at snapshot: %v", err)
+	}
+	if profileAtSnapshot != "" {
+		t.Fatalf("profile at version 0 = %q, want empty", profileAtSnapshot)
+	}
+
+	soulAtSnapshot, err := versionedProfiles.GetAgentSoulAt(ctx, testUserID, "test", snapshot.Version)
+	if err != nil {
+		t.Fatalf("get soul at snapshot: %v", err)
+	}
+	if soulAtSnapshot != "" {
+		t.Fatalf("soul at version 0 = %q, want empty", soulAtSnapshot)
+	}
+
+	constraintsAtSnapshot, err := versionedConstraints.GetConstraintsAt(ctx, testUserID, "test", snapshot.Version)
+	if err != nil {
+		t.Fatalf("get constraints at snapshot: %v", err)
+	}
+	if len(constraintsAtSnapshot) != 0 {
+		t.Fatalf("constraints at version 0 = %+v, want empty", constraintsAtSnapshot)
+	}
+
+	factsAtSnapshot, err := versionedFacts.ListActiveFactsAt(ctx, testUserID, "test", memory.FactSubjectWorld, snapshot.Version)
+	if err != nil {
+		t.Fatalf("list facts at snapshot: %v", err)
+	}
+	if len(factsAtSnapshot) != 0 {
+		t.Fatalf("facts at version 0 = %+v, want empty", factsAtSnapshot)
+	}
+
+	currentProfile, err := profiles.GetProfile(ctx, testUserID, "test")
+	if err != nil {
+		t.Fatalf("get current profile: %v", err)
+	}
+	if currentProfile != "user profile" {
+		t.Fatalf("current profile = %q, want user profile", currentProfile)
+	}
+	currentSoul, err := profiles.GetAgentSoul(ctx, testUserID, "test")
+	if err != nil {
+		t.Fatalf("get current soul: %v", err)
+	}
+	if currentSoul != "agent soul" {
+		t.Fatalf("current soul = %q, want agent soul", currentSoul)
+	}
+	currentConstraints, err := constraints.GetConstraints(ctx, testUserID, "test")
+	if err != nil {
+		t.Fatalf("get current constraints: %v", err)
+	}
+	if len(currentConstraints) != 1 || currentConstraints[0].Text != "constraint" {
+		t.Fatalf("current constraints = %+v, want constraint", currentConstraints)
+	}
+	currentFacts, err := facts.ListActiveFacts(ctx, testUserID, "test", memory.FactSubjectWorld)
+	if err != nil {
+		t.Fatalf("list current facts: %v", err)
+	}
+	if len(currentFacts) != 1 || currentFacts[0].Content != "world fact" {
+		t.Fatalf("current facts = %+v, want world fact", currentFacts)
+	}
+}
+
+func TestProviderConstraintSnapshotBeforeFirstConstraintDoesNotReadCurrent(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer db.Close()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := context.Background()
+	profiles := memory.ProfileStore(p)
+	constraints := memory.ConstraintStore(p)
+	versionedConstraints := memory.VersionedConstraintStore(p)
+	snapshots := memory.SessionSnapshotStore(p)
+
+	if err := profiles.SetProfile(ctx, testUserID, "test", "version one"); err != nil {
+		t.Fatalf("write version one profile: %v", err)
+	}
+	snapshot, err := snapshots.GetOrCreateSessionSnapshot(ctx, "before-first-constraint", testUserID, "test")
+	if err != nil {
+		t.Fatalf("create session snapshot: %v", err)
+	}
+	if snapshot.Version != 1 {
+		t.Fatalf("snapshot version = %d, want 1", snapshot.Version)
+	}
+	if _, err := constraints.AddConstraint(ctx, testUserID, "test", "first constraint"); err != nil {
+		t.Fatalf("add first constraint: %v", err)
+	}
+
+	frozen, err := versionedConstraints.GetConstraintsAt(ctx, testUserID, "test", snapshot.Version)
+	if err != nil {
+		t.Fatalf("get constraints at version 1: %v", err)
+	}
+	if len(frozen) != 0 {
+		t.Fatalf("constraints at version 1 = %+v, want empty", frozen)
+	}
+
+	current, err := constraints.GetConstraints(ctx, testUserID, "test")
+	if err != nil {
+		t.Fatalf("get current constraints: %v", err)
+	}
+	if len(current) != 1 || current[0].Text != "first constraint" {
+		t.Fatalf("current constraints = %+v, want first constraint", current)
+	}
+}
+
+func TestProviderVersionedReadsRejectNegativeSnapshotVersion(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer db.Close()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := context.Background()
+	versionedProfiles := memory.VersionedProfileStore(p)
+	versionedConstraints := memory.VersionedConstraintStore(p)
+	versionedFacts := memory.VersionedFactStore(p)
+
+	if _, err := versionedProfiles.GetProfileAt(ctx, testUserID, "test", -1); err == nil {
+		t.Fatal("GetProfileAt with negative version did not return an error")
+	}
+	if _, err := versionedProfiles.GetAgentSoulAt(ctx, testUserID, "test", -1); err == nil {
+		t.Fatal("GetAgentSoulAt with negative version did not return an error")
+	}
+	if _, err := versionedConstraints.GetConstraintsAt(ctx, testUserID, "test", -1); err == nil {
+		t.Fatal("GetConstraintsAt with negative version did not return an error")
+	}
+	if _, err := versionedFacts.ListActiveFactsAt(ctx, testUserID, "test", memory.FactSubjectWorld, -1); err == nil {
+		t.Fatal("ListActiveFactsAt with negative version did not return an error")
 	}
 }

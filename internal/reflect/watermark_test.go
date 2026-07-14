@@ -2,6 +2,7 @@ package reflect
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -11,6 +12,64 @@ import (
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
+
+func TestParseWatermarkSeq(t *testing.T) {
+	maxSafeFloat := math.Nextafter(float64(math.MaxInt64), 0)
+	tests := []struct {
+		name    string
+		raw     any
+		want    int64
+		wantOK  bool
+		wantErr bool
+	}{
+		{name: "nil is absent", raw: nil, wantOK: false},
+		{name: "empty string is absent", raw: "", wantOK: false},
+		{name: "non-negative int", raw: int(42), want: 42, wantOK: true},
+		{name: "non-negative int64", raw: int64(42), want: 42, wantOK: true},
+		{name: "integer float64", raw: float64(42), want: 42, wantOK: true},
+		{name: "safe maximum float64", raw: maxSafeFloat, want: int64(maxSafeFloat), wantOK: true},
+		{name: "non-negative decimal string", raw: "42", want: 42, wantOK: true},
+		{name: "explicit integer zero", raw: 0, want: 0, wantOK: true},
+		{name: "explicit string zero", raw: "0", want: 0, wantOK: true},
+		{name: "negative int", raw: int(-1), wantErr: true},
+		{name: "negative int64", raw: int64(-1), wantErr: true},
+		{name: "negative float64", raw: float64(-1), wantErr: true},
+		{name: "fractional float64", raw: 42.5, wantErr: true},
+		{name: "nan", raw: math.NaN(), wantErr: true},
+		{name: "positive infinity", raw: math.Inf(1), wantErr: true},
+		{name: "negative infinity", raw: math.Inf(-1), wantErr: true},
+		// float64(math.MaxInt64) rounds above the largest representable int64.
+		{name: "float64 above int64 range", raw: float64(math.MaxInt64), wantErr: true},
+		{name: "negative decimal string", raw: "-1", wantErr: true},
+		{name: "fractional decimal string", raw: "42.5", wantErr: true},
+		{name: "invalid string", raw: "not-a-sequence", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, gotOK, err := parseWatermarkSeq(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseWatermarkSeq(%#v) error = %v, wantErr %t", tt.raw, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("parseWatermarkSeq(%#v) value = %d, want %d", tt.raw, got, tt.want)
+			}
+			if gotOK != tt.wantOK {
+				t.Errorf("parseWatermarkSeq(%#v) ok = %t, want %t", tt.raw, gotOK, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestParseWatermarkValueRejectsMalformedSequenceState(t *testing.T) {
+	mark, err := parseWatermarkValue("session", "key", map[string]any{"reviewed_seq": 42.5})
+	if err == nil {
+		t.Fatal("parseWatermarkValue accepted malformed sequence state")
+	}
+	if mark != (reviewWatermark{}) {
+		t.Fatalf("parseWatermarkValue returned partial watermark %#v", mark)
+	}
+}
 
 func newTestWatermarkStore(t *testing.T) (*watermarkStore, context.Context) {
 	t.Helper()

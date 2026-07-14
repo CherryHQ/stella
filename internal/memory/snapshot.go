@@ -7,19 +7,24 @@ import (
 
 // VersionedProfileStore is implemented by providers that can read profile/soul
 // at a specific memory version (from the changelog).
-// Version 0 or negative means "current" (same as ProfileStore).
+// Every non-negative version is a frozen memory clock. Callers that need
+// current state must use ProfileStore; version 0 is the valid empty baseline
+// before the first write, and negative versions return an error.
 type VersionedProfileStore interface {
 	GetProfileAt(ctx context.Context, userID string, agentID string, version int64) (string, error)
 	GetAgentSoulAt(ctx context.Context, userID string, agentID string, version int64) (string, error)
 }
 
 // VersionedConstraintStore is implemented by providers that can read constraints
-// at a specific memory version.
+// at a non-negative frozen memory version. Callers that need current state must
+// use ConstraintStore; version 0 is the valid empty baseline before the first
+// write, and negative versions return an error.
 type VersionedConstraintStore interface {
 	GetConstraintsAt(ctx context.Context, userID string, agentID string, version int64) ([]ConstraintEntry, error)
 }
 
-// SessionSnapshot holds the frozen version for a session.
+// SessionSnapshot holds the frozen version for a session. Version 0 is a valid
+// empty snapshot, not an alias for current memory.
 type SessionSnapshot struct {
 	SessionID string
 	UserID    string

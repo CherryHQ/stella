@@ -10,6 +10,77 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 )
 
+type snapshotPromptMemory struct {
+	*memorytest.Fake
+	currentReads      int
+	versionedVersions []int64
+}
+
+func (m *snapshotPromptMemory) GetAgentSoul(context.Context, string, string) (string, error) {
+	m.currentReads++
+	return "live-sentinel-soul", nil
+}
+
+func (m *snapshotPromptMemory) GetProfile(context.Context, string, string) (string, error) {
+	m.currentReads++
+	return "live-sentinel-profile", nil
+}
+
+func (m *snapshotPromptMemory) GetConstraints(context.Context, string, string) ([]memory.ConstraintEntry, error) {
+	m.currentReads++
+	return []memory.ConstraintEntry{{Text: "live-sentinel-constraint"}}, nil
+}
+
+func (m *snapshotPromptMemory) GetAgentSoulAt(_ context.Context, _ string, _ string, version int64) (string, error) {
+	m.versionedVersions = append(m.versionedVersions, version)
+	return "", nil
+}
+
+func (m *snapshotPromptMemory) GetProfileAt(_ context.Context, _ string, _ string, version int64) (string, error) {
+	m.versionedVersions = append(m.versionedVersions, version)
+	return "frozen profile", nil
+}
+
+func (m *snapshotPromptMemory) GetConstraintsAt(_ context.Context, _ string, _ string, version int64) ([]memory.ConstraintEntry, error) {
+	m.versionedVersions = append(m.versionedVersions, version)
+	return []memory.ConstraintEntry{{Text: "frozen constraint"}}, nil
+}
+
+func TestBuildSystemPromptUsesFrozenVersionZero(t *testing.T) {
+	version := int64(0)
+	mem := &snapshotPromptMemory{Fake: memorytest.New()}
+
+	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
+		SystemPrompt:    "You are Stella.",
+		AgentSoul:       "agent default soul",
+		Memory:          mem,
+		UserID:          "u1",
+		AgentID:         "a1",
+		SnapshotVersion: &version,
+	})
+
+	if len(mem.versionedVersions) != 3 {
+		t.Fatalf("versioned reads = %d, want 3", len(mem.versionedVersions))
+	}
+	for _, got := range mem.versionedVersions {
+		if got != version {
+			t.Fatalf("versioned read version = %d, want %d", got, version)
+		}
+	}
+	if mem.currentReads != 0 {
+		t.Fatalf("current reads = %d, want 0", mem.currentReads)
+	}
+	if !strings.Contains(p, "agent default soul") {
+		t.Fatalf("expected agent default soul fallback in prompt:\n%s", p)
+	}
+	if !strings.Contains(p, "frozen profile") || !strings.Contains(p, "frozen constraint") {
+		t.Fatalf("expected version-zero memory in prompt:\n%s", p)
+	}
+	if strings.Contains(p, "live-sentinel-soul") || strings.Contains(p, "live-sentinel-profile") || strings.Contains(p, "live-sentinel-constraint") {
+		t.Fatalf("prompt used current memory instead of version zero:\n%s", p)
+	}
+}
+
 func TestConstraintsDatesRendered(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()

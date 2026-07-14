@@ -44,7 +44,7 @@ func (r candidateLineReviewer) discoverSkillRelations(ctx context.Context, candi
 	}{
 		Candidates: candidates,
 		Catalog:    catalog,
-		Limits:     relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedPerCandidate},
+		Limits:     relatedBundleLimits{MaxRelatedPerCandidate: defaultMaxRelatedSkillsPerCandidate},
 	}
 	var selections []skillRelatedSelection
 	_, err := r.capture(ctx, skillRelatedDiscoveryPrompt, renderCaptureInput(input), captureProtocol{
@@ -57,7 +57,7 @@ func (r candidateLineReviewer) discoverSkillRelations(ctx context.Context, candi
 				return err
 			}
 			selections = normalizeSkillRelatedSelections(selections)
-			return validateSkillRelatedDiscovery(candidates, catalog, selections, defaultMaxRelatedPerCandidate)
+			return validateSkillRelatedDiscovery(candidates, catalog, selections, defaultMaxRelatedSkillsPerCandidate)
 		},
 	}, skillRelatedDiscoveryTools())
 	if err != nil {

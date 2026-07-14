@@ -12,7 +12,7 @@ func TestValidateKnowledgeRelatedDiscoveryRejectsUnknownFactID(t *testing.T) {
 	err := validateKnowledgeRelatedDiscovery([]factCandidate{candidate}, catalog, []knowledgeRelatedSelection{{
 		CandidateRef: "fact-0001",
 		Related:      []knowledgeRelatedHint{{FactID: "fact-missing", Relation: knowledgeRelationEquivalent}},
-	}}, defaultMaxRelatedPerCandidate)
+	}}, defaultMaxRelatedKnowledgePerCandidate)
 
 	if err == nil {
 		t.Fatal("expected unknown related fact id to be rejected")
@@ -25,7 +25,7 @@ func TestValidateKnowledgeRelatedDiscoveryRejectsUnknownCandidateRef(t *testing.
 	}, []factCatalogItem{{ID: "fact-old"}}, []knowledgeRelatedSelection{{
 		CandidateRef: "fact-9999",
 		Related:      []knowledgeRelatedHint{{FactID: "fact-old", Relation: knowledgeRelationEquivalent}},
-	}}, defaultMaxRelatedPerCandidate)
+	}}, defaultMaxRelatedKnowledgePerCandidate)
 
 	if err == nil {
 		t.Fatal("expected unknown candidate ref to be rejected")
@@ -33,9 +33,9 @@ func TestValidateKnowledgeRelatedDiscoveryRejectsUnknownCandidateRef(t *testing.
 }
 
 func TestValidateKnowledgeRelatedDiscoveryEnforcesPerCandidateLimit(t *testing.T) {
-	catalog := make([]factCatalogItem, 0, defaultMaxRelatedPerCandidate+1)
-	related := make([]knowledgeRelatedHint, 0, defaultMaxRelatedPerCandidate+1)
-	for i := 0; i <= defaultMaxRelatedPerCandidate; i++ {
+	catalog := make([]factCatalogItem, 0, defaultMaxRelatedKnowledgePerCandidate+1)
+	related := make([]knowledgeRelatedHint, 0, defaultMaxRelatedKnowledgePerCandidate+1)
+	for i := 0; i <= defaultMaxRelatedKnowledgePerCandidate; i++ {
 		id := CandidateRef("fact-old-" + string(rune('a'+i)))
 		catalog = append(catalog, factCatalogItem{ID: string(id)})
 		related = append(related, knowledgeRelatedHint{FactID: string(id), Relation: knowledgeRelationPossiblyAffects})
@@ -46,10 +46,30 @@ func TestValidateKnowledgeRelatedDiscoveryEnforcesPerCandidateLimit(t *testing.T
 	}, catalog, []knowledgeRelatedSelection{{
 		CandidateRef: "fact-0001",
 		Related:      related,
-	}}, defaultMaxRelatedPerCandidate)
+	}}, defaultMaxRelatedKnowledgePerCandidate)
 
 	if err == nil {
 		t.Fatal("expected over-limit related facts to be rejected")
+	}
+}
+
+func TestValidateKnowledgeRelatedDiscoveryAllowsTen(t *testing.T) {
+	catalog := make([]factCatalogItem, 0, 10)
+	related := make([]knowledgeRelatedHint, 0, 10)
+	for i := range 10 {
+		id := fmt.Sprintf("fact-old-%d", i)
+		catalog = append(catalog, factCatalogItem{ID: id})
+		related = append(related, knowledgeRelatedHint{FactID: id, Relation: knowledgeRelationPossiblyAffects})
+	}
+
+	err := validateKnowledgeRelatedDiscovery([]factCandidate{
+		validFactCandidate("fact-0001", factSubjectWorld),
+	}, catalog, []knowledgeRelatedSelection{{
+		CandidateRef: "fact-0001",
+		Related:      related,
+	}}, 0)
+	if err != nil {
+		t.Fatalf("expected ten related knowledge records to be accepted: %v", err)
 	}
 }
 
@@ -82,11 +102,11 @@ func TestNormalizeKnowledgeRelatedDiscoveryAggregatesCandidateAndKeepsStrongestR
 }
 
 func TestNormalizeKnowledgeRelatedDiscoveryExposesAggregateLimitViolation(t *testing.T) {
-	catalog := make([]factCatalogItem, 0, defaultMaxRelatedPerCandidate+1)
+	catalog := make([]factCatalogItem, 0, defaultMaxRelatedKnowledgePerCandidate+1)
 	selections := make([]knowledgeRelatedSelection, 0, 2)
 	for batch := range 2 {
-		related := make([]knowledgeRelatedHint, 0, defaultMaxRelatedPerCandidate)
-		for i := batch; i <= defaultMaxRelatedPerCandidate; i += 2 {
+		related := make([]knowledgeRelatedHint, 0, defaultMaxRelatedKnowledgePerCandidate)
+		for i := batch; i <= defaultMaxRelatedKnowledgePerCandidate; i += 2 {
 			id := fmt.Sprintf("fact-old-%d", i)
 			catalog = append(catalog, factCatalogItem{ID: id})
 			related = append(related, knowledgeRelatedHint{FactID: id, Relation: knowledgeRelationPossiblyAffects})
@@ -99,7 +119,7 @@ func TestNormalizeKnowledgeRelatedDiscoveryExposesAggregateLimitViolation(t *tes
 		[]factCandidate{validFactCandidate("fact-0001", factSubjectWorld)},
 		catalog,
 		normalized,
-		defaultMaxRelatedPerCandidate,
+		defaultMaxRelatedKnowledgePerCandidate,
 	)
 	if err == nil {
 		t.Fatal("expected aggregate related facts over the per-candidate limit to be rejected")
@@ -120,7 +140,7 @@ func TestValidateSkillRelatedDiscoveryRequiresUsedSkillRefs(t *testing.T) {
 	err := validateSkillRelatedDiscovery([]skillCandidate{candidate}, catalog, []skillRelatedSelection{{
 		CandidateRef: "skill-0001",
 		Related:      []skillRelatedHint{{SkillID: "skill-other-id", Relation: skillRelationSameWorkflow}},
-	}}, defaultMaxRelatedPerCandidate)
+	}}, defaultMaxRelatedSkillsPerCandidate)
 
 	if err == nil {
 		t.Fatal("expected missing used skill ref to be rejected")
@@ -138,9 +158,33 @@ func TestValidateSkillRelatedDiscoveryAcceptsUsedSkillRefByName(t *testing.T) {
 	err := validateSkillRelatedDiscovery([]skillCandidate{candidate}, catalog, []skillRelatedSelection{{
 		CandidateRef: "skill-0001",
 		Related:      []skillRelatedHint{{SkillID: "skill-used-id", Relation: skillRelationPatchableGap}},
-	}}, defaultMaxRelatedPerCandidate)
+	}}, defaultMaxRelatedSkillsPerCandidate)
 	if err != nil {
 		t.Fatalf("expected used skill ref by name to be accepted: %v", err)
+	}
+}
+
+func TestValidateSkillRelatedDiscoveryAllowsFiveAndRejectsSix(t *testing.T) {
+	catalog := make([]skillCatalogItem, 0, 6)
+	related := make([]skillRelatedHint, 0, 6)
+	for i := range 6 {
+		id := fmt.Sprintf("skill-old-%d", i)
+		catalog = append(catalog, skillCatalogItem{ID: id})
+		related = append(related, skillRelatedHint{SkillID: id, Relation: skillRelationSameWorkflow})
+	}
+	candidates := []skillCandidate{validSkillCandidate("skill-0001")}
+
+	if err := validateSkillRelatedDiscovery(candidates, catalog, []skillRelatedSelection{{
+		CandidateRef: "skill-0001",
+		Related:      related[:5],
+	}}, 0); err != nil {
+		t.Fatalf("expected five related skills to be accepted: %v", err)
+	}
+	if err := validateSkillRelatedDiscovery(candidates, catalog, []skillRelatedSelection{{
+		CandidateRef: "skill-0001",
+		Related:      related,
+	}}, 0); err == nil {
+		t.Fatal("expected six related skills to be rejected")
 	}
 }
 
@@ -173,11 +217,11 @@ func TestNormalizeSkillRelatedDiscoveryAggregatesCandidateAndKeepsStrongestRelat
 }
 
 func TestNormalizeSkillRelatedDiscoveryExposesAggregateLimitViolation(t *testing.T) {
-	catalog := make([]skillCatalogItem, 0, defaultMaxRelatedPerCandidate+1)
+	catalog := make([]skillCatalogItem, 0, defaultMaxRelatedSkillsPerCandidate+1)
 	selections := make([]skillRelatedSelection, 0, 2)
 	for batch := range 2 {
-		related := make([]skillRelatedHint, 0, defaultMaxRelatedPerCandidate)
-		for i := batch; i <= defaultMaxRelatedPerCandidate; i += 2 {
+		related := make([]skillRelatedHint, 0, defaultMaxRelatedSkillsPerCandidate)
+		for i := batch; i <= defaultMaxRelatedSkillsPerCandidate; i += 2 {
 			id := fmt.Sprintf("skill-old-%d", i)
 			catalog = append(catalog, skillCatalogItem{ID: id})
 			related = append(related, skillRelatedHint{SkillID: id, Relation: skillRelationOverlappingTrigger})
@@ -190,7 +234,7 @@ func TestNormalizeSkillRelatedDiscoveryExposesAggregateLimitViolation(t *testing
 		[]skillCandidate{validSkillCandidate("skill-0001")},
 		catalog,
 		normalized,
-		defaultMaxRelatedPerCandidate,
+		defaultMaxRelatedSkillsPerCandidate,
 	)
 	if err == nil {
 		t.Fatal("expected aggregate related skills over the per-candidate limit to be rejected")

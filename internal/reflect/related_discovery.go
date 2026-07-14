@@ -170,7 +170,7 @@ func validateKnowledgeRelatedDiscovery(candidates []factCandidate, catalog []fac
 		factIDs[item.ID] = struct{}{}
 	}
 	if limit <= 0 {
-		limit = defaultMaxRelatedPerCandidate
+		limit = defaultMaxRelatedKnowledgePerCandidate
 	}
 
 	for _, selection := range selections {
@@ -209,7 +209,7 @@ func validateSkillRelatedDiscovery(candidates []skillCandidate, catalog []skillC
 		skillNameToID[item.Name] = item.ID
 	}
 	if limit <= 0 {
-		limit = defaultMaxRelatedPerCandidate
+		limit = defaultMaxRelatedSkillsPerCandidate
 	}
 
 	selectedByCandidate := make(map[CandidateRef]map[string]struct{}, len(selections))

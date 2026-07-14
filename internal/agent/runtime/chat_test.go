@@ -23,6 +23,19 @@ type recordingMemory struct {
 	assembleError error
 }
 
+type snapshotRecordingMemory struct {
+	*recordingMemory
+	snapshot memory.SessionSnapshot
+}
+
+func (m *snapshotRecordingMemory) GetOrCreateSessionSnapshot(context.Context, string, string, string) (memory.SessionSnapshot, error) {
+	return m.snapshot, nil
+}
+
+func (*snapshotRecordingMemory) AdvanceSessionSnapshot(context.Context, string, string, string) error {
+	return nil
+}
+
 func (m *recordingMemory) Name() string { return "recording" }
 
 func (m *recordingMemory) Bootstrap(context.Context, memory.Session) error { return nil }
@@ -77,6 +90,49 @@ func (r chatFakeRunner) Busy() bool              { return false }
 func (r chatFakeRunner) LastActivity() time.Time { return time.Now() }
 func (r chatFakeRunner) SystemPrompt() string    { return r.system }
 func (r chatFakeRunner) Close() error            { return nil }
+
+func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
+	mem := &snapshotRecordingMemory{
+		recordingMemory: &recordingMemory{},
+		snapshot:        memory.SessionSnapshot{Version: 0},
+	}
+	var promptCalls int
+	var beforeRunSystem string
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{system: "live base prompt", events: []Event{{Text: "ok"}}}, nil
+		},
+		SnapshotPrompt: func(_ context.Context, _ session.Info, snap memory.SessionSnapshot) string {
+			promptCalls++
+			if snap.Version != 0 {
+				t.Fatalf("snapshot version = %d, want 0", snap.Version)
+			}
+			return "frozen snapshot prompt"
+		},
+		BeforeRun: func(_ context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
+			beforeRunSystem = system
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	out := rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, "hello")
+	for evt := range out {
+		if evt.Err != nil {
+			t.Fatalf("chat: %v", evt.Err)
+		}
+	}
+
+	if promptCalls != 1 {
+		t.Fatalf("snapshot prompt calls = %d, want 1", promptCalls)
+	}
+	if beforeRunSystem != "frozen snapshot prompt" {
+		t.Fatalf("before-run system = %q, want frozen snapshot prompt", beforeRunSystem)
+	}
+}
 
 func TestRuntimeChatCommitsGroupCursorAfterSuccessfulGroupTurn(t *testing.T) {
 	mem := &recordingMemory{}

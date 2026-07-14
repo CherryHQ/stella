@@ -18,10 +18,9 @@ type PathResolver func(scope, agentID string, userID string) string
 // DiskSyncStore wraps a Store and mirrors every write to disk so that skill
 // scripts can be executed from the filesystem inside a sandbox.
 //
-// Create ordering is disk-first: if the disk write fails the DB write is skipped
-// and the error is propagated. On crash after disk write but before DB write,
-// the create is lost and the directory lingers as an inert orphan — nothing
-// re-imports disk files into the DB, and SyncAllToDisk only visits DB skills.
+// Generic Create ordering is disk-first: if the disk write fails the DB write is
+// skipped and the error is propagated. Reflect create is DB-first so an owner/name
+// conflict cannot overwrite disk; exact retries can repair a failed disk mirror.
 //
 // Reflect patch ordering is DB-first because the expected-version check is only
 // authoritative inside the inner store's row lock. Disk is mirrored only after
@@ -51,14 +50,18 @@ func (d *DiskSyncStore) Create(ctx context.Context, sk Skill, files map[string]s
 }
 
 func (d *DiskSyncStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error) {
+	created, err := d.Store.CreateReflectOwnedUserAgentSkill(ctx, in)
+	if err != nil {
+		return Skill{}, err
+	}
 	files := map[string]string{MainFile: in.MainFileContent}
-	base := d.resolver("user_agent", in.AgentID, in.UserID)
+	base := d.resolver(created.Scope, created.AgentID, created.UserID)
 	if base != "" {
-		if err := d.writeFilesToDisk(base, in.Name, files); err != nil {
-			return Skill{}, fmt.Errorf("disk_sync reflect create %q: %w", in.Name, err)
+		if err := d.writeFilesToDisk(base, created.Name, files); err != nil {
+			return Skill{}, fmt.Errorf("disk_sync reflect create %q: %w", created.Name, err)
 		}
 	}
-	return d.Store.CreateReflectOwnedUserAgentSkill(ctx, in)
+	return created, nil
 }
 
 func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
@@ -92,6 +95,11 @@ func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in 
 			diskPath, err := safeDiskPath(base, patched.Name, filepath.FromSlash(MainFile))
 			if err != nil {
 				return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", patched.Name, err)
+			}
+			// An exact stale retry already has the requested DB state. Preserve the
+			// disk file too when its bytes match; read failures use the normal write path.
+			if current, readErr := os.ReadFile(diskPath); readErr == nil && bytes.Equal(current, []byte(*in.MainFileContent)) {
+				return patched, nil
 			}
 			if err := writeFile(diskPath, *in.MainFileContent); err != nil {
 				return Skill{}, fmt.Errorf("disk_sync reflect patch %q: %w", patched.Name, err)

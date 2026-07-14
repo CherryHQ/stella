@@ -518,6 +518,7 @@ func (t *memoryTool) requireKnowledgeCtx(ctx context.Context) (string, string, e
 
 func (t *memoryTool) searchKnowledgeFacts(ctx context.Context, userID string, agentID string) ([]Fact, error) {
 	snapshotVersion := int64(0)
+	hasSnapshot := false
 	if t.snapshotStore != nil {
 		if sessionID := SessionIDFromContext(ctx); sessionID != "" {
 			snap, err := t.snapshotStore.GetOrCreateSessionSnapshot(ctx, sessionID, userID, agentID)
@@ -525,9 +526,10 @@ func (t *memoryTool) searchKnowledgeFacts(ctx context.Context, userID string, ag
 				return nil, fmt.Errorf("memory search_knowledge: get snapshot: %w", err)
 			}
 			snapshotVersion = snap.Version
+			hasSnapshot = true
 		}
 	}
-	if snapshotVersion > 0 {
+	if hasSnapshot {
 		if t.versionedFacts == nil {
 			return nil, fmt.Errorf("memory search_knowledge: snapshot facts are not supported by provider")
 		}

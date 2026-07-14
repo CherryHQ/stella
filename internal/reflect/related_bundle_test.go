@@ -110,6 +110,29 @@ func TestBuildSkillRelatedCatalogUsesReflectOwnedStoreView(t *testing.T) {
 	}
 }
 
+func TestBuildSkillRelatedBundleLoadsDuplicateSkillOnlyOnce(t *testing.T) {
+	store := &fakeSkillRelatedBundleStore{
+		fakeReflectSkillCatalogStore: fakeReflectSkillCatalogStore{
+			rows: []pkgplugins.Skill{{ID: "skill-shared", Name: "shared", Scope: "user_agent", Status: "active"}},
+		},
+		files: map[string]string{"skill-shared": "# Shared\n"},
+	}
+
+	bundle, err := buildSkillRelatedBundle(context.Background(), store, "user-1", "agent-1", []skillCandidate{
+		validSkillCandidate("skill-0001"),
+		validSkillCandidate("skill-0002"),
+	}, []skillRelatedSelection{
+		{CandidateRef: "skill-0001", Related: []skillRelatedHint{{SkillID: "skill-shared", Relation: skillRelationSameWorkflow}}},
+		{CandidateRef: "skill-0002", Related: []skillRelatedHint{{SkillID: "skill-shared", Relation: skillRelationOverlappingTrigger}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.RelatedRecords) != 1 || len(store.loaded) != 1 || store.loaded[0] != "skill-shared" {
+		t.Fatalf("expected one global load for the shared skill, records=%#v loaded=%#v", bundle.RelatedRecords, store.loaded)
+	}
+}
+
 type fakeReflectSkillCatalogStore struct {
 	rows        []pkgplugins.Skill
 	listUserID  string

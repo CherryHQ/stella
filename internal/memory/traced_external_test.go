@@ -3,6 +3,7 @@ package memory_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -345,6 +346,28 @@ func TestTracedProvider_GetAgentSoulAt(t *testing.T) {
 	}
 	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpGetAgentSoulAt {
 		t.Errorf("expected GetAgentSoulAt event, got %v", col.events)
+	}
+}
+
+func TestTracedProvider_GetOrCreateSessionSnapshotReportsVersionZero(t *testing.T) {
+	fake := memorytest.New()
+	traced, col := newTracedWithCollector(fake)
+	col.events = nil
+
+	snapshot, err := traced.(memory.SessionSnapshotStore).GetOrCreateSessionSnapshot(
+		context.Background(), testSession.ID, testSession.UserID, testSession.AgentID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Version != 0 {
+		t.Fatalf("snapshot version = %d, want 0", snapshot.Version)
+	}
+	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpGetOrCreateSessionSnapshot {
+		t.Fatalf("expected GetOrCreateSessionSnapshot event, got %v", col.events)
+	}
+	if !strings.Contains(col.events[0].Detail, "version=0 ") {
+		t.Fatalf("expected version-zero trace detail, got %q", col.events[0].Detail)
 	}
 }
 
