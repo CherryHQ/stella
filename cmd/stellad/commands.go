@@ -258,7 +258,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, authStore, assetStore, authorizer, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}

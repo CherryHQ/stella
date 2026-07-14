@@ -104,6 +104,34 @@ func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (c
 	return a.decide(ctx, agentID, authz.ActionExecute, true)
 }
 
+// AuthorizeViaChannelBinding authorizes read/execute of agentID for a trusted
+// dedicated-channel Authority: any held ChannelBinding grant whose CURRENT
+// persisted channel→agent binding names this exact agent. It is the Agent PEP's
+// sole interpretation of a dedicated channel, so cross-domain callers (the
+// session flow's Agent gate) never re-derive channel bindings themselves. A held
+// grant alone is never authority for an arbitrary agent; every mismatch fails
+// closed.
+func (s *Service) AuthorizeViaChannelBinding(ctx context.Context, authority authz.Authority, agentID string) error {
+	a, err := s.Begin(ctx, authority)
+	if err != nil {
+		return err
+	}
+	for _, grant := range authority.Grants() {
+		if grant.Kind() != authz.GrantChannelBinding {
+			continue
+		}
+		switch _, err := a.UseDedicated(ctx, agentID, grant.Key()); {
+		case err == nil:
+			return nil
+		case errors.Is(err, ErrForbidden), errors.Is(err, ErrNotFound):
+			continue
+		default:
+			return err
+		}
+	}
+	return ErrForbidden
+}
+
 func (a *Access) CanUse(ctx context.Context, agentID string) (bool, error) {
 	_, err := a.Use(ctx, agentID)
 	if err == nil {

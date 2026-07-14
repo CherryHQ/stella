@@ -66,7 +66,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
 	}
-	sessionSvc, err := sessionaccess.NewService(mem, db, store, as, assetStore, authorizer, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	agentAccess := agentaccess.NewService(store, as)
+	sessionSvc, err := sessionaccess.NewService(mem, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
@@ -75,9 +76,9 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
-		AgentAccess:         agentaccess.NewService(store, as),
+		AgentAccess:         agentAccess,
 		SessionAccess:       sessionSvc,
-		SkillAccess:         skillaccess.NewService(phost.SkillStore(), agentaccess.NewService(store, as), authorizer),
+		SkillAccess:         skillaccess.NewService(phost.SkillStore(), agentAccess, authorizer),
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolMgr,
 		PluginHost:          phost,

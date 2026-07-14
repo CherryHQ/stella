@@ -4,7 +4,8 @@
 //
 // Transport code passes a trusted authz.Authority and typed input; it never
 // receives a sqlc query handle, memory.SessionManager, config.Store, or asset
-// store. An Access is one use case and binds exactly one Authorizer evaluation.
+// store. Session and Workspace decisions are direct, domain-owned rules; every
+// Agent gate is delegated to the Agent PEP so those rules live in one place.
 package access
 
 import (
@@ -16,10 +17,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -32,18 +33,15 @@ var (
 )
 
 // Service owns Session/Workspace use cases and their narrow persistence ports.
-type AssignmentStore interface {
-	ListUserAgentIDs(context.Context, string) ([]string, error)
-}
-
+// Agent authorization is delegated wholesale to agents so the two domains cannot
+// drift; this service never re-implements an Agent rule.
 type Service struct {
 	registry *agentsession.Registry
 	memory   memory.SessionManager
 	q        *sqlc.Queries
 	store    config.Store
-	assign   AssignmentStore
+	agents   *agentaccess.Service
 	assets   *asset.Store
-	authz    authz.Authorizer
 	runtime  RuntimeManager
 	prompts  SystemPromptBuilder
 }
@@ -54,10 +52,11 @@ func WithSystemPromptBuilder(builder SystemPromptBuilder) Option {
 	return func(s *Service) { s.prompts = builder }
 }
 
-// NewService constructs the only Session/Workspace PEP. The registry remains
-// the canonical lifecycle owner; this service owns its policy-scoped use.
-func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assign AssignmentStore, assets *asset.Store, az authz.Authorizer, opts ...Option) (*Service, error) {
-	if mem == nil || db == nil || store == nil || assign == nil || assets == nil || az == nil {
+// NewService constructs the only Session/Workspace PEP. The registry remains the
+// canonical lifecycle owner; this service owns its policy-scoped use and routes
+// every Agent decision through the shared Agent PEP.
+func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *asset.Store, agents *agentaccess.Service, opts ...Option) (*Service, error) {
+	if mem == nil || db == nil || store == nil || assets == nil || agents == nil {
 		return nil, fmt.Errorf("session access: missing dependency")
 	}
 	sm, ok := mem.(memory.SessionManager)
@@ -68,7 +67,7 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assign As
 	if err != nil {
 		return nil, fmt.Errorf("session access: registry: %w", err)
 	}
-	svc := &Service{registry: registry, memory: sm, q: sqlc.New(db), store: store, assign: assign, assets: assets, authz: az}
+	svc := &Service{registry: registry, memory: sm, q: sqlc.New(db), store: store, agents: agents, assets: assets}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(svc)
@@ -94,23 +93,22 @@ func (s *Service) GetSystemPrompt(ctx context.Context, in SystemPromptInput) (st
 	return s.prompts.BuildSessionSystemPrompt(ctx, SystemPromptBuildInput{Info: info})
 }
 
-// Access is a single policy revision. Do not retain it across use cases.
+// Access captures one validated Authority for a single Session/Workspace use
+// case. It holds no evaluation or revision; each decision reads the durable
+// facts it needs when it runs. Do not retain it across use cases.
 type Access struct {
 	svc       *Service
-	eval      authz.Evaluation
 	authority authz.Authority
 }
 
-// Begin creates exactly one evaluation for one Session/Workspace use case.
-func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access, error) {
+// Begin validates the Authority for one Session/Workspace use case. The context
+// is unused today; it stays in the signature so the agent runtime's session PEP
+// port and every transport caller remain identical.
+func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, error) {
 	if !authority.Valid() {
 		return nil, ErrForbidden
 	}
-	eval, err := s.authz.Begin(ctx, authority)
-	if err != nil {
-		return nil, fmt.Errorf("%w: begin: %w", ErrUnavailable, err)
-	}
-	return &Access{svc: s, eval: eval, authority: authority}, nil
+	return &Access{svc: s, authority: authority}, nil
 }
 
 // Read resolves a routed session and authorizes reading it.
@@ -196,19 +194,15 @@ func (a *Access) Delete(ctx context.Context, agentID, sessionID string) (agentse
 }
 
 // Workspace authorizes a workspace operation under the session's durable facts.
-// It evaluates both the Session read and the Workspace action in this same
-// Access; there is deliberately no second Begin between them.
+// It reuses the Session read gate and then applies the direct Workspace rule in
+// this same Access; there is deliberately no second Begin between them.
 func (a *Access) Workspace(ctx context.Context, agentID, sessionID string, action authz.Action) (agentsession.Info, error) {
 	info, err := a.session(ctx, agentID, sessionID, authz.ActionRead)
 	if err != nil {
 		return agentsession.Info{}, err
 	}
-	request, err := policy.WorkspaceRequest(action, info.ID, info.UserID, factsFor(info, a.authority))
-	if err != nil {
-		return agentsession.Info{}, ErrForbidden
-	}
-	if err := a.decide(request); err != nil {
-		return agentsession.Info{}, err
+	if !a.allowWorkspace(action, sessionFactsFor(info, a.authority)) {
+		return agentsession.Info{}, ErrNotFound
 	}
 	return info, nil
 }
@@ -223,16 +217,12 @@ func (a *Access) Create(ctx context.Context, userID, agentID, projectID string, 
 		return agentsession.Info{}, err
 	}
 	actor := a.authority.Actor()
-	facts := policy.SessionFacts{
-		Owner: userID, Agent: agentID, Kind: string(kind), State: "active", IsOwner: true,
-		IsExecutor: string(actor.AgentID()) != "" && string(actor.AgentID()) == agentID,
+	facts := sessionFacts{
+		isOwner:    true,
+		isExecutor: string(actor.AgentID()) != "" && string(actor.AgentID()) == agentID,
 	}
-	request, err := policy.SessionCreateRequest(userID, facts)
-	if err != nil {
-		return agentsession.Info{}, ErrForbidden
-	}
-	if err := a.decide(request); err != nil {
-		return agentsession.Info{}, err
+	if !a.allowSession(authz.ActionCreate, facts) {
+		return agentsession.Info{}, ErrNotFound
 	}
 	return a.svc.registry.Ensure(ctx, agentsession.Request{UserID: userID, AgentID: agentID, ProjectID: projectID, Kind: kind, Channel: channel, CreateIfMissing: true})
 }
@@ -246,16 +236,12 @@ func (a *Access) ResolveMain(ctx context.Context, userID, agentID string) (agent
 		return agentsession.Info{}, err
 	}
 	actor := a.authority.Actor()
-	facts := policy.SessionFacts{
-		Owner: userID, Agent: agentID, Kind: string(agentsession.KindMain), State: "active", IsOwner: true,
-		IsExecutor: string(actor.AgentID()) != "" && string(actor.AgentID()) == agentID,
+	facts := sessionFacts{
+		isOwner:    true,
+		isExecutor: string(actor.AgentID()) != "" && string(actor.AgentID()) == agentID,
 	}
-	request, err := policy.SessionCreateRequest(userID, facts)
-	if err != nil {
-		return agentsession.Info{}, ErrForbidden
-	}
-	if err := a.decide(request); err != nil {
-		return agentsession.Info{}, err
+	if !a.allowSession(authz.ActionCreate, facts) {
+		return agentsession.Info{}, ErrNotFound
 	}
 	return a.svc.registry.ResolveMain(ctx, agentsession.MainRequest{UserID: userID, AgentID: agentID})
 }
@@ -264,12 +250,8 @@ func (a *Access) ResolveMain(ctx context.Context, userID, agentID string) (agent
 // evaluation. Collection visibility and individual visibility therefore cannot
 // drift apart.
 func (a *Access) List(ctx context.Context, agentID string, opts agentsession.ListOptions) ([]agentsession.Info, error) {
-	request, err := policy.SessionListRequest()
-	if err != nil {
-		return nil, ErrForbidden
-	}
-	if err := a.decide(request); err != nil {
-		return nil, err
+	if !a.allowSessionList() {
+		return nil, ErrNotFound
 	}
 	userID := string(a.authority.Actor().UserID())
 	if userID == "" {
@@ -281,14 +263,8 @@ func (a *Access) List(ctx context.Context, agentID string, opts agentsession.Lis
 	}
 	out := infos[:0]
 	for _, info := range infos {
-		request, err := policy.SessionReadRequest(info.ID, info.UserID, factsFor(info, a.authority))
-		if err != nil {
-			return nil, ErrForbidden
-		}
-		if err := a.decide(request); err == nil {
+		if a.allowSession(authz.ActionRead, sessionFactsFor(info, a.authority)) {
 			out = append(out, info)
-		} else if !errors.Is(err, ErrForbidden) && !errors.Is(err, ErrNotFound) {
-			return nil, err
 		}
 	}
 	return out, nil
@@ -307,12 +283,8 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 	if limit <= 0 {
 		return ListPage{}, ErrForbidden
 	}
-	request, err := policy.SessionListRequest()
-	if err != nil {
-		return ListPage{}, ErrForbidden
-	}
-	if err := a.decide(request); err != nil {
-		return ListPage{}, err
+	if !a.allowSessionList() {
+		return ListPage{}, ErrNotFound
 	}
 	userID := string(a.authority.Actor().UserID())
 	if userID == "" {
@@ -341,15 +313,8 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 			if !kindAllowed(info) {
 				continue
 			}
-			readRequest, err := policy.SessionReadRequest(info.ID, info.UserID, factsFor(info, a.authority))
-			if err != nil {
-				return ListPage{}, ErrForbidden
-			}
-			if err := a.decide(readRequest); err != nil {
-				if errors.Is(err, ErrForbidden) || errors.Is(err, ErrNotFound) {
-					continue
-				}
-				return ListPage{}, err
+			if !a.allowSession(authz.ActionRead, sessionFactsFor(info, a.authority)) {
+				continue
 			}
 			if len(out) == limit {
 				return ListPage{Sessions: out, NextOffset: offset + i, HasMore: true}, nil
@@ -396,22 +361,15 @@ func (a *Access) ensure(ctx context.Context, req agentsession.Request, action au
 		if err := a.authorizeAgent(ctx, req.AgentID, agentAction(action)); err != nil {
 			return agentsession.Info{}, err
 		}
-		facts := policy.SessionFacts{
-			Owner:       req.UserID,
-			Agent:       req.AgentID,
-			Kind:        string(req.Kind),
-			State:       "active",
-			IsOwner:     string(a.authority.Actor().UserID()) != "" && string(a.authority.Actor().UserID()) == req.UserID,
-			IsExecutor:  string(a.authority.Actor().AgentID()) != "" && string(a.authority.Actor().AgentID()) == req.AgentID,
-			IsGroup:     req.GroupID != "",
-			IsSameGroup: req.GroupID != "" && string(a.authority.Actor().GroupID()) == req.GroupID,
+		actor := a.authority.Actor()
+		facts := sessionFacts{
+			isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == req.UserID,
+			isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == req.AgentID,
+			isGroup:     req.GroupID != "",
+			isSameGroup: req.GroupID != "" && string(actor.GroupID()) == req.GroupID,
 		}
-		createReq, err := policy.SessionCreateRequest(req.UserID, facts)
-		if err != nil {
-			return agentsession.Info{}, ErrForbidden
-		}
-		if err := a.decide(createReq); err != nil {
-			return agentsession.Info{}, err
+		if !a.allowSession(authz.ActionCreate, facts) {
+			return agentsession.Info{}, ErrNotFound
 		}
 	}
 	info, err := a.svc.registry.Ensure(ctx, req)
@@ -437,12 +395,8 @@ func (a *Access) authorizeInfo(ctx context.Context, info agentsession.Info, acti
 	if err := a.authorizeAgent(ctx, info.AgentID, agentAction(action)); err != nil {
 		return agentsession.Info{}, err
 	}
-	request, err := policy.SessionRequest(action, info.ID, info.UserID, factsFor(info, a.authority))
-	if err != nil {
-		return agentsession.Info{}, ErrForbidden
-	}
-	if err := a.decide(request); err != nil {
-		return agentsession.Info{}, err
+	if !a.allowSession(action, sessionFactsFor(info, a.authority)) {
+		return agentsession.Info{}, ErrNotFound
 	}
 	return info, nil
 }
@@ -483,116 +437,119 @@ func agentAction(sessionAction authz.Action) authz.Action {
 	return authz.ActionRead
 }
 
-// authorizeAgent uses this Access's evaluation rather than calling
-// agent/access Service, so a Session use case cannot observe two policy
-// revisions between validating the persisted session and authorizing its agent.
+// authorizeAgent delegates the session flow's Agent gate to the Agent PEP, so
+// Agent scope/assignment/executor rules live in exactly one place. It reads for
+// non-execute session ops and requires execute for a turn. A dedicated-channel
+// Authority is honored through the Agent PEP's own channel-binding interpretation
+// rather than any Agent rule duplicated here. Any Agent denial is folded into the
+// opaque ErrNotFound so an otherwise-visible agent cannot reveal a session.
 func (a *Access) authorizeAgent(ctx context.Context, agentID string, action authz.Action) error {
-	agent, err := a.svc.store.GetAgent(ctx, agentID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+	switch err := a.svc.agents.Authorize(ctx, a.authority, agentID, action); {
+	case err == nil:
+		return nil
+	case errors.Is(err, agentaccess.ErrForbidden), errors.Is(err, agentaccess.ErrNotFound):
+		// The direct Agent rules denied; a dedicated channel binding may still
+		// authorize this exact agent. The Agent PEP owns that interpretation.
+		switch dErr := a.svc.agents.AuthorizeViaChannelBinding(ctx, a.authority, agentID); {
+		case dErr == nil:
+			return nil
+		case errors.Is(dErr, agentaccess.ErrForbidden), errors.Is(dErr, agentaccess.ErrNotFound):
 			return ErrNotFound
+		default:
+			return fmt.Errorf("%w: authorize agent: %w", ErrUnavailable, dErr)
 		}
-		return fmt.Errorf("%w: get agent: %w", ErrUnavailable, err)
-	}
-	scope, ok := map[string]string{config.AgentScopeSystem: "system", config.AgentScopeRestricted: "user", "user": "user", "shared": "shared"}[agent.Scope]
-	if !ok {
-		return ErrForbidden
-	}
-	assigned := false
-	// System-scoped agents are readable by a user without an assignment. Avoid a
-	// needless assignment query (and keep policy evaluation available while the
-	// assignment relation is temporarily unavailable) for that built-in path.
-	if scope != "system" && string(a.authority.Actor().UserID()) != "" {
-		ids, err := a.svc.assign.ListUserAgentIDs(ctx, string(a.authority.Actor().UserID()))
-		if err != nil {
-			return fmt.Errorf("%w: list agent assignments: %w", ErrUnavailable, err)
-		}
-		if slices.Contains(ids, agentID) {
-			assigned = true
-		}
-	}
-	status := "disabled"
-	if agent.Enabled {
-		status = "enabled"
-	}
-	actorUserID := string(a.authority.Actor().UserID())
-	dedicated, err := a.dedicatedTo(ctx, agentID)
-	if err != nil {
-		return err
-	}
-	facts := policy.AgentFacts{
-		Scope: scope, Assigned: assigned, Creator: agent.CreatorID,
-		IsCreator:  actorUserID != "" && actorUserID == agent.CreatorID,
-		IsExecutor: string(a.authority.Actor().AgentID()) == agentID,
-		Dedicated:  dedicated, Status: status,
-	}
-	var request authz.Request
-	switch action {
-	case authz.ActionRead:
-		request, err = policy.AgentReadRequest(agentID, agent.CreatorID, facts)
-	case authz.ActionExecute:
-		request, err = policy.AgentUseRequest(agentID, agent.CreatorID, facts)
 	default:
-		return ErrForbidden
+		return fmt.Errorf("%w: authorize agent: %w", ErrUnavailable, err)
 	}
-	if err != nil {
-		return ErrForbidden
-	}
-	return a.decide(request)
 }
 
-// dedicatedTo derives dedicated-channel use only from an immutable binding
-// grant plus the current persisted channel-to-agent binding. A stale or
-// unrelated grant never widens agent visibility.
-func (a *Access) dedicatedTo(ctx context.Context, agentID string) (bool, error) {
-	for _, grant := range a.authority.Grants() {
-		if grant.Kind() != authz.GrantChannelBinding {
-			continue
-		}
-		channel, err := a.svc.store.GetChannel(ctx, grant.Key())
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return false, fmt.Errorf("%w: get dedicated channel: %w", ErrUnavailable, err)
-		}
-		if channel.AgentID == agentID {
-			return true, nil
-		}
-	}
-	return false, nil
+// sessionFacts are the four relationship bits the direct Session/Workspace rules
+// compare. They are derived at the PEP from immutable authority plus durable
+// conversation facts; a transport never supplies them.
+type sessionFacts struct {
+	isOwner     bool
+	isExecutor  bool
+	isGroup     bool
+	isSameGroup bool
 }
 
-func (a *Access) decide(request authz.Request) error {
-	decision, err := a.eval.Decide(request)
-	if err != nil {
-		return fmt.Errorf("%w: decide: %w", ErrUnavailable, err)
-	}
-	if !decision.Allowed() {
-		// Sessions are intentionally opaque: an otherwise-visible agent must not
-		// reveal historical session existence after access is revoked.
-		return ErrNotFound
-	}
-	return nil
-}
-
-func factsFor(info agentsession.Info, authority authz.Authority) policy.SessionFacts {
+func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionFacts {
 	actor := authority.Actor()
-	return policy.SessionFacts{
-		Owner:       info.UserID,
-		Agent:       info.AgentID,
-		Kind:        info.Kind,
-		State:       sessionState(info),
-		IsOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
-		IsExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == info.AgentID,
-		IsGroup:     info.GroupID != "",
-		IsSameGroup: info.GroupID != "" && string(actor.GroupID()) == info.GroupID,
+	return sessionFacts{
+		isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
+		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == info.AgentID,
+		isGroup:     info.GroupID != "",
+		isSameGroup: info.GroupID != "" && string(actor.GroupID()) == info.GroupID,
 	}
 }
 
-func sessionState(info agentsession.Info) string {
-	if info.Archived {
-		return "archived"
+// allowSessionList is the collection-level Session decision: admin and any
+// user-role actor may list; every other actor is denied.
+func (a *Access) allowSessionList() bool {
+	return a.authority.IsAdmin() || (a.authority.Kind() == authz.ActorUser && a.authority.HasRole(authz.RoleUser))
+}
+
+// allowSession decides one non-list action against a durable Session's facts.
+// It reproduces the current builtin Session rules directly: a user owns every
+// action on their sessions; a durable worker, a group turn, and a granted system
+// worker may read/execute/create/delete — but never write — sessions matching
+// their respective owner/executor, exact group/executor, or system grant.
+func (a *Access) allowSession(action authz.Action, f sessionFacts) bool {
+	if !isSessionAction(action) {
+		return false
 	}
-	return "active"
+	if a.authority.IsAdmin() {
+		return true
+	}
+	switch a.authority.Kind() {
+	case authz.ActorUser:
+		return a.authority.HasRole(authz.RoleUser) && f.isOwner
+	case authz.ActorAgent:
+		return isWorkerSessionAction(action) && f.isOwner && f.isExecutor
+	case authz.ActorGroupAgent:
+		grant, err := authz.GroupToolGrant("agent.use")
+		return err == nil && a.authority.HasGrant(grant) && isWorkerSessionAction(action) && f.isGroup && f.isSameGroup && f.isExecutor
+	case authz.ActorSystem:
+		grant, err := authz.SystemGrant("agent.use")
+		return err == nil && a.authority.HasGrant(grant) && isWorkerSessionAction(action)
+	default:
+		return false
+	}
+}
+
+// isSessionAction is the set of actions the Session rules recognize; anything
+// else fails closed. Write is included because a user may write their own.
+func isSessionAction(action authz.Action) bool {
+	switch action {
+	case authz.ActionRead, authz.ActionWrite, authz.ActionDelete, authz.ActionExecute, authz.ActionCreate:
+		return true
+	default:
+		return false
+	}
+}
+
+// isWorkerSessionAction is the narrower set a non-user actor (worker, group,
+// system) may take on a session. It deliberately omits Write.
+func isWorkerSessionAction(action authz.Action) bool {
+	switch action {
+	case authz.ActionRead, authz.ActionExecute, authz.ActionCreate, authz.ActionDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+// allowWorkspace decides a Workspace action. Only an owning user (or admin) may
+// touch the workspace rooted by a session; worker/group/system actors that can
+// use a session still get no workspace widening.
+func (a *Access) allowWorkspace(action authz.Action, f sessionFacts) bool {
+	switch action {
+	case authz.ActionRead, authz.ActionList, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete:
+	default:
+		return false
+	}
+	if a.authority.IsAdmin() {
+		return true
+	}
+	return a.authority.Kind() == authz.ActorUser && a.authority.HasRole(authz.RoleUser) && f.isOwner
 }

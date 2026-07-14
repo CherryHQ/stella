@@ -60,8 +60,8 @@ func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Pro
 	}); err != nil {
 		t.Fatalf("create session fixture: %v", err)
 	}
-	authorizer := assetSessionAuthorizer{allow: true}
-	sessions, err := sessionaccess.NewService(mem, db, store, appdb.NewAuthStore(db), assets, authorizer)
+	agentAccess := agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{})
+	sessions, err := sessionaccess.NewService(mem, db, store, assets, agentAccess)
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
@@ -74,10 +74,13 @@ func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Pro
 		assets:        assets,
 		sessionAccess: sessions,
 		log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
-		agentAccess:   agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{}),
+		agentAccess:   agentAccess,
 	}
 }
 
+// assetSessionAgents/assetSessionAssignments back a real agent PEP with fixed
+// fakes so the asset-focused tests exercise the Session PEP's Agent gate without
+// standing up the agent tables.
 type assetSessionAgents struct{}
 
 func (assetSessionAgents) GetAgent(context.Context, string) (config.Agent, error) {
@@ -89,61 +92,6 @@ type assetSessionAssignments struct{}
 
 func (assetSessionAssignments) ListUserAgentIDs(context.Context, string) ([]string, error) {
 	return nil, nil
-}
-
-type assetSessionAuthorizer struct {
-	allow  bool
-	begins *int
-}
-
-func (a assetSessionAuthorizer) Begin(context.Context, authz.Authority) (authz.Evaluation, error) {
-	if a.begins != nil {
-		*a.begins++
-	}
-	return assetSessionEvaluation{allow: a.allow}, nil
-}
-
-type assetSessionEvaluation struct{ allow bool }
-
-func (e assetSessionEvaluation) Decide(authz.Request) (authz.Decision, error) {
-	if e.allow {
-		return authz.Allow("asset-test", authz.AuditRecord{}), nil
-	}
-	return authz.Deny(authz.VisibilityForbidden, "asset-test", authz.AuditRecord{}), nil
-}
-func (assetSessionEvaluation) Revision() int64 { return 1 }
-
-func TestSessionFileAccessHidesRevokedAgentAndBeginsOnce(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("STELLA_HOME", home)
-	config.ResetStellaHome()
-	defer config.ResetStellaHome()
-	mem := memorytest.New()
-	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
-		t.Fatal(err)
-	}
-	remote, err := blob.NewFSStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := assetServer(t, home, remote, mem)
-	begins := 0
-	counted := assetSessionAuthorizer{begins: &begins, allow: true}
-	s.agentAccess = agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{})
-	s.sessionAccess, err = sessionaccess.NewService(mem, s.db, s.store, s.authStore.(*appdb.AuthStore), s.assets, counted)
-	if err != nil {
-		t.Fatalf("sessionaccess.NewService: %v", err)
-	}
-	scope := apitypes.WorkspaceScopeUser
-	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
-	rr := httptest.NewRecorder()
-	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "assets/missing.txt", Scope: &scope})
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
-	}
-	if begins != 1 {
-		t.Fatalf("Begin calls=%d, want 1", begins)
-	}
 }
 
 func TestGetWorkspaceFileContentRestoresAssetFromAuthorityOnMiss(t *testing.T) {
