@@ -341,9 +341,6 @@ func TestEntryInventoryCatalogMapping(t *testing.T) {
 		if act, ok := server.CatalogActionFor(r.Action); !ok || !act.Valid() {
 			t.Errorf("entry actor=%q action %q has no valid authz.Action catalog member", r.Actor, r.Action)
 		}
-		if res, ok := server.CatalogResourceFor(r.Resource); !ok || !res.Valid() {
-			t.Errorf("entry actor=%q resource %q has no valid authz.ResourceType catalog member", r.Actor, r.Resource)
-		}
 		kinds, ok := server.CatalogActorKindsFor(r.Actor)
 		if !ok {
 			t.Errorf("entry actor %q has no valid authz.ActorKind mapping", r.Actor)

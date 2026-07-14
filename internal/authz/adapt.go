@@ -23,8 +23,8 @@ package authz
 // returns ErrUnauthenticated — the same fail-closed rule FromContext applies.
 //
 // The legacy Identity carries no roles or grants, so the Authority is minted
-// with an empty RoleSet/GrantSet. Role and policy attributes are resolved at the
-// enforcement point in subphase B; this adapter only carries identity.
+// with an empty RoleSet/GrantSet; this adapter only carries identity. Each
+// domain resolves the durable facts its rules need at decision time.
 func (id Identity) ToAuthority() (Authority, error) {
 	if id.UserID == "" {
 		return Authority{}, ErrUnauthenticated

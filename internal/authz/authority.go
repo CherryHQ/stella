@@ -160,7 +160,7 @@ func NewGroupAuthority(group GroupID, roles RoleSet, grants GrantSet) (Authority
 // executing inside one group. It carries no user id and no user/admin role (a
 // non-empty RoleSet is rejected), and grant-class checking rejects any
 // user-private grant. The triggering group member is not an argument here — it
-// is audit attribution carried in InvocationFacts.
+// is audit attribution resolved by the transport, not part of the authority.
 func NewGroupAgentAuthority(group GroupID, agent AgentID, roles RoleSet, grants GrantSet) (Authority, error) {
 	if group == "" || agent == "" {
 		return Authority{}, ErrInvalidActor

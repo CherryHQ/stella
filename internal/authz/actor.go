@@ -75,7 +75,7 @@ type (
 // Actor is the immutable identity discriminated by Kind. Owner/executor for a
 // durable AgentActor are (userID, agentID). A GroupAgentActor carries only
 // (groupID, agentID): the triggering group member is request/audit attribution
-// carried in InvocationFacts, never part of the actor, so it cannot grant that
+// resolved by the transport, never part of the actor, so it cannot grant that
 // member's private-user capabilities to the group turn.
 type Actor struct {
 	kind      ActorKind

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -26,26 +25,17 @@ func pluginRouteID(kind, name string) string {
 // ListPlugins returns the admin-visible registered plugins. The transport shapes
 // each into its admin view.
 func (a *Access) ListPlugins(ctx context.Context) ([]pkgplugins.RegisteredPlugin, error) {
-	if err := a.authorizePluginList(); err != nil {
-		return nil, err
-	}
 	return a.svc.plugins.ListAdminVisiblePlugins(ctx)
 }
 
 // GetPluginStatus returns a plugin's admin status payload.
 func (a *Access) GetPluginStatus(ctx context.Context, kind, name string) (any, error) {
-	if err := a.authorizePlugin(authz.ActionRead, pluginRouteID(kind, name)); err != nil {
-		return nil, err
-	}
 	return a.svc.plugins.Status(ctx, pluginRouteID(kind, name))
 }
 
 // GetPluginConfig returns a plugin's stored config. Channel plugins are rejected:
 // their instance config lives on /channels.
 func (a *Access) GetPluginConfig(ctx context.Context, kind, name string) (map[string]any, error) {
-	if err := a.authorizePlugin(authz.ActionRead, pluginRouteID(kind, name)); err != nil {
-		return nil, err
-	}
 	if kind == config.PluginKindChannel {
 		return nil, invalid(ChannelPluginConfigError)
 	}
@@ -58,9 +48,6 @@ func (a *Access) GetPluginConfig(ctx context.Context, kind, name string) (map[st
 
 // GetPluginConfigSchema returns a plugin's admin config schema.
 func (a *Access) GetPluginConfigSchema(ctx context.Context, kind, name string) (map[string]any, error) {
-	if err := a.authorizePlugin(authz.ActionRead, pluginRouteID(kind, name)); err != nil {
-		return nil, err
-	}
 	return a.svc.plugins.ConfigSchema(pluginRouteID(kind, name)), nil
 }
 
@@ -68,9 +55,6 @@ func (a *Access) GetPluginConfigSchema(ctx context.Context, kind, name string) (
 // backend pinned by STELLA_SANDBOX_BACKEND cannot be toggled.
 func (a *Access) TogglePlugin(ctx context.Context, kind, name string, enabled bool) (config.Plugin, error) {
 	id := pluginRouteID(kind, name)
-	if err := a.authorizePlugin(authz.ActionManage, id); err != nil {
-		return config.Plugin{}, err
-	}
 	if kind == config.PluginKindSandbox && config.SandboxBackendEnvOverride() != "" {
 		return config.Plugin{}, &ForbiddenError{Msg: "sandbox backend is locked by STELLA_SANDBOX_BACKEND environment variable"}
 	}
@@ -89,9 +73,6 @@ func (a *Access) TogglePlugin(ctx context.Context, kind, name string, enabled bo
 // its runtime. Channel plugins are rejected (config lives on /channels).
 func (a *Access) UpdatePluginConfig(ctx context.Context, kind, name string, cfg map[string]any) (config.Plugin, error) {
 	id := pluginRouteID(kind, name)
-	if err := a.authorizePlugin(authz.ActionManage, id); err != nil {
-		return config.Plugin{}, err
-	}
 	if kind == config.PluginKindChannel {
 		return config.Plugin{}, invalid(ChannelPluginConfigError)
 	}
@@ -144,9 +125,6 @@ func (s *Service) applyAndReloadPlugin(ctx context.Context, p config.Plugin) {
 
 // ListManifestPlugins returns the builtin manifest overlaid with DB overrides.
 func (a *Access) ListManifestPlugins(ctx context.Context) (*manifestplugins.Manifest, error) {
-	if err := a.authorizePluginList(); err != nil {
-		return nil, err
-	}
 	return a.svc.resolveManifestPlugins(ctx)
 }
 
@@ -154,10 +132,6 @@ func (a *Access) ListManifestPlugins(ctx context.Context) (*manifestplugins.Mani
 // toggle), re-registers the merged manifest, hot-reloads plugin tools/hooks, and
 // returns the merged manifest.
 func (a *Access) SaveManifestPlugins(ctx context.Context, plugins []manifestplugins.ManifestPlugin) (*manifestplugins.Manifest, error) {
-	if err := a.authorizePlugin(authz.ActionManage, ""); err != nil {
-		return nil, err
-	}
-
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
 		return nil, err
@@ -250,9 +224,6 @@ func (a *Access) SaveManifestPlugins(ctx context.Context, plugins []manifestplug
 // SyncManifestPlugins reconciles the merged manifest against the filesystem
 // (installs binaries/skills) and returns the reconcile result.
 func (a *Access) SyncManifestPlugins(ctx context.Context) (manifestplugins.ReconcileResult, error) {
-	if err := a.authorizePlugin(authz.ActionManage, ""); err != nil {
-		return manifestplugins.ReconcileResult{}, err
-	}
 	merged, err := a.svc.resolveManifestPlugins(ctx)
 	if err != nil {
 		return manifestplugins.ReconcileResult{}, err

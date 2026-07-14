@@ -5,26 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-// ChannelManagement is one authorized channel-management operation. Its Save
-// method owns the channel row plus the required channel plugin enable/apply, so
-// callers never need (or get) a second Plugin policy decision.
+// ChannelManagement is one channel-management operation. Its Save method owns the
+// channel row plus the required channel plugin enable/apply as a single unit, so
+// callers never need a second plugin call.
 type ChannelManagement struct{ access *Access }
 
-// ManageChannel makes the sole authorization decision for a channel-management
-// operation. Registration flows keep this capability across their platform
-// handshake, then call Save after credentials arrive.
+// ManageChannel opens a channel-management operation. The admin gate already ran
+// at Begin, so this only hands back the operation handle; id is retained for
+// call-site symmetry (registration flows keep this handle across their platform
+// handshake, then call Save after credentials arrive).
 func (a *Access) ManageChannel(id string) (*ChannelManagement, error) {
-	if id == "" {
-		id = "registration"
-	}
-	if err := a.authorizeChannel(authz.ActionManage, id); err != nil {
-		return nil, err
-	}
+	_ = id
 	return &ChannelManagement{access: a}, nil
 }
 
@@ -44,17 +39,11 @@ func (m *ChannelManagement) ValidateBinding(ctx context.Context, ch config.Chann
 }
 
 func (a *Access) ListChannels(ctx context.Context) ([]config.Channel, error) {
-	if err := a.authorizeChannelList(); err != nil {
-		return nil, err
-	}
 	return a.svc.store.ListChannels(ctx)
 }
 
 // GetChannel returns one channel by id (opaque 404 when missing).
 func (a *Access) GetChannel(ctx context.Context, id string) (config.Channel, error) {
-	if err := a.authorizeChannel(authz.ActionRead, id); err != nil {
-		return config.Channel{}, err
-	}
 	ch, err := a.svc.store.GetChannel(ctx, id)
 	if err != nil {
 		return config.Channel{}, notFound("channel not found")
@@ -123,9 +112,6 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 
 // DeleteChannel stops a channel's runtime and removes it.
 func (a *Access) DeleteChannel(ctx context.Context, id string) error {
-	if err := a.authorizeChannel(authz.ActionManage, id); err != nil {
-		return err
-	}
 	ch, err := a.svc.store.GetChannel(ctx, id)
 	if err != nil {
 		return notFound("channel not found")

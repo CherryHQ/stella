@@ -12,7 +12,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	storepkg "github.com/CherryHQ/stella/internal/store"
@@ -56,9 +55,8 @@ func vaultPEP(t *testing.T) (*vault.Service, *pgxpool.Pool, string) {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
 	testDB := &vaultTestDB{oidc: oidc, q: sqlc.New(db)}
-	authorizer := policy.New()
 	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
-	svc, err := vault.NewService(testDB, masterID.String(), authorizer, agents)
+	svc, err := vault.NewService(testDB, masterID.String(), agents)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

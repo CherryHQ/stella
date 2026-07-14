@@ -51,9 +51,8 @@ internal/
   memory/              记忆 provider 注册表 + 实现（lcm、simple）
   server/              HTTP API + 嵌入式 React SPA
   auth/                登录、会话与身份
-  authz/               统一授权器——capability/authority 评估
-    policy/            策略目录、激活、编译、评估
-  controlplane/        控制面 PEP（providers、settings、plugins、channels）
+  authz/               共享授权词汇（Authority、Actor、Grant、Action）
+  controlplane/        控制面域（providers、settings、plugins、channels）
   pluginhost/          按能力限定的插件平台宿主
   db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询
   scheduler/           River 持久化调度服务（供 Web UI 和 Agent 原生工具使用）
@@ -90,13 +89,13 @@ plugins/
 
 **不可变 Server Deps。** `server.Deps` 是按域分组的值结构体（持久化、授权、运行时、共享服务、可选能力）。它携带具体域服务，而非宽泛的影子 store；一个 reflection/AST 三线闸冻结剩余的宽持久化债（DB 池、`config.Store`、auth stores）并禁止新增宽字段。可选能力容忍 nil，退化为单一集中的 503 映射。
 
-**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `internal/agent/access` 策略执行服务。Session 与 Workspace 用例使用 `internal/agent/session/access`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并在一组不可变内建规则的 `authz.Authority` evaluation 中决定 Agent、Session 和 Workspace 请求；原先的 RBAC/ABAC 策略引擎已移除，不再有独立的 Agent、Session 或 Workspace 决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）以及 `internal/agent/access` 中的 durable worker/group 适配器铸造；请求 body/path 字段永远不能铸造或覆写 actor。
+**授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `internal/agent/access` 域服务。Session 与 Workspace 用例使用 `internal/agent/session/access`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并基于不可变的 `authz.Authority` 按其自身的静态规则决定 Agent、Session 和 Workspace；原先的 RBAC/ABAC 策略引擎与临时的通用策略引擎均已移除，不再有独立的中心化决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）以及 `internal/agent/access` 中的 durable worker/group 适配器铸造；请求 body/path 字段永远不能铸造或覆写 actor。
 
-执行域采用相同形态：Workflow、Scheduler、Goal 由各自的域服务（`workflow.Service`、`scheduler.Service`、`goal.Service`）执行，Skills 由 `skillaccess` 执行，均取代了原先的 `Service.As(authz.Identity)` 门面与散落的 helper。每个传输层与工具用例只调用一次 `Begin`，并针对同一组不可变内建规则决定域资源；跨资源的 agent 门禁通过 `agentaccess.AuthorizeWithin` 折叠进同一 evaluation。持久化 worker（goal attempt、触发的定时 workflow）从持久可信状态重建 owner/executor Authority，并在每次动作时重新决策。`admin` 通过内建的 `admin-full-access` 策略成为策略超级用户，而非散落的 `role == admin` 检查。
+执行域采用相同形态：Workflow、Scheduler、Goal 由各自的域服务（`workflow.Service`、`scheduler.Service`、`goal.Service`）执行，Skills 由 `skillaccess` 执行，均取代了原先的 `Service.As(authz.Identity)` 门面与散落的 helper。每个传输层与工具用例只调用一次 `Begin`，并针对该域自身的静态规则决定域资源；跨资源的 agent 门禁通过用同一个 Authority 直接调用 `agentaccess` 折叠进来。持久化 worker（goal attempt、触发的定时 workflow）从持久可信状态重建 owner/executor Authority，并在每次动作时重新决策。`admin` 是每个域通过 `Authority.IsAdmin()` 认可的超级用户，而非散落的 `role == admin` 检查。
 
-用户能力域均为用户所有——被委派的 agent 回合以其用户的访问权限行事，而非受 executor 限制（agent 共享用户的密钥、邮件、连接与阅读库）——但按执行机制分为两类。**Vault 由策略支撑**：`vault.Service` 每个用例开一次 `authz.Authorizer` evaluation 并据此决定 `ResourceVault`，因为 vault 条目具有真实的 `user`/`user_agent`/`system`/`system_agent` scope 区分（`user`/`user_agent` 归用户所有并折叠 agent-read 门禁；管理员管理的 `system`/`system_agent` 仅经 `admin-full-access` 可达）。它保留静态加密、不回读密文、保留名保护与 runner 失效。**Connections、Email、Share、Recally 不由策略支撑**：它们是粗粒度的按用户能力，没有 scope 或管理员区分，因此 `connections.Service`、`email.Service`、`share.Service`、`recally.Service` 绑定一个可信的 `authz.Authority`（用简单的 `Service.Access(authority)` 构造器，而非 `Authorizer` evaluation），捕获行为用户，先行拒绝无效或无用户的 Authority，并通过按用户限定的持久查询强制归属——邮箱配置存于该用户的 vault 命名空间，OAuth bundle 与 flow 以用户为键，share 以 `WHERE user_id = ?` 删除，recally 行按 uid 限定故外来行直接不存在。仅以父 id 为键的操作（recally 文章正文、feed entry）先做一次 uid 限定的父加载以证明父归属，Share 工件对 agent 作用域的行为方保留 os.Root 工作区限制。有若干面刻意保持可信或公开：vault 的宿主侧调用方（MCP、OAuth、邮箱配置、频道配置、沙箱环境、密钥发放）使用原始服务方法；OAuth 回调与令牌刷新路径以 flow/user 为键，而非实时请求；公开分享视图是一个不可猜测的能力 URL，仅凭 token 哈希与过期时间授权，无需会话。参见[授权指南](/docs/development/authorization)了解资源矩阵与配方。
+用户能力域均为用户所有——被委派的 agent 回合以其用户的访问权限行事，而非受 executor 限制（agent 共享用户的密钥、邮件、连接与阅读库）——但按形态分为两类。**Vault 自持 scope 规则**：`vault.Service` 每个用例绑定 Authority 并据其自身静态规则决定，因为 vault 条目具有真实的 `user`/`user_agent`/`system`/`system_agent` scope 区分（`user`/`user_agent` 归用户所有并折叠 agent-read 门禁；管理员管理的 `system`/`system_agent` 仅管理员可达）。它保留静态加密、不回读密文、保留名保护与 runner 失效。**Connections、Email、Share、Recally 是粗粒度能力**：它们各是没有 scope 或管理员区分的按用户能力，因此 `connections.Service`、`email.Service`、`share.Service`、`recally.Service` 绑定一个可信的 `authz.Authority`（用简单的 `Service.Access(authority)` 构造器），捕获行为用户，先行拒绝无效或无用户的 Authority，并通过按用户限定的持久查询强制归属——邮箱配置存于该用户的 vault 命名空间，OAuth bundle 与 flow 以用户为键，share 以 `WHERE user_id = ?` 删除，recally 行按 uid 限定故外来行直接不存在。仅以父 id 为键的操作（recally 文章正文、feed entry）先做一次 uid 限定的父加载以证明父归属，Share 工件对 agent 作用域的行为方保留 os.Root 工作区限制。有若干面刻意保持可信或公开：vault 的宿主侧调用方（MCP、OAuth、邮箱配置、频道配置、沙箱环境、密钥发放）使用原始服务方法；OAuth 回调与令牌刷新路径以 flow/user 为键，而非实时请求；公开分享视图是一个不可猜测的能力 URL，仅凭 token 哈希与过期时间授权，无需会话。参见[授权指南](/docs/development/authorization)了解资源矩阵与配方。
 
-控制面各域收尾闭环。Provider、Settings、Plugin 与 Channel 管理经由 `internal/controlplane`——一个 `Begin(authority) → Access` 的 PEP，取代旧的 `requireAdmin` 门禁加直接访问 `config.Store` 的做法。它们仅限管理员：内建的 `admin-full-access` 策略是唯一授权。Channel 管理是一个能力：一次决策同时覆盖通道持久化及其 channel plugin 的启用和应用，而不是再做一次 Plugin 决策。插件宿主也按能力限定：`pluginhost` 的 `Platform` 不再是环境式（ambient）；只有静态 Go `PluginInfo.RequiredCapabilities` 声明可访问宿主端口，并且启动托管运行时前会校验其注入支撑。manifest 插件可以描述插件特征，但不能请求宿主端口。至此，旧的 `auth.PolicyEngine` 已彻底移除：授权完全由 `internal/authz`（+ `internal/authz/policy`）与各域 PEP 服务承担。
+控制面各域收尾闭环。Provider、Settings、Plugin 与 Channel 管理经由 `internal/controlplane`——一个 `Begin(authority) → Access` 的域，取代旧的 `requireAdmin` 门禁加直接访问 `config.Store` 的做法。它们仅限管理员：`Begin` 校验 Authority 并要求一次 `IsAdmin()`，因此 Access 只为管理员而存在。Channel 管理是一个能力：一次决策同时覆盖通道持久化及其 channel plugin 的启用和应用，而不是再做一次 Plugin 决策。插件宿主也按能力限定：`pluginhost` 的 `Platform` 不再是环境式（ambient）；只有静态 Go `PluginInfo.RequiredCapabilities` 声明可访问宿主端口，并且启动托管运行时前会校验其注入支撑。manifest 插件可以描述插件特征，但不能请求宿主端口。至此，旧的 `auth.PolicyEngine` 与临时的通用策略引擎均已移除：授权由 `internal/authz`（共享的 `Authority`/`Action` 词汇）加各域自持的静态规则承担。
 
 **静态 vs 动态。** 启动静态能力在启动前绑定一次并随后密封。热重配（插件工具/钩子/提供商重载、agent 同步、runner 失效）是独立接口，启动后仍可用并原子应用——绝不重跑一次性绑定。
 
@@ -134,7 +133,7 @@ LLM 提供商采用插件模式。Stella 内置三种提供商：
 
 提供商位于 `plugins/providers/`，通过 `init()` 自注册。添加新的提供商只需在 `plugins/providers/` 下创建一个包——无需其他连接代码。详见[插件系统](/docs/development/plugin-system)。
 
-提供商管理（与设置、插件、通道一样）是一项控制面操作，经由 `internal/controlplane` 通过统一 Authorizer 授权，而非裸角色检查。它仅限管理员：内建的 `admin-full-access` 策略是唯一授权。
+提供商管理（与设置、插件、通道一样）是一项控制面操作，直接经由 `internal/controlplane` 授权，而非裸角色检查。它仅限管理员：`Begin` 在铸造 Access 前要求 `IsAdmin()`。
 
 ## 工具
 
@@ -233,7 +232,7 @@ Stella 只支持一个服务副本。Helm chart 强制 `replicaCount: 1` 和 `Re
 
 ## Admin API
 
-`internal/server/` 包提供用于管理系统的 HTTP API 和嵌入式 SPA。端点涵盖提供商、代理、通道、用户、会话、调度器作业和全局设置的 CRUD 操作。控制面管理——LLM 提供商、部署设置、插件与通道——经由 `internal/controlplane` 通过统一 Authorizer 授权（仅限管理员，凭内建 `admin-full-access` 策略），而非裸角色检查；底层读写仍走 `config.Store`，为操作员提供 Web 界面来配置之前通过 YAML 文件完成的配置。
+`internal/server/` 包提供用于管理系统的 HTTP API 和嵌入式 SPA。端点涵盖提供商、代理、通道、用户、会话、调度器作业和全局设置的 CRUD 操作。控制面管理——LLM 提供商、部署设置、插件与通道——直接经由 `internal/controlplane` 授权（仅限管理员：`Begin` 要求 `IsAdmin()`），而非裸角色检查；底层读写仍走 `config.Store`，为操作员提供 Web 界面来配置之前通过 YAML 文件完成的配置。
 
 ## 通知流程
 

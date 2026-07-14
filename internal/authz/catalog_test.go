@@ -35,53 +35,6 @@ func TestActionCatalog(t *testing.T) {
 	}
 }
 
-// TestResourceTypeCatalog does the same for resource types.
-func TestResourceTypeCatalog(t *testing.T) {
-	all := authz.AllResourceTypes()
-	if len(all) == 0 {
-		t.Fatal("empty resource catalog")
-	}
-	seen := map[string]bool{}
-	for _, r := range all {
-		if !r.Valid() {
-			t.Errorf("catalog resource %v reports invalid", r)
-		}
-		s := r.String()
-		if s == "" || s == "invalid" {
-			t.Errorf("resource %v has no name", r)
-		}
-		if seen[s] {
-			t.Errorf("duplicate resource name %q", s)
-		}
-		seen[s] = true
-	}
-	if authz.ResourceInvalid.Valid() {
-		t.Error("ResourceInvalid must be invalid")
-	}
-	if authz.ResourceType(250).Valid() {
-		t.Error("out-of-range resource must be invalid")
-	}
-}
-
-// TestVisibilityCatalog covers the decision-visibility catalog.
-func TestVisibilityCatalog(t *testing.T) {
-	all := authz.AllVisibilities()
-	if len(all) != 2 {
-		t.Fatalf("visibility catalog size = %d, want 2", len(all))
-	}
-	for _, v := range all {
-		if !v.Valid() {
-			t.Errorf("catalog visibility %v reports invalid", v)
-		}
-	}
-	if authz.VisibilityInvalid.Valid() {
-		t.Error("VisibilityInvalid must be invalid")
-	}
-	if authz.Visibility(9).Valid() {
-		t.Error("out-of-range visibility must be invalid")
-	}
-}
-
 // TestActorKindCatalog covers the actor-kind catalog.
 func TestActorKindCatalog(t *testing.T) {
 	all := authz.AllActorKinds()

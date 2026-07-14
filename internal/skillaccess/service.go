@@ -1,7 +1,7 @@
-// Package skillaccess is the sole policy-enforcement point for DB-backed Skill
+// Package skillaccess owns the direct authorization rules for DB-backed Skill
 // resources. Every skill-row read, write, delete, and scope-management decision
-// flows through one Authorizer evaluation here, under a trusted authz.Authority
-// that no request/model input can forge:
+// flows through this domain, under a trusted authz.Authority that no
+// request/model input can forge:
 //   - HTTP transports call the Begin/Authorize* methods with the caller's
 //     Authority;
 //   - the agent skills tool (reads) and the reflect reviewer tool (reads and its
@@ -26,10 +26,9 @@ import (
 	"github.com/CherryHQ/stella/internal/skills"
 )
 
-// Errors returned by the Skill policy-enforcement point. Denials on user-owned
-// scopes are opaque (ErrNotFound, 404) so a foreign skill cannot be told from a
-// missing one; admin-managed system scopes surface ErrForbidden (403), matching
-// the pre-cutover contract.
+// Errors returned by the Skill access rules. Denials on user-owned scopes are
+// opaque (ErrNotFound, 404) so a foreign skill cannot be told from a missing one;
+// admin-managed system scopes surface ErrForbidden (403).
 var (
 	ErrForbidden    = errors.New("skill access forbidden")
 	ErrNotFound     = errors.New("skill not found")
@@ -53,19 +52,18 @@ type SkillStore interface {
 	ListAll(ctx context.Context) ([]skills.Skill, error)
 }
 
-// Service is the composition-root-owned Skill PEP. It holds the narrow skill
-// read port, the agent PEP (to fold an agent-read gate into this evaluation),
-// and the unified Authorizer.
+// Service is the composition-root-owned Skill authorization domain. It holds the
+// narrow skill read port and the Agent-domain gate (to fold an agent-read check
+// into a skill decision).
 type Service struct {
 	store  SkillStore
 	agents *agentaccess.Service
-	authz  authz.Authorizer
 }
 
-// NewService constructs the Skill PEP. agents + authz are the policy-enforcement
-// dependencies; store is the read port used to load a row for a by-id decision.
-func NewService(store SkillStore, agents *agentaccess.Service, az authz.Authorizer) *Service {
-	return &Service{store: store, agents: agents, authz: az}
+// NewService constructs the Skill authorization domain. agents is the Agent-domain
+// gate; store is the read port used to load a row for a by-id decision.
+func NewService(store SkillStore, agents *agentaccess.Service) *Service {
+	return &Service{store: store, agents: agents}
 }
 
 // The Skill PEP is the read + write authorizer the skills tool consumes through
@@ -79,11 +77,10 @@ var (
 // the trusted turn/worker identity from the runtime context (an agent turn or the
 // reflect reviewer's WithUserID+WithAgentID review context, both of which
 // ToAuthority resolves to a roleless AgentActor — the same shape as a
-// reconstructed WorkerAgentAuthority), opens exactly one evaluation, and returns
-// a per-row read decider. A missing/invalid identity fails closed. Writes never
-// flow through this path.
+// reconstructed WorkerAgentAuthority) and returns a per-row read decider. A
+// missing/invalid identity fails closed. Writes never flow through this path.
 func (s *Service) BeginRead(ctx context.Context) (skills.SkillReadDecision, error) {
-	if s.authz == nil || s.agents == nil {
+	if s.agents == nil {
 		return nil, ErrUnavailable
 	}
 	authority, err := contextReadAuthority(ctx)
@@ -120,11 +117,10 @@ func contextReadAuthority(ctx context.Context) (authz.Authority, error) {
 
 // BeginWrite implements skills.SkillWriteAuthorizer for the reflect reviewer
 // tool. It reconstructs the trusted turn identity from context (the reflect
-// review target's WithUserID+WithAgentID → a roleless AgentActor) and opens one
-// evaluation whose decision authorizes each create/patch/deprecate before the
-// store mutation.
+// review target's WithUserID+WithAgentID → a roleless AgentActor) and authorizes
+// each create/patch/deprecate before the store mutation.
 func (s *Service) BeginWrite(ctx context.Context) (skills.SkillWriteDecision, error) {
-	if s.authz == nil || s.agents == nil {
+	if s.agents == nil {
 		return nil, ErrUnavailable
 	}
 	authority, err := contextReadAuthority(ctx)
@@ -151,8 +147,8 @@ func (d *writeDecision) AllowWrite(ctx context.Context, id string) error {
 	return err
 }
 
-// readDecision decides individual DB-skill reads within one evaluation, mapping a
-// policy denial to (false, nil) and only surfacing unexpected failures.
+// readDecision decides individual DB-skill reads for one turn, mapping a rule
+// denial to (false, nil) and only surfacing unexpected failures.
 type readDecision struct{ acc *Access }
 
 func (d *readDecision) AllowRead(ctx context.Context, id, scope, ownerUserID, agentID string) (bool, error) {
@@ -189,6 +185,12 @@ func scopeOwner(scope, actorUserID, agentID string) (uid, aid string, ok bool) {
 // the folded agent-read gate).
 func agentBound(scope string) bool {
 	return scope == ScopeUserAgent || scope == ScopeSystemAgent
+}
+
+// userScope reports whether a scope is user-owned (user/user_agent). Ownership of
+// such rows is required for every action beyond a collection list.
+func userScope(scope string) bool {
+	return scope == ScopeUser || scope == ScopeUserAgent
 }
 
 // adminScope reports whether a scope is admin-managed (system/system_agent). A

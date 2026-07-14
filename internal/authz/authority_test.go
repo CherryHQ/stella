@@ -48,10 +48,6 @@ func TestZeroValuesFailClosed(t *testing.T) {
 	if (authz.Authority{}).Kind() != authz.ActorInvalid {
 		t.Error("zero Authority kind must be ActorInvalid")
 	}
-	// A zero Decision denies.
-	if (authz.Decision{}).Allowed() {
-		t.Error("zero Decision must deny")
-	}
 }
 
 // TestEveryActorKindConstructs exercises each variant's happy path and the

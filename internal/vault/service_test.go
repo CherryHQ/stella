@@ -14,7 +14,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -84,9 +83,8 @@ func testServiceWithQueries(t *testing.T) (*vault.Service, *appdb.OIDCStore, str
 	}
 
 	testDB := &vaultTestDB{oidc: oidc, q: q}
-	authorizer := policy.New()
 	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
-	svc, err := vault.NewService(testDB, masterID.String(), authorizer, agents)
+	svc, err := vault.NewService(testDB, masterID.String(), agents)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -405,7 +403,7 @@ func TestNewServiceInvalidKey(t *testing.T) {
 
 	oidc := appdb.NewOIDCStore(db)
 	testDB := &vaultTestDB{oidc: oidc, q: sqlc.New(db)}
-	_, err := vault.NewService(testDB, "not-a-valid-age-key", nil, nil)
+	_, err := vault.NewService(testDB, "not-a-valid-age-key", nil)
 	if err == nil {
 		t.Fatal("NewService with invalid key should fail")
 	}
@@ -425,7 +423,7 @@ func TestSetNoAgeKeys(t *testing.T) {
 	}
 
 	testDB := &vaultTestDB{oidc: oidc, q: q}
-	svc, err := vault.NewService(testDB, masterID.String(), nil, nil)
+	svc, err := vault.NewService(testDB, masterID.String(), nil)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -499,7 +497,7 @@ func TestLoadEnvNoAgeKeys(t *testing.T) {
 	}
 
 	testDB := &vaultTestDB{oidc: oidc, q: q}
-	svc, err := vault.NewService(testDB, masterID.String(), nil, nil)
+	svc, err := vault.NewService(testDB, masterID.String(), nil)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

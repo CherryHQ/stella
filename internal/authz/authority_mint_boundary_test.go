@@ -65,6 +65,23 @@ var authorityMintAllowset = map[string]string{
 	"internal/agent/access": "trusted worker/group authority adapter; PEP-owned capability reconstruction",
 }
 
+const authzImportPath = "github.com/CherryHQ/stella/internal/authz"
+
+// authzLocalName returns the identifier a file uses for the internal/authz
+// import (honoring an explicit alias), or "" if it does not import it.
+func authzLocalName(f *ast.File) string {
+	for _, imp := range f.Imports {
+		if strings.Trim(imp.Path.Value, "`\"") != authzImportPath {
+			continue
+		}
+		if imp.Name != nil {
+			return imp.Name.Name
+		}
+		return "authz"
+	}
+	return ""
+}
+
 // mintsAuthority reports whether a file calls an Authority constructor through
 // its internal/authz import (honoring an alias). It is the shared predicate used
 // by both the real-tree walk and the counterexample below.

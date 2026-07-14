@@ -20,7 +20,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
@@ -162,9 +161,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Construct the Agent PEP at the composition root before any agent Service is
 	// built. HTTP, channels, and durable workers all share its direct decisions.
 	authStore := appdb.NewAuthStore(db)
-	// Every domain PEP shares the static built-in authorizer. Domain PEPs load
-	// durable facts before deciding; the authorizer itself has no DB dependency.
-	authorizer := policy.New()
+	// Every authorization domain owns its own static rules and loads durable facts
+	// before deciding; the Agent domain is the shared read gate the others fold in.
 	agentAccess := agentaccess.NewService(store, authStore)
 
 	if err := ensureEmbeddedAssets(); err != nil {
@@ -175,10 +173,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := ss.diskSync.SyncAllToDisk(parent); err != nil {
 		return nil, fmt.Errorf("sync DB skills to disk: %w", err)
 	}
-	// The Skill PEP shares the static built-in authorizer and agent PEP with the
-	// other execution domains; the disk-sync store is the single DB skill read
-	// port (its ListAll reaches the same rows the transports resolve).
-	skillAccess := skillaccess.NewService(ss.diskSync, agentAccess, authorizer)
+	// The Skill domain shares the Agent read gate with the other execution
+	// domains; the disk-sync store is the single DB skill read port (its ListAll
+	// reaches the same rows the transports resolve).
+	skillAccess := skillaccess.NewService(ss.diskSync, agentAccess)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
@@ -306,7 +304,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	var vaultSvc *vault.Service
 	if vaultKey := cfg.Vault.Key; vaultKey != "" {
 		var err error
-		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, authorizer, agentAccess)
+		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, agentAccess)
 		if err != nil {
 			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
 			vaultSvc = nil
@@ -464,11 +462,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
 
-	// Control-plane PEP: the single policy-enforcement point for the admin-only
-	// deployment resources (providers/settings/plugins/channels). It shares the
-	// static built-in authorizer, so the HTTP transport keeps only decode/shape.
-	// Built here, after the pool and shared connections service are fully wired.
-	controlPlaneSvc := controlplane.NewService(authorizer, store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	// Control-plane domain for the admin-only deployment resources
+	// (providers/settings/plugins/channels). Authorization is the admin gate in
+	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
+	// pool and shared connections service are fully wired.
+	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and

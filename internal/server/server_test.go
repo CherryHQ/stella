@@ -21,7 +21,6 @@ import (
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -188,7 +187,6 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
 	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
-	authorizer := policy.New()
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
@@ -217,14 +215,14 @@ func setupAdmin(t *testing.T) *testEnv {
 		Mem:                 mem,
 		AgentAccess:         agentAccess,
 		SessionAccess:       sessionSvc,
-		SkillAccess:         skillaccess.NewService(skillStore, agentAccess, authorizer),
+		SkillAccess:         skillaccess.NewService(skillStore, agentAccess),
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolManager,
 		PluginHost:          phost,
 		WeixinRegistrar:     server.NewTestWeixinRegistrar(),
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
-		ControlPlane:        controlplane.NewService(authorizer, store, phost, poolManager, credSvc, slog.With("component", "controlplane-test")),
+		ControlPlane:        controlplane.NewService(store, phost, poolManager, credSvc, slog.With("component", "controlplane-test")),
 		Email:               email.NewService(nil, sqlc.New(db)),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Assets:              assetStore,

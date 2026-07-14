@@ -6,27 +6,30 @@ title: Authorization
 
 Every protected operation in Stella starts from a trusted `authz.Authority` — the verified identity of the caller (a user, a delegated agent, a group turn, or a named system worker). Transports derive it from session claims or the runtime context; model-supplied arguments never form identity. What happens next depends on the resource.
 
-There are two enforcement mechanisms, and choosing the wrong one is the most common mistake in this area.
+Authorization is **domain-owned**: there is no central policy engine, rule table, or revision. Each domain service binds the trusted Authority to an `Access` object and decides against its own static rules, reading only the immutable Authority plus the durable facts it loads. `internal/authz` provides the shared vocabulary — the `Authority`/`Actor`/`Grant`/`Role` values and the `Action` verbs — and nothing else.
 
-## Two mechanisms
+There are two shapes a domain takes, and choosing the wrong one is the most common mistake in this area.
 
-**Policy-backed resources** open an `authz.Authorizer` evaluation and decide a typed `authz.Request` against its fixed built-in rules. Use this when a resource has real distinctions to express: multiple durable scopes, an admin-managed tier, or per-role differences. Agent, Session, Workspace, Goal, Workflow, Scheduler, Skill, and Vault are policy-backed. Their built-in rules live in `internal/authz/policy`; the domain PEP supplies the durable facts.
+## Two shapes
 
-**Ownership/capability-backed resources** bind the Authority to a domain `Access` object and enforce the boundary with user-scoped durable queries — no policy evaluation at all. Use this when a resource is a single coarse per-user capability with no scope, admin, or role distinctions: authorizing it against a policy engine would be four copy-pasted rules that only ever say "the owner may act on their own." Connections, Email, Share, and Recally are capability-backed.
+**Rule-owning domains** encode their own static decision — a small `allow(action, scope, isOwner …)` predicate over the Authority and the loaded row. Use this when a resource has real distinctions to express: multiple durable scopes, an admin-managed tier, or per-role differences. Agent, Session, Workspace, Goal, Workflow, Scheduler, Skill, and Vault are rule-owning. The control plane (providers, settings, plugins, channels) is a degenerate case: its single rule is an admin gate at `Begin`.
 
-Do not add a policy resource "for symmetry." If the only rule you would write is "owner may act on their own," you want the capability mechanism. Conversely, if you find yourself hand-rolling scope or admin checks inside a domain, you want the policy mechanism.
+**Ownership/capability domains** bind the Authority to a domain `Access` object and enforce the boundary with user-scoped durable queries — no per-action rule at all. Use this when a resource is a single coarse per-user capability with no scope, admin, or role distinctions: writing rules for it would be four copy-pasted lines that only ever say "the owner may act on their own." Connections, Email, Share, and Recally are capability domains.
+
+Do not add scope/admin rules "for symmetry." If the only rule you would write is "owner may act on their own," you want the capability shape. Conversely, if you find yourself hand-rolling scope or admin checks at a transport, push them into the domain's own rule.
 
 ## Resource matrix
 
-| Resource            | Mechanism            | Enforced by                                                             |
+| Resource            | Shape                | Enforced by                                                             |
 | ------------------- | -------------------- | ----------------------------------------------------------------------- |
-| Agent               | Policy               | `agentaccess.Service` + built-in rules                                  |
-| Session / Workspace | Policy               | `agent/session/access.Service`                                          |
-| Goal                | Policy               | `goal.Service` (durable-worker authority)                               |
-| Workflow            | Policy               | `workflow.Service`                                                      |
-| Scheduler           | Policy               | `scheduler.Service` (system/plugin jobs hidden)                         |
-| Skill               | Policy               | `skillaccess.Service` (four scopes)                                     |
-| Vault               | Policy               | `vault.Service` (user/user_agent/system/system_agent + agent-read gate) |
+| Agent               | Rule-owning          | `agentaccess.Service`                                                   |
+| Session / Workspace | Rule-owning          | `agent/session/access.Service`                                          |
+| Goal                | Rule-owning          | `goal.Service` (durable-worker authority)                               |
+| Workflow            | Rule-owning          | `workflow.Service`                                                      |
+| Scheduler           | Rule-owning          | `scheduler.Service` (system/plugin jobs hidden)                         |
+| Skill               | Rule-owning          | `skillaccess.Service` (four scopes)                                     |
+| Vault               | Rule-owning          | `vault.Service` (user/user_agent/system/system_agent + agent-read gate) |
+| Control plane       | Rule-owning (admin)  | `controlplane.Service` (admin gate at `Begin`)                          |
 | Connections         | Ownership/capability | `connections.Service.Access` — OAuth bundles/flows keyed by user        |
 | Email               | Ownership/capability | `email.Service.Access` — config in the user's vault namespace           |
 | Share               | Ownership/capability | `share.Service.Access` — `WHERE user_id = ?` + os.Root artifacts        |
@@ -36,29 +39,29 @@ Public share content is neither: it is a capability URL (see the recipe below).
 
 ## Recipes
 
-### Authorize an endpoint (policy-backed)
+### Authorize an endpoint (rule-owning)
 
-Derive the Authority from verified session claims, open one evaluation, decide the resource:
+Derive the Authority from verified session claims, bind it, decide the resource:
 
 ```go
 authority, err := info.authority()      // from the request's AuthInfo
 acc, err := s.vaultSvc.Begin(r.Context(), authority)
-// acc's methods decide ResourceVault against one immutable built-in rule set.
+// acc's methods decide ResourceVault against the domain's static rules.
 ```
 
-### Authorize a collection (policy-backed)
+### Authorize a collection (rule-owning)
 
-A list is one decision; per-row visibility is a second decision in the **same** evaluation. Decide the collection `ActionList`, then filter each row with an `ActionRead` request built from that row's loaded facts. Never trust a caller-supplied `is_owner`; derive it at the PEP from the loaded row and the Authority.
+A list is one decision; per-row visibility is a second decision under the same Authority. Decide the collection `ActionList`, then filter each row with an `ActionRead` decision built from that row's loaded facts. Never trust a caller-supplied `is_owner`; derive it in the domain from the loaded row and the Authority.
 
-### Authorize a durable worker (policy-backed)
+### Authorize a durable worker (rule-owning)
 
 A worker has no live request. Reconstruct the Authority from persisted trusted state — `agentaccess.WorkerAgentAuthority(ownerID, agentID)` — and re-decide on every action. Never persist a decision; persist the facts and re-derive.
 
-### Fold in a cross-domain gate (policy-backed)
+### Fold in a cross-domain gate (rule-owning)
 
-When one decision needs another resource's gate (e.g. an agent-scoped vault op must also prove read access to that agent), reuse the open evaluation: `agents.AuthorizeWithin(ctx, eval, authority, agentID, authz.ActionRead)`.
+When one decision needs another resource's gate (e.g. an agent-scoped vault op must also prove read access to that agent), call that domain directly with the same Authority: `agents.Authorize(ctx, authority, agentID, authz.ActionRead)`. Domains exchange only the trusted Authority, never a scoped query.
 
-### Authorize a user capability (ownership/capability-backed)
+### Authorize a user capability (ownership/capability)
 
 Bind the Authority once; capture the user; scope every query to it:
 

@@ -21,7 +21,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"
@@ -335,9 +334,8 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 	if err != nil {
 		t.Fatalf("GenerateX25519Identity: %v", err)
 	}
-	authorizer := policy.New()
 	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
-	svc, err := vault.NewService(sqlc.New(db), masterID.String(), authorizer, agents)
+	svc, err := vault.NewService(sqlc.New(db), masterID.String(), agents)
 	if err != nil {
 		t.Fatalf("vault.NewService: %v", err)
 	}

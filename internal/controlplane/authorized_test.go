@@ -6,28 +6,13 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 )
 
-// countingAuthorizer proves the control-plane PEP opens exactly one Begin per use
-// case, wrapping the real static policy authorizer.
-type countingAuthorizer struct {
-	authz.Authorizer
-	begins int
-}
-
-func (a *countingAuthorizer) Begin(ctx context.Context, authority authz.Authority) (authz.Evaluation, error) {
-	a.begins++
-	return a.Authorizer.Begin(ctx, authority)
-}
-
-func newService(t *testing.T) (*Service, *countingAuthorizer) {
-	t.Helper()
-	az := &countingAuthorizer{Authorizer: policy.New()}
-	// The authorization matrix exercises only the decision path (Begin + Decide),
-	// so the persistence/runtime handles are intentionally nil: a denied use case
-	// returns before touching them, and an allowed decision is asserted directly.
-	return NewService(az, nil, nil, nil, nil, nil), az
+func newService() *Service {
+	// The authorization matrix exercises only the admin gate at Begin, so the
+	// persistence/runtime handles are intentionally nil: a denied use case returns
+	// at Begin before touching them.
+	return NewService(nil, nil, nil, nil, nil)
 }
 
 func adminAuthority(t *testing.T) authz.Authority {
@@ -56,84 +41,36 @@ func userAuthority(t *testing.T) authz.Authority {
 	return a
 }
 
-// controlPlaneCases is the full manage+read+list matrix across the four
-// admin-only control-plane resources. Each fn decides exactly one action.
-func controlPlaneCases() []struct {
-	name string
-	fn   func(a *Access) error
-} {
-	return []struct {
-		name string
-		fn   func(a *Access) error
-	}{
-		{"provider.manage", func(a *Access) error { return a.authorizeProvider(authz.ActionManage, "p") }},
-		{"provider.read", func(a *Access) error { return a.authorizeProvider(authz.ActionRead, "p") }},
-		{"provider.list", func(a *Access) error { return a.authorizeProviderList() }},
-		{"settings.manage", func(a *Access) error {
-			return a.authorizeSettings(authz.ActionManage, "embedding")
-		}},
-		{"settings.read", func(a *Access) error {
-			return a.authorizeSettings(authz.ActionRead, "embedding")
-		}},
-		{"plugin.manage", func(a *Access) error { return a.authorizePlugin(authz.ActionManage, "tool/x") }},
-		{"plugin.read", func(a *Access) error { return a.authorizePlugin(authz.ActionRead, "tool/x") }},
-		{"plugin.list", func(a *Access) error { return a.authorizePluginList() }},
-		{"channel.manage", func(a *Access) error { return a.authorizeChannel(authz.ActionManage, "c") }},
-		{"channel.read", func(a *Access) error { return a.authorizeChannel(authz.ActionRead, "c") }},
-		{"channel.list", func(a *Access) error { return a.authorizeChannelList() }},
+// TestAdminMintsAccess proves an admin authority opens a control-plane Access —
+// the sole gate for every provider/settings/plugin/channel operation.
+func TestAdminMintsAccess(t *testing.T) {
+	acc, err := newService().Begin(context.Background(), adminAuthority(t))
+	if err != nil || acc == nil {
+		t.Fatalf("admin Begin = (%v, %v), want an Access", acc, err)
 	}
 }
 
-// TestAdminAllowedAllControlPlaneActions proves the admin-full-access built-in is
-// the sole grant: a RoleAdmin actor is allowed manage/read/list on every
-// control-plane resource, one Begin per use case.
-func TestAdminAllowedAllControlPlaneActions(t *testing.T) {
-	svc, az := newService(t)
-	ctx := context.Background()
-	for _, c := range controlPlaneCases() {
-		before := az.begins
-		acc, err := svc.Begin(ctx, adminAuthority(t))
-		if err != nil {
-			t.Fatalf("%s: admin Begin: %v", c.name, err)
-		}
-		if az.begins != before+1 {
-			t.Fatalf("%s: Begin count = %d, want exactly 1 per use case", c.name, az.begins-before)
-		}
-		if err := c.fn(acc); err != nil {
-			t.Fatalf("%s: admin decision err=%v, want allowed", c.name, err)
-		}
+// TestNonAdminDenied proves a non-admin UserActor is default-denied at Begin —
+// the exact contract the legacy requireAdmin gate enforced. No Access is minted,
+// so no durable read or external action can run.
+func TestNonAdminDenied(t *testing.T) {
+	acc, err := newService().Begin(context.Background(), userAuthority(t))
+	if !errors.Is(err, authz.ErrForbidden) || acc != nil {
+		t.Fatalf("non-admin Begin = (%v, %v), want forbidden and no Access", acc, err)
 	}
 }
 
-// TestNonAdminDeniedAllControlPlaneActions proves a non-admin UserActor is
-// default-denied on every control-plane action — the exact contract the legacy
-// requireAdmin gate enforced.
-func TestNonAdminDeniedAllControlPlaneActions(t *testing.T) {
-	svc, _ := newService(t)
-	ctx := context.Background()
-	for _, c := range controlPlaneCases() {
-		acc, err := svc.Begin(ctx, userAuthority(t))
-		if err != nil {
-			t.Fatalf("%s: user Begin: %v", c.name, err)
-		}
-		if err := c.fn(acc); !errors.Is(err, authz.ErrForbidden) {
-			t.Fatalf("%s: non-admin decision err=%v, want forbidden", c.name, err)
-		}
-	}
-}
-
-// TestBeginFailsClosed locks the two fail-closed properties: a nil authorizer
-// denies at Begin, and an invalid Authority is forbidden.
+// TestBeginFailsClosed locks the fail-closed properties: a nil service denies with
+// ErrUnavailable, and an invalid Authority is forbidden before any work.
 func TestBeginFailsClosed(t *testing.T) {
 	ctx := context.Background()
 
-	nilAz := NewService(nil, nil, nil, nil, nil, nil)
-	if _, err := nilAz.Begin(ctx, adminAuthority(t)); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("nil authorizer Begin err=%v, want ErrUnavailable", err)
+	var nilSvc *Service
+	if _, err := nilSvc.Begin(ctx, adminAuthority(t)); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("nil service Begin err=%v, want ErrUnavailable", err)
 	}
 
-	svc, _ := newService(t)
-	if _, err := svc.Begin(ctx, authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
+	if _, err := newService().Begin(ctx, authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("invalid authority Begin err=%v, want forbidden", err)
 	}
 }
