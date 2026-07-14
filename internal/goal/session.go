@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
 )
 
@@ -20,7 +21,11 @@ func RegistrySessionMinter(sm agent.ServiceManager) SessionMinter {
 		if err != nil {
 			return "", err
 		}
-		info, err := svc.MintTaskSession(ctx, userID, agentID, projectID)
+		authority, err := agentaccess.WorkerAgentAuthority(userID, agentID)
+		if err != nil {
+			return "", err
+		}
+		info, err := svc.MintTaskSession(ctx, authority, userID, agentID, projectID)
 		if err != nil {
 			return "", err
 		}
@@ -40,7 +45,11 @@ func RegistryPlanningSessionMinter(sm agent.ServiceManager) SessionMinter {
 		if err != nil {
 			return "", err
 		}
-		info, err := svc.NewSession(ctx, userID, agentID, projectID, session.KindDelegate, session.ChannelDelegate)
+		authority, err := agentaccess.WorkerAgentAuthority(userID, agentID)
+		if err != nil {
+			return "", err
+		}
+		info, err := svc.NewSession(ctx, authority, userID, agentID, projectID, session.KindDelegate, session.ChannelDelegate)
 		if err != nil {
 			return "", err
 		}
@@ -59,7 +68,11 @@ func RegistrySessionDisposer(sm agent.ServiceManager) SessionDisposer {
 		if err != nil {
 			return err
 		}
-		return svc.Sessions.Archive(ctx, session.Scope{UserID: userID, AgentID: agentID}, sessionID)
+		authority, err := agentaccess.WorkerAgentAuthority(userID, agentID)
+		if err != nil {
+			return err
+		}
+		return svc.ArchiveSession(ctx, authority, userID, agentID, sessionID)
 	}
 }
 

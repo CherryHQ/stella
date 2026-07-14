@@ -62,11 +62,12 @@ func (s *Service) runUsageCuratorOnce(ctx context.Context, pair usageCuratorPair
 	factWriter, _ := memory.Unwrap(s.memory).(factBatchWriter)
 	skillWriter, _ := s.skillStore.(usageCuratorSkillWriter)
 	return runUsageCurator(ctx, usageCuratorRunConfig{
-		Store:       s.usageCuratorStore,
-		FactWriter:  factWriter,
-		SkillWriter: skillWriter,
-		Pair:        pair,
-		Settings:    settings,
+		Store:           s.usageCuratorStore,
+		FactWriter:      factWriter,
+		SkillWriter:     skillWriter,
+		SkillAuthorizer: s.skillAuthorizer,
+		Pair:            pair,
+		Settings:        settings,
 	})
 }
 

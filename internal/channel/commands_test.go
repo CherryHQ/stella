@@ -2,13 +2,16 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -91,6 +94,74 @@ func TestWelcomeMessageIncludesNaturalLanguagePhrases(t *testing.T) {
 
 // --- /compact group vs private mapping --------------------------------------
 
+type compactSessionAccessSvc struct {
+	reg    *session.Registry
+	useErr error
+}
+
+type compactSessionAccess struct {
+	reg    *session.Registry
+	useErr error
+}
+
+func (s compactSessionAccessSvc) Begin(context.Context, authz.Authority) (agent.SessionAccess, error) {
+	return compactSessionAccess(s), nil
+}
+
+func (a compactSessionAccess) Create(ctx context.Context, userID, agentID, projectID string, kind session.Kind, channel session.Channel) (session.Info, error) {
+	return a.reg.Ensure(ctx, session.Request{UserID: userID, AgentID: agentID, ProjectID: projectID, Kind: kind, Channel: channel, CreateIfMissing: true})
+}
+
+func (a compactSessionAccess) ResolveMain(ctx context.Context, userID, agentID string) (session.Info, error) {
+	return a.reg.ResolveMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID})
+}
+
+func (a compactSessionAccess) Use(ctx context.Context, agentID, sessionID string) (session.Info, error) {
+	if a.useErr != nil {
+		return session.Info{}, a.useErr
+	}
+	return a.reg.Get(ctx, session.Scope{AgentID: agentID, System: true}, sessionID)
+}
+
+func (a compactSessionAccess) EnsureRead(ctx context.Context, req session.Request) (session.Info, error) {
+	return a.reg.Ensure(ctx, req)
+}
+
+func (a compactSessionAccess) EnsureUse(ctx context.Context, req session.Request) (session.Info, error) {
+	if a.useErr != nil {
+		return session.Info{}, a.useErr
+	}
+	return a.reg.Ensure(ctx, req)
+}
+
+func (a compactSessionAccess) Delete(ctx context.Context, agentID, sessionID string) (session.Info, error) {
+	return a.reg.Get(ctx, session.Scope{AgentID: agentID}, sessionID)
+}
+
+func (a compactSessionAccess) Archive(ctx context.Context, info session.Info) error {
+	return a.reg.Archive(ctx, session.Scope{UserID: info.UserID, AgentID: info.AgentID}, info.ID)
+}
+
+func mustCompactAuthority(t *testing.T, groupID, agentID string, user auth.User) authz.Authority {
+	t.Helper()
+	if groupID != "" {
+		authority, err := agentaccess.GroupAgentAuthority(groupID, agentID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return authority
+	}
+	roles := []string(nil)
+	if user.Role != "" {
+		roles = []string{user.Role}
+	}
+	authority, err := (auth.Subject{UserID: user.ID, Roles: roles}).Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authority
+}
+
 func newCompactTestChat(t *testing.T, groupID string, user auth.User) *ResolvedChat {
 	t.Helper()
 	const agentID = "cmd-agent"
@@ -106,9 +177,10 @@ func newCompactTestChat(t *testing.T, groupID string, user auth.User) *ResolvedC
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
-	svc := &agent.Service{Sessions: reg, Runtime: rt, AgentID: agentID}
+	svc := &agent.Service{Sessions: reg, Runtime: rt, SessionAccess: compactSessionAccessSvc{reg: reg}, AgentID: agentID}
+	authority := mustCompactAuthority(t, groupID, agentID, user)
 
-	rc := &ResolvedChat{Service: svc, AgentID: agentID, User: user, GroupID: groupID}
+	rc := &ResolvedChat{Service: svc, AgentID: agentID, User: user, GroupID: groupID, Authority: authority}
 	if groupID != "" {
 		rc.SessionKey = agent.BuildGroupSessionKey(agentID, groupID)
 		rc.Channel = session.Channel("group:" + groupID)
@@ -135,6 +207,17 @@ func TestHandleCommandCompactGroupUsesGroupMemoryMessage(t *testing.T) {
 	}
 	if strings.Contains(resp, "Compaction failed") {
 		t.Fatal("group /compact must not surface the generic failure message")
+	}
+}
+
+func TestHandleCommandCompactRequiresSessionUse(t *testing.T) {
+	rc := newCompactTestChat(t, "", auth.User{ID: "user-1"})
+	denied := errors.New("session execute denied")
+	rc.Service.SessionAccess = compactSessionAccessSvc{reg: rc.Service.Sessions, useErr: denied}
+
+	resp, ok := HandleCommand(context.Background(), rc, "/compact", "sender-1")
+	if !ok || !strings.Contains(resp, denied.Error()) {
+		t.Fatalf("response=%q handled=%v, want execute denial", resp, ok)
 	}
 }
 

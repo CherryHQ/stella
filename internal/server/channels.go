@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -107,13 +108,11 @@ func (s *Server) enabledChannelTypes(r *http.Request) (map[string]bool, error) {
 
 func (s *Server) accessibleAgentNames(r *http.Request, info *AuthInfo) (map[string]string, error) {
 	ctx := r.Context()
-	var agents []config.Agent
-	var err error
-	if info.IsAdmin {
-		agents, err = s.store.ListAgents(ctx)
-	} else {
-		agents, err = s.store.ListAccessibleAgents(ctx, info.UserID)
+	authority, err := info.authority()
+	if err != nil {
+		return nil, agentaccess.ErrForbidden
 	}
+	agents, err := s.agentAccess.ListReadable(ctx, authority, info.IsAdmin)
 	if err != nil {
 		return nil, err
 	}

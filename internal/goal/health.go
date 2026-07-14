@@ -92,21 +92,36 @@ type HealthLatencyBucket struct {
 	P95Ms *float64 `json:"p95_ms"`
 }
 
-// HealthReport aggregates goal, attempt, and acceptance-event rows for one time window.
-func (s *GoalService) HealthReport(ctx context.Context, filter HealthFilter) (HealthReport, error) {
-	if filter.SinceAt.IsZero() {
-		filter.SinceAt = s.nowTime().Add(-14 * 24 * time.Hour)
+// healthWindow resolves the report's [since, until] window, applying the 14-day
+// default so the policy pre-scan in Access.HealthReport and the aggregation below
+// observe the exact same lower bound.
+func (s *GoalService) healthWindow(filter HealthFilter) (since, until time.Time) {
+	since = filter.SinceAt
+	if since.IsZero() {
+		since = s.nowTime().Add(-14 * 24 * time.Hour)
 	}
-	filter.SinceAt = filter.SinceAt.UTC()
-	if filter.UntilAt.IsZero() {
-		filter.UntilAt = s.nowTime()
+	until = filter.UntilAt
+	if until.IsZero() {
+		until = s.nowTime()
 	}
-	filter.UntilAt = filter.UntilAt.UTC()
+	return since.UTC(), until.UTC()
+}
 
+// HealthReport aggregates goal, attempt, and acceptance-event rows for one time
+// window, restricted to goalIDs — the set the caller was authorized to read by the
+// Access PEP. An empty set yields an empty report; the caller (Access.HealthReport)
+// is the only supported entry so per-row policy is always applied first.
+func (s *GoalService) HealthReport(ctx context.Context, filter HealthFilter, goalIDs []string) (HealthReport, error) {
+	filter.SinceAt, filter.UntilAt = s.healthWindow(filter)
+
+	if goalIDs == nil {
+		goalIDs = []string{}
+	}
 	raw, err := s.q.GetGoalHealthReport(ctx, sqlc.GetGoalHealthReportParams{
 		SinceAt: filter.SinceAt,
 		UserID:  pgnull.Text(filter.UserID),
 		AgentID: pgnull.Text(filter.AgentID),
+		GoalIds: goalIDs,
 	})
 	if err != nil {
 		return HealthReport{}, fmt.Errorf("goal health report: %w", err)

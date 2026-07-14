@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -13,13 +14,130 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
+
+// beginSkillAccess opens one Skill policy evaluation for an authenticated caller.
+// The Authority carries the verified session role; request path/body fields never
+// contribute to it. Every DB-backed skill decision flows through the returned
+// Access, so collection and per-row visibility cannot drift.
+func (s *Server) beginSkillAccess(ctx context.Context) (*skillaccess.Access, int, string) {
+	if s.skillAccess == nil {
+		return nil, http.StatusServiceUnavailable, "skills authorization unavailable"
+	}
+	info := UserFromContext(ctx)
+	if info == nil {
+		return nil, http.StatusUnauthorized, "unauthorized"
+	}
+	authority, err := info.authority()
+	if err != nil {
+		return nil, http.StatusForbidden, "forbidden"
+	}
+	acc, err := s.skillAccess.Begin(ctx, authority)
+	if err != nil {
+		code, msg := skillAccessError(err)
+		return nil, code, msg
+	}
+	return acc, 0, ""
+}
+
+// skillAccessError maps a Skill PEP sentinel to an HTTP status and message,
+// preserving the accepted 404-not-found / 403-forbidden split.
+func skillAccessError(err error) (int, string) {
+	switch {
+	case err == nil:
+		return 0, ""
+	case errors.Is(err, skillaccess.ErrNotFound):
+		return http.StatusNotFound, "skill not found"
+	case errors.Is(err, skillaccess.ErrForbidden):
+		return http.StatusForbidden, "forbidden"
+	case errors.Is(err, skillaccess.ErrInvalidScope):
+		return http.StatusBadRequest, "invalid scope"
+	case errors.Is(err, skillaccess.ErrUnavailable):
+		return http.StatusServiceUnavailable, "skills authorization unavailable"
+	default:
+		return http.StatusInternalServerError, "internal error"
+	}
+}
+
+// beginAgentSkillAccess opens one Skill evaluation and folds the route agent's
+// read gate into it, so a skill decision and its path-agent gate share a single
+// revision for every scope (including user/system DB skills). It replaces the
+// preliminary requireAgentAccess split evaluation on the agent-scoped skill
+// endpoints. Returns (code, msg) != 0 for the caller to write on failure.
+func (s *Server) beginAgentSkillAccess(ctx context.Context, agentID string) (*skillaccess.Access, int, string) {
+	acc, code, msg := s.beginSkillAccess(ctx)
+	if code != 0 {
+		return nil, code, msg
+	}
+	if err := acc.AuthorizeAgent(ctx, agentID); err != nil {
+		code, msg := skillAccessError(err)
+		return nil, code, msg
+	}
+	return acc, 0, ""
+}
+
+// authorizeReadableDBSkills filters DB skill rows through the Skill read PEP under
+// the caller's evaluation (the route agent already gated on the same acc): it
+// decides the collection once, then drops each row the caller may not read. The
+// FS project/built-in merge is applied by the caller afterward, so filesystem
+// skills are never gated here. On an unexpected authorization failure it writes
+// the response and returns ok=false.
+func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Request, acc *skillaccess.Access, dbSkills []skills.Skill) ([]skills.Skill, bool) {
+	if err := acc.AuthorizeList(); err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return nil, false
+	}
+	out := make([]skills.Skill, 0, len(dbSkills))
+	for _, sk := range dbSkills {
+		err := acc.AuthorizeRead(r.Context(), sk)
+		switch {
+		case err == nil:
+			out = append(out, sk)
+		case errors.Is(err, skillaccess.ErrNotFound), errors.Is(err, skillaccess.ErrForbidden):
+			// filtered
+		default:
+			code, msg := skillAccessError(err)
+			writeError(w, code, msg)
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+// authorizeDBSkillRead authorizes reading one resolved DB-backed skill (Dir=="")
+// through the Skill read PEP, reusing the acc that already gated the route agent
+// so the agent and skill decisions share one evaluation. Filesystem project/
+// built-in skills pass. On denial it writes the response and returns false.
+func (s *Server) authorizeDBSkillRead(w http.ResponseWriter, r *http.Request, acc *skillaccess.Access, rs *skills.ResolvedSkill) bool {
+	if rs == nil || rs.Dir != "" {
+		return true
+	}
+	if err := acc.AuthorizeRead(r.Context(), resolvedToDBSkill(rs)); err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return false
+	}
+	return true
+}
+
+// resolvedToDBSkill projects a resolved (FS-or-DB) skill into the durable row
+// facts the Skill PEP authorizes against. Only DB rows reach it.
+func resolvedToDBSkill(rs *skills.ResolvedSkill) skills.Skill {
+	return skills.Skill{
+		ID:       rs.ID,
+		Scope:    rs.Scope,
+		UserID:   rs.UserID,
+		AgentID:  rs.AgentID,
+		Metadata: rs.Metadata,
+	}
+}
 
 func (s *Server) skillService() *skills.Service {
 	return skills.NewService(pluginhost.NewSkillStoreAdapter(s.skillStore()), config.StellaHome())
@@ -40,71 +158,63 @@ func (s *Server) findSkillByID(ctx context.Context, id string) (*skills.Skill, e
 	return nil, pgx.ErrNoRows
 }
 
+// requireAgentAccess authorizes read/use access to an agent through the agent
+// PEP. It is the chokepoint every agent-scoped sub-resource handler calls.
 func (s *Server) requireAgentAccess(ctx context.Context, agentID string) (config.Agent, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return config.Agent{}, http.StatusUnauthorized, "unauthorized"
 	}
-	a, err := s.store.GetAgent(ctx, agentID)
+	authority, err := info.authority()
 	if err != nil {
-		if isNotFound(err) {
-			return config.Agent{}, http.StatusNotFound, "agent not found"
-		}
-		s.log.Error("get agent", "agent_id", agentID, "error", err)
-		return config.Agent{}, http.StatusInternalServerError, "internal error"
-	}
-	if !info.IsAdmin && !s.canAccessAgent(ctx, info, a) {
 		return config.Agent{}, http.StatusForbidden, "forbidden"
+	}
+	a, err := s.agentAccess.Read(ctx, authority, agentID)
+	if err != nil {
+		code, msg := agentAccessError(err)
+		if code == http.StatusInternalServerError {
+			s.log.Error("agent access", "agent_id", agentID, "error", err)
+		}
+		return config.Agent{}, code, msg
 	}
 	return a, 0, ""
 }
 
-// requireAgentManage verifies the caller is an admin or the agent creator.
+// requireAgentUse authorizes executing a turn against an agent.
+func (s *Server) requireAgentUse(ctx context.Context, agentID string) (config.Agent, int, string) {
+	return s.requireAgentAction(ctx, agentID, "use", s.agentAccess.Use)
+}
+
+// requireAgentManage authorizes managing (updating) an agent through the agent
+// PEP (admin, or the agent's creator via the creator-manage policy).
 func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config.Agent, int, string) {
+	return s.requireAgentAction(ctx, agentID, "manage", s.agentAccess.Manage)
+}
+
+// requireAgentDelete deliberately uses ActionDelete rather than Manage: custom
+// policies may grant editing while denying destructive operations.
+func (s *Server) requireAgentDelete(ctx context.Context, agentID string) (config.Agent, int, string) {
+	return s.requireAgentAction(ctx, agentID, "delete", s.agentAccess.Delete)
+}
+
+func (s *Server) requireAgentAction(ctx context.Context, agentID, action string, decide func(context.Context, authz.Authority, string) (config.Agent, error)) (config.Agent, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
 		return config.Agent{}, http.StatusUnauthorized, "unauthorized"
 	}
-	a, code, msg := s.requireAgentAccess(ctx, agentID)
-	if code != 0 {
-		return config.Agent{}, code, msg
-	}
-	if !info.IsAdmin && a.CreatorID != info.UserID {
+	authority, err := info.authority()
+	if err != nil {
 		return config.Agent{}, http.StatusForbidden, "forbidden"
 	}
-	return a, 0, ""
-}
-
-// requireSkillScope checks that skill matches the expected scope and owner.
-func (s *Server) requireSkillScope(ctx context.Context, id, scope string, userID string, agentID string) (*skills.Skill, int, string) {
-	sk, err := s.findSkillByID(ctx, id)
+	a, err := decide(ctx, authority, agentID)
 	if err != nil {
-		if isNotFound(err) {
-			return nil, http.StatusNotFound, "skill not found"
+		code, msg := agentAccessError(err)
+		if code == http.StatusInternalServerError {
+			s.log.Error("agent "+action, "agent_id", agentID, "error", err)
 		}
-		s.log.Error("find skill", "skill_id", id, "error", err)
-		return nil, http.StatusInternalServerError, "internal error"
+		return config.Agent{}, code, msg
 	}
-	if sk.Scope != scope {
-		return nil, http.StatusNotFound, "skill not found"
-	}
-	switch scope {
-	case "system_agent":
-		if sk.AgentID != agentID {
-			return nil, http.StatusNotFound, "skill not found"
-		}
-	case "user":
-		if sk.UserID != userID {
-			return nil, http.StatusNotFound, "skill not found"
-		}
-	case "user_agent":
-		if sk.UserID != userID || sk.AgentID != agentID {
-			return nil, http.StatusNotFound, "skill not found"
-		}
-	case "system":
-		// no owner check
-	}
-	return sk, 0, ""
+	return a, 0, ""
 }
 
 // ---- helpers ----------------------------------------------------------------
@@ -113,28 +223,19 @@ func (s *Server) projectRootForSession(ctx context.Context, agentID string, sess
 	if sessionID == nil || *sessionID == "" {
 		return "", nil
 	}
-	sm, ok := s.mem.(memory.SessionManager)
-	if !ok {
-		return "", nil
+	info := UserFromContext(ctx)
+	if info == nil {
+		return "", fmt.Errorf("unauthorized")
 	}
-	si, err := sm.LoadInfo(ctx, *sessionID)
-	if isNotFound(err) {
-		return "", nil
-	}
+	authority, err := info.authority()
 	if err != nil {
 		return "", err
 	}
-	if si.AgentID != agentID || si.ProjectID == "" {
-		return "", nil
-	}
-	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: si.ProjectID, UserID: si.UserID})
-	if isNotFound(err) {
-		return "", nil
-	}
+	access, err := s.sessionAccess.Begin(ctx, authority)
 	if err != nil {
 		return "", err
 	}
-	return p.BaseDir, nil
+	return access.ProjectRoot(ctx, agentID, sessionID)
 }
 
 func dbSkillsToPluginSkills(rows []skills.Skill) []pkgplugins.Skill {
@@ -211,40 +312,36 @@ func defaultAgentSkillScope(ctx context.Context) string {
 	return "user_agent"
 }
 
-// requireAgentSkillWrite checks auth for write operations on DB-backed scopes.
-func (s *Server) requireAgentSkillWrite(ctx context.Context, agentID, scope string) (string, skills.ViewContext, int, string) {
+// agentSkillWriteScope validates a DB-backed write scope reached through an
+// agent-scoped path and authorizes it through the Skill PEP, returning the acting
+// user id used for owner columns, install attribution, and token lookup. The
+// agent path always carries an agent, so user/user_agent/system_agent are the
+// only writable scopes here; bare system and project are managed elsewhere. The
+// PEP folds the agent-read gate for the path agent into its single evaluation.
+func (s *Server) agentSkillWriteScope(ctx context.Context, agentID, scope string) (string, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
-		return "", skills.ViewContext{}, http.StatusUnauthorized, "unauthorized"
+		return "", http.StatusUnauthorized, "unauthorized"
 	}
 	switch scope {
-	case "system_agent":
-		// system_agent is an admin-managed scope shared with everyone who uses
-		// the agent; being the agent's creator is not enough.
-		if !info.IsAdmin {
-			return "", skills.ViewContext{}, http.StatusForbidden, "system agent skills are managed by admins"
-		}
-		if _, code, msg := s.requireAgentManage(ctx, agentID); code != 0 {
-			return "", skills.ViewContext{}, code, msg
-		}
-		return info.UserID, skills.ViewContext{AgentID: agentID}, 0, ""
-	case "user":
-		if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
-			return "", skills.ViewContext{}, code, msg
-		}
-		return info.UserID, skills.ViewContext{UserID: info.UserID}, 0, ""
-	case "user_agent":
-		if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
-			return "", skills.ViewContext{}, code, msg
-		}
-		return info.UserID, skills.ViewContext{UserID: info.UserID, AgentID: agentID}, 0, ""
+	case "user", "user_agent", "system_agent":
+		// authorized through the PEP below
 	case "project":
-		return "", skills.ViewContext{}, http.StatusBadRequest, "project skills are managed via the CLI or filesystem"
+		return "", http.StatusBadRequest, "project skills are managed via the CLI or filesystem"
 	case "system":
-		return "", skills.ViewContext{}, http.StatusForbidden, "system skills are managed in Settings → Skills"
+		return "", http.StatusForbidden, "system skills are managed in Settings → Skills"
 	default:
-		return "", skills.ViewContext{}, http.StatusBadRequest, "scope must be one of: user, user_agent, system_agent"
+		return "", http.StatusBadRequest, "scope must be one of: user, user_agent, system_agent"
 	}
+	acc, code, msg := s.beginSkillAccess(ctx)
+	if code != 0 {
+		return "", code, msg
+	}
+	if _, _, err := acc.AuthorizeManageScope(ctx, scope, agentID); err != nil {
+		code, msg := skillAccessError(err)
+		return "", code, msg
+	}
+	return info.UserID, 0, ""
 }
 
 func safeSkillFilePath(skillDir, filePath string) (string, error) {
@@ -256,52 +353,53 @@ func safeSkillFilePath(skillDir, filePath string) (string, error) {
 }
 
 // resolveSkillAny finds a skill by name across all scopes (highest priority wins).
-func (s *Server) resolveSkillAny(ctx context.Context, agentID, skillName string, sessionID *string) (*skills.ResolvedSkill, string, int, string) {
+// It opens one Skill evaluation, gates the route agent within it, and returns that
+// Access so the caller decides the resolved DB row under the same revision.
+func (s *Server) resolveSkillAny(ctx context.Context, agentID, skillName string, sessionID *string) (*skills.ResolvedSkill, *skillaccess.Access, string, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
-		return nil, "", http.StatusUnauthorized, "unauthorized"
+		return nil, nil, "", http.StatusUnauthorized, "unauthorized"
 	}
-	if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
-		return nil, "", code, msg
+	acc, code, msg := s.beginAgentSkillAccess(ctx, agentID)
+	if code != 0 {
+		return nil, nil, "", code, msg
 	}
-	projectRoot, _ := s.projectRootForSession(memoryContext2(ctx), agentID, sessionID)
+	projectRoot, _ := s.projectRootForSession(ctx, agentID, sessionID)
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
 	rs, err := s.skillService().Resolve(ctx, skillName, vc, projectRoot)
 	if err != nil {
 		s.log.Error("resolve skill", "agent_id", agentID, "skill", skillName, "error", err)
-		return nil, "", http.StatusInternalServerError, "internal error"
+		return nil, nil, "", http.StatusInternalServerError, "internal error"
 	}
 	if rs == nil {
-		return nil, "", http.StatusNotFound, "skill not found"
+		return nil, nil, "", http.StatusNotFound, "skill not found"
 	}
-	return rs, projectRoot, 0, ""
+	return rs, acc, projectRoot, 0, ""
 }
 
-// resolveSkill finds a skill by name in a specific scope for the given agent.
-func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope string, sessionID *string) (*skills.ResolvedSkill, string, int, string) {
+// resolveSkill finds a skill by name in a specific scope for the given agent. Like
+// resolveSkillAny it opens one Skill evaluation, gates the route agent within it,
+// and returns that Access for the caller's DB-row decision.
+func (s *Server) resolveSkill(ctx context.Context, agentID, skillName, scope string, sessionID *string) (*skills.ResolvedSkill, *skillaccess.Access, string, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
-		return nil, "", http.StatusUnauthorized, "unauthorized"
+		return nil, nil, "", http.StatusUnauthorized, "unauthorized"
 	}
-	if _, code, msg := s.requireAgentAccess(ctx, agentID); code != 0 {
-		return nil, "", code, msg
+	acc, code, msg := s.beginAgentSkillAccess(ctx, agentID)
+	if code != 0 {
+		return nil, nil, "", code, msg
 	}
-	projectRoot, _ := s.projectRootForSession(memoryContext2(ctx), agentID, sessionID)
+	projectRoot, _ := s.projectRootForSession(ctx, agentID, sessionID)
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
 	rs, err := s.skillService().ResolveScoped(ctx, skillName, scope, vc, projectRoot)
 	if err != nil {
 		s.log.Error("resolve scoped skill", "agent_id", agentID, "skill", skillName, "scope", scope, "error", err)
-		return nil, "", http.StatusInternalServerError, "internal error"
+		return nil, nil, "", http.StatusInternalServerError, "internal error"
 	}
 	if rs == nil {
-		return nil, "", http.StatusNotFound, "skill not found"
+		return nil, nil, "", http.StatusNotFound, "skill not found"
 	}
-	return rs, projectRoot, 0, ""
-}
-
-// memoryContext2 builds memory context from just ctx (no *http.Request).
-func memoryContext2(ctx context.Context) context.Context {
-	return ctx
+	return rs, acc, projectRoot, 0, ""
 }
 
 // loadSkillFile loads a file from an already-resolved skill.
@@ -333,11 +431,14 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
+	// One Skill evaluation gates the route agent and every DB row: the agent-read
+	// gate is folded in (no separate requireAgentAccess evaluation).
+	acc, code, msg := s.beginAgentSkillAccess(r.Context(), agentID)
+	if code != 0 {
 		writeError(w, code, msg)
 		return
 	}
-	projectRoot, err := s.projectRootForSession(memoryContext(r, agentID), agentID, params.SessionId)
+	projectRoot, err := s.projectRootForSession(r.Context(), agentID, params.SessionId)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -345,6 +446,12 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	dbSkills, err := s.skillStore().ListForAgentContext(r.Context(), info.UserID, agentID)
 	if err != nil {
 		s.writeInternalError(w, err)
+		return
+	}
+	// Every DB row is authorized under the same evaluation before it is merged with
+	// the (ungated) filesystem project/built-in skills.
+	dbSkills, ok := s.authorizeReadableDBSkills(w, r, acc, dbSkills)
+	if !ok {
 		return
 	}
 	merged := s.skillService().ListMergedWithDB(dbSkillsToPluginSkills(dbSkills), projectRoot)
@@ -373,7 +480,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusBadRequest, "scope is required")
 		return
 	}
-	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), agentID, req.Scope)
+	userID, code, msg := s.agentSkillWriteScope(r.Context(), agentID, req.Scope)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -412,15 +519,19 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 
 func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillParams) {
 	var rs *skills.ResolvedSkill
+	var acc *skillaccess.Access
 	var code int
 	var msg string
 	if params.Scope != nil {
-		rs, _, code, msg = s.resolveSkill(r.Context(), id, skillId, string(*params.Scope), params.SessionId)
+		rs, acc, _, code, msg = s.resolveSkill(r.Context(), id, skillId, string(*params.Scope), params.SessionId)
 	} else {
-		rs, _, code, msg = s.resolveSkillAny(r.Context(), id, skillId, params.SessionId)
+		rs, acc, _, code, msg = s.resolveSkillAny(r.Context(), id, skillId, params.SessionId)
 	}
 	if code != 0 {
 		writeError(w, code, msg)
+		return
+	}
+	if !s.authorizeDBSkillRead(w, r, acc, rs) {
 		return
 	}
 	view := resolvedSkillToView(*rs)
@@ -434,7 +545,7 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.UpdateAgentSkillParams) {
-	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
+	rs, acc, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -470,17 +581,15 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
-	// DB-backed skill.
-	_, vc, code, msg := s.requireAgentSkillWrite(r.Context(), id, rs.Scope)
-	if code != 0 {
+	// DB-backed skill: the Skill PEP authorizes the write against the loaded row
+	// (owner for user scopes, admin for system scopes) under the same evaluation
+	// that already gated the route agent; AuthorizeManage folds the row's own agent.
+	if err := acc.AuthorizeManage(r.Context(), resolvedToDBSkill(rs), authz.ActionWrite); err != nil {
+		code, msg := skillAccessError(err)
 		writeError(w, code, msg)
 		return
 	}
-	if _, code, msg := s.requireSkillScope(r.Context(), rs.ID, rs.Scope, vc.UserID, id); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	s.applySkillUpdate(w, r, rs.ID, vc)
+	s.applySkillUpdate(w, r, rs.ID, skillOwnerViewContext(resolvedToDBSkill(rs)))
 }
 
 // UpgradeAgentSkill re-fetches a DB-backed skill from its recorded install source
@@ -488,12 +597,13 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 // check-and-update behind the inspector's "check for updates" button.
 func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.UpgradeAgentSkillParams) {
 	var rs *skills.ResolvedSkill
+	var acc *skillaccess.Access
 	var code int
 	var msg string
 	if params.Scope != nil {
-		rs, _, code, msg = s.resolveSkill(r.Context(), id, skillId, *params.Scope, nil)
+		rs, acc, _, code, msg = s.resolveSkill(r.Context(), id, skillId, *params.Scope, nil)
 	} else {
-		rs, _, code, msg = s.resolveSkillAny(r.Context(), id, skillId, nil)
+		rs, acc, _, code, msg = s.resolveSkillAny(r.Context(), id, skillId, nil)
 	}
 	if code != 0 {
 		writeError(w, code, msg)
@@ -505,14 +615,14 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 
-	actingUserID, vc, code, msg := s.requireAgentSkillWrite(r.Context(), id, rs.Scope)
-	if code != 0 {
+	if err := acc.AuthorizeManage(r.Context(), resolvedToDBSkill(rs), authz.ActionWrite); err != nil {
+		code, msg := skillAccessError(err)
 		writeError(w, code, msg)
 		return
 	}
-	if _, code, msg := s.requireSkillScope(r.Context(), rs.ID, rs.Scope, vc.UserID, id); code != 0 {
-		writeError(w, code, msg)
-		return
+	actingUserID := ""
+	if info := UserFromContext(r.Context()); info != nil {
+		actingUserID = info.UserID
 	}
 
 	ctx := r.Context()
@@ -539,7 +649,7 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 }
 
 func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillParams) {
-	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
+	rs, acc, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -558,29 +668,29 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
-	_, vc, code, msg := s.requireAgentSkillWrite(r.Context(), id, rs.Scope)
-	if code != 0 {
+	if err := acc.AuthorizeManage(r.Context(), resolvedToDBSkill(rs), authz.ActionDelete); err != nil {
+		code, msg := skillAccessError(err)
 		writeError(w, code, msg)
 		return
 	}
-	if _, code, msg := s.requireSkillScope(r.Context(), rs.ID, rs.Scope, vc.UserID, id); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	s.doDeleteSkill(w, r, rs.ID, vc)
+	s.doDeleteSkill(w, r, rs.ID, skillOwnerViewContext(resolvedToDBSkill(rs)))
 }
 
 func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
 	var rs *skills.ResolvedSkill
+	var acc *skillaccess.Access
 	var code int
 	var msg string
 	if params.Scope != nil {
-		rs, _, code, msg = s.resolveSkill(r.Context(), id, skillId, string(*params.Scope), params.SessionId)
+		rs, acc, _, code, msg = s.resolveSkill(r.Context(), id, skillId, string(*params.Scope), params.SessionId)
 	} else {
-		rs, _, code, msg = s.resolveSkillAny(r.Context(), id, skillId, params.SessionId)
+		rs, acc, _, code, msg = s.resolveSkillAny(r.Context(), id, skillId, params.SessionId)
 	}
 	if code != 0 {
 		writeError(w, code, msg)
+		return
+	}
+	if !s.authorizeDBSkillRead(w, r, acc, rs) {
 		return
 	}
 	content, err := s.loadSkillFile(r.Context(), rs, params.Path)
@@ -592,7 +702,7 @@ func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id st
 }
 
 func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillFileParams) {
-	rs, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
+	rs, acc, _, code, msg := s.resolveSkill(r.Context(), id, skillId, string(params.Scope), params.SessionId)
 	if code != 0 {
 		writeError(w, code, msg)
 		return
@@ -620,12 +730,8 @@ func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	_, vc, code, msg := s.requireAgentSkillWrite(r.Context(), id, rs.Scope)
-	if code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	if _, code, msg := s.requireSkillScope(r.Context(), rs.ID, rs.Scope, vc.UserID, id); code != 0 {
+	if err := acc.AuthorizeManage(r.Context(), resolvedToDBSkill(rs), authz.ActionWrite); err != nil {
+		code, msg := skillAccessError(err)
 		writeError(w, code, msg)
 		return
 	}
@@ -647,7 +753,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	if scope == "" {
 		scope = defaultAgentSkillScope(r.Context())
 	}
-	userID, _, code, msg := s.requireAgentSkillWrite(r.Context(), agentID, scope)
+	userID, code, msg := s.agentSkillWriteScope(r.Context(), agentID, scope)
 	if code != 0 {
 		writeError(w, code, msg)
 		return

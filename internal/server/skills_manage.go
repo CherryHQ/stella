@@ -1,10 +1,13 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 )
 
@@ -44,102 +47,61 @@ func skillScopeOwner(scope, userID, agentID string) (uid, aid string) {
 	}
 }
 
-// resolveSkillManageScope validates that the caller may manage the requested
-// scope and normalizes the owner fields. It mirrors resolveScope: system
-// scopes require admin; agent scopes require agent access. On failure it writes
-// the response and returns ok=false.
-func (s *Server) resolveSkillManageScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope, agentID string) (string, string, bool) {
-	userID := ""
+// resolveSkillManageScope validates the requested management scope shape and
+// authorizes managing that scope bucket through the Skill PEP, returning the
+// owner columns a row of that scope carries. user/user_agent bind the acting
+// user; system/system_agent require the admin superuser; agent-bound scopes fold
+// an agent-read gate into the PEP evaluation. On failure it writes the response
+// and returns ok=false.
+func (s *Server) resolveSkillManageScope(w http.ResponseWriter, r *http.Request, info *AuthInfo, scope, agentID string) (string, string, *skillaccess.Access, bool) {
 	switch scope {
-	case "user":
-		userID = info.UserID
+	case "user", "system":
 		agentID = ""
 	case "user_agent":
-		userID = info.UserID
 		if agentID == "" {
 			writeError(w, http.StatusBadRequest, "agent_id is required for user_agent scope")
-			return "", "", false
+			return "", "", nil, false
 		}
-	case "system":
-		if !info.IsAdmin {
-			writeError(w, http.StatusForbidden, "admin access required")
-			return "", "", false
-		}
-		agentID = ""
 	case "system_agent":
-		if !info.IsAdmin {
-			writeError(w, http.StatusForbidden, "admin access required")
-			return "", "", false
-		}
 		if agentID == "" {
 			writeError(w, http.StatusBadRequest, "agent_id is required for system_agent scope")
-			return "", "", false
+			return "", "", nil, false
 		}
 	default:
 		writeError(w, http.StatusBadRequest, "invalid scope")
-		return "", "", false
+		return "", "", nil, false
 	}
-	if agentID != "" {
-		if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-			writeError(w, code, msg)
-			return "", "", false
-		}
+	acc, code, msg := s.beginSkillAccess(r.Context())
+	if code != 0 {
+		writeError(w, code, msg)
+		return "", "", nil, false
 	}
-	return userID, agentID, true
-}
-
-// authorizeSkillManage checks the caller may manage an existing skill row.
-// Cross-user access is reported as 404 to avoid leaking existence; non-admin
-// access to system scopes is 403.
-func (s *Server) authorizeSkillManage(w http.ResponseWriter, r *http.Request, info *AuthInfo, sk *skills.Skill) bool {
-	switch sk.Scope {
-	case "user":
-		if sk.UserID != info.UserID {
-			writeError(w, http.StatusNotFound, "skill not found")
-			return false
-		}
-	case "user_agent":
-		if sk.UserID != info.UserID {
-			writeError(w, http.StatusNotFound, "skill not found")
-			return false
-		}
-		if _, code, msg := s.requireAgentAccess(r.Context(), sk.AgentID); code != 0 {
-			writeError(w, code, msg)
-			return false
-		}
-	case "system", "system_agent":
-		if !info.IsAdmin {
-			writeError(w, http.StatusForbidden, "admin access required")
-			return false
-		}
-	default:
-		writeError(w, http.StatusBadRequest, "invalid scope")
-		return false
-	}
-	return true
-}
-
-// scopedSkillByID looks up a DB skill by id and authorizes management. It writes
-// the error response and returns nil when the caller may not manage the skill.
-func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id string) *skills.Skill {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return nil
-	}
-	sk, err := s.findSkillByID(r.Context(), id)
+	uid, aid, err := acc.AuthorizeManageScope(r.Context(), scope, agentID)
 	if err != nil {
-		if isNotFound(err) {
-			writeError(w, http.StatusNotFound, "skill not found")
-		} else {
-			s.writeInternalError(w, err)
-		}
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
+		return "", "", nil, false
+	}
+	return uid, aid, acc, true
+}
+
+// scopedSkillByID loads a DB skill by id and authorizes the given action through
+// the Skill PEP. It writes the error response and returns nil when the caller may
+// not perform the action (opaque 404 for a foreign user skill, 403 for an
+// admin-managed system skill).
+func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id string, action authz.Action) *skills.Skill {
+	acc, code, msg := s.beginSkillAccess(r.Context())
+	if code != 0 {
+		writeError(w, code, msg)
 		return nil
 	}
-	if !s.authorizeSkillManage(w, r, info, sk) {
+	sk, err := acc.AuthorizeManageByID(r.Context(), id, action)
+	if err != nil {
+		code, msg := skillAccessError(err)
+		writeError(w, code, msg)
 		return nil
 	}
-	return sk
+	return &sk
 }
 
 func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) skillView {
@@ -179,7 +141,7 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 	if params.AgentId != nil {
 		agentID = *params.AgentId
 	}
-	userID, agentID, ok := s.resolveSkillManageScope(w, r, info, scope, agentID)
+	userID, agentID, acc, ok := s.resolveSkillManageScope(w, r, info, scope, agentID)
 	if !ok {
 		return
 	}
@@ -190,6 +152,13 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 	}
 	out := make([]skillView, 0, len(rows))
 	for i := range rows {
+		if err := acc.AuthorizeRead(r.Context(), rows[i]); err != nil {
+			if errors.Is(err, skillaccess.ErrNotFound) || errors.Is(err, skillaccess.ErrForbidden) {
+				continue
+			}
+			s.writeInternalError(w, err)
+			return
+		}
 		out = append(out, s.dbSkillView(r, &rows[i]))
 	}
 	writeData(w, http.StatusOK, map[string]any{"skills": out})
@@ -219,7 +188,7 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	userID, agentID, ok := s.resolveSkillManageScope(w, r, info, req.Scope, req.AgentID)
+	userID, agentID, _, ok := s.resolveSkillManageScope(w, r, info, req.Scope, req.AgentID)
 	if !ok {
 		return
 	}
@@ -269,7 +238,7 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "source is required")
 		return
 	}
-	userID, agentID, ok := s.resolveSkillManageScope(w, r, info, req.Scope, req.AgentID)
+	userID, agentID, _, ok := s.resolveSkillManageScope(w, r, info, req.Scope, req.AgentID)
 	if !ok {
 		return
 	}
@@ -305,7 +274,7 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := r.FormValue("scope")
-	userID, agentID, ok := s.resolveSkillManageScope(w, r, info, scope, r.FormValue("agent_id"))
+	userID, agentID, _, ok := s.resolveSkillManageScope(w, r, info, scope, r.FormValue("agent_id"))
 	if !ok {
 		return
 	}
@@ -330,7 +299,7 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 
 // GetScopedSkill handles GET /api/skills/{id}.
 func (s *Server) GetScopedSkill(w http.ResponseWriter, r *http.Request, id string) {
-	sk := s.scopedSkillByID(w, r, id)
+	sk := s.scopedSkillByID(w, r, id, authz.ActionRead)
 	if sk == nil {
 		return
 	}
@@ -339,7 +308,7 @@ func (s *Server) GetScopedSkill(w http.ResponseWriter, r *http.Request, id strin
 
 // UpdateScopedSkill handles PATCH /api/skills/{id}.
 func (s *Server) UpdateScopedSkill(w http.ResponseWriter, r *http.Request, id string) {
-	sk := s.scopedSkillByID(w, r, id)
+	sk := s.scopedSkillByID(w, r, id, authz.ActionWrite)
 	if sk == nil {
 		return
 	}
@@ -348,7 +317,7 @@ func (s *Server) UpdateScopedSkill(w http.ResponseWriter, r *http.Request, id st
 
 // DeleteScopedSkill handles DELETE /api/skills/{id}.
 func (s *Server) DeleteScopedSkill(w http.ResponseWriter, r *http.Request, id string) {
-	sk := s.scopedSkillByID(w, r, id)
+	sk := s.scopedSkillByID(w, r, id, authz.ActionDelete)
 	if sk == nil {
 		return
 	}
@@ -357,7 +326,7 @@ func (s *Server) DeleteScopedSkill(w http.ResponseWriter, r *http.Request, id st
 
 // GetScopedSkillFile handles GET /api/skills/{id}/file.
 func (s *Server) GetScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, params apiserver.GetScopedSkillFileParams) {
-	sk := s.scopedSkillByID(w, r, id)
+	sk := s.scopedSkillByID(w, r, id, authz.ActionRead)
 	if sk == nil {
 		return
 	}
@@ -371,7 +340,7 @@ func (s *Server) GetScopedSkillFile(w http.ResponseWriter, r *http.Request, id s
 
 // DeleteScopedSkillFile handles DELETE /api/skills/{id}/file.
 func (s *Server) DeleteScopedSkillFile(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteScopedSkillFileParams) {
-	sk := s.scopedSkillByID(w, r, id)
+	sk := s.scopedSkillByID(w, r, id, authz.ActionWrite)
 	if sk == nil {
 		return
 	}

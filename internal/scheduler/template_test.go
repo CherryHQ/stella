@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/authz"
 )
 
 // ---------------------------------------------------------------------------
@@ -319,7 +321,7 @@ func TestDispatchJob_MissingTemplate_ErrorRun(t *testing.T) {
 	svc := testService(t)
 
 	var onJobCalled bool
-	svc.SetOnJob(func(_ context.Context, _ Job) error {
+	svc.SetOnJob(func(_ context.Context, _ Job, _ authz.Authority) error {
 		onJobCalled = true
 		return nil
 	})
@@ -357,7 +359,7 @@ func TestExecuteSingleRun_SkipsWhenAlreadyRunning(t *testing.T) {
 	started := make(chan struct{}, 1)
 	unblock := make(chan struct{})
 	var callCount int32
-	svc.SetOnJob(func(_ context.Context, _ Job) error {
+	svc.SetOnJob(func(_ context.Context, _ Job, _ authz.Authority) error {
 		atomic.AddInt32(&callCount, 1)
 		// Signal that we've started, then block until told to stop.
 		select {
@@ -464,7 +466,7 @@ func TestUpdateUserJob_DisabledJobDoesNotFire(t *testing.T) {
 	svc := testService(t)
 
 	var fired int32
-	svc.SetOnJob(func(_ context.Context, _ Job) error {
+	svc.SetOnJob(func(_ context.Context, _ Job, _ authz.Authority) error {
 		atomic.AddInt32(&fired, 1)
 		return nil
 	})
@@ -579,7 +581,7 @@ func TestDispatchJob_InjectsTemplateMessage(t *testing.T) {
 	}
 
 	var gotMsg string
-	svc.SetOnJob(func(_ context.Context, job Job) error {
+	svc.SetOnJob(func(_ context.Context, job Job, _ authz.Authority) error {
 		gotMsg = job.Message
 		return nil
 	})

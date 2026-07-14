@@ -12,7 +12,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/credential"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	webhookplugin "github.com/CherryHQ/stella/plugins/channels/webhook"
@@ -74,22 +73,22 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "webhook has no bound agent")
 		return
 	}
-	ag, err := s.store.GetAgent(ctx, ch.AgentID)
+	authority, err := principal.Authority()
 	if err != nil {
-		writeError(w, http.StatusConflict, "bound agent not found")
+		writeError(w, http.StatusForbidden, "not authorized to run the bound agent")
+		return
+	}
+	ag, err := s.agentAccess.Use(ctx, authority, ch.AgentID)
+	if err != nil {
+		code, msg := agentAccessError(err)
+		if code == http.StatusNotFound {
+			code, msg = http.StatusConflict, "bound agent not found"
+		}
+		writeError(w, code, msg)
 		return
 	}
 	if !ag.Enabled {
 		writeError(w, http.StatusConflict, "bound agent is disabled")
-		return
-	}
-	role := principal.Role
-	if role == "" {
-		role = auth.RoleUser
-	}
-	caller := &AuthInfo{UserID: principal.UserID, Role: role}
-	if !s.canExecuteAgent(ctx, caller, ag) {
-		writeError(w, http.StatusForbidden, "not authorized to run the bound agent")
 		return
 	}
 
@@ -148,9 +147,9 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	var info session.Info
 	if cfg.Persistent() {
 		key := agent.BuildUserSessionKey(ch.AgentID, principal.UserID, "webhook:"+id)
-		info, err = svc.ResolvePrivateChannelSession(ctx, key, principal.UserID, ch.AgentID, session.ChannelWebhook)
+		info, err = svc.ResolvePrivateChannelSession(ctx, authority, key, principal.UserID, ch.AgentID, session.ChannelWebhook)
 	} else {
-		info, err = svc.NewSession(ctx, principal.UserID, ch.AgentID, "", session.KindChat, session.ChannelWebhook)
+		info, err = svc.NewSession(ctx, authority, principal.UserID, ch.AgentID, "", session.KindChat, session.ChannelWebhook)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create session")
@@ -181,6 +180,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		Kind:      session.KindChat,
 		Channel:   session.ChannelWebhook,
 		Message:   message,
+		Authority: authority,
 	})
 	// A single drainer owns the stream for its whole life. The result channel is
 	// buffered so the drainer never blocks on send after the caller stops waiting.

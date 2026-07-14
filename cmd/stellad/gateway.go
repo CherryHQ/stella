@@ -25,8 +25,6 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/agentshadow"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -231,19 +229,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		return fmt.Errorf("seed default data: %w", err)
 	}
 
-	// Create auth store and policy engine for channel bots and Web UI.
-	as := appdb.NewAuthStore(s.db)
-
-	// #707 subphase C — shadow authorization. Build exactly one revision-bound
-	// PostgreSQL Authorizer over the shared pool (before ingress) and inject it
-	// into the legacy engine's agent read/execute path in shadow only. It emits
-	// diagnostics on any mismatch/error but never changes the legacy decision;
-	// the whole seam is deleted when the Agent vertical cuts over (#709).
-	agentShadow := agentshadow.New(policy.New(s.db))
-	engine, err := auth.NewEngine(gctx, as, auth.WithAgentShadow(agentShadow))
-	if err != nil {
-		return fmt.Errorf("create auth engine: %w", err)
-	}
+	// The one authoritative Agent PEP was built before PoolManager.StartAll.
+	// HTTP and channel ingress reuse the exact worker/runtime instance.
+	as := s.authStore
+	agentAccess := s.agentAccess
 
 	// Link codes are shared between Web UI and channel bots.
 	linkCodes, err := auth.NewSharedLinkCodeStore(gctx, s.db)
@@ -262,7 +251,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// provider were bound in setup, before StartAll.
 	var coordOpts []channel.CoordinatorOption
 	var vaultRecipient *age.X25519Recipient
-	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, engine, linkCodes))
+	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, agentAccess, linkCodes))
+	coordOpts = append(coordOpts, channel.WithCoordinatorAssets(s.assetStore))
 	if s.vaultSvc != nil {
 		vaultRecipient = s.vaultSvc.MasterRecipient()
 		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))
@@ -318,7 +308,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		DB:                  s.db,
 		AuthStore:           as,
 		Mem:                 s.mem,
-		Engine:              engine,
+		AgentAccess:         agentAccess,
+		SessionAccess:       s.sessionAccess,
+		SkillAccess:         s.skillAccess,
 		LinkCodes:           linkCodes,
 		PoolManager:         s.poolManager,
 		PluginHost:          s.pluginHost,
@@ -328,6 +320,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,
+		Assets:              s.assetStore,
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
 		EventLog:            elStore,

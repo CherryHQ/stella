@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/skills"
@@ -161,6 +163,73 @@ func TestAgentSkills_ListPrecedenceDedup(t *testing.T) {
 	}
 	if dup["scope"] != "user_agent" {
 		t.Fatalf("dup scope = %v, want user_agent (the higher-precedence override)", dup["scope"])
+	}
+}
+
+// TestAgentSkills_ReadCustomDenyHidesDBSkill proves the agent read endpoints
+// enforce ResourceSkill: an active custom deny hides the caller's own DB skill
+// from both the agent skills list and the by-name get, even though SQL scoping
+// alone would return it. This closes the read path against a bypass.
+func TestAgentSkills_ReadCustomDenyHidesDBSkill(t *testing.T) {
+	env := setupAdmin(t)
+	user, sid := newNonAdmin(t, env, "deny-read")
+	agentID := createAgentAsUser(t, env, sid, "deny-read-agent")
+	createTestSkill(t, env, "user_agent", user.ID, agentID, "secret")
+
+	// Baseline: the owner sees their DB skill.
+	rr := doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+agentID+"/skills", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("baseline list status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	if findSkill(decodeSkillList(t, rr), "secret") == nil {
+		t.Fatal("owner should see their own DB skill before the deny")
+	}
+
+	// An active custom deny on ResourceSkill read for is_owner hides it.
+	ps := policy.NewService(policy.New(env.db))
+	if _, _, err := ps.CreatePolicy(context.Background(), policy.PolicyInput{
+		Name: "deny own skill read", Resource: authz.ResourceSkill, Action: authz.ActionRead,
+		Effect: policy.EffectDeny, Subjects: policy.NewSubjectBuilder().Roles(authz.RoleUser).Build(),
+		Predicates: []policy.Predicate{policy.Eq("is_owner", "true")},
+	}); err != nil {
+		t.Fatalf("create deny policy: %v", err)
+	}
+
+	rr = doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+agentID+"/skills", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("post-deny list status = %d (body: %s)", rr.Code, rr.Body.String())
+	}
+	if findSkill(decodeSkillList(t, rr), "secret") != nil {
+		t.Fatalf("denied DB skill leaked into the agent list: %s", rr.Body.String())
+	}
+	rr = doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+agentID+"/skills/secret", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("denied DB skill get status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// TestAgentSkills_RouteAgentGateAppliesToUserScope proves the route agent's read
+// gate is folded into the single Skill evaluation for every scope: a caller who
+// cannot read the route agent is denied a user-scoped DB skill reached through
+// that agent, even though the skill's own row is not agent-bound.
+func TestAgentSkills_RouteAgentGateAppliesToUserScope(t *testing.T) {
+	env := setupAdmin(t)
+	creator, creatorSID := newNonAdmin(t, env, "route-gate-creator")
+	_, otherSID := newNonAdmin(t, env, "route-gate-other")
+	agentID := createAgentAsUser(t, env, creatorSID, "route-gate-agent")
+	createTestSkill(t, env, "user", creator.ID, "", "user-scope-skill")
+
+	// The creator can read the route agent and their own user-scoped skill.
+	rr := doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills/user-scope-skill?scope=user", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("creator get status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// A caller with no access to the route agent is denied, gated by the folded
+	// agent-read decision even though the target skill's scope is not agent-bound.
+	rr = doRequestWithSession(t, env.srv, otherSID, "GET", "/api/agents/"+agentID+"/skills/user-scope-skill?scope=user", nil)
+	if rr.Code != http.StatusForbidden && rr.Code != http.StatusNotFound {
+		t.Fatalf("other get status = %d, want 403/404 (body: %s)", rr.Code, rr.Body.String())
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +17,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -31,6 +36,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/server"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -101,11 +107,6 @@ func setupAdmin(t *testing.T) *testEnv {
 	ctx := context.Background()
 	_ = store.Seed(ctx)
 	as := appdb.NewAuthStore(db)
-
-	engine, err := auth.NewEngine(ctx, as)
-	if err != nil {
-		t.Fatalf("NewEngine: %v", err)
-	}
 
 	mem, err := lcmmemory.New(db, nil, nil)
 	if err != nil {
@@ -180,21 +181,49 @@ func setupAdmin(t *testing.T) *testEnv {
 	const baseURL = "http://localhost:25678"
 	poolManager := agent.NewPoolManager(store, mem)
 	recallyStore := recally.NewStore(db)
+	assetHome := t.TempDir()
+	assetStore, err := asset.NewStore(assetHome, nil, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
+	}
 	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
+	authorizer := policy.New(db)
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
+	homeDir, _ := os.UserHomeDir()
+	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
+		StellaHome: config.StellaHome(),
+		HomeDir:    homeDir,
+		Memory:     mem,
+		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
+		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
+		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Plugins:    phost,
+		SkillStore: pluginhost.NewSkillStoreAdapter(skillStore),
+		Skills:     skills.BuildPromptSection,
+	})
+	if err != nil {
+		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
+	}
+	sessionSvc, err := sessionaccess.NewService(mem, db, store, as, assetStore, authorizer, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	if err != nil {
+		t.Fatalf("sessionaccess.NewService: %v", err)
+	}
 	deps := server.Deps{
 		Store:               store,
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
-		Engine:              engine,
+		AgentAccess:         agentaccess.NewService(store, as, authorizer),
+		SessionAccess:       sessionSvc,
+		SkillAccess:         skillaccess.NewService(skillStore, agentaccess.NewService(store, as, authorizer), authorizer),
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolManager,
 		PluginHost:          phost,
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, t.TempDir(), baseURL),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
+		Assets:              assetStore,
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,

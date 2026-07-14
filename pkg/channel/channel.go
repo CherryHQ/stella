@@ -191,3 +191,16 @@ type UserRootResolver interface {
 type BotRegistrar interface {
 	RegisterBotIdentity(platform, platformBotID, channelID string)
 }
+
+// AssetSaver is an optional capability that a Handler may implement. Channel
+// plugins assert for it to persist an inbound attachment (file/media) through
+// the deployment's authoritative asset store instead of writing local files that
+// would be lost across replicas. It replaces the former blob process-global: the
+// host owns durable-write semantics, the plugin only supplies the bytes and the
+// resolved per-user assets directory (from UserRootResolver).
+type AssetSaver interface {
+	// SaveAsset writes data as a new file under assetsDir and returns the local
+	// materialized path, durably persisting it in the asset authority. An
+	// authority failure returns an error (the asset is never silently local-only).
+	SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error)
+}

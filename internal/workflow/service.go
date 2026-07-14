@@ -14,6 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -38,20 +41,32 @@ var (
 	ErrInvalidWorkflowInput = errors.New("invalid workflow input")
 )
 
+// GoalWriter is the workflow domain's narrow port into the goal domain: the
+// frozen-tree writes SaveGoalAsWorkflow/Instantiate perform, plus AuthorizeWithin,
+// the Goal-owned read-authorization used to gate a source goal inside the
+// workflow's own evaluation. It is consumer-owned here so no goal→workflow cycle
+// forms; *goal.GoalService satisfies it.
 type GoalWriter interface {
 	CreateRoot(ctx context.Context, in goal.CreateInput) (sqlc.AgentGoal, error)
 	MaterializeFrozenLayer(ctx context.Context, parentID string, content goal.DecompositionContent, frozen goal.FrozenStamp) error
 	ActivateFrozenComposite(ctx context.Context, id string) error
+	AuthorizeWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, goalID string, action authz.Action) (sqlc.AgentGoal, error)
 }
 
 type Service struct {
-	db   *pgxpool.Pool
-	q    *sqlc.Queries
-	goal GoalWriter
+	db     *pgxpool.Pool
+	q      *sqlc.Queries
+	goal   GoalWriter
+	authz  authz.Authorizer
+	agents *agentaccess.Service
 }
 
-func New(db *pgxpool.Pool, goalSvc GoalWriter) *Service {
-	return &Service{db: db, q: sqlc.New(db), goal: goalSvc}
+// New constructs the Workflow application service. authz + agents are the
+// policy-enforcement dependencies used by the Authority-based Access PEP; the
+// raw *Service methods remain callable by trusted worker adapters (the scheduler
+// dispatch reconstructs owner/executor authority from the persisted job).
+func New(db *pgxpool.Pool, goalSvc GoalWriter, az authz.Authorizer, agents *agentaccess.Service) *Service {
+	return &Service{db: db, q: sqlc.New(db), goal: goalSvc, authz: az, agents: agents}
 }
 
 // RunState is the latest-run snapshot the scheduler adapter needs to decide
@@ -248,6 +263,45 @@ func (s *Service) Get(ctx context.Context, userID, agentID, id string) (sqlc.Age
 	return s.getScoped(ctx, id, userID, agentID)
 }
 
+// AuthorizeWithin decides a workflow action against a caller's already-open
+// evaluation, so another domain (scheduler's CreateWorkflowJob) can gate a
+// dispatch-target workflow under its single revision instead of a raw scoped
+// lookup. Facts come only from the durable row and the passed Authority; a
+// missing or denied workflow is opaque (authz.ErrNotFound).
+func (s *Service) AuthorizeWithin(ctx context.Context, eval authz.Evaluation, authority authz.Authority, workflowID string, action authz.Action) error {
+	wf, err := s.q.GetWorkflow(ctx, workflowID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return authz.ErrNotFound
+		}
+		return fmt.Errorf("get workflow: %w", err)
+	}
+	actor := authority.Actor()
+	userID := string(actor.UserID())
+	agentID := ""
+	if actor.Kind() == authz.ActorAgent {
+		agentID = string(actor.AgentID())
+	}
+	facts := policy.WorkflowFacts{
+		Owner:      wf.UserID.String,
+		Agent:      wf.AgentID.String,
+		IsOwner:    userID != "" && userID == wf.UserID.String,
+		IsExecutor: agentID != "" && agentID == wf.AgentID.String,
+	}
+	req, err := policy.WorkflowRequest(action, wf.ID, wf.UserID.String, facts)
+	if err != nil {
+		return authz.ErrForbidden
+	}
+	dec, err := eval.Decide(req)
+	if err != nil {
+		return fmt.Errorf("workflow decide: %w", err)
+	}
+	if !dec.Allowed() {
+		return authz.ErrNotFound
+	}
+	return nil
+}
+
 func (s *Service) List(ctx context.Context, userID, agentID string) ([]sqlc.AgentWorkflow, error) {
 	_, ownerUser, ownerAgent := ownerScope(userID, agentID)
 	return s.q.ListWorkflows(ctx, sqlc.ListWorkflowsParams{UserID: ownerUser, AgentID: ownerAgent})
@@ -274,6 +328,13 @@ func (s *Service) Delete(ctx context.Context, userID, agentID, id string) error 
 	if _, err := s.getScoped(ctx, id, userID, agentID); err != nil {
 		return err
 	}
+	return s.deleteLoaded(ctx, id)
+}
+
+// deleteLoaded removes a workflow whose access has already been authorized by the
+// caller (the Access PEP). It still enforces the domain invariant that a
+// workflow with runs or an enabled scheduler job cannot be deleted.
+func (s *Service) deleteLoaded(ctx context.Context, id string) error {
 	count, err := s.q.CountWorkflowRuns(ctx, id)
 	if err != nil {
 		return fmt.Errorf("count workflow runs: %w", err)

@@ -33,8 +33,12 @@ func (s *Server) workflowAuth(w http.ResponseWriter, r *http.Request) (*AuthInfo
 
 func workflowError(w http.ResponseWriter, err error) {
 	switch {
-	case isNotFound(err):
+	case errors.Is(err, workflowpkg.ErrNotFound), isNotFound(err):
 		writeError(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, workflowpkg.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, workflowpkg.ErrUnavailable):
+		writeError(w, http.StatusServiceUnavailable, "workflow authorization unavailable")
 	case errors.Is(err, workflowpkg.ErrInvalidWorkflowInput):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, workflowpkg.ErrWorkflowHasRuns), errors.Is(err, workflowpkg.ErrWorkflowHasSchedulerJob), errors.Is(err, workflowpkg.ErrRunAlreadyFailed), errors.Is(err, workflowpkg.ErrWorkflowVersionConflict):
@@ -54,7 +58,11 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 	if !ok {
 		return
 	}
-	goalRow, ok := s.loadGoal(r.Context(), w, toolIdentity(info), id)
+	// One evaluation owns the whole decision: the workflow PEP folds the source
+	// goal's read (through the Goal-owned AuthorizeWithin port) and the target
+	// workflow create + agent execute into a single revision. The goal's persisted
+	// agent binds the workflow — the request never supplies it.
+	acc, ok := s.workflowAccess(w, r, info)
 	if !ok {
 		return
 	}
@@ -67,7 +75,7 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	wf, err := s.workflowSvc.SaveGoalAsWorkflow(r.Context(), workflowpkg.SaveInput{UserID: info.UserID, AgentID: goalRow.AgentID, GoalID: id, Name: body.Name, Inputs: workflowInputSpecs(body.Inputs)})
+	wf, err := acc.SaveGoalAsWorkflow(r.Context(), workflowpkg.SaveInput{GoalID: id, Name: body.Name, Inputs: workflowInputSpecs(body.Inputs)})
 	if err != nil {
 		workflowError(w, err)
 		return
@@ -80,8 +88,11 @@ func (s *Server) ListWorkflows(w http.ResponseWriter, r *http.Request, params ap
 	if !ok {
 		return
 	}
-	agentID := derefStr(params.AgentId)
-	rows, err := s.workflowSvc.List(r.Context(), info.UserID, agentID)
+	acc, ok := s.workflowAccess(w, r, info)
+	if !ok {
+		return
+	}
+	rows, err := acc.List(r.Context(), derefStr(params.AgentId))
 	if err != nil {
 		workflowError(w, err)
 		return
@@ -98,8 +109,11 @@ func (s *Server) GetWorkflow(w http.ResponseWriter, r *http.Request, id string) 
 	if !ok {
 		return
 	}
-	agentID := workflowAgentScope(info)
-	wf, err := s.workflowSvc.Get(r.Context(), info.UserID, agentID, id)
+	acc, ok := s.workflowAccess(w, r, info)
+	if !ok {
+		return
+	}
+	wf, err := acc.Get(r.Context(), id)
 	if err != nil {
 		workflowError(w, err)
 		return
@@ -112,12 +126,16 @@ func (s *Server) ListWorkflowRuns(w http.ResponseWriter, r *http.Request, id str
 	if !ok {
 		return
 	}
+	acc, ok := s.workflowAccess(w, r, info)
+	if !ok {
+		return
+	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	rows, total, err := s.workflowSvc.ListRuns(r.Context(), info.UserID, workflowAgentScope(info), id, int32(limit+1), int32(offset))
+	rows, total, err := acc.ListRuns(r.Context(), id, int32(limit+1), int32(offset))
 	if err != nil {
 		workflowError(w, err)
 		return
@@ -143,6 +161,10 @@ func (s *Server) InstantiateWorkflow(w http.ResponseWriter, r *http.Request, id 
 	if !ok {
 		return
 	}
+	acc, ok := s.workflowAccess(w, r, info)
+	if !ok {
+		return
+	}
 	var body apitypes.InstantiateWorkflowRequest
 	if r.Body != nil && r.ContentLength != 0 {
 		if err := decodeJSON(r, &body); err != nil {
@@ -158,7 +180,9 @@ func (s *Server) InstantiateWorkflow(w http.ResponseWriter, r *http.Request, id 
 	if body.Inputs != nil {
 		inputs = *body.Inputs
 	}
-	run, created, err := s.workflowSvc.Instantiate(r.Context(), workflowpkg.InstantiateInput{UserID: info.UserID, AgentID: workflowAgentScope(info), WorkflowID: id, Inputs: inputs, IdempotencyKey: key})
+	// The PEP loads the workflow, authorizes both the workflow (execute) and its
+	// persisted bound agent (execute) under one revision, then claims the run.
+	run, created, err := acc.Instantiate(r.Context(), id, inputs, key)
 	if err != nil {
 		workflowError(w, err)
 		return
@@ -175,15 +199,32 @@ func (s *Server) DeleteWorkflow(w http.ResponseWriter, r *http.Request, id strin
 	if !ok {
 		return
 	}
-	if err := s.workflowSvc.Delete(r.Context(), info.UserID, workflowAgentScope(info), id); err != nil {
+	acc, ok := s.workflowAccess(w, r, info)
+	if !ok {
+		return
+	}
+	if err := acc.Delete(r.Context(), id); err != nil {
 		workflowError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func workflowAgentScope(_ *AuthInfo) string {
-	return ""
+// workflowAccess begins one workflow policy evaluation for an authenticated
+// caller. The Authority carries the verified session role; request path/body
+// fields never contribute to it.
+func (s *Server) workflowAccess(w http.ResponseWriter, r *http.Request, info *AuthInfo) (*workflowpkg.Access, bool) {
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return nil, false
+	}
+	acc, err := s.workflowSvc.Begin(r.Context(), authority)
+	if err != nil {
+		workflowError(w, err)
+		return nil, false
+	}
+	return acc, true
 }
 
 func workflowInputSpecs(in *[]apitypes.WorkflowInputSpec) []workflowpkg.InputSpec {

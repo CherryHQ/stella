@@ -45,8 +45,12 @@ type ListOptions struct {
 	Kinds []Kind
 	// IncludeArchived includes archived sessions.
 	IncludeArchived bool
-	Limit           int
-	Offset          int
+	// ExcludeInternal omits task/delegate worker sessions from human lists.
+	ExcludeInternal bool
+	// ProjectID filters to one project when non-empty.
+	ProjectID string
+	Limit     int
+	Offset    int
 }
 
 // MainRequest describes a main-session resolution request.

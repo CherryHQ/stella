@@ -45,7 +45,7 @@ func TestCompactSession_GroupRejectedBeforeCompactor(t *testing.T) {
 	const groupID = "11111111-1111-4111-8111-111111111111"
 	group := session.Info{ID: "a:group:" + groupID, AgentID: "a", UserID: groupID, GroupID: groupID, Kind: string(session.KindChat)}
 
-	_, err := svc.CompactSession(context.Background(), group)
+	_, err := svc.CompactAuthorizedSession(context.Background(), group)
 	if !errors.Is(err, ErrGroupCompactionUnsupported) {
 		t.Fatalf("group CompactSession err = %v, want ErrGroupCompactionUnsupported", err)
 	}
@@ -54,7 +54,7 @@ func TestCompactSession_GroupRejectedBeforeCompactor(t *testing.T) {
 	}
 
 	private := session.Info{ID: "s-priv", AgentID: "a", UserID: "user-1", Kind: string(session.KindChat)}
-	if _, err := svc.CompactSession(context.Background(), private); err != nil {
+	if _, err := svc.CompactAuthorizedSession(context.Background(), private); err != nil {
 		t.Fatalf("private CompactSession: %v", err)
 	}
 	if spy.calls != 1 {

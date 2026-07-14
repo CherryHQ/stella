@@ -47,6 +47,7 @@ type runnerConfig struct {
 	BuiltinParams       RunnerParams
 	PerRunTools         []tools.Tool
 	SkillStore          pkgplugins.SkillStore
+	SkillReadAuthorizer skillstool.SkillReadAuthorizer
 	PluginView          pkgplugins.SessionPluginView
 	MCPToolProvider     MCPToolProvider
 	ToolOverrideFetcher ToolOverrideFetcher
@@ -264,6 +265,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			WithSkillDiskLayout(layout).
 			WithSkillDirView(view).
 			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
+			WithReadAuthorizer(cfg.SkillReadAuthorizer).
 			WithActionsOnly("search_installed", "load"))
 	}
 	if cfg.MCPToolProvider != nil {

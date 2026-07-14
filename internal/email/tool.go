@@ -29,11 +29,17 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", err
 	}
+	// The runtime context identity is the trusted adapter: a delegated agent turn
+	// becomes a confined AgentActor. Model-supplied arguments never form identity.
+	authority, err := ident.ToAuthority()
+	if err != nil {
+		return "", authz.MapError("email", err)
+	}
 	action, err := tools.ActionArg(args, "email")
 	if err != nil {
 		return "", err
 	}
-	out, err := Dispatch(ctx, emailHandler{svc: t.svc, ident: ident}, action, args)
+	out, err := Dispatch(ctx, emailHandler{svc: t.svc, authority: authority}, action, args)
 	if err != nil {
 		return "", authz.MapError("email", err)
 	}
@@ -41,12 +47,20 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 }
 
 type emailHandler struct {
-	svc   *Service
-	ident authz.Identity
+	svc       *Service
+	authority authz.Authority
+}
+
+func (h emailHandler) access() (*Access, error) {
+	return h.svc.Access(h.authority)
 }
 
 func (h emailHandler) Accounts(ctx context.Context, _ AccountsInput) (any, error) {
-	accounts, err := h.svc.As(h.ident).Accounts(ctx)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	accounts, err := acc.Accounts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +89,11 @@ func (h emailHandler) List(ctx context.Context, in ListInput) (any, error) {
 			opts.Before = &t
 		}
 	}
-	msgs, err := h.svc.As(h.ident).List(ctx, in.Account, opts)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	msgs, err := acc.List(ctx, in.Account, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +105,11 @@ func (h emailHandler) List(ctx context.Context, in ListInput) (any, error) {
 }
 
 func (h emailHandler) Read(ctx context.Context, in ReadInput) (any, error) {
-	msg, err := h.svc.As(h.ident).Read(ctx, in.Account, in.Folder, uint32(in.Uid))
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	msg, err := acc.Read(ctx, in.Account, in.Folder, uint32(in.Uid))
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +121,11 @@ func (h emailHandler) Send(ctx context.Context, in SendInput) (any, error) {
 	if in.Html != nil {
 		opts.HTML = *in.Html
 	}
-	result, err := h.svc.As(h.ident).Send(ctx, in.Account, opts, in.IdempotencyKey)
+	acc, err := h.access()
+	if err != nil {
+		return nil, err
+	}
+	result, err := acc.Send(ctx, in.Account, opts, in.IdempotencyKey)
 	if err != nil {
 		return nil, err
 	}

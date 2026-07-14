@@ -14,6 +14,9 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
@@ -31,6 +34,7 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -40,7 +44,9 @@ import (
 type Server struct {
 	store          config.Store
 	authStore      auth.AuthStore
-	engine         *auth.PolicyEngine
+	agentAccess    *agentaccess.Service
+	sessionAccess  *sessionaccess.Service
+	skillAccess    *skillaccess.Service
 	rateLimiter    *auth.RateLimiter
 	linkCodes      *auth.LinkCodeStore
 	mem            memory.Provider
@@ -62,7 +68,6 @@ type Server struct {
 	recally        *recallyHandlers     // recally HTTP API (articles, feeds, digest)
 	schedulerSvc   *scheduler.Service   // optional; if set, create/delete go through the live scheduler
 	goalSvc        *goal.Service        // optional; if nil, goal endpoints return 503
-	goalQueries    *sqlc.Queries        // optional; read side for goal endpoints
 	workflowSvc    *workflowpkg.Service // optional; if nil, workflow endpoints return 503
 	builtinTools   []agent.BuiltinTool
 	startedAt      time.Time
@@ -89,6 +94,9 @@ type Server struct {
 	eventLog *eventlog.Store
 	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
 	groupDispatcher *channel.GroupDispatcher
+	// assets is the authoritative asset persistence service backing the session
+	// workspace file handlers (durable-write/restore/move/delete for user assets).
+	assets *asset.Store
 	// runtimeCtx is canceled by the process/service lifecycle; request handlers
 	// derive long-running work from it instead of client connections.
 	runtimeCtx context.Context
@@ -118,10 +126,15 @@ type Deps struct {
 	AuthStore auth.AuthStore
 	Mem       memory.Provider
 
-	// Authorization.
-	Engine    *auth.PolicyEngine
-	LinkCodes *auth.LinkCodeStore
-	OIDC      OIDCDeps
+	// Authorization. AgentAccess is the agent policy-enforcement point (the unified
+	// Authorizer behind a deep agent service); there is no legacy PolicyEngine here.
+	AgentAccess   *agentaccess.Service
+	SessionAccess *sessionaccess.Service
+	// SkillAccess is the DB-backed Skill policy-enforcement point. When nil the
+	// skill endpoints report 503 through the centralized unavailable mapping.
+	SkillAccess *skillaccess.Service
+	LinkCodes   *auth.LinkCodeStore
+	OIDC        OIDCDeps
 
 	// Agent runtime + plugins.
 	PoolManager  *agent.PoolManager
@@ -143,6 +156,10 @@ type Deps struct {
 	OAuthAuthServer     *oidc.Service
 	EventLog            *eventlog.Store
 	GroupDispatcher     *channel.GroupDispatcher
+	// Assets is the authoritative asset persistence service. Session workspace
+	// handlers use its narrow durable-write/restore/move/delete ports instead of a
+	// raw blob store, so the HTTP transport never holds process-global blob state.
+	Assets *asset.Store
 
 	// Optional capabilities. A nil field is a supported configuration: the
 	// matching endpoints report 503 through the centralized unavailable mapping
@@ -192,7 +209,8 @@ func (d Deps) validate() error {
 	req(d.DB != nil, "DB")
 	req(d.AuthStore != nil, "AuthStore")
 	req(d.Mem != nil, "Mem")
-	req(d.Engine != nil, "Engine")
+	req(d.AgentAccess != nil, "AgentAccess")
+	req(d.SessionAccess != nil, "SessionAccess")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
 	req(d.PluginHost != nil, "PluginHost")
@@ -201,6 +219,7 @@ func (d Deps) validate() error {
 	req(d.Email != nil, "Email")
 	req(d.Share != nil, "Share")
 	req(d.Recally != nil, "Recally")
+	req(d.Assets != nil, "Assets")
 	req(d.OIDC.AuthSvc != nil, "OIDC.AuthSvc")
 	req(d.OIDC.SessionMgr != nil, "OIDC.SessionMgr")
 	req(d.OIDC.Logins != nil, "OIDC.Logins")
@@ -230,7 +249,9 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 	s := &Server{
 		store:           deps.Store,
 		authStore:       deps.AuthStore,
-		engine:          deps.Engine,
+		agentAccess:     deps.AgentAccess,
+		sessionAccess:   deps.SessionAccess,
+		skillAccess:     deps.SkillAccess,
 		rateLimiter:     auth.NewRateLimiter(),
 		webhookLimiter:  newWebhookLimiter(5, 20),
 		linkCodes:       deps.LinkCodes,
@@ -252,12 +273,13 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		emailSvc:        deps.Email,
 		shareSvc:        deps.Share,
 		recallySvc:      deps.Recally,
-		recally:         newRecallyHandlersWithService(deps.Recally.Store(), deps.Recally, log),
+		recally:         newRecallyHandlersWithService(deps.Recally, log),
 		schedulerSvc:    deps.Scheduler,
 		goalSvc:         deps.Goal,
 		workflowSvc:     deps.Workflow,
 		eventLog:        deps.EventLog,
 		groupDispatcher: deps.GroupDispatcher,
+		assets:          deps.Assets,
 		authProviders:   deps.OIDC.Providers,
 		authSvc:         deps.OIDC.AuthSvc,
 		sessionMgr:      deps.OIDC.SessionMgr,
@@ -269,9 +291,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		credentials:     deps.OIDC.Credentials,
 		startedAt:       time.Now(),
 		runtimeCtx:      ctx,
-	}
-	if deps.Goal != nil {
-		s.goalQueries = deps.Goal.Queries
 	}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
 	// streaming handlers. The pool answers the /readyz liveness ping.
