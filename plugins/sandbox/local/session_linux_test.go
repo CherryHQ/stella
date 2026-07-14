@@ -26,7 +26,7 @@ func TestWrapCommand_linux_networkDisabled(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 	}
 
-	path, args, _, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
+	path, args, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
 
 	if !bwrapFunctional() {
 		if err == nil {
@@ -66,7 +66,7 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, _, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
+	_, args, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error for allow_all network: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	execPath, args, hostCwd, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
+	execPath, args, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -235,9 +235,6 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 	if !hasFlag("--chdir", sandboxCwd) {
 		t.Errorf("expected --chdir %s in bwrap args, got %v", sandboxCwd, args)
 	}
-	if hostCwd != root {
-		t.Errorf("expected hostCwd %q, got %q", root, hostCwd)
-	}
 }
 
 // TestWrapCommand_linux_outOfRootWritableBind verifies a writable mount that
@@ -270,7 +267,7 @@ func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, _, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
+	_, args, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -320,7 +317,7 @@ func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, _, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
+	_, args, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -363,7 +360,7 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, _, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
+	_, args, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -401,7 +398,7 @@ func TestWrapCommand_linux_twoRoots(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, _, err := wrapCommand(policy, "/workspace/projects/p", nil, "", "sh", []string{"-c", "echo hi"})
+	_, args, err := wrapCommand(policy, "/workspace/projects/p", nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

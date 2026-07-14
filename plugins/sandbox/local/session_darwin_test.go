@@ -1,6 +1,9 @@
 package local
 
 import (
+	"context"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,7 +28,7 @@ func TestWrapCommand_darwin_usesSeatbelt(t *testing.T) {
 	root := t.TempDir()
 	policy := makePolicy(root, sandboxpkg.NetworkDisabled)
 
-	execPath, args, hostCwd, err := wrapCommand(policy, root, nil, "", "sh", []string{"-c", "echo hi"})
+	execPath, args, err := wrapCommand(policy, root, nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -36,9 +39,83 @@ func TestWrapCommand_darwin_usesSeatbelt(t *testing.T) {
 	if len(args) < 3 || args[0] != "-p" {
 		t.Fatalf("expected -p <profile> <cmd> ..., got %v", args)
 	}
-	if hostCwd != root {
-		t.Fatalf("hostCwd = %q, want %q", hostCwd, root)
+}
+
+// TestLocalSession_darwinProductionMountUsesHostCwd verifies that direct
+// Seatbelt execution starts in the host path for a production-style /workspace
+// mount. sandbox-exec does not remap paths, unlike bwrap.
+func TestLocalSession_darwinProductionMountUsesHostCwd(t *testing.T) {
+	if !seatbeltFunctional() {
+		t.Skip("sandbox-exec not available")
 	}
+
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	realCwd := filepath.Join(root, "sub")
+	if err := os.Mkdir(realCwd, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	sandboxCwd := filepath.Join(sandboxpkg.MountWorkspace, "sub")
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: root,
+			WorkingDir:    sandboxpkg.MountWorkspace,
+			Mounts: []sandboxpkg.Mount{{
+				HostPath:    root,
+				SandboxPath: sandboxpkg.MountWorkspace,
+				Access:      sandboxpkg.MountReadWrite,
+			}},
+		},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+		InheritEnv: true,
+	}
+	s := &localSession{
+		id:          "test",
+		policy:      policy,
+		realRoot:    root,
+		sandboxRoot: sandboxpkg.MountWorkspace,
+		done:        make(chan struct{}),
+	}
+	want := realCwd + "\n"
+
+	t.Run("Exec", func(t *testing.T) {
+		result, err := s.Exec(context.Background(), "pwd", sandboxpkg.ExecOptions{Cwd: sandboxCwd})
+		if err != nil {
+			t.Fatalf("Exec: %v", err)
+		}
+		if result.ExitCode != 0 {
+			t.Fatalf("Exec exit code = %d, stderr = %q", result.ExitCode, result.Stderr)
+		}
+		if result.Stdout != want {
+			t.Errorf("Exec stdout = %q, want %q", result.Stdout, want)
+		}
+	})
+
+	t.Run("StartProcess", func(t *testing.T) {
+		process, err := s.StartProcess(context.Background(), sandboxpkg.ProcessRequest{
+			Path: "/bin/pwd",
+			Cwd:  sandboxCwd,
+		})
+		if err != nil {
+			t.Fatalf("StartProcess: %v", err)
+		}
+		stdout, err := io.ReadAll(process.Stdout())
+		if err != nil {
+			t.Fatalf("read stdout: %v", err)
+		}
+		result, err := process.Wait(context.Background())
+		if err != nil {
+			t.Fatalf("Wait: %v", err)
+		}
+		if result.ExitCode != 0 {
+			t.Fatalf("StartProcess exit code = %d", result.ExitCode)
+		}
+		if string(stdout) != want {
+			t.Errorf("StartProcess stdout = %q, want %q", stdout, want)
+		}
+	})
 }
 
 func TestBuildSeatbeltProfile_structure(t *testing.T) {
@@ -157,11 +234,11 @@ func TestBuildSeatbeltProfile_networkDisabledVsAllowAll(t *testing.T) {
 	}
 	root := t.TempDir()
 
-	_, disabledArgs, _, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkDisabled), root, nil, "", "sh", []string{"-c", "echo"})
+	_, disabledArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkDisabled), root, nil, "", "sh", []string{"-c", "echo"})
 	if err != nil {
 		t.Fatalf("disabled wrapCommand error: %v", err)
 	}
-	_, allowArgs, _, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkAllowAll), root, nil, "", "sh", []string{"-c", "echo"})
+	_, allowArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkAllowAll), root, nil, "", "sh", []string{"-c", "echo"})
 	if err != nil {
 		t.Fatalf("allow_all wrapCommand error: %v", err)
 	}

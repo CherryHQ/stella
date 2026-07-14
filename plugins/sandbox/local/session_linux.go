@@ -288,10 +288,9 @@ func isCoveredByWritableMount(hostPath string, mounts []sandboxpkg.Mount) bool {
 // isolation on Linux. bwrap is mandatory — returns an error if not functional.
 //
 //   - sandboxCwd: working directory in sandbox space (e.g. /workspace/sub).
-//   - hostCwd returned: real host path (bwrap uses --chdir internally).
-func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, hostCwd string, err error) {
+func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, err error) {
 	if !bwrapFunctional() {
-		return "", nil, "", fmt.Errorf(
+		return "", nil, fmt.Errorf(
 			"local sandbox: bwrap (bubblewrap) is required on Linux but is not available or not functional; " +
 				"install it (apt install bubblewrap / dnf install bubblewrap / pacman -S bubblewrap) " +
 				"or use the docker backend",
@@ -365,5 +364,5 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 	bwrapArgs = append(bwrapArgs, "--", name)
 	bwrapArgs = append(bwrapArgs, args...)
-	return bwrapPath, bwrapArgs, realRoot, nil
+	return bwrapPath, bwrapArgs, nil
 }
