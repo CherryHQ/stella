@@ -12,8 +12,8 @@ import (
 // authority builds the trusted UserActor Authority for an authenticated HTTP
 // caller from its verified session claims. The mint happens inside internal/auth
 // (the trusted producer of a session subject); the server never constructs an
-// Authority from request-supplied path/body fields. Roles come from the verified
-// session role exactly as the legacy subject did.
+// Authority from request-supplied path/body fields. The admin bit comes only
+// from the verified session role.
 func (info *AuthInfo) authority() (authz.Authority, error) {
 	role := info.Role
 	if role == "" {

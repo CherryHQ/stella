@@ -12,9 +12,9 @@ Stella 中每个受保护的操作都从一个可信的 `authz.Authority` 开始
 
 ## 两种形态
 
-**规则自持域**编码自己的静态决策——一个针对 Authority 与加载出的行的小型 `allow(action, scope, isOwner …)` 谓词。当资源有真实区分需要表达时使用它：多个持久 scope、管理员管理的层级，或按角色的差异。Agent、Session、Workspace、Goal、Workflow、Scheduler、Skill、Vault 都是规则自持域。控制面（provider、设置、插件、频道）是一种退化情形：它唯一的规则是 `Begin` 处的管理员门禁。
+**规则自持域**编码自己的静态决策——一个针对 Authority 与加载出的行的小型 `allow(action, scope, isOwner …)` 谓词。当资源有真实区分需要表达时使用它：多个持久 scope、管理员管理的层级，或不同的可信行为者类型。Agent、Session、Workspace、Goal、Workflow、Scheduler、Skill、Vault 都是规则自持域。控制面（provider、设置、插件、频道）是一种退化情形：它唯一的规则是 `Begin` 处的管理员门禁。
 
-**归属/能力域**把 Authority 绑定到域 `Access` 对象上，并用按用户限定的持久查询强制边界——完全没有按动作的规则。当资源是单一、粗粒度的按用户能力、没有 scope、管理员或角色区分时使用它：为它写规则只会得到四条复制粘贴的行，且永远只说“owner 可操作自己的”。Connections、Email、Share、Recally 都是能力域。
+**归属/能力域**把 Authority 绑定到域 `Access` 对象上，并用按用户限定的持久查询强制边界——完全没有按动作的规则。当资源是单一、粗粒度的按用户能力、没有 scope、管理员层级或行为者差异时使用它：为它写规则只会得到四条复制粘贴的行，且永远只说“owner 可操作自己的”。Connections、Email、Share、Recally 都是能力域。
 
 不要“为了对称”而新增 scope/管理员规则。如果你唯一会写的规则是“owner 可操作自己的”，那就该用能力形态。反过来，如果你发现自己在传输层手写 scope 或管理员检查，那就把它们下推进域自身的规则里。
 
@@ -46,7 +46,7 @@ Stella 中每个受保护的操作都从一个可信的 `authz.Authority` 开始
 ```go
 authority, err := info.authority()      // from the request's AuthInfo
 acc, err := s.vaultSvc.Begin(r.Context(), authority)
-// acc's methods decide ResourceVault against the domain's static rules.
+// acc 的方法应用 Vault 域自身的静态 scope 与归属规则。
 ```
 
 ### 授权一个集合（规则自持）

@@ -12,9 +12,9 @@ There are two shapes a domain takes, and choosing the wrong one is the most comm
 
 ## Two shapes
 
-**Rule-owning domains** encode their own static decision — a small `allow(action, scope, isOwner …)` predicate over the Authority and the loaded row. Use this when a resource has real distinctions to express: multiple durable scopes, an admin-managed tier, or per-role differences. Agent, Session, Workspace, Goal, Workflow, Scheduler, Skill, and Vault are rule-owning. The control plane (providers, settings, plugins, channels) is a degenerate case: its single rule is an admin gate at `Begin`.
+**Rule-owning domains** encode their own static decision — a small `allow(action, scope, isOwner …)` predicate over the Authority and the loaded row. Use this when a resource has real distinctions to express: multiple durable scopes, an admin-managed tier, or different trusted actor kinds. Agent, Session, Workspace, Goal, Workflow, Scheduler, Skill, and Vault are rule-owning. The control plane (providers, settings, plugins, channels) is a degenerate case: its single rule is an admin gate at `Begin`.
 
-**Ownership/capability domains** bind the Authority to a domain `Access` object and enforce the boundary with user-scoped durable queries — no per-action rule at all. Use this when a resource is a single coarse per-user capability with no scope, admin, or role distinctions: writing rules for it would be four copy-pasted lines that only ever say "the owner may act on their own." Connections, Email, Share, and Recally are capability domains.
+**Ownership/capability domains** bind the Authority to a domain `Access` object and enforce the boundary with user-scoped durable queries — no per-action rule at all. Use this when a resource is a single coarse per-user capability with no scope, admin tier, or actor-specific behavior: writing rules for it would be four copy-pasted lines that only ever say "the owner may act on their own." Connections, Email, Share, and Recally are capability domains.
 
 Do not add scope/admin rules "for symmetry." If the only rule you would write is "owner may act on their own," you want the capability shape. Conversely, if you find yourself hand-rolling scope or admin checks at a transport, push them into the domain's own rule.
 
@@ -46,7 +46,7 @@ Derive the Authority from verified session claims, bind it, decide the resource:
 ```go
 authority, err := info.authority()      // from the request's AuthInfo
 acc, err := s.vaultSvc.Begin(r.Context(), authority)
-// acc's methods decide ResourceVault against the domain's static rules.
+// acc's methods apply the Vault domain's static scope and ownership rules.
 ```
 
 ### Authorize a collection (rule-owning)
