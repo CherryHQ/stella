@@ -12,14 +12,12 @@ import type { ComponentsSkillList, ListAgentSkillsData } from "@/lib/api-client/
 import type { Agent, Skill, Tool, UserMemory } from "@/lib/types";
 
 type AgentSkillScopeGroup = NonNullable<ListAgentSkillsData["query"]>["scope_group"];
-type AgentSkillCreatedBy = NonNullable<ListAgentSkillsData["query"]>["created_by"];
 
 export interface AgentSkillsPageFilters {
   agentId: string;
   projectId?: string;
   sessionId?: string;
   scopeGroup?: AgentSkillScopeGroup;
-  createdBy?: AgentSkillCreatedBy;
   q?: string;
 }
 
@@ -110,7 +108,6 @@ export function agentSkillsInfiniteQueryOptions(filters: AgentSkillsPageFilters)
       filters.projectId ?? "",
       filters.sessionId ?? "",
       filters.scopeGroup ?? "all",
-      filters.createdBy ?? "all",
       q,
       AGENT_SKILLS_PAGE_SIZE,
     ],
@@ -120,7 +117,6 @@ export function agentSkillsInfiniteQueryOptions(filters: AgentSkillsPageFilters)
         path: { id: filters.agentId },
         query: {
           ...(filters.scopeGroup ? { scope_group: filters.scopeGroup } : {}),
-          ...(filters.createdBy ? { created_by: filters.createdBy } : {}),
           ...(q ? { q } : {}),
           page_size: AGENT_SKILLS_PAGE_SIZE,
           ...(filters.sessionId ? { session_id: filters.sessionId } : {}),

@@ -617,13 +617,7 @@ function ManagedSkillCard({
   onOpen: () => void;
 }) {
   const { t } = useI18n();
-  // Keep the card footer dedicated to provenance.
-  const sourceLabel =
-    skill.scope === "system"
-      ? t("sessions.skillsList.builtin")
-      : skill.created_by === "reflect"
-        ? t("sessions.skillsList.generated")
-        : t("sessions.skillsList.manualMaintenance");
+  const sourceLabel = t(skillSourceMessageKey(skill));
   return (
     <button
       type="button"
@@ -663,6 +657,12 @@ function ManagedSkillCard({
       </div>
     </button>
   );
+}
+
+function skillSourceMessageKey(skill: Skill) {
+  if (skill.scope === "system") return "sessions.skillsList.builtin" as const;
+  if (skill.created_by === "reflect") return "sessions.skillsList.generated" as const;
+  return "sessions.skillsList.manualMaintenance" as const;
 }
 
 function MarketGrid({
@@ -973,18 +973,16 @@ function SkillInspector({
                 : t("sessions.skillsList.auto")}
             </Badge>
             <Badge variant="outline" size="sm">
-              {skill.created_by === "reflect"
-                ? t("sessions.skillsList.generated")
-                : t("sessions.skillsList.manualMaintenance")}
+              {t(skillSourceMessageKey(skill))}
             </Badge>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <Clock className="size-4" />
-              {skill.scope === "system"
-                ? t("sessions.skillsList.builtin")
-                : formatTime(skill.updated_at)}
-            </span>
+            {skill.scope !== "system" && (
+              <span className="inline-flex items-center gap-1">
+                <Clock className="size-4" />
+                {formatTime(skill.updated_at)}
+              </span>
+            )}
             {skill.source && (
               <span className="inline-flex items-center gap-1 font-mono">
                 <GitBranch className="size-4" />
