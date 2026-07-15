@@ -95,21 +95,6 @@ func TestTouchReflectSkillRuntimeUseDoesNotRecreateMissingRow(t *testing.T) {
 	}
 }
 
-func TestStoreInterfaceExposesReflectRestore(t *testing.T) {
-	var store Store = (*PGStore)(nil)
-	requireReflectRestoreStore(t, store)
-}
-
-func requireReflectRestoreStore(t *testing.T, store interface {
-	RestoreReflectOwnedUserAgentSkill(context.Context, ReflectSkillRestore) (ReflectSkillRestoreResult, error)
-},
-) {
-	t.Helper()
-	if store == nil {
-		t.Fatal("restore-capable store is nil")
-	}
-}
-
 func TestCreateReflectOwnedUserAgentSkillInitializesUsage(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)
@@ -282,7 +267,7 @@ func TestCreateReflectOwnedSkillSameNameDifferentStateConflicts(t *testing.T) {
 		})
 	}
 
-	t.Run("deprecated name can be reused", func(t *testing.T) {
+	t.Run("legacy deprecated name still conflicts", func(t *testing.T) {
 		stateRequest := request
 		stateRequest.Name += "-deprecated"
 		deprecated, err := store.CreateReflectOwnedUserAgentSkill(ctx, stateRequest)
@@ -293,16 +278,58 @@ func TestCreateReflectOwnedSkillSameNameDifferentStateConflicts(t *testing.T) {
 			t.Fatalf("deprecate fixture: %v", err)
 		}
 
-		// Recoverable deprecated rows intentionally release their owner/name so a
-		// newer active version can reuse the stable user-facing skill name.
-		replacement, err := store.CreateReflectOwnedUserAgentSkill(ctx, stateRequest)
-		if err != nil {
-			t.Fatalf("create same-name replacement: %v", err)
-		}
-		if replacement.ID == deprecated.ID || replacement.Status != SkillStatusActive {
-			t.Fatalf("replacement id/status = %s/%q, want a distinct active skill", replacement.ID, replacement.Status)
+		// New code physically deletes skills instead of creating deprecated rows.
+		// A legacy deprecated row keeps its unique name until explicitly cleaned.
+		if _, err := store.CreateReflectOwnedUserAgentSkill(ctx, stateRequest); err == nil {
+			t.Fatal("same-name create succeeded while a legacy deprecated row exists")
 		}
 	})
+}
+
+func TestDeleteReflectOwnedUserAgentSkillRechecksUsageAndRemovesRows(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "reflect-delete-stale",
+		Description: "stale reflect skill", MainFileContent: "# Stale\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+
+	lastUsedAt := time.Now().UTC().Add(-30 * 24 * time.Hour).Truncate(time.Microsecond)
+	if _, err := db.Exec(ctx, `UPDATE skill_usage SET last_used_at = $1 WHERE skill_id = $2`, lastUsedAt, created.ID); err != nil {
+		t.Fatalf("seed stale usage: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, last_active)
+		VALUES ('00000000-0000-0000-0000-000000000123', 'reflect-delete-session', 'test', 'chat', $1, $2, $3)
+	`, agentID, userID, lastUsedAt.Add(time.Hour)); err != nil {
+		t.Fatalf("seed eligible activity: %v", err)
+	}
+
+	deleted, err := store.DeleteReflectOwnedUserAgentSkill(ctx, ReflectSkillDelete{
+		ID: created.ID, UserID: userID, AgentID: agentID, ExpectedVersion: created.Version,
+		ExpectedUsageLastUsedAt: &lastUsedAt, RequireEligibleActivityAfterUsage: true,
+	})
+	if err != nil {
+		t.Fatalf("DeleteReflectOwnedUserAgentSkill: %v", err)
+	}
+	if deleted.ID != created.ID {
+		t.Fatalf("deleted skill = %#v, want %s", deleted, created.ID)
+	}
+
+	for table, column := range map[string]string{
+		"skill": "id", "skill_file": "skill_id", "skill_usage": "skill_id", "skill_changelog": "skill_id",
+	} {
+		var count int
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM `+table+` WHERE `+column+` = $1`, created.ID).Scan(&count); err != nil {
+			t.Fatalf("count %s rows: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s rows after delete = %d, want 0", table, count)
+		}
+	}
 }
 
 func TestReflectCreateRetryOnlyRecognizesOwnerNameUniqueConflict(t *testing.T) {
@@ -549,274 +576,6 @@ func TestPatchReflectOwnedSkillStaleDifferentStateConflicts(t *testing.T) {
 	})
 	if !errors.Is(err, ErrSkillVersionConflict) {
 		t.Fatalf("stale different-state patch error = %v, want ErrSkillVersionConflict", err)
-	}
-}
-
-func TestDeprecateReflectOwnedUserAgentSkillDeletesUsageAndRecordsChangelog(t *testing.T) {
-	store, db, ctx := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
-	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
-		UserID:          userID,
-		AgentID:         agentID,
-		Name:            "reflect-usage-deprecate",
-		Description:     "before",
-		MainFileContent: "# Before\n",
-	})
-	if err != nil {
-		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
-	}
-
-	deprecated, err := store.DeprecateReflectOwnedUserAgentSkill(ctx, ReflectSkillDeprecate{
-		ID:              created.ID,
-		UserID:          userID,
-		AgentID:         agentID,
-		ExpectedVersion: created.Version,
-	})
-	if err != nil {
-		t.Fatalf("DeprecateReflectOwnedUserAgentSkill: %v", err)
-	}
-	if deprecated.Status != SkillStatusDeprecated {
-		t.Fatalf("deprecated status = %q, want %q", deprecated.Status, SkillStatusDeprecated)
-	}
-	if deprecated.Version != created.Version+1 {
-		t.Fatalf("deprecated version = %d, want %d", deprecated.Version, created.Version+1)
-	}
-
-	var usageCount int
-	if err := db.QueryRow(ctx, `
-		SELECT count(*)
-		FROM skill_usage
-		WHERE skill_id = $1
-	`, created.ID).Scan(&usageCount); err != nil {
-		t.Fatalf("count skill_usage: %v", err)
-	}
-	if usageCount != 0 {
-		t.Fatalf("deprecated skill usage rows = %d, want 0", usageCount)
-	}
-
-	var changelogCount int
-	if err := db.QueryRow(ctx, `
-		SELECT count(*)
-		FROM skill_changelog
-		WHERE skill_id = $1
-		  AND action = 'deprecate'
-		  AND version_before = $2
-		  AND version_after = $3
-	`, created.ID, created.Version, deprecated.Version).Scan(&changelogCount); err != nil {
-		t.Fatalf("count deprecate changelog: %v", err)
-	}
-	if changelogCount != 1 {
-		t.Fatalf("deprecate changelog count = %d, want 1", changelogCount)
-	}
-}
-
-func TestRestoreReflectOwnedUserAgentSkillRestoresStatusChangelogAndUsage(t *testing.T) {
-	store, db, ctx := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
-	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
-		UserID:          userID,
-		AgentID:         agentID,
-		Name:            "reflect-usage-restore",
-		Description:     "restore candidate",
-		MainFileContent: "# Restore Candidate\n",
-	})
-	if err != nil {
-		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
-	}
-	deprecateMetadata := json.RawMessage(`{"curator":"usage","rule":"low_use","use_count":7,"last_used_at":"2026-06-01T00:00:00Z"}`)
-	deprecated, err := store.DeprecateReflectOwnedUserAgentSkill(ctx, ReflectSkillDeprecate{
-		ID:              created.ID,
-		UserID:          userID,
-		AgentID:         agentID,
-		ExpectedVersion: created.Version,
-		Metadata:        deprecateMetadata,
-	})
-	if err != nil {
-		t.Fatalf("DeprecateReflectOwnedUserAgentSkill: %v", err)
-	}
-
-	result, err := store.RestoreReflectOwnedUserAgentSkill(ctx, ReflectSkillRestore{
-		ID:         created.ID,
-		UserID:     userID,
-		AgentID:    agentID,
-		RestoredBy: "admin@example.com",
-		Reason:     "false positive",
-	})
-	if err != nil {
-		t.Fatalf("RestoreReflectOwnedUserAgentSkill: %v", err)
-	}
-	if !result.Restored {
-		t.Fatal("restore result Restored = false, want true")
-	}
-	if result.Skill.Status != SkillStatusActive || result.Skill.Version != deprecated.Version+1 {
-		t.Fatalf("restored skill = %#v, want active version %d", result.Skill, deprecated.Version+1)
-	}
-	var useCount int64
-	var lastUsedAt time.Time
-	if err := db.QueryRow(ctx, `
-		SELECT use_count, last_used_at
-		FROM skill_usage
-		WHERE skill_id = $1 AND user_id = $2 AND agent_id = $3
-	`, created.ID, userID, agentID).Scan(&useCount, &lastUsedAt); err != nil {
-		t.Fatalf("read restored skill usage: %v", err)
-	}
-	if useCount != 7 {
-		t.Fatalf("restored use_count = %d, want old use_count 7", useCount)
-	}
-	if lastUsedAt.IsZero() {
-		t.Fatal("restored last_used_at is zero")
-	}
-	logs, err := store.ListSkillChangelogBySkill(ctx, created.ID, 10)
-	if err != nil {
-		t.Fatalf("ListSkillChangelogBySkill: %v", err)
-	}
-	if logs[0].Action != "restore" || logs[0].VersionBefore != deprecated.Version || logs[0].VersionAfter != result.Skill.Version {
-		t.Fatalf("latest changelog = %#v, want restore from deprecated version", logs[0])
-	}
-	var restoreMetadata map[string]any
-	if err := json.Unmarshal(logs[0].Metadata, &restoreMetadata); err != nil {
-		t.Fatalf("unmarshal restore metadata: %v", err)
-	}
-	if restoreMetadata["restored_by"] != "admin@example.com" || restoreMetadata["reason"] != "false positive" {
-		t.Fatalf("restore metadata = %#v, want restored_by and reason", restoreMetadata)
-	}
-	if restoreMetadata["curator_rule"] != "low_use" || restoreMetadata["restored_use_count"].(float64) != 7 {
-		t.Fatalf("restore metadata missing curator/use_count linkage: %#v", restoreMetadata)
-	}
-
-	second, err := store.RestoreReflectOwnedUserAgentSkill(ctx, ReflectSkillRestore{
-		ID:         created.ID,
-		UserID:     userID,
-		AgentID:    agentID,
-		RestoredBy: "admin@example.com",
-	})
-	if err != nil {
-		t.Fatalf("RestoreReflectOwnedUserAgentSkill no-op: %v", err)
-	}
-	if second.Restored {
-		t.Fatal("second restore Restored = true, want no-op")
-	}
-	if second.Skill.Version != result.Skill.Version {
-		t.Fatalf("no-op restore bumped version to %d, want %d", second.Skill.Version, result.Skill.Version)
-	}
-
-	if _, err := store.DeprecateReflectOwnedUserAgentSkill(ctx, ReflectSkillDeprecate{
-		ID:              created.ID,
-		UserID:          userID,
-		AgentID:         agentID,
-		ExpectedVersion: second.Skill.Version,
-	}); err != nil {
-		t.Fatalf("DeprecateReflectOwnedUserAgentSkill manual: %v", err)
-	}
-	_, err = store.RestoreReflectOwnedUserAgentSkill(ctx, ReflectSkillRestore{
-		ID:         created.ID,
-		UserID:     userID,
-		AgentID:    agentID,
-		RestoredBy: "admin@example.com",
-	})
-	if !errors.Is(err, ErrSkillNotRestorable) {
-		t.Fatalf("restore after latest manual deprecate err = %v, want ErrSkillNotRestorable", err)
-	}
-}
-
-func TestRestoreReflectOwnedUserAgentSkillPreservesExplicitZeroUseCount(t *testing.T) {
-	store, db, ctx := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
-	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
-		UserID:          userID,
-		AgentID:         agentID,
-		Name:            "reflect-zero-use-restore",
-		Description:     "zero-use restore candidate",
-		MainFileContent: "# Zero-use Restore Candidate\n",
-	})
-	if err != nil {
-		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
-	}
-	deprecated, err := store.DeprecateReflectOwnedUserAgentSkill(ctx, ReflectSkillDeprecate{
-		ID:              created.ID,
-		UserID:          userID,
-		AgentID:         agentID,
-		ExpectedVersion: created.Version,
-		Metadata:        json.RawMessage(`{"curator":"usage","rule":"unused","use_count":0,"last_used_at":"2026-06-01T00:00:00Z"}`),
-	})
-	if err != nil {
-		t.Fatalf("DeprecateReflectOwnedUserAgentSkill: %v", err)
-	}
-
-	result, err := store.RestoreReflectOwnedUserAgentSkill(ctx, ReflectSkillRestore{
-		ID:         created.ID,
-		UserID:     userID,
-		AgentID:    agentID,
-		RestoredBy: "admin@example.com",
-	})
-	if err != nil {
-		t.Fatalf("RestoreReflectOwnedUserAgentSkill: %v", err)
-	}
-	if !result.Restored || result.Skill.Version != deprecated.Version+1 {
-		t.Fatalf("restore result = %#v, want restored version %d", result, deprecated.Version+1)
-	}
-
-	var useCount int64
-	if err := db.QueryRow(ctx, `SELECT use_count FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&useCount); err != nil {
-		t.Fatalf("read restored skill usage: %v", err)
-	}
-	if useCount != 0 {
-		t.Fatalf("restored use_count = %d, want explicit historical value 0", useCount)
-	}
-}
-
-func TestDeprecateReflectOwnedUserAgentSkillRejectsManualSkill(t *testing.T) {
-	store, db, ctx := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
-
-	id, err := store.Create(ctx, Skill{
-		Scope:       "user_agent",
-		UserID:      userID,
-		AgentID:     agentID,
-		Name:        "manual-deprecate-skill",
-		Description: "manual",
-		Status:      "active",
-	}, map[string]string{MainFile: "# Manual\n"})
-	if err != nil {
-		t.Fatalf("Create manual skill: %v", err)
-	}
-
-	_, err = store.DeprecateReflectOwnedUserAgentSkill(ctx, ReflectSkillDeprecate{
-		ID:              id,
-		UserID:          userID,
-		AgentID:         agentID,
-		ExpectedVersion: 1,
-	})
-	if !errors.Is(err, ErrSkillNotReflectOwned) {
-		t.Fatalf("manual deprecate error = %v, want ErrSkillNotReflectOwned", err)
-	}
-}
-
-func TestSkillChangelogAcceptsLifecycleActionsForReflectCurator(t *testing.T) {
-	_, db, ctx := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
-
-	_, err := db.Exec(ctx, `
-		INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, metadata)
-		VALUES ('reflect-lifecycle-guard', 'user_agent', $1, $2, 'reflect-lifecycle-guard', 'guard', 'active', '{"created_by":"reflect"}')
-	`, userID, agentID)
-	if err != nil {
-		t.Fatalf("insert skill: %v", err)
-	}
-
-	_, err = db.Exec(ctx, `
-		INSERT INTO skill_changelog (skill_id, user_id, agent_id, scope, action, version_after)
-		VALUES ('reflect-lifecycle-guard', $1, $2, 'user_agent', 'deprecate', 2)
-	`, userID, agentID)
-	if err != nil {
-		t.Fatalf("expected deprecate changelog action to be allowed for #535: %v", err)
-	}
-	_, err = db.Exec(ctx, `
-		INSERT INTO skill_changelog (skill_id, user_id, agent_id, scope, action, version_after)
-		VALUES ('reflect-lifecycle-guard', $1, $2, 'user_agent', 'restore', 3)
-	`, userID, agentID)
-	if err != nil {
-		t.Fatalf("expected restore changelog action to be allowed for restore safety net: %v", err)
 	}
 }
 

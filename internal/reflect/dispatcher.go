@@ -40,7 +40,7 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 			return nil, fmt.Errorf("reflect: Memory provider must support fact batch writes for armed usage curator")
 		}
 		if _, ok := cfg.SkillStore.(usageCuratorSkillWriter); !ok {
-			return nil, fmt.Errorf("reflect: SkillStore must support reflect skill deprecate for armed usage curator")
+			return nil, fmt.Errorf("reflect: SkillStore must support reflect skill delete for armed usage curator")
 		}
 	}
 	if cfg.Log == nil {

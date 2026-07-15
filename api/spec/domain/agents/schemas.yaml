@@ -120,7 +120,7 @@ components:
 
     Skill:
       type: object
-      required: [lifecycle_version, created_by, is_restorable]
+      required: [lifecycle_version, created_by]
       properties:
         id: { type: string }
         scope:
@@ -139,13 +139,6 @@ components:
         updated_at: { type: string, format: date-time }
         lifecycle_version: { type: integer, format: int64 }
         created_by: { type: string, enum: [manual, reflect] }
-        is_restorable: { type: boolean }
-        removal_source:
-          nullable: true
-          allOf:
-            - $ref: "#/components/schemas/RemovalSource"
-        deprecated_at: { type: string, format: date-time, nullable: true }
-        restore_deadline: { type: string, format: date-time, nullable: true }
 
     SkillScopeCounts:
       type: object

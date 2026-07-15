@@ -1,10 +1,8 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -108,38 +106,6 @@ func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id stri
 func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) skillView {
 	files, _ := s.skillStore().ListFiles(r.Context(), sk.ID)
 	view := storedSkillToView(*sk, files)
-	if sk.Status != "deprecated" {
-		return view
-	}
-
-	// Deprecated stable-ID detail uses the latest lifecycle event to expose the
-	// same recovery metadata as the Removed list without bypassing the Store.
-	logs, err := s.skillStore().ListSkillChangelogBySkill(r.Context(), sk.ID, 1)
-	if err != nil || len(logs) == 0 || logs[0].Action != "deprecate" {
-		return view
-	}
-	var metadata struct {
-		DeprecatedBy string `json:"deprecated_by"`
-		Curator      string `json:"curator"`
-	}
-	if json.Unmarshal(logs[0].Metadata, &metadata) != nil {
-		return view
-	}
-	var source string
-	switch {
-	case metadata.DeprecatedBy == "manual":
-		source = "manual"
-	case metadata.Curator == "usage":
-		source = "curator"
-	default:
-		return view
-	}
-	deprecatedAt := logs[0].CreatedAt.UTC()
-	deadline := deprecatedAt.Add(2160 * time.Hour)
-	view.RemovalSource = &source
-	view.DeprecatedAt = &deprecatedAt
-	view.RestoreDeadline = &deadline
-	view.IsRestorable = time.Now().UTC().Before(deadline)
 	return view
 }
 

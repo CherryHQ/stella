@@ -69,7 +69,6 @@ type changelogPageToken struct {
 
 type skillPageToken struct {
 	Kind   string     `json:"kind"`
-	State  string     `json:"state"`
 	SortAt *time.Time `json:"sort_at"`
 	ID     string     `json:"id"`
 }
@@ -104,11 +103,11 @@ func decodeKnowledgePageToken(token string, state memorywrite.KnowledgeState) (*
 	return &memorywrite.KnowledgeCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
 }
 
-// encodeSkillPageToken binds a merged Skill cursor to its lifecycle state.
-func encodeSkillPageToken(state skills.ManagedSkillState, cursor skills.ManagedSkillCursor) (string, error) {
+// encodeSkillPageToken keeps a merged Skill cursor opaque to clients.
+func encodeSkillPageToken(cursor skills.ManagedSkillCursor) (string, error) {
 	sortAt := cursor.Timestamp.UTC()
 	payload, err := json.Marshal(skillPageToken{
-		Kind: skillPageTokenKind, State: string(state), SortAt: &sortAt, ID: cursor.ID,
+		Kind: skillPageTokenKind, SortAt: &sortAt, ID: cursor.ID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode skill page token: %w", err)
@@ -116,7 +115,7 @@ func encodeSkillPageToken(state skills.ManagedSkillState, cursor skills.ManagedS
 	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
-func decodeSkillPageToken(token string, state skills.ManagedSkillState) (*skills.ManagedSkillCursor, error) {
+func decodeSkillPageToken(token string) (*skills.ManagedSkillCursor, error) {
 	if token == "" {
 		return nil, fmt.Errorf("page_token is malformed")
 	}
@@ -130,7 +129,7 @@ func decodeSkillPageToken(token string, state skills.ManagedSkillState) (*skills
 	}
 	// Filesystem skills intentionally have a zero timestamp, so their stable ID
 	// is sufficient to continue the final timestamp bucket.
-	if decoded.Kind != skillPageTokenKind || decoded.State != string(state) || decoded.SortAt == nil || decoded.ID == "" {
+	if decoded.Kind != skillPageTokenKind || decoded.SortAt == nil || decoded.ID == "" {
 		return nil, fmt.Errorf("page_token does not match the skill query")
 	}
 	return &skills.ManagedSkillCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil

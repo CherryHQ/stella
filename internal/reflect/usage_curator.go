@@ -94,7 +94,7 @@ type usageCuratorPair struct {
 }
 
 type usageCuratorSkillWriter interface {
-	DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillDeprecate) (skills.Skill, error)
+	DeleteReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillDelete) (skills.Skill, error)
 }
 
 type usageCuratorKnowledgeQuery struct {
@@ -136,7 +136,7 @@ type usageCuratorReport struct {
 	KnowledgeCandidates int
 	KnowledgeDeprecated int
 	SkillCandidates     int
-	SkillDeprecated     int
+	SkillDeleted        int
 	Evidence            []usageCuratorEvidence
 }
 
@@ -199,8 +199,8 @@ func runUsageCurator(ctx context.Context, cfg usageCuratorRunConfig) (usageCurat
 	if skillErr != nil {
 		writeErrs = append(writeErrs, skillErr)
 	} else {
-		n, err := deprecateCuratorSkills(ctx, cfg.SkillWriter, cfg.SkillAuthorizer, skillsToDeprecate)
-		report.SkillDeprecated = n
+		n, err := deleteCuratorSkills(ctx, cfg.SkillWriter, cfg.SkillAuthorizer, skillsToDeprecate)
+		report.SkillDeleted = n
 		if err != nil {
 			writeErrs = append(writeErrs, err)
 		}
@@ -322,7 +322,7 @@ func groupKnowledgeCuratorCandidates(candidates []usageCuratorKnowledgeCandidate
 	return groups
 }
 
-func deprecateCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter, authorizer skillWriteAuthorizer, candidates []usageCuratorSkillCandidate) (int, error) {
+func deleteCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter, authorizer skillWriteAuthorizer, candidates []usageCuratorSkillCandidate) (int, error) {
 	if len(candidates) == 0 {
 		return 0, nil
 	}
@@ -332,55 +332,34 @@ func deprecateCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter,
 	if authorizer == nil {
 		return 0, fmt.Errorf("usage curator: skill authorizer is required")
 	}
-	var deprecated int
+	var deleted int
 	var errs []error
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
 			errs = append(errs, err)
 			break
 		}
-		metadata, err := usageCuratorSkillMetadata(candidate)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
 		if err := authorizer.AuthorizeWorkerWrite(ctx, candidate.UserID, candidate.AgentID, candidate.SkillID, false); err != nil {
-			errs = append(errs, fmt.Errorf("usage curator: authorize deprecate skill %s: %w", candidate.SkillID, err))
+			errs = append(errs, fmt.Errorf("usage curator: authorize delete skill %s: %w", candidate.SkillID, err))
 			continue
 		}
 		expectedLastUsedAt := candidate.LastUsedAt
-		_, err = writer.DeprecateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDeprecate{
+		_, err := writer.DeleteReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDelete{
 			ID:                                candidate.SkillID,
 			UserID:                            candidate.UserID,
 			AgentID:                           candidate.AgentID,
 			ExpectedVersion:                   candidate.Version,
 			ExpectedUsageLastUsedAt:           &expectedLastUsedAt,
 			RequireEligibleActivityAfterUsage: true,
-			Metadata:                          metadata,
 		})
 		if errors.Is(err, skills.ErrSkillUsageChanged) {
 			continue
 		}
 		if err != nil {
-			errs = append(errs, fmt.Errorf("usage curator: deprecate skill %s: %w", candidate.SkillID, err))
+			errs = append(errs, fmt.Errorf("usage curator: delete skill %s: %w", candidate.SkillID, err))
 			continue
 		}
-		deprecated++
+		deleted++
 	}
-	return deprecated, errors.Join(errs...)
-}
-
-func usageCuratorSkillMetadata(candidate usageCuratorSkillCandidate) (json.RawMessage, error) {
-	payload := map[string]any{
-		"curator":                 "usage",
-		"rule":                    string(candidate.Rule),
-		"use_count":               candidate.UseCount,
-		"last_used_at":            candidate.LastUsedAt.UTC().Format(time.RFC3339),
-		"pair_latest_activity_at": candidate.PairLatestActivityAt.UTC().Format(time.RFC3339),
-	}
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(b), nil
+	return deleted, errors.Join(errs...)
 }

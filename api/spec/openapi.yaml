@@ -100,8 +100,6 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1upload"
   /api/agents/{id}/skills/{skillId}:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}"
-  /api/agents/{id}/skills/{skillId}/restore:
-    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1restore"
   /api/agents/{id}/skills/{skillId}/upgrade:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1upgrade"
   /api/agents/{id}/skills/{skillId}/file:

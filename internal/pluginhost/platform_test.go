@@ -2,7 +2,6 @@ package pluginhost
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -19,9 +18,9 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-// TestSkillStoreAdapterDeleteDeprecatesOnlyUserOwnedRows verifies the plugin
-// boundary requires a trusted actor and never exposes physical deletion.
-func TestSkillStoreAdapterDeleteDeprecatesOnlyUserOwnedRows(t *testing.T) {
+// TestSkillStoreAdapterDeleteRemovesOnlyUserOwnedRows verifies that the plugin
+// boundary requires a trusted actor before permanently deleting mutable data.
+func TestSkillStoreAdapterDeleteRemovesOnlyUserOwnedRows(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedSkillAdapterFixtures(t, db)
@@ -52,20 +51,15 @@ func TestSkillStoreAdapterDeleteDeprecatesOnlyUserOwnedRows(t *testing.T) {
 		t.Fatalf("delete user skill: %v", err)
 	}
 
-	var status string
-	if err := db.QueryRow(ctx, `SELECT status FROM skill WHERE id = $1`, userSkillID).Scan(&status); err != nil {
-		t.Fatalf("read deprecated user skill: %v", err)
+	var skillCount, fileCount int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM skill WHERE id = $1`, userSkillID).Scan(&skillCount); err != nil {
+		t.Fatalf("count deleted skill: %v", err)
 	}
-	if status != "deprecated" {
-		t.Fatalf("adapter delete status = %q, want deprecated", status)
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM skill_file WHERE skill_id = $1`, userSkillID).Scan(&fileCount); err != nil {
+		t.Fatalf("count deleted skill files: %v", err)
 	}
-	files, err := raw.ListFiles(ctx, userSkillID)
-	if err != nil || len(files) != 2 {
-		t.Fatalf("adapter delete files = %#v, err=%v; want files retained", files, err)
-	}
-	logs, err := raw.ListSkillChangelogBySkill(ctx, userSkillID, 1)
-	if err != nil || len(logs) != 1 || logs[0].Action != "deprecate" {
-		t.Fatalf("adapter delete changelog = %#v, err=%v", logs, err)
+	if skillCount != 0 || fileCount != 0 {
+		t.Fatalf("adapter delete retained skill=%d files=%d", skillCount, fileCount)
 	}
 }
 
@@ -108,59 +102,6 @@ func TestSkillStoreAdapterTouchesReflectSkillUsageThroughDiskSync(t *testing.T) 
 	}
 	if after != before+1 {
 		t.Fatalf("use_count after touch = %d, want %d", after, before+1)
-	}
-}
-
-func TestSkillStoreAdapterRestoresReflectSkillThroughDiskSync(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	userID, agentID := seedSkillAdapterFixtures(t, db)
-	raw := skills.New(db)
-	store := skills.NewDiskSyncStore(raw, func(scope, agentID string, userID string) string {
-		return ""
-	})
-	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
-		UserID:          userID,
-		AgentID:         agentID,
-		Name:            "reflect-adapter-restore",
-		Description:     "created by reflect",
-		MainFileContent: "# Reflect Adapter Restore\n",
-	})
-	if err != nil {
-		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
-	}
-	deprecated, err := store.DeprecateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDeprecate{
-		ID:              created.ID,
-		UserID:          userID,
-		AgentID:         agentID,
-		ExpectedVersion: created.Version,
-		Metadata:        json.RawMessage(`{"curator":"usage","rule":"adapter_restore","use_count":2,"last_used_at":"2026-06-01T00:00:00Z"}`),
-	})
-	if err != nil {
-		t.Fatalf("DeprecateReflectOwnedUserAgentSkill: %v", err)
-	}
-
-	restorer, ok := NewSkillStoreAdapter(store).(interface {
-		RestoreReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillRestore) (skills.ReflectSkillRestoreResult, error)
-	})
-	if !ok {
-		t.Fatal("skill store adapter does not expose reflect restore")
-	}
-	result, err := restorer.RestoreReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillRestore{
-		ID:         deprecated.ID,
-		UserID:     userID,
-		AgentID:    agentID,
-		RestoredBy: "test",
-		Reason:     "adapter restore test",
-	})
-	if err != nil {
-		t.Fatalf("RestoreReflectOwnedUserAgentSkill: %v", err)
-	}
-	if !result.Restored {
-		t.Fatal("RestoreReflectOwnedUserAgentSkill restored = false, want true")
-	}
-	if result.Skill.Status != "active" {
-		t.Fatalf("restored skill status = %q, want active", result.Skill.Status)
 	}
 }
 

@@ -355,10 +355,10 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 		if err := store.Update(ctx, id, ViewContext{UserID: userID}, UpdatePatch{Status: &deprecated}); !errors.Is(err, ErrSkillNotMutable) {
 			t.Fatalf("ordinary deprecate error = %v, want ErrSkillNotMutable", err)
 		}
-		if _, err := store.DeprecateManagedSkill(ctx, ManagedSkillDeprecate{
-			ID: id, Scope: "user", UserID: userID, DeprecatedBy: userID,
-		}); err != nil {
-			t.Fatalf("DeprecateManagedSkill: %v", err)
+		// Seed a legacy deprecated row directly. The public lifecycle API no
+		// longer creates this state, but existing rows must remain invisible.
+		if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, id); err != nil {
+			t.Fatalf("seed deprecated skill: %v", err)
 		}
 
 		skills, err := store.List(ctx, ViewContext{UserID: userID})

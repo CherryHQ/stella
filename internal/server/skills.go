@@ -15,25 +15,21 @@ import (
 
 // skillView is the JSON representation of a skill returned by the API.
 type skillView struct {
-	ID                     string     `json:"id"`
-	Scope                  string     `json:"scope"`
-	UserID                 string     `json:"user_id,omitempty"`
-	AgentID                string     `json:"agent_id,omitempty"`
-	Name                   string     `json:"name"`
-	Description            string     `json:"description"`
-	Status                 string     `json:"status"`
-	DisableModelInvocation bool       `json:"disable_model_invocation"`
-	Files                  []string   `json:"files"`
-	Source                 string     `json:"source,omitempty"`
-	Version                string     `json:"version,omitempty"`
-	LifecycleVersion       int64      `json:"lifecycle_version"`
-	CreatedBy              string     `json:"created_by"`
-	RemovalSource          *string    `json:"removal_source"`
-	DeprecatedAt           *time.Time `json:"deprecated_at"`
-	RestoreDeadline        *time.Time `json:"restore_deadline"`
-	IsRestorable           bool       `json:"is_restorable"`
-	CreatedAt              time.Time  `json:"created_at"`
-	UpdatedAt              time.Time  `json:"updated_at"`
+	ID                     string    `json:"id"`
+	Scope                  string    `json:"scope"`
+	UserID                 string    `json:"user_id,omitempty"`
+	AgentID                string    `json:"agent_id,omitempty"`
+	Name                   string    `json:"name"`
+	Description            string    `json:"description"`
+	Status                 string    `json:"status"`
+	DisableModelInvocation bool      `json:"disable_model_invocation"`
+	Files                  []string  `json:"files"`
+	Source                 string    `json:"source,omitempty"`
+	Version                string    `json:"version,omitempty"`
+	LifecycleVersion       int64     `json:"lifecycle_version"`
+	CreatedBy              string    `json:"created_by"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 func (s *Server) skillStore() skills.Store {
@@ -113,7 +109,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 		return
 	}
 	if sk.Status == "deprecated" {
-		writeError(w, http.StatusConflict, "deprecated skills must be restored before editing")
+		writeError(w, http.StatusConflict, "deprecated skills cannot be edited")
 		return
 	}
 	if req.Version != nil {
@@ -188,13 +184,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusBadRequest, "skill scope is not lifecycle-managed")
 		return
 	}
-	if _, err := store.DeprecateManagedSkill(r.Context(), skills.ManagedSkillDeprecate{
-		ID: id, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope, DeprecatedBy: info.UserID,
-	}); err != nil {
-		if errors.Is(err, skills.ErrSkillNotMutable) {
-			writeError(w, http.StatusConflict, "skill is already deprecated or not mutable")
-			return
-		}
+	if err := store.Delete(r.Context(), id, skills.ViewContext{UserID: info.UserID, AgentID: sk.AgentID}); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}

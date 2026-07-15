@@ -78,12 +78,8 @@ func (a skillStoreAdapter) PatchReflectOwnedUserAgentSkill(ctx context.Context, 
 	return a.s.PatchReflectOwnedUserAgentSkill(ctx, in)
 }
 
-func (a skillStoreAdapter) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillDeprecate) (skills.Skill, error) {
-	return a.s.DeprecateReflectOwnedUserAgentSkill(ctx, in)
-}
-
-func (a skillStoreAdapter) RestoreReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillRestore) (skills.ReflectSkillRestoreResult, error) {
-	return a.s.RestoreReflectOwnedUserAgentSkill(ctx, in)
+func (a skillStoreAdapter) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillDelete) (skills.Skill, error) {
+	return a.s.DeleteReflectOwnedUserAgentSkill(ctx, in)
 }
 
 func (a skillStoreAdapter) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
@@ -168,10 +164,7 @@ func (a skillStoreAdapter) Delete(ctx context.Context, id string) error {
 		if row.UserID != actorID {
 			return fmt.Errorf("delete skill: skill is not owned by authenticated actor")
 		}
-		_, err := a.s.DeprecateManagedSkill(ctx, skills.ManagedSkillDeprecate{
-			ID: id, UserID: row.UserID, AgentID: row.AgentID, Scope: row.Scope, DeprecatedBy: actorID,
-		})
-		return err
+		return a.s.Delete(ctx, id, skills.ViewContext{UserID: row.UserID, AgentID: row.AgentID})
 	}
 	return fmt.Errorf("delete skill %q: not found", id)
 }

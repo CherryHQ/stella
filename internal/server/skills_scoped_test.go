@@ -250,10 +250,9 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 		t.Fatalf("mark skill draft: %v", err)
 	}
 	deprecatedID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "deprecated-skill")
-	if _, err := env.pluginHost.SkillStore().DeprecateManagedSkill(orgCtx, skills.ManagedSkillDeprecate{
-		ID: deprecatedID, Scope: "user_agent", UserID: creator.ID, AgentID: agentID, DeprecatedBy: creator.ID,
-	}); err != nil {
-		t.Fatalf("mark skill deprecated: %v", err)
+	// Seed legacy state directly; users can no longer deprecate skills.
+	if _, err := env.db.Exec(orgCtx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecatedID); err != nil {
+		t.Fatalf("mark legacy skill deprecated: %v", err)
 	}
 
 	rr := doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills", nil)
@@ -392,9 +391,9 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	}
 }
 
-// TestAgentSkills_DeleteRetainsUserAgentSkill verifies agent deletion follows
-// the recoverable lifecycle path and does not remove the DB file mirror.
-func TestAgentSkills_DeleteRetainsUserAgentSkill(t *testing.T) {
+// TestAgentSkills_DeleteRemovesUserAgentSkill verifies agent deletion removes
+// the database row and its file mirror permanently.
+func TestAgentSkills_DeleteRemovesUserAgentSkill(t *testing.T) {
 	env := setupAdmin(t)
 	user, sid := newNonAdmin(t, env, "agent-delete-lifecycle")
 	agentID := createAgentAsUser(t, env, sid, "agent-delete-lifecycle-agent")
@@ -405,17 +404,15 @@ func TestAgentSkills_DeleteRetainsUserAgentSkill(t *testing.T) {
 		t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	ctx := context.Background()
-	var status string
-	if err := env.db.QueryRow(ctx, `SELECT status FROM skill WHERE id = $1`, id).Scan(&status); err != nil {
-		t.Fatalf("read deleted agent skill: %v", err)
+	var skillCount, fileCount int
+	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill WHERE id = $1`, id).Scan(&skillCount); err != nil {
+		t.Fatalf("count deleted agent skill: %v", err)
 	}
-	if status != "deprecated" {
-		t.Fatalf("deleted agent status = %q, want deprecated", status)
+	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill_file WHERE skill_id = $1`, id).Scan(&fileCount); err != nil {
+		t.Fatalf("count deleted agent files: %v", err)
 	}
-	files, err := env.pluginHost.SkillStore().ListFiles(ctx, id)
-	if err != nil || len(files) == 0 {
-		t.Fatalf("retained agent files = %#v, err=%v; want files preserved", files, err)
+	if skillCount != 0 || fileCount != 0 {
+		t.Fatalf("deleted agent skill retained skill=%d files=%d", skillCount, fileCount)
 	}
 }
 

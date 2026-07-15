@@ -114,22 +114,13 @@ func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in 
 	return patched, nil
 }
 
-func (d *DiskSyncStore) RestoreReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillRestore) (ReflectSkillRestoreResult, error) {
-	// Deprecating a Reflect skill only changes DB status and usage rows, so restore
-	// does not need extra disk writes; the skill files should already be present.
-	return d.Store.RestoreReflectOwnedUserAgentSkill(ctx, in)
-}
-
-// DeprecateManagedSkill leaves the inert mirror in place. The DB lifecycle
-// status is authoritative, matching Reflect-owned deprecation semantics.
-func (d *DiskSyncStore) DeprecateManagedSkill(ctx context.Context, in ManagedSkillDeprecate) (Skill, error) {
-	return d.Store.DeprecateManagedSkill(ctx, in)
-}
-
-// RestoreManagedSkill leaves retained mirrors untouched. Runtime loading repairs
-// missing or stale files from the authoritative DB row when needed.
-func (d *DiskSyncStore) RestoreManagedSkill(ctx context.Context, in ManagedSkillRestore) (ManagedSkillRestoreResult, error) {
-	return d.Store.RestoreManagedSkill(ctx, in)
+func (d *DiskSyncStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDelete) (Skill, error) {
+	deleted, err := d.Store.DeleteReflectOwnedUserAgentSkill(ctx, in)
+	if err != nil {
+		return Skill{}, err
+	}
+	d.removeSkillDir(ctx, &deleted)
+	return deleted, nil
 }
 
 // UpdateManagedSkill mirrors all retained DB files only after its atomic DB
