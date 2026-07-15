@@ -100,6 +100,8 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1upload"
   /api/agents/{id}/skills/{skillId}:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}"
+  /api/agents/{id}/skills/{skillId}/restore:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1restore"
   /api/agents/{id}/skills/{skillId}/upgrade:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1upgrade"
   /api/agents/{id}/skills/{skillId}/file:
@@ -294,6 +296,12 @@ paths:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1constraints"
   /api/users/me/memories/{agentId}/constraints/{constraintId}:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1constraints~1{constraintId}"
+  /api/users/me/memories/{agentId}/knowledge:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1knowledge"
+  /api/users/me/memories/{agentId}/knowledge/{factId}:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1knowledge~1{factId}"
+  /api/users/me/memories/{agentId}/knowledge/{factId}/restore:
+    $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1knowledge~1{factId}~1restore"
   /api/users/me/memories/{agentId}/changelog:
     $ref: "./domain/profile/paths.yaml#/paths/~1api~1users~1me~1memories~1{agentId}~1changelog"
   /api/vault:
@@ -426,6 +434,9 @@ components:
       $ref: "./components.yaml#/components/securitySchemes/BearerAuth"
 
   schemas:
+    RemovalSource: {
+      $ref: "./components.yaml#/components/schemas/RemovalSource",
+    }
     Error: { $ref: "./components.yaml#/components/schemas/Error" }
     ArticleStatus: {
       $ref: "./components.yaml#/components/schemas/ArticleStatus",
@@ -557,6 +568,18 @@ components:
     }
     CreateSkillRequest: {
       $ref: "./components.yaml#/components/schemas/CreateSkillRequest",
+    }
+    KnowledgeItem: {
+      $ref: "./components.yaml#/components/schemas/KnowledgeItem",
+    }
+    KnowledgeList: {
+      $ref: "./components.yaml#/components/schemas/KnowledgeList",
+    }
+    CreateKnowledgeRequest: {
+      $ref: "./components.yaml#/components/schemas/CreateKnowledgeRequest",
+    }
+    UpdateKnowledgeRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateKnowledgeRequest",
     }
     SkillSearchResult: {
       $ref: "./components.yaml#/components/schemas/SkillSearchResult",

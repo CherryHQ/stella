@@ -236,6 +236,10 @@ paths:
       summary: List skills visible to the current user in an agent context
       operationId: listAgentSkills
       parameters:
+        - name: state
+          in: query
+          required: false
+          schema: { type: string, enum: [active, removed], default: active }
         - name: scope
           in: query
           required: false
@@ -243,6 +247,26 @@ paths:
             type: string,
             enum: [project, user, user_agent, system, system_agent],
           }
+        - name: scope_group
+          in: query
+          required: false
+          schema: { type: string, enum: [system, agent, user, project] }
+        - name: created_by
+          in: query
+          required: false
+          schema: { type: string, enum: [manual, reflect] }
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+        - name: page_size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: page_token
+          in: query
+          required: false
+          schema: { type: string }
         - name: session_id
           in: query
           required: false
@@ -360,7 +384,7 @@ paths:
           in: path,
           required: true,
           schema: { type: string },
-          description: "Skill name",
+          description: "Stable database ID or active skill name",
         }
     get:
       tags: [skills]
@@ -430,6 +454,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
     delete:
       tags: [skills]
       summary: Delete a skill
@@ -454,6 +479,40 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/agents/{id}/skills/{skillId}/restore:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: skillId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [skills]
+      summary: Restore a recoverable database-backed skill
+      operationId: restoreAgentSkill
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [user, user_agent, system_agent]
+      responses:
+        "200":
+          description: restored or already active
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Skill",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "410": { $ref: "../../components.yaml#/components/responses/Gone" }
 
   /api/agents/{id}/skills/{skillId}/upgrade:
     parameters:

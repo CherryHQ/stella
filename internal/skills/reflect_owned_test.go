@@ -76,15 +76,16 @@ func TestListActiveReflectOwnedUserAgentSkills(t *testing.T) {
 		return id
 	}
 
-	wantID := create(t, Skill{
-		Scope:       "user_agent",
-		UserID:      userID,
-		AgentID:     agentID,
-		Name:        "reflect-owned-active",
-		Description: "created by reflect",
-		Status:      "active",
-		Metadata:    reflectMetadata,
+	// Reflect ownership is only established by the dedicated writer; generic
+	// Create deliberately normalizes user-originated metadata to manual.
+	reflectOwned, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "reflect-owned-active",
+		Description: "created by reflect", MainFileContent: "# reflect-owned-active", Metadata: reflectMetadata,
 	})
+	if err != nil {
+		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
+	}
+	wantID := reflectOwned.ID
 	create(t, Skill{
 		Scope:       "user_agent",
 		UserID:      userID,

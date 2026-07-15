@@ -52,6 +52,90 @@ type UpdatePatch struct {
 	Metadata               json.RawMessage // optional; set to overwrite
 }
 
+// ManagedSkillState selects live or recoverable managed skill records.
+type ManagedSkillState string
+
+const (
+	// ManagedSkillStateActive includes every non-deprecated status, including draft.
+	ManagedSkillStateActive ManagedSkillState = "active"
+	// ManagedSkillStateRemoved includes only qualifying, recoverable deprecations.
+	ManagedSkillStateRemoved ManagedSkillState = "removed"
+)
+
+// ManagedSkillItem carries lifecycle details for a managed skill listing.
+type ManagedSkillItem struct {
+	Skill           Skill
+	CreatedBy       string
+	RemovalSource   string
+	DeprecatedAt    *time.Time
+	RestoreDeadline *time.Time
+	IsRestorable    bool
+}
+
+// ManagedSkillCursor identifies the last visible row in a stable lifecycle page.
+type ManagedSkillCursor struct {
+	Timestamp time.Time
+	ID        string
+}
+
+// ManagedSkillListQuery scopes a lifecycle list to one caller's owner buckets.
+type ManagedSkillListQuery struct {
+	UserID    string
+	AgentID   string
+	Scopes    []string
+	CreatedBy string
+	Query     string
+	State     ManagedSkillState
+	Limit     int32
+	Now       time.Time
+	Cursor    *ManagedSkillCursor
+}
+
+// ManagedSkillPage carries the complete matching count and the next keyset position.
+type ManagedSkillPage struct {
+	Items      []ManagedSkillItem
+	Total      int64
+	HasMore    bool
+	NextCursor *ManagedSkillCursor
+}
+
+// ManagedSkillDeprecate identifies a mutable skill and the manual operator.
+type ManagedSkillDeprecate struct {
+	ID           string
+	UserID       string
+	AgentID      string
+	Scope        string
+	DeprecatedBy string
+}
+
+// ManagedSkillRestore identifies a retained skill and the restore instant.
+type ManagedSkillRestore struct {
+	ID         string
+	UserID     string
+	AgentID    string
+	Scope      string
+	RestoredBy string
+	Now        time.Time
+}
+
+// ManagedSkillRestoreResult distinguishes an idempotent active-row restore.
+type ManagedSkillRestoreResult struct {
+	Skill    Skill
+	Restored bool
+}
+
+// ManagedSkillUpdate applies one atomic metadata/file lifecycle mutation.
+type ManagedSkillUpdate struct {
+	ID              string
+	UserID          string
+	AgentID         string
+	Scope           string
+	Patch           UpdatePatch
+	Files           map[string]string
+	DeleteFiles     []string
+	ConvertToManual bool
+}
+
 // Store is the persistence interface for skills.
 type Store interface {
 	// List returns all visible skills for the given context (metadata only, no file content).
@@ -63,6 +147,15 @@ type Store interface {
 	// ListActiveReflectOwnedUserAgentSkills returns the Reflect-managed active
 	// skills that #531 is allowed to consider for one user-agent context.
 	ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]Skill, error)
+
+	// ListManagedSkills returns non-deprecated or recoverable lifecycle rows.
+	ListManagedSkills(ctx context.Context, in ManagedSkillListQuery) (ManagedSkillPage, error)
+	// DeprecateManagedSkill retains a mutable skill for its recovery window.
+	DeprecateManagedSkill(ctx context.Context, in ManagedSkillDeprecate) (Skill, error)
+	// RestoreManagedSkill restores a qualifying retained skill in place.
+	RestoreManagedSkill(ctx context.Context, in ManagedSkillRestore) (ManagedSkillRestoreResult, error)
+	// UpdateManagedSkill atomically patches a live mutable skill and its files.
+	UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (Skill, error)
 
 	// CreateReflectOwnedUserAgentSkill creates an active user_agent skill whose
 	// lifecycle is owned by Reflect, including version and changelog records.
@@ -90,8 +183,8 @@ type Store interface {
 	// ListForAgentContext returns system, agent, and current-user skills for one agent.
 	ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error)
 
-	// ListByScope returns every skill in exactly one scope/owner bucket (including
-	// drafts and disabled skills) for management views.
+	// ListByScope returns non-deprecated skills in exactly one scope/owner bucket,
+	// including drafts and disabled skills, for active management views.
 	ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error)
 
 	// ListForAdmin returns system and agent skills, plus the admin user's own user skills.

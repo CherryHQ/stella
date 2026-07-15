@@ -32,6 +32,9 @@ components:
               type: object
               additionalProperties: true
               description: optional machine-readable error details; keys use snake_case
+    RemovalSource:
+      type: string
+      enum: [manual, curator]
     SandboxNetworkConfig:
       type: object
       properties:
@@ -185,6 +188,7 @@ components:
           default: user_agent
     Skill:
       type: object
+      required: [lifecycle_version, created_by, is_restorable]
       properties:
         id:
           type: string
@@ -217,14 +221,55 @@ components:
         updated_at:
           type: string
           format: date-time
+        lifecycle_version:
+          type: integer
+          format: int64
+        created_by:
+          type: string
+          enum: [manual, reflect]
+        is_restorable:
+          type: boolean
+        removal_source:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/RemovalSource"
+        deprecated_at:
+          type: string
+          format: date-time
+          nullable: true
+        restore_deadline:
+          type: string
+          format: date-time
+          nullable: true
+    SkillScopeCounts:
+      type: object
+      required: [all, system, agent, user, project]
+      properties:
+        all:
+          type: integer
+        system:
+          type: integer
+        agent:
+          type: integer
+        user:
+          type: integer
+        project:
+          type: integer
     SkillList:
       type: object
-      required: [skills]
+      required: [skills, total_size, scope_counts]
       properties:
         skills:
           type: array
           items:
             $ref: "#/components/schemas/Skill"
+        total_size:
+          type: integer
+        scope_counts:
+          $ref: "#/components/schemas/SkillScopeCounts"
+        next_page_token:
+          type: string
+          nullable: true
     CreateSkillRequest:
       type: object
       required: [name, scope]
@@ -261,6 +306,8 @@ components:
         version:
           type: string
           nullable: true
+        convert_to_manual:
+          type: boolean
         files:
           type: object
           additionalProperties:
@@ -2587,6 +2634,62 @@ components:
       properties:
         text:
           type: string
+    KnowledgeItem:
+      type: object
+      required: [id, content, source, created_at, updated_at, is_restorable]
+      properties:
+        id:
+          type: string
+        content:
+          type: string
+        source:
+          type: string
+          enum: [manual, reflect]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_restorable:
+          type: boolean
+        removal_source:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/RemovalSource"
+        deprecated_at:
+          type: string
+          format: date-time
+          nullable: true
+        restore_deadline:
+          type: string
+          format: date-time
+          nullable: true
+    KnowledgeList:
+      type: object
+      required: [knowledge, total_size]
+      properties:
+        knowledge:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeItem"
+        total_size:
+          type: integer
+        next_page_token:
+          type: string
+          nullable: true
+    CreateKnowledgeRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+    UpdateKnowledgeRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
     ChangelogEntry:
       type: object
       required: [id, scope, action, source, created_at]
@@ -2620,6 +2723,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ChangelogEntry"
+        next_page_token:
+          type: string
+          nullable: true
     Project:
       type: object
       required: [
@@ -4434,6 +4540,12 @@ components:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Gone:
+      description: resource has been permanently removed or is no longer available
       content:
         application/json:
           schema:

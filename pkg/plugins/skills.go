@@ -50,8 +50,8 @@ type SkillStore interface {
 	// Priority: user > agent > system (project skills are resolved via filesystem).
 	Resolve(ctx context.Context, name string, vc SkillViewContext) (*Skill, error)
 
-	// ListByScope returns every skill in exactly one scope/owner bucket,
-	// including drafts and disabled skills, for exact management lookups.
+	// ListByScope returns non-deprecated skills in exactly one scope/owner bucket,
+	// including drafts and disabled skills, for exact active lookups.
 	ListByScope(ctx context.Context, scope, userID, agentID string) ([]Skill, error)
 
 	// LoadFile fetches a single file by path. Pass SkillMainFile ("SKILL.md") for the body.
@@ -70,6 +70,8 @@ type SkillStore interface {
 	UpsertFile(ctx context.Context, skillID, path, content string) error
 
 	DeleteFile(ctx context.Context, skillID, path string) error
+	// Delete performs recoverable manual deprecation for mutable user-owned
+	// database skills in Stella's adapter; it must not physically delete rows.
 	Delete(ctx context.Context, id string) error
 
 	// ExpireDrafts deprecates all draft skills whose created-at timestamp is

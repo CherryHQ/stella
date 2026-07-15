@@ -13,6 +13,99 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countManagedActiveSkills = `-- name: CountManagedActiveSkills :one
+SELECT count(*)
+FROM skill
+WHERE scope = ANY($1::text[])
+  AND status <> 'deprecated'
+  AND ($2::text IS NULL OR metadata->>'created_by' = $2::text)
+  AND (
+    $3::text IS NULL
+    OR lower(name) LIKE '%' || lower($3::text) || '%'
+    OR lower(description) LIKE '%' || lower($3::text) || '%'
+  )
+  AND (
+    (scope = 'user' AND user_id = $4::uuid)
+    OR (scope = 'user_agent' AND user_id = $4::uuid AND agent_id = $5::text)
+    OR (scope = 'system_agent' AND agent_id = $5::text)
+  )
+`
+
+type CountManagedActiveSkillsParams struct {
+	Scopes      []string    `json:"scopes"`
+	CreatedBy   pgtype.Text `json:"created_by"`
+	SearchQuery pgtype.Text `json:"search_query"`
+	UserID      pgtype.Text `json:"user_id"`
+	AgentID     pgtype.Text `json:"agent_id"`
+}
+
+func (q *Queries) CountManagedActiveSkills(ctx context.Context, arg CountManagedActiveSkillsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countManagedActiveSkills,
+		arg.Scopes,
+		arg.CreatedBy,
+		arg.SearchQuery,
+		arg.UserID,
+		arg.AgentID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countManagedRemovedSkills = `-- name: CountManagedRemovedSkills :one
+SELECT count(*)
+FROM skill s
+JOIN LATERAL (
+  SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at
+  FROM skill_changelog c
+  WHERE c.skill_id = s.id
+    AND c.action = 'deprecate'
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE s.scope = ANY($1::text[])
+  AND s.status = 'deprecated'
+  AND ($2::text IS NULL OR coalesce(s.metadata->>'created_by', 'manual') = $2::text)
+  AND (
+    $3::text IS NULL
+    OR strpos(lower(s.name), lower($3::text)) > 0
+    OR strpos(lower(s.description), lower($3::text)) > 0
+  )
+  AND (
+    d.metadata->>'deprecated_by' = 'manual'
+    OR d.metadata->>'curator' = 'usage'
+  )
+  AND d.created_at > $4::timestamptz - interval '2160 hours'
+  AND (
+    (s.scope = 'user' AND s.user_id = $5::uuid)
+    OR (s.scope = 'user_agent' AND s.user_id = $5::uuid AND s.agent_id = $6::text)
+    OR (s.scope = 'system_agent' AND s.agent_id = $6::text)
+  )
+`
+
+type CountManagedRemovedSkillsParams struct {
+	Scopes      []string    `json:"scopes"`
+	CreatedBy   pgtype.Text `json:"created_by"`
+	SearchQuery pgtype.Text `json:"search_query"`
+	NowAt       time.Time   `json:"now_at"`
+	UserID      pgtype.Text `json:"user_id"`
+	AgentID     pgtype.Text `json:"agent_id"`
+}
+
+func (q *Queries) CountManagedRemovedSkills(ctx context.Context, arg CountManagedRemovedSkillsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countManagedRemovedSkills,
+		arg.Scopes,
+		arg.CreatedBy,
+		arg.SearchQuery,
+		arg.NowAt,
+		arg.UserID,
+		arg.AgentID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createSkill = `-- name: CreateSkill :one
 INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -81,16 +174,26 @@ func (q *Queries) DeleteSkill(ctx context.Context, arg DeleteSkillParams) error 
 }
 
 const deleteSkillFile = `-- name: DeleteSkillFile :exec
-DELETE FROM skill_file WHERE skill_id = $1 AND path = $2
+WITH mutable_skill AS (
+  SELECT id
+  FROM skill
+  WHERE id = $2
+    AND status != 'deprecated'
+  FOR NO KEY UPDATE
+)
+DELETE FROM skill_file
+USING mutable_skill
+WHERE skill_file.skill_id = mutable_skill.id
+  AND skill_file.path = $1
 `
 
 type DeleteSkillFileParams struct {
-	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
+	SkillID string `json:"skill_id"`
 }
 
 func (q *Queries) DeleteSkillFile(ctx context.Context, arg DeleteSkillFileParams) error {
-	_, err := q.db.Exec(ctx, deleteSkillFile, arg.SkillID, arg.Path)
+	_, err := q.db.Exec(ctx, deleteSkillFile, arg.Path, arg.SkillID)
 	return err
 }
 
@@ -114,6 +217,36 @@ WHERE status = 'draft'
 func (q *Queries) DeprecateExpiredDrafts(ctx context.Context, cutoff string) error {
 	_, err := q.db.Exec(ctx, deprecateExpiredDrafts, cutoff)
 	return err
+}
+
+const deprecateManagedSkill = `-- name: DeprecateManagedSkill :one
+UPDATE skill
+SET status = 'deprecated',
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+  AND status <> 'deprecated'
+RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
+`
+
+func (q *Queries) DeprecateManagedSkill(ctx context.Context, id string) (Skill, error) {
+	row := q.db.QueryRow(ctx, deprecateManagedSkill, id)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
 }
 
 const deprecateReflectOwnedUserAgentSkill = `-- name: DeprecateReflectOwnedUserAgentSkill :one
@@ -187,6 +320,38 @@ type GetLatestCuratorDeprecateSkillChangelogParams struct {
 
 func (q *Queries) GetLatestCuratorDeprecateSkillChangelog(ctx context.Context, arg GetLatestCuratorDeprecateSkillChangelogParams) (SkillChangelog, error) {
 	row := q.db.QueryRow(ctx, getLatestCuratorDeprecateSkillChangelog, arg.SkillID, arg.UserID, arg.AgentID)
+	var i SkillChangelog
+	err := row.Scan(
+		&i.ID,
+		&i.SkillID,
+		&i.UserID,
+		&i.AgentID,
+		&i.Scope,
+		&i.Action,
+		&i.VersionBefore,
+		&i.VersionAfter,
+		&i.Metadata,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getLatestQualifyingManagedSkillDeprecateChangelog = `-- name: GetLatestQualifyingManagedSkillDeprecateChangelog :one
+SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at
+FROM (
+  SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at
+  FROM skill_changelog
+  WHERE skill_id = $1
+    AND action = 'deprecate'
+  ORDER BY created_at DESC, id DESC
+  LIMIT 1
+) latest
+WHERE latest.metadata->>'deprecated_by' = 'manual'
+   OR latest.metadata->>'curator' = 'usage'
+`
+
+func (q *Queries) GetLatestQualifyingManagedSkillDeprecateChangelog(ctx context.Context, skillID string) (SkillChangelog, error) {
+	row := q.db.QueryRow(ctx, getLatestQualifyingManagedSkillDeprecateChangelog, skillID)
 	var i SkillChangelog
 	err := row.Scan(
 		&i.ID,
@@ -419,6 +584,40 @@ func (q *Queries) GetUserSkillByName(ctx context.Context, arg GetUserSkillByName
 	return i, err
 }
 
+const hasLiveManagedSkillNameConflict = `-- name: HasLiveManagedSkillNameConflict :one
+SELECT EXISTS (
+  SELECT 1
+  FROM skill
+  WHERE id <> $1
+    AND name = $2
+    AND scope = $3
+    AND COALESCE(user_id::text, '') = COALESCE($4::text, '')
+    AND COALESCE(agent_id, '') = COALESCE($5, '')
+    AND status <> 'deprecated'
+) AS has_conflict
+`
+
+type HasLiveManagedSkillNameConflictParams struct {
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Scope   string      `json:"scope"`
+	UserID  pgtype.Text `json:"user_id"`
+	AgentID pgtype.Text `json:"agent_id"`
+}
+
+func (q *Queries) HasLiveManagedSkillNameConflict(ctx context.Context, arg HasLiveManagedSkillNameConflictParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasLiveManagedSkillNameConflict,
+		arg.ID,
+		arg.Name,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+	)
+	var has_conflict bool
+	err := row.Scan(&has_conflict)
+	return has_conflict, err
+}
+
 const insertSkillChangelog = `-- name: InsertSkillChangelog :one
 INSERT INTO skill_changelog (
   skill_id,
@@ -555,6 +754,197 @@ func (q *Queries) ListAllSkills(ctx context.Context) ([]Skill, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listManagedActiveSkills = `-- name: ListManagedActiveSkills :many
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
+FROM skill
+WHERE scope = ANY($1::text[])
+  AND status <> 'deprecated'
+  AND ($2::text IS NULL OR metadata->>'created_by' = $2::text)
+  AND (
+    $3::text IS NULL
+    OR lower(name) LIKE '%' || lower($3::text) || '%'
+    OR lower(description) LIKE '%' || lower($3::text) || '%'
+  )
+  AND (
+    (scope = 'user' AND user_id = $4::uuid)
+    OR (scope = 'user_agent' AND user_id = $4::uuid AND agent_id = $5::text)
+    OR (scope = 'system_agent' AND agent_id = $5::text)
+  )
+  AND (
+    ($6::timestamptz IS NULL AND $7::text IS NULL)
+    OR (updated_at, id) < ($6::timestamptz, $7::text)
+  )
+ORDER BY updated_at DESC, id DESC
+LIMIT $8
+`
+
+type ListManagedActiveSkillsParams struct {
+	Scopes          []string           `json:"scopes"`
+	CreatedBy       pgtype.Text        `json:"created_by"`
+	SearchQuery     pgtype.Text        `json:"search_query"`
+	UserID          pgtype.Text        `json:"user_id"`
+	AgentID         pgtype.Text        `json:"agent_id"`
+	CursorTimestamp pgtype.Timestamptz `json:"cursor_timestamp"`
+	CursorID        pgtype.Text        `json:"cursor_id"`
+	LimitCount      int32              `json:"limit_count"`
+}
+
+func (q *Queries) ListManagedActiveSkills(ctx context.Context, arg ListManagedActiveSkillsParams) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, listManagedActiveSkills,
+		arg.Scopes,
+		arg.CreatedBy,
+		arg.SearchQuery,
+		arg.UserID,
+		arg.AgentID,
+		arg.CursorTimestamp,
+		arg.CursorID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Skill{}
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.Description,
+			&i.Status,
+			&i.DisableModelInvocation,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listManagedRemovedSkills = `-- name: ListManagedRemovedSkills :many
+SELECT
+  s.id, s.scope, s.user_id, s.agent_id, s.name, s.description, s.status, s.disable_model_invocation, s.metadata, s.created_at, s.updated_at, s.version,
+  d.created_at AS deprecated_at,
+  d.metadata AS deprecate_metadata
+FROM skill s
+JOIN LATERAL (
+  SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at
+  FROM skill_changelog c
+  WHERE c.skill_id = s.id
+    AND c.action = 'deprecate'
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE s.scope = ANY($1::text[])
+  AND s.status = 'deprecated'
+  AND ($2::text IS NULL OR coalesce(s.metadata->>'created_by', 'manual') = $2::text)
+  AND (
+    $3::text IS NULL
+    OR strpos(lower(s.name), lower($3::text)) > 0
+    OR strpos(lower(s.description), lower($3::text)) > 0
+  )
+  AND (
+    d.metadata->>'deprecated_by' = 'manual'
+    OR d.metadata->>'curator' = 'usage'
+  )
+  AND d.created_at > $4::timestamptz - interval '2160 hours'
+  AND (
+    (s.scope = 'user' AND s.user_id = $5::uuid)
+    OR (s.scope = 'user_agent' AND s.user_id = $5::uuid AND s.agent_id = $6::text)
+    OR (s.scope = 'system_agent' AND s.agent_id = $6::text)
+  )
+  AND (
+    ($7::timestamptz IS NULL AND $8::text IS NULL)
+    OR (d.created_at, s.id) < ($7::timestamptz, $8::text)
+  )
+ORDER BY d.created_at DESC, s.id DESC
+LIMIT $9
+`
+
+type ListManagedRemovedSkillsParams struct {
+	Scopes          []string           `json:"scopes"`
+	CreatedBy       pgtype.Text        `json:"created_by"`
+	SearchQuery     pgtype.Text        `json:"search_query"`
+	NowAt           time.Time          `json:"now_at"`
+	UserID          pgtype.Text        `json:"user_id"`
+	AgentID         pgtype.Text        `json:"agent_id"`
+	CursorTimestamp pgtype.Timestamptz `json:"cursor_timestamp"`
+	CursorID        pgtype.Text        `json:"cursor_id"`
+	LimitCount      int32              `json:"limit_count"`
+}
+
+type ListManagedRemovedSkillsRow struct {
+	ID                     string          `json:"id"`
+	Scope                  string          `json:"scope"`
+	UserID                 pgtype.Text     `json:"user_id"`
+	AgentID                pgtype.Text     `json:"agent_id"`
+	Name                   string          `json:"name"`
+	Description            string          `json:"description"`
+	Status                 string          `json:"status"`
+	DisableModelInvocation bool            `json:"disable_model_invocation"`
+	Metadata               json.RawMessage `json:"metadata"`
+	CreatedAt              time.Time       `json:"created_at"`
+	UpdatedAt              time.Time       `json:"updated_at"`
+	Version                int64           `json:"version"`
+	DeprecatedAt           time.Time       `json:"deprecated_at"`
+	DeprecateMetadata      json.RawMessage `json:"deprecate_metadata"`
+}
+
+func (q *Queries) ListManagedRemovedSkills(ctx context.Context, arg ListManagedRemovedSkillsParams) ([]ListManagedRemovedSkillsRow, error) {
+	rows, err := q.db.Query(ctx, listManagedRemovedSkills,
+		arg.Scopes,
+		arg.CreatedBy,
+		arg.SearchQuery,
+		arg.NowAt,
+		arg.UserID,
+		arg.AgentID,
+		arg.CursorTimestamp,
+		arg.CursorID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListManagedRemovedSkillsRow{}
+	for rows.Next() {
+		var i ListManagedRemovedSkillsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.Description,
+			&i.Status,
+			&i.DisableModelInvocation,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+			&i.DeprecatedAt,
+			&i.DeprecateMetadata,
 		); err != nil {
 			return nil, err
 		}
@@ -711,6 +1101,7 @@ func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFi
 const listSkillsByScope = `-- name: ListSkillsByScope :many
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill
 WHERE scope = $1
+  AND status != 'deprecated'
   AND coalesce(user_id::text, '') = coalesce($2::text, '')
   AND coalesce(agent_id, '') = coalesce($3, '')
 ORDER BY created_at
@@ -1012,6 +1403,36 @@ func (q *Queries) ResolveSkill(ctx context.Context, arg ResolveSkillParams) (Ski
 	return i, err
 }
 
+const restoreManagedSkill = `-- name: RestoreManagedSkill :one
+UPDATE skill
+SET status = 'active',
+    version = version + 1,
+    updated_at = now()
+WHERE id = $1
+  AND status = 'deprecated'
+RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
+`
+
+func (q *Queries) RestoreManagedSkill(ctx context.Context, id string) (Skill, error) {
+	row := q.db.QueryRow(ctx, restoreManagedSkill, id)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
 const restoreReflectOwnedUserAgentSkill = `-- name: RestoreReflectOwnedUserAgentSkill :one
 UPDATE skill
 SET status     = 'active',
@@ -1034,6 +1455,53 @@ type RestoreReflectOwnedUserAgentSkillParams struct {
 
 func (q *Queries) RestoreReflectOwnedUserAgentSkill(ctx context.Context, arg RestoreReflectOwnedUserAgentSkillParams) (Skill, error) {
 	row := q.db.QueryRow(ctx, restoreReflectOwnedUserAgentSkill, arg.ID, arg.UserID, arg.AgentID)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
+const updateManagedSkill = `-- name: UpdateManagedSkill :one
+UPDATE skill
+SET description = $1,
+    status = $2,
+    disable_model_invocation = $3,
+    metadata = $4,
+    version = version + 1,
+    updated_at = now()
+WHERE id = $5
+  AND status <> 'deprecated'
+RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
+`
+
+type UpdateManagedSkillParams struct {
+	Description            string          `json:"description"`
+	Status                 string          `json:"status"`
+	DisableModelInvocation bool            `json:"disable_model_invocation"`
+	Metadata               json.RawMessage `json:"metadata"`
+	ID                     string          `json:"id"`
+}
+
+func (q *Queries) UpdateManagedSkill(ctx context.Context, arg UpdateManagedSkillParams) (Skill, error) {
+	row := q.db.QueryRow(ctx, updateManagedSkill,
+		arg.Description,
+		arg.Status,
+		arg.DisableModelInvocation,
+		arg.Metadata,
+		arg.ID,
+	)
 	var i Skill
 	err := row.Scan(
 		&i.ID,
@@ -1117,6 +1585,7 @@ SET description              = $1,
     metadata                 = $4,
     updated_at               = now()
 WHERE id = $5
+  AND status != 'deprecated'
   AND ((scope='system_agent' AND agent_id=$6)
     OR (scope='user'         AND user_id=$7)
     OR (scope='user_agent'   AND user_id=$7 AND agent_id=$6))
@@ -1176,17 +1645,21 @@ func (q *Queries) UpdateSystemSkillMetadata(ctx context.Context, arg UpdateSyste
 
 const upsertSkillFile = `-- name: UpsertSkillFile :exec
 INSERT INTO skill_file (skill_id, path, content)
-VALUES ($1, $2, $3)
+SELECT id, $1, $2
+FROM skill
+WHERE id = $3
+  AND status != 'deprecated'
+FOR NO KEY UPDATE
 ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content
 `
 
 type UpsertSkillFileParams struct {
-	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
 	Content string `json:"content"`
+	SkillID string `json:"skill_id"`
 }
 
 func (q *Queries) UpsertSkillFile(ctx context.Context, arg UpsertSkillFileParams) error {
-	_, err := q.db.Exec(ctx, upsertSkillFile, arg.SkillID, arg.Path, arg.Content)
+	_, err := q.db.Exec(ctx, upsertSkillFile, arg.Path, arg.Content, arg.SkillID)
 	return err
 }

@@ -60,6 +60,7 @@ ORDER BY CASE scope
 -- name: ListSkillsByScope :many
 SELECT * FROM skill
 WHERE scope = sqlc.arg(scope)
+  AND status != 'deprecated'
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
 ORDER BY created_at;
@@ -112,6 +113,7 @@ SET description              = sqlc.arg(description),
     metadata                 = sqlc.arg(metadata),
     updated_at               = now()
 WHERE id = sqlc.arg(id)
+  AND status != 'deprecated'
   AND ((scope='system_agent' AND agent_id=sqlc.narg(agent_id))
     OR (scope='user'         AND user_id=sqlc.narg(user_id))
     OR (scope='user_agent'   AND user_id=sqlc.narg(user_id) AND agent_id=sqlc.narg(agent_id)));
@@ -137,7 +139,11 @@ DELETE FROM skill WHERE id = $1 AND scope = 'system';
 
 -- name: UpsertSkillFile :exec
 INSERT INTO skill_file (skill_id, path, content)
-VALUES ($1, $2, $3)
+SELECT id, sqlc.arg(path), sqlc.arg(content)
+FROM skill
+WHERE id = sqlc.arg(skill_id)
+  AND status != 'deprecated'
+FOR NO KEY UPDATE
 ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content;
 
 -- name: UpdateReflectOwnedUserAgentSkill :one
@@ -228,7 +234,17 @@ FROM (
 WHERE latest.metadata->>'curator' = 'usage';
 
 -- name: DeleteSkillFile :exec
-DELETE FROM skill_file WHERE skill_id = $1 AND path = $2;
+WITH mutable_skill AS (
+  SELECT id
+  FROM skill
+  WHERE id = sqlc.arg(skill_id)
+    AND status != 'deprecated'
+  FOR NO KEY UPDATE
+)
+DELETE FROM skill_file
+USING mutable_skill
+WHERE skill_file.skill_id = mutable_skill.id
+  AND skill_file.path = sqlc.arg(path);
 
 -- name: GetSkillFile :one
 SELECT * FROM skill_file WHERE skill_id = $1 AND path = $2;
@@ -261,6 +277,170 @@ WHERE status = 'draft'
 
 -- name: ListAllSkills :many
 SELECT * FROM skill ORDER BY scope, created_at;
+
+-- name: ListManagedActiveSkills :many
+SELECT *
+FROM skill
+WHERE scope = ANY(sqlc.arg(scopes)::text[])
+  AND status <> 'deprecated'
+  AND (sqlc.narg(created_by)::text IS NULL OR metadata->>'created_by' = sqlc.narg(created_by)::text)
+  AND (
+    sqlc.narg(search_query)::text IS NULL
+    OR lower(name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+    OR lower(description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+  )
+  AND (
+    (scope = 'user' AND user_id = sqlc.narg(user_id)::uuid)
+    OR (scope = 'user_agent' AND user_id = sqlc.narg(user_id)::uuid AND agent_id = sqlc.narg(agent_id)::text)
+    OR (scope = 'system_agent' AND agent_id = sqlc.narg(agent_id)::text)
+  )
+  AND (
+    (sqlc.narg(cursor_timestamp)::timestamptz IS NULL AND sqlc.narg(cursor_id)::text IS NULL)
+    OR (updated_at, id) < (sqlc.narg(cursor_timestamp)::timestamptz, sqlc.narg(cursor_id)::text)
+  )
+ORDER BY updated_at DESC, id DESC
+LIMIT sqlc.arg(limit_count);
+
+-- name: CountManagedActiveSkills :one
+SELECT count(*)
+FROM skill
+WHERE scope = ANY(sqlc.arg(scopes)::text[])
+  AND status <> 'deprecated'
+  AND (sqlc.narg(created_by)::text IS NULL OR metadata->>'created_by' = sqlc.narg(created_by)::text)
+  AND (
+    sqlc.narg(search_query)::text IS NULL
+    OR lower(name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+    OR lower(description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
+  )
+  AND (
+    (scope = 'user' AND user_id = sqlc.narg(user_id)::uuid)
+    OR (scope = 'user_agent' AND user_id = sqlc.narg(user_id)::uuid AND agent_id = sqlc.narg(agent_id)::text)
+    OR (scope = 'system_agent' AND agent_id = sqlc.narg(agent_id)::text)
+  );
+
+-- name: ListManagedRemovedSkills :many
+SELECT
+  s.*,
+  d.created_at AS deprecated_at,
+  d.metadata AS deprecate_metadata
+FROM skill s
+JOIN LATERAL (
+  SELECT *
+  FROM skill_changelog c
+  WHERE c.skill_id = s.id
+    AND c.action = 'deprecate'
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE s.scope = ANY(sqlc.arg(scopes)::text[])
+  AND s.status = 'deprecated'
+  AND (sqlc.narg(created_by)::text IS NULL OR coalesce(s.metadata->>'created_by', 'manual') = sqlc.narg(created_by)::text)
+  AND (
+    sqlc.narg(search_query)::text IS NULL
+    OR strpos(lower(s.name), lower(sqlc.narg(search_query)::text)) > 0
+    OR strpos(lower(s.description), lower(sqlc.narg(search_query)::text)) > 0
+  )
+  AND (
+    d.metadata->>'deprecated_by' = 'manual'
+    OR d.metadata->>'curator' = 'usage'
+  )
+  AND d.created_at > sqlc.arg(now_at)::timestamptz - interval '2160 hours'
+  AND (
+    (s.scope = 'user' AND s.user_id = sqlc.narg(user_id)::uuid)
+    OR (s.scope = 'user_agent' AND s.user_id = sqlc.narg(user_id)::uuid AND s.agent_id = sqlc.narg(agent_id)::text)
+    OR (s.scope = 'system_agent' AND s.agent_id = sqlc.narg(agent_id)::text)
+  )
+  AND (
+    (sqlc.narg(cursor_timestamp)::timestamptz IS NULL AND sqlc.narg(cursor_id)::text IS NULL)
+    OR (d.created_at, s.id) < (sqlc.narg(cursor_timestamp)::timestamptz, sqlc.narg(cursor_id)::text)
+  )
+ORDER BY d.created_at DESC, s.id DESC
+LIMIT sqlc.arg(limit_count);
+
+-- name: CountManagedRemovedSkills :one
+SELECT count(*)
+FROM skill s
+JOIN LATERAL (
+  SELECT *
+  FROM skill_changelog c
+  WHERE c.skill_id = s.id
+    AND c.action = 'deprecate'
+  ORDER BY c.created_at DESC, c.id DESC
+  LIMIT 1
+) d ON true
+WHERE s.scope = ANY(sqlc.arg(scopes)::text[])
+  AND s.status = 'deprecated'
+  AND (sqlc.narg(created_by)::text IS NULL OR coalesce(s.metadata->>'created_by', 'manual') = sqlc.narg(created_by)::text)
+  AND (
+    sqlc.narg(search_query)::text IS NULL
+    OR strpos(lower(s.name), lower(sqlc.narg(search_query)::text)) > 0
+    OR strpos(lower(s.description), lower(sqlc.narg(search_query)::text)) > 0
+  )
+  AND (
+    d.metadata->>'deprecated_by' = 'manual'
+    OR d.metadata->>'curator' = 'usage'
+  )
+  AND d.created_at > sqlc.arg(now_at)::timestamptz - interval '2160 hours'
+  AND (
+    (s.scope = 'user' AND s.user_id = sqlc.narg(user_id)::uuid)
+    OR (s.scope = 'user_agent' AND s.user_id = sqlc.narg(user_id)::uuid AND s.agent_id = sqlc.narg(agent_id)::text)
+    OR (s.scope = 'system_agent' AND s.agent_id = sqlc.narg(agent_id)::text)
+  );
+
+-- name: GetLatestQualifyingManagedSkillDeprecateChangelog :one
+SELECT *
+FROM (
+  SELECT *
+  FROM skill_changelog
+  WHERE skill_id = sqlc.arg(skill_id)
+    AND action = 'deprecate'
+  ORDER BY created_at DESC, id DESC
+  LIMIT 1
+) latest
+WHERE latest.metadata->>'deprecated_by' = 'manual'
+   OR latest.metadata->>'curator' = 'usage';
+
+-- name: DeprecateManagedSkill :one
+UPDATE skill
+SET status = 'deprecated',
+    version = version + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status <> 'deprecated'
+RETURNING *;
+
+-- name: RestoreManagedSkill :one
+UPDATE skill
+SET status = 'active',
+    version = version + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'deprecated'
+RETURNING *;
+
+-- name: UpdateManagedSkill :one
+UPDATE skill
+SET description = sqlc.arg(description),
+    status = sqlc.arg(status),
+    disable_model_invocation = sqlc.arg(disable_model_invocation),
+    metadata = sqlc.arg(metadata),
+    version = version + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status <> 'deprecated'
+RETURNING *;
+
+-- name: HasLiveManagedSkillNameConflict :one
+SELECT EXISTS (
+  SELECT 1
+  FROM skill
+  WHERE id <> sqlc.arg(id)
+    AND name = sqlc.arg(name)
+    AND scope = sqlc.arg(scope)
+    AND COALESCE(user_id::text, '') = COALESCE(sqlc.narg(user_id)::text, '')
+    AND COALESCE(agent_id, '') = COALESCE(sqlc.narg(agent_id), '')
+    AND status <> 'deprecated'
+) AS has_conflict;
 
 -- name: ListActiveReflectOwnedUserAgentSkills :many
 SELECT * FROM skill

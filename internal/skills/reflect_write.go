@@ -591,10 +591,11 @@ func (s *PGStore) RestoreReflectOwnedUserAgentSkill(ctx context.Context, in Refl
 	}
 	after := mapRow(afterRow)
 	if err := qtx.UpsertSkillUsageOnReflectRestore(ctx, sqlc.UpsertSkillUsageOnReflectRestoreParams{
-		SkillID:  after.ID,
-		UserID:   in.UserID,
-		AgentID:  in.AgentID,
-		UseCount: restoreUseCount,
+		SkillID:    after.ID,
+		UserID:     in.UserID,
+		AgentID:    in.AgentID,
+		UseCount:   restoreUseCount,
+		LastUsedAt: restoreSkillLastUsedAt(deprecateLog.Metadata),
 	}); err != nil {
 		return ReflectSkillRestoreResult{}, fmt.Errorf("skills: restore skill usage: %w", err)
 	}
@@ -625,6 +626,20 @@ func restoreSkillUseCount(metadata json.RawMessage) int64 {
 		return 1
 	}
 	return *payload.UseCount
+}
+
+// restoreSkillLastUsedAt carries curator and manual lifecycle timing through a
+// recovery. Legacy changelog rows fall back to the restore instant.
+func restoreSkillLastUsedAt(metadata json.RawMessage) time.Time {
+	var payload struct {
+		LastUsedAt string `json:"last_used_at"`
+	}
+	if err := json.Unmarshal(metadata, &payload); err == nil && payload.LastUsedAt != "" {
+		if parsed, parseErr := time.Parse(time.RFC3339, payload.LastUsedAt); parseErr == nil {
+			return parsed.UTC()
+		}
+	}
+	return time.Now().UTC()
 }
 
 func restoreSkillMetadata(restoredBy string, reason string, deprecated sqlc.SkillChangelog, useCount int64) json.RawMessage {

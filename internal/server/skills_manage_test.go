@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -86,6 +87,110 @@ func TestScopedSkills_CrossUserIsolation(t *testing.T) {
 	rr = doRequestWithSession(t, env.srv, sidA, "GET", "/api/skills/"+id, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("A get status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// TestScopedSkills_DeleteDeprecatesMutableRows verifies Settings deletion keeps
+// the database row and files available for recovery, while system stays denied.
+func TestScopedSkills_DeleteDeprecatesMutableRows(t *testing.T) {
+	env := setupAdmin(t)
+	user, sid := newNonAdmin(t, env, "scoped-delete-lifecycle")
+	agentID := createAgentAsUser(t, env, sid, "scoped-delete-lifecycle-agent")
+
+	userID := createScopedSkill(t, env, sid, map[string]any{
+		"name": "settings-delete-user", "scope": "user",
+		"files": map[string]string{"SKILL.md": "# user", "reference.md": "keep user"},
+	})
+	userAgentID := createScopedSkill(t, env, sid, map[string]any{
+		"name": "settings-delete-agent", "scope": "user_agent", "agent_id": agentID,
+		"files": map[string]string{"SKILL.md": "# agent", "reference.md": "keep agent"},
+	})
+	systemAgentID := createScopedSkill(t, env, env.bearerToken, map[string]any{
+		"name": "settings-delete-system-agent", "scope": "system_agent", "agent_id": agentID,
+		"files": map[string]string{"SKILL.md": "# system agent", "reference.md": "keep system agent"},
+	})
+	systemID := createScopedSkill(t, env, env.bearerToken, map[string]any{
+		"name": "settings-delete-system", "scope": "system",
+		"files": map[string]string{"SKILL.md": "# system"},
+	})
+
+	for _, tc := range []struct {
+		name, sid, id, scope, agent string
+	}{
+		{name: "user", sid: sid, id: userID, scope: "user"},
+		{name: "user_agent", sid: sid, id: userAgentID, scope: "user_agent", agent: agentID},
+		{name: "system_agent", sid: env.bearerToken, id: systemAgentID, scope: "system_agent", agent: agentID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := doRequestWithSession(t, env.srv, tc.sid, "DELETE", "/api/skills/"+tc.id, nil)
+			if rr.Code != http.StatusNoContent {
+				t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+			}
+			path := "/api/skills?scope=" + tc.scope
+			if tc.agent != "" {
+				path += "&agent_id=" + tc.agent
+			}
+			rr = doRequestWithSession(t, env.srv, tc.sid, "GET", path, nil)
+			if rr.Code != http.StatusOK || findSkill(decodeSkillList(t, rr), "settings-delete-"+tc.name) != nil {
+				t.Fatalf("default list still contains removed skill: status=%d body=%s", rr.Code, rr.Body.String())
+			}
+		})
+	}
+
+	// A system row is never a mutable lifecycle row, even for a non-admin.
+	rr := doRequestWithSession(t, env.srv, sid, "DELETE", "/api/skills/"+systemID, nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("system delete status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+	rr = doRequest(t, env, "DELETE", "/api/skills/"+systemID, nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("admin system delete status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	store := env.pluginHost.SkillStore()
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name, scope, owner, agent, id, actor string
+	}{
+		{name: "user", scope: "user", owner: user.ID, id: userID, actor: user.ID},
+		{name: "user_agent", scope: "user_agent", owner: user.ID, agent: agentID, id: userAgentID, actor: user.ID},
+		{name: "system_agent", scope: "system_agent", agent: agentID, id: systemAgentID, actor: env.adminUser.ID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var status string
+			if err := env.db.QueryRow(ctx, `SELECT status FROM skill WHERE id = $1`, tc.id).Scan(&status); err != nil {
+				t.Fatalf("read retained row: %v", err)
+			}
+			if status != "deprecated" {
+				t.Fatalf("retained row status = %q, want deprecated", status)
+			}
+			files, err := store.ListFiles(ctx, tc.id)
+			if err != nil || len(files) < 2 {
+				t.Fatalf("retained files = %#v, err=%v; want files preserved", files, err)
+			}
+			logs, err := store.ListSkillChangelogBySkill(ctx, tc.id, 1)
+			if err != nil || len(logs) != 1 || logs[0].Action != "deprecate" {
+				t.Fatalf("lifecycle logs = %#v, err=%v; want manual deprecate", logs, err)
+			}
+			var metadata struct {
+				DeprecatedBy       string `json:"deprecated_by"`
+				DeprecatedByUserID string `json:"deprecated_by_user_id"`
+			}
+			if err := json.Unmarshal(logs[0].Metadata, &metadata); err != nil {
+				t.Fatalf("decode lifecycle metadata: %v", err)
+			}
+			if metadata.DeprecatedBy != "manual" || metadata.DeprecatedByUserID != tc.actor {
+				t.Fatalf("lifecycle actor metadata = %#v, want actor %s", metadata, tc.actor)
+			}
+		})
+	}
+
+	rows, err := store.ListByScope(ctx, "system", "", "")
+	if err != nil {
+		t.Fatalf("list system row: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != systemID || rows[0].Status == "deprecated" {
+		t.Fatalf("system row = %#v, want unchanged active row", rows)
 	}
 }
 

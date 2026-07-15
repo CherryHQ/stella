@@ -262,7 +262,6 @@ func TestCreateReflectOwnedSkillSameNameDifferentStateConflicts(t *testing.T) {
 		slug   string
 		update string
 	}{
-		{name: "inactive", slug: "inactive", update: `UPDATE skill SET status = 'deprecated' WHERE id = $1`},
 		{name: "manual ownership", slug: "manual", update: `UPDATE skill SET metadata = '{}' WHERE id = $1`},
 		{name: "model invocation disabled", slug: "disabled", update: `UPDATE skill SET disable_model_invocation = true WHERE id = $1`},
 	}
@@ -282,6 +281,28 @@ func TestCreateReflectOwnedSkillSameNameDifferentStateConflicts(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("deprecated name can be reused", func(t *testing.T) {
+		stateRequest := request
+		stateRequest.Name += "-deprecated"
+		deprecated, err := store.CreateReflectOwnedUserAgentSkill(ctx, stateRequest)
+		if err != nil {
+			t.Fatalf("create deprecated fixture: %v", err)
+		}
+		if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecated.ID); err != nil {
+			t.Fatalf("deprecate fixture: %v", err)
+		}
+
+		// Recoverable deprecated rows intentionally release their owner/name so a
+		// newer active version can reuse the stable user-facing skill name.
+		replacement, err := store.CreateReflectOwnedUserAgentSkill(ctx, stateRequest)
+		if err != nil {
+			t.Fatalf("create same-name replacement: %v", err)
+		}
+		if replacement.ID == deprecated.ID || replacement.Status != SkillStatusActive {
+			t.Fatalf("replacement id/status = %s/%q, want a distinct active skill", replacement.ID, replacement.Status)
+		}
+	})
 }
 
 func TestReflectCreateRetryOnlyRecognizesOwnerNameUniqueConflict(t *testing.T) {

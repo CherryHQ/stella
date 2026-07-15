@@ -30,6 +30,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
@@ -213,6 +214,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
+		MemoryManagement:    memorywrite.NewManagementService(db, mem),
 		AgentAccess:         agentAccess,
 		SessionAccess:       sessionSvc,
 		SkillAccess:         skillaccess.NewService(skillStore, agentAccess),

@@ -63,7 +63,7 @@ SET last_used_at = excluded.last_used_at;
 
 -- name: UpsertSkillUsageOnReflectRestore :exec
 INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-SELECT s.id, s.user_id, s.agent_id, sqlc.arg(use_count)::bigint, now()
+SELECT s.id, s.user_id, s.agent_id, sqlc.arg(use_count)::bigint, sqlc.arg(last_used_at)::timestamptz
 FROM skill s
 WHERE s.id = sqlc.arg(skill_id)
   AND s.user_id = sqlc.arg(user_id)::uuid
