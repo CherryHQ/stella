@@ -22,11 +22,10 @@ const (
 // registerReflectBuiltin wires the reflect review cycle into the scheduler
 // as a builtin job. The cadence defaults to 6h and can be overridden
 // for development via STELLA_REFLECT_INTERVAL (Go duration string), threaded in
-// as intervalRaw; curatorModeRaw carries STELLA_REFLECT_CURATOR_MODE. The
-// interval override is intentionally undocumented in user-facing docs — it
-// exists so verifying reflect's wiring doesn't require a code rebuild. Parsing
-// stays here (not in the config layer) so the interval keeps its lenient
-// warn-and-clamp behavior and the curator mode keeps its fail-fast enum.
+// as intervalRaw; reflectModeRaw and curatorModeRaw carry the independent
+// writer and lifecycle controls. Parsing stays here (not in the config layer)
+// so the interval keeps its lenient warn-and-clamp behavior while both mode
+// enums fail fast before the scheduler job is registered.
 func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config, intervalRaw, reflectModeRaw, curatorModeRaw string) error {
 	every := resolveReflectInterval(intervalRaw)
 	runtimeMode, err := resolveReflectMode(reflectModeRaw)

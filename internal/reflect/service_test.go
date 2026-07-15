@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ func testLogger() *slog.Logger {
 
 // fakeWatermarks is a test double for watermarker.
 type fakeWatermarks struct {
+	mu        sync.RWMutex
 	marks     map[string]time.Time
 	lineMarks map[string]time.Time
 	lineSeqs  map[string]int64
@@ -37,10 +39,14 @@ func newFakeWatermarks() *fakeWatermarks {
 }
 
 func (f *fakeWatermarks) get(_ context.Context, sessionID string) (time.Time, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.marks[sessionID], nil
 }
 
 func (f *fakeWatermarks) getLegacy(_ context.Context, sessionID string) (time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	legacy := f.marks[sessionID]
 	factKey := fakeLineWatermarkKey(sessionID, reflectLineFact)
 	skillKey := fakeLineWatermarkKey(sessionID, reflectLineSkill)
@@ -57,17 +63,21 @@ func (f *fakeWatermarks) getLegacy(_ context.Context, sessionID string) (time.Ti
 }
 
 func (f *fakeWatermarks) set(_ context.Context, sessionID string, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.marks[sessionID] = at
 	return nil
 }
 
 func (f *fakeWatermarks) getLine(_ context.Context, sessionID string, line reflectLine) (reviewWatermark, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	key := fakeLineWatermarkKey(sessionID, line)
 	mark := reviewWatermark{Seq: f.lineSeqs[key]}
 	if at, ok := f.lineMarks[key]; ok {
 		legacy := f.marks[sessionID]
 		if legacy.After(at) {
-			f.setLineMark(sessionID, line, legacy)
+			f.lineMarks[key] = legacy
 			delete(f.lineSeqs, key)
 			mark = reviewWatermark{At: legacy}
 		} else {
@@ -77,28 +87,41 @@ func (f *fakeWatermarks) getLine(_ context.Context, sessionID string, line refle
 	}
 	mark.At = f.marks[sessionID]
 	if !mark.At.IsZero() {
-		f.setLineMark(sessionID, line, mark.At)
+		f.lineMarks[key] = mark.At
 	}
 	return mark, nil
 }
 
 func (f *fakeWatermarks) setLine(_ context.Context, sessionID string, line reflectLine, mark reviewWatermark) error {
-	f.setLineMark(sessionID, line, mark.At)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := fakeLineWatermarkKey(sessionID, line)
+	f.lineMarks[key] = mark.At
 	if mark.Seq > 0 {
-		f.lineSeqs[fakeLineWatermarkKey(sessionID, line)] = mark.Seq
+		f.lineSeqs[key] = mark.Seq
+	} else {
+		delete(f.lineSeqs, key)
 	}
 	return nil
 }
 
 func (f *fakeWatermarks) setLineMark(sessionID string, line reflectLine, at time.Time) {
-	f.lineMarks[fakeLineWatermarkKey(sessionID, line)] = at
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := fakeLineWatermarkKey(sessionID, line)
+	f.lineMarks[key] = at
+	delete(f.lineSeqs, key)
 }
 
 func (f *fakeWatermarks) lineMark(sessionID string, line reflectLine) time.Time {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.lineMarks[fakeLineWatermarkKey(sessionID, line)]
 }
 
 func (f *fakeWatermarks) lineSeq(sessionID string, line reflectLine) int64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.lineSeqs[fakeLineWatermarkKey(sessionID, line)]
 }
 

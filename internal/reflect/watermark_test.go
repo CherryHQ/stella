@@ -122,6 +122,22 @@ func TestWatermarkStore_SetAndGet(t *testing.T) {
 	}
 }
 
+func TestWatermarkStore_GlobalPreservesSubsecondBoundary(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	want := time.Date(2026, 7, 2, 10, 5, 0, 123456789, time.UTC)
+	if err := ws.set(ctx, "s1", want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ws.get(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(want) {
+		t.Fatalf("global watermark = %v, want exact boundary %v", got, want)
+	}
+}
+
 func TestWatermarkStore_Upsert(t *testing.T) {
 	ws, ctx := newTestWatermarkStore(t)
 

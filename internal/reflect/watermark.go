@@ -45,11 +45,11 @@ func (ws *watermarkStore) get(ctx context.Context, sessionID string) (time.Time,
 		Kind: pkgplugins.StateScopeSession,
 		ID:   sessionID,
 	}, reviewWatermarkKey)
-	if !ok {
-		return time.Time{}, nil
-	}
 	if err != nil {
 		return time.Time{}, fmt.Errorf("get watermark %s: %w", sessionID, err)
+	}
+	if !ok {
+		return time.Time{}, nil
 	}
 	raw, _ := val["reviewed_at"].(string)
 	if raw == "" {
@@ -68,7 +68,7 @@ func (ws *watermarkStore) set(ctx context.Context, sessionID string, at time.Tim
 		Kind: pkgplugins.StateScopeSession,
 		ID:   sessionID,
 	}, reviewWatermarkKey, map[string]any{
-		"reviewed_at": at.UTC().Format("2006-01-02 15:04:05"),
+		"reviewed_at": at.UTC().Format(time.RFC3339Nano),
 	})
 }
 

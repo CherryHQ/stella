@@ -44,7 +44,11 @@ func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarg
 	}
 	writes := len(factBatchOperationsFromPlan(plan))
 	_, err = executeFactReconciliationPlan(ctx, writer, userID, agentID, bundle, plan)
-	return reconciliationWriteStats{Writes: writes, Noops: factReconciliationNoopCount(bundle, plan)}, err
+	stats := reconciliationWriteStats{Noops: factReconciliationNoopCount(bundle, plan)}
+	if err == nil {
+		stats.Writes = writes
+	}
+	return stats, err
 }
 
 func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTarget, _ ReviewUnit, candidates []skillCandidate, runner candidateLineReviewer) (reconciliationWriteStats, error) {
