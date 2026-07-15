@@ -443,39 +443,3 @@ func (q *Queries) UpsertSkillUsageOnReflectCreate(ctx context.Context, arg Upser
 	_, err := q.db.Exec(ctx, upsertSkillUsageOnReflectCreate, arg.SkillID, arg.UserID, arg.AgentID)
 	return err
 }
-
-const upsertSkillUsageOnReflectRestore = `-- name: UpsertSkillUsageOnReflectRestore :exec
-INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-SELECT s.id, s.user_id, s.agent_id, $1::bigint, $2::timestamptz
-FROM skill s
-WHERE s.id = $3
-  AND s.user_id = $4::uuid
-  AND s.agent_id = $5::text
-  AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.metadata->>'created_by' = 'reflect'
-ON CONFLICT (skill_id) DO UPDATE
-SET user_id = excluded.user_id,
-    agent_id = excluded.agent_id,
-    use_count = excluded.use_count,
-    last_used_at = excluded.last_used_at
-`
-
-type UpsertSkillUsageOnReflectRestoreParams struct {
-	UseCount   int64     `json:"use_count"`
-	LastUsedAt time.Time `json:"last_used_at"`
-	SkillID    string    `json:"skill_id"`
-	UserID     string    `json:"user_id"`
-	AgentID    string    `json:"agent_id"`
-}
-
-func (q *Queries) UpsertSkillUsageOnReflectRestore(ctx context.Context, arg UpsertSkillUsageOnReflectRestoreParams) error {
-	_, err := q.db.Exec(ctx, upsertSkillUsageOnReflectRestore,
-		arg.UseCount,
-		arg.LastUsedAt,
-		arg.SkillID,
-		arg.UserID,
-		arg.AgentID,
-	)
-	return err
-}
