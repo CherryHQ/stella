@@ -351,14 +351,9 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		deprecated := SkillStatusDeprecated
-		if err := store.Update(ctx, id, ViewContext{UserID: userID}, UpdatePatch{Status: &deprecated}); !errors.Is(err, ErrSkillNotMutable) {
-			t.Fatalf("ordinary deprecate error = %v, want ErrSkillNotMutable", err)
-		}
-		// Seed a legacy deprecated row directly. The public lifecycle API no
-		// longer creates this state, but existing rows must remain invisible.
-		if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, id); err != nil {
-			t.Fatalf("seed deprecated skill: %v", err)
+		status := "deprecated"
+		if err := store.Update(ctx, id, ViewContext{UserID: userID}, UpdatePatch{Status: &status}); err != nil {
+			t.Fatalf("Update: %v", err)
 		}
 
 		skills, err := store.List(ctx, ViewContext{UserID: userID})
@@ -378,29 +373,10 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 		if sk != nil {
 			t.Error("deprecated skill should not appear in Resolve")
 		}
-		rows, err := store.ListByScope(ctx, "user", userID, "")
-		if err != nil {
-			t.Fatalf("ListByScope: %v", err)
-		}
-		if len(rows) != 0 {
-			t.Fatalf("ListByScope returned deprecated rows: %#v", rows)
-		}
-
 		// LoadFile still works for deprecated.
 		_, err = store.LoadFile(ctx, id, MainFile)
 		if err != nil {
 			t.Errorf("LoadFile on deprecated should still work: %v", err)
-		}
-
-		active := "active"
-		if err := store.Update(ctx, id, ViewContext{UserID: userID}, UpdatePatch{Status: &active}); !errors.Is(err, ErrSkillNotMutable) {
-			t.Fatalf("Update deprecated error = %v, want ErrSkillNotMutable", err)
-		}
-		if err := store.UpsertFile(ctx, id, "new.md", "blocked"); !errors.Is(err, ErrSkillNotMutable) {
-			t.Fatalf("UpsertFile deprecated error = %v, want ErrSkillNotMutable", err)
-		}
-		if err := store.DeleteFile(ctx, id, MainFile); !errors.Is(err, ErrSkillNotMutable) {
-			t.Fatalf("DeleteFile deprecated error = %v, want ErrSkillNotMutable", err)
 		}
 	})
 

@@ -15,46 +15,6 @@ import (
 // ErrSkillNotMutable rejects system, filesystem, deprecated, and project writes.
 var ErrSkillNotMutable = errors.New("skill is not mutable")
 
-// ListManagedSkills returns active rows for mutable PostgreSQL scopes. The
-// caller's owner fields are interpreted per row scope.
-func (s *PGStore) ListManagedSkills(ctx context.Context, in ManagedSkillListQuery) (ManagedSkillPage, error) {
-	if in.Limit <= 0 {
-		return ManagedSkillPage{}, fmt.Errorf("list managed skills: limit must be positive")
-	}
-	if err := validateManagedSkillCursor(in.Cursor); err != nil {
-		return ManagedSkillPage{}, err
-	}
-	scopes, err := managedScopes(in.Scopes)
-	if err != nil {
-		return ManagedSkillPage{}, err
-	}
-	createdBy := pgtype.Text{String: in.CreatedBy, Valid: in.CreatedBy != ""}
-	query := pgtype.Text{String: in.Query, Valid: in.Query != ""}
-	userID, agentID := managedOwnerParams(in.UserID, in.AgentID)
-	limitPlusOne := in.Limit + 1
-	cursorTimestamp, cursorID := managedSkillCursorParams(in.Cursor)
-
-	total, err := s.q.CountManagedActiveSkills(ctx, sqlc.CountManagedActiveSkillsParams{
-		Scopes: scopes, CreatedBy: createdBy, SearchQuery: query, UserID: userID, AgentID: agentID,
-	})
-	if err != nil {
-		return ManagedSkillPage{}, fmt.Errorf("count managed active skills: %w", err)
-	}
-	rows, err := s.q.ListManagedActiveSkills(ctx, sqlc.ListManagedActiveSkillsParams{
-		Scopes: scopes, CreatedBy: createdBy, SearchQuery: query, UserID: userID, AgentID: agentID,
-		CursorTimestamp: cursorTimestamp, CursorID: cursorID, LimitCount: limitPlusOne,
-	})
-	if err != nil {
-		return ManagedSkillPage{}, fmt.Errorf("list managed active skills: %w", err)
-	}
-	items := make([]ManagedSkillItem, 0, len(rows))
-	for _, row := range rows {
-		sk := mapRow(row)
-		items = append(items, ManagedSkillItem{Skill: sk, CreatedBy: CreatedBy(sk)})
-	}
-	return managedSkillPage(items, total, in.Limit), nil
-}
-
 // UpdateManagedSkill atomically applies file upserts, metadata changes, an
 // ownership transfer, and a changelog entry while the row lock is held.
 func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (Skill, error) {
@@ -122,18 +82,6 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 	return after, nil
 }
 
-func managedScopes(scopes []string) ([]string, error) {
-	if len(scopes) == 0 {
-		return []string{"user", "user_agent", "system_agent"}, nil
-	}
-	for _, scope := range scopes {
-		if !isMutableSkillScope(scope) {
-			return nil, ErrSkillNotMutable
-		}
-	}
-	return scopes, nil
-}
-
 func lockedManagedSkill(ctx context.Context, q *sqlc.Queries, id, scope, userID, agentID string) (Skill, error) {
 	if !isMutableSkillScope(scope) {
 		return Skill{}, ErrSkillNotMutable
@@ -171,33 +119,6 @@ func managedOwnerMatches(sk Skill, userID, agentID string) bool {
 
 func managedOwnerParams(userID, agentID string) (pgtype.Text, pgtype.Text) {
 	return pgtype.Text{String: userID, Valid: userID != ""}, pgtype.Text{String: agentID, Valid: agentID != ""}
-}
-
-func managedSkillPage(items []ManagedSkillItem, total int64, limit int32) ManagedSkillPage {
-	page := ManagedSkillPage{Items: items, Total: total}
-	if int32(len(page.Items)) > limit {
-		page.Items = page.Items[:limit]
-		page.HasMore = true
-	}
-	if len(page.Items) > 0 {
-		last := page.Items[len(page.Items)-1]
-		page.NextCursor = &ManagedSkillCursor{Timestamp: last.Skill.UpdatedAt, ID: last.Skill.ID}
-	}
-	return page
-}
-
-func validateManagedSkillCursor(cursor *ManagedSkillCursor) error {
-	if cursor != nil && (cursor.Timestamp.IsZero() || cursor.ID == "") {
-		return fmt.Errorf("list managed skills: cursor timestamp and id must be provided together")
-	}
-	return nil
-}
-
-func managedSkillCursorParams(cursor *ManagedSkillCursor) (pgtype.Timestamptz, pgtype.Text) {
-	if cursor == nil {
-		return pgtype.Timestamptz{}, pgtype.Text{}
-	}
-	return pgtype.Timestamptz{Time: cursor.Timestamp.UTC(), Valid: true}, pgtype.Text{String: cursor.ID, Valid: true}
 }
 
 func managedUpdateMetadata(metadata json.RawMessage, existingCreatedBy string, convertToManual bool) (json.RawMessage, error) {
@@ -246,6 +167,5 @@ func skillToRow(sk Skill) sqlc.Skill {
 
 // Compile-time assertion that PGStore exposes the lifecycle Store contract.
 var _ interface {
-	ListManagedSkills(context.Context, ManagedSkillListQuery) (ManagedSkillPage, error)
 	UpdateManagedSkill(context.Context, ManagedSkillUpdate) (Skill, error)
 } = (*PGStore)(nil)

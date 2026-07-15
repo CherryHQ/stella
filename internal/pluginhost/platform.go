@@ -2,11 +2,9 @@ package pluginhost
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -111,32 +109,6 @@ func (a skillStoreAdapter) Update(ctx context.Context, id string, patch pkgplugi
 	})
 }
 
-// ApplySkillUpgrade routes production upgrades through one lifecycle
-// transaction. UpgradeInStore discovers this capability by structural typing.
-func (a skillStoreAdapter) ApplySkillUpgrade(ctx context.Context, id string, files map[string]string, deleteFiles []string, patch pkgplugins.SkillUpdatePatch) error {
-	rows, err := a.s.ListAll(ctx)
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if row.ID != id {
-			continue
-		}
-		_, err := a.s.UpdateManagedSkill(ctx, skills.ManagedSkillUpdate{
-			ID: row.ID, UserID: row.UserID, AgentID: row.AgentID, Scope: row.Scope,
-			Files: files, DeleteFiles: deleteFiles,
-			Patch: skills.UpdatePatch{
-				Description:            patch.Description,
-				Status:                 patch.Status,
-				DisableModelInvocation: patch.DisableModelInvocation,
-				Metadata:               patch.Metadata,
-			},
-		})
-		return err
-	}
-	return fmt.Errorf("upgrade skill %q: not found", id)
-}
-
 func (a skillStoreAdapter) UpsertFile(ctx context.Context, skillID, path, content string) error {
 	return a.s.UpsertFile(ctx, skillID, path, content)
 }
@@ -146,27 +118,11 @@ func (a skillStoreAdapter) DeleteFile(ctx context.Context, skillID, path string)
 }
 
 func (a skillStoreAdapter) Delete(ctx context.Context, id string) error {
-	actorID := authz.UserIDFromContext(ctx)
-	if actorID == "" {
-		return fmt.Errorf("delete skill: authenticated actor is required")
-	}
-	rows, err := a.s.ListAll(ctx)
+	vc, err := a.viewContextForSkill(ctx, id)
 	if err != nil {
 		return err
 	}
-	for _, row := range rows {
-		if row.ID != id {
-			continue
-		}
-		if row.Scope != "user" && row.Scope != "user_agent" {
-			return fmt.Errorf("delete skill: scope %q is not user-owned", row.Scope)
-		}
-		if row.UserID != actorID {
-			return fmt.Errorf("delete skill: skill is not owned by authenticated actor")
-		}
-		return a.s.Delete(ctx, id, skills.ViewContext{UserID: row.UserID, AgentID: row.AgentID})
-	}
-	return fmt.Errorf("delete skill %q: not found", id)
+	return a.s.Delete(ctx, id, vc)
 }
 
 func (a skillStoreAdapter) viewContextForSkill(ctx context.Context, id string) (skills.ViewContext, error) {

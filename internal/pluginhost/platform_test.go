@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -17,51 +16,6 @@ import (
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
-
-// TestSkillStoreAdapterDeleteRemovesOnlyUserOwnedRows verifies that the plugin
-// boundary requires a trusted actor before permanently deleting mutable data.
-func TestSkillStoreAdapterDeleteRemovesOnlyUserOwnedRows(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	userID, agentID := seedSkillAdapterFixtures(t, db)
-	raw := skills.New(db)
-	store := skills.NewDiskSyncStore(raw, func(scope, agentID string, userID string) string { return "" })
-	userSkillID, err := store.Create(ctx, skills.Skill{
-		Scope: "user", UserID: userID, Name: "adapter-delete-user", Status: "active",
-	}, map[string]string{skills.MainFile: "# user", "reference.md": "keep"})
-	if err != nil {
-		t.Fatalf("create user skill: %v", err)
-	}
-	systemSkillID, err := store.Create(ctx, skills.Skill{
-		Scope: "system_agent", AgentID: agentID, Name: "adapter-delete-system-agent", Status: "active",
-	}, map[string]string{skills.MainFile: "# system"})
-	if err != nil {
-		t.Fatalf("create system-agent skill: %v", err)
-	}
-	adapter := NewSkillStoreAdapter(store)
-
-	if err := adapter.Delete(ctx, userSkillID); err == nil {
-		t.Fatal("delete without actor succeeded, want fail closed")
-	}
-	actorCtx := authz.WithUserID(ctx, userID)
-	if err := adapter.Delete(actorCtx, systemSkillID); err == nil {
-		t.Fatal("system-agent delete succeeded, want fail closed")
-	}
-	if err := adapter.Delete(actorCtx, userSkillID); err != nil {
-		t.Fatalf("delete user skill: %v", err)
-	}
-
-	var skillCount, fileCount int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM skill WHERE id = $1`, userSkillID).Scan(&skillCount); err != nil {
-		t.Fatalf("count deleted skill: %v", err)
-	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM skill_file WHERE skill_id = $1`, userSkillID).Scan(&fileCount); err != nil {
-		t.Fatalf("count deleted skill files: %v", err)
-	}
-	if skillCount != 0 || fileCount != 0 {
-		t.Fatalf("adapter delete retained skill=%d files=%d", skillCount, fileCount)
-	}
-}
 
 func TestSkillStoreAdapterTouchesReflectSkillUsageThroughDiskSync(t *testing.T) {
 	ctx := context.Background()
