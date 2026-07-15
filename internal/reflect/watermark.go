@@ -68,7 +68,7 @@ func (ws *watermarkStore) set(ctx context.Context, sessionID string, at time.Tim
 		Kind: pkgplugins.StateScopeSession,
 		ID:   sessionID,
 	}, reviewWatermarkKey, map[string]any{
-		"reviewed_at": at.UTC().Format(time.RFC3339Nano),
+		"reviewed_at": at.UTC().Format("2006-01-02 15:04:05"),
 	})
 }
 
