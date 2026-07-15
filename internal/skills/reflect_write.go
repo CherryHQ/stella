@@ -50,12 +50,11 @@ type ReflectSkillPatch struct {
 }
 
 type ReflectSkillDelete struct {
-	ID                                string
-	UserID                            string
-	AgentID                           string
-	ExpectedVersion                   int64
-	ExpectedUsageLastUsedAt           *time.Time
-	RequireEligibleActivityAfterUsage bool
+	ID                      string
+	UserID                  string
+	AgentID                 string
+	ExpectedVersion         int64
+	ExpectedUsageLastUsedAt time.Time
 }
 
 // CreateReflectOwnedUserAgentSkill creates an active Reflect-owned user_agent
@@ -420,6 +419,9 @@ func (s *PGStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Refle
 	if in.ExpectedVersion <= 0 {
 		return Skill{}, fmt.Errorf("skills: expected_version is required")
 	}
+	if in.ExpectedUsageLastUsedAt.IsZero() {
+		return Skill{}, fmt.Errorf("skills: expected_usage_last_used_at is required")
+	}
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -442,34 +444,30 @@ func (s *PGStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Refle
 	if before.Version != in.ExpectedVersion || before.Status != SkillStatusActive {
 		return Skill{}, ErrSkillVersionConflict
 	}
-	if in.ExpectedUsageLastUsedAt != nil {
-		usage, err := qtx.GetSkillUsageForUpdate(ctx, sqlc.GetSkillUsageForUpdateParams{
-			SkillID: in.ID,
-			UserID:  in.UserID,
-			AgentID: in.AgentID,
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Skill{}, ErrSkillUsageChanged
-		}
-		if err != nil {
-			return Skill{}, fmt.Errorf("skills: lock reflect skill usage: %w", err)
-		}
-		if !usage.LastUsedAt.Equal(*in.ExpectedUsageLastUsedAt) {
-			return Skill{}, ErrSkillUsageChanged
-		}
-		if in.RequireEligibleActivityAfterUsage {
-			hasActivity, err := qtx.HasEligiblePairActivityAfter(ctx, sqlc.HasEligiblePairActivityAfterParams{
-				UserID:  in.UserID,
-				AgentID: in.AgentID,
-				After:   usage.LastUsedAt,
-			})
-			if err != nil {
-				return Skill{}, fmt.Errorf("skills: recheck eligible activity: %w", err)
-			}
-			if !hasActivity {
-				return Skill{}, ErrSkillUsageChanged
-			}
-		}
+	usage, err := qtx.GetSkillUsageForUpdate(ctx, sqlc.GetSkillUsageForUpdateParams{
+		SkillID: in.ID,
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Skill{}, ErrSkillUsageChanged
+	}
+	if err != nil {
+		return Skill{}, fmt.Errorf("skills: lock reflect skill usage: %w", err)
+	}
+	if !usage.LastUsedAt.Equal(in.ExpectedUsageLastUsedAt) {
+		return Skill{}, ErrSkillUsageChanged
+	}
+	hasActivity, err := qtx.HasEligiblePairActivityAfter(ctx, sqlc.HasEligiblePairActivityAfterParams{
+		UserID:  in.UserID,
+		AgentID: in.AgentID,
+		After:   usage.LastUsedAt,
+	})
+	if err != nil {
+		return Skill{}, fmt.Errorf("skills: recheck eligible activity: %w", err)
+	}
+	if !hasActivity {
+		return Skill{}, ErrSkillUsageChanged
 	}
 
 	deletedRow, err := qtx.DeleteReflectOwnedUserAgentSkill(ctx, sqlc.DeleteReflectOwnedUserAgentSkillParams{

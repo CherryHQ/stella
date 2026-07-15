@@ -69,8 +69,7 @@ func (d *DiskSyncStore) UpsertFile(ctx context.Context, skillID, path, content s
 	if err != nil {
 		return err
 	}
-	// The database is authoritative for lifecycle state. Mirror only after it
-	// accepts the write so a removed skill cannot be changed on disk first.
+	// Commit the authoritative database write before updating its disk mirror.
 	if err := d.Store.UpsertFile(ctx, skillID, path, content); err != nil {
 		return err
 	}
@@ -141,7 +140,7 @@ func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) er
 	if err != nil {
 		return err
 	}
-	// Keep retained mirrors intact when the lifecycle store rejects the delete.
+	// Commit the authoritative database delete before updating its disk mirror.
 	if err := d.Store.DeleteFile(ctx, skillID, path); err != nil {
 		return err
 	}
@@ -231,9 +230,6 @@ func (d *DiskSyncStore) SyncAllToDisk(ctx context.Context) error {
 	for _, sk := range all {
 		base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
 		if base == "" {
-			continue
-		}
-		if sk.Status == "deprecated" {
 			continue
 		}
 		skillDir, pathErr := safeDiskPath(base, sk.Name)

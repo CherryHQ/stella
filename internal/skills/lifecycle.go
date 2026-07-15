@@ -52,11 +52,6 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 			return Skill{}, fmt.Errorf("update managed skill file %q: %w", path, err)
 		}
 	}
-	for _, path := range in.DeleteFiles {
-		if err := qtx.DeleteSkillFile(ctx, sqlc.DeleteSkillFileParams{SkillID: before.ID, Path: path}); err != nil {
-			return Skill{}, fmt.Errorf("delete managed skill file %q: %w", path, err)
-		}
-	}
 	afterRow, err := qtx.UpdateManagedSkill(ctx, sqlc.UpdateManagedSkillParams{
 		ID: before.ID, Description: patch.Description, Status: patch.Status,
 		DisableModelInvocation: patch.DisableModelInvocation, Metadata: metadata,
@@ -164,8 +159,3 @@ func skillToRow(sk Skill) sqlc.Skill {
 		CreatedAt: sk.CreatedAt, UpdatedAt: sk.UpdatedAt, Version: sk.Version,
 	}
 }
-
-// Compile-time assertion that PGStore exposes the lifecycle Store contract.
-var _ interface {
-	UpdateManagedSkill(context.Context, ManagedSkillUpdate) (Skill, error)
-} = (*PGStore)(nil)

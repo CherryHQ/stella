@@ -207,10 +207,6 @@ func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, p
 		return
 	}
 	if err := store.DeleteFile(r.Context(), id, path); err != nil {
-		if errors.Is(err, skills.ErrSkillNotMutable) {
-			writeError(w, http.StatusConflict, "removed skill files are read-only")
-			return
-		}
 		s.writeInternalError(w, err)
 		return
 	}
