@@ -4,7 +4,47 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
+
+func TestReconciliationPipelineRunsFactAndSkillConcurrently(t *testing.T) {
+	svc, target, _, _ := newCandidatePipelineTestService(t)
+	started := make(chan reflectLine, 2)
+	release := make(chan struct{})
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := svc.runReconciliationPipeline(context.Background(), target, reconciliationPipelineOptions{
+			FactLine: func(_ context.Context, _ ReviewUnit) ([]factCandidate, error) {
+				started <- reflectLineFact
+				<-release
+				return nil, nil
+			},
+			SkillLine: func(_ context.Context, _ ReviewUnit) ([]skillCandidate, error) {
+				started <- reflectLineSkill
+				<-release
+				return nil, nil
+			},
+		})
+		done <- err
+	}()
+
+	seen := map[reflectLine]bool{}
+	for len(seen) < 2 {
+		select {
+		case line := <-started:
+			seen[line] = true
+		case <-time.After(time.Second):
+			close(release)
+			<-done
+			t.Fatalf("lines did not overlap; started=%v", seen)
+		}
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestReconciliationPipelineFactWriteFailureDoesNotBlockSkillWatermark(t *testing.T) {
 	svc, target, wm, freshAt := newCandidatePipelineTestService(t)
@@ -16,11 +56,11 @@ func TestReconciliationPipelineFactWriteFailureDoesNotBlockSkillWatermark(t *tes
 		SkillLine: func(_ context.Context, _ ReviewUnit) ([]skillCandidate, error) {
 			return []skillCandidate{validSkillCandidate("skill-0001")}, nil
 		},
-		FactReconciler: func(_ context.Context, _ reviewTarget, _ ReviewUnit, _ []factCandidate) error {
-			return errors.New("fact write failed")
+		FactReconciler: func(_ context.Context, _ reviewTarget, _ ReviewUnit, _ []factCandidate) (reconciliationWriteStats, error) {
+			return reconciliationWriteStats{}, errors.New("fact write failed")
 		},
-		SkillReconciler: func(_ context.Context, _ reviewTarget, _ ReviewUnit, _ []skillCandidate) error {
-			return nil
+		SkillReconciler: func(_ context.Context, _ reviewTarget, _ ReviewUnit, _ []skillCandidate) (reconciliationWriteStats, error) {
+			return reconciliationWriteStats{Writes: 1}, nil
 		},
 	})
 	if err == nil {
@@ -36,6 +76,9 @@ func TestReconciliationPipelineFactWriteFailureDoesNotBlockSkillWatermark(t *tes
 	if len(result.Errors) != 1 || result.Errors[0].Line != reflectLineFact {
 		t.Fatalf("expected fact line error, got %#v", result.Errors)
 	}
+	if !result.FactStats.Failed || result.SkillStats.Failed || result.SkillStats.Writes != 1 {
+		t.Fatalf("line stats did not preserve isolated outcomes: fact=%#v skill=%#v", result.FactStats, result.SkillStats)
+	}
 }
 
 func TestReconciliationPipelineNoCandidatesAdvancesWatermarkWithoutReconcile(t *testing.T) {
@@ -49,13 +92,13 @@ func TestReconciliationPipelineNoCandidatesAdvancesWatermarkWithoutReconcile(t *
 		SkillLine: func(_ context.Context, _ ReviewUnit) ([]skillCandidate, error) {
 			return nil, nil
 		},
-		FactReconciler: func(_ context.Context, _ reviewTarget, _ ReviewUnit, _ []factCandidate) error {
+		FactReconciler: func(_ context.Context, _ reviewTarget, _ ReviewUnit, _ []factCandidate) (reconciliationWriteStats, error) {
 			factReconcilerCalled = true
-			return nil
+			return reconciliationWriteStats{}, nil
 		},
-		SkillReconciler: func(_ context.Context, _ reviewTarget, _ ReviewUnit, _ []skillCandidate) error {
+		SkillReconciler: func(_ context.Context, _ reviewTarget, _ ReviewUnit, _ []skillCandidate) (reconciliationWriteStats, error) {
 			t.Fatal("skill reconciler should not run without candidates")
-			return nil
+			return reconciliationWriteStats{}, nil
 		},
 	})
 	if err != nil {

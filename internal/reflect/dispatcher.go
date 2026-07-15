@@ -30,6 +30,26 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 	if cfg.Providers == nil {
 		return nil, fmt.Errorf("reflect: Providers builder is required")
 	}
+	if err := cfg.RuntimeMode.validate(); err != nil {
+		return nil, fmt.Errorf("reflect: %w", err)
+	}
+	if cfg.RuntimeMode.withDefault() == RuntimeModeStructured {
+		if _, ok := cfg.Memory.(memory.FactStore); !ok {
+			return nil, fmt.Errorf("reflect: Memory provider must support fact reads for structured mode")
+		}
+		if _, ok := memory.Unwrap(cfg.Memory).(factBatchWriter); !ok {
+			return nil, fmt.Errorf("reflect: Memory provider must support fact batch writes for structured mode")
+		}
+		if _, ok := cfg.SkillStore.(skillRelatedBundleStore); !ok {
+			return nil, fmt.Errorf("reflect: SkillStore must support related bundle reads for structured mode")
+		}
+		if _, ok := cfg.SkillStore.(reflectSkillWriter); !ok {
+			return nil, fmt.Errorf("reflect: SkillStore must support reflect writes for structured mode")
+		}
+		if cfg.SkillAuthorizer == nil {
+			return nil, fmt.Errorf("reflect: SkillAuthorizer is required for structured mode")
+		}
+	}
 	if cfg.UsageCuratorSettings.withDefaults().Mode == UsageCuratorModeArmed {
 		if cfg.UsageCuratorStore == nil {
 			return nil, fmt.Errorf("reflect: UsageCuratorStore is required for armed usage curator")
@@ -41,6 +61,9 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 		}
 		if _, ok := cfg.SkillStore.(usageCuratorSkillWriter); !ok {
 			return nil, fmt.Errorf("reflect: SkillStore must support reflect skill deprecate for armed usage curator")
+		}
+		if cfg.SkillAuthorizer == nil {
+			return nil, fmt.Errorf("reflect: SkillAuthorizer is required for armed usage curator")
 		}
 	}
 	if cfg.Log == nil {

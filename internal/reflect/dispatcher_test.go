@@ -86,6 +86,34 @@ func (stubUsageCuratorSkillStore) DeprecateReflectOwnedUserAgentSkill(context.Co
 	return skills.Skill{}, nil
 }
 
+type stubStructuredMemory struct {
+	stubMemory
+	memory.FactStore
+	factBatchWriter
+}
+
+type stubStructuredSkillStore struct {
+	stubPluginSkillStore
+}
+
+func (stubStructuredSkillStore) ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]pkgplugins.Skill, error) {
+	return nil, nil
+}
+
+func (stubStructuredSkillStore) CreateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillCreate) (skills.Skill, error) {
+	return skills.Skill{}, nil
+}
+
+func (stubStructuredSkillStore) PatchReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillPatch) (skills.Skill, error) {
+	return skills.Skill{}, nil
+}
+
+type dispatcherSkillAuthorizer struct{}
+
+func (dispatcherSkillAuthorizer) AuthorizeWorkerWrite(context.Context, string, string, string, bool) error {
+	return nil
+}
+
 func validConfig(store Store) Config {
 	return Config{
 		Memory:     stubMemory{},
@@ -118,6 +146,29 @@ func TestNewBuiltinHandlerRejectsMissingDeps(t *testing.T) {
 	}
 }
 
+func TestNewBuiltinHandlerRejectsInvalidRuntimeMode(t *testing.T) {
+	cfg := validConfig(&fakeReflectStore{})
+	cfg.RuntimeMode = RuntimeMode("both")
+	if _, err := NewBuiltinHandler(cfg); err == nil {
+		t.Fatal("expected invalid runtime mode to fail")
+	}
+}
+
+func TestNewBuiltinHandlerValidatesStructuredDependencies(t *testing.T) {
+	cfg := validConfig(&fakeReflectStore{})
+	cfg.RuntimeMode = RuntimeModeStructured
+	if _, err := NewBuiltinHandler(cfg); err == nil {
+		t.Fatal("expected structured mode without write dependencies to fail")
+	}
+
+	cfg.Memory = stubStructuredMemory{stubMemory: stubMemory{}}
+	cfg.SkillStore = stubStructuredSkillStore{}
+	cfg.SkillAuthorizer = dispatcherSkillAuthorizer{}
+	if _, err := NewBuiltinHandler(cfg); err != nil {
+		t.Fatalf("structured dependencies rejected: %v", err)
+	}
+}
+
 func TestNewBuiltinHandlerRejectsArmedCuratorWithoutStore(t *testing.T) {
 	cfg := validConfig(&fakeReflectStore{})
 	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeArmed}
@@ -147,5 +198,17 @@ func TestNewBuiltinHandlerRejectsArmedCuratorWithoutSkillWriter(t *testing.T) {
 
 	if _, err := NewBuiltinHandler(cfg); err == nil {
 		t.Fatal("expected error for armed usage curator without skill writer")
+	}
+}
+
+func TestNewBuiltinHandlerRejectsArmedCuratorWithoutSkillAuthorizer(t *testing.T) {
+	cfg := validConfig(&fakeReflectStore{})
+	cfg.Memory = &fakeUsageCuratorMemoryProvider{}
+	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeArmed}
+	cfg.UsageCuratorStore = fakeUsageCuratorStore{}
+	cfg.SkillStore = stubUsageCuratorSkillStore{}
+
+	if _, err := NewBuiltinHandler(cfg); err == nil {
+		t.Fatal("expected error for armed usage curator without skill authorizer")
 	}
 }

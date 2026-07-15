@@ -33,6 +33,7 @@ const (
 	recordToolIOEnv = "OTEL_STELLA_RECORD_TOOL_IO"
 
 	reflectIntervalEnv    = "STELLA_REFLECT_INTERVAL"
+	reflectModeEnv        = "STELLA_REFLECT_MODE"
 	reflectCuratorModeEnv = "STELLA_REFLECT_CURATOR_MODE"
 
 	oidcProviderNameEnv = "OIDC_PROVIDER_NAME"
@@ -140,6 +141,7 @@ type BlobS3Config struct {
 // mode parsing (fail-fast enum).
 type ReflectConfig struct {
 	Interval    string
+	Mode        string
 	CuratorMode string
 }
 
@@ -269,6 +271,7 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 	}
 	cfg.Reflect = ReflectConfig{
 		Interval:    get(reflectIntervalEnv),
+		Mode:        get(reflectModeEnv),
 		CuratorMode: get(reflectCuratorModeEnv),
 	}
 	cfg.Diagnostics.PprofAddr = get(pprofAddrEnv)

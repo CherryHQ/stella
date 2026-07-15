@@ -2,6 +2,7 @@ package reflect
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -91,12 +92,12 @@ func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session
 		return reviewTarget{}, false
 	}
 
-	wm, err := s.wm.get(ctx, info.ID)
+	wm, pending, err := s.reviewProgress(ctx, info.ID, info.LastActive)
 	if err != nil {
 		s.log.Warn("reflect: watermark lookup failed, skipping session", "session", info.ID, "error", err)
 		return reviewTarget{}, false
 	}
-	if !info.LastActive.After(wm) {
+	if !pending {
 		return reviewTarget{}, false
 	}
 
@@ -118,12 +119,12 @@ func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo)
 		return reviewTarget{}, false
 	}
 
-	wm, err := s.wm.get(ctx, sess.ID)
+	wm, pending, err := s.reviewProgress(ctx, sess.ID, sess.LastActive)
 	if err != nil {
 		s.log.Warn("reflect: watermark lookup failed, skipping session", "session", sess.ID, "error", err)
 		return reviewTarget{}, false
 	}
-	if !sess.LastActive.After(wm) {
+	if !pending {
 		return reviewTarget{}, false
 	}
 
@@ -143,6 +144,24 @@ func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo)
 		lastReview:      wm,
 		privateOneToOne: true,
 	}, true
+}
+
+func (s *Service) reviewProgress(ctx context.Context, sessionID string, lastActive time.Time) (time.Time, bool, error) {
+	if s.runtimeMode != RuntimeModeStructured {
+		mark, err := s.wm.getLegacy(ctx, sessionID)
+		return mark, lastActive.After(mark), err
+	}
+
+	fact, err := s.wm.getLine(ctx, sessionID, reflectLineFact)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("get fact watermark: %w", err)
+	}
+	skill, err := s.wm.getLine(ctx, sessionID, reflectLineSkill)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("get skill watermark: %w", err)
+	}
+	oldest := olderWatermarkTime(fact.At, skill.At)
+	return oldest, lastActive.After(fact.At) || lastActive.After(skill.At), nil
 }
 
 func sortReviewTargets(targets []reviewTarget) {

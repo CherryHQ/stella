@@ -21,6 +21,33 @@ func TestResolveUsageCuratorSettingsDefaultShadow(t *testing.T) {
 	}
 }
 
+func TestResolveReflectMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    reflect.RuntimeMode
+		wantErr bool
+	}{
+		{name: "empty defaults to legacy", want: reflect.RuntimeModeLegacy},
+		{name: "whitespace defaults to legacy", raw: "   ", want: reflect.RuntimeModeLegacy},
+		{name: "legacy", raw: "legacy", want: reflect.RuntimeModeLegacy},
+		{name: "structured case insensitive", raw: " Structured ", want: reflect.RuntimeModeStructured},
+		{name: "invalid", raw: "both", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveReflectMode(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("resolveReflectMode(%q) error = %v, wantErr %t", tt.raw, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Fatalf("resolveReflectMode(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveUsageCuratorSettingsArmed(t *testing.T) {
 	settings, err := resolveUsageCuratorSettings("armed")
 	if err != nil {

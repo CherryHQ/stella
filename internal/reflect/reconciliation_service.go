@@ -7,16 +7,16 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
-func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarget, _ ReviewUnit, candidates []factCandidate, runner candidateLineReviewer) error {
+func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarget, _ ReviewUnit, candidates []factCandidate, runner candidateLineReviewer) (reconciliationWriteStats, error) {
 	facts, ok := s.memory.(memory.FactStore)
 	if !ok {
-		return fmt.Errorf("fact reconciliation: memory provider does not support fact reads")
+		return reconciliationWriteStats{}, fmt.Errorf("fact reconciliation: memory provider does not support fact reads")
 	}
 	// Tracing wrappers expose read interfaces but batch writes live on the
 	// underlying memory provider.
 	writer, ok := memory.Unwrap(s.memory).(factBatchWriter)
 	if !ok {
-		return fmt.Errorf("fact reconciliation: memory provider does not support fact batch writes")
+		return reconciliationWriteStats{}, fmt.Errorf("fact reconciliation: memory provider does not support fact batch writes")
 	}
 	var constraints memory.ConstraintStore
 	if store, ok := s.memory.(memory.ConstraintStore); ok {
@@ -27,53 +27,80 @@ func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarg
 	agentID := target.session.AgentID
 	bundle, err := buildFactRelatedBundle(ctx, facts, constraints, userID, agentID, candidates)
 	if err != nil {
-		return err
+		return reconciliationWriteStats{}, err
 	}
 	selections, err := runner.discoverKnowledgeRelations(ctx, bundle.Knowledge)
 	if err != nil {
-		return err
+		return reconciliationWriteStats{}, err
 	}
 	knowledge, err := attachKnowledgeRelatedRecords(bundle.Knowledge, selections)
 	if err != nil {
-		return err
+		return reconciliationWriteStats{}, err
 	}
 	bundle.Knowledge = knowledge
 	plan, err := runner.reconcileFacts(ctx, bundle)
 	if err != nil {
-		return err
+		return reconciliationWriteStats{}, err
 	}
+	writes := len(factBatchOperationsFromPlan(plan))
 	_, err = executeFactReconciliationPlan(ctx, writer, userID, agentID, bundle, plan)
-	return err
+	return reconciliationWriteStats{Writes: writes, Noops: factReconciliationNoopCount(bundle, plan)}, err
 }
 
-func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTarget, _ ReviewUnit, candidates []skillCandidate, runner candidateLineReviewer) error {
+func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTarget, _ ReviewUnit, candidates []skillCandidate, runner candidateLineReviewer) (reconciliationWriteStats, error) {
 	bundleStore, ok := s.skillStore.(skillRelatedBundleStore)
 	if !ok {
-		return fmt.Errorf("skill reconciliation: skill store does not support related bundle reads")
+		return reconciliationWriteStats{}, fmt.Errorf("skill reconciliation: skill store does not support related bundle reads")
 	}
 	writer, ok := s.skillStore.(reflectSkillWriter)
 	if !ok {
-		return fmt.Errorf("skill reconciliation: skill store does not support reflect writes")
+		return reconciliationWriteStats{}, fmt.Errorf("skill reconciliation: skill store does not support reflect writes")
 	}
 
 	userID := target.session.UserID
 	agentID := target.session.AgentID
 	catalog, err := buildSkillRelatedCatalog(ctx, bundleStore, userID, agentID)
 	if err != nil {
-		return err
+		return reconciliationWriteStats{}, err
 	}
 	selections, err := runner.discoverSkillRelations(ctx, candidates, catalog)
 	if err != nil {
-		return err
+		return reconciliationWriteStats{}, err
 	}
 	bundle, err := buildSkillRelatedBundle(ctx, bundleStore, userID, agentID, candidates, selections)
 	if err != nil {
-		return err
+		return reconciliationWriteStats{}, err
 	}
 	plan, err := runner.reconcileSkills(ctx, bundle)
 	if err != nil {
-		return err
+		return reconciliationWriteStats{}, err
 	}
-	_, err = executeSkillReconciliationPlan(ctx, writer, s.skillAuthorizer, userID, agentID, bundle, plan)
-	return err
+	written, err := executeSkillReconciliationPlan(ctx, writer, s.skillAuthorizer, userID, agentID, bundle, plan)
+	return reconciliationWriteStats{Writes: len(written), Noops: skillReconciliationNoopCount(plan)}, err
+}
+
+func factReconciliationNoopCount(bundle factRelatedBundle, plan factReconciliationPlan) int {
+	count := 0
+	if len(bundle.Profile.Candidates) > 0 && plan.Profile.Operation == singletonOperationNoop {
+		count++
+	}
+	if len(bundle.Soul.Candidates) > 0 && plan.Soul.Operation == singletonOperationNoop {
+		count++
+	}
+	for _, op := range plan.Knowledge.Operations {
+		if op.Operation == knowledgeOperationNoop {
+			count++
+		}
+	}
+	return count
+}
+
+func skillReconciliationNoopCount(plan skillReconciliationPlan) int {
+	count := 0
+	for _, op := range plan.Operations {
+		if op.Operation == skillOperationNoop {
+			count++
+		}
+	}
+	return count
 }

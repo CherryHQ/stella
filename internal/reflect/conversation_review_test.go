@@ -2,6 +2,7 @@ package reflect
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -88,8 +89,8 @@ func TestReviewConversationSkipsGroupTarget(t *testing.T) {
 
 func TestReviewConversationCandidatesEntryPointUsesCandidateRunners(t *testing.T) {
 	svc, target, wm, freshAt := newCandidatePipelineTestService(t)
-	stream := sequentialCaptureStream(t,
-		[]ai.ToolCall{
+	stream := captureCandidateStreamBySystem(map[string][]ai.ToolCall{
+		"fact candidate generator": {
 			rawToolCall("submit_fact_generation", `{"candidates":[{
 				"subject":"world",
 				"content":"Candidate reflect uses generated candidates before reconciliation.",
@@ -98,14 +99,14 @@ func TestReviewConversationCandidatesEntryPointUsesCandidateRunners(t *testing.T
 				"handoff_hints":{"knowledge_search_query_hint":"candidate reflect reconciliation boundary"}
 			}]}`),
 		},
-		[]ai.ToolCall{
+		"fact candidate evaluator": {
 			rawToolCall("submit_fact_evaluations", `{"evaluations":[{
 				"candidate_ref":"fact-0001",
 				"scores":{"evidence_strength":4,"subject_fit":4,"durability":4,"future_utility":4,"atomicity":4},
 				"rationale":"clear"
 			}]}`),
 		},
-		[]ai.ToolCall{
+		"skill candidate generator": {
 			rawToolCall("submit_skill_generation", `{"candidates":[{
 				"learning":{"summary":"Keep candidate generation separate from writes.","reusable_delta":"This avoids replacing old reflect before reconciliation exists."},
 				"evidence":[{"signal_type":"explicit_instruction","source":"[user] complete #532 before replacing old reflect","reason":"The instruction affects reflect implementation workflow."}],
@@ -114,14 +115,14 @@ func TestReviewConversationCandidatesEntryPointUsesCandidateRunners(t *testing.T
 				"handoff_hints":{"search_query_hint":"reflect candidate generation write boundary"}
 			}]}`),
 		},
-		[]ai.ToolCall{
+		"skill candidate evaluator": {
 			rawToolCall("submit_skill_evaluations", `{"evaluations":[{
 				"candidate_ref":"skill-0001",
 				"scores":{"evidence_strength":4,"reusable_value":4,"baseline_separation":4,"procedure_actionability":4,"applicability_clarity":3,"verification_quality":3},
 				"rationale":"clear"
 			}]}`),
 		},
-	)
+	})
 	svc.providers = func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 		return stream, nil
 	}
@@ -133,11 +134,35 @@ func TestReviewConversationCandidatesEntryPointUsesCandidateRunners(t *testing.T
 	if len(result.FactAccepted) != 1 || len(result.SkillAccepted) != 1 {
 		t.Fatalf("expected accepted fact and skill candidates, got %#v", result)
 	}
+	if result.FactStats.LLMCalls != 2 || result.FactStats.Candidates != 1 || result.FactStats.Accepted != 1 {
+		t.Fatalf("fact instrumentation = %#v, want two calls and one accepted candidate", result.FactStats)
+	}
+	if result.SkillStats.LLMCalls != 2 || result.SkillStats.Candidates != 1 || result.SkillStats.Accepted != 1 {
+		t.Fatalf("skill instrumentation = %#v, want two calls and one accepted candidate", result.SkillStats)
+	}
 	if !wm.lineMark(target.session.ID, reflectLineFact).Equal(freshAt) {
 		t.Fatal("fact watermark should advance after candidate review")
 	}
 	if !wm.lineMark(target.session.ID, reflectLineSkill).Equal(freshAt) {
 		t.Fatal("skill watermark should advance after candidate review")
+	}
+}
+
+func captureCandidateStreamBySystem(callsBySystem map[string][]ai.ToolCall) providers.StreamFunc {
+	return func(_ context.Context, _ ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		for marker, calls := range callsBySystem {
+			if !strings.Contains(aiCtx.System, marker) {
+				continue
+			}
+			stream := providers.NewChannelEventStream(16)
+			for _, call := range calls {
+				stream.Emit(ai.EventToolCallDelta{ID: call.ID, Name: call.Name, Arguments: call.Arguments["raw"].(string)})
+			}
+			stream.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			stream.Finish(nil)
+			return stream, nil
+		}
+		return nil, fmt.Errorf("unexpected candidate system prompt %q", aiCtx.System)
 	}
 }
 

@@ -40,6 +40,22 @@ func (f *fakeWatermarks) get(_ context.Context, sessionID string) (time.Time, er
 	return f.marks[sessionID], nil
 }
 
+func (f *fakeWatermarks) getLegacy(_ context.Context, sessionID string) (time.Time, error) {
+	legacy := f.marks[sessionID]
+	factKey := fakeLineWatermarkKey(sessionID, reflectLineFact)
+	skillKey := fakeLineWatermarkKey(sessionID, reflectLineSkill)
+	fact, factOK := f.lineMarks[factKey]
+	skill, skillOK := f.lineMarks[skillKey]
+	if !factOK || !skillOK {
+		return legacy, nil
+	}
+	if structured := olderWatermarkTime(fact, skill); structured.After(legacy) {
+		f.marks[sessionID] = structured
+		return structured, nil
+	}
+	return legacy, nil
+}
+
 func (f *fakeWatermarks) set(_ context.Context, sessionID string, at time.Time) error {
 	f.marks[sessionID] = at
 	return nil
@@ -49,10 +65,20 @@ func (f *fakeWatermarks) getLine(_ context.Context, sessionID string, line refle
 	key := fakeLineWatermarkKey(sessionID, line)
 	mark := reviewWatermark{Seq: f.lineSeqs[key]}
 	if at, ok := f.lineMarks[key]; ok {
-		mark.At = at
+		legacy := f.marks[sessionID]
+		if legacy.After(at) {
+			f.setLineMark(sessionID, line, legacy)
+			delete(f.lineSeqs, key)
+			mark = reviewWatermark{At: legacy}
+		} else {
+			mark.At = at
+		}
 		return mark, nil
 	}
 	mark.At = f.marks[sessionID]
+	if !mark.At.IsZero() {
+		f.setLineMark(sessionID, line, mark.At)
+	}
 	return mark, nil
 }
 
@@ -268,6 +294,69 @@ func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 	}
 }
 
+func TestListUnreviewed_StructuredUsesOldestIncompleteLine(t *testing.T) {
+	fake := memorytest.New()
+	wm := newFakeWatermarks()
+	svc := &Service{memory: fake, wm: wm, runtimeMode: RuntimeModeStructured, log: testLogger()}
+
+	lastActive := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	seedFakeSession(t, fake, "s1", "a", "1", lastActive)
+	wm.setLineMark("s1", reflectLineFact, lastActive)
+	wm.setLineMark("s1", reflectLineSkill, lastActive.Add(-time.Hour))
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("targets = %d, want one while skill line is behind", len(targets))
+	}
+	if !targets[0].lastReview.Equal(lastActive.Add(-time.Hour)) {
+		t.Fatalf("lastReview = %v, want lagging skill boundary", targets[0].lastReview)
+	}
+}
+
+func TestReviewProgressModeTransitionsAreMonotonic(t *testing.T) {
+	ctx := context.Background()
+	wm := newFakeWatermarks()
+	legacy := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
+	wm.marks["s1"] = legacy
+	svc := &Service{wm: wm, runtimeMode: RuntimeModeStructured}
+
+	// Entering structured mode floors both lines to the existing legacy mark.
+	mark, pending, err := svc.reviewProgress(ctx, "s1", legacy.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pending || !mark.Equal(legacy) {
+		t.Fatalf("structured progress = (%v, %t), want (%v, true)", mark, pending, legacy)
+	}
+	if !wm.lineMark("s1", reflectLineFact).Equal(legacy) || !wm.lineMark("s1", reflectLineSkill).Equal(legacy) {
+		t.Fatalf("structured lines were not initialized from legacy: fact=%v skill=%v", wm.lineMark("s1", reflectLineFact), wm.lineMark("s1", reflectLineSkill))
+	}
+
+	wm.setLineMark("s1", reflectLineFact, legacy.Add(2*time.Hour))
+	wm.setLineMark("s1", reflectLineSkill, legacy.Add(time.Hour))
+	svc.runtimeMode = RuntimeModeLegacy
+	mark, _, err = svc.reviewProgress(ctx, "s1", legacy.Add(3*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mark.Equal(legacy.Add(time.Hour)) {
+		t.Fatalf("legacy resumed at %v, want lagging structured line", mark)
+	}
+
+	// A later structured resume must not rewind either line to the older global.
+	svc.runtimeMode = RuntimeModeStructured
+	mark, _, err = svc.reviewProgress(ctx, "s1", legacy.Add(3*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mark.Equal(legacy.Add(time.Hour)) {
+		t.Fatalf("structured resumed at %v, want existing lagging line", mark)
+	}
+}
+
 func TestListUnreviewed_OldestFirst(t *testing.T) {
 	fake := memorytest.New()
 	wm := newFakeWatermarks()
@@ -396,6 +485,74 @@ func TestReviewAgentCursorRotatesAgentOrder(t *testing.T) {
 
 type softBudgetReflectStore struct {
 	agents []config.Agent
+}
+
+type expirySpySkillStore struct {
+	stubPluginSkillStore
+	calls int
+}
+
+func (s *expirySpySkillStore) ExpireDrafts(context.Context, time.Time) error {
+	s.calls++
+	return nil
+}
+
+func TestSelectReviewTargetFuncChoosesExactlyOneWriter(t *testing.T) {
+	for _, tt := range []struct {
+		mode RuntimeMode
+		want string
+	}{
+		{mode: RuntimeModeLegacy, want: "legacy"},
+		{mode: RuntimeModeStructured, want: "structured"},
+	} {
+		t.Run(string(tt.mode), func(t *testing.T) {
+			called := ""
+			legacy := func(context.Context, *config.Snapshot, reviewTarget) error {
+				called = "legacy"
+				return nil
+			}
+			structured := func(context.Context, *config.Snapshot, reviewTarget) error {
+				called = "structured"
+				return nil
+			}
+			selected, err := selectReviewTargetFunc(tt.mode, legacy, structured)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := selected(context.Background(), nil, reviewTarget{}); err != nil {
+				t.Fatal(err)
+			}
+			if called != tt.want {
+				t.Fatalf("selected writer = %q, want %q", called, tt.want)
+			}
+		})
+	}
+}
+
+func TestRunCycleRunsExpireDraftsOnlyInLegacyMode(t *testing.T) {
+	for _, tt := range []struct {
+		mode      RuntimeMode
+		wantCalls int
+	}{
+		{mode: RuntimeModeLegacy, wantCalls: 1},
+		{mode: RuntimeModeStructured, wantCalls: 0},
+	} {
+		t.Run(string(tt.mode), func(t *testing.T) {
+			skills := &expirySpySkillStore{}
+			svc := &Service{
+				store:       softBudgetReflectStore{},
+				skillStore:  skills,
+				runtimeMode: tt.mode,
+				log:         testLogger(),
+			}
+			if err := svc.runCycleWithReviewer(context.Background(), func(context.Context, *config.Snapshot, reviewTarget) error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if skills.calls != tt.wantCalls {
+				t.Fatalf("ExpireDrafts calls = %d, want %d", skills.calls, tt.wantCalls)
+			}
+		})
+	}
 }
 
 func (s softBudgetReflectStore) ListEnabledAgents(context.Context) ([]config.Agent, error) {
