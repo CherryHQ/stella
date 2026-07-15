@@ -58,10 +58,9 @@ func (s *Server) SaveGoalAsWorkflow(w http.ResponseWriter, r *http.Request, id s
 	if !ok {
 		return
 	}
-	// One evaluation owns the whole decision: the workflow PEP folds the source
-	// goal's read (through the Goal-owned AuthorizeWithin port) and the target
-	// workflow create + agent execute into a single revision. The goal's persisted
-	// agent binds the workflow — the request never supplies it.
+	// Workflow owns the whole decision: it asks Goal to read the durable source
+	// and Agent to execute the durable target under the same trusted Authority.
+	// The goal's persisted agent binds the workflow — the request never supplies it.
 	acc, ok := s.workflowAccess(w, r, info)
 	if !ok {
 		return
@@ -180,8 +179,8 @@ func (s *Server) InstantiateWorkflow(w http.ResponseWriter, r *http.Request, id 
 	if body.Inputs != nil {
 		inputs = *body.Inputs
 	}
-	// The PEP loads the workflow, authorizes both the workflow (execute) and its
-	// persisted bound agent (execute) under one revision, then claims the run.
+	// The workflow access service loads the workflow, authorizes both the workflow
+	// and its persisted bound agent in one decision, then claims the run.
 	run, created, err := acc.Instantiate(r.Context(), id, inputs, key)
 	if err != nil {
 		workflowError(w, err)

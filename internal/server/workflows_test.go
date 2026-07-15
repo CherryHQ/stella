@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/server"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
@@ -20,7 +19,7 @@ func setupWorkflowEnv(t *testing.T) *testEnv {
 	t.Helper()
 	env := setupAdmin(t)
 	env.rebuild(t, func(d *server.Deps) {
-		d.Workflow = workflowpkg.New(env.db, nil, policy.New(env.db), d.AgentAccess)
+		d.Workflow = workflowpkg.New(env.db, nil, d.AgentAccess)
 	})
 	return env
 }

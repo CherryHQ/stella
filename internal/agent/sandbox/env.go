@@ -251,6 +251,10 @@ func recordSessionSecretValues(target *SessionSecretValues, env map[string]strin
 func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, vaultEnv map[string]string, secretEnv map[string]string) error {
 	// oauthBundles caches loaded bundles per provider to avoid redundant vault hits.
 	oauthBundles := make(map[string]*oauth.OAuthBundle)
+	// oauthBoundVars records the env vars actually injected from OAuth so a later
+	// live refresh rotates exactly those and never an explicit vault override.
+	var oauthBoundVars []string
+	defer func() { cfg.OAuthEnvBindings.Set(oauthBoundVars) }()
 	for _, spec := range cfg.SessionEnvSpecs {
 		src := string(spec.Source)
 		if spec.Source == pkgplugins.SessionEnvSourceStatic {
@@ -283,7 +287,7 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 		bundle, ok := oauthBundles[providerID]
 		if !ok {
 			var err error
-			bundle, err = cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID)
+			bundle, err = cfg.TokenManager.GetOAuthToken(ctx, providerID, cfg.UserID, oauthMinValidity(cfg))
 			if err != nil {
 				slog.Debug("session env injection skipped",
 					"component", "runner_sandbox",
@@ -312,17 +316,8 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 			continue
 		}
 		field := strings.TrimPrefix(src, "oauth.")
-		var value string
-		switch field {
-		case "access_token":
-			value = bundle.AccessToken
-		case "client_id":
-			value = bundle.ClientID
-		case "brand":
-			value = bundle.Brand
-		case "refresh_token":
-			value = bundle.RefreshToken
-		default:
+		value, known := oauthBundleField(bundle, field)
+		if !known {
 			if spec.Required {
 				return fmt.Errorf("required session env %q (source %q) for plugin %q: unknown oauth field %q", spec.EnvVar, spec.Source, spec.PluginID, field)
 			}
@@ -330,6 +325,7 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 		}
 		if value != "" {
 			env[spec.EnvVar] = value
+			oauthBoundVars = append(oauthBoundVars, spec.EnvVar)
 			if oauthSessionEnvFieldSecret(field) {
 				secretEnv[spec.EnvVar] = value
 			}
@@ -338,6 +334,25 @@ func injectSessionEnv(ctx context.Context, cfg Config, env map[string]string, va
 		}
 	}
 	return nil
+}
+
+// oauthBundleField maps an oauth.<field> source suffix to the corresponding
+// value on a resolved bundle; known is false for an unrecognized field. It is
+// the single mapping shared by initial env injection (injectSessionEnv) and live
+// refresh (RefreshSessionEnv) so the two never drift (#722).
+func oauthBundleField(bundle *oauth.OAuthBundle, field string) (value string, known bool) {
+	switch field {
+	case "access_token":
+		return bundle.AccessToken, true
+	case "client_id":
+		return bundle.ClientID, true
+	case "brand":
+		return bundle.Brand, true
+	case "refresh_token":
+		return bundle.RefreshToken, true
+	default:
+		return "", false
+	}
 }
 
 func oauthSessionEnvFieldSecret(field string) bool {

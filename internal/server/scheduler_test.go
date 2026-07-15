@@ -8,7 +8,6 @@ import (
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
@@ -22,9 +21,8 @@ import (
 // the folded-in agent-read decision runs the same way it does in production.
 func newTestScheduler(t *testing.T, db *pgxpool.Pool) *scheduler.Service {
 	t.Helper()
-	az := policy.New(db)
-	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db), az)
-	svc, err := scheduler.New(db, scheduler.WithAuthorization(az, agents))
+	agents := agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))
+	svc, err := scheduler.New(db, scheduler.WithAgentAccess(agents))
 	if err != nil {
 		t.Fatalf("scheduler.New: %v", err)
 	}

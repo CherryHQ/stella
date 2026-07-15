@@ -86,11 +86,7 @@ func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {
 		ILinkBotID:  "bot-1",
 		ILinkUserID: "user-1",
 	}
-	roles, err := authz.NewRoleSet(authz.RoleAdmin)
-	if err != nil {
-		t.Fatal(err)
-	}
-	authority, err := authz.NewUserAuthority("admin", roles, authz.GrantSet{})
+	authority, err := authz.NewUserAuthority("admin", true)
 	if err != nil {
 		t.Fatal(err)
 	}

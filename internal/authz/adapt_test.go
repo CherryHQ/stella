@@ -15,8 +15,8 @@ func TestIdentityToAuthority(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ToAuthority: %v", err)
 		}
-		if a.Kind() != authz.ActorAgent || a.Actor().UserID() != "u1" || a.Actor().AgentID() != "a1" {
-			t.Fatalf("bad agent authority: %+v", a.Actor())
+		if a.Kind() != authz.ActorAgent || a.UserID() != "u1" || a.AgentID() != "a1" {
+			t.Fatalf("bad agent authority: %+v", a)
 		}
 	})
 
@@ -25,8 +25,8 @@ func TestIdentityToAuthority(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ToAuthority: %v", err)
 		}
-		if a.Kind() != authz.ActorUser || a.Actor().UserID() != "u1" {
-			t.Fatalf("bad user authority: %+v", a.Actor())
+		if a.Kind() != authz.ActorUser || a.UserID() != "u1" {
+			t.Fatalf("bad user authority: %+v", a)
 		}
 	})
 
@@ -50,7 +50,7 @@ func TestIdentityToAuthority(t *testing.T) {
 			t.Fatalf("scoped agentless err = %v, want ErrForbidden", err)
 		}
 		if got.Valid() || got.Kind() == authz.ActorUser {
-			t.Fatalf("scoped agentless must not widen to a UserActor: %+v", got.Actor())
+			t.Fatalf("scoped agentless must not widen to a UserActor: %+v", got)
 		}
 	})
 }

@@ -61,7 +61,7 @@ type Config struct {
 	Memory     memory.Provider
 	Store      Store
 	SkillStore pkgplugins.SkillStore
-	// SkillAuthorizer is the ResourceSkill PEP for reflect's staged writes (the
+	// SkillAuthorizer applies Skill domain rules to reflect's staged writes (the
 	// reconciliation-plan/usage-curator path); when nil those fail closed.
 	// SkillReadAuthorizer gates the reviewer tool's DB-skill reads and
 	// SkillToolWriteAuthorizer gates its prompt-driven create/patch/deprecate.

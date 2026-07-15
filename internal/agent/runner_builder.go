@@ -219,6 +219,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			VaultEnvLoader:      cfg.VaultEnvLoader,
 			SessionSecretValues: sessionSecretValues,
 			TokenManager:        cfg.TokenManager,
+			OAuthEnvBindings:    sandbox.NewOAuthEnvBindings(),
 		}
 
 		builtinTools := append([]BuiltinTool(nil), cfg.BuiltinTools...)

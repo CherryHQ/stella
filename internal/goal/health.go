@@ -93,7 +93,7 @@ type HealthLatencyBucket struct {
 }
 
 // healthWindow resolves the report's [since, until] window, applying the 14-day
-// default so the policy pre-scan in Access.HealthReport and the aggregation below
+// default so the access pre-scan in Access.HealthReport and the aggregation below
 // observe the exact same lower bound.
 func (s *GoalService) healthWindow(filter HealthFilter) (since, until time.Time) {
 	since = filter.SinceAt
@@ -110,7 +110,7 @@ func (s *GoalService) healthWindow(filter HealthFilter) (since, until time.Time)
 // HealthReport aggregates goal, attempt, and acceptance-event rows for one time
 // window, restricted to goalIDs — the set the caller was authorized to read by the
 // Access PEP. An empty set yields an empty report; the caller (Access.HealthReport)
-// is the only supported entry so per-row policy is always applied first.
+// is the only supported entry so per-row access rules are always applied first.
 func (s *GoalService) HealthReport(ctx context.Context, filter HealthFilter, goalIDs []string) (HealthReport, error) {
 	filter.SinceAt, filter.UntilAt = s.healthWindow(filter)
 

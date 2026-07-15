@@ -7,16 +7,15 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/authz/policy"
 	"github.com/CherryHQ/stella/internal/skills"
 )
 
-// Access is one Skill use case bound to exactly one Authorizer evaluation. Do
-// not retain it across use cases: a fresh Begin re-reads the policy revision so a
-// since-revoked grant stops the next decision.
+// Access captures one validated authority for a Skill use case. Skill owns the
+// direct rules for DB-backed skill rows; every decision reads only immutable
+// authority plus the durable row/scope facts, so there is no revision to
+// re-read between use cases.
 type Access struct {
 	svc       *Service
-	eval      authz.Evaluation
 	authority authz.Authority
 	userID    string
 	// scopeAgentID is the executor confinement: empty for a plain user actor, the
@@ -24,24 +23,19 @@ type Access struct {
 	scopeAgentID string
 }
 
-// Begin opens exactly one evaluation for one Skill use case.
-func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access, error) {
-	if s.authz == nil || s.agents == nil {
-		return nil, fmt.Errorf("%w: authorizer not configured", ErrUnavailable)
+// Begin captures validated authority for one Skill use case.
+func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, error) {
+	if s.agents == nil {
+		return nil, fmt.Errorf("%w: agent access not configured", ErrUnavailable)
 	}
 	if !authority.Valid() {
 		return nil, ErrForbidden
 	}
-	eval, err := s.authz.Begin(ctx, authority)
-	if err != nil {
-		return nil, fmt.Errorf("%w: begin: %w", ErrUnavailable, err)
-	}
-	actor := authority.Actor()
 	agentID := ""
-	if actor.Kind() == authz.ActorAgent {
-		agentID = string(actor.AgentID())
+	if authority.Kind() == authz.ActorAgent {
+		agentID = string(authority.AgentID())
 	}
-	return &Access{svc: s, eval: eval, authority: authority, userID: string(actor.UserID()), scopeAgentID: agentID}, nil
+	return &Access{svc: s, authority: authority, userID: string(authority.UserID()), scopeAgentID: agentID}, nil
 }
 
 // AuthorizeManageScope authorizes managing a whole scope bucket — create,
@@ -49,11 +43,11 @@ func (s *Service) Begin(ctx context.Context, authority authz.Authority) (*Access
 // columns a row of that scope carries. user/user_agent require the acting user to
 // be the owner (always true here); system/system_agent require the admin
 // superuser. When agentID is non-empty the caller's read access to that agent is
-// folded into this same evaluation (the former requireAgentAccess gate).
+// folded in (the former requireAgentAccess gate).
 //
 // The management-list reuses this create-authority decision deliberately: the
 // pre-cutover resolveSkillManageScope was the single gate for both listing and
-// creating a scope, so a custom deny that hides a scope also hides its list.
+// creating a scope, so denying a scope also hides its list.
 func (a *Access) AuthorizeManageScope(ctx context.Context, scope, agentID string) (uid, aid string, err error) {
 	if a.userID == "" {
 		return "", "", ErrForbidden
@@ -66,12 +60,7 @@ func (a *Access) AuthorizeManageScope(ctx context.Context, scope, agentID string
 	if !ok {
 		return "", "", ErrInvalidScope
 	}
-	facts := policy.SkillFacts{Scope: scope, Owner: uid, Agent: aid, IsOwner: uid != "" && uid == a.userID}
-	req, err := policy.SkillRequest(authz.ActionCreate, ownerKey(uid), uid, facts)
-	if err != nil {
-		return "", "", ErrForbidden
-	}
-	if err := a.decide(scope, req); err != nil {
+	if err := a.decide(authz.ActionCreate, scope, uid != "" && uid == a.userID); err != nil {
 		return "", "", err
 	}
 	if agentID != "" {
@@ -103,18 +92,7 @@ func (a *Access) AuthorizeManage(ctx context.Context, sk skills.Skill, action au
 	if adminScope(sk.Scope) {
 		decided = authz.ActionManage
 	}
-	facts := policy.SkillFacts{
-		Scope:   sk.Scope,
-		Owner:   sk.UserID,
-		Agent:   sk.AgentID,
-		Source:  skillSource(sk.Metadata),
-		IsOwner: a.userID != "" && a.userID == sk.UserID,
-	}
-	req, err := policy.SkillRequest(decided, sk.ID, sk.UserID, facts)
-	if err != nil {
-		return ErrForbidden
-	}
-	if err := a.decide(sk.Scope, req); err != nil {
+	if err := a.decide(decided, sk.Scope, a.userID != "" && a.userID == sk.UserID); err != nil {
 		return err
 	}
 	if agentBound(sk.Scope) && sk.AgentID != "" {
@@ -129,31 +107,19 @@ func (a *Access) AuthorizeManage(ctx context.Context, sk skills.Skill, action au
 // list surface (agent skills tool, agent HTTP list/get/file). Unlike
 // AuthorizeManage it uses ActionRead without escalating system scopes to Manage,
 // so a user or delegated agent may read shared system/system_agent procedures
-// (builtin user-read-system-skills / agent-read-system-skills) while a custom
-// deny or a since-revoked agent grant still hides the row. For agent-bound scopes
-// the caller's read access to the skill's agent is folded into this evaluation.
-// A user-scope denial is opaque (ErrNotFound); a system-scope denial is
-// ErrForbidden — the caller decides whether to skip (list) or 404 (single load).
+// while a since-revoked agent grant still hides the row. For agent-bound scopes
+// the caller's read access to the skill's agent is folded in. A user-scope denial
+// is opaque (ErrNotFound); a system-scope denial is ErrForbidden — the caller
+// decides whether to skip (list) or 404 (single load).
 func (a *Access) AuthorizeRead(ctx context.Context, sk skills.Skill) error {
 	// No a.userID != "" guard here: Begin already validated the authority, and a
 	// GroupAgentActor (a group turn) legitimately has no user. Its read visibility
-	// is decided by policy (system/system_agent only) plus the folded agent gate.
-	// A delegated agent never reads another agent's bound skills.
+	// is decided by the direct rule (system/system_agent only) plus the folded
+	// agent gate. A delegated agent never reads another agent's bound skills.
 	if a.scopeAgentID != "" && sk.AgentID != "" && a.scopeAgentID != sk.AgentID {
 		return ErrNotFound
 	}
-	facts := policy.SkillFacts{
-		Scope:   sk.Scope,
-		Owner:   sk.UserID,
-		Agent:   sk.AgentID,
-		Source:  skillSource(sk.Metadata),
-		IsOwner: a.userID != "" && a.userID == sk.UserID,
-	}
-	req, err := policy.SkillRequest(authz.ActionRead, sk.ID, sk.UserID, facts)
-	if err != nil {
-		return ErrForbidden
-	}
-	if err := a.decide(sk.Scope, req); err != nil {
+	if err := a.decide(authz.ActionRead, sk.Scope, a.userID != "" && a.userID == sk.UserID); err != nil {
 		return err
 	}
 	if agentBound(sk.Scope) && sk.AgentID != "" {
@@ -180,10 +146,10 @@ func (a *Access) AuthorizeManageByID(ctx context.Context, id string, action auth
 
 // AuthorizeWorkerWrite authorizes a durable worker's write to a reflect-owned
 // user_agent skill under a freshly reconstructed WorkerAgentAuthority(userID,
-// agentID) — one evaluation per operation. create=true authorizes minting a new
-// row (scope create); otherwise it authorizes writing the existing skillID. It is
-// the single PEP for reflect's staged skill reconciliation and usage curation, so
-// a since-revoked agent grant or a custom deny stops the write.
+// agentID). create=true authorizes minting a new row (scope create); otherwise it
+// authorizes writing the existing skillID. It is the single reauthorization point
+// for reflect's staged skill reconciliation and usage curation, so a since-revoked
+// agent grant stops the write.
 func (s *Service) AuthorizeWorkerWrite(ctx context.Context, userID, agentID, skillID string, create bool) error {
 	authority, err := agentaccess.WorkerAgentAuthority(userID, agentID)
 	if err != nil {
@@ -211,25 +177,17 @@ func (a *Access) AuthorizeList() error {
 	if a.userID == "" {
 		return ErrForbidden
 	}
-	req, err := policy.SkillListRequest()
-	if err != nil {
-		return ErrForbidden
-	}
-	dec, err := a.eval.Decide(req)
-	if err != nil {
-		return fmt.Errorf("%w: decide: %w", ErrUnavailable, err)
-	}
-	if !dec.Allowed() {
+	if !a.allow(authz.ActionList, "", false) {
 		return ErrForbidden
 	}
 	return nil
 }
 
-// AuthorizeAgent folds the route agent's read gate into this evaluation. The
+// AuthorizeAgent folds the route agent's read gate into this use case. The
 // agent-scoped skill endpoints reach a skill through /api/agents/{id}/skills, so
-// the path agent {id} is gated under the same revision as the skill decision, for
-// every scope — including user and system DB skills whose own row is not
-// agent-bound. This replaces the preliminary requireAgentAccess split evaluation.
+// the path agent {id} is gated alongside the skill decision, for every scope —
+// including user and system DB skills whose own row is not agent-bound. This
+// replaces the preliminary requireAgentAccess split evaluation.
 func (a *Access) AuthorizeAgent(ctx context.Context, agentID string) error {
 	return a.authorizeAgent(ctx, agentID)
 }
@@ -249,29 +207,70 @@ func (a *Access) load(ctx context.Context, id string) (skills.Skill, error) {
 	return skills.Skill{}, ErrNotFound
 }
 
-// decide runs one resource decision and maps a denial to the scope's visibility:
-// admin-managed scopes are Forbidden (403), user-owned scopes are opaque (404).
-func (a *Access) decide(scope string, req authz.Request) error {
-	dec, err := a.eval.Decide(req)
-	if err != nil {
-		return fmt.Errorf("%w: decide: %w", ErrUnavailable, err)
+// decide applies Skill's direct rule for one scope/owner and maps a denial to the
+// scope's visibility: admin-managed scopes are Forbidden (403), user-owned scopes
+// are opaque (404).
+func (a *Access) decide(action authz.Action, scope string, isOwner bool) error {
+	if a.allow(action, scope, isOwner) {
+		return nil
 	}
-	if !dec.Allowed() {
-		if adminScope(scope) {
-			return ErrForbidden
-		}
-		return ErrNotFound
+	if adminScope(scope) {
+		return ErrForbidden
 	}
-	return nil
+	return ErrNotFound
 }
 
-// authorizeAgent folds the former requireAgentAccess (agent read) into this
-// evaluation, preserving its 404-not-found / 403-forbidden visibility split.
+// allow is Skill's static rule table. isOwner reports whether the acting user
+// owns the row (derived at the call site from immutable authority plus the
+// durable owner column). scope is empty for the collection-level list.
+func (a *Access) allow(action authz.Action, scope string, isOwner bool) bool {
+	if !action.Valid() {
+		return false
+	}
+	if a.authority.IsAdmin() {
+		return true
+	}
+	switch a.authority.Kind() {
+	case authz.ActorUser, authz.ActorAgent:
+		// A delegated agent shares the delegating user's skill rules; its executor
+		// confinement and folded agent gate are enforced by the callers.
+		return actorSkillAllowed(action, scope, isOwner)
+	case authz.ActorGroupAgent:
+		// A group turn has no user: it reads only the shared, non-personal
+		// system/system_agent reference procedures. Its system_agent read is
+		// confined to the group's own agent by the folded agent gate.
+		return action == authz.ActionRead && adminScope(scope)
+	default:
+		return false
+	}
+}
+
+// actorSkillAllowed is the shared user/delegated-agent rule: list; own
+// user/user_agent read/create/write/delete; read shared system/system_agent.
+// Admin-managed writes are excluded (only the admin superuser holds those).
+func actorSkillAllowed(action authz.Action, scope string, isOwner bool) bool {
+	switch action {
+	case authz.ActionList:
+		return true
+	case authz.ActionRead:
+		if adminScope(scope) {
+			return true
+		}
+		return userScope(scope) && isOwner
+	case authz.ActionCreate, authz.ActionWrite, authz.ActionDelete:
+		return userScope(scope) && isOwner
+	default:
+		return false
+	}
+}
+
+// authorizeAgent asks the Agent domain for read access, preserving its
+// 404-not-found / 403-forbidden visibility split.
 func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
 	if agentID == "" {
 		return ErrNotFound
 	}
-	err := a.svc.agents.AuthorizeWithin(ctx, a.eval, a.authority, agentID, authz.ActionRead)
+	err := a.svc.agents.Authorize(ctx, a.authority, agentID, authz.ActionRead)
 	switch {
 	case err == nil:
 		return nil
@@ -282,14 +281,4 @@ func (a *Access) authorizeAgent(ctx context.Context, agentID string) error {
 	default:
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
-}
-
-// ownerKey is the resource id for a scope-level create decision: the owning user
-// for user scopes, a stable placeholder otherwise. Predicates match on the durable
-// facts (scope/is_owner), not the id.
-func ownerKey(uid string) string {
-	if uid != "" {
-		return uid
-	}
-	return "system"
 }

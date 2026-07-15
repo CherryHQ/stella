@@ -95,8 +95,8 @@ func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
 	return func(pm *PoolManager) { pm.skillStore = s }
 }
 
-// WithSkillReadAuthorizer injects the ResourceSkill read PEP into every runner's
-// skills tool, so DB-backed skill reads (load/search_installed) are authorized.
+// WithSkillReadAuthorizer injects Skill domain read access into every runner's
+// skills tool, so DB-backed reads (load/search_installed) are authorized.
 func WithSkillReadAuthorizer(a skillstool.SkillReadAuthorizer) PoolManagerOption {
 	return func(pm *PoolManager) { pm.skillReadAuthz = a }
 }

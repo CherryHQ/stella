@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -23,26 +24,6 @@ import (
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
-
-type countedAuthorizer struct {
-	begins int
-	denyAt map[int]bool
-}
-
-func (a *countedAuthorizer) Begin(context.Context, authz.Authority) (authz.Evaluation, error) {
-	a.begins++
-	return countedEvaluation{allow: !a.denyAt[a.begins]}, nil
-}
-
-type countedEvaluation struct{ allow bool }
-
-func (e countedEvaluation) Decide(authz.Request) (authz.Decision, error) {
-	if e.allow {
-		return authz.Allow("runtime-test", authz.AuditRecord{}), nil
-	}
-	return authz.Deny(authz.VisibilityHidden, "runtime-test", authz.AuditRecord{}), nil
-}
-func (countedEvaluation) Revision() int64 { return 1 }
 
 type fakeRuntimeManager struct{ svc *fakeRuntimeService }
 
@@ -79,24 +60,21 @@ func (s *fakeRuntimeService) CompactAuthorizedSession(context.Context, agentsess
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-func TestSendStartsOneAccessAndChunksDoNotReevaluate(t *testing.T) {
-	svc, az, rt, authority := newRuntimeTestService(t, nil)
+func TestSendStartsOneTurnAndChunksDoNotReevaluate(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
 	result, err := svc.Send(context.Background(), SendInput{Authority: authority, AgentID: "a1", SessionID: "s1", Message: "hello"})
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	for range result.Events {
 	}
-	if az.begins != 1 {
-		t.Fatalf("Begin calls=%d, want 1", az.begins)
-	}
 	if rt.chatCalls != 1 || rt.subscribeCalls != 0 {
 		t.Fatalf("chat=%d subscribe=%d, want one chat and no subscribe", rt.chatCalls, rt.subscribeCalls)
 	}
 }
 
-func TestAttachOnlySubscribesAndGuardBeginsPerProtectedEvent(t *testing.T) {
-	svc, az, rt, authority := newRuntimeTestService(t, nil)
+func TestAttachOnlySubscribesAndGuardReChecksAccess(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
 	rt.live = true
 	attach, err := svc.Attach(context.Background(), AttachInput{Authority: authority, AgentID: "a1", SessionID: "s1"})
 	if err != nil {
@@ -108,22 +86,18 @@ func TestAttachOnlySubscribesAndGuardBeginsPerProtectedEvent(t *testing.T) {
 	if rt.chatCalls != 0 || rt.subscribeCalls != 1 {
 		t.Fatalf("chat=%d subscribe=%d, want no chat and one subscribe", rt.chatCalls, rt.subscribeCalls)
 	}
-	if az.begins != 1 {
-		t.Fatalf("initial Begin calls=%d, want 1", az.begins)
-	}
+	// Each protected event re-checks durable access; while nothing has changed the
+	// guard keeps passing.
 	if err := attach.BeforeProtectedEvent(context.Background()); err != nil {
 		t.Fatalf("first guard: %v", err)
 	}
 	if err := attach.BeforeProtectedEvent(context.Background()); err != nil {
 		t.Fatalf("second guard: %v", err)
 	}
-	if az.begins != 3 {
-		t.Fatalf("Begin calls=%d, want 3", az.begins)
-	}
 }
 
-func TestAttachIdleDoesNotBeginAgain(t *testing.T) {
-	svc, az, rt, authority := newRuntimeTestService(t, nil)
+func TestAttachIdleSubscribes(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
 	attach, err := svc.Attach(context.Background(), AttachInput{Authority: authority, AgentID: "a1", SessionID: "s1"})
 	if err != nil {
 		t.Fatalf("Attach: %v", err)
@@ -131,51 +105,35 @@ func TestAttachIdleDoesNotBeginAgain(t *testing.T) {
 	if attach.Cancel == nil || rt.events == nil {
 		t.Fatal("Attach did not subscribe")
 	}
-	if got := az.begins; got != 1 {
-		t.Fatalf("Begin calls while idle=%d, want 1", got)
-	}
 }
 
-func TestAttachGuardRevocationDeniesBeforeDelivery(t *testing.T) {
-	svc, az, _, authority := newRuntimeTestService(t, map[int]bool{2: true})
-	attach, err := svc.Attach(context.Background(), AttachInput{Authority: authority, AgentID: "a1", SessionID: "s1"})
-	if err != nil {
-		t.Fatalf("Attach: %v", err)
-	}
-	if err := attach.BeforeProtectedEvent(context.Background()); err == nil {
-		t.Fatal("guard succeeded after revocation, want denial")
-	}
-	if az.begins != 2 {
-		t.Fatalf("Begin calls=%d, want 2", az.begins)
-	}
-}
-
-func TestAttachGuardKeepsInFlightSnapshotThenDeniesNextEvent(t *testing.T) {
-	// Begin #2 represents an event whose evaluation started before revocation;
-	// it may complete on that immutable snapshot. Begin #3 represents the next
-	// protected event and must observe the committed revocation.
-	svc, az, _, authority := newRuntimeTestService(t, map[int]bool{3: true})
+// TestAttachGuardDeniesAfterDurableAgentRevocation proves the guard re-reads
+// durable session access on every protected event: once the session's agent is
+// deleted, the guard denies without any custom policy mutation.
+func TestAttachGuardDeniesAfterDurableAgentRevocation(t *testing.T) {
+	svc, _, store, authority := newRuntimeTestService(t)
 	attach, err := svc.Attach(context.Background(), AttachInput{Authority: authority, AgentID: "a1", SessionID: "s1"})
 	if err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
 	if err := attach.BeforeProtectedEvent(context.Background()); err != nil {
-		t.Fatalf("in-flight event was denied: %v", err)
+		t.Fatalf("guard before revocation: %v", err)
 	}
-	if err := attach.BeforeProtectedEvent(context.Background()); err == nil {
-		t.Fatal("next event succeeded after revocation, want denial")
+	if err := store.DeleteAgent(context.Background(), "a1"); err != nil {
+		t.Fatalf("DeleteAgent: %v", err)
 	}
-	if az.begins != 3 {
-		t.Fatalf("Begin calls=%d, want attach plus two events", az.begins)
+	if err := attach.BeforeProtectedEvent(context.Background()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("guard after revocation = %v, want ErrNotFound", err)
 	}
 }
 
-func newRuntimeTestService(t *testing.T, denyAt map[int]bool) (*Service, *countedAuthorizer, *fakeRuntimeService, authz.Authority) {
+func newRuntimeTestService(t *testing.T) (*Service, *fakeRuntimeService, config.Store, authz.Authority) {
 	t.Helper()
 	ctx := context.Background()
+	owner := uuid.NewString()
 	mem := memorytest.New()
 	now := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
-	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1", Kind: string(agentsession.KindChat), Channel: string(agentsession.ChannelWeb), CreatedAt: now, LastActive: now}); err != nil {
+	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "s1", UserID: owner, AgentID: "a1", Kind: string(agentsession.KindChat), Channel: string(agentsession.ChannelWeb), CreatedAt: now, LastActive: now}); err != nil {
 		t.Fatalf("SaveInfo: %v", err)
 	}
 	db := dbtest.New(t)
@@ -184,7 +142,7 @@ func newRuntimeTestService(t *testing.T, denyAt map[int]bool) (*Service, *counte
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	if _, err := sqlc.New(db).CreateConversation(ctx, sqlc.CreateConversationParams{
-		ID: uuid.NewString(), SessionID: "s1", UserID: pgtype.Text{String: "u1", Valid: true}, AgentID: pgtype.Text{String: "a1", Valid: true}, Channel: string(agentsession.ChannelWeb), Kind: string(agentsession.KindChat), LastActive: now,
+		ID: uuid.NewString(), SessionID: "s1", UserID: pgtype.Text{String: owner, Valid: true}, AgentID: pgtype.Text{String: "a1", Valid: true}, Channel: string(agentsession.ChannelWeb), Kind: string(agentsession.KindChat), LastActive: now,
 	}); err != nil {
 		t.Fatalf("CreateConversation: %v", err)
 	}
@@ -196,8 +154,8 @@ func newRuntimeTestService(t *testing.T, denyAt map[int]bool) (*Service, *counte
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
-	az := &countedAuthorizer{denyAt: denyAt}
-	svc, err := NewService(mem, db, store, appdb.NewAuthStore(db), assets, az)
+	agentAccess := agentaccess.NewService(store, appdb.NewAuthStore(db))
+	svc, err := NewService(mem, db, store, assets, agentAccess)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -205,9 +163,9 @@ func newRuntimeTestService(t *testing.T, denyAt map[int]bool) (*Service, *counte
 	if err := svc.BindRuntimeManager(fakeRuntimeManager{svc: rt}); err != nil {
 		t.Fatalf("BindRuntimeManager: %v", err)
 	}
-	authority, err := (auth.Subject{UserID: "u1", Roles: []string{auth.RoleUser}}).Authority()
+	authority, err := (auth.Subject{UserID: owner, Roles: []string{auth.RoleUser}}).Authority()
 	if err != nil {
 		t.Fatalf("Authority: %v", err)
 	}
-	return svc, az, rt, authority
+	return svc, rt, store, authority
 }

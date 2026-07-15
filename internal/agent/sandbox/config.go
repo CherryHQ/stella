@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"context"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -35,4 +36,15 @@ type Config struct {
 	VaultEnvLoader      VaultEnvLoader
 	SessionSecretValues *SessionSecretValues
 	TokenManager        *oauth.TokenManager
+	// OAuthEnvBindings records which sandbox env vars were injected from an OAuth
+	// bundle at session creation, so a later live refresh reloads only those and
+	// never overwrites an explicit vault override of the same name. Shared by
+	// pointer with the retained runner config so RefreshSessionEnv sees what
+	// buildSandboxEnv recorded.
+	OAuthEnvBindings *OAuthEnvBindings
+	// ChatTimeout is the wall-clock budget for one chat turn. OAuth-derived env
+	// is refreshed to stay valid for at least this long plus a safety margin so a
+	// token injected at turn start outlives the turn (#722). Zero uses the
+	// runner's default turn budget.
+	ChatTimeout time.Duration
 }

@@ -12,8 +12,9 @@ import (
 )
 
 type testStore struct {
-	agents          map[string]config.Agent
-	listErr, getErr error
+	agents                 map[string]config.Agent
+	channels               map[string]config.Channel
+	listErr, getErr, chErr error
 }
 
 func (s testStore) GetAgent(_ context.Context, id string) (config.Agent, error) {
@@ -38,6 +39,17 @@ func (s testStore) ListAgents(context.Context) ([]config.Agent, error) {
 	return out, nil
 }
 
+func (s testStore) GetChannel(_ context.Context, id string) (config.Channel, error) {
+	if s.chErr != nil {
+		return config.Channel{}, s.chErr
+	}
+	channel, ok := s.channels[id]
+	if !ok {
+		return config.Channel{}, pgx.ErrNoRows
+	}
+	return channel, nil
+}
+
 type testAssignments struct {
 	ids   []string
 	err   error
@@ -49,106 +61,92 @@ func (s *testAssignments) ListUserAgentIDs(context.Context, string) ([]string, e
 	return s.ids, s.err
 }
 
-type testAuthorizer struct {
-	eval   *testEvaluation
-	err    error
-	begins int
-}
-
-func (a *testAuthorizer) Begin(context.Context, authz.Authority) (authz.Evaluation, error) {
-	a.begins++
-	if a.err != nil {
-		return nil, a.err
-	}
-	return a.eval, nil
-}
-
-type testEvaluation struct {
-	decide func(authz.Request) (authz.Decision, error)
-	calls  int
-}
-
-func (e *testEvaluation) Decide(r authz.Request) (authz.Decision, error) {
-	e.calls++
-	return e.decide(r)
-}
-func (*testEvaluation) Revision() int64 { return 7 }
-func userAuthority(t *testing.T) authz.Authority {
+func userAuthority(t *testing.T, userID string, admin bool) authz.Authority {
 	t.Helper()
-	roles, err := authz.NewRoleSet(authz.RoleUser)
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), admin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := authz.NewUserAuthority("u1", roles, authz.GrantSet{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return a
+	return authority
 }
 
-func TestListReadableUsesOneEvaluationAndFiltersEachRead(t *testing.T) {
+func TestListReadableFiltersEachRowAndCachesAssignments(t *testing.T) {
 	store := testStore{agents: map[string]config.Agent{
 		"allow": {ID: "allow", Scope: config.AgentScopeSystem, CreatorID: "creator", Enabled: true},
 		"deny":  {ID: "deny", Scope: config.AgentScopeRestricted, CreatorID: "creator", Enabled: true},
 	}}
 	assign := &testAssignments{}
-	eval := &testEvaluation{decide: func(r authz.Request) (authz.Decision, error) {
-		if r.Action() == authz.ActionList {
-			return authz.Allow("", authz.AuditRecord{}), nil
-		}
-		if r.Resource().ID() == "deny" {
-			return authz.Deny(authz.VisibilityHidden, "", authz.AuditRecord{}), nil
-		}
-		return authz.Allow("", authz.AuditRecord{}), nil
-	}}
-	az := &testAuthorizer{eval: eval}
-	got, err := NewService(store, assign, az).ListReadable(context.Background(), userAuthority(t), false)
+	got, err := NewService(store, assign).ListReadable(context.Background(), userAuthority(t, "u1", false), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].ID != "allow" {
 		t.Fatalf("visible = %#v", got)
 	}
-	if az.begins != 1 {
-		t.Fatalf("Begin calls = %d, want 1", az.begins)
-	}
 	if assign.calls != 1 {
 		t.Fatalf("assignment calls = %d, want 1", assign.calls)
 	}
 }
 
-func TestAgentRequestsCarryCompleteCanonicalFacts(t *testing.T) {
-	store := testStore{agents: map[string]config.Agent{"a": {ID: "a", Scope: config.AgentScopeRestricted, CreatorID: "u1", Enabled: false}}}
-	var got authz.Request
-	eval := &testEvaluation{decide: func(r authz.Request) (authz.Decision, error) {
-		got = r
-		return authz.Allow("", authz.AuditRecord{}), nil
-	}}
-	_, err := NewService(store, &testAssignments{ids: []string{"a"}}, &testAuthorizer{eval: eval}).Delete(context.Background(), userAuthority(t), "a")
-	if err != nil {
-		t.Fatal(err)
+func TestFailuresFailClosed(t *testing.T) {
+	ctx := context.Background()
+	user := userAuthority(t, "u1", false)
+	if _, err := NewService(testStore{getErr: errors.New("db")}, &testAssignments{}).Read(ctx, user, "a"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("get error = %v", err)
 	}
-	want := map[string]string{"scope": "user", "assigned": "true", "creator": "u1", "is_creator": "true", "is_executor": "false", "dedicated": "false", "status": "disabled"}
-	for k, v := range want {
-		if gotV, ok := got.Resource().Attr(k); !ok || gotV != v {
-			t.Errorf("%s = %q,%t want %q", k, gotV, ok, v)
-		}
+	if _, err := NewService(testStore{agents: map[string]config.Agent{"a": {ID: "a", Scope: "bad"}}}, &testAssignments{}).Read(ctx, user, "a"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("bad scope = %v", err)
 	}
-	if got.Action() != authz.ActionDelete {
-		t.Errorf("action = %s", got.Action())
+	// An ordinary user reading a non-system agent needs the assignment lookup, so a
+	// failing store fails closed.
+	if _, err := NewService(testStore{agents: map[string]config.Agent{"a": {ID: "a", Scope: config.AgentScopeRestricted}}}, &testAssignments{err: errors.New("db")}).Read(ctx, user, "a"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("assignment error = %v", err)
+	}
+	if err := NewService(testStore{}, &testAssignments{}).CanList(ctx, authz.Authority{}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("invalid authority = %v", err)
 	}
 }
 
-func TestFailuresFailClosed(t *testing.T) {
-	az := &testAuthorizer{err: errors.New("down")}
-	if _, err := NewService(testStore{}, &testAssignments{}, az).Read(context.Background(), userAuthority(t), "a"); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("begin error = %v", err)
+// TestNoNeedlessAssignmentQuery proves the decision paths that do not depend on a
+// user's agent assignments never touch the AssignmentStore: admin, a system
+// actor, and an ordinary user reading a system-scope agent all succeed through a
+// store that would error the moment it were consulted, and none of them consult
+// it. This removes the former admin/availability coupling to the assignment query
+// without weakening any access.
+func TestNoNeedlessAssignmentQuery(t *testing.T) {
+	ctx := context.Background()
+	store := testStore{agents: map[string]config.Agent{
+		"sys":        {ID: "sys", Scope: config.AgentScopeSystem, Enabled: true},
+		"restricted": {ID: "restricted", Scope: config.AgentScopeRestricted, CreatorID: "creator", Enabled: true},
+	}}
+
+	admin := userAuthority(t, "admin", true)
+	adminAssign := &testAssignments{err: errors.New("db")}
+	if _, err := NewService(store, adminAssign).Read(ctx, admin, "restricted"); err != nil {
+		t.Fatalf("admin read = %v, want nil despite failing assignment store", err)
 	}
-	az = &testAuthorizer{eval: &testEvaluation{decide: func(authz.Request) (authz.Decision, error) { return authz.Allow("", authz.AuditRecord{}), nil }}}
-	if _, err := NewService(testStore{agents: map[string]config.Agent{"a": {ID: "a", Scope: "bad"}}}, &testAssignments{}, az).Read(context.Background(), userAuthority(t), "a"); !errors.Is(err, ErrForbidden) {
-		t.Fatalf("bad scope = %v", err)
+	if adminAssign.calls != 0 {
+		t.Fatalf("admin touched the assignment store %d times, want 0", adminAssign.calls)
 	}
-	if _, err := NewService(testStore{agents: map[string]config.Agent{"a": {ID: "a", Scope: config.AgentScopeSystem}}}, &testAssignments{err: errors.New("db")}, az).Read(context.Background(), userAuthority(t), "a"); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("assignment error = %v", err)
+
+	system, err := SystemAgentAuthority("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sysAssign := &testAssignments{err: errors.New("db")}
+	if _, err := NewService(store, sysAssign).Read(ctx, system, "restricted"); err != nil {
+		t.Fatalf("system read = %v, want nil despite failing assignment store", err)
+	}
+	if sysAssign.calls != 0 {
+		t.Fatalf("system touched the assignment store %d times, want 0", sysAssign.calls)
+	}
+
+	user := userAuthority(t, "u1", false)
+	userAssign := &testAssignments{err: errors.New("db")}
+	if _, err := NewService(store, userAssign).Read(ctx, user, "sys"); err != nil {
+		t.Fatalf("user system-scope read = %v, want nil despite failing assignment store", err)
+	}
+	if userAssign.calls != 0 {
+		t.Fatalf("user system-scope read touched the assignment store %d times, want 0", userAssign.calls)
 	}
 }

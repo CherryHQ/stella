@@ -37,15 +37,14 @@ func (s *Service) Access(authority authz.Authority) (*Access, error) {
 	if !authority.Valid() {
 		return nil, authz.ErrForbidden
 	}
-	actor := authority.Actor()
-	userID := string(actor.UserID())
+	userID := string(authority.UserID())
 	if userID == "" {
 		return nil, authz.ErrUnauthenticated
 	}
-	agentScoped := actor.Kind() == authz.ActorAgent
+	agentScoped := authority.Kind() == authz.ActorAgent
 	agentID := ""
 	if agentScoped {
-		agentID = string(actor.AgentID())
+		agentID = string(authority.AgentID())
 	}
 	return &Access{svc: s, userID: userID, agentID: agentID, agentScoped: agentScoped}, nil
 }
