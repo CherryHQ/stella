@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArchiveRestore,
   Blocks,
   Check,
   ChevronLeft,
@@ -26,9 +27,11 @@ import {
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { useAppShell } from "@/layouts/AppShell";
 import {
+  agentSkillsInfiniteQueryOptions,
   agentSkillsOptions,
   clawhubSkillDetailOptions,
   clawhubSkillsOptions,
+  flattenAgentSkillPages,
 } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
@@ -48,6 +51,7 @@ import {
   getAgentSkill,
   getAgentSkillFile,
   installAgentSkill,
+  restoreAgentSkill,
   updateAgentSkill,
   uploadAgentSkill,
   upgradeAgentSkill,
@@ -88,23 +92,18 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 // Filter buckets collapse the two agent scopes (user_agent + system_agent) into a
 // single "agent" pill, matching the agent-settings SkillsTab's coarser grouping.
 type ScopeFilter = "all" | "system" | "agent" | "user" | "project";
-type Source = "installed" | "market" | "manual";
+type Source = "installed" | "removed" | "market" | "manual";
 type InstallScope = (typeof INSTALL_SCOPES)[number];
+type ToastHandler = (text: string, kind?: "success" | "error") => void;
 
 const SOURCE_META = {
   installed: { icon: PackageCheck, key: "sessions.skillsList.installedTab" },
+  removed: { icon: ArchiveRestore, key: "sessions.skillsList.removedTab" },
   market: { icon: Store, key: "sessions.skillsList.market" },
   manual: { icon: PackagePlus, key: "sessions.skillsList.manualTab" },
 } as const;
 
 const SCOPE_PILLS: ScopeFilter[] = ["all", "system", "agent", "user", "project"];
-
-// A skill's raw scope belongs to a filter bucket; "agent" spans both agent scopes.
-function inBucket(scope: string, bucket: ScopeFilter): boolean {
-  if (bucket === "all") return true;
-  if (bucket === "agent") return scope === "user_agent" || scope === "system_agent";
-  return scope === bucket;
-}
 
 // Match FacetTabs' active treatment so the in-page filter pills read as the
 // same tab language as the top agent nav (accent pill / muted ghost).
@@ -254,13 +253,36 @@ export function SkillsListPage() {
   const [debounced, setDebounced] = useState("");
   const [installScope, setInstallScope] = useState<InstallScope>("user_agent");
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query), 250);
     return () => clearTimeout(id);
   }, [query]);
 
-  const { data: skills = [], isLoading } = useQuery(agentSkillsOptions(agentId));
+  const managementSource = source === "installed" || source === "removed";
+  const management = useInfiniteQuery({
+    ...agentSkillsInfiniteQueryOptions({
+      agentId,
+      projectId,
+      state: source === "removed" ? "removed" : "active",
+      ...(fscope !== "all" ? { scopeGroup: fscope } : {}),
+      ...(debounced ? { q: debounced } : {}),
+    }),
+    enabled: managementSource,
+  });
+  const managedSkills = flattenAgentSkillPages(management.data?.pages) as Skill[];
+  const firstManagementPage = management.data?.pages[0];
+  const counts = firstManagementPage?.scope_counts;
+
+  // Marketplace needs the complete active set to mark already-installed entries;
+  // the management tabs use the paginated query above.
+  const installedLookup = useQuery({
+    ...agentSkillsOptions(agentId),
+    enabled: source === "market",
+  });
+  const skills = installedLookup.data ?? [];
   const market = useQuery({ ...clawhubSkillsOptions(debounced), enabled: source === "market" });
 
   useEffect(() => {
@@ -273,26 +295,6 @@ export function SkillsListPage() {
     () => new Set(skills.map((s) => s.source).filter((src): src is string => !!src)),
     [skills],
   );
-  const counts = useMemo(
-    () =>
-      Object.fromEntries(
-        SCOPE_PILLS.map((bucket) => [
-          bucket,
-          skills.filter((s) => inBucket(s.scope, bucket)).length,
-        ]),
-      ) as Record<ScopeFilter, number>,
-    [skills],
-  );
-
-  const filteredInstalled = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return skills.filter(
-      (s) =>
-        inBucket(s.scope, fscope) &&
-        (!q || s.name.toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q)),
-    );
-  }, [skills, query, fscope]);
-
   const marketRows = market.data ?? [];
 
   function go(next: Partial<{ source: Source; fscope: ScopeFilter; sel?: string }>) {
@@ -304,10 +306,11 @@ export function SkillsListPage() {
     void navigate({ to: route(projectId), params, search: s, replace: true });
   }
 
-  // Parse the open-drawer selector. Installed: "<scope>:<name>"; market: "market:<slug>".
-  const selectedInstalled =
+  // Stable IDs keep a removed skill addressable after its name leaves the active set.
+  // The name fallback preserves the post-install flow until its first paginated refresh.
+  const selectedManaged =
     sel && !sel.startsWith("market:")
-      ? skills.find((s) => `${s.scope}:${s.name}` === sel)
+      ? managedSkills.find((s) => `${s.scope}:${s.id}` === sel || `${s.scope}:${s.name}` === sel)
       : undefined;
   const selectedSlug = sel?.startsWith("market:") ? sel.slice("market:".length) : undefined;
   const selectedRow = selectedSlug ? marketRows.find((r) => r.slug === selectedSlug) : undefined;
@@ -317,6 +320,7 @@ export function SkillsListPage() {
   function onManualInstalled(scope: InstallScope, name: string) {
     showToast(t("sessions.discover.installSuccess"), "success");
     void qc.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+    void qc.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
     go({ source: "installed", fscope: "all", sel: name ? `${scope}:${name}` : undefined });
   }
 
@@ -330,6 +334,7 @@ export function SkillsListPage() {
       });
       showToast(t("sessions.discover.installSuccess"), "success");
       void qc.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      void qc.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
     } catch (error) {
       showToast(apiErrorMessage(error, t("common.error")), "error");
     } finally {
@@ -337,7 +342,44 @@ export function SkillsListPage() {
     }
   }
 
-  const drawerOpen = !!selectedInstalled || !!selectedSlug;
+  useEffect(() => {
+    if (!managementSource || !management.hasNextPage || management.isFetchingNextPage) return;
+    const root = contentRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel) return;
+
+    let requested = false;
+    const loadNext = () => {
+      if (requested) return;
+      requested = true;
+      void management.fetchNextPage();
+    };
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) loadNext();
+      },
+      { root, rootMargin: "240px 0px" },
+    );
+    observer.observe(sentinel);
+
+    // IntersectionObserver does not always emit again when an appended page still
+    // leaves the viewport unfilled, so explicitly continue until scrolling is possible.
+    const frame = requestAnimationFrame(() => {
+      if (root.scrollHeight <= root.clientHeight + 1) loadNext();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [
+    managementSource,
+    managedSkills.length,
+    management.hasNextPage,
+    management.isFetchingNextPage,
+    management.fetchNextPage,
+  ]);
+
+  const drawerOpen = !!selectedManaged || !!selectedSlug;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -360,8 +402,8 @@ export function SkillsListPage() {
             </InputGroup>
           )}
 
-          <div className="flex items-center gap-1">
-            {(["installed", "market", "manual"] as const).map((s) => {
+          <div className="flex flex-wrap items-center gap-1">
+            {(["installed", "removed", "market", "manual"] as const).map((s) => {
               const Icon = SOURCE_META[s].icon;
               const active = source === s;
               return (
@@ -374,17 +416,14 @@ export function SkillsListPage() {
                 >
                   <Icon className="size-4" />
                   {t(SOURCE_META[s].key)}
-                  {s === "installed" && (
-                    <span className="text-muted-foreground">{skills.length}</span>
-                  )}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Row 2: scope subfilter (installed only) */}
-        {source === "installed" && (
+        {/* Row 2: lifecycle scope and ownership filters. */}
+        {managementSource && (
           <div className="flex flex-wrap items-center gap-1">
             <span className="mr-1 text-xs text-muted-foreground">
               {t("sessions.skillsList.scopeFilter")}
@@ -401,7 +440,9 @@ export function SkillsListPage() {
                 >
                   {t(`sessions.skillsList.${scope}`)}
                   <span className="text-muted-foreground">
-                    {scope === "all" ? skills.length : counts[scope]}
+                    {scope === "all"
+                      ? (counts?.all ?? firstManagementPage?.total_size ?? 0)
+                      : (counts?.[scope] ?? 0)}
                   </span>
                 </button>
               );
@@ -411,14 +452,20 @@ export function SkillsListPage() {
       </div>
 
       {/* Content */}
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
-        {source === "installed" && (
-          <InstalledGrid
-            loading={isLoading}
-            skills={filteredInstalled}
-            selectedId={selectedInstalled?.id}
-            onOpen={(s) => go({ sel: `${s.scope}:${s.name}` })}
-            emptyText={t("sessions.skillsList.noSkills")}
+      <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+        {managementSource && (
+          <ManagedSkillsGrid
+            query={management}
+            skills={managedSkills}
+            removed={source === "removed"}
+            selectedId={selectedManaged?.id}
+            onOpen={(s) => go({ sel: `${s.scope}:${s.id}` })}
+            onRetry={() =>
+              void (management.isFetchNextPageError
+                ? management.fetchNextPage()
+                : management.refetch())
+            }
+            sentinelRef={sentinelRef}
           />
         )}
 
@@ -439,6 +486,7 @@ export function SkillsListPage() {
           <ManualInstallPanel
             agentId={agentId}
             showAgentScope={!!me?.is_admin}
+            notify={showToast}
             onInstalled={onManualInstalled}
           />
         )}
@@ -451,10 +499,12 @@ export function SkillsListPage() {
           showCloseButton={false}
           className="w-full sm:w-[560px] sm:max-w-[560px]"
         >
-          {selectedInstalled ? (
+          {selectedManaged ? (
             <SkillInspector
               agentId={agentId}
-              skill={selectedInstalled}
+              skill={selectedManaged}
+              removed={source === "removed"}
+              notify={showToast}
               onClose={() => go({ sel: undefined })}
             />
           ) : selectedSlug ? (
@@ -479,55 +529,113 @@ export function SkillsListPage() {
   );
 }
 
-const GRID_CLS = "grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3";
+const GRID_CLS = "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3";
 
-function InstalledGrid({
-  loading,
+function ManagedSkillsGrid({
+  query,
   skills,
+  removed,
   selectedId,
   onOpen,
-  emptyText,
+  onRetry,
+  sentinelRef,
 }: {
-  loading: boolean;
+  query: {
+    isLoading: boolean;
+    isError: boolean;
+    isFetchingNextPage: boolean;
+    isFetchNextPageError: boolean;
+    hasNextPage: boolean;
+  };
   skills: Skill[];
+  removed: boolean;
   selectedId?: string;
   onOpen: (skill: Skill) => void;
-  emptyText: string;
+  onRetry: () => void;
+  sentinelRef: RefObject<HTMLDivElement | null>;
 }) {
-  if (loading) {
+  const { t } = useI18n();
+  if (query.isLoading) {
     return (
       <div className="flex h-48 items-center justify-center">
         <Spinner />
       </div>
     );
   }
+  if (query.isError && skills.length === 0) {
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <ArchiveRestore />
+          </EmptyMedia>
+          <EmptyTitle>{t("sessions.skillsList.loadError")}</EmptyTitle>
+          <EmptyDescription>{t("sessions.skillsList.loadErrorDesc")}</EmptyDescription>
+        </EmptyHeader>
+        <Button variant="outline" onClick={onRetry}>
+          <RefreshCw />
+          {t("common.retry")}
+        </Button>
+      </Empty>
+    );
+  }
   if (skills.length === 0) {
-    return <p className="px-3 py-8 text-center text-sm text-muted-foreground">{emptyText}</p>;
+    return (
+      <p className="px-3 py-8 text-center text-sm text-muted-foreground">
+        {removed ? t("sessions.skillsList.noRemovedSkills") : t("sessions.skillsList.noSkills")}
+      </p>
+    );
   }
   return (
-    <div className={GRID_CLS}>
-      {skills.map((skill) => (
-        <InstalledCard
-          key={skill.id}
-          skill={skill}
-          active={selectedId === skill.id}
-          onOpen={() => onOpen(skill)}
-        />
-      ))}
-    </div>
+    <>
+      <div className={GRID_CLS}>
+        {skills.map((skill) => (
+          <ManagedSkillCard
+            key={skill.id}
+            skill={skill}
+            removed={removed}
+            active={selectedId === skill.id}
+            onOpen={() => onOpen(skill)}
+          />
+        ))}
+      </div>
+      <div ref={sentinelRef} className="flex min-h-12 items-center justify-center py-3">
+        {query.isFetchingNextPage && <Spinner />}
+        {query.isFetchNextPageError && (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            <RefreshCw />
+            {t("common.retry")}
+          </Button>
+        )}
+        {!query.hasNextPage && !query.isFetchNextPageError && (
+          <span className="text-xs text-muted-foreground">
+            {t("sessions.skillsList.allLoaded")}
+          </span>
+        )}
+      </div>
+    </>
   );
 }
 
-function InstalledCard({
+function ManagedSkillCard({
   skill,
+  removed,
   active,
   onOpen,
 }: {
   skill: Skill;
+  removed: boolean;
   active: boolean;
   onOpen: () => void;
 }) {
   const { t } = useI18n();
+  // Keep the card footer dedicated to provenance across active and removed views.
+  const sourceLabel =
+    skill.scope === "system"
+      ? t("sessions.skillsList.builtin")
+      : skill.created_by === "reflect"
+        ? t("sessions.skillsList.generated")
+        : t("sessions.skillsList.manualMaintenance");
   return (
     <button
       type="button"
@@ -559,16 +667,30 @@ function InstalledCard({
         </div>
       </div>
       <p className="line-clamp-2 min-h-9 text-xs text-muted-foreground">{skill.description}</p>
-      <div className="mt-auto flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
+      <div className="mt-auto flex flex-wrap items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
         <Badge variant="outline" size="sm">
           {t(SCOPE_LABEL_KEY[skill.scope as SkillScope])}
         </Badge>
-        <span className="ml-auto">
-          {skill.scope === "system"
-            ? t("sessions.skillsList.builtin")
-            : formatTime(skill.updated_at)}
-        </span>
+        {removed ? (
+          <>
+            <Badge variant="outline" size="sm">
+              {skill.removal_source === "curator"
+                ? t("sessions.skillsList.removedByCurator")
+                : t("sessions.skillsList.removedManually")}
+            </Badge>
+            <span className="ml-auto">{sourceLabel}</span>
+          </>
+        ) : (
+          <span className="ml-auto">{sourceLabel}</span>
+        )}
       </div>
+      {removed && skill.restore_deadline && (
+        <p className="text-xs text-muted-foreground">
+          {t("sessions.skillsList.restoreDeadline", {
+            time: formatTime(skill.restore_deadline),
+          })}
+        </p>
+      )}
     </button>
   );
 }
@@ -718,15 +840,18 @@ function MarketCard({
 function SkillInspector({
   agentId,
   skill,
+  removed,
+  notify,
   onClose,
 }: {
   agentId: string;
   skill: Skill;
+  removed: boolean;
+  notify: ToastHandler;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const { showToast } = useToast();
   const { data: me } = useQuery(meQueryOptions);
   const [description, setDescription] = useState(skill.description ?? "");
   const [version, setVersion] = useState(skill.version ?? "");
@@ -735,59 +860,83 @@ function SkillInspector({
   const [viewer, setViewer] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
-  const readOnly = isSkillReadOnly(skill.scope, !!me?.is_admin);
+  const [restoring, setRestoring] = useState(false);
+  const [convertToManual, setConvertToManual] = useState(false);
+  const scopeReadOnly = isSkillReadOnly(skill.scope, !!me?.is_admin);
+  const readOnly = removed || scopeReadOnly;
   const canUpgrade = !readOnly && isUpdatableSource(skill.source);
   const detail = useQuery({
-    queryKey: ["agent-skill", agentId, skill.scope, skill.name],
+    queryKey: ["agent-skill", agentId, skill.scope, skill.id],
     queryFn: async () =>
       (
         await getAgentSkill({
-          path: { id: agentId, skillId: skill.name },
+          path: { id: agentId, skillId: skill.id },
           query: { scope: skill.scope as SkillScope },
           throwOnError: true,
         })
       ).data as Skill,
   });
   const files = detail.data?.files ?? skill.files ?? [];
+
+  useEffect(() => {
+    setDescription(skill.description ?? "");
+    setVersion(skill.version ?? "");
+    setStatus(skill.status ?? "active");
+    setModelEnabled(!skill.disable_model_invocation);
+    setConvertToManual(false);
+    setViewer(null);
+  }, [skill]);
+
+  function invalidateSkillQueries() {
+    void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+    void queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
+    void queryClient.invalidateQueries({
+      queryKey: ["agent-skill", agentId, skill.scope, skill.id],
+    });
+  }
+
   async function save() {
+    // Keep the conversion decision stable while local form state is reset after saving.
+    const shouldConvertToManual = convertToManual;
     try {
       await updateAgentSkill({
-        path: { id: agentId, skillId: skill.name },
+        path: { id: agentId, skillId: skill.id },
         query: { scope: skill.scope as SkillScope },
-        body: { description, status, disable_model_invocation: !modelEnabled, version },
+        body: {
+          description,
+          status,
+          disable_model_invocation: !modelEnabled,
+          version,
+          ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
+        },
         throwOnError: true,
       });
-      showToast(t("sessions.skillsList.saved"), "success");
-      void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-      void queryClient.invalidateQueries({
-        queryKey: ["agent-skill", agentId, skill.scope, skill.name],
-      });
+      notify(t("sessions.skillsList.saved"), "success");
+      invalidateSkillQueries();
+      if (shouldConvertToManual) onClose();
     } catch (error) {
-      showToast(apiErrorMessage(error, t("common.error")), "error");
+      notify(apiErrorMessage(error, t("common.error")), "error");
     }
   }
   async function upgrade() {
     setUpgrading(true);
     try {
       const res = await upgradeAgentSkill({
-        path: { id: agentId, skillId: skill.name },
+        path: { id: agentId, skillId: skill.id },
         query: { scope: skill.scope as SkillScope },
         throwOnError: true,
       });
       if (res.data?.updated) {
-        showToast(
+        notify(
           t("sessions.skillsList.upgradeDone", { version: res.data.version ?? "" }),
           "success",
         );
-        void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-        void queryClient.invalidateQueries({
-          queryKey: ["agent-skill", agentId, skill.scope, skill.name],
-        });
+        invalidateSkillQueries();
       } else {
-        showToast(t("sessions.skillsList.upgradeUpToDate"), "success");
+        notify(t("sessions.skillsList.upgradeUpToDate"), "success");
       }
     } catch (error) {
-      showToast(apiErrorMessage(error, t("common.error")), "error");
+      notify(apiErrorMessage(error, t("common.error")), "error");
     } finally {
       setUpgrading(false);
     }
@@ -795,17 +944,37 @@ function SkillInspector({
   async function remove() {
     try {
       await deleteAgentSkill({
-        path: { id: agentId, skillId: skill.name },
+        path: { id: agentId, skillId: skill.id },
         query: { scope: skill.scope as SkillScope },
         throwOnError: true,
       });
-      showToast(t("common.delete"), "success");
-      await queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      notify(t("sessions.skillsList.removedSuccess"), "success");
+      await queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
       onClose();
     } catch (error) {
-      showToast(apiErrorMessage(error, t("common.error")), "error");
+      notify(apiErrorMessage(error, t("common.error")), "error");
     } finally {
       setConfirmOpen(false);
+    }
+  }
+
+  async function restore() {
+    setRestoring(true);
+    try {
+      await restoreAgentSkill({
+        path: { id: agentId, skillId: skill.id },
+        query: { scope: skill.scope as "user" | "user_agent" | "system_agent" },
+        throwOnError: true,
+      });
+      notify(t("sessions.skillsList.restoredSuccess"), "success");
+      await queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      onClose();
+    } catch (error) {
+      notify(apiErrorMessage(error, t("common.error")), "error");
+    } finally {
+      setRestoring(false);
     }
   }
 
@@ -818,6 +987,7 @@ function SkillInspector({
         skill={skill}
         path={viewer}
         readOnly={readOnly}
+        notify={notify}
         onBack={() => setViewer(null)}
         onClose={onClose}
       />
@@ -854,6 +1024,18 @@ function SkillInspector({
                 ? t("sessions.skillsList.manual")
                 : t("sessions.skillsList.auto")}
             </Badge>
+            <Badge variant="outline" size="sm">
+              {skill.created_by === "reflect"
+                ? t("sessions.skillsList.generated")
+                : t("sessions.skillsList.manualMaintenance")}
+            </Badge>
+            {removed && (
+              <Badge variant="outline" size="sm">
+                {skill.removal_source === "curator"
+                  ? t("sessions.skillsList.removedByCurator")
+                  : t("sessions.skillsList.removedManually")}
+              </Badge>
+            )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
@@ -873,9 +1055,21 @@ function SkillInspector({
                 )}
               </span>
             )}
+            {removed && skill.deprecated_at && (
+              <span>
+                {t("sessions.skillsList.removedAt", { time: formatTime(skill.deprecated_at) })}
+              </span>
+            )}
+            {removed && skill.restore_deadline && (
+              <span>
+                {t("sessions.skillsList.restoreDeadline", {
+                  time: formatTime(skill.restore_deadline),
+                })}
+              </span>
+            )}
           </div>
         </div>
-        <Button size="icon-sm" variant="ghost" onClick={onClose}>
+        <Button size="icon-sm" variant="ghost" aria-label={t("common.close")} onClick={onClose}>
           <X size={16} />
         </Button>
       </div>
@@ -925,7 +1119,7 @@ function SkillInspector({
                 value={[status]}
                 onValueChange={(value: string[]) => value[0] && setStatus(value[0])}
               >
-                {["active", "draft", "deprecated"].map((s) => (
+                {["active", "draft"].map((s) => (
                   <ToggleGroupItem key={s} value={s}>
                     {t(statusLabelKey(s))}
                   </ToggleGroupItem>
@@ -952,11 +1146,43 @@ function SkillInspector({
               </div>
               <Switch checked={modelEnabled} onCheckedChange={setModelEnabled} />
             </div>
+            {skill.created_by === "reflect" && (
+              <div className="space-y-2 rounded-lg border p-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-0.5">
+                    <Label>{t("sessions.skillsList.convertToManual")}</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t("sessions.skillsList.convertToManualHint")}
+                    </p>
+                  </div>
+                  <Switch checked={convertToManual} onCheckedChange={setConvertToManual} />
+                </div>
+                {convertToManual && (
+                  <p className="text-xs text-destructive">
+                    {t("sessions.skillsList.convertToManualWarning")}
+                  </p>
+                )}
+              </div>
+            )}
           </section>
         )}
       </div>
 
-      {readOnly ? (
+      {removed ? (
+        <div className="flex items-center justify-between gap-3 border-t p-4">
+          <p className="text-sm text-muted-foreground">
+            {skill.is_restorable
+              ? t("sessions.skillsList.removedReadonly")
+              : t("sessions.skillsList.notRestorable")}
+          </p>
+          {skill.is_restorable && (
+            <Button loading={restoring} onClick={() => void restore()}>
+              <ArchiveRestore />
+              {t("sessions.skillsList.restore")}
+            </Button>
+          )}
+        </div>
+      ) : readOnly ? (
         <div className="flex items-center gap-2 border-t p-4 text-sm text-muted-foreground">
           <Lock size={16} /> {t("sessions.skillsList.readonlyNote")}
         </div>
@@ -964,7 +1190,7 @@ function SkillInspector({
         <div className="flex items-center gap-2 border-t p-4">
           <Button variant="destructive-outline" onClick={() => setConfirmOpen(true)}>
             <Trash2 size={16} />
-            {t("sessions.skillsList.deleteSkill")}
+            {t("sessions.skillsList.removeSkill")}
           </Button>
           <div className="ml-auto flex items-center gap-2">
             {canUpgrade && (
@@ -991,7 +1217,7 @@ function SkillInspector({
               {t("common.cancel")}
             </AlertDialogClose>
             <Button variant="destructive" onClick={() => void remove()}>
-              {t("common.delete")}
+              {t("sessions.skillsList.removeSkill")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>
@@ -1007,6 +1233,7 @@ function SkillFileView({
   skill,
   path,
   readOnly,
+  notify,
   onBack,
   onClose,
 }: {
@@ -1014,6 +1241,7 @@ function SkillFileView({
   skill: Skill;
   path: string;
   readOnly: boolean;
+  notify: ToastHandler;
   onBack: () => void;
   onClose: () => void;
 }) {
@@ -1021,12 +1249,13 @@ function SkillFileView({
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [convertToManual, setConvertToManual] = useState(false);
   const file = useQuery({
-    queryKey: ["agent-skill-file", agentId, skill.scope, skill.name, path],
+    queryKey: ["agent-skill-file", agentId, skill.scope, skill.id, path],
     queryFn: async () =>
       (
         await getAgentSkillFile({
-          path: { id: agentId, skillId: skill.name },
+          path: { id: agentId, skillId: skill.id },
           query: { scope: skill.scope as SkillScope, path },
           throwOnError: true,
         })
@@ -1037,21 +1266,35 @@ function SkillFileView({
     if (file.data?.content != null) setDraft(file.data.content);
   }, [file.data?.content]);
   async function save() {
-    await updateAgentSkill({
-      path: { id: agentId, skillId: skill.name },
-      query: { scope: skill.scope as SkillScope },
-      body: { files: { [path]: draft } },
-      throwOnError: true,
-    });
-    setEditing(false);
-    void queryClient.invalidateQueries({
-      queryKey: ["agent-skill-file", agentId, skill.scope, skill.name, path],
-    });
+    // Keep the conversion decision stable while local editor state is reset after saving.
+    const shouldConvertToManual = convertToManual;
+    try {
+      await updateAgentSkill({
+        path: { id: agentId, skillId: skill.id },
+        query: { scope: skill.scope as SkillScope },
+        body: {
+          files: { [path]: draft },
+          ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
+        },
+        throwOnError: true,
+      });
+      setEditing(false);
+      setConvertToManual(false);
+      notify(t("sessions.skillsList.saved"), "success");
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-skill-file", agentId, skill.scope, skill.id, path],
+      });
+      void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
+      if (shouldConvertToManual) onClose();
+    } catch (error) {
+      notify(apiErrorMessage(error, t("common.error")), "error");
+    }
   }
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b p-4">
-        <Button size="icon-sm" variant="ghost" onClick={onBack}>
+        <Button size="icon-sm" variant="ghost" aria-label={t("common.back")} onClick={onBack}>
           <ChevronLeft size={16} />
         </Button>
         <div className="min-w-0 flex-1">
@@ -1067,11 +1310,18 @@ function SkillFileView({
           <span className="max-sm:hidden">{t("common.copy")}</span>
         </Button>
         {!readOnly && (
-          <Button size="sm" variant="outline" onClick={() => setEditing((v) => !v)}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setEditing((value) => !value);
+              if (editing) setConvertToManual(false);
+            }}
+          >
             {editing ? t("common.cancel") : t("common.edit")}
           </Button>
         )}
-        <Button size="icon-sm" variant="ghost" onClick={onClose}>
+        <Button size="icon-sm" variant="ghost" aria-label={t("common.close")} onClick={onClose}>
           <X size={16} />
         </Button>
       </div>
@@ -1093,7 +1343,25 @@ function SkillFileView({
         )}
       </div>
       {editing && (
-        <div className="border-t p-4">
+        <div className="space-y-3 border-t p-4">
+          {skill.created_by === "reflect" && (
+            <div className="space-y-2 rounded-lg border p-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label>{t("sessions.skillsList.convertToManual")}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("sessions.skillsList.convertToManualHint")}
+                  </p>
+                </div>
+                <Switch checked={convertToManual} onCheckedChange={setConvertToManual} />
+              </div>
+              {convertToManual && (
+                <p className="text-xs text-destructive">
+                  {t("sessions.skillsList.convertToManualWarning")}
+                </p>
+              )}
+            </div>
+          )}
           <Button className="w-full" onClick={() => void save()}>
             {t("common.save")}
           </Button>
@@ -1166,7 +1434,7 @@ function DiscoverDetail({
               )}
             </div>
           </div>
-          <Button size="icon-sm" variant="ghost" onClick={onClose}>
+          <Button size="icon-sm" variant="ghost" aria-label={t("common.close")} onClick={onClose}>
             <X size={16} />
           </Button>
         </div>
@@ -1287,21 +1555,22 @@ function githubSource(repo: string, skill: string, version: string): string {
 function ManualInstallPanel({
   agentId,
   showAgentScope,
+  notify,
   onInstalled,
 }: {
   agentId: string;
   showAgentScope: boolean;
+  notify: ToastHandler;
   onInstalled: (scope: InstallScope, name: string) => void;
 }) {
   const { t } = useI18n();
-  const { showToast } = useToast();
   const [scope, setScope] = useState<InstallScope>("user_agent");
 
   function onDone(name: string) {
     onInstalled(scope, name);
   }
   function onError(error: unknown) {
-    showToast(apiErrorMessage(error, t("common.error")), "error");
+    notify(apiErrorMessage(error, t("common.error")), "error");
   }
 
   return (
