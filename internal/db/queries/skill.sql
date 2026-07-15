@@ -60,7 +60,6 @@ ORDER BY CASE scope
 -- name: ListSkillsByScope :many
 SELECT * FROM skill
 WHERE scope = sqlc.arg(scope)
-  AND status != 'deprecated'
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
 ORDER BY created_at;
@@ -113,7 +112,6 @@ SET description              = sqlc.arg(description),
     metadata                 = sqlc.arg(metadata),
     updated_at               = now()
 WHERE id = sqlc.arg(id)
-  AND status != 'deprecated'
   AND ((scope='system_agent' AND agent_id=sqlc.narg(agent_id))
     OR (scope='user'         AND user_id=sqlc.narg(user_id))
     OR (scope='user_agent'   AND user_id=sqlc.narg(user_id) AND agent_id=sqlc.narg(agent_id)));
@@ -139,11 +137,7 @@ DELETE FROM skill WHERE id = $1 AND scope = 'system';
 
 -- name: UpsertSkillFile :exec
 INSERT INTO skill_file (skill_id, path, content)
-SELECT id, sqlc.arg(path), sqlc.arg(content)
-FROM skill
-WHERE id = sqlc.arg(skill_id)
-  AND status != 'deprecated'
-FOR NO KEY UPDATE
+VALUES ($1, $2, $3)
 ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content;
 
 -- name: UpdateReflectOwnedUserAgentSkill :one
@@ -203,17 +197,7 @@ ORDER BY version_after DESC, created_at DESC, id DESC
 LIMIT sqlc.arg(limit_count);
 
 -- name: DeleteSkillFile :exec
-WITH mutable_skill AS (
-  SELECT id
-  FROM skill
-  WHERE id = sqlc.arg(skill_id)
-    AND status != 'deprecated'
-  FOR NO KEY UPDATE
-)
-DELETE FROM skill_file
-USING mutable_skill
-WHERE skill_file.skill_id = mutable_skill.id
-  AND skill_file.path = sqlc.arg(path);
+DELETE FROM skill_file WHERE skill_id = $1 AND path = $2;
 
 -- name: GetSkillFile :one
 SELECT * FROM skill_file WHERE skill_id = $1 AND path = $2;
@@ -246,46 +230,6 @@ WHERE status = 'draft'
 
 -- name: ListAllSkills :many
 SELECT * FROM skill ORDER BY scope, created_at;
-
--- name: ListManagedActiveSkills :many
-SELECT *
-FROM skill
-WHERE scope = ANY(sqlc.arg(scopes)::text[])
-  AND status <> 'deprecated'
-  AND (sqlc.narg(created_by)::text IS NULL OR metadata->>'created_by' = sqlc.narg(created_by)::text)
-  AND (
-    sqlc.narg(search_query)::text IS NULL
-    OR lower(name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
-    OR lower(description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
-  )
-  AND (
-    (scope = 'user' AND user_id = sqlc.narg(user_id)::uuid)
-    OR (scope = 'user_agent' AND user_id = sqlc.narg(user_id)::uuid AND agent_id = sqlc.narg(agent_id)::text)
-    OR (scope = 'system_agent' AND agent_id = sqlc.narg(agent_id)::text)
-  )
-  AND (
-    (sqlc.narg(cursor_timestamp)::timestamptz IS NULL AND sqlc.narg(cursor_id)::text IS NULL)
-    OR (updated_at, id) < (sqlc.narg(cursor_timestamp)::timestamptz, sqlc.narg(cursor_id)::text)
-  )
-ORDER BY updated_at DESC, id DESC
-LIMIT sqlc.arg(limit_count);
-
--- name: CountManagedActiveSkills :one
-SELECT count(*)
-FROM skill
-WHERE scope = ANY(sqlc.arg(scopes)::text[])
-  AND status <> 'deprecated'
-  AND (sqlc.narg(created_by)::text IS NULL OR metadata->>'created_by' = sqlc.narg(created_by)::text)
-  AND (
-    sqlc.narg(search_query)::text IS NULL
-    OR lower(name) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
-    OR lower(description) LIKE '%' || lower(sqlc.narg(search_query)::text) || '%'
-  )
-  AND (
-    (scope = 'user' AND user_id = sqlc.narg(user_id)::uuid)
-    OR (scope = 'user_agent' AND user_id = sqlc.narg(user_id)::uuid AND agent_id = sqlc.narg(agent_id)::text)
-    OR (scope = 'system_agent' AND agent_id = sqlc.narg(agent_id)::text)
-  );
 
 -- name: UpdateManagedSkill :one
 UPDATE skill

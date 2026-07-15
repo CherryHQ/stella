@@ -12,45 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countManagedActiveSkills = `-- name: CountManagedActiveSkills :one
-SELECT count(*)
-FROM skill
-WHERE scope = ANY($1::text[])
-  AND status <> 'deprecated'
-  AND ($2::text IS NULL OR metadata->>'created_by' = $2::text)
-  AND (
-    $3::text IS NULL
-    OR lower(name) LIKE '%' || lower($3::text) || '%'
-    OR lower(description) LIKE '%' || lower($3::text) || '%'
-  )
-  AND (
-    (scope = 'user' AND user_id = $4::uuid)
-    OR (scope = 'user_agent' AND user_id = $4::uuid AND agent_id = $5::text)
-    OR (scope = 'system_agent' AND agent_id = $5::text)
-  )
-`
-
-type CountManagedActiveSkillsParams struct {
-	Scopes      []string    `json:"scopes"`
-	CreatedBy   pgtype.Text `json:"created_by"`
-	SearchQuery pgtype.Text `json:"search_query"`
-	UserID      pgtype.Text `json:"user_id"`
-	AgentID     pgtype.Text `json:"agent_id"`
-}
-
-func (q *Queries) CountManagedActiveSkills(ctx context.Context, arg CountManagedActiveSkillsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countManagedActiveSkills,
-		arg.Scopes,
-		arg.CreatedBy,
-		arg.SearchQuery,
-		arg.UserID,
-		arg.AgentID,
-	)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const createSkill = `-- name: CreateSkill :one
 INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -163,26 +124,16 @@ func (q *Queries) DeleteSkill(ctx context.Context, arg DeleteSkillParams) error 
 }
 
 const deleteSkillFile = `-- name: DeleteSkillFile :exec
-WITH mutable_skill AS (
-  SELECT id
-  FROM skill
-  WHERE id = $2
-    AND status != 'deprecated'
-  FOR NO KEY UPDATE
-)
-DELETE FROM skill_file
-USING mutable_skill
-WHERE skill_file.skill_id = mutable_skill.id
-  AND skill_file.path = $1
+DELETE FROM skill_file WHERE skill_id = $1 AND path = $2
 `
 
 type DeleteSkillFileParams struct {
-	Path    string `json:"path"`
 	SkillID string `json:"skill_id"`
+	Path    string `json:"path"`
 }
 
 func (q *Queries) DeleteSkillFile(ctx context.Context, arg DeleteSkillFileParams) error {
-	_, err := q.db.Exec(ctx, deleteSkillFile, arg.Path, arg.SkillID)
+	_, err := q.db.Exec(ctx, deleteSkillFile, arg.SkillID, arg.Path)
 	return err
 }
 
@@ -571,83 +522,6 @@ func (q *Queries) ListAllSkills(ctx context.Context) ([]Skill, error) {
 	return items, nil
 }
 
-const listManagedActiveSkills = `-- name: ListManagedActiveSkills :many
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
-FROM skill
-WHERE scope = ANY($1::text[])
-  AND status <> 'deprecated'
-  AND ($2::text IS NULL OR metadata->>'created_by' = $2::text)
-  AND (
-    $3::text IS NULL
-    OR lower(name) LIKE '%' || lower($3::text) || '%'
-    OR lower(description) LIKE '%' || lower($3::text) || '%'
-  )
-  AND (
-    (scope = 'user' AND user_id = $4::uuid)
-    OR (scope = 'user_agent' AND user_id = $4::uuid AND agent_id = $5::text)
-    OR (scope = 'system_agent' AND agent_id = $5::text)
-  )
-  AND (
-    ($6::timestamptz IS NULL AND $7::text IS NULL)
-    OR (updated_at, id) < ($6::timestamptz, $7::text)
-  )
-ORDER BY updated_at DESC, id DESC
-LIMIT $8
-`
-
-type ListManagedActiveSkillsParams struct {
-	Scopes          []string           `json:"scopes"`
-	CreatedBy       pgtype.Text        `json:"created_by"`
-	SearchQuery     pgtype.Text        `json:"search_query"`
-	UserID          pgtype.Text        `json:"user_id"`
-	AgentID         pgtype.Text        `json:"agent_id"`
-	CursorTimestamp pgtype.Timestamptz `json:"cursor_timestamp"`
-	CursorID        pgtype.Text        `json:"cursor_id"`
-	LimitCount      int32              `json:"limit_count"`
-}
-
-func (q *Queries) ListManagedActiveSkills(ctx context.Context, arg ListManagedActiveSkillsParams) ([]Skill, error) {
-	rows, err := q.db.Query(ctx, listManagedActiveSkills,
-		arg.Scopes,
-		arg.CreatedBy,
-		arg.SearchQuery,
-		arg.UserID,
-		arg.AgentID,
-		arg.CursorTimestamp,
-		arg.CursorID,
-		arg.LimitCount,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Skill{}
-	for rows.Next() {
-		var i Skill
-		if err := rows.Scan(
-			&i.ID,
-			&i.Scope,
-			&i.UserID,
-			&i.AgentID,
-			&i.Name,
-			&i.Description,
-			&i.Status,
-			&i.DisableModelInvocation,
-			&i.Metadata,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Version,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listSkillChangelogBySkill = `-- name: ListSkillChangelogBySkill :many
 SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at FROM skill_changelog
 WHERE skill_id = $1
@@ -718,7 +592,6 @@ func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFi
 const listSkillsByScope = `-- name: ListSkillsByScope :many
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill
 WHERE scope = $1
-  AND status != 'deprecated'
   AND coalesce(user_id::text, '') = coalesce($2::text, '')
   AND coalesce(agent_id, '') = coalesce($3, '')
 ORDER BY created_at
@@ -1132,7 +1005,6 @@ SET description              = $1,
     metadata                 = $4,
     updated_at               = now()
 WHERE id = $5
-  AND status != 'deprecated'
   AND ((scope='system_agent' AND agent_id=$6)
     OR (scope='user'         AND user_id=$7)
     OR (scope='user_agent'   AND user_id=$7 AND agent_id=$6))
@@ -1192,21 +1064,17 @@ func (q *Queries) UpdateSystemSkillMetadata(ctx context.Context, arg UpdateSyste
 
 const upsertSkillFile = `-- name: UpsertSkillFile :exec
 INSERT INTO skill_file (skill_id, path, content)
-SELECT id, $1, $2
-FROM skill
-WHERE id = $3
-  AND status != 'deprecated'
-FOR NO KEY UPDATE
+VALUES ($1, $2, $3)
 ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content
 `
 
 type UpsertSkillFileParams struct {
+	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
 	Content string `json:"content"`
-	SkillID string `json:"skill_id"`
 }
 
 func (q *Queries) UpsertSkillFile(ctx context.Context, arg UpsertSkillFileParams) error {
-	_, err := q.db.Exec(ctx, upsertSkillFile, arg.Path, arg.Content, arg.SkillID)
+	_, err := q.db.Exec(ctx, upsertSkillFile, arg.SkillID, arg.Path, arg.Content)
 	return err
 }

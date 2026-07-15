@@ -99,10 +99,6 @@ type UpgradeResult struct {
 	PreviousVersion string // the version before the upgrade
 }
 
-type atomicSkillUpgradeStore interface {
-	ApplySkillUpgrade(context.Context, string, map[string]string, []string, pkgplugins.SkillUpdatePatch) error
-}
-
 // UpgradeInStore re-fetches the skill identified by skillID from the install
 // source recorded in its metadata and, when the resolved version differs from the
 // stored one, replaces the skill's files and refreshes its metadata from the new
@@ -143,23 +139,29 @@ func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID st
 	if err != nil {
 		return UpgradeResult{}, fmt.Errorf("parse SKILL.md for %q: %w", name, err)
 	}
-	status := NormalizeSkillStatus(fm.Status)
-	if status == SkillStatusDeprecated {
-		return UpgradeResult{}, ErrSkillNotMutable
-	}
 
 	existing, err := store.ListFiles(ctx, skillID)
 	if err != nil {
 		return UpgradeResult{}, fmt.Errorf("list installed files: %w", err)
 	}
+	// Write the new files before pruning stale ones (and bump metadata last) so a
+	// mid-upgrade failure leaves a still-loadable skill — old files plus whatever
+	// new files landed — rather than a half-deleted one. This is not atomic; a
+	// transactional store method would be the complete fix.
+	for path, content := range files {
+		if err := store.UpsertFile(ctx, skillID, path, content); err != nil {
+			return UpgradeResult{}, fmt.Errorf("write file %q: %w", path, err)
+		}
+	}
 	keep := make(map[string]bool, len(files))
 	for path := range files {
 		keep[path] = true
 	}
-	deleteFiles := make([]string, 0)
 	for _, path := range existing {
 		if !keep[path] {
-			deleteFiles = append(deleteFiles, path)
+			if err := store.DeleteFile(ctx, skillID, path); err != nil {
+				return UpgradeResult{}, fmt.Errorf("remove stale file %q: %w", path, err)
+			}
 		}
 	}
 
@@ -172,33 +174,14 @@ func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID st
 	if err != nil {
 		return UpgradeResult{}, fmt.Errorf("encode skill metadata: %w", err)
 	}
+	status := NormalizeSkillStatus(fm.Status)
 	disable := fm.DisableModelInvocation
-	patch := pkgplugins.SkillUpdatePatch{
+	if err := store.Update(ctx, skillID, pkgplugins.SkillUpdatePatch{
 		Description:            &fm.Description,
 		Status:                 &status,
 		DisableModelInvocation: &disable,
 		Metadata:               json.RawMessage(metaBytes),
-	}
-	if atomicStore, ok := store.(atomicSkillUpgradeStore); ok {
-		if err := atomicStore.ApplySkillUpgrade(ctx, skillID, files, deleteFiles, patch); err != nil {
-			return UpgradeResult{}, fmt.Errorf("update skill %q atomically: %w", name, err)
-		}
-		return UpgradeResult{Updated: true, Version: version, PreviousVersion: currentVersion}, nil
-	}
-
-	// Third-party stores without the atomic capability retain the legacy
-	// write-before-prune behavior. Production adapters implement the capability.
-	for path, content := range files {
-		if err := store.UpsertFile(ctx, skillID, path, content); err != nil {
-			return UpgradeResult{}, fmt.Errorf("write file %q: %w", path, err)
-		}
-	}
-	for _, path := range deleteFiles {
-		if err := store.DeleteFile(ctx, skillID, path); err != nil {
-			return UpgradeResult{}, fmt.Errorf("remove stale file %q: %w", path, err)
-		}
-	}
-	if err := store.Update(ctx, skillID, patch); err != nil {
+	}); err != nil {
 		return UpgradeResult{}, fmt.Errorf("update skill %q: %w", name, err)
 	}
 
