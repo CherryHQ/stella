@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -451,10 +450,6 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusBadRequest, "scope and scope_group are mutually exclusive")
 		return
 	}
-	if params.State != nil && !params.State.Valid() {
-		writeError(w, http.StatusBadRequest, "state must be active or removed")
-		return
-	}
 	if params.Scope != nil && !params.Scope.Valid() {
 		writeError(w, http.StatusBadRequest, "invalid scope")
 		return
@@ -468,10 +463,6 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
-	state := skills.ManagedSkillStateActive
-	if params.State != nil {
-		state = skills.ManagedSkillState(*params.State)
-	}
 	pageSize := defaultPageSize
 	if params.PageSize != nil {
 		pageSize = *params.PageSize
@@ -483,7 +474,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	var cursor *skills.ManagedSkillCursor
 	if params.PageToken != nil {
 		var err error
-		cursor, err = decodeSkillPageToken(*params.PageToken, state)
+		cursor, err = decodeSkillPageToken(*params.PageToken)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -498,11 +489,6 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	if params.CreatedBy != nil {
 		createdBy = string(*params.CreatedBy)
 	}
-	if state == skills.ManagedSkillStateRemoved {
-		s.listRemovedAgentSkills(w, r, acc, agentID, info, params, query, createdBy, pageSize, cursor)
-		return
-	}
-
 	projectRoot, err := s.projectRootForSession(r.Context(), agentID, params.SessionId)
 	if err != nil {
 		s.writeInternalError(w, err)
@@ -540,7 +526,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		}
 	}
 	total := len(selected)
-	legacyFullList := params.State == nil && params.ScopeGroup == nil && params.CreatedBy == nil && params.Q == nil && params.PageSize == nil && params.PageToken == nil
+	legacyFullList := params.ScopeGroup == nil && params.CreatedBy == nil && params.Q == nil && params.PageSize == nil && params.PageToken == nil
 	if !legacyFullList {
 		sort.SliceStable(selected, func(i, j int) bool {
 			if selected[i].UpdatedAt.Equal(selected[j].UpdatedAt) {
@@ -570,7 +556,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	}
 	if hasMore {
 		last := selected[len(selected)-1]
-		token, err := encodeSkillPageToken(state, skills.ManagedSkillCursor{Timestamp: last.UpdatedAt, ID: last.ID})
+		token, err := encodeSkillPageToken(skills.ManagedSkillCursor{Timestamp: last.UpdatedAt, ID: last.ID})
 		if err != nil {
 			s.writeInternalError(w, err)
 			return
@@ -617,120 +603,6 @@ func agentSkillScopeCounts(items []skills.ResolvedSkill) map[string]int {
 
 func skillFollowsCursor(sk skills.ResolvedSkill, cursor skills.ManagedSkillCursor) bool {
 	return sk.UpdatedAt.Before(cursor.Timestamp) || (sk.UpdatedAt.Equal(cursor.Timestamp) && sk.ID < cursor.ID)
-}
-
-func (s *Server) listRemovedAgentSkills(w http.ResponseWriter, r *http.Request, acc *skillaccess.Access, agentID string, info *AuthInfo, params apiserver.ListAgentSkillsParams, query, createdBy string, pageSize int, cursor *skills.ManagedSkillCursor) {
-	if err := acc.AuthorizeList(); err != nil {
-		code, msg := skillAccessError(err)
-		writeError(w, code, msg)
-		return
-	}
-	allowed := []string{"user", "user_agent"}
-	if info.IsAdmin {
-		allowed = append(allowed, "system_agent")
-	}
-	if params.Scope != nil && string(*params.Scope) == "system_agent" && !info.IsAdmin {
-		writeError(w, http.StatusForbidden, "system agent skills are managed by admins")
-		return
-	}
-
-	selectedScopes := allowed
-	if params.Scope != nil {
-		switch string(*params.Scope) {
-		case "user", "user_agent", "system_agent":
-			selectedScopes = []string{string(*params.Scope)}
-		default:
-			selectedScopes = nil
-		}
-	} else if params.ScopeGroup != nil {
-		switch string(*params.ScopeGroup) {
-		case "user":
-			selectedScopes = []string{"user"}
-		case "agent":
-			selectedScopes = []string{"user_agent"}
-			if info.IsAdmin {
-				selectedScopes = append(selectedScopes, "system_agent")
-			}
-		default:
-			selectedScopes = nil
-		}
-	}
-
-	now := time.Now().UTC()
-	list := func(scopes []string, limit int32, pageCursor *skills.ManagedSkillCursor) (skills.ManagedSkillPage, error) {
-		if len(scopes) == 0 {
-			return skills.ManagedSkillPage{}, nil
-		}
-		return s.skillStore().ListManagedSkills(r.Context(), skills.ManagedSkillListQuery{
-			UserID: info.UserID, AgentID: agentID, Scopes: scopes, CreatedBy: createdBy,
-			Query: query, State: skills.ManagedSkillStateRemoved, Limit: limit,
-			Now: now, Cursor: pageCursor,
-		})
-	}
-
-	page, err := list(selectedScopes, int32(pageSize), cursor)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	allPage, err := list(allowed, 1, nil)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	userPage, err := list([]string{"user"}, 1, nil)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	agentScopes := []string{"user_agent"}
-	if info.IsAdmin {
-		agentScopes = append(agentScopes, "system_agent")
-	}
-	agentPage, err := list(agentScopes, 1, nil)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-
-	out := make([]skillView, 0, len(page.Items))
-	for _, item := range page.Items {
-		err := acc.AuthorizeRead(r.Context(), item.Skill)
-		if errors.Is(err, skillaccess.ErrNotFound) || errors.Is(err, skillaccess.ErrForbidden) {
-			continue
-		}
-		if err != nil {
-			code, msg := skillAccessError(err)
-			writeError(w, code, msg)
-			return
-		}
-		view := storedSkillToView(item.Skill, nil)
-		view.IsRestorable = item.IsRestorable
-		view.DeprecatedAt = item.DeprecatedAt
-		view.RestoreDeadline = item.RestoreDeadline
-		if item.RemovalSource != "" {
-			source := item.RemovalSource
-			view.RemovalSource = &source
-		}
-		out = append(out, view)
-	}
-	response := map[string]any{
-		"skills":     out,
-		"total_size": int(page.Total),
-		"scope_counts": map[string]int{
-			"all": int(allPage.Total), "system": 0, "agent": int(agentPage.Total), "user": int(userPage.Total), "project": 0,
-		},
-		"next_page_token": nil,
-	}
-	if page.HasMore && page.NextCursor != nil {
-		token, err := encodeSkillPageToken(skills.ManagedSkillStateRemoved, *page.NextCursor)
-		if err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
-		response["next_page_token"] = token
-	}
-	writeData(w, http.StatusOK, response)
 }
 
 func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
@@ -856,52 +728,6 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	s.applySkillUpdate(w, r, &sk)
-}
-
-// RestoreAgentSkill restores one retained mutable DB row in its exact owner
-// scope. Stable IDs are required so a same-name replacement is never targeted.
-func (s *Server) RestoreAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.RestoreAgentSkillParams) {
-	scope := string(params.Scope)
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	acc, code, msg := s.beginAgentSkillAccess(r.Context(), id)
-	if code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-	// Stable ID and exact scope prevent a same-name replacement from becoming the target.
-	sk, err := acc.AuthorizeManageByID(r.Context(), skillId, authz.ActionWrite)
-	if err != nil {
-		code, msg := skillAccessError(err)
-		writeError(w, code, msg)
-		return
-	}
-	if sk.Scope != scope || ((sk.Scope == "user_agent" || sk.Scope == "system_agent") && sk.AgentID != id) {
-		writeError(w, http.StatusNotFound, "skill not found")
-		return
-	}
-	result, err := s.skillStore().RestoreManagedSkill(r.Context(), skills.ManagedSkillRestore{
-		ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
-		RestoredBy: info.UserID, Now: time.Now().UTC(),
-	})
-	switch {
-	case errors.Is(err, skills.ErrSkillNameConflict):
-		writeError(w, http.StatusConflict, "an active skill already has this name in the same scope")
-		return
-	case errors.Is(err, skills.ErrSkillRestoreExpired):
-		writeError(w, http.StatusGone, "skill restore window expired")
-		return
-	case errors.Is(err, skills.ErrSkillNotRestorable), errors.Is(err, skills.ErrSkillNotMutable):
-		writeError(w, http.StatusConflict, "skill is not restorable")
-		return
-	case err != nil:
-		s.writeInternalError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, s.dbSkillView(r, &result.Skill))
 }
 
 // UpgradeAgentSkill re-fetches a DB-backed skill from its recorded install source

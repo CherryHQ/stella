@@ -41,7 +41,7 @@ type SkillUpdatePatch struct {
 
 // SkillStore is the plugin-facing persistence interface for skills, available
 // via Platform. It intentionally exposes the management/runtime subset; internal
-// Reflect lifecycle and admin restore methods stay on internal/skills.Store.
+// Reflect lifecycle methods stay on internal/skills.Store.
 type SkillStore interface {
 	// List returns all visible skills for the given context (metadata only, no file content).
 	List(ctx context.Context, vc SkillViewContext) ([]Skill, error)
@@ -70,8 +70,7 @@ type SkillStore interface {
 	UpsertFile(ctx context.Context, skillID, path, content string) error
 
 	DeleteFile(ctx context.Context, skillID, path string) error
-	// Delete performs recoverable manual deprecation for mutable user-owned
-	// database skills in Stella's adapter; it must not physically delete rows.
+	// Delete permanently removes a mutable user-owned database skill.
 	Delete(ctx context.Context, id string) error
 
 	// ExpireDrafts deprecates all draft skills whose created-at timestamp is

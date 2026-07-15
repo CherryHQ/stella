@@ -82,7 +82,7 @@ type stubUsageCuratorSkillStore struct {
 	stubPluginSkillStore
 }
 
-func (stubUsageCuratorSkillStore) DeprecateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDeprecate) (skills.Skill, error) {
+func (stubUsageCuratorSkillStore) DeleteReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDelete) (skills.Skill, error) {
 	return skills.Skill{}, nil
 }
 

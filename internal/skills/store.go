@@ -52,24 +52,10 @@ type UpdatePatch struct {
 	Metadata               json.RawMessage // optional; set to overwrite
 }
 
-// ManagedSkillState selects live or recoverable managed skill records.
-type ManagedSkillState string
-
-const (
-	// ManagedSkillStateActive includes every non-deprecated status, including draft.
-	ManagedSkillStateActive ManagedSkillState = "active"
-	// ManagedSkillStateRemoved includes only qualifying, recoverable deprecations.
-	ManagedSkillStateRemoved ManagedSkillState = "removed"
-)
-
-// ManagedSkillItem carries lifecycle details for a managed skill listing.
+// ManagedSkillItem carries source metadata for a managed skill listing.
 type ManagedSkillItem struct {
-	Skill           Skill
-	CreatedBy       string
-	RemovalSource   string
-	DeprecatedAt    *time.Time
-	RestoreDeadline *time.Time
-	IsRestorable    bool
+	Skill     Skill
+	CreatedBy string
 }
 
 // ManagedSkillCursor identifies the last visible row in a stable lifecycle page.
@@ -85,9 +71,7 @@ type ManagedSkillListQuery struct {
 	Scopes    []string
 	CreatedBy string
 	Query     string
-	State     ManagedSkillState
 	Limit     int32
-	Now       time.Time
 	Cursor    *ManagedSkillCursor
 }
 
@@ -97,31 +81,6 @@ type ManagedSkillPage struct {
 	Total      int64
 	HasMore    bool
 	NextCursor *ManagedSkillCursor
-}
-
-// ManagedSkillDeprecate identifies a mutable skill and the manual operator.
-type ManagedSkillDeprecate struct {
-	ID           string
-	UserID       string
-	AgentID      string
-	Scope        string
-	DeprecatedBy string
-}
-
-// ManagedSkillRestore identifies a retained skill and the restore instant.
-type ManagedSkillRestore struct {
-	ID         string
-	UserID     string
-	AgentID    string
-	Scope      string
-	RestoredBy string
-	Now        time.Time
-}
-
-// ManagedSkillRestoreResult distinguishes an idempotent active-row restore.
-type ManagedSkillRestoreResult struct {
-	Skill    Skill
-	Restored bool
 }
 
 // ManagedSkillUpdate applies one atomic metadata/file lifecycle mutation.
@@ -148,12 +107,8 @@ type Store interface {
 	// skills that #531 is allowed to consider for one user-agent context.
 	ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]Skill, error)
 
-	// ListManagedSkills returns non-deprecated or recoverable lifecycle rows.
+	// ListManagedSkills returns active managed rows with stable pagination.
 	ListManagedSkills(ctx context.Context, in ManagedSkillListQuery) (ManagedSkillPage, error)
-	// DeprecateManagedSkill retains a mutable skill for its recovery window.
-	DeprecateManagedSkill(ctx context.Context, in ManagedSkillDeprecate) (Skill, error)
-	// RestoreManagedSkill restores a qualifying retained skill in place.
-	RestoreManagedSkill(ctx context.Context, in ManagedSkillRestore) (ManagedSkillRestoreResult, error)
 	// UpdateManagedSkill atomically patches a live mutable skill and its files.
 	UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (Skill, error)
 
@@ -165,13 +120,9 @@ type Store interface {
 	// under optimistic version control and records a changelog entry.
 	PatchReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillPatch) (Skill, error)
 
-	// DeprecateReflectOwnedUserAgentSkill marks a Reflect-owned user_agent skill
-	// as deprecated under optimistic version control and removes usage tracking.
-	DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDeprecate) (Skill, error)
-
-	// RestoreReflectOwnedUserAgentSkill restores a usage-curator-deprecated
-	// Reflect-owned user_agent skill for internal/admin recovery.
-	RestoreReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillRestore) (ReflectSkillRestoreResult, error)
+	// DeleteReflectOwnedUserAgentSkill permanently deletes a stale Reflect-owned
+	// user_agent skill after rechecking its version, usage, and pair activity.
+	DeleteReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDelete) (Skill, error)
 
 	// TouchReflectSkillRuntimeUse records a successful runtime load of a
 	// Reflect-owned user_agent skill. Implementations recheck owner/status.

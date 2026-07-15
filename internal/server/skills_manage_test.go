@@ -1,7 +1,6 @@
 package server_test
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -90,11 +89,11 @@ func TestScopedSkills_CrossUserIsolation(t *testing.T) {
 	}
 }
 
-// TestScopedSkills_DeleteDeprecatesMutableRows verifies Settings deletion keeps
-// the database row and files available for recovery, while system stays denied.
-func TestScopedSkills_DeleteDeprecatesMutableRows(t *testing.T) {
+// TestScopedSkills_DeleteRemovesMutableRows verifies Settings deletion is
+// permanent for mutable rows, while immutable system skills stay protected.
+func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 	env := setupAdmin(t)
-	user, sid := newNonAdmin(t, env, "scoped-delete-lifecycle")
+	_, sid := newNonAdmin(t, env, "scoped-delete-lifecycle")
 	agentID := createAgentAsUser(t, env, sid, "scoped-delete-lifecycle-agent")
 
 	userID := createScopedSkill(t, env, sid, map[string]any{
@@ -147,45 +146,20 @@ func TestScopedSkills_DeleteDeprecatesMutableRows(t *testing.T) {
 		t.Fatalf("admin system delete status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	store := env.pluginHost.SkillStore()
-	ctx := context.Background()
-	for _, tc := range []struct {
-		name, scope, owner, agent, id, actor string
-	}{
-		{name: "user", scope: "user", owner: user.ID, id: userID, actor: user.ID},
-		{name: "user_agent", scope: "user_agent", owner: user.ID, agent: agentID, id: userAgentID, actor: user.ID},
-		{name: "system_agent", scope: "system_agent", agent: agentID, id: systemAgentID, actor: env.adminUser.ID},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var status string
-			if err := env.db.QueryRow(ctx, `SELECT status FROM skill WHERE id = $1`, tc.id).Scan(&status); err != nil {
-				t.Fatalf("read retained row: %v", err)
-			}
-			if status != "deprecated" {
-				t.Fatalf("retained row status = %q, want deprecated", status)
-			}
-			files, err := store.ListFiles(ctx, tc.id)
-			if err != nil || len(files) < 2 {
-				t.Fatalf("retained files = %#v, err=%v; want files preserved", files, err)
-			}
-			logs, err := store.ListSkillChangelogBySkill(ctx, tc.id, 1)
-			if err != nil || len(logs) != 1 || logs[0].Action != "deprecate" {
-				t.Fatalf("lifecycle logs = %#v, err=%v; want manual deprecate", logs, err)
-			}
-			var metadata struct {
-				DeprecatedBy       string `json:"deprecated_by"`
-				DeprecatedByUserID string `json:"deprecated_by_user_id"`
-			}
-			if err := json.Unmarshal(logs[0].Metadata, &metadata); err != nil {
-				t.Fatalf("decode lifecycle metadata: %v", err)
-			}
-			if metadata.DeprecatedBy != "manual" || metadata.DeprecatedByUserID != tc.actor {
-				t.Fatalf("lifecycle actor metadata = %#v, want actor %s", metadata, tc.actor)
-			}
-		})
+	for _, id := range []string{userID, userAgentID, systemAgentID} {
+		var skillCount, fileCount int
+		if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill WHERE id = $1`, id).Scan(&skillCount); err != nil {
+			t.Fatalf("count deleted skill %s: %v", id, err)
+		}
+		if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill_file WHERE skill_id = $1`, id).Scan(&fileCount); err != nil {
+			t.Fatalf("count deleted skill files %s: %v", id, err)
+		}
+		if skillCount != 0 || fileCount != 0 {
+			t.Fatalf("deleted skill %s retained skill=%d files=%d", id, skillCount, fileCount)
+		}
 	}
 
-	rows, err := store.ListByScope(ctx, "system", "", "")
+	rows, err := env.pluginHost.SkillStore().ListByScope(t.Context(), "system", "", "")
 	if err != nil {
 		t.Fatalf("list system row: %v", err)
 	}

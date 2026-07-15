@@ -8,7 +8,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
-	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -22,37 +21,29 @@ type RestoreForgottenRequest struct {
 	Reason     string
 }
 
-// RestoreForgottenResult returns the restored item. Exactly one of Knowledge or
-// Skill is set when the request succeeds.
+// RestoreForgottenResult returns the restored Knowledge item.
 type RestoreForgottenResult struct {
 	Kind      string
 	Restored  bool
 	Knowledge *memory.Fact
-	Skill     *skills.Skill
-}
-
-type forgottenSkillRestorer interface {
-	RestoreReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillRestore) (skills.ReflectSkillRestoreResult, error)
 }
 
 // SQLForgottenRestoreService provides the internal/admin restore path for items
 // returned by SQLRecentlyForgottenStore.
 type SQLForgottenRestoreService struct {
-	db         *pgxpool.Pool
-	q          *sqlc.Queries
-	skillStore forgottenSkillRestorer
+	db *pgxpool.Pool
+	q  *sqlc.Queries
 }
 
-func NewSQLForgottenRestoreService(db *pgxpool.Pool, q *sqlc.Queries, skillStore forgottenSkillRestorer) SQLForgottenRestoreService {
+func NewSQLForgottenRestoreService(db *pgxpool.Pool, q *sqlc.Queries) SQLForgottenRestoreService {
 	return SQLForgottenRestoreService{
-		db:         db,
-		q:          q,
-		skillStore: skillStore,
+		db: db,
+		q:  q,
 	}
 }
 
 // RestoreForgotten is the internal/admin restore entrypoint for curator-deprecated
-// Reflect-owned knowledge and skills. It does not expose a user-facing API by
+// Reflect-owned knowledge. It does not expose a user-facing API by
 // itself; callers still decide authentication and authorization.
 func (s SQLForgottenRestoreService) RestoreForgotten(ctx context.Context, in RestoreForgottenRequest) (RestoreForgottenResult, error) {
 	switch in.Kind {
@@ -75,26 +66,6 @@ func (s SQLForgottenRestoreService) RestoreForgotten(ctx context.Context, in Res
 			Kind:      RecentlyForgottenKindKnowledge,
 			Restored:  result.Restored,
 			Knowledge: &fact,
-		}, nil
-	case RecentlyForgottenKindSkill:
-		if s.skillStore == nil {
-			return RestoreForgottenResult{}, fmt.Errorf("forgotten restore: skill store is required")
-		}
-		result, err := s.skillStore.RestoreReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillRestore{
-			ID:         in.ID,
-			UserID:     in.UserID,
-			AgentID:    in.AgentID,
-			RestoredBy: in.RestoredBy,
-			Reason:     in.Reason,
-		})
-		if err != nil {
-			return RestoreForgottenResult{}, err
-		}
-		skill := result.Skill
-		return RestoreForgottenResult{
-			Kind:     RecentlyForgottenKindSkill,
-			Restored: result.Restored,
-			Skill:    &skill,
 		}, nil
 	default:
 		return RestoreForgottenResult{}, fmt.Errorf("forgotten restore: unknown kind %q", in.Kind)
