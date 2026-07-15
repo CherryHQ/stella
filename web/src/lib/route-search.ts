@@ -4,12 +4,12 @@ export interface MemorySearch {
 
 export interface SkillsSearch {
   new?: boolean;
-  source?: "installed" | "removed" | "market" | "manual";
+  source?: "installed" | "market" | "manual";
   fscope?: "project" | "user" | "agent" | "system";
   sel?: string;
 }
 
-const SKILL_SOURCES = new Set(["installed", "removed", "market", "manual"]);
+const SKILL_SOURCES = new Set(["installed", "market", "manual"]);
 const SKILL_SCOPES = new Set(["project", "user", "agent", "system"]);
 
 export function validateMemorySearch(search: Record<string, unknown>): MemorySearch {

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArchiveRestore,
   Blocks,
   Check,
   ChevronLeft,
@@ -51,7 +50,6 @@ import {
   getAgentSkill,
   getAgentSkillFile,
   installAgentSkill,
-  restoreAgentSkill,
   updateAgentSkill,
   uploadAgentSkill,
   upgradeAgentSkill,
@@ -92,13 +90,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 // Filter buckets collapse the two agent scopes (user_agent + system_agent) into a
 // single "agent" pill, matching the agent-settings SkillsTab's coarser grouping.
 type ScopeFilter = "all" | "system" | "agent" | "user" | "project";
-type Source = "installed" | "removed" | "market" | "manual";
+type Source = "installed" | "market" | "manual";
 type InstallScope = (typeof INSTALL_SCOPES)[number];
 type ToastHandler = (text: string, kind?: "success" | "error") => void;
 
 const SOURCE_META = {
   installed: { icon: PackageCheck, key: "sessions.skillsList.installedTab" },
-  removed: { icon: ArchiveRestore, key: "sessions.skillsList.removedTab" },
   market: { icon: Store, key: "sessions.skillsList.market" },
   manual: { icon: PackagePlus, key: "sessions.skillsList.manualTab" },
 } as const;
@@ -261,12 +258,11 @@ export function SkillsListPage() {
     return () => clearTimeout(id);
   }, [query]);
 
-  const managementSource = source === "installed" || source === "removed";
+  const managementSource = source === "installed";
   const management = useInfiniteQuery({
     ...agentSkillsInfiniteQueryOptions({
       agentId,
       projectId,
-      state: source === "removed" ? "removed" : "active",
       ...(fscope !== "all" ? { scopeGroup: fscope } : {}),
       ...(debounced ? { q: debounced } : {}),
     }),
@@ -306,7 +302,6 @@ export function SkillsListPage() {
     void navigate({ to: route(projectId), params, search: s, replace: true });
   }
 
-  // Stable IDs keep a removed skill addressable after its name leaves the active set.
   // The name fallback preserves the post-install flow until its first paginated refresh.
   const selectedManaged =
     sel && !sel.startsWith("market:")
@@ -403,7 +398,7 @@ export function SkillsListPage() {
           )}
 
           <div className="flex flex-wrap items-center gap-1">
-            {(["installed", "removed", "market", "manual"] as const).map((s) => {
+            {(["installed", "market", "manual"] as const).map((s) => {
               const Icon = SOURCE_META[s].icon;
               const active = source === s;
               return (
@@ -457,7 +452,6 @@ export function SkillsListPage() {
           <ManagedSkillsGrid
             query={management}
             skills={managedSkills}
-            removed={source === "removed"}
             selectedId={selectedManaged?.id}
             onOpen={(s) => go({ sel: `${s.scope}:${s.id}` })}
             onRetry={() =>
@@ -503,7 +497,6 @@ export function SkillsListPage() {
             <SkillInspector
               agentId={agentId}
               skill={selectedManaged}
-              removed={source === "removed"}
               notify={showToast}
               onClose={() => go({ sel: undefined })}
             />
@@ -534,7 +527,6 @@ const GRID_CLS = "grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3";
 function ManagedSkillsGrid({
   query,
   skills,
-  removed,
   selectedId,
   onOpen,
   onRetry,
@@ -548,7 +540,6 @@ function ManagedSkillsGrid({
     hasNextPage: boolean;
   };
   skills: Skill[];
-  removed: boolean;
   selectedId?: string;
   onOpen: (skill: Skill) => void;
   onRetry: () => void;
@@ -567,7 +558,7 @@ function ManagedSkillsGrid({
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon">
-            <ArchiveRestore />
+            <Blocks />
           </EmptyMedia>
           <EmptyTitle>{t("sessions.skillsList.loadError")}</EmptyTitle>
           <EmptyDescription>{t("sessions.skillsList.loadErrorDesc")}</EmptyDescription>
@@ -582,7 +573,7 @@ function ManagedSkillsGrid({
   if (skills.length === 0) {
     return (
       <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-        {removed ? t("sessions.skillsList.noRemovedSkills") : t("sessions.skillsList.noSkills")}
+        {t("sessions.skillsList.noSkills")}
       </p>
     );
   }
@@ -593,7 +584,6 @@ function ManagedSkillsGrid({
           <ManagedSkillCard
             key={skill.id}
             skill={skill}
-            removed={removed}
             active={selectedId === skill.id}
             onOpen={() => onOpen(skill)}
           />
@@ -619,17 +609,15 @@ function ManagedSkillsGrid({
 
 function ManagedSkillCard({
   skill,
-  removed,
   active,
   onOpen,
 }: {
   skill: Skill;
-  removed: boolean;
   active: boolean;
   onOpen: () => void;
 }) {
   const { t } = useI18n();
-  // Keep the card footer dedicated to provenance across active and removed views.
+  // Keep the card footer dedicated to provenance.
   const sourceLabel =
     skill.scope === "system"
       ? t("sessions.skillsList.builtin")
@@ -671,26 +659,8 @@ function ManagedSkillCard({
         <Badge variant="outline" size="sm">
           {t(SCOPE_LABEL_KEY[skill.scope as SkillScope])}
         </Badge>
-        {removed ? (
-          <>
-            <Badge variant="outline" size="sm">
-              {skill.removal_source === "curator"
-                ? t("sessions.skillsList.removedByCurator")
-                : t("sessions.skillsList.removedManually")}
-            </Badge>
-            <span className="ml-auto">{sourceLabel}</span>
-          </>
-        ) : (
-          <span className="ml-auto">{sourceLabel}</span>
-        )}
+        <span className="ml-auto">{sourceLabel}</span>
       </div>
-      {removed && skill.restore_deadline && (
-        <p className="text-xs text-muted-foreground">
-          {t("sessions.skillsList.restoreDeadline", {
-            time: formatTime(skill.restore_deadline),
-          })}
-        </p>
-      )}
     </button>
   );
 }
@@ -840,13 +810,11 @@ function MarketCard({
 function SkillInspector({
   agentId,
   skill,
-  removed,
   notify,
   onClose,
 }: {
   agentId: string;
   skill: Skill;
-  removed: boolean;
   notify: ToastHandler;
   onClose: () => void;
 }) {
@@ -860,10 +828,9 @@ function SkillInspector({
   const [viewer, setViewer] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
-  const [restoring, setRestoring] = useState(false);
   const [convertToManual, setConvertToManual] = useState(false);
   const scopeReadOnly = isSkillReadOnly(skill.scope, !!me?.is_admin);
-  const readOnly = removed || scopeReadOnly;
+  const readOnly = scopeReadOnly;
   const canUpgrade = !readOnly && isUpdatableSource(skill.source);
   const detail = useQuery({
     queryKey: ["agent-skill", agentId, skill.scope, skill.id],
@@ -948,7 +915,7 @@ function SkillInspector({
         query: { scope: skill.scope as SkillScope },
         throwOnError: true,
       });
-      notify(t("sessions.skillsList.removedSuccess"), "success");
+      notify(t("sessions.skillsList.deletedSuccess"), "success");
       await queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
       void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
       onClose();
@@ -956,25 +923,6 @@ function SkillInspector({
       notify(apiErrorMessage(error, t("common.error")), "error");
     } finally {
       setConfirmOpen(false);
-    }
-  }
-
-  async function restore() {
-    setRestoring(true);
-    try {
-      await restoreAgentSkill({
-        path: { id: agentId, skillId: skill.id },
-        query: { scope: skill.scope as "user" | "user_agent" | "system_agent" },
-        throwOnError: true,
-      });
-      notify(t("sessions.skillsList.restoredSuccess"), "success");
-      await queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
-      void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-      onClose();
-    } catch (error) {
-      notify(apiErrorMessage(error, t("common.error")), "error");
-    } finally {
-      setRestoring(false);
     }
   }
 
@@ -1029,13 +977,6 @@ function SkillInspector({
                 ? t("sessions.skillsList.generated")
                 : t("sessions.skillsList.manualMaintenance")}
             </Badge>
-            {removed && (
-              <Badge variant="outline" size="sm">
-                {skill.removal_source === "curator"
-                  ? t("sessions.skillsList.removedByCurator")
-                  : t("sessions.skillsList.removedManually")}
-              </Badge>
-            )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
@@ -1053,18 +994,6 @@ function SkillInspector({
                     {skill.version}
                   </Badge>
                 )}
-              </span>
-            )}
-            {removed && skill.deprecated_at && (
-              <span>
-                {t("sessions.skillsList.removedAt", { time: formatTime(skill.deprecated_at) })}
-              </span>
-            )}
-            {removed && skill.restore_deadline && (
-              <span>
-                {t("sessions.skillsList.restoreDeadline", {
-                  time: formatTime(skill.restore_deadline),
-                })}
               </span>
             )}
           </div>
@@ -1168,21 +1097,7 @@ function SkillInspector({
         )}
       </div>
 
-      {removed ? (
-        <div className="flex items-center justify-between gap-3 border-t p-4">
-          <p className="text-sm text-muted-foreground">
-            {skill.is_restorable
-              ? t("sessions.skillsList.removedReadonly")
-              : t("sessions.skillsList.notRestorable")}
-          </p>
-          {skill.is_restorable && (
-            <Button loading={restoring} onClick={() => void restore()}>
-              <ArchiveRestore />
-              {t("sessions.skillsList.restore")}
-            </Button>
-          )}
-        </div>
-      ) : readOnly ? (
+      {readOnly ? (
         <div className="flex items-center gap-2 border-t p-4 text-sm text-muted-foreground">
           <Lock size={16} /> {t("sessions.skillsList.readonlyNote")}
         </div>
@@ -1190,7 +1105,7 @@ function SkillInspector({
         <div className="flex items-center gap-2 border-t p-4">
           <Button variant="destructive-outline" onClick={() => setConfirmOpen(true)}>
             <Trash2 size={16} />
-            {t("sessions.skillsList.removeSkill")}
+            {t("sessions.skillsList.deleteSkill")}
           </Button>
           <div className="ml-auto flex items-center gap-2">
             {canUpgrade && (
@@ -1217,7 +1132,7 @@ function SkillInspector({
               {t("common.cancel")}
             </AlertDialogClose>
             <Button variant="destructive" onClick={() => void remove()}>
-              {t("sessions.skillsList.removeSkill")}
+              {t("sessions.skillsList.deleteSkill")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>

@@ -11,7 +11,6 @@ import {
 import type { ComponentsSkillList, ListAgentSkillsData } from "@/lib/api-client/types.gen";
 import type { Agent, Skill, Tool, UserMemory } from "@/lib/types";
 
-type AgentSkillState = NonNullable<ListAgentSkillsData["query"]>["state"];
 type AgentSkillScopeGroup = NonNullable<ListAgentSkillsData["query"]>["scope_group"];
 type AgentSkillCreatedBy = NonNullable<ListAgentSkillsData["query"]>["created_by"];
 
@@ -19,7 +18,6 @@ export interface AgentSkillsPageFilters {
   agentId: string;
   projectId?: string;
   sessionId?: string;
-  state: AgentSkillState;
   scopeGroup?: AgentSkillScopeGroup;
   createdBy?: AgentSkillCreatedBy;
   q?: string;
@@ -111,7 +109,6 @@ export function agentSkillsInfiniteQueryOptions(filters: AgentSkillsPageFilters)
       filters.agentId,
       filters.projectId ?? "",
       filters.sessionId ?? "",
-      filters.state,
       filters.scopeGroup ?? "all",
       filters.createdBy ?? "all",
       q,
@@ -122,7 +119,6 @@ export function agentSkillsInfiniteQueryOptions(filters: AgentSkillsPageFilters)
       const { data } = await listAgentSkills({
         path: { id: filters.agentId },
         query: {
-          state: filters.state,
           ...(filters.scopeGroup ? { scope_group: filters.scopeGroup } : {}),
           ...(filters.createdBy ? { created_by: filters.createdBy } : {}),
           ...(q ? { q } : {}),
