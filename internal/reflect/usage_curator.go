@@ -343,14 +343,12 @@ func deleteCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter, au
 			errs = append(errs, fmt.Errorf("usage curator: authorize delete skill %s: %w", candidate.SkillID, err))
 			continue
 		}
-		expectedLastUsedAt := candidate.LastUsedAt
 		_, err := writer.DeleteReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDelete{
-			ID:                                candidate.SkillID,
-			UserID:                            candidate.UserID,
-			AgentID:                           candidate.AgentID,
-			ExpectedVersion:                   candidate.Version,
-			ExpectedUsageLastUsedAt:           &expectedLastUsedAt,
-			RequireEligibleActivityAfterUsage: true,
+			ID:                      candidate.SkillID,
+			UserID:                  candidate.UserID,
+			AgentID:                 candidate.AgentID,
+			ExpectedVersion:         candidate.Version,
+			ExpectedUsageLastUsedAt: candidate.LastUsedAt,
 		})
 		if errors.Is(err, skills.ErrSkillUsageChanged) {
 			continue

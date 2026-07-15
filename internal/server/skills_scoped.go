@@ -380,10 +380,8 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 		if (sk.Scope == "user_agent" || sk.Scope == "system_agent") && sk.AgentID != agentID {
 			return nil, nil, "", http.StatusNotFound, "skill not found"
 		}
-		// Removed system-agent skills are an admin management surface, unlike
-		// active shared skills that ordinary agent users may read at runtime.
-		if sk.Status == "deprecated" && sk.Scope == "system_agent" && !info.IsAdmin {
-			return nil, nil, "", http.StatusForbidden, "system agent skills are managed by admins"
+		if sk.Status == "deprecated" {
+			return nil, nil, "", http.StatusNotFound, "skill not found"
 		}
 		return &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(*sk)}, acc, "", 0, ""
 	}
@@ -458,11 +456,6 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusBadRequest, "invalid scope_group")
 		return
 	}
-	if params.CreatedBy != nil && !params.CreatedBy.Valid() {
-		writeError(w, http.StatusBadRequest, "invalid created_by")
-		return
-	}
-
 	pageSize := defaultPageSize
 	if params.PageSize != nil {
 		pageSize = *params.PageSize
@@ -484,10 +477,6 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	query := ""
 	if params.Q != nil {
 		query = strings.TrimSpace(*params.Q)
-	}
-	createdBy := ""
-	if params.CreatedBy != nil {
-		createdBy = string(*params.CreatedBy)
 	}
 	projectRoot, err := s.projectRootForSession(r.Context(), agentID, params.SessionId)
 	if err != nil {
@@ -512,9 +501,6 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		if queryLower != "" && !strings.Contains(strings.ToLower(rs.Name), queryLower) && !strings.Contains(strings.ToLower(rs.Description), queryLower) {
 			continue
 		}
-		if createdBy != "" && skillCreatedBy(rs.Metadata) != createdBy {
-			continue
-		}
 		filtered = append(filtered, rs)
 	}
 
@@ -526,7 +512,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		}
 	}
 	total := len(selected)
-	legacyFullList := params.ScopeGroup == nil && params.CreatedBy == nil && params.Q == nil && params.PageSize == nil && params.PageToken == nil
+	legacyFullList := params.ScopeGroup == nil && params.Q == nil && params.PageSize == nil && params.PageToken == nil
 	if !legacyFullList {
 		sort.SliceStable(selected, func(i, j int) bool {
 			if selected[i].UpdatedAt.Equal(selected[j].UpdatedAt) {

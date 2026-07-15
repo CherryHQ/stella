@@ -66,7 +66,6 @@ type ManagedSkillUpdate struct {
 	Scope           string
 	Patch           UpdatePatch
 	Files           map[string]string
-	DeleteFiles     []string
 	ConvertToManual bool
 }
 

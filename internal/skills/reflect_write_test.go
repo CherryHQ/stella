@@ -301,6 +301,20 @@ func TestDeleteReflectOwnedUserAgentSkillRechecksUsageAndRemovesRows(t *testing.
 	if _, err := db.Exec(ctx, `UPDATE skill_usage SET last_used_at = $1 WHERE skill_id = $2`, lastUsedAt, created.ID); err != nil {
 		t.Fatalf("seed stale usage: %v", err)
 	}
+	_, err = store.DeleteReflectOwnedUserAgentSkill(ctx, ReflectSkillDelete{
+		ID: created.ID, UserID: userID, AgentID: agentID, ExpectedVersion: created.Version,
+	})
+	if err == nil {
+		t.Fatal("delete without expected usage timestamp succeeded")
+	}
+	_, err = store.DeleteReflectOwnedUserAgentSkill(ctx, ReflectSkillDelete{
+		ID: created.ID, UserID: userID, AgentID: agentID, ExpectedVersion: created.Version,
+		ExpectedUsageLastUsedAt: lastUsedAt,
+	})
+	if !errors.Is(err, ErrSkillUsageChanged) {
+		t.Fatalf("delete without later activity error = %v, want ErrSkillUsageChanged", err)
+	}
+
 	if _, err := db.Exec(ctx, `
 		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, last_active)
 		VALUES ('00000000-0000-0000-0000-000000000123', 'reflect-delete-session', 'test', 'chat', $1, $2, $3)
@@ -310,7 +324,7 @@ func TestDeleteReflectOwnedUserAgentSkillRechecksUsageAndRemovesRows(t *testing.
 
 	deleted, err := store.DeleteReflectOwnedUserAgentSkill(ctx, ReflectSkillDelete{
 		ID: created.ID, UserID: userID, AgentID: agentID, ExpectedVersion: created.Version,
-		ExpectedUsageLastUsedAt: &lastUsedAt, RequireEligibleActivityAfterUsage: true,
+		ExpectedUsageLastUsedAt: lastUsedAt,
 	})
 	if err != nil {
 		t.Fatalf("DeleteReflectOwnedUserAgentSkill: %v", err)

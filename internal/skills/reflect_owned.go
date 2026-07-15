@@ -56,9 +56,6 @@ func markSkillCreatedByMetadata(metadata json.RawMessage, createdBy string) (jso
 	if fields == nil {
 		fields = map[string]any{}
 	}
-	if fields == nil {
-		fields = map[string]any{}
-	}
 	fields[reflectSkillCreatedByKey] = createdBy
 
 	out, err := json.Marshal(fields)

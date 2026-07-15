@@ -247,10 +247,6 @@ paths:
           in: query
           required: false
           schema: { type: string, enum: [system, agent, user, project] }
-        - name: created_by
-          in: query
-          required: false
-          schema: { type: string, enum: [manual, reflect] }
         - name: q
           in: query
           required: false

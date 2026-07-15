@@ -90,7 +90,7 @@ func TestAgentSkillsLifecycleActiveKeysetAndCompatibility(t *testing.T) {
 	}
 }
 
-func TestAgentSkillsLifecycleScopeCountsSearchAndReflectFilter(t *testing.T) {
+func TestAgentSkillsLifecycleScopeCountsAndSearch(t *testing.T) {
 	env := setupAdmin(t)
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-filter")
 	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-filter-agent")
@@ -106,8 +106,8 @@ func TestAgentSkillsLifecycleScopeCountsSearchAndReflectFilter(t *testing.T) {
 		t.Fatalf("create reflect-owned skill: %v", err)
 	}
 
-	// Counts apply q/source but ignore the selected scope group.
-	got := listAgentSkillsLifecycle(t, env, sid, agentID, "?state=active&scope_group=user&q=needle&created_by=reflect&page_size=12")
+	// Counts apply search but ignore the selected scope group.
+	got := listAgentSkillsLifecycle(t, env, sid, agentID, "?scope_group=user&q=needle&page_size=12")
 	if len(got.Skills) != 0 {
 		t.Fatalf("user group unexpectedly returned reflect agent skill: %#v", got.Skills)
 	}
@@ -115,7 +115,7 @@ func TestAgentSkillsLifecycleScopeCountsSearchAndReflectFilter(t *testing.T) {
 		t.Fatalf("filtered counts = %#v total=%d, want all=1 agent=1 selected total=0", got.ScopeCounts, got.TotalSize)
 	}
 
-	agent := listAgentSkillsLifecycle(t, env, sid, agentID, "?state=active&scope_group=agent&q=NEEDLE&created_by=reflect&page_size=12")
+	agent := listAgentSkillsLifecycle(t, env, sid, agentID, "?scope_group=agent&q=NEEDLE&page_size=12")
 	if len(agent.Skills) != 1 || agent.Skills[0]["id"] != reflectSkill.ID || agent.Skills[0]["created_by"] != "reflect" {
 		t.Fatalf("agent reflect result = %#v, want %s", agent.Skills, reflectSkill.ID)
 	}
@@ -128,9 +128,17 @@ func TestAgentSkillsLifecycleDeleteUsesStableIDAndActiveName(t *testing.T) {
 	env := setupAdmin(t)
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-delete-reference")
 	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-delete-reference-agent")
+	deprecatedID := createTestSkill(t, env, "user_agent", user.ID, agentID, "legacy-deprecated")
+	if _, err := env.db.Exec(context.Background(), `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecatedID); err != nil {
+		t.Fatalf("mark legacy skill deprecated: %v", err)
+	}
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodGet, "/api/agents/"+agentID+"/skills/"+deprecatedID+"?scope=user_agent", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("deprecated stable ID status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
 
 	stableID := createTestSkill(t, env, "user_agent", user.ID, agentID, "delete-by-id")
-	rr := doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+stableID+"?scope=user_agent", nil)
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+stableID+"?scope=user_agent", nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("stable ID delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
