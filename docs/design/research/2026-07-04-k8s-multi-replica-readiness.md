@@ -59,16 +59,16 @@
 
 写入路径(均为 server 运行时可达):
 
-| 数据                 | 路径                                                     | 证据                                               | 性质                                                           |
-| -------------------- | -------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------- |
-| 用户/agent 工作区    | `$STELLA_HOME/users/{u}/agents/{a}/...`                  | `internal/agent/workspace.go:83-116`               | **持久用户数据**                                               |
-| 上传与通道附件       | `$STELLA_HOME/users/{u}/data/assets`                     | `internal/server/sessions.go:1394`、各通道 handler | **持久用户数据**                                               |
-| Recally 文章正文     | `$STELLA_HOME/library/{u}/articles/...`(DB 只存相对路径) | `internal/recally/files.go:24-31`                  | **持久用户数据,DB 行在、文件只在一个 pod 上**                  |
-| Skills disk mirror   | `$STELLA_HOME/.agents/db-skills` 等四处                  | `internal/skills/disk_sync.go:147-186`             | DB 是 source of truth,但运行时读磁盘镜像,跨副本会读到旧/缺文件 |
-| models.json 缓存     | `$STELLA_HOME/cache/models.json`                         | `internal/config/models_cache.go:25`               | A 上 fetch 的模型列表 B 看不到                                 |
-| mise 工具链/插件状态 | `$STELLA_HOME/.mise-tools`、`plugin-manifest-state.json` | `internal/manifestplugins/reconcile.go:55`         | 每副本各装一套;共享目录则并发写冲突                            |
+| 数据                 | 路径                                                     | 证据                                               | 性质                                                                                                     |
+| -------------------- | -------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 用户/agent 工作区    | `$STELLA_HOME/users/{u}/agents/{a}/...`                  | `internal/agent/workspace.go:83-116`               | **持久用户数据**                                                                                         |
+| 上传与通道附件       | `$STELLA_HOME/users/{u}/data/assets`                     | `internal/server/sessions.go:1394`、各通道 handler | **持久用户数据**                                                                                         |
+| Recally 文章正文     | `$STELLA_HOME/library/{u}/articles/...`(DB 只存相对路径) | `internal/recally/files.go:24-31`                  | **持久用户数据,DB 行在、文件只在一个 pod 上**                                                            |
+| Skills 运行时缓存    | `$STELLA_HOME/.agents/db-skills` 等四处                  | `internal/skills/tool.go`                          | DB 是 source of truth；load 时按稳定 Skill ID 物化本地派生缓存，失败时 fail closed，不依赖跨副本共享磁盘 |
+| models.json 缓存     | `$STELLA_HOME/cache/models.json`                         | `internal/config/models_cache.go:25`               | A 上 fetch 的模型列表 B 看不到                                                                           |
+| mise 工具链/插件状态 | `$STELLA_HOME/.mise-tools`、`plugin-manifest-state.json` | `internal/manifestplugins/reconcile.go:55`         | 每副本各装一套;共享目录则并发写冲突                                                                      |
 
-**修复方向**:分层处置——用户数据(工作区/上传/文章)→ 对象存储或共享 RWX PVC;skills/models 缓存 → 直接读 DB 或加跨副本失效;工具链 → 镜像内置或 per-pod 幂等安装。注意:**多副本共享一个可变 `STELLA_HOME` 与每 pod 独立卷都各有坑**,必须按目录拆策略,不能一刀切。
+**修复方向**:分层处置——用户数据(工作区/上传/文章)→ 对象存储或共享 RWX PVC；Skills 已改为 load 时从 DB 物化本地派生缓存；models 缓存 → 直接读 DB 或加跨副本失效；工具链 → 镜像内置或 per-pod 幂等安装。注意:**多副本共享一个可变 `STELLA_HOME` 与每 pod 独立卷都各有坑**,必须按目录拆策略,不能一刀切。
 
 ### B5. 嵌入 PostgreSQL 模式
 

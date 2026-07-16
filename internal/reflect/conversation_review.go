@@ -161,9 +161,10 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 	return newReviewer(reviewerConfig{
 		Stream: stream,
 		Model:  model,
-		// No skill-disk layout: reflect runs host-identity and reads/writes skill
-		// content through the DB store, which mirrors to disk itself. The reviewer
-		// prompt drives create/patch/deprecate, so those stay enabled — but every
+		// No skill-disk layout: reflect runs host-identity and reads/writes Skill
+		// content through PostgreSQL. Runtime loads materialize their own derived
+		// cache. The reviewer prompt drives create/patch/deprecate, so those stay
+		// enabled — but every
 		// DB read and write passes through Skill access under the review target's
 		// confined identity (WithUserID+WithAgentID on reviewCtx). remove/install/
 		// search/list are not exposed. The separate
