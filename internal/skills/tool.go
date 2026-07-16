@@ -89,7 +89,7 @@ type Tool struct {
 	// nil, DB-backed reads fail closed (the row is dropped or reported not-found).
 	readAuthz SkillReadAuthorizer
 	// writeAuthz enforces Skill write authorization on every DB-backed
-	// create/patch. Only callers that expose write actions (the reflect
+	// create/patch/deprecate. Only callers that expose write actions (the reflect
 	// reviewer) inject it; when a write action runs without it, the write fails closed.
 	writeAuthz SkillWriteAuthorizer
 }
@@ -217,7 +217,7 @@ func (t *Tool) authorizeLoadable(ctx context.Context, rs *ResolvedSkill) error {
 }
 
 // WithWriteAuthorizer injects the Skill write authorizer. Every DB-backed
-// create/patch is authorized before the store mutation; a denial fails
+// create/patch/deprecate is authorized before the store mutation; a denial fails
 // the write.
 func (t *Tool) WithWriteAuthorizer(a SkillWriteAuthorizer) *Tool {
 	t.writeAuthz = a
