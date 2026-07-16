@@ -5,7 +5,7 @@
 //   - HTTP transports call the Begin/Authorize* methods with the caller's
 //     Authority;
 //   - the agent skills tool (reads) and the reflect reviewer tool (reads and its
-//     prompt-driven create/patch/deprecate) reach the decisions through the
+//     prompt-driven create/patch) reach the decisions through the
 //     consumer-owned skills.SkillReadAuthorizer / SkillWriteAuthorizer ports
 //     (BeginRead / BeginWrite), which reconstruct the turn/worker identity from
 //     context — a user or delegated agent, or a confined GroupAgentActor for a
@@ -118,7 +118,7 @@ func contextReadAuthority(ctx context.Context) (authz.Authority, error) {
 // BeginWrite implements skills.SkillWriteAuthorizer for the reflect reviewer
 // tool. It reconstructs the trusted turn identity from context (the reflect
 // review target's WithUserID+WithAgentID → an AgentActor) and authorizes
-// each create/patch/deprecate before the store mutation.
+// each create/patch before the store mutation.
 func (s *Service) BeginWrite(ctx context.Context) (skills.SkillWriteDecision, error) {
 	if s.agents == nil {
 		return nil, ErrUnavailable

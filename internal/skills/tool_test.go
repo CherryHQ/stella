@@ -182,10 +182,6 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 	if patch.Description != nil {
 		desc = *patch.Description
 	}
-	status := row.Status
-	if patch.Status != nil {
-		status = *patch.Status
-	}
 	disabled := row.DisableModelInvocation
 	if patch.DisableModelInvocation != nil {
 		disabled = *patch.DisableModelInvocation
@@ -195,7 +191,7 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 		meta = patch.Metadata
 	}
 	params := sqlc.UpdateSkillMetadataParams{
-		ID: id, Description: desc, Status: status, DisableModelInvocation: disabled, Metadata: meta,
+		ID: id, Description: desc, Status: row.Status, DisableModelInvocation: disabled, Metadata: meta,
 	}
 	switch row.Scope {
 	case "system_agent":
@@ -263,10 +259,6 @@ func (s *testSkillStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillI
 		  AND agent_id = $3
 	`, skillID, userID, agentID)
 	return err
-}
-
-func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) error {
-	return s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339))
 }
 
 func TestCreateIgnoresLegacyKnowledgeType(t *testing.T) {
@@ -636,7 +628,7 @@ func TestInstallRejectsNonStringScope(t *testing.T) {
 // --- Store-backed tests ---
 
 // TestToolWriteAuthorizationEnforced proves the reflect reviewer tool's
-// create/patch/deprecate are each authorized against ResourceSkill before the
+// create/patch are each authorized against ResourceSkill before the
 // store mutation: a denial rejects the write (and the store is untouched), an
 // allowed actor succeeds, and a missing authorizer fails closed.
 func TestToolWriteAuthorizationEnforced(t *testing.T) {
@@ -662,30 +654,24 @@ func TestToolWriteAuthorizationEnforced(t *testing.T) {
 		}
 	})
 
-	t.Run("denied patch and deprecate are rejected", func(t *testing.T) {
+	t.Run("denied patch is rejected", func(t *testing.T) {
 		calls := 0
 		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(denySkillWrites{calls: &calls})
 		if _, err := tool.patch(ctx, map[string]any{"name": "existing", "description": "changed"}); err == nil {
 			t.Fatal("expected denied patch to fail")
 		}
-		if _, err := tool.deprecate(ctx, map[string]any{"name": "existing"}); err == nil {
-			t.Fatal("expected denied deprecate to fail")
-		}
-		if calls < 2 {
-			t.Fatalf("write PEP consulted %d times, want >= 2 (patch + deprecate)", calls)
+		if calls != 1 {
+			t.Fatalf("write PEP consulted %d times, want 1 patch authorization", calls)
 		}
 	})
 
-	t.Run("allowed create/patch/deprecate succeed", func(t *testing.T) {
+	t.Run("allowed create/patch succeed", func(t *testing.T) {
 		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 		if _, err := tool.create(ctx, map[string]any{"name": "ok-skill", "description": "an allowed skill"}); err != nil {
 			t.Fatalf("allowed create: %v", err)
 		}
 		if _, err := tool.patch(ctx, map[string]any{"name": "ok-skill", "description": "updated"}); err != nil {
 			t.Fatalf("allowed patch: %v", err)
-		}
-		if _, err := tool.deprecate(ctx, map[string]any{"name": "ok-skill"}); err != nil {
-			t.Fatalf("allowed deprecate: %v", err)
 		}
 	})
 
@@ -1431,7 +1417,7 @@ func TestPatchRespectsScope(t *testing.T) {
 	}
 
 	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
-	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "scope": "user", "status": "deprecated"}); err != nil {
+	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "scope": "user", "description": "changed-user"}); err != nil {
 		t.Fatalf("patch user scope: %v", err)
 	}
 
@@ -1439,8 +1425,8 @@ func TestPatchRespectsScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list user scope: %v", err)
 	}
-	if len(userRows) != 1 || userRows[0].Status != "deprecated" {
-		t.Fatalf("user dup = %#v, want deprecated", userRows)
+	if len(userRows) != 1 || userRows[0].Description != "changed-user" {
+		t.Fatalf("user dup = %#v, want changed description", userRows)
 	}
 	agentRows, err := store.ListByScope(ctx, "user_agent", userID, agentID)
 	if err != nil {
@@ -1468,16 +1454,16 @@ func TestPatchDefaultScopeIsUser(t *testing.T) {
 		t.Fatalf("create user_agent skill: %v", err)
 	}
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "user", UserID: userID, Name: "fact", Description: "f", Status: "draft", DisableModelInvocation: true,
+		Scope: "user", UserID: userID, Name: "fact", Description: "f", Status: "active", DisableModelInvocation: true,
 	}, map[string]string{pkgplugins.SkillMainFile: "# f"}); err != nil {
 		t.Fatalf("create disabled user skill: %v", err)
 	}
 
 	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
-	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "status": "deprecated"}); err != nil {
+	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "description": "changed-default"}); err != nil {
 		t.Fatalf("patch default scope: %v", err)
 	}
-	if _, err := tool.patch(ctx, map[string]any{"name": "fact", "status": "active"}); err != nil {
+	if _, err := tool.patch(ctx, map[string]any{"name": "fact", "description": "changed-hidden"}); err != nil {
 		t.Fatalf("patch hidden default-scope skill: %v", err)
 	}
 
@@ -1485,12 +1471,12 @@ func TestPatchDefaultScopeIsUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list user scope: %v", err)
 	}
-	statuses := map[string]string{}
+	descriptions := map[string]string{}
 	for _, row := range userRows {
-		statuses[row.Name] = row.Status
+		descriptions[row.Name] = row.Description
 	}
-	if statuses["dup"] != "deprecated" || statuses["fact"] != "active" {
-		t.Fatalf("user rows = %#v, want dup deprecated and fact active", userRows)
+	if descriptions["dup"] != "changed-default" || descriptions["fact"] != "changed-hidden" {
+		t.Fatalf("user rows = %#v, want both descriptions updated", userRows)
 	}
 	agentRows, err := store.ListByScope(ctx, "user_agent", userID, agentID)
 	if err != nil {

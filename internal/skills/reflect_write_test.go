@@ -532,7 +532,7 @@ func TestPatchReflectOwnedSkillExactStaleRetryIsNoop(t *testing.T) {
 	}
 
 	// A concurrent change to an unspecified field must not invalidate this retry.
-	if _, err := db.Exec(ctx, `UPDATE skill SET status = 'draft' WHERE id = $1`, created.ID); err != nil {
+	if _, err := db.Exec(ctx, `UPDATE skill SET disable_model_invocation = TRUE WHERE id = $1`, created.ID); err != nil {
 		t.Fatalf("seed concurrent unspecified-field change: %v", err)
 	}
 	var firstLastUsedAt time.Time
@@ -544,8 +544,8 @@ func TestPatchReflectOwnedSkillExactStaleRetryIsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retry PatchReflectOwnedUserAgentSkill: %v", err)
 	}
-	if retried.Version != patched.Version || retried.Status != "draft" {
-		t.Fatalf("retry returned version/status = %d/%q, want %d/draft", retried.Version, retried.Status, patched.Version)
+	if retried.Version != patched.Version || !retried.DisableModelInvocation {
+		t.Fatalf("retry returned version/disabled = %d/%t, want %d/true", retried.Version, retried.DisableModelInvocation, patched.Version)
 	}
 
 	var changelogCount int

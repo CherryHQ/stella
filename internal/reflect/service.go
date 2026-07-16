@@ -13,16 +13,12 @@ import (
 )
 
 const (
-	// defaultDraftMaxAge is the maximum age of a draft skill before it is
-	// automatically deprecated.
-	defaultDraftMaxAge = 30 * 24 * time.Hour
-
 	defaultMaxReviewTargetsPerAgent = 30
 	defaultReflectRunSoftBudget     = 15 * time.Minute
 )
 
 // skillWriteAuthorizer authorizes reflect's staged skill writes (create/patch/
-// deprecate) under a fresh trusted WorkerAgentAuthority per operation. It is
+// delete) under a fresh trusted WorkerAgentAuthority per operation. It is
 // satisfied by *skillaccess.Service; when unset, reflect skill writes fail closed.
 type skillWriteAuthorizer interface {
 	AuthorizeWorkerWrite(ctx context.Context, userID, agentID, skillID string, create bool) error
@@ -37,7 +33,7 @@ type Config struct {
 	// SkillAuthorizer applies Skill domain rules to reflect's staged writes (the
 	// reconciliation-plan/usage-curator path); when nil those fail closed.
 	// SkillReadAuthorizer gates the reviewer tool's DB-skill reads and
-	// SkillToolWriteAuthorizer gates its prompt-driven create/patch/deprecate.
+	// SkillToolWriteAuthorizer gates its prompt-driven create/patch.
 	SkillAuthorizer          skillWriteAuthorizer
 	SkillReadAuthorizer      skillstool.SkillReadAuthorizer
 	SkillToolWriteAuthorizer skillstool.SkillWriteAuthorizer

@@ -3,7 +3,6 @@ package pluginhost
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -103,7 +102,6 @@ func (a skillStoreAdapter) Update(ctx context.Context, id string, patch pkgplugi
 	}
 	return a.s.Update(ctx, id, vc, skills.UpdatePatch{
 		Description:            patch.Description,
-		Status:                 patch.Status,
 		DisableModelInvocation: patch.DisableModelInvocation,
 		Metadata:               patch.Metadata,
 	})
@@ -146,10 +144,6 @@ func (a skillStoreAdapter) viewContextForSkill(ctx context.Context, id string) (
 		}
 	}
 	return skills.ViewContext{}, nil
-}
-
-func (a skillStoreAdapter) ExpireDrafts(ctx context.Context, before time.Time) error {
-	return a.s.ExpireDrafts(ctx, before)
 }
 
 // NewSkillStoreAdapter wraps an internal/skills.Store as a pkgplugins.SkillStore.

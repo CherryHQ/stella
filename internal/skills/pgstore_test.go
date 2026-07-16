@@ -351,9 +351,9 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		status := "deprecated"
-		if err := store.Update(ctx, id, ViewContext{UserID: userID}, UpdatePatch{Status: &status}); err != nil {
-			t.Fatalf("Update: %v", err)
+		// Deprecated is a legacy read-only state; seed it below the business API.
+		if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, id); err != nil {
+			t.Fatalf("seed deprecated state: %v", err)
 		}
 
 		skills, err := store.List(ctx, ViewContext{UserID: userID})

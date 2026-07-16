@@ -251,7 +251,7 @@ func dbSkillsToPluginSkills(rows []skills.Skill) []pkgplugins.Skill {
 func dbSkillToPluginSkill(sk skills.Skill) pkgplugins.Skill {
 	return pkgplugins.Skill{
 		ID: sk.ID, Scope: sk.Scope, UserID: sk.UserID, AgentID: sk.AgentID,
-		Name: sk.Name, Description: sk.Description, Status: sk.Status,
+		Name: sk.Name, Description: sk.Description,
 		DisableModelInvocation: sk.DisableModelInvocation, Metadata: sk.Metadata,
 		CreatedAt: sk.CreatedAt, UpdatedAt: sk.UpdatedAt, Version: sk.Version,
 	}
@@ -272,7 +272,6 @@ func resolvedSkillToView(rs skills.ResolvedSkill) skillView {
 		AgentID:                rs.AgentID,
 		Name:                   rs.Name,
 		Description:            rs.Description,
-		Status:                 rs.Status,
 		DisableModelInvocation: rs.DisableModelInvocation,
 		Files:                  files,
 		Source:                 skillSource(rs.Metadata),
@@ -623,7 +622,6 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		Scope:                  req.Scope,
 		Name:                   req.Name,
 		Description:            req.Description,
-		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
 	switch req.Scope {

@@ -3,7 +3,6 @@ package reflect
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -75,8 +74,6 @@ func (stubPluginSkillStore) UpsertFile(context.Context, string, string, string) 
 func (stubPluginSkillStore) DeleteFile(context.Context, string, string) error { return nil }
 
 func (stubPluginSkillStore) Delete(context.Context, string) error { return nil }
-
-func (stubPluginSkillStore) ExpireDrafts(context.Context, time.Time) error { return nil }
 
 type stubUsageCuratorSkillStore struct {
 	stubPluginSkillStore

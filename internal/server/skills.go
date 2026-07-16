@@ -21,7 +21,6 @@ type skillView struct {
 	AgentID                string    `json:"agent_id,omitempty"`
 	Name                   string    `json:"name"`
 	Description            string    `json:"description"`
-	Status                 string    `json:"status"`
 	DisableModelInvocation bool      `json:"disable_model_invocation"`
 	Files                  []string  `json:"files"`
 	Source                 string    `json:"source,omitempty"`
@@ -42,14 +41,12 @@ type createSkillRequest struct {
 	AgentID                string            `json:"agent_id"`
 	Name                   string            `json:"name"`
 	Description            string            `json:"description"`
-	Status                 string            `json:"status"`
 	DisableModelInvocation bool              `json:"disable_model_invocation"`
 	Files                  map[string]string `json:"files"`
 }
 
 type updateSkillRequest struct {
 	Description            *string           `json:"description"`
-	Status                 *string           `json:"status"`
 	DisableModelInvocation *bool             `json:"disable_model_invocation"`
 	Version                *string           `json:"version"`
 	ConvertToManual        bool              `json:"convert_to_manual"`
@@ -79,7 +76,7 @@ func storedSkillToView(sk skills.Skill, files []string) skillView {
 	}
 	return skillView{
 		ID: sk.ID, Scope: sk.Scope, UserID: sk.UserID, AgentID: sk.AgentID,
-		Name: sk.Name, Description: sk.Description, Status: sk.Status,
+		Name: sk.Name, Description: sk.Description,
 		DisableModelInvocation: sk.DisableModelInvocation, Files: files,
 		Source: skillSource(sk.Metadata), Version: skillVersion(sk.Metadata),
 		LifecycleVersion: sk.Version, CreatedBy: skillCreatedBy(sk.Metadata),
@@ -101,7 +98,6 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 	}
 	patch := skills.UpdatePatch{
 		Description:            req.Description,
-		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
 	if sk.Scope == "system" {

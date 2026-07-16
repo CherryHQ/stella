@@ -159,7 +159,6 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		Scope                  string            `json:"scope"`
 		AgentID                string            `json:"agent_id"`
 		Description            string            `json:"description"`
-		Status                 string            `json:"status"`
 		DisableModelInvocation bool              `json:"disable_model_invocation"`
 		Files                  map[string]string `json:"files"`
 	}
@@ -190,7 +189,6 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		AgentID:                aid,
 		Name:                   req.Name,
 		Description:            req.Description,
-		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
 	id, err := s.skillStore().Create(r.Context(), sk, files)
@@ -268,7 +266,7 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 		AgentID:                aid,
 		Name:                   up.name,
 		Description:            up.description,
-		Status:                 up.status,
+		Status:                 skills.SkillStatusActive,
 		DisableModelInvocation: up.disableModelInvocation,
 		Metadata:               up.metadata,
 	}

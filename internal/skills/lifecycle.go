@@ -35,9 +35,6 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 	if before.Status == "deprecated" {
 		return Skill{}, ErrSkillNotMutable
 	}
-	if in.Patch.Status != nil && *in.Patch.Status == "deprecated" {
-		return Skill{}, ErrSkillNotMutable
-	}
 	if in.ConvertToManual && !IsReflectOwned(before) {
 		return Skill{}, ErrSkillNotReflectOwned
 	}

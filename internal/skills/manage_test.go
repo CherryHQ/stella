@@ -30,7 +30,7 @@ func TestValidateCreateInput_invalidName(t *testing.T) {
 }
 
 func TestBuildSkillFile_containsFrontmatter(t *testing.T) {
-	out := buildSkillFile("my-skill", "does something", "active", "2026-01-01", "## Instructions\nDo stuff.")
+	out := buildSkillFile("my-skill", "does something", "2026-01-01", "## Instructions\nDo stuff.")
 	if !strings.HasPrefix(out, "---\n") {
 		t.Fatalf("expected YAML frontmatter start, got: %q", out[:min(len(out), 20)])
 	}
@@ -43,7 +43,7 @@ func TestBuildSkillFile_containsFrontmatter(t *testing.T) {
 }
 
 func TestBuildSkillFile_noBody(t *testing.T) {
-	out := buildSkillFile("my-skill", "desc", "draft", "2026-01-01", "")
+	out := buildSkillFile("my-skill", "desc", "2026-01-01", "")
 	if strings.Contains(out, "\n\n") {
 		// just verify it ends cleanly with the closing ---
 		_ = out
@@ -54,7 +54,7 @@ func TestBuildSkillFile_noBody(t *testing.T) {
 }
 
 func TestBuildSkillFile_bodyNewlineEnforced(t *testing.T) {
-	out := buildSkillFile("my-skill", "desc", "active", "2026-01-01", "no newline at end")
+	out := buildSkillFile("my-skill", "desc", "2026-01-01", "no newline at end")
 	if !strings.HasSuffix(out, "\n") {
 		t.Errorf("expected trailing newline, got: %q", out[max(0, len(out)-5):])
 	}

@@ -67,7 +67,7 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 		Scope:                  scope,
 		Name:                   name,
 		Description:            fm.Description,
-		Status:                 NormalizeSkillStatus(fm.Status),
+		Status:                 SkillStatusActive,
 		DisableModelInvocation: fm.DisableModelInvocation,
 		Metadata:               json.RawMessage(metaBytes),
 	}
@@ -174,11 +174,9 @@ func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID st
 	if err != nil {
 		return UpgradeResult{}, fmt.Errorf("encode skill metadata: %w", err)
 	}
-	status := NormalizeSkillStatus(fm.Status)
 	disable := fm.DisableModelInvocation
 	if err := store.Update(ctx, skillID, pkgplugins.SkillUpdatePatch{
 		Description:            &fm.Description,
-		Status:                 &status,
 		DisableModelInvocation: &disable,
 		Metadata:               json.RawMessage(metaBytes),
 	}); err != nil {
