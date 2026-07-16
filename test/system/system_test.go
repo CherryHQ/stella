@@ -19,6 +19,7 @@ func TestSystem(t *testing.T) {
 	t.Run("readiness", h.testReadiness)
 	t.Run("startup_and_auth", h.testStartupAndAuth)
 	t.Run("chat_sse", h.testChatSSE)
+	t.Run("goal_lifecycle", h.testGoalLifecycle)
 }
 
 // testReadiness proves the boot premise end to end: the production binary
