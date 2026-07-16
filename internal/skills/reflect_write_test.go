@@ -83,8 +83,8 @@ func TestTouchReflectSkillRuntimeUseDoesNotRecreateMissingRow(t *testing.T) {
 		t.Fatalf("delete skill usage: %v", err)
 	}
 
-	if err := store.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID); err != nil {
-		t.Fatalf("TouchReflectSkillRuntimeUse: %v", err)
+	if err := store.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID); !errors.Is(err, ErrSkillUsageChanged) {
+		t.Fatalf("TouchReflectSkillRuntimeUse error = %v, want ErrSkillUsageChanged", err)
 	}
 	var count int
 	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&count); err != nil {

@@ -3,11 +3,14 @@ package skills
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 // PathResolver maps a skill's (scope, agentID, userID) to the base directory
@@ -26,9 +29,9 @@ type PathResolver func(scope, agentID string, userID string) string
 // authoritative inside the inner store's row lock. Disk is mirrored only after
 // the DB accepts the patch.
 //
-// For Delete, DB is removed first (disk after): a crash then leaves an inert
-// orphan directory, whereas disk-first would leave a live DB row that load
-// re-materializes — deleting the skill would silently fail.
+// Generic and Reflect curator deletion first quarantine the name-based
+// directory, then commit the DB delete and remove only that ID-qualified
+// tombstone.
 type DiskSyncStore struct {
 	Store
 	resolver PathResolver
@@ -40,6 +43,9 @@ func NewDiskSyncStore(inner Store, resolver PathResolver) *DiskSyncStore {
 }
 
 func (d *DiskSyncStore) Create(ctx context.Context, sk Skill, files map[string]string) (string, error) {
+	if err := validateSkillFilePaths(files); err != nil {
+		return "", err
+	}
 	base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
 	if base != "" {
 		if err := d.writeFilesToDisk(base, sk.Name, files); err != nil {
@@ -110,12 +116,82 @@ func (d *DiskSyncStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in 
 }
 
 func (d *DiskSyncStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDelete) (Skill, error) {
-	deleted, err := d.Store.DeleteReflectOwnedUserAgentSkill(ctx, in)
+	current, err := d.findByID(ctx, in.ID)
 	if err != nil {
 		return Skill{}, err
 	}
-	d.removeSkillDir(ctx, &deleted)
+	tombstone, err := d.quarantineSkillDir(current)
+	if err != nil {
+		return Skill{}, err
+	}
+
+	deleted, err := d.Store.DeleteReflectOwnedUserAgentSkill(ctx, in)
+	if err != nil {
+		d.restoreQuarantinedSkillDir(ctx, tombstone)
+		return Skill{}, err
+	}
+	d.removeQuarantinedSkillDir(ctx, tombstone)
 	return deleted, nil
+}
+
+type quarantinedSkillDir struct {
+	original  string
+	tombstone string
+}
+
+// quarantineSkillDir removes the reusable name from the filesystem before the
+// database uniqueness slot can be released. A later same-name create therefore
+// writes a fresh directory that cleanup cannot accidentally delete.
+func (d *DiskSyncStore) quarantineSkillDir(sk *Skill) (*quarantinedSkillDir, error) {
+	if sk == nil {
+		return nil, nil
+	}
+	base := d.resolver(sk.Scope, sk.AgentID, sk.UserID)
+	if base == "" {
+		return nil, nil
+	}
+	original, err := safeDiskPath(base, sk.Name)
+	if err != nil {
+		return nil, fmt.Errorf("disk_sync: quarantine skill %q: %w", sk.Name, err)
+	}
+	if _, err := os.Stat(original); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("disk_sync: inspect skill %q before delete: %w", sk.Name, err)
+	}
+	tombstone, err := safeDiskPath(base, ".stella-delete-"+sk.ID+"-"+uuid.NewString())
+	if err != nil {
+		return nil, fmt.Errorf("disk_sync: build tombstone for %q: %w", sk.Name, err)
+	}
+	if err := os.Rename(original, tombstone); err != nil {
+		return nil, fmt.Errorf("disk_sync: quarantine skill %q: %w", sk.Name, err)
+	}
+	return &quarantinedSkillDir{original: original, tombstone: tombstone}, nil
+}
+
+func (d *DiskSyncStore) restoreQuarantinedSkillDir(ctx context.Context, dir *quarantinedSkillDir) {
+	if dir == nil {
+		return
+	}
+	if _, err := os.Stat(dir.original); err == nil {
+		d.removeQuarantinedSkillDir(ctx, dir)
+		return
+	} else if !errors.Is(err, os.ErrNotExist) {
+		slog.ErrorContext(ctx, "disk_sync: inspect original skill directory during rollback", "path", dir.original, "err", err)
+		return
+	}
+	if err := os.Rename(dir.tombstone, dir.original); err != nil {
+		slog.ErrorContext(ctx, "disk_sync: restore quarantined skill directory", "from", dir.tombstone, "to", dir.original, "err", err)
+	}
+}
+
+func (d *DiskSyncStore) removeQuarantinedSkillDir(ctx context.Context, dir *quarantinedSkillDir) {
+	if dir == nil {
+		return
+	}
+	if err := os.RemoveAll(dir.tombstone); err != nil {
+		slog.WarnContext(ctx, "disk_sync: remove quarantined skill directory", "path", dir.tombstone, "err", err)
+	}
 }
 
 // UpdateManagedSkill mirrors all retained DB files only after its atomic DB
@@ -151,17 +227,22 @@ func (d *DiskSyncStore) DeleteFile(ctx context.Context, skillID, path string) er
 	return d.Store.DeleteFile(ctx, skillID, path)
 }
 
-// Delete removes the DB row first, then removes the disk directory; a crash
-// in between leaves an inert orphan dir rather than a live, undeletable skill.
+// Delete quarantines the name-based mirror before releasing the database name,
+// so a concurrent same-name create cannot be removed by this cleanup.
 func (d *DiskSyncStore) Delete(ctx context.Context, id string, vc ViewContext) error {
 	sk, err := d.findByID(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := d.Store.Delete(ctx, id, vc); err != nil {
+	tombstone, err := d.quarantineSkillDir(sk)
+	if err != nil {
 		return err
 	}
-	d.removeSkillDir(ctx, sk)
+	if err := d.Store.Delete(ctx, id, vc); err != nil {
+		d.restoreQuarantinedSkillDir(ctx, tombstone)
+		return err
+	}
+	d.removeQuarantinedSkillDir(ctx, tombstone)
 	return nil
 }
 

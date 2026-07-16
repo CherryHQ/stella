@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -68,9 +69,22 @@ type changelogPageToken struct {
 }
 
 type skillPageToken struct {
-	Kind   string     `json:"kind"`
-	SortAt *time.Time `json:"sort_at"`
-	ID     string     `json:"id"`
+	Kind             string     `json:"kind"`
+	SortAt           *time.Time `json:"sort_at"`
+	ID               string     `json:"id"`
+	QueryFingerprint string     `json:"query_fingerprint"`
+}
+
+// skillPageQuery binds a cursor to every input that can change the merged Skill
+// result set. Page size is intentionally excluded so clients may resize a page
+// without changing the logical query.
+type skillPageQuery struct {
+	UserID     string `json:"user_id"`
+	AgentID    string `json:"agent_id"`
+	Scope      string `json:"scope"`
+	ScopeGroup string `json:"scope_group"`
+	Query      string `json:"q"`
+	SessionID  string `json:"session_id"`
 }
 
 // encodeKnowledgePageToken keeps lifecycle positions opaque to clients and
@@ -104,10 +118,10 @@ func decodeKnowledgePageToken(token string, state memorywrite.KnowledgeState) (*
 }
 
 // encodeSkillPageToken keeps a merged Skill cursor opaque to clients.
-func encodeSkillPageToken(cursor skills.ManagedSkillCursor) (string, error) {
+func encodeSkillPageToken(cursor skills.ManagedSkillCursor, query skillPageQuery) (string, error) {
 	sortAt := cursor.Timestamp.UTC()
 	payload, err := json.Marshal(skillPageToken{
-		Kind: skillPageTokenKind, SortAt: &sortAt, ID: cursor.ID,
+		Kind: skillPageTokenKind, SortAt: &sortAt, ID: cursor.ID, QueryFingerprint: skillPageQueryFingerprint(query),
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode skill page token: %w", err)
@@ -115,7 +129,7 @@ func encodeSkillPageToken(cursor skills.ManagedSkillCursor) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
-func decodeSkillPageToken(token string) (*skills.ManagedSkillCursor, error) {
+func decodeSkillPageToken(token string, query skillPageQuery) (*skills.ManagedSkillCursor, error) {
 	if token == "" {
 		return nil, fmt.Errorf("page_token is malformed")
 	}
@@ -129,10 +143,16 @@ func decodeSkillPageToken(token string) (*skills.ManagedSkillCursor, error) {
 	}
 	// Filesystem skills intentionally have a zero timestamp, so their stable ID
 	// is sufficient to continue the final timestamp bucket.
-	if decoded.Kind != skillPageTokenKind || decoded.SortAt == nil || decoded.ID == "" {
+	if decoded.Kind != skillPageTokenKind || decoded.SortAt == nil || decoded.ID == "" || decoded.QueryFingerprint != skillPageQueryFingerprint(query) {
 		return nil, fmt.Errorf("page_token does not match the skill query")
 	}
 	return &skills.ManagedSkillCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
+}
+
+func skillPageQueryFingerprint(query skillPageQuery) string {
+	payload, _ := json.Marshal(query)
+	sum := sha256.Sum256(payload)
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 func encodeChangelogPageToken(scope string, cursor memory.ChangelogCursor) (string, error) {

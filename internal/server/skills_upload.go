@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -67,10 +68,14 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 	sk.UserID, sk.AgentID = skillScopeOwner(scope, userID, agentID)
 	skillID, err := s.skillStore().Create(r.Context(), sk, up.files)
 	if err != nil {
+		if errors.Is(err, skills.ErrInvalidSkillFilePath) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		s.writeInternalError(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"id": skillID, "name": up.name})
+	s.writeStoredSkillResponse(w, r, http.StatusCreated, skillID)
 }
 
 func parseUploadedSkill(r *http.Request) (*uploadedSkill, int, string, error) {

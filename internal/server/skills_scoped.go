@@ -373,16 +373,20 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 
 	sk, err := s.findSkillByID(ctx, ref)
 	if err == nil {
-		if exactScope && sk.Scope != scope {
+		applicable := (!exactScope || sk.Scope == scope) && ((sk.Scope != "user_agent" && sk.Scope != "system_agent") || sk.AgentID == agentID)
+		if applicable {
+			if sk.Status == "deprecated" {
+				return nil, nil, "", http.StatusNotFound, "skill not found"
+			}
+			return &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(*sk)}, acc, "", 0, ""
+		}
+		if !exactScope {
 			return nil, nil, "", http.StatusNotFound, "skill not found"
 		}
-		if (sk.Scope == "user_agent" || sk.Scope == "system_agent") && sk.AgentID != agentID {
-			return nil, nil, "", http.StatusNotFound, "skill not found"
-		}
-		if sk.Status == "deprecated" {
-			return nil, nil, "", http.StatusNotFound, "skill not found"
-		}
-		return &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(*sk)}, acc, "", 0, ""
+		// In an exact-scope request, an ID collision outside the requested
+		// scope/agent is not authoritative. Continue with legacy scoped-name
+		// resolution so a legal hexadecimal Skill name remains reachable.
+		err = pgx.ErrNoRows
 	}
 	if !isNotFound(err) {
 		s.log.Error("find skill by stable id", "agent_id", agentID, "skill", ref, "error", err)
@@ -463,10 +467,11 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, http.StatusBadRequest, "page_size must be between 1 and 100")
 		return
 	}
+	pageQuery := normalizedSkillPageQuery(info.UserID, agentID, params)
 	var cursor *skills.ManagedSkillCursor
 	if params.PageToken != nil {
 		var err error
-		cursor, err = decodeSkillPageToken(*params.PageToken)
+		cursor, err = decodeSkillPageToken(*params.PageToken, pageQuery)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -541,7 +546,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	}
 	if hasMore {
 		last := selected[len(selected)-1]
-		token, err := encodeSkillPageToken(skills.ManagedSkillCursor{Timestamp: last.UpdatedAt, ID: last.ID})
+		token, err := encodeSkillPageToken(skills.ManagedSkillCursor{Timestamp: last.UpdatedAt, ID: last.ID}, pageQuery)
 		if err != nil {
 			s.writeInternalError(w, err)
 			return
@@ -549,6 +554,23 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		response["next_page_token"] = token
 	}
 	writeData(w, http.StatusOK, response)
+}
+
+func normalizedSkillPageQuery(userID, agentID string, params apiserver.ListAgentSkillsParams) skillPageQuery {
+	query := skillPageQuery{UserID: userID, AgentID: agentID}
+	if params.Scope != nil {
+		query.Scope = string(*params.Scope)
+	}
+	if params.ScopeGroup != nil {
+		query.ScopeGroup = string(*params.ScopeGroup)
+	}
+	if params.Q != nil {
+		query.Query = strings.ToLower(strings.TrimSpace(*params.Q))
+	}
+	if params.SessionId != nil {
+		query.SessionID = *params.SessionId
+	}
+	return query
 }
 
 func agentSkillScopeGroup(scope string) string {
@@ -635,10 +657,14 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	}
 	createdID, err := s.skillStore().Create(r.Context(), sk, files)
 	if err != nil {
+		if errors.Is(err, skills.ErrInvalidSkillFilePath) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		s.writeInternalError(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"id": createdID, "name": req.Name})
+	s.writeStoredSkillResponse(w, r, http.StatusCreated, createdID)
 }
 
 func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillParams) {
@@ -700,7 +726,7 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 				return
 			}
 		}
-		writeData(w, http.StatusOK, map[string]string{"id": skillId})
+		writeData(w, http.StatusOK, resolvedSkillToView(*rs))
 		return
 	}
 
@@ -884,7 +910,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
-	name, err := skills.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
+	skillID, _, err := skills.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")
@@ -893,7 +919,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		s.writeInternalError(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"name": name})
+	s.writeStoredSkillResponse(w, r, http.StatusCreated, skillID)
 }
 
 func (s *Server) UploadAgentSkill(w http.ResponseWriter, r *http.Request, id string) {

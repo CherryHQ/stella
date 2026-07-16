@@ -59,3 +59,16 @@ func TestBuildSkillFile_bodyNewlineEnforced(t *testing.T) {
 		t.Errorf("expected trailing newline, got: %q", out[max(0, len(out)-5):])
 	}
 }
+
+func TestValidateSkillFilePathsRejectsNonCanonicalKeys(t *testing.T) {
+	for _, filePath := range []string{"", "../escape.md", "./note.md", "a/../note.md", "/absolute.md", `references\note.md`} {
+		t.Run(filePath, func(t *testing.T) {
+			if err := validateSkillFilePaths(map[string]string{filePath: "body"}); err == nil {
+				t.Fatalf("path %q was accepted", filePath)
+			}
+		})
+	}
+	if err := validateSkillFilePaths(map[string]string{MainFile: "body", "references/note.md": "note"}); err != nil {
+		t.Fatalf("canonical paths rejected: %v", err)
+	}
+}

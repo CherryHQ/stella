@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -15,11 +17,18 @@ import (
 // ErrSkillNotMutable rejects system, filesystem, deprecated, and project writes.
 var ErrSkillNotMutable = errors.New("skill is not mutable")
 
+// ErrInvalidSkillFilePath rejects file keys that cannot be mirrored to disk
+// with exactly the same canonical relative path stored in the database.
+var ErrInvalidSkillFilePath = errors.New("invalid skill file path")
+
 // UpdateManagedSkill atomically applies file upserts, metadata changes, an
 // ownership transfer, and a changelog entry while the row lock is held.
 func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (Skill, error) {
 	if in.ID == "" {
 		return Skill{}, fmt.Errorf("update managed skill: id is required")
+	}
+	if err := validateSkillFilePaths(in.Files); err != nil {
+		return Skill{}, err
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -72,6 +81,16 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 		return Skill{}, fmt.Errorf("commit managed skill update: %w", err)
 	}
 	return after, nil
+}
+
+func validateSkillFilePaths(files map[string]string) error {
+	for raw := range files {
+		clean := path.Clean(raw)
+		if raw == "" || strings.ContainsRune(raw, '\x00') || strings.Contains(raw, "\\") || path.IsAbs(raw) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || clean != raw {
+			return fmt.Errorf("%w: %q must be a canonical relative path", ErrInvalidSkillFilePath, raw)
+		}
+	}
+	return nil
 }
 
 func lockedManagedSkill(ctx context.Context, q *sqlc.Queries, id, scope, userID, agentID string) (Skill, error) {

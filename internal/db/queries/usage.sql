@@ -61,7 +61,7 @@ WHERE s.id = sqlc.arg(skill_id)
 ON CONFLICT (skill_id) DO UPDATE
 SET last_used_at = excluded.last_used_at;
 
--- name: TouchReflectSkillRuntimeUse :exec
+-- name: TouchReflectSkillRuntimeUse :execrows
 UPDATE skill_usage su
 SET use_count = su.use_count + 1,
     last_used_at = now()

@@ -338,6 +338,7 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("user create status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, "", "manual")
 	listRR := doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+agentID+"/skills", nil)
 	userSkill := findSkill(decodeSkillList(t, listRR), "user-skill")
 	if userSkill == nil || userSkill["scope"] != "user_agent" || userSkill["user_id"] != creator.ID || userSkill["agent_id"] != agentID {
@@ -435,6 +436,7 @@ func TestAgentSkills_InstallScopedSkill(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("creator user_agent install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, "", "manual")
 
 	// Admin can install into the system_agent scope.
 	rr = doRequest(t, env, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
@@ -444,6 +446,7 @@ func TestAgentSkills_InstallScopedSkill(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("admin system_agent install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, "", "manual")
 
 	// Cannot install as system scope
 	rr = doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
@@ -470,6 +473,7 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, "", "manual")
 
 	rr = doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills", nil)
 	if rr.Code != http.StatusOK {
