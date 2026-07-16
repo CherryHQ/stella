@@ -39,6 +39,14 @@ level=INFO msg=post_tool_call hook=trace tool=bash call_id=call_01 is_error=fals
 level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count=8000 token_delta=-4500
 ```
 
+每个 HTTP 请求还会记录一条 INFO 日志（`msg="http request"`，包含方法、路径、状态码、耗时、响应大小，启用追踪时还带 `trace_id`，方便从日志跳到对应 trace）。返回服务端错误的请求记为 ERROR；健康检查和静态资源记为 DEBUG。
+
+驱动定时和后台工作的内部任务队列默认只记录警告和错误，避免淹没上面的信号。调试定时任务时，可设置 `LOG_LEVEL_RIVER`（取值与 `LOG_LEVEL` 相同）打开它：
+
+```bash
+LOG_LEVEL_RIVER=DEBUG stellad server
+```
+
 ### OpenTelemetry 模式
 
 设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 会同时启用追踪和日志；也可以用信号专用导出器变量只启用其中一种信号。如果后端不支持日志服务（如 Jaeger），Stella 会在首次失败后自动禁用日志导出。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：

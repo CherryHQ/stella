@@ -39,6 +39,14 @@ level=INFO msg=post_tool_call hook=trace tool=bash call_id=call_01 is_error=fals
 level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count=8000 token_delta=-4500
 ```
 
+Every HTTP request also logs one INFO line (`msg="http request"` with method, path, status, duration, response size, and — when tracing is enabled — the request's `trace_id`, so you can jump from a log line to its trace). Requests that fail with a server error log at ERROR; health probes and static assets log at DEBUG.
+
+The internal job queue that drives scheduled and background work logs only warnings and errors by default, so it does not drown the signals above. Set `LOG_LEVEL_RIVER` (same values as `LOG_LEVEL`) to open it up when debugging scheduled work:
+
+```bash
+LOG_LEVEL_RIVER=DEBUG stellad server
+```
+
 ### OpenTelemetry Mode
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces and logs together, or use signal-specific exporter variables to enable only one signal. If the backend does not support the logs service (e.g. Jaeger), Stella detects the first failure and silently disables log export. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:

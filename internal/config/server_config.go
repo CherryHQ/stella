@@ -31,6 +31,10 @@ const (
 	vaultKeyEnv     = "STELLA_VAULT_KEY"
 	pprofAddrEnv    = "STELLA_PPROF_ADDR"
 	recordToolIOEnv = "OTEL_STELLA_RECORD_TOOL_IO"
+	// riverLogLevelEnv is the companion of LOG_LEVEL (read pre-config in main)
+	// for the River job queue only; internal/cli.ParseLogLevel owns the dialect,
+	// so the value passes through raw.
+	riverLogLevelEnv = "LOG_LEVEL_RIVER"
 
 	reflectIntervalEnv    = "STELLA_REFLECT_INTERVAL"
 	reflectCuratorModeEnv = "STELLA_REFLECT_CURATOR_MODE"
@@ -151,12 +155,16 @@ type DiagnosticsConfig struct {
 	PprofAddr string
 }
 
-// ObservabilityConfig holds tracing toggles this server owns.
+// ObservabilityConfig holds tracing and logging toggles this server owns.
 type ObservabilityConfig struct {
 	// RecordToolIO records tool input/output payloads on spans
 	// (OTEL_STELLA_RECORD_TOOL_IO). Preserves the exact ==\"true\" opt-in: any
 	// other value, including unset, leaves it off.
 	RecordToolIO bool
+	// RiverLogLevel is the raw LOG_LEVEL_RIVER value ("" for unset). The River
+	// job queue heartbeats at DEBUG/INFO, so its logger is capped at WARN unless
+	// this opens it up; internal/cli.ParseLogLevel owns the level dialect.
+	RiverLogLevel string
 }
 
 // DatabaseConfig holds the two variables that jointly decide, at startup,
@@ -273,6 +281,7 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 	}
 	cfg.Diagnostics.PprofAddr = get(pprofAddrEnv)
 	cfg.Observability.RecordToolIO = get(recordToolIOEnv) == "true"
+	cfg.Observability.RiverLogLevel = get(riverLogLevelEnv)
 	return cfg, nil
 }
 
