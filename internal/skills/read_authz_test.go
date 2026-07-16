@@ -47,7 +47,7 @@ func (erroringSkillReads) BeginRead(context.Context) (SkillReadDecision, error) 
 
 // allowAllSkillWrites is the permissive write authorizer test double: every DB
 // write is allowed. It stands in for a fully-authorized actor so the existing tool
-// create/patch/deprecate tests exercise the write paths.
+// create/patch tests exercise the write paths.
 type allowAllSkillWrites struct{}
 
 func (allowAllSkillWrites) BeginWrite(context.Context) (SkillWriteDecision, error) {

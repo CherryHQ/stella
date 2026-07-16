@@ -16,7 +16,7 @@ type Skill struct {
 	AgentID                string
 	Name                   string
 	Description            string
-	Status                 string // draft | active | deprecated
+	Status                 string // active | deprecated (legacy rows only)
 	DisableModelInvocation bool
 	Metadata               json.RawMessage
 	CreatedAt              time.Time
@@ -34,7 +34,6 @@ type SkillViewContext struct {
 // SkillUpdatePatch carries optional updates for a skill's metadata fields.
 type SkillUpdatePatch struct {
 	Description            *string
-	Status                 *string
 	DisableModelInvocation *bool
 	Metadata               json.RawMessage // optional; set to overwrite
 }
@@ -51,7 +50,7 @@ type SkillStore interface {
 	Resolve(ctx context.Context, name string, vc SkillViewContext) (*Skill, error)
 
 	// ListByScope returns every skill in exactly one scope/owner bucket,
-	// including drafts and disabled skills, for exact management lookups.
+	// including disabled skills, for exact management lookups.
 	ListByScope(ctx context.Context, scope, userID, agentID string) ([]Skill, error)
 
 	// LoadFile fetches a single file by path. Pass SkillMainFile ("SKILL.md") for the body.
@@ -71,8 +70,4 @@ type SkillStore interface {
 
 	DeleteFile(ctx context.Context, skillID, path string) error
 	Delete(ctx context.Context, id string) error
-
-	// ExpireDrafts deprecates all draft skills whose created-at timestamp is
-	// before the given cutoff.
-	ExpireDrafts(ctx context.Context, before time.Time) error
 }

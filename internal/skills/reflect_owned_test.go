@@ -95,15 +95,17 @@ func TestListActiveReflectOwnedUserAgentSkills(t *testing.T) {
 		Status:      "active",
 		Metadata:    json.RawMessage(`{"created_by":"manual"}`),
 	})
-	create(t, Skill{
-		Scope:       "user_agent",
-		UserID:      userID,
-		AgentID:     agentID,
-		Name:        "reflect-deprecated",
-		Description: "created by reflect but deprecated",
-		Status:      "deprecated",
-		Metadata:    reflectMetadata,
+	deprecated, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "reflect-deprecated",
+		Description: "created by reflect but deprecated", MainFileContent: "# reflect-deprecated", Metadata: reflectMetadata,
 	})
+	if err != nil {
+		t.Fatalf("create deprecated fixture: %v", err)
+	}
+	// Deprecated is a legacy read-only state; seed it below the business API.
+	if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecated.ID); err != nil {
+		t.Fatalf("seed deprecated fixture: %v", err)
+	}
 	create(t, Skill{
 		Scope:       "user",
 		UserID:      userID,

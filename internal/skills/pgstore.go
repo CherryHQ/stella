@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -113,7 +112,7 @@ func (s *PGStore) ListForAgentContext(ctx context.Context, userID string, agentI
 }
 
 // ListByScope returns every skill in exactly one scope/owner bucket, including
-// drafts and disabled skills, for management views.
+// disabled skills, for management views.
 func (s *PGStore) ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
 		Scope:   scope,
@@ -227,9 +226,9 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 	if sk.ID == "" {
 		sk.ID = uuid.New().String()[:8]
 	}
-	if sk.Status == "" {
-		sk.Status = "active"
-	}
+	// Model availability is controlled by disable_model_invocation. Every new
+	// durable skill enters the single writable lifecycle state.
+	sk.Status = SkillStatusActive
 
 	metadata, err := MarkManualOwnedMetadata(sk.Metadata)
 	if err != nil {
@@ -301,9 +300,6 @@ func applyPatch(row sqlc.Skill, patch UpdatePatch) resolvedPatch {
 	}
 	if patch.Description != nil {
 		r.Description = *patch.Description
-	}
-	if patch.Status != nil {
-		r.Status = *patch.Status
 	}
 	if patch.DisableModelInvocation != nil {
 		r.DisableModelInvocation = *patch.DisableModelInvocation
@@ -392,15 +388,6 @@ func (s *PGStore) UpdateSystemSkill(ctx context.Context, id string, patch Update
 func (s *PGStore) DeleteSystemSkill(ctx context.Context, id string) error {
 	if err := s.q.DeleteSystemSkill(ctx, id); err != nil {
 		return fmt.Errorf("skills: system delete %s: %w", id, err)
-	}
-	return nil
-}
-
-// ExpireDrafts deprecates draft skills whose created-at metadata timestamp is
-// before the given cutoff. Knowledge facts are managed outside the skills table.
-func (s *PGStore) ExpireDrafts(ctx context.Context, before time.Time) error {
-	if err := s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339)); err != nil {
-		return fmt.Errorf("skills: expire drafts: %w", err)
 	}
 	return nil
 }

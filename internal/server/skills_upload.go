@@ -26,7 +26,6 @@ const (
 type uploadedSkill struct {
 	name                   string
 	description            string
-	status                 string
 	disableModelInvocation bool
 	metadata               json.RawMessage
 	files                  map[string]string
@@ -35,7 +34,6 @@ type uploadedSkill struct {
 type uploadedSkillFrontmatter struct {
 	Name                   string `yaml:"name"`
 	Description            string `yaml:"description"`
-	Status                 string `yaml:"status"`
 	CreatedAt              string `yaml:"created-at"`
 	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 }
@@ -62,7 +60,7 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 		Scope:                  scope,
 		Name:                   up.name,
 		Description:            up.description,
-		Status:                 up.status,
+		Status:                 skills.SkillStatusActive,
 		DisableModelInvocation: up.disableModelInvocation,
 		Metadata:               up.metadata,
 	}
@@ -191,7 +189,6 @@ func readUploadedSkillArchive(file multipart.File, header *multipart.FileHeader)
 	return &uploadedSkill{
 		name:                   name,
 		description:            fm.Description,
-		status:                 skills.NormalizeSkillStatus(fm.Status),
 		disableModelInvocation: fm.DisableModelInvocation,
 		metadata:               meta,
 		files:                  files,

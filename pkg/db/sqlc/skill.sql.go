@@ -146,19 +146,6 @@ func (q *Queries) DeleteSystemSkill(ctx context.Context, id string) error {
 	return err
 }
 
-const deprecateExpiredDrafts = `-- name: DeprecateExpiredDrafts :exec
-UPDATE skill
-SET status = 'deprecated', updated_at = now()
-WHERE status = 'draft'
-  AND disable_model_invocation = false
-  AND metadata->>'created-at' < $1::text
-`
-
-func (q *Queries) DeprecateExpiredDrafts(ctx context.Context, cutoff string) error {
-	_, err := q.db.Exec(ctx, deprecateExpiredDrafts, cutoff)
-	return err
-}
-
 const getSkill = `-- name: GetSkill :one
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill
 WHERE id = $1

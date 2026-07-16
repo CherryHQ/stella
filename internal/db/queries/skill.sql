@@ -221,13 +221,6 @@ WHERE scope = 'user_agent'
   AND agent_id = sqlc.arg(agent_id)
   AND name = sqlc.arg(name);
 
--- name: DeprecateExpiredDrafts :exec
-UPDATE skill
-SET status = 'deprecated', updated_at = now()
-WHERE status = 'draft'
-  AND disable_model_invocation = false
-  AND metadata->>'created-at' < sqlc.arg(cutoff)::text;
-
 -- name: ListAllSkills :many
 SELECT * FROM skill ORDER BY scope, created_at;
 

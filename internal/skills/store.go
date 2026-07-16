@@ -16,7 +16,7 @@ type Skill struct {
 	AgentID                string
 	Name                   string
 	Description            string
-	Status                 string // draft | active | deprecated
+	Status                 string // active | deprecated (legacy rows only)
 	DisableModelInvocation bool
 	Metadata               json.RawMessage
 	CreatedAt              time.Time
@@ -47,7 +47,6 @@ type ViewContext struct {
 // UpdatePatch carries optional updates for a skill's metadata fields.
 type UpdatePatch struct {
 	Description            *string
-	Status                 *string
 	DisableModelInvocation *bool
 	Metadata               json.RawMessage // optional; set to overwrite
 }
@@ -140,8 +139,4 @@ type Store interface {
 
 	DeleteFile(ctx context.Context, skillID, path string) error
 	Delete(ctx context.Context, id string, vc ViewContext) error
-
-	// ExpireDrafts deprecates draft skills whose created-at timestamp is before
-	// the given cutoff. Knowledge facts live in the facts table, not skills.
-	ExpireDrafts(ctx context.Context, before time.Time) error
 }

@@ -243,12 +243,7 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 	createTestSkill(t, env, "system", "", "", "system-skill")
 	createTestSkill(t, env, "system_agent", "", agentID, "agent-skill")
 	createTestSkill(t, env, "user_agent", creator.ID, agentID, "creator-user-skill")
-	draftID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "draft-skill")
 	orgCtx := context.Background()
-	draftStatus := "draft"
-	if err := env.pluginHost.SkillStore().Update(orgCtx, draftID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &draftStatus}); err != nil {
-		t.Fatalf("mark skill draft: %v", err)
-	}
 	deprecatedID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "deprecated-skill")
 	// Seed legacy state directly; users can no longer deprecate skills.
 	if _, err := env.db.Exec(orgCtx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecatedID); err != nil {
@@ -260,13 +255,10 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 		t.Fatalf("creator status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 	list := decodeSkillList(t, rr)
-	for _, name := range []string{"system-skill", "agent-skill", "creator-user-skill", "draft-skill"} {
+	for _, name := range []string{"system-skill", "agent-skill", "creator-user-skill"} {
 		if findSkill(list, name) == nil {
 			t.Fatalf("creator list missing %q: %#v", name, list)
 		}
-	}
-	if draft := findSkill(list, "draft-skill"); draft["status"] != "draft" {
-		t.Fatalf("draft status = %v, want draft", draft["status"])
 	}
 	if deprecated := findSkill(list, "deprecated-skill"); deprecated != nil {
 		t.Fatalf("creator list included deprecated skill: %#v", deprecated)
@@ -468,6 +460,7 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 
 	creator, creatorSID := newNonAdmin(t, env, "creator-upload-agent")
 	agentID := createAgentAsUser(t, env, creatorSID, "upload-agent")
+	// Legacy status frontmatter is ignored; model availability remains independent.
 	archive := createSkillZip(t, map[string]string{
 		"bundle/uploaded-skill/SKILL.md":     "---\nname: uploaded-skill\ndescription: Uploaded user skill\nstatus: draft\ndisable-model-invocation: true\n---\n# Uploaded\n",
 		"bundle/uploaded-skill/reference.md": "notes",
@@ -489,8 +482,12 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 	if uploaded["scope"] != "user_agent" || uploaded["user_id"] != creator.ID || uploaded["agent_id"] != agentID {
 		t.Fatalf("uploaded skill ownership = %#v, want user_agent scoped to creator and agent", uploaded)
 	}
-	if uploaded["status"] != "draft" {
-		t.Fatalf("uploaded status = %v, want draft", uploaded["status"])
+	var storedStatus string
+	if err := env.db.QueryRow(context.Background(), `SELECT status FROM skill WHERE name = 'uploaded-skill' AND user_id = $1 AND agent_id = $2`, creator.ID, agentID).Scan(&storedStatus); err != nil {
+		t.Fatalf("read uploaded skill status: %v", err)
+	}
+	if storedStatus != "active" {
+		t.Fatalf("uploaded stored status = %v, want active", storedStatus)
 	}
 	if uploaded["disable_model_invocation"] != true {
 		t.Fatalf("uploaded disable_model_invocation = %v, want true", uploaded["disable_model_invocation"])
