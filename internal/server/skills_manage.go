@@ -6,7 +6,6 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 )
@@ -107,19 +106,16 @@ func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id stri
 	return &sk
 }
 
-func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) skillView {
-	files, _ := s.skillStore().ListFiles(r.Context(), sk.ID)
-	view := storedSkillToView(*sk, files)
-	return view
+func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) (skillView, error) {
+	files, err := s.skillStore().ListFiles(r.Context(), sk.ID)
+	if err != nil {
+		return skillView{}, err
+	}
+	return storedSkillToView(*sk, files), nil
 }
 
-func (s *Server) writeStoredSkillResponse(w http.ResponseWriter, r *http.Request, status int, id string) {
-	sk, err := s.findSkillByID(r.Context(), id)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	writeData(w, status, s.dbSkillView(r, sk))
+func committedSkillView(snapshot skills.SkillSnapshot) skillView {
+	return storedSkillToView(snapshot.Skill, snapshot.Files)
 }
 
 // ListScopedSkills handles GET /api/skills.
@@ -155,7 +151,12 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 			s.writeInternalError(w, err)
 			return
 		}
-		out = append(out, s.dbSkillView(r, &rows[i]))
+		view, err := s.dbSkillView(r, &rows[i])
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		out = append(out, view)
 	}
 	writeData(w, http.StatusOK, map[string]any{"skills": out})
 }
@@ -204,12 +205,12 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		Description:            req.Description,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	id, err := s.skillStore().Create(r.Context(), sk, files)
+	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, files)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
 	}
-	s.writeStoredSkillResponse(w, r, http.StatusCreated, id)
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
 }
 
 // InstallScopedSkill handles POST /api/skills/install.
@@ -244,12 +245,12 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
-	id, _, err := skills.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
+	snapshot, err := skills.InstallToStore(ctx, s.skillStore(), req.Source, req.Scope, userID, agentID)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
 	}
-	s.writeStoredSkillResponse(w, r, http.StatusCreated, id)
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
 }
 
 // UploadScopedSkill handles POST /api/skills/upload.
@@ -283,12 +284,12 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 		DisableModelInvocation: up.disableModelInvocation,
 		Metadata:               up.metadata,
 	}
-	id, err := s.skillStore().Create(r.Context(), sk, up.files)
+	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, up.files)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
 	}
-	s.writeStoredSkillResponse(w, r, http.StatusCreated, id)
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
 }
 
 // GetScopedSkill handles GET /api/skills/{id}.
@@ -297,7 +298,12 @@ func (s *Server) GetScopedSkill(w http.ResponseWriter, r *http.Request, id strin
 	if sk == nil {
 		return
 	}
-	writeData(w, http.StatusOK, s.dbSkillView(r, sk))
+	view, err := s.dbSkillView(r, sk)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, view)
 }
 
 // UpdateScopedSkill handles PATCH /api/skills/{id}.

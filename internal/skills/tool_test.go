@@ -1120,7 +1120,7 @@ func TestLoadMaterializesDBSkillDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load skill: %v", err)
 	}
-	wantDir := filepath.Join(agentBase, "agent-db-skill")
+	wantDir := filepath.Join(agentBase, skillID)
 	if !strings.Contains(result, "<skill_dir>"+wantDir+"</skill_dir>") {
 		t.Fatalf("skill_dir not emitted for materialized dir: %q", result)
 	}
@@ -1192,7 +1192,7 @@ func TestLoadRefreshesStaleDBSkillDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first load skill: %v", err)
 	}
-	wantDir := filepath.Join(agentBase, "refresh-db-skill")
+	wantDir := filepath.Join(agentBase, skillID)
 	if !strings.Contains(result, "<skill_dir>"+wantDir+"</skill_dir>") {
 		t.Fatalf("skill_dir not emitted for materialized dir: %q", result)
 	}
@@ -1222,11 +1222,58 @@ func TestLoadRefreshesStaleDBSkillDir(t *testing.T) {
 	}
 }
 
-func TestLoadOmitsSkillDirWhenMaterializeFails(t *testing.T) {
+func TestLoadCacheIdentitySurvivesRejectedDuplicateAndSameNameRecreate(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	create := func(body string) (string, error) {
+		return store.Create(ctx, pkgplugins.Skill{
+			Scope: "system_agent", AgentID: agentID, Name: "reused-name", Status: "active",
+		}, map[string]string{pkgplugins.SkillMainFile: body})
+	}
+
+	oldID, err := create("# Old\n")
+	if err != nil {
+		t.Fatalf("create old skill: %v", err)
+	}
+	base := t.TempDir()
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).WithSkillDiskLayout(SkillDiskLayout{Agent: base})
+	if _, err := tool.load(ctx, map[string]any{"name": "reused-name"}); err != nil {
+		t.Fatalf("load old skill: %v", err)
+	}
+	oldPath := filepath.Join(base, oldID, pkgplugins.SkillMainFile)
+
+	if _, err := create("# Rejected\n"); err == nil {
+		t.Fatal("duplicate create unexpectedly succeeded")
+	}
+	if got, err := os.ReadFile(oldPath); err != nil || string(got) != "# Old\n" {
+		t.Fatalf("old cache after rejected duplicate = %q, err=%v", got, err)
+	}
+
+	if err := store.Delete(ctx, oldID); err != nil {
+		t.Fatalf("delete old skill: %v", err)
+	}
+	newID, err := create("# New\n")
+	if err != nil {
+		t.Fatalf("recreate same-name skill: %v", err)
+	}
+	result, err := tool.load(ctx, map[string]any{"name": "reused-name"})
+	if err != nil {
+		t.Fatalf("load recreated skill: %v", err)
+	}
+	newDir := filepath.Join(base, newID)
+	if !strings.Contains(result, "<skill_dir>"+newDir+"</skill_dir>") {
+		t.Fatalf("recreated Skill did not use its stable identity: %q", result)
+	}
+	if got, err := os.ReadFile(filepath.Join(newDir, pkgplugins.SkillMainFile)); err != nil || string(got) != "# New\n" {
+		t.Fatalf("recreated cache = %q, err=%v", got, err)
+	}
+}
+
+func TestLoadFailsClosedWhenMaterializeFails(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
-	_, err := store.Create(ctx, pkgplugins.Skill{
+	skillID, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "system_agent",
 		AgentID:     agentID,
 		Name:        "unwritable-skill",
@@ -1238,21 +1285,18 @@ func TestLoadOmitsSkillDirWhenMaterializeFails(t *testing.T) {
 	}
 
 	agentBase := t.TempDir()
-	blockingFile := filepath.Join(agentBase, "unwritable-skill")
+	blockingFile := filepath.Join(agentBase, skillID)
 	if err := os.WriteFile(blockingFile, []byte("not a dir"), 0o644); err != nil {
 		t.Fatalf("write blocking file: %v", err)
 	}
 
 	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
 	result, err := tool.load(ctx, map[string]any{"name": "unwritable-skill"})
-	if err != nil {
-		t.Fatalf("load should return DB content when materialization fails: %v", err)
+	if err == nil {
+		t.Fatal("load succeeded despite failed DB Skill materialization")
 	}
-	if strings.Contains(result, "<skill_dir>") {
-		t.Fatalf("unexpected skill_dir when materialization fails: %q", result)
-	}
-	if !strings.Contains(result, "# Still Loads") {
-		t.Fatalf("missing DB skill content: %q", result)
+	if result != "" {
+		t.Fatalf("load exposed content after failed materialization: %q", result)
 	}
 }
 

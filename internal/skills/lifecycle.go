@@ -17,45 +17,45 @@ import (
 // ErrSkillNotMutable rejects system, filesystem, deprecated, and project writes.
 var ErrSkillNotMutable = errors.New("skill is not mutable")
 
-// ErrInvalidSkillFilePath rejects file keys that cannot be mirrored to disk
-// with exactly the same canonical relative path stored in the database.
+// ErrInvalidSkillFilePath rejects keys whose runtime path would differ from the
+// canonical relative path stored in PostgreSQL.
 var ErrInvalidSkillFilePath = errors.New("invalid skill file path")
 
 // UpdateManagedSkill atomically applies file upserts, metadata changes, an
 // ownership transfer, and a changelog entry while the row lock is held.
-func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (Skill, error) {
+func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (SkillSnapshot, error) {
 	if in.ID == "" {
-		return Skill{}, fmt.Errorf("update managed skill: id is required")
+		return SkillSnapshot{}, fmt.Errorf("update managed skill: id is required")
 	}
 	if err := validateSkillFilePaths(in.Files); err != nil {
-		return Skill{}, err
+		return SkillSnapshot{}, err
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return Skill{}, fmt.Errorf("begin managed skill update: %w", err)
+		return SkillSnapshot{}, fmt.Errorf("begin managed skill update: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 
 	before, err := lockedManagedSkill(ctx, qtx, in.ID, in.Scope, in.UserID, in.AgentID)
 	if err != nil {
-		return Skill{}, err
+		return SkillSnapshot{}, err
 	}
 	if before.Status == "deprecated" {
-		return Skill{}, ErrSkillNotMutable
+		return SkillSnapshot{}, ErrSkillNotMutable
 	}
 	if in.ConvertToManual && !IsReflectOwned(before) {
-		return Skill{}, ErrSkillNotReflectOwned
+		return SkillSnapshot{}, ErrSkillNotReflectOwned
 	}
 
 	patch := applyPatch(skillToRow(before), in.Patch)
 	metadata, err := managedUpdateMetadata(patch.Metadata, CreatedBy(before), in.ConvertToManual)
 	if err != nil {
-		return Skill{}, err
+		return SkillSnapshot{}, err
 	}
 	for path, content := range in.Files {
 		if err := qtx.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{SkillID: before.ID, Path: path, Content: content}); err != nil {
-			return Skill{}, fmt.Errorf("update managed skill file %q: %w", path, err)
+			return SkillSnapshot{}, fmt.Errorf("update managed skill file %q: %w", path, err)
 		}
 	}
 	afterRow, err := qtx.UpdateManagedSkill(ctx, sqlc.UpdateManagedSkillParams{
@@ -63,24 +63,32 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 		DisableModelInvocation: patch.DisableModelInvocation, Metadata: metadata,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Skill{}, ErrSkillNotMutable
+		return SkillSnapshot{}, ErrSkillNotMutable
 	}
 	if err != nil {
-		return Skill{}, fmt.Errorf("update managed skill: %w", err)
+		return SkillSnapshot{}, fmt.Errorf("update managed skill: %w", err)
 	}
 	after := mapRow(afterRow)
 	if in.ConvertToManual && before.Scope == "user_agent" {
 		if err := qtx.DeleteSkillUsage(ctx, before.ID); err != nil {
-			return Skill{}, fmt.Errorf("delete converted reflect skill usage: %w", err)
+			return SkillSnapshot{}, fmt.Errorf("delete converted reflect skill usage: %w", err)
 		}
 	}
 	if _, err := qtx.InsertSkillChangelog(ctx, skillChangelogParams(before, after, "patch", json.RawMessage(`{}`))); err != nil {
-		return Skill{}, fmt.Errorf("record managed skill update: %w", err)
+		return SkillSnapshot{}, fmt.Errorf("record managed skill update: %w", err)
+	}
+	fileRows, err := qtx.ListSkillFiles(ctx, before.ID)
+	if err != nil {
+		return SkillSnapshot{}, fmt.Errorf("list committed managed skill files: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Skill{}, fmt.Errorf("commit managed skill update: %w", err)
+		return SkillSnapshot{}, fmt.Errorf("commit managed skill update: %w", err)
 	}
-	return after, nil
+	files := make([]string, 0, len(fileRows))
+	for _, file := range fileRows {
+		files = append(files, file.Path)
+	}
+	return SkillSnapshot{Skill: after, Files: files}, nil
 }
 
 func validateSkillFilePaths(files map[string]string) error {

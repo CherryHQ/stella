@@ -24,6 +24,13 @@ type Skill struct {
 	Version                int64
 }
 
+// SkillSnapshot is the committed representation returned by an atomic Skill
+// mutation. Files contains the complete retained path set from that transaction.
+type SkillSnapshot struct {
+	Skill Skill
+	Files []string
+}
+
 type SkillChangelog struct {
 	ID            string
 	SkillID       string
@@ -81,8 +88,11 @@ type Store interface {
 	// skills that #531 is allowed to consider for one user-agent context.
 	ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]Skill, error)
 
+	// CreateManagedSkill atomically creates a Skill and returns its committed state.
+	CreateManagedSkill(ctx context.Context, s Skill, files map[string]string) (SkillSnapshot, error)
+
 	// UpdateManagedSkill atomically patches a live mutable skill and its files.
-	UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (Skill, error)
+	UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (SkillSnapshot, error)
 
 	// CreateReflectOwnedUserAgentSkill creates an active user_agent skill whose
 	// lifecycle is owned by Reflect, including version and changelog records.

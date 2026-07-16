@@ -17,14 +17,11 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-func TestSkillStoreAdapterTouchesReflectSkillUsageThroughDiskSync(t *testing.T) {
+func TestSkillStoreAdapterTouchesReflectSkillUsage(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedSkillAdapterFixtures(t, db)
-	raw := skills.New(db)
-	store := skills.NewDiskSyncStore(raw, func(scope, agentID string, userID string) string {
-		return ""
-	})
+	store := skills.New(db)
 	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID:          userID,
 		AgentID:         agentID,

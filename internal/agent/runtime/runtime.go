@@ -26,7 +26,69 @@ type Runtime struct {
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
 	active         sync.Map // session ID → struct{}, tracks in-flight turns
+	turns          turnTracker
 	hub            *SessionHub
+}
+
+// turnTracker counts in-flight chat turns so a graceful drain can wait,
+// bounded, for accepted work to finish before teardown cancels its
+// dependencies (#744). It is not a sync.WaitGroup because a turn may still
+// begin while the drain is already waiting (a keep-alive HTTP connection can
+// start one mid-drain), which WaitGroup's Add/Wait contract forbids; the
+// tracker instead loops until it observes zero.
+type turnTracker struct {
+	mu   sync.Mutex
+	n    int
+	idle chan struct{} // closed when n drops to 0; replaced when n rises from 0
+}
+
+func (t *turnTracker) begin() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.n == 0 {
+		t.idle = make(chan struct{})
+	}
+	t.n++
+}
+
+func (t *turnTracker) end() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.n--
+	if t.n == 0 {
+		close(t.idle)
+	}
+}
+
+// wait blocks until no turn is in flight or ctx expires. A nil error means an
+// idle instant was observed; work accepted after that races the caller's next
+// step, which is why the drain stops ingress before it waits.
+func (t *turnTracker) wait(ctx context.Context) error {
+	for {
+		t.mu.Lock()
+		if t.n == 0 {
+			t.mu.Unlock()
+			return nil
+		}
+		idle := t.idle
+		t.mu.Unlock()
+		select {
+		case <-idle:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// WaitTurns blocks until this runtime has no in-flight chat turn or ctx
+// expires. Graceful shutdown calls it between draining HTTP and cancelling the
+// work contexts, so turns with no HTTP connection to hold the drain open
+// (channel messages, webhook runs, scheduler run-now) still finish. It covers
+// the turn itself, not the caller's sub-second delivery tail after the event
+// stream closes; lift tracking to the adapter operation if truncated final
+// sends are ever observed.
+func (rt *Runtime) WaitTurns(ctx context.Context) error {
+	return rt.turns.wait(ctx)
 }
 
 // CompactionConfig controls automatic compaction thresholds.
@@ -233,7 +295,9 @@ func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageConte
 	// events rather than blocking on a reader that is gone.
 	inner := make(chan Event, 100)
 	rt.hub.begin(info.ID)
+	rt.turns.begin()
 	go func() {
+		defer rt.turns.end()
 		defer rt.active.Delete(info.ID)
 		defer func() {
 			if p := recover(); p != nil {

@@ -779,6 +779,29 @@ func (pm *PoolManager) InvalidateAll() error {
 	return lastErr
 }
 
+// WaitInFlight blocks until no runtime has an in-flight chat turn or ctx
+// expires, returning ctx's error on expiry. Graceful shutdown calls it after
+// ingress has stopped and HTTP has drained, so accepted turns that hold no
+// HTTP connection (channel messages, webhook runs, scheduler run-now) finish
+// before the work contexts are cancelled (#744). It snapshots the service set
+// once: ingress is already stopped, so no new agent service can be minted
+// while it waits.
+func (pm *PoolManager) WaitInFlight(ctx context.Context) error {
+	pm.mu.RLock()
+	services := make([]*Service, 0, len(pm.services))
+	for _, svc := range pm.services {
+		services = append(services, svc)
+	}
+	pm.mu.RUnlock()
+
+	for _, svc := range services {
+		if err := svc.Runtime.WaitTurns(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Close shuts down all services and hook plugins.
 func (pm *PoolManager) Close() error {
 	pm.mu.Lock()

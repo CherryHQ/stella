@@ -6,7 +6,46 @@ import (
 	"log/slog"
 	"os"
 	"reflect"
+
+	"go.opentelemetry.io/otel/trace"
 )
+
+// NewTraceContextHandler wraps next so records logged with a span-carrying
+// context (the slog *Context variants) gain trace_id/span_id attributes. The
+// OTLP log bridge extracts trace context natively; this wrapper gives the
+// console output the same correlation, so an operator can jump from a stderr
+// line to the trace in their backend. Records logged without a context pass
+// through unchanged.
+func NewTraceContextHandler(next slog.Handler) slog.Handler {
+	return traceContextHandler{next: next}
+}
+
+type traceContextHandler struct {
+	next slog.Handler
+}
+
+func (h traceContextHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.next.Enabled(ctx, level)
+}
+
+func (h traceContextHandler) Handle(ctx context.Context, record slog.Record) error {
+	if sc := trace.SpanContextFromContext(ctx); sc.HasTraceID() {
+		record = record.Clone()
+		record.AddAttrs(
+			slog.String("trace_id", sc.TraceID().String()),
+			slog.String("span_id", sc.SpanID().String()),
+		)
+	}
+	return h.next.Handle(ctx, record)
+}
+
+func (h traceContextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return traceContextHandler{next: h.next.WithAttrs(attrs)}
+}
+
+func (h traceContextHandler) WithGroup(name string) slog.Handler {
+	return traceContextHandler{next: h.next.WithGroup(name)}
+}
 
 type teeHandler struct {
 	handlers []slog.Handler

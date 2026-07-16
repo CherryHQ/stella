@@ -20,25 +20,24 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// InstallToStore fetches a skill from source and stores it in the given SkillStore.
+// InstallToStore fetches a skill and commits it through the internal Store.
 // scope must be one of "user", "user_agent", or "system_agent".
 // user uses userID; user_agent uses both; system_agent uses agentID.
-// Returns the stored ID and installed Skill name on success.
-func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID string, agentID string) (string, string, error) {
+func InstallToStore(ctx context.Context, store Store, source, scope string, userID string, agentID string) (SkillSnapshot, error) {
 	skillName, files, version, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
-		return "", "", err
+		return SkillSnapshot{}, err
 	}
 	defer cleanup()
 
-	mainContent, ok := files[pkgplugins.SkillMainFile]
+	mainContent, ok := files[MainFile]
 	if !ok {
-		return "", "", fmt.Errorf("fetched skill %q is missing SKILL.md", skillName)
+		return SkillSnapshot{}, fmt.Errorf("fetched skill %q is missing SKILL.md", skillName)
 	}
 
 	fm, err := parseFrontmatter(mainContent)
 	if err != nil {
-		return "", "", fmt.Errorf("parse SKILL.md for %q: %w", skillName, err)
+		return SkillSnapshot{}, fmt.Errorf("parse SKILL.md for %q: %w", skillName, err)
 	}
 
 	name := fm.Name
@@ -60,10 +59,10 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 	}
 	metaBytes, err := json.Marshal(meta)
 	if err != nil {
-		return "", "", fmt.Errorf("encode skill metadata for %q: %w", name, err)
+		return SkillSnapshot{}, fmt.Errorf("encode skill metadata for %q: %w", name, err)
 	}
 
-	sk := pkgplugins.Skill{
+	sk := Skill{
 		Scope:                  scope,
 		Name:                   name,
 		Description:            fm.Description,
@@ -81,12 +80,11 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 		sk.AgentID = agentID
 	}
 
-	id, err := store.Create(ctx, sk, files)
+	snapshot, err := store.CreateManagedSkill(ctx, sk, files)
 	if err != nil {
-		return "", "", fmt.Errorf("store skill %q: %w", name, err)
+		return SkillSnapshot{}, fmt.Errorf("store skill %q: %w", name, err)
 	}
-
-	return id, name, nil
+	return snapshot, nil
 }
 
 // ErrNoUpgradeSource indicates a skill has no recorded install source to re-fetch

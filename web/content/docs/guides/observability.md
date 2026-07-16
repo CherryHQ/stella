@@ -39,9 +39,17 @@ level=INFO msg=post_tool_call hook=trace tool=bash call_id=call_01 is_error=fals
 level=INFO msg=post_memory_call hook=trace op=compact duration=200ms token_count=8000 token_delta=-4500
 ```
 
+Every HTTP request also logs one INFO line (`msg="http request"` with method, path, status, duration, response size, and — when tracing is enabled — the request's `trace_id`, so you can jump from a log line to its trace). Requests that fail with a server error log at ERROR; health probes and static assets log at DEBUG.
+
+The internal job queue that drives scheduled and background work logs only warnings and errors by default, so it does not drown the signals above. Set `LOG_LEVEL_RIVER` (same values as `LOG_LEVEL`) to open it up when debugging scheduled work:
+
+```bash
+LOG_LEVEL_RIVER=DEBUG stellad server
+```
+
 ### OpenTelemetry Mode
 
-Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces and logs together, or use signal-specific exporter variables to enable only one signal. If the backend does not support the logs service (e.g. Jaeger), Stella detects the first failure and silently disables log export. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces, logs, and metrics together, or use signal-specific exporter variables to enable only some signals. Metrics cover the HTTP server (request counts, durations) and the Go runtime (memory, GC, goroutines). If the backend does not support the logs service (e.g. Jaeger), Stella detects the first failure and silently disables log export. Stella delegates exporter configuration to the OpenTelemetry SDK, so standard OTel environment variables are supported:
 
 | Environment Variable                 | Default                    | Description                                                                                                                                                                                               |
 | ------------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -54,11 +62,13 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable traces and logs together, or use sig
 | `OTEL_EXPORTER_OTLP_LOGS_HEADERS`    | _(empty)_                  | Comma-separated headers applied to logs only. Overrides generic OTLP headers for logs.                                                                                                                    |
 | `OTEL_TRACES_EXPORTER`               | SDK default                | Trace exporter. Set to `none` to disable trace export while keeping other OTel signals available.                                                                                                         |
 | `OTEL_LOGS_EXPORTER`                 | SDK default                | Log exporter. Set to `none` to disable log export while keeping traces available.                                                                                                                         |
+| `OTEL_METRICS_EXPORTER`              | SDK default                | Metric exporter. Set to `none` to disable metric export while keeping other OTel signals available.                                                                                                       |
 | `OTEL_SERVICE_NAME`                  | `stella`                   | Service name shown in your observability backend.                                                                                                                                                         |
+| `OTEL_RESOURCE_ATTRIBUTES`           | _(empty)_                  | Extra resource attributes attached to every signal, for example `deployment.environment=prod`.                                                                                                            |
 | `OTEL_EXPORTER_OTLP_INSECURE`        | SDK default                | Set to `false` to require TLS. Use `false` for HTTPS or secure gRPC endpoints.                                                                                                                            |
 | `OTEL_STELLA_RECORD_TOOL_IO`         | `false`                    | Set to `true` to record tool input (e.g. bash commands) and result text on spans. Off by default so this content is never exported; spans always carry tool name, argument count, and result length.      |
 
-When OTel is enabled, both modes run simultaneously -- you get stderr log lines plus exported traces and logs.
+When OTel is enabled, both modes run simultaneously -- you get stderr log lines plus exported traces, logs, and metrics. Log lines written on a traced path (LLM calls, tool calls, HTTP requests) carry `trace_id` and `span_id`, so you can jump from a stderr line straight to the trace in your backend.
 
 ### Common Pitfalls
 
@@ -271,4 +281,4 @@ Sandbox lifecycle spans use these Stella-specific attributes:
 
 ## Turning It Off
 
-There is no plugin to disable. Log mode follows `LOG_LEVEL`; set it to `WARN` or `ERROR` to quiet the per-call INFO lines. OTel export is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` or a signal-specific exporter is set, so leaving those variables empty disables distributed telemetry entirely. Set `OTEL_TRACES_EXPORTER=none` or `OTEL_LOGS_EXPORTER=none` to disable only one signal.
+There is no plugin to disable. Log mode follows `LOG_LEVEL`; set it to `WARN` or `ERROR` to quiet the per-call INFO lines. OTel export is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` or a signal-specific exporter is set, so leaving those variables empty disables distributed telemetry entirely. Set `OTEL_TRACES_EXPORTER=none`, `OTEL_LOGS_EXPORTER=none`, or `OTEL_METRICS_EXPORTER=none` to disable individual signals.

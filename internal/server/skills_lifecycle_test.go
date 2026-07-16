@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +17,14 @@ type agentSkillListResponse struct {
 	TotalSize     int              `json:"total_size"`
 	ScopeCounts   map[string]int   `json:"scope_counts"`
 	NextPageToken *string          `json:"next_page_token"`
+}
+
+type listFilesFailingStore struct {
+	skills.Store
+}
+
+func (s listFilesFailingStore) ListFiles(context.Context, string) ([]string, error) {
+	return nil, errors.New("injected ListFiles failure")
 }
 
 func decodeAgentSkillListResponse(t *testing.T, rrBody json.RawMessage) agentSkillListResponse {
@@ -241,6 +250,44 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{"convert_to_manual": true})
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("second conversion status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func TestSkillMutationResponseUsesCommittedSnapshotWhenListFilesFails(t *testing.T) {
+	env := setupAdmin(t)
+	_, sid := newNonAdmin(t, env, "skill-snapshot-response")
+	agentID := createAgentAsUser(t, env, sid, "skill-snapshot-agent")
+	env.pluginHost.SetSkillStore(listFilesFailingStore{Store: env.pluginHost.SkillStore()})
+
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodPost, "/api/agents/"+agentID+"/skills", map[string]any{
+		"scope": "user_agent", "name": "snapshot-response",
+		"files": map[string]string{skills.MainFile: "# Snapshot\n", "references/note.md": "note\n"},
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create with failing ListFiles status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+	assertFullSkillMutationResponse(t, rr, "", "manual")
+	var got map[string]any
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("unmarshal committed snapshot response: %v", err)
+	}
+	files, _ := got["files"].([]any)
+	if len(files) != 2 || files[0] != skills.MainFile || files[1] != "references/note.md" {
+		t.Fatalf("committed snapshot files = %#v, want complete sorted files", files)
+	}
+	id, _ := got["id"].(string)
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, "/api/agents/"+agentID+"/skills/"+id+"?scope=user_agent", map[string]any{
+		"files": map[string]string{"scripts/run.sh": "#!/bin/sh\n"},
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update with failing ListFiles status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("unmarshal updated snapshot response: %v", err)
+	}
+	files, _ = got["files"].([]any)
+	if len(files) != 3 || files[2] != "scripts/run.sh" {
+		t.Fatalf("updated committed snapshot files = %#v, want all retained files", files)
 	}
 }
 

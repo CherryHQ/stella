@@ -655,7 +655,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	case "system_agent":
 		sk.AgentID = agentID
 	}
-	createdID, err := s.skillStore().Create(r.Context(), sk, files)
+	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, files)
 	if err != nil {
 		if errors.Is(err, skills.ErrInvalidSkillFilePath) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -664,7 +664,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		s.writeInternalError(w, err)
 		return
 	}
-	s.writeStoredSkillResponse(w, r, http.StatusCreated, createdID)
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
 }
 
 func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillParams) {
@@ -688,7 +688,11 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 			s.writeInternalError(w, err)
 			return
 		}
-		view = s.dbSkillView(r, sk)
+		view, err = s.dbSkillView(r, sk)
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
 	}
 	writeData(w, http.StatusOK, view)
 }
@@ -910,7 +914,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
-	skillID, _, err := skills.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, scope, storeUserID, agentID)
+	snapshot, err := skills.InstallToStore(ctx, s.skillStore(), req.Source, scope, storeUserID, agentID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")
@@ -919,7 +923,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		s.writeInternalError(w, err)
 		return
 	}
-	s.writeStoredSkillResponse(w, r, http.StatusCreated, skillID)
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
 }
 
 func (s *Server) UploadAgentSkill(w http.ResponseWriter, r *http.Request, id string) {

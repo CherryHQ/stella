@@ -2,21 +2,17 @@ package skills
 
 import "path/filepath"
 
-// SkillDiskLayout is the single authority for where a DB-backed skill's files
-// live on disk, keyed by scope. The write side (DiskSyncStore mirrors every DB
-// skill to these dirs) and the read side (the skills tool emits the matching
-// <skill_dir>) both resolve through it, so a skill can never materialize at one
-// path while its skill_dir points at another.
+// SkillDiskLayout selects the runtime cache root for a DB-backed Skill by scope.
+// The load path materializes authoritative DB files under the stable Skill ID
+// before exposing the matching <skill_dir>.
 //
-// Roots are supplied by the caller because they legitimately differ: the writer
-// roots from config.StellaHome(); the runner from the sandbox's canonicalized
-// (symlink-evaluated) paths, so the later host→sandbox view match holds. Only
-// the per-scope mapping — which root, and the layout under it — lives here.
+// Roots are supplied by the caller because runtime sandboxes may expose
+// canonicalized paths that differ from host paths. Only the per-scope mapping
+// lives here.
 type SkillDiskLayout struct {
 	// SystemDB holds DB-installed system-scope skills. It is deliberately NOT the
 	// shipped built-in dir (those resolve from the filesystem via ResolvedSkill.Dir):
-	// SyncAllToDisk deletes disk files absent from the DB, so mirroring DB system
-	// skills into the built-in dir would wipe the built-ins.
+	// DB system Skills must not share the shipped built-in directory.
 	SystemDB string
 	// Agent holds system_agent (admin-managed, agent-bound) skills.
 	Agent string
@@ -26,8 +22,8 @@ type SkillDiskLayout struct {
 	UserAgent string
 }
 
-// BaseDir returns the directory under which scope's skills live (each in a
-// {name}/ subdir), or "" when the scope has no managed disk location.
+// BaseDir returns the directory under which scope's runtime caches live (each
+// in a stable-ID subdirectory), or "" when the scope has no cache location.
 func (l SkillDiskLayout) BaseDir(scope string) string {
 	switch scope {
 	case "system":
@@ -43,12 +39,11 @@ func (l SkillDiskLayout) BaseDir(scope string) string {
 	}
 }
 
-// Dir returns the absolute directory holding skillName's files for scope, or ""
-// when the scope has no managed disk location.
-func (l SkillDiskLayout) Dir(scope, skillName string) string {
+// Dir returns the runtime cache directory for one stable DB Skill identity.
+func (l SkillDiskLayout) Dir(scope, skillID string) string {
 	base := l.BaseDir(scope)
-	if base == "" || skillName == "" {
+	if base == "" || skillID == "" {
 		return ""
 	}
-	return filepath.Join(base, skillName)
+	return filepath.Join(base, skillID)
 }

@@ -15,12 +15,16 @@ The shape is always the same: **start the server against an external DB, get a
 bearer token, drive the HTTP API with `curl`, assert against the DB, clean up.**
 The goal lifecycle at the end is one worked example — the harness is generic.
 
-Where this sits in the test pyramid:
+Where this sits in the three-layer taxonomy:
 
-- **Unit** — Go tests, isolated, no server (`mise run test`).
-- **API / integration** — this doc: `curl` -> HTTP API -> DB assertions, no browser.
-- **E2E** — full user path `browser -> API -> DB`. Drive the UI per `web-ui-test.md`
-  and add the DB assertions from this doc when you need to confirm what landed.
+- **In-process integration** — Go tests against a live Postgres, no server subprocess
+  (`mise run test`).
+- **System** — the real `stellad` subprocess over TCP + DB assertions, no browser.
+  This doc is the manual, exploratory form (`curl` -> HTTP API -> DB); the automated,
+  repeatable form is the `mise run system-test` suite — see `system-test.md`.
+- **Browser E2E** — full user path `browser -> API -> DB`. Drive the UI per
+  `web-ui-test.md` and add the DB assertions from this doc when you need to confirm
+  what landed.
 
 ## Environment
 

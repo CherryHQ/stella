@@ -224,12 +224,13 @@ flag > environment variable > persisted config > default
 
 环境变量影响行为时，在 help 文本中说明。常见变量包括：
 
-| 变量                  | 用途                            |
-| --------------------- | ------------------------------- |
-| `STELLA_HOME`         | Stella 主目录                   |
-| `STELLA_DATABASE_URL` | 外部 PostgreSQL 连接 URL        |
-| `STELLA_VAULT_KEY`    | 守护进程保险库加密用的 age 私钥 |
-| `LOG_LEVEL`           | CLI 日志详细程度                |
+| 变量                  | 用途                              |
+| --------------------- | --------------------------------- |
+| `STELLA_HOME`         | Stella 主目录                     |
+| `STELLA_DATABASE_URL` | 外部 PostgreSQL 连接 URL          |
+| `STELLA_VAULT_KEY`    | 守护进程保险库加密用的 age 私钥   |
+| `LOG_LEVEL`           | CLI 日志详细程度（默认 `INFO`）   |
+| `LOG_LEVEL_RIVER`     | River 任务队列日志（默认 `WARN`） |
 
 除了 `stellad vault keygen` 这类明确生成 secret、且 secret 就是请求输出的命令，不要打印 secret。
 
