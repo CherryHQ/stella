@@ -19,7 +19,8 @@ node = "24.14.1"
 
 [env]
 BINARY_D = "./dist/bin/stellad"
-LOG_LEVEL = "trace"
+# Dev default; raise to "trace" for memory-detail fields, LOG_LEVEL_RIVER for queue internals.
+LOG_LEVEL = "debug"
 DEV_ADMIN_USER = "admin"
 DEV_ADMIN_PASS = "i-am-admin"
 DEV_USER = "user"
