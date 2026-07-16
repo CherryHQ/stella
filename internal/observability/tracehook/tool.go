@@ -60,9 +60,9 @@ func recordSpanError(span trace.Span, err error) {
 	span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", err)))
 }
 
-func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+func (h *Hook) OnPreToolCall(ctx context.Context, hctx *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
 	input := redactSecrets(summarizeArgs(hctx.ToolName, hctx.Arguments))
-	h.log.Info("pre_tool_call",
+	h.log.InfoContext(ctx, "pre_tool_call",
 		"tool", hctx.ToolName,
 		"call_id", hctx.ToolCallID,
 		"input", input,
@@ -115,12 +115,12 @@ func (h *Hook) OnPreToolCall(_ context.Context, hctx *hooks.PreToolCallContext) 
 	return hooks.PreToolCallResult{}, nil
 }
 
-func (h *Hook) OnPostToolCall(_ context.Context, hctx *hooks.PostToolCallContext) {
+func (h *Hook) OnPostToolCall(ctx context.Context, hctx *hooks.PostToolCallContext) {
 	resultSnippet := redactSecrets(hctx.Result)
 	if len(resultSnippet) > 200 {
 		resultSnippet = resultSnippet[:200] + "..."
 	}
-	h.log.Info("post_tool_call",
+	h.log.InfoContext(ctx, "post_tool_call",
 		"tool", hctx.ToolName,
 		"call_id", hctx.ToolCallID,
 		"is_error", hctx.IsError,

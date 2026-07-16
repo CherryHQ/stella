@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel/trace"
-
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/credential"
 )
@@ -65,7 +63,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// fall through to the cookie session or any full-access path.
 		info, err := s.authInfoFromBearer(ctx, r.Header.Get("Authorization"))
 		if err != nil {
-			s.log.Warn("bearer credential rejected", "error", err, "path", path)
+			s.log.WarnContext(ctx, "bearer credential rejected", "error", err, "path", path)
 			s.denyAccess(w, r)
 			return
 		}
@@ -256,17 +254,15 @@ func (s *Server) accessLogMiddleware(next http.Handler) http.Handler {
 			level = slog.LevelDebug
 		}
 
-		attrs := []slog.Attr{
+		// trace_id/span_id come from the trace-context slog handler (main installs
+		// it), which reads them off the request context passed here.
+		s.log.LogAttrs(r.Context(), level, "http request",
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.Int("status", rec.status),
 			slog.Duration("duration", time.Since(start)),
 			slog.Int64("bytes", rec.bytes),
-		}
-		if sc := trace.SpanContextFromContext(r.Context()); sc.HasTraceID() {
-			attrs = append(attrs, slog.String("trace_id", sc.TraceID().String()))
-		}
-		s.log.LogAttrs(r.Context(), level, "http request", attrs...)
+		)
 	})
 }
 

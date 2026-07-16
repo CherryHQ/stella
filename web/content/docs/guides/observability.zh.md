@@ -49,7 +49,7 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 
 ### OpenTelemetry 模式
 
-设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 会同时启用追踪和日志；也可以用信号专用导出器变量只启用其中一种信号。如果后端不支持日志服务（如 Jaeger），Stella 会在首次失败后自动禁用日志导出。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：
+设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 会同时启用追踪、日志和指标；也可以用信号专用导出器变量只启用部分信号。指标覆盖 HTTP 服务器（请求数、耗时）和 Go 运行时（内存、GC、goroutine）。如果后端不支持日志服务（如 Jaeger），Stella 会在首次失败后自动禁用日志导出。Stella 将导出器配置交给 OpenTelemetry SDK，因此支持标准的 OTel 环境变量：
 
 | 环境变量                             | 默认值              | 说明                                                                                                                                                                            |
 | ------------------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -62,11 +62,13 @@ LOG_LEVEL_RIVER=DEBUG stellad server
 | `OTEL_EXPORTER_OTLP_LOGS_HEADERS`    | _(空)_              | 仅应用于 logs 的逗号分隔请求头。会覆盖针对 logs 的通用 OTLP 请求头。                                                                                                            |
 | `OTEL_TRACES_EXPORTER`               | SDK 默认            | Trace 导出器。设为 `none` 可只关闭 trace 导出，保留其他 OTel 信号。                                                                                                             |
 | `OTEL_LOGS_EXPORTER`                 | SDK 默认            | Log 导出器。设为 `none` 可只关闭 log 导出，保留 trace。                                                                                                                         |
+| `OTEL_METRICS_EXPORTER`              | SDK 默认            | 指标导出器。设为 `none` 可只关闭指标导出，保留其他 OTel 信号。                                                                                                                  |
 | `OTEL_SERVICE_NAME`                  | `stella`            | 在可观测性后端显示的服务名。                                                                                                                                                    |
+| `OTEL_RESOURCE_ATTRIBUTES`           | _(空)_              | 附加到所有信号的资源属性，例如 `deployment.environment=prod`。                                                                                                                  |
 | `OTEL_EXPORTER_OTLP_INSECURE`        | SDK 默认            | 设为 `false` 以要求 TLS。HTTPS 或安全 gRPC 端点请使用 `false`。                                                                                                                 |
 | `OTEL_STELLA_RECORD_TOOL_IO`         | `false`             | 设为 `true` 才会把工具输入(如 bash 命令)和结果文本记录到 span。默认关闭,因此这些内容永不导出;span 始终携带工具名、参数数量与结果长度。                                          |
 
-启用 OTel 后，两种模式会同时运行——你既能看到 stderr 日志行，也能导出追踪和日志。
+启用 OTel 后，两种模式会同时运行——你既能看到 stderr 日志行，也能导出追踪、日志和指标。处于追踪路径上的日志行（LLM 调用、工具调用、HTTP 请求）会携带 `trace_id` 和 `span_id`，可以直接从 stderr 行跳到后端里对应的 trace。
 
 ### 常见陷阱
 
@@ -279,4 +281,4 @@ LLM 与工具 span 遵循 [OpenTelemetry GenAI 语义约定](https://opentelemet
 
 ## 如何关闭
 
-没有可禁用的插件。日志模式跟随 `LOG_LEVEL`，设为 `WARN` 或 `ERROR` 即可静默每次调用的 INFO 行。除非设置了 `OTEL_EXPORTER_OTLP_ENDPOINT` 或信号专用导出器，否则 OTel 导出默认关闭；留空这些变量即可完全停用分布式遥测。设 `OTEL_TRACES_EXPORTER=none` 或 `OTEL_LOGS_EXPORTER=none` 可以只关闭其中一种信号。
+没有可禁用的插件。日志模式跟随 `LOG_LEVEL`，设为 `WARN` 或 `ERROR` 即可静默每次调用的 INFO 行。除非设置了 `OTEL_EXPORTER_OTLP_ENDPOINT` 或信号专用导出器，否则 OTel 导出默认关闭；留空这些变量即可完全停用分布式遥测。设 `OTEL_TRACES_EXPORTER=none`、`OTEL_LOGS_EXPORTER=none` 或 `OTEL_METRICS_EXPORTER=none` 可以按信号单独关闭。
