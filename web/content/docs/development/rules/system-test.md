@@ -1,0 +1,135 @@
+---
+title: System testing
+description: Subprocess system-test suite that boots the real stellad over TCP against embedded PostgreSQL.
+---
+
+The system suite boots the real `stellad` binary as a subprocess and drives it
+over TCP — HTTP and SSE — against an embedded PostgreSQL cluster, with a scripted
+fake Anthropic provider standing in for the model. It proves the seams a
+single-process Go test cannot reach: process startup and migration, real HTTP
+authentication, SSE transport to a client, cross-request flows, and asynchronous
+workers (the goal dispatcher and its River jobs). The whole suite lives under the
+`system` build tag in `test/system/`, so a plain `go test ./...` never discovers
+it.
+
+## Test taxonomy
+
+Test at the lowest layer that can prove the behavior. Each layer up costs more to
+run and to keep deterministic, so climb only when the layer below cannot reach
+the seam.
+
+| Layer                      | What runs                                                                            | Command                | Browser |
+| -------------------------- | ------------------------------------------------------------------------------------ | ---------------------- | ------- |
+| **In-process integration** | Go tests, in-process, against a live Postgres — no server subprocess                 | `mise run test`        | no      |
+| **System**                 | The real `stellad` subprocess over TCP + embedded PostgreSQL, scripted fake provider | `mise run system-test` | no      |
+| **Browser E2E**            | Full user path `browser → API → DB`                                                  | see `web-ui-test.md`   | yes     |
+
+For manual, exploratory driving of a running server with `curl` and DB
+assertions, see `api-test.md`; the system suite is the automated, repeatable form
+of that same subprocess coverage.
+
+## Running the suite
+
+```bash
+mise run system-test
+```
+
+The task depends on `pg:runtime:download` and `build`, then runs
+`go test -tags system -count=1 -timeout 15m ./test/system/...`. It:
+
+- downloads the embedded PostgreSQL runtime if it is not already present;
+- builds `dist/bin/stellad` (the suite execs this binary, never a `go run`);
+- boots one server subprocess bound to a real loopback TCP port, backed by an
+  embedded PostgreSQL cluster the subprocess migrates itself;
+- runs the ordered journeys, then tears the subprocess and cluster down.
+
+## Supported platforms
+
+The suite runs only where the embedded PostgreSQL runtime is published; that
+platform set is owned by `internal/pgruntime`, and the suite must never duplicate
+it. On any other host `skipUnsupportedHost` skips the suite before it acquires a
+resource — it does not fail. Published platforms:
+
+- **linux/amd64** and **linux/arm64** for the Debian/Ubuntu runtime sources
+  `bookworm`, `noble`, and `trixie`;
+- **macOS arm64**.
+
+On an unsupported host, point `STELLA_DATABASE_URL` at an external PostgreSQL with
+`pg_search` and `pgvector` to run the server manually, or file an issue for the
+platform. Because the suite is skipped rather than failed off-platform, it stays a
+local gate and is not run in CI.
+
+## Suite architecture
+
+`TestSystem` owns the single server subprocess and its database for the whole
+run. Journeys are **ordered subtests**, never `t.Parallel()`, so one shared server
+and one shared database serve them all in sequence:
+
+- `readiness` — the subprocess migrated the handed-over database, bound a TCP
+  listener, and reports ready.
+- `startup_and_auth` — bootstrap registration and session-authenticated access.
+- `chat_sse` — one chat turn end to end, consumed as a live SSE stream.
+- `goal_lifecycle` — a Goal driven from creation to autonomous acceptance by the
+  dispatcher's async workers.
+
+Every fixture (provider, agent, user, goal) is scoped by the harness `runID`, so
+no journey depends on another's business data — a shared bootstrap user and cookie
+jar are the only reuse. The shared HTTP client has **no timeout**; every request,
+SSE included, must carry a `context` deadline instead. `TestHarnessEarlyExit` is a
+separate top-level test that proves a subprocess dying during startup is detected
+fast, and needs neither PostgreSQL nor the runtime.
+
+The subprocess environment is an explicit allowlist, not the developer's
+inherited environment, so local `STELLA_*`/`OTEL_*`/`AUTH_*` settings cannot leak
+in and make a run nondeterministic.
+
+## The fake Anthropic provider
+
+No model traffic leaves the host: the fake is an in-test-process `httptest.Server`,
+and the subprocess reaches it only because the test-created provider's `base_url`
+is the fake's loopback address. Every request the fake records is therefore every
+model request the system made.
+
+The fake **never branches on prompt prose** — only stable request fields (model,
+tool names, the `goal_control` action enum) select a response, so ordinary prompt
+edits can never turn into a system-test failure. It has two scripting modes:
+
+- **FIFO text** (`enqueueText`) — an ordered queue of plain-text turns replayed in
+  arrival order; used by `chat_sse`. An unscripted request fails the test.
+- **goal_control variant match** (`enqueueGoalControl`) — responses keyed by the
+  `goal_control` action the server advertises in the request's tool schema
+  (`decompose`, `submit`), matched on that stable field rather than arrival order;
+  used by `goal_lifecycle`.
+
+Cleanup fails the test if any scripted response went unconsumed, catching a system
+that made fewer model calls than the journey assumed.
+
+### Goal trailing-turn gotcha
+
+A Goal attempt's agent tool loop may fire a **racy tool-result follow-up call**
+after the terminal `goal_control` tool_use, so the number of `/v1/messages` calls
+per attempt is nondeterministic (the measured `goal_lifecycle` sequence is
+`decompose, decompose, submit, submit`). This is exactly why the goal mode keys on
+the action enum instead of arrival order: each stage's tool_use is served once,
+and a same-stage follow-up turn gets a benign `end_turn` text so the loop
+terminates without consuming another stage's script. Assert "all scripts consumed
+and no unscripted request," never an exact call count.
+
+## Diagnostics
+
+Server logs are written to `dist/logs/system-test/server-<runid>-a<attempt>.log`
+in the repo (they survive the run), so a failure message can always point at a
+live file. Failures attach a tail of that log; the goal journey additionally dumps
+the goal tree, its attempts, and the fake's request log, so a stuck async run is
+diagnosable without a rerun.
+
+## When to add a system-test journey
+
+Add a journey only for a **seam a lower layer cannot reach**: process startup,
+real HTTP authentication, SSE (or other streaming) transport to a client, a flow
+that spans multiple requests, or an asynchronous worker (dispatcher, scheduler,
+River jobs). Everything else — pure logic, single-handler behavior, DB invariants
+reachable in-process — belongs in an in-process Go test at the lowest sufficient
+layer. A new journey that needs production-code changes, a new unsupported-host
+expansion, or any external network dependency reopens design review before it
+lands.

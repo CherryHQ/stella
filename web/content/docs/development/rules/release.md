@@ -77,14 +77,19 @@ Apply to both changelog files:
 
 ## Validate and Test
 
-The standard pre-commit gate (`mise run format && mise run build && mise run test`) must already be green before cutting a release.
+Run the full pre-cut gate — it executes, strictly in order, `format` → `build` →
+`test` → `system-test` → `release:check` → `release:snapshot`:
 
 ```bash
 VERSION=X.Y.Z
 test "$(jq -r '.version' web/package.json)" = "$VERSION"
-mise run release:check     # Validate .goreleaser.yaml
-mise run release:snapshot  # Test release locally (no tag needed)
+mise run release:validate
 ```
+
+The system suite (`system-test`) is a **local** release gate: it is skipped on
+hosts without a published embedded PostgreSQL runtime and is not run in CI, so it
+runs here as part of `release:validate` rather than in the release workflow. See
+`system-test.md`.
 
 ## Artifacts
 
