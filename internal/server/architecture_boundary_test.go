@@ -18,6 +18,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,8 +34,8 @@ type serverFile struct {
 }
 
 // parseServerPackage parses every non-test .go file in the internal/server
-// package directory (the test's working directory). Generated and build-ignored
-// files are skipped.
+// package directory (the test's working directory). Build-ignored files are skipped;
+// generated files remain production code and must be guarded.
 func parseServerPackage(t *testing.T) []serverFile {
 	t.Helper()
 	dir, err := filepath.Abs(".")
@@ -57,7 +58,7 @@ func parseServerPackage(t *testing.T) []serverFile {
 			t.Fatalf("read %s: %v", name, err)
 		}
 		src := string(raw)
-		if strings.Contains(src, "//go:build ignore") || strings.Contains(src, "// Code generated") {
+		if hasLeadingIgnoreBuildDirective(src) {
 			continue
 		}
 		fset := token.NewFileSet()
@@ -69,6 +70,29 @@ func parseServerPackage(t *testing.T) []serverFile {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].rel < out[j].rel })
 	return out
+}
+
+// hasLeadingIgnoreBuildDirective recognizes only a valid leading build-comment
+// block. A directive-looking string literal or comment after package code must
+// remain production code and therefore stay in the inventory.
+func hasLeadingIgnoreBuildDirective(src string) bool {
+	found := false
+	for line := range strings.SplitSeq(src, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "":
+			if found {
+				return true
+			}
+		case strings.HasPrefix(trimmed, "//"):
+			if trimmed == "//go:build ignore" {
+				found = true
+			}
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // isSelector reports whether e is the selector pkg.Name matched by the receiver
@@ -145,6 +169,20 @@ func isServerReceiver(fd *ast.FuncDecl) bool {
 	return ok && id.Name == "Server"
 }
 
+func TestLeadingIgnoreBuildDirective(t *testing.T) {
+	for name, src := range map[string]string{
+		"leading directive":   "//go:build ignore\n\npackage ignored\n",
+		"string literal":      "package server\nconst note = \"//go:build ignore\"\n",
+		"non-leading comment": "package server\n//go:build ignore\n",
+	} {
+		got := hasLeadingIgnoreBuildDirective(src)
+		want := name == "leading directive"
+		if got != want {
+			t.Errorf("%s: hasLeadingIgnoreBuildDirective() = %t, want %t", name, got, want)
+		}
+	}
+}
+
 func TestNoNewServerWiringSetters(t *testing.T) {
 	unused := map[string]bool{}
 	for k := range serverWiringSetterAllowlist {
@@ -177,108 +215,838 @@ func TestNoNewServerWiringSetters(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Tripwire 2: no new broad persistence capabilities in internal/server.
+// Tripwire 2: freeze the real persistence footprint of internal/server.
 //
-// Transports must reach persistence through narrow ports, not raw stores. Each
-// file's set of broad-capability tokens (raw sqlc, raw pgxpool, config.Store,
-// memory.SessionManager, raw auth stores, raw blob.Store) is frozen. A new
-// (file, capability) pair fails.
+// An import is not query authority: DTO-only sqlc imports are representation
+// leakage, while a handler can call s.q without importing sqlc at all. Freeze
+// those distinct debts independently: broad Server/Deps fields, direct *Server
+// field selectors, and sqlc/pgxpool imports. Every baseline is exact and may
+// only shrink; both additions and stale entries fail.
 // ---------------------------------------------------------------------------
 
 const (
-	capSQLC           = "sqlc"                  // import pkg/db/sqlc (raw query layer)
-	capPgxpool        = "pgxpool"               // import pgx/v5/pgxpool (raw pool)
-	capConfigStore    = "config.Store"          // raw config store handle
-	capSessionManager = "memory.SessionManager" // raw memory session manager
-	capAuthStore      = "auth.store"            // raw auth persistence stores
-	capBlobStore      = "blob.Store"            // raw blob store handle
+	serverSQLCImportPath    = "github.com/CherryHQ/stella/pkg/db/sqlc"
+	serverPgxpoolImportPath = "github.com/jackc/pgx/v5/pgxpool"
 )
 
-// serverPersistenceAllowlist records, per file, the broad persistence
-// capabilities that file is permitted to reach directly today. server.go is the
-// composition root that injects these into the Server struct.
-var serverPersistenceAllowlist = map[string]map[string]bool{
-	"server.go":          {capSQLC: true, capPgxpool: true, capConfigStore: true, capAuthStore: true},
-	"agent_tools.go":     {capSQLC: true},
-	"credential_wire.go": {capSQLC: true},
-	"goals.go":           {capSQLC: true},
-	"inbox.go":           {capSQLC: true},
-	"groups.go":          {capSQLC: true},
-	"oauth_wire.go":      {capSQLC: true},
-	"projects.go":        {capSQLC: true},
-	"profile.go":         {capSQLC: true},
-	"shares.go":          {capSQLC: true},
-	"workflows.go":       {capSQLC: true},
+var broadServerFields = map[string]bool{
+	"q": true, "db": true, "store": true, "authStore": true, "mem": true,
+	"users": true, "sessions": true, "credentials": true, "logins": true,
 }
 
-var authStoreTypes = map[string]bool{
-	"AuthStore": true, "SessionStore": true, "CredentialStore": true,
-	"UserStore": true, "LoginIdentityStore": true, "ChannelIdentityStore": true,
-	"LinkCodeStore": true,
+var currentBroadServerFields = map[string]string{
+	"Server.store":          "config.Store",
+	"Server.authStore":      "auth.AuthStore",
+	"Server.mem":            "memory.Provider",
+	"Server.db":             "pgxpool.Pool",
+	"Server.q":              "sqlc.Queries",
+	"Server.logins":         "auth.LoginIdentityStore",
+	"Server.users":          "auth.ChannelIdentityStore,auth.UserStore",
+	"Server.sessions":       "auth.SessionStore",
+	"Server.credentials":    "auth.CredentialStore",
+	"Deps.Store":            "config.Store",
+	"Deps.DB":               "pgxpool.Pool",
+	"Deps.AuthStore":        "auth.AuthStore",
+	"Deps.Mem":              "memory.Provider",
+	"Deps.OIDC.Logins":      "auth.LoginIdentityStore",
+	"Deps.OIDC.Users":       "auth.ChannelIdentityStore,auth.UserStore",
+	"Deps.OIDC.Sessions":    "auth.SessionStore",
+	"Deps.OIDC.Credentials": "auth.CredentialStore",
 }
 
-func fileCapabilities(sf serverFile) map[string]bool {
-	caps := map[string]bool{}
-	for _, imp := range sf.file.Imports {
-		path := strings.Trim(imp.Path.Value, "`\"")
-		switch path {
-		case "github.com/CherryHQ/stella/pkg/db/sqlc":
-			caps[capSQLC] = true
-		case "github.com/jackc/pgx/v5/pgxpool":
-			caps[capPgxpool] = true
+// currentServerFieldUses inventories every direct broad-field selector reached
+// through a *Server receiver or parameter. Counts prevent a second use in an
+// existing handler from hiding behind an allowlist entry.
+var currentServerFieldUses = map[string]map[string]map[string]int{
+	"agent_tools.go": {
+		"UpdateAgentTool": {
+			"q": 2,
+		},
+		"agentTools": {
+			"q": 1,
+		},
+		"loadToolOverrides": {
+			"q": 1,
+		},
+	},
+	"agent_users.go": {
+		"AssignAgentUser": {
+			"authStore": 1,
+			"store":     1,
+			"users":     1,
+		},
+		"ListAgentUsers": {
+			"authStore": 1,
+			"q":         1,
+		},
+		"RemoveAgentUser": {
+			"authStore": 1,
+		},
+	},
+	"agents.go": {
+		"CreateAgent": {
+			"authStore": 1,
+			"store":     3,
+		},
+		"DeleteAgent": {
+			"store": 1,
+		},
+		"UpdateAgent": {
+			"store": 1,
+		},
+		"fillAgentLastActive": {
+			"q": 1,
+		},
+	},
+	"auth.go": {
+		"DeleteAuthSession": {
+			"sessions": 3,
+		},
+		"GetMe": {
+			"credentials": 2,
+		},
+		"ListAuthSessions": {
+			"sessions": 2,
+		},
+	},
+	"auth_users.go": {
+		"DeleteAuthUserIdentity": {
+			"users": 3,
+		},
+		"LinkAuthUserLoginIdentity": {
+			"logins": 3,
+			"users":  1,
+		},
+		"ListAuthUserAgents": {
+			"authStore": 1,
+		},
+		"ListAuthUserChannelIdentities": {
+			"users": 3,
+		},
+		"ListAuthUserLoginIdentities": {
+			"logins": 2,
+			"users":  1,
+		},
+		"ListAuthUsers": {
+			"users": 1,
+		},
+		"UpdateAuthUserActive": {
+			"sessions": 2,
+			"users":    2,
+		},
+		"UpdateAuthUserAgents": {
+			"authStore": 4,
+			"users":     1,
+		},
+		"UpdateAuthUserRole": {
+			"sessions": 2,
+			"users":    1,
+		},
+		"buildAuthUserResponse": {
+			"users": 2,
+		},
+		"writeAuthUser": {
+			"users": 1,
+		},
+	},
+	"channels.go": {
+		"ListPublicChannels": {
+			"store": 1,
+		},
+		"UpdateChannel": {
+			"store": 1,
+		},
+		"enabledChannelTypes": {
+			"store": 1,
+		},
+	},
+	"feishu_registration.go": {
+		"PollFeishuRegistration": {
+			"store": 1,
+		},
+	},
+	"groups.go": {
+		"AddGroupMember": {
+			"q":     2,
+			"store": 1,
+		},
+		"CreateGroup": {
+			"q": 3,
+		},
+		"DeleteGroup": {
+			"q": 1,
+		},
+		"ListGroupMembers": {
+			"q":     1,
+			"store": 1,
+		},
+		"ListGroupMessages": {
+			"q": 1,
+		},
+		"ListGroups": {
+			"q": 1,
+		},
+		"RemoveGroupMember": {
+			"q": 2,
+		},
+		"SendGroupMessage": {
+			"q": 2,
+		},
+		"UpdateGroup": {
+			"q": 1,
+		},
+		"groupToAPIWithActivity": {
+			"q": 1,
+		},
+		"requireGroupOwner": {
+			"q": 1,
+		},
+	},
+	"inbox.go": {
+		"ListInbox": {
+			"q": 2,
+		},
+	},
+	"models.go": {
+		"ListModels": {
+			"store": 2,
+		},
+	},
+	"oidc.go": {
+		"linkFeishuChannelIdentity": {
+			"users": 3,
+		},
+	},
+	"profile.go": {
+		"AddProfileConstraint": {
+			"db": 1,
+			"q":  1,
+		},
+		"ChangePassword": {
+			"credentials": 3,
+		},
+		"DeleteProfileConstraint": {
+			"db": 1,
+			"q":  2,
+		},
+		"ListProfileChangelog": {
+			"mem": 1,
+			"q":   1,
+		},
+		"ListProfileConstraints": {
+			"q": 1,
+		},
+		"ListProfileIdentities": {
+			"users": 2,
+		},
+		"SetProfileSoul": {
+			"mem": 1,
+		},
+		"UnlinkProfileIdentity": {
+			"users": 3,
+		},
+		"applyProfileFacts": {
+			"mem": 1,
+		},
+		"loadProfileMemory": {
+			"q": 1,
+		},
+	},
+	"projects.go": {
+		"CreateProject": {
+			"q": 1,
+		},
+		"DeleteProject": {
+			"q": 2,
+		},
+		"GetProject": {
+			"q": 1,
+		},
+		"ListProjects": {
+			"q": 2,
+		},
+		"UpdateProject": {
+			"q": 2,
+		},
+	},
+	"sessions.go": {
+		"GetSession": {
+			"users": 2,
+		},
+	},
+	"shares.go": {
+		"GetShareContent": {
+			"q": 1,
+		},
+	},
+	"status.go": {
+		"statusDatabase": {
+			"db": 1,
+		},
+	},
+	"users.go": {
+		"DeleteUserMemory": {
+			"db": 1,
+			"q":  1,
+		},
+		"ListUserMemories": {
+			"q": 1,
+		},
+		"SetUserMemory": {
+			"mem": 1,
+		},
+		"UpdateUserDefaultAgent": {
+			"users": 1,
+		},
+		"UpdateUserNotifyIdentity": {
+			"users": 2,
+		},
+	},
+	"webhook_ingress.go": {
+		"handleWebhookIngress": {
+			"store": 1,
+		},
+	},
+	"weixin_qr.go": {
+		"PollWeixinQRStatus": {
+			"users": 3,
+		},
+	},
+	"weixin_registration.go": {
+		"PollWeixinRegistration": {
+			"store": 1,
+		},
+		"saveWeixinSingletonChannel": {
+			"store": 1,
+		},
+	},
+}
+
+// serverFieldUseBaseline flattens the reviewable per-file/function inventory
+// into the stable file:function:field key used by the exact comparison.
+func serverFieldUseBaseline() map[string]int {
+	baseline := map[string]int{}
+	for file, functions := range currentServerFieldUses {
+		for function, fields := range functions {
+			for field, count := range fields {
+				baseline[file+":"+function+":"+field] = count
+			}
 		}
 	}
-	// Resolve local import names so an aliased import (e.g. cfg "…/internal/config")
-	// cannot evade the selector match.
-	configName := localImportName(sf.file, "github.com/CherryHQ/stella/internal/config")
-	memoryName := localImportName(sf.file, "github.com/CherryHQ/stella/internal/memory")
-	blobName := localImportName(sf.file, "github.com/CherryHQ/stella/internal/blob")
-	authName := localImportName(sf.file, "github.com/CherryHQ/stella/internal/auth")
-	ast.Inspect(sf.file, func(n ast.Node) bool {
-		sel, ok := n.(*ast.SelectorExpr)
-		if !ok {
+	return baseline
+}
+
+// Imports are representation/infrastructure leakage, deliberately distinct
+// from currentServerFieldUses: goals.go/workflows.go have no Server.q use.
+// No direct Server-reference aliases or dot imports are tolerated: either
+// construct hides the AST shape this guard intentionally inventories.
+var (
+	currentServerFieldAliasAllowlist           = map[string]bool{}
+	currentServerTypeIndirectionAllowlist      = map[string]bool{}
+	currentServerPersistenceDotImportAllowlist = map[string]bool{}
+	currentServerPersistenceImports            = map[string]bool{
+		"agent_tools.go:" + serverSQLCImportPath:     true,
+		"credential_wire.go:" + serverSQLCImportPath: true,
+		"goals.go:" + serverSQLCImportPath:           true,
+		"groups.go:" + serverSQLCImportPath:          true,
+		"inbox.go:" + serverSQLCImportPath:           true,
+		"oauth_wire.go:" + serverSQLCImportPath:      true,
+		"profile.go:" + serverSQLCImportPath:         true,
+		"projects.go:" + serverSQLCImportPath:        true,
+		"server.go:" + serverSQLCImportPath:          true,
+		"server.go:" + serverPgxpoolImportPath:       true,
+		"shares.go:" + serverSQLCImportPath:          true,
+		"workflows.go:" + serverSQLCImportPath:       true,
+	}
+)
+
+var broadTypeMarkers = map[string]map[string]string{
+	"github.com/CherryHQ/stella/internal/auth": {
+		"AuthStore": "auth.AuthStore", "UserStore": "auth.UserStore",
+		"SessionStore": "auth.SessionStore", "CredentialStore": "auth.CredentialStore",
+		"LoginIdentityStore": "auth.LoginIdentityStore", "ChannelIdentityStore": "auth.ChannelIdentityStore",
+	},
+	"github.com/CherryHQ/stella/internal/blob":   {"Store": "blob.Store"},
+	"github.com/CherryHQ/stella/internal/config": {"Store": "config.Store"},
+	"github.com/CherryHQ/stella/internal/memory": {
+		"Provider": "memory.Provider", "SessionManager": "memory.SessionManager",
+	},
+	serverPgxpoolImportPath: {"Pool": "pgxpool.Pool"},
+	serverSQLCImportPath:    {"Queries": "sqlc.Queries"},
+}
+
+func isServerParameter(typ ast.Expr) bool {
+	if star, ok := typ.(*ast.StarExpr); ok {
+		typ = star.X
+	}
+	id, ok := typ.(*ast.Ident)
+	return ok && id.Name == "Server"
+}
+
+//nolint:staticcheck // ast.Object is sufficient for receiver/parameter lexical bindings in a parsed file.
+type serverReferenceSet map[*ast.Object]bool
+
+// directServerReferences returns receiver/parameter bindings by AST object,
+// not text. A nested scope may shadow a name without becoming a Server reference.
+func directServerReferences(fd *ast.FuncDecl) serverReferenceSet {
+	references := serverReferenceSet{}
+	if fd.Recv != nil && len(fd.Recv.List) == 1 && isServerReceiver(fd) {
+		for _, name := range fd.Recv.List[0].Names {
+			if name.Obj != nil {
+				references[name.Obj] = true
+			}
+		}
+	}
+	if fd.Type.Params == nil {
+		return references
+	}
+	for _, param := range fd.Type.Params.List {
+		if isServerParameter(param.Type) {
+			for _, name := range param.Names {
+				if name.Obj != nil {
+					references[name.Obj] = true
+				}
+			}
+		}
+	}
+	return references
+}
+
+func serverFieldAliasInventory(files []serverFile) map[string]bool {
+	aliases := map[string]bool{}
+	for _, sf := range files {
+		for _, decl := range sf.file.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+			direct := directServerReferences(fd)
+			if len(direct) == 0 {
+				continue
+			}
+			add := func(targets []*ast.Ident, values []ast.Expr) {
+				if len(targets) != len(values) {
+					return
+				}
+				for i, value := range values {
+					if source, ok := value.(*ast.Ident); ok && direct[source.Obj] {
+						aliases[sf.rel+":"+fd.Name.Name+":"+targets[i].Name] = true
+					}
+				}
+			}
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				switch node := n.(type) {
+				case *ast.AssignStmt:
+					targets := make([]*ast.Ident, 0, len(node.Lhs))
+					for _, target := range node.Lhs {
+						id, ok := target.(*ast.Ident)
+						if !ok {
+							return true
+						}
+						targets = append(targets, id)
+					}
+					add(targets, node.Rhs)
+				case *ast.ValueSpec:
+					add(node.Names, node.Values)
+				}
+				return true
+			})
+		}
+	}
+	return aliases
+}
+
+func serverFieldUseInventory(files []serverFile) map[string]int {
+	uses := map[string]int{}
+	for _, sf := range files {
+		for _, decl := range sf.file.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+			direct := directServerReferences(fd)
+			if len(direct) == 0 {
+				continue
+			}
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok || !broadServerFields[sel.Sel.Name] {
+					return true
+				}
+				id, ok := sel.X.(*ast.Ident)
+				if ok && direct[id.Obj] {
+					uses[sf.rel+":"+fd.Name.Name+":"+sel.Sel.Name]++
+				}
+				return true
+			})
+		}
+	}
+	return uses
+}
+
+func sortedStringKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for key := range m {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
+}
+
+type serverTypeDecl struct {
+	file serverFile
+	expr ast.Expr
+}
+
+func collectServerTypes(files []serverFile) map[string]serverTypeDecl {
+	types := map[string]serverTypeDecl{}
+	for _, sf := range files {
+		for _, decl := range sf.file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if ok {
+					if _, isStruct := ts.Type.(*ast.StructType); !isStruct {
+						types[ts.Name.Name] = serverTypeDecl{file: sf, expr: ts.Type}
+					}
+				}
+			}
+		}
+	}
+	return types
+}
+
+func forbiddenServerTypeIndirectionInventory(files []serverFile) map[string]bool {
+	types := collectServerTypes(files)
+	indirections := map[string]serverTypeDecl{}
+	for _, sf := range files {
+		for _, decl := range sf.file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.Name.Name == "Server" || ts.Name.Name == "Deps" {
+					continue
+				}
+				indirections[ts.Name.Name] = serverTypeDecl{file: sf, expr: ts.Type}
+			}
+		}
+	}
+	var referencesServer func(ast.Expr, map[string]bool) bool
+	referencesServer = func(expr ast.Expr, seen map[string]bool) bool {
+		found := false
+		ast.Inspect(expr, func(n ast.Node) bool {
+			id, ok := n.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			if id.Name == "Server" {
+				found = true
+				return false
+			}
+			if nextType, ok := indirections[id.Name]; ok && !seen[id.Name] {
+				next := maps.Clone(seen)
+				next[id.Name] = true
+				if referencesServer(nextType.expr, next) {
+					found = true
+					return false
+				}
+			}
 			return true
+		})
+		return found
+	}
+	got := map[string]bool{}
+	for name, indirection := range indirections {
+		referencesBroadType := false
+		if _, isStruct := indirection.expr.(*ast.StructType); !isStruct {
+			referencesBroadType = broadFieldSignature(indirection.file, indirection.expr, types) != ""
 		}
-		id, ok := sel.X.(*ast.Ident)
-		if !ok {
+		if referencesServer(indirection.expr, map[string]bool{name: true}) || referencesBroadType {
+			got[indirection.file.rel+":"+name] = true
+		}
+	}
+	return got
+}
+
+func broadFieldSignature(sf serverFile, expr ast.Expr, types map[string]serverTypeDecl) string {
+	found, seen := map[string]bool{}, map[string]bool{}
+	var inspect func(serverFile, ast.Expr)
+	inspect = func(current serverFile, currentExpr ast.Expr) {
+		ast.Inspect(currentExpr, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				if typ, ok := types[id.Name]; ok && !seen[id.Name] {
+					seen[id.Name] = true
+					inspect(typ.file, typ.expr)
+				}
+			}
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			for path, markers := range broadTypeMarkers {
+				if id.Name == localImportName(current.file, path) {
+					if marker := markers[sel.Sel.Name]; marker != "" {
+						found[marker] = true
+					}
+				}
+			}
 			return true
+		})
+	}
+	inspect(sf, expr)
+	return strings.Join(sortedStringKeys(found), ",")
+}
+
+type serverStructDecl struct {
+	file serverFile
+	body *ast.StructType
+}
+
+func collectServerStructs(files []serverFile) map[string]serverStructDecl {
+	structs := map[string]serverStructDecl{}
+	for _, sf := range files {
+		for _, decl := range sf.file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				if st, ok := ts.Type.(*ast.StructType); ok {
+					structs[ts.Name.Name] = serverStructDecl{file: sf, body: st}
+				}
+			}
 		}
-		switch {
-		case configName != "" && id.Name == configName && sel.Sel.Name == "Store":
-			caps[capConfigStore] = true
-		case memoryName != "" && id.Name == memoryName && sel.Sel.Name == "SessionManager":
-			caps[capSessionManager] = true
-		case blobName != "" && id.Name == blobName && sel.Sel.Name == "Store":
-			caps[capBlobStore] = true
-		case authName != "" && id.Name == authName && authStoreTypes[sel.Sel.Name]:
-			caps[capAuthStore] = true
+	}
+	return structs
+}
+
+func embeddedFieldName(expr ast.Expr) string {
+	switch typ := expr.(type) {
+	case *ast.Ident:
+		return typ.Name
+	case *ast.SelectorExpr:
+		return typ.Sel.Name
+	case *ast.StarExpr:
+		return embeddedFieldName(typ.X)
+	default:
+		return "embedded"
+	}
+}
+
+func localStructName(expr ast.Expr) (string, bool) {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	id, ok := expr.(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	return id.Name, true
+}
+
+func broadServerFieldInventory(files []serverFile) map[string]string {
+	structs, types, got := collectServerStructs(files), collectServerTypes(files), map[string]string{}
+	var walk func(serverStructDecl, string, map[string]bool)
+	walk = func(current serverStructDecl, prefix string, ancestors map[string]bool) {
+		for _, field := range current.body.Fields.List {
+			names := field.Names
+			if len(names) == 0 {
+				names = []*ast.Ident{{Name: embeddedFieldName(field.Type)}}
+			}
+			for _, name := range names {
+				path := prefix + name.Name
+				if sig := broadFieldSignature(current.file, field.Type, types); sig != "" {
+					got[path] = sig
+				}
+				if nested, ok := field.Type.(*ast.StructType); ok {
+					walk(serverStructDecl{file: current.file, body: nested}, path+".", ancestors)
+					continue
+				}
+				typeName, ok := localStructName(field.Type)
+				if !ok || ancestors[typeName] {
+					continue
+				}
+				nested, exists := structs[typeName]
+				if !exists {
+					continue
+				}
+				next := map[string]bool{}
+				maps.Copy(next, ancestors)
+				next[typeName] = true
+				walk(nested, path+".", next)
+			}
 		}
-		return true
-	})
-	return caps
+	}
+	for _, root := range []string{"Server", "Deps"} {
+		if st, ok := structs[root]; ok {
+			walk(st, root+".", map[string]bool{root: true})
+		}
+	}
+	return got
+}
+
+func serverPersistenceDotImportInventory(files []serverFile) map[string]bool {
+	got := map[string]bool{}
+	for _, sf := range files {
+		for _, imp := range sf.file.Imports {
+			path := strings.Trim(imp.Path.Value, "`\"")
+			if _, guarded := broadTypeMarkers[path]; guarded && imp.Name != nil && imp.Name.Name == "." {
+				got[sf.rel+":"+path] = true
+			}
+		}
+	}
+	return got
+}
+
+func serverPersistenceImportInventory(files []serverFile) map[string]bool {
+	got := map[string]bool{}
+	for _, sf := range files {
+		for _, imp := range sf.file.Imports {
+			path := strings.Trim(imp.Path.Value, "`\"")
+			if path == serverSQLCImportPath || path == serverPgxpoolImportPath {
+				got[sf.rel+":"+path] = true
+			}
+		}
+	}
+	return got
+}
+
+func checkExactStringInventory(t *testing.T, label string, got, want map[string]string) {
+	t.Helper()
+	for key, gotValue := range got {
+		wantValue, ok := want[key]
+		if !ok {
+			t.Errorf("new %s entry %q (%s); route the capability through a narrow domain port", label, key, gotValue)
+			continue
+		}
+		if gotValue != wantValue {
+			t.Errorf("%s entry %q changed to %q, frozen as %q", label, key, gotValue, wantValue)
+		}
+	}
+	for key := range want {
+		if _, ok := got[key]; !ok {
+			t.Errorf("stale %s entry %q; the debt shrank — remove its baseline entry", label, key)
+		}
+	}
+}
+
+func checkExactCountInventory(t *testing.T, label string, got, want map[string]int) {
+	t.Helper()
+	for key, gotCount := range got {
+		wantCount, ok := want[key]
+		if !ok {
+			t.Errorf("new %s entry %q (%d uses); route the capability through a narrow domain port", label, key, gotCount)
+			continue
+		}
+		if gotCount != wantCount {
+			t.Errorf("%s entry %q has %d uses, frozen as %d", label, key, gotCount, wantCount)
+		}
+	}
+	for key := range want {
+		if _, ok := got[key]; !ok {
+			t.Errorf("stale %s entry %q; the debt shrank — remove its baseline entry", label, key)
+		}
+	}
+}
+
+func checkExactBoolInventory(t *testing.T, label string, got, want map[string]bool) {
+	t.Helper()
+	for key := range got {
+		if !want[key] {
+			t.Errorf("new %s entry %q; this guarded form is forbidden", label, key)
+		}
+	}
+	for key := range want {
+		if !got[key] {
+			t.Errorf("stale %s entry %q; the debt shrank — remove its baseline entry", label, key)
+		}
+	}
 }
 
 func TestNoNewServerPersistenceCapabilities(t *testing.T) {
-	unused := map[string]map[string]bool{}
-	for f, caps := range serverPersistenceAllowlist {
-		unused[f] = map[string]bool{}
-		for c := range caps {
-			unused[f][c] = true
+	files := parseServerPackage(t)
+	checkExactStringInventory(t, "broad Server/Deps field", broadServerFieldInventory(files), currentBroadServerFields)
+	checkExactCountInventory(t, "broad *Server field use", serverFieldUseInventory(files), serverFieldUseBaseline())
+	checkExactBoolInventory(t, "Server reference alias", serverFieldAliasInventory(files), currentServerFieldAliasAllowlist)
+	checkExactBoolInventory(t, "Server/broad-persistence type indirection", forbiddenServerTypeIndirectionInventory(files), currentServerTypeIndirectionAllowlist)
+	checkExactBoolInventory(t, "sqlc/pgxpool dot import", serverPersistenceDotImportInventory(files), currentServerPersistenceDotImportAllowlist)
+	checkExactBoolInventory(t, "sqlc/pgxpool representation import", serverPersistenceImportInventory(files), currentServerPersistenceImports)
+}
+
+// TestServerPersistenceTripwireCounterexamples proves each independent guard is
+// live without adding a deliberately failing source file to the package.
+func TestServerPersistenceTripwireCounterexamples(t *testing.T) {
+	parseFixture := func(name, src string) serverFile {
+		t.Helper()
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, name, src, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
 		}
+		return serverFile{rel: name, file: f, fset: fset}
 	}
-	for _, sf := range parseServerPackage(t) {
-		for c := range fileCapabilities(sf) {
-			if serverPersistenceAllowlist[sf.rel][c] {
-				delete(unused[sf.rel], c)
-				continue
-			}
-			t.Errorf("%s: new broad persistence capability %q in internal/server; use a narrow port or the composition root, or add a justified allowlist entry", sf.rel, c)
-		}
+	noImportQuery := parseFixture("handler.go", `package server
+func (s *Server) Handle() { _ = s.q.ListProjects; alias := s; _ = alias.q.ListProjects }
+func helper(s *Server) { _ = s.q.ListProjects }
+func (s *Server) Shadow() { func(s struct{ q int }) { _ = s.q }(struct{ q int }{}) }
+`)
+	if uses := serverFieldUseInventory([]serverFile{noImportQuery}); uses["handler.go:Handle:q"] != 1 || uses["handler.go:helper:q"] != 1 || uses["handler.go:Shadow:q"] != 0 {
+		t.Fatalf("direct Server field use without a sqlc import escaped inventory: %#v", uses)
 	}
-	for f, caps := range unused {
-		for c := range caps {
-			t.Errorf("stale persistence allowlist entry: %s no longer uses %q; remove it", f, c)
-		}
+	if aliases := serverFieldAliasInventory([]serverFile{noImportQuery}); !aliases["handler.go:Handle:alias"] {
+		t.Fatalf("Server reference alias escaped inventory: %#v", aliases)
+	}
+	nested := parseFixture("nested.go", `package server
+import ( cfg "github.com/CherryHQ/stella/internal/config"; sq "github.com/CherryHQ/stella/pkg/db/sqlc" )
+type rawQueries = sq.Queries
+type serverAlias = Server
+type serverDefinition Server
+type serverWrapper struct { *Server }
+type nestedServer struct { Queries *rawQueries }
+type nestedDeps struct { Store cfg.Store }
+type Server struct { Persistence *nestedServer }
+type Deps struct { Persistence *nestedDeps }
+func helperWithAlias(s *serverAlias) { _ = s.q.ListProjects }
+func helperWithDefinition(s *serverDefinition) { _ = s.q.ListProjects }
+func helperWithWrapper(s *serverWrapper) { _ = s.q.ListProjects }
+`)
+	fields := broadServerFieldInventory([]serverFile{nested})
+	if fields["Server.Persistence.Queries"] != "sqlc.Queries" || fields["Deps.Persistence.Store"] != "config.Store" {
+		t.Fatalf("nested broad fields escaped inventory: %#v", fields)
+	}
+	if indirections := forbiddenServerTypeIndirectionInventory([]serverFile{nested}); !indirections["nested.go:rawQueries"] || !indirections["nested.go:serverAlias"] || !indirections["nested.go:serverDefinition"] || !indirections["nested.go:serverWrapper"] {
+		t.Fatalf("Server/broad-persistence type indirection escaped inventory: %#v", indirections)
+	}
+	dtoOnly := parseFixture("dto.go", `package server
+import sq "github.com/CherryHQ/stella/pkg/db/sqlc"
+func Encode(row sq.Goal) {}
+`)
+	imports := serverPersistenceImportInventory([]serverFile{dtoOnly})
+	if !imports["dto.go:"+serverSQLCImportPath] {
+		t.Fatal("DTO-only sqlc import escaped representation-leakage inventory")
+	}
+	if uses := serverFieldUseInventory([]serverFile{dtoOnly}); len(uses) != 0 {
+		t.Fatalf("DTO-only sqlc import was misclassified as Server query authority: %#v", uses)
+	}
+	dotImport := parseFixture("dot.go", `package server
+import . "github.com/CherryHQ/stella/pkg/db/sqlc"
+`)
+	if imports := serverPersistenceDotImportInventory([]serverFile{dotImport}); !imports["dot.go:"+serverSQLCImportPath] {
+		t.Fatalf("dot import escaped inventory: %#v", imports)
 	}
 }
 
