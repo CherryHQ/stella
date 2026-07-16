@@ -163,7 +163,12 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Run the agent on a detached, bounded context (never the request ctx). ---
-	runCtx, cancel := context.WithTimeout(s.runtimeCtx, time.Duration(cfg.MaxRunTimeoutSeconds)*time.Second)
+	// WithoutCancel: runtimeCtx is the server work context, which graceful
+	// shutdown cancels the moment its errgroup empties — mid-drain, before the
+	// accepted-work wait (#744). The run's lifetime is decided by its own
+	// timeout and by the drain waiting on the pool's in-flight turns, not by
+	// that cancellation; values (tracing) are preserved.
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(s.runtimeCtx), time.Duration(cfg.MaxRunTimeoutSeconds)*time.Second)
 	// done releases everything tied to the run's lifetime; every path that
 	// consumes the drain result calls it exactly once.
 	done := func() {

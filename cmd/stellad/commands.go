@@ -24,6 +24,7 @@ import (
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -467,7 +468,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, cfg.Lifecycle.RiverSoftStopTimeout)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -571,7 +572,7 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, softStopTimeout time.Duration) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
@@ -592,7 +593,15 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 		queues[en] = ec
 	}
 
-	client, err := appdb.NewWorkingRiverClient(db, queues, workers, slog.With("component", "river"), softStopTimeout)
+	// River heartbeats at DEBUG/INFO every few seconds (producer batches, job
+	// stats, leader reelection), which drowns application logs. Cap its logger
+	// at WARN unless LOG_LEVEL_RIVER explicitly opens it up for queue debugging.
+	riverLevel := slog.LevelWarn
+	if riverLogLevel != "" {
+		riverLevel = cli.ParseLogLevel(riverLogLevel)
+	}
+	riverLog := slog.New(cli.NewMinLevelHandler(riverLevel, slog.Default().Handler())).With("component", "river")
+	client, err := appdb.NewWorkingRiverClient(db, queues, workers, riverLog, softStopTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("build shared river client: %w", err)
 	}

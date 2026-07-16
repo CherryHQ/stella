@@ -272,7 +272,8 @@ variables include:
 | `STELLA_HOME`         | Stella home directory                      |
 | `STELLA_DATABASE_URL` | External PostgreSQL connection URL         |
 | `STELLA_VAULT_KEY`    | age secret key for daemon vault encryption |
-| `LOG_LEVEL`           | CLI logging verbosity                      |
+| `LOG_LEVEL`           | CLI logging verbosity (default `INFO`)     |
+| `LOG_LEVEL_RIVER`     | River job-queue logging (default `WARN`)   |
 
 Never print secrets except for explicit generation commands such as
 `stellad vault keygen`, where the secret value is the requested output.

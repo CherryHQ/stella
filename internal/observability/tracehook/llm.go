@@ -16,7 +16,7 @@ func (h *Hook) OnPreLLMCall(ctx context.Context, hctx *hooks.PreLLMCallContext) 
 	for i, t := range hctx.ToolDefinitions {
 		tools[i] = t.Name
 	}
-	h.log.Info("pre_llm_call",
+	h.log.InfoContext(ctx, "pre_llm_call",
 		"model", hctx.Model,
 		"messages", hctx.MessageCount,
 		"tools", len(tools),
@@ -93,7 +93,7 @@ func (h *Hook) OnPreLLMCall(ctx context.Context, hctx *hooks.PreLLMCallContext) 
 	return hooks.PreLLMCallResult{}, nil
 }
 
-func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) {
+func (h *Hook) OnPostLLMCall(ctx context.Context, hctx *hooks.PostLLMCallContext) {
 	attrs := []any{
 		"provider", hctx.Provider,
 		"model", hctx.Model,
@@ -115,7 +115,7 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 	if hctx.Error != nil {
 		attrs = append(attrs, "error", hctx.Error)
 	}
-	h.log.Info("post_llm_call", attrs...)
+	h.log.InfoContext(ctx, "post_llm_call", attrs...)
 
 	if !h.otelEnabled() {
 		return

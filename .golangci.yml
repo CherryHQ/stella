@@ -5,6 +5,10 @@ run:
   relative-path-mode: gomod
   modules-download-mode: readonly
   go: "1.25"
+  # Lint the system-test suite too; its build tag hides test/system from
+  # untagged builds, and lint must see the same files the suite compiles.
+  build-tags:
+    - system
 
 linters:
   enable:

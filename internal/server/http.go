@@ -28,14 +28,15 @@ func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
 // session authMiddleware. It stays in internal/server, with its Server-field
 // dependencies, because it is transport code — not a plugin implementation.
 func (s *Server) WebhookIngressHandler() http.Handler {
-	return http.HandlerFunc(s.handleWebhookIngress)
+	return s.accessLogMiddleware(http.HandlerFunc(s.handleWebhookIngress))
 }
 
 // Handler returns the HTTP handler with OTel instrumentation wrapping the
-// CORS, JSON, and auth middleware chain. The OTel wrap is unconditional: it is
-// a no-op when tracing is disabled.
+// access-log, CORS, JSON, and auth middleware chain. The OTel wrap is
+// unconditional: it is a no-op when tracing is disabled. The access log sits
+// directly inside it so log lines can carry the request's trace_id.
 func (s *Server) Handler() http.Handler {
-	return observability.Handler(s.corsMiddleware(s.authMiddleware(s.jsonMiddleware(s.mux))))
+	return observability.Handler(s.accessLogMiddleware(s.corsMiddleware(s.authMiddleware(s.jsonMiddleware(s.mux)))))
 }
 
 // corsMiddleware handles CORS headers. Origin is read from settings at startup.

@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/credential"
@@ -61,7 +63,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		// fall through to the cookie session or any full-access path.
 		info, err := s.authInfoFromBearer(ctx, r.Header.Get("Authorization"))
 		if err != nil {
-			s.log.Warn("bearer credential rejected", "error", err, "path", path)
+			s.log.WarnContext(ctx, "bearer credential rejected", "error", err, "path", path)
 			s.denyAccess(w, r)
 			return
 		}
@@ -231,4 +233,77 @@ func (s *Server) denyAccess(w http.ResponseWriter, r *http.Request) {
 // isAPIRoute returns true if the path starts with /api/.
 func isAPIRoute(path string) bool {
 	return strings.HasPrefix(path, "/api/")
+}
+
+// accessLogMiddleware emits one log line per completed request. It sits inside
+// the OTel wrap — the request context carries a live span, so lines get a
+// trace_id when tracing is enabled — and outside authMiddleware so denied
+// requests (401/redirect) are logged too. That placement means the
+// authenticated user is not available here; correlate by trace_id instead.
+func (s *Server) accessLogMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+
+		level := slog.LevelInfo
+		switch {
+		case rec.status >= 500:
+			level = slog.LevelError
+		case isQuietPath(r.URL.Path):
+			level = slog.LevelDebug
+		}
+
+		// trace_id/span_id come from the trace-context slog handler (main installs
+		// it), which reads them off the request context passed here.
+		s.log.LogAttrs(r.Context(), level, "http request",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", rec.status),
+			slog.Duration("duration", time.Since(start)),
+			slog.Int64("bytes", rec.bytes),
+		)
+	})
+}
+
+// isQuietPath returns true for high-frequency, low-signal requests
+// (orchestrator probes and static assets) that log at DEBUG instead of INFO.
+func isQuietPath(path string) bool {
+	return path == "/healthz" || path == "/readyz" ||
+		strings.HasPrefix(path, "/assets/") || strings.HasPrefix(path, "/static/")
+}
+
+// statusRecorder captures the response status and body size for the access
+// log. Flush is forwarded so SSE handlers, which assert w.(http.Flusher),
+// keep streaming; Unwrap supports http.ResponseController.
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	bytes       int64
+	wroteHeader bool
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	if !r.wroteHeader {
+		r.status = code
+		r.wroteHeader = true
+	}
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	r.wroteHeader = true
+	n, err := r.ResponseWriter.Write(b)
+	r.bytes += int64(n)
+	return n, err
+}
+
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
