@@ -99,7 +99,7 @@ plugins/
 
 **静态 vs 动态。** 启动静态能力在启动前绑定一次并随后密封。热重配（插件工具/钩子/提供商重载、agent 同步、runner 失效）是独立接口，启动后仍可用并原子应用——绝不重跑一次性绑定。
 
-**关停顺序。** 首个 `SIGINT`/`SIGTERM` 启动优雅排空（第二个坍缩为硬停）。`drainSequence` 依次：标记 `/readyz` 不就绪并通知 SSE 流 → **停止每一个非 HTTP 入口源**（group 调度受理、通道 bot 轮询、以及 scheduler/goal/embedding 的 River 周期任务与一次性派发），各由幂等的 stop-once 闭包完成，故排空开始后不再有新工作或周期触发 → 在 `STELLA_HTTP_SHUTDOWN_TIMEOUT` 内排空在途 HTTP（超时强制关闭）→ 取消工作上下文，随后 River 在软停预算内排空其在途作业，LIFO defer 链逆序 Close 各子系统。group 调度循环跑在独立的 `ingressCtx`（errgroup 上下文的子上下文）上，故可在不取消工作上下文的情况下被叫停；出站依赖（池、notifier）在最终取消前保持存活，故排空前已接受的工作仍能完成并投递。同一批 stop-once 闭包同时支撑 `stopIngress` 与逆序 defer 清理，故崩溃/启动错误路径也能安全拆除、不重复停止。子系统崩溃取消 errgroup 并在无就绪排空的情况下拆除。
+**关停顺序。** 首个 `SIGINT`/`SIGTERM` 启动优雅排空（第二个坍缩为硬停）。`drainSequence` 依次：标记 `/readyz` 不就绪并通知 SSE 流 → **停止每一个非 HTTP 入口源**（group 调度受理、通道 bot 轮询、以及 scheduler/goal/embedding 的 River 周期任务与一次性派发），各由幂等的 stop-once 闭包完成，故排空开始后不再有新工作或周期触发 → 在 `STELLA_HTTP_SHUTDOWN_TIMEOUT` 内排空在途 HTTP（超时强制关闭）→ 在同一预算内等待不持有 HTTP 连接的已接受 agent 轮次（通道消息、webhook 运行、scheduler 立即运行）完成 → 取消工作上下文，随后 River 在软停预算内排空其在途作业，LIFO defer 链逆序 Close 各子系统。主 goroutine 在其拆除 defer 运行前会 join 排空监督者，因此进程退出绝不与排空竞态；第二个信号坍缩共享预算并硬停。group 调度循环跑在独立的 `ingressCtx`（errgroup 上下文的子上下文）上，故可在不取消工作上下文的情况下被叫停；出站依赖（池、notifier）在最终取消前保持存活，故排空前已接受的工作仍能完成并投递。同一批 stop-once 闭包同时支撑 `stopIngress` 与逆序 defer 清理，故崩溃/启动错误路径也能安全拆除、不重复停止。子系统崩溃取消 errgroup 并在无就绪排空的情况下拆除。
 
 ## 多用户多代理路由
 

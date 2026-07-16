@@ -499,6 +499,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// consumed by serverAction's startup watcher, which cancels the base context
 	// so partially-started subsystems unwind through the error path — the
 	// pre-existing abort-startup semantics. onServing hands signal ownership over.
+	abortCtx, abortDrain := context.WithCancel(context.Background())
+	defer abortDrain()
 	drainer := &drainSequence{
 		beginDrain: adminSrv.BeginDrain,
 		// Stop ALL new ingress before HTTP drains and before the work context is
@@ -516,13 +518,22 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		httpTimeout:  s.cfg.Lifecycle.HTTPShutdownTimeout,
 		shutdownHTTP: httpSrv.Shutdown,
 		forceClose:   func() { _ = httpSrv.Close() },
-		cancelWork:   workCancel,
+		// Accepted turns with no HTTP connection (channel messages, webhook
+		// runs, scheduler run-now) finish inside the drain budget; expiry is
+		// logged, not fatal — the hard stop below still bounds the process.
+		waitAccepted: func(ctx context.Context) {
+			if err := s.poolManager.WaitInFlight(ctx); err != nil {
+				slog.Warn("graceful drain: accepted agent turns still in flight when the budget expired", "error", err)
+			}
+		},
+		cancelWork: workCancel,
+		abort:      abortCtx,
 	}
 	onServing()
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
-		superviseShutdown(gctx, sigCh, httpSrv, drainer)
+		superviseShutdown(gctx, sigCh, httpSrv, drainer, abortDrain)
 	}()
 
 	// All subsystems are started; /readyz may now report ready. Do this last,
@@ -583,7 +594,15 @@ type drainSequence struct {
 	httpTimeout  time.Duration
 	shutdownHTTP func(context.Context) error
 	forceClose   func()
+	// waitAccepted, when non-nil, blocks until accepted agent turns that hold
+	// no HTTP connection (channel messages, webhook runs, scheduler run-now)
+	// have finished, bounded by the same budget as the HTTP drain (#744).
+	waitAccepted func(context.Context)
 	cancelWork   func()
+	// abort, when non-nil, collapses the remaining drain budget when cancelled
+	// (the second-signal hard stop), so both the HTTP drain and the
+	// accepted-work wait unwind immediately.
+	abort context.Context
 }
 
 func (d *drainSequence) run() {
@@ -596,23 +615,35 @@ func (d *drainSequence) run() {
 	if d.stopIngress != nil {
 		d.stopIngress()
 	}
-	// 3. Stop accepting and drain in-flight HTTP within the budget; force-close
-	//    anything still open when the budget is spent.
+	// 3. One budget covers the rest of the drain; a second signal collapses it.
 	shutCtx, cancel := context.WithTimeout(context.Background(), d.httpTimeout)
 	defer cancel()
+	if d.abort != nil {
+		stop := context.AfterFunc(d.abort, cancel)
+		defer stop()
+	}
+	// 4. Stop accepting and drain in-flight HTTP within the budget; force-close
+	//    anything still open when the budget is spent.
 	if err := d.shutdownHTTP(shutCtx); err != nil {
 		d.forceClose()
 	}
-	// 4. Cancel work contexts: gctx cancels, g.Wait returns, and the LIFO defer
+	// 5. Wait for accepted non-HTTP turns within the remaining budget, while
+	//    every outbound dependency (pools, notifier, channel runtimes) is still
+	//    alive. Only after this may the work contexts be cancelled.
+	if d.waitAccepted != nil {
+		d.waitAccepted(shutCtx)
+	}
+	// 6. Cancel work contexts: gctx cancels, g.Wait returns, and the LIFO defer
 	//    chain drains River and reverse-closes the subsystems.
 	d.cancelWork()
 }
 
 // superviseShutdown blocks until the first signal (start graceful drain) or a
 // subsystem crash cancelling gctx (hard teardown, no drain — prior semantics).
-// During the drain a second signal aborts the remaining budget and hard-stops
-// immediately.
-func superviseShutdown(gctx context.Context, sigCh <-chan os.Signal, httpSrv *http.Server, d *drainSequence) {
+// During the drain a second signal aborts the remaining budget — abortDrain
+// collapses the drain's shared budget context and Close unblocks the HTTP
+// Shutdown wait — so it hard-stops immediately.
+func superviseShutdown(gctx context.Context, sigCh <-chan os.Signal, httpSrv *http.Server, d *drainSequence, abortDrain func()) {
 	select {
 	case <-sigCh:
 		// Graceful drain below.
@@ -634,6 +665,7 @@ func superviseShutdown(gctx context.Context, sigCh <-chan os.Signal, httpSrv *ht
 		select {
 		case <-sigCh:
 			slog.Warn("second shutdown signal received; hard-stopping")
+			abortDrain()
 			_ = httpSrv.Close()
 		case <-done:
 		}
