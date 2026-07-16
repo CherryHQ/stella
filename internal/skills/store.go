@@ -47,6 +47,7 @@ type ViewContext struct {
 // UpdatePatch carries optional updates for a skill's metadata fields.
 type UpdatePatch struct {
 	Description            *string
+	Status                 *string
 	DisableModelInvocation *bool
 	Metadata               json.RawMessage // optional; set to overwrite
 }

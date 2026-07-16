@@ -301,6 +301,9 @@ func applyPatch(row sqlc.Skill, patch UpdatePatch) resolvedPatch {
 	if patch.Description != nil {
 		r.Description = *patch.Description
 	}
+	if patch.Status != nil {
+		r.Status = *patch.Status
+	}
 	if patch.DisableModelInvocation != nil {
 		r.DisableModelInvocation = *patch.DisableModelInvocation
 	}

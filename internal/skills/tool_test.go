@@ -182,6 +182,10 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 	if patch.Description != nil {
 		desc = *patch.Description
 	}
+	status := row.Status
+	if patch.Status != nil {
+		status = *patch.Status
+	}
 	disabled := row.DisableModelInvocation
 	if patch.DisableModelInvocation != nil {
 		disabled = *patch.DisableModelInvocation
@@ -191,7 +195,7 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 		meta = patch.Metadata
 	}
 	params := sqlc.UpdateSkillMetadataParams{
-		ID: id, Description: desc, Status: row.Status, DisableModelInvocation: disabled, Metadata: meta,
+		ID: id, Description: desc, Status: status, DisableModelInvocation: disabled, Metadata: meta,
 	}
 	switch row.Scope {
 	case "system_agent":
@@ -628,7 +632,7 @@ func TestInstallRejectsNonStringScope(t *testing.T) {
 // --- Store-backed tests ---
 
 // TestToolWriteAuthorizationEnforced proves the reflect reviewer tool's
-// create/patch are each authorized against ResourceSkill before the
+// create/patch/deprecate are each authorized against ResourceSkill before the
 // store mutation: a denial rejects the write (and the store is untouched), an
 // allowed actor succeeds, and a missing authorizer fails closed.
 func TestToolWriteAuthorizationEnforced(t *testing.T) {
@@ -654,24 +658,30 @@ func TestToolWriteAuthorizationEnforced(t *testing.T) {
 		}
 	})
 
-	t.Run("denied patch is rejected", func(t *testing.T) {
+	t.Run("denied patch and deprecate are rejected", func(t *testing.T) {
 		calls := 0
 		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(denySkillWrites{calls: &calls})
 		if _, err := tool.patch(ctx, map[string]any{"name": "existing", "description": "changed"}); err == nil {
 			t.Fatal("expected denied patch to fail")
 		}
-		if calls != 1 {
-			t.Fatalf("write PEP consulted %d times, want 1 patch authorization", calls)
+		if _, err := tool.deprecate(ctx, map[string]any{"name": "existing"}); err == nil {
+			t.Fatal("expected denied deprecate to fail")
+		}
+		if calls != 2 {
+			t.Fatalf("write PEP consulted %d times, want 2 patch/deprecate authorizations", calls)
 		}
 	})
 
-	t.Run("allowed create/patch succeed", func(t *testing.T) {
+	t.Run("allowed create/patch/deprecate succeed", func(t *testing.T) {
 		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 		if _, err := tool.create(ctx, map[string]any{"name": "ok-skill", "description": "an allowed skill"}); err != nil {
 			t.Fatalf("allowed create: %v", err)
 		}
 		if _, err := tool.patch(ctx, map[string]any{"name": "ok-skill", "description": "updated"}); err != nil {
 			t.Fatalf("allowed patch: %v", err)
+		}
+		if _, err := tool.deprecate(ctx, map[string]any{"name": "ok-skill"}); err != nil {
+			t.Fatalf("allowed deprecate: %v", err)
 		}
 	})
 

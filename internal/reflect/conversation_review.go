@@ -163,7 +163,7 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 		Model:  model,
 		// No skill-disk layout: reflect runs host-identity and reads/writes skill
 		// content through the DB store, which mirrors to disk itself. The reviewer
-		// prompt drives create/patch, so those stay enabled — but every
+		// prompt drives create/patch/deprecate, so those stay enabled — but every
 		// DB read and write passes through Skill access under the review target's
 		// confined identity (WithUserID+WithAgentID on reviewCtx). remove/install/
 		// search/list are not exposed. The separate
@@ -171,7 +171,7 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 		SkillsTool: skillstool.NewTool(s.skillStore, "", "").
 			WithReadAuthorizer(s.skillReadAuthz).
 			WithWriteAuthorizer(s.skillToolWriteAuthz).
-			WithActionsOnly("search_installed", "load", "create", "patch"),
+			WithActionsOnly("search_installed", "load", "create", "patch", "deprecate"),
 		MemoryTool:     memory.BuildTool(s.memory, memory.WithActionsOnly("profile_get", "profile_update")),
 		ExistingSkills: s.loadExistingSkillSummaries(ctx, userID),
 		CurrentProfile: profile,

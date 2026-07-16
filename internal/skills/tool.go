@@ -26,8 +26,8 @@ var skillsInputSchema = func() map[string]any {
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["load", "search_installed", "search", "install", "list", "remove", "create", "patch"],
-      "description": "Action to perform: 'load' reads a skill's content by name, 'search_installed' searches installed visible skills, 'search' finds skills from the remote ecosystem, 'install' adds a skill, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new active skill, 'patch' updates an existing skill's fields"
+      "enum": ["load", "search_installed", "search", "install", "list", "remove", "create", "patch", "deprecate"],
+      "description": "Action to perform: 'load' reads a skill's content by name, 'search_installed' searches installed visible skills, 'search' finds skills from the remote ecosystem, 'install' adds a skill, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new active skill, 'patch' updates an existing skill's fields, 'deprecate' marks a skill as deprecated"
     },
     "query": {
       "type": "string",
@@ -44,11 +44,11 @@ var skillsInputSchema = func() map[string]any {
     "scope": {
       "type": "string",
       "enum": ["user", "agent"],
-      "description": "Writable scope for install/remove/create/patch. Defaults to 'user'. Set to 'agent' to target the current agent scope. Project skills are read-only (they live in {PROJECT_ROOT}/.agents/skills and come with the repo)."
+      "description": "Writable scope for install/remove/create/patch/deprecate. Defaults to 'user'. Set to 'agent' to target the current agent scope. Project skills are read-only (they live in {PROJECT_ROOT}/.agents/skills and come with the repo)."
     },
     "name": {
       "type": "string",
-      "description": "Name of the skill (required for load, remove, create, patch)"
+      "description": "Name of the skill (required for load, remove, create, patch, deprecate)"
     },
     "description": {
       "type": "string",
@@ -387,7 +387,7 @@ func (t *Tool) viewContext(ctx context.Context) pkgplugins.SkillViewContext {
 func pkgskillsToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name:        "skills",
-		Description: "Manage agent skills. Use 'search_installed' to discover installed visible skills by task query, then 'load' to read a selected skill by name. Use 'search' only to find remote ecosystem skills for installation. Use 'install' to add a skill (scope=user by default, or scope=agent), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new active skill, and 'patch' to update fields. Project skills come with the repo and are read-only — edit their files in git directly.",
+		Description: "Manage agent skills. Use 'search_installed' to discover installed visible skills by task query, then 'load' to read a selected skill by name. Use 'search' only to find remote ecosystem skills for installation. Use 'install' to add a skill (scope=user by default, or scope=agent), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new active skill, 'patch' to update fields, and 'deprecate' to mark as deprecated. Project skills come with the repo and are read-only — edit their files in git directly.",
 		InputSchema: skillsInputSchema,
 	}
 }
@@ -424,8 +424,10 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		return t.create(ctx, args)
 	case "patch":
 		return t.patch(ctx, args)
+	case "deprecate":
+		return t.deprecate(ctx, args)
 	default:
-		return "", fmt.Errorf("unknown action %q, expected load/search_installed/search/install/list/remove/create/patch", action)
+		return "", fmt.Errorf("unknown action %q, expected load/search_installed/search/install/list/remove/create/patch/deprecate", action)
 	}
 }
 
@@ -442,8 +444,8 @@ func (t *Tool) restrictedInputSchema() map[string]any {
 		"query":       {"search_installed", "search"},
 		"limit":       {"search_installed", "search"},
 		"source":      {"install"},
-		"scope":       {"install", "remove", "create", "patch"},
-		"name":        {"load", "remove", "create", "patch"},
+		"scope":       {"install", "remove", "create", "patch", "deprecate"},
+		"name":        {"load", "remove", "create", "patch", "deprecate"},
 		"description": {"create", "patch"},
 		"content":     {"create", "patch"},
 		"path":        {"load"},
@@ -778,7 +780,28 @@ func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
 	return fmt.Sprintf("Skill %q updated.", name), nil
 }
 
-// resolveWritableSkill finds the skill a write action (remove/patch)
+func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, error) {
+	name, _ := args["name"].(string)
+	if name == "" {
+		return "", fmt.Errorf("name is required for deprecate action")
+	}
+
+	s, err := t.resolveWritableSkill(ctx, name, args)
+	if err != nil {
+		return "", err
+	}
+	if err := t.authorizeWrite(ctx, s.ID); err != nil {
+		return "", err
+	}
+
+	status := SkillStatusDeprecated
+	if err := t.store.Update(ctx, s.ID, pkgplugins.SkillUpdatePatch{Status: &status}); err != nil {
+		return "", fmt.Errorf("deprecate skill %q: %w", name, err)
+	}
+	return fmt.Sprintf("Skill %q deprecated.", name), nil
+}
+
+// resolveWritableSkill finds the skill a write action (remove/patch/deprecate)
 // targets. Missing scope follows the tool schema and defaults to user. Same-name
 // skills across scopes are expected, so write actions always resolve one exact
 // writable bucket instead of using runtime precedence.

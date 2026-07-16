@@ -102,6 +102,7 @@ func (a skillStoreAdapter) Update(ctx context.Context, id string, patch pkgplugi
 	}
 	return a.s.Update(ctx, id, vc, skills.UpdatePatch{
 		Description:            patch.Description,
+		Status:                 patch.Status,
 		DisableModelInvocation: patch.DisableModelInvocation,
 		Metadata:               patch.Metadata,
 	})

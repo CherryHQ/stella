@@ -58,7 +58,7 @@ Create or update a skill only when the conversation shows a reusable task proced
 
 If a relevant skill already exists (see existing skills below), patch it rather than creating a duplicate.
 
-Use the skills tool with action="create" or "patch".
+Use the skills tool with action="create", "patch", or "deprecate".
 - Keep skill names lowercase-hyphenated (e.g. "deploy-to-staging", "fix-flaky-tests").
 - Keep descriptions concise — one sentence explaining when to use the skill.
 - Skill content should be actionable steps, not conversation summaries.

@@ -7,7 +7,7 @@ import (
 )
 
 // TestReviewerSkillsToolRegistrationIsAuthorized freezes the reflect reviewer's
-// skills tool. The production prompt drives create/patch, so those stay
+// skills tool. The production prompt drives create/patch/deprecate, so those stay
 // enabled alongside search_installed/load — but every read and write must be
 // gated by the ResourceSkill PEP (read + write authorizers injected), and the
 // broader remove/install/search/list actions must NOT be exposed. A regression
@@ -26,8 +26,8 @@ func TestReviewerSkillsToolRegistrationIsAuthorized(t *testing.T) {
 	if !strings.Contains(src, `WithWriteAuthorizer(s.skillToolWriteAuthz)`) {
 		t.Fatal("reviewer skills tool must inject WithWriteAuthorizer(s.skillToolWriteAuthz)")
 	}
-	if !strings.Contains(src, `WithActionsOnly("search_installed", "load", "create", "patch")`) {
-		t.Fatal(`reviewer skills tool must be restricted to WithActionsOnly("search_installed", "load", "create", "patch")`)
+	if !strings.Contains(src, `WithActionsOnly("search_installed", "load", "create", "patch", "deprecate")`) {
+		t.Fatal(`reviewer skills tool must be restricted to WithActionsOnly("search_installed", "load", "create", "patch", "deprecate")`)
 	}
 	// The unrestricted NewTool(...) form (no action allowlist) must not reappear.
 	if strings.Contains(src, `skillstool.NewTool(s.skillStore, "", ""),`) {
@@ -35,7 +35,7 @@ func TestReviewerSkillsToolRegistrationIsAuthorized(t *testing.T) {
 	}
 	// The broader write/discovery actions stay unavailable in the reviewer tool.
 	args := reviewerActionsOnlyArgs(src)
-	for _, forbidden := range []string{`"remove"`, `"install"`, `"search"`, `"list"`, `"deprecate"`} {
+	for _, forbidden := range []string{`"remove"`, `"install"`, `"search"`, `"list"`} {
 		if strings.Contains(args, forbidden) {
 			t.Fatalf("reviewer skills tool must not expose action %s", forbidden)
 		}
