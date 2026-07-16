@@ -18,6 +18,7 @@ Stella is a single-tenant, multi-user, multi-agent AI assistant platform written
 - On a fresh clone, run `mise run setup` once. Use `mise tasks` to discover workflows.
 - Run project workflows through `mise run <task>` instead of invoking underlying tools directly.
 - Before committing, **ALWAYS** run: `mise run format && mise run build && mise run test`.
+- `mise run system-test` runs the subprocess system suite (real `stellad` over TCP against embedded PostgreSQL); it is a local gate, skipped on unsupported hosts. `mise run release:validate` runs the full pre-release gate sequentially (format → build → test → system-test → release checks).
 - When touching platform-specific behavior, run a targeted cross-platform build before committing (e.g., `GOOS=windows GOARCH=amd64 go build -o dist/bin/stellad-windows-amd64.exe ./cmd/stellad`).
 - Do not run Go tests with `-race` locally by default.
 - Build with `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stellad` explicitly; never build the `stellad` binary into the repo root.
@@ -41,11 +42,14 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | Documentation     | `doc-style.md`       | Writing or editing user/developer docs                                      |
 | Web UI testing    | `web-ui-test.md`     | Testing the web UI with browser automation                                  |
 | Backend API test  | `api-test.md`        | Testing the backend via live HTTP API + DB assertions (no browser)          |
+| System test       | `system-test.md`     | Adding or running the subprocess system suite; choosing a test layer        |
 | Project tracking  | `project-tracker.md` | Managing GitHub issues and project board                                    |
 | Release           | `release.md`         | Cutting a release, tagging, changelog                                       |
 | Marketing         | `marketing.md`       | Writing a landing page, README opener, hero copy, or any marketing content  |
 
 For new or changed HTTP APIs, also follow `api/CLAUDE.md` for the OpenAPI-first workflow.
+
+Test at the lowest sufficient layer: add a subprocess system-test journey only for a seam a Go test cannot reach (process startup, real HTTP auth, SSE transport, cross-request flows, async workers); everything else stays an in-process test. See `system-test.md`.
 
 ## Timestamps and timezones
 

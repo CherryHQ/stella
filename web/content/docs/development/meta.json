@@ -8,6 +8,7 @@
     "rules/go-patterns",
     "rules/cli-design",
     "rules/api-test",
+    "rules/system-test",
     "rules/web-ui",
     "rules/web-theming",
     "rules/web-design",

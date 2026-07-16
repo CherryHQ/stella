@@ -171,6 +171,11 @@ description = "Run tests with race detection and coverage report (CI)"
 depends = ["pg:runtime:download"]
 run = "go test -race -coverprofile=coverage.out ./..."
 
+[tasks.system-test]
+description = "Run the subprocess system test suite: real stellad over TCP against embedded PostgreSQL"
+depends = ["pg:runtime:download", "build"]
+run = "go test -tags system -count=1 -timeout 15m ./test/system/..."
+
 [tasks.format]
 description = "Fix and format files"
 run = [
@@ -228,6 +233,22 @@ run = "goreleaser release --clean"
 [tasks."release:check"]
 description = "Validate GoReleaser configuration"
 run = "goreleaser check"
+
+[tasks."release:validate"]
+description = "Full local pre-release gate, run strictly in order: format, build, unit tests, system suite, then release checks"
+# Explicit sequential mise-run chain (set -e aborts on first failure) rather than
+# `depends`, whose members may run in parallel. Each sub-task resolves its own
+# depends (system-test rebuilds via its build dep); correctness over avoiding the
+# duplicate build.
+run = """
+set -e
+mise run format
+mise run build
+mise run test
+mise run system-test
+mise run release:check
+mise run release:snapshot
+"""
 
 [tasks."release:snapshot"]
 description = "Create host-only snapshot build and verify single-binary archive"
