@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -216,14 +217,20 @@ func (s *PGStore) LoadFile(ctx context.Context, skillID, path string) (string, e
 	return f.Content, nil
 }
 
-// Create inserts the skill row and all its files in a transaction. The files
-// map must include MainFile ("SKILL.md"). If s.ID is empty a new ID is generated.
+// Create preserves the plugin-facing ID-only contract while the internal
+// mutation path retains the complete committed snapshot.
 func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string) (string, error) {
+	snapshot, err := s.CreateManagedSkill(ctx, sk, files)
+	return snapshot.Skill.ID, err
+}
+
+// CreateManagedSkill inserts the row and all files in one transaction.
+func (s *PGStore) CreateManagedSkill(ctx context.Context, sk Skill, files map[string]string) (SkillSnapshot, error) {
 	if _, ok := files[MainFile]; !ok {
-		return "", fmt.Errorf("skills: missing SKILL.md")
+		return SkillSnapshot{}, fmt.Errorf("skills: missing SKILL.md")
 	}
 	if err := validateSkillFilePaths(files); err != nil {
-		return "", err
+		return SkillSnapshot{}, err
 	}
 
 	if sk.ID == "" {
@@ -235,7 +242,7 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 
 	metadata, err := MarkManualOwnedMetadata(sk.Metadata)
 	if err != nil {
-		return "", err
+		return SkillSnapshot{}, err
 	}
 
 	params := sqlc.CreateSkillParams{
@@ -261,14 +268,15 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return "", fmt.Errorf("skills: begin tx: %w", err)
+		return SkillSnapshot{}, fmt.Errorf("skills: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
 
-	if _, err := qtx.CreateSkill(ctx, params); err != nil {
-		return "", fmt.Errorf("skills: create skill %q: %w", sk.Name, err)
+	row, err := qtx.CreateSkill(ctx, params)
+	if err != nil {
+		return SkillSnapshot{}, fmt.Errorf("skills: create skill %q: %w", sk.Name, err)
 	}
 
 	for path, content := range files {
@@ -277,14 +285,19 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 			Path:    path,
 			Content: content,
 		}); err != nil {
-			return "", fmt.Errorf("skills: insert file %q for skill %q: %w", path, sk.ID, err)
+			return SkillSnapshot{}, fmt.Errorf("skills: insert file %q for skill %q: %w", path, sk.ID, err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", fmt.Errorf("skills: commit create %q: %w", sk.ID, err)
+		return SkillSnapshot{}, fmt.Errorf("skills: commit create %q: %w", sk.ID, err)
 	}
-	return sk.ID, nil
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return SkillSnapshot{Skill: mapRow(row), Files: paths}, nil
 }
 
 type resolvedPatch struct {

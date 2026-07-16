@@ -66,7 +66,7 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 		Metadata:               up.metadata,
 	}
 	sk.UserID, sk.AgentID = skillScopeOwner(scope, userID, agentID)
-	skillID, err := s.skillStore().Create(r.Context(), sk, up.files)
+	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, up.files)
 	if err != nil {
 		if errors.Is(err, skills.ErrInvalidSkillFilePath) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -75,7 +75,7 @@ func (s *Server) uploadAgentSkill(w http.ResponseWriter, r *http.Request, agentI
 		s.writeInternalError(w, err)
 		return
 	}
-	s.writeStoredSkillResponse(w, r, http.StatusCreated, skillID)
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
 }
 
 func parseUploadedSkill(r *http.Request) (*uploadedSkill, int, string, error) {

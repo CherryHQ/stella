@@ -132,7 +132,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 		s.writeInternalError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, s.dbSkillView(r, &updated))
+	writeData(w, http.StatusOK, committedSkillView(updated))
 }
 
 // mergeMetadataVersion overwrites just the "version" key in a skill's metadata

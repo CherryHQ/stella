@@ -24,7 +24,7 @@ func NewService(store pkgplugins.SkillStore, stellaHome string) *Service {
 // ResolvedSkill is a skill with its filesystem directory (if applicable).
 type ResolvedSkill struct {
 	pkgplugins.Skill
-	Dir string // absolute path on disk; empty for DB-only skills without disk sync
+	Dir string // absolute path on disk; empty until a DB-backed Skill is loaded
 }
 
 // ListMerged returns all visible skills across project, DB, and system levels,

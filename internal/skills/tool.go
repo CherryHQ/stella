@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -115,9 +114,8 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool 
 	}
 }
 
-// WithSkillDiskLayout sets where DB-backed skills live on disk, by scope. The
-// emitted <skill_dir> for a DB skill comes from here, so it must match the dirs
-// the disk-mirroring writer used. The zero value emits no dir for DB skills.
+// WithSkillDiskLayout sets the runtime-cache roots for DB-backed Skills. The
+// zero value emits no directory for DB Skills.
 func (t *Tool) WithSkillDiskLayout(l SkillDiskLayout) *Tool {
 	t.layout = l
 	return t
@@ -355,16 +353,14 @@ func (t *Tool) targetScope(ctx context.Context, rawScope string) (string, error)
 	switch scope {
 	case skillScopeUser:
 		// User-scope skills are owned by the requesting user; without a user in
-		// context there is no owner to attribute them to. Where they materialize on
-		// disk is the store's concern (DiskSyncStore), not the tool's — the tool
-		// carries no skill-path knowledge for writes.
+		// context there is no owner to attribute them to.
 		//
 		// Group sessions deliberately leave the user unset (D9: runtime identity
 		// stays the group, see runtime/chat.go), so user-scope writes are refused
 		// here. That is intentional: the old layout-based gate let them through but
 		// create() then stamped an empty owner — which fails late on the user_id
 		// foreign key under normal enforcement, or (without it) leaves a dead row the
-		// store never resolves and DiskSyncStore never materializes. This fails fast.
+		// store never resolves. This fails fast.
 		if authz.UserIDFromContext(ctx) == "" {
 			return "", fmt.Errorf("user skill scope is unavailable without a user context")
 		}
@@ -515,30 +511,15 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		path = pkgplugins.SkillMainFile
 	}
 
-	// For DB skills without a dir from the service, resolve the disk path the
-	// writer materialized them to (the layout is the shared authority). Materialize
-	// on load as a repair path for existing rows that predate disk mirroring or were
-	// created through a non-syncing store; <skill_dir> must be executable, not a
-	// theoretical address.
+	// DB-backed Skill files are materialized only when loaded. PostgreSQL remains
+	// authoritative; the stable-ID directory is a derived runtime cache and is
+	// never used as a fallback when refresh fails.
 	if skillDir == "" {
 		if resolved != nil {
-			skillDir = t.layout.Dir(resolved.Scope, resolved.Name)
+			skillDir = t.layout.Dir(resolved.Scope, resolved.ID)
 			if skillDir != "" {
-				// Cross-replica writes leave no local signal, so load refreshes the mirror
-				// from the DB; content comparison spares the disk writes but not the DB
-				// reads. Ceiling: a revision marker would make the no-op path cheap, but
-				// needs file mutations to bump skill.updated_at first (today
-				// UpsertSkillFile/DeleteSkillFile touch only skill_file rows).
 				if err := t.materializeDBSkill(ctx, resolved.ID, skillDir); err != nil {
-					slog.WarnContext(ctx, "skills load: failed to materialize DB skill", "skill", resolved.Name, "dir", skillDir, "err", err)
-					// Degrade to staleness, not to lost execution: keep serving an
-					// existing mirror through a transient store error. Probed by
-					// opening — the sandbox bypass guard bans the stat helpers here.
-					if f, openErr := os.Open(filepath.Join(skillDir, pkgplugins.SkillMainFile)); openErr != nil {
-						skillDir = ""
-					} else {
-						_ = f.Close()
-					}
+					return "", fmt.Errorf("materialize DB skill %q: %w", resolved.Name, err)
 				}
 			}
 		}
