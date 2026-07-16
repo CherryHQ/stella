@@ -17,6 +17,8 @@ import (
 func TestSystem(t *testing.T) {
 	h := newHarness(t)
 	t.Run("readiness", h.testReadiness)
+	t.Run("startup_and_auth", h.testStartupAndAuth)
+	t.Run("chat_sse", h.testChatSSE)
 }
 
 // testReadiness proves the boot premise end to end: the production binary
