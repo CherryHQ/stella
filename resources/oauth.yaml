@@ -269,6 +269,8 @@ oauth_providers:
       - docs:document:export
       - docs:document:import
       - docs:event:subscribe
+      - docs:permission.setting:read
+      - docs:permission.setting:write_only
       - docs:permission.member:auth
       - docs:permission.member:create
       - docs:permission.member:transfer
