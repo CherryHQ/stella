@@ -77,7 +77,6 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Label } from "@/components/ui/label";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Sheet, SheetPopup } from "@/components/ui/sheet";
@@ -122,12 +121,6 @@ interface SkillsSearch {
 
 function route(projectId?: string) {
   return projectId ? "/agents/$agentId/projects/$projectId/skills" : "/agents/$agentId/skills";
-}
-
-function statusLabelKey(status?: string) {
-  if (status === "draft") return "sessions.skillsList.statusDraft" as const;
-  if (status === "deprecated") return "sessions.skillsList.statusDeprecated" as const;
-  return "sessions.skillsList.statusActive" as const;
 }
 
 function formatInstalls(n: number): string {
@@ -636,11 +629,6 @@ function ManagedSkillCard({
               {skill.version}
             </Badge>
           )}
-          {skill.status !== "active" && (
-            <Badge variant="secondary" size="sm">
-              {t(statusLabelKey(skill.status))}
-            </Badge>
-          )}
           {skill.disable_model_invocation && (
             <Badge variant="outline" size="sm">
               {t("sessions.skillsList.manual")}
@@ -823,7 +811,6 @@ function SkillInspector({
   const { data: me } = useQuery(meQueryOptions);
   const [description, setDescription] = useState(skill.description ?? "");
   const [version, setVersion] = useState(skill.version ?? "");
-  const [status, setStatus] = useState(skill.status ?? "active");
   const [modelEnabled, setModelEnabled] = useState(!skill.disable_model_invocation);
   const [viewer, setViewer] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -848,7 +835,6 @@ function SkillInspector({
   useEffect(() => {
     setDescription(skill.description ?? "");
     setVersion(skill.version ?? "");
-    setStatus(skill.status ?? "active");
     setModelEnabled(!skill.disable_model_invocation);
     setConvertToManual(false);
     setViewer(null);
@@ -871,7 +857,6 @@ function SkillInspector({
         query: { scope: skill.scope as SkillScope },
         body: {
           description,
-          status,
           disable_model_invocation: !modelEnabled,
           version,
           ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
@@ -957,16 +942,6 @@ function SkillInspector({
                 {t(SCOPE_DESC_KEY[skill.scope as SkillScope])}
               </TooltipPopup>
             </Tooltip>
-            {skill.status !== "active" ? (
-              <Badge variant="outline" size="sm">
-                {t(statusLabelKey(skill.status))}
-              </Badge>
-            ) : (
-              <Badge variant="success" size="sm">
-                <Check />
-                {t("sessions.skillsList.statusActive")}
-              </Badge>
-            )}
             <Badge variant="outline" size="sm">
               {skill.disable_model_invocation
                 ? t("sessions.skillsList.manual")
@@ -1039,20 +1014,6 @@ function SkillInspector({
 
         {!readOnly && (
           <section className="space-y-4">
-            <div className="space-y-2">
-              <Label>{t("sessions.skillsList.status")}</Label>
-              <ToggleGroup
-                variant="outline"
-                value={[status]}
-                onValueChange={(value: string[]) => value[0] && setStatus(value[0])}
-              >
-                {["active", "draft"].map((s) => (
-                  <ToggleGroupItem key={s} value={s}>
-                    {t(statusLabelKey(s))}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
             <div className="space-y-2">
               <Label>{t("sessions.skillsList.versionLabel")}</Label>
               <Input

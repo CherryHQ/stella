@@ -33,7 +33,6 @@ components:
           enum: [user, user_agent, system, system_agent]
         agent_id: { type: string }
         description: { type: string }
-        status: { type: string }
         disable_model_invocation: { type: boolean }
         files:
           type: object

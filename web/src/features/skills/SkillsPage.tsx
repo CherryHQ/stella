@@ -85,18 +85,6 @@ const SCOPE_DESC_KEY: Record<ScopedSkillScope, MessageKey> = {
   system_agent: "skills.scope.systemAgent.desc",
 };
 
-function statusBadgeVariant(status: string): "success" | "warning" | "error" | "outline" {
-  return (
-    (
-      {
-        active: "success",
-        draft: "warning",
-        deprecated: "error",
-      } as Record<string, "success" | "warning" | "error" | "outline">
-    )[status] ?? "outline"
-  );
-}
-
 export function SkillsPage() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
@@ -243,13 +231,12 @@ export function SkillsPage() {
     }
   }, [addMode, source, uploadFile, formOwner, formRange, formAgentID, showToast, reloadScope, t]);
 
-  const toggleSkill = useCallback(
+  const toggleModelInvocation = useCallback(
     async (skill: Skill) => {
-      const nextStatus = skill.status === "active" ? "draft" : "active";
       try {
         await updateScopedSkill({
           path: { id: skill.id },
-          body: { status: nextStatus },
+          body: { disable_model_invocation: !skill.disable_model_invocation },
           throwOnError: true,
         });
         await reloadScope(
@@ -455,9 +442,6 @@ export function SkillsPage() {
         title={<span className="font-mono">{detailSkill.name}</span>}
         subtitle={
           <div className="flex items-center gap-1.5">
-            <Badge variant={statusBadgeVariant(detailSkill.status)} size="sm">
-              {detailSkill.status}
-            </Badge>
             <Badge variant="outline" size="sm">
               {t(SCOPE_LABEL_KEY[detailSkill.scope as ScopedSkillScope])}
             </Badge>
@@ -565,10 +549,12 @@ export function SkillsPage() {
                         }
                         status={
                           <Switch
-                            checked={skill.status === "active"}
-                            onCheckedChange={() => void toggleSkill(skill)}
+                            checked={!skill.disable_model_invocation}
+                            onCheckedChange={() => void toggleModelInvocation(skill)}
                             title={
-                              skill.status === "active" ? t("skills.disable") : t("skills.enable")
+                              skill.disable_model_invocation
+                                ? t("skills.enable")
+                                : t("skills.disable")
                             }
                           />
                         }
