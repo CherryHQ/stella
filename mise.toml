@@ -171,6 +171,11 @@ description = "Run tests with race detection and coverage report (CI)"
 depends = ["pg:runtime:download"]
 run = "go test -race -coverprofile=coverage.out ./..."
 
+[tasks.system-test]
+description = "Run the subprocess system test suite: real stellad over TCP against embedded PostgreSQL"
+depends = ["pg:runtime:download", "build"]
+run = "go test -tags system -count=1 -timeout 15m ./test/system/..."
+
 [tasks.format]
 description = "Fix and format files"
 run = [
