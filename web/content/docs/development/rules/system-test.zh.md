@@ -64,7 +64,8 @@ PostgreSQL 来手动运行服务器，或为该平台提 issue。由于套件在
   finish 与 [DONE]——该轮次绝不挂起。
 - `goal_lifecycle` —— 一个 Goal 从创建被派发器的异步 worker 驱动到自主验收。
 - `graceful_drain` —— 在一个轮次仍在途中时发送 SIGTERM：`/readyz` 从 ready 翻转，一个 attach
-  订阅被 drain 取消，进程以 0 退出。它最后运行，因为会消费掉共享服务器。
+  订阅被 drain 取消，被钉住的轮次仍在其流上完整收尾（全文、finish、[DONE]），进程以 0 退出。
+  它最后运行，因为会消费掉共享服务器。
 
 `startup_and_auth` 还覆盖个人访问令牌（PAT）的 bearer 生命周期：一个 session 铸造出带 scope 的
 PAT，仅凭该令牌即可认证一条 scope 可达的路由，撤销后同一个 bearer 会 fail closed。

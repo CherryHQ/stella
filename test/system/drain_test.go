@@ -20,25 +20,26 @@ import (
 // genuine hang still fails here rather than at teardown.
 const drainFlipBudget = 15 * time.Second
 
-// testGracefulDrain proves the three coexisting shutdown behaviors that only a
+// testGracefulDrain proves the four coexisting shutdown behaviors that only a
 // real process over TCP can show, and it must run LAST because it consumes the
 // shared server. With one turn deliberately pinned in flight (a gated fake
 // response) at the moment SIGTERM arrives:
 //
 //   - readiness flips: /readyz stops reporting ready promptly (draining is set
 //     before the listener is touched, so a probe can never see 200 again);
+//
 //   - an attach subscription is drain-cancelled: its read-only event stream ends
 //     promptly rather than blocking the shutdown budget;
+//
+//   - the pinned send turn completes across the drain: the send stream is
+//     deliberately not drain-cancelled (sessions.go), so once the gate releases
+//     the client must still receive the full text, finish, and [DONE] — the
+//     drain budget exists to finish exactly this work (#742);
+//
 //   - the process then exits 0.
 //
-// The gated turn's role is to make the session's turn live so the attach
-// subscription has something to attach to (204 otherwise). The turn's own
-// completion across the drain is NOT asserted: empirically it is nondeterministic
-// on this build — a turn pinned across SIGTERM is sometimes cut mid-content even
-// though sessions.go documents the send stream as "not drain-cancelled". That
-// discrepancy is a production question, not a test one, so the outcome is logged
-// for diagnostics and the process-exit assertion (which is reliable) stands in
-// for "the drain completed". See the suite notes / PR discussion.
+// The gated turn both pins real work across SIGTERM and gives the attach
+// subscription something live to attach to (204 otherwise).
 func (h *harness) testGracefulDrain(t *testing.T) {
 	fake := newFakeAnthropic(t)
 
@@ -118,33 +119,28 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	}
 	t.Logf("graceful_drain: attach stream ended %s after SIGTERM", attachAt.Sub(sigAt))
 
-	// 6. Release the pinned turn so the fake's handler unblocks (no 30s backstop)
-	//    and the server can finish its drain and exit. Whether the turn itself
-	//    runs to protocol completion across the drain is logged, not asserted —
-	//    see the function doc.
+	// 6. Release the pinned turn so the fake's handler unblocks and the turn can
+	//    run to completion inside the drain budget.
 	gate.Release()
 
-	// 7. Record the send turn's outcome for diagnostics. A clean completion is the
-	//    documented intent; a truncation is the observed nondeterminism. Neither
-	//    fails the journey — only the reliable behaviors above and the exit below
-	//    do. The only hard requirement is that the turn was genuinely in flight,
-	//    which the firstDelta wait already proved.
+	// 7. The send turn must complete cleanly across the drain: full scripted
+	//    text, a finish frame, and the [DONE] sentinel. A truncation here means
+	//    process teardown raced the drain's active-connection wait again (#742).
 	var completion turnCompletion
 	select {
 	case completion = <-sendResult:
 	case <-time.After(drainFlipBudget):
-		t.Logf("graceful_drain: send turn did not report within %s of release", drainFlipBudget)
+		t.Fatalf("send turn did not report within %s of release; the drained turn never finished\n%s", drainFlipBudget, h.proc.logTail(40))
+	}
+	if completion.err != nil {
+		t.Fatalf("send stream truncated during drain (#742 regression): %v\n%s", completion.err, h.proc.logTail(40))
 	}
 	want := part1 + part2
-	switch {
-	case completion.err != nil:
-		t.Logf("graceful_drain: send stream truncated during drain after frames %v (text=%q): %v", completion.types, completion.text, completion.err)
-	case completion.text == want && completion.sawFinish && completion.sawDone:
-		t.Logf("graceful_drain: send turn completed cleanly across drain (%d frames, full text, finish, [DONE])", len(completion.types))
-	default:
-		t.Logf("graceful_drain: send turn ended without a clean epilogue (text=%q want=%q finish=%t done=%t frames=%v)",
-			completion.text, want, completion.sawFinish, completion.sawDone, completion.types)
+	if completion.text != want || !completion.sawFinish || !completion.sawDone {
+		t.Fatalf("send turn ended without a clean epilogue across drain (#742 regression): text=%q want=%q finish=%t done=%t frames=%v\n%s",
+			completion.text, want, completion.sawFinish, completion.sawDone, completion.types, h.proc.logTail(40))
 	}
+	t.Logf("graceful_drain: send turn completed cleanly across drain (%d frames, full text, finish, [DONE])", len(completion.types))
 
 	// 8. The process must exit 0 once the drain completes. This is the reliable
 	//    proof the graceful shutdown finished. The cleanup stop() then takes its

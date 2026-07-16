@@ -519,7 +519,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		cancelWork:   workCancel,
 	}
 	onServing()
-	go superviseShutdown(gctx, sigCh, httpSrv, drainer)
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		superviseShutdown(gctx, sigCh, httpSrv, drainer)
+	}()
 
 	// All subsystems are started; /readyz may now report ready. Do this last,
 	// immediately before blocking on the errgroup, so a probe never sees ready
@@ -527,6 +531,16 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	adminSrv.MarkStartupComplete()
 
 	waitErr := g.Wait()
+	// The errgroup empties at the START of a graceful drain, not the end:
+	// Shutdown closes the listener immediately (Serve returns ErrServerClosed)
+	// and stopIngress cancels the group-dispatch loop, both long before
+	// Shutdown's active-connection wait finishes. Returning here would race the
+	// LIFO teardown defers (River, pools, embedded PostgreSQL, process exit)
+	// against the in-flight HTTP work the drain budget exists to finish — so
+	// join the supervisor first. Every supervisor path is bounded: the drain by
+	// httpTimeout + forceClose + cancelWork, the crash path by its 2s Shutdown,
+	// and a second signal collapses the wait via Close.
+	<-drainDone
 	slog.Info("gateway stopped")
 	return waitErr
 }

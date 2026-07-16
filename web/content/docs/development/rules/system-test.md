@@ -74,7 +74,8 @@ and one shared database serve them all in sequence:
 - `goal_lifecycle` — a Goal driven from creation to autonomous acceptance by the
   dispatcher's async workers.
 - `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
-  from ready, an attach subscription is drain-cancelled, and the process exits 0.
+  from ready, an attach subscription is drain-cancelled, the pinned turn still
+  completes on its stream (full text, finish, [DONE]), and the process exits 0.
   Runs last, since it consumes the shared server.
 
 `startup_and_auth` also covers the personal-access-token bearer lifecycle: a
