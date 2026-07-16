@@ -369,7 +369,7 @@ func (q *Queries) TouchKnowledgeUsage(ctx context.Context, arg TouchKnowledgeUsa
 	return err
 }
 
-const touchReflectSkillRuntimeUse = `-- name: TouchReflectSkillRuntimeUse :exec
+const touchReflectSkillRuntimeUse = `-- name: TouchReflectSkillRuntimeUse :execrows
 UPDATE skill_usage su
 SET use_count = su.use_count + 1,
     last_used_at = now()
@@ -392,9 +392,12 @@ type TouchReflectSkillRuntimeUseParams struct {
 	AgentID string `json:"agent_id"`
 }
 
-func (q *Queries) TouchReflectSkillRuntimeUse(ctx context.Context, arg TouchReflectSkillRuntimeUseParams) error {
-	_, err := q.db.Exec(ctx, touchReflectSkillRuntimeUse, arg.SkillID, arg.UserID, arg.AgentID)
-	return err
+func (q *Queries) TouchReflectSkillRuntimeUse(ctx context.Context, arg TouchReflectSkillRuntimeUseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, touchReflectSkillRuntimeUse, arg.SkillID, arg.UserID, arg.AgentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertKnowledgeUsage = `-- name: UpsertKnowledgeUsage :exec

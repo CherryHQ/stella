@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
@@ -88,6 +89,17 @@ func TestAgentSkillsLifecycleActiveKeysetAndCompatibility(t *testing.T) {
 			t.Fatalf("invalid lifecycle token query %q status = %d, want 400 (body: %s)", query, rr.Code, rr.Body.String())
 		}
 	}
+	otherAgentID := createAgentAsUser(t, env, sid, "skill-lifecycle-page-other-agent")
+	for _, path := range []string{
+		"/api/agents/" + agentID + "/skills?scope_group=agent&page_size=12&page_token=" + url.QueryEscape(*first.NextPageToken),
+		"/api/agents/" + agentID + "/skills?scope=user_agent&q=other&page_size=12&page_token=" + url.QueryEscape(*first.NextPageToken),
+		"/api/agents/" + otherAgentID + "/skills?scope=user_agent&page_size=12&page_token=" + url.QueryEscape(*first.NextPageToken),
+	} {
+		rr := doRequestWithSession(t, env.srv, sid, http.MethodGet, path, nil)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("cross-query lifecycle token path %q status = %d, want 400 (body: %s)", path, rr.Code, rr.Body.String())
+		}
+	}
 }
 
 func TestAgentSkillsLifecycleScopeCountsAndSearch(t *testing.T) {
@@ -159,6 +171,32 @@ func TestAgentSkillsLifecycleDeleteUsesStableIDAndActiveName(t *testing.T) {
 	}
 }
 
+func TestAgentSkillsLifecycleExactScopeFallsBackAfterIDCollision(t *testing.T) {
+	env := setupAdmin(t)
+	user, sid := newNonAdmin(t, env, "skill-id-name-collision")
+	agentID := createAgentAsUser(t, env, sid, "skill-id-name-collision-agent")
+	ctx := context.Background()
+
+	if _, err := env.pluginHost.SkillStore().Create(ctx, skills.Skill{
+		ID: "deadbeef", Scope: "system_agent", AgentID: agentID,
+		Name: "system-collision", Description: "ID occupies the hexadecimal reference",
+	}, map[string]string{skills.MainFile: "# System collision\n"}); err != nil {
+		t.Fatalf("create colliding ID skill: %v", err)
+	}
+	wantID := createTestSkill(t, env, "user_agent", user.ID, agentID, "deadbeef")
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodGet, "/api/agents/"+agentID+"/skills/deadbeef?scope=user_agent", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("hexadecimal name lookup status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("unmarshal hexadecimal name response: %v", err)
+	}
+	if got["id"] != wantID {
+		t.Fatalf("hexadecimal name resolved id = %v, want %s", got["id"], wantID)
+	}
+}
+
 func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *testing.T) {
 	env := setupAdmin(t)
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-edit")
@@ -171,14 +209,22 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 		t.Fatalf("create reflect-owned skill: %v", err)
 	}
 	path := "/api/agents/" + agentID + "/skills/" + created.ID + "?scope=user_agent"
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
+		"description": "must not commit", "files": map[string]string{"../escape.md": "invalid"},
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid file patch status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+	assertManagedSkillState(t, env, created.ID, "reflect", "before", "before body")
 
 	// An ordinary edit keeps Reflect ownership while committing metadata and files together.
-	rr := doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
 		"description": "ordinary edit", "files": map[string]string{"SKILL.md": "ordinary body"},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ordinary reflect patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, created.ID, "reflect")
 	assertManagedSkillState(t, env, created.ID, "reflect", "ordinary edit", "ordinary body")
 
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
@@ -188,12 +234,27 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	if rr.Code != http.StatusOK {
 		t.Fatalf("convert patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, created.ID, "manual")
 	assertManagedSkillState(t, env, created.ID, "manual", "manual edit", "manual body")
 
 	// Conversion is one-way; a second conversion request is an explicit conflict.
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{"convert_to_manual": true})
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("second conversion status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func assertFullSkillMutationResponse(t *testing.T, rr *httptest.ResponseRecorder, id, createdBy string) {
+	t.Helper()
+	var got map[string]any
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("unmarshal Skill mutation response: %v", err)
+	}
+	if (id != "" && got["id"] != id) || got["id"] == "" || got["created_by"] != createdBy {
+		t.Fatalf("Skill mutation response = %#v, want id=%s created_by=%s", got, id, createdBy)
+	}
+	if version, ok := got["lifecycle_version"].(float64); !ok || version < 1 {
+		t.Fatalf("Skill mutation lifecycle_version = %#v, want positive number", got["lifecycle_version"])
 	}
 }
 

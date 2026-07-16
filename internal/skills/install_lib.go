@@ -23,22 +23,22 @@ import (
 // InstallToStore fetches a skill from source and stores it in the given SkillStore.
 // scope must be one of "user", "user_agent", or "system_agent".
 // user uses userID; user_agent uses both; system_agent uses agentID.
-// Returns the installed skill name on success.
-func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID string, agentID string) (string, error) {
+// Returns the stored ID and installed Skill name on success.
+func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID string, agentID string) (string, string, error) {
 	skillName, files, version, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer cleanup()
 
 	mainContent, ok := files[pkgplugins.SkillMainFile]
 	if !ok {
-		return "", fmt.Errorf("fetched skill %q is missing SKILL.md", skillName)
+		return "", "", fmt.Errorf("fetched skill %q is missing SKILL.md", skillName)
 	}
 
 	fm, err := parseFrontmatter(mainContent)
 	if err != nil {
-		return "", fmt.Errorf("parse SKILL.md for %q: %w", skillName, err)
+		return "", "", fmt.Errorf("parse SKILL.md for %q: %w", skillName, err)
 	}
 
 	name := fm.Name
@@ -60,7 +60,7 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 	}
 	metaBytes, err := json.Marshal(meta)
 	if err != nil {
-		return "", fmt.Errorf("encode skill metadata for %q: %w", name, err)
+		return "", "", fmt.Errorf("encode skill metadata for %q: %w", name, err)
 	}
 
 	sk := pkgplugins.Skill{
@@ -81,11 +81,12 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 		sk.AgentID = agentID
 	}
 
-	if _, err := store.Create(ctx, sk, files); err != nil {
-		return "", fmt.Errorf("store skill %q: %w", name, err)
+	id, err := store.Create(ctx, sk, files)
+	if err != nil {
+		return "", "", fmt.Errorf("store skill %q: %w", name, err)
 	}
 
-	return name, nil
+	return id, name, nil
 }
 
 // ErrNoUpgradeSource indicates a skill has no recorded install source to re-fetch

@@ -1,11 +1,108 @@
 package skills
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestDiskSyncReflectDeleteRemovesOnlyQuarantinedIdentity(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	sk := Skill{
+		ID: "old-skill", Scope: "user_agent", UserID: "user-1", AgentID: "agent-1",
+		Name: "reusable-name", Status: SkillStatusActive,
+	}
+	inner := &recreatingReflectDeleteStore{skill: sk, baseDir: baseDir}
+	store := NewDiskSyncStore(inner, func(scope, agentID string, userID string) string { return baseDir })
+	if err := writeFile(filepath.Join(baseDir, sk.Name, MainFile), "# Old\n"); err != nil {
+		t.Fatalf("seed old mirror: %v", err)
+	}
+
+	if _, err := store.DeleteReflectOwnedUserAgentSkill(ctx, ReflectSkillDelete{ID: sk.ID}); err != nil {
+		t.Fatalf("DeleteReflectOwnedUserAgentSkill: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(baseDir, sk.Name, MainFile))
+	if err != nil {
+		t.Fatalf("read recreated mirror: %v", err)
+	}
+	if string(content) != "# New\n" {
+		t.Fatalf("recreated mirror content = %q, want new identity", content)
+	}
+	matches, err := filepath.Glob(filepath.Join(baseDir, ".stella-delete-*"))
+	if err != nil || len(matches) != 0 {
+		t.Fatalf("delete tombstones = %v, err=%v", matches, err)
+	}
+}
+
+func TestDiskSyncManagedDeleteRemovesOnlyQuarantinedIdentity(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	sk := Skill{ID: "old-manual", Scope: "user_agent", UserID: "user-1", AgentID: "agent-1", Name: "manual-reusable", Status: SkillStatusActive}
+	inner := &recreatingReflectDeleteStore{skill: sk, baseDir: baseDir}
+	store := NewDiskSyncStore(inner, func(scope, agentID string, userID string) string { return baseDir })
+	if err := writeFile(filepath.Join(baseDir, sk.Name, MainFile), "# Old manual\n"); err != nil {
+		t.Fatalf("seed old manual mirror: %v", err)
+	}
+
+	if err := store.Delete(ctx, sk.ID, ViewContext{UserID: sk.UserID, AgentID: sk.AgentID}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(baseDir, sk.Name, MainFile))
+	if err != nil || string(content) != "# New\n" {
+		t.Fatalf("recreated manual mirror = %q, err=%v", content, err)
+	}
+}
+
+func TestDiskSyncReflectDeleteRestoresMirrorWhenStoreRejects(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	sk := Skill{ID: "kept-skill", Scope: "user_agent", UserID: "user-1", AgentID: "agent-1", Name: "kept-name", Status: SkillStatusActive}
+	inner := &recreatingReflectDeleteStore{skill: sk, deleteErr: ErrSkillUsageChanged}
+	store := NewDiskSyncStore(inner, func(scope, agentID string, userID string) string { return baseDir })
+	path := filepath.Join(baseDir, sk.Name, MainFile)
+	if err := writeFile(path, "# Kept\n"); err != nil {
+		t.Fatalf("seed kept mirror: %v", err)
+	}
+
+	if _, err := store.DeleteReflectOwnedUserAgentSkill(ctx, ReflectSkillDelete{ID: sk.ID}); !errors.Is(err, ErrSkillUsageChanged) {
+		t.Fatalf("delete error = %v, want ErrSkillUsageChanged", err)
+	}
+	if content, err := os.ReadFile(path); err != nil || string(content) != "# Kept\n" {
+		t.Fatalf("restored mirror = %q, err=%v", content, err)
+	}
+}
+
+type recreatingReflectDeleteStore struct {
+	Store
+	skill     Skill
+	baseDir   string
+	deleteErr error
+}
+
+func (s *recreatingReflectDeleteStore) ListAll(context.Context) ([]Skill, error) {
+	return []Skill{s.skill}, nil
+}
+
+func (s *recreatingReflectDeleteStore) DeleteReflectOwnedUserAgentSkill(_ context.Context, _ ReflectSkillDelete) (Skill, error) {
+	if s.deleteErr != nil {
+		return Skill{}, s.deleteErr
+	}
+	if err := writeFile(filepath.Join(s.baseDir, s.skill.Name, MainFile), "# New\n"); err != nil {
+		return Skill{}, err
+	}
+	return s.skill, nil
+}
+
+func (s *recreatingReflectDeleteStore) Delete(_ context.Context, _ string, _ ViewContext) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	return writeFile(filepath.Join(s.baseDir, s.skill.Name, MainFile), "# New\n")
+}
 
 func TestDiskSyncReflectCreateDoesNotWriteRejectedConflict(t *testing.T) {
 	raw, db, ctx := newTestStore(t)

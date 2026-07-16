@@ -116,7 +116,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 		}
 		patch.Metadata = merged
 	}
-	_, err := store.UpdateManagedSkill(r.Context(), skills.ManagedSkillUpdate{
+	updated, err := store.UpdateManagedSkill(r.Context(), skills.ManagedSkillUpdate{
 		ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
 		Patch: patch, Files: req.Files, ConvertToManual: req.ConvertToManual,
 	})
@@ -124,11 +124,15 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
+	if errors.Is(err, skills.ErrInvalidSkillFilePath) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"id": sk.ID})
+	writeData(w, http.StatusOK, s.dbSkillView(r, &updated))
 }
 
 // mergeMetadataVersion overwrites just the "version" key in a skill's metadata

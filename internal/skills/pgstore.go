@@ -222,6 +222,9 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 	if _, ok := files[MainFile]; !ok {
 		return "", fmt.Errorf("skills: missing SKILL.md")
 	}
+	if err := validateSkillFilePaths(files); err != nil {
+		return "", err
+	}
 
 	if sk.ID == "" {
 		sk.ID = uuid.New().String()[:8]

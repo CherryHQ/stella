@@ -11,9 +11,13 @@ import (
 	"github.com/CherryHQ/stella/internal/skills"
 )
 
-// writeConflictOrInternal maps a duplicate-name store error to 409 and any other
-// error to 500.
+// writeConflictOrInternal maps caller-correctable Skill mutations before using
+// the shared internal-error response for storage failures.
 func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
+	if errors.Is(err, skills.ErrInvalidSkillFilePath) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "a skill with this name already exists in this scope")
 		return
@@ -109,6 +113,15 @@ func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) skillView {
 	return view
 }
 
+func (s *Server) writeStoredSkillResponse(w http.ResponseWriter, r *http.Request, status int, id string) {
+	sk, err := s.findSkillByID(r.Context(), id)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	writeData(w, status, s.dbSkillView(r, sk))
+}
+
 // ListScopedSkills handles GET /api/skills.
 func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params apiserver.ListScopedSkillsParams) {
 	info := UserFromContext(r.Context())
@@ -196,7 +209,7 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		s.writeConflictOrInternal(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"id": id, "name": req.Name})
+	s.writeStoredSkillResponse(w, r, http.StatusCreated, id)
 }
 
 // InstallScopedSkill handles POST /api/skills/install.
@@ -231,12 +244,12 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
-	name, err := skills.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
+	id, _, err := skills.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"name": name})
+	s.writeStoredSkillResponse(w, r, http.StatusCreated, id)
 }
 
 // UploadScopedSkill handles POST /api/skills/upload.
@@ -275,7 +288,7 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 		s.writeConflictOrInternal(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"id": id, "name": up.name})
+	s.writeStoredSkillResponse(w, r, http.StatusCreated, id)
 }
 
 // GetScopedSkill handles GET /api/skills/{id}.

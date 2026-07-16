@@ -254,7 +254,7 @@ func (s *recordingSkillStore) Update(ctx context.Context, id string, patch pkgpl
 }
 
 func (s *testSkillStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
-	_, err := s.db.Exec(ctx, `
+	result, err := s.db.Exec(ctx, `
 		UPDATE skill_usage
 		SET use_count = use_count + 1,
 		    last_used_at = now()
@@ -262,7 +262,13 @@ func (s *testSkillStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillI
 		  AND user_id = $2
 		  AND agent_id = $3
 	`, skillID, userID, agentID)
-	return err
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ErrSkillUsageChanged
+	}
+	return nil
 }
 
 func TestCreateIgnoresLegacyKnowledgeType(t *testing.T) {
@@ -972,6 +978,34 @@ func TestLoadReflectOwnedUserAgentSkillTouchesRuntimeUsage(t *testing.T) {
 	}
 }
 
+func TestLoadReflectOwnedSkillFailsWhenUsageClaimFindsNoRow(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	metadata, err := MarkReflectOwnedMetadata(nil)
+	if err != nil {
+		t.Fatalf("reflect metadata: %v", err)
+	}
+	skillID, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user_agent", UserID: userID, AgentID: agentID,
+		Name: "reflect-runtime-missing-usage", Description: "missing usage claim",
+		Status: "active", Metadata: metadata,
+	}, map[string]string{pkgplugins.SkillMainFile: "# Missing Usage"})
+	if err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+	if _, err := store.db.Exec(ctx, `DELETE FROM skill_usage WHERE skill_id = $1`, skillID); err != nil {
+		t.Fatalf("delete usage row: %v", err)
+	}
+
+	out, err := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).load(ctx, map[string]any{"name": "reflect-runtime-missing-usage"})
+	if !errors.Is(err, ErrSkillUsageChanged) {
+		t.Fatalf("load error = %v, want ErrSkillUsageChanged", err)
+	}
+	if out != "" {
+		t.Fatalf("load returned content after lost usage claim: %s", out)
+	}
+}
+
 type blockingSkillUsageStore struct {
 	*testSkillStore
 	deadline time.Time
@@ -993,7 +1027,7 @@ func (s *blockingSkillUsageStore) TouchReflectSkillRuntimeUse(ctx context.Contex
 	}
 }
 
-func TestLoadReflectOwnedSkillBoundsUsageLatencyAndResolvesOnce(t *testing.T) {
+func TestLoadReflectOwnedSkillFailsClosedWhenUsageClaimTimesOut(t *testing.T) {
 	base, userID, agentID := newTestSkillStore(t)
 	store := &blockingSkillUsageStore{testSkillStore: base}
 	ctx := ctxWithUser(userID, agentID)
@@ -1011,14 +1045,14 @@ func TestLoadReflectOwnedSkillBoundsUsageLatencyAndResolvesOnce(t *testing.T) {
 
 	started := time.Now()
 	out, err := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).load(ctx, map[string]any{"name": "reflect-runtime-timeout"})
-	if err != nil {
-		t.Fatalf("load skill: %v", err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("load skill error = %v, want context deadline exceeded", err)
 	}
-	if !strings.Contains(out, "# Runtime Timeout") {
-		t.Fatalf("main load result lost after usage timeout: %s", out)
+	if out != "" {
+		t.Fatalf("load returned content after failed usage claim: %s", out)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("skill load blocked for %s, want bounded best-effort touch", elapsed)
+		t.Fatalf("skill load blocked for %s, want bounded usage claim", elapsed)
 	}
 	if store.deadline.IsZero() {
 		t.Fatal("usage tracker did not receive a deadline")

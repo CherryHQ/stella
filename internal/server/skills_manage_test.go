@@ -20,6 +20,7 @@ func createScopedSkill(t *testing.T, env *testEnv, sid string, body map[string]a
 	if err := json.Unmarshal(parseResponse(t, rr).Data, &out); err != nil {
 		t.Fatalf("unmarshal create response: %v", err)
 	}
+	assertFullSkillMutationResponse(t, rr, out.ID, "manual")
 	return out.ID
 }
 

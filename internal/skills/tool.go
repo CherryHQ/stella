@@ -503,6 +503,13 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	if err := t.authorizeLoadable(ctx, resolved); err != nil {
 		return "", err
 	}
+	// Reflect-owned skills must claim runtime use before any executable directory
+	// is materialized or exposed. A concurrent curator delete makes the claim
+	// affect zero rows, causing this load to fail closed instead of serving a
+	// deleted skill.
+	if err := t.touchReflectSkillRuntimeUse(ctx, resolved, vc); err != nil {
+		return "", err
+	}
 
 	if path == "" {
 		path = pkgplugins.SkillMainFile
@@ -536,8 +543,6 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 			}
 		}
 	}
-	t.touchReflectSkillRuntimeUse(ctx, resolved, vc)
-
 	// Remap the host directory to the path the agent sees inside the sandbox; an
 	// unmappable dir on an isolating backend is dropped rather than leaked.
 	skillDir = t.view.apply(skillDir)
@@ -551,22 +556,23 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	return out.String(), nil
 }
 
-func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *ResolvedSkill, vc pkgplugins.SkillViewContext) {
+func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *ResolvedSkill, vc pkgplugins.SkillViewContext) error {
 	tracker, ok := t.store.(reflectSkillRuntimeUsageTracker)
 	if !ok || vc.UserID == "" || vc.AgentID == "" {
-		return
+		return nil
 	}
 	if resolved == nil || resolved.Scope != skillScopeAgent || resolved.UserID != vc.UserID || resolved.AgentID != vc.AgentID {
-		return
+		return nil
 	}
 	if !IsReflectOwned(Skill{Metadata: resolved.Metadata}) {
-		return
+		return nil
 	}
 	touchCtx, cancel := context.WithTimeout(ctx, runtimeUsageTouchTimeout)
 	defer cancel()
 	if err := tracker.TouchReflectSkillRuntimeUse(touchCtx, resolved.ID, vc.UserID, vc.AgentID); err != nil {
-		slog.WarnContext(ctx, "skills load: failed to touch skill usage", "skill", resolved.Name, "err", err)
+		return fmt.Errorf("claim runtime use for skill %q: %w", resolved.Name, err)
 	}
+	return nil
 }
 
 type installedSkill struct {
