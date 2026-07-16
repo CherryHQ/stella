@@ -32,25 +32,25 @@ Judge 阈值：每项 >= 3 且 verdict=pass。
 
 最终全量 run 共 33 个 case：
 
-| 分组 | case 数 | 覆盖点 |
-|---|---:|---|
-| `531_fact_focused` | 3 | knowledge replace/noop/create |
-| `531_fact_operation_focused` | 7 | profile/soul singleton create/replace/noop，knowledge deprecate/replace_many |
-| `531_related_discovery_focused` | 12 | fact/skill relation kind 与噪声排除 |
-| `531_skill_focused` | 3 | skill patch/create/noop |
-| `531_skill_relation_focused` | 1 | stale predecessor |
-| `531_mixed_focused` | 1 | fact + skill 同轮 |
-| `531_scale_focused` | 2 | 20 facts、15 skills 级别 catalog，多候选 |
-| `531_stress_focused` | 4 | 更大 catalog、多候选、多操作、混合线 |
+| 分组                            | case 数 | 覆盖点                                                                       |
+| ------------------------------- | ------: | ---------------------------------------------------------------------------- |
+| `531_fact_focused`              |       3 | knowledge replace/noop/create                                                |
+| `531_fact_operation_focused`    |       7 | profile/soul singleton create/replace/noop，knowledge deprecate/replace_many |
+| `531_related_discovery_focused` |      12 | fact/skill relation kind 与噪声排除                                          |
+| `531_skill_focused`             |       3 | skill patch/create/noop                                                      |
+| `531_skill_relation_focused`    |       1 | stale predecessor                                                            |
+| `531_mixed_focused`             |       1 | fact + skill 同轮                                                            |
+| `531_scale_focused`             |       2 | 20 facts、15 skills 级别 catalog，多候选                                     |
+| `531_stress_focused`            |       4 | 更大 catalog、多候选、多操作、混合线                                         |
 
 新增 stress case：
 
-| case | prior facts | prior skills | candidates | 重点 |
-|---|---:|---:|---:|---|
-| `stress_fact_large_catalog_multi_relation` | 33 | 0 | 3 fact | 多 endpoint/header/audit 事实同时 replace_many，排除 provider/WSL/PR 噪声 |
-| `stress_fact_retired_dependency_and_manual_exclusion` | 28 | 0 | 2 fact | retired fact + dependency fact，排除 manual/inactive/distractor |
-| `stress_skill_large_catalog_mixed_patch_create` | 0 | 20 | 3 skill | WSL patch、provider patch/create/noop 边界、browser create |
-| `stress_mixed_large_catalog_dual_line` | 14 | 7 | 1 fact + 1 skill | fact/skill 双线同轮，OpenAPI + web fixture + browser smoke |
+| case                                                  | prior facts | prior skills |       candidates | 重点                                                                      |
+| ----------------------------------------------------- | ----------: | -----------: | ---------------: | ------------------------------------------------------------------------- |
+| `stress_fact_large_catalog_multi_relation`            |          33 |            0 |           3 fact | 多 endpoint/header/audit 事实同时 replace_many，排除 provider/WSL/PR 噪声 |
+| `stress_fact_retired_dependency_and_manual_exclusion` |          28 |            0 |           2 fact | retired fact + dependency fact，排除 manual/inactive/distractor           |
+| `stress_skill_large_catalog_mixed_patch_create`       |           0 |           20 |          3 skill | WSL patch、provider patch/create/noop 边界、browser create                |
+| `stress_mixed_large_catalog_dual_line`                |          14 |            7 | 1 fact + 1 skill | fact/skill 双线同轮，OpenAPI + web fixture + browser smoke                |
 
 ## 4. 最终主 run 结果
 
@@ -77,14 +77,14 @@ env OPENAI_BASE_URL=... OPENAI_API_KEY=... \
 
 LLM judge 分数：
 
-| case | action_fit | related_usefulness | write_accuracy | content_completeness | no_unrelated_content |
-|---|---:|---:|---:|---:|---:|
-| `scale_fact_many_active_records_multi_candidate` | 4 | 4 | 4 | 4 | 4 |
-| `scale_skill_many_active_records_multi_candidate` | 4 | 4 | 4 | 3 | 4 |
-| `stress_fact_large_catalog_multi_relation` | 4 | 4 | 4 | 3 | 4 |
-| `stress_fact_retired_dependency_and_manual_exclusion` | 4 | 4 | 4 | 4 | 4 |
-| `stress_mixed_large_catalog_dual_line` | 4 | 4 | 4 | 4 | 4 |
-| `stress_skill_large_catalog_mixed_patch_create` | 4 | 4 | 4 | 4 | 4 |
+| case                                                  | action_fit | related_usefulness | write_accuracy | content_completeness | no_unrelated_content |
+| ----------------------------------------------------- | ---------: | -----------------: | -------------: | -------------------: | -------------------: |
+| `scale_fact_many_active_records_multi_candidate`      |          4 |                  4 |              4 |                    4 |                    4 |
+| `scale_skill_many_active_records_multi_candidate`     |          4 |                  4 |              4 |                    3 |                    4 |
+| `stress_fact_large_catalog_multi_relation`            |          4 |                  4 |              4 |                    3 |                    4 |
+| `stress_fact_retired_dependency_and_manual_exclusion` |          4 |                  4 |              4 |                    4 |                    4 |
+| `stress_mixed_large_catalog_dual_line`                |          4 |                  4 |              4 |                    4 |                    4 |
+| `stress_skill_large_catalog_mixed_patch_create`       |          4 |                  4 |              4 |                    4 |                    4 |
 
 ## 5. 质量观察
 
