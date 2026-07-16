@@ -117,3 +117,32 @@ func TestDrainSequenceAbortCollapsesWait(t *testing.T) {
 		t.Fatalf("drain order = %v, want %v", *order, want)
 	}
 }
+
+// TestDrainSequenceBudgetBoundsWait proves the drain can never hang on the
+// accepted-work wait: a waitAccepted that only yields to its context (a stuck
+// turn, or a tracker that never reaches zero) is released by the shared budget
+// expiring, and the sequence still reaches cancelWork.
+func TestDrainSequenceBudgetBoundsWait(t *testing.T) {
+	d, order := newRecordingDrain(nil)
+	d.httpTimeout = 50 * time.Millisecond
+	d.waitAccepted = func(ctx context.Context) {
+		*order = append(*order, "waitAccepted")
+		<-ctx.Done()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		d.run()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("drain did not unwind after the budget expired; a stuck accepted-work wait can hang shutdown")
+	}
+	want := []string{"beginDrain", "stopIngress", "shutdown", "waitAccepted", "cancelWork"}
+	if !reflect.DeepEqual(*order, want) {
+		t.Fatalf("drain order = %v, want %v", *order, want)
+	}
+}
