@@ -69,8 +69,17 @@ and one shared database serve them all in sequence:
   listener, and reports ready.
 - `startup_and_auth` — bootstrap registration and session-authenticated access.
 - `chat_sse` — one chat turn end to end, consumed as a live SSE stream.
+- `chat_provider_error` — a failed model call surfaced as an in-band error frame
+  on the send stream, then finish and [DONE] — the turn never hangs.
 - `goal_lifecycle` — a Goal driven from creation to autonomous acceptance by the
   dispatcher's async workers.
+- `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
+  from ready, an attach subscription is drain-cancelled, and the process exits 0.
+  Runs last, since it consumes the shared server.
+
+`startup_and_auth` also covers the personal-access-token bearer lifecycle: a
+session mints a scoped PAT, the token alone authenticates a scope-reachable
+route, and revoking it makes the same bearer fail closed.
 
 Every fixture (provider, agent, user, goal) is scoped by the harness `runID`, so
 no journey depends on another's business data — a shared bootstrap user and cookie

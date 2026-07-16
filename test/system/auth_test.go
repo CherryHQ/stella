@@ -52,6 +52,159 @@ func (h *harness) testStartupAndAuth(t *testing.T) {
 				describeBearer(bearer), code, http.StatusUnauthorized, h.proc.logTail(40))
 		}
 	}
+
+	h.testPersonalAccessToken(t, ctx)
+}
+
+// testPersonalAccessToken proves the PAT bearer lifecycle end to end over the
+// wire: a session mints a scoped token, that token alone (no cookie)
+// authenticates a scope-reachable route, and revoking it makes the same bearer
+// fail closed. It runs inside startup_and_auth because it reuses the bootstrap
+// session already established above.
+//
+// The probe route is GET /api/agents, not GET /api/auth/me: bearer credentials
+// are barred from the "auth" resource by design (credential.Enforce's
+// deniedResources), so /api/auth/me would answer 403 for any token regardless of
+// its scopes and prove nothing about the credential. /api/agents requires the
+// grantable "agent:read" scope, so its 200 vs 401 directly reflects whether the
+// bearer authenticated.
+//
+// Failure messages never echo the token or the Authorization header: only the
+// PAT id (a non-secret handle) and status codes appear, so test output can never
+// leak a live credential.
+func (h *harness) testPersonalAccessToken(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	// The grantable-scope catalog must advertise the scope the probe relies on;
+	// if it stops being grantable, PAT creation below would fail with a muddier
+	// error, so assert the catalog contract first.
+	if !h.tokenScopeOffered(t, ctx, "agent:read") {
+		t.Fatalf("GET /api/token-scopes does not offer agent:read; the probe scope is not grantable\n%s", h.proc.logTail(40))
+	}
+
+	token, id := h.createPAT(t, ctx, []string{"agent:read"})
+
+	// The token alone — carried on a jar-less client so only the Authorization
+	// header can authenticate — must reach the scope-matched route.
+	if code := h.bearerProbeStatus(t, ctx, token); code != http.StatusOK {
+		t.Fatalf("GET /api/agents with PAT %s = %d, want %d (a valid scoped bearer must authenticate on its own)\n%s",
+			id, code, http.StatusOK, h.proc.logTail(40))
+	}
+
+	h.revokePAT(t, ctx, id)
+
+	// Same bearer, now revoked: a present-but-invalid credential is a hard deny
+	// (401), never a silent fall-through to any other auth.
+	if code := h.bearerProbeStatus(t, ctx, token); code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/agents with revoked PAT %s = %d, want %d (a revoked bearer must fail closed)\n%s",
+			id, code, http.StatusUnauthorized, h.proc.logTail(40))
+	}
+}
+
+// tokenScopeOffered reports whether GET /api/token-scopes lists the given scope
+// id as grantable to a PAT. It uses the session client (the endpoint is
+// session-only).
+func (h *harness) tokenScopeOffered(t *testing.T, ctx context.Context, scopeID string) bool {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+"/api/token-scopes", nil)
+	if err != nil {
+		t.Fatalf("build token-scopes request: %v", err)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/token-scopes: %v\n%s", err, h.proc.logTail(40))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/token-scopes = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.logTail(40))
+	}
+	var body struct {
+		Scopes []struct {
+			Id string `json:"id"`
+		} `json:"scopes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode token-scopes response: %v", err)
+	}
+	for _, sc := range body.Scopes {
+		if sc.Id == scopeID {
+			return true
+		}
+	}
+	return false
+}
+
+// createPAT mints a personal access token with the given scopes through the
+// session-authenticated endpoint and returns its one-time plaintext and its id.
+// The plaintext is returned only here and never again, matching the production
+// contract; callers must not log it.
+func (h *harness) createPAT(t *testing.T, ctx context.Context, scopes []string) (token, id string) {
+	t.Helper()
+	body := map[string]any{
+		"name":   "system-test-pat-" + h.runID,
+		"scopes": scopes,
+	}
+	resp := h.postJSON(t, ctx, "/api/users/me/tokens", body)
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/users/me/tokens = %d, want %d\n%s", resp.StatusCode, http.StatusCreated, h.proc.logTail(40))
+	}
+	var created struct {
+		Token               string `json:"token"`
+		PersonalAccessToken struct {
+			Id string `json:"id"`
+		} `json:"personal_access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create-token response: %v", err)
+	}
+	if created.Token == "" {
+		t.Fatal("create-token response has empty plaintext token")
+	}
+	if created.PersonalAccessToken.Id == "" {
+		t.Fatal("create-token response has empty token id")
+	}
+	return created.Token, created.PersonalAccessToken.Id
+}
+
+// revokePAT deletes the PAT by id through the session-authenticated endpoint and
+// asserts the 204 the contract specifies.
+func (h *harness) revokePAT(t *testing.T, ctx context.Context, id string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, h.baseURL+"/api/users/me/tokens/"+id, nil)
+	if err != nil {
+		t.Fatalf("build revoke-token request: %v", err)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE token %s: %v\n%s", id, err, h.proc.logTail(40))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE /api/users/me/tokens/%s = %d, want %d\n%s", id, resp.StatusCode, http.StatusNoContent, h.proc.logTail(40))
+	}
+}
+
+// bearerProbeStatus performs GET /api/agents authenticated only by the given
+// bearer token and returns the status code. It uses a fresh jar-less client so
+// no session cookie can mask the token's own outcome, and it never logs the
+// token or the Authorization header — only the resulting status is observable.
+func (h *harness) bearerProbeStatus(t *testing.T, ctx context.Context, token string) int {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+"/api/agents", nil)
+	if err != nil {
+		t.Fatalf("build bearer probe request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	// Jar-less: only the Authorization header authenticates this request.
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/agents (PAT bearer): %v\n%s", err, h.proc.logTail(40))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode
 }
 
 // registerBootstrapUser registers the first local user through the public

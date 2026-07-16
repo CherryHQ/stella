@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeAnthropic is an in-process stand-in for the Anthropic Messages API. It
@@ -45,7 +46,39 @@ type fakeAnthropic struct {
 	// a later same-variant request is the racy trailing turn and gets a benign
 	// end_turn text so the agent loop terminates without consuming another stage.
 	controls map[string]*controlResponse
+	// errScript, when set, makes the fake answer every request with the same HTTP
+	// error instead of an SSE turn. It is sticky (not FIFO-popped) on purpose: the
+	// Anthropic SDK may retry a failed call, so one scripted error must satisfy an
+	// unknown number of requests without tripping the unscripted-request guard.
+	// Used by the chat_provider_error journey. See enqueueError.
+	errScript *errorScript
 }
+
+// errorScript is a sticky HTTP error the fake returns for every request until
+// the fake is torn down. served records that at least one request hit it, so
+// cleanup can catch a journey that scripted an error the system never called.
+type errorScript struct {
+	status int
+	body   string
+	served bool
+}
+
+// turnGate holds a gated turn in flight: handle() flushes the first text-delta,
+// then blocks on release until the test opens the gate (or a backstop fires).
+// It exists so graceful_drain can pin one turn mid-stream across SIGTERM.
+type turnGate struct {
+	release chan struct{}
+}
+
+// Release opens the gate so the fake finishes the pending turn. Safe to call
+// once; the drain journey owns the single gate it created.
+func (g *turnGate) Release() { close(g.release) }
+
+// gateBackstop bounds how long a gated turn blocks waiting for release, so a
+// test bug can never deadlock the whole suite on a gate that is never opened. It
+// is shorter than the harness graceful-shutdown budget, so the backstop fires
+// (and fails the test) well before teardown would kill the process group.
+const gateBackstop = 30 * time.Second
 
 // goalTrailingReply is the benign end_turn text served for the tool-result
 // follow-up turn of an already-satisfied goal_control stage. Its only job is to
@@ -62,6 +95,17 @@ type fakeResponse struct {
 	toolID   string
 	toolName string
 	toolArgs string // raw JSON object, e.g. `{"query":"x"}`
+
+	// errStatus, when non-zero, makes this response an HTTP error rather than an
+	// SSE turn: handle() writes errBody with this status and returns. Set only via
+	// the sticky errScript path, never enqueued in the FIFO.
+	errStatus int
+	errBody   string
+
+	// gate, when non-nil, splits this text turn: handle() flushes the first
+	// text-delta (text), blocks on the gate, then flushes the remainder (text2).
+	gate  *turnGate
+	text2 string
 }
 
 // controlResponse is a goal_control stage's scripted tool_use plus whether it
@@ -103,6 +147,9 @@ func newFakeAnthropic(t *testing.T) *fakeAnthropic {
 				t.Errorf("fake anthropic: goal_control %q stage never requested; the Goal run did not reach it", action)
 			}
 		}
+		if f.errScript != nil && !f.errScript.served {
+			t.Errorf("fake anthropic: scripted provider error was never requested; the system made no model call")
+		}
 	})
 	return f
 }
@@ -133,6 +180,39 @@ func (f *fakeAnthropic) enqueueGoalControl(action, args string) {
 		toolName: "goal_control",
 		toolArgs: args,
 	}}
+}
+
+// enqueueError makes the fake answer every subsequent request with the given
+// HTTP status and an Anthropic-shaped error body, until the fake is torn down.
+// It is sticky rather than FIFO so an SDK-level retry of the failed call is
+// absorbed by the same script instead of hitting the unscripted-request guard;
+// the chat_provider_error journey measures the actual request count. Picking a
+// non-retried status (400) keeps that count at one, but stickiness makes the
+// journey robust regardless.
+func (f *fakeAnthropic) enqueueError(status int, errType, message string) {
+	body, err := json.Marshal(map[string]any{
+		"type":  "error",
+		"error": map[string]any{"type": errType, "message": message},
+	})
+	if err != nil {
+		// Built from literals, so a marshal failure is a bug in the test.
+		f.t.Fatalf("fake anthropic: marshal error body: %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.errScript = &errorScript{status: status, body: string(body)}
+}
+
+// enqueueGatedText scripts the next FIFO turn as a two-part text reply split by
+// a gate: the fake flushes first, then blocks until the returned gate is
+// released, then flushes second. The caller releases the gate to let the pinned
+// turn finish. Used by graceful_drain to hold a turn in flight across SIGTERM.
+func (f *fakeAnthropic) enqueueGatedText(first, second string) *turnGate {
+	gate := &turnGate{release: make(chan struct{})}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scripts = append(f.scripts, fakeResponse{text: first, text2: second, gate: gate})
+	return gate
 }
 
 // requests returns a copy of every request the fake received, in order, so a
@@ -166,6 +246,15 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A scripted provider error is an HTTP error response, not a turn: the system
+	// must surface it as an error frame on the SSE stream it already opened.
+	if resp.errStatus != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.errStatus)
+		_, _ = io.WriteString(w, resp.errBody)
+		return
+	}
+
 	flusher, isFlusher := w.(http.Flusher)
 	if !isFlusher {
 		// Errorf, not Fatalf: this runs on the server goroutine, where FailNow
@@ -176,12 +265,37 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
-	for _, frame := range resp.frames(model) {
+
+	// A gated turn flushes its first half, then blocks until the test opens the
+	// gate (or the backstop fires), then flushes the rest — pinning the turn in
+	// flight so a drain can be observed while it is mid-stream.
+	if resp.gate != nil {
+		before, after := resp.gatedFrames(model)
+		if !f.writeFrames(w, flusher, before) {
+			return
+		}
+		select {
+		case <-resp.gate.release:
+		case <-time.After(gateBackstop):
+			f.t.Errorf("fake anthropic: gated turn never released within %s; finishing it to avoid a suite deadlock", gateBackstop)
+		}
+		f.writeFrames(w, flusher, after)
+		return
+	}
+
+	f.writeFrames(w, flusher, resp.frames(model))
+}
+
+// writeFrames flushes each SSE frame in order, stopping early (ok=false) if the
+// client hung up so the caller does not keep writing to a dead connection.
+func (f *fakeAnthropic) writeFrames(w http.ResponseWriter, flusher http.Flusher, frames []string) bool {
+	for _, frame := range frames {
 		if _, err := io.WriteString(w, frame); err != nil {
-			return // client hung up; nothing left to do
+			return false
 		}
 		flusher.Flush()
 	}
+	return true
 }
 
 // selectResponse picks the response for one request under f.mu. Goal mode (any
@@ -189,6 +303,13 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 // otherwise the Phase 1 FIFO applies. It records a test failure and returns
 // ok=false for any request it cannot answer.
 func (f *fakeAnthropic) selectResponse(model, control string) (fakeResponse, bool) {
+	// A sticky provider error answers every request (including SDK retries) so a
+	// journey testing the failure path never trips the unscripted-request guard.
+	if f.errScript != nil {
+		f.errScript.served = true
+		return fakeResponse{errStatus: f.errScript.status, errBody: f.errScript.body}, true
+	}
+
 	if len(f.controls) > 0 {
 		cs := f.controls[control]
 		switch {
@@ -284,6 +405,37 @@ func (r fakeResponse) frames(model string) []string {
 	})
 	emit("message_stop", map[string]any{"type": "message_stop"})
 	return frames
+}
+
+// gatedFrames renders a two-part text turn as the frames to flush before the
+// gate (message_start, the text block's start, and the first text delta) and
+// the frames to flush after it (the second text delta, then the block and
+// message close). Splitting at the first delta means the client has received
+// real streamed text — proving the turn is genuinely in flight — before the
+// turn is pinned. It never carries a tool call; only text turns are gated.
+func (r fakeResponse) gatedFrames(model string) (before, after []string) {
+	full := fakeResponse{text: r.text}.frames(model)
+	second := fakeResponse{text: r.text2}.textDeltaFrame()
+	// full is: message_start, content_block_start, content_block_delta(text),
+	// content_block_stop, message_delta, message_stop. Gate right after the first
+	// text delta (index 3), inserting the second delta into the tail.
+	before = full[:3]
+	after = append([]string{second}, full[3:]...)
+	return before, after
+}
+
+// textDeltaFrame renders a single text content_block_delta frame — the unit a
+// gated turn resumes with after release.
+func (r fakeResponse) textDeltaFrame() string {
+	data, err := json.Marshal(map[string]any{
+		"type":  "content_block_delta",
+		"index": 0,
+		"delta": map[string]any{"type": "text_delta", "text": r.text},
+	})
+	if err != nil {
+		panic(fmt.Sprintf("fake anthropic: marshal text delta: %v", err))
+	}
+	return fmt.Sprintf("event: %s\ndata: %s\n\n", "content_block_delta", data)
 }
 
 // parseMessagesRequest extracts the stable fields the fake is allowed to record

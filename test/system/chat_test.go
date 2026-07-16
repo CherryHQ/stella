@@ -142,8 +142,9 @@ func (h *harness) createSession(t *testing.T, ctx context.Context, agentID strin
 // turnEvent is the minimal shape of a UI-message-stream frame the test asserts
 // on: its type and, for text-delta frames, the chunk.
 type turnEvent struct {
-	Type  string `json:"type"`
-	Delta string `json:"delta"`
+	Type      string `json:"type"`
+	Delta     string `json:"delta"`
+	ErrorText string `json:"errorText"`
 }
 
 // streamChatTurn sends a user message and consumes the SSE response

@@ -60,7 +60,14 @@ PostgreSQL 来手动运行服务器，或为该平台提 issue。由于套件在
 - `readiness` —— 子进程迁移了交给它的数据库、绑定了 TCP 监听、并报告 ready。
 - `startup_and_auth` —— bootstrap 注册与 session 认证后的访问。
 - `chat_sse` —— 一次端到端 chat 轮次，以实时 SSE 流的方式消费。
+- `chat_provider_error` —— 一次失败的模型调用以带内 error 帧的方式出现在发送流上，随后是
+  finish 与 [DONE]——该轮次绝不挂起。
 - `goal_lifecycle` —— 一个 Goal 从创建被派发器的异步 worker 驱动到自主验收。
+- `graceful_drain` —— 在一个轮次仍在途中时发送 SIGTERM：`/readyz` 从 ready 翻转，一个 attach
+  订阅被 drain 取消，进程以 0 退出。它最后运行，因为会消费掉共享服务器。
+
+`startup_and_auth` 还覆盖个人访问令牌（PAT）的 bearer 生命周期：一个 session 铸造出带 scope 的
+PAT，仅凭该令牌即可认证一条 scope 可达的路由，撤销后同一个 bearer 会 fail closed。
 
 每个 fixture（provider、agent、user、goal）都以 harness 的 `runID` 作用域隔离，因此没有任何
 journey 依赖另一个 journey 的业务数据 —— 唯一的复用是共享的 bootstrap 用户与 cookie jar。
