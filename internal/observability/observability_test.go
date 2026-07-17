@@ -21,6 +21,9 @@ func clearOTelEnv(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
 		"OTEL_TRACES_EXPORTER",
 		"OTEL_LOGS_EXPORTER",
+		"OTEL_METRICS_EXPORTER",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+		"OTEL_RESOURCE_ATTRIBUTES",
 	} {
 		t.Setenv(key, "")
 	}
@@ -169,6 +172,7 @@ func TestInitEnabledInstallsAndShutsDown(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
 	t.Setenv("OTEL_LOGS_EXPORTER", "none")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
 
 	p, err := Init(context.Background())
 	if err != nil {
@@ -242,5 +246,61 @@ func TestShutdownNilProvider(t *testing.T) {
 	var p *Provider
 	if err := p.Shutdown(context.Background()); err != nil {
 		t.Errorf("nil Provider Shutdown() = %v, want nil", err)
+	}
+}
+
+func TestInitMetricsOnlyInstallsAndShutsDown(t *testing.T) {
+	clearOTelEnv(t)
+	t.Setenv("OTEL_METRICS_EXPORTER", "console")
+
+	beforeTracer := otel.GetTracerProvider()
+	beforeMeter := otel.GetMeterProvider()
+	p, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v, want nil", err)
+	}
+	if p.tp != nil {
+		t.Fatal("Init() installed a tracer provider when only metrics are enabled")
+	}
+	if p.mp == nil {
+		t.Fatal("Init() returned a no-op meter provider while metrics are enabled")
+	}
+	if otel.GetMeterProvider() != p.mp {
+		t.Error("Init() did not install the meter provider as global")
+	}
+	if otel.GetTracerProvider() != beforeTracer {
+		t.Error("Init() replaced the global tracer provider when only metrics are enabled")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.Shutdown(ctx); err != nil {
+		t.Errorf("Shutdown() error = %v, want nil", err)
+	}
+	if otel.GetMeterProvider() != beforeMeter {
+		t.Error("Shutdown() did not restore the previous meter provider")
+	}
+}
+
+func TestNewResourceIncludesEnvAndVersion(t *testing.T) {
+	clearOTelEnv(t)
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=dev")
+
+	res, err := newResource(context.Background(), Config{ServiceName: "stella"})
+	if err != nil {
+		t.Fatalf("newResource() error = %v, want nil", err)
+	}
+	got := map[string]string{}
+	for _, attr := range res.Attributes() {
+		got[string(attr.Key)] = attr.Value.Emit()
+	}
+	if got["deployment.environment"] != "dev" {
+		t.Errorf("resource dropped OTEL_RESOURCE_ATTRIBUTES: %v", got)
+	}
+	if got["service.version"] == "" {
+		t.Errorf("resource missing service.version: %v", got)
+	}
+	if got["service.name"] != "stella" {
+		t.Errorf("service.name = %q, want stella", got["service.name"])
 	}
 }

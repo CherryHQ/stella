@@ -24,7 +24,7 @@ func NewService(store pkgplugins.SkillStore, stellaHome string) *Service {
 // ResolvedSkill is a skill with its filesystem directory (if applicable).
 type ResolvedSkill struct {
 	pkgplugins.Skill
-	Dir string // absolute path on disk; empty for DB-only skills without disk sync
+	Dir string // absolute path on disk; empty until a DB-backed Skill is loaded
 }
 
 // ListMerged returns all visible skills across project, DB, and system levels,
@@ -121,8 +121,8 @@ func findFSSkill(root, scope, name string) *ResolvedSkill {
 // ResolveScoped finds a skill by name in a specific scope, for management
 // (get/update/delete/file) operations. Unlike Resolve it never falls through to
 // another scope, and it matches by row ownership rather than runtime visibility
-// so it also finds drafts, disabled (knowledge) entries, and DB-backed system
-// skills that the effective Resolve query filters out.
+// so it also finds model-disabled entries and DB-backed system Skills that the
+// effective Resolve query filters out.
 func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
 	switch scope {
 	case "project":
@@ -146,7 +146,7 @@ func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgp
 }
 
 // dbSkillByScope returns the DB skill with the given name in exactly one
-// scope/owner bucket, including drafts and disabled entries.
+// scope/owner bucket, including model-disabled entries.
 func (s *Service) dbSkillByScope(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext) (*ResolvedSkill, error) {
 	if s.store == nil {
 		return nil, nil

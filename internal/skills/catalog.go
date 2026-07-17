@@ -2,7 +2,6 @@ package skills
 
 import (
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 
@@ -10,7 +9,6 @@ import (
 )
 
 const (
-	SkillStatusDraft      = "draft"
 	SkillStatusActive     = "active"
 	SkillStatusDeprecated = "deprecated"
 )
@@ -18,7 +16,6 @@ const (
 type skillFrontmatter struct {
 	Name                   string `yaml:"name"`
 	Description            string `yaml:"description"`
-	Status                 string `yaml:"status"`
 	CreatedAt              string `yaml:"created-at"`
 	DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 }
@@ -26,21 +23,6 @@ type skillFrontmatter struct {
 const maxNameLength = 64
 
 var validNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
-
-func NormalizeSkillStatus(status string) string {
-	normalized := strings.TrimSpace(strings.ToLower(status))
-	switch normalized {
-	case SkillStatusDraft:
-		return SkillStatusDraft
-	case SkillStatusActive, "":
-		return SkillStatusActive
-	case SkillStatusDeprecated:
-		return SkillStatusDeprecated
-	default:
-		slog.Warn("unknown skill status, defaulting to active", "status", status)
-		return SkillStatusActive
-	}
-}
 
 func parseFrontmatter(content string) (skillFrontmatter, error) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")

@@ -21,14 +21,19 @@ import (
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	otellog "go.opentelemetry.io/otel/log"
 	otellogglobal "go.opentelemetry.io/otel/log/global"
+	otelmetric "go.opentelemetry.io/otel/metric"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/CherryHQ/stella/internal/version"
 )
 
 // Config holds OTel settings derived from standard environment variables.
@@ -73,9 +78,11 @@ func signalEnabled(exporterKey, endpointKey string) bool {
 type Provider struct {
 	tp *sdktrace.TracerProvider // nil when trace export is disabled
 	lp *sdklog.LoggerProvider   // nil when log export is disabled
+	mp *sdkmetric.MeterProvider // nil when metric export is disabled
 
 	previousTracerProvider trace.TracerProvider
 	previousLoggerProvider otellog.LoggerProvider
+	previousMeterProvider  otelmetric.MeterProvider
 	previousSlog           *slog.Logger
 }
 
@@ -86,7 +93,8 @@ type Provider struct {
 func Init(ctx context.Context) (*Provider, error) {
 	cfg := LoadConfig()
 	logsEnabled := signalEnabled("OTEL_LOGS_EXPORTER", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")
-	if !cfg.Enabled && !logsEnabled {
+	metricsEnabled := signalEnabled("OTEL_METRICS_EXPORTER", "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
+	if !cfg.Enabled && !logsEnabled && !metricsEnabled {
 		return &Provider{}, nil
 	}
 
@@ -105,9 +113,14 @@ func Init(ctx context.Context) (*Provider, error) {
 	if logsEnabled {
 		p.lp, err = newLoggerProvider(ctx, res)
 		if err != nil {
-			if p.tp != nil {
-				_ = p.tp.Shutdown(ctx)
-			}
+			_ = p.shutdownProviders(ctx)
+			return nil, err
+		}
+	}
+	if metricsEnabled {
+		p.mp, err = newMeterProvider(ctx, res)
+		if err != nil {
+			_ = p.shutdownProviders(ctx)
 			return nil, err
 		}
 	}
@@ -128,6 +141,20 @@ func Init(ctx context.Context) (*Provider, error) {
 			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
 			"service", cfg.ServiceName)
 	}
+	if p.mp != nil {
+		p.previousMeterProvider = otel.GetMeterProvider()
+		otel.SetMeterProvider(p.mp)
+		// Go runtime metrics (memory, GC, goroutines). otelhttp picks up the
+		// global meter provider by itself, so HTTP server metrics need no start
+		// call. A runtime.Start failure only loses one instrument set; the
+		// provider is already installed, so warn rather than fail startup.
+		if err := runtime.Start(runtime.WithMeterProvider(p.mp)); err != nil {
+			slog.Warn("otel runtime metrics failed to start", "error", err)
+		}
+		slog.Info("otel metrics enabled",
+			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+			"service", cfg.ServiceName)
+	}
 	if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" {
 		slog.Warn("otel exporter transport is insecure; telemetry is sent without TLS")
 	}
@@ -135,10 +162,17 @@ func Init(ctx context.Context) (*Provider, error) {
 }
 
 func newResource(ctx context.Context, cfg Config) (*resource.Resource, error) {
+	// WithFromEnv is last so OTEL_RESOURCE_ATTRIBUTES (and OTEL_SERVICE_NAME)
+	// override the in-code defaults; without it those variables are silently
+	// dropped, since resource.New has no default detectors.
 	res, err := resource.New(ctx,
-		resource.WithAttributes(semconv.ServiceName(cfg.ServiceName)),
+		resource.WithAttributes(
+			semconv.ServiceName(cfg.ServiceName),
+			semconv.ServiceVersion(version.DisplayVersion()),
+		),
 		resource.WithProcessRuntimeDescription(),
 		resource.WithHost(),
+		resource.WithFromEnv(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("otel: create resource: %w", err)
@@ -156,6 +190,18 @@ func newTracerProvider(ctx context.Context, res *resource.Resource) (*sdktrace.T
 	return sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
+	), nil
+}
+
+func newMeterProvider(ctx context.Context, res *resource.Resource) (*sdkmetric.MeterProvider, error) {
+	reader, err := autoexport.NewMetricReader(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("otel: create metric reader: %w", err)
+	}
+
+	return sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(reader),
+		sdkmetric.WithResource(res),
 	), nil
 }
 
@@ -210,7 +256,6 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 	if p == nil {
 		return nil
 	}
-	var err error
 	if p.lp != nil {
 		if p.previousSlog != nil {
 			slog.SetDefault(p.previousSlog)
@@ -218,12 +263,28 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 		if p.previousLoggerProvider != nil {
 			otellogglobal.SetLoggerProvider(p.previousLoggerProvider)
 		}
+	}
+	if p.mp != nil && p.previousMeterProvider != nil {
+		otel.SetMeterProvider(p.previousMeterProvider)
+	}
+	if p.tp != nil && p.previousTracerProvider != nil {
+		otel.SetTracerProvider(p.previousTracerProvider)
+	}
+	return p.shutdownProviders(ctx)
+}
+
+// shutdownProviders stops whichever providers were built, without touching the
+// global registrations. Init uses it directly to unwind a partial build before
+// any global was installed.
+func (p *Provider) shutdownProviders(ctx context.Context) error {
+	var err error
+	if p.lp != nil {
 		err = errors.Join(err, p.lp.Shutdown(ctx))
 	}
+	if p.mp != nil {
+		err = errors.Join(err, p.mp.Shutdown(ctx))
+	}
 	if p.tp != nil {
-		if p.previousTracerProvider != nil {
-			otel.SetTracerProvider(p.previousTracerProvider)
-		}
 		err = errors.Join(err, p.tp.Shutdown(ctx))
 	}
 	return err

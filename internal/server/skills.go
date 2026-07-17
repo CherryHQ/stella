@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -20,11 +21,12 @@ type skillView struct {
 	AgentID                string    `json:"agent_id,omitempty"`
 	Name                   string    `json:"name"`
 	Description            string    `json:"description"`
-	Status                 string    `json:"status"`
 	DisableModelInvocation bool      `json:"disable_model_invocation"`
 	Files                  []string  `json:"files"`
 	Source                 string    `json:"source,omitempty"`
 	Version                string    `json:"version,omitempty"`
+	LifecycleVersion       int64     `json:"lifecycle_version"`
+	CreatedBy              string    `json:"created_by"`
 	CreatedAt              time.Time `json:"created_at"`
 	UpdatedAt              time.Time `json:"updated_at"`
 }
@@ -39,16 +41,15 @@ type createSkillRequest struct {
 	AgentID                string            `json:"agent_id"`
 	Name                   string            `json:"name"`
 	Description            string            `json:"description"`
-	Status                 string            `json:"status"`
 	DisableModelInvocation bool              `json:"disable_model_invocation"`
 	Files                  map[string]string `json:"files"`
 }
 
 type updateSkillRequest struct {
 	Description            *string           `json:"description"`
-	Status                 *string           `json:"status"`
 	DisableModelInvocation *bool             `json:"disable_model_invocation"`
 	Version                *string           `json:"version"`
+	ConvertToManual        bool              `json:"convert_to_manual"`
 	Files                  map[string]string `json:"files"`
 }
 
@@ -59,8 +60,32 @@ type installSkillRequest struct {
 	AgentID string `json:"agent_id"`
 }
 
-// applySkillUpdate is the shared body for PATCH .../skills/{id}.
-func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id string, vc skills.ViewContext) {
+// skillCreatedBy keeps legacy and filesystem records in the manual bucket;
+// only the durable Reflect marker may opt a DB record into Reflect ownership.
+func skillCreatedBy(metadata json.RawMessage) string {
+	createdBy := skills.CreatedBy(skills.Skill{Metadata: metadata})
+	if createdBy == skills.ReflectSkillCreatedBy {
+		return createdBy
+	}
+	return skills.ManualSkillCreatedBy
+}
+
+func storedSkillToView(sk skills.Skill, files []string) skillView {
+	if files == nil {
+		files = []string{}
+	}
+	return skillView{
+		ID: sk.ID, Scope: sk.Scope, UserID: sk.UserID, AgentID: sk.AgentID,
+		Name: sk.Name, Description: sk.Description,
+		DisableModelInvocation: sk.DisableModelInvocation, Files: files,
+		Source: skillSource(sk.Metadata), Version: skillVersion(sk.Metadata),
+		LifecycleVersion: sk.Version, CreatedBy: skillCreatedBy(sk.Metadata),
+		CreatedAt: sk.CreatedAt.UTC(), UpdatedAt: sk.UpdatedAt.UTC(),
+	}
+}
+
+// applySkillUpdate commits mutable DB metadata, files, and ownership together.
+func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *skills.Skill) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
@@ -73,23 +98,15 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 	}
 	patch := skills.UpdatePatch{
 		Description:            req.Description,
-		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	// The version lives inside the metadata JSON; merge it so source and install
-	// timestamps survive. Loading the row also drives the scope branch below, so
-	// fetch once and reuse.
-	var sk *skills.Skill
-	if req.Version != nil || (vc.AgentID == "" && vc.UserID == "") {
-		var err error
-		if sk, err = s.findSkillByID(r.Context(), id); err != nil {
-			if isNotFound(err) {
-				writeError(w, http.StatusNotFound, "skill not found")
-			} else {
-				s.writeInternalError(w, err)
-			}
-			return
-		}
+	if sk.Scope == "system" {
+		writeError(w, http.StatusForbidden, "system skills are read-only")
+		return
+	}
+	if sk.Status == "deprecated" {
+		writeError(w, http.StatusConflict, "deprecated skills cannot be edited")
+		return
 	}
 	if req.Version != nil {
 		merged, err := mergeMetadataVersion(sk.Metadata, *req.Version)
@@ -99,26 +116,23 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, id str
 		}
 		patch.Metadata = merged
 	}
-	if vc.AgentID == "" && vc.UserID == "" {
-		if sk.Scope == "system" {
-			if systemStore, ok := store.(interface {
-				UpdateSystemSkill(context.Context, string, skills.UpdatePatch) error
-			}); ok {
-				if err := systemStore.UpdateSystemSkill(r.Context(), id, patch); err != nil {
-					s.writeInternalError(w, err)
-					return
-				}
-				s.upsertSkillFiles(w, store, r.Context(), id, req.Files)
-				return
-			}
-		}
-		vc = skillOwnerViewContext(*sk)
+	updated, err := store.UpdateManagedSkill(r.Context(), skills.ManagedSkillUpdate{
+		ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
+		Patch: patch, Files: req.Files, ConvertToManual: req.ConvertToManual,
+	})
+	if errors.Is(err, skills.ErrSkillNotMutable) || errors.Is(err, skills.ErrSkillNotReflectOwned) {
+		writeError(w, http.StatusConflict, err.Error())
+		return
 	}
-	if err := store.Update(r.Context(), id, vc, patch); err != nil {
+	if errors.Is(err, skills.ErrInvalidSkillFilePath) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
-	s.upsertSkillFiles(w, store, r.Context(), id, req.Files)
+	writeData(w, http.StatusOK, committedSkillView(updated))
 }
 
 // mergeMetadataVersion overwrites just the "version" key in a skill's metadata
@@ -139,61 +153,38 @@ func mergeMetadataVersion(metadata json.RawMessage, version string) (json.RawMes
 	return json.Marshal(m)
 }
 
-func (s *Server) upsertSkillFiles(w http.ResponseWriter, store skills.Store, ctx context.Context, id string, files map[string]string) {
-	for path, content := range files {
-		if err := store.UpsertFile(ctx, id, path, content); err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
-	}
-	writeData(w, http.StatusOK, map[string]string{"id": id})
-}
-
-func skillOwnerViewContext(sk skills.Skill) skills.ViewContext {
-	switch sk.Scope {
-	case "system_agent":
-		return skills.ViewContext{AgentID: sk.AgentID}
-	case "user":
-		return skills.ViewContext{UserID: sk.UserID}
-	case "user_agent":
-		return skills.ViewContext{UserID: sk.UserID, AgentID: sk.AgentID}
-	default:
-		return skills.ViewContext{}
-	}
-}
-
 // doDeleteSkill is the shared body for DELETE .../skills/{id}.
-func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string, vc skills.ViewContext) {
+func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	if vc.AgentID == "" && vc.UserID == "" {
-		sk, err := s.findSkillByID(r.Context(), id)
-		if err != nil {
-			if isNotFound(err) {
-				writeError(w, http.StatusNotFound, "skill not found")
-			} else {
-				s.writeInternalError(w, err)
-			}
-			return
+	sk, err := s.findSkillByID(r.Context(), id)
+	if err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, "skill not found")
+		} else {
+			s.writeInternalError(w, err)
 		}
-		if sk.Scope == "system" {
-			if systemStore, ok := store.(interface {
-				DeleteSystemSkill(context.Context, string) error
-			}); ok {
-				if err := systemStore.DeleteSystemSkill(r.Context(), id); err != nil {
-					s.writeInternalError(w, err)
-					return
-				}
-				writeNoContent(w)
-				return
-			}
-		}
-		vc = skillOwnerViewContext(*sk)
+		return
 	}
-	if err := store.Delete(r.Context(), id, vc); err != nil {
+	if sk.Scope == "system" {
+		writeError(w, http.StatusForbidden, "system skills are read-only")
+		return
+	}
+	info := UserFromContext(r.Context())
+	if info == nil || info.UserID == "" {
+		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if sk.Scope != "user" && sk.Scope != "user_agent" && sk.Scope != "system_agent" {
+		// Project skills are deleted by their existing filesystem handler and do
+		// not reach this DB-backed lifecycle path.
+		writeError(w, http.StatusBadRequest, "skill scope is not lifecycle-managed")
+		return
+	}
+	if err := store.Delete(r.Context(), id, skills.ViewContext{UserID: info.UserID, AgentID: sk.AgentID}); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}

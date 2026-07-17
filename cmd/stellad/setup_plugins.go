@@ -27,7 +27,7 @@ type pluginSetup struct {
 	manifestToReconcile    *manifestplugins.Manifest
 }
 
-func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, skillStore *skills.DiskSyncStore, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
+func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, skillStore skills.Store, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
 	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	stateStore := pluginstate.New(db)

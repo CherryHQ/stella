@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -113,7 +113,7 @@ func (s *PGStore) ListForAgentContext(ctx context.Context, userID string, agentI
 }
 
 // ListByScope returns every skill in exactly one scope/owner bucket, including
-// drafts and disabled skills, for management views.
+// disabled skills, for management views.
 func (s *PGStore) ListByScope(ctx context.Context, scope string, userID string, agentID string) ([]Skill, error) {
 	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
 		Scope:   scope,
@@ -217,23 +217,32 @@ func (s *PGStore) LoadFile(ctx context.Context, skillID, path string) (string, e
 	return f.Content, nil
 }
 
-// Create inserts the skill row and all its files in a transaction. The files
-// map must include MainFile ("SKILL.md"). If s.ID is empty a new ID is generated.
+// Create preserves the plugin-facing ID-only contract while the internal
+// mutation path retains the complete committed snapshot.
 func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string) (string, error) {
+	snapshot, err := s.CreateManagedSkill(ctx, sk, files)
+	return snapshot.Skill.ID, err
+}
+
+// CreateManagedSkill inserts the row and all files in one transaction.
+func (s *PGStore) CreateManagedSkill(ctx context.Context, sk Skill, files map[string]string) (SkillSnapshot, error) {
 	if _, ok := files[MainFile]; !ok {
-		return "", fmt.Errorf("skills: missing SKILL.md")
+		return SkillSnapshot{}, fmt.Errorf("skills: missing SKILL.md")
+	}
+	if err := validateSkillFilePaths(files); err != nil {
+		return SkillSnapshot{}, err
 	}
 
 	if sk.ID == "" {
 		sk.ID = uuid.New().String()[:8]
 	}
-	if sk.Status == "" {
-		sk.Status = "active"
-	}
+	// Model availability is controlled by disable_model_invocation. Every new
+	// durable skill enters the single writable lifecycle state.
+	sk.Status = SkillStatusActive
 
-	meta := "{}"
-	if len(sk.Metadata) > 0 {
-		meta = string(sk.Metadata)
+	metadata, err := MarkManualOwnedMetadata(sk.Metadata)
+	if err != nil {
+		return SkillSnapshot{}, err
 	}
 
 	params := sqlc.CreateSkillParams{
@@ -243,7 +252,7 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 		Description:            sk.Description,
 		Status:                 sk.Status,
 		DisableModelInvocation: sk.DisableModelInvocation,
-		Metadata:               json.RawMessage(meta),
+		Metadata:               metadata,
 	}
 
 	// Set nullable owner fields based on scope.
@@ -259,14 +268,15 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return "", fmt.Errorf("skills: begin tx: %w", err)
+		return SkillSnapshot{}, fmt.Errorf("skills: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := s.q.WithTx(tx)
 
-	if _, err := qtx.CreateSkill(ctx, params); err != nil {
-		return "", fmt.Errorf("skills: create skill %q: %w", sk.Name, err)
+	row, err := qtx.CreateSkill(ctx, params)
+	if err != nil {
+		return SkillSnapshot{}, fmt.Errorf("skills: create skill %q: %w", sk.Name, err)
 	}
 
 	for path, content := range files {
@@ -275,14 +285,19 @@ func (s *PGStore) Create(ctx context.Context, sk Skill, files map[string]string)
 			Path:    path,
 			Content: content,
 		}); err != nil {
-			return "", fmt.Errorf("skills: insert file %q for skill %q: %w", path, sk.ID, err)
+			return SkillSnapshot{}, fmt.Errorf("skills: insert file %q for skill %q: %w", path, sk.ID, err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", fmt.Errorf("skills: commit create %q: %w", sk.ID, err)
+		return SkillSnapshot{}, fmt.Errorf("skills: commit create %q: %w", sk.ID, err)
 	}
-	return sk.ID, nil
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return SkillSnapshot{Skill: mapRow(row), Files: paths}, nil
 }
 
 type resolvedPatch struct {
@@ -392,15 +407,6 @@ func (s *PGStore) UpdateSystemSkill(ctx context.Context, id string, patch Update
 func (s *PGStore) DeleteSystemSkill(ctx context.Context, id string) error {
 	if err := s.q.DeleteSystemSkill(ctx, id); err != nil {
 		return fmt.Errorf("skills: system delete %s: %w", id, err)
-	}
-	return nil
-}
-
-// ExpireDrafts deprecates draft skills whose created-at metadata timestamp is
-// before the given cutoff. Knowledge facts are managed outside the skills table.
-func (s *PGStore) ExpireDrafts(ctx context.Context, before time.Time) error {
-	if err := s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339)); err != nil {
-		return fmt.Errorf("skills: expire drafts: %w", err)
 	}
 	return nil
 }

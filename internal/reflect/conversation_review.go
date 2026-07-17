@@ -238,9 +238,10 @@ func (s *Service) newConversationReviewer(ctx context.Context, snap *config.Snap
 	return newReviewer(reviewerConfig{
 		Stream: stream,
 		Model:  model,
-		// No skill-disk layout: reflect runs host-identity and reads/writes skill
-		// content through the DB store, which mirrors to disk itself. The reviewer
-		// prompt drives create/patch/deprecate, so those stay enabled — but every
+		// No skill-disk layout: reflect runs host-identity and reads/writes Skill
+		// content through PostgreSQL. Runtime loads materialize their own derived
+		// cache. The reviewer prompt drives create/patch/deprecate, so those stay
+		// enabled — but every
 		// DB read and write passes through Skill access under the review target's
 		// confined identity (WithUserID+WithAgentID on reviewCtx). remove/install/
 		// search/list are not exposed. The separate
@@ -308,7 +309,7 @@ func (s *Service) notifyReviewResult(ctx context.Context, userID string, result 
 func buildNotificationText(r reviewResult) string {
 	var parts []string
 	if r.SkillsMutated > 0 {
-		parts = append(parts, fmt.Sprintf("%d new draft skill(s) extracted", r.SkillsMutated))
+		parts = append(parts, fmt.Sprintf("%d new skill(s) extracted", r.SkillsMutated))
 	}
 	if r.MemoryUpdated {
 		parts = append(parts, "user memory updated")

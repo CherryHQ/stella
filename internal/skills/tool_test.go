@@ -235,8 +235,26 @@ func (s *testSkillStore) Delete(ctx context.Context, id string) error {
 	return s.q.DeleteSkill(ctx, params)
 }
 
+// recordingSkillStore proves remove delegates lifecycle ownership to the
+// adapter Delete method instead of mutating status through Update.
+type recordingSkillStore struct {
+	*testSkillStore
+	deleteCalls int
+	updateCalls int
+}
+
+func (s *recordingSkillStore) Delete(ctx context.Context, id string) error {
+	s.deleteCalls++
+	return nil
+}
+
+func (s *recordingSkillStore) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
+	s.updateCalls++
+	return nil
+}
+
 func (s *testSkillStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
-	_, err := s.db.Exec(ctx, `
+	result, err := s.db.Exec(ctx, `
 		UPDATE skill_usage
 		SET use_count = use_count + 1,
 		    last_used_at = now()
@@ -244,11 +262,13 @@ func (s *testSkillStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillI
 		  AND user_id = $2
 		  AND agent_id = $3
 	`, skillID, userID, agentID)
-	return err
-}
-
-func (s *testSkillStore) ExpireDrafts(ctx context.Context, before time.Time) error {
-	return s.q.DeprecateExpiredDrafts(ctx, before.UTC().Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return ErrSkillUsageChanged
+	}
+	return nil
 }
 
 func TestCreateIgnoresLegacyKnowledgeType(t *testing.T) {
@@ -653,8 +673,8 @@ func TestToolWriteAuthorizationEnforced(t *testing.T) {
 		if _, err := tool.deprecate(ctx, map[string]any{"name": "existing"}); err == nil {
 			t.Fatal("expected denied deprecate to fail")
 		}
-		if calls < 2 {
-			t.Fatalf("write PEP consulted %d times, want >= 2 (patch + deprecate)", calls)
+		if calls != 2 {
+			t.Fatalf("write PEP consulted %d times, want 2 patch/deprecate authorizations", calls)
 		}
 	})
 
@@ -958,6 +978,34 @@ func TestLoadReflectOwnedUserAgentSkillTouchesRuntimeUsage(t *testing.T) {
 	}
 }
 
+func TestLoadReflectOwnedSkillFailsWhenUsageClaimFindsNoRow(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	metadata, err := MarkReflectOwnedMetadata(nil)
+	if err != nil {
+		t.Fatalf("reflect metadata: %v", err)
+	}
+	skillID, err := store.Create(ctx, pkgplugins.Skill{
+		Scope: "user_agent", UserID: userID, AgentID: agentID,
+		Name: "reflect-runtime-missing-usage", Description: "missing usage claim",
+		Status: "active", Metadata: metadata,
+	}, map[string]string{pkgplugins.SkillMainFile: "# Missing Usage"})
+	if err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+	if _, err := store.db.Exec(ctx, `DELETE FROM skill_usage WHERE skill_id = $1`, skillID); err != nil {
+		t.Fatalf("delete usage row: %v", err)
+	}
+
+	out, err := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).load(ctx, map[string]any{"name": "reflect-runtime-missing-usage"})
+	if !errors.Is(err, ErrSkillUsageChanged) {
+		t.Fatalf("load error = %v, want ErrSkillUsageChanged", err)
+	}
+	if out != "" {
+		t.Fatalf("load returned content after lost usage claim: %s", out)
+	}
+}
+
 type blockingSkillUsageStore struct {
 	*testSkillStore
 	deadline time.Time
@@ -979,7 +1027,7 @@ func (s *blockingSkillUsageStore) TouchReflectSkillRuntimeUse(ctx context.Contex
 	}
 }
 
-func TestLoadReflectOwnedSkillBoundsUsageLatencyAndResolvesOnce(t *testing.T) {
+func TestLoadReflectOwnedSkillFailsClosedWhenUsageClaimTimesOut(t *testing.T) {
 	base, userID, agentID := newTestSkillStore(t)
 	store := &blockingSkillUsageStore{testSkillStore: base}
 	ctx := ctxWithUser(userID, agentID)
@@ -997,14 +1045,14 @@ func TestLoadReflectOwnedSkillBoundsUsageLatencyAndResolvesOnce(t *testing.T) {
 
 	started := time.Now()
 	out, err := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).load(ctx, map[string]any{"name": "reflect-runtime-timeout"})
-	if err != nil {
-		t.Fatalf("load skill: %v", err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("load skill error = %v, want context deadline exceeded", err)
 	}
-	if !strings.Contains(out, "# Runtime Timeout") {
-		t.Fatalf("main load result lost after usage timeout: %s", out)
+	if out != "" {
+		t.Fatalf("load returned content after failed usage claim: %s", out)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("skill load blocked for %s, want bounded best-effort touch", elapsed)
+		t.Fatalf("skill load blocked for %s, want bounded usage claim", elapsed)
 	}
 	if store.deadline.IsZero() {
 		t.Fatal("usage tracker did not receive a deadline")
@@ -1072,7 +1120,7 @@ func TestLoadMaterializesDBSkillDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load skill: %v", err)
 	}
-	wantDir := filepath.Join(agentBase, "agent-db-skill")
+	wantDir := filepath.Join(agentBase, skillID)
 	if !strings.Contains(result, "<skill_dir>"+wantDir+"</skill_dir>") {
 		t.Fatalf("skill_dir not emitted for materialized dir: %q", result)
 	}
@@ -1144,7 +1192,7 @@ func TestLoadRefreshesStaleDBSkillDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first load skill: %v", err)
 	}
-	wantDir := filepath.Join(agentBase, "refresh-db-skill")
+	wantDir := filepath.Join(agentBase, skillID)
 	if !strings.Contains(result, "<skill_dir>"+wantDir+"</skill_dir>") {
 		t.Fatalf("skill_dir not emitted for materialized dir: %q", result)
 	}
@@ -1174,11 +1222,58 @@ func TestLoadRefreshesStaleDBSkillDir(t *testing.T) {
 	}
 }
 
-func TestLoadOmitsSkillDirWhenMaterializeFails(t *testing.T) {
+func TestLoadCacheIdentitySurvivesRejectedDuplicateAndSameNameRecreate(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	create := func(body string) (string, error) {
+		return store.Create(ctx, pkgplugins.Skill{
+			Scope: "system_agent", AgentID: agentID, Name: "reused-name", Status: "active",
+		}, map[string]string{pkgplugins.SkillMainFile: body})
+	}
+
+	oldID, err := create("# Old\n")
+	if err != nil {
+		t.Fatalf("create old skill: %v", err)
+	}
+	base := t.TempDir()
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).WithSkillDiskLayout(SkillDiskLayout{Agent: base})
+	if _, err := tool.load(ctx, map[string]any{"name": "reused-name"}); err != nil {
+		t.Fatalf("load old skill: %v", err)
+	}
+	oldPath := filepath.Join(base, oldID, pkgplugins.SkillMainFile)
+
+	if _, err := create("# Rejected\n"); err == nil {
+		t.Fatal("duplicate create unexpectedly succeeded")
+	}
+	if got, err := os.ReadFile(oldPath); err != nil || string(got) != "# Old\n" {
+		t.Fatalf("old cache after rejected duplicate = %q, err=%v", got, err)
+	}
+
+	if err := store.Delete(ctx, oldID); err != nil {
+		t.Fatalf("delete old skill: %v", err)
+	}
+	newID, err := create("# New\n")
+	if err != nil {
+		t.Fatalf("recreate same-name skill: %v", err)
+	}
+	result, err := tool.load(ctx, map[string]any{"name": "reused-name"})
+	if err != nil {
+		t.Fatalf("load recreated skill: %v", err)
+	}
+	newDir := filepath.Join(base, newID)
+	if !strings.Contains(result, "<skill_dir>"+newDir+"</skill_dir>") {
+		t.Fatalf("recreated Skill did not use its stable identity: %q", result)
+	}
+	if got, err := os.ReadFile(filepath.Join(newDir, pkgplugins.SkillMainFile)); err != nil || string(got) != "# New\n" {
+		t.Fatalf("recreated cache = %q, err=%v", got, err)
+	}
+}
+
+func TestLoadFailsClosedWhenMaterializeFails(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
 
-	_, err := store.Create(ctx, pkgplugins.Skill{
+	skillID, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "system_agent",
 		AgentID:     agentID,
 		Name:        "unwritable-skill",
@@ -1190,21 +1285,18 @@ func TestLoadOmitsSkillDirWhenMaterializeFails(t *testing.T) {
 	}
 
 	agentBase := t.TempDir()
-	blockingFile := filepath.Join(agentBase, "unwritable-skill")
+	blockingFile := filepath.Join(agentBase, skillID)
 	if err := os.WriteFile(blockingFile, []byte("not a dir"), 0o644); err != nil {
 		t.Fatalf("write blocking file: %v", err)
 	}
 
 	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{}).WithSkillDiskLayout(SkillDiskLayout{Agent: agentBase})
 	result, err := tool.load(ctx, map[string]any{"name": "unwritable-skill"})
-	if err != nil {
-		t.Fatalf("load should return DB content when materialization fails: %v", err)
+	if err == nil {
+		t.Fatal("load succeeded despite failed DB Skill materialization")
 	}
-	if strings.Contains(result, "<skill_dir>") {
-		t.Fatalf("unexpected skill_dir when materialization fails: %q", result)
-	}
-	if !strings.Contains(result, "# Still Loads") {
-		t.Fatalf("missing DB skill content: %q", result)
+	if result != "" {
+		t.Fatalf("load exposed content after failed materialization: %q", result)
 	}
 }
 
@@ -1284,6 +1376,25 @@ func TestRemoveViaStore(t *testing.T) {
 	_, err = tool.remove(ctx, map[string]any{"name": "removable-skill"})
 	if err == nil {
 		t.Error("expected error after double remove")
+	}
+}
+
+func TestToolRemoveUsesAdapterDelete(t *testing.T) {
+	base, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	if _, err := base.Create(ctx, pkgplugins.Skill{
+		Scope: "user", UserID: userID, Name: "tool-remove-lifecycle", Status: "active",
+	}, map[string]string{pkgplugins.SkillMainFile: "# lifecycle"}); err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+	store := &recordingSkillStore{testSkillStore: base}
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
+
+	if _, err := tool.Execute(ctx, map[string]any{"action": "remove", "name": "tool-remove-lifecycle"}); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if store.deleteCalls != 1 || store.updateCalls != 0 {
+		t.Fatalf("tool lifecycle calls = delete %d, update %d; want delete 1, update 0", store.deleteCalls, store.updateCalls)
 	}
 }
 
@@ -1394,7 +1505,7 @@ func TestPatchRespectsScope(t *testing.T) {
 	}
 
 	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
-	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "scope": "user", "status": "deprecated"}); err != nil {
+	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "scope": "user", "description": "changed-user"}); err != nil {
 		t.Fatalf("patch user scope: %v", err)
 	}
 
@@ -1402,8 +1513,8 @@ func TestPatchRespectsScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list user scope: %v", err)
 	}
-	if len(userRows) != 1 || userRows[0].Status != "deprecated" {
-		t.Fatalf("user dup = %#v, want deprecated", userRows)
+	if len(userRows) != 1 || userRows[0].Description != "changed-user" {
+		t.Fatalf("user dup = %#v, want changed description", userRows)
 	}
 	agentRows, err := store.ListByScope(ctx, "user_agent", userID, agentID)
 	if err != nil {
@@ -1431,16 +1542,16 @@ func TestPatchDefaultScopeIsUser(t *testing.T) {
 		t.Fatalf("create user_agent skill: %v", err)
 	}
 	if _, err := store.Create(ctx, pkgplugins.Skill{
-		Scope: "user", UserID: userID, Name: "fact", Description: "f", Status: "draft", DisableModelInvocation: true,
+		Scope: "user", UserID: userID, Name: "fact", Description: "f", Status: "active", DisableModelInvocation: true,
 	}, map[string]string{pkgplugins.SkillMainFile: "# f"}); err != nil {
 		t.Fatalf("create disabled user skill: %v", err)
 	}
 
 	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
-	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "status": "deprecated"}); err != nil {
+	if _, err := tool.patch(ctx, map[string]any{"name": "dup", "description": "changed-default"}); err != nil {
 		t.Fatalf("patch default scope: %v", err)
 	}
-	if _, err := tool.patch(ctx, map[string]any{"name": "fact", "status": "active"}); err != nil {
+	if _, err := tool.patch(ctx, map[string]any{"name": "fact", "description": "changed-hidden"}); err != nil {
 		t.Fatalf("patch hidden default-scope skill: %v", err)
 	}
 
@@ -1448,12 +1559,12 @@ func TestPatchDefaultScopeIsUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list user scope: %v", err)
 	}
-	statuses := map[string]string{}
+	descriptions := map[string]string{}
 	for _, row := range userRows {
-		statuses[row.Name] = row.Status
+		descriptions[row.Name] = row.Description
 	}
-	if statuses["dup"] != "deprecated" || statuses["fact"] != "active" {
-		t.Fatalf("user rows = %#v, want dup deprecated and fact active", userRows)
+	if descriptions["dup"] != "changed-default" || descriptions["fact"] != "changed-hidden" {
+		t.Fatalf("user rows = %#v, want both descriptions updated", userRows)
 	}
 	agentRows, err := store.ListByScope(ctx, "user_agent", userID, agentID)
 	if err != nil {

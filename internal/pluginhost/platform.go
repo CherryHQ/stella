@@ -3,7 +3,6 @@ package pluginhost
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -76,12 +75,8 @@ func (a skillStoreAdapter) PatchReflectOwnedUserAgentSkill(ctx context.Context, 
 	return a.s.PatchReflectOwnedUserAgentSkill(ctx, in)
 }
 
-func (a skillStoreAdapter) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillDeprecate) (skills.Skill, error) {
-	return a.s.DeprecateReflectOwnedUserAgentSkill(ctx, in)
-}
-
-func (a skillStoreAdapter) RestoreReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillRestore) (skills.ReflectSkillRestoreResult, error) {
-	return a.s.RestoreReflectOwnedUserAgentSkill(ctx, in)
+func (a skillStoreAdapter) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillDelete) (skills.Skill, error) {
+	return a.s.DeleteReflectOwnedUserAgentSkill(ctx, in)
 }
 
 func (a skillStoreAdapter) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
@@ -150,10 +145,6 @@ func (a skillStoreAdapter) viewContextForSkill(ctx context.Context, id string) (
 		}
 	}
 	return skills.ViewContext{}, nil
-}
-
-func (a skillStoreAdapter) ExpireDrafts(ctx context.Context, before time.Time) error {
-	return a.s.ExpireDrafts(ctx, before)
 }
 
 // NewSkillStoreAdapter wraps an internal/skills.Store as a pkgplugins.SkillStore.

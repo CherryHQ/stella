@@ -369,7 +369,7 @@ func (q *Queries) TouchKnowledgeUsage(ctx context.Context, arg TouchKnowledgeUsa
 	return err
 }
 
-const touchReflectSkillRuntimeUse = `-- name: TouchReflectSkillRuntimeUse :exec
+const touchReflectSkillRuntimeUse = `-- name: TouchReflectSkillRuntimeUse :execrows
 UPDATE skill_usage su
 SET use_count = su.use_count + 1,
     last_used_at = now()
@@ -392,9 +392,12 @@ type TouchReflectSkillRuntimeUseParams struct {
 	AgentID string `json:"agent_id"`
 }
 
-func (q *Queries) TouchReflectSkillRuntimeUse(ctx context.Context, arg TouchReflectSkillRuntimeUseParams) error {
-	_, err := q.db.Exec(ctx, touchReflectSkillRuntimeUse, arg.SkillID, arg.UserID, arg.AgentID)
-	return err
+func (q *Queries) TouchReflectSkillRuntimeUse(ctx context.Context, arg TouchReflectSkillRuntimeUseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, touchReflectSkillRuntimeUse, arg.SkillID, arg.UserID, arg.AgentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertKnowledgeUsage = `-- name: UpsertKnowledgeUsage :exec
@@ -441,39 +444,5 @@ type UpsertSkillUsageOnReflectCreateParams struct {
 
 func (q *Queries) UpsertSkillUsageOnReflectCreate(ctx context.Context, arg UpsertSkillUsageOnReflectCreateParams) error {
 	_, err := q.db.Exec(ctx, upsertSkillUsageOnReflectCreate, arg.SkillID, arg.UserID, arg.AgentID)
-	return err
-}
-
-const upsertSkillUsageOnReflectRestore = `-- name: UpsertSkillUsageOnReflectRestore :exec
-INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-SELECT s.id, s.user_id, s.agent_id, $1::bigint, now()
-FROM skill s
-WHERE s.id = $2
-  AND s.user_id = $3::uuid
-  AND s.agent_id = $4::text
-  AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.metadata->>'created_by' = 'reflect'
-ON CONFLICT (skill_id) DO UPDATE
-SET user_id = excluded.user_id,
-    agent_id = excluded.agent_id,
-    use_count = excluded.use_count,
-    last_used_at = excluded.last_used_at
-`
-
-type UpsertSkillUsageOnReflectRestoreParams struct {
-	UseCount int64  `json:"use_count"`
-	SkillID  string `json:"skill_id"`
-	UserID   string `json:"user_id"`
-	AgentID  string `json:"agent_id"`
-}
-
-func (q *Queries) UpsertSkillUsageOnReflectRestore(ctx context.Context, arg UpsertSkillUsageOnReflectRestoreParams) error {
-	_, err := q.db.Exec(ctx, upsertSkillUsageOnReflectRestore,
-		arg.UseCount,
-		arg.SkillID,
-		arg.UserID,
-		arg.AgentID,
-	)
 	return err
 }

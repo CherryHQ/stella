@@ -510,16 +510,6 @@ type softBudgetReflectStore struct {
 	agents []config.Agent
 }
 
-type expirySpySkillStore struct {
-	stubPluginSkillStore
-	calls int
-}
-
-func (s *expirySpySkillStore) ExpireDrafts(context.Context, time.Time) error {
-	s.calls++
-	return nil
-}
-
 func TestSelectReviewTargetFuncChoosesExactlyOneWriter(t *testing.T) {
 	for _, tt := range []struct {
 		mode RuntimeMode
@@ -547,32 +537,6 @@ func TestSelectReviewTargetFuncChoosesExactlyOneWriter(t *testing.T) {
 			}
 			if called != tt.want {
 				t.Fatalf("selected writer = %q, want %q", called, tt.want)
-			}
-		})
-	}
-}
-
-func TestRunCycleRunsExpireDraftsOnlyInLegacyMode(t *testing.T) {
-	for _, tt := range []struct {
-		mode      RuntimeMode
-		wantCalls int
-	}{
-		{mode: RuntimeModeLegacy, wantCalls: 1},
-		{mode: RuntimeModeStructured, wantCalls: 0},
-	} {
-		t.Run(string(tt.mode), func(t *testing.T) {
-			skills := &expirySpySkillStore{}
-			svc := &Service{
-				store:       softBudgetReflectStore{},
-				skillStore:  skills,
-				runtimeMode: tt.mode,
-				log:         testLogger(),
-			}
-			if err := svc.runCycleWithReviewer(context.Background(), func(context.Context, *config.Snapshot, reviewTarget) error { return nil }); err != nil {
-				t.Fatal(err)
-			}
-			if skills.calls != tt.wantCalls {
-				t.Fatalf("ExpireDrafts calls = %d, want %d", skills.calls, tt.wantCalls)
 			}
 		})
 	}

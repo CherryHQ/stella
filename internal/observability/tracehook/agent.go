@@ -10,7 +10,7 @@ import (
 )
 
 func (h *Hook) OnPreAgentCall(ctx context.Context, hctx *hooks.PreAgentCallContext) {
-	h.log.Info("pre_agent_call",
+	h.log.InfoContext(ctx, "pre_agent_call",
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
 		"user_id", hctx.UserID,
@@ -35,7 +35,7 @@ func (h *Hook) OnPreAgentCall(ctx context.Context, hctx *hooks.PreAgentCallConte
 	}
 }
 
-func (h *Hook) OnPostAgentCall(_ context.Context, hctx *hooks.PostAgentCallContext) {
+func (h *Hook) OnPostAgentCall(ctx context.Context, hctx *hooks.PostAgentCallContext) {
 	attrs := []any{
 		"session_id", hctx.SessionID,
 		"agent_id", hctx.AgentID,
@@ -45,7 +45,7 @@ func (h *Hook) OnPostAgentCall(_ context.Context, hctx *hooks.PostAgentCallConte
 	if hctx.Error != nil {
 		attrs = append(attrs, "error", hctx.Error)
 	}
-	h.log.Info("post_agent_call", attrs...)
+	h.log.InfoContext(ctx, "post_agent_call", attrs...)
 
 	if !h.otelEnabled() {
 		return

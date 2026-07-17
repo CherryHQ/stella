@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	stdreflect "reflect"
 	"slices"
 	"testing"
 	"time"
@@ -96,7 +95,7 @@ func TestUsageCuratorReportCountsIndependentScanErrors(t *testing.T) {
 	}
 }
 
-func TestUsageCuratorArmedDeprecatesKnowledgeAndSkills(t *testing.T) {
+func TestUsageCuratorArmedDeprecatesKnowledgeAndDeletesSkills(t *testing.T) {
 	store := fakeUsageCuratorStore{
 		knowledge: []usageCuratorKnowledgeCandidate{
 			{FactID: "fact-1", UserID: "user-1", AgentID: "agent-1"},
@@ -123,8 +122,8 @@ func TestUsageCuratorArmedDeprecatesKnowledgeAndSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runUsageCurator: %v", err)
 	}
-	if report.KnowledgeDeprecated != 2 || report.SkillDeprecated != 1 {
-		t.Fatalf("report = %#v, want deprecated counts", report)
+	if report.KnowledgeDeprecated != 2 || report.SkillDeleted != 1 {
+		t.Fatalf("report = %#v, want knowledge deprecated and skill deleted counts", report)
 	}
 	if len(factWriter.calls) != 2 {
 		t.Fatalf("fact writes = %#v, want one batch per candidate", factWriter.calls)
@@ -144,7 +143,7 @@ func TestUsageCuratorArmedDeprecatesKnowledgeAndSkills(t *testing.T) {
 		t.Fatalf("skill writes = %#v, want one", skillWriter.inputs)
 	}
 	if got := skillWriter.inputs[0]; got.ID != "skill-1" || got.ExpectedVersion != 3 {
-		t.Fatalf("skill deprecate input = %#v, want skill-1 v3", got)
+		t.Fatalf("skill delete input = %#v, want skill-1 v3", got)
 	}
 }
 
@@ -486,7 +485,7 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 		t.Fatalf("TouchReflectSkillRuntimeUse: %v", err)
 	}
 
-	deprecated, err := deprecateCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
+	deleted, err := deleteCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
 		SkillID:    created.ID,
 		UserID:     userID,
 		AgentID:    agentID,
@@ -496,10 +495,10 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 		Rule:       usageCuratorSkillRuleLowUse,
 	}})
 	if err != nil {
-		t.Fatalf("deprecateCuratorSkills: %v", err)
+		t.Fatalf("deleteCuratorSkills: %v", err)
 	}
-	if deprecated != 0 {
-		t.Fatalf("deprecated = %d, want 0", deprecated)
+	if deleted != 0 {
+		t.Fatalf("deleted = %d, want 0", deleted)
 	}
 	skill, err := skillStore.Resolve(ctx, created.Name, skills.ViewContext{UserID: userID, AgentID: agentID})
 	if err != nil {
@@ -538,16 +537,16 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 		t.Fatalf("archive conversation: %v", err)
 	}
 
-	deprecated, err := deprecateCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
+	deleted, err := deleteCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
 		SkillID: created.ID, UserID: userID, AgentID: agentID, Version: created.Version,
 		UseCount: 2, LastUsedAt: lastUsed, PairLatestActivityAt: activityAt,
 		Rule: usageCuratorSkillRuleLowUse,
 	}})
 	if err != nil {
-		t.Fatalf("deprecateCuratorSkills: %v", err)
+		t.Fatalf("deleteCuratorSkills: %v", err)
 	}
-	if deprecated != 0 {
-		t.Fatalf("deprecated = %d, want 0 after activity gate disappeared", deprecated)
+	if deleted != 0 {
+		t.Fatalf("deleted = %d, want 0 after activity gate disappeared", deleted)
 	}
 	resolved, err := skillStore.Resolve(ctx, created.Name, skills.ViewContext{UserID: userID, AgentID: agentID})
 	if err != nil {
@@ -687,7 +686,7 @@ func TestSQLUsageCuratorStoreListsOnlyStaleReflectRecordsWithActivity(t *testing
 	}
 }
 
-func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeAndSkillCandidates(t *testing.T) {
+func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeCandidates(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -723,28 +722,6 @@ func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeAndSkillCandidates(t *
 		t.Fatalf("create replacement reflect fact: %v", err)
 	}
 
-	skillStore := skills.New(db)
-	skill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
-		UserID:          userID,
-		AgentID:         agentID,
-		Name:            "forgotten-skill",
-		Description:     "forgotten skill description",
-		MainFileContent: "# Forgotten Skill\n\nFull body should not appear in list.\n",
-	})
-	if err != nil {
-		t.Fatalf("create reflect skill: %v", err)
-	}
-	skillMetadata := json.RawMessage(`{"curator":"usage","rule":"low_use","use_count":4,"last_used_at":"2026-06-01T00:00:00Z"}`)
-	if _, err := skillStore.DeprecateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDeprecate{
-		ID:              skill.ID,
-		UserID:          userID,
-		AgentID:         agentID,
-		ExpectedVersion: skill.Version,
-		Metadata:        skillMetadata,
-	}); err != nil {
-		t.Fatalf("deprecate reflect skill: %v", err)
-	}
-
 	store := NewSQLRecentlyForgottenStore(q)
 	items, err := store.ListRecentlyForgotten(ctx, RecentlyForgottenQuery{
 		UserID:  userID,
@@ -757,15 +734,9 @@ func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeAndSkillCandidates(t *
 	if len(items.Knowledge) != 1 || items.Knowledge[0].FactID != fact.ID || items.Knowledge[0].Content != fact.Content {
 		t.Fatalf("knowledge items = %#v, want fact content", items.Knowledge)
 	}
-	if len(items.Skills) != 1 || items.Skills[0].SkillID != skill.ID || items.Skills[0].Name != skill.Name {
-		t.Fatalf("skill items = %#v, want skill catalog", items.Skills)
-	}
-	if _, ok := stdreflect.TypeFor[RecentlyForgottenSkillItem]().FieldByName("MainFileContent"); ok {
-		t.Fatal("skill forgotten list payload should not expose MainFileContent")
-	}
 }
 
-func TestSQLForgottenRestoreServiceRestoresKnowledgeAndSkill(t *testing.T) {
+func TestSQLForgottenRestoreServiceRestoresKnowledge(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -790,28 +761,7 @@ func TestSQLForgottenRestoreServiceRestoresKnowledgeAndSkill(t *testing.T) {
 		t.Fatalf("deprecate reflect fact: %v", err)
 	}
 
-	skillStore := skills.New(db)
-	skill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
-		UserID:          userID,
-		AgentID:         agentID,
-		Name:            "restore-service-skill",
-		Description:     "restore service skill",
-		MainFileContent: "# Restore Service Skill\n",
-	})
-	if err != nil {
-		t.Fatalf("create reflect skill: %v", err)
-	}
-	if _, err := skillStore.DeprecateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDeprecate{
-		ID:              skill.ID,
-		UserID:          userID,
-		AgentID:         agentID,
-		ExpectedVersion: skill.Version,
-		Metadata:        json.RawMessage(`{"curator":"usage","rule":"unused","use_count":3,"last_used_at":"2026-06-01T00:00:00Z"}`),
-	}); err != nil {
-		t.Fatalf("deprecate reflect skill: %v", err)
-	}
-
-	service := NewSQLForgottenRestoreService(db, q, skillStore)
+	service := NewSQLForgottenRestoreService(db, q)
 	knowledgeResult, err := service.RestoreForgotten(ctx, RestoreForgottenRequest{
 		Kind:       RecentlyForgottenKindKnowledge,
 		ID:         fact.ID,
@@ -825,20 +775,6 @@ func TestSQLForgottenRestoreServiceRestoresKnowledgeAndSkill(t *testing.T) {
 	}
 	if !knowledgeResult.Restored || knowledgeResult.Knowledge == nil || knowledgeResult.Knowledge.Status != memory.FactStatusActive {
 		t.Fatalf("knowledge restore result = %#v, want active restored fact", knowledgeResult)
-	}
-
-	skillResult, err := service.RestoreForgotten(ctx, RestoreForgottenRequest{
-		Kind:       RecentlyForgottenKindSkill,
-		ID:         skill.ID,
-		UserID:     userID,
-		AgentID:    agentID,
-		RestoredBy: "admin@example.com",
-	})
-	if err != nil {
-		t.Fatalf("RestoreForgotten skill: %v", err)
-	}
-	if !skillResult.Restored || skillResult.Skill == nil || skillResult.Skill.Status != skills.SkillStatusActive {
-		t.Fatalf("skill restore result = %#v, want active restored skill", skillResult)
 	}
 }
 
@@ -967,10 +903,10 @@ func (p *fakeUsageCuratorMemoryProvider) Stats(context.Context, memory.Session) 
 func (p *fakeUsageCuratorMemoryProvider) Close() error { return nil }
 
 type fakeUsageCuratorSkillWriter struct {
-	inputs []skills.ReflectSkillDeprecate
+	inputs []skills.ReflectSkillDelete
 }
 
-func (w *fakeUsageCuratorSkillWriter) DeprecateReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillDeprecate) (skills.Skill, error) {
+func (w *fakeUsageCuratorSkillWriter) DeleteReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillDelete) (skills.Skill, error) {
 	w.inputs = append(w.inputs, in)
-	return skills.Skill{ID: in.ID, Status: skills.SkillStatusDeprecated}, nil
+	return skills.Skill{ID: in.ID, Status: skills.SkillStatusActive}, nil
 }

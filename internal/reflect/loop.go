@@ -94,9 +94,6 @@ func (s *Service) runCycleWithReviewer(ctx context.Context, review reviewTargetF
 	}
 
 	span.SetAttributes(attribute.Int("stella.reflect.sessions_reviewed", totalReviewed))
-	if s.runtimeMode.withDefault() == RuntimeModeLegacy {
-		expireDrafts(s.skillStore, defaultDraftMaxAge, s.log)
-	}
 	s.maybeRunUsageCurator(ctx)
 	return nil
 }

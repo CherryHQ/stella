@@ -112,7 +112,7 @@ func (h *Hook) OnPostMemoryCall(ctx context.Context, hctx *hooks.PostMemoryCallC
 	if hctx.Detail != "" && h.log.Enabled(context.Background(), levelTrace) {
 		attrs = append(attrs, "detail", hctx.Detail)
 	}
-	h.log.Info("post_memory_call", attrs...)
+	h.log.InfoContext(ctx, "post_memory_call", attrs...)
 
 	if !h.otelEnabled() {
 		return

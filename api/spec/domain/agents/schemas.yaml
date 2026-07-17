@@ -120,6 +120,7 @@ components:
 
     Skill:
       type: object
+      required: [lifecycle_version, created_by]
       properties:
         id: { type: string }
         scope:
@@ -136,12 +137,27 @@ components:
         version: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        lifecycle_version: { type: integer, format: int64 }
+        created_by: { type: string, enum: [manual, reflect] }
+
+    SkillScopeCounts:
+      type: object
+      required: [all, system, agent, user, project]
+      properties:
+        all: { type: integer }
+        system: { type: integer }
+        agent: { type: integer }
+        user: { type: integer }
+        project: { type: integer }
 
     SkillList:
       type: object
-      required: [skills]
+      required: [skills, total_size, scope_counts]
       properties:
         skills: { type: array, items: { $ref: "#/components/schemas/Skill" } }
+        total_size: { type: integer }
+        scope_counts: { $ref: "#/components/schemas/SkillScopeCounts" }
+        next_page_token: { type: string, nullable: true }
 
     CreateSkillRequest:
       type: object
@@ -152,7 +168,6 @@ components:
           type: string
           enum: [user, user_agent, system_agent]
         description: { type: string }
-        status: { type: string }
         disable_model_invocation: { type: boolean }
         files:
           type: object
@@ -162,11 +177,11 @@ components:
       type: object
       properties:
         description: { type: string, nullable: true }
-        status: { type: string, nullable: true }
         disable_model_invocation: { type: boolean, nullable: true }
         # Overwrites only the "version" key in the skill's metadata; source and
         # install timestamps are preserved by a read-modify-write on the server.
         version: { type: string, nullable: true }
+        convert_to_manual: { type: boolean }
         files:
           type: object
           additionalProperties: { type: string }

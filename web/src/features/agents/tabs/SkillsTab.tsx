@@ -14,7 +14,6 @@ interface Props {
   state: AgentsPageState;
   onSetState: (patch: Partial<AgentsPageState>) => void;
   onSelectSkill: (sk: Skill) => void;
-  onToggleSkillStatus: (sk: Skill) => void;
   onSaveSelectedSkill: () => void;
   onDeleteSkill: (sk: Skill) => void;
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
@@ -39,23 +38,10 @@ function skillScopeBadgeVariant(scope: string): "outline" | "success" | "default
   );
 }
 
-function skillStatusBadgeVariant(status: string): "success" | "warning" | "error" | "outline" {
-  return (
-    (
-      {
-        active: "success",
-        draft: "warning",
-        deprecated: "error",
-      } as Record<string, "success" | "warning" | "error" | "outline">
-    )[status] ?? "outline"
-  );
-}
-
 export function SkillsTab({
   state,
   onSetState,
   onSelectSkill,
-  onToggleSkillStatus,
   onSaveSelectedSkill,
   onDeleteSkill,
   onSelectSkillFile,
@@ -106,7 +92,7 @@ export function SkillsTab({
   const filteredSkills = (): Skill[] => {
     const q = skillListQuery.trim().toLowerCase();
     return allSkills().filter((sk) => {
-      if (skillViewFilter === "enabled" && sk.status !== "active") return false;
+      if (skillViewFilter === "enabled" && sk.disable_model_invocation) return false;
       if (skillViewFilter === "modified" && sk.scope === "system") return false;
       if (skillScopeFilter !== "all") {
         const matches =
@@ -116,9 +102,7 @@ export function SkillsTab({
         if (!matches) return false;
       }
       if (!q) return true;
-      return [sk.name, sk.description, sk.scope, sk.status].some((v) =>
-        (v ?? "").toLowerCase().includes(q),
-      );
+      return [sk.name, sk.description, sk.scope].some((v) => (v ?? "").toLowerCase().includes(q));
     });
   };
 
@@ -224,18 +208,7 @@ export function SkillsTab({
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  {canManageScope(sk.scope) ? (
-                    <Switch
-                      checked={sk.status === "active"}
-                      onCheckedChange={(e) => {
-                        (e as unknown as Event).stopPropagation?.();
-                        onToggleSkillStatus(sk);
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="shrink-0"
-                      title={sk.status === "active" ? "Disable skill" : "Enable skill"}
-                    />
-                  ) : (
+                  {!canManageScope(sk.scope) && (
                     <Badge variant="outline">{t("agents.skills.readOnly")}</Badge>
                   )}
                   <div className="min-w-0 flex-1 overflow-hidden">
@@ -243,9 +216,6 @@ export function SkillsTab({
                       <p className="text-sm font-mono truncate min-w-0 font-medium">{sk.name}</p>
                       <Badge variant={skillScopeBadgeVariant(sk.scope)}>
                         {t(SCOPE_LABEL_KEY[sk.scope as SkillScope])}
-                      </Badge>
-                      <Badge variant={skillStatusBadgeVariant(sk.status)}>
-                        {sk.status === "active" ? "Enabled" : sk.status}
                       </Badge>
                     </div>
                     {sk.description && (
@@ -285,9 +255,6 @@ export function SkillsTab({
                   </h3>
                   <Badge variant={skillScopeBadgeVariant(selectedSkill.scope)}>
                     {t(SCOPE_LABEL_KEY[selectedSkill.scope as SkillScope])}
-                  </Badge>
-                  <Badge variant={skillStatusBadgeVariant(selectedSkill.status)}>
-                    {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 break-words leading-relaxed">
@@ -350,33 +317,6 @@ export function SkillsTab({
             </div>
 
             <div className="p-4 border-b border-border grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold text-muted-foreground">{t("common.status")}</p>
-                {!selectedSkillEditMode ? (
-                  <div className="text-xs font-mono font-medium text-foreground">
-                    {selectedSkill.status === "active" ? "Enabled" : selectedSkill.status}
-                  </div>
-                ) : (
-                  <select
-                    value={selectedSkill.status}
-                    onChange={(e) => {
-                      onSetState({
-                        selectedSkill: {
-                          ...selectedSkill,
-                          status: e.target.value as Skill["status"],
-                        },
-                        selectedSkillDirty: true,
-                      });
-                    }}
-                    disabled={!canEdit}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-xs outline-none cursor-pointer font-mono"
-                  >
-                    <option value="active">active</option>
-                    <option value="draft">draft</option>
-                    <option value="deprecated">deprecated</option>
-                  </select>
-                )}
-              </div>
               <div className="space-y-1.5">
                 <p className="text-xs font-semibold text-muted-foreground">
                   {t("agents.form.scope")}

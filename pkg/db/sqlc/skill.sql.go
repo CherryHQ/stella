@@ -8,7 +8,6 @@ package sqlc
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -42,6 +41,50 @@ func (q *Queries) CreateSkill(ctx context.Context, arg CreateSkillParams) (Skill
 		arg.Status,
 		arg.DisableModelInvocation,
 		arg.Metadata,
+	)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.Scope,
+		&i.UserID,
+		&i.AgentID,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.DisableModelInvocation,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+	)
+	return i, err
+}
+
+const deleteReflectOwnedUserAgentSkill = `-- name: DeleteReflectOwnedUserAgentSkill :one
+DELETE FROM skill
+WHERE id = $1
+  AND scope = 'user_agent'
+  AND user_id = $2::uuid
+  AND agent_id = $3::text
+  AND metadata->>'created_by' = 'reflect'
+  AND status = 'active'
+  AND version = $4
+RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
+`
+
+type DeleteReflectOwnedUserAgentSkillParams struct {
+	ID              string `json:"id"`
+	UserID          string `json:"user_id"`
+	AgentID         string `json:"agent_id"`
+	ExpectedVersion int64  `json:"expected_version"`
+}
+
+func (q *Queries) DeleteReflectOwnedUserAgentSkill(ctx context.Context, arg DeleteReflectOwnedUserAgentSkillParams) (Skill, error) {
+	row := q.db.QueryRow(ctx, deleteReflectOwnedUserAgentSkill,
+		arg.ID,
+		arg.UserID,
+		arg.AgentID,
+		arg.ExpectedVersion,
 	)
 	var i Skill
 	err := row.Scan(
@@ -101,106 +144,6 @@ DELETE FROM skill WHERE id = $1 AND scope = 'system'
 func (q *Queries) DeleteSystemSkill(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteSystemSkill, id)
 	return err
-}
-
-const deprecateExpiredDrafts = `-- name: DeprecateExpiredDrafts :exec
-UPDATE skill
-SET status = 'deprecated', updated_at = now()
-WHERE status = 'draft'
-  AND disable_model_invocation = false
-  AND metadata->>'created-at' < $1::text
-`
-
-func (q *Queries) DeprecateExpiredDrafts(ctx context.Context, cutoff string) error {
-	_, err := q.db.Exec(ctx, deprecateExpiredDrafts, cutoff)
-	return err
-}
-
-const deprecateReflectOwnedUserAgentSkill = `-- name: DeprecateReflectOwnedUserAgentSkill :one
-UPDATE skill
-SET status     = 'deprecated',
-    version    = version + 1,
-    updated_at = now()
-WHERE id = $1
-  AND scope = 'user_agent'
-  AND user_id = $2::uuid
-  AND agent_id = $3::text
-  AND metadata->>'created_by' = 'reflect'
-  AND status = 'active'
-  AND version = $4
-RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
-`
-
-type DeprecateReflectOwnedUserAgentSkillParams struct {
-	ID              string `json:"id"`
-	UserID          string `json:"user_id"`
-	AgentID         string `json:"agent_id"`
-	ExpectedVersion int64  `json:"expected_version"`
-}
-
-func (q *Queries) DeprecateReflectOwnedUserAgentSkill(ctx context.Context, arg DeprecateReflectOwnedUserAgentSkillParams) (Skill, error) {
-	row := q.db.QueryRow(ctx, deprecateReflectOwnedUserAgentSkill,
-		arg.ID,
-		arg.UserID,
-		arg.AgentID,
-		arg.ExpectedVersion,
-	)
-	var i Skill
-	err := row.Scan(
-		&i.ID,
-		&i.Scope,
-		&i.UserID,
-		&i.AgentID,
-		&i.Name,
-		&i.Description,
-		&i.Status,
-		&i.DisableModelInvocation,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Version,
-	)
-	return i, err
-}
-
-const getLatestCuratorDeprecateSkillChangelog = `-- name: GetLatestCuratorDeprecateSkillChangelog :one
-SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at
-FROM (
-  SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at
-  FROM skill_changelog
-  WHERE skill_id = $1
-    AND user_id = $2::uuid
-    AND agent_id = $3::text
-    AND scope = 'user_agent'
-    AND action = 'deprecate'
-  ORDER BY created_at DESC, id DESC
-  LIMIT 1
-) latest
-WHERE latest.metadata->>'curator' = 'usage'
-`
-
-type GetLatestCuratorDeprecateSkillChangelogParams struct {
-	SkillID string `json:"skill_id"`
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
-}
-
-func (q *Queries) GetLatestCuratorDeprecateSkillChangelog(ctx context.Context, arg GetLatestCuratorDeprecateSkillChangelogParams) (SkillChangelog, error) {
-	row := q.db.QueryRow(ctx, getLatestCuratorDeprecateSkillChangelog, arg.SkillID, arg.UserID, arg.AgentID)
-	var i SkillChangelog
-	err := row.Scan(
-		&i.ID,
-		&i.SkillID,
-		&i.UserID,
-		&i.AgentID,
-		&i.Scope,
-		&i.Action,
-		&i.VersionBefore,
-		&i.VersionAfter,
-		&i.Metadata,
-		&i.CreatedAt,
-	)
-	return i, err
 }
 
 const getSkill = `-- name: GetSkill :one
@@ -555,81 +498,6 @@ func (q *Queries) ListAllSkills(ctx context.Context) ([]Skill, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Version,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listRecentlyForgottenReflectSkills = `-- name: ListRecentlyForgottenReflectSkills :many
-SELECT
-  s.id AS skill_id,
-  s.name,
-  s.description,
-  s.version,
-  d.id::text AS deprecated_changelog_id,
-  d.created_at AS deprecated_at,
-  d.metadata AS deprecate_metadata
-FROM skill s
-JOIN LATERAL (
-  SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at
-  FROM skill_changelog c
-  WHERE c.skill_id = s.id
-    AND c.user_id = s.user_id
-    AND c.agent_id = s.agent_id
-    AND c.scope = 'user_agent'
-    AND c.action = 'deprecate'
-  ORDER BY c.created_at DESC, c.id DESC
-  LIMIT 1
-) d ON true
-WHERE s.user_id = $1::uuid
-  AND s.agent_id = $2::text
-  AND s.scope = 'user_agent'
-  AND s.status = 'deprecated'
-  AND s.metadata->>'created_by' = 'reflect'
-  AND d.metadata->>'curator' = 'usage'
-ORDER BY d.created_at DESC, s.id ASC
-LIMIT $3
-`
-
-type ListRecentlyForgottenReflectSkillsParams struct {
-	UserID     string `json:"user_id"`
-	AgentID    string `json:"agent_id"`
-	LimitCount int32  `json:"limit_count"`
-}
-
-type ListRecentlyForgottenReflectSkillsRow struct {
-	SkillID               string          `json:"skill_id"`
-	Name                  string          `json:"name"`
-	Description           string          `json:"description"`
-	Version               int64           `json:"version"`
-	DeprecatedChangelogID string          `json:"deprecated_changelog_id"`
-	DeprecatedAt          time.Time       `json:"deprecated_at"`
-	DeprecateMetadata     json.RawMessage `json:"deprecate_metadata"`
-}
-
-func (q *Queries) ListRecentlyForgottenReflectSkills(ctx context.Context, arg ListRecentlyForgottenReflectSkillsParams) ([]ListRecentlyForgottenReflectSkillsRow, error) {
-	rows, err := q.db.Query(ctx, listRecentlyForgottenReflectSkills, arg.UserID, arg.AgentID, arg.LimitCount)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListRecentlyForgottenReflectSkillsRow{}
-	for rows.Next() {
-		var i ListRecentlyForgottenReflectSkillsRow
-		if err := rows.Scan(
-			&i.SkillID,
-			&i.Name,
-			&i.Description,
-			&i.Version,
-			&i.DeprecatedChangelogID,
-			&i.DeprecatedAt,
-			&i.DeprecateMetadata,
 		); err != nil {
 			return nil, err
 		}
@@ -1012,28 +880,35 @@ func (q *Queries) ResolveSkill(ctx context.Context, arg ResolveSkillParams) (Ski
 	return i, err
 }
 
-const restoreReflectOwnedUserAgentSkill = `-- name: RestoreReflectOwnedUserAgentSkill :one
+const updateManagedSkill = `-- name: UpdateManagedSkill :one
 UPDATE skill
-SET status     = 'active',
-    version    = version + 1,
+SET description = $1,
+    status = $2,
+    disable_model_invocation = $3,
+    metadata = $4,
+    version = version + 1,
     updated_at = now()
-WHERE id = $1
-  AND scope = 'user_agent'
-  AND user_id = $2::uuid
-  AND agent_id = $3::text
-  AND metadata->>'created_by' = 'reflect'
-  AND status = 'deprecated'
+WHERE id = $5
+  AND status <> 'deprecated'
 RETURNING id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version
 `
 
-type RestoreReflectOwnedUserAgentSkillParams struct {
-	ID      string `json:"id"`
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
+type UpdateManagedSkillParams struct {
+	Description            string          `json:"description"`
+	Status                 string          `json:"status"`
+	DisableModelInvocation bool            `json:"disable_model_invocation"`
+	Metadata               json.RawMessage `json:"metadata"`
+	ID                     string          `json:"id"`
 }
 
-func (q *Queries) RestoreReflectOwnedUserAgentSkill(ctx context.Context, arg RestoreReflectOwnedUserAgentSkillParams) (Skill, error) {
-	row := q.db.QueryRow(ctx, restoreReflectOwnedUserAgentSkill, arg.ID, arg.UserID, arg.AgentID)
+func (q *Queries) UpdateManagedSkill(ctx context.Context, arg UpdateManagedSkillParams) (Skill, error) {
+	row := q.db.QueryRow(ctx, updateManagedSkill,
+		arg.Description,
+		arg.Status,
+		arg.DisableModelInvocation,
+		arg.Metadata,
+		arg.ID,
+	)
 	var i Skill
 	err := row.Scan(
 		&i.ID,

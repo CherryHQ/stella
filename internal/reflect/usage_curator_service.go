@@ -48,7 +48,7 @@ func (s *Service) maybeRunUsageCurator(ctx context.Context) {
 			attribute.Int("stella.reflect.curator.knowledge_candidates", report.KnowledgeCandidates),
 			attribute.Int("stella.reflect.curator.knowledge_deprecated", report.KnowledgeDeprecated),
 			attribute.Int("stella.reflect.curator.skill_candidates", report.SkillCandidates),
-			attribute.Int("stella.reflect.curator.skill_deprecated", report.SkillDeprecated),
+			attribute.Int("stella.reflect.curator.skill_deleted", report.SkillDeleted),
 			attribute.Int64("stella.reflect.curator.duration_ms", report.Duration.Milliseconds()),
 			attribute.Int("stella.reflect.curator.errors", report.Errors),
 		)
@@ -116,7 +116,7 @@ func (s *Service) recordUsageCuratorSuccess(ctx context.Context, pair usageCurat
 		"knowledge_candidates": report.KnowledgeCandidates,
 		"knowledge_deprecated": report.KnowledgeDeprecated,
 		"skill_candidates":     report.SkillCandidates,
-		"skill_deprecated":     report.SkillDeprecated,
+		"skill_deleted":        report.SkillDeleted,
 		"rule_counts":          report.RuleCounts,
 		"duration_ms":          report.Duration.Milliseconds(),
 		"errors":               report.Errors,

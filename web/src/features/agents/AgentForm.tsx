@@ -20,7 +20,6 @@ interface Props {
   onRemoveUser: (userId: string) => void;
   onApplySoul: (soulID: string) => void;
   onSelectSkill: (sk: Skill) => void;
-  onToggleSkillStatus: (sk: Skill) => void;
   onSaveSelectedSkill: () => void;
   onDeleteSkill: (sk: Skill) => void;
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
@@ -39,7 +38,6 @@ export function AgentForm({
   onRemoveUser,
   onApplySoul,
   onSelectSkill,
-  onToggleSkillStatus,
   onSaveSelectedSkill,
   onDeleteSkill,
   onSelectSkillFile,
@@ -101,7 +99,6 @@ export function AgentForm({
               state={state}
               onSetState={onSetState}
               onSelectSkill={onSelectSkill}
-              onToggleSkillStatus={onToggleSkillStatus}
               onSaveSelectedSkill={onSaveSelectedSkill}
               onDeleteSkill={onDeleteSkill}
               onSelectSkillFile={onSelectSkillFile}

@@ -145,3 +145,68 @@ func (q *Queries) ListMemoryChangelog(ctx context.Context, arg ListMemoryChangel
 	}
 	return items, nil
 }
+
+const listMemoryChangelogPage = `-- name: ListMemoryChangelogPage :many
+SELECT id, user_id, agent_id, session_id, entity_id, scope, action, source, memory_version_before, memory_version_after, before_text, after_text, metadata, created_at
+FROM ctx_agent_memory_changelog
+WHERE user_id = $1
+  AND agent_id = $2
+  AND scope = $3
+  AND (
+    ($4::timestamptz IS NULL AND $5::text IS NULL)
+    OR (created_at, id::text) < ($4::timestamptz, $5::text)
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT $6
+`
+
+type ListMemoryChangelogPageParams struct {
+	UserID          string             `json:"user_id"`
+	AgentID         string             `json:"agent_id"`
+	Scope           string             `json:"scope"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.Text        `json:"cursor_id"`
+	LimitCount      int32              `json:"limit_count"`
+}
+
+func (q *Queries) ListMemoryChangelogPage(ctx context.Context, arg ListMemoryChangelogPageParams) ([]CtxAgentMemoryChangelog, error) {
+	rows, err := q.db.Query(ctx, listMemoryChangelogPage,
+		arg.UserID,
+		arg.AgentID,
+		arg.Scope,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxAgentMemoryChangelog{}
+	for rows.Next() {
+		var i CtxAgentMemoryChangelog
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.AgentID,
+			&i.SessionID,
+			&i.EntityID,
+			&i.Scope,
+			&i.Action,
+			&i.Source,
+			&i.MemoryVersionBefore,
+			&i.MemoryVersionAfter,
+			&i.BeforeText,
+			&i.AfterText,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

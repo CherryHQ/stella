@@ -3,7 +3,6 @@ package reflect
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -76,13 +75,11 @@ func (stubPluginSkillStore) DeleteFile(context.Context, string, string) error { 
 
 func (stubPluginSkillStore) Delete(context.Context, string) error { return nil }
 
-func (stubPluginSkillStore) ExpireDrafts(context.Context, time.Time) error { return nil }
-
 type stubUsageCuratorSkillStore struct {
 	stubPluginSkillStore
 }
 
-func (stubUsageCuratorSkillStore) DeprecateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDeprecate) (skills.Skill, error) {
+func (stubUsageCuratorSkillStore) DeleteReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDelete) (skills.Skill, error) {
 	return skills.Skill{}, nil
 }
 

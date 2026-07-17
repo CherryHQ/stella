@@ -749,37 +749,6 @@ export function AgentsPage() {
     [selectSkillFile, showToast],
   );
 
-  const toggleSkillStatus = useCallback(
-    async (sk: Skill, currentState: AgentsPageState) => {
-      if (sk.scope === "system") return;
-      const next = sk.status === "active" ? "draft" : "active";
-      try {
-        await updateAgentSkill({
-          path: { id: currentState.editingId ?? "", skillId: sk.name },
-          query: { scope: sk.scope as UpdateAgentSkillData["query"]["scope"] },
-          body: { status: next },
-          throwOnError: true,
-        });
-        setState((prev) => ({
-          ...prev,
-          agentSkills: prev.agentSkills.map((s) =>
-            s.id === sk.id && s.scope === sk.scope ? { ...s, status: next } : s,
-          ),
-          userSkills: prev.userSkills.map((s) =>
-            s.id === sk.id && s.scope === sk.scope ? { ...s, status: next } : s,
-          ),
-          selectedSkill:
-            prev.selectedSkill && skillKey(prev.selectedSkill) === skillKey(sk)
-              ? { ...prev.selectedSkill, status: next }
-              : prev.selectedSkill,
-        }));
-      } catch (e) {
-        showToast((e as Error).message, "error");
-      }
-    },
-    [showToast],
-  );
-
   const saveSelectedSkill = useCallback(
     async (currentState: AgentsPageState) => {
       const { selectedSkill, selectedSkillFileContent, selectedSkillActiveFile } = currentState;
@@ -794,7 +763,6 @@ export function AgentsPage() {
           query: { scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"] },
           body: {
             description: selectedSkill.description,
-            status: selectedSkill.status,
             disable_model_invocation: !!selectedSkill.disable_model_invocation,
             files: { [selectedSkillActiveFile]: selectedSkillFileContent },
           } as UpdateAgentSkillData["body"],
@@ -1044,7 +1012,6 @@ export function AgentsPage() {
       onRemoveUser={(userId) => removeUser(userId, state.editingId ?? "")}
       onApplySoul={applySoul}
       onSelectSkill={(sk) => selectSkill(sk, state)}
-      onToggleSkillStatus={(sk) => toggleSkillStatus(sk, state)}
       onSaveSelectedSkill={() => saveSelectedSkill(state)}
       onDeleteSkill={(sk) => deleteSkill(sk, state)}
       onSelectSkillFile={(path, skipDirtyCheck) =>

@@ -16,7 +16,7 @@ type Skill struct {
 	AgentID                string
 	Name                   string
 	Description            string
-	Status                 string // draft | active | deprecated
+	Status                 string // active | deprecated (legacy rows only)
 	DisableModelInvocation bool
 	Metadata               json.RawMessage
 	CreatedAt              time.Time
@@ -41,7 +41,7 @@ type SkillUpdatePatch struct {
 
 // SkillStore is the plugin-facing persistence interface for skills, available
 // via Platform. It intentionally exposes the management/runtime subset; internal
-// Reflect lifecycle and admin restore methods stay on internal/skills.Store.
+// Reflect lifecycle methods stay on internal/skills.Store.
 type SkillStore interface {
 	// List returns all visible skills for the given context (metadata only, no file content).
 	List(ctx context.Context, vc SkillViewContext) ([]Skill, error)
@@ -51,7 +51,7 @@ type SkillStore interface {
 	Resolve(ctx context.Context, name string, vc SkillViewContext) (*Skill, error)
 
 	// ListByScope returns every skill in exactly one scope/owner bucket,
-	// including drafts and disabled skills, for exact management lookups.
+	// including disabled skills, for exact management lookups.
 	ListByScope(ctx context.Context, scope, userID, agentID string) ([]Skill, error)
 
 	// LoadFile fetches a single file by path. Pass SkillMainFile ("SKILL.md") for the body.
@@ -71,8 +71,4 @@ type SkillStore interface {
 
 	DeleteFile(ctx context.Context, skillID, path string) error
 	Delete(ctx context.Context, id string) error
-
-	// ExpireDrafts deprecates all draft skills whose created-at timestamp is
-	// before the given cutoff.
-	ExpireDrafts(ctx context.Context, before time.Time) error
 }

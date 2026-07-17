@@ -33,6 +33,10 @@ components:
               additionalProperties: true
               description: optional machine-readable error details; keys use snake_case
 
+    RemovalSource:
+      type: string
+      enum: [manual, curator]
+
   responses:
     Unauthorized:
       description: missing or invalid bearer token
@@ -46,6 +50,11 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     NotFound:
       description: resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Gone:
+      description: resource has been permanently removed or is no longer available
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

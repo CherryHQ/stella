@@ -243,6 +243,22 @@ paths:
             type: string,
             enum: [project, user, user_agent, system, system_agent],
           }
+        - name: scope_group
+          in: query
+          required: false
+          schema: { type: string, enum: [system, agent, user, project] }
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+        - name: page_size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - name: page_token
+          in: query
+          required: false
+          schema: { type: string }
         - name: session_id
           in: query
           required: false
@@ -360,7 +376,7 @@ paths:
           in: path,
           required: true,
           schema: { type: string },
-          description: "Skill name",
+          description: "Stable database ID or active skill name",
         }
     get:
       tags: [skills]
@@ -430,6 +446,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
     delete:
       tags: [skills]
       summary: Delete a skill

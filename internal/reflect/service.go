@@ -14,10 +14,6 @@ import (
 )
 
 const (
-	// defaultDraftMaxAge is the maximum age of a draft skill before it is
-	// automatically deprecated.
-	defaultDraftMaxAge = 30 * 24 * time.Hour
-
 	defaultMaxReviewTargetsPerAgent = 30
 	defaultReflectRunSoftBudget     = 15 * time.Minute
 )
@@ -49,7 +45,7 @@ func (m RuntimeMode) validate() error {
 }
 
 // skillWriteAuthorizer authorizes reflect's staged skill writes (create/patch/
-// deprecate) under a fresh trusted WorkerAgentAuthority per operation. It is
+// delete) under a fresh trusted WorkerAgentAuthority per operation. It is
 // satisfied by *skillaccess.Service; when unset, reflect skill writes fail closed.
 type skillWriteAuthorizer interface {
 	AuthorizeWorkerWrite(ctx context.Context, userID, agentID, skillID string, create bool) error
