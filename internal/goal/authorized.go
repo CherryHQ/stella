@@ -16,6 +16,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+// CreatedGoal is the minimal result returned to trusted cross-domain writers.
+type CreatedGoal struct {
+	ID string
+}
+
 // Access captures one validated authority for a Goal use case. The goal Service
 // owns the direct rules; transports and the agent tool pass trusted authority,
 // never a scoped query handle. A goal denial is opaque (authz.ErrNotFound) so a
@@ -156,7 +161,7 @@ func (a *Access) CreateGoal(ctx context.Context, in CreateInput) (Goal, error) {
 	// never the requested route. The same reload path also handles a concurrent
 	// creator winning the unique key between this lookup and the insert.
 	replay := func() (sqlc.AgentGoal, error) {
-		existing, err := a.svc.Queries.GetGoalByIdempotencyKey(ctx, sqlc.GetGoalByIdempotencyKeyParams{UserID: a.userID, IdempotencyKey: pgnull.Text(in.IdempotencyKey)})
+		existing, err := a.svc.q.GetGoalByIdempotencyKey(ctx, sqlc.GetGoalByIdempotencyKeyParams{UserID: a.userID, IdempotencyKey: pgnull.Text(in.IdempotencyKey)})
 		if err != nil {
 			return sqlc.AgentGoal{}, err
 		}
@@ -181,7 +186,7 @@ func (a *Access) CreateGoal(ctx context.Context, in CreateInput) (Goal, error) {
 	if err := a.authorizeAgent(ctx, in.AgentID); err != nil {
 		return Goal{}, err
 	}
-	created, err := a.svc.Goal.CreateRoot(ctx, in)
+	created, err := a.svc.goal.CreateRoot(ctx, in)
 	if err == nil || in.IdempotencyKey == "" || !isGoalIdempotencyConflict(err) {
 		if err != nil {
 			return Goal{}, err
@@ -208,7 +213,7 @@ func (a *Access) Cancel(ctx context.Context, id, reason string) error {
 	if err != nil {
 		return err
 	}
-	return a.svc.Goal.Cancel(ctx, id, reason, UserActor(d.UserID))
+	return a.svc.goal.Cancel(ctx, id, reason, UserActor(d.UserID))
 }
 
 // Archive authorizes a state change on a goal and archives it (audit-safe delete).
@@ -216,7 +221,7 @@ func (a *Access) Archive(ctx context.Context, id string) error {
 	if _, err := a.Use(ctx, id); err != nil {
 		return err
 	}
-	return a.svc.Goal.Archive(ctx, id)
+	return a.svc.goal.Archive(ctx, id)
 }
 
 // Unarchive authorizes a state change on a goal and restores it to default lists.
@@ -224,7 +229,7 @@ func (a *Access) Unarchive(ctx context.Context, id string) error {
 	if _, err := a.Use(ctx, id); err != nil {
 		return err
 	}
-	return a.svc.Goal.Unarchive(ctx, id)
+	return a.svc.goal.Unarchive(ctx, id)
 }
 
 // Abandon authorizes a state change on a goal and records the human give-up on a
@@ -234,7 +239,7 @@ func (a *Access) Abandon(ctx context.Context, id, reason string) error {
 	if err != nil {
 		return err
 	}
-	return a.svc.Goal.Abandon(ctx, id, reason, UserActor(d.UserID))
+	return a.svc.goal.Abandon(ctx, id, reason, UserActor(d.UserID))
 }
 
 // AddEdge authorizes mutation of the downstream and reading the caller-supplied
@@ -249,11 +254,83 @@ func (a *Access) AddEdge(ctx context.Context, downstreamID, upstreamID, kind, on
 	if _, err := a.getRow(ctx, upstreamID); err != nil {
 		return Edge{}, err
 	}
-	e, err := a.svc.Goal.AddEdge(ctx, downstreamID, upstreamID, kind, onFailure)
+	e, err := a.svc.goal.AddEdge(ctx, downstreamID, upstreamID, kind, onFailure)
 	if err != nil {
 		return Edge{}, err
 	}
 	return edgeFromRow(e), nil
+}
+
+// UpdateMetadata authorizes a lifecycle mutation before applying the edit.
+func (a *Access) UpdateMetadata(ctx context.Context, id string, in UpdateInput) (Goal, error) {
+	if _, err := a.useRow(ctx, id); err != nil {
+		return Goal{}, err
+	}
+	in.By = UserActor(a.userID)
+	d, err := a.svc.goal.UpdateMetadata(ctx, id, in)
+	if err != nil {
+		return Goal{}, err
+	}
+	return d, nil
+}
+
+func (a *Access) Activate(ctx context.Context, id string) (Goal, error) {
+	if _, err := a.useRow(ctx, id); err != nil {
+		return Goal{}, err
+	}
+	d, err := a.svc.goal.Activate(ctx, id)
+	if err != nil {
+		return Goal{}, err
+	}
+	return d, nil
+}
+
+func (a *Access) Reattempt(ctx context.Context, id string) error {
+	if _, err := a.useRow(ctx, id); err != nil {
+		return err
+	}
+	return a.svc.goal.Reattempt(ctx, id, UserActor(a.userID))
+}
+
+func (a *Access) AddHumanMessage(ctx context.Context, in HumanMessageInput) (TimelineEvent, error) {
+	if _, err := a.useRow(ctx, in.GoalID); err != nil {
+		return TimelineEvent{}, err
+	}
+	in.ResponderUserID = a.userID
+	e, err := a.svc.goal.AddHumanMessage(ctx, in)
+	if err != nil {
+		return TimelineEvent{}, err
+	}
+	return e, nil
+}
+
+func (a *Access) SubmitVerdict(ctx context.Context, in VerdictInput) error {
+	if _, err := a.useRow(ctx, in.GoalID); err != nil {
+		return err
+	}
+	in.ReviewerUserID = a.userID
+	return a.svc.goal.SubmitVerdict(ctx, in)
+}
+
+func (a *Access) WaiveEdge(ctx context.Context, id, upstreamID, reason string) error {
+	if _, err := a.useRow(ctx, id); err != nil {
+		return err
+	}
+	return a.svc.goal.WaiveEdge(ctx, id, upstreamID, reason, UserActor(a.userID))
+}
+
+func (a *Access) ApprovePlan(ctx context.Context, id string) error {
+	if _, err := a.useRow(ctx, id); err != nil {
+		return err
+	}
+	return a.svc.goal.ApprovePlan(ctx, id, UserActor(a.userID))
+}
+
+func (a *Access) RejectPlan(ctx context.Context, id, reason string) error {
+	if _, err := a.useRow(ctx, id); err != nil {
+		return err
+	}
+	return a.svc.goal.RejectPlan(ctx, id, reason, UserActor(a.userID))
 }
 
 // listRootParams builds the durable candidate query for a scanned page.
@@ -303,7 +380,7 @@ func (a *Access) ListGoals(ctx context.Context, filter GoalFilter, limit, offset
 	rows := make([]sqlc.AgentGoal, 0, limit)
 	cursor := offset
 	for {
-		batchRows, err := a.svc.Queries.ListRootGoal(ctx, a.listRootParams(filter, batch, cursor))
+		batchRows, err := a.svc.q.ListRootGoal(ctx, a.listRootParams(filter, batch, cursor))
 		if err != nil {
 			return nil, 0, false, err
 		}
@@ -345,7 +422,7 @@ func (a *Access) CountGoals(ctx context.Context, filter GoalFilter) (int64, erro
 	const batch = int64(200)
 	var total, cursor int64
 	for {
-		rows, err := a.svc.Queries.ListRootGoal(ctx, a.listRootParams(filter, batch, cursor))
+		rows, err := a.svc.q.ListRootGoal(ctx, a.listRootParams(filter, batch, cursor))
 		if err != nil {
 			return 0, err
 		}
@@ -371,7 +448,7 @@ func (a *Access) ListChildren(ctx context.Context, parentID string) ([]Goal, err
 	if _, err := a.getRow(ctx, parentID); err != nil {
 		return nil, err
 	}
-	rows, err := a.svc.Queries.ListGoalChildren(ctx, pgnull.Text(parentID))
+	rows, err := a.svc.q.ListGoalChildren(ctx, pgnull.Text(parentID))
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +465,7 @@ func (a *Access) ListSubtree(ctx context.Context, rootID string) ([]Goal, error)
 	if _, err := a.getRow(ctx, rootID); err != nil {
 		return nil, err
 	}
-	rows, err := a.svc.Queries.ListGoalByRoot(ctx, rootID)
+	rows, err := a.svc.q.ListGoalByRoot(ctx, rootID)
 	if err != nil {
 		return nil, err
 	}
@@ -413,8 +490,8 @@ func (a *Access) HealthReport(ctx context.Context, filter HealthFilter) (HealthR
 		return HealthReport{}, err
 	}
 	filter.AgentID = agentID
-	since, _ := a.svc.Goal.healthWindow(filter)
-	candidates, err := a.svc.Queries.ListGoalForHealthScope(ctx, sqlc.ListGoalForHealthScopeParams{
+	since, _ := a.svc.goal.healthWindow(filter)
+	candidates, err := a.svc.q.ListGoalForHealthScope(ctx, sqlc.ListGoalForHealthScopeParams{
 		SinceAt: since,
 		UserID:  pgnull.Text(filter.UserID),
 		AgentID: pgnull.Text(filter.AgentID),
@@ -432,7 +509,7 @@ func (a *Access) HealthReport(ctx context.Context, filter HealthFilter) (HealthR
 			ids = append(ids, d.ID)
 		}
 	}
-	return a.svc.Goal.HealthReport(ctx, filter, ids)
+	return a.svc.goal.HealthReport(ctx, filter, ids)
 }
 
 // ListAttempts authorizes the goal, then lists its attempts.
@@ -440,7 +517,7 @@ func (a *Access) ListAttempts(ctx context.Context, id string) ([]Attempt, error)
 	if _, err := a.getRow(ctx, id); err != nil {
 		return nil, err
 	}
-	rows, err := a.svc.Queries.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: id})
+	rows, err := a.svc.q.ListAttemptByGoal(ctx, sqlc.ListAttemptByGoalParams{GoalID: id})
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +529,7 @@ func (a *Access) GetAttempt(ctx context.Context, id, attemptID string) (Attempt,
 	if _, err := a.getRow(ctx, id); err != nil {
 		return Attempt{}, err
 	}
-	att, err := a.svc.Queries.GetAttempt(ctx, attemptID)
+	att, err := a.svc.q.GetAttempt(ctx, attemptID)
 	if err != nil || att.GoalID != id {
 		return Attempt{}, authz.ErrNotFound
 	}
@@ -464,7 +541,7 @@ func (a *Access) ListAcceptanceEvents(ctx context.Context, id string) ([]Accepta
 	if _, err := a.getRow(ctx, id); err != nil {
 		return nil, err
 	}
-	rows, err := a.svc.Queries.ListAcceptanceEventByGoal(ctx, id)
+	rows, err := a.svc.q.ListAcceptanceEventByGoal(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +553,7 @@ func (a *Access) ListTimeline(ctx context.Context, id string, limit, offset int)
 	if _, err := a.getRow(ctx, id); err != nil {
 		return nil, err
 	}
-	rows, err := a.svc.Queries.ListGoalEventByGoal(ctx, sqlc.ListGoalEventByGoalParams{GoalID: id, Limit: int32(limit), Offset: int32(offset)})
+	rows, err := a.svc.q.ListGoalEventByGoal(ctx, sqlc.ListGoalEventByGoalParams{GoalID: id, Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, err
 	}
@@ -488,7 +565,7 @@ func (a *Access) ListEdges(ctx context.Context, id string) ([]Edge, error) {
 	if _, err := a.getRow(ctx, id); err != nil {
 		return nil, err
 	}
-	rows, err := a.svc.Queries.ListEdgeByGoal(ctx, id)
+	rows, err := a.svc.q.ListEdgeByGoal(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -501,7 +578,7 @@ func (a *Access) Readiness(ctx context.Context, id string, now time.Time) (Readi
 	if err != nil {
 		return Readiness{}, err
 	}
-	edges, err := a.svc.Queries.ListEdgeWithUpstreamState(ctx, id)
+	edges, err := a.svc.q.ListEdgeWithUpstreamState(ctx, id)
 	if err != nil {
 		return Readiness{}, err
 	}
@@ -509,7 +586,7 @@ func (a *Access) Readiness(ctx context.Context, id string, now time.Time) (Readi
 }
 
 func (a *Access) load(ctx context.Context, id string) (sqlc.AgentGoal, error) {
-	d, err := getGoal(ctx, a.svc.Queries, id)
+	d, err := getGoal(ctx, a.svc.q, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return sqlc.AgentGoal{}, authz.ErrNotFound

@@ -95,19 +95,6 @@ func (s *Server) loadGoalRead(ctx context.Context, w http.ResponseWriter, acc *g
 	return d, true
 }
 
-// loadGoalUse resolves a goal through the goal PEP's execute decision, which also
-// confirms the caller may still execute its persisted agent. Continuation
-// commands use this before mutating lifecycle state: request bodies are not an
-// authority source, and executor-time checks happen again after work is enqueued.
-func (s *Server) loadGoalUse(ctx context.Context, w http.ResponseWriter, acc *goal.Access, id string) (goal.Goal, bool) {
-	d, err := acc.Use(ctx, id)
-	if err != nil {
-		goalError(w, err)
-		return goal.Goal{}, false
-	}
-	return d, true
-}
-
 // ── List / CRUD ──────────────────────────────────────────────────────────────
 
 // ListGoals lists root goals (goals) by default; `?parent={id}`
@@ -292,20 +279,17 @@ func (s *Server) GetGoal(w http.ResponseWriter, r *http.Request, id string) {
 
 // UpdateGoal applies a partial metadata edit (PATCH).
 func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.UpdateGoalRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent, By: goal.UserActor(info.UserID)}
+	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent}
 	if body.Priority != nil {
 		v := string(*body.Priority)
 		in.Priority = &v
@@ -322,7 +306,7 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 		c := toConvergence(*body.ConvergencePolicy)
 		in.Convergence = &c
 	}
-	updated, err := s.goalSvc.Goal.UpdateMetadata(ctx, id, in)
+	updated, err := acc.UpdateMetadata(ctx, id, in)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -352,10 +336,7 @@ func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
-	d, err := s.goalSvc.Goal.Activate(ctx, id)
+	d, err := acc.Activate(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -401,15 +382,12 @@ func (s *Server) AbandonGoal(w http.ResponseWriter, r *http.Request, id string) 
 
 // ReattemptGoal raises the budget on a blocked goal and resumes it.
 func (s *Server) ReattemptGoal(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
-	if err := s.goalSvc.Goal.Reattempt(ctx, id, goal.UserActor(info.UserID)); err != nil {
+	if err := acc.Reattempt(ctx, id); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -528,14 +506,11 @@ func (s *Server) ListGoalTimeline(w http.ResponseWriter, r *http.Request, id str
 
 // CreateGoalTimelineEvent appends a human message and reattempts non-dep blocks.
 func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.GoalTimelineMessageRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -545,7 +520,7 @@ func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	event, err := s.goalSvc.Goal.AddHumanMessage(ctx, goal.HumanMessageInput{GoalID: id, Text: body.Text, ResponderUserID: info.UserID})
+	event, err := acc.AddHumanMessage(ctx, goal.HumanMessageInput{GoalID: id, Text: body.Text})
 	if err != nil {
 		goalError(w, err)
 		return
@@ -557,29 +532,25 @@ func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request,
 
 // SubmitVerdict appends a human verdict against a contract item and re-folds.
 func (s *Server) SubmitVerdict(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.VerdictRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	in := goal.VerdictInput{
-		GoalID:         id,
-		ItemID:         body.ItemId,
-		Result:         string(body.Result),
-		Rationale:      derefStr(body.Rationale),
-		Scope:          derefStr(body.Scope),
-		ScopeHash:      derefStr(body.ScopeHash),
-		ReviewerUserID: info.UserID,
+		GoalID:    id,
+		ItemID:    body.ItemId,
+		Result:    string(body.Result),
+		Rationale: derefStr(body.Rationale),
+		Scope:     derefStr(body.Scope),
+		ScopeHash: derefStr(body.ScopeHash),
 	}
-	if err := s.goalSvc.Goal.SubmitVerdict(ctx, in); err != nil {
+	if err := acc.SubmitVerdict(ctx, in); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -643,19 +614,16 @@ func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
 
 // WaiveEdge waives a hard edge so a blocked(dep) downstream can proceed.
 func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, upstreamId string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.WaiveRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.Goal.WaiveEdge(ctx, id, upstreamId, derefStr(body.Reason), goal.UserActor(info.UserID)); err != nil {
+	if err := acc.WaiveEdge(ctx, id, upstreamId, derefStr(body.Reason)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -678,15 +646,12 @@ func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, up
 // ApprovePlan approves a composite's proposed plan (blocked(needs_plan_approval)),
 // materializing its children and resuming the tree.
 func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
-	if err := s.goalSvc.Goal.ApprovePlan(ctx, id, goal.UserActor(info.UserID)); err != nil {
+	if err := acc.ApprovePlan(ctx, id); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -701,19 +666,16 @@ func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) 
 // RejectPlan rejects a composite's proposed plan, returning it to draft so the
 // dispatcher re-decomposes it.
 func (s *Server) RejectPlan(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.DecisionRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.Goal.RejectPlan(ctx, id, derefStr(body.Reason), goal.UserActor(info.UserID)); err != nil {
+	if err := acc.RejectPlan(ctx, id, derefStr(body.Reason)); err != nil {
 		goalError(w, err)
 		return
 	}

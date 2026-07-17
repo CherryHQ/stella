@@ -204,8 +204,7 @@ func (s *Service) SetScopedWithOptions(ctx context.Context, scope string, userID
 	return s.set(ctx, scope, userID, agentID, name, plaintext, true, opts)
 }
 
-// SetSystemScoped stores an admin-managed secret. Call only after an explicit
-// admin authorization check at the API boundary.
+// SetSystemScoped stores an admin-managed secret for trusted host-side callers.
 func (s *Service) SetSystemScoped(ctx context.Context, scope string, agentID string, name string, plaintext string) error {
 	return s.SetSystemScopedWithOptions(ctx, scope, agentID, name, plaintext, SetOptions{})
 }
@@ -331,11 +330,6 @@ func (s *Service) GetScoped(ctx context.Context, scope string, userID string, ag
 		return "", fmt.Errorf("vault: get %q: %w", name, err)
 	}
 	return s.decryptEntry(ctx, entry)
-}
-
-// GetMeta returns non-sensitive metadata for a single user-level vault entry by name.
-func (s *Service) GetMeta(ctx context.Context, userID string, name string) (EntryMeta, error) {
-	return s.GetScopedMeta(ctx, ScopeUser, userID, "", name)
 }
 
 // GetScopedMeta returns non-sensitive metadata for a single scoped vault entry by name.

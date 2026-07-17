@@ -71,7 +71,8 @@ func (a *Access) List(ctx context.Context, agentFilter string) ([]Workflow, erro
 	if scope == "" {
 		scope = agentFilter
 	}
-	rows, err := a.svc.List(ctx, a.userID, scope)
+	_, ownerUser, ownerAgent := ownerScope(a.userID, scope)
+	rows, err := a.svc.q.ListWorkflows(ctx, sqlc.ListWorkflowsParams{UserID: ownerUser, AgentID: ownerAgent})
 	if err != nil {
 		return nil, fmt.Errorf("%w: list workflows: %w", ErrUnavailable, err)
 	}
@@ -164,7 +165,7 @@ func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (Workflow
 			return Workflow{}, mapAgentAuthzError(err)
 		}
 	}
-	row, err := a.svc.SaveGoalAsWorkflow(ctx, in)
+	row, err := a.svc.saveGoalAsWorkflow(ctx, in)
 	if err != nil {
 		return Workflow{}, mapDomainError(err)
 	}
@@ -194,7 +195,7 @@ func (a *Access) Instantiate(ctx context.Context, id string, inputs map[string]s
 	// The raw materializer still scopes its lookup. It must receive the loaded
 	// workflow owner, not the caller: an admin may execute another owner's
 	// workflow after this direct check, and roots belong to that durable owner.
-	run, created, err := a.svc.Instantiate(ctx, InstantiateInput{UserID: wf.UserID.String, AgentID: a.agentID, WorkflowID: id, Inputs: inputs, IdempotencyKey: idempotencyKey})
+	run, created, err := a.svc.instantiate(ctx, InstantiateInput{UserID: wf.UserID.String, AgentID: a.agentID, WorkflowID: id, Inputs: inputs, IdempotencyKey: idempotencyKey})
 	if err != nil {
 		return Run{}, false, mapDomainError(err)
 	}

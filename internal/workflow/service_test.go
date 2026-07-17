@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
@@ -16,6 +17,16 @@ import (
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
+
+func TestNilGoalWriterReturnsUnavailable(t *testing.T) {
+	bundle := goal.NewBundle(nil, nil, nil)
+	svc := &Service{goal: bundle.WorkflowWriter(), agents: &agentaccess.Service{}}
+	acc := &Access{svc: svc, userID: "u"}
+
+	if _, err := acc.SaveGoalAsWorkflow(context.Background(), SaveInput{GoalID: "g"}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("SaveGoalAsWorkflow error = %v, want ErrUnavailable", err)
+	}
+}
 
 type workflowHarness struct {
 	t       *testing.T
@@ -40,26 +51,26 @@ type racingGoalWriter struct {
 	loserID  string
 }
 
-func (w *racingGoalWriter) CreateRoot(ctx context.Context, in goal.CreateInput) (sqlc.AgentGoal, error) {
+func (w *racingGoalWriter) CreateRoot(ctx context.Context, in goal.CreateInput) (goal.CreatedGoal, error) {
 	root, err := w.GoalService.CreateRoot(ctx, in)
 	if err != nil || !w.armed {
-		return root, err
+		return goal.CreatedGoal{ID: root.ID}, err
 	}
 	w.armed = false
 	w.loserID = root.ID
 	winner, err := w.GoalService.CreateRoot(ctx, in)
 	if err != nil {
-		return sqlc.AgentGoal{}, err
+		return goal.CreatedGoal{}, err
 	}
 	rows, err := w.q.SetWorkflowRunRoot(w.ctx, sqlc.SetWorkflowRunRootParams{ID: w.runID, RootGoalID: pgnull.Text(winner.ID), PlanHash: w.planHash})
 	if err != nil {
-		return sqlc.AgentGoal{}, err
+		return goal.CreatedGoal{}, err
 	}
 	if rows != 1 {
 		w.t.Fatalf("winner set root rows = %d", rows)
 	}
 	w.winnerID = winner.ID
-	return root, nil
+	return goal.CreatedGoal{ID: root.ID}, nil
 }
 
 func newWorkflowHarness(t *testing.T) *workflowHarness {
@@ -76,7 +87,7 @@ func newWorkflowHarness(t *testing.T) *workflowHarness {
 	}
 	q := sqlc.New(db)
 	goals := goal.New(db, q)
-	return &workflowHarness{t: t, ctx: ctx, db: db, q: q, goals: goals, svc: New(db, goals, nil), userID: userID, agentID: agentID}
+	return &workflowHarness{t: t, ctx: ctx, db: db, q: q, goals: goals, svc: New(db, goal.NewBundle(q, goals, nil).WorkflowWriter(), nil), userID: userID, agentID: agentID}
 }
 
 func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
@@ -110,27 +121,27 @@ func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 		t.Fatalf("force accept root: %v", err)
 	}
 
-	if _, err := h.svc.SaveGoalAsWorkflow(h.ctx, SaveInput{UserID: h.userID, AgentID: h.agentID, GoalID: root.ID, Name: "bad", Inputs: []InputSpec{{Name: "bad name"}}}); !errors.Is(err, ErrInvalidWorkflowInput) {
+	if _, err := h.svc.saveGoalAsWorkflow(h.ctx, SaveInput{UserID: h.userID, AgentID: h.agentID, GoalID: root.ID, Name: "bad", Inputs: []InputSpec{{Name: "bad name"}}}); !errors.Is(err, ErrInvalidWorkflowInput) {
 		t.Fatalf("save with invalid input name = %v", err)
 	}
-	if _, err := h.svc.SaveGoalAsWorkflow(h.ctx, SaveInput{UserID: h.userID, AgentID: h.agentID, GoalID: root.ID, Name: "undeclared"}); !errors.Is(err, ErrInvalidWorkflowInput) {
+	if _, err := h.svc.saveGoalAsWorkflow(h.ctx, SaveInput{UserID: h.userID, AgentID: h.agentID, GoalID: root.ID, Name: "undeclared"}); !errors.Is(err, ErrInvalidWorkflowInput) {
 		t.Fatalf("save with undeclared placeholder = %v", err)
 	}
-	wf, err := h.svc.SaveGoalAsWorkflow(h.ctx, SaveInput{UserID: h.userID, AgentID: h.agentID, GoalID: root.ID, Name: "daily", Inputs: []InputSpec{{Name: "topic", Required: true}}})
+	wf, err := h.svc.saveGoalAsWorkflow(h.ctx, SaveInput{UserID: h.userID, AgentID: h.agentID, GoalID: root.ID, Name: "daily", Inputs: []InputSpec{{Name: "topic", Required: true}}})
 	if err != nil {
 		t.Fatalf("save workflow: %v", err)
 	}
 	if !wf.FullyFrozen || wf.Version != 1 {
 		t.Fatalf("workflow frozen/version = %v/%d", wf.FullyFrozen, wf.Version)
 	}
-	run1, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"topic": "launch"}, IdempotencyKey: "same"})
+	run1, created, err := h.svc.instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"topic": "launch"}, IdempotencyKey: "same"})
 	if err != nil {
 		t.Fatalf("instantiate: %v", err)
 	}
 	if !created {
 		t.Fatal("first instantiate created=false")
 	}
-	run2, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"topic": "ignored"}, IdempotencyKey: "same"})
+	run2, created, err := h.svc.instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"topic": "ignored"}, IdempotencyKey: "same"})
 	if err != nil {
 		t.Fatalf("instantiate replay: %v", err)
 	}
@@ -140,11 +151,11 @@ func TestSaveGoalAsWorkflowAndInstantiateIdempotently(t *testing.T) {
 	if run1.RootGoalID.String == "" || run1.RootGoalID.String != run2.RootGoalID.String {
 		t.Fatalf("idempotent root mismatch: %q vs %q", run1.RootGoalID.String, run2.RootGoalID.String)
 	}
-	run3, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{}, IdempotencyKey: "same"})
+	run3, created, err := h.svc.instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{}, IdempotencyKey: "same"})
 	if err != nil || created || run3.ID != run1.ID {
 		t.Fatalf("done replay with missing input = run %q created %v err %v", run3.ID, created, err)
 	}
-	run4, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"unknown": "value"}, IdempotencyKey: "same"})
+	run4, created, err := h.svc.instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, Inputs: map[string]string{"unknown": "value"}, IdempotencyKey: "same"})
 	if err != nil || created || run4.ID != run1.ID {
 		t.Fatalf("done replay with unknown input = run %q created %v err %v", run4.ID, created, err)
 	}
@@ -188,7 +199,7 @@ func TestInstantiateCrashResumeBindsPrecreatedRoot(t *testing.T) {
 	if _, err := h.goals.CreateRoot(h.ctx, goal.CreateInput{ID: rootID, UserID: h.userID, AgentID: h.agentID, Title: wf.Name, Intent: wf.Intent, Kind: goal.KindComposite, Required: true, WorkflowID: wf.ID, WorkflowVersion: wf.Version}); err != nil {
 		t.Fatalf("precreate root: %v", err)
 	}
-	run, created, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "same"})
+	run, created, err := h.svc.instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "same"})
 	if err != nil {
 		t.Fatalf("resume instantiate: %v", err)
 	}
@@ -222,7 +233,7 @@ func TestInstantiateConvergesWhenRunRootRaceIsLost(t *testing.T) {
 	writer := &racingGoalWriter{GoalService: h.goals, t: t, ctx: h.ctx, q: h.q, runID: runID, planHash: plan.Hash(), armed: true}
 	svc := New(h.db, writer, nil)
 
-	run, _, err := svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "same"})
+	run, _, err := svc.instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "same"})
 	if err != nil {
 		t.Fatalf("instantiate loser path: %v", err)
 	}
@@ -325,7 +336,7 @@ func TestDeleteRejectsEnabledSchedulerWorkflowJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create scheduler job: %v", err)
 	}
-	if err := h.svc.Delete(h.ctx, h.userID, h.agentID, wf.ID); !errors.Is(err, ErrWorkflowHasSchedulerJob) {
+	if err := h.svc.deleteLoaded(h.ctx, wf.ID); !errors.Is(err, ErrWorkflowHasSchedulerJob) {
 		t.Fatalf("delete err = %v, want ErrWorkflowHasSchedulerJob", err)
 	}
 }
@@ -338,7 +349,7 @@ func TestInstantiateLeavesNilPlanCompositeDraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create workflow: %v", err)
 	}
-	run, _, err := h.svc.Instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "once"})
+	run, _, err := h.svc.instantiate(h.ctx, InstantiateInput{UserID: h.userID, AgentID: h.agentID, WorkflowID: wf.ID, IdempotencyKey: "once"})
 	if err != nil {
 		t.Fatalf("instantiate partial: %v", err)
 	}

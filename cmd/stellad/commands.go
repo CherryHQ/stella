@@ -363,7 +363,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
-	workflowSvc := workflowpkg.New(db, goalSvc.Goal, agentAccess)
+	workflowSvc := workflowpkg.New(db, goalSvc.WorkflowWriter(), agentAccess)
 	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc})
 
 	// Build the shared credentials/email/share services once, with the final
@@ -634,7 +634,7 @@ type schedulerWorkflowAdapter struct {
 }
 
 func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context, req scheduler.WorkflowValidateRequest) (scheduler.ScheduledWorkflow, error) {
-	wf, err := a.svc.Get(ctx, req.UserID, req.AgentID, req.WorkflowID)
+	wf, err := a.svc.ValidateScheduledWorkflow(ctx, req.UserID, req.AgentID, req.WorkflowID)
 	if err != nil {
 		return scheduler.ScheduledWorkflow{}, err
 	}

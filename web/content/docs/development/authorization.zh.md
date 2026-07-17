@@ -8,6 +8,8 @@ Stella 中每个受保护的操作都从一个可信的 `authz.Authority` 开始
 
 授权是**域自持**的：没有中心化的策略引擎、规则表或修订版本。每个域服务把可信的 Authority 绑定到一个 `Access` 对象，并据其自身的静态规则决定，只读取不可变的 Authority 加上它自己加载的持久事实。`internal/authz` 只提供共享的词汇——`Authority` 不可变行为者形状以及 `Action` 动词——除此之外别无其他。
 
+传输层只是适配器：HTTP、channel、tool 和 worker 路径调用同一个域服务，且不会在可选认证完成前加载受保护资源。应用边界向传输层返回领域值；生成的 API 类型只留在 `internal/server`。
+
 一个域有两种形态，选错是本领域最常见的错误。
 
 ## 两种形态

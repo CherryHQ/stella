@@ -42,9 +42,9 @@ var (
 
 // GoalWriter is the workflow domain's narrow port into Goal: frozen-tree writes
 // plus Goal's direct source-read authorization. The port is consumer-owned here
-// so no goal→workflow cycle forms; *goal.GoalService satisfies it.
+// so no goal→workflow cycle forms; Goal exposes a narrow adapter that satisfies it.
 type GoalWriter interface {
-	CreateRoot(ctx context.Context, in goal.CreateInput) (sqlc.AgentGoal, error)
+	CreateRoot(ctx context.Context, in goal.CreateInput) (goal.CreatedGoal, error)
 	MaterializeFrozenLayer(ctx context.Context, parentID string, content goal.DecompositionContent, frozen goal.FrozenStamp) error
 	ActivateFrozenComposite(ctx context.Context, id string) error
 	Authorize(ctx context.Context, authority authz.Authority, goalID string, action authz.Action) (goal.AuthorizedGoal, error)
@@ -58,10 +58,17 @@ type Service struct {
 }
 
 // New constructs the Workflow application service. Goal and Agent are the
-// domain-owned ports used by the Authority-based Access boundary; raw Service
-// methods remain callable only by trusted worker adapters.
+// domain-owned ports used by the Authority-based Access boundary.
 func New(db *pgxpool.Pool, goalSvc GoalWriter, agents *agentaccess.Service) *Service {
 	return &Service{db: db, q: sqlc.New(db), goal: goalSvc, agents: agents}
+}
+
+// ScheduledWorkflow is the narrow immutable workflow fact the scheduler needs
+// while validating a job. The scheduler has already established the durable
+// owner and agent values it supplies to this worker-adapter port.
+type ScheduledWorkflow struct {
+	ID          string
+	FullyFrozen bool
 }
 
 // RunState is the latest-run snapshot the scheduler adapter needs to decide
@@ -72,6 +79,16 @@ type RunState struct {
 	IdempotencyKey   string
 	RootGoalID       string
 	RootGoalTerminal bool
+}
+
+// ValidateScheduledWorkflow returns only the durable workflow facts needed to
+// validate a scheduler-owned workflow job.
+func (s *Service) ValidateScheduledWorkflow(ctx context.Context, userID, agentID, workflowID string) (ScheduledWorkflow, error) {
+	wf, err := s.getScoped(ctx, workflowID, userID, agentID)
+	if err != nil {
+		return ScheduledWorkflow{}, err
+	}
+	return ScheduledWorkflow{ID: wf.ID, FullyFrozen: wf.FullyFrozen}, nil
 }
 
 // LatestRunState returns the state of the most recent run for a workflow.
@@ -112,7 +129,7 @@ type InstantiateInput struct {
 	IdempotencyKey string
 }
 
-func (s *Service) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.AgentWorkflow, error) {
+func (s *Service) saveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.AgentWorkflow, error) {
 	root, err := s.q.GetGoal(ctx, in.GoalID)
 	if err != nil {
 		return sqlc.AgentWorkflow{}, err
@@ -178,7 +195,7 @@ func (s *Service) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Ag
 	return sqlc.AgentWorkflow{}, ErrWorkflowVersionConflict
 }
 
-func (s *Service) Instantiate(ctx context.Context, in InstantiateInput) (sqlc.AgentWorkflowRun, bool, error) {
+func (s *Service) instantiate(ctx context.Context, in InstantiateInput) (sqlc.AgentWorkflowRun, bool, error) {
 	wf, err := s.getScoped(ctx, in.WorkflowID, in.UserID, in.AgentID)
 	if err != nil {
 		return sqlc.AgentWorkflowRun{}, false, err
@@ -254,10 +271,6 @@ func (s *Service) Instantiate(ctx context.Context, in InstantiateInput) (sqlc.Ag
 	return run, true, err
 }
 
-func (s *Service) Get(ctx context.Context, userID, agentID, id string) (sqlc.AgentWorkflow, error) {
-	return s.getScoped(ctx, id, userID, agentID)
-}
-
 // Authorize is Workflow's narrow direct port for another domain. It loads the
 // durable row before applying the same fixed rules as Access; ownership and
 // executor facts cannot be supplied by the caller. A missing or denied workflow
@@ -277,35 +290,6 @@ func (s *Service) Authorize(ctx context.Context, authority authz.Authority, work
 		return nil
 	}
 	return authz.ErrNotFound
-}
-
-func (s *Service) List(ctx context.Context, userID, agentID string) ([]sqlc.AgentWorkflow, error) {
-	_, ownerUser, ownerAgent := ownerScope(userID, agentID)
-	return s.q.ListWorkflows(ctx, sqlc.ListWorkflowsParams{UserID: ownerUser, AgentID: ownerAgent})
-}
-
-func (s *Service) ListVersions(ctx context.Context, userID, agentID, name string) ([]sqlc.AgentWorkflow, error) {
-	ownerKind, ownerUser, ownerAgent := ownerScope(userID, agentID)
-	return s.q.ListWorkflowVersions(ctx, sqlc.ListWorkflowVersionsParams{OwnerKind: ownerKind, UserID: ownerUser, AgentID: ownerAgent, Name: name})
-}
-
-func (s *Service) ListRuns(ctx context.Context, userID, agentID, id string, limit, offset int32) ([]sqlc.ListWorkflowRunsRow, int64, error) {
-	if _, err := s.getScoped(ctx, id, userID, agentID); err != nil {
-		return nil, 0, err
-	}
-	total, err := s.q.CountWorkflowRuns(ctx, id)
-	if err != nil {
-		return nil, 0, fmt.Errorf("count workflow runs: %w", err)
-	}
-	rows, err := s.q.ListWorkflowRuns(ctx, sqlc.ListWorkflowRunsParams{WorkflowID: id, Limit: limit, Offset: offset})
-	return rows, total, err
-}
-
-func (s *Service) Delete(ctx context.Context, userID, agentID, id string) error {
-	if _, err := s.getScoped(ctx, id, userID, agentID); err != nil {
-		return err
-	}
-	return s.deleteLoaded(ctx, id)
 }
 
 // deleteLoaded removes a workflow whose access has already been authorized by the
@@ -398,7 +382,7 @@ func (s *Service) materializeRun(ctx context.Context, wf sqlc.AgentWorkflow, run
 	return s.q.GetWorkflowRunByKey(ctx, sqlc.GetWorkflowRunByKeyParams{WorkflowID: wf.ID, IdempotencyKey: run.IdempotencyKey})
 }
 
-func (s *Service) createRunRoot(ctx context.Context, wf sqlc.AgentWorkflow, runID, userID, agentID string, inputs map[string]string) (sqlc.AgentGoal, error) {
+func (s *Service) createRunRoot(ctx context.Context, wf sqlc.AgentWorkflow, runID, userID, agentID string, inputs map[string]string) (goal.CreatedGoal, error) {
 	var contract goal.AcceptanceContract
 	_ = json.Unmarshal(wf.AcceptanceContract, &contract)
 	var convergence goal.ConvergencePolicy
@@ -407,7 +391,7 @@ func (s *Service) createRunRoot(ctx context.Context, wf sqlc.AgentWorkflow, runI
 	// {{inputs.*}} placeholders the children do.
 	intent, err := substituteText(wf.Intent, inputs)
 	if err != nil {
-		return sqlc.AgentGoal{}, err
+		return goal.CreatedGoal{}, err
 	}
 	// The run executes under the workflow's own agent; the caller's scope only
 	// gates access. A user-session caller (empty agent scope) must still land

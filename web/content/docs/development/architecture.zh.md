@@ -87,11 +87,11 @@ plugins/
 5. **可观测性** — 全局 OTel 追踪在服务阶段之前初始化，因此任何产生 span 的组件（经 HTTP/通道入口的 agent 运行）都不会在 exporter 装好之前启动。
 6. **Run（运行）** — 至此组合根才启动入口，且必须在其依赖的所有后端就绪之后。先接好静态回调（`notifier.SetAuthService`、scheduler 的 `OnJob` 处理器——均为互斥保护的一次性写入），并启动 River、scheduler、goal 调度 tick、embedding backfill；scheduler 处理器在 River 启动**之前**接好，因为 River 一启动就可能处理已持久化的作业。之后入口才上线——group 调度循环、受管通道运行时，最后是 `httpSrv.Serve`（监听器提前绑定但不 serve）。组合根持有单个 `errgroup`：`httpSrv.Serve` 与 `groupDispatcher.Run(ingressCtx)` 在其下运行。预期的关停错误归一为 `nil`（`http.ErrServerClosed`、`context.Canceled`）；任何其它组件错误取消同伴并成为根错误。组件构造子不启动 goroutine——后台循环由显式阻塞式 `Run(ctx)` 或组合根拥有的 `Start` 进入（例如 trace hook 的空闲会话回收器）。
 
-**不可变 Server Deps。** `server.Deps` 是按域分组的值结构体（持久化、授权、运行时、共享服务、可选能力）。它携带具体域服务，而非宽泛的影子 store；一个 reflection/AST 三线闸冻结剩余的宽持久化债（DB 池、`config.Store`、auth stores）并禁止新增宽字段。可选能力容忍 nil，退化为单一集中的 503 映射。
+**不可变 Server Deps。** `server.Deps` 是由应用服务组成的值结构体：Account、Profile、Project、Inbox、Agent/Session/Skill access、Group、控制面和共享能力服务。`internal/server` 不持有持久化 store、查询句柄或连接池；唯一带数据库形状的依赖是仅用于存活探针的 `DBPinger`。终态 AST 守卫拒绝宽泛 `Deps` 字段、Server 持久化选择器以及 `sqlc`/`pgxpool` 导入；其反例覆盖嵌套字段、别名、无导入的 handler 查询使用、仅 DTO 导入和 dot import。可选能力容忍 nil，并通过单一集中的 503 映射退化。
 
 **授权。** Agent 的 HTTP、webhook 和 channel 入口统一使用权威的 `internal/agent/access` 域服务。Session 与 Workspace 用例使用 `internal/agent/session/access`：它先加载持久化的 owner、agent、kind 和生命周期事实，再创建带作用域的 registry 访问，并基于不可变的 `authz.Authority` 按其自身的静态规则决定 Agent、Session 和 Workspace；原先的 RBAC/ABAC 策略引擎与临时的通用策略引擎均已移除，不再有独立的中心化决策路径。Authority 只能由可信身份适配器（`internal/auth`、`internal/credential`、`internal/authz`）以及 `internal/agent/access` 中的 durable worker/group 适配器铸造；请求 body/path 字段永远不能铸造或覆写 actor。
 
-执行域采用相同形态：Workflow、Scheduler、Goal 由各自的域服务（`workflow.Service`、`scheduler.Service`、`goal.Service`）执行，Skills 由 `skillaccess` 执行，均取代了原先的 `Service.As(authz.Identity)` 门面与散落的 helper。每个传输层与工具用例只调用一次 `Begin`，并针对该域自身的静态规则决定域资源；跨资源的 agent 门禁通过用同一个 Authority 直接调用 `agentaccess` 折叠进来。持久化 worker（goal attempt、触发的定时 workflow）从持久可信状态重建 owner/executor Authority，并在每次动作时重新决策。`admin` 是每个域通过 `Authority.IsAdmin()` 认可的超级用户，而非散落的 `role == admin` 检查。
+执行域采用相同形态：Account、Profile、Project、Inbox、Group、Workflow、Scheduler、Goal 和 Skills 均暴露自持用例的应用服务，并向传输层返回领域值，绝不返回生成的 API 类型。每个 HTTP、channel、tool 和 worker 用例都先通过该服务绑定一个不可变 Authority，再加载或变更受保护资源；传输层不会为了可选认证预加载资源。跨资源的 agent 门禁通过用同一个 Authority 直接调用 `agentaccess` 折叠进来。持久化 worker 从持久可信状态重建 owner/executor Authority，并在每次动作时重新决策。`admin` 是每个域通过 `Authority.IsAdmin()` 认可的超级用户，而非散落的 `role == admin` 检查。
 
 用户能力域均为用户所有——被委派的 agent 回合以其用户的访问权限行事，而非受 executor 限制（agent 共享用户的密钥、邮件、连接与阅读库）——但按形态分为两类。**Vault 自持 scope 规则**：`vault.Service` 每个用例绑定 Authority 并据其自身静态规则决定，因为 vault 条目具有真实的 `user`/`user_agent`/`system`/`system_agent` scope 区分（`user`/`user_agent` 归用户所有并折叠 agent-read 门禁；管理员管理的 `system`/`system_agent` 仅管理员可达）。它保留静态加密、不回读密文、保留名保护与 runner 失效。**Connections、Email、Share、Recally 是粗粒度能力**：它们各是没有 scope 或管理员区分的按用户能力，因此 `connections.Service`、`email.Service`、`share.Service`、`recally.Service` 绑定一个可信的 `authz.Authority`（用简单的 `Service.Access(authority)` 构造器），捕获行为用户，先行拒绝无效或无用户的 Authority，并通过按用户限定的持久查询强制归属——邮箱配置存于该用户的 vault 命名空间，OAuth bundle 与 flow 以用户为键，share 以 `WHERE user_id = ?` 删除，recally 行按 uid 限定故外来行直接不存在。仅以父 id 为键的操作（recally 文章正文、feed entry）先做一次 uid 限定的父加载以证明父归属，Share 工件对 agent 作用域的行为方保留 os.Root 工作区限制。有若干面刻意保持可信或公开：vault 的宿主侧调用方（MCP、OAuth、邮箱配置、频道配置、沙箱环境、密钥发放）使用原始服务方法；OAuth 回调与令牌刷新路径以 flow/user 为键，而非实时请求；公开分享视图是一个不可猜测的能力 URL，仅凭 token 哈希与过期时间授权，无需会话。参见[授权指南](/docs/development/authorization)了解资源矩阵与配方。
 
@@ -220,7 +220,7 @@ type Channel interface {
 
 ### 通道入口归属
 
-Stella 只支持一个服务副本。Helm chart 强制 `replicaCount: 1` 和 `Recreate` 发布策略，因此托管通道机器人会在依赖完成装配后无条件启动。针对同一份通道配置运行两个 `stellad` 进程不受支持：Telegram 可能返回 409，微信、QQ 和 Feishu 可能重复投递。多副本通道入口需要完整的 offset 与 fencing 设计；单独的数据库租约并不能解决它。
+Stella 只支持一个服务副本（[#637](https://github.com/CherryHQ/stella/issues/637)）。Helm chart 强制 `replicaCount: 1` 和 `Recreate` 发布策略，因此托管通道机器人会在依赖完成装配后无条件启动。针对同一份通道配置运行两个 `stellad` 进程不受支持：Telegram 可能返回 409，微信、QQ 和 Feishu 可能重复投递。多副本通道入口需要完整的 offset 与 fencing 设计；单独的数据库租约并不能解决它。
 
 优雅排空时，`pluginHost.Quiesce` 停止新的通道轮询，同时保留已接受的工作和通知发送器。最终的 `pluginHost.Stop` 只在 River 排空后执行，确保已接受工作仍可向外投递。
 
@@ -232,7 +232,7 @@ Stella 只支持一个服务副本。Helm chart 强制 `replicaCount: 1` 和 `Re
 
 ## Admin API
 
-`internal/server/` 包提供用于管理系统的 HTTP API 和嵌入式 SPA。端点涵盖提供商、代理、通道、用户、会话、调度器作业和全局设置的 CRUD 操作。控制面管理——LLM 提供商、部署设置、插件与通道——直接经由 `internal/controlplane` 授权（仅限管理员：`Begin` 要求 `IsAdmin()`），而非裸角色检查；底层读写仍走 `config.Store`，为操作员提供 Web 界面来配置之前通过 YAML 文件完成的配置。
+`internal/server/` 包提供用于管理系统的 HTTP API 和嵌入式 SPA。它将 HTTP 转为应用服务调用和 API DTO；持久化与查询句柄不进入该包。控制面管理——LLM 提供商、部署设置、插件与通道——直接经由 `internal/controlplane` 授权（仅限管理员：`Begin` 要求 `IsAdmin()`），而非裸角色检查。
 
 ## 通知流程
 

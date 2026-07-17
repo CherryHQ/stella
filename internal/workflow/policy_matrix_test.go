@@ -183,7 +183,8 @@ func TestWorkflowInstantiateAsChecksPersistedWorkflowAndAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	wf := createWorkflow(t, q, owner.ID, "owned")
-	svc := New(pool, goal.New(pool, q), agentaccess.NewService(store, assign))
+	goals := goal.New(pool, q)
+	svc := New(pool, goal.NewBundle(q, goals, nil).WorkflowWriter(), agentaccess.NewService(store, assign))
 
 	foreign := workflowUserAuthority(t, uuid.NewString(), false)
 	if _, _, err := svc.InstantiateAs(ctx, foreign, wf.ID, nil, "same"); !errors.Is(err, ErrNotFound) {
@@ -232,7 +233,7 @@ func TestSaveGoalAsWorkflowAuthorizesSourceGoal(t *testing.T) {
 	goals := goal.New(pool, q)
 	root := createAcceptedWorkflowGoal(t, ctx, pool, goals, owner.ID, "owned")
 	unassignedRoot := createAcceptedWorkflowGoal(t, ctx, pool, goals, owner.ID, "unassigned")
-	svc := New(pool, goals, agentaccess.NewService(store, assign))
+	svc := New(pool, goal.NewBundle(q, goals, nil).WorkflowWriter(), agentaccess.NewService(store, assign))
 
 	ownerAcc, err := svc.Begin(ctx, workflowUserAuthority(t, owner.ID, false))
 	if err != nil {
