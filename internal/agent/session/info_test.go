@@ -152,7 +152,7 @@ func TestInfoValidate(t *testing.T) {
 func TestInfoRecordRoundTrip(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	cases := []Info{
-		{ID: "s-1", AgentID: "agent", UserID: "user-1", Channel: "web", Kind: string(KindChat), ProjectID: "proj-1", Title: "hello", CreatedAt: now, LastActive: now, Archived: true},
+		{ID: "s-1", AgentID: "agent", UserID: "user-1", Channel: "web", Kind: string(KindChat), ProjectID: "proj-1", Title: "hello", CreatedAt: now, LastActive: now, Archived: true, LatestSeq: 7},
 		{ID: "agent:group:" + testGroupID, AgentID: "agent", UserID: testGroupID, GroupID: testGroupID, Channel: "group:" + testGroupID, Kind: string(KindChat), CreatedAt: now, LastActive: now},
 	}
 	for _, info := range cases {

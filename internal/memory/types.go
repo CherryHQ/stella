@@ -108,6 +108,9 @@ type SessionInfo struct {
 	CreatedAt  time.Time
 	LastActive time.Time
 	Archived   bool
+	// LatestSeq is the latest persisted message sequence when supplied by a
+	// review-aware listing. Zero means the provider has no stable sequence.
+	LatestSeq int64
 }
 
 // ListOptions controls session listing filters.

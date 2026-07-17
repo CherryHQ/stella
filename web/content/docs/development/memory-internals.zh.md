@@ -142,13 +142,13 @@ Skills 仍然只表示可复用流程，不再通过 `metadata.knowledge_type` �
 
 Reflect writer 和 curator 使用相互独立的启动时配置：
 
-| 环境变量                      | 可选值                 | 上线默认值 | 含义                                           |
-| ----------------------------- | ---------------------- | ---------- | ---------------------------------------------- |
-| `STELLA_REFLECT_MODE`         | `legacy`、`structured` | `legacy`   | 选择 scheduler 唯一执行的 Reflect writer       |
-| `STELLA_REFLECT_CURATOR_MODE` | `shadow`、`armed`      | `shadow`   | 选择只读扫描或实际执行生命周期废弃写入         |
-| `STELLA_REFLECT_INTERVAL`     | Go duration            | `6h`       | scheduler 周期；小于一分钟的值会被提升到一分钟 |
+| 环境变量                      | 可选值                 | 上线默认值 | 含义                                                |
+| ----------------------------- | ---------------------- | ---------- | --------------------------------------------------- |
+| `STELLA_REFLECT_MODE`         | `legacy`、`structured` | `legacy`   | 选择 scheduler 唯一执行的 Reflect writer            |
+| `STELLA_REFLECT_CURATOR_MODE` | `shadow`、`armed`      | `shadow`   | 选择只读扫描或实际执行 Knowledge/Skill 生命周期写入 |
+| `STELLA_REFLECT_INTERVAL`     | Go duration            | `6h`       | scheduler 周期；小于一分钟的值会被提升到一分钟      |
 
-非法 mode 会让服务启动失败。Structured 模式并发运行 Fact/Skill 两条线，但错误与 watermark 相互独立；一条线失败不会取消另一条，也不会推进失败线。旧 `expireDrafts` 只在 legacy 模式运行。
+非法 mode 会让服务启动失败。Structured 模式并发运行 Fact/Skill 两条线，但错误与 watermark 相互独立；一条线失败不会取消另一条，也不会推进失败线。
 
 模式切换复用已有 watermark，不新增 mode 状态。每次从 legacy 切到 structured 时，两条 line watermark 都至少推进到当前 legacy global watermark；之后 structured 只推进各自的 line watermark。从 structured 切回 legacy 时，global watermark 只推进到两条线中较旧的边界，确保落后线尚未处理的内容不会被跳过；领先线的内容可能被 legacy 保守重放。
 

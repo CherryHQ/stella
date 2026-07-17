@@ -67,6 +67,8 @@ type Info struct {
 	CreatedAt  time.Time
 	LastActive time.Time
 	Archived   bool
+	// LatestSeq is populated by review listings and is not session metadata.
+	LatestSeq int64
 }
 
 // NewInfo constructs a fresh Info with the required fields set.
@@ -159,6 +161,7 @@ func (i Info) Record() (memory.SessionInfo, error) {
 		CreatedAt:  i.CreatedAt,
 		LastActive: i.LastActive,
 		Archived:   i.Archived,
+		LatestSeq:  i.LatestSeq,
 	}, nil
 }
 
@@ -180,6 +183,7 @@ func InfoFromRecord(r memory.SessionInfo) (Info, error) {
 		CreatedAt:  r.CreatedAt,
 		LastActive: r.LastActive,
 		Archived:   r.Archived,
+		LatestSeq:  r.LatestSeq,
 	}
 	if err := info.Validate(); err != nil {
 		return Info{}, err

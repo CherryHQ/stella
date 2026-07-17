@@ -92,7 +92,7 @@ func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session
 		return reviewTarget{}, false
 	}
 
-	wm, pending, err := s.reviewProgress(ctx, info.ID, info.LastActive)
+	wm, pending, err := s.reviewProgress(ctx, info.ID, info.LastActive, info.LatestSeq)
 	if err != nil {
 		s.log.Warn("reflect: watermark lookup failed, skipping session", "session", info.ID, "error", err)
 		return reviewTarget{}, false
@@ -119,7 +119,7 @@ func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo)
 		return reviewTarget{}, false
 	}
 
-	wm, pending, err := s.reviewProgress(ctx, sess.ID, sess.LastActive)
+	wm, pending, err := s.reviewProgress(ctx, sess.ID, sess.LastActive, sess.LatestSeq)
 	if err != nil {
 		s.log.Warn("reflect: watermark lookup failed, skipping session", "session", sess.ID, "error", err)
 		return reviewTarget{}, false
@@ -146,7 +146,7 @@ func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo)
 	}, true
 }
 
-func (s *Service) reviewProgress(ctx context.Context, sessionID string, lastActive time.Time) (time.Time, bool, error) {
+func (s *Service) reviewProgress(ctx context.Context, sessionID string, lastActive time.Time, latestSeq int64) (time.Time, bool, error) {
 	if s.runtimeMode != RuntimeModeStructured {
 		mark, err := s.wm.getLegacy(ctx, sessionID)
 		return mark, lastActive.After(mark), err
@@ -161,7 +161,14 @@ func (s *Service) reviewProgress(ctx context.Context, sessionID string, lastActi
 		return time.Time{}, false, fmt.Errorf("get skill watermark: %w", err)
 	}
 	oldest := olderWatermarkTime(fact.At, skill.At)
-	return oldest, lastActive.After(fact.At) || lastActive.After(skill.At), nil
+	return oldest, reviewLinePending(fact, lastActive, latestSeq) || reviewLinePending(skill, lastActive, latestSeq), nil
+}
+
+func reviewLinePending(mark reviewWatermark, lastActive time.Time, latestSeq int64) bool {
+	if latestSeq > 0 {
+		return latestSeq > mark.Seq
+	}
+	return lastActive.After(mark.At)
 }
 
 func sortReviewTargets(targets []reviewTarget) {

@@ -76,22 +76,27 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 
 仅识别少量环境变量：
 
-| 变量                         | 描述                                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                | 覆盖主目录（默认 `~/.stella`）                                                           |
-| `STELLA_DATABASE_URL`        | 使用外部 PostgreSQL 数据库，而不是内嵌集群                                               |
-| `STELLA_BLOB_S3_ENDPOINT`    | 可选的 S3 兼容 endpoint，用于持久化用户资产镜像                                          |
-| `STELLA_BLOB_S3_BUCKET`      | 镜像用户上传资产的 bucket；需与 endpoint/access/secret 同时设置，或全部不设置            |
-| `STELLA_BLOB_S3_ACCESS_KEY`  | 资产镜像使用的 access key                                                                |
-| `STELLA_BLOB_S3_SECRET_KEY`  | 资产镜像使用的 secret key                                                                |
-| `STELLA_BLOB_S3_REGION`      | 可选 S3 region                                                                           |
-| `STELLA_BLOB_S3_USE_SSL`     | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
-| `ANTHROPIC_API_KEY`          | Anthropic 的备用 API 密钥                                                                |
-| `OPENAI_API_KEY`             | OpenAI 的备用 API 密钥                                                                   |
-| `STELLA_VAULT_KEY`           | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
-| `STELLA_DOCKER_SANDBOX_MODE` | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
-| `STELLA_HOME_HOST`           | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
-| `STELLA_HOME_VOLUME`         | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
+| 变量                          | 描述                                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                 | 覆盖主目录（默认 `~/.stella`）                                                           |
+| `STELLA_DATABASE_URL`         | 使用外部 PostgreSQL 数据库，而不是内嵌集群                                               |
+| `STELLA_BLOB_S3_ENDPOINT`     | 可选的 S3 兼容 endpoint，用于持久化用户资产镜像                                          |
+| `STELLA_BLOB_S3_BUCKET`       | 镜像用户上传资产的 bucket；需与 endpoint/access/secret 同时设置，或全部不设置            |
+| `STELLA_BLOB_S3_ACCESS_KEY`   | 资产镜像使用的 access key                                                                |
+| `STELLA_BLOB_S3_SECRET_KEY`   | 资产镜像使用的 secret key                                                                |
+| `STELLA_BLOB_S3_REGION`       | 可选 S3 region                                                                           |
+| `STELLA_BLOB_S3_USE_SSL`      | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
+| `ANTHROPIC_API_KEY`           | Anthropic 的备用 API 密钥                                                                |
+| `OPENAI_API_KEY`              | OpenAI 的备用 API 密钥                                                                   |
+| `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
+| `STELLA_DOCKER_SANDBOX_MODE`  | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
+| `STELLA_HOME_HOST`            | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
+| `STELLA_HOME_VOLUME`          | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
+| `STELLA_REFLECT_MODE`         | Reflect 写入模式：`legacy`（默认值和回滚目标）或 `structured`                            |
+| `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`shadow`（默认值和回滚目标）或 `armed`                                 |
+| `STELLA_REFLECT_INTERVAL`     | Reflect scheduler 周期，使用 Go duration；默认 `6h`，最小会被提升到 `1m`                 |
+
+Reflect 变量在服务启动时读取，修改后需要重启 Stella。无效的写入或 curator 模式会阻止启动；无法解析的周期会回退为 `6h`。启用和回滚步骤见[部署](/docs/start-here/deployment#启用-structured-reflect)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator-上线机制)。
 
 有关如何选择沙箱后端和配置 Docker 沙箱模式，请参阅[沙箱指南](/docs/guides/sandbox)。
 

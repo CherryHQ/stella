@@ -167,6 +167,7 @@ func mapStateKey(scope pkgplugins.StateScope, key string) string {
 type reviewListOnlyFake struct {
 	*memorytest.Fake
 	reviewCalled bool
+	latestSeq    map[string]int64
 }
 
 type reviewHistoryProvider struct {
@@ -212,7 +213,14 @@ func (f *reviewListOnlyFake) ListInfo(ctx context.Context, opts memory.ListOptio
 
 func (f *reviewListOnlyFake) ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
 	f.reviewCalled = true
-	return f.Fake.ListInfo(ctx, opts)
+	infos, err := f.Fake.ListInfo(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	for i := range infos {
+		infos[i].LatestSeq = f.latestSeq[infos[i].ID]
+	}
+	return infos, nil
 }
 
 func seedFakeSession(t *testing.T, fake *memorytest.Fake, id, agentID string, userID string, lastActive time.Time) {
@@ -339,6 +347,48 @@ func TestListUnreviewed_StructuredUsesOldestIncompleteLine(t *testing.T) {
 	}
 }
 
+func TestReviewProgressStructuredSeqDetectsTruncatedSuffix(t *testing.T) {
+	ctx := context.Background()
+	wm := newFakeWatermarks()
+	at := time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC)
+	if err := wm.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: at, Seq: 15}); err != nil {
+		t.Fatal(err)
+	}
+	if err := wm.setLine(ctx, "s1", reflectLineSkill, reviewWatermark{At: at, Seq: 20}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{wm: wm, runtimeMode: RuntimeModeStructured}
+
+	_, pending, err := svc.reviewProgress(ctx, "s1", at.Add(-time.Minute), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pending {
+		t.Fatal("Seq 16..20 must remain pending when the fact line stopped at Seq 15")
+	}
+}
+
+func TestListUnreviewedStructuredSeqDetectsConcurrentSuffix(t *testing.T) {
+	fake := &reviewListOnlyFake{Fake: memorytest.New(), latestSeq: map[string]int64{"s1": 16}}
+	wm := newFakeWatermarks()
+	lastActive := time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC)
+	seedFakeSession(t, fake.Fake, "s1", "a", "1", lastActive)
+	for _, line := range []reflectLine{reflectLineFact, reflectLineSkill} {
+		if err := wm.setLine(context.Background(), "s1", line, reviewWatermark{At: lastActive.Add(time.Minute), Seq: 15}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := &Service{memory: fake, wm: wm, runtimeMode: RuntimeModeStructured, log: testLogger()}
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].session.ID != "s1" {
+		t.Fatalf("targets = %#v, want s1 despite LastActive not advancing", targets)
+	}
+}
+
 func TestReviewProgressModeTransitionsAreMonotonic(t *testing.T) {
 	ctx := context.Background()
 	wm := newFakeWatermarks()
@@ -347,7 +397,7 @@ func TestReviewProgressModeTransitionsAreMonotonic(t *testing.T) {
 	svc := &Service{wm: wm, runtimeMode: RuntimeModeStructured}
 
 	// Entering structured mode floors both lines to the existing legacy mark.
-	mark, pending, err := svc.reviewProgress(ctx, "s1", legacy.Add(time.Hour))
+	mark, pending, err := svc.reviewProgress(ctx, "s1", legacy.Add(time.Hour), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +411,7 @@ func TestReviewProgressModeTransitionsAreMonotonic(t *testing.T) {
 	wm.setLineMark("s1", reflectLineFact, legacy.Add(2*time.Hour))
 	wm.setLineMark("s1", reflectLineSkill, legacy.Add(time.Hour))
 	svc.runtimeMode = RuntimeModeLegacy
-	mark, _, err = svc.reviewProgress(ctx, "s1", legacy.Add(3*time.Hour))
+	mark, _, err = svc.reviewProgress(ctx, "s1", legacy.Add(3*time.Hour), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +421,7 @@ func TestReviewProgressModeTransitionsAreMonotonic(t *testing.T) {
 
 	// A later structured resume must not rewind either line to the older global.
 	svc.runtimeMode = RuntimeModeStructured
-	mark, _, err = svc.reviewProgress(ctx, "s1", legacy.Add(3*time.Hour))
+	mark, _, err = svc.reviewProgress(ctx, "s1", legacy.Add(3*time.Hour), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

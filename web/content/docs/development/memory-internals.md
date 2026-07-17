@@ -142,13 +142,13 @@ Normal conversation tools do not directly write facts. Structured Reflect genera
 
 Reflect and the curator have independent boot-time controls:
 
-| Variable                      | Values                 | Rollout default | Meaning                                                  |
-| ----------------------------- | ---------------------- | --------------- | -------------------------------------------------------- |
-| `STELLA_REFLECT_MODE`         | `legacy`, `structured` | `legacy`        | Selects the only Reflect writer used by the scheduler    |
-| `STELLA_REFLECT_CURATOR_MODE` | `shadow`, `armed`      | `shadow`        | Selects dry-run scanning or lifecycle deprecation writes |
-| `STELLA_REFLECT_INTERVAL`     | Go duration            | `6h`            | Scheduler cadence; values below one minute are clamped   |
+| Variable                      | Values                 | Rollout default | Meaning                                                      |
+| ----------------------------- | ---------------------- | --------------- | ------------------------------------------------------------ |
+| `STELLA_REFLECT_MODE`         | `legacy`, `structured` | `legacy`        | Selects the only Reflect writer used by the scheduler        |
+| `STELLA_REFLECT_CURATOR_MODE` | `shadow`, `armed`      | `shadow`        | Selects dry-run scanning or Knowledge/Skill lifecycle writes |
+| `STELLA_REFLECT_INTERVAL`     | Go duration            | `6h`            | Scheduler cadence; values below one minute are clamped       |
 
-Invalid mode values fail server startup. Structured mode runs the Fact and Skill lines concurrently, with independent failures and watermarks; one failed line does not cancel or advance the other. Legacy `expireDrafts` runs only in legacy mode.
+Invalid mode values fail server startup. Structured mode runs the Fact and Skill lines concurrently, with independent failures and watermarks; one failed line does not cancel or advance the other.
 
 Mode transitions reuse the existing watermarks instead of adding mode state. On every legacy-to-structured transition, each line advances to at least the legacy global watermark. Structured mode then advances only its line watermarks. On a structured-to-legacy transition, the global watermark advances to the older line boundary, so pending content on the lagging line is not skipped; the ahead line may be conservatively replayed.
 

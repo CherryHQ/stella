@@ -181,6 +181,12 @@ func (s *Service) reviewConversationStructured(ctx context.Context, snap *config
 	if !target.privateOneToOne {
 		return nil
 	}
+	// The scheduler runs with system authority. Confine every structured read and
+	// write to the target's durable owner/executor pair before entering the
+	// pipeline, matching the legacy reviewer boundary.
+	ctx = authz.WithUserID(ctx, target.session.UserID)
+	ctx = authz.WithAgentID(ctx, target.session.AgentID)
+	ctx = memory.WithChangeSource(ctx, memory.SourceReflect)
 	ctx, span := startConversationSpan(ctx, target)
 	defer span.End()
 	span.SetAttributes(attribute.String("stella.reflect.mode", string(RuntimeModeStructured)))

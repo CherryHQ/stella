@@ -509,14 +509,21 @@ func (q *Queries) ListConversationsForReviewByAgent(ctx context.Context, agentID
 }
 
 const listConversationsForReviewFiltered = `-- name: ListConversationsForReviewFiltered :many
-SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id FROM ctx_conversation
-WHERE agent_id = $1
-  AND archived = false
-  AND user_id IS NOT NULL AND user_id <> ''
-  AND ($2::text IS NULL OR kind = $2)
-  AND ($3 = 0 OR project_id IS NULL)
-  AND ($4::text IS NULL OR project_id = $4)
-ORDER BY last_active DESC, session_id DESC
+SELECT
+  c.id, c.session_id, c.title, c.channel, c.kind, c.project_id, c.archived, c.last_active, c.bootstrapped_at, c.agent_id, c.user_id, c.created_at, c.updated_at, c.group_id,
+  COALESCE((
+    SELECT MAX(m.seq)
+    FROM ctx_message m
+    WHERE m.conversation_id = c.id
+  ), 0)::bigint AS latest_seq
+FROM ctx_conversation c
+WHERE c.agent_id = $1
+  AND c.archived = false
+  AND c.user_id IS NOT NULL AND c.user_id <> ''
+  AND ($2::text IS NULL OR c.kind = $2)
+  AND ($3 = 0 OR c.project_id IS NULL)
+  AND ($4::text IS NULL OR c.project_id = $4)
+ORDER BY c.last_active DESC, c.session_id DESC
 LIMIT NULLIF($6, -1) OFFSET $5
 `
 
@@ -529,9 +536,14 @@ type ListConversationsForReviewFilteredParams struct {
 	Limit           interface{} `json:"limit"`
 }
 
+type ListConversationsForReviewFilteredRow struct {
+	CtxConversation CtxConversation `json:"ctx_conversation"`
+	LatestSeq       int64           `json:"latest_seq"`
+}
+
 // Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
 // and such rows were never review candidates.
-func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]CtxConversation, error) {
+func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]ListConversationsForReviewFilteredRow, error) {
 	rows, err := q.db.Query(ctx, listConversationsForReviewFiltered,
 		arg.AgentID,
 		arg.Kind,
@@ -544,24 +556,25 @@ func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg Li
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxConversation{}
+	items := []ListConversationsForReviewFilteredRow{}
 	for rows.Next() {
-		var i CtxConversation
+		var i ListConversationsForReviewFilteredRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.SessionID,
-			&i.Title,
-			&i.Channel,
-			&i.Kind,
-			&i.ProjectID,
-			&i.Archived,
-			&i.LastActive,
-			&i.BootstrappedAt,
-			&i.AgentID,
-			&i.UserID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.GroupID,
+			&i.CtxConversation.ID,
+			&i.CtxConversation.SessionID,
+			&i.CtxConversation.Title,
+			&i.CtxConversation.Channel,
+			&i.CtxConversation.Kind,
+			&i.CtxConversation.ProjectID,
+			&i.CtxConversation.Archived,
+			&i.CtxConversation.LastActive,
+			&i.CtxConversation.BootstrappedAt,
+			&i.CtxConversation.AgentID,
+			&i.CtxConversation.UserID,
+			&i.CtxConversation.CreatedAt,
+			&i.CtxConversation.UpdatedAt,
+			&i.CtxConversation.GroupID,
+			&i.LatestSeq,
 		); err != nil {
 			return nil, err
 		}

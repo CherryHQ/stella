@@ -73,6 +73,18 @@ stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 
 `stellad upgrade` fetches a stable release from GitHub (the latest by default, or the version you pass as an argument), downloads the matching archive for the current OS/architecture while showing download progress, and replaces the running `stellad` binary by default. If the target directory is not writable, rerun the command with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
 
+### Roll Out Structured Reflect
+
+Reflect's writer and lifecycle curator are independent boot-time controls. Restart Stella after each mode change.
+
+1. Start with `STELLA_REFLECT_MODE=legacy` and `STELLA_REFLECT_CURATOR_MODE=shadow`. Shadow scans production data and records candidate volume, matched rules, runtime, and errors without changing Knowledge or Skills.
+2. After at least one complete Shadow scan, set `STELLA_REFLECT_MODE=structured` while keeping the curator in `shadow`. Verify Fact/Skill line progress, model calls, writes, no-ops, and failures.
+3. Set `STELLA_REFLECT_CURATOR_MODE=armed` only after authenticated Knowledge and Skill recovery is available and its recovery tests pass.
+
+To roll back Reflect writes, set `STELLA_REFLECT_MODE=legacy` and restart. To stop curator lifecycle writes independently, set `STELLA_REFLECT_CURATOR_MODE=shadow` and restart; read-only scans and telemetry continue. Mode changes preserve conservative watermarks so the lagging pipeline does not lose pending conversation content.
+
+See [Configuration](/docs/start-here/configuration#environment-variables) for defaults and accepted values. The [memory internals page](/docs/development/memory-internals#structured-reflect-and-curator-rollout) explains watermark transitions, Shadow evidence, and fail-closed behavior.
+
 ## Run as a Background Service
 
 ### macOS — Homebrew
