@@ -33,6 +33,7 @@ import {
   flattenAgentSkillPages,
 } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
+import { projectSessionsQueryOptions } from "@/lib/queries/sessions";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -232,8 +233,22 @@ export function SkillsListPage() {
   const { setHeaderActions } = useAppShell();
   const { toasts, showToast } = useToast();
   const { data: me } = useQuery(meQueryOptions);
-
   const source: Source = search.source ?? (search.new ? "manual" : "installed");
+  // Project Skills are filesystem-backed; the API resolves their authorized
+  // project root from a session that belongs to the current project.
+  const projectSessions = useQuery({
+    ...projectSessionsQueryOptions(agentId, projectId ?? ""),
+    enabled: source === "installed" && !!projectId,
+  });
+  const projectSessionId = projectId
+    ? (projectSessions.data?.find((session) => session.kind === "main")?.id ??
+      projectSessions.data?.[0]?.id)
+    : undefined;
+  const projectContextPending = !!projectId && projectSessions.isPending;
+  const projectContextError =
+    !!projectId &&
+    (projectSessions.isError || (projectSessions.isSuccess && projectSessionId == null));
+
   const fscope: ScopeFilter = search.fscope ?? "all";
   const sel = search.sel;
   const params = projectId ? { agentId, projectId } : { agentId };
@@ -256,10 +271,11 @@ export function SkillsListPage() {
     ...agentSkillsInfiniteQueryOptions({
       agentId,
       projectId,
+      sessionId: projectSessionId,
       ...(fscope !== "all" ? { scopeGroup: fscope } : {}),
       ...(debounced ? { q: debounced } : {}),
     }),
-    enabled: managementSource,
+    enabled: managementSource && (!projectId || !!projectSessionId),
   });
   const managedSkills = flattenAgentSkillPages(management.data?.pages) as Skill[];
   const firstManagementPage = management.data?.pages[0];
@@ -331,7 +347,14 @@ export function SkillsListPage() {
   }
 
   useEffect(() => {
-    if (!managementSource || !management.hasNextPage || management.isFetchingNextPage) return;
+    if (
+      !managementSource ||
+      !management.hasNextPage ||
+      management.isFetchingNextPage ||
+      management.isFetchNextPageError
+    ) {
+      return;
+    }
     const root = contentRef.current;
     const sentinel = sentinelRef.current;
     if (!root || !sentinel) return;
@@ -364,6 +387,7 @@ export function SkillsListPage() {
     managedSkills.length,
     management.hasNextPage,
     management.isFetchingNextPage,
+    management.isFetchNextPageError,
     management.fetchNextPage,
   ]);
 
@@ -443,15 +467,25 @@ export function SkillsListPage() {
       <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
         {managementSource && (
           <ManagedSkillsGrid
-            query={management}
+            query={{
+              isLoading: projectContextPending || management.isLoading,
+              isError: projectContextError || management.isError,
+              isFetchingNextPage: management.isFetchingNextPage,
+              isFetchNextPageError: management.isFetchNextPageError,
+              hasNextPage: management.hasNextPage,
+            }}
             skills={managedSkills}
             selectedId={selectedManaged?.id}
             onOpen={(s) => go({ sel: `${s.scope}:${s.id}` })}
-            onRetry={() =>
+            onRetry={() => {
+              if (projectContextError) {
+                void projectSessions.refetch();
+                return;
+              }
               void (management.isFetchNextPageError
                 ? management.fetchNextPage()
-                : management.refetch())
-            }
+                : management.refetch());
+            }}
             sentinelRef={sentinelRef}
           />
         )}
@@ -489,6 +523,7 @@ export function SkillsListPage() {
           {selectedManaged ? (
             <SkillInspector
               agentId={agentId}
+              sessionId={projectSessionId}
               skill={selectedManaged}
               notify={showToast}
               onClose={() => go({ sel: undefined })}
@@ -797,11 +832,13 @@ function MarketCard({
 
 function SkillInspector({
   agentId,
+  sessionId,
   skill,
   notify,
   onClose,
 }: {
   agentId: string;
+  sessionId?: string;
   skill: Skill;
   notify: ToastHandler;
   onClose: () => void;
@@ -820,15 +857,19 @@ function SkillInspector({
   const readOnly = scopeReadOnly;
   const canUpgrade = !readOnly && isUpdatableSource(skill.source);
   const detail = useQuery({
-    queryKey: ["agent-skill", agentId, skill.scope, skill.id],
+    queryKey: ["agent-skill", agentId, sessionId ?? "", skill.scope, skill.id],
     queryFn: async () =>
       (
         await getAgentSkill({
           path: { id: agentId, skillId: skill.id },
-          query: { scope: skill.scope as SkillScope },
+          query: {
+            scope: skill.scope as SkillScope,
+            ...(sessionId ? { session_id: sessionId } : {}),
+          },
           throwOnError: true,
         })
       ).data as Skill,
+    enabled: skill.scope !== "project" || !!sessionId,
   });
   const files = detail.data?.files ?? skill.files ?? [];
 
@@ -844,7 +885,7 @@ function SkillInspector({
     void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
     void queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
     void queryClient.invalidateQueries({
-      queryKey: ["agent-skill", agentId, skill.scope, skill.id],
+      queryKey: ["agent-skill", agentId, sessionId ?? "", skill.scope, skill.id],
     });
   }
 
@@ -854,7 +895,10 @@ function SkillInspector({
     try {
       await updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
-        query: { scope: skill.scope as SkillScope },
+        query: {
+          scope: skill.scope as SkillScope,
+          ...(sessionId ? { session_id: sessionId } : {}),
+        },
         body: {
           description,
           disable_model_invocation: !modelEnabled,
@@ -897,7 +941,10 @@ function SkillInspector({
     try {
       await deleteAgentSkill({
         path: { id: agentId, skillId: skill.id },
-        query: { scope: skill.scope as SkillScope },
+        query: {
+          scope: skill.scope as SkillScope,
+          ...(sessionId ? { session_id: sessionId } : {}),
+        },
         throwOnError: true,
       });
       notify(t("sessions.skillsList.deletedSuccess"), "success");
@@ -917,6 +964,7 @@ function SkillInspector({
     return (
       <SkillFileView
         agentId={agentId}
+        sessionId={sessionId}
         skill={skill}
         path={viewer}
         readOnly={readOnly}
@@ -1104,6 +1152,7 @@ function SkillInspector({
 // stays on the same surface instead of opening a separate centered dialog.
 function SkillFileView({
   agentId,
+  sessionId,
   skill,
   path,
   readOnly,
@@ -1112,6 +1161,7 @@ function SkillFileView({
   onClose,
 }: {
   agentId: string;
+  sessionId?: string;
   skill: Skill;
   path: string;
   readOnly: boolean;
@@ -1125,15 +1175,20 @@ function SkillFileView({
   const [draft, setDraft] = useState("");
   const [convertToManual, setConvertToManual] = useState(false);
   const file = useQuery({
-    queryKey: ["agent-skill-file", agentId, skill.scope, skill.id, path],
+    queryKey: ["agent-skill-file", agentId, sessionId ?? "", skill.scope, skill.id, path],
     queryFn: async () =>
       (
         await getAgentSkillFile({
           path: { id: agentId, skillId: skill.id },
-          query: { scope: skill.scope as SkillScope, path },
+          query: {
+            scope: skill.scope as SkillScope,
+            path,
+            ...(sessionId ? { session_id: sessionId } : {}),
+          },
           throwOnError: true,
         })
       ).data,
+    enabled: skill.scope !== "project" || !!sessionId,
   });
   const content = editing ? draft : (file.data?.content ?? "");
   useEffect(() => {
@@ -1145,7 +1200,10 @@ function SkillFileView({
     try {
       await updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
-        query: { scope: skill.scope as SkillScope },
+        query: {
+          scope: skill.scope as SkillScope,
+          ...(sessionId ? { session_id: sessionId } : {}),
+        },
         body: {
           files: { [path]: draft },
           ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
@@ -1156,7 +1214,7 @@ function SkillFileView({
       setConvertToManual(false);
       notify(t("sessions.skillsList.saved"), "success");
       void queryClient.invalidateQueries({
-        queryKey: ["agent-skill-file", agentId, skill.scope, skill.id, path],
+        queryKey: ["agent-skill-file", agentId, sessionId ?? "", skill.scope, skill.id, path],
       });
       void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
       void queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
