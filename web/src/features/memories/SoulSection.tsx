@@ -39,7 +39,7 @@ export function SoulSection({ agentId, soul: initialSoul }: Props) {
       setSoul(draft);
       setEditing(false);
       void queryClient.invalidateQueries({ queryKey: ["agent-memory", agentId] });
-      void queryClient.invalidateQueries({ queryKey: ["agent-changelog", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["agent-changelog-pages", agentId] });
     } finally {
       setSaving(false);
     }

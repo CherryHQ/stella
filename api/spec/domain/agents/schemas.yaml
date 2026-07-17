@@ -168,7 +168,6 @@ components:
           type: string
           enum: [user, user_agent, system_agent]
         description: { type: string }
-        status: { type: string }
         disable_model_invocation: { type: boolean }
         files:
           type: object
@@ -178,7 +177,6 @@ components:
       type: object
       properties:
         description: { type: string, nullable: true }
-        status: { type: string, nullable: true }
         disable_model_invocation: { type: boolean, nullable: true }
         # Overwrites only the "version" key in the skill's metadata; source and
         # install timestamps are preserved by a read-modify-write on the server.
