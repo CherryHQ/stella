@@ -35,7 +35,7 @@ func executeSkillReconciliationPlan(ctx context.Context, writer reflectSkillWrit
 			continue
 		case skillOperationCreate:
 			if err := authorizer.AuthorizeWorkerWrite(ctx, userID, agentID, "", true); err != nil {
-				return nil, err
+				return written, err
 			}
 			skill, err := writer.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 				UserID:          userID,
@@ -45,12 +45,12 @@ func executeSkillReconciliationPlan(ctx context.Context, writer reflectSkillWrit
 				MainFileContent: op.MainFileContent,
 			})
 			if err != nil {
-				return nil, err
+				return written, err
 			}
 			written = append(written, skill)
 		case skillOperationPatch:
 			if err := authorizer.AuthorizeWorkerWrite(ctx, userID, agentID, op.TargetSkillID, false); err != nil {
-				return nil, err
+				return written, err
 			}
 			mainFile := op.MainFileContent
 			patch := skills.ReflectSkillPatch{
@@ -66,7 +66,7 @@ func executeSkillReconciliationPlan(ctx context.Context, writer reflectSkillWrit
 			}
 			skill, err := writer.PatchReflectOwnedUserAgentSkill(ctx, patch)
 			if err != nil {
-				return nil, err
+				return written, err
 			}
 			written = append(written, skill)
 		}

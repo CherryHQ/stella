@@ -136,7 +136,31 @@ Reflect 被明确禁止添加、删除或编辑约束。普通会话工具也不
 
 Skills 仍然只表示可复用流程，不再通过 `metadata.knowledge_type` 创建或存储 fact/context knowledge。旧的 `user_agent` skill-backed knowledge 会由 v1 facts migration 迁移为 `subject=world` facts；更宽的 knowledge scope 留给后续设计。
 
-Reflect 可以维护 user profile 和 skills，但普通会话工具不直接写 facts。新的 `subject=world` fact 生成/写入工具链、related-fact search、confidence、usage tracking 和生命周期维护都是后续工作。
+普通会话工具不直接写 facts。Structured Reflect 会生成并评估 Fact/Skill 候选、发现相关的 Reflect-owned 记录、协调通过门控的候选，并通过 host 校验后的操作分别写入两条线。Usage tracking 和 curator 负责维护 active Reflect-owned Knowledge/Skill 的生命周期。
+
+## Structured Reflect 与 Curator 上线
+
+Reflect writer 和 curator 使用相互独立的启动时配置：
+
+| 环境变量                      | 可选值                 | 上线默认值 | 含义                                                |
+| ----------------------------- | ---------------------- | ---------- | --------------------------------------------------- |
+| `STELLA_REFLECT_MODE`         | `legacy`、`structured` | `legacy`   | 选择 scheduler 唯一执行的 Reflect writer            |
+| `STELLA_REFLECT_CURATOR_MODE` | `shadow`、`armed`      | `shadow`   | 选择只读扫描或实际执行 Knowledge/Skill 生命周期写入 |
+
+非法 mode 会让服务启动失败。Structured 模式并发运行 Fact/Skill 两条线，但错误与 watermark 相互独立；一条线失败不会取消另一条，也不会推进失败线。
+
+模式切换复用已有 watermark，不新增 mode 状态。每次从 legacy 切到 structured 时，两条 line watermark 都至少推进到当前 legacy global watermark；之后 structured 只推进各自的 line watermark。从 structured 切回 legacy 时，global watermark 只推进到两条线中较旧的边界，确保落后线尚未处理的内容不会被跳过；领先线的内容可能被 legacy 保守重放。
+
+Curator Shadow 是不产生业务写入的生产 dry-run，也是 armed 的回滚目标。它执行与 armed 相同的确定性 eligibility scan，记录候选类型、record ID、命中规则、活动输入、候选数量、规则分布、耗时和错误，但不修改记录 status、changelog 或 usage state。Ownership/scope gate、usage 检查、写入时 recheck 和依赖缺失时 fail-closed 由自动化测试保证，不在 Shadow 中增加逐条人工评审。
+
+按以下顺序上线：
+
+1. 部署 `legacy + shadow`，至少完成一次生产全量 Shadow 扫描。
+2. 检查候选规模、规则分布、运行耗时和无法解释的错误。
+3. 启用 `structured + shadow`，检查每条线的耗时、LLM 调用、生成/通过候选、写入、no-op、失败和 watermark 进度。
+4. 仅在具备经身份认证的 Knowledge/Skill 恢复入口且恢复测试通过后启用 `armed`。
+
+Writer 回滚时设置 `STELLA_REFLECT_MODE=legacy`，保守的 global watermark 切换可避免落后线丢失内容。生命周期写入可独立回滚为 `STELLA_REFLECT_CURATOR_MODE=shadow`；此时继续扫描和记录 telemetry，但停止后续废弃写入。
 
 ## LCM 插件
 

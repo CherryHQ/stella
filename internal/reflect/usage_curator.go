@@ -137,6 +137,9 @@ type usageCuratorReport struct {
 	KnowledgeDeprecated int
 	SkillCandidates     int
 	SkillDeleted        int
+	RuleCounts          map[string]int
+	Duration            time.Duration
+	Errors              int
 	Evidence            []usageCuratorEvidence
 }
 
@@ -152,10 +155,15 @@ type usageCuratorEvidence struct {
 	PairLatestActivityAt time.Time
 }
 
-func runUsageCurator(ctx context.Context, cfg usageCuratorRunConfig) (usageCuratorReport, error) {
+func runUsageCurator(ctx context.Context, cfg usageCuratorRunConfig) (report usageCuratorReport, runErr error) {
+	started := time.Now()
+	defer func() {
+		report.Duration = time.Since(started)
+		report.Errors = joinedErrorCount(runErr)
+	}()
 	settings := cfg.Settings.withDefaults()
 	now := settings.Now().UTC()
-	report := usageCuratorReport{Mode: settings.Mode, Pair: cfg.Pair}
+	report = usageCuratorReport{Mode: settings.Mode, Pair: cfg.Pair}
 	if cfg.Store == nil {
 		return report, nil
 	}
@@ -179,6 +187,7 @@ func runUsageCurator(ctx context.Context, cfg usageCuratorRunConfig) (usageCurat
 		report.SkillCandidates = len(skillsToDeprecate)
 	}
 	report.Evidence = usageCuratorEvidenceForCandidates(settings, now, knowledge, skillsToDeprecate)
+	report.RuleCounts = usageCuratorRuleCounts(report.Evidence)
 	if settings.Mode == usageCuratorModeShadow {
 		return report, errors.Join(knowledgeErr, skillErr)
 	}
@@ -206,6 +215,28 @@ func runUsageCurator(ctx context.Context, cfg usageCuratorRunConfig) (usageCurat
 		}
 	}
 	return report, errors.Join(writeErrs...)
+}
+
+func usageCuratorRuleCounts(evidence []usageCuratorEvidence) map[string]int {
+	counts := make(map[string]int)
+	for _, item := range evidence {
+		counts[item.RecordType+":"+item.Rule]++
+	}
+	return counts
+}
+
+func joinedErrorCount(err error) int {
+	if err == nil {
+		return 0
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		count := 0
+		for _, child := range joined.Unwrap() {
+			count += joinedErrorCount(child)
+		}
+		return count
+	}
+	return 1
 }
 
 func usageCuratorEvidenceForCandidates(settings usageCuratorSettings, now time.Time, knowledge []usageCuratorKnowledgeCandidate, skillCandidates []usageCuratorSkillCandidate) []usageCuratorEvidence {

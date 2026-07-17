@@ -51,6 +51,15 @@ type contextCheckingProvider struct {
 	t   *testing.T
 }
 
+type reviewHistoryProvider struct {
+	memory.Provider
+	messages []memory.ReviewMessage
+}
+
+func (p *reviewHistoryProvider) LoadReviewHistory(context.Context, string) ([]memory.ReviewMessage, error) {
+	return append([]memory.ReviewMessage(nil), p.messages...), nil
+}
+
 func (p *contextCheckingProvider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
 	p.t.Helper()
 	if got := ctx.Value(p.key); got != "memory-span" {
@@ -505,6 +514,32 @@ func TestTracedProvider_LoadHistory(t *testing.T) {
 	}
 	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpLoadHistory {
 		t.Errorf("expected LoadHistory event, got %v", col.events)
+	}
+}
+
+func TestTracedProvider_LoadReviewHistory(t *testing.T) {
+	inner := &reviewHistoryProvider{
+		Provider: memorytest.New(),
+		messages: []memory.ReviewMessage{{
+			ID: "message-1", FirstSeq: 1, LastSeq: 1,
+			Message: ai.UserMessage{Content: "durable preference"},
+		}},
+	}
+	traced, col := newTracedWithCollector(inner)
+
+	reader, ok := traced.(memory.ReviewHistoryReader)
+	if !ok {
+		t.Fatal("traced provider does not expose ReviewHistoryReader")
+	}
+	msgs, err := reader.LoadReviewHistory(context.Background(), testSession.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].LastSeq != 1 {
+		t.Fatalf("review history = %#v, want stable seq boundary", msgs)
+	}
+	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpLoadReviewHistory {
+		t.Fatalf("events = %#v, want LoadReviewHistory event", col.events)
 	}
 }
 

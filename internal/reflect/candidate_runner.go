@@ -43,16 +43,20 @@ type skillEvaluationCapturePayload struct {
 // capture tools are not executed; their tool-call arguments are the structured
 // output collected from the provider stream.
 type candidateLineReviewer struct {
-	Stream  providers.StreamFunc
-	Model   ai.Model
-	Options ai.CompleteOptions
-	Gates   CandidateGateSettings
+	Stream      providers.StreamFunc
+	Model       ai.Model
+	Options     ai.CompleteOptions
+	Gates       CandidateGateSettings
+	OnGenerated func(int)
 }
 
 func (r candidateLineReviewer) runFactLine(ctx context.Context, unit ReviewUnit) ([]factCandidate, error) {
 	candidates, err := r.generateFactCandidates(ctx, unit)
 	if err != nil {
 		return nil, err
+	}
+	if r.OnGenerated != nil {
+		r.OnGenerated(len(candidates))
 	}
 	if len(candidates) == 0 {
 		return nil, nil
@@ -69,6 +73,9 @@ func (r candidateLineReviewer) runSkillLine(ctx context.Context, unit ReviewUnit
 	candidates, err := r.generateSkillCandidates(ctx, unit)
 	if err != nil {
 		return nil, err
+	}
+	if r.OnGenerated != nil {
+		r.OnGenerated(len(candidates))
 	}
 	if len(candidates) == 0 {
 		return nil, nil

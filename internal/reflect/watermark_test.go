@@ -213,6 +213,102 @@ func TestWatermarkStore_LinePrefersLineValueOverLegacy(t *testing.T) {
 	}
 }
 
+func TestWatermarkStore_LineAdvancesToNewerLegacyAndClearsSequence(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	line := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	legacy := line.Add(time.Hour)
+	if err := ws.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: line, Seq: 42}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.set(ctx, "s1", legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ws.getLine(ctx, "s1", reflectLineFact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.At.Equal(legacy) || got.Seq != 0 {
+		t.Fatalf("line watermark = %#v, want legacy time with cleared sequence", got)
+	}
+	raw, ok, err := ws.store.Get(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeSession, ID: "s1"}, lineWatermarkKey(reflectLineFact))
+	if err != nil || !ok {
+		t.Fatalf("read persisted line: ok=%t err=%v", ok, err)
+	}
+	if _, exists := raw["reviewed_seq"]; exists {
+		t.Fatalf("persisted watermark kept stale sequence: %#v", raw)
+	}
+}
+
+func TestWatermarkStore_GetLegacyAdvancesToOlderStructuredLine(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	legacy := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+	fact := legacy.Add(2 * time.Hour)
+	skill := legacy.Add(time.Hour)
+	if err := ws.set(ctx, "s1", legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: fact}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.setLine(ctx, "s1", reflectLineSkill, reviewWatermark{At: skill}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ws.getLegacy(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(skill) {
+		t.Fatalf("legacy watermark = %v, want older structured line %v", got, skill)
+	}
+	persisted, err := ws.get(ctx, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.Equal(skill) {
+		t.Fatalf("persisted legacy watermark = %v, want %v", persisted, skill)
+	}
+}
+
+func TestWatermarkStore_GetLegacyRequiresBothStructuredLinesAndNeverRewinds(t *testing.T) {
+	ws, ctx := newTestWatermarkStore(t)
+
+	legacy := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
+	if err := ws.set(ctx, "missing", legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.setLine(ctx, "missing", reflectLineFact, reviewWatermark{At: legacy.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ws.getLegacy(ctx, "missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(legacy) {
+		t.Fatalf("legacy with one line = %v, want unchanged %v", got, legacy)
+	}
+
+	if err := ws.setLine(ctx, "older", reflectLineFact, reviewWatermark{At: legacy.Add(-2 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.setLine(ctx, "older", reflectLineSkill, reviewWatermark{At: legacy.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ws.set(ctx, "older", legacy); err != nil {
+		t.Fatal(err)
+	}
+	got, err = ws.getLegacy(ctx, "older")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(legacy) {
+		t.Fatalf("legacy watermark rewound to %v, want %v", got, legacy)
+	}
+}
+
 func TestWatermarkStore_LineSetWritesSeq(t *testing.T) {
 	ws, ctx := newTestWatermarkStore(t)
 

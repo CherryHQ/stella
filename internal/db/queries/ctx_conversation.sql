@@ -116,14 +116,21 @@ ORDER BY last_active DESC, session_id DESC;
 -- name: ListConversationsForReviewFiltered :many
 -- Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
 -- and such rows were never review candidates.
-SELECT * FROM ctx_conversation
-WHERE agent_id = sqlc.arg(agent_id)
-  AND archived = false
-  AND user_id IS NOT NULL AND user_id <> ''
-  AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
-  AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
-  AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
-ORDER BY last_active DESC, session_id DESC
+SELECT
+  sqlc.embed(c),
+  COALESCE((
+    SELECT MAX(m.seq)
+    FROM ctx_message m
+    WHERE m.conversation_id = c.id
+  ), 0)::bigint AS latest_seq
+FROM ctx_conversation c
+WHERE c.agent_id = sqlc.arg(agent_id)
+  AND c.archived = false
+  AND c.user_id IS NOT NULL AND c.user_id <> ''
+  AND (sqlc.narg(kind)::text IS NULL OR c.kind = sqlc.narg(kind))
+  AND (sqlc.arg(project_id_is_null) = 0 OR c.project_id IS NULL)
+  AND (sqlc.narg(project_id)::text IS NULL OR c.project_id = sqlc.narg(project_id))
+ORDER BY c.last_active DESC, c.session_id DESC
 LIMIT NULLIF(sqlc.arg('limit'), -1) OFFSET sqlc.arg('offset');
 
 -- name: ListConversationsByKind :many

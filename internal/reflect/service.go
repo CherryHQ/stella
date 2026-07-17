@@ -2,6 +2,7 @@ package reflect
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -16,6 +17,32 @@ const (
 	defaultMaxReviewTargetsPerAgent = 30
 	defaultReflectRunSoftBudget     = 15 * time.Minute
 )
+
+// RuntimeMode selects the only Reflect writer that the scheduler may run.
+// Keeping this boot-time-static prevents one target from being reviewed by
+// legacy and structured writers during the same process lifetime.
+type RuntimeMode string
+
+const (
+	RuntimeModeLegacy     RuntimeMode = "legacy"
+	RuntimeModeStructured RuntimeMode = "structured"
+)
+
+func (m RuntimeMode) withDefault() RuntimeMode {
+	if m == "" {
+		return RuntimeModeLegacy
+	}
+	return m
+}
+
+func (m RuntimeMode) validate() error {
+	switch m.withDefault() {
+	case RuntimeModeLegacy, RuntimeModeStructured:
+		return nil
+	default:
+		return fmt.Errorf("unsupported runtime mode %q", m)
+	}
+}
 
 // skillWriteAuthorizer authorizes reflect's staged skill writes (create/patch/
 // delete) under a fresh trusted WorkerAgentAuthority per operation. It is
@@ -43,6 +70,9 @@ type Config struct {
 	Log                      *slog.Logger
 	Providers                func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 	CandidateGates           CandidateGateSettings
+	// RuntimeMode selects legacy or structured review for the scheduler cycle.
+	// It defaults to legacy during rollout.
+	RuntimeMode RuntimeMode
 	// UsageCuratorSettings defaults to shadow mode. Production may enable armed
 	// mode explicitly via host wiring; restore remains an internal/admin path.
 	UsageCuratorSettings UsageCuratorSettings
@@ -55,6 +85,7 @@ type Config struct {
 // watermarker abstracts watermark storage for testability.
 type watermarker interface {
 	get(ctx context.Context, sessionID string) (time.Time, error)
+	getLegacy(ctx context.Context, sessionID string) (time.Time, error)
 	set(ctx context.Context, sessionID string, at time.Time) error
 	getLine(ctx context.Context, sessionID string, line reflectLine) (reviewWatermark, error)
 	setLine(ctx context.Context, sessionID string, line reflectLine, mark reviewWatermark) error
@@ -80,6 +111,7 @@ type Service struct {
 	providers                func(api, apiKey, baseURL string) (providers.StreamFunc, error)
 	candidateGates           CandidateGateSettings
 	usageCuratorSettings     UsageCuratorSettings
+	runtimeMode              RuntimeMode
 	services                 agent.ServiceManager
 }
 
@@ -107,6 +139,7 @@ func New(cfg Config) *Service {
 		providers:                cfg.Providers,
 		candidateGates:           cfg.CandidateGates.withDefaults(),
 		usageCuratorSettings:     cfg.UsageCuratorSettings.withDefaults(),
+		runtimeMode:              cfg.RuntimeMode.withDefault(),
 		services:                 cfg.Services,
 	}
 }

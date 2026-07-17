@@ -31,7 +31,7 @@ func TestUsageCuratorShadowReportsWithoutWriting(t *testing.T) {
 			FactID: "fact-1", UserID: "user-1", AgentID: "agent-1",
 		}},
 		skill: []usageCuratorSkillCandidate{{
-			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", Version: 3,
+			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", Version: 3, Rule: usageCuratorSkillRuleLowUse,
 		}},
 	}
 	factWriter := &fakeUsageCuratorFactWriter{}
@@ -57,6 +57,12 @@ func TestUsageCuratorShadowReportsWithoutWriting(t *testing.T) {
 	if len(report.Evidence) != 2 {
 		t.Fatalf("shadow evidence = %#v, want one knowledge and one skill item", report.Evidence)
 	}
+	if report.RuleCounts["knowledge:idle"] != 1 || report.RuleCounts["skill:low_use"] != 1 {
+		t.Fatalf("shadow rule counts = %#v, want one candidate of each rule", report.RuleCounts)
+	}
+	if report.Errors != 0 || report.Duration < 0 {
+		t.Fatalf("shadow runtime evidence = duration %v errors %d", report.Duration, report.Errors)
+	}
 	if report.Evidence[0].UserID != "user-1" || report.Evidence[0].AgentID != "agent-1" || report.Evidence[0].RecordID == "" {
 		t.Fatalf("shadow evidence missing pair or record identity: %#v", report.Evidence)
 	}
@@ -65,6 +71,27 @@ func TestUsageCuratorShadowReportsWithoutWriting(t *testing.T) {
 	}
 	if len(skillWriter.inputs) != 0 {
 		t.Fatalf("shadow skill writes = %#v, want none", skillWriter.inputs)
+	}
+}
+
+func TestUsageCuratorReportCountsIndependentScanErrors(t *testing.T) {
+	store := fakeUsageCuratorStore{
+		knowledgeErrors: map[string]error{"user-1\x00agent-1": errors.New("knowledge scan")},
+		skillErrors:     map[string]error{"user-1\x00agent-1": errors.New("skill scan")},
+	}
+	report, err := runUsageCurator(context.Background(), usageCuratorRunConfig{
+		Store: store,
+		Pair:  usageCuratorPair{UserID: "user-1", AgentID: "agent-1"},
+		Settings: usageCuratorSettings{
+			Mode: usageCuratorModeShadow,
+			Now:  fixedUsageCuratorNow,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected joined scan errors")
+	}
+	if report.Errors != 2 {
+		t.Fatalf("report.Errors = %d, want 2", report.Errors)
 	}
 }
 
@@ -789,6 +816,7 @@ type fakeUsageCuratorStore struct {
 	knowledge       []usageCuratorKnowledgeCandidate
 	skill           []usageCuratorSkillCandidate
 	knowledgeErrors map[string]error
+	skillErrors     map[string]error
 }
 
 func (s fakeUsageCuratorStore) ListReflectUsagePairs(context.Context) ([]usageCuratorPair, error) {
@@ -810,6 +838,9 @@ func (s fakeUsageCuratorStore) ListStaleReflectKnowledge(_ context.Context, quer
 }
 
 func (s fakeUsageCuratorStore) ListStaleReflectSkills(_ context.Context, query usageCuratorSkillQuery) ([]usageCuratorSkillCandidate, error) {
+	if err := s.skillErrors[usageCuratorPairMapKey(query.UserID, query.AgentID)]; err != nil {
+		return nil, err
+	}
 	out := make([]usageCuratorSkillCandidate, 0, len(s.skill))
 	for _, candidate := range s.skill {
 		if query.UserID != "" && (candidate.UserID != query.UserID || candidate.AgentID != query.AgentID) {

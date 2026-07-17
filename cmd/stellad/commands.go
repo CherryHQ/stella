@@ -272,7 +272,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Workspace:                config.StellaHome(),
 		Providers:                providerStreamBuilder,
 		Services:                 &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-	}, cfg.Reflect.Interval, cfg.Reflect.CuratorMode); err != nil {
+	}, cfg.Reflect.Interval, cfg.Reflect.Mode, cfg.Reflect.CuratorMode); err != nil {
 		return nil, err
 	}
 

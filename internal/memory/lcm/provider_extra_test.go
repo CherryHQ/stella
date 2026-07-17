@@ -534,6 +534,46 @@ func TestLCMProvider_LoadReviewHistoryPreservesSeqBoundary(t *testing.T) {
 	}
 }
 
+func TestLCMProvider_ListInfoForReviewIncludesLatestSeq(t *testing.T) {
+	p, cleanup := newLCMTestProvider(t)
+	defer cleanup()
+
+	sess := newLCMTestSession("review-latest-seq")
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Append(ctx, sess,
+		ai.UserMessage{Content: "hello"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{
+			ai.TextContent{Text: "working"},
+			ai.ToolCall{ID: "tc1", Name: "shell", Arguments: map[string]any{"cmd": "true"}},
+		}},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	lister, ok := p.(interface {
+		ListInfoForReview(context.Context, memory.ListOptions) ([]memory.SessionInfo, error)
+	})
+	if !ok {
+		t.Fatal("LCM provider does not implement review listing")
+	}
+	infos, err := lister.ListInfoForReview(context.Background(), memory.ListOptions{AgentID: sess.AgentID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, info := range infos {
+		if info.ID == sess.ID {
+			if info.LatestSeq != 3 {
+				t.Fatalf("LatestSeq = %d, want 3", info.LatestSeq)
+			}
+			return
+		}
+	}
+	t.Fatalf("session %q not found in review listing", sess.ID)
+}
+
 func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer func() { db.Close() }()

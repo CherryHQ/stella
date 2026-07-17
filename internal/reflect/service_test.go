@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ func testLogger() *slog.Logger {
 
 // fakeWatermarks is a test double for watermarker.
 type fakeWatermarks struct {
+	mu        sync.RWMutex
 	marks     map[string]time.Time
 	lineMarks map[string]time.Time
 	lineSeqs  map[string]int64
@@ -37,42 +39,89 @@ func newFakeWatermarks() *fakeWatermarks {
 }
 
 func (f *fakeWatermarks) get(_ context.Context, sessionID string) (time.Time, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.marks[sessionID], nil
 }
 
+func (f *fakeWatermarks) getLegacy(_ context.Context, sessionID string) (time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	legacy := f.marks[sessionID]
+	factKey := fakeLineWatermarkKey(sessionID, reflectLineFact)
+	skillKey := fakeLineWatermarkKey(sessionID, reflectLineSkill)
+	fact, factOK := f.lineMarks[factKey]
+	skill, skillOK := f.lineMarks[skillKey]
+	if !factOK || !skillOK {
+		return legacy, nil
+	}
+	if structured := olderWatermarkTime(fact, skill); structured.After(legacy) {
+		f.marks[sessionID] = structured
+		return structured, nil
+	}
+	return legacy, nil
+}
+
 func (f *fakeWatermarks) set(_ context.Context, sessionID string, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.marks[sessionID] = at
 	return nil
 }
 
 func (f *fakeWatermarks) getLine(_ context.Context, sessionID string, line reflectLine) (reviewWatermark, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	key := fakeLineWatermarkKey(sessionID, line)
 	mark := reviewWatermark{Seq: f.lineSeqs[key]}
 	if at, ok := f.lineMarks[key]; ok {
-		mark.At = at
+		legacy := f.marks[sessionID]
+		if legacy.After(at) {
+			f.lineMarks[key] = legacy
+			delete(f.lineSeqs, key)
+			mark = reviewWatermark{At: legacy}
+		} else {
+			mark.At = at
+		}
 		return mark, nil
 	}
 	mark.At = f.marks[sessionID]
+	if !mark.At.IsZero() {
+		f.lineMarks[key] = mark.At
+	}
 	return mark, nil
 }
 
 func (f *fakeWatermarks) setLine(_ context.Context, sessionID string, line reflectLine, mark reviewWatermark) error {
-	f.setLineMark(sessionID, line, mark.At)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := fakeLineWatermarkKey(sessionID, line)
+	f.lineMarks[key] = mark.At
 	if mark.Seq > 0 {
-		f.lineSeqs[fakeLineWatermarkKey(sessionID, line)] = mark.Seq
+		f.lineSeqs[key] = mark.Seq
+	} else {
+		delete(f.lineSeqs, key)
 	}
 	return nil
 }
 
 func (f *fakeWatermarks) setLineMark(sessionID string, line reflectLine, at time.Time) {
-	f.lineMarks[fakeLineWatermarkKey(sessionID, line)] = at
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := fakeLineWatermarkKey(sessionID, line)
+	f.lineMarks[key] = at
+	delete(f.lineSeqs, key)
 }
 
 func (f *fakeWatermarks) lineMark(sessionID string, line reflectLine) time.Time {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.lineMarks[fakeLineWatermarkKey(sessionID, line)]
 }
 
 func (f *fakeWatermarks) lineSeq(sessionID string, line reflectLine) int64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.lineSeqs[fakeLineWatermarkKey(sessionID, line)]
 }
 
@@ -118,6 +167,7 @@ func mapStateKey(scope pkgplugins.StateScope, key string) string {
 type reviewListOnlyFake struct {
 	*memorytest.Fake
 	reviewCalled bool
+	latestSeq    map[string]int64
 }
 
 type reviewHistoryProvider struct {
@@ -163,7 +213,14 @@ func (f *reviewListOnlyFake) ListInfo(ctx context.Context, opts memory.ListOptio
 
 func (f *reviewListOnlyFake) ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
 	f.reviewCalled = true
-	return f.Fake.ListInfo(ctx, opts)
+	infos, err := f.Fake.ListInfo(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	for i := range infos {
+		infos[i].LatestSeq = f.latestSeq[infos[i].ID]
+	}
+	return infos, nil
 }
 
 func seedFakeSession(t *testing.T, fake *memorytest.Fake, id, agentID string, userID string, lastActive time.Time) {
@@ -265,6 +322,111 @@ func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 	}
 	if targets[0].session.ID != "s2" {
 		t.Errorf("expected session s2, got %s", targets[0].session.ID)
+	}
+}
+
+func TestListUnreviewed_StructuredUsesOldestIncompleteLine(t *testing.T) {
+	fake := memorytest.New()
+	wm := newFakeWatermarks()
+	svc := &Service{memory: fake, wm: wm, runtimeMode: RuntimeModeStructured, log: testLogger()}
+
+	lastActive := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	seedFakeSession(t, fake, "s1", "a", "1", lastActive)
+	wm.setLineMark("s1", reflectLineFact, lastActive)
+	wm.setLineMark("s1", reflectLineSkill, lastActive.Add(-time.Hour))
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("targets = %d, want one while skill line is behind", len(targets))
+	}
+	if !targets[0].lastReview.Equal(lastActive.Add(-time.Hour)) {
+		t.Fatalf("lastReview = %v, want lagging skill boundary", targets[0].lastReview)
+	}
+}
+
+func TestReviewProgressStructuredSeqDetectsTruncatedSuffix(t *testing.T) {
+	ctx := context.Background()
+	wm := newFakeWatermarks()
+	at := time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC)
+	if err := wm.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: at, Seq: 15}); err != nil {
+		t.Fatal(err)
+	}
+	if err := wm.setLine(ctx, "s1", reflectLineSkill, reviewWatermark{At: at, Seq: 20}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{wm: wm, runtimeMode: RuntimeModeStructured}
+
+	_, pending, err := svc.reviewProgress(ctx, "s1", at.Add(-time.Minute), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pending {
+		t.Fatal("Seq 16..20 must remain pending when the fact line stopped at Seq 15")
+	}
+}
+
+func TestListUnreviewedStructuredSeqDetectsConcurrentSuffix(t *testing.T) {
+	fake := &reviewListOnlyFake{Fake: memorytest.New(), latestSeq: map[string]int64{"s1": 16}}
+	wm := newFakeWatermarks()
+	lastActive := time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC)
+	seedFakeSession(t, fake.Fake, "s1", "a", "1", lastActive)
+	for _, line := range []reflectLine{reflectLineFact, reflectLineSkill} {
+		if err := wm.setLine(context.Background(), "s1", line, reviewWatermark{At: lastActive.Add(time.Minute), Seq: 15}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := &Service{memory: fake, wm: wm, runtimeMode: RuntimeModeStructured, log: testLogger()}
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].session.ID != "s1" {
+		t.Fatalf("targets = %#v, want s1 despite LastActive not advancing", targets)
+	}
+}
+
+func TestReviewProgressModeTransitionsAreMonotonic(t *testing.T) {
+	ctx := context.Background()
+	wm := newFakeWatermarks()
+	legacy := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
+	wm.marks["s1"] = legacy
+	svc := &Service{wm: wm, runtimeMode: RuntimeModeStructured}
+
+	// Entering structured mode floors both lines to the existing legacy mark.
+	mark, pending, err := svc.reviewProgress(ctx, "s1", legacy.Add(time.Hour), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pending || !mark.Equal(legacy) {
+		t.Fatalf("structured progress = (%v, %t), want (%v, true)", mark, pending, legacy)
+	}
+	if !wm.lineMark("s1", reflectLineFact).Equal(legacy) || !wm.lineMark("s1", reflectLineSkill).Equal(legacy) {
+		t.Fatalf("structured lines were not initialized from legacy: fact=%v skill=%v", wm.lineMark("s1", reflectLineFact), wm.lineMark("s1", reflectLineSkill))
+	}
+
+	wm.setLineMark("s1", reflectLineFact, legacy.Add(2*time.Hour))
+	wm.setLineMark("s1", reflectLineSkill, legacy.Add(time.Hour))
+	svc.runtimeMode = RuntimeModeLegacy
+	mark, _, err = svc.reviewProgress(ctx, "s1", legacy.Add(3*time.Hour), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mark.Equal(legacy.Add(time.Hour)) {
+		t.Fatalf("legacy resumed at %v, want lagging structured line", mark)
+	}
+
+	// A later structured resume must not rewind either line to the older global.
+	svc.runtimeMode = RuntimeModeStructured
+	mark, _, err = svc.reviewProgress(ctx, "s1", legacy.Add(3*time.Hour), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mark.Equal(legacy.Add(time.Hour)) {
+		t.Fatalf("structured resumed at %v, want existing lagging line", mark)
 	}
 }
 
@@ -396,6 +558,38 @@ func TestReviewAgentCursorRotatesAgentOrder(t *testing.T) {
 
 type softBudgetReflectStore struct {
 	agents []config.Agent
+}
+
+func TestSelectReviewTargetFuncChoosesExactlyOneWriter(t *testing.T) {
+	for _, tt := range []struct {
+		mode RuntimeMode
+		want string
+	}{
+		{mode: RuntimeModeLegacy, want: "legacy"},
+		{mode: RuntimeModeStructured, want: "structured"},
+	} {
+		t.Run(string(tt.mode), func(t *testing.T) {
+			called := ""
+			legacy := func(context.Context, *config.Snapshot, reviewTarget) error {
+				called = "legacy"
+				return nil
+			}
+			structured := func(context.Context, *config.Snapshot, reviewTarget) error {
+				called = "structured"
+				return nil
+			}
+			selected, err := selectReviewTargetFunc(tt.mode, legacy, structured)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := selected(context.Background(), nil, reviewTarget{}); err != nil {
+				t.Fatal(err)
+			}
+			if called != tt.want {
+				t.Fatalf("selected writer = %q, want %q", called, tt.want)
+			}
+		})
+	}
 }
 
 func (s softBudgetReflectStore) ListEnabledAgents(context.Context) ([]config.Agent, error) {

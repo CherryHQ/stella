@@ -517,6 +517,25 @@ func TestBuildReviewUnitSkipsSingleMessageWhenFreshEnvelopeExceedsBudget(t *test
 	}
 }
 
+func TestBuildReviewUnitCalibratesLegacyTimeWatermarkToStableSeq(t *testing.T) {
+	messageAt := time.Date(2026, 7, 17, 8, 0, 0, 0, time.UTC)
+	legacyAt := messageAt.Add(time.Minute)
+	svc := &Service{memory: &reviewHistoryProvider{messages: []memory.ReviewMessage{
+		{ID: "msg-1", FirstSeq: 1, LastSeq: 1, Message: ai.UserMessage{Content: "already reviewed", Timestamp: messageAt}},
+	}}, log: testLogger()}
+
+	unit, err := svc.buildReviewUnit(context.Background(), reviewTarget{
+		session:         memory.Session{ID: "s1", AgentID: "a", UserID: "u1"},
+		privateOneToOne: true,
+	}, reviewWatermark{At: legacyAt}, 400)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unit.FreshCount != 0 || unit.LastIncludedSeq != 1 || !unit.LastIncludedAt.Equal(legacyAt) {
+		t.Fatalf("legacy watermark calibration = %#v, want Seq 1 at unchanged legacy time", unit)
+	}
+}
+
 func TestBuildReviewUnit_IncludesRedactedToolSummary(t *testing.T) {
 	fake := memorytest.New()
 	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
