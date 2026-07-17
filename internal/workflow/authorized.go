@@ -52,9 +52,9 @@ func (s *Service) access(authority authz.Authority) *Access {
 // InstantiateAs authorizes and instantiates a workflow under authority. It is the
 // narrow cross-domain entry point used by scheduler dispatch; request fields never
 // establish ownership or the executor.
-func (s *Service) InstantiateAs(ctx context.Context, authority authz.Authority, id string, inputs map[string]string, idempotencyKey string) (sqlc.AgentWorkflowRun, bool, error) {
+func (s *Service) InstantiateAs(ctx context.Context, authority authz.Authority, id string, inputs map[string]string, idempotencyKey string) (Run, bool, error) {
 	if !authority.Valid() {
-		return sqlc.AgentWorkflowRun{}, false, ErrForbidden
+		return Run{}, false, ErrForbidden
 	}
 	return s.access(authority).Instantiate(ctx, id, inputs, idempotencyKey)
 }
@@ -63,7 +63,7 @@ func (s *Service) InstantiateAs(ctx context.Context, authority authz.Authority, 
 // same direct read rule. A user actor may narrow the query to one agent; a
 // delegated agent is always confined to its own bound agent regardless of the
 // filter. The query remains owner-scoped even for admins by established contract.
-func (a *Access) List(ctx context.Context, agentFilter string) ([]sqlc.AgentWorkflow, error) {
+func (a *Access) List(ctx context.Context, agentFilter string) ([]Workflow, error) {
 	if err := a.authorize(authz.ActionList, sqlc.AgentWorkflow{}); err != nil {
 		return nil, err
 	}
@@ -81,23 +81,23 @@ func (a *Access) List(ctx context.Context, agentFilter string) ([]sqlc.AgentWork
 			out = append(out, wf)
 		}
 	}
-	return out, nil
+	return workflowsFromRows(out), nil
 }
 
 // Get authorizes reading one workflow.
-func (a *Access) Get(ctx context.Context, id string) (sqlc.AgentWorkflow, error) {
+func (a *Access) Get(ctx context.Context, id string) (Workflow, error) {
 	wf, err := a.load(ctx, id)
 	if err != nil {
-		return sqlc.AgentWorkflow{}, err
+		return Workflow{}, err
 	}
 	if err := a.authorize(authz.ActionRead, wf); err != nil {
-		return sqlc.AgentWorkflow{}, err
+		return Workflow{}, err
 	}
-	return wf, nil
+	return workflowFromRow(wf), nil
 }
 
 // ListRuns authorizes reading a workflow, then returns its run page.
-func (a *Access) ListRuns(ctx context.Context, id string, limit, offset int32) ([]sqlc.ListWorkflowRunsRow, int64, error) {
+func (a *Access) ListRuns(ctx context.Context, id string, limit, offset int32) ([]RunListItem, int64, error) {
 	wf, err := a.load(ctx, id)
 	if err != nil {
 		return nil, 0, err
@@ -113,7 +113,7 @@ func (a *Access) ListRuns(ctx context.Context, id string, limit, offset int32) (
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: list workflow runs: %w", ErrUnavailable, err)
 	}
-	return rows, total, nil
+	return runListItemsFromRows(rows), total, nil
 }
 
 // Delete authorizes deleting a workflow, then removes it (blocked when runs or
@@ -132,73 +132,73 @@ func (a *Access) Delete(ctx context.Context, id string) error {
 // SaveGoalAsWorkflow freezes an accepted goal tree into a workflow. The source
 // Goal owns its read decision; its persisted agent determines the workflow's
 // target, and Agent owns the target execute decision.
-func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.AgentWorkflow, error) {
+func (a *Access) SaveGoalAsWorkflow(ctx context.Context, in SaveInput) (Workflow, error) {
 	if a.svc.agents == nil {
-		return sqlc.AgentWorkflow{}, fmt.Errorf("%w: agent authorization is not configured", ErrUnavailable)
+		return Workflow{}, fmt.Errorf("%w: agent authorization is not configured", ErrUnavailable)
 	}
 	if a.userID == "" {
-		return sqlc.AgentWorkflow{}, ErrForbidden
+		return Workflow{}, ErrForbidden
 	}
 	if a.svc.goal == nil {
-		return sqlc.AgentWorkflow{}, fmt.Errorf("%w: goal authorization is not configured", ErrUnavailable)
+		return Workflow{}, fmt.Errorf("%w: goal authorization is not configured", ErrUnavailable)
 	}
-	// The source row is durable authority-bearing state. Do not trust request
-	// ownership or target-agent fields.
-	goalRow, err := a.svc.goal.Authorize(ctx, a.authority, in.GoalID, authz.ActionRead)
+	// The source goal's durable identity is authority-bearing state. Do not trust
+	// request ownership or target-agent fields.
+	authorized, err := a.svc.goal.Authorize(ctx, a.authority, in.GoalID, authz.ActionRead)
 	if err != nil {
-		return sqlc.AgentWorkflow{}, mapGoalAuthzError(err)
+		return Workflow{}, mapGoalAuthzError(err)
 	}
-	in.UserID = goalRow.UserID
-	in.AgentID = goalRow.AgentID
+	in.UserID = authorized.UserID
+	in.AgentID = authorized.AgentID
 	if a.agentID != "" && a.agentID != in.AgentID {
-		return sqlc.AgentWorkflow{}, ErrNotFound
+		return Workflow{}, ErrNotFound
 	}
 	if err := a.authorize(authz.ActionCreate, sqlc.AgentWorkflow{
 		UserID:  pgtype.Text{String: a.userID, Valid: a.userID != ""},
 		AgentID: pgtype.Text{String: in.AgentID, Valid: in.AgentID != ""},
 	}); err != nil {
-		return sqlc.AgentWorkflow{}, err
+		return Workflow{}, err
 	}
 	if in.AgentID != "" {
 		if err := a.svc.agents.Authorize(ctx, a.authority, in.AgentID, authz.ActionExecute); err != nil {
-			return sqlc.AgentWorkflow{}, mapAgentAuthzError(err)
+			return Workflow{}, mapAgentAuthzError(err)
 		}
 	}
 	row, err := a.svc.SaveGoalAsWorkflow(ctx, in)
 	if err != nil {
-		return sqlc.AgentWorkflow{}, mapDomainError(err)
+		return Workflow{}, mapDomainError(err)
 	}
-	return row, nil
+	return workflowFromRow(row), nil
 }
 
 // Instantiate claims a run and materializes the workflow's goal tree. It checks
 // both the loaded durable workflow and its persisted target agent before claim or
 // materialization; neither request fields nor a stale route can widen access.
-func (a *Access) Instantiate(ctx context.Context, id string, inputs map[string]string, idempotencyKey string) (sqlc.AgentWorkflowRun, bool, error) {
+func (a *Access) Instantiate(ctx context.Context, id string, inputs map[string]string, idempotencyKey string) (Run, bool, error) {
 	if a.svc.agents == nil {
-		return sqlc.AgentWorkflowRun{}, false, fmt.Errorf("%w: agent authorization is not configured", ErrUnavailable)
+		return Run{}, false, fmt.Errorf("%w: agent authorization is not configured", ErrUnavailable)
 	}
 	wf, err := a.load(ctx, id)
 	if err != nil {
-		return sqlc.AgentWorkflowRun{}, false, err
+		return Run{}, false, err
 	}
 	if err := a.authorize(authz.ActionExecute, wf); err != nil {
-		return sqlc.AgentWorkflowRun{}, false, err
+		return Run{}, false, err
 	}
 	if !wf.AgentID.Valid || wf.AgentID.String == "" {
-		return sqlc.AgentWorkflowRun{}, false, ErrNotFound
+		return Run{}, false, ErrNotFound
 	}
 	if err := a.svc.agents.Authorize(ctx, a.authority, wf.AgentID.String, authz.ActionExecute); err != nil {
-		return sqlc.AgentWorkflowRun{}, false, mapAgentAuthzError(err)
+		return Run{}, false, mapAgentAuthzError(err)
 	}
 	// The raw materializer still scopes its lookup. It must receive the loaded
 	// workflow owner, not the caller: an admin may execute another owner's
 	// workflow after this direct check, and roots belong to that durable owner.
 	run, created, err := a.svc.Instantiate(ctx, InstantiateInput{UserID: wf.UserID.String, AgentID: a.agentID, WorkflowID: id, Inputs: inputs, IdempotencyKey: idempotencyKey})
 	if err != nil {
-		return sqlc.AgentWorkflowRun{}, false, mapDomainError(err)
+		return Run{}, false, mapDomainError(err)
 	}
-	return run, created, nil
+	return runFromRow(run), created, nil
 }
 
 func (a *Access) load(ctx context.Context, id string) (sqlc.AgentWorkflow, error) {

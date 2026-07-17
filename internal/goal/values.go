@@ -123,6 +123,17 @@ type TimelineEvent struct {
 	CreatedAt time.Time
 }
 
+// AuthorizedGoal is the narrow durable identity that the cross-domain Authorize
+// port vouches for: the authorized goal's owner and its bound agent. It exposes
+// only the facts another domain needs to make its own decision (e.g. Workflow
+// deriving a workflow's owner/target from a source goal), never the full
+// persistence row.
+type AuthorizedGoal struct {
+	ID      string
+	UserID  string
+	AgentID string
+}
+
 // Edge is a dependency edge into a goal from an upstream goal.
 type Edge struct {
 	GoalID       string

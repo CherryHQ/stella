@@ -47,7 +47,7 @@ type GoalWriter interface {
 	CreateRoot(ctx context.Context, in goal.CreateInput) (sqlc.AgentGoal, error)
 	MaterializeFrozenLayer(ctx context.Context, parentID string, content goal.DecompositionContent, frozen goal.FrozenStamp) error
 	ActivateFrozenComposite(ctx context.Context, id string) error
-	Authorize(ctx context.Context, authority authz.Authority, goalID string, action authz.Action) (sqlc.AgentGoal, error)
+	Authorize(ctx context.Context, authority authz.Authority, goalID string, action authz.Action) (goal.AuthorizedGoal, error)
 }
 
 type Service struct {

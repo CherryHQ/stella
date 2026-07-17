@@ -627,24 +627,25 @@ func (a *Access) filterReadable(rows []sqlc.AgentGoal) ([]sqlc.AgentGoal, error)
 
 // Authorize is Goal's narrow direct port for another domain. It loads the
 // durable row before applying the same fixed Goal rules as Access; no caller can
-// supply ownership or executor facts. A missing or denied goal is opaque.
-func (s *GoalService) Authorize(ctx context.Context, authority authz.Authority, goalID string, action authz.Action) (sqlc.AgentGoal, error) {
+// supply ownership or executor facts. A missing or denied goal is opaque. It
+// returns the narrow AuthorizedGoal (owner + bound agent), never the sqlc row.
+func (s *GoalService) Authorize(ctx context.Context, authority authz.Authority, goalID string, action authz.Action) (AuthorizedGoal, error) {
 	if !authority.Valid() {
-		return sqlc.AgentGoal{}, authz.ErrForbidden
+		return AuthorizedGoal{}, authz.ErrForbidden
 	}
 	d, err := getGoal(ctx, s.q, goalID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return sqlc.AgentGoal{}, authz.ErrNotFound
+			return AuthorizedGoal{}, authz.ErrNotFound
 		}
-		return sqlc.AgentGoal{}, err
+		return AuthorizedGoal{}, err
 	}
 	access := Access{authority: authority, userID: string(authority.UserID())}
 	if authority.Kind() == authz.ActorAgent {
 		access.agentID = string(authority.AgentID())
 	}
 	if err := access.authorize(action, d); err != nil {
-		return sqlc.AgentGoal{}, err
+		return AuthorizedGoal{}, err
 	}
-	return d, nil
+	return AuthorizedGoal{ID: d.ID, UserID: d.UserID, AgentID: d.AgentID}, nil
 }

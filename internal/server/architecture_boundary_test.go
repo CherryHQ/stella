@@ -309,7 +309,6 @@ var (
 		"groups.go:" + serverSQLCImportPath:    true,
 		"server.go:" + serverSQLCImportPath:    true,
 		"server.go:" + serverPgxpoolImportPath: true,
-		"workflows.go:" + serverSQLCImportPath: true,
 	}
 )
 

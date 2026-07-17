@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -13,7 +12,6 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/goal"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func (s *Server) workflowsReady() bool { return s.workflowSvc != nil }
@@ -142,10 +140,10 @@ func (s *Server) ListWorkflowRuns(w http.ResponseWriter, r *http.Request, id str
 	page, next := nextPageTokenForRows(rows, limit, offset)
 	runs := make([]apitypes.WorkflowRun, 0, len(page))
 	for _, row := range page {
-		run := workflowRunToAPI(sqlc.AgentWorkflowRun{ID: row.ID, WorkflowID: row.WorkflowID, WorkflowVersion: row.WorkflowVersion, IdempotencyKey: row.IdempotencyKey, RootGoalID: row.RootGoalID, Status: row.Status, Inputs: row.Inputs, PlanHash: row.PlanHash, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt})
-		run.RootLifecycle = nullToPtr(row.RootLifecycle)
-		run.RootBlockReason = nullToPtr(row.RootBlockReason)
-		run.RootDoneReason = nullToPtr(row.RootDoneReason)
+		run := workflowRunToAPI(row.Run)
+		run.RootLifecycle = row.RootLifecycle
+		run.RootBlockReason = row.RootBlockReason
+		run.RootDoneReason = row.RootDoneReason
 		runs = append(runs, run)
 	}
 	out := apitypes.WorkflowRunList{Runs: runs, Total: int(total)}
@@ -237,12 +235,12 @@ func workflowInputSpecs(in *[]apitypes.WorkflowInputSpec) []workflowpkg.InputSpe
 	return out
 }
 
-func workflowToAPI(wf sqlc.AgentWorkflow) apitypes.Workflow {
+func workflowToAPI(wf workflowpkg.Workflow) apitypes.Workflow {
 	return apitypes.Workflow{
 		Id:                 wf.ID,
 		OwnerKind:          apitypes.WorkflowOwnerKind(wf.OwnerKind),
-		UserId:             nullToPtr(wf.UserID),
-		AgentId:            nullToPtr(wf.AgentID),
+		UserId:             wf.UserID,
+		AgentId:            wf.AgentID,
 		Name:               wf.Name,
 		Version:            int(wf.Version),
 		Intent:             wf.Intent,
@@ -252,21 +250,21 @@ func workflowToAPI(wf sqlc.AgentWorkflow) apitypes.Workflow {
 		PayloadFormat:      apitypes.WorkflowPayloadFormat(wf.PayloadFormat),
 		Payload:            jsonMap(wf.Payload),
 		FullyFrozen:        wf.FullyFrozen,
-		SourceGoalId:       nullToPtr(wf.SourceGoalID),
-		CreatedAt:          wf.CreatedAt.UTC(),
-		UpdatedAt:          wf.UpdatedAt.UTC(),
+		SourceGoalId:       wf.SourceGoalID,
+		CreatedAt:          wf.CreatedAt,
+		UpdatedAt:          wf.UpdatedAt,
 	}
 }
 
-func workflowRunToAPI(run sqlc.AgentWorkflowRun) apitypes.WorkflowRun {
-	inputs := map[string]string{}
-	_ = json.Unmarshal(run.Inputs, &inputs)
-	return apitypes.WorkflowRun{Id: run.ID, WorkflowId: run.WorkflowID, WorkflowVersion: int(run.WorkflowVersion), IdempotencyKey: run.IdempotencyKey, RootGoalId: nullToPtr(run.RootGoalID), Status: apitypes.WorkflowRunStatus(run.Status), Inputs: inputs, PlanHash: run.PlanHash, CreatedAt: run.CreatedAt.UTC(), UpdatedAt: run.UpdatedAt.UTC()}
+func workflowRunToAPI(run workflowpkg.Run) apitypes.WorkflowRun {
+	inputs := run.Inputs
+	if inputs == nil {
+		inputs = map[string]string{}
+	}
+	return apitypes.WorkflowRun{Id: run.ID, WorkflowId: run.WorkflowID, WorkflowVersion: int(run.WorkflowVersion), IdempotencyKey: run.IdempotencyKey, RootGoalId: run.RootGoalID, Status: apitypes.WorkflowRunStatus(run.Status), Inputs: inputs, PlanHash: run.PlanHash, CreatedAt: run.CreatedAt, UpdatedAt: run.UpdatedAt}
 }
 
-func workflowInputsToAPI(raw json.RawMessage) []apitypes.WorkflowInputSpec {
-	var specs []workflowpkg.InputSpec
-	_ = json.Unmarshal(raw, &specs)
+func workflowInputsToAPI(specs []workflowpkg.InputSpec) []apitypes.WorkflowInputSpec {
 	out := make([]apitypes.WorkflowInputSpec, 0, len(specs))
 	for _, spec := range specs {
 		item := apitypes.WorkflowInputSpec{Name: spec.Name, Required: &spec.Required}

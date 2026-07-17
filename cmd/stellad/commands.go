@@ -666,8 +666,8 @@ func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, autho
 		return scheduler.WorkflowInstantiateResult{}, err
 	}
 	rootID := ""
-	if run.RootGoalID.Valid {
-		rootID = run.RootGoalID.String
+	if run.RootGoalID != nil {
+		rootID = *run.RootGoalID
 	}
 	return scheduler.WorkflowInstantiateResult{RunID: run.ID, RootGoalID: rootID}, nil
 }

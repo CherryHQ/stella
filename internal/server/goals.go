@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -1024,14 +1023,6 @@ func optStr(v string) *string {
 func iptr(v int64) *int {
 	x := int(v)
 	return &x
-}
-
-func nullToPtr(ns pgtype.Text) *string {
-	if !ns.Valid || ns.String == "" {
-		return nil
-	}
-	v := ns.String
-	return &v
 }
 
 func jsonMap(s json.RawMessage) map[string]any {

@@ -242,8 +242,8 @@ func TestSaveGoalAsWorkflowAuthorizesSourceGoal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("owner SaveGoalAsWorkflow: %v", err)
 	}
-	if wf.UserID.String != owner.ID || wf.AgentID.String != "owned" {
-		t.Fatalf("workflow owner/agent = %q/%q, want durable source owner target %q/%q", wf.UserID.String, wf.AgentID.String, owner.ID, "owned")
+	if derefString(wf.UserID) != owner.ID || derefString(wf.AgentID) != "owned" {
+		t.Fatalf("workflow owner/agent = %q/%q, want durable source owner target %q/%q", derefString(wf.UserID), derefString(wf.AgentID), owner.ID, "owned")
 	}
 	if _, err := ownerAcc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: unassignedRoot.ID, Name: "unassigned"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unexecutable target SaveGoalAsWorkflow = %v, want not found", err)
