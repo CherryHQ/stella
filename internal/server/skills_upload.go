@@ -95,7 +95,7 @@ func parseUploadedSkill(r *http.Request) (*uploadedSkill, int, string, error) {
 	defer func() { _ = file.Close() }()
 	up, err := readUploadedSkillArchive(file, header)
 	if err != nil {
-		return nil, http.StatusBadRequest, "invalid skill archive", err
+		return nil, http.StatusBadRequest, "invalid skill archive: " + err.Error(), err
 	}
 	return up, 0, "", nil
 }
@@ -132,28 +132,34 @@ func readUploadedSkillArchive(file multipart.File, header *multipart.FileHeader)
 		}
 	}
 	if len(roots) == 0 {
-		return nil, fmt.Errorf("archive must contain exactly one skill folder with SKILL.md")
+		return nil, fmt.Errorf("archive must contain SKILL.md")
 	}
 	if len(roots) > 1 {
-		return nil, fmt.Errorf("archive must contain exactly one skill folder with SKILL.md")
+		return nil, fmt.Errorf("archive must contain exactly one SKILL.md")
 	}
 
 	var root string
 	for candidate := range roots {
 		root = candidate
 	}
-	if root == "." || root == "" {
-		return nil, fmt.Errorf("archive must contain a skill folder with SKILL.md")
+	if root == "." {
+		root = ""
 	}
 
 	files := make(map[string]string, len(entries))
-	prefix := root + "/"
+	prefix := ""
+	if root != "" {
+		prefix = root + "/"
+	}
 	var expanded int64
 	for name, entry := range entries {
-		if !strings.HasPrefix(name, prefix) {
+		if prefix != "" && !strings.HasPrefix(name, prefix) {
 			return nil, fmt.Errorf("archive must contain only one skill folder")
 		}
-		rel := strings.TrimPrefix(name, prefix)
+		rel := name
+		if prefix != "" {
+			rel = strings.TrimPrefix(name, prefix)
+		}
 		if rel == "" || strings.Contains(rel, "../") || strings.HasPrefix(rel, "/") {
 			return nil, fmt.Errorf("invalid archive path %q", name)
 		}
@@ -178,9 +184,16 @@ func readUploadedSkillArchive(file multipart.File, header *multipart.FileHeader)
 	}
 	name := strings.TrimSpace(fm.Name)
 	if name == "" {
+		if root == "" {
+			return nil, fmt.Errorf("SKILL.md name is required when it is at the archive root")
+		}
 		name = path.Base(root)
 	}
-	if errs := skills.ValidateSkillName(name, path.Base(root)); len(errs) > 0 {
+	parentDirName := name
+	if root != "" {
+		parentDirName = path.Base(root)
+	}
+	if errs := skills.ValidateSkillName(name, parentDirName); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid skill name %q: %s", name, strings.Join(errs, "; "))
 	}
 	createdAt := strings.TrimSpace(fm.CreatedAt)
