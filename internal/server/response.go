@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 
@@ -69,8 +70,8 @@ func decodeOffsetToken(token string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if offset < 0 {
-		return 0, fmt.Errorf("negative offset in page token: %d", offset)
+	if offset < 0 || offset > math.MaxInt32 {
+		return 0, fmt.Errorf("offset in page token is outside the supported range: %d", offset)
 	}
 	return offset, nil
 }

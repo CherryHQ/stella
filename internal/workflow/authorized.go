@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -20,6 +21,7 @@ var (
 	ErrForbidden   = errors.New("workflow access forbidden")
 	ErrNotFound    = errors.New("workflow not found")
 	ErrUnavailable = errors.New("workflow authorization unavailable")
+	ErrInvalidPage = errors.New("workflow pagination is outside the supported range")
 )
 
 // Access captures one validated authority for a Workflow use case. Workflow owns
@@ -98,7 +100,10 @@ func (a *Access) Get(ctx context.Context, id string) (Workflow, error) {
 }
 
 // ListRuns authorizes reading a workflow, then returns its run page.
-func (a *Access) ListRuns(ctx context.Context, id string, limit, offset int32) ([]RunListItem, int64, error) {
+func (a *Access) ListRuns(ctx context.Context, id string, limit, offset int) ([]RunListItem, int64, error) {
+	if limit < 1 || limit > math.MaxInt32 || offset < 0 || int64(offset) > int64(math.MaxInt32)-int64(limit) {
+		return nil, 0, ErrInvalidPage
+	}
 	wf, err := a.load(ctx, id)
 	if err != nil {
 		return nil, 0, err
@@ -110,7 +115,7 @@ func (a *Access) ListRuns(ctx context.Context, id string, limit, offset int32) (
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: count workflow runs: %w", ErrUnavailable, err)
 	}
-	rows, err := a.svc.q.ListWorkflowRuns(ctx, sqlc.ListWorkflowRunsParams{WorkflowID: id, Limit: limit, Offset: offset})
+	rows, err := a.svc.q.ListWorkflowRuns(ctx, sqlc.ListWorkflowRunsParams{WorkflowID: id, Limit: int32(limit), Offset: int32(offset)})
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: list workflow runs: %w", ErrUnavailable, err)
 	}

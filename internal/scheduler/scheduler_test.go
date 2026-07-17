@@ -80,11 +80,15 @@ type fakeWorkflowRunner struct {
 	result           WorkflowInstantiateResult
 	instantiateReq   WorkflowInstantiateRequest
 	instantiateCalls int
+	validateErr      error
 	authorizeErr     error
 	authorizeCalls   int
 }
 
 func (f *fakeWorkflowRunner) ValidateScheduledWorkflow(context.Context, WorkflowValidateRequest) (ScheduledWorkflow, error) {
+	if f.validateErr != nil {
+		return ScheduledWorkflow{}, f.validateErr
+	}
 	if f.wf.ID == "" {
 		return ScheduledWorkflow{}, fmt.Errorf("not found")
 	}
@@ -104,6 +108,15 @@ func (f *fakeWorkflowRunner) InstantiateWorkflow(_ context.Context, _ authz.Auth
 func (f *fakeWorkflowRunner) AuthorizeWorkflow(context.Context, authz.Authority, string, authz.Action) error {
 	f.authorizeCalls++
 	return f.authorizeErr
+}
+
+func TestAddWorkflowJobMapsRunnerDomainNotFound(t *testing.T) {
+	svc := testService(t)
+	svc.SetWorkflowRunner(&fakeWorkflowRunner{validateErr: ErrWorkflowJobNotFound})
+	_, err := svc.AddWorkflowJobWithOwner(context.Background(), "wf", Schedule{Every: "1h"}, "reuse", "", "user-1", "missing", nil, false)
+	if !errors.Is(err, ErrWorkflowJobNotFound) {
+		t.Fatalf("AddWorkflowJobWithOwner error = %v, want ErrWorkflowJobNotFound", err)
+	}
 }
 
 func TestAddWorkflowJobValidation(t *testing.T) {

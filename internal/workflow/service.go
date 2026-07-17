@@ -85,6 +85,9 @@ type RunState struct {
 // validate a scheduler-owned workflow job.
 func (s *Service) ValidateScheduledWorkflow(ctx context.Context, userID, agentID, workflowID string) (ScheduledWorkflow, error) {
 	wf, err := s.getScoped(ctx, workflowID, userID, agentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ScheduledWorkflow{}, ErrNotFound
+	}
 	if err != nil {
 		return ScheduledWorkflow{}, err
 	}

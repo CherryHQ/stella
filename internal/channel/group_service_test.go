@@ -433,6 +433,7 @@ func TestGroupPaginationRejectsOutOfRange(t *testing.T) {
 	}{
 		{"huge offset", math.MaxInt32 + 1, 10},
 		{"huge limit", 0, math.MaxInt32 + 1},
+		{"overflowing window", math.MaxInt32, 1},
 		{"zero limit", 0, 0},
 		{"negative offset", -1, 10},
 	}

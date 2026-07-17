@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -39,6 +40,27 @@ func TestIsUniqueViolation(t *testing.T) {
 
 // TestIsNotFound covers the two "resource does not exist" shapes the handlers map
 // to 404: an empty result (pgx.ErrNoRows) and a malformed-uuid lookup (22P02).
+func TestDecodeOffsetTokenRejectsUnrepresentableDatabaseOffset(t *testing.T) {
+	if got, err := decodeOffsetToken(encodeOffsetToken(math.MaxInt32)); err != nil || got != math.MaxInt32 {
+		t.Fatalf("decode maximum supported offset = %d, %v", got, err)
+	}
+	if _, err := decodeOffsetToken(encodeOffsetToken(math.MaxInt32 + 1)); err == nil {
+		t.Fatal("decode offset above max int32 succeeded")
+	}
+}
+
+func TestParsePageParamsRejectsOverflowingProbeWindow(t *testing.T) {
+	pageSize := 20
+	validToken := encodeOffsetToken(math.MaxInt32 - pageSize - 1)
+	if _, _, err := parsePageParams(&pageSize, &validToken); err != nil {
+		t.Fatalf("maximum complete page window rejected: %v", err)
+	}
+	overflowingToken := encodeOffsetToken(math.MaxInt32 - pageSize)
+	if _, _, err := parsePageParams(&pageSize, &overflowingToken); err == nil {
+		t.Fatal("overflowing probe window accepted")
+	}
+}
+
 func TestIsNotFound(t *testing.T) {
 	cases := []struct {
 		name string

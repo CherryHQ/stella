@@ -88,10 +88,7 @@ var (
 // transport already bounds page_size, but a crafted page token or a direct
 // (tool) caller could still supply an out-of-range offset.
 func validatePage(offset, limit int) error {
-	if offset < 0 || offset > math.MaxInt32 {
-		return ErrInvalidPage
-	}
-	if limit <= 0 || limit > math.MaxInt32 {
+	if offset < 0 || limit <= 0 || int64(offset)+int64(limit) > math.MaxInt32 {
 		return ErrInvalidPage
 	}
 	return nil

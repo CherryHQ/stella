@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -333,6 +334,13 @@ func (a *Access) RejectPlan(ctx context.Context, id, reason string) error {
 	return a.svc.goal.RejectPlan(ctx, id, reason, UserActor(a.userID))
 }
 
+func validateAccessPage(limit, offset, maxLimit int64) error {
+	if limit < 1 || limit > maxLimit || offset < 0 || offset > math.MaxInt32-limit {
+		return ErrInvalidPage
+	}
+	return nil
+}
+
 // listRootParams builds the durable candidate query for a scanned page.
 func (a *Access) listRootParams(filter GoalFilter, limit, offset int64) sqlc.ListRootGoalParams {
 	return sqlc.ListRootGoalParams{
@@ -363,6 +371,9 @@ func (a *Access) listUserID() string {
 // whether more candidates remain — so the opaque offset token still advances by
 // candidates consumed. Storage failures fail the whole page closed.
 func (a *Access) ListGoals(ctx context.Context, filter GoalFilter, limit, offset int64) (page []Goal, nextOffset int64, hasMore bool, err error) {
+	if err := validateAccessPage(limit+1, offset, math.MaxInt32); err != nil {
+		return nil, 0, false, err
+	}
 	if err := a.decideList(); err != nil {
 		return nil, 0, false, err
 	}
@@ -371,15 +382,15 @@ func (a *Access) ListGoals(ctx context.Context, filter GoalFilter, limit, offset
 		return nil, 0, false, err
 	}
 	filter.AgentID = agentID
-	if limit <= 0 {
-		limit = 50
-	}
 	// Fetch one more than the page target so a page that fills exactly still gets
 	// a chance to observe a further candidate in the same batch.
 	batch := limit + 1
 	rows := make([]sqlc.AgentGoal, 0, limit)
 	cursor := offset
 	for {
+		if cursor > math.MaxInt32 {
+			return nil, 0, false, ErrInvalidPage
+		}
 		batchRows, err := a.svc.q.ListRootGoal(ctx, a.listRootParams(filter, batch, cursor))
 		if err != nil {
 			return nil, 0, false, err
@@ -395,7 +406,11 @@ func (a *Access) ListGoals(ctx context.Context, filter GoalFilter, limit, offset
 			}
 			if int64(len(rows)) == limit {
 				// A further visible row exists: resume the next page at it.
-				return goalsFromRows(rows), cursor - 1, true, nil
+				nextOffset := cursor - 1
+				if nextOffset+limit+1 > math.MaxInt32 {
+					return nil, 0, false, ErrInvalidPage
+				}
+				return goalsFromRows(rows), nextOffset, true, nil
 			}
 			rows = append(rows, d)
 		}
@@ -550,6 +565,9 @@ func (a *Access) ListAcceptanceEvents(ctx context.Context, id string) ([]Accepta
 
 // ListTimeline authorizes the goal, then returns a page of its L3 timeline.
 func (a *Access) ListTimeline(ctx context.Context, id string, limit, offset int) ([]TimelineEvent, error) {
+	if err := validateAccessPage(int64(limit), int64(offset), math.MaxInt32); err != nil {
+		return nil, err
+	}
 	if _, err := a.getRow(ctx, id); err != nil {
 		return nil, err
 	}

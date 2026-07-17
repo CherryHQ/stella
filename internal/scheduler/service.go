@@ -38,6 +38,8 @@ type OnJobFunc func(ctx context.Context, job Job) error
 type AuthorizedJobFunc func(ctx context.Context, job Job, authority authz.Authority) error
 
 type WorkflowRunner interface {
+	// ValidateScheduledWorkflow returns ErrWorkflowJobNotFound when the durable
+	// workflow is absent or outside the requested owner scope.
 	ValidateScheduledWorkflow(ctx context.Context, req WorkflowValidateRequest) (ScheduledWorkflow, error)
 	LatestWorkflowRun(ctx context.Context, req WorkflowLatestRunRequest) (WorkflowRunState, error)
 	InstantiateWorkflow(ctx context.Context, authority authz.Authority, req WorkflowInstantiateRequest) (WorkflowInstantiateResult, error)
@@ -602,10 +604,10 @@ func (s *Service) validateDispatch(ctx context.Context, dispatchKind, message, o
 			return fmt.Errorf("workflow scheduler dispatch is not configured")
 		}
 		wf, err := runner.ValidateScheduledWorkflow(ctx, WorkflowValidateRequest{UserID: userID, AgentID: agentID, WorkflowID: workflowID})
+		if errors.Is(err, ErrWorkflowJobNotFound) {
+			return fmt.Errorf("%w: workflow %q", ErrWorkflowJobNotFound, workflowID)
+		}
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("%w: workflow %q", ErrWorkflowJobNotFound, workflowID)
-			}
 			return fmt.Errorf("validate workflow: %w", err)
 		}
 		if wf.ID == "" || wf.ID != workflowID {

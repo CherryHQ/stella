@@ -228,11 +228,8 @@ func (s *Service) Changelog(ctx context.Context, authority authz.Authority, agen
 // self-or-admin; a foreign target is opaque and denied before the durable list
 // read. This reads across agents and therefore has no single-agent gate.
 func (s *Service) ListUserMemories(ctx context.Context, authority authz.Authority, targetUserID string) ([]Memory, error) {
-	if !authority.Valid() {
-		return nil, authz.ErrForbidden
-	}
-	if !authority.IsAdmin() && (authority.Kind() != authz.ActorUser || string(authority.UserID()) != targetUserID) {
-		return nil, authz.ErrNotFound
+	if err := authorizeUserTarget(authority, targetUserID); err != nil {
+		return nil, err
 	}
 	rows, err := s.q.ListUserAgentMemoriesByUser(ctx, targetUserID)
 	if err != nil {
@@ -253,6 +250,9 @@ func (s *Service) ListUserMemories(ctx context.Context, authority authz.Authorit
 // refreshed memory. The change source reflects whether an admin is acting on
 // another user's memory. Gated on the caller's read access to the agent.
 func (s *Service) SetUserMemory(ctx context.Context, authority authz.Authority, targetUserID, agentID, content string) (Memory, error) {
+	if err := authorizeUserTarget(authority, targetUserID); err != nil {
+		return Memory{}, err
+	}
 	if err := s.gate(ctx, authority, agentID); err != nil {
 		return Memory{}, err
 	}
@@ -270,11 +270,24 @@ func (s *Service) SetUserMemory(ctx context.Context, authority authz.Authority, 
 // transaction. The change source reflects admin-acting-on-other. Gated on the
 // caller's read access to the agent.
 func (s *Service) DeleteUserMemory(ctx context.Context, authority authz.Authority, targetUserID, agentID string) error {
+	if err := authorizeUserTarget(authority, targetUserID); err != nil {
+		return err
+	}
 	if err := s.gate(ctx, authority, agentID); err != nil {
 		return err
 	}
 	ctx = memory.WithChangeSource(ctx, changeSource(authority, targetUserID))
 	return memorywrite.ResetUserAgentMemory(ctx, s.db, s.q, targetUserID, agentID)
+}
+
+func authorizeUserTarget(authority authz.Authority, targetUserID string) error {
+	if !authority.Valid() {
+		return authz.ErrForbidden
+	}
+	if !authority.IsAdmin() && (authority.Kind() != authz.ActorUser || string(authority.UserID()) != targetUserID) {
+		return authz.ErrNotFound
+	}
+	return nil
 }
 
 // loadMemory fetches one (user, agent) row (or a fresh empty one) and applies the

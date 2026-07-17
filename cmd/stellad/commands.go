@@ -631,6 +631,9 @@ type schedulerWorkflowAdapter struct {
 
 func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context, req scheduler.WorkflowValidateRequest) (scheduler.ScheduledWorkflow, error) {
 	wf, err := a.svc.ValidateScheduledWorkflow(ctx, req.UserID, req.AgentID, req.WorkflowID)
+	if errors.Is(err, workflowpkg.ErrNotFound) {
+		return scheduler.ScheduledWorkflow{}, scheduler.ErrWorkflowJobNotFound
+	}
 	if err != nil {
 		return scheduler.ScheduledWorkflow{}, err
 	}

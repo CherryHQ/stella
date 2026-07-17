@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
@@ -34,6 +35,11 @@ func parsePageParams(pageSize *int, pageToken *string) (limit, offset int, err e
 		if err != nil {
 			return 0, 0, err
 		}
+	}
+	// Offset-backed list handlers fetch one probe row to detect a continuation.
+	// Keep that complete window representable before any int32 conversion.
+	if int64(offset)+int64(limit)+1 > math.MaxInt32 {
+		return 0, 0, fmt.Errorf("page_token is outside the supported range")
 	}
 	return limit, offset, nil
 }

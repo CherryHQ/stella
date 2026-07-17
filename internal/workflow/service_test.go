@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/google/uuid"
@@ -17,6 +18,16 @@ import (
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
+
+func TestAccessListRunsRejectsUnrepresentablePagination(t *testing.T) {
+	acc := &Access{}
+	if _, _, err := acc.ListRuns(context.Background(), "workflow", 1, math.MaxInt32); !errors.Is(err, ErrInvalidPage) {
+		t.Fatalf("ListRuns overflowing page window = %v, want ErrInvalidPage", err)
+	}
+	if _, _, err := acc.ListRuns(context.Background(), "workflow", 0, 0); !errors.Is(err, ErrInvalidPage) {
+		t.Fatalf("ListRuns zero limit = %v, want ErrInvalidPage", err)
+	}
+}
 
 func TestNilGoalWriterReturnsUnavailable(t *testing.T) {
 	bundle := goal.NewBundle(nil, nil, nil)
@@ -321,6 +332,22 @@ func TestSetWorkflowRunRootIsConditional(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("second set rows = %d", rows)
+	}
+}
+
+func TestValidateScheduledWorkflowMapsScopedMissesToDomainNotFound(t *testing.T) {
+	h := newWorkflowHarness(t)
+	if _, err := h.svc.ValidateScheduledWorkflow(h.ctx, h.userID, h.agentID, uuid.NewString()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing workflow = %v, want ErrNotFound", err)
+	}
+
+	payload, _ := json.Marshal(FrozenPlan{})
+	wf, err := h.q.CreateWorkflow(h.ctx, sqlc.CreateWorkflowParams{ID: uuid.NewString(), OwnerKind: OwnerAgent, UserID: pgnull.Text(h.userID), AgentID: pgnull.Text(h.agentID), Name: "scheduled-scope", Version: 1, Intent: "scheduled", AcceptanceContract: []byte(`{}`), ConvergencePolicy: []byte(`{}`), Inputs: []byte(`[]`), PayloadFormat: PayloadFormatFrozenV0, Payload: payload, FullyFrozen: true})
+	if err != nil {
+		t.Fatalf("create workflow: %v", err)
+	}
+	if _, err := h.svc.ValidateScheduledWorkflow(h.ctx, uuid.NewString(), h.agentID, wf.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("foreign workflow = %v, want ErrNotFound", err)
 	}
 }
 

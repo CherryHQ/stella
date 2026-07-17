@@ -37,7 +37,7 @@ func workflowError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, "forbidden")
 	case errors.Is(err, workflowpkg.ErrUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "workflow authorization unavailable")
-	case errors.Is(err, workflowpkg.ErrInvalidWorkflowInput):
+	case errors.Is(err, workflowpkg.ErrInvalidWorkflowInput), errors.Is(err, workflowpkg.ErrInvalidPage):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, workflowpkg.ErrWorkflowHasRuns), errors.Is(err, workflowpkg.ErrWorkflowHasSchedulerJob), errors.Is(err, workflowpkg.ErrRunAlreadyFailed), errors.Is(err, workflowpkg.ErrWorkflowVersionConflict):
 		writeError(w, http.StatusConflict, err.Error())
@@ -132,7 +132,7 @@ func (s *Server) ListWorkflowRuns(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	rows, total, err := acc.ListRuns(r.Context(), id, int32(limit+1), int32(offset))
+	rows, total, err := acc.ListRuns(r.Context(), id, limit+1, offset)
 	if err != nil {
 		workflowError(w, err)
 		return

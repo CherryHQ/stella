@@ -153,9 +153,9 @@ func TestAgentGateFailsClosedBeforeAnyStoreAccess(t *testing.T) {
 	assertDenied("RestoreKnowledge", err)
 	_, err = svc.ChangelogPage(ctx, auth, "a", "knowledge", nil, 10)
 	assertDenied("ChangelogPage", err)
-	_, err = svc.SetUserMemory(ctx, auth, "u2", "a", "x")
+	_, err = svc.SetUserMemory(ctx, auth, "u1", "a", "x")
 	assertDenied("SetUserMemory", err)
-	assertDenied("DeleteUserMemory", svc.DeleteUserMemory(ctx, auth, "u2", "a"))
+	assertDenied("DeleteUserMemory", svc.DeleteUserMemory(ctx, auth, "u1", "a"))
 	_, err = svc.ListUserMemories(ctx, authz.Authority{}, "u1")
 	if !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("ListUserMemories invalid authority = %v, want authz.ErrForbidden", err)
@@ -173,6 +173,35 @@ func TestAgentGateFailsClosedBeforeAnyStoreAccess(t *testing.T) {
 	}
 	if deny.calls == 0 {
 		t.Fatal("authorizer never consulted")
+	}
+}
+
+func TestUserMemoryWritesAuthorizeTargetBeforeAgentOrStore(t *testing.T) {
+	ctx := context.Background()
+	profiles := &fakeProfiles{}
+	authorizer := &fakeAuthorizer{err: agentaccess.ErrForbidden}
+	svc := NewService(nil, profiles, nil, nil, authorizer, nil, nil)
+	user := userAuthority(t, false)
+
+	if _, err := svc.SetUserMemory(ctx, user, "u2", "a", "x"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("SetUserMemory foreign target = %v, want authz.ErrNotFound", err)
+	}
+	if err := svc.DeleteUserMemory(ctx, user, "u2", "a"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("DeleteUserMemory foreign target = %v, want authz.ErrNotFound", err)
+	}
+	if authorizer.calls != 0 || profiles.reads != 0 || profiles.writes != 0 {
+		t.Fatalf("foreign target touched downstream boundary: authorizer=%d reads=%d writes=%d", authorizer.calls, profiles.reads, profiles.writes)
+	}
+
+	admin := userAuthority(t, true)
+	if _, err := svc.SetUserMemory(ctx, admin, "u2", "a", "x"); !errors.Is(err, agentaccess.ErrForbidden) {
+		t.Fatalf("SetUserMemory admin target = %v, want downstream ErrForbidden", err)
+	}
+	if err := svc.DeleteUserMemory(ctx, admin, "u2", "a"); !errors.Is(err, agentaccess.ErrForbidden) {
+		t.Fatalf("DeleteUserMemory admin target = %v, want downstream ErrForbidden", err)
+	}
+	if authorizer.calls != 2 {
+		t.Fatalf("admin target authorizer calls = %d, want 2", authorizer.calls)
 	}
 }
 

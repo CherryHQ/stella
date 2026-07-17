@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -635,7 +636,7 @@ func (s *Server) GetSessionContextItems(w http.ResponseWriter, r *http.Request, 
 		pageSize = 500
 	}
 	offset, err := decodeOffsetToken(derefStr(params.PageToken))
-	if err != nil {
+	if err != nil || int64(offset)+int64(pageSize)+1 > math.MaxInt32 {
 		writeError(w, http.StatusBadRequest, "invalid page token")
 		return
 	}

@@ -269,6 +269,10 @@ var (
 	// no longer exists.
 	ErrNotFound = errors.New("goal: not found")
 
+	// ErrInvalidPage marks pagination values that cannot be represented by the
+	// query layer. Callers should treat it as invalid input.
+	ErrInvalidPage = errors.New("goal: invalid pagination")
+
 	// ErrIllegalLifecycleMove is returned when a routing path asks for a
 	// transition the §2.1 state machine has no edge for (legalGoalTransitions).
 	// Unlike ErrInvalidTransition (a benign CAS race the dispatcher swallows),

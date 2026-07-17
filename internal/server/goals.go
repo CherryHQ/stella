@@ -63,7 +63,8 @@ func goalError(w http.ResponseWriter, err error) {
 			"code": "deterministic_checks_unsupported",
 			"fix":  "enable a sandbox backend or remove required deterministic acceptance items",
 		})
-	case errors.Is(err, goal.ErrInvalidContract),
+	case errors.Is(err, goal.ErrInvalidPage),
+		errors.Is(err, goal.ErrInvalidContract),
 		errors.Is(err, goal.ErrCompositeDeterministicContract),
 		errors.Is(err, goal.ErrInvalidDecomposition),
 		errors.Is(err, goal.ErrDepthExceeded),

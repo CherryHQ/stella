@@ -3,6 +3,7 @@ package goal
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/google/uuid"
@@ -10,6 +11,19 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
 )
+
+func TestAccessPaginationRejectsUnrepresentableValuesBeforeUseCaseWork(t *testing.T) {
+	acc := &Access{}
+	if _, _, _, err := acc.ListGoals(context.Background(), GoalFilter{}, math.MaxInt32, 0); !errors.Is(err, ErrInvalidPage) {
+		t.Fatalf("ListGoals oversized limit = %v, want ErrInvalidPage", err)
+	}
+	if _, _, _, err := acc.ListGoals(context.Background(), GoalFilter{}, 1, math.MaxInt32); !errors.Is(err, ErrInvalidPage) {
+		t.Fatalf("ListGoals overflowing page window = %v, want ErrInvalidPage", err)
+	}
+	if _, err := acc.ListTimeline(context.Background(), "goal", 1, math.MaxInt32); !errors.Is(err, ErrInvalidPage) {
+		t.Fatalf("ListTimeline overflowing page window = %v, want ErrInvalidPage", err)
+	}
+}
 
 func (h *harness) userAuth(t *testing.T, id string) authz.Authority {
 	t.Helper()
