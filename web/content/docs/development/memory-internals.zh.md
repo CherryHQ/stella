@@ -146,7 +146,6 @@ Reflect writer 和 curator 使用相互独立的启动时配置：
 | ----------------------------- | ---------------------- | ---------- | --------------------------------------------------- |
 | `STELLA_REFLECT_MODE`         | `legacy`、`structured` | `legacy`   | 选择 scheduler 唯一执行的 Reflect writer            |
 | `STELLA_REFLECT_CURATOR_MODE` | `shadow`、`armed`      | `shadow`   | 选择只读扫描或实际执行 Knowledge/Skill 生命周期写入 |
-| `STELLA_REFLECT_INTERVAL`     | Go duration            | `6h`       | scheduler 周期；小于一分钟的值会被提升到一分钟      |
 
 非法 mode 会让服务启动失败。Structured 模式并发运行 Fact/Skill 两条线，但错误与 watermark 相互独立；一条线失败不会取消另一条，也不会推进失败线。
 

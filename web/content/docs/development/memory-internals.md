@@ -146,7 +146,6 @@ Reflect and the curator have independent boot-time controls:
 | ----------------------------- | ---------------------- | --------------- | ------------------------------------------------------------ |
 | `STELLA_REFLECT_MODE`         | `legacy`, `structured` | `legacy`        | Selects the only Reflect writer used by the scheduler        |
 | `STELLA_REFLECT_CURATOR_MODE` | `shadow`, `armed`      | `shadow`        | Selects dry-run scanning or Knowledge/Skill lifecycle writes |
-| `STELLA_REFLECT_INTERVAL`     | Go duration            | `6h`            | Scheduler cadence; values below one minute are clamped       |
 
 Invalid mode values fail server startup. Structured mode runs the Fact and Skill lines concurrently, with independent failures and watermarks; one failed line does not cancel or advance the other.
 

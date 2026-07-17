@@ -94,9 +94,8 @@ Only a small set of environment variables is recognized:
 | `STELLA_HOME_VOLUME`          | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                     |
 | `STELLA_REFLECT_MODE`         | Reflect writer: `legacy` (default and rollback target) or `structured`                                            |
 | `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `shadow` (default and rollback target) or `armed`                                              |
-| `STELLA_REFLECT_INTERVAL`     | Reflect scheduler interval as a Go duration; defaults to `6h` and is clamped to at least `1m`                     |
 
-The Reflect variables are read at server startup, so restart Stella after changing them. Invalid writer or curator modes stop startup; an invalid interval falls back to `6h`. See [Deployment](/docs/start-here/deployment#roll-out-structured-reflect) for the activation and rollback procedure and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator-rollout) for the detailed mechanism.
+The Reflect mode variables are read at server startup, so restart Stella after changing them. Invalid writer or curator modes stop startup. See [Deployment](/docs/start-here/deployment#roll-out-structured-reflect) for the activation and rollback procedure and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator-rollout) for the detailed mechanism.
 
 See the [Sandbox guide](/docs/guides/sandbox) for how to choose a sandbox backend and configure Docker sandbox modes.
 
