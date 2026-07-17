@@ -28,6 +28,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
@@ -47,6 +48,8 @@ type Server struct {
 	channelResolver *channel.RuntimeResolver
 	account         *account.Service
 	profileSvc      *memprofile.Service
+	projectStore    *agent.ProjectStore
+	inboxSvc        *inbox.Service
 	agentAccess     *agentaccess.Service
 	agentManagement *agentaccess.Management
 	toolOverrides   *agent.ToolOverrideStore
@@ -139,6 +142,13 @@ type Deps struct {
 	// memorywrite, or the query layer for these.
 	Profile *memprofile.Service
 
+	// ProjectStore owns the Authority-bound project use cases (list/create/get/
+	// update/delete) with the Agent gate, ownership, route-agent binding, and
+	// workspace-containment invariant. Inbox is the cross-Goal/Scheduler inbox
+	// read model. Both keep the query layer out of the transport.
+	ProjectStore *agent.ProjectStore
+	Inbox        *inbox.Service
+
 	// Authorization. AgentAccess and SessionAccess own their domain rules over
 	// trusted Authority values and durable state.
 	AgentAccess   *agentaccess.Service
@@ -229,6 +239,8 @@ func (d Deps) validate() error {
 	req(d.ChannelResolver != nil, "ChannelResolver")
 	req(d.Account != nil, "Account")
 	req(d.Profile != nil, "Profile")
+	req(d.ProjectStore != nil, "ProjectStore")
+	req(d.Inbox != nil, "Inbox")
 	req(d.AgentAccess != nil, "AgentAccess")
 	req(d.AgentManagement != nil, "AgentManagement")
 	req(d.ToolOverrides != nil, "ToolOverrides")
@@ -270,6 +282,8 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		channelResolver: deps.ChannelResolver,
 		account:         deps.Account,
 		profileSvc:      deps.Profile,
+		projectStore:    deps.ProjectStore,
+		inboxSvc:        deps.Inbox,
 		agentAccess:     deps.AgentAccess,
 		agentManagement: deps.AgentManagement,
 		toolOverrides:   deps.ToolOverrides,

@@ -32,6 +32,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
@@ -255,6 +256,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		ChannelResolver:     channel.NewRuntimeResolver(store),
 		Account:             accountSvc,
 		Profile:             profileSvc,
+		ProjectStore:        agent.NewProjectStore(db, store, assetStore, agentAccess),
+		Inbox:               inbox.NewService(db),
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
 		ToolOverrides:       agent.NewToolOverrideStore(db),

@@ -33,6 +33,7 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/observability"
@@ -404,6 +405,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		ChannelResolver:     channel.NewRuntimeResolver(s.store),
 		Account:             accountSvc,
 		Profile:             profileSvc,
+		ProjectStore:        s.projectStore,
+		Inbox:               inbox.NewService(s.db),
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
 		ToolOverrides:       toolOverrides,

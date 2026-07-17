@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
@@ -91,6 +92,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		ChannelResolver:     channel.NewRuntimeResolver(store),
 		Account:             accountSvc,
 		Profile:             profileSvc,
+		ProjectStore:        agent.NewProjectStore(db, store, assetStore, agentAccess),
+		Inbox:               inbox.NewService(db),
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
 		ToolOverrides:       toolOverrides,

@@ -281,28 +281,6 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 			"q": 1,
 		},
 	},
-	"inbox.go": {
-		"ListInbox": {
-			"q": 2,
-		},
-	},
-	"projects.go": {
-		"CreateProject": {
-			"q": 1,
-		},
-		"DeleteProject": {
-			"q": 2,
-		},
-		"GetProject": {
-			"q": 1,
-		},
-		"ListProjects": {
-			"q": 2,
-		},
-		"UpdateProject": {
-			"q": 2,
-		},
-	},
 }
 
 // serverFieldUseBaseline flattens the reviewable per-file/function inventory
@@ -330,8 +308,6 @@ var (
 	currentServerPersistenceImports            = map[string]bool{
 		"goals.go:" + serverSQLCImportPath:     true,
 		"groups.go:" + serverSQLCImportPath:    true,
-		"inbox.go:" + serverSQLCImportPath:     true,
-		"projects.go:" + serverSQLCImportPath:  true,
 		"server.go:" + serverSQLCImportPath:    true,
 		"server.go:" + serverPgxpoolImportPath: true,
 		"workflows.go:" + serverSQLCImportPath: true,
