@@ -1107,21 +1107,6 @@ func serializeToolRow(row sessionaccess.Message) map[string]any {
 	return m
 }
 
-// parseCommand extracts the slash command from a message, returning the
-// lowercase command (e.g. "/compact") and true, or ("", false) if the
-// message is not a command.
-func parseCommand(text string) (string, bool) {
-	fields := strings.Fields(text)
-	if len(fields) == 0 {
-		return "", false
-	}
-	cmd := strings.ToLower(fields[0])
-	if !strings.HasPrefix(cmd, "/") {
-		return "", false
-	}
-	return cmd, true
-}
-
 // streamPlainReply writes a complete SSE stream for a simple text reply
 // (used by slash commands that bypass the LLM).
 func streamPlainReply(w http.ResponseWriter, flusher http.Flusher, text string) {

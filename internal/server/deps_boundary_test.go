@@ -167,10 +167,11 @@ var depsForbiddenForever = []string{
 // handlers, at which point these entries come off. The map may only SHRINK — a
 // new broad field, a changed signature, or a removed-but-still-listed entry all
 // fail.
-var currentBroadDeps = map[string]string{
-	"DB":  "pgxpool.Pool",
-	"Mem": "memory.Provider",
-}
+//
+// Empty: the Group boundary migration retired the last handlers reaching the raw
+// pool/provider, so Deps.DB and Deps.Mem are gone. Deps.Pinger (a narrow
+// DBPinger) replaces the pool for liveness probes and is not a broad capability.
+var currentBroadDeps = map[string]string{}
 
 func renderType(fset *token.FileSet, expr ast.Expr) string {
 	var buf bytes.Buffer

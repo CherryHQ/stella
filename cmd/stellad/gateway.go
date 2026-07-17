@@ -399,9 +399,15 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Assemble the immutable, validated admin-server dependency set and construct
 	// the server exactly once. Every shared instance above is passed in; the
 	// server creates no shadow service, reads no environment, and has no setters.
+	// The Group service owns the Web group/channel application boundary. It holds
+	// the pool for group/member/message/outbox persistence, the Agent PEP for
+	// per-agent use authorization, the runtime resolver for agent-name projection,
+	// and the event log + group dispatcher for the send path (nil-tolerant: the
+	// send path degrades to 503 while CRUD stays available).
+	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher)
+
 	adminSrv, err := server.New(gctx, server.Deps{
-		DB:                  s.db,
-		Mem:                 s.mem,
+		Pinger:              s.db,
 		ChannelResolver:     channel.NewRuntimeResolver(s.store),
 		Account:             accountSvc,
 		Profile:             profileSvc,
@@ -426,8 +432,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Assets:              s.assetStore,
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
-		EventLog:            elStore,
-		GroupDispatcher:     groupDispatcher,
+		Group:               groupSvc,
 		Vault:               s.vaultSvc,
 		VaultRecipient:      vaultRecipient,
 		MCP:                 s.mcpSvc,

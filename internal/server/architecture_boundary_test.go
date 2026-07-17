@@ -234,54 +234,17 @@ var broadServerFields = map[string]bool{
 	"users": true, "sessions": true, "credentials": true, "logins": true,
 }
 
-var currentBroadServerFields = map[string]string{
-	"Server.mem": "memory.Provider",
-	"Server.db":  "pgxpool.Pool",
-	"Server.q":   "sqlc.Queries",
-	"Deps.DB":    "pgxpool.Pool",
-	"Deps.Mem":   "memory.Provider",
-}
+// Empty: every handler now reaches persistence through a narrow domain service.
+// The last broad Server/Deps persistence fields (q/db/mem, DB/Mem) retired with
+// the Group boundary migration; readiness holds only the narrow DBPinger.
+var currentBroadServerFields = map[string]string{}
 
 // currentServerFieldUses inventories every direct broad-field selector reached
 // through a *Server receiver or parameter. Counts prevent a second use in an
-// existing handler from hiding behind an allowlist entry.
-var currentServerFieldUses = map[string]map[string]map[string]int{
-	"groups.go": {
-		"AddGroupMember": {
-			"q": 2,
-		},
-		"CreateGroup": {
-			"q": 3,
-		},
-		"DeleteGroup": {
-			"q": 1,
-		},
-		"ListGroupMembers": {
-			"q": 1,
-		},
-		"ListGroupMessages": {
-			"q": 1,
-		},
-		"ListGroups": {
-			"q": 1,
-		},
-		"RemoveGroupMember": {
-			"q": 2,
-		},
-		"SendGroupMessage": {
-			"q": 2,
-		},
-		"UpdateGroup": {
-			"q": 1,
-		},
-		"groupToAPIWithActivity": {
-			"q": 1,
-		},
-		"requireGroupOwner": {
-			"q": 1,
-		},
-	},
-}
+// existing handler from hiding behind an allowlist entry. Empty: the group
+// handlers were the last direct s.q callers and now route through the Group
+// boundary.
+var currentServerFieldUses = map[string]map[string]map[string]int{}
 
 // serverFieldUseBaseline flattens the reviewable per-file/function inventory
 // into the stable file:function:field key used by the exact comparison.
@@ -305,11 +268,9 @@ var (
 	currentServerFieldAliasAllowlist           = map[string]bool{}
 	currentServerTypeIndirectionAllowlist      = map[string]bool{}
 	currentServerPersistenceDotImportAllowlist = map[string]bool{}
-	currentServerPersistenceImports            = map[string]bool{
-		"groups.go:" + serverSQLCImportPath:    true,
-		"server.go:" + serverSQLCImportPath:    true,
-		"server.go:" + serverPgxpoolImportPath: true,
-	}
+	// Empty: no server file imports sqlc or pgxpool. The Group migration retired
+	// the last sqlc consumer (groups.go) and the pool/queries fields on server.go.
+	currentServerPersistenceImports = map[string]bool{}
 )
 
 var broadTypeMarkers = map[string]map[string]string{
@@ -1183,7 +1144,6 @@ func TestNoNewResourceAuthIdentityConstructors(t *testing.T) {
 var resourceAuthHelperAllowlist = map[string]bool{
 	"authorizeReadableDBSkills": true, // skills_scoped.go — routes DB-skill list reads through the skillaccess PEP
 	"authorizeDBSkillRead":      true, // skills_scoped.go — routes a single DB-skill read through the skillaccess PEP
-	"requireGroupOwner":         true, // groups.go — group ownership gate
 	"requireAuth":               true, // middleware.go — authentication (not resource authz)
 	"requireAdmin":              true, // middleware.go — admin gate
 	"requireAgentAccess":        true, // skills_scoped.go — agent access gate

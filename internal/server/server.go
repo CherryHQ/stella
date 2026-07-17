@@ -10,8 +10,6 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
@@ -26,11 +24,9 @@ import (
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/credential"
 	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/mcp"
-	"github.com/CherryHQ/stella/internal/memory"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -40,7 +36,6 @@ import (
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // Server provides HTTP handlers for the admin API and embedded web UI.
@@ -57,16 +52,13 @@ type Server struct {
 	skillAccess     *skillaccess.Service
 	rateLimiter     *auth.RateLimiter
 	linkCodes       *auth.LinkCodeStore
-	mem             memory.Provider
 	poolManager     *agent.PoolManager
 	pluginHost      *pluginhost.Host
 	weixinRegistrar WeixinRegistrar
-	db              *pgxpool.Pool
 	// pinger is the narrow database-liveness port backing the /healthz, /readyz,
 	// and admin status probes. It is the injected pool viewed as DBPinger, so the
 	// probes can never reach an application query.
 	pinger         DBPinger
-	q              *sqlc.Queries
 	mux            *http.ServeMux
 	log            *slog.Logger
 	vaultRecipient *age.X25519Recipient  // optional; if set, age keys are generated for new users
@@ -93,10 +85,10 @@ type Server struct {
 	localAuth     *local.Service
 	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
 	baseURL string
-	// eventLog is the group event log store (optional; if nil, group chat returns 503).
-	eventLog *eventlog.Store
-	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
-	groupDispatcher *channel.GroupDispatcher
+	// groupSvc owns the Web group/channel application boundary (CRUD, membership,
+	// messages, send). Its send path degrades to 503 when the event log or group
+	// dispatcher is absent; the read/CRUD path stays available.
+	groupSvc *channel.GroupService
 	// assets is the authoritative asset persistence service backing the session
 	// workspace file handlers (durable-write/restore/move/delete for user assets).
 	assets *asset.Store
@@ -119,13 +111,11 @@ type Server struct {
 // into the Server at construction and never mutated afterward: there are no
 // post-construction setters.
 type Deps struct {
-	// Persistence reached directly by handlers not yet migrated onto narrow
-	// ports. This is the frozen per-file persistence debt tracked by the
-	// architecture boundary test — carried explicitly here rather than hidden
-	// behind a facade, and shrunk as later stacks migrate each handler onto a
-	// domain service.
-	DB  *pgxpool.Pool
-	Mem memory.Provider
+	// Pinger is the narrow database-liveness port backing the /healthz, /readyz,
+	// and admin status probes. The composition root injects the pool as this
+	// narrow port so the transport can never reach an application query — every
+	// data access is routed through a domain service below.
+	Pinger DBPinger
 
 	// ChannelResolver is the narrow runtime read port for webhook/channel and
 	// agent-name lookups, replacing the aggregate config.Store on the transport.
@@ -191,8 +181,12 @@ type Deps struct {
 	Recally             *recally.Service
 	CredentialFrontDoor *credential.Service
 	OAuthAuthServer     *oidc.Service
-	EventLog            *eventlog.Store
-	GroupDispatcher     *channel.GroupDispatcher
+	// Group owns the Web group/channel application boundary: authorized CRUD,
+	// membership with the last-member invariant, message list, and the send path
+	// (command interception, dedup append + outbox claim, synchronous dispatch).
+	// It holds the event log and group dispatcher internally, so the transport no
+	// longer reaches the query layer or sqlc for groups.
+	Group *channel.GroupService
 	// Assets is the authoritative asset persistence service. Session workspace
 	// handlers use its narrow durable-write/restore/move/delete ports instead of a
 	// raw blob store, so the HTTP transport never holds process-global blob state.
@@ -224,9 +218,11 @@ type OIDCDeps struct {
 // validate reports every missing required dependency at once (fail-fast). A
 // dependency is required only when the server dereferences it unconditionally
 // (no 503 gate). Optional capabilities — CredentialFrontDoor, OAuthAuthServer,
-// EventLog, GroupDispatcher, Vault, VaultRecipient, MCP, Scheduler,
-// Goal, Workflow, and OIDC.StateMgr/LocalAuth — are intentionally not checked:
-// a nil there is a supported configuration whose endpoints degrade to 503.
+// Vault, VaultRecipient, MCP, Scheduler, Goal, Workflow, and
+// OIDC.StateMgr/LocalAuth — are intentionally not checked: a nil there is a
+// supported configuration whose endpoints degrade to 503. The Group service is
+// required (its own send path degrades internally when the event log or
+// dispatcher is absent).
 func (d Deps) validate() error {
 	var missing []string
 	req := func(ok bool, name string) {
@@ -234,9 +230,9 @@ func (d Deps) validate() error {
 			missing = append(missing, name)
 		}
 	}
-	req(d.DB != nil, "DB")
-	req(d.Mem != nil, "Mem")
+	req(d.Pinger != nil, "Pinger")
 	req(d.ChannelResolver != nil, "ChannelResolver")
+	req(d.Group != nil, "Group")
 	req(d.Account != nil, "Account")
 	req(d.Profile != nil, "Profile")
 	req(d.ProjectStore != nil, "ProjectStore")
@@ -292,13 +288,10 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		rateLimiter:     auth.NewRateLimiter(),
 		webhookLimiter:  newWebhookLimiter(5, 20),
 		linkCodes:       deps.LinkCodes,
-		mem:             deps.Mem,
 		poolManager:     deps.PoolManager,
-		db:              deps.DB,
-		pinger:          deps.DB,
+		pinger:          deps.Pinger,
 		pluginHost:      deps.PluginHost,
 		weixinRegistrar: deps.WeixinRegistrar,
-		q:               sqlc.New(deps.DB),
 		mux:             http.NewServeMux(),
 		log:             log,
 		baseURL:         deps.BaseURL,
@@ -317,8 +310,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		schedulerSvc:    deps.Scheduler,
 		goalSvc:         deps.Goal,
 		workflowSvc:     deps.Workflow,
-		eventLog:        deps.EventLog,
-		groupDispatcher: deps.GroupDispatcher,
+		groupSvc:        deps.Group,
 		assets:          deps.Assets,
 		authProviders:   deps.OIDC.Providers,
 		authSvc:         deps.OIDC.AuthSvc,

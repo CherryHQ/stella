@@ -65,8 +65,6 @@ func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Pro
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
 	return &Server{
-		mem:           mem,
-		db:            db,
 		assets:        assets,
 		sessionAccess: sessions,
 		log:           slog.New(slog.NewTextHandler(io.Discard, nil)),

@@ -87,9 +87,9 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	memChangelog, _ := mem.(memory.ChangelogReader)
 	profileSvc := memprofile.NewService(db, memProfiles, memChangelog, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	return Deps{
-		DB:                  db,
-		Mem:                 mem,
+		Pinger:              db,
 		ChannelResolver:     channel.NewRuntimeResolver(store),
+		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
 		Account:             accountSvc,
 		Profile:             profileSvc,
 		ProjectStore:        agent.NewProjectStore(db, store, assetStore, agentAccess),

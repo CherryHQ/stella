@@ -251,9 +251,9 @@ func setupAdmin(t *testing.T) *testEnv {
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	profileSvc := memprofile.NewService(db, mem, mem, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	deps := server.Deps{
-		DB:                  db,
-		Mem:                 mem,
+		Pinger:              db,
 		ChannelResolver:     channel.NewRuntimeResolver(store),
+		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
 		Account:             accountSvc,
 		Profile:             profileSvc,
 		ProjectStore:        agent.NewProjectStore(db, store, assetStore, agentAccess),
