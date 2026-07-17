@@ -28,7 +28,6 @@ interface Props {
 interface Form {
   name: string;
   description: string;
-  status: "active" | "draft" | "deprecated";
   disable_model_invocation: boolean;
   content: string;
 }
@@ -37,7 +36,6 @@ function emptyForm(): Form {
   return {
     name: "",
     description: "",
-    status: "active",
     disable_model_invocation: false,
     content: "",
   };
@@ -96,7 +94,6 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       const f: Form = {
         name: sk.name,
         description: sk.description ?? "",
-        status: (sk.status as Form["status"]) ?? "active",
         disable_model_invocation: sk.disable_model_invocation ?? false,
         content: initialFile === "SKILL.md" ? content : "",
       };
@@ -161,7 +158,6 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
             name: form.name,
             scope: "user",
             description: form.description,
-            status: form.status,
             disable_model_invocation: form.disable_model_invocation,
             files: { "SKILL.md": form.content },
           },
@@ -173,7 +169,6 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
           query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
           body: {
             description: form.description,
-            status: form.status,
             disable_model_invocation: form.disable_model_invocation,
             files: { "SKILL.md": form.content },
           },
@@ -237,9 +232,6 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
               <div className="flex items-center gap-2 mt-1.5">
                 <Badge variant={scopeBadgeVariant(skill.scope)} size="sm">
                   {t(SCOPE_LABEL_KEY[skill.scope as SkillScope])}
-                </Badge>
-                <Badge variant={skill.status === "active" ? "success" : "outline"} size="sm">
-                  {skill.status}
                 </Badge>
                 {isReadOnly && (
                   <Badge variant="outline" size="sm">
@@ -334,20 +326,6 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                   placeholder={t("sessions.skill.namePlaceholder")}
                   className="text-sm font-mono"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-mono mb-1">
-                  {t("sessions.skill.fieldStatus")}
-                </label>
-                <select
-                  value={form.status}
-                  onChange={(e) => patchForm({ status: e.target.value as Form["status"] })}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="active">active</option>
-                  <option value="draft">draft</option>
-                  <option value="deprecated">deprecated</option>
-                </select>
               </div>
               <div className="sm:col-span-2">
                 <label className="block text-sm font-mono mb-1">
