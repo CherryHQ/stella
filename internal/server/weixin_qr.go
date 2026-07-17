@@ -4,10 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/google/uuid"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -75,18 +72,10 @@ func (s *Server) PollWeixinQRStatus(w http.ResponseWriter, r *http.Request, para
 		if externalID == "" {
 			externalID = status.ILinkBotID
 		}
-		if externalID != "" && s.users != nil {
-			if _, err := s.users.GetChannelIdentityByPlatform(r.Context(), pkgchannel.PlatformWeixin, externalID); err != nil {
-				// Identity doesn't exist yet — create it.
-				if _, err := s.users.CreateChannelIdentity(r.Context(), auth.ChannelIdentity{
-					ID:         uuid.Must(uuid.NewV7()).String(),
-					UserID:     info.UserID,
-					Platform:   pkgchannel.PlatformWeixin,
-					ExternalID: externalID,
-				}); err != nil {
-					s.log.Warn("create weixin identity", "user_id", info.UserID, "error", err)
-				}
-			}
+		if externalID != "" {
+			// The Account service owns the idempotent channel-identity link and its
+			// best-effort logging.
+			s.account.LinkChannelIdentityFromLogin(r.Context(), info.UserID, pkgchannel.PlatformWeixin, externalID, "")
 		}
 	}
 

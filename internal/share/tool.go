@@ -8,7 +8,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -137,17 +136,13 @@ type listResponse[T any] struct {
 }
 
 func shareCreatedSummary(created Created) shareResponse {
-	out := shareResponse{ID: created.Share.ID, URL: created.URL, Title: created.Share.Title, MediaType: created.Share.MediaType, CreatedAt: created.Share.CreatedAt.UTC().Format(time.RFC3339)}
-	if created.Share.ExpiresAt.Valid {
-		out.ExpiresAt = created.Share.ExpiresAt.Time.UTC().Format(time.RFC3339)
-	}
-	return out
+	return shareSummary(created.Share, created.URL)
 }
 
-func shareSummary(row sqlc.ListSharesByUserRow, url string) shareResponse {
+func shareSummary(row Share, url string) shareResponse {
 	out := shareResponse{ID: row.ID, URL: url, Title: row.Title, MediaType: row.MediaType, CreatedAt: row.CreatedAt.UTC().Format(time.RFC3339)}
-	if row.ExpiresAt.Valid {
-		out.ExpiresAt = row.ExpiresAt.Time.UTC().Format(time.RFC3339)
+	if row.ExpiresAt != nil {
+		out.ExpiresAt = row.ExpiresAt.UTC().Format(time.RFC3339)
 	}
 	return out
 }

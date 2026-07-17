@@ -3,15 +3,19 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sort"
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
+	"github.com/CherryHQ/stella/internal/server"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -250,6 +254,21 @@ func TestProfileChangelogRejectsInvalidScopePageAndToken(t *testing.T) {
 	rr = doRequest(t, env, http.MethodGet, changelogPath(agentID)+"?scope=soul&page_token="+*profilePage.NextPageToken, nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("wrong-scope changelog token status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
+func TestProfileChangelogUnavailableManagerReturnsServiceUnavailable(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := findStellaID(t, env)
+	profiles, _ := env.mem.(memory.ProfileStore)
+	changelog, _ := env.mem.(memory.ChangelogReader)
+	env.rebuild(t, func(d *server.Deps) {
+		d.Profile = memprofile.NewService(env.db, profiles, changelog, nil, d.AgentAccess, prompt.DefaultAgentSoul, slog.Default())
+	})
+
+	rr := doRequest(t, env, http.MethodGet, changelogPath(agentID), nil)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unavailable changelog status = %d, want %d (body: %s)", rr.Code, http.StatusServiceUnavailable, rr.Body.String())
 	}
 }
 

@@ -2,9 +2,6 @@ package server
 
 import (
 	"net/http"
-
-	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 )
 
 func resolveTargetUserID(info *AuthInfo, id string) string {
@@ -34,6 +31,11 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 	var body struct {
 		DefaultAgentID string `json:"default_agent_id"`
 	}
@@ -41,22 +43,30 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	// A non-admin may only set a default agent they can use; that cross-domain
+	// decision stays with the Agent PEP, before the account write.
 	if !info.IsAdmin {
 		if _, code, msg := s.requireAgentUse(r.Context(), body.DefaultAgentID); code != 0 {
 			writeError(w, code, msg)
 			return
 		}
 	}
-	if err := s.users.UpdateUserDefaultAgent(r.Context(), targetUserID, body.DefaultAgentID); err != nil {
-		s.writeInternalError(w, err)
+	view, err := s.account.SetDefaultAgent(r.Context(), authority, targetUserID, body.DefaultAgentID)
+	if err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
-	s.writeAuthUser(w, r, targetUserID)
+	writeData(w, http.StatusOK, authUserResponseFromView(view))
 }
 
 func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string) {
-	_, targetUserID, ok := s.requireUserTarget(w, r, id)
+	info, targetUserID, ok := s.requireUserTarget(w, r, id)
 	if !ok {
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	var body struct {
@@ -66,41 +76,34 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if body.NotifyIdentityID != nil {
-		identity, err := s.users.GetChannelIdentity(r.Context(), *body.NotifyIdentityID)
-		if err != nil {
-			writeError(w, http.StatusNotFound, "identity not found")
-			return
-		}
-		if identity.UserID != targetUserID {
-			writeError(w, http.StatusBadRequest, "identity does not belong to this user")
-			return
-		}
-	}
-	if err := s.users.UpdateUserNotifyIdentity(r.Context(), targetUserID, body.NotifyIdentityID); err != nil {
-		s.writeInternalError(w, err)
+	view, err := s.account.SetNotifyIdentity(r.Context(), authority, targetUserID, body.NotifyIdentityID)
+	if err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
-	s.writeAuthUser(w, r, targetUserID)
+	writeData(w, http.StatusOK, authUserResponseFromView(view))
 }
 
 func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id string) {
-	_, targetUserID, ok := s.requireUserTarget(w, r, id)
+	info, targetUserID, ok := s.requireUserTarget(w, r, id)
 	if !ok {
 		return
 	}
-	memories, err := s.q.ListUserAgentMemoriesByUser(r.Context(), targetUserID)
+	authority, err := info.authority()
 	if err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	for i := range memories {
-		if err := s.applyProfileFacts(r.Context(), &memories[i]); err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
+	memories, err := s.profileSvc.ListUserMemories(r.Context(), authority, targetUserID)
+	if err != nil {
+		s.writeProfileError(w, err)
+		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"memories": memories})
+	out := make([]profileMemoryResponse, 0, len(memories))
+	for _, m := range memories {
+		out = append(out, profileMemoryResponseFrom(m))
+	}
+	writeData(w, http.StatusOK, map[string]any{"memories": out})
 }
 
 func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
@@ -108,8 +111,9 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	var body struct {
@@ -119,21 +123,12 @@ func (s *Server) SetUserMemory(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	source := memory.SourceSystem
-	if !info.IsAdmin || targetUserID == info.UserID {
-		source = memory.SourceUser
-	}
-	ctx := memory.WithChangeSource(r.Context(), source)
-	profiles, ok := s.mem.(memory.ProfileStore)
-	if !ok {
-		writeError(w, http.StatusServiceUnavailable, "profile memory store not configured")
+	mem, err := s.profileSvc.SetUserMemory(r.Context(), authority, targetUserID, agentID, body.Content)
+	if err != nil {
+		s.writeProfileError(w, err)
 		return
 	}
-	if err := profiles.SetProfile(ctx, targetUserID, agentID, body.Content); err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	s.writeProfileMemory(w, r, targetUserID, agentID)
+	writeData(w, http.StatusOK, profileMemoryResponseFrom(mem))
 }
 
 func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id string, agentID string) {
@@ -141,17 +136,13 @@ func (s *Server) DeleteUserMemory(w http.ResponseWriter, r *http.Request, id str
 	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	source := memory.SourceSystem
-	if !info.IsAdmin || targetUserID == info.UserID {
-		source = memory.SourceUser
-	}
-	ctx := memory.WithChangeSource(r.Context(), source)
-	if err := memorywrite.ResetUserAgentMemory(ctx, s.db, s.q, targetUserID, agentID); err != nil {
-		s.writeInternalError(w, err)
+	if err := s.profileSvc.DeleteUserMemory(r.Context(), authority, targetUserID, agentID); err != nil {
+		s.writeProfileError(w, err)
 		return
 	}
 	writeNoContent(w)

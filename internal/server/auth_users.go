@@ -1,15 +1,12 @@
 package server
 
 import (
-	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
 )
 
 // --- Auth User Management API (admin-only) ---
@@ -26,26 +23,23 @@ type authUserResponse struct {
 	UpdatedAt  time.Time              `json:"updated_at"`
 }
 
-func (s *Server) buildAuthUserResponse(r *http.Request, u auth.User) (authUserResponse, error) {
-	var identities []auth.ChannelIdentity
-	if s.users != nil {
-		var err error
-		identities, err = s.users.ListChannelIdentitiesByUser(r.Context(), u.ID)
-		if err != nil {
-			return authUserResponse{}, fmt.Errorf("list identities: %w", err)
-		}
+// authUserResponseFromView encodes an Account domain view into the auth-user
+// resource shape. Identities are never nil so the JSON always carries an array.
+func authUserResponseFromView(v account.AccountView) authUserResponse {
+	identities := v.Identities
+	if identities == nil {
+		identities = []auth.ChannelIdentity{}
 	}
-
 	return authUserResponse{
-		ID:         u.ID,
-		Email:      u.Email,
-		Name:       u.Name,
-		Role:       u.Role,
-		IsActive:   u.IsActive,
+		ID:         v.User.ID,
+		Email:      v.User.Email,
+		Name:       v.User.Name,
+		Role:       v.User.Role,
+		IsActive:   v.User.IsActive,
 		Identities: identities,
-		CreatedAt:  u.CreatedAt.UTC(),
-		UpdatedAt:  u.UpdatedAt.UTC(),
-	}, nil
+		CreatedAt:  v.User.CreatedAt.UTC(),
+		UpdatedAt:  v.User.UpdatedAt.UTC(),
+	}
 }
 
 // ListAuthUsers handles GET /api/users.
@@ -54,27 +48,26 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request, params ap
 	if info == nil {
 		return
 	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 	limit, offset, err := parsePageParams(params.PageSize, params.PageToken)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid pagination parameters")
 		return
 	}
-	users, err := s.users.ListUsersPaged(r.Context(), int64(limit+1), int64(offset))
+	views, err := s.account.ListUsers(r.Context(), authority, int64(limit+1), int64(offset))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list users")
+		s.writeAccountError(w, err)
 		return
 	}
-	page, nextToken := nextPageTokenForRows(users, limit, offset)
+	page, nextToken := nextPageTokenForRows(views, limit, offset)
 
 	result := make([]authUserResponse, 0, len(page))
-	for _, u := range page {
-		resp, err := s.buildAuthUserResponse(r, u)
-		if err != nil {
-			s.log.Error("build auth user response", "user_id", u.ID, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to list users")
-			return
-		}
-		result = append(result, resp)
+	for _, v := range page {
+		result = append(result, authUserResponseFromView(v))
 	}
 
 	out := map[string]any{"users": result}
@@ -86,34 +79,32 @@ func (s *Server) ListAuthUsers(w http.ResponseWriter, r *http.Request, params ap
 
 // GetAuthUser handles GET /api/users/{id}.
 func (s *Server) GetAuthUser(w http.ResponseWriter, r *http.Request, id string) {
-	_, targetUserID, ok := s.requireUserTarget(w, r, id)
+	info, targetUserID, ok := s.requireUserTarget(w, r, id)
 	if !ok {
 		return
 	}
-	s.writeAuthUser(w, r, targetUserID)
-}
-
-// writeAuthUser loads the auth user by ID and writes the full AuthUser resource.
-func (s *Server) writeAuthUser(w http.ResponseWriter, r *http.Request, id string) {
-	u, err := s.users.GetUser(r.Context(), id)
+	authority, err := info.authority()
 	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-
-	resp, err := s.buildAuthUserResponse(r, u)
+	view, err := s.account.GetUser(r.Context(), authority, targetUserID)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeAccountError(w, err)
 		return
 	}
-
-	writeData(w, http.StatusOK, resp)
+	writeData(w, http.StatusOK, authUserResponseFromView(view))
 }
 
 // UpdateAuthUserRole handles PATCH /api/users/{id}/role.
 func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id string) {
 	info := requireAdmin(w, r)
 	if info == nil {
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	var body struct {
@@ -123,29 +114,13 @@ func (s *Server) UpdateAuthUserRole(w http.ResponseWriter, r *http.Request, id s
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-
-	if body.Role != auth.RoleAdmin && body.Role != auth.RoleUser {
-		writeError(w, http.StatusBadRequest, "role must be 'admin' or 'user'")
-		return
-	}
-
 	targetUserID := resolveTargetUserID(info, id)
-	if info.UserID == targetUserID && body.Role != auth.RoleAdmin {
-		writeError(w, http.StatusBadRequest, "cannot remove your own admin role")
+	view, err := s.account.UpdateRole(r.Context(), authority, targetUserID, body.Role)
+	if err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
-
-	if err := s.users.UpdateUserRole(r.Context(), targetUserID, body.Role); err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-
-	// Force re-authentication so new role takes effect in tokens.
-	if s.sessions != nil {
-		_ = s.sessions.DeleteUserSessions(r.Context(), targetUserID)
-	}
-
-	s.writeAuthUser(w, r, targetUserID)
+	writeData(w, http.StatusOK, authUserResponseFromView(view))
 }
 
 // ListAuthUserAgents handles GET /api/users/{id}/agents.
@@ -154,13 +129,17 @@ func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id s
 	if info == nil {
 		return
 	}
-	targetUserID := resolveTargetUserID(info, id)
-	agentIDs, err := s.authStore.ListUserAgentIDs(r.Context(), targetUserID)
+	authority, err := info.authority()
 	if err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-
+	targetUserID := resolveTargetUserID(info, id)
+	agentIDs, err := s.account.ListUserAgents(r.Context(), authority, targetUserID)
+	if err != nil {
+		s.writeAccountError(w, err)
+		return
+	}
 	writeData(w, http.StatusOK, map[string]any{"agent_ids": agentIDs})
 }
 
@@ -168,6 +147,11 @@ func (s *Server) ListAuthUserAgents(w http.ResponseWriter, r *http.Request, id s
 func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id string) {
 	info := requireAdmin(w, r)
 	if info == nil {
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	targetUserID := resolveTargetUserID(info, id)
@@ -178,52 +162,9 @@ func (s *Server) UpdateAuthUserAgents(w http.ResponseWriter, r *http.Request, id
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-
-	// Verify user exists.
-	if _, err := s.users.GetUser(r.Context(), targetUserID); err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-
-	ctx := r.Context()
-
-	// Get current assignments.
-	currentIDs, err := s.authStore.ListUserAgentIDs(ctx, targetUserID)
+	updated, err := s.account.SetUserAgents(r.Context(), authority, targetUserID, body.AgentIDs)
 	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-
-	currentSet := make(map[string]bool, len(currentIDs))
-	for _, aid := range currentIDs {
-		currentSet[aid] = true
-	}
-	desiredSet := make(map[string]bool, len(body.AgentIDs))
-	for _, aid := range body.AgentIDs {
-		desiredSet[aid] = true
-	}
-
-	// Remove agents not in desired set.
-	for _, aid := range currentIDs {
-		if !desiredSet[aid] {
-			if err := s.authStore.RemoveAgent(ctx, targetUserID, aid); err != nil {
-				s.log.Error("remove agent assignment", "user_id", targetUserID, "agent_id", aid, "error", err)
-			}
-		}
-	}
-
-	// Add agents not in current set.
-	for _, aid := range body.AgentIDs {
-		if !currentSet[aid] {
-			if err := s.authStore.AssignAgent(ctx, targetUserID, aid); err != nil {
-				s.log.Error("assign agent", "user_id", targetUserID, "agent_id", aid, "error", err)
-			}
-		}
-	}
-
-	updated, err := s.authStore.ListUserAgentIDs(ctx, targetUserID)
-	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeAccountError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"agent_ids": updated})
@@ -235,31 +176,16 @@ func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, 
 	if info == nil {
 		return
 	}
-	targetUserID := resolveTargetUserID(info, id)
-	if s.users == nil {
-		writeError(w, http.StatusServiceUnavailable, "channel identity store not configured")
-		return
-	}
-	ctx := r.Context()
-
-	// Verify the identity exists and belongs to the specified user.
-	identity, err := s.users.GetChannelIdentity(ctx, identityId)
+	authority, err := info.authority()
 	if err != nil {
-		writeError(w, http.StatusNotFound, "identity not found")
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-
-	if identity.UserID != targetUserID {
-		writeError(w, http.StatusBadRequest, "identity does not belong to this user")
+	targetUserID := resolveTargetUserID(info, id)
+	if err := s.account.DeleteUserChannelIdentity(r.Context(), authority, targetUserID, identityId); err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
-
-	if err := s.users.DeleteChannelIdentity(ctx, identityId); err != nil {
-		s.log.Error("admin delete identity", "id", identityId, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete identity")
-		return
-	}
-
 	writeNoContent(w)
 }
 
@@ -267,6 +193,11 @@ func (s *Server) DeleteAuthUserIdentity(w http.ResponseWriter, r *http.Request, 
 func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id string) {
 	info := requireAdmin(w, r)
 	if info == nil {
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	targetUserID := resolveTargetUserID(info, id)
@@ -277,36 +208,12 @@ func (s *Server) UpdateAuthUserActive(w http.ResponseWriter, r *http.Request, id
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-
-	if info.UserID == targetUserID && !body.IsActive {
-		writeError(w, http.StatusBadRequest, "cannot deactivate your own account")
+	view, err := s.account.SetActive(r.Context(), authority, targetUserID, body.IsActive)
+	if err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
-
-	if _, err := s.users.GetUser(r.Context(), targetUserID); err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-
-	if err := s.users.UpdateUserActive(r.Context(), targetUserID, body.IsActive); err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-
-	// If deactivating, delete all their sessions to force logout and cascade-
-	// revoke their PATs so the tokens do not silently reactivate with the account.
-	if !body.IsActive {
-		if s.sessions != nil {
-			_ = s.sessions.DeleteUserSessions(r.Context(), targetUserID)
-		}
-		if s.credResolver != nil {
-			if _, err := s.credResolver.RevokeUserPATs(r.Context(), targetUserID); err != nil {
-				s.log.Error("revoke PATs on deactivation", "error", err, "user_id", targetUserID)
-			}
-		}
-	}
-
-	s.writeAuthUser(w, r, targetUserID)
+	writeData(w, http.StatusOK, authUserResponseFromView(view))
 }
 
 // ListAuthUserLoginIdentities handles GET /api/users/{id}/identities/login.
@@ -315,18 +222,15 @@ func (s *Server) ListAuthUserLoginIdentities(w http.ResponseWriter, r *http.Requ
 	if info == nil {
 		return
 	}
-	targetUserID := resolveTargetUserID(info, id)
-	if s.logins == nil {
-		writeData(w, http.StatusOK, map[string]any{"identities": []auth.LoginIdentity{}})
-		return
-	}
-	if _, err := s.users.GetUser(r.Context(), targetUserID); err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-	identities, err := s.logins.ListLoginIdentitiesByUser(r.Context(), targetUserID)
+	authority, err := info.authority()
 	if err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	targetUserID := resolveTargetUserID(info, id)
+	identities, err := s.account.ListLoginIdentities(r.Context(), authority, targetUserID)
+	if err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"identities": identities})
@@ -338,11 +242,12 @@ func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Reques
 	if info == nil {
 		return
 	}
-	targetUserID := resolveTargetUserID(info, id)
-	if s.logins == nil {
-		writeError(w, http.StatusServiceUnavailable, "login identity store not configured")
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	targetUserID := resolveTargetUserID(info, id)
 
 	var body struct {
 		Provider        string `json:"provider"`
@@ -359,41 +264,16 @@ func (s *Server) LinkAuthUserLoginIdentity(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if _, err := s.users.GetUser(r.Context(), targetUserID); err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-
-	// Ensure the identity is not already owned by another user.
-	existing, err := s.logins.GetLoginIdentityByProvider(r.Context(), body.Provider, body.ProviderSubject)
-	if err != nil && !errors.Is(err, auth.ErrNotFound) {
-		s.writeInternalError(w, err)
-		return
-	}
-	if err == nil && existing.UserID != targetUserID {
-		writeError(w, http.StatusConflict, "identity is already linked to another user")
-		return
-	}
-	if err == nil && existing.UserID == targetUserID {
-		writeData(w, http.StatusOK, existing)
-		return
-	}
-
-	linked, err := s.logins.CreateLoginIdentity(r.Context(), auth.LoginIdentity{
-		ID:              uuid.Must(uuid.NewV7()).String(),
-		UserID:          targetUserID,
+	linked, err := s.account.LinkLoginIdentity(r.Context(), authority, targetUserID, account.LinkLoginInput{
 		Provider:        body.Provider,
 		ProviderSubject: body.ProviderSubject,
 		Email:           body.Email,
 		Name:            body.Name,
 	})
 	if err != nil {
-		s.log.Error("admin link login identity", "user_id", targetUserID, "provider", body.Provider, "error", err)
-		s.writeInternalError(w, err)
+		s.writeAccountError(w, err)
 		return
 	}
-
-	s.log.Info("admin linked login identity", "user_id", targetUserID, "provider", body.Provider, "subject", body.ProviderSubject)
 	writeData(w, http.StatusOK, linked)
 }
 
@@ -403,18 +283,15 @@ func (s *Server) ListAuthUserChannelIdentities(w http.ResponseWriter, r *http.Re
 	if info == nil {
 		return
 	}
-	targetUserID := resolveTargetUserID(info, id)
-	if _, err := s.users.GetUser(r.Context(), targetUserID); err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-	if s.users == nil {
-		writeData(w, http.StatusOK, map[string]any{"identities": []auth.ChannelIdentity{}})
-		return
-	}
-	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), targetUserID)
+	authority, err := info.authority()
 	if err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	targetUserID := resolveTargetUserID(info, id)
+	identities, err := s.account.ListChannelIdentities(r.Context(), authority, targetUserID)
+	if err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, map[string]any{"identities": identities})

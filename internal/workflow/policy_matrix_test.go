@@ -183,7 +183,8 @@ func TestWorkflowInstantiateAsChecksPersistedWorkflowAndAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	wf := createWorkflow(t, q, owner.ID, "owned")
-	svc := New(pool, goal.New(pool, q), agentaccess.NewService(store, assign))
+	goals := goal.New(pool, q)
+	svc := New(pool, goal.NewBundle(q, goals, nil).WorkflowWriter(), agentaccess.NewService(store, assign))
 
 	foreign := workflowUserAuthority(t, uuid.NewString(), false)
 	if _, _, err := svc.InstantiateAs(ctx, foreign, wf.ID, nil, "same"); !errors.Is(err, ErrNotFound) {
@@ -232,7 +233,7 @@ func TestSaveGoalAsWorkflowAuthorizesSourceGoal(t *testing.T) {
 	goals := goal.New(pool, q)
 	root := createAcceptedWorkflowGoal(t, ctx, pool, goals, owner.ID, "owned")
 	unassignedRoot := createAcceptedWorkflowGoal(t, ctx, pool, goals, owner.ID, "unassigned")
-	svc := New(pool, goals, agentaccess.NewService(store, assign))
+	svc := New(pool, goal.NewBundle(q, goals, nil).WorkflowWriter(), agentaccess.NewService(store, assign))
 
 	ownerAcc, err := svc.Begin(ctx, workflowUserAuthority(t, owner.ID, false))
 	if err != nil {
@@ -242,8 +243,8 @@ func TestSaveGoalAsWorkflowAuthorizesSourceGoal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("owner SaveGoalAsWorkflow: %v", err)
 	}
-	if wf.UserID.String != owner.ID || wf.AgentID.String != "owned" {
-		t.Fatalf("workflow owner/agent = %q/%q, want durable source owner target %q/%q", wf.UserID.String, wf.AgentID.String, owner.ID, "owned")
+	if derefString(wf.UserID) != owner.ID || derefString(wf.AgentID) != "owned" {
+		t.Fatalf("workflow owner/agent = %q/%q, want durable source owner target %q/%q", derefString(wf.UserID), derefString(wf.AgentID), owner.ID, "owned")
 	}
 	if _, err := ownerAcc.SaveGoalAsWorkflow(ctx, SaveInput{GoalID: unassignedRoot.ID, Name: "unassigned"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unexecutable target SaveGoalAsWorkflow = %v, want not found", err)

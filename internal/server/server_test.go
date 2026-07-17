@@ -18,20 +18,27 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
+	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/notify"
+	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -54,6 +61,34 @@ func TestMain(m *testing.M) {
 	// dbtest.Main, which stops the shared embedded Postgres server afterward.
 	auth.SetBcryptCostForTesting(bcrypt.MinCost)
 	dbtest.Main(m)
+}
+
+// testUserDir adapts the OIDC user store to the Agent domain's UserDirectory
+// port, mirroring the composition-root adapter for the external test package.
+type testUserDir struct {
+	users interface {
+		GetUser(ctx context.Context, id string) (auth.User, error)
+	}
+}
+
+func (d testUserDir) LookupUser(ctx context.Context, id string) (agentaccess.UserRef, error) {
+	u, err := d.users.GetUser(ctx, id)
+	if err != nil {
+		return agentaccess.UserRef{}, err
+	}
+	return agentaccess.UserRef{ID: u.ID, Email: u.Email}, nil
+}
+
+func (d testUserDir) LookupUsers(ctx context.Context, ids []string) ([]agentaccess.UserRef, error) {
+	out := make([]agentaccess.UserRef, 0, len(ids))
+	for _, id := range ids {
+		u, err := d.users.GetUser(ctx, id)
+		if err != nil {
+			continue
+		}
+		out = append(out, agentaccess.UserRef{ID: u.ID, Email: u.Email})
+	}
+	return out, nil
 }
 
 type testEnv struct {
@@ -187,7 +222,11 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
-	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
+	credLog := slog.With("component", "admin-test")
+	credPATStore := credential.NewPostgresStore(db)
+	oauthStore := oauthserver.NewPostgresStore(db)
+	credFrontDoor := credential.NewService(credential.Config{PATs: credPATStore, OAuth: oauthStore, Users: credPATStore, Logger: credLog})
+	oauthAuthServer := oauthserver.NewService(oauthserver.Config{Store: oauthStore, Issuer: credFrontDoor, Logger: credLog})
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
@@ -209,13 +248,21 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
+	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
+	memoryManagement := memorywrite.NewManagementService(db, mem)
+	profileSvc := memprofile.NewService(db, mem, mem, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	deps := server.Deps{
-		Store:               store,
-		DB:                  db,
-		AuthStore:           as,
-		Mem:                 mem,
-		MemoryManagement:    memorywrite.NewManagementService(db, mem),
+		Pinger:              db,
+		ChannelResolver:     channel.NewRuntimeResolver(store),
+		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
+		Account:             accountSvc,
+		Profile:             profileSvc,
+		ProjectStore:        agent.NewProjectStore(db, store, assetStore, agentAccess),
+		Inbox:               inbox.NewService(db),
 		AgentAccess:         agentAccess,
+		AgentManagement:     agentManagement,
+		ToolOverrides:       agent.NewToolOverrideStore(db),
 		SessionAccess:       sessionSvc,
 		SkillAccess:         skillaccess.NewService(skillStore, agentAccess),
 		LinkCodes:           auth.NewLinkCodeStore(),
@@ -232,12 +279,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
 		OIDC: server.OIDCDeps{
-			AuthSvc:     authSvc,
-			SessionMgr:  sessionMgr,
-			Logins:      oidcStore,
-			Users:       oidcStore,
-			Sessions:    oidcStore,
-			Credentials: oidcStore,
+			AuthSvc:    authSvc,
+			SessionMgr: sessionMgr,
 		},
 	}
 	srv, err := server.New(ctx, deps)
@@ -311,7 +354,7 @@ func TestNewErrorsWithoutRequiredDeps(t *testing.T) {
 	if srv != nil {
 		t.Fatal("expected nil server on validation failure")
 	}
-	for _, want := range []string{"PluginHost", "Store", "BaseURL"} {
+	for _, want := range []string{"PluginHost", "ChannelResolver", "BaseURL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention missing dep %q", err, want)
 		}

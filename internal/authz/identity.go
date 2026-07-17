@@ -77,33 +77,6 @@ func FromContext(ctx context.Context) (Identity, error) {
 	return ident, nil
 }
 
-// RequireUser rejects unauthenticated identities.
-func (id Identity) RequireUser() error {
-	if id.UserID == "" {
-		return ErrUnauthenticated
-	}
-	return nil
-}
-
-// ResolveAgentScope confines a requested agent id to the bound agent when scoped.
-func (id Identity) ResolveAgentScope(requested string) (string, error) {
-	if !id.AgentScoped {
-		return requested, nil
-	}
-	if id.AgentID == "" || (requested != "" && requested != id.AgentID) {
-		return "", ErrForbidden
-	}
-	return id.AgentID, nil
-}
-
-// RequireAgentMatch rejects a different agent when the identity is scoped.
-func (id Identity) RequireAgentMatch(agentID string) error {
-	if id.AgentScoped && (id.AgentID == "" || agentID != id.AgentID) {
-		return ErrForbidden
-	}
-	return nil
-}
-
 func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
 
 func IsForbidden(err error) bool { return errors.Is(err, ErrForbidden) }

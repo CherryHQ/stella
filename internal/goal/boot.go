@@ -20,19 +20,17 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-// Service is the boot-level bundle the server + CLI bind to. It owns the
-// GoalService (the single durable-state writer) and the dispatcher, and
-// exposes the read+command surface the HTTP handlers call. Every mutating method
-// delegates to GoalService so the "lifecycle is written only through a
-// transition" invariant holds; reads go straight to the querier.
+// Service is the boot-level Goal application boundary bound by the server and
+// CLI. Its Access methods own request authorization; its private durable
+// collaborators preserve the lifecycle-transition invariant.
 //
 // The goal subsystem does NOT own a River client: it contributes its queue +
 // worker to the single process-wide client (RegisterRiverWorker / GoalQueueConfig)
 // and receives that client back as its dispatcher's enqueuer (BindRiverClient).
 // The client's Start/Stop lifecycle belongs to the composition root.
 type Service struct {
-	Queries    *sqlc.Queries
-	Goal       *GoalService
+	q          *sqlc.Queries
+	goal       *GoalService
 	Dispatcher *Dispatcher
 
 	// agents backs the Authority-based Goal Access PEP's persisted-agent gate.
@@ -63,7 +61,40 @@ type Service struct {
 // Boot uses it after building the executor and dispatcher; tests that assemble
 // pieces directly use the same constructor.
 func NewBundle(q *sqlc.Queries, gs *GoalService, agents *agentaccess.Service) *Service {
-	return &Service{Queries: q, Goal: gs, agents: agents}
+	return &Service{q: q, goal: gs, agents: agents}
+}
+
+// WorkflowWriter exposes only Workflow's consumer-owned Goal port. It returns
+// nil when the durable writer is unavailable, avoiding a typed-nil interface.
+func (s *Service) WorkflowWriter() interface {
+	CreateRoot(context.Context, CreateInput) (CreatedGoal, error)
+	MaterializeFrozenLayer(context.Context, string, DecompositionContent, FrozenStamp) error
+	ActivateFrozenComposite(context.Context, string) error
+	Authorize(context.Context, authz.Authority, string, authz.Action) (AuthorizedGoal, error)
+} {
+	if s == nil || s.goal == nil {
+		return nil
+	}
+	return workflowWriter{goal: s.goal}
+}
+
+type workflowWriter struct{ goal *GoalService }
+
+func (w workflowWriter) CreateRoot(ctx context.Context, in CreateInput) (CreatedGoal, error) {
+	row, err := w.goal.CreateRoot(ctx, in)
+	return CreatedGoal{ID: row.ID}, err
+}
+
+func (w workflowWriter) MaterializeFrozenLayer(ctx context.Context, id string, content DecompositionContent, stamp FrozenStamp) error {
+	return w.goal.MaterializeFrozenLayer(ctx, id, content, stamp)
+}
+
+func (w workflowWriter) ActivateFrozenComposite(ctx context.Context, id string) error {
+	return w.goal.ActivateFrozenComposite(ctx, id)
+}
+
+func (w workflowWriter) Authorize(ctx context.Context, authority authz.Authority, id string, action authz.Action) (AuthorizedGoal, error) {
+	return w.goal.Authorize(ctx, authority, id, action)
 }
 
 // RegisterRiverWorker registers the goal subsystem's workers into a shared
@@ -247,8 +278,8 @@ func Boot(cfg BootConfig) (*Service, error) {
 	})
 
 	return &Service{
-		Queries:         q,
-		Goal:            svc,
+		q:               q,
+		goal:            svc,
 		Dispatcher:      disp,
 		agents:          cfg.AgentAccess,
 		runner:          runner,

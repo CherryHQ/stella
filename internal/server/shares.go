@@ -14,7 +14,6 @@ import (
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/authz"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func (s *Server) ListShares(w http.ResponseWriter, r *http.Request, params apiserver.ListSharesParams) {
@@ -60,7 +59,7 @@ func (s *Server) CreateShare(w http.ResponseWriter, r *http.Request) {
 		s.writeShareError(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, apiCreatedShare(created.Share, shareURL(r, created.Token)))
+	writeData(w, http.StatusCreated, apiShare(created.Share, shareURL(r, created.Token)))
 }
 
 func createShare(r *http.Request, acc *sharepkg.Access, body apitypes.CreateShareRequest) (sharepkg.Created, error) {
@@ -111,7 +110,7 @@ func (s *Server) GetShareContent(w http.ResponseWriter, r *http.Request, token s
 		writeError(w, http.StatusNotFound, "share not found")
 		return
 	}
-	share, err := s.q.GetShareByTokenHash(r.Context(), sharepkg.TokenHash(token))
+	share, err := s.shareSvc.PublicContent(r.Context(), token)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "share not found")
 		return
@@ -121,8 +120,8 @@ func (s *Server) GetShareContent(w http.ResponseWriter, r *http.Request, token s
 	mediaType := share.MediaType
 	if strings.HasPrefix(mediaType, "text/markdown") {
 		expiresAt := ""
-		if share.ExpiresAt.Valid {
-			expiresAt = share.ExpiresAt.Time.UTC().Format(time.RFC3339)
+		if share.ExpiresAt != nil {
+			expiresAt = share.ExpiresAt.UTC().Format(time.RFC3339)
 		}
 		rendered, renderErr := sharepkg.RenderMarkdownPage(sharepkg.RenderMarkdownOpts{Title: share.Title, ExpiresAt: expiresAt}, share.Content)
 		if renderErr == nil {
@@ -186,12 +185,8 @@ func (s *Server) writeShareError(w http.ResponseWriter, err error) {
 	}
 }
 
-func apiShare(row sqlc.ListSharesByUserRow, url string) apitypes.Share {
-	return apitypes.Share{Id: row.ID, Url: url, Title: row.Title, MediaType: row.MediaType, ExpiresAt: parseTimePtr(row.ExpiresAt), CreatedAt: row.CreatedAt.UTC()}
-}
-
-func apiCreatedShare(row sqlc.Share, url string) apitypes.Share {
-	return apitypes.Share{Id: row.ID, Url: url, Title: row.Title, MediaType: row.MediaType, ExpiresAt: parseTimePtr(row.ExpiresAt), CreatedAt: row.CreatedAt.UTC()}
+func apiShare(row sharepkg.Share, url string) apitypes.Share {
+	return apitypes.Share{Id: row.ID, Url: url, Title: row.Title, MediaType: row.MediaType, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt.UTC()}
 }
 
 func shareURL(r *http.Request, token string) string {
@@ -209,7 +204,7 @@ func shareURL(r *http.Request, token string) string {
 	return fmt.Sprintf("%s://%s/s/%s", scheme, host, token)
 }
 
-func setShareContentHeaders(w http.ResponseWriter, share sqlc.Share, effectiveMediaType string) {
+func setShareContentHeaders(w http.ResponseWriter, share sharepkg.Share, effectiveMediaType string) {
 	w.Header().Set("Content-Type", effectiveMediaType)
 	w.Header().Set("Content-Disposition", "inline; filename="+strconv.Quote(share.Title))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -217,8 +212,8 @@ func setShareContentHeaders(w http.ResponseWriter, share sqlc.Share, effectiveMe
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	w.Header().Set("X-Share-Title", share.Title)
 	w.Header().Set("X-Share-Media-Type", share.MediaType)
-	if share.ExpiresAt.Valid {
-		w.Header().Set("X-Share-Expires-At", share.ExpiresAt.Time.UTC().Format(time.RFC3339))
+	if share.ExpiresAt != nil {
+		w.Header().Set("X-Share-Expires-At", share.ExpiresAt.UTC().Format(time.RFC3339))
 	}
 	switch {
 	case strings.HasPrefix(effectiveMediaType, "text/html"):

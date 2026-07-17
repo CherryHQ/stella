@@ -193,12 +193,6 @@ func (s *Server) requireAgentManage(ctx context.Context, agentID string) (config
 	return s.requireAgentAction(ctx, agentID, "manage", s.agentAccess.Manage)
 }
 
-// requireAgentDelete deliberately uses ActionDelete rather than Manage: custom
-// policies may grant editing while denying destructive operations.
-func (s *Server) requireAgentDelete(ctx context.Context, agentID string) (config.Agent, int, string) {
-	return s.requireAgentAction(ctx, agentID, "delete", s.agentAccess.Delete)
-}
-
 func (s *Server) requireAgentAction(ctx context.Context, agentID, action string, decide func(context.Context, authz.Authority, string) (config.Agent, error)) (config.Agent, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {

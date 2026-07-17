@@ -42,6 +42,14 @@ func (a *Access) ListChannels(ctx context.Context) ([]config.Channel, error) {
 	return a.svc.store.ListChannels(ctx)
 }
 
+// LookupAgent reads an agent for a channel-binding precondition: a registration
+// flow binds a channel to an agent that must exist and be enabled. It is an
+// admin-gated read (the Access already passed Begin), so a non-admin never
+// reaches it; the caller inspects the returned agent's Enabled flag.
+func (a *Access) LookupAgent(ctx context.Context, id string) (config.Agent, error) {
+	return a.svc.store.GetAgent(ctx, id)
+}
+
 // GetChannel returns one channel by id (opaque 404 when missing).
 func (a *Access) GetChannel(ctx context.Context, id string) (config.Channel, error) {
 	ch, err := a.svc.store.GetChannel(ctx, id)
@@ -60,6 +68,14 @@ func (a *Access) SaveChannel(ctx context.Context, ch config.Channel, cfgMap map[
 		return config.Channel{}, err
 	}
 	return operation.Save(ctx, ch, cfgMap, create)
+}
+
+// Channel reads the current row for this operation's channel so a caller can
+// merge a partial update onto it. It is an admin-gated read (Begin already ran);
+// a missing channel returns an error the caller treats as "start from a fresh
+// row" rather than a hard failure.
+func (m *ChannelManagement) Channel(ctx context.Context, id string) (config.Channel, error) {
+	return m.access.svc.store.GetChannel(ctx, id)
 }
 
 // Save persists the already-authorized channel and applies its plugin as one

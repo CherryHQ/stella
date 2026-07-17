@@ -6,16 +6,13 @@ package server
 //   - TestServerNewReadsNoEnvConstructsNoService (AST): Server.New must only wire
 //     injected Deps — it reads no environment and constructs no service. It flags
 //     BOTH selector calls (connections.NewService) and same-package identifier
-//     calls (NewCredentialFrontDoor) whose name is constructor-shaped (New*/new*),
-//     except a small allowlist of language/runtime constructors New legitimately
-//     needs (a query handle over the injected pool, a mux, the readiness probe,
-//     etc.).
-//   - TestDepsBroadCapabilityFieldsFrozen freezes today's explicitly documented
-//     broad-capability debt on server.Deps and rejects any new broad field or
-//     nesting (a second pool, a raw sqlc.Queries, a blob.Store, a memory
-//     SessionManager). The allowlist may only shrink; a stale entry fails. This is
-//     debt, not the target: the handler persistence it feeds is removed by the
-//     per-domain cutovers (#709–#712), which is when these entries come off.
+//     calls whose name is constructor-shaped (New*/new*), except a small allowlist
+//     of language/runtime constructors New legitimately needs (a query handle over
+//     the injected pool, a mux, the readiness probe, etc.).
+//   - TestDepsBroadCapabilityFieldsFrozen is terminal: server.Deps cannot carry
+//     a broad persistence capability or hide one through nesting. Persistence
+//     belongs behind an application service; `DBPinger` is the sole narrow probe
+//     port.
 
 import (
 	"bytes"
@@ -54,13 +51,12 @@ var envReadsForbiddenInNew = map[string]bool{
 // constructorsAllowedInNew is the exact set of constructor-shaped calls New may
 // make: language/runtime primitives and same-package presentation/wiring
 // helpers that build no domain service. Anything else whose callee name starts
-// with New/new (a selector like connections.NewService, or a same-package ident
-// like NewCredentialFrontDoor) fails — those instances must be built by the
+// with New/new (a selector like connections.NewService, or a same-package
+// identifier constructor) fails — those instances must be built by the
 // composition root and injected.
 var constructorsAllowedInNew = map[string]bool{
 	"auth.NewRateLimiter":           true, // in-memory rate limiter, not a domain service
 	"newWebhookLimiter":             true, // in-memory limiter, same package
-	"sqlc.New":                      true, // query handle over the INJECTED pool
 	"http.NewServeMux":              true, // runtime mux
 	"newReadiness":                  true, // readiness probe over the injected pool
 	"newRecallyHandlersWithService": true, // presentation handler over the INJECTED recally service
@@ -137,9 +133,8 @@ func sortedKeys(m map[string]bool) []string {
 // Deps broad-capability field freeze.
 // ---------------------------------------------------------------------------
 
-// depsBroadMarkers are the broad-capability type markers that may still appear
-// on server.Deps as documented debt. The presence of any marker in a field's
-// (source-rendered) type makes that field "broad".
+// depsBroadMarkers are broad-capability type markers forbidden on server.Deps.
+// The presence of any marker in a field's source-rendered type makes it broad.
 var depsBroadMarkers = []string{
 	"pgxpool.Pool",
 	"config.Store",
@@ -161,23 +156,10 @@ var depsForbiddenForever = []string{
 	"memory.SessionManager",
 }
 
-// currentBroadDeps freezes the exact broad-capability fields on server.Deps
-// today, keyed by field path, valued by a sorted comma-joined capability
-// signature. This is the documented persistence debt that the handler layer
-// still reaches directly; the per-domain cutovers (#709–#712) remove those
-// handlers, at which point these entries come off. The map may only SHRINK — a
-// new broad field, a changed signature, or a removed-but-still-listed entry all
-// fail.
-var currentBroadDeps = map[string]string{
-	"DB":               "pgxpool.Pool",
-	"Store":            "config.Store",
-	"AuthStore":        "auth.AuthStore",
-	"Mem":              "memory.Provider",
-	"OIDC.Logins":      "auth.LoginIdentityStore",
-	"OIDC.Users":       "auth.ChannelIdentityStore,auth.UserStore",
-	"OIDC.Sessions":    "auth.SessionStore",
-	"OIDC.Credentials": "auth.CredentialStore",
-}
+// currentBroadDeps is empty by design. A new broad field fails immediately;
+// there is no remaining server persistence debt. Deps.Pinger is a narrow
+// DBPinger liveness port, not a broad capability.
+var currentBroadDeps = map[string]string{}
 
 func renderType(fset *token.FileSet, expr ast.Expr) string {
 	var buf bytes.Buffer
@@ -286,6 +268,6 @@ func TestDepsBroadCapabilityFieldsFrozen(t *testing.T) {
 		delete(remaining, path)
 	}
 	for path := range remaining {
-		t.Errorf("frozen broad-Deps entry %q no longer present; the debt shrank — remove the allowlist entry (owner: #709–#712 domain cutovers)", path)
+		t.Errorf("stale broad-Deps entry %q; remove it: server.Deps admits no broad persistence capability", path)
 	}
 }

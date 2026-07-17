@@ -146,7 +146,11 @@ func (a *Access) List(ctx context.Context, limit, offset int) (ListResult, error
 		return ListResult{}, err
 	}
 	page, next := pageRows(rows, limit, offset)
-	return ListResult{Shares: page, NextPageToken: next}, nil
+	shares := make([]Share, 0, len(page))
+	for _, r := range page {
+		shares = append(shares, summaryFromRow(r))
+	}
+	return ListResult{Shares: shares, NextPageToken: next}, nil
 }
 
 // Revoke disables one of the acting user's shares. The delete is scoped to the

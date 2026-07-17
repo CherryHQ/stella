@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -126,7 +125,7 @@ func (h goalHandler) List(ctx context.Context, in ListInput) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var page []sqlc.AgentGoal
+	var page []Goal
 	var next string
 	switch {
 	case in.Parent != "":
@@ -190,6 +189,6 @@ type listResponse[T any] struct {
 	NextPageToken string `json:"next_page_token,omitempty"`
 }
 
-func goalSummary(row sqlc.AgentGoal) goalResponse {
+func goalSummary(row Goal) goalResponse {
 	return goalResponse{ID: row.ID, Title: row.Title, Lifecycle: row.Lifecycle, AcceptanceState: row.AcceptanceState, Kind: row.Kind, Priority: row.Priority, UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339)}
 }

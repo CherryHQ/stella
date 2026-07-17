@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -149,14 +148,12 @@ type listResponse[T any] struct {
 	NextPageToken string `json:"next_page_token,omitempty"`
 }
 
-func workflowSummary(row sqlc.AgentWorkflow) workflowResponse {
-	return workflowResponse{ID: row.ID, Name: row.Name, Version: row.Version, Intent: row.Intent, Inputs: decodeInputSpecs(row.Inputs), FullyFrozen: row.FullyFrozen, SourceGoalID: row.SourceGoalID.String, UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339)}
+func workflowSummary(row Workflow) workflowResponse {
+	return workflowResponse{ID: row.ID, Name: row.Name, Version: row.Version, Intent: row.Intent, Inputs: row.Inputs, FullyFrozen: row.FullyFrozen, SourceGoalID: derefString(row.SourceGoalID), UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339)}
 }
 
-func workflowRunSummary(row sqlc.AgentWorkflowRun) workflowRunResponse {
-	inputs := map[string]string{}
-	_ = json.Unmarshal(row.Inputs, &inputs)
-	return workflowRunResponse{ID: row.ID, WorkflowID: row.WorkflowID, WorkflowVersion: row.WorkflowVersion, Status: row.Status, RootGoalID: row.RootGoalID.String, Inputs: inputs, UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339)}
+func workflowRunSummary(row Run) workflowRunResponse {
+	return workflowRunResponse{ID: row.ID, WorkflowID: row.WorkflowID, WorkflowVersion: row.WorkflowVersion, Status: row.Status, RootGoalID: derefString(row.RootGoalID), Inputs: row.Inputs, UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339)}
 }
 
 func decodeInputSpecs(raw json.RawMessage) []InputSpec {

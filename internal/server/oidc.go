@@ -11,9 +11,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 
@@ -362,31 +359,12 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, identity auth.ExternalIdentity) {
-	if identity.Provider != "feishu" || identity.Subject == "" || s.users == nil {
+	if identity.Provider != "feishu" || identity.Subject == "" {
 		return
 	}
-	existing, err := s.users.GetChannelIdentityByPlatform(ctx, "feishu", identity.Subject)
-	if err == nil {
-		if existing.UserID != userID {
-			slog.Warn("feishu auth: channel identity already linked to another user", "external_id", identity.Subject, "login_user_id", userID, "channel_user_id", existing.UserID)
-		}
-		return
-	}
-	if !errors.Is(err, auth.ErrNotFound) && !errors.Is(err, pgx.ErrNoRows) {
-		slog.Warn("feishu auth: lookup channel identity failed", "external_id", identity.Subject, "user_id", userID, "error", err)
-		return
-	}
-	if _, err := s.users.CreateChannelIdentity(ctx, auth.ChannelIdentity{
-		ID:         uuid.Must(uuid.NewV7()).String(),
-		UserID:     userID,
-		Platform:   "feishu",
-		ExternalID: identity.Subject,
-		Name:       identity.Name,
-	}); err != nil {
-		slog.Warn("feishu auth: create channel identity failed", "external_id", identity.Subject, "user_id", userID, "error", err)
-		return
-	}
-	slog.Info("feishu auth: linked channel identity from login", "external_id", identity.Subject, "user_id", userID)
+	// The Account service owns the idempotent link + its best-effort logging; the
+	// feishu login flow only decides that a feishu subject should be linked.
+	s.account.LinkChannelIdentityFromLogin(ctx, userID, "feishu", identity.Subject, identity.Name)
 }
 
 // ensureUserVaultKeys provisions age encryption keys for a user who doesn't

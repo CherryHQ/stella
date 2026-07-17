@@ -12,6 +12,9 @@ RETURNING *;
 -- name: GetGroupStateByID :one
 SELECT * FROM ctx_group_state WHERE id = $1;
 
+-- name: GetGroupStateByIDForUpdate :one
+SELECT * FROM ctx_group_state WHERE id = $1 FOR UPDATE;
+
 -- name: GetGroupLastActive :one
 SELECT COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
 FROM ctx_group_state gs

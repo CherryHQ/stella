@@ -257,6 +257,27 @@ func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupSta
 	return i, err
 }
 
+const getGroupStateByIDForUpdate = `-- name: GetGroupStateByIDForUpdate :one
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetGroupStateByIDForUpdate(ctx context.Context, id string) (CtxGroupState, error) {
+	row := q.db.QueryRow(ctx, getGroupStateByIDForUpdate, id)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const getGroupStateByTriple = `-- name: GetGroupStateByTriple :one
 SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state
 WHERE platform = $1

@@ -517,11 +517,10 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 		AgentName:       detail.AgentName,
 	}
 
-	// Resolve user name from auth system.
-	if detail.Info.UserID != "" && s.users != nil {
-		authUser, err := s.users.GetUser(r.Context(), detail.Info.UserID)
-		if err == nil {
-			resp.UserName = authUser.Email
+	// Resolve user name from the account system (best-effort display enrichment).
+	if detail.Info.UserID != "" {
+		if email, err := s.account.LookupEmail(r.Context(), detail.Info.UserID); err == nil {
+			resp.UserName = email
 		}
 	}
 
@@ -1106,21 +1105,6 @@ func serializeToolRow(row sessionaccess.Message) map[string]any {
 		m["references"] = env.References
 	}
 	return m
-}
-
-// parseCommand extracts the slash command from a message, returning the
-// lowercase command (e.g. "/compact") and true, or ("", false) if the
-// message is not a command.
-func parseCommand(text string) (string, bool) {
-	fields := strings.Fields(text)
-	if len(fields) == 0 {
-		return "", false
-	}
-	cmd := strings.ToLower(fields[0])
-	if !strings.HasPrefix(cmd, "/") {
-		return "", false
-	}
-	return cmd, true
 }
 
 // streamPlainReply writes a complete SSE stream for a simple text reply

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/skills"
 )
 
@@ -89,7 +89,7 @@ type skillPageQuery struct {
 
 // encodeKnowledgePageToken keeps lifecycle positions opaque to clients and
 // separate from the legacy offset-token format.
-func encodeKnowledgePageToken(state memorywrite.KnowledgeState, cursor memorywrite.KnowledgeCursor) (string, error) {
+func encodeKnowledgePageToken(state memprofile.KnowledgeState, cursor memprofile.KnowledgeCursor) (string, error) {
 	payload, err := json.Marshal(knowledgePageToken{
 		Kind: knowledgePageTokenKind, State: string(state), SortAt: cursor.Timestamp.UTC(), ID: cursor.ID,
 	})
@@ -99,7 +99,7 @@ func encodeKnowledgePageToken(state memorywrite.KnowledgeState, cursor memorywri
 	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
-func decodeKnowledgePageToken(token string, state memorywrite.KnowledgeState) (*memorywrite.KnowledgeCursor, error) {
+func decodeKnowledgePageToken(token string, state memprofile.KnowledgeState) (*memprofile.KnowledgeCursor, error) {
 	if token == "" {
 		return nil, fmt.Errorf("page_token is malformed")
 	}
@@ -114,7 +114,7 @@ func decodeKnowledgePageToken(token string, state memorywrite.KnowledgeState) (*
 	if decoded.Kind != knowledgePageTokenKind || decoded.State != string(state) || decoded.SortAt.IsZero() || decoded.ID == "" {
 		return nil, fmt.Errorf("page_token does not match the knowledge query")
 	}
-	return &memorywrite.KnowledgeCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
+	return &memprofile.KnowledgeCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
 }
 
 // encodeSkillPageToken keeps a merged Skill cursor opaque to clients.

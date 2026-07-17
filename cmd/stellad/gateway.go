@@ -22,16 +22,23 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/observability"
+	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
@@ -40,6 +47,39 @@ import (
 )
 
 const defaultAdminPort = 25678
+
+// userDirectory adapts the account user store to the Agent domain's UserDirectory
+// port so agent-assignment views can show a target's email without the transport
+// (or the Agent domain) depending on the account boundary's internals. Lookups
+// are per-id: the assignment set of one agent is small and admin-only, and this
+// keeps the composition root free of the raw query layer.
+type userDirectory struct {
+	users interface {
+		GetUser(ctx context.Context, id string) (auth.User, error)
+	}
+}
+
+func (d userDirectory) LookupUser(ctx context.Context, id string) (agentaccess.UserRef, error) {
+	u, err := d.users.GetUser(ctx, id)
+	if err != nil {
+		return agentaccess.UserRef{}, err
+	}
+	return agentaccess.UserRef{ID: u.ID, Email: u.Email}, nil
+}
+
+func (d userDirectory) LookupUsers(ctx context.Context, ids []string) ([]agentaccess.UserRef, error) {
+	out := make([]agentaccess.UserRef, 0, len(ids))
+	for _, id := range ids {
+		// A stale assignment link whose user no longer resolves is skipped rather
+		// than failing the admin listing — the historical batch lookup did the same.
+		u, err := d.users.GetUser(ctx, id)
+		if err != nil {
+			continue
+		}
+		out = append(out, agentaccess.UserRef{ID: u.ID, Email: u.Email})
+	}
+	return out, nil
+}
 
 func serverCommand() *ucli.Command {
 	return &ucli.Command{
@@ -244,9 +284,25 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	// Unified bearer credential front door (PAT/OAuth storage) + OAuth2
 	// authorization server, built once by the composition root and injected into
-	// the admin server via Deps. Server.New never constructs the credential
-	// surface itself.
-	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(s.db, slog.With("component", "admin"))
+	// the admin server via Deps. The PAT/user-lookup adapter is owned by
+	// internal/credential; the OAuth access + client/code/refresh adapter is owned
+	// by internal/oidc and satisfies both credential.OAuthAccessStore and
+	// oidc.Store. The authorization server mints access tokens through the front
+	// door (never its own JWT), so the credential surface has a single owner.
+	credLog := slog.With("component", "admin")
+	credPATStore := credential.NewPostgresStore(s.db)
+	oauthStore := oauthserver.NewPostgresStore(s.db)
+	credFrontDoor := credential.NewService(credential.Config{
+		PATs:   credPATStore,
+		OAuth:  oauthStore,
+		Users:  credPATStore,
+		Logger: credLog,
+	})
+	oauthAuthServer := oauthserver.NewService(oauthserver.Config{
+		Store:  oauthStore,
+		Issuer: credFrontDoor,
+		Logger: credLog,
+	})
 
 	// Vault recipient for the admin server (new-user age keygen) and the channel
 	// coordinator. The MCP service and the pool-side vault env loader / MCP tool
@@ -307,16 +363,68 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	}
 	memoryManagement := memorywrite.NewManagementService(s.db, changelogPageReader)
 
+	// Agent management deepens the Agent PEP with the write use cases: it owns the
+	// durable agent create/update/delete, admin assignment, and conversation
+	// activity read model plus the runtime-reload port, so the HTTP transport no
+	// longer reaches config.Store / auth.AuthStore / the query layer for them. The
+	// user directory backs assignment views with the account user store (per-id
+	// lookups; the assignment set per agent is small and admin-only).
+	toolOverrides := agent.NewToolOverrideStore(s.db)
+	agentManagement := agentaccess.NewManagement(
+		agentAccess,
+		s.store,
+		as,
+		s.poolManager,
+		userDirectory{users: oidcStore},
+		agent.NewAgentActivityStore(s.db),
+		slog.With("component", "agent-management"),
+	)
+
+	// The Account service owns the user-account application boundary. It composes
+	// the single OIDC store (user/channel/login/session/credential) with the auth
+	// assignment store and the credential front door as the PAT revoker, so the
+	// HTTP transport no longer holds any auth store directly.
+	accountSvc := account.NewService(
+		oidcStore, oidcStore, oidcStore, oidcStore, oidcStore,
+		as, credFrontDoor,
+		slog.With("component", "account"),
+	)
+
+	// The Profile service owns the per-(user, agent) memory boundary. The Provider
+	// is viewed through its ProfileStore/ChangelogReader capabilities (nil when the
+	// Provider lacks them, degrading those endpoints to 503), and the Agent PEP
+	// backs the read gate. The transport no longer touches memory.Provider,
+	// memorywrite, or the query layer for profile/soul/constraints/changelog.
+	memProfiles, _ := s.mem.(memory.ProfileStore)
+	memChangelog, _ := s.mem.(memory.ChangelogReader)
+	// memoryManagement (built above from the pool + the Provider's keyset changelog
+	// reader) is injected into Profile as its knowledge/changelog-page adapter, so
+	// the HTTP transport reaches it only through the Agent-gated Profile boundary.
+	profileSvc := memprofile.NewService(
+		s.db, memProfiles, memChangelog, memoryManagement, agentAccess,
+		prompt.DefaultAgentSoul, slog.With("component", "profile"),
+	)
+
 	// Assemble the immutable, validated admin-server dependency set and construct
 	// the server exactly once. Every shared instance above is passed in; the
 	// server creates no shadow service, reads no environment, and has no setters.
+	// The Group service owns the Web group/channel application boundary. It holds
+	// the pool for group/member/message/outbox persistence, the Agent PEP for
+	// per-agent use authorization, the runtime resolver for agent-name projection,
+	// and the event log + group dispatcher for the send path (nil-tolerant: the
+	// send path degrades to 503 while CRUD stays available).
+	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher)
+
 	adminSrv, err := server.New(gctx, server.Deps{
-		Store:               s.store,
-		DB:                  s.db,
-		AuthStore:           as,
-		Mem:                 s.mem,
-		MemoryManagement:    memoryManagement,
+		Pinger:              s.db,
+		ChannelResolver:     channel.NewRuntimeResolver(s.store),
+		Account:             accountSvc,
+		Profile:             profileSvc,
+		ProjectStore:        s.projectStore,
+		Inbox:               inbox.NewService(s.db),
 		AgentAccess:         agentAccess,
+		AgentManagement:     agentManagement,
+		ToolOverrides:       toolOverrides,
 		SessionAccess:       s.sessionAccess,
 		SkillAccess:         s.skillAccess,
 		LinkCodes:           linkCodes,
@@ -333,8 +441,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Assets:              s.assetStore,
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
-		EventLog:            elStore,
-		GroupDispatcher:     groupDispatcher,
+		Group:               groupSvc,
 		Vault:               s.vaultSvc,
 		VaultRecipient:      vaultRecipient,
 		MCP:                 s.mcpSvc,
@@ -342,15 +449,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Goal:                s.goalSvc,
 		Workflow:            s.workflowSvc,
 		OIDC: server.OIDCDeps{
-			Providers:   oidcResult.Providers,
-			AuthSvc:     oidcResult.AuthSvc,
-			SessionMgr:  oidcResult.SessionMgr,
-			StateMgr:    oidcResult.StateMgr,
-			LocalAuth:   oidcResult.LocalAuth,
-			Logins:      oidcStore,
-			Users:       oidcStore,
-			Sessions:    oidcStore,
-			Credentials: oidcStore,
+			Providers:  oidcResult.Providers,
+			AuthSvc:    oidcResult.AuthSvc,
+			SessionMgr: oidcResult.SessionMgr,
+			StateMgr:   oidcResult.StateMgr,
+			LocalAuth:  oidcResult.LocalAuth,
 		},
 	})
 	if err != nil {

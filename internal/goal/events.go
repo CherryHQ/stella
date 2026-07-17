@@ -342,9 +342,9 @@ func (s *GoalService) priorGapsFromTimeline(ctx context.Context, q *sqlc.Queries
 // AddHumanMessage appends a human timeline message. A blocked goal treats the
 // message as explicit authorization for one more attempt and re-enters the
 // existing recovery lifecycle.
-func (s *GoalService) AddHumanMessage(ctx context.Context, in HumanMessageInput) (sqlc.AgentGoalEvent, error) {
+func (s *GoalService) AddHumanMessage(ctx context.Context, in HumanMessageInput) (TimelineEvent, error) {
 	if in.Text == "" {
-		return sqlc.AgentGoalEvent{}, ErrInvalidEvidence
+		return TimelineEvent{}, ErrInvalidEvidence
 	}
 	var out sqlc.AgentGoalEvent
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -383,7 +383,10 @@ func (s *GoalService) AddHumanMessage(ctx context.Context, in HumanMessageInput)
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return TimelineEvent{}, err
+	}
+	return timelineEventFromRow(out), nil
 }
 
 func (s *GoalService) raiseBudgetForHumanMessage(ctx context.Context, q *sqlc.Queries, d sqlc.AgentGoal) error {

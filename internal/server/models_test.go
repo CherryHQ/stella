@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
@@ -60,7 +61,7 @@ func TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled(t *testing.T) 
 		t.Fatalf("ReplaceCachedModels(anthropic): %v", err)
 	}
 
-	server := &Server{store: env.store}
+	server := &Server{controlPlane: controlplane.NewService(env.store, nil, nil, nil, nil)}
 	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
 	req = req.WithContext(withAuthInfo(req.Context(), &AuthInfo{
 		UserID:  "test-user",

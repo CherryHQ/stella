@@ -94,7 +94,7 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 		s.writeControlPlaneError(w, err)
 		return
 	}
-	agent, err := s.store.GetAgent(r.Context(), req.AgentID)
+	agent, err := access.LookupAgent(r.Context(), req.AgentID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "agent_id must reference an existing agent")
 		return
@@ -144,7 +144,7 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 // ever turns the channel on (a confirmed registration enables it; the
 // identity-link path passes false to leave the existing state untouched).
 func (s *Server) saveWeixinSingletonChannel(ctx context.Context, operation *controlplane.ChannelManagement, name, agentID string, enable bool, cfgPatch map[string]any, status WeixinQRCodeStatus) (config.Channel, error) {
-	ch, err := s.store.GetChannel(ctx, pkgchannel.PlatformWeixin)
+	ch, err := operation.Channel(ctx, pkgchannel.PlatformWeixin)
 	cfg := map[string]any{}
 	if err != nil {
 		ch = config.Channel{ID: pkgchannel.PlatformWeixin, Type: pkgchannel.PlatformWeixin, Enabled: true}

@@ -1,64 +1,61 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/authz"
 )
 
-func validateBaseDir(w http.ResponseWriter, agentID, userID, baseDir string) bool {
-	if _, err := agent.SetupUserWorkspace(config.StellaHome(), userID, agentID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to resolve workspace")
-		return false
+// projectError maps a project use-case error to its HTTP status and message,
+// preserving the historical bodies. Agent-gate denials reuse the agent access
+// mapping; anything unrecognized is a logged 500.
+func projectError(err error) (int, string) {
+	switch {
+	case err == nil:
+		return 0, ""
+	case errors.Is(err, agent.ErrProjectNotFound):
+		return http.StatusNotFound, "project not found"
+	case errors.Is(err, agent.ErrInvalidBaseDir):
+		return http.StatusBadRequest, "invalid base_dir"
+	case errors.Is(err, agent.ErrWorkspaceSetup):
+		return http.StatusInternalServerError, "failed to resolve workspace"
+	case errors.Is(err, agentaccess.ErrNotFound), errors.Is(err, agentaccess.ErrForbidden):
+		return agentAccessError(err)
+	default:
+		return http.StatusInternalServerError, "internal error"
 	}
-	// A project is owned by the agent (#442), so it must live under the agent's
-	// subdir of the user home.
-	projectRoot := agent.UserAgentDir(config.StellaHome(), userID, agentID)
-	if err := agent.ValidateProjectDir(baseDir, projectRoot); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid base_dir")
-		return false
+}
+
+// writeProjectError writes the mapped project error. The workspace-setup failure
+// keeps its specific 500 body; any other 500 is logged through writeInternalError.
+func (s *Server) writeProjectError(w http.ResponseWriter, err error) {
+	code, msg := projectError(err)
+	switch {
+	case errors.Is(err, agent.ErrWorkspaceSetup):
+		writeError(w, code, msg)
+	case code == http.StatusInternalServerError:
+		s.writeInternalError(w, err)
+	default:
+		writeError(w, code, msg)
 	}
-	return true
 }
 
 func (s *Server) ListProjects(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListProjectsParams) {
-	auth := UserFromContext(r.Context())
-	if auth == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	authority, ok := s.projectAuthority(w, r)
+	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
 	includeArchived := params.IncludeArchived != nil && *params.IncludeArchived
-
-	var projects []sqlc.Project
-	var err error
-	if includeArchived {
-		projects, err = s.q.ListProjectsAll(r.Context(), sqlc.ListProjectsAllParams{
-			AgentID: agentID,
-			UserID:  auth.UserID,
-		})
-	} else {
-		projects, err = s.q.ListProjects(r.Context(), sqlc.ListProjectsParams{
-			AgentID: agentID,
-			UserID:  auth.UserID,
-		})
-	}
+	projects, err := s.projectStore.List(r.Context(), authority, agentID, includeArchived)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeProjectError(w, err)
 		return
 	}
-
 	resp := make([]projectResponse, 0, len(projects))
 	for _, p := range projects {
 		resp = append(resp, toProjectResponse(p))
@@ -67,22 +64,15 @@ func (s *Server) ListProjects(w http.ResponseWriter, r *http.Request, agentID st
 }
 
 func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID string) {
-	auth := UserFromContext(r.Context())
-	if auth == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	authority, ok := s.projectAuthority(w, r)
+	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
 	var body apiserver.CreateProjectJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-
 	if body.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
@@ -91,160 +81,75 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 		writeError(w, http.StatusBadRequest, "base_dir is required")
 		return
 	}
-
-	if !validateBaseDir(w, agentID, auth.UserID, body.BaseDir) {
-		return
-	}
-
-	p, err := s.q.CreateProject(r.Context(), sqlc.CreateProjectParams{
-		ID:          uuid.Must(uuid.NewV7()).String(),
-		AgentID:     agentID,
-		UserID:      auth.UserID,
-		Name:        body.Name,
-		BaseDir:     body.BaseDir,
-		Description: pgtype.Text{String: derefStr(body.Description), Valid: body.Description != nil},
-	})
+	p, err := s.projectStore.Create(r.Context(), authority, agentID, body.Name, body.BaseDir, body.Description)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeProjectError(w, err)
 		return
 	}
-
 	writeData(w, http.StatusCreated, toProjectResponse(p))
 }
 
 func (s *Server) GetProject(w http.ResponseWriter, r *http.Request, agentID string, projectID string) {
-	auth := UserFromContext(r.Context())
-	if auth == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	authority, ok := s.projectAuthority(w, r)
+	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
-	p, err := s.q.GetProject(r.Context(), sqlc.GetProjectParams{
-		ID:     projectID,
-		UserID: auth.UserID,
-	})
-	if isNotFound(err) {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
+	p, err := s.projectStore.Get(r.Context(), authority, agentID, projectID)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeProjectError(w, err)
 		return
 	}
-	if p.AgentID != agentID {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
-
 	writeData(w, http.StatusOK, toProjectResponse(p))
 }
 
 func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID string, projectID string) {
-	auth := UserFromContext(r.Context())
-	if auth == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	authority, ok := s.projectAuthority(w, r)
+	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
-	existing, err := s.q.GetProject(r.Context(), sqlc.GetProjectParams{
-		ID:     projectID,
-		UserID: auth.UserID,
-	})
-	if isNotFound(err) {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	if existing.AgentID != agentID {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
-
 	var body apiserver.UpdateProjectJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-
-	name := existing.Name
-	if body.Name != nil {
-		name = *body.Name
-	}
-	baseDir := existing.BaseDir
-	if body.BaseDir != nil {
-		if !validateBaseDir(w, agentID, auth.UserID, *body.BaseDir) {
-			return
-		}
-		baseDir = *body.BaseDir
-	}
-	description := existing.Description
-	if body.Description != nil {
-		description = pgtype.Text{String: *body.Description, Valid: true}
-	}
-
-	updated, err := s.q.UpdateProject(r.Context(), sqlc.UpdateProjectParams{
-		Name:        name,
-		Description: description,
-		BaseDir:     baseDir,
-		ID:          projectID,
-		UserID:      auth.UserID,
+	updated, err := s.projectStore.Update(r.Context(), authority, agentID, projectID, agent.ProjectUpdate{
+		Name:        body.Name,
+		BaseDir:     body.BaseDir,
+		Description: body.Description,
 	})
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeProjectError(w, err)
 		return
 	}
-
 	writeData(w, http.StatusOK, toProjectResponse(updated))
 }
 
 func (s *Server) DeleteProject(w http.ResponseWriter, r *http.Request, agentID string, projectID string) {
-	auth := UserFromContext(r.Context())
-	if auth == nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	authority, ok := s.projectAuthority(w, r)
+	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	if err := s.projectStore.Delete(r.Context(), authority, agentID, projectID); err != nil {
+		s.writeProjectError(w, err)
 		return
 	}
-
-	existing, err := s.q.GetProject(r.Context(), sqlc.GetProjectParams{
-		ID:     projectID,
-		UserID: auth.UserID,
-	})
-	if isNotFound(err) {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	if existing.AgentID != agentID {
-		writeError(w, http.StatusNotFound, "project not found")
-		return
-	}
-
-	if err := s.q.DeleteProject(r.Context(), sqlc.DeleteProjectParams{
-		ID:     projectID,
-		UserID: auth.UserID,
-	}); err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// projectAuthority resolves the trusted Authority for a project request, writing
+// the 401/403 response when the caller is not authenticated.
+func (s *Server) projectAuthority(w http.ResponseWriter, r *http.Request) (authz.Authority, bool) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return authz.Authority{}, false
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return authz.Authority{}, false
+	}
+	return authority, true
 }
 
 type projectResponse struct {
@@ -259,19 +164,16 @@ type projectResponse struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-func toProjectResponse(p sqlc.Project) projectResponse {
-	r := projectResponse{
-		ID:        p.ID,
-		AgentID:   p.AgentID,
-		UserID:    p.UserID,
-		Name:      p.Name,
-		BaseDir:   p.BaseDir,
-		Archived:  p.Archived,
-		CreatedAt: p.CreatedAt.UTC(),
-		UpdatedAt: p.UpdatedAt.UTC(),
+func toProjectResponse(p agent.Project) projectResponse {
+	return projectResponse{
+		ID:          p.ID,
+		AgentID:     p.AgentID,
+		UserID:      p.UserID,
+		Name:        p.Name,
+		BaseDir:     p.BaseDir,
+		Description: p.Description,
+		Archived:    p.Archived,
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
 	}
-	if p.Description.Valid {
-		r.Description = p.Description.String
-	}
-	return r
 }

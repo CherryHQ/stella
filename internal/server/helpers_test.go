@@ -10,17 +10,24 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
+	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
+	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -42,7 +49,11 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		t.Fatalf("NewSessionManager: %v", err)
 	}
 	recallyStore := recally.NewStore(db)
-	credFrontDoor, oauthAuthServer := NewCredentialFrontDoor(db, slog.With("component", "admin-test"))
+	credLog := slog.With("component", "admin-test")
+	credPATStore := credential.NewPostgresStore(db)
+	oauthStore := oauthserver.NewPostgresStore(db)
+	credFrontDoor := credential.NewService(credential.Config{PATs: credPATStore, OAuth: oauthStore, Users: credPATStore, Logger: credLog})
+	oauthAuthServer := oauthserver.NewService(oauthserver.Config{Store: oauthStore, Issuer: credFrontDoor, Logger: credLog})
 	changelogPageReader, ok := mem.(memory.ChangelogPageReader)
 	if !ok {
 		t.Fatal("test memory provider does not implement ChangelogPageReader")
@@ -74,13 +85,24 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
+	toolOverrides := agent.NewToolOverrideStore(db)
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
+	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
+	memProfiles, _ := mem.(memory.ProfileStore)
+	memChangelog, _ := mem.(memory.ChangelogReader)
+	memoryManagement := memorywrite.NewManagementService(db, changelogPageReader)
+	profileSvc := memprofile.NewService(db, memProfiles, memChangelog, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	return Deps{
-		Store:               store,
-		DB:                  db,
-		AuthStore:           as,
-		Mem:                 mem,
-		MemoryManagement:    memorywrite.NewManagementService(db, changelogPageReader),
+		Pinger:              db,
+		ChannelResolver:     channel.NewRuntimeResolver(store),
+		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
+		Account:             accountSvc,
+		Profile:             profileSvc,
+		ProjectStore:        agent.NewProjectStore(db, store, assetStore, agentAccess),
+		Inbox:               inbox.NewService(db),
 		AgentAccess:         agentAccess,
+		AgentManagement:     agentManagement,
+		ToolOverrides:       toolOverrides,
 		SessionAccess:       sessionSvc,
 		SkillAccess:         skillaccess.NewService(phost.SkillStore(), agentAccess),
 		LinkCodes:           auth.NewLinkCodeStore(),
@@ -97,14 +119,38 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		OAuthAuthServer:     oauthAuthServer,
 		Assets:              assetStore,
 		OIDC: OIDCDeps{
-			AuthSvc:     authSvc,
-			SessionMgr:  sessionMgr,
-			Logins:      oidcStore,
-			Users:       oidcStore,
-			Sessions:    oidcStore,
-			Credentials: oidcStore,
+			AuthSvc:    authSvc,
+			SessionMgr: sessionMgr,
 		},
 	}
+}
+
+// testUserDirectory adapts the OIDC user store to the Agent domain's
+// UserDirectory port for tests, mirroring the composition-root adapter.
+type testUserDirectory struct {
+	users interface {
+		GetUser(ctx context.Context, id string) (auth.User, error)
+	}
+}
+
+func (d testUserDirectory) LookupUser(ctx context.Context, id string) (agentaccess.UserRef, error) {
+	u, err := d.users.GetUser(ctx, id)
+	if err != nil {
+		return agentaccess.UserRef{}, err
+	}
+	return agentaccess.UserRef{ID: u.ID, Email: u.Email}, nil
+}
+
+func (d testUserDirectory) LookupUsers(ctx context.Context, ids []string) ([]agentaccess.UserRef, error) {
+	out := make([]agentaccess.UserRef, 0, len(ids))
+	for _, id := range ids {
+		u, err := d.users.GetUser(ctx, id)
+		if err != nil {
+			continue
+		}
+		out = append(out, agentaccess.UserRef{ID: u.ID, Email: u.Email})
+	}
+	return out, nil
 }
 
 // newTestServer builds a Server from testServerDeps.

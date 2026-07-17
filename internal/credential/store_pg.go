@@ -1,23 +1,34 @@
-package server
+package credential
 
 import (
 	"context"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/credential"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// patStore adapts the sqlc queries to credential.PATStore + credential.UserLookup.
-// It is the only place the PAT table shape is translated to the storage-agnostic
-// credential.PATRecord.
-type patStore struct {
+// PostgresStore adapts the sqlc queries to PATStore + UserLookup. It is the only
+// place the PAT table shape and the auth_user lookup are translated to the
+// storage-agnostic credential records. The composition root constructs it once
+// and hands it to NewService as both the PATs and Users dependency.
+type PostgresStore struct {
 	q *sqlc.Queries
 }
 
-func (p patStore) CreatePAT(ctx context.Context, rec credential.PATRecord) (credential.PATRecord, error) {
+// NewPostgresStore builds the PAT/user-lookup store over the shared pool.
+func NewPostgresStore(db *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{q: sqlc.New(db)}
+}
+
+var (
+	_ PATStore   = (*PostgresStore)(nil)
+	_ UserLookup = (*PostgresStore)(nil)
+)
+
+func (p *PostgresStore) CreatePAT(ctx context.Context, rec PATRecord) (PATRecord, error) {
 	row, err := p.q.CreatePersonalAccessToken(ctx, sqlc.CreatePersonalAccessTokenParams{
 		PublicID:  rec.PublicID,
 		UserID:    rec.UserID,
@@ -28,49 +39,49 @@ func (p patStore) CreatePAT(ctx context.Context, rec credential.PATRecord) (cred
 		ExpiresAt: timestamptzFromPtr(rec.ExpiresAt),
 	})
 	if err != nil {
-		return credential.PATRecord{}, err
+		return PATRecord{}, err
 	}
 	return patRecordFromRow(row), nil
 }
 
-func (p patStore) GetPATByPublicID(ctx context.Context, publicID string) (credential.PATRecord, error) {
+func (p *PostgresStore) GetPATByPublicID(ctx context.Context, publicID string) (PATRecord, error) {
 	row, err := p.q.GetPersonalAccessTokenByPublicID(ctx, publicID)
 	if err != nil {
-		return credential.PATRecord{}, err
+		return PATRecord{}, err
 	}
 	return patRecordFromRow(row), nil
 }
 
-func (p patStore) ListPATByUser(ctx context.Context, userID string) ([]credential.PATRecord, error) {
+func (p *PostgresStore) ListPATByUser(ctx context.Context, userID string) ([]PATRecord, error) {
 	rows, err := p.q.ListPersonalAccessTokenByUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]credential.PATRecord, 0, len(rows))
+	out := make([]PATRecord, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, patRecordFromRow(r))
 	}
 	return out, nil
 }
 
-func (p patStore) RevokePAT(ctx context.Context, id, userID string) (int64, error) {
+func (p *PostgresStore) RevokePAT(ctx context.Context, id, userID string) (int64, error) {
 	return p.q.RevokePersonalAccessToken(ctx, sqlc.RevokePersonalAccessTokenParams{ID: id, UserID: userID})
 }
 
-func (p patStore) RevokePATByUser(ctx context.Context, userID string) (int64, error) {
+func (p *PostgresStore) RevokePATByUser(ctx context.Context, userID string) (int64, error) {
 	return p.q.RevokePersonalAccessTokenByUser(ctx, userID)
 }
 
-func (p patStore) TouchPATLastUsed(ctx context.Context, id string) (int64, error) {
+func (p *PostgresStore) TouchPATLastUsed(ctx context.Context, id string) (int64, error) {
 	return p.q.UpdatePersonalAccessTokenLastUsed(ctx, id)
 }
 
-func (p patStore) LookupUser(ctx context.Context, userID string) (credential.Identity, error) {
+func (p *PostgresStore) LookupUser(ctx context.Context, userID string) (Identity, error) {
 	u, err := p.q.GetAuthUser(ctx, userID)
 	if err != nil {
-		return credential.Identity{}, err
+		return Identity{}, err
 	}
-	return credential.Identity{
+	return Identity{
 		UserID:    u.ID,
 		Username:  u.Email,
 		Email:     u.Email,
@@ -82,8 +93,8 @@ func (p patStore) LookupUser(ctx context.Context, userID string) (credential.Ide
 	}, nil
 }
 
-func patRecordFromRow(r sqlc.PersonalAccessToken) credential.PATRecord {
-	return credential.PATRecord{
+func patRecordFromRow(r sqlc.PersonalAccessToken) PATRecord {
+	return PATRecord{
 		ID:         r.ID,
 		PublicID:   r.PublicID,
 		UserID:     r.UserID,

@@ -2,11 +2,10 @@ package goal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
-
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestUpdateMetadataContractEditRecoversContractConflictLeaf(t *testing.T) {
@@ -26,7 +25,7 @@ func TestUpdateMetadataContractEditRecoversContractConflictLeaf(t *testing.T) {
 	}
 	h.forceBlocked(d.ID, BlockContractConflict, false)
 	before := h.get(d.ID)
-	beforeBudget := maxAttempts(t, before)
+	beforeBudget := maxAttempts(t, before.ConvergencePolicy)
 
 	out, err := h.svc.UpdateMetadata(context.Background(), d.ID, UpdateInput{Contract: ptrContract(updatedJudgmentContract())})
 	if err != nil {
@@ -35,7 +34,7 @@ func TestUpdateMetadataContractEditRecoversContractConflictLeaf(t *testing.T) {
 	if out.Lifecycle != LifecyclePending || out.BlockReason != "" {
 		t.Fatalf("after contract edit lifecycle=%q block=%q want ready", out.Lifecycle, out.BlockReason)
 	}
-	if got := maxAttempts(t, out); got != beforeBudget {
+	if got := maxAttempts(t, out.ConvergencePolicy); got != beforeBudget {
 		t.Fatalf("max_attempts=%d want unchanged %d", got, beforeBudget)
 	}
 	assertLastLifecycleEvent(t, h, d.ID, LifecycleBlocked, LifecyclePending)
@@ -169,10 +168,10 @@ func updatedJudgmentContract() AcceptanceContract {
 
 func ptrContract(c AcceptanceContract) *AcceptanceContract { return &c }
 
-func maxAttempts(t *testing.T, d sqlc.AgentGoal) int {
+func maxAttempts(t *testing.T, convergencePolicy json.RawMessage) int {
 	t.Helper()
 	var pol ConvergencePolicy
-	if err := unmarshalJSON(d.ConvergencePolicy, &pol); err != nil {
+	if err := unmarshalJSON(convergencePolicy, &pol); err != nil {
 		t.Fatalf("decode convergence_policy: %v", err)
 	}
 	return pol.Normalized().MaxAttempts

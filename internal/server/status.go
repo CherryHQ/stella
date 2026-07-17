@@ -52,7 +52,7 @@ func (s *Server) statusDatabase(ctx context.Context) *types.StatusDatabase {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	start := time.Now()
-	if err := s.db.Ping(ctx); err != nil {
+	if err := s.pinger.Ping(ctx); err != nil {
 		s.log.Error("database health check failed", "error", err)
 		msg := "database unreachable"
 		return &types.StatusDatabase{Status: "error", Error: &msg}

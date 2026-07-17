@@ -55,7 +55,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- Load and validate the webhook instance. ---
-	ch, err := s.store.GetChannel(ctx, id)
+	ch, err := s.channelResolver.Channel(ctx, id)
 	if err != nil || ch.Type != pkgchannel.PlatformWebhook {
 		writeError(w, http.StatusNotFound, "webhook not found")
 		return

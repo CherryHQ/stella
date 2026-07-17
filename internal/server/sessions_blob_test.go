@@ -24,7 +24,6 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/config"
-	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
@@ -65,12 +64,7 @@ func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Pro
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
-	authStore := appdb.NewAuthStore(db)
 	return &Server{
-		mem:           mem,
-		store:         store,
-		db:            db,
-		authStore:     authStore,
 		assets:        assets,
 		sessionAccess: sessions,
 		log:           slog.New(slog.NewTextHandler(io.Discard, nil)),

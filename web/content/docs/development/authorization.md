@@ -8,6 +8,8 @@ Every protected operation in Stella starts from a trusted `authz.Authority` — 
 
 Authorization is **domain-owned**: there is no central policy engine, rule table, or revision. Each domain service binds the trusted Authority to an `Access` object and decides against its own static rules, reading only the immutable Authority plus the durable facts it loads. `internal/authz` provides the shared vocabulary — the `Authority` immutable actor shape and the `Action` verbs — and nothing else.
 
+A transport is only an adapter: HTTP, channel, tool, and worker paths call the same domain service, and do not load a protected resource before optional authentication is resolved. Application boundaries return domain values to transports; generated API types remain in `internal/server`.
+
 There are two shapes a domain takes, and choosing the wrong one is the most common mistake in this area.
 
 ## Two shapes

@@ -38,10 +38,7 @@ func (s *Server) GetMe(w http.ResponseWriter, r *http.Request) {
 	if info.AvatarURL != "" {
 		resp["avatar_url"] = info.AvatarURL
 	}
-	if s.credentials != nil {
-		_, err := s.credentials.GetCredentialByUserID(r.Context(), info.UserID)
-		resp["has_credentials"] = err == nil
-	}
+	resp["has_credentials"] = s.account.HasPassword(r.Context(), info.UserID)
 	writeData(w, http.StatusOK, resp)
 }
 
@@ -52,13 +49,14 @@ func (s *Server) ListAuthSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	if s.sessions == nil {
-		writeError(w, http.StatusServiceUnavailable, "session store unavailable")
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	sessions, err := s.sessions.ListSessionsByUser(r.Context(), info.UserID)
+	sessions, err := s.account.ListSessions(r.Context(), authority)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeAccountError(w, err)
 		return
 	}
 	items := make([]map[string]any, len(sessions))
@@ -79,21 +77,13 @@ func (s *Server) DeleteAuthSession(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	if s.sessions == nil {
-		writeError(w, http.StatusServiceUnavailable, "session store unavailable")
-		return
-	}
-	sess, err := s.sessions.GetSession(r.Context(), id)
+	authority, err := info.authority()
 	if err != nil {
-		writeError(w, http.StatusNotFound, "session not found")
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	if sess.UserID != info.UserID {
-		writeError(w, http.StatusForbidden, "not your session")
-		return
-	}
-	if err := s.sessions.DeleteSession(r.Context(), id); err != nil {
-		s.writeInternalError(w, err)
+	if err := s.account.DeleteSession(r.Context(), authority, id); err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
 	writeNoContent(w)

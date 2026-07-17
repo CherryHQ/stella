@@ -7,15 +7,24 @@ import (
 // --- Agent user assignment API (admin-only) ---
 
 func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id string) {
-	if requireAdmin(w, r) == nil {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	agentID := id
-	ctx := r.Context()
-
-	userIDs, err := s.authStore.ListAgentUserIDs(ctx, agentID)
+	authority, err := info.authority()
 	if err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	users, err := s.agentManagement.ListAssignedUsers(r.Context(), authority, id)
+	if err != nil {
+		code, msg := agentManagementError(err)
+		if code == http.StatusInternalServerError {
+			s.writeInternalError(w, err)
+			return
+		}
+		writeError(w, code, msg)
 		return
 	}
 
@@ -23,34 +32,23 @@ func (s *Server) ListAgentUsers(w http.ResponseWriter, r *http.Request, id strin
 		ID       string `json:"id"`
 		Username string `json:"username"`
 	}
-	rows, err := s.q.ListAuthUsersByIDs(ctx, userIDs)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
+	out := make([]agentUser, 0, len(users))
+	for _, u := range users {
+		out = append(out, agentUser{ID: u.ID, Username: u.Email})
 	}
-	byID := make(map[string]string, len(rows))
-	for _, u := range rows {
-		byID[u.ID] = u.Email
-	}
-
-	// Stale auth_user_agent links should not break the admin list; real query
-	// failures are surfaced above, while missing users are intentionally skipped.
-	users := make([]agentUser, 0, len(userIDs))
-	for _, uid := range userIDs {
-		if email, ok := byID[uid]; ok {
-			users = append(users, agentUser{ID: uid, Username: email})
-		}
-	}
-
-	writeData(w, http.StatusOK, map[string]any{"users": users})
+	writeData(w, http.StatusOK, map[string]any{"users": out})
 }
 
 func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id string) {
-	if requireAdmin(w, r) == nil {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	agentID := id
-	ctx := r.Context()
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	var body struct {
 		UserID string `json:"user_id"`
@@ -64,18 +62,14 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 
-	if _, err := s.store.GetAgent(ctx, agentID); err != nil {
-		writeError(w, http.StatusNotFound, "agent not found")
-		return
-	}
-	u, err := s.users.GetUser(ctx, body.UserID)
+	u, err := s.agentManagement.AssignUser(r.Context(), authority, id, body.UserID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-
-	if err := s.authStore.AssignAgent(ctx, body.UserID, agentID); err != nil {
-		s.writeInternalError(w, err)
+		code, msg := agentManagementError(err)
+		if code == http.StatusInternalServerError {
+			s.writeInternalError(w, err)
+			return
+		}
+		writeError(w, code, msg)
 		return
 	}
 
@@ -83,14 +77,23 @@ func (s *Server) AssignAgentUser(w http.ResponseWriter, r *http.Request, id stri
 }
 
 func (s *Server) RemoveAgentUser(w http.ResponseWriter, r *http.Request, id string, userId string) {
-	if requireAdmin(w, r) == nil {
+	info := requireAdmin(w, r)
+	if info == nil {
 		return
 	}
-	agentID := id
-	ctx := r.Context()
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
-	if err := s.authStore.RemoveAgent(ctx, userId, agentID); err != nil {
-		s.writeInternalError(w, err)
+	if err := s.agentManagement.RemoveUser(r.Context(), authority, id, userId); err != nil {
+		code, msg := agentManagementError(err)
+		if code == http.StatusInternalServerError {
+			s.writeInternalError(w, err)
+			return
+		}
+		writeError(w, code, msg)
 		return
 	}
 

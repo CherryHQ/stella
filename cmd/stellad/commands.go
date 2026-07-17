@@ -90,6 +90,7 @@ type setupResult struct {
 	store                    config.Store
 	authStore                *appdb.AuthStore
 	agentAccess              *agentaccess.Service
+	projectStore             *agent.ProjectStore
 	sessionAccess            *sessionaccess.Service
 	skillAccess              *skillaccess.Service
 	pluginHost               *pluginhost.Host
@@ -358,7 +359,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("boot goal service: %w", err)
 	}
 
-	workflowSvc := workflowpkg.New(db, goalSvc.Goal, agentAccess)
+	workflowSvc := workflowpkg.New(db, goalSvc.WorkflowWriter(), agentAccess)
 	schedulerSvc.SetWorkflowRunner(schedulerWorkflowAdapter{svc: workflowSvc})
 
 	// Build the shared credentials/email/share services once, with the final
@@ -403,7 +404,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	// The agent domain owns project resolution/ensuring and tool-override
 	// fetching; the composition root passes the pool, not raw queries.
-	projectStore := agent.NewProjectStore(db, store, assetStore)
+	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess)
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
@@ -497,6 +498,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		store:                    store,
 		authStore:                authStore,
 		agentAccess:              agentAccess,
+		projectStore:             projectStore,
 		sessionAccess:            sessionAccess,
 		skillAccess:              skillAccess,
 		pluginHost:               phost,
@@ -628,7 +630,7 @@ type schedulerWorkflowAdapter struct {
 }
 
 func (a schedulerWorkflowAdapter) ValidateScheduledWorkflow(ctx context.Context, req scheduler.WorkflowValidateRequest) (scheduler.ScheduledWorkflow, error) {
-	wf, err := a.svc.Get(ctx, req.UserID, req.AgentID, req.WorkflowID)
+	wf, err := a.svc.ValidateScheduledWorkflow(ctx, req.UserID, req.AgentID, req.WorkflowID)
 	if err != nil {
 		return scheduler.ScheduledWorkflow{}, err
 	}
@@ -660,8 +662,8 @@ func (a schedulerWorkflowAdapter) InstantiateWorkflow(ctx context.Context, autho
 		return scheduler.WorkflowInstantiateResult{}, err
 	}
 	rootID := ""
-	if run.RootGoalID.Valid {
-		rootID = run.RootGoalID.String
+	if run.RootGoalID != nil {
+		rootID = *run.RootGoalID
 	}
 	return scheduler.WorkflowInstantiateResult{RunID: run.ID, RootGoalID: rootID}, nil
 }

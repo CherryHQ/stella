@@ -302,6 +302,9 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
     post:
       tags: [profile]
       summary: Create manual Knowledge for a specific agent
@@ -329,6 +332,9 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
   /api/users/me/memories/{agentId}/knowledge/{factId}:
     parameters:
@@ -361,6 +367,9 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
     delete:
       tags: [profile]
       summary: Manually deprecate active Knowledge
@@ -373,6 +382,9 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
   /api/users/me/memories/{agentId}/knowledge/{factId}/restore:
     parameters:
@@ -397,6 +409,9 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
         "410": { $ref: "../../components.yaml#/components/responses/Gone" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
   # ── Changelog ────────────────────────────────────────────────────────────────
   /api/users/me/memories/{agentId}/changelog:
@@ -433,6 +448,9 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
   # ── Vault ───────────────────────────────────────────────────────────────────
   /api/vault:

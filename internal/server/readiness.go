@@ -12,10 +12,12 @@ import (
 // database can never hang a Kubernetes readiness check.
 const readyzPingTimeout = 2 * time.Second
 
-// dbPinger is the minimal database liveness surface /readyz needs. *pgxpool.Pool
-// satisfies it; tests inject a fake to exercise the failure branch without a real
-// database.
-type dbPinger interface {
+// DBPinger is the minimal database liveness surface the /healthz, /readyz, and
+// admin status probes need. *pgxpool.Pool satisfies it; the composition root
+// injects the pool as this narrow port so the probes can ping the database but
+// never reach an application query. Tests inject a fake to exercise the failure
+// branch without a real database.
+type DBPinger interface {
 	Ping(context.Context) error
 }
 
@@ -31,7 +33,7 @@ type dbPinger interface {
 type readiness struct {
 	started  atomic.Bool
 	draining atomic.Bool
-	ping     dbPinger
+	ping     DBPinger
 
 	drainCtx    context.Context
 	drainCancel context.CancelFunc
@@ -41,7 +43,7 @@ type readiness struct {
 // newReadiness builds readiness state whose drain signal is a child of parent
 // (the server runtime context), so a hard process stop also releases streaming
 // handlers even if graceful drain never ran.
-func newReadiness(parent context.Context, ping dbPinger) *readiness {
+func newReadiness(parent context.Context, ping DBPinger) *readiness {
 	if parent == nil {
 		parent = context.Background()
 	}

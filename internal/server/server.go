@@ -10,27 +10,24 @@ import (
 
 	"filippo.io/age"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/channel"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/credential"
 	"github.com/CherryHQ/stella/internal/email"
-	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/mcp"
-	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/memory/memorywrite"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -39,43 +36,47 @@ import (
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/vault"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
-	store            config.Store
-	authStore        auth.AuthStore
-	agentAccess      *agentaccess.Service
-	sessionAccess    *sessionaccess.Service
-	skillAccess      *skillaccess.Service
-	rateLimiter      *auth.RateLimiter
-	linkCodes        *auth.LinkCodeStore
-	mem              memory.Provider
-	memoryManagement *memorywrite.ManagementService
-	poolManager      *agent.PoolManager
-	pluginHost       *pluginhost.Host
-	weixinRegistrar  WeixinRegistrar
-	db               *pgxpool.Pool
-	q                *sqlc.Queries
-	mux              *http.ServeMux
-	log              *slog.Logger
-	vaultRecipient   *age.X25519Recipient  // optional; if set, age keys are generated for new users
-	vaultSvc         *vault.Service        // optional; if nil, vault endpoints return 503
-	mcpSvc           *mcp.Service          // optional; if nil, MCP endpoints return 503
-	credResolver     *credential.Service   // unified bearer credential front door
-	oauthAS          *oidc.Service         // OAuth2 authorization server
-	controlPlane     *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
-	credSvc          *connections.Service  // shared credentials service
-	emailSvc         *email.Service        // shared email service
-	shareSvc         *sharepkg.Service     // shared share service
-	recallySvc       *recally.Service      // shared recally service
-	recally          *recallyHandlers      // recally HTTP API (articles, feeds, digest)
-	schedulerSvc     *scheduler.Service    // optional; if set, create/delete go through the live scheduler
-	goalSvc          *goal.Service         // optional; if nil, goal endpoints return 503
-	workflowSvc      *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
-	builtinTools     []agent.BuiltinTool
-	startedAt        time.Time
+	channelResolver *channel.RuntimeResolver
+	account         *account.Service
+	profileSvc      *memprofile.Service
+	projectStore    *agent.ProjectStore
+	inboxSvc        *inbox.Service
+	agentAccess     *agentaccess.Service
+	agentManagement *agentaccess.Management
+	toolOverrides   *agent.ToolOverrideStore
+	sessionAccess   *sessionaccess.Service
+	skillAccess     *skillaccess.Service
+	rateLimiter     *auth.RateLimiter
+	linkCodes       *auth.LinkCodeStore
+	poolManager     *agent.PoolManager
+	pluginHost      *pluginhost.Host
+	weixinRegistrar WeixinRegistrar
+	// pinger is the narrow database-liveness port backing the /healthz, /readyz,
+	// and admin status probes. It is the injected pool viewed as DBPinger, so the
+	// probes can never reach an application query.
+	pinger         DBPinger
+	mux            *http.ServeMux
+	log            *slog.Logger
+	vaultRecipient *age.X25519Recipient  // optional; if set, age keys are generated for new users
+	vaultSvc       *vault.Service        // optional; if nil, vault endpoints return 503
+	mcpSvc         *mcp.Service          // optional; if nil, MCP endpoints return 503
+	credResolver   *credential.Service   // unified bearer credential front door
+	oauthAS        *oidc.Service         // OAuth2 authorization server
+	controlPlane   *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
+	credSvc        *connections.Service  // shared credentials service
+	emailSvc       *email.Service        // shared email service
+	shareSvc       *sharepkg.Service     // shared share service
+	recallySvc     *recally.Service      // shared recally service
+	recally        *recallyHandlers      // recally HTTP API (articles, feeds, digest)
+	schedulerSvc   *scheduler.Service    // optional; if set, create/delete go through the live scheduler
+	goalSvc        *goal.Service         // optional; if nil, goal endpoints return 503
+	workflowSvc    *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
+	builtinTools   []agent.BuiltinTool
+	startedAt      time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider
 	authSvc       *auth.AuthService
@@ -84,21 +85,10 @@ type Server struct {
 	localAuth     *local.Service
 	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
 	baseURL string
-	// logins provides access to OIDC login identities (optional).
-	logins auth.LoginIdentityStore
-	// users provides access to auth_user and channel_identity via the OIDC store (optional).
-	users interface {
-		auth.UserStore
-		auth.ChannelIdentityStore
-	}
-	// sessions provides access to auth_session (optional).
-	sessions auth.SessionStore
-	// credentials provides access to auth_credential (optional).
-	credentials auth.CredentialStore
-	// eventLog is the group event log store (optional; if nil, group chat returns 503).
-	eventLog *eventlog.Store
-	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
-	groupDispatcher *channel.GroupDispatcher
+	// groupSvc owns the Web group/channel application boundary (CRUD, membership,
+	// messages, send). Its send path degrades to 503 when the event log or group
+	// dispatcher is absent; the read/CRUD path stays available.
+	groupSvc *channel.GroupService
 	// assets is the authoritative asset persistence service backing the session
 	// workspace file handlers (durable-write/restore/move/delete for user assets).
 	assets *asset.Store
@@ -121,21 +111,46 @@ type Server struct {
 // into the Server at construction and never mutated afterward: there are no
 // post-construction setters.
 type Deps struct {
-	// Persistence reached directly by handlers not yet migrated onto narrow
-	// ports. This is the frozen per-file persistence debt tracked by the
-	// architecture boundary test — carried explicitly here rather than hidden
-	// behind a facade, and shrunk as later stacks migrate each handler onto a
-	// domain service.
-	Store            config.Store
-	DB               *pgxpool.Pool
-	AuthStore        auth.AuthStore
-	Mem              memory.Provider
-	MemoryManagement *memorywrite.ManagementService
+	// Pinger is the narrow database-liveness port backing the /healthz, /readyz,
+	// and admin status probes. The composition root injects the pool as this
+	// narrow port so the transport can never reach an application query — every
+	// data access is routed through a domain service below.
+	Pinger DBPinger
+
+	// ChannelResolver is the narrow runtime read port for webhook/channel and
+	// agent-name lookups, replacing the aggregate config.Store on the transport.
+	ChannelResolver *channel.RuntimeResolver
+
+	// Account owns the user-account application boundary: admin/self user
+	// reads/mutations, login/channel identities, sessions, password credential,
+	// and agent assignments, with the role/deactivation revocation invariants.
+	Account *account.Service
+
+	// Profile owns the per-(user, agent) memory application boundary: profile,
+	// soul, constraints, changelog, list, and reset, with the Agent-access gate
+	// and change-source audit. The transport no longer reaches memory.Provider,
+	// memorywrite, or the query layer for these.
+	Profile *memprofile.Service
+
+	// ProjectStore owns the Authority-bound project use cases (list/create/get/
+	// update/delete) with the Agent gate, ownership, route-agent binding, and
+	// workspace-containment invariant. Inbox is the cross-Goal/Scheduler inbox
+	// read model. Both keep the query layer out of the transport.
+	ProjectStore *agent.ProjectStore
+	Inbox        *inbox.Service
 
 	// Authorization. AgentAccess and SessionAccess own their domain rules over
 	// trusted Authority values and durable state.
 	AgentAccess   *agentaccess.Service
 	SessionAccess *sessionaccess.Service
+	// AgentManagement owns the Agent write use cases (create/update/delete, admin
+	// assignment, conversation-activity read model). It layers on AgentAccess for
+	// authorization and holds the durable write + runtime-reload ports so the HTTP
+	// transport no longer orchestrates them.
+	AgentManagement *agentaccess.Management
+	// ToolOverrides persists per-agent tool-visibility overrides. The transport
+	// holds this narrow domain store instead of the aggregate query handle.
+	ToolOverrides *agent.ToolOverrideStore
 	// SkillAccess is the DB-backed Skill enforcement point. When nil the
 	// skill endpoints report 503 through the centralized unavailable mapping.
 	SkillAccess *skillaccess.Service
@@ -166,8 +181,12 @@ type Deps struct {
 	Recally             *recally.Service
 	CredentialFrontDoor *credential.Service
 	OAuthAuthServer     *oidc.Service
-	EventLog            *eventlog.Store
-	GroupDispatcher     *channel.GroupDispatcher
+	// Group owns the Web group/channel application boundary: authorized CRUD,
+	// membership with the last-member invariant, message list, and the send path
+	// (command interception, dedup append + outbox claim, synchronous dispatch).
+	// It holds the event log and group dispatcher internally, so the transport no
+	// longer reaches the query layer or sqlc for groups.
+	Group *channel.GroupService
 	// Assets is the authoritative asset persistence service. Session workspace
 	// handlers use its narrow durable-write/restore/move/delete ports instead of a
 	// raw blob store, so the HTTP transport never holds process-global blob state.
@@ -185,31 +204,25 @@ type Deps struct {
 	Workflow       *workflowpkg.Service
 }
 
-// OIDCDeps groups the login-authentication components produced by oidc.Setup
-// plus the shared identity stores the auth handlers read. LocalAuth is nil in
-// external-OIDC mode; the identity stores are always present.
+// OIDCDeps groups the login-authentication components produced by oidc.Setup.
+// The account identity stores no longer live here: they are composed inside the
+// Account service (Deps.Account). LocalAuth is nil in external-OIDC mode.
 type OIDCDeps struct {
 	Providers  []auth.AuthProvider
 	AuthSvc    *auth.AuthService
 	SessionMgr *auth.SessionManager
 	StateMgr   *authoidc.StateManager
 	LocalAuth  *local.Service
-
-	Logins auth.LoginIdentityStore
-	Users  interface {
-		auth.UserStore
-		auth.ChannelIdentityStore
-	}
-	Sessions    auth.SessionStore
-	Credentials auth.CredentialStore
 }
 
 // validate reports every missing required dependency at once (fail-fast). A
 // dependency is required only when the server dereferences it unconditionally
 // (no 503 gate). Optional capabilities — CredentialFrontDoor, OAuthAuthServer,
-// EventLog, GroupDispatcher, Vault, VaultRecipient, MCP, Scheduler,
-// Goal, Workflow, and OIDC.StateMgr/LocalAuth — are intentionally not checked:
-// a nil there is a supported configuration whose endpoints degrade to 503.
+// Vault, VaultRecipient, MCP, Scheduler, Goal, Workflow, and
+// OIDC.StateMgr/LocalAuth — are intentionally not checked: a nil there is a
+// supported configuration whose endpoints degrade to 503. The Group service is
+// required (its own send path degrades internally when the event log or
+// dispatcher is absent).
 func (d Deps) validate() error {
 	var missing []string
 	req := func(ok bool, name string) {
@@ -217,12 +230,16 @@ func (d Deps) validate() error {
 			missing = append(missing, name)
 		}
 	}
-	req(d.Store != nil, "Store")
-	req(d.DB != nil, "DB")
-	req(d.AuthStore != nil, "AuthStore")
-	req(d.Mem != nil, "Mem")
-	req(d.MemoryManagement != nil, "MemoryManagement")
+	req(d.Pinger != nil, "Pinger")
+	req(d.ChannelResolver != nil, "ChannelResolver")
+	req(d.Group != nil, "Group")
+	req(d.Account != nil, "Account")
+	req(d.Profile != nil, "Profile")
+	req(d.ProjectStore != nil, "ProjectStore")
+	req(d.Inbox != nil, "Inbox")
 	req(d.AgentAccess != nil, "AgentAccess")
+	req(d.AgentManagement != nil, "AgentManagement")
+	req(d.ToolOverrides != nil, "ToolOverrides")
 	req(d.SessionAccess != nil, "SessionAccess")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
@@ -237,10 +254,6 @@ func (d Deps) validate() error {
 	req(d.Assets != nil, "Assets")
 	req(d.OIDC.AuthSvc != nil, "OIDC.AuthSvc")
 	req(d.OIDC.SessionMgr != nil, "OIDC.SessionMgr")
-	req(d.OIDC.Logins != nil, "OIDC.Logins")
-	req(d.OIDC.Users != nil, "OIDC.Users")
-	req(d.OIDC.Sessions != nil, "OIDC.Sessions")
-	req(d.OIDC.Credentials != nil, "OIDC.Credentials")
 	if len(missing) > 0 {
 		return fmt.Errorf("server.New: missing required dependencies: %s", strings.Join(missing, ", "))
 	}
@@ -262,86 +275,58 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 
 	log := slog.With("component", "admin")
 	s := &Server{
-		store:            deps.Store,
-		authStore:        deps.AuthStore,
-		agentAccess:      deps.AgentAccess,
-		sessionAccess:    deps.SessionAccess,
-		skillAccess:      deps.SkillAccess,
-		rateLimiter:      auth.NewRateLimiter(),
-		webhookLimiter:   newWebhookLimiter(5, 20),
-		linkCodes:        deps.LinkCodes,
-		mem:              deps.Mem,
-		memoryManagement: deps.MemoryManagement,
-		poolManager:      deps.PoolManager,
-		db:               deps.DB,
-		pluginHost:       deps.PluginHost,
-		weixinRegistrar:  deps.WeixinRegistrar,
-		q:                sqlc.New(deps.DB),
-		mux:              http.NewServeMux(),
-		log:              log,
-		baseURL:          deps.BaseURL,
-		builtinTools:     append([]agent.BuiltinTool(nil), deps.BuiltinTools...),
-		vaultRecipient:   deps.VaultRecipient,
-		vaultSvc:         deps.Vault,
-		mcpSvc:           deps.MCP,
-		credResolver:     deps.CredentialFrontDoor,
-		oauthAS:          deps.OAuthAuthServer,
-		controlPlane:     deps.ControlPlane,
-		credSvc:          deps.Credentials,
-		emailSvc:         deps.Email,
-		shareSvc:         deps.Share,
-		recallySvc:       deps.Recally,
-		recally:          newRecallyHandlersWithService(deps.Recally, log),
-		schedulerSvc:     deps.Scheduler,
-		goalSvc:          deps.Goal,
-		workflowSvc:      deps.Workflow,
-		eventLog:         deps.EventLog,
-		groupDispatcher:  deps.GroupDispatcher,
-		assets:           deps.Assets,
-		authProviders:    deps.OIDC.Providers,
-		authSvc:          deps.OIDC.AuthSvc,
-		sessionMgr:       deps.OIDC.SessionMgr,
-		stateMgr:         deps.OIDC.StateMgr,
-		localAuth:        deps.OIDC.LocalAuth,
-		logins:           deps.OIDC.Logins,
-		users:            deps.OIDC.Users,
-		sessions:         deps.OIDC.Sessions,
-		credentials:      deps.OIDC.Credentials,
-		startedAt:        time.Now(),
-		runtimeCtx:       ctx,
+		channelResolver: deps.ChannelResolver,
+		account:         deps.Account,
+		profileSvc:      deps.Profile,
+		projectStore:    deps.ProjectStore,
+		inboxSvc:        deps.Inbox,
+		agentAccess:     deps.AgentAccess,
+		agentManagement: deps.AgentManagement,
+		toolOverrides:   deps.ToolOverrides,
+		sessionAccess:   deps.SessionAccess,
+		skillAccess:     deps.SkillAccess,
+		rateLimiter:     auth.NewRateLimiter(),
+		webhookLimiter:  newWebhookLimiter(5, 20),
+		linkCodes:       deps.LinkCodes,
+		poolManager:     deps.PoolManager,
+		pinger:          deps.Pinger,
+		pluginHost:      deps.PluginHost,
+		weixinRegistrar: deps.WeixinRegistrar,
+		mux:             http.NewServeMux(),
+		log:             log,
+		baseURL:         deps.BaseURL,
+		builtinTools:    append([]agent.BuiltinTool(nil), deps.BuiltinTools...),
+		vaultRecipient:  deps.VaultRecipient,
+		vaultSvc:        deps.Vault,
+		mcpSvc:          deps.MCP,
+		credResolver:    deps.CredentialFrontDoor,
+		oauthAS:         deps.OAuthAuthServer,
+		controlPlane:    deps.ControlPlane,
+		credSvc:         deps.Credentials,
+		emailSvc:        deps.Email,
+		shareSvc:        deps.Share,
+		recallySvc:      deps.Recally,
+		recally:         newRecallyHandlersWithService(deps.Recally, log),
+		schedulerSvc:    deps.Scheduler,
+		goalSvc:         deps.Goal,
+		workflowSvc:     deps.Workflow,
+		groupSvc:        deps.Group,
+		assets:          deps.Assets,
+		authProviders:   deps.OIDC.Providers,
+		authSvc:         deps.OIDC.AuthSvc,
+		sessionMgr:      deps.OIDC.SessionMgr,
+		stateMgr:        deps.OIDC.StateMgr,
+		localAuth:       deps.OIDC.LocalAuth,
+		startedAt:       time.Now(),
+		runtimeCtx:      ctx,
 	}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
-	// streaming handlers. The pool answers the /readyz liveness ping.
-	s.readiness = newReadiness(ctx, deps.DB)
+	// streaming handlers. The narrow DBPinger answers the /readyz liveness ping.
+	s.readiness = newReadiness(ctx, s.pinger)
 
 	s.registerRoutes()
 
 	return s, nil
-}
-
-// NewCredentialFrontDoor builds the unified bearer credential front door (PAT +
-// OAuth access storage over the shared queries) and the OAuth2 authorization
-// server that mints access tokens through it. The composition root calls this
-// once and injects both into server.Deps; Server.New never constructs them, so
-// the credential surface has a single owner. The authorization server mints
-// access tokens through the front door (never its own JWT) and owns the
-// client/code/refresh storage.
-func NewCredentialFrontDoor(db *pgxpool.Pool, log *slog.Logger) (*credential.Service, *oidc.Service) {
-	q := sqlc.New(db)
-	ps := patStore{q: q}
-	os := oauthStore{q: q}
-	resolver := credential.NewService(credential.Config{
-		PATs:   ps,
-		OAuth:  os,
-		Users:  ps,
-		Logger: log,
-	})
-	authServer := oidc.NewService(oidc.Config{
-		Store:  os,
-		Issuer: resolver,
-		Logger: log,
-	})
-	return resolver, authServer
 }
 
 // MarkStartupComplete makes /readyz eligible to report ready. The gateway calls

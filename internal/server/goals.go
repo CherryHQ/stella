@@ -10,13 +10,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/goal"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // goalsReady reports whether the optional goal service was injected. When it
@@ -88,24 +86,11 @@ func goalError(w http.ResponseWriter, err error) {
 }
 
 // loadGoalRead resolves a goal through the goal PEP's read decision.
-func (s *Server) loadGoalRead(ctx context.Context, w http.ResponseWriter, acc *goal.Access, id string) (sqlc.AgentGoal, bool) {
+func (s *Server) loadGoalRead(ctx context.Context, w http.ResponseWriter, acc *goal.Access, id string) (goal.Goal, bool) {
 	d, err := acc.Get(ctx, id)
 	if err != nil {
 		goalError(w, err)
-		return sqlc.AgentGoal{}, false
-	}
-	return d, true
-}
-
-// loadGoalUse resolves a goal through the goal PEP's execute decision, which also
-// confirms the caller may still execute its persisted agent. Continuation
-// commands use this before mutating lifecycle state: request bodies are not an
-// authority source, and executor-time checks happen again after work is enqueued.
-func (s *Server) loadGoalUse(ctx context.Context, w http.ResponseWriter, acc *goal.Access, id string) (sqlc.AgentGoal, bool) {
-	d, err := acc.Use(ctx, id)
-	if err != nil {
-		goalError(w, err)
-		return sqlc.AgentGoal{}, false
+		return goal.Goal{}, false
 	}
 	return d, true
 }
@@ -294,20 +279,17 @@ func (s *Server) GetGoal(w http.ResponseWriter, r *http.Request, id string) {
 
 // UpdateGoal applies a partial metadata edit (PATCH).
 func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.UpdateGoalRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent, By: goal.UserActor(info.UserID)}
+	in := goal.UpdateInput{Title: body.Title, Intent: body.Intent}
 	if body.Priority != nil {
 		v := string(*body.Priority)
 		in.Priority = &v
@@ -324,7 +306,7 @@ func (s *Server) UpdateGoal(w http.ResponseWriter, r *http.Request, id string) {
 		c := toConvergence(*body.ConvergencePolicy)
 		in.Convergence = &c
 	}
-	updated, err := s.goalSvc.Goal.UpdateMetadata(ctx, id, in)
+	updated, err := acc.UpdateMetadata(ctx, id, in)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -354,10 +336,7 @@ func (s *Server) ActivateGoal(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
-	d, err := s.goalSvc.Goal.Activate(ctx, id)
+	d, err := acc.Activate(ctx, id)
 	if err != nil {
 		goalError(w, err)
 		return
@@ -403,15 +382,12 @@ func (s *Server) AbandonGoal(w http.ResponseWriter, r *http.Request, id string) 
 
 // ReattemptGoal raises the budget on a blocked goal and resumes it.
 func (s *Server) ReattemptGoal(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
-	if err := s.goalSvc.Goal.Reattempt(ctx, id, goal.UserActor(info.UserID)); err != nil {
+	if err := acc.Reattempt(ctx, id); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -530,14 +506,11 @@ func (s *Server) ListGoalTimeline(w http.ResponseWriter, r *http.Request, id str
 
 // CreateGoalTimelineEvent appends a human message and reattempts non-dep blocks.
 func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.GoalTimelineMessageRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -547,7 +520,7 @@ func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	event, err := s.goalSvc.Goal.AddHumanMessage(ctx, goal.HumanMessageInput{GoalID: id, Text: body.Text, ResponderUserID: info.UserID})
+	event, err := acc.AddHumanMessage(ctx, goal.HumanMessageInput{GoalID: id, Text: body.Text})
 	if err != nil {
 		goalError(w, err)
 		return
@@ -559,29 +532,25 @@ func (s *Server) CreateGoalTimelineEvent(w http.ResponseWriter, r *http.Request,
 
 // SubmitVerdict appends a human verdict against a contract item and re-folds.
 func (s *Server) SubmitVerdict(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.VerdictRequest
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	in := goal.VerdictInput{
-		GoalID:         id,
-		ItemID:         body.ItemId,
-		Result:         string(body.Result),
-		Rationale:      derefStr(body.Rationale),
-		Scope:          derefStr(body.Scope),
-		ScopeHash:      derefStr(body.ScopeHash),
-		ReviewerUserID: info.UserID,
+		GoalID:    id,
+		ItemID:    body.ItemId,
+		Result:    string(body.Result),
+		Rationale: derefStr(body.Rationale),
+		Scope:     derefStr(body.Scope),
+		ScopeHash: derefStr(body.ScopeHash),
 	}
-	if err := s.goalSvc.Goal.SubmitVerdict(ctx, in); err != nil {
+	if err := acc.SubmitVerdict(ctx, in); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -645,19 +614,16 @@ func (s *Server) AddEdge(w http.ResponseWriter, r *http.Request, id string) {
 
 // WaiveEdge waives a hard edge so a blocked(dep) downstream can proceed.
 func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, upstreamId string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.WaiveRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.Goal.WaiveEdge(ctx, id, upstreamId, derefStr(body.Reason), goal.UserActor(info.UserID)); err != nil {
+	if err := acc.WaiveEdge(ctx, id, upstreamId, derefStr(body.Reason)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -680,15 +646,12 @@ func (s *Server) WaiveEdge(w http.ResponseWriter, r *http.Request, id string, up
 // ApprovePlan approves a composite's proposed plan (blocked(needs_plan_approval)),
 // materializing its children and resuming the tree.
 func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
-	if err := s.goalSvc.Goal.ApprovePlan(ctx, id, goal.UserActor(info.UserID)); err != nil {
+	if err := acc.ApprovePlan(ctx, id); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -703,19 +666,16 @@ func (s *Server) ApprovePlan(w http.ResponseWriter, r *http.Request, id string) 
 // RejectPlan rejects a composite's proposed plan, returning it to draft so the
 // dispatcher re-decomposes it.
 func (s *Server) RejectPlan(w http.ResponseWriter, r *http.Request, id string) {
-	acc, info, ok := s.goalAccess(w, r)
+	acc, _, ok := s.goalAccess(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
-	if _, ok := s.loadGoalUse(ctx, w, acc, id); !ok {
-		return
-	}
 	var body apitypes.DecisionRequest
 	if !decodeOptionalBody(w, r, &body) {
 		return
 	}
-	if err := s.goalSvc.Goal.RejectPlan(ctx, id, derefStr(body.Reason), goal.UserActor(info.UserID)); err != nil {
+	if err := acc.RejectPlan(ctx, id, derefStr(body.Reason)); err != nil {
 		goalError(w, err)
 		return
 	}
@@ -776,7 +736,7 @@ func jsonRoundTrip(src, dst any) {
 
 // ── Row → API mappers ────────────────────────────────────────────────────────
 
-func goalListAPI(rows []sqlc.AgentGoal, nextToken string, total *int) apitypes.GoalList {
+func goalListAPI(rows []goal.Goal, nextToken string, total *int) apitypes.GoalList {
 	items := make([]apitypes.Goal, 0, len(rows))
 	for _, d := range rows {
 		items = append(items, goalToAPI(d))
@@ -788,7 +748,7 @@ func goalListAPI(rows []sqlc.AgentGoal, nextToken string, total *int) apitypes.G
 	return out
 }
 
-func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
+func goalToAPI(d goal.Goal) apitypes.Goal {
 	out := apitypes.Goal{
 		Id:                 d.ID,
 		UserId:             d.UserID,
@@ -804,8 +764,8 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		DoneReason:         apitypes.GoalDoneReason(d.DoneReason),
 		AcceptanceState:    apitypes.GoalAcceptanceState(d.AcceptanceState),
 		NeedsAttention:     goal.NeedsAttention(d.Lifecycle, d.BlockReason),
-		CreatedAt:          d.CreatedAt.UTC(),
-		UpdatedAt:          d.UpdatedAt.UTC(),
+		CreatedAt:          d.CreatedAt,
+		UpdatedAt:          d.UpdatedAt,
 		Intent:             optStr(d.Intent),
 		AcceptanceSeq:      iptr(d.AcceptanceSeq),
 		AttemptCount:       iptr(d.AttemptCount),
@@ -815,16 +775,16 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		ConvergencePolicy:  parseConvergencePolicy(d.ConvergencePolicy),
 		Context:            jsonObject(d.Context),
 		DispatchHint:       jsonObject(d.DispatchHint),
-		ProjectId:          nullToPtr(d.ProjectID),
-		ParentId:           nullToPtr(d.ParentID),
-		ActiveAttemptId:    nullToPtr(d.ActiveAttemptID),
+		ProjectId:          d.ProjectID,
+		ParentId:           d.ParentID,
+		ActiveAttemptId:    d.ActiveAttemptID,
 		Plan:               jsonObject(d.Plan),
-		PlannedAt:          parseTimePtr(d.PlannedAt),
-		AcceptedAt:         parseTimePtr(d.AcceptedAt),
-		CancelledAt:        parseTimePtr(d.CancelledAt),
-		ArchivedAt:         parseTimePtr(d.ArchivedAt),
-		WorkflowId:         nullToPtr(d.WorkflowID),
-		WorkflowVersion:    nullInt4ToPtr(d.WorkflowVersion),
+		PlannedAt:          d.PlannedAt,
+		AcceptedAt:         d.AcceptedAt,
+		CancelledAt:        d.CancelledAt,
+		ArchivedAt:         d.ArchivedAt,
+		WorkflowId:         d.WorkflowID,
+		WorkflowVersion:    int32PtrToIntPtr(d.WorkflowVersion),
 	}
 	if d.ReviewPolicy != "" {
 		rp := apitypes.GoalReviewPolicy(d.ReviewPolicy)
@@ -834,13 +794,13 @@ func goalToAPI(d sqlc.AgentGoal) apitypes.Goal {
 		br := apitypes.GoalBlockReason(d.BlockReason)
 		out.BlockReason = &br
 	}
-	if d.AcceptedOutput.Valid {
-		out.AcceptedOutput = jsonObject(json.RawMessage(d.AcceptedOutput.String))
+	if d.AcceptedOutput != nil {
+		out.AcceptedOutput = jsonObject(json.RawMessage(*d.AcceptedOutput))
 	}
 	return out
 }
 
-func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
+func attemptToAPI(a goal.Attempt) apitypes.Attempt {
 	out := apitypes.Attempt{
 		Id:              a.ID,
 		GoalId:          a.GoalID,
@@ -848,21 +808,21 @@ func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
 		Purpose:         apitypes.AttemptPurpose(a.Purpose),
 		AttemptNo:       int(a.AttemptNo),
 		Status:          apitypes.AttemptStatus(a.Status),
-		CreatedAt:       a.CreatedAt.UTC(),
-		UpdatedAt:       a.UpdatedAt.UTC(),
+		CreatedAt:       a.CreatedAt,
+		UpdatedAt:       a.UpdatedAt,
 		UserId:          optStr(a.UserID),
 		Error:           optStr(a.Error),
 		WorkerId:        optStr(a.WorkerID),
-		AgentId:         nullToPtr(a.AgentID),
-		ExecutorAgentId: nullToPtr(a.ExecutorAgentID),
+		AgentId:         a.AgentID,
+		ExecutorAgentId: a.ExecutorAgentID,
 		InputContext:    jsonObject(a.InputContext),
 		Evidence:        jsonObject(a.Evidence),
 		Output:          jsonObject(a.Output),
 		Gaps:            jsonObject(a.Gaps),
-		HeartbeatAt:     parseTimePtr(a.HeartbeatAt),
-		LeaseExpiresAt:  parseTimePtr(a.LeaseExpiresAt),
-		StartedAt:       parseTimePtr(a.StartedAt),
-		FinishedAt:      parseTimePtr(a.FinishedAt),
+		HeartbeatAt:     a.HeartbeatAt,
+		LeaseExpiresAt:  a.LeaseExpiresAt,
+		StartedAt:       a.StartedAt,
+		FinishedAt:      a.FinishedAt,
 		RepairRounds:    iptr(int64(a.RepairRounds)),
 	}
 	if a.FailureClass != "" {
@@ -872,7 +832,7 @@ func attemptToAPI(a sqlc.AgentGoalAttempt) apitypes.Attempt {
 	return out
 }
 
-func acceptanceEventListAPI(rows []sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEventList {
+func acceptanceEventListAPI(rows []goal.AcceptanceEvent) apitypes.AcceptanceEventList {
 	out := make([]apitypes.AcceptanceEvent, 0, len(rows))
 	for _, e := range rows {
 		out = append(out, acceptanceEventToAPI(e))
@@ -880,7 +840,7 @@ func acceptanceEventListAPI(rows []sqlc.AgentGoalAcceptanceEvent) apitypes.Accep
 	return apitypes.AcceptanceEventList{AcceptanceEvents: out}
 }
 
-func goalTimelineAPI(rows []sqlc.AgentGoalEvent, nextToken string) apitypes.GoalTimeline {
+func goalTimelineAPI(rows []goal.TimelineEvent, nextToken string) apitypes.GoalTimeline {
 	items := make([]apitypes.GoalTimelineEvent, 0, len(rows))
 	for _, e := range rows {
 		items = append(items, goalTimelineEventToAPI(e))
@@ -892,18 +852,18 @@ func goalTimelineAPI(rows []sqlc.AgentGoalEvent, nextToken string) apitypes.Goal
 	return out
 }
 
-func goalTimelineEventToAPI(e sqlc.AgentGoalEvent) apitypes.GoalTimelineEvent {
+func goalTimelineEventToAPI(e goal.TimelineEvent) apitypes.GoalTimelineEvent {
 	return apitypes.GoalTimelineEvent{
 		Id:        e.ID,
 		GoalId:    e.GoalID,
-		AttemptId: nullToPtr(e.AttemptID),
+		AttemptId: e.AttemptID,
 		EventType: apitypes.GoalTimelineEventEventType(e.EventType),
 		Payload:   jsonMap(e.Payload),
-		CreatedAt: e.CreatedAt.UTC(),
+		CreatedAt: e.CreatedAt,
 	}
 }
 
-func acceptanceEventToAPI(e sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEvent {
+func acceptanceEventToAPI(e goal.AcceptanceEvent) apitypes.AcceptanceEvent {
 	out := apitypes.AcceptanceEvent{
 		Id:                e.ID,
 		GoalId:            e.GoalID,
@@ -912,25 +872,25 @@ func acceptanceEventToAPI(e sqlc.AgentGoalAcceptanceEvent) apitypes.AcceptanceEv
 		ItemKind:          apitypes.AcceptanceEventItemKind(e.ItemKind),
 		Result:            apitypes.AcceptanceEventResult(e.Result),
 		Authority:         apitypes.AcceptanceEventAuthority(e.Authority),
-		CreatedAt:         e.CreatedAt.UTC(),
-		AttemptId:         nullToPtr(e.AttemptID),
+		CreatedAt:         e.CreatedAt,
+		AttemptId:         e.AttemptID,
 		Command:           optStr(e.Command),
 		CacheKey:          optStr(e.CacheKey),
-		ReviewerUserId:    nullToPtr(e.ReviewerUserID),
-		ReviewerAttemptId: nullToPtr(e.ReviewerAttemptID),
+		ReviewerUserId:    e.ReviewerUserID,
+		ReviewerAttemptId: e.ReviewerAttemptID,
 		Rationale:         optStr(e.Rationale),
 		Scope:             optStr(e.Scope),
 		ScopeHash:         optStr(e.ScopeHash),
 		Detail:            optStr(string(e.Detail)),
 	}
-	if e.ExitCode.Valid {
-		x := int(e.ExitCode.Int64)
+	if e.ExitCode != nil {
+		x := int(*e.ExitCode)
 		out.ExitCode = &x
 	}
 	return out
 }
 
-func edgeListAPI(rows []sqlc.AgentGoalEdge) apitypes.EdgeList {
+func edgeListAPI(rows []goal.Edge) apitypes.EdgeList {
 	out := make([]apitypes.Edge, 0, len(rows))
 	for _, e := range rows {
 		out = append(out, edgeToAPI(e))
@@ -938,17 +898,26 @@ func edgeListAPI(rows []sqlc.AgentGoalEdge) apitypes.EdgeList {
 	return apitypes.EdgeList{Edges: out}
 }
 
-func edgeToAPI(e sqlc.AgentGoalEdge) apitypes.Edge {
+func edgeToAPI(e goal.Edge) apitypes.Edge {
 	return apitypes.Edge{
 		GoalId:       e.GoalID,
 		UpstreamId:   e.UpstreamID,
 		EdgeKind:     apitypes.EdgeEdgeKind(e.EdgeKind),
 		OnFailure:    apitypes.EdgeOnFailure(e.OnFailure),
-		CreatedAt:    e.CreatedAt.UTC(),
-		WaivedAt:     parseTimePtr(e.WaivedAt),
-		WaivedByUser: nullToPtr(e.WaivedByUser),
+		CreatedAt:    e.CreatedAt,
+		WaivedAt:     e.WaivedAt,
+		WaivedByUser: e.WaivedByUser,
 		WaiverReason: optStr(e.WaiverReason),
 	}
+}
+
+// int32PtrToIntPtr adapts a domain *int32 (a DB column width) to the API's *int.
+func int32PtrToIntPtr(v *int32) *int {
+	if v == nil {
+		return nil
+	}
+	n := int(*v)
+	return &n
 }
 
 func healthReportToAPI(r goal.HealthReport) apitypes.GoalHealthReport {
@@ -1016,22 +985,6 @@ func optStr(v string) *string {
 func iptr(v int64) *int {
 	x := int(v)
 	return &x
-}
-
-func nullToPtr(ns pgtype.Text) *string {
-	if !ns.Valid || ns.String == "" {
-		return nil
-	}
-	v := ns.String
-	return &v
-}
-
-func nullInt4ToPtr(value pgtype.Int4) *int {
-	if !value.Valid {
-		return nil
-	}
-	v := int(value.Int32)
-	return &v
 }
 
 func jsonMap(s json.RawMessage) map[string]any {
