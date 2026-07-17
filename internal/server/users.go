@@ -34,6 +34,11 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return
 	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 	var body struct {
 		DefaultAgentID string `json:"default_agent_id"`
 	}
@@ -41,22 +46,30 @@ func (s *Server) UpdateUserDefaultAgent(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	// A non-admin may only set a default agent they can use; that cross-domain
+	// decision stays with the Agent PEP, before the account write.
 	if !info.IsAdmin {
 		if _, code, msg := s.requireAgentUse(r.Context(), body.DefaultAgentID); code != 0 {
 			writeError(w, code, msg)
 			return
 		}
 	}
-	if err := s.users.UpdateUserDefaultAgent(r.Context(), targetUserID, body.DefaultAgentID); err != nil {
-		s.writeInternalError(w, err)
+	view, err := s.account.SetDefaultAgent(r.Context(), authority, targetUserID, body.DefaultAgentID)
+	if err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
-	s.writeAuthUser(w, r, targetUserID)
+	writeData(w, http.StatusOK, authUserResponseFromView(view))
 }
 
 func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request, id string) {
-	_, targetUserID, ok := s.requireUserTarget(w, r, id)
+	info, targetUserID, ok := s.requireUserTarget(w, r, id)
 	if !ok {
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	var body struct {
@@ -66,22 +79,12 @@ func (s *Server) UpdateUserNotifyIdentity(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if body.NotifyIdentityID != nil {
-		identity, err := s.users.GetChannelIdentity(r.Context(), *body.NotifyIdentityID)
-		if err != nil {
-			writeError(w, http.StatusNotFound, "identity not found")
-			return
-		}
-		if identity.UserID != targetUserID {
-			writeError(w, http.StatusBadRequest, "identity does not belong to this user")
-			return
-		}
-	}
-	if err := s.users.UpdateUserNotifyIdentity(r.Context(), targetUserID, body.NotifyIdentityID); err != nil {
-		s.writeInternalError(w, err)
+	view, err := s.account.SetNotifyIdentity(r.Context(), authority, targetUserID, body.NotifyIdentityID)
+	if err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
-	s.writeAuthUser(w, r, targetUserID)
+	writeData(w, http.StatusOK, authUserResponseFromView(view))
 }
 
 func (s *Server) ListUserMemories(w http.ResponseWriter, r *http.Request, id string) {

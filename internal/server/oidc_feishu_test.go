@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
@@ -24,7 +25,7 @@ func TestLinkFeishuChannelIdentityFromLogin(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	srv := &Server{users: store}
+	srv := &Server{account: account.NewService(store, store, store, store, store, nil, nil, nil)}
 	srv.linkFeishuChannelIdentity(context.Background(), user.ID, auth.ExternalIdentity{
 		Provider: "feishu",
 		Subject:  "on_union",
@@ -71,7 +72,7 @@ func TestLinkFeishuChannelIdentityDoesNotOverrideExistingUser(t *testing.T) {
 		t.Fatalf("CreateChannelIdentity: %v", err)
 	}
 
-	srv := &Server{users: store}
+	srv := &Server{account: account.NewService(store, store, store, store, store, nil, nil, nil)}
 	srv.linkFeishuChannelIdentity(context.Background(), loginUser.ID, auth.ExternalIdentity{
 		Provider: "feishu",
 		Subject:  "on_union",

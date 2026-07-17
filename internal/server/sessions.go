@@ -517,11 +517,10 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 		AgentName:       detail.AgentName,
 	}
 
-	// Resolve user name from auth system.
-	if detail.Info.UserID != "" && s.users != nil {
-		authUser, err := s.users.GetUser(r.Context(), detail.Info.UserID)
-		if err == nil {
-			resp.UserName = authUser.Email
+	// Resolve user name from the account system (best-effort display enrichment).
+	if detail.Info.UserID != "" {
+		if email, err := s.account.LookupEmail(r.Context(), detail.Info.UserID); err == nil {
+			resp.UserName = email
 		}
 	}
 

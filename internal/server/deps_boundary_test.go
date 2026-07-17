@@ -168,14 +168,9 @@ var depsForbiddenForever = []string{
 // new broad field, a changed signature, or a removed-but-still-listed entry all
 // fail.
 var currentBroadDeps = map[string]string{
-	"DB":               "pgxpool.Pool",
-	"Store":            "config.Store",
-	"AuthStore":        "auth.AuthStore",
-	"Mem":              "memory.Provider",
-	"OIDC.Logins":      "auth.LoginIdentityStore",
-	"OIDC.Users":       "auth.ChannelIdentityStore,auth.UserStore",
-	"OIDC.Sessions":    "auth.SessionStore",
-	"OIDC.Credentials": "auth.CredentialStore",
+	"DB":    "pgxpool.Pool",
+	"Store": "config.Store",
+	"Mem":   "memory.Provider",
 }
 
 func renderType(fset *token.FileSet, expr ast.Expr) string {

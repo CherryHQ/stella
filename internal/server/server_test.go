@@ -21,6 +21,7 @@ import (
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -243,11 +244,12 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
 	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
+	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	deps := server.Deps{
 		Store:               store,
 		DB:                  db,
-		AuthStore:           as,
 		Mem:                 mem,
+		Account:             accountSvc,
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
 		ToolOverrides:       agent.NewToolOverrideStore(db),
@@ -267,12 +269,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
 		OIDC: server.OIDCDeps{
-			AuthSvc:     authSvc,
-			SessionMgr:  sessionMgr,
-			Logins:      oidcStore,
-			Users:       oidcStore,
-			Sessions:    oidcStore,
-			Credentials: oidcStore,
+			AuthSvc:    authSvc,
+			SessionMgr: sessionMgr,
 		},
 	}
 	srv, err := server.New(ctx, deps)

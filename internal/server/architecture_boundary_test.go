@@ -235,80 +235,19 @@ var broadServerFields = map[string]bool{
 }
 
 var currentBroadServerFields = map[string]string{
-	"Server.store":          "config.Store",
-	"Server.authStore":      "auth.AuthStore",
-	"Server.mem":            "memory.Provider",
-	"Server.db":             "pgxpool.Pool",
-	"Server.q":              "sqlc.Queries",
-	"Server.logins":         "auth.LoginIdentityStore",
-	"Server.users":          "auth.ChannelIdentityStore,auth.UserStore",
-	"Server.sessions":       "auth.SessionStore",
-	"Server.credentials":    "auth.CredentialStore",
-	"Deps.Store":            "config.Store",
-	"Deps.DB":               "pgxpool.Pool",
-	"Deps.AuthStore":        "auth.AuthStore",
-	"Deps.Mem":              "memory.Provider",
-	"Deps.OIDC.Logins":      "auth.LoginIdentityStore",
-	"Deps.OIDC.Users":       "auth.ChannelIdentityStore,auth.UserStore",
-	"Deps.OIDC.Sessions":    "auth.SessionStore",
-	"Deps.OIDC.Credentials": "auth.CredentialStore",
+	"Server.store": "config.Store",
+	"Server.mem":   "memory.Provider",
+	"Server.db":    "pgxpool.Pool",
+	"Server.q":     "sqlc.Queries",
+	"Deps.Store":   "config.Store",
+	"Deps.DB":      "pgxpool.Pool",
+	"Deps.Mem":     "memory.Provider",
 }
 
 // currentServerFieldUses inventories every direct broad-field selector reached
 // through a *Server receiver or parameter. Counts prevent a second use in an
 // existing handler from hiding behind an allowlist entry.
 var currentServerFieldUses = map[string]map[string]map[string]int{
-	"auth.go": {
-		"DeleteAuthSession": {
-			"sessions": 3,
-		},
-		"GetMe": {
-			"credentials": 2,
-		},
-		"ListAuthSessions": {
-			"sessions": 2,
-		},
-	},
-	"auth_users.go": {
-		"DeleteAuthUserIdentity": {
-			"users": 3,
-		},
-		"LinkAuthUserLoginIdentity": {
-			"logins": 3,
-			"users":  1,
-		},
-		"ListAuthUserAgents": {
-			"authStore": 1,
-		},
-		"ListAuthUserChannelIdentities": {
-			"users": 3,
-		},
-		"ListAuthUserLoginIdentities": {
-			"logins": 2,
-			"users":  1,
-		},
-		"ListAuthUsers": {
-			"users": 1,
-		},
-		"UpdateAuthUserActive": {
-			"sessions": 2,
-			"users":    2,
-		},
-		"UpdateAuthUserAgents": {
-			"authStore": 4,
-			"users":     1,
-		},
-		"UpdateAuthUserRole": {
-			"sessions": 2,
-			"users":    1,
-		},
-		"buildAuthUserResponse": {
-			"users": 2,
-		},
-		"writeAuthUser": {
-			"users": 1,
-		},
-	},
 	"channels.go": {
 		"ListPublicChannels": {
 			"store": 1,
@@ -372,18 +311,10 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 			"store": 2,
 		},
 	},
-	"oidc.go": {
-		"linkFeishuChannelIdentity": {
-			"users": 3,
-		},
-	},
 	"profile.go": {
 		"AddProfileConstraint": {
 			"db": 1,
 			"q":  1,
-		},
-		"ChangePassword": {
-			"credentials": 3,
 		},
 		"DeleteProfileConstraint": {
 			"db": 1,
@@ -396,14 +327,8 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 		"ListProfileConstraints": {
 			"q": 1,
 		},
-		"ListProfileIdentities": {
-			"users": 2,
-		},
 		"SetProfileSoul": {
 			"mem": 1,
-		},
-		"UnlinkProfileIdentity": {
-			"users": 3,
 		},
 		"applyProfileFacts": {
 			"mem": 1,
@@ -429,11 +354,6 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 			"q": 2,
 		},
 	},
-	"sessions.go": {
-		"GetSession": {
-			"users": 2,
-		},
-	},
 	"users.go": {
 		"DeleteUserMemory": {
 			"db": 1,
@@ -445,21 +365,10 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 		"SetUserMemory": {
 			"mem": 1,
 		},
-		"UpdateUserDefaultAgent": {
-			"users": 1,
-		},
-		"UpdateUserNotifyIdentity": {
-			"users": 2,
-		},
 	},
 	"webhook_ingress.go": {
 		"handleWebhookIngress": {
 			"store": 1,
-		},
-	},
-	"weixin_qr.go": {
-		"PollWeixinQRStatus": {
-			"users": 3,
 		},
 	},
 	"weixin_registration.go": {

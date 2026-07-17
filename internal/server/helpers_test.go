@@ -13,6 +13,7 @@ import (
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -77,11 +78,12 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	}
 	toolOverrides := agent.NewToolOverrideStore(db)
 	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
+	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	return Deps{
 		Store:               store,
 		DB:                  db,
-		AuthStore:           as,
 		Mem:                 mem,
+		Account:             accountSvc,
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
 		ToolOverrides:       toolOverrides,
@@ -101,12 +103,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		OAuthAuthServer:     oauthAuthServer,
 		Assets:              assetStore,
 		OIDC: OIDCDeps{
-			AuthSvc:     authSvc,
-			SessionMgr:  sessionMgr,
-			Logins:      oidcStore,
-			Users:       oidcStore,
-			Sessions:    oidcStore,
-			Credentials: oidcStore,
+			AuthSvc:    authSvc,
+			SessionMgr: sessionMgr,
 		},
 	}
 }

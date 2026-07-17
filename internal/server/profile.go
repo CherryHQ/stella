@@ -12,7 +12,6 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -27,14 +26,14 @@ func (s *Server) ListProfileIdentities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.users == nil {
-		writeData(w, http.StatusOK, map[string]any{"identities": []auth.ChannelIdentity{}})
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	identities, err := s.users.ListChannelIdentitiesByUser(r.Context(), info.UserID)
+	identities, err := s.account.SelfChannelIdentities(r.Context(), authority)
 	if err != nil {
-		s.log.Error("list identities", "user_id", info.UserID, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		s.writeAccountError(w, err)
 		return
 	}
 
@@ -46,6 +45,11 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	var body struct {
@@ -70,37 +74,8 @@ func (s *Server) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-
-	if s.credentials == nil {
-		writeError(w, http.StatusServiceUnavailable, "credential store not configured")
-		return
-	}
-
-	// Verify current password.
-	cred, err := s.credentials.GetCredentialByUserID(ctx, info.UserID)
-	if err != nil {
-		s.log.Error("get credential for password change", "user_id", info.UserID, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	if err := auth.CheckPassword(cred.PasswordHash, body.CurrentPassword); err != nil {
-		writeError(w, http.StatusUnauthorized, "current password is incorrect")
-		return
-	}
-
-	// Hash and save new password.
-	hash, err := auth.HashPassword(body.NewPassword)
-	if err != nil {
-		s.log.Error("hash new password", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	if err := s.credentials.UpdateCredentialHash(ctx, info.UserID, hash); err != nil {
-		s.log.Error("update password", "user_id", info.UserID, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+	if err := s.account.ChangePassword(r.Context(), authority, body.CurrentPassword, body.NewPassword); err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
 
@@ -145,29 +120,13 @@ func (s *Server) UnlinkProfileIdentity(w http.ResponseWriter, r *http.Request, i
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-
-	ctx := r.Context()
-
-	if s.users == nil {
-		writeError(w, http.StatusServiceUnavailable, "channel identity store not configured")
-		return
-	}
-
-	// Verify the identity belongs to the current user.
-	identity, err := s.users.GetChannelIdentity(ctx, id)
+	authority, err := info.authority()
 	if err != nil {
-		writeError(w, http.StatusNotFound, "identity not found")
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-
-	if identity.UserID != info.UserID {
-		writeError(w, http.StatusForbidden, "identity does not belong to you")
-		return
-	}
-
-	if err := s.users.DeleteChannelIdentity(ctx, id); err != nil {
-		s.log.Error("delete identity", "id", id, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+	if err := s.account.UnlinkSelfChannelIdentity(r.Context(), authority, id); err != nil {
+		s.writeAccountError(w, err)
 		return
 	}
 

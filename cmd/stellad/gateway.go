@@ -24,6 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
@@ -369,14 +370,24 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		slog.With("component", "agent-management"),
 	)
 
+	// The Account service owns the user-account application boundary. It composes
+	// the single OIDC store (user/channel/login/session/credential) with the auth
+	// assignment store and the credential front door as the PAT revoker, so the
+	// HTTP transport no longer holds any auth store directly.
+	accountSvc := account.NewService(
+		oidcStore, oidcStore, oidcStore, oidcStore, oidcStore,
+		as, credFrontDoor,
+		slog.With("component", "account"),
+	)
+
 	// Assemble the immutable, validated admin-server dependency set and construct
 	// the server exactly once. Every shared instance above is passed in; the
 	// server creates no shadow service, reads no environment, and has no setters.
 	adminSrv, err := server.New(gctx, server.Deps{
 		Store:               s.store,
 		DB:                  s.db,
-		AuthStore:           as,
 		Mem:                 s.mem,
+		Account:             accountSvc,
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
 		ToolOverrides:       toolOverrides,
@@ -405,15 +416,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Goal:                s.goalSvc,
 		Workflow:            s.workflowSvc,
 		OIDC: server.OIDCDeps{
-			Providers:   oidcResult.Providers,
-			AuthSvc:     oidcResult.AuthSvc,
-			SessionMgr:  oidcResult.SessionMgr,
-			StateMgr:    oidcResult.StateMgr,
-			LocalAuth:   oidcResult.LocalAuth,
-			Logins:      oidcStore,
-			Users:       oidcStore,
-			Sessions:    oidcStore,
-			Credentials: oidcStore,
+			Providers:  oidcResult.Providers,
+			AuthSvc:    oidcResult.AuthSvc,
+			SessionMgr: oidcResult.SessionMgr,
+			StateMgr:   oidcResult.StateMgr,
+			LocalAuth:  oidcResult.LocalAuth,
 		},
 	})
 	if err != nil {

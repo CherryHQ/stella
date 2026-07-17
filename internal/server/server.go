@@ -18,6 +18,7 @@ import (
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/channel"
@@ -44,7 +45,7 @@ import (
 // Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
 	store           config.Store
-	authStore       auth.AuthStore
+	account         *account.Service
 	agentAccess     *agentaccess.Service
 	agentManagement *agentaccess.Management
 	toolOverrides   *agent.ToolOverrideStore
@@ -88,17 +89,6 @@ type Server struct {
 	localAuth     *local.Service
 	// baseURL is the public URL for this instance (from STELLA_BASE_URL).
 	baseURL string
-	// logins provides access to OIDC login identities (optional).
-	logins auth.LoginIdentityStore
-	// users provides access to auth_user and channel_identity via the OIDC store (optional).
-	users interface {
-		auth.UserStore
-		auth.ChannelIdentityStore
-	}
-	// sessions provides access to auth_session (optional).
-	sessions auth.SessionStore
-	// credentials provides access to auth_credential (optional).
-	credentials auth.CredentialStore
 	// eventLog is the group event log store (optional; if nil, group chat returns 503).
 	eventLog *eventlog.Store
 	// groupDispatcher runs the shared durable group dispatch flow for Web sends.
@@ -130,10 +120,14 @@ type Deps struct {
 	// architecture boundary test — carried explicitly here rather than hidden
 	// behind a facade, and shrunk as later stacks migrate each handler onto a
 	// domain service.
-	Store     config.Store
-	DB        *pgxpool.Pool
-	AuthStore auth.AuthStore
-	Mem       memory.Provider
+	Store config.Store
+	DB    *pgxpool.Pool
+	Mem   memory.Provider
+
+	// Account owns the user-account application boundary: admin/self user
+	// reads/mutations, login/channel identities, sessions, password credential,
+	// and agent assignments, with the role/deactivation revocation invariants.
+	Account *account.Service
 
 	// Authorization. AgentAccess and SessionAccess own their domain rules over
 	// trusted Authority values and durable state.
@@ -196,23 +190,15 @@ type Deps struct {
 	Workflow       *workflowpkg.Service
 }
 
-// OIDCDeps groups the login-authentication components produced by oidc.Setup
-// plus the shared identity stores the auth handlers read. LocalAuth is nil in
-// external-OIDC mode; the identity stores are always present.
+// OIDCDeps groups the login-authentication components produced by oidc.Setup.
+// The account identity stores no longer live here: they are composed inside the
+// Account service (Deps.Account). LocalAuth is nil in external-OIDC mode.
 type OIDCDeps struct {
 	Providers  []auth.AuthProvider
 	AuthSvc    *auth.AuthService
 	SessionMgr *auth.SessionManager
 	StateMgr   *authoidc.StateManager
 	LocalAuth  *local.Service
-
-	Logins auth.LoginIdentityStore
-	Users  interface {
-		auth.UserStore
-		auth.ChannelIdentityStore
-	}
-	Sessions    auth.SessionStore
-	Credentials auth.CredentialStore
 }
 
 // validate reports every missing required dependency at once (fail-fast). A
@@ -230,8 +216,8 @@ func (d Deps) validate() error {
 	}
 	req(d.Store != nil, "Store")
 	req(d.DB != nil, "DB")
-	req(d.AuthStore != nil, "AuthStore")
 	req(d.Mem != nil, "Mem")
+	req(d.Account != nil, "Account")
 	req(d.AgentAccess != nil, "AgentAccess")
 	req(d.AgentManagement != nil, "AgentManagement")
 	req(d.ToolOverrides != nil, "ToolOverrides")
@@ -249,10 +235,6 @@ func (d Deps) validate() error {
 	req(d.Assets != nil, "Assets")
 	req(d.OIDC.AuthSvc != nil, "OIDC.AuthSvc")
 	req(d.OIDC.SessionMgr != nil, "OIDC.SessionMgr")
-	req(d.OIDC.Logins != nil, "OIDC.Logins")
-	req(d.OIDC.Users != nil, "OIDC.Users")
-	req(d.OIDC.Sessions != nil, "OIDC.Sessions")
-	req(d.OIDC.Credentials != nil, "OIDC.Credentials")
 	if len(missing) > 0 {
 		return fmt.Errorf("server.New: missing required dependencies: %s", strings.Join(missing, ", "))
 	}
@@ -275,7 +257,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 	log := slog.With("component", "admin")
 	s := &Server{
 		store:           deps.Store,
-		authStore:       deps.AuthStore,
+		account:         deps.Account,
 		agentAccess:     deps.AgentAccess,
 		agentManagement: deps.AgentManagement,
 		toolOverrides:   deps.ToolOverrides,
@@ -317,10 +299,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		sessionMgr:      deps.OIDC.SessionMgr,
 		stateMgr:        deps.OIDC.StateMgr,
 		localAuth:       deps.OIDC.LocalAuth,
-		logins:          deps.OIDC.Logins,
-		users:           deps.OIDC.Users,
-		sessions:        deps.OIDC.Sessions,
-		credentials:     deps.OIDC.Credentials,
 		startedAt:       time.Now(),
 		runtimeCtx:      ctx,
 	}
