@@ -33,7 +33,7 @@ type Config struct {
 	// SkillAuthorizer applies Skill domain rules to reflect's staged writes (the
 	// reconciliation-plan/usage-curator path); when nil those fail closed.
 	// SkillReadAuthorizer gates the reviewer tool's DB-skill reads and
-	// SkillToolWriteAuthorizer gates its prompt-driven create/patch.
+	// SkillToolWriteAuthorizer gates its prompt-driven create/patch/deprecate.
 	SkillAuthorizer          skillWriteAuthorizer
 	SkillReadAuthorizer      skillstool.SkillReadAuthorizer
 	SkillToolWriteAuthorizer skillstool.SkillWriteAuthorizer

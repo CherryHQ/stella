@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -88,6 +89,7 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 	for _, file := range fileRows {
 		files = append(files, file.Path)
 	}
+	sort.Strings(files)
 	return SkillSnapshot{Skill: after, Files: files}, nil
 }
 

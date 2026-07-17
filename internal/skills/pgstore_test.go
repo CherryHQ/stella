@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -128,6 +129,33 @@ func TestCreateMissingSkillMD(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("skills row count = %d, want 0", count)
+	}
+}
+
+func TestUpdateManagedSkillReturnsSortedSnapshotFiles(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+
+	snapshot, err := store.CreateManagedSkill(ctx, Skill{
+		Scope: "user", UserID: userID, Name: "sorted-snapshot", Description: "d",
+	}, map[string]string{
+		MainFile:             "body",
+		"scripts/run.sh":     "run",
+		"references/note.md": "note",
+	})
+	if err != nil {
+		t.Fatalf("CreateManagedSkill: %v", err)
+	}
+
+	snapshot, err = store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
+		ID: snapshot.Skill.ID, Scope: "user", UserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("UpdateManagedSkill: %v", err)
+	}
+	want := []string{MainFile, "references/note.md", "scripts/run.sh"}
+	if !reflect.DeepEqual(snapshot.Files, want) {
+		t.Fatalf("snapshot files = %v, want %v", snapshot.Files, want)
 	}
 }
 

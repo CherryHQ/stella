@@ -437,7 +437,7 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 		if rerr != nil {
 			return rerr
 		}
-		files[rel] = string(data)
+		files[filepath.ToSlash(rel)] = string(data)
 		return nil
 	}); werr != nil {
 		return "", nil, "", nil, fmt.Errorf("walk skill dir: %w", werr)
