@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
+	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -246,9 +247,9 @@ func setupAdmin(t *testing.T) *testEnv {
 	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	deps := server.Deps{
-		Store:               store,
 		DB:                  db,
 		Mem:                 mem,
+		ChannelResolver:     channel.NewRuntimeResolver(store),
 		Account:             accountSvc,
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
@@ -344,7 +345,7 @@ func TestNewErrorsWithoutRequiredDeps(t *testing.T) {
 	if srv != nil {
 		t.Fatal("expected nil server on validation failure")
 	}
-	for _, want := range []string{"PluginHost", "Store", "BaseURL"} {
+	for _, want := range []string{"PluginHost", "ChannelResolver", "BaseURL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention missing dep %q", err, want)
 		}

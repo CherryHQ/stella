@@ -160,7 +160,7 @@ func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 		s.writeControlPlaneError(w, err)
 		return
 	}
-	agent, err := s.store.GetAgent(r.Context(), req.AgentID)
+	agent, err := access.LookupAgent(r.Context(), req.AgentID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "agent_id must reference an existing agent")
 		return

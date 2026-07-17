@@ -7,6 +7,7 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -69,10 +70,15 @@ func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
 	if info == nil {
 		return
 	}
-
-	enabledTypes, err := s.enabledChannelTypes(r)
+	authority, err := info.authority()
 	if err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	enabledTypes, err := s.controlPlane.EnabledChannelTypes(r.Context(), authority)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
 		return
 	}
 
@@ -82,27 +88,13 @@ func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channels, err := s.store.ListChannels(r.Context())
+	channels, err := s.controlPlane.PublicChannels(r.Context(), authority)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeControlPlaneError(w, err)
 		return
 	}
 
 	writeData(w, http.StatusOK, map[string]any{"channels": buildPublicChannelViews(channels, enabledTypes, agentNames)})
-}
-
-func (s *Server) enabledChannelTypes(r *http.Request) (map[string]bool, error) {
-	plugins, err := s.store.ListPluginsByKind(r.Context(), config.PluginKindChannel)
-	if err != nil {
-		return nil, err
-	}
-	enabled := make(map[string]bool, len(plugins))
-	for _, plugin := range plugins {
-		if plugin.Enabled {
-			enabled[plugin.Name] = true
-		}
-	}
-	return enabled, nil
 }
 
 func (s *Server) accessibleAgentNames(r *http.Request, info *AuthInfo) (map[string]string, error) {
@@ -124,10 +116,10 @@ func (s *Server) accessibleAgentNames(r *http.Request, info *AuthInfo) (map[stri
 	return names, nil
 }
 
-func buildPublicChannelViews(channels []config.Channel, enabledTypes map[string]bool, agentNames map[string]string) []publicChannelView {
+func buildPublicChannelViews(channels []controlplane.PublicChannel, enabledTypes map[string]bool, agentNames map[string]string) []publicChannelView {
 	views := make([]publicChannelView, 0, len(channels))
 	for _, ch := range channels {
-		channelType := effectiveChannelType(ch)
+		channelType := ch.Type
 		if !ch.Enabled || !enabledTypes[channelType] {
 			continue
 		}
@@ -237,9 +229,10 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 
 	ctx := r.Context()
 	// Load the current row only to merge unspecified write fields (a PUT is a
-	// partial update); the authorization decision and the persistence run inside
-	// the control-plane PEP, which 403s a non-admin before any state is observed.
-	existing, existingErr := s.store.GetChannel(ctx, id)
+	// partial update). The read goes through the authorized Access — beginControlPlane
+	// already 403'd a non-admin before any state is observed — so the transport never
+	// holds the aggregate config store.
+	existing, existingErr := access.GetChannel(ctx, id)
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON")

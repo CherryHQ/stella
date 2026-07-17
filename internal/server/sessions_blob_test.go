@@ -66,7 +66,6 @@ func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Pro
 	}
 	return &Server{
 		mem:           mem,
-		store:         store,
 		db:            db,
 		assets:        assets,
 		sessionAccess: sessions,

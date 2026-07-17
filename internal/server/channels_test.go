@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -11,7 +12,7 @@ import (
 // to linkable chat platforms: webhooks are inbound triggers with no identity
 // to link, and the public list keys by type so duplicates would collide.
 func TestBuildPublicChannelViewsExcludesWebhook(t *testing.T) {
-	channels := []config.Channel{
+	channels := []controlplane.PublicChannel{
 		{ID: "tg", Type: pkgchannel.PlatformTelegram, Enabled: true, AgentID: "a1"},
 		{ID: "wh1", Type: pkgchannel.PlatformWebhook, Enabled: true, AgentID: "a1"},
 		{ID: "wh2", Type: pkgchannel.PlatformWebhook, Enabled: true, AgentID: "a1"},

@@ -384,9 +384,9 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// the server exactly once. Every shared instance above is passed in; the
 	// server creates no shadow service, reads no environment, and has no setters.
 	adminSrv, err := server.New(gctx, server.Deps{
-		Store:               s.store,
 		DB:                  s.db,
 		Mem:                 s.mem,
+		ChannelResolver:     channel.NewRuntimeResolver(s.store),
 		Account:             accountSvc,
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,

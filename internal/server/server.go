@@ -22,7 +22,6 @@ import (
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/auth/oidc/local"
 	"github.com/CherryHQ/stella/internal/channel"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/credential"
@@ -44,7 +43,7 @@ import (
 
 // Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
-	store           config.Store
+	channelResolver *channel.RuntimeResolver
 	account         *account.Service
 	agentAccess     *agentaccess.Service
 	agentManagement *agentaccess.Management
@@ -120,9 +119,12 @@ type Deps struct {
 	// architecture boundary test — carried explicitly here rather than hidden
 	// behind a facade, and shrunk as later stacks migrate each handler onto a
 	// domain service.
-	Store config.Store
-	DB    *pgxpool.Pool
-	Mem   memory.Provider
+	DB  *pgxpool.Pool
+	Mem memory.Provider
+
+	// ChannelResolver is the narrow runtime read port for webhook/channel and
+	// agent-name lookups, replacing the aggregate config.Store on the transport.
+	ChannelResolver *channel.RuntimeResolver
 
 	// Account owns the user-account application boundary: admin/self user
 	// reads/mutations, login/channel identities, sessions, password credential,
@@ -214,9 +216,9 @@ func (d Deps) validate() error {
 			missing = append(missing, name)
 		}
 	}
-	req(d.Store != nil, "Store")
 	req(d.DB != nil, "DB")
 	req(d.Mem != nil, "Mem")
+	req(d.ChannelResolver != nil, "ChannelResolver")
 	req(d.Account != nil, "Account")
 	req(d.AgentAccess != nil, "AgentAccess")
 	req(d.AgentManagement != nil, "AgentManagement")
@@ -256,7 +258,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 
 	log := slog.With("component", "admin")
 	s := &Server{
-		store:           deps.Store,
+		channelResolver: deps.ChannelResolver,
 		account:         deps.Account,
 		agentAccess:     deps.AgentAccess,
 		agentManagement: deps.AgentManagement,

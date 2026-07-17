@@ -258,8 +258,8 @@ func (s *Server) ListGroupMembers(w http.ResponseWriter, r *http.Request, groupI
 			ReplyChannelId: m.ReplyChannelID,
 			CreatedAt:      m.CreatedAt.UTC(),
 		}
-		if a, err := s.store.GetAgent(ctx, m.AgentID); err == nil {
-			apiMembers[i].AgentName = &a.Name
+		if name, ok := s.channelResolver.AgentName(ctx, m.AgentID); ok {
+			apiMembers[i].AgentName = &name
 		}
 	}
 
@@ -305,8 +305,8 @@ func (s *Server) AddGroupMember(w http.ResponseWriter, r *http.Request, groupId 
 		ReplyChannelId: m.ReplyChannelID,
 		CreatedAt:      m.CreatedAt.UTC(),
 	}
-	if a, aErr := s.store.GetAgent(ctx, m.AgentID); aErr == nil {
-		resp.AgentName = &a.Name
+	if name, ok := s.channelResolver.AgentName(ctx, m.AgentID); ok {
+		resp.AgentName = &name
 	}
 	writeData(w, http.StatusCreated, resp)
 }

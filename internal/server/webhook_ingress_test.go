@@ -13,6 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
+	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/credential"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -113,10 +114,10 @@ func TestWebhookIngressGates(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &Server{
-				credResolver:   credSvc,
-				store:          tc.store,
-				log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
-				webhookLimiter: newWebhookLimiter(100, 100),
+				credResolver:    credSvc,
+				channelResolver: channel.NewRuntimeResolver(tc.store),
+				log:             slog.New(slog.NewTextHandler(io.Discard, nil)),
+				webhookLimiter:  newWebhookLimiter(100, 100),
 			}
 			req := httptest.NewRequest("POST", "/webhooks/wh1", strings.NewReader("hello"))
 			if tc.token != "" {

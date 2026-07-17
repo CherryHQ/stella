@@ -235,39 +235,20 @@ var broadServerFields = map[string]bool{
 }
 
 var currentBroadServerFields = map[string]string{
-	"Server.store": "config.Store",
-	"Server.mem":   "memory.Provider",
-	"Server.db":    "pgxpool.Pool",
-	"Server.q":     "sqlc.Queries",
-	"Deps.Store":   "config.Store",
-	"Deps.DB":      "pgxpool.Pool",
-	"Deps.Mem":     "memory.Provider",
+	"Server.mem": "memory.Provider",
+	"Server.db":  "pgxpool.Pool",
+	"Server.q":   "sqlc.Queries",
+	"Deps.DB":    "pgxpool.Pool",
+	"Deps.Mem":   "memory.Provider",
 }
 
 // currentServerFieldUses inventories every direct broad-field selector reached
 // through a *Server receiver or parameter. Counts prevent a second use in an
 // existing handler from hiding behind an allowlist entry.
 var currentServerFieldUses = map[string]map[string]map[string]int{
-	"channels.go": {
-		"ListPublicChannels": {
-			"store": 1,
-		},
-		"UpdateChannel": {
-			"store": 1,
-		},
-		"enabledChannelTypes": {
-			"store": 1,
-		},
-	},
-	"feishu_registration.go": {
-		"PollFeishuRegistration": {
-			"store": 1,
-		},
-	},
 	"groups.go": {
 		"AddGroupMember": {
-			"q":     2,
-			"store": 1,
+			"q": 2,
 		},
 		"CreateGroup": {
 			"q": 3,
@@ -276,8 +257,7 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 			"q": 1,
 		},
 		"ListGroupMembers": {
-			"q":     1,
-			"store": 1,
+			"q": 1,
 		},
 		"ListGroupMessages": {
 			"q": 1,
@@ -304,11 +284,6 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 	"inbox.go": {
 		"ListInbox": {
 			"q": 2,
-		},
-	},
-	"models.go": {
-		"ListModels": {
-			"store": 2,
 		},
 	},
 	"profile.go": {
@@ -364,19 +339,6 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 		},
 		"SetUserMemory": {
 			"mem": 1,
-		},
-	},
-	"webhook_ingress.go": {
-		"handleWebhookIngress": {
-			"store": 1,
-		},
-	},
-	"weixin_registration.go": {
-		"PollWeixinRegistration": {
-			"store": 1,
-		},
-		"saveWeixinSingletonChannel": {
-			"store": 1,
 		},
 	},
 }

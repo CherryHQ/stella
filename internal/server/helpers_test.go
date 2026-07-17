@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
+	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -80,9 +81,9 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	return Deps{
-		Store:               store,
 		DB:                  db,
 		Mem:                 mem,
+		ChannelResolver:     channel.NewRuntimeResolver(store),
 		Account:             accountSvc,
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
