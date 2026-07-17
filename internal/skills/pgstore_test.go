@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -128,6 +129,33 @@ func TestCreateMissingSkillMD(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("skills row count = %d, want 0", count)
+	}
+}
+
+func TestUpdateManagedSkillReturnsSortedSnapshotFiles(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+
+	snapshot, err := store.CreateManagedSkill(ctx, Skill{
+		Scope: "user", UserID: userID, Name: "sorted-snapshot", Description: "d",
+	}, map[string]string{
+		MainFile:             "body",
+		"scripts/run.sh":     "run",
+		"references/note.md": "note",
+	})
+	if err != nil {
+		t.Fatalf("CreateManagedSkill: %v", err)
+	}
+
+	snapshot, err = store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
+		ID: snapshot.Skill.ID, Scope: "user", UserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("UpdateManagedSkill: %v", err)
+	}
+	want := []string{MainFile, "references/note.md", "scripts/run.sh"}
+	if !reflect.DeepEqual(snapshot.Files, want) {
+		t.Fatalf("snapshot files = %v, want %v", snapshot.Files, want)
 	}
 }
 
@@ -351,9 +379,9 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		status := "deprecated"
-		if err := store.Update(ctx, id, ViewContext{UserID: userID}, UpdatePatch{Status: &status}); err != nil {
-			t.Fatalf("Update: %v", err)
+		// Deprecated is a legacy read-only state; seed it below the business API.
+		if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, id); err != nil {
+			t.Fatalf("seed deprecated state: %v", err)
 		}
 
 		skills, err := store.List(ctx, ViewContext{UserID: userID})
@@ -373,7 +401,6 @@ func TestDeprecatedAndDisabled(t *testing.T) {
 		if sk != nil {
 			t.Error("deprecated skill should not appear in Resolve")
 		}
-
 		// LoadFile still works for deprecated.
 		_, err = store.LoadFile(ctx, id, MainFile)
 		if err != nil {

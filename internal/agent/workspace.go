@@ -142,10 +142,9 @@ func UserSkillsDir(userHome string) string {
 
 // SystemDBSkillsDir returns the directory holding DB-installed system-scope
 // skills, a sibling of the shipped built-in skills dir (UserSkillsDir(base),
-// read by ListSystemSkills). Keeping them apart is load-bearing: SyncAllToDisk
-// deletes disk files absent from the DB, so mirroring DB system skills into the
-// built-in dir would wipe the built-ins (they are not DB rows). Isolating
-// backends mount it read-only.
+// read by ListSystemSkills). Keeping runtime caches apart prevents DB Skills
+// from being mistaken for shipped built-ins. Isolating backends mount it
+// read-only.
 func SystemDBSkillsDir(base string) string {
 	return filepath.Join(base, ".agents", "db-skills")
 }
@@ -164,21 +163,4 @@ func skillDiskLayout(systemDB, agentRoot, userDataDir, userAgentRoot string) ski
 		l.UserAgent = UserSkillsDir(userAgentRoot)
 	}
 	return l
-}
-
-// WriterSkillDiskLayout builds the layout the disk-mirroring writer uses, rooted
-// at base (config.StellaHome()). An empty userID/agentID drops the scopes that
-// need it, so those skills are not mirrored to disk.
-func WriterSkillDiskLayout(base, userID, agentID string) skills.SkillDiskLayout {
-	var agentRoot, userDataDir, userAgentRoot string
-	if agentID != "" {
-		agentRoot = AgentWorkspaceDir(base, agentID)
-	}
-	if userID != "" {
-		userDataDir = UserDataDir(UserHomeDir(base, userID))
-	}
-	if userID != "" && agentID != "" {
-		userAgentRoot = UserAgentDir(base, userID, agentID)
-	}
-	return skillDiskLayout(SystemDBSkillsDir(base), agentRoot, userDataDir, userAgentRoot)
 }

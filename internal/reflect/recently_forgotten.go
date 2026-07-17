@@ -13,14 +13,11 @@ const (
 	// RecentlyForgottenKindKnowledge identifies Reflect-owned world facts that
 	// the usage curator deprecated.
 	RecentlyForgottenKindKnowledge = "knowledge"
-	// RecentlyForgottenKindSkill identifies Reflect-owned skills that the usage
-	// curator deprecated.
-	RecentlyForgottenKindSkill    = "skill"
-	defaultRecentlyForgottenLimit = int32(100)
+	defaultRecentlyForgottenLimit  = int32(100)
 )
 
 // RecentlyForgottenQuery scopes the internal/admin listing to one user-agent
-// pair. Empty Kind returns both knowledge and skills.
+// pair. Empty Kind returns Knowledge.
 type RecentlyForgottenQuery struct {
 	UserID  string
 	AgentID string
@@ -31,7 +28,6 @@ type RecentlyForgottenQuery struct {
 // RecentlyForgottenItems contains the restorable curator-deprecated records.
 type RecentlyForgottenItems struct {
 	Knowledge []RecentlyForgottenKnowledgeItem
-	Skills    []RecentlyForgottenSkillItem
 }
 
 // RecentlyForgottenKnowledgeItem includes fact content so an admin can inspect
@@ -45,21 +41,6 @@ type RecentlyForgottenKnowledgeItem struct {
 	LastUsedAt                  string
 	MemoryVersionAfterDeprecate int64
 	DeprecatedChangelogID       string
-}
-
-// RecentlyForgottenSkillItem intentionally stays catalog-only; callers can load
-// files separately if they need the full skill body before restoring.
-type RecentlyForgottenSkillItem struct {
-	Kind                  string
-	SkillID               string
-	Name                  string
-	Description           string
-	Version               int64
-	DeprecatedAt          time.Time
-	CuratorRule           string
-	LastUsedAt            string
-	UseCount              int64
-	DeprecatedChangelogID string
 }
 
 // SQLRecentlyForgottenStore lists curator-deprecated Reflect records that are
@@ -106,32 +87,7 @@ func (s SQLRecentlyForgottenStore) ListRecentlyForgotten(ctx context.Context, qu
 			})
 		}
 	}
-	if query.Kind == "" || query.Kind == RecentlyForgottenKindSkill {
-		rows, err := s.q.ListRecentlyForgottenReflectSkills(ctx, sqlc.ListRecentlyForgottenReflectSkillsParams{
-			UserID:     query.UserID,
-			AgentID:    query.AgentID,
-			LimitCount: limit,
-		})
-		if err != nil {
-			return RecentlyForgottenItems{}, err
-		}
-		for _, row := range rows {
-			metadata := decodeCuratorMetadataBytes(row.DeprecateMetadata)
-			out.Skills = append(out.Skills, RecentlyForgottenSkillItem{
-				Kind:                  RecentlyForgottenKindSkill,
-				SkillID:               row.SkillID,
-				Name:                  row.Name,
-				Description:           row.Description,
-				Version:               row.Version,
-				DeprecatedAt:          row.DeprecatedAt.UTC(),
-				CuratorRule:           metadata.Rule,
-				LastUsedAt:            metadata.LastUsedAt,
-				UseCount:              metadata.UseCount,
-				DeprecatedChangelogID: row.DeprecatedChangelogID,
-			})
-		}
-	}
-	if query.Kind != "" && query.Kind != RecentlyForgottenKindKnowledge && query.Kind != RecentlyForgottenKindSkill {
+	if query.Kind != "" && query.Kind != RecentlyForgottenKindKnowledge {
 		return RecentlyForgottenItems{}, fmt.Errorf("recently forgotten: unknown kind %q", query.Kind)
 	}
 	return out, nil
@@ -140,7 +96,6 @@ func (s SQLRecentlyForgottenStore) ListRecentlyForgotten(ctx context.Context, qu
 type curatorMetadata struct {
 	Rule       string `json:"rule"`
 	LastUsedAt string `json:"last_used_at"`
-	UseCount   int64  `json:"use_count"`
 }
 
 func decodeCuratorMetadataString(raw string) curatorMetadata {

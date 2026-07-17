@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"sort"
 	"strings"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
@@ -248,46 +247,60 @@ func (s *Server) ListProfileChangelog(w http.ResponseWriter, r *http.Request, ag
 		return
 	}
 
-	limit := 20
-	if params.Limit != nil {
-		limit = *params.Limit
+	pageSize := defaultPageSize
+	if params.PageSize != nil {
+		pageSize = *params.PageSize
 	}
-	if limit <= 0 {
-		writeError(w, http.StatusBadRequest, "limit must be positive")
+	if pageSize < 1 || pageSize > maxKnowledgePageSize {
+		writeError(w, http.StatusBadRequest, "page_size must be between 1 and 100")
 		return
 	}
-	if limit > 100 {
-		limit = 100
-	}
 
-	scopes := []string{"profile", "soul", "constraint"}
+	scopeKey := "all"
+	scopes := []string{"profile", "soul", "knowledge", "constraint"}
 	if params.Scope != nil && *params.Scope != "" {
-		scope := *params.Scope
-		if scope != "profile" && scope != "soul" && scope != "constraint" {
-			writeError(w, http.StatusBadRequest, "scope must be profile, soul, or constraint")
+		scopeKey = string(*params.Scope)
+		if scopeKey != "profile" && scopeKey != "soul" && scopeKey != "knowledge" && scopeKey != "constraint" {
+			writeError(w, http.StatusBadRequest, "scope must be profile, soul, knowledge, or constraint")
 			return
 		}
-		scopes = []string{scope}
+		scopes = []string{scopeKey}
 	}
 
-	changes, err := s.profileSvc.Changelog(r.Context(), authority, agentID, scopes, limit)
-	if err != nil {
-		s.writeProfileError(w, err)
-		return
+	var cursor *memory.ChangelogCursor
+	if params.PageToken != nil {
+		var err error
+		cursor, err = decodeChangelogPageToken(*params.PageToken, scopeKey)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
-	entries := make([]apiserver.ChangelogEntry, 0, len(changes))
-	for _, change := range changes {
-		entries = append(entries, memoryChangelogEntryToAPI(change))
+	entries := make([]apiserver.ChangelogEntry, 0, pageSize+1)
+	for _, scope := range scopes {
+		rows, err := s.readProfileChangelogScope(r.Context(), authority, agentID, scope, cursor, pageSize+1)
+		if err != nil {
+			s.writeKnowledgeError(w, err)
+			return
+		}
+		entries = append(entries, rows...)
 	}
-	// Merge across scopes: newest first, then cap at the requested limit.
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].CreatedAt.After(entries[j].CreatedAt)
-	})
-	if len(entries) > limit {
-		entries = entries[:limit]
+
+	sortChangelogEntries(entries)
+	response := apiserver.ChangelogList{}
+	if len(entries) > pageSize {
+		entries = entries[:pageSize]
+		last := entries[len(entries)-1]
+		token, err := encodeChangelogPageToken(scopeKey, memory.ChangelogCursor{CreatedAt: last.CreatedAt, ID: last.Id})
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		response.NextPageToken = &token
 	}
-	writeData(w, http.StatusOK, apiserver.ChangelogList{Entries: entries})
+	response.Entries = entries
+	writeData(w, http.StatusOK, response)
 }
 
 func profileConstraintListToAPI(constraints []memory.ConstraintEntry) apiserver.ConstraintList {

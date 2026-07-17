@@ -268,6 +268,151 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  # ── Knowledge ────────────────────────────────────────────────────────────────
+  /api/users/me/memories/{agentId}/knowledge:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [profile]
+      summary: List active or removed Knowledge for a specific agent
+      operationId: listProfileKnowledge
+      parameters:
+        - name: state
+          in: query
+          schema: { type: string, enum: [active, removed], default: active }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: page_token
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/KnowledgeList",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    post:
+      tags: [profile]
+      summary: Create manual Knowledge for a specific agent
+      operationId: createProfileKnowledge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateKnowledgeRequest",
+            }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/KnowledgeItem",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/users/me/memories/{agentId}/knowledge/{factId}:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: factId, in: path, required: true, schema: { type: string } }
+    patch:
+      tags: [profile]
+      summary: Atomically replace active Knowledge with a manual successor
+      operationId: updateProfileKnowledge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateKnowledgeRequest",
+            }
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/KnowledgeItem",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    delete:
+      tags: [profile]
+      summary: Manually deprecate active Knowledge
+      operationId: deleteProfileKnowledge
+      responses:
+        "204":
+          description: deprecated
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/users/me/memories/{agentId}/knowledge/{factId}/restore:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: factId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [profile]
+      summary: Restore eligible removed Knowledge
+      operationId: restoreProfileKnowledge
+      responses:
+        "200":
+          description: restored
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/KnowledgeItem",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "410": { $ref: "../../components.yaml#/components/responses/Gone" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
   # ── Changelog ────────────────────────────────────────────────────────────────
   /api/users/me/memories/{agentId}/changelog:
     parameters:
@@ -279,12 +424,14 @@ paths:
       parameters:
         - name: scope
           in: query
-          schema: { type: string }
-          description: Filter by scope (profile, soul, constraint)
-        - name: limit
+          schema: { type: string, enum: [profile, soul, knowledge, constraint] }
+          description: Filter by scope; omitted merges all four memory scopes
+        - name: page_size
           in: query
-          schema: { type: integer, default: 20 }
-          description: Maximum number of entries to return
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: page_token
+          in: query
+          schema: { type: string }
       responses:
         "200":
           description: ok
@@ -293,8 +440,16 @@ paths:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/ChangelogList",
               }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
         }
 
   # ── Vault ───────────────────────────────────────────────────────────────────

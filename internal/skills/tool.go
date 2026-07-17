@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,7 +26,7 @@ var skillsInputSchema = func() map[string]any {
     "action": {
       "type": "string",
       "enum": ["load", "search_installed", "search", "install", "list", "remove", "create", "patch", "deprecate"],
-      "description": "Action to perform: 'load' reads a skill's content by name, 'search_installed' searches installed visible skills, 'search' finds skills from the remote ecosystem, 'install' adds a skill, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new skill (draft), 'patch' updates an existing skill's fields, 'deprecate' marks a skill as deprecated"
+      "description": "Action to perform: 'load' reads a skill's content by name, 'search_installed' searches installed visible skills, 'search' finds skills from the remote ecosystem, 'install' adds a skill, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new active skill, 'patch' updates an existing skill's fields, 'deprecate' marks a skill as deprecated"
     },
     "query": {
       "type": "string",
@@ -57,11 +56,6 @@ var skillsInputSchema = func() map[string]any {
     "content": {
       "type": "string",
       "description": "Skill body content in markdown (optional for create and patch)"
-    },
-    "status": {
-      "type": "string",
-      "enum": ["draft", "active", "deprecated"],
-      "description": "Skill status (optional for patch)"
     },
     "path": {
       "type": "string",
@@ -120,9 +114,8 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool 
 	}
 }
 
-// WithSkillDiskLayout sets where DB-backed skills live on disk, by scope. The
-// emitted <skill_dir> for a DB skill comes from here, so it must match the dirs
-// the disk-mirroring writer used. The zero value emits no dir for DB skills.
+// WithSkillDiskLayout sets the runtime-cache roots for DB-backed Skills. The
+// zero value emits no directory for DB Skills.
 func (t *Tool) WithSkillDiskLayout(l SkillDiskLayout) *Tool {
 	t.layout = l
 	return t
@@ -360,16 +353,14 @@ func (t *Tool) targetScope(ctx context.Context, rawScope string) (string, error)
 	switch scope {
 	case skillScopeUser:
 		// User-scope skills are owned by the requesting user; without a user in
-		// context there is no owner to attribute them to. Where they materialize on
-		// disk is the store's concern (DiskSyncStore), not the tool's — the tool
-		// carries no skill-path knowledge for writes.
+		// context there is no owner to attribute them to.
 		//
 		// Group sessions deliberately leave the user unset (D9: runtime identity
 		// stays the group, see runtime/chat.go), so user-scope writes are refused
 		// here. That is intentional: the old layout-based gate let them through but
 		// create() then stamped an empty owner — which fails late on the user_id
 		// foreign key under normal enforcement, or (without it) leaves a dead row the
-		// store never resolves and DiskSyncStore never materializes. This fails fast.
+		// store never resolves. This fails fast.
 		if authz.UserIDFromContext(ctx) == "" {
 			return "", fmt.Errorf("user skill scope is unavailable without a user context")
 		}
@@ -392,7 +383,7 @@ func (t *Tool) viewContext(ctx context.Context) pkgplugins.SkillViewContext {
 func pkgskillsToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name:        "skills",
-		Description: "Manage agent skills. Use 'search_installed' to discover installed visible skills by task query, then 'load' to read a selected skill by name. Use 'search' only to find remote ecosystem skills for installation. Use 'install' to add a skill (scope=user by default, or scope=agent), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new skill (draft), 'patch' to update fields, 'deprecate' to mark as deprecated. Project skills come with the repo and are read-only — edit their files in git directly.",
+		Description: "Manage agent skills. Use 'search_installed' to discover installed visible skills by task query, then 'load' to read a selected skill by name. Use 'search' only to find remote ecosystem skills for installation. Use 'install' to add a skill (scope=user by default, or scope=agent), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new active skill, 'patch' to update fields, and 'deprecate' to mark as deprecated. Project skills come with the repo and are read-only — edit their files in git directly.",
 		InputSchema: skillsInputSchema,
 	}
 }
@@ -453,7 +444,6 @@ func (t *Tool) restrictedInputSchema() map[string]any {
 		"name":        {"load", "remove", "create", "patch", "deprecate"},
 		"description": {"create", "patch"},
 		"content":     {"create", "patch"},
-		"status":      {"patch"},
 		"path":        {"load"},
 	} {
 		if t.allowsAny(actions...) {
@@ -509,41 +499,31 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	if err := t.authorizeLoadable(ctx, resolved); err != nil {
 		return "", err
 	}
+	// Reflect-owned skills must claim runtime use before any executable directory
+	// is materialized or exposed. A concurrent curator delete makes the claim
+	// affect zero rows, causing this load to fail closed instead of serving a
+	// deleted skill.
+	if err := t.touchReflectSkillRuntimeUse(ctx, resolved, vc); err != nil {
+		return "", err
+	}
 
 	if path == "" {
 		path = pkgplugins.SkillMainFile
 	}
 
-	// For DB skills without a dir from the service, resolve the disk path the
-	// writer materialized them to (the layout is the shared authority). Materialize
-	// on load as a repair path for existing rows that predate disk mirroring or were
-	// created through a non-syncing store; <skill_dir> must be executable, not a
-	// theoretical address.
+	// DB-backed Skill files are materialized only when loaded. PostgreSQL remains
+	// authoritative; the stable-ID directory is a derived runtime cache and is
+	// never used as a fallback when refresh fails.
 	if skillDir == "" {
 		if resolved != nil {
-			skillDir = t.layout.Dir(resolved.Scope, resolved.Name)
+			skillDir = t.layout.Dir(resolved.Scope, resolved.ID)
 			if skillDir != "" {
-				// Cross-replica writes leave no local signal, so load refreshes the mirror
-				// from the DB; content comparison spares the disk writes but not the DB
-				// reads. Ceiling: a revision marker would make the no-op path cheap, but
-				// needs file mutations to bump skill.updated_at first (today
-				// UpsertSkillFile/DeleteSkillFile touch only skill_file rows).
 				if err := t.materializeDBSkill(ctx, resolved.ID, skillDir); err != nil {
-					slog.WarnContext(ctx, "skills load: failed to materialize DB skill", "skill", resolved.Name, "dir", skillDir, "err", err)
-					// Degrade to staleness, not to lost execution: keep serving an
-					// existing mirror through a transient store error. Probed by
-					// opening — the sandbox bypass guard bans the stat helpers here.
-					if f, openErr := os.Open(filepath.Join(skillDir, pkgplugins.SkillMainFile)); openErr != nil {
-						skillDir = ""
-					} else {
-						_ = f.Close()
-					}
+					return "", fmt.Errorf("materialize DB skill %q: %w", resolved.Name, err)
 				}
 			}
 		}
 	}
-	t.touchReflectSkillRuntimeUse(ctx, resolved, vc)
-
 	// Remap the host directory to the path the agent sees inside the sandbox; an
 	// unmappable dir on an isolating backend is dropped rather than leaked.
 	skillDir = t.view.apply(skillDir)
@@ -557,22 +537,23 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	return out.String(), nil
 }
 
-func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *ResolvedSkill, vc pkgplugins.SkillViewContext) {
+func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *ResolvedSkill, vc pkgplugins.SkillViewContext) error {
 	tracker, ok := t.store.(reflectSkillRuntimeUsageTracker)
 	if !ok || vc.UserID == "" || vc.AgentID == "" {
-		return
+		return nil
 	}
 	if resolved == nil || resolved.Scope != skillScopeAgent || resolved.UserID != vc.UserID || resolved.AgentID != vc.AgentID {
-		return
+		return nil
 	}
 	if !IsReflectOwned(Skill{Metadata: resolved.Metadata}) {
-		return
+		return nil
 	}
 	touchCtx, cancel := context.WithTimeout(ctx, runtimeUsageTouchTimeout)
 	defer cancel()
 	if err := tracker.TouchReflectSkillRuntimeUse(touchCtx, resolved.ID, vc.UserID, vc.AgentID); err != nil {
-		slog.WarnContext(ctx, "skills load: failed to touch skill usage", "skill", resolved.Name, "err", err)
+		return fmt.Errorf("claim runtime use for skill %q: %w", resolved.Name, err)
 	}
+	return nil
 }
 
 type installedSkill struct {
@@ -717,13 +698,13 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	createdAt := time.Now().UTC().Format(time.RFC3339)
-	mainContent := buildSkillFile(name, description, SkillStatusDraft, createdAt, content)
+	mainContent := buildSkillFile(name, description, createdAt, content)
 
 	sk := pkgplugins.Skill{
 		Scope:       scope,
 		Name:        name,
 		Description: description,
-		Status:      SkillStatusDraft,
+		Status:      SkillStatusActive,
 		// Knowledge facts are stored in the facts table; the skills tool only
 		// creates reusable procedures that can be listed and loaded as skills.
 		DisableModelInvocation: false,
@@ -752,7 +733,7 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 		return "", fmt.Errorf("create skill %q: %w", name, err)
 	}
 
-	return fmt.Sprintf("Skill %q created as draft (scope=%s).", name, scope), nil
+	return fmt.Sprintf("Skill %q created (scope=%s).", name, scope), nil
 }
 
 func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
@@ -773,11 +754,6 @@ func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
 	if v, ok := args["description"].(string); ok && v != "" {
 		p.Description = &v
 	}
-	if v, ok := args["status"].(string); ok && v != "" {
-		normalized := NormalizeSkillStatus(v)
-		p.Status = &normalized
-	}
-
 	if err := t.store.Update(ctx, s.ID, p); err != nil {
 		return "", fmt.Errorf("patch skill %q: %w", name, err)
 	}
@@ -806,11 +782,9 @@ func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, erro
 	}
 
 	status := SkillStatusDeprecated
-	p := pkgplugins.SkillUpdatePatch{Status: &status}
-	if err := t.store.Update(ctx, s.ID, p); err != nil {
+	if err := t.store.Update(ctx, s.ID, pkgplugins.SkillUpdatePatch{Status: &status}); err != nil {
 		return "", fmt.Errorf("deprecate skill %q: %w", name, err)
 	}
-
 	return fmt.Sprintf("Skill %q deprecated.", name), nil
 }
 

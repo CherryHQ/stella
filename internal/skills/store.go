@@ -16,12 +16,19 @@ type Skill struct {
 	AgentID                string
 	Name                   string
 	Description            string
-	Status                 string // draft | active | deprecated
+	Status                 string // active | deprecated (legacy rows only)
 	DisableModelInvocation bool
 	Metadata               json.RawMessage
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	Version                int64
+}
+
+// SkillSnapshot is the committed representation returned by an atomic Skill
+// mutation. Files contains the complete retained path set from that transaction.
+type SkillSnapshot struct {
+	Skill Skill
+	Files []string
 }
 
 type SkillChangelog struct {
@@ -52,6 +59,23 @@ type UpdatePatch struct {
 	Metadata               json.RawMessage // optional; set to overwrite
 }
 
+// ManagedSkillCursor identifies the last visible row in a stable lifecycle page.
+type ManagedSkillCursor struct {
+	Timestamp time.Time
+	ID        string
+}
+
+// ManagedSkillUpdate applies one atomic metadata/file lifecycle mutation.
+type ManagedSkillUpdate struct {
+	ID              string
+	UserID          string
+	AgentID         string
+	Scope           string
+	Patch           UpdatePatch
+	Files           map[string]string
+	ConvertToManual bool
+}
+
 // Store is the persistence interface for skills.
 type Store interface {
 	// List returns all visible skills for the given context (metadata only, no file content).
@@ -64,6 +88,12 @@ type Store interface {
 	// skills that #531 is allowed to consider for one user-agent context.
 	ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]Skill, error)
 
+	// CreateManagedSkill atomically creates a Skill and returns its committed state.
+	CreateManagedSkill(ctx context.Context, s Skill, files map[string]string) (SkillSnapshot, error)
+
+	// UpdateManagedSkill atomically patches a live mutable skill and its files.
+	UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (SkillSnapshot, error)
+
 	// CreateReflectOwnedUserAgentSkill creates an active user_agent skill whose
 	// lifecycle is owned by Reflect, including version and changelog records.
 	CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error)
@@ -72,13 +102,9 @@ type Store interface {
 	// under optimistic version control and records a changelog entry.
 	PatchReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillPatch) (Skill, error)
 
-	// DeprecateReflectOwnedUserAgentSkill marks a Reflect-owned user_agent skill
-	// as deprecated under optimistic version control and removes usage tracking.
-	DeprecateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDeprecate) (Skill, error)
-
-	// RestoreReflectOwnedUserAgentSkill restores a usage-curator-deprecated
-	// Reflect-owned user_agent skill for internal/admin recovery.
-	RestoreReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillRestore) (ReflectSkillRestoreResult, error)
+	// DeleteReflectOwnedUserAgentSkill permanently deletes a stale Reflect-owned
+	// user_agent skill after rechecking its version, usage, and pair activity.
+	DeleteReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDelete) (Skill, error)
 
 	// TouchReflectSkillRuntimeUse records a successful runtime load of a
 	// Reflect-owned user_agent skill. Implementations recheck owner/status.
@@ -124,8 +150,4 @@ type Store interface {
 
 	DeleteFile(ctx context.Context, skillID, path string) error
 	Delete(ctx context.Context, id string, vc ViewContext) error
-
-	// ExpireDrafts deprecates draft skills whose created-at timestamp is before
-	// the given cutoff. Knowledge facts live in the facts table, not skills.
-	ExpireDrafts(ctx context.Context, before time.Time) error
 }

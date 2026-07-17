@@ -35,6 +35,7 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/observability"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
@@ -356,6 +357,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordination := channel.NewCoordination(s.db, s.poolManager, s.store, listFn, switchFn, coordOpts...)
 	coordinator := coordination.Coordinator
 	groupDispatcher := coordination.GroupDispatcher
+	changelogPageReader, ok := s.mem.(memory.ChangelogPageReader)
+	if !ok {
+		return fmt.Errorf("build memory management service: changelog page reader unavailable")
+	}
+	memoryManagement := memorywrite.NewManagementService(s.db, changelogPageReader)
 
 	// Agent management deepens the Agent PEP with the write use cases: it owns the
 	// durable agent create/update/delete, admin assignment, and conversation
@@ -391,8 +397,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// memorywrite, or the query layer for profile/soul/constraints/changelog.
 	memProfiles, _ := s.mem.(memory.ProfileStore)
 	memChangelog, _ := s.mem.(memory.ChangelogReader)
+	// memoryManagement (built above from the pool + the Provider's keyset changelog
+	// reader) is injected into Profile as its knowledge/changelog-page adapter, so
+	// the HTTP transport reaches it only through the Agent-gated Profile boundary.
 	profileSvc := memprofile.NewService(
-		s.db, memProfiles, memChangelog, agentAccess,
+		s.db, memProfiles, memChangelog, memoryManagement, agentAccess,
 		prompt.DefaultAgentSoul, slog.With("component", "profile"),
 	)
 

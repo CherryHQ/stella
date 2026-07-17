@@ -43,6 +43,7 @@ type Service struct {
 	q           *sqlc.Queries
 	profiles    memory.ProfileStore
 	changelog   memory.ChangelogReader
+	knowledge   KnowledgeManager
 	agents      AgentAuthorizer
 	defaultSoul func() string
 	log         *slog.Logger
@@ -50,9 +51,13 @@ type Service struct {
 
 // NewService builds the profile service. profiles/changelog are the memory
 // Provider viewed through its capability interfaces (nil when the Provider does
-// not implement them — the matching endpoints then report 503). defaultSoul
-// supplies the fallback soul when none is stored. log defaults to slog.Default().
-func NewService(db *pgxpool.Pool, profiles memory.ProfileStore, changelog memory.ChangelogReader, agents AgentAuthorizer, defaultSoul func() string, log *slog.Logger) *Service {
+// not implement them — the matching endpoints then report 503). knowledge is the
+// persistence adapter for the user-facing knowledge lifecycle and keyset
+// changelog projection (nil degrades those endpoints to 503); Profile wraps it
+// with the Agent gate and derives the owner tuple from the Authority so the
+// transport never supplies an owner id. defaultSoul supplies the fallback soul
+// when none is stored. log defaults to slog.Default().
+func NewService(db *pgxpool.Pool, profiles memory.ProfileStore, changelog memory.ChangelogReader, knowledge KnowledgeManager, agents AgentAuthorizer, defaultSoul func() string, log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -61,6 +66,7 @@ func NewService(db *pgxpool.Pool, profiles memory.ProfileStore, changelog memory
 		q:           sqlc.New(db),
 		profiles:    profiles,
 		changelog:   changelog,
+		knowledge:   knowledge,
 		agents:      agents,
 		defaultSoul: defaultSoul,
 		log:         log,

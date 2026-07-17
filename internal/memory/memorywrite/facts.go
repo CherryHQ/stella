@@ -21,6 +21,8 @@ const factsScope = "fact"
 var (
 	ErrFactNotRestorable    = errors.New("fact is not restorable")
 	ErrFactRestoreBadCaller = errors.New("fact restore requires restored_by")
+	ErrFactRestoreExpired   = errors.New("fact restore window expired")
+	ErrFactDuplicateContent = errors.New("active knowledge already has this content")
 )
 
 // CreateFact inserts an active fact, bumps the shared user-agent memory version,

@@ -49,16 +49,6 @@ WHERE s."scope" = 'user_agent'
   AND s."metadata"->>'created_by' = 'reflect'
 ON CONFLICT ("skill_id") DO NOTHING;
 
-ALTER TABLE "skill_changelog" DROP CONSTRAINT "skill_changelog_action_check";
-ALTER TABLE "skill_changelog"
-  ADD CONSTRAINT "skill_changelog_action_check" CHECK ("action" IN ('create', 'patch', 'deprecate', 'restore'));
-
 -- +goose Down
-DELETE FROM "skill_changelog" WHERE "action" IN ('deprecate', 'restore');
-
-ALTER TABLE "skill_changelog" DROP CONSTRAINT "skill_changelog_action_check";
-ALTER TABLE "skill_changelog"
-  ADD CONSTRAINT "skill_changelog_action_check" CHECK ("action" IN ('create', 'patch'));
-
 DROP TABLE "skill_usage";
 DROP TABLE "knowledge_usage";

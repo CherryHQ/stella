@@ -43,13 +43,13 @@ func TestBuildPromptSectionUsesSearchFirstInstructions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Seed a user-scoped skill (draft — should still appear since ListSkillsVisible only filters deprecated)
+	// Seed an active user-scoped skill.
 	_, err := store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
 		Name:        "user-skill",
 		Description: "User skill",
-		Status:      "draft",
+		Status:      "active",
 	}, map[string]string{pkgplugins.SkillMainFile: "# User Skill"})
 	if err != nil {
 		t.Fatalf("create user skill: %v", err)
@@ -66,9 +66,9 @@ func TestBuildPromptSectionUsesSearchFirstInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create old skill: %v", err)
 	}
-	deprecated := "deprecated"
-	if err := store.Update(ctx, deprecatedID, pkgplugins.SkillUpdatePatch{Status: &deprecated}); err != nil {
-		t.Fatalf("deprecate old skill: %v", err)
+	// Deprecated is a legacy read-only state; seed it below the business API.
+	if _, err := store.db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecatedID); err != nil {
+		t.Fatalf("seed deprecated old skill: %v", err)
 	}
 
 	platform := &skillStorePlatform{store: store}

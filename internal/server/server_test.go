@@ -35,6 +35,7 @@ import (
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/notify"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
@@ -249,7 +250,8 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
-	profileSvc := memprofile.NewService(db, mem, mem, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
+	memoryManagement := memorywrite.NewManagementService(db, mem)
+	profileSvc := memprofile.NewService(db, mem, mem, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	deps := server.Deps{
 		Pinger:              db,
 		ChannelResolver:     channel.NewRuntimeResolver(store),

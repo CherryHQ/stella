@@ -171,19 +171,15 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, err
 	}
 
-	ss := setupSkillStores(db)
-	if err := ss.diskSync.SyncAllToDisk(parent); err != nil {
-		return nil, fmt.Errorf("sync DB skills to disk: %w", err)
-	}
+	skillStore := setupSkillStore(db)
 	// The Skill domain shares the Agent read gate with the other execution
-	// domains; the disk-sync store is the single DB skill read port (its ListAll
-	// reaches the same rows the transports resolve).
-	skillAccess := skillaccess.NewService(ss.diskSync, agentAccess)
+	// domains and reads the same authoritative PostgreSQL rows as the transports.
+	skillAccess := skillaccess.NewService(skillStore, agentAccess)
 
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
 
-	ps, err := setupPlugins(parent, db, store, ss.diskSync, dispatcher)
+	ps, err := setupPlugins(parent, db, store, skillStore, dispatcher)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +226,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	pluginToolsBuilder := func(ctx context.Context, build pkgplugins.ToolBuildContext) []pkgtools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
-	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(ss.diskSync)
+	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(skillStore)
 	// Asset authority is selected by capability: a configured object store is the
 	// shared authority; otherwise the local filesystem under STELLA_HOME is the
 	// single-node authority. This replaces the former blob process-global

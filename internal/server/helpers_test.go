@@ -25,6 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -53,6 +54,10 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	oauthStore := oauthserver.NewPostgresStore(db)
 	credFrontDoor := credential.NewService(credential.Config{PATs: credPATStore, OAuth: oauthStore, Users: credPATStore, Logger: credLog})
 	oauthAuthServer := oauthserver.NewService(oauthserver.Config{Store: oauthStore, Issuer: credFrontDoor, Logger: credLog})
+	changelogPageReader, ok := mem.(memory.ChangelogPageReader)
+	if !ok {
+		t.Fatal("test memory provider does not implement ChangelogPageReader")
+	}
 	assetHome := t.TempDir()
 	assetStore, err := asset.NewStore(assetHome, nil, nil)
 	if err != nil {
@@ -85,7 +90,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	memProfiles, _ := mem.(memory.ProfileStore)
 	memChangelog, _ := mem.(memory.ChangelogReader)
-	profileSvc := memprofile.NewService(db, memProfiles, memChangelog, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
+	memoryManagement := memorywrite.NewManagementService(db, changelogPageReader)
+	profileSvc := memprofile.NewService(db, memProfiles, memChangelog, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	return Deps{
 		Pinger:              db,
 		ChannelResolver:     channel.NewRuntimeResolver(store),

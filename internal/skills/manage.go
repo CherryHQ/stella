@@ -18,11 +18,10 @@ func validateCreateInput(name, description string) []string {
 	return errs
 }
 
-func buildSkillFile(name, description, status, createdAt, body string) string {
+func buildSkillFile(name, description, createdAt, body string) string {
 	fm := map[string]string{
 		"name":        name,
 		"description": description,
-		"status":      status,
 		"created-at":  createdAt,
 	}
 	keys := make([]string, 0, len(fm))
