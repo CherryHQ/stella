@@ -6,14 +6,17 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 )
 
-// writeConflictOrInternal maps a duplicate-name store error to 409 and any other
-// error to 500.
+// writeConflictOrInternal maps caller-correctable Skill mutations before using
+// the shared internal-error response for storage failures.
 func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
+	if errors.Is(err, skills.ErrInvalidSkillFilePath) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "a skill with this name already exists in this scope")
 		return
@@ -103,26 +106,16 @@ func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id stri
 	return &sk
 }
 
-func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) skillView {
-	files, _ := s.skillStore().ListFiles(r.Context(), sk.ID)
-	if files == nil {
-		files = []string{}
+func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) (skillView, error) {
+	files, err := s.skillStore().ListFiles(r.Context(), sk.ID)
+	if err != nil {
+		return skillView{}, err
 	}
-	return skillView{
-		ID:                     sk.ID,
-		Scope:                  sk.Scope,
-		UserID:                 sk.UserID,
-		AgentID:                sk.AgentID,
-		Name:                   sk.Name,
-		Description:            sk.Description,
-		Status:                 sk.Status,
-		DisableModelInvocation: sk.DisableModelInvocation,
-		Files:                  files,
-		Source:                 skillSource(sk.Metadata),
-		Version:                skillVersion(sk.Metadata),
-		CreatedAt:              sk.CreatedAt.UTC(),
-		UpdatedAt:              sk.UpdatedAt.UTC(),
-	}
+	return storedSkillToView(*sk, files), nil
+}
+
+func committedSkillView(snapshot skills.SkillSnapshot) skillView {
+	return storedSkillToView(snapshot.Skill, snapshot.Files)
 }
 
 // ListScopedSkills handles GET /api/skills.
@@ -158,7 +151,12 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 			s.writeInternalError(w, err)
 			return
 		}
-		out = append(out, s.dbSkillView(r, &rows[i]))
+		view, err := s.dbSkillView(r, &rows[i])
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		out = append(out, view)
 	}
 	writeData(w, http.StatusOK, map[string]any{"skills": out})
 }
@@ -175,7 +173,6 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		Scope                  string            `json:"scope"`
 		AgentID                string            `json:"agent_id"`
 		Description            string            `json:"description"`
-		Status                 string            `json:"status"`
 		DisableModelInvocation bool              `json:"disable_model_invocation"`
 		Files                  map[string]string `json:"files"`
 	}
@@ -206,15 +203,14 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		AgentID:                aid,
 		Name:                   req.Name,
 		Description:            req.Description,
-		Status:                 req.Status,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	id, err := s.skillStore().Create(r.Context(), sk, files)
+	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, files)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"id": id, "name": req.Name})
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
 }
 
 // InstallScopedSkill handles POST /api/skills/install.
@@ -249,12 +245,12 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
-	name, err := skills.InstallToStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), req.Source, req.Scope, userID, agentID)
+	snapshot, err := skills.InstallToStore(ctx, s.skillStore(), req.Source, req.Scope, userID, agentID)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"name": name})
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
 }
 
 // UploadScopedSkill handles POST /api/skills/upload.
@@ -284,16 +280,16 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 		AgentID:                aid,
 		Name:                   up.name,
 		Description:            up.description,
-		Status:                 up.status,
+		Status:                 skills.SkillStatusActive,
 		DisableModelInvocation: up.disableModelInvocation,
 		Metadata:               up.metadata,
 	}
-	id, err := s.skillStore().Create(r.Context(), sk, up.files)
+	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, up.files)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
 	}
-	writeData(w, http.StatusCreated, map[string]string{"id": id, "name": up.name})
+	writeData(w, http.StatusCreated, committedSkillView(snapshot))
 }
 
 // GetScopedSkill handles GET /api/skills/{id}.
@@ -302,7 +298,12 @@ func (s *Server) GetScopedSkill(w http.ResponseWriter, r *http.Request, id strin
 	if sk == nil {
 		return
 	}
-	writeData(w, http.StatusOK, s.dbSkillView(r, sk))
+	view, err := s.dbSkillView(r, sk)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, view)
 }
 
 // UpdateScopedSkill handles PATCH /api/skills/{id}.
@@ -311,7 +312,7 @@ func (s *Server) UpdateScopedSkill(w http.ResponseWriter, r *http.Request, id st
 	if sk == nil {
 		return
 	}
-	s.applySkillUpdate(w, r, sk.ID, skillOwnerViewContext(*sk))
+	s.applySkillUpdate(w, r, sk)
 }
 
 // DeleteScopedSkill handles DELETE /api/skills/{id}.
@@ -320,7 +321,7 @@ func (s *Server) DeleteScopedSkill(w http.ResponseWriter, r *http.Request, id st
 	if sk == nil {
 		return
 	}
-	s.doDeleteSkill(w, r, sk.ID, skillOwnerViewContext(*sk))
+	s.doDeleteSkill(w, r, sk.ID)
 }
 
 // GetScopedSkillFile handles GET /api/skills/{id}/file.

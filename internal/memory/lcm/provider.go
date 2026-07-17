@@ -30,6 +30,7 @@ var (
 	_ memory.Reviewer              = (*Provider)(nil)
 	_ memory.ChangelogWriter       = (*Provider)(nil)
 	_ memory.ChangelogReader       = (*Provider)(nil)
+	_ memory.ChangelogPageReader   = (*Provider)(nil)
 	_ memory.ConstraintStore       = (*Provider)(nil)
 	_ memory.KnowledgeUsageTracker = (*Provider)(nil)
 )

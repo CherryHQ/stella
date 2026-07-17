@@ -27,12 +27,12 @@ func TestSkillDiskLayout_BaseDirByScope(t *testing.T) {
 func TestSkillDiskLayout_Dir(t *testing.T) {
 	l := SkillDiskLayout{User: "/base/users/u1/data/.agents/skills"}
 
-	if got, want := l.Dir("user", "demo"), "/base/users/u1/data/.agents/skills/demo"; got != want {
-		t.Errorf("Dir(user, demo) = %q, want %q", got, want)
+	if got, want := l.Dir("user", "skill-123"), "/base/users/u1/data/.agents/skills/skill-123"; got != want {
+		t.Errorf("Dir(user, skill-123) = %q, want %q", got, want)
 	}
-	// Unmapped scope and empty name both yield "" — no false path is emitted.
-	if got := l.Dir("system", "demo"); got != "" {
-		t.Errorf("Dir(system, demo) = %q, want \"\" (zero-value scope)", got)
+	// Unmapped scope and empty identity both yield "" — no false path is emitted.
+	if got := l.Dir("system", "skill-123"); got != "" {
+		t.Errorf("Dir(system, skill-123) = %q, want \"\" (zero-value scope)", got)
 	}
 	if got := l.Dir("user", ""); got != "" {
 		t.Errorf("Dir(user, \"\") = %q, want \"\"", got)

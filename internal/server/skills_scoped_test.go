@@ -243,16 +243,11 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 	createTestSkill(t, env, "system", "", "", "system-skill")
 	createTestSkill(t, env, "system_agent", "", agentID, "agent-skill")
 	createTestSkill(t, env, "user_agent", creator.ID, agentID, "creator-user-skill")
-	draftID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "draft-skill")
 	orgCtx := context.Background()
-	draftStatus := "draft"
-	if err := env.pluginHost.SkillStore().Update(orgCtx, draftID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &draftStatus}); err != nil {
-		t.Fatalf("mark skill draft: %v", err)
-	}
 	deprecatedID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "deprecated-skill")
-	deprecatedStatus := "deprecated"
-	if err := env.pluginHost.SkillStore().Update(orgCtx, deprecatedID, skills.ViewContext{UserID: creator.ID, AgentID: agentID}, skills.UpdatePatch{Status: &deprecatedStatus}); err != nil {
-		t.Fatalf("mark skill deprecated: %v", err)
+	// Seed legacy state directly; users can no longer deprecate skills.
+	if _, err := env.db.Exec(orgCtx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecatedID); err != nil {
+		t.Fatalf("mark legacy skill deprecated: %v", err)
 	}
 
 	rr := doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills", nil)
@@ -260,13 +255,10 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 		t.Fatalf("creator status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 	list := decodeSkillList(t, rr)
-	for _, name := range []string{"system-skill", "agent-skill", "creator-user-skill", "draft-skill"} {
+	for _, name := range []string{"system-skill", "agent-skill", "creator-user-skill"} {
 		if findSkill(list, name) == nil {
 			t.Fatalf("creator list missing %q: %#v", name, list)
 		}
-	}
-	if draft := findSkill(list, "draft-skill"); draft["status"] != "draft" {
-		t.Fatalf("draft status = %v, want draft", draft["status"])
 	}
 	if deprecated := findSkill(list, "deprecated-skill"); deprecated != nil {
 		t.Fatalf("creator list included deprecated skill: %#v", deprecated)
@@ -346,6 +338,7 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("user create status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, "", "manual")
 	listRR := doRequestWithSession(t, env.srv, sid, "GET", "/api/agents/"+agentID+"/skills", nil)
 	userSkill := findSkill(decodeSkillList(t, listRR), "user-skill")
 	if userSkill == nil || userSkill["scope"] != "user_agent" || userSkill["user_id"] != creator.ID || userSkill["agent_id"] != agentID {
@@ -391,6 +384,31 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	}
 }
 
+// TestAgentSkills_DeleteRemovesUserAgentSkill verifies agent deletion removes
+// the database row and its file mirror permanently.
+func TestAgentSkills_DeleteRemovesUserAgentSkill(t *testing.T) {
+	env := setupAdmin(t)
+	user, sid := newNonAdmin(t, env, "agent-delete-lifecycle")
+	agentID := createAgentAsUser(t, env, sid, "agent-delete-lifecycle-agent")
+	id := createTestSkill(t, env, "user_agent", user.ID, agentID, "agent-delete-lifecycle-skill")
+
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/agent-delete-lifecycle-skill?scope=user_agent", nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	var skillCount, fileCount int
+	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill WHERE id = $1`, id).Scan(&skillCount); err != nil {
+		t.Fatalf("count deleted agent skill: %v", err)
+	}
+	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill_file WHERE skill_id = $1`, id).Scan(&fileCount); err != nil {
+		t.Fatalf("count deleted agent files: %v", err)
+	}
+	if skillCount != 0 || fileCount != 0 {
+		t.Fatalf("deleted agent skill retained skill=%d files=%d", skillCount, fileCount)
+	}
+}
+
 func TestAgentSkills_InstallScopedSkill(t *testing.T) {
 	env := setupAdmin(t)
 
@@ -418,6 +436,7 @@ func TestAgentSkills_InstallScopedSkill(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("creator user_agent install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, "", "manual")
 
 	// Admin can install into the system_agent scope.
 	rr = doRequest(t, env, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
@@ -427,6 +446,7 @@ func TestAgentSkills_InstallScopedSkill(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("admin system_agent install status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, "", "manual")
 
 	// Cannot install as system scope
 	rr = doRequestWithSession(t, env.srv, creatorSID, "POST", "/api/agents/"+agentID+"/skills/install", map[string]any{
@@ -443,6 +463,7 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 
 	creator, creatorSID := newNonAdmin(t, env, "creator-upload-agent")
 	agentID := createAgentAsUser(t, env, creatorSID, "upload-agent")
+	// Legacy status frontmatter is ignored; model availability remains independent.
 	archive := createSkillZip(t, map[string]string{
 		"bundle/uploaded-skill/SKILL.md":     "---\nname: uploaded-skill\ndescription: Uploaded user skill\nstatus: draft\ndisable-model-invocation: true\n---\n# Uploaded\n",
 		"bundle/uploaded-skill/reference.md": "notes",
@@ -452,6 +473,7 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
+	assertFullSkillMutationResponse(t, rr, "", "manual")
 
 	rr = doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills", nil)
 	if rr.Code != http.StatusOK {
@@ -464,8 +486,12 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 	if uploaded["scope"] != "user_agent" || uploaded["user_id"] != creator.ID || uploaded["agent_id"] != agentID {
 		t.Fatalf("uploaded skill ownership = %#v, want user_agent scoped to creator and agent", uploaded)
 	}
-	if uploaded["status"] != "draft" {
-		t.Fatalf("uploaded status = %v, want draft", uploaded["status"])
+	var storedStatus string
+	if err := env.db.QueryRow(context.Background(), `SELECT status FROM skill WHERE name = 'uploaded-skill' AND user_id = $1 AND agent_id = $2`, creator.ID, agentID).Scan(&storedStatus); err != nil {
+		t.Fatalf("read uploaded skill status: %v", err)
+	}
+	if storedStatus != "active" {
+		t.Fatalf("uploaded stored status = %v, want active", storedStatus)
 	}
 	if uploaded["disable_model_invocation"] != true {
 		t.Fatalf("uploaded disable_model_invocation = %v, want true", uploaded["disable_model_invocation"])

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -35,6 +37,30 @@ func TestFetchSkillFilesErrorPathNoPanic(t *testing.T) {
 	_, _, _, _, err := FetchSkillFiles(context.Background(), "/nonexistent/stella-skill-xyz")
 	if err == nil {
 		t.Fatal("expected error for nonexistent local path")
+	}
+}
+
+func TestFetchSkillFilesNormalizesNestedPaths(t *testing.T) {
+	skillDir := filepath.Join(t.TempDir(), "nested-skill")
+	if err := os.MkdirAll(filepath.Join(skillDir, "references"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	for filePath, content := range map[string]string{
+		filepath.Join(skillDir, MainFile):                "# Nested skill",
+		filepath.Join(skillDir, "references", "note.md"): "note",
+	} {
+		if err := os.WriteFile(filePath, []byte(content), 0o600); err != nil {
+			t.Fatalf("WriteFile(%s): %v", filePath, err)
+		}
+	}
+
+	_, files, _, cleanup, err := FetchSkillFiles(context.Background(), skillDir)
+	if err != nil {
+		t.Fatalf("FetchSkillFiles: %v", err)
+	}
+	defer cleanup()
+	if got := files["references/note.md"]; got != "note" {
+		t.Fatalf("nested file content = %q, want note (paths: %v)", got, files)
 	}
 }
 

@@ -29,6 +29,8 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -299,6 +301,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordination := channel.NewCoordination(s.db, s.poolManager, s.store, listFn, switchFn, coordOpts...)
 	coordinator := coordination.Coordinator
 	groupDispatcher := coordination.GroupDispatcher
+	changelogPageReader, ok := s.mem.(memory.ChangelogPageReader)
+	if !ok {
+		return fmt.Errorf("build memory management service: changelog page reader unavailable")
+	}
+	memoryManagement := memorywrite.NewManagementService(s.db, changelogPageReader)
 
 	// Assemble the immutable, validated admin-server dependency set and construct
 	// the server exactly once. Every shared instance above is passed in; the
@@ -308,6 +315,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		DB:                  s.db,
 		AuthStore:           as,
 		Mem:                 s.mem,
+		MemoryManagement:    memoryManagement,
 		AgentAccess:         agentAccess,
 		SessionAccess:       s.sessionAccess,
 		SkillAccess:         s.skillAccess,

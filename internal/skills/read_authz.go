@@ -25,7 +25,7 @@ type SkillReadDecision interface {
 // SkillWriteAuthorizer authorizes DB-backed skill writes (create/patch/deprecate)
 // for one skills-tool invocation. Like SkillReadAuthorizer it is consumer-owned
 // (no skills→skillaccess cycle) and injected from the composition root; the
-// reflect reviewer tool uses it so its prompt-driven create/patch/deprecate are
+// reflect reviewer tool uses it so its prompt-driven create/patch/deprecate operations are
 // each authorized before the store mutation. The agent-facing tool has no write
 // actions and so is never given one. When nil, DB writes fail closed.
 type SkillWriteAuthorizer interface {
@@ -40,7 +40,7 @@ type SkillWriteAuthorizer interface {
 type SkillWriteDecision interface {
 	// AllowCreate authorizes minting a new DB skill in scope for agentID.
 	AllowCreate(ctx context.Context, scope, agentID string) error
-	// AllowWrite authorizes mutating (patch/deprecate) the existing DB skill id;
+	// AllowWrite authorizes patching or deprecating the existing DB skill id;
 	// the PEP loads the row and decides against its real durable facts.
 	AllowWrite(ctx context.Context, id string) error
 }

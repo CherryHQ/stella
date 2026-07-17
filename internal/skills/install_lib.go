@@ -20,25 +20,24 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// InstallToStore fetches a skill from source and stores it in the given SkillStore.
+// InstallToStore fetches a skill and commits it through the internal Store.
 // scope must be one of "user", "user_agent", or "system_agent".
 // user uses userID; user_agent uses both; system_agent uses agentID.
-// Returns the installed skill name on success.
-func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, scope string, userID string, agentID string) (string, error) {
+func InstallToStore(ctx context.Context, store Store, source, scope string, userID string, agentID string) (SkillSnapshot, error) {
 	skillName, files, version, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
-		return "", err
+		return SkillSnapshot{}, err
 	}
 	defer cleanup()
 
-	mainContent, ok := files[pkgplugins.SkillMainFile]
+	mainContent, ok := files[MainFile]
 	if !ok {
-		return "", fmt.Errorf("fetched skill %q is missing SKILL.md", skillName)
+		return SkillSnapshot{}, fmt.Errorf("fetched skill %q is missing SKILL.md", skillName)
 	}
 
 	fm, err := parseFrontmatter(mainContent)
 	if err != nil {
-		return "", fmt.Errorf("parse SKILL.md for %q: %w", skillName, err)
+		return SkillSnapshot{}, fmt.Errorf("parse SKILL.md for %q: %w", skillName, err)
 	}
 
 	name := fm.Name
@@ -60,14 +59,14 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 	}
 	metaBytes, err := json.Marshal(meta)
 	if err != nil {
-		return "", fmt.Errorf("encode skill metadata for %q: %w", name, err)
+		return SkillSnapshot{}, fmt.Errorf("encode skill metadata for %q: %w", name, err)
 	}
 
-	sk := pkgplugins.Skill{
+	sk := Skill{
 		Scope:                  scope,
 		Name:                   name,
 		Description:            fm.Description,
-		Status:                 NormalizeSkillStatus(fm.Status),
+		Status:                 SkillStatusActive,
 		DisableModelInvocation: fm.DisableModelInvocation,
 		Metadata:               json.RawMessage(metaBytes),
 	}
@@ -81,11 +80,11 @@ func InstallToStore(ctx context.Context, store pkgplugins.SkillStore, source, sc
 		sk.AgentID = agentID
 	}
 
-	if _, err := store.Create(ctx, sk, files); err != nil {
-		return "", fmt.Errorf("store skill %q: %w", name, err)
+	snapshot, err := store.CreateManagedSkill(ctx, sk, files)
+	if err != nil {
+		return SkillSnapshot{}, fmt.Errorf("store skill %q: %w", name, err)
 	}
-
-	return name, nil
+	return snapshot, nil
 }
 
 // ErrNoUpgradeSource indicates a skill has no recorded install source to re-fetch
@@ -174,11 +173,9 @@ func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID st
 	if err != nil {
 		return UpgradeResult{}, fmt.Errorf("encode skill metadata: %w", err)
 	}
-	status := NormalizeSkillStatus(fm.Status)
 	disable := fm.DisableModelInvocation
 	if err := store.Update(ctx, skillID, pkgplugins.SkillUpdatePatch{
 		Description:            &fm.Description,
-		Status:                 &status,
 		DisableModelInvocation: &disable,
 		Metadata:               json.RawMessage(metaBytes),
 	}); err != nil {
@@ -440,7 +437,7 @@ func FetchSkillFiles(ctx context.Context, source string) (skillName string, file
 		if rerr != nil {
 			return rerr
 		}
-		files[rel] = string(data)
+		files[filepath.ToSlash(rel)] = string(data)
 		return nil
 	}); werr != nil {
 		return "", nil, "", nil, fmt.Errorf("walk skill dir: %w", werr)

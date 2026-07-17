@@ -101,6 +101,7 @@ var (
 	_ memory.VersionedConstraintStore = (*Fake)(nil)
 	_ memory.SessionSnapshotStore     = (*Fake)(nil)
 	_ memory.ProfileEntryStore        = (*Fake)(nil)
+	_ memory.ChangelogPageReader      = (*Fake)(nil)
 	_ memory.GroupMemoryStore         = (*Fake)(nil)
 	_ memory.FactStore                = (*Fake)(nil)
 	_ memory.VersionedFactStore       = (*Fake)(nil)
@@ -573,6 +574,47 @@ func (f *Fake) ReadChangelog(_ context.Context, userID string, agentID string, s
 		if e.UserID == userID && e.AgentID == agentID && e.Scope == scope {
 			result = append(result, e)
 		}
+	}
+	return result, nil
+}
+
+// ReadChangelogPage implements stable keyset pagination for server tests.
+func (f *Fake) ReadChangelogPage(_ context.Context, userID string, agentID string, scope string, cursor *memory.ChangelogCursor, limit int) ([]memory.ChangeEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if limit <= 0 {
+		return nil, fmt.Errorf("changelog page limit must be positive")
+	}
+	if cursor != nil && (cursor.CreatedAt.IsZero() || cursor.ID == "") {
+		return nil, fmt.Errorf("changelog cursor created_at and id are required")
+	}
+
+	result := make([]memory.ChangeEntry, 0, len(f.changelog))
+	for _, entry := range f.changelog {
+		if entry.UserID == userID && entry.AgentID == agentID && entry.Scope == scope {
+			result = append(result, entry)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		left, _ := time.Parse(time.RFC3339Nano, result[i].CreatedAt)
+		right, _ := time.Parse(time.RFC3339Nano, result[j].CreatedAt)
+		if left.Equal(right) {
+			return result[i].ID > result[j].ID
+		}
+		return left.After(right)
+	})
+	if cursor != nil {
+		filtered := result[:0]
+		for _, entry := range result {
+			createdAt, _ := time.Parse(time.RFC3339Nano, entry.CreatedAt)
+			if createdAt.Before(cursor.CreatedAt) || (createdAt.Equal(cursor.CreatedAt) && entry.ID < cursor.ID) {
+				filtered = append(filtered, entry)
+			}
+		}
+		result = filtered
+	}
+	if len(result) > limit {
+		result = result[:limit]
 	}
 	return result, nil
 }

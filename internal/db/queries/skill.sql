@@ -156,11 +156,8 @@ WHERE id = sqlc.arg(id)
   AND version = sqlc.arg(expected_version)
 RETURNING *;
 
--- name: DeprecateReflectOwnedUserAgentSkill :one
-UPDATE skill
-SET status     = 'deprecated',
-    version    = version + 1,
-    updated_at = now()
+-- name: DeleteReflectOwnedUserAgentSkill :one
+DELETE FROM skill
 WHERE id = sqlc.arg(id)
   AND scope = 'user_agent'
   AND user_id = sqlc.arg(user_id)::uuid
@@ -168,19 +165,6 @@ WHERE id = sqlc.arg(id)
   AND metadata->>'created_by' = 'reflect'
   AND status = 'active'
   AND version = sqlc.arg(expected_version)
-RETURNING *;
-
--- name: RestoreReflectOwnedUserAgentSkill :one
-UPDATE skill
-SET status     = 'active',
-    version    = version + 1,
-    updated_at = now()
-WHERE id = sqlc.arg(id)
-  AND scope = 'user_agent'
-  AND user_id = sqlc.arg(user_id)::uuid
-  AND agent_id = sqlc.arg(agent_id)::text
-  AND metadata->>'created_by' = 'reflect'
-  AND status = 'deprecated'
 RETURNING *;
 
 -- name: InsertSkillChangelog :one
@@ -212,21 +196,6 @@ WHERE skill_id = sqlc.arg(skill_id)
 ORDER BY version_after DESC, created_at DESC, id DESC
 LIMIT sqlc.arg(limit_count);
 
--- name: GetLatestCuratorDeprecateSkillChangelog :one
-SELECT *
-FROM (
-  SELECT *
-  FROM skill_changelog
-  WHERE skill_id = sqlc.arg(skill_id)
-    AND user_id = sqlc.arg(user_id)::uuid
-    AND agent_id = sqlc.arg(agent_id)::text
-    AND scope = 'user_agent'
-    AND action = 'deprecate'
-  ORDER BY created_at DESC, id DESC
-  LIMIT 1
-) latest
-WHERE latest.metadata->>'curator' = 'usage';
-
 -- name: DeleteSkillFile :exec
 DELETE FROM skill_file WHERE skill_id = $1 AND path = $2;
 
@@ -252,15 +221,20 @@ WHERE scope = 'user_agent'
   AND agent_id = sqlc.arg(agent_id)
   AND name = sqlc.arg(name);
 
--- name: DeprecateExpiredDrafts :exec
-UPDATE skill
-SET status = 'deprecated', updated_at = now()
-WHERE status = 'draft'
-  AND disable_model_invocation = false
-  AND metadata->>'created-at' < sqlc.arg(cutoff)::text;
-
 -- name: ListAllSkills :many
 SELECT * FROM skill ORDER BY scope, created_at;
+
+-- name: UpdateManagedSkill :one
+UPDATE skill
+SET description = sqlc.arg(description),
+    status = sqlc.arg(status),
+    disable_model_invocation = sqlc.arg(disable_model_invocation),
+    metadata = sqlc.arg(metadata),
+    version = version + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status <> 'deprecated'
+RETURNING *;
 
 -- name: ListActiveReflectOwnedUserAgentSkills :many
 SELECT * FROM skill
@@ -270,33 +244,3 @@ WHERE scope = 'user_agent'
   AND status = 'active'
   AND metadata->>'created_by' = 'reflect'
 ORDER BY updated_at DESC, created_at DESC, id ASC;
-
--- name: ListRecentlyForgottenReflectSkills :many
-SELECT
-  s.id AS skill_id,
-  s.name,
-  s.description,
-  s.version,
-  d.id::text AS deprecated_changelog_id,
-  d.created_at AS deprecated_at,
-  d.metadata AS deprecate_metadata
-FROM skill s
-JOIN LATERAL (
-  SELECT *
-  FROM skill_changelog c
-  WHERE c.skill_id = s.id
-    AND c.user_id = s.user_id
-    AND c.agent_id = s.agent_id
-    AND c.scope = 'user_agent'
-    AND c.action = 'deprecate'
-  ORDER BY c.created_at DESC, c.id DESC
-  LIMIT 1
-) d ON true
-WHERE s.user_id = sqlc.arg(user_id)::uuid
-  AND s.agent_id = sqlc.arg(agent_id)::text
-  AND s.scope = 'user_agent'
-  AND s.status = 'deprecated'
-  AND s.metadata->>'created_by' = 'reflect'
-  AND d.metadata->>'curator' = 'usage'
-ORDER BY d.created_at DESC, s.id ASC
-LIMIT sqlc.arg(limit_count);

@@ -84,7 +84,7 @@ func listFSSkills(root, scope string) ([]pkgplugins.Skill, map[string]string, er
 			Scope:                  scope,
 			Name:                   skillName,
 			Description:            fm.Description,
-			Status:                 NormalizeSkillStatus(fm.Status),
+			Status:                 SkillStatusActive,
 			DisableModelInvocation: fm.DisableModelInvocation,
 			CreatedAt:              time.Time{},
 		})

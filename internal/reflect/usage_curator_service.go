@@ -102,7 +102,7 @@ func (s *Service) recordUsageCuratorSuccess(ctx context.Context, pair usageCurat
 		"knowledge_candidates": report.KnowledgeCandidates,
 		"knowledge_deprecated": report.KnowledgeDeprecated,
 		"skill_candidates":     report.SkillCandidates,
-		"skill_deprecated":     report.SkillDeprecated,
+		"skill_deleted":        report.SkillDeleted,
 	})
 }
 
