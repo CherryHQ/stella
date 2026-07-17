@@ -22,6 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -40,6 +41,39 @@ import (
 )
 
 const defaultAdminPort = 25678
+
+// userDirectory adapts the account user store to the Agent domain's UserDirectory
+// port so agent-assignment views can show a target's email without the transport
+// (or the Agent domain) depending on the account boundary's internals. Lookups
+// are per-id: the assignment set of one agent is small and admin-only, and this
+// keeps the composition root free of the raw query layer.
+type userDirectory struct {
+	users interface {
+		GetUser(ctx context.Context, id string) (auth.User, error)
+	}
+}
+
+func (d userDirectory) LookupUser(ctx context.Context, id string) (agentaccess.UserRef, error) {
+	u, err := d.users.GetUser(ctx, id)
+	if err != nil {
+		return agentaccess.UserRef{}, err
+	}
+	return agentaccess.UserRef{ID: u.ID, Email: u.Email}, nil
+}
+
+func (d userDirectory) LookupUsers(ctx context.Context, ids []string) ([]agentaccess.UserRef, error) {
+	out := make([]agentaccess.UserRef, 0, len(ids))
+	for _, id := range ids {
+		// A stale assignment link whose user no longer resolves is skipped rather
+		// than failing the admin listing — the historical batch lookup did the same.
+		u, err := d.users.GetUser(ctx, id)
+		if err != nil {
+			continue
+		}
+		out = append(out, agentaccess.UserRef{ID: u.ID, Email: u.Email})
+	}
+	return out, nil
+}
 
 func serverCommand() *ucli.Command {
 	return &ucli.Command{
@@ -318,6 +352,23 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordinator := coordination.Coordinator
 	groupDispatcher := coordination.GroupDispatcher
 
+	// Agent management deepens the Agent PEP with the write use cases: it owns the
+	// durable agent create/update/delete, admin assignment, and conversation
+	// activity read model plus the runtime-reload port, so the HTTP transport no
+	// longer reaches config.Store / auth.AuthStore / the query layer for them. The
+	// user directory backs assignment views with the account user store (per-id
+	// lookups; the assignment set per agent is small and admin-only).
+	toolOverrides := agent.NewToolOverrideStore(s.db)
+	agentManagement := agentaccess.NewManagement(
+		agentAccess,
+		s.store,
+		as,
+		s.poolManager,
+		userDirectory{users: oidcStore},
+		agent.NewAgentActivityStore(s.db),
+		slog.With("component", "agent-management"),
+	)
+
 	// Assemble the immutable, validated admin-server dependency set and construct
 	// the server exactly once. Every shared instance above is passed in; the
 	// server creates no shadow service, reads no environment, and has no setters.
@@ -327,6 +378,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		AuthStore:           as,
 		Mem:                 s.mem,
 		AgentAccess:         agentAccess,
+		AgentManagement:     agentManagement,
+		ToolOverrides:       toolOverrides,
 		SessionAccess:       s.sessionAccess,
 		SkillAccess:         s.skillAccess,
 		LinkCodes:           linkCodes,

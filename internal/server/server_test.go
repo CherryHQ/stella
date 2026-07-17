@@ -57,6 +57,34 @@ func TestMain(m *testing.M) {
 	dbtest.Main(m)
 }
 
+// testUserDir adapts the OIDC user store to the Agent domain's UserDirectory
+// port, mirroring the composition-root adapter for the external test package.
+type testUserDir struct {
+	users interface {
+		GetUser(ctx context.Context, id string) (auth.User, error)
+	}
+}
+
+func (d testUserDir) LookupUser(ctx context.Context, id string) (agentaccess.UserRef, error) {
+	u, err := d.users.GetUser(ctx, id)
+	if err != nil {
+		return agentaccess.UserRef{}, err
+	}
+	return agentaccess.UserRef{ID: u.ID, Email: u.Email}, nil
+}
+
+func (d testUserDir) LookupUsers(ctx context.Context, ids []string) ([]agentaccess.UserRef, error) {
+	out := make([]agentaccess.UserRef, 0, len(ids))
+	for _, id := range ids {
+		u, err := d.users.GetUser(ctx, id)
+		if err != nil {
+			continue
+		}
+		out = append(out, agentaccess.UserRef{ID: u.ID, Email: u.Email})
+	}
+	return out, nil
+}
+
 type testEnv struct {
 	srv         *server.Server
 	db          *pgxpool.Pool
@@ -214,12 +242,15 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
 	deps := server.Deps{
 		Store:               store,
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
 		AgentAccess:         agentAccess,
+		AgentManagement:     agentManagement,
+		ToolOverrides:       agent.NewToolOverrideStore(db),
 		SessionAccess:       sessionSvc,
 		SkillAccess:         skillaccess.NewService(skillStore, agentAccess),
 		LinkCodes:           auth.NewLinkCodeStore(),

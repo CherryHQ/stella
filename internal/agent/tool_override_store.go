@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -34,4 +35,62 @@ func (s *ToolOverrideStore) Fetch(ctx context.Context, userID, agentID string) (
 		out = append(out, ToolOverride{ToolName: row.ToolName, Scope: row.Scope, Enabled: row.Enabled})
 	}
 	return out, nil
+}
+
+// ToolOverrideWrite is the durable owner+scope key plus the desired enabled state
+// for one tool visibility override.
+type ToolOverrideWrite struct {
+	ToolName string
+	Scope    string
+	UserID   string
+	AgentID  string
+	Enabled  bool
+}
+
+// ToolOverrideKey identifies one override row for clearing.
+type ToolOverrideKey struct {
+	ToolName string
+	Scope    string
+	UserID   string
+	AgentID  string
+}
+
+// Set upserts a tool visibility override. It validates the scope vocabulary so a
+// caller can never persist an override under an unrecognized scope — the Agent
+// domain owns that invariant rather than trusting the transport's request field.
+func (s *ToolOverrideStore) Set(ctx context.Context, w ToolOverrideWrite) error {
+	if !isOverrideScope(w.Scope) {
+		return fmt.Errorf("tool override: invalid scope %q", w.Scope)
+	}
+	_, err := s.q.UpsertToolOverride(ctx, sqlc.UpsertToolOverrideParams{
+		ToolName: w.ToolName,
+		Scope:    w.Scope,
+		UserID:   pgnull.Text(w.UserID),
+		AgentID:  pgnull.Text(w.AgentID),
+		Enabled:  w.Enabled,
+	})
+	return err
+}
+
+// Clear deletes a tool visibility override if present. The scope is validated for
+// the same reason as Set.
+func (s *ToolOverrideStore) Clear(ctx context.Context, k ToolOverrideKey) error {
+	if !isOverrideScope(k.Scope) {
+		return fmt.Errorf("tool override: invalid scope %q", k.Scope)
+	}
+	return s.q.DeleteToolOverride(ctx, sqlc.DeleteToolOverrideParams{
+		ToolName: k.ToolName,
+		Scope:    k.Scope,
+		UserID:   pgnull.Text(k.UserID),
+		AgentID:  pgnull.Text(k.AgentID),
+	})
+}
+
+func isOverrideScope(scope string) bool {
+	switch scope {
+	case ToolOverrideScopeSystem, ToolOverrideScopeSystemAgent, ToolOverrideScopeUser, ToolOverrideScopeUserAgent:
+		return true
+	default:
+		return false
+	}
 }

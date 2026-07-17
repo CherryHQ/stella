@@ -258,46 +258,6 @@ var currentBroadServerFields = map[string]string{
 // through a *Server receiver or parameter. Counts prevent a second use in an
 // existing handler from hiding behind an allowlist entry.
 var currentServerFieldUses = map[string]map[string]map[string]int{
-	"agent_tools.go": {
-		"UpdateAgentTool": {
-			"q": 2,
-		},
-		"agentTools": {
-			"q": 1,
-		},
-		"loadToolOverrides": {
-			"q": 1,
-		},
-	},
-	"agent_users.go": {
-		"AssignAgentUser": {
-			"authStore": 1,
-			"store":     1,
-			"users":     1,
-		},
-		"ListAgentUsers": {
-			"authStore": 1,
-			"q":         1,
-		},
-		"RemoveAgentUser": {
-			"authStore": 1,
-		},
-	},
-	"agents.go": {
-		"CreateAgent": {
-			"authStore": 1,
-			"store":     3,
-		},
-		"DeleteAgent": {
-			"store": 1,
-		},
-		"UpdateAgent": {
-			"store": 1,
-		},
-		"fillAgentLastActive": {
-			"q": 1,
-		},
-	},
 	"auth.go": {
 		"DeleteAuthSession": {
 			"sessions": 3,
@@ -535,15 +495,14 @@ var (
 	currentServerTypeIndirectionAllowlist      = map[string]bool{}
 	currentServerPersistenceDotImportAllowlist = map[string]bool{}
 	currentServerPersistenceImports            = map[string]bool{
-		"agent_tools.go:" + serverSQLCImportPath: true,
-		"goals.go:" + serverSQLCImportPath:       true,
-		"groups.go:" + serverSQLCImportPath:      true,
-		"inbox.go:" + serverSQLCImportPath:       true,
-		"profile.go:" + serverSQLCImportPath:     true,
-		"projects.go:" + serverSQLCImportPath:    true,
-		"server.go:" + serverSQLCImportPath:      true,
-		"server.go:" + serverPgxpoolImportPath:   true,
-		"workflows.go:" + serverSQLCImportPath:   true,
+		"goals.go:" + serverSQLCImportPath:     true,
+		"groups.go:" + serverSQLCImportPath:    true,
+		"inbox.go:" + serverSQLCImportPath:     true,
+		"profile.go:" + serverSQLCImportPath:   true,
+		"projects.go:" + serverSQLCImportPath:  true,
+		"server.go:" + serverSQLCImportPath:    true,
+		"server.go:" + serverPgxpoolImportPath: true,
+		"workflows.go:" + serverSQLCImportPath: true,
 	}
 )
 
@@ -1424,7 +1383,6 @@ var resourceAuthHelperAllowlist = map[string]bool{
 	"requireAgentAccess":        true, // skills_scoped.go — agent access gate
 	"requireAgentUse":           true, // skills_scoped.go — agent execute gate
 	"requireAgentManage":        true, // skills_scoped.go — agent manage gate
-	"requireAgentDelete":        true, // skills_scoped.go — agent delete gate
 	"requireAgentAction":        true, // skills_scoped.go — shared Agent PEP adapter
 	"requireUserTarget":         true, // users.go — target-user admin gate
 }

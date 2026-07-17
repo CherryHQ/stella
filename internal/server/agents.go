@@ -1,12 +1,8 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/config"
@@ -93,33 +89,18 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, params apise
 	for i := range agents {
 		fillAgentDefaults(&agents[i])
 	}
-	if err := s.fillAgentLastActive(ctx, info.UserID, agents); err != nil {
+	lastActive, err := s.agentManagement.ListAgentLastActive(ctx, info.UserID)
+	if err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"agents": agents})
-}
-
-func (s *Server) fillAgentLastActive(ctx context.Context, userID string, agents []config.Agent) error {
-	rows, err := s.q.ListAgentConversationLastActive(ctx, pgtype.Text{String: userID, Valid: true})
-	if err != nil {
-		return err
-	}
-	byAgent := make(map[string]*time.Time, len(rows))
-	for _, row := range rows {
-		if !row.AgentID.Valid {
-			continue
-		}
-		t := parseSQLValueTime(row.LastActive)
-		if t.IsZero() {
-			continue
-		}
-		byAgent[row.AgentID.String] = &t
-	}
 	for i := range agents {
-		agents[i].LastActive = byAgent[agents[i].ID]
+		if t, ok := lastActive[agents[i].ID]; ok {
+			t := t
+			agents[i].LastActive = &t
+		}
 	}
-	return nil
+	writeData(w, http.StatusOK, map[string]any{"agents": agents})
 }
 
 func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
@@ -131,11 +112,6 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	authority, err := info.authority()
 	if err != nil {
 		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
-	if err := s.agentAccess.CanCreate(ctx, authority); err != nil {
-		code, msg := agentAccessError(err)
-		writeError(w, code, msg)
 		return
 	}
 
@@ -163,57 +139,22 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-generate ID from name.
+	// Base ID slug from the display name; the Agent domain uniquifies it, owns the
+	// scope decision, sets the creator, and (for a restricted agent) auto-assigns.
 	a.ID = slugify(a.Name)
 
-	// Deduplicate: if the ID already exists, append a suffix.
-	if _, err := s.store.GetAgent(ctx, a.ID); err == nil {
-		for i := 2; ; i++ {
-			candidate := fmt.Sprintf("%s-%d", a.ID, i)
-			if _, err := s.store.GetAgent(ctx, candidate); err != nil {
-				a.ID = candidate
-				break
-			}
-		}
-	}
-
-	// Workspace is always the default path — never user-supplied.
-	a.Workspace = ""
-
-	a.CreatorID = info.UserID
-
-	// Non-admin users always get restricted scope, auto-assigned.
-	if !info.IsAdmin {
-		a.Scope = config.AgentScopeRestricted
-	} else {
-		if a.Scope == "" {
-			a.Scope = config.AgentScopeSystem
-		}
-		if a.Scope != config.AgentScopeSystem && a.Scope != config.AgentScopeRestricted {
-			writeError(w, http.StatusBadRequest, "scope must be 'system' or 'restricted'")
+	created, err := s.agentManagement.Create(ctx, authority, a)
+	if err != nil {
+		code, msg := agentManagementError(err)
+		if code == http.StatusInternalServerError {
+			s.writeInternalError(w, err)
 			return
 		}
-	}
-
-	if err := s.store.CreateAgent(ctx, a); err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, code, msg)
 		return
 	}
 
-	if s.poolManager != nil {
-		if err := s.poolManager.SyncAgent(ctx, a.ID); err != nil {
-			s.log.Error("sync agent pool after create", "agent_id", a.ID, "error", err)
-		}
-	}
-
-	// Auto-assign the creator if scope is restricted and user is non-admin.
-	if !info.IsAdmin && a.Scope == config.AgentScopeRestricted {
-		if err := s.authStore.AssignAgent(ctx, info.UserID, a.ID); err != nil {
-			s.log.Error("auto-assign agent to creator", "user_id", info.UserID, "agent_id", a.ID, "error", err)
-		}
-	}
-
-	writeData(w, http.StatusCreated, a)
+	writeData(w, http.StatusCreated, created)
 }
 
 func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
@@ -231,10 +172,13 @@ func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
 func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 	info := UserFromContext(ctx)
-
-	existing, code, msg := s.requireAgentManage(ctx, id)
-	if code != 0 {
-		writeError(w, code, msg)
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -257,46 +201,40 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 
-	// Non-admin: keep scope as-is, don't allow changing it.
-	if !info.IsAdmin {
-		a.Scope = existing.Scope
-	} else {
-		if a.Scope == "" {
-			a.Scope = config.AgentScopeSystem
-		}
-		if a.Scope != config.AgentScopeSystem && a.Scope != config.AgentScopeRestricted {
-			writeError(w, http.StatusBadRequest, "scope must be 'system' or 'restricted'")
+	updated, err := s.agentManagement.Update(ctx, authority, a)
+	if err != nil {
+		code, msg := agentManagementError(err)
+		if code == http.StatusInternalServerError {
+			s.writeInternalError(w, err)
 			return
 		}
-	}
-
-	if err := s.store.UpdateAgent(ctx, a); err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, code, msg)
 		return
 	}
-	if s.poolManager != nil {
-		if err := s.poolManager.SyncAgent(ctx, a.ID); err != nil {
-			s.log.Error("sync agent pool after update", "agent_id", a.ID, "error", err)
-		}
-	}
-	writeData(w, http.StatusOK, a)
+	writeData(w, http.StatusOK, updated)
 }
 
 func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
-	if _, code, msg := s.requireAgentDelete(ctx, id); code != 0 {
-		writeError(w, code, msg)
+	info := UserFromContext(ctx)
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	if err := s.store.DeleteAgent(ctx, id); err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	if s.poolManager != nil {
-		if err := s.poolManager.SyncAgent(ctx, id); err != nil {
-			s.log.Error("sync agent pool after delete", "agent_id", id, "error", err)
+	if err := s.agentManagement.Delete(ctx, authority, id); err != nil {
+		code, msg := agentManagementError(err)
+		if code == http.StatusInternalServerError {
+			s.writeInternalError(w, err)
+			return
 		}
+		writeError(w, code, msg)
+		return
 	}
 	writeNoContent(w)
 }

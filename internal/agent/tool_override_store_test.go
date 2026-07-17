@@ -83,3 +83,16 @@ func TestToolOverrideStoreRoundTrip(t *testing.T) {
 		t.Fatalf("rows after delete = %+v, want none", rows)
 	}
 }
+
+// TestToolOverrideStoreRejectsUnknownScope proves the Agent domain owns the
+// scope-vocabulary invariant on write: an unrecognized scope fails before any
+// query runs, so the transport can never persist an override under a bogus scope.
+func TestToolOverrideStoreRejectsUnknownScope(t *testing.T) {
+	s := &ToolOverrideStore{}
+	if err := s.Set(context.Background(), ToolOverrideWrite{ToolName: "memory", Scope: "bogus", Enabled: true}); err == nil {
+		t.Fatal("Set with unknown scope = nil, want error")
+	}
+	if err := s.Clear(context.Background(), ToolOverrideKey{ToolName: "memory", Scope: "bogus"}); err == nil {
+		t.Fatal("Clear with unknown scope = nil, want error")
+	}
+}

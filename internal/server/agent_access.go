@@ -36,3 +36,19 @@ func agentAccessError(err error) (int, string) {
 		return http.StatusInternalServerError, "internal error"
 	}
 }
+
+// agentManagementError maps an Agent management typed error to an HTTP status and
+// message. It extends agentAccessError with the write-path validation/lookup
+// errors, preserving the historical bodies: an invalid scope is 400, a missing
+// assignment target is 404 "user not found", a missing agent is 404 "agent not
+// found", an authenticated denial is 403, and anything else is a logged 500.
+func agentManagementError(err error) (int, string) {
+	switch {
+	case errors.Is(err, agentaccess.ErrInvalidScope):
+		return http.StatusBadRequest, "scope must be 'system' or 'restricted'"
+	case errors.Is(err, agentaccess.ErrUserNotFound):
+		return http.StatusNotFound, "user not found"
+	default:
+		return agentAccessError(err)
+	}
+}

@@ -9,8 +9,6 @@ import (
 	"github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	coretools "github.com/CherryHQ/stella/internal/agent/sandbox"
-	"github.com/CherryHQ/stella/pkg/db/pgnull"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 const (
@@ -73,21 +71,21 @@ func (s *Server) UpdateAgentTool(w http.ResponseWriter, r *http.Request, id stri
 	}
 
 	if req.Enabled == nil {
-		if err := s.q.DeleteToolOverride(ctx, sqlc.DeleteToolOverrideParams{
+		if err := s.toolOverrides.Clear(ctx, agent.ToolOverrideKey{
 			ToolName: toolName,
 			Scope:    scope,
-			UserID:   pgnull.Text(userID),
-			AgentID:  pgnull.Text(agentID),
+			UserID:   userID,
+			AgentID:  agentID,
 		}); err != nil {
 			s.writeInternalError(w, err)
 			return
 		}
 	} else {
-		if _, err := s.q.UpsertToolOverride(ctx, sqlc.UpsertToolOverrideParams{
+		if err := s.toolOverrides.Set(ctx, agent.ToolOverrideWrite{
 			ToolName: toolName,
 			Scope:    scope,
-			UserID:   pgnull.Text(userID),
-			AgentID:  pgnull.Text(agentID),
+			UserID:   userID,
+			AgentID:  agentID,
 			Enabled:  *req.Enabled,
 		}); err != nil {
 			s.writeInternalError(w, err)
@@ -114,7 +112,7 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 	if info == nil {
 		return nil, nil
 	}
-	overrides, err := s.loadToolOverrides(ctx, info.UserID, agentID)
+	overrides, err := s.toolOverrides.Fetch(ctx, info.UserID, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -153,22 +151,20 @@ func (s *Server) agentTools(ctx context.Context, agentID string) ([]types.AgentT
 		}
 	}
 
-	rows, err := s.q.ListMCPServersForAgentContext(ctx, sqlc.ListMCPServersForAgentContextParams{
-		UserID: pgnull.Text(info.UserID), AgentID: pgnull.Text(agentID),
-	})
-	if err != nil {
-		return nil, err
-	}
-	seenMCP := map[string]struct{}{}
-	for _, row := range rows {
-		if _, ok := seenMCP[row.Name]; ok {
-			continue
+	// MCP servers surface as always-enabled tools. Resolve them through the MCP
+	// service's narrow context port (it already dedupes by name); when MCP is not
+	// configured there are no registrations to show.
+	if s.mcpSvc != nil {
+		regs, err := s.mcpSvc.ResolveForContext(ctx, info.UserID, agentID)
+		if err != nil {
+			return nil, err
 		}
-		seenMCP[row.Name] = struct{}{}
-		items = append(items, types.AgentTool{
-			Name: row.Name, Description: row.Url,
-			Source: agentToolSourceMCP, Enabled: true, Origin: agent.ToolOverrideOriginDefault,
-		})
+		for _, reg := range regs {
+			items = append(items, types.AgentTool{
+				Name: reg.Name, Description: reg.URL,
+				Source: agentToolSourceMCP, Enabled: true, Origin: agent.ToolOverrideOriginDefault,
+			})
+		}
 	}
 
 	sort.SliceStable(items, func(i, j int) bool {
@@ -223,18 +219,4 @@ func (s *Server) isManagedAgentTool(ctx context.Context, name string) bool {
 		}
 	}
 	return false
-}
-
-func (s *Server) loadToolOverrides(ctx context.Context, userID, agentID string) ([]agent.ToolOverride, error) {
-	rows, err := s.q.ListToolOverridesForAgentContext(ctx, sqlc.ListToolOverridesForAgentContextParams{
-		UserID: pgnull.Text(userID), AgentID: pgnull.Text(agentID),
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]agent.ToolOverride, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, agent.ToolOverride{ToolName: row.ToolName, Scope: row.Scope, Enabled: row.Enabled})
-	}
-	return out, nil
 }

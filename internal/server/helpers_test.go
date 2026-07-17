@@ -75,12 +75,16 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
+	toolOverrides := agent.NewToolOverrideStore(db)
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
 	return Deps{
 		Store:               store,
 		DB:                  db,
 		AuthStore:           as,
 		Mem:                 mem,
 		AgentAccess:         agentAccess,
+		AgentManagement:     agentManagement,
+		ToolOverrides:       toolOverrides,
 		SessionAccess:       sessionSvc,
 		SkillAccess:         skillaccess.NewService(phost.SkillStore(), agentAccess),
 		LinkCodes:           auth.NewLinkCodeStore(),
@@ -105,6 +109,34 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 			Credentials: oidcStore,
 		},
 	}
+}
+
+// testUserDirectory adapts the OIDC user store to the Agent domain's
+// UserDirectory port for tests, mirroring the composition-root adapter.
+type testUserDirectory struct {
+	users interface {
+		GetUser(ctx context.Context, id string) (auth.User, error)
+	}
+}
+
+func (d testUserDirectory) LookupUser(ctx context.Context, id string) (agentaccess.UserRef, error) {
+	u, err := d.users.GetUser(ctx, id)
+	if err != nil {
+		return agentaccess.UserRef{}, err
+	}
+	return agentaccess.UserRef{ID: u.ID, Email: u.Email}, nil
+}
+
+func (d testUserDirectory) LookupUsers(ctx context.Context, ids []string) ([]agentaccess.UserRef, error) {
+	out := make([]agentaccess.UserRef, 0, len(ids))
+	for _, id := range ids {
+		u, err := d.users.GetUser(ctx, id)
+		if err != nil {
+			continue
+		}
+		out = append(out, agentaccess.UserRef{ID: u.ID, Email: u.Email})
+	}
+	return out, nil
 }
 
 // newTestServer builds a Server from testServerDeps.

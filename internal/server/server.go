@@ -46,6 +46,8 @@ type Server struct {
 	store           config.Store
 	authStore       auth.AuthStore
 	agentAccess     *agentaccess.Service
+	agentManagement *agentaccess.Management
+	toolOverrides   *agent.ToolOverrideStore
 	sessionAccess   *sessionaccess.Service
 	skillAccess     *skillaccess.Service
 	rateLimiter     *auth.RateLimiter
@@ -137,6 +139,14 @@ type Deps struct {
 	// trusted Authority values and durable state.
 	AgentAccess   *agentaccess.Service
 	SessionAccess *sessionaccess.Service
+	// AgentManagement owns the Agent write use cases (create/update/delete, admin
+	// assignment, conversation-activity read model). It layers on AgentAccess for
+	// authorization and holds the durable write + runtime-reload ports so the HTTP
+	// transport no longer orchestrates them.
+	AgentManagement *agentaccess.Management
+	// ToolOverrides persists per-agent tool-visibility overrides. The transport
+	// holds this narrow domain store instead of the aggregate query handle.
+	ToolOverrides *agent.ToolOverrideStore
 	// SkillAccess is the DB-backed Skill enforcement point. When nil the
 	// skill endpoints report 503 through the centralized unavailable mapping.
 	SkillAccess *skillaccess.Service
@@ -223,6 +233,8 @@ func (d Deps) validate() error {
 	req(d.AuthStore != nil, "AuthStore")
 	req(d.Mem != nil, "Mem")
 	req(d.AgentAccess != nil, "AgentAccess")
+	req(d.AgentManagement != nil, "AgentManagement")
+	req(d.ToolOverrides != nil, "ToolOverrides")
 	req(d.SessionAccess != nil, "SessionAccess")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
@@ -265,6 +277,8 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		store:           deps.Store,
 		authStore:       deps.AuthStore,
 		agentAccess:     deps.AgentAccess,
+		agentManagement: deps.AgentManagement,
+		toolOverrides:   deps.ToolOverrides,
 		sessionAccess:   deps.SessionAccess,
 		skillAccess:     deps.SkillAccess,
 		rateLimiter:     auth.NewRateLimiter(),
