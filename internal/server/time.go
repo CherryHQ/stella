@@ -2,8 +2,6 @@ package server
 
 import (
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // parseTime parses a domain-layer timestamp string (string-typed fields on
@@ -20,17 +18,4 @@ func parseTime(value string) time.Time {
 		}
 	}
 	return time.Time{}
-}
-
-// parseTimePtr is the nullable variant: an invalid NullTime or zero value
-// yields nil rather than the zero time.
-func parseTimePtr(nt pgtype.Timestamptz) *time.Time {
-	if !nt.Valid {
-		return nil
-	}
-	t := nt.Time.UTC()
-	if t.IsZero() {
-		return nil
-	}
-	return &t
 }

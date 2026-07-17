@@ -306,7 +306,6 @@ var (
 	currentServerTypeIndirectionAllowlist      = map[string]bool{}
 	currentServerPersistenceDotImportAllowlist = map[string]bool{}
 	currentServerPersistenceImports            = map[string]bool{
-		"goals.go:" + serverSQLCImportPath:     true,
 		"groups.go:" + serverSQLCImportPath:    true,
 		"server.go:" + serverSQLCImportPath:    true,
 		"server.go:" + serverPgxpoolImportPath: true,

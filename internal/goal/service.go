@@ -516,18 +516,18 @@ type UpdateInput struct {
 // UpdateMetadata applies a partial metadata edit (contract §2 -- metadata is
 // mutable; lifecycle is not). It validates the value-sets it touches and returns
 // the refreshed row. Lifecycle and projection are untouched.
-func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateInput) (sqlc.AgentGoal, error) {
+func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateInput) (Goal, error) {
 	if in.Priority != nil && !ValidPriority(*in.Priority) {
-		return sqlc.AgentGoal{}, ErrInvalidTransition
+		return Goal{}, ErrInvalidTransition
 	}
 	if in.ReviewPolicy != nil && !ValidReviewPolicy(*in.ReviewPolicy) {
-		return sqlc.AgentGoal{}, ErrInvalidTransition
+		return Goal{}, ErrInvalidTransition
 	}
 	if in.Contract != nil && !in.Contract.Valid() {
-		return sqlc.AgentGoal{}, ErrInvalidContract
+		return Goal{}, ErrInvalidContract
 	}
 	if in.Contract != nil && in.Contract.HasRequiredDeterministicItem() && !s.canRunDeterministic() {
-		return sqlc.AgentGoal{}, ErrDeterministicChecksUnsupported
+		return Goal{}, ErrDeterministicChecksUnsupported
 	}
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
@@ -596,7 +596,10 @@ func (s *GoalService) UpdateMetadata(ctx context.Context, id string, in UpdateIn
 		out, err = getGoal(ctx, q, id)
 		return err
 	})
-	return out, err
+	if err != nil {
+		return Goal{}, err
+	}
+	return goalFromRow(out), nil
 }
 
 // orDefault returns *v when v is non-nil, else the fallback. Keeps UpdateMetadata's
@@ -612,7 +615,7 @@ func orDefault(v *string, fallback string) string {
 // its contract has items or is explicitly trivial; a composite passes when its
 // plan is materialized. A composite releases its draft children. Returns
 // ErrPlanGate when unmet.
-func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, error) {
+func (s *GoalService) Activate(ctx context.Context, id string) (Goal, error) {
 	var out sqlc.AgentGoal
 	err := s.withTx(ctx, func(q *sqlc.Queries) error {
 		d, err := getGoal(ctx, q, id)
@@ -651,7 +654,10 @@ func (s *GoalService) Activate(ctx context.Context, id string) (sqlc.AgentGoal, 
 		out, err = getGoal(ctx, q, id)
 		return err
 	})
-	return out, err
+	if err != nil {
+		return Goal{}, err
+	}
+	return goalFromRow(out), nil
 }
 
 // planGateSatisfied reports whether a draft goal clears its plan gate
