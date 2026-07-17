@@ -30,6 +30,7 @@ import (
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -45,6 +46,7 @@ import (
 type Server struct {
 	channelResolver *channel.RuntimeResolver
 	account         *account.Service
+	profileSvc      *memprofile.Service
 	agentAccess     *agentaccess.Service
 	agentManagement *agentaccess.Management
 	toolOverrides   *agent.ToolOverrideStore
@@ -130,6 +132,12 @@ type Deps struct {
 	// reads/mutations, login/channel identities, sessions, password credential,
 	// and agent assignments, with the role/deactivation revocation invariants.
 	Account *account.Service
+
+	// Profile owns the per-(user, agent) memory application boundary: profile,
+	// soul, constraints, changelog, list, and reset, with the Agent-access gate
+	// and change-source audit. The transport no longer reaches memory.Provider,
+	// memorywrite, or the query layer for these.
+	Profile *memprofile.Service
 
 	// Authorization. AgentAccess and SessionAccess own their domain rules over
 	// trusted Authority values and durable state.
@@ -220,6 +228,7 @@ func (d Deps) validate() error {
 	req(d.Mem != nil, "Mem")
 	req(d.ChannelResolver != nil, "ChannelResolver")
 	req(d.Account != nil, "Account")
+	req(d.Profile != nil, "Profile")
 	req(d.AgentAccess != nil, "AgentAccess")
 	req(d.AgentManagement != nil, "AgentManagement")
 	req(d.ToolOverrides != nil, "ToolOverrides")
@@ -260,6 +269,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 	s := &Server{
 		channelResolver: deps.ChannelResolver,
 		account:         deps.Account,
+		profileSvc:      deps.Profile,
 		agentAccess:     deps.AgentAccess,
 		agentManagement: deps.AgentManagement,
 		toolOverrides:   deps.ToolOverrides,

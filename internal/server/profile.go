@@ -1,21 +1,13 @@
 package server
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
 	"net/http"
 	"sort"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
-	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // ListProfileIdentities handles GET /api/users/me/identities.
@@ -145,17 +137,17 @@ func (s *Server) GetProfileMemory(w http.ResponseWriter, r *http.Request, agentI
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
-	mem, err := s.loadProfileMemory(r.Context(), info.UserID, agentID)
+	authority, err := info.authority()
 	if err != nil {
-		s.writeInternalError(w, err)
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	writeData(w, http.StatusOK, mem)
+	mem, err := s.profileSvc.Memory(r.Context(), authority, agentID)
+	if err != nil {
+		s.writeProfileError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, profileMemoryResponseFrom(mem))
 }
 
 // SetProfileMemory handles PATCH /api/users/me/memories/{agentID}.
@@ -170,11 +162,11 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-
 	var body struct {
 		Soul string `json:"soul"`
 	}
@@ -182,67 +174,12 @@ func (s *Server) SetProfileSoul(w http.ResponseWriter, r *http.Request, agentID 
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	ctx := memory.WithChangeSource(r.Context(), memory.SourceUser)
-	profiles, ok := s.mem.(memory.ProfileStore)
-	if !ok {
-		writeError(w, http.StatusServiceUnavailable, "profile memory store not configured")
+	mem, err := s.profileSvc.SetSoul(r.Context(), authority, agentID, body.Soul)
+	if err != nil {
+		s.writeProfileError(w, err)
 		return
 	}
-	if err := profiles.SetAgentSoul(ctx, info.UserID, agentID, body.Soul); err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	s.writeProfileMemory(w, r, info.UserID, agentID)
-}
-
-// writeProfileMemory loads the user/agent memory and writes the full resource,
-// applying the default soul when none is stored.
-func (s *Server) writeProfileMemory(w http.ResponseWriter, r *http.Request, userID, agentID string) {
-	mem, err := s.loadProfileMemory(r.Context(), userID, agentID)
-	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, mem)
-}
-
-func (s *Server) loadProfileMemory(ctx context.Context, userID string, agentID string) (sqlc.CtxAgentMemory, error) {
-	mem, err := s.q.GetUserAgentMemory(ctx, sqlc.GetUserAgentMemoryParams{UserID: userID, AgentID: agentID})
-	if isNotFound(err) {
-		mem = sqlc.CtxAgentMemory{
-			UserID:         userID,
-			AgentID:        agentID,
-			Constraints:    json.RawMessage(`[]`),
-			ProfileEntries: json.RawMessage(`[]`),
-		}
-	} else if err != nil {
-		return sqlc.CtxAgentMemory{}, err
-	}
-	if err := s.applyProfileFacts(ctx, &mem); err != nil {
-		return sqlc.CtxAgentMemory{}, err
-	}
-	return mem, nil
-}
-
-func (s *Server) applyProfileFacts(ctx context.Context, mem *sqlc.CtxAgentMemory) error {
-	profiles, ok := s.mem.(memory.ProfileStore)
-	if !ok {
-		return errors.New("profile memory store not configured")
-	}
-	content, err := profiles.GetProfile(ctx, mem.UserID, mem.AgentID)
-	if err != nil {
-		return err
-	}
-	soul, err := profiles.GetAgentSoul(ctx, mem.UserID, mem.AgentID)
-	if err != nil {
-		return err
-	}
-	mem.Content = content
-	mem.Soul = soul
-	if mem.Soul == "" {
-		mem.Soul = prompt.DefaultAgentSoul()
-	}
-	return nil
+	writeData(w, http.StatusOK, profileMemoryResponseFrom(mem))
 }
 
 // DeleteProfileMemory handles DELETE /api/users/me/memories/{agentID}.
@@ -252,19 +189,13 @@ func (s *Server) DeleteProfileMemory(w http.ResponseWriter, r *http.Request, age
 
 // ListProfileConstraints handles GET /api/users/me/memories/{agentID}/constraints.
 func (s *Server) ListProfileConstraints(w http.ResponseWriter, r *http.Request, agentID string) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
+	authority, ok := s.profileAuthority(w, r)
+	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
-	constraints, err := memorywrite.GetConstraints(r.Context(), s.q, info.UserID, agentID)
+	constraints, err := s.profileSvc.ListConstraints(r.Context(), authority, agentID)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeProfileError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, profileConstraintListToAPI(constraints))
@@ -272,16 +203,10 @@ func (s *Server) ListProfileConstraints(w http.ResponseWriter, r *http.Request, 
 
 // AddProfileConstraint handles POST /api/users/me/memories/{agentID}/constraints.
 func (s *Server) AddProfileConstraint(w http.ResponseWriter, r *http.Request, agentID string) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
+	authority, ok := s.profileAuthority(w, r)
+	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
 	var body struct {
 		Text string `json:"text"`
 	}
@@ -294,11 +219,9 @@ func (s *Server) AddProfileConstraint(w http.ResponseWriter, r *http.Request, ag
 		writeError(w, http.StatusBadRequest, "text is required")
 		return
 	}
-
-	ctx := memory.WithChangeSource(r.Context(), memory.SourceManual)
-	constraints, err := memorywrite.AddConstraint(ctx, s.db, s.q, info.UserID, agentID, text)
+	constraints, err := s.profileSvc.AddConstraint(r.Context(), authority, agentID, text)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeProfileError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, profileConstraintListToAPI(constraints))
@@ -306,37 +229,13 @@ func (s *Server) AddProfileConstraint(w http.ResponseWriter, r *http.Request, ag
 
 // DeleteProfileConstraint handles DELETE /api/users/me/memories/{agentID}/constraints/{constraintID}.
 func (s *Server) DeleteProfileConstraint(w http.ResponseWriter, r *http.Request, agentID string, constraintID string) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
+	authority, ok := s.profileAuthority(w, r)
+	if !ok {
 		return
 	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
-		return
-	}
-
-	constraints, err := memorywrite.GetConstraints(r.Context(), s.q, info.UserID, agentID)
+	updated, err := s.profileSvc.RemoveConstraint(r.Context(), authority, agentID, constraintID)
 	if err != nil {
-		s.writeInternalError(w, err)
-		return
-	}
-	found := false
-	for _, constraint := range constraints {
-		if constraint.ID == constraintID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		writeError(w, http.StatusNotFound, "constraint not found")
-		return
-	}
-
-	ctx := memory.WithChangeSource(r.Context(), memory.SourceManual)
-	updated, err := memorywrite.RemoveConstraint(ctx, s.db, s.q, info.UserID, agentID, constraintID)
-	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeProfileError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, profileConstraintListToAPI(updated))
@@ -344,13 +243,8 @@ func (s *Server) DeleteProfileConstraint(w http.ResponseWriter, r *http.Request,
 
 // ListProfileChangelog handles GET /api/users/me/memories/{agentID}/changelog.
 func (s *Server) ListProfileChangelog(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListProfileChangelogParams) {
-	info := UserFromContext(r.Context())
-	if info == nil {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
-		return
-	}
-	if _, code, msg := s.requireAgentAccess(r.Context(), agentID); code != 0 {
-		writeError(w, code, msg)
+	authority, ok := s.profileAuthority(w, r)
+	if !ok {
 		return
 	}
 
@@ -376,40 +270,17 @@ func (s *Server) ListProfileChangelog(w http.ResponseWriter, r *http.Request, ag
 		scopes = []string{scope}
 	}
 
-	entries := make([]apiserver.ChangelogEntry, 0, limit)
-	for _, scope := range scopes {
-		if scope == "profile" || scope == "soul" {
-			reader, ok := s.mem.(memory.ChangelogReader)
-			if !ok {
-				writeError(w, http.StatusServiceUnavailable, "memory changelog reader not configured")
-				return
-			}
-			rows, err := reader.ReadChangelog(r.Context(), info.UserID, agentID, scope, limit)
-			if err != nil {
-				s.writeInternalError(w, err)
-				return
-			}
-			for _, row := range rows {
-				entries = append(entries, memoryChangelogEntryToAPI(row))
-			}
-			continue
-		}
-
-		rows, err := s.q.ListMemoryChangelog(r.Context(), sqlc.ListMemoryChangelogParams{
-			UserID:  info.UserID,
-			AgentID: agentID,
-			Scope:   scope,
-			Limit:   int32(limit),
-		})
-		if err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
-		for _, row := range rows {
-			entries = append(entries, profileChangelogEntryToAPI(row))
-		}
+	changes, err := s.profileSvc.Changelog(r.Context(), authority, agentID, scopes, limit)
+	if err != nil {
+		s.writeProfileError(w, err)
+		return
 	}
 
+	entries := make([]apiserver.ChangelogEntry, 0, len(changes))
+	for _, change := range changes {
+		entries = append(entries, memoryChangelogEntryToAPI(change))
+	}
+	// Merge across scopes: newest first, then cap at the requested limit.
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].CreatedAt.After(entries[j].CreatedAt)
 	})
@@ -447,41 +318,12 @@ func memoryChangelogEntryToAPI(entry memory.ChangeEntry) apiserver.ChangelogEntr
 	}
 }
 
-func profileChangelogEntryToAPI(row sqlc.CtxAgentMemoryChangelog) apiserver.ChangelogEntry {
-	return apiserver.ChangelogEntry{
-		Id:                  row.ID,
-		Scope:               row.Scope,
-		Action:              row.Action,
-		Source:              row.Source,
-		MemoryVersionBefore: nullIntToPtr(row.MemoryVersionBefore),
-		MemoryVersionAfter:  nullIntToPtr(row.MemoryVersionAfter),
-		BeforeText:          nullStringToPtr(row.BeforeText),
-		AfterText:           nullStringToPtr(row.AfterText),
-		CreatedAt:           row.CreatedAt.UTC(),
-	}
-}
-
 func int64PtrToIntPtr(value *int64) *int {
 	if value == nil {
 		return nil
 	}
 	v := int(*value)
 	return &v
-}
-
-func nullIntToPtr(value pgtype.Int8) *int {
-	if !value.Valid {
-		return nil
-	}
-	v := int(value.Int64)
-	return &v
-}
-
-func nullStringToPtr(value pgtype.Text) *string {
-	if !value.Valid {
-		return nil
-	}
-	return &value.String
 }
 
 func stringPtrIfNotEmpty(value string) *string {

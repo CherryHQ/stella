@@ -286,32 +286,6 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 			"q": 2,
 		},
 	},
-	"profile.go": {
-		"AddProfileConstraint": {
-			"db": 1,
-			"q":  1,
-		},
-		"DeleteProfileConstraint": {
-			"db": 1,
-			"q":  2,
-		},
-		"ListProfileChangelog": {
-			"mem": 1,
-			"q":   1,
-		},
-		"ListProfileConstraints": {
-			"q": 1,
-		},
-		"SetProfileSoul": {
-			"mem": 1,
-		},
-		"applyProfileFacts": {
-			"mem": 1,
-		},
-		"loadProfileMemory": {
-			"q": 1,
-		},
-	},
 	"projects.go": {
 		"CreateProject": {
 			"q": 1,
@@ -327,18 +301,6 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 		},
 		"UpdateProject": {
 			"q": 2,
-		},
-	},
-	"users.go": {
-		"DeleteUserMemory": {
-			"db": 1,
-			"q":  1,
-		},
-		"ListUserMemories": {
-			"q": 1,
-		},
-		"SetUserMemory": {
-			"mem": 1,
 		},
 	},
 }
@@ -369,7 +331,6 @@ var (
 		"goals.go:" + serverSQLCImportPath:     true,
 		"groups.go:" + serverSQLCImportPath:    true,
 		"inbox.go:" + serverSQLCImportPath:     true,
-		"profile.go:" + serverSQLCImportPath:   true,
 		"projects.go:" + serverSQLCImportPath:  true,
 		"server.go:" + serverSQLCImportPath:    true,
 		"server.go:" + serverPgxpoolImportPath: true,

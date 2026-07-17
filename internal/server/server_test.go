@@ -18,6 +18,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -33,6 +34,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/notify"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -246,11 +248,13 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
+	profileSvc := memprofile.NewService(db, mem, mem, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	deps := server.Deps{
 		DB:                  db,
 		Mem:                 mem,
 		ChannelResolver:     channel.NewRuntimeResolver(store),
 		Account:             accountSvc,
+		Profile:             profileSvc,
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
 		ToolOverrides:       agent.NewToolOverrideStore(db),

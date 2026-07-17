@@ -23,6 +23,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/auth/oidc"
@@ -32,6 +33,8 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/memory"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/observability"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
@@ -380,6 +383,18 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		slog.With("component", "account"),
 	)
 
+	// The Profile service owns the per-(user, agent) memory boundary. The Provider
+	// is viewed through its ProfileStore/ChangelogReader capabilities (nil when the
+	// Provider lacks them, degrading those endpoints to 503), and the Agent PEP
+	// backs the read gate. The transport no longer touches memory.Provider,
+	// memorywrite, or the query layer for profile/soul/constraints/changelog.
+	memProfiles, _ := s.mem.(memory.ProfileStore)
+	memChangelog, _ := s.mem.(memory.ChangelogReader)
+	profileSvc := memprofile.NewService(
+		s.db, memProfiles, memChangelog, agentAccess,
+		prompt.DefaultAgentSoul, slog.With("component", "profile"),
+	)
+
 	// Assemble the immutable, validated admin-server dependency set and construct
 	// the server exactly once. Every shared instance above is passed in; the
 	// server creates no shadow service, reads no environment, and has no setters.
@@ -388,6 +403,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Mem:                 s.mem,
 		ChannelResolver:     channel.NewRuntimeResolver(s.store),
 		Account:             accountSvc,
+		Profile:             profileSvc,
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
 		ToolOverrides:       toolOverrides,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -23,6 +24,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/memory"
+	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -80,11 +82,15 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	toolOverrides := agent.NewToolOverrideStore(db)
 	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
+	memProfiles, _ := mem.(memory.ProfileStore)
+	memChangelog, _ := mem.(memory.ChangelogReader)
+	profileSvc := memprofile.NewService(db, memProfiles, memChangelog, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	return Deps{
 		DB:                  db,
 		Mem:                 mem,
 		ChannelResolver:     channel.NewRuntimeResolver(store),
 		Account:             accountSvc,
+		Profile:             profileSvc,
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
 		ToolOverrides:       toolOverrides,
