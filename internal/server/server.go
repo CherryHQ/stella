@@ -55,25 +55,29 @@ type Server struct {
 	pluginHost      *pluginhost.Host
 	weixinRegistrar WeixinRegistrar
 	db              *pgxpool.Pool
-	q               *sqlc.Queries
-	mux             *http.ServeMux
-	log             *slog.Logger
-	vaultRecipient  *age.X25519Recipient  // optional; if set, age keys are generated for new users
-	vaultSvc        *vault.Service        // optional; if nil, vault endpoints return 503
-	mcpSvc          *mcp.Service          // optional; if nil, MCP endpoints return 503
-	credResolver    *credential.Service   // unified bearer credential front door
-	oauthAS         *oidc.Service         // OAuth2 authorization server
-	controlPlane    *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
-	credSvc         *connections.Service  // shared credentials service
-	emailSvc        *email.Service        // shared email service
-	shareSvc        *sharepkg.Service     // shared share service
-	recallySvc      *recally.Service      // shared recally service
-	recally         *recallyHandlers      // recally HTTP API (articles, feeds, digest)
-	schedulerSvc    *scheduler.Service    // optional; if set, create/delete go through the live scheduler
-	goalSvc         *goal.Service         // optional; if nil, goal endpoints return 503
-	workflowSvc     *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
-	builtinTools    []agent.BuiltinTool
-	startedAt       time.Time
+	// pinger is the narrow database-liveness port backing the /healthz, /readyz,
+	// and admin status probes. It is the injected pool viewed as DBPinger, so the
+	// probes can never reach an application query.
+	pinger         DBPinger
+	q              *sqlc.Queries
+	mux            *http.ServeMux
+	log            *slog.Logger
+	vaultRecipient *age.X25519Recipient  // optional; if set, age keys are generated for new users
+	vaultSvc       *vault.Service        // optional; if nil, vault endpoints return 503
+	mcpSvc         *mcp.Service          // optional; if nil, MCP endpoints return 503
+	credResolver   *credential.Service   // unified bearer credential front door
+	oauthAS        *oidc.Service         // OAuth2 authorization server
+	controlPlane   *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
+	credSvc        *connections.Service  // shared credentials service
+	emailSvc       *email.Service        // shared email service
+	shareSvc       *sharepkg.Service     // shared share service
+	recallySvc     *recally.Service      // shared recally service
+	recally        *recallyHandlers      // recally HTTP API (articles, feeds, digest)
+	schedulerSvc   *scheduler.Service    // optional; if set, create/delete go through the live scheduler
+	goalSvc        *goal.Service         // optional; if nil, goal endpoints return 503
+	workflowSvc    *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
+	builtinTools   []agent.BuiltinTool
+	startedAt      time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider
 	authSvc       *auth.AuthService
@@ -269,6 +273,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		mem:             deps.Mem,
 		poolManager:     deps.PoolManager,
 		db:              deps.DB,
+		pinger:          deps.DB,
 		pluginHost:      deps.PluginHost,
 		weixinRegistrar: deps.WeixinRegistrar,
 		q:               sqlc.New(deps.DB),
@@ -306,37 +311,12 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		runtimeCtx:      ctx,
 	}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
-	// streaming handlers. The pool answers the /readyz liveness ping.
-	s.readiness = newReadiness(ctx, deps.DB)
+	// streaming handlers. The narrow DBPinger answers the /readyz liveness ping.
+	s.readiness = newReadiness(ctx, s.pinger)
 
 	s.registerRoutes()
 
 	return s, nil
-}
-
-// NewCredentialFrontDoor builds the unified bearer credential front door (PAT +
-// OAuth access storage over the shared queries) and the OAuth2 authorization
-// server that mints access tokens through it. The composition root calls this
-// once and injects both into server.Deps; Server.New never constructs them, so
-// the credential surface has a single owner. The authorization server mints
-// access tokens through the front door (never its own JWT) and owns the
-// client/code/refresh storage.
-func NewCredentialFrontDoor(db *pgxpool.Pool, log *slog.Logger) (*credential.Service, *oidc.Service) {
-	q := sqlc.New(db)
-	ps := patStore{q: q}
-	os := oauthStore{q: q}
-	resolver := credential.NewService(credential.Config{
-		PATs:   ps,
-		OAuth:  os,
-		Users:  ps,
-		Logger: log,
-	})
-	authServer := oidc.NewService(oidc.Config{
-		Store:  os,
-		Issuer: resolver,
-		Logger: log,
-	})
-	return resolver, authServer
 }
 
 // MarkStartupComplete makes /readyz eligible to report ready. The gateway calls

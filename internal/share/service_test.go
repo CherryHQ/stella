@@ -57,6 +57,54 @@ func TestAuthorizedMethodsEnforceShareOwnership(t *testing.T) {
 	}
 }
 
+func TestPublicContentResolvesByToken(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	home := t.TempDir()
+	svc := sharepkg.NewService(q, memorytest.New(), recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test")
+	userID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
+	// A live token resolves to the stored content as a transport-neutral value —
+	// possession of the unguessable token is the grant, no session required.
+	liveToken := "live-token"
+	if _, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: sharepkg.TokenHash(liveToken), UserID: userID, Title: "live", MediaType: "text/html", Content: []byte("live body"), ExpiresAt: pgtype.Timestamptz{Time: time.Now().UTC().Add(time.Hour), Valid: true}}); err != nil {
+		t.Fatalf("CreateShare live: %v", err)
+	}
+	got, err := svc.PublicContent(ctx, liveToken)
+	if err != nil {
+		t.Fatalf("PublicContent(live) err=%v", err)
+	}
+	if string(got.Content) != "live body" || got.Title != "live" || got.MediaType != "text/html" {
+		t.Fatalf("PublicContent(live) = %+v, want live body/live/text/html", got)
+	}
+	if got.ExpiresAt == nil {
+		t.Fatalf("PublicContent(live).ExpiresAt = nil, want a future time")
+	}
+
+	// An expired token is opaque: GetShareByTokenHash filters expiry, so the row
+	// is never surfaced through the transport.
+	expiredToken := "expired-token"
+	if _, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: sharepkg.TokenHash(expiredToken), UserID: userID, Title: "expired", MediaType: "text/html", Content: []byte("expired body"), ExpiresAt: pgtype.Timestamptz{Time: time.Now().UTC().Add(-time.Hour), Valid: true}}); err != nil {
+		t.Fatalf("CreateShare expired: %v", err)
+	}
+	if _, err := svc.PublicContent(ctx, expiredToken); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("PublicContent(expired) err=%v, want ErrNotFound", err)
+	}
+
+	// An unknown or empty token is ErrNotFound, so the transport returns a uniform
+	// 404 that never distinguishes missing from expired.
+	if _, err := svc.PublicContent(ctx, "no-such-token"); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("PublicContent(unknown) err=%v, want ErrNotFound", err)
+	}
+	if _, err := svc.PublicContent(ctx, ""); !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("PublicContent(empty) err=%v, want ErrNotFound", err)
+	}
+}
+
 func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)

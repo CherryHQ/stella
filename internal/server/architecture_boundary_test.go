@@ -474,16 +474,6 @@ var currentServerFieldUses = map[string]map[string]map[string]int{
 			"users": 2,
 		},
 	},
-	"shares.go": {
-		"GetShareContent": {
-			"q": 1,
-		},
-	},
-	"status.go": {
-		"statusDatabase": {
-			"db": 1,
-		},
-	},
 	"users.go": {
 		"DeleteUserMemory": {
 			"db": 1,
@@ -545,18 +535,15 @@ var (
 	currentServerTypeIndirectionAllowlist      = map[string]bool{}
 	currentServerPersistenceDotImportAllowlist = map[string]bool{}
 	currentServerPersistenceImports            = map[string]bool{
-		"agent_tools.go:" + serverSQLCImportPath:     true,
-		"credential_wire.go:" + serverSQLCImportPath: true,
-		"goals.go:" + serverSQLCImportPath:           true,
-		"groups.go:" + serverSQLCImportPath:          true,
-		"inbox.go:" + serverSQLCImportPath:           true,
-		"oauth_wire.go:" + serverSQLCImportPath:      true,
-		"profile.go:" + serverSQLCImportPath:         true,
-		"projects.go:" + serverSQLCImportPath:        true,
-		"server.go:" + serverSQLCImportPath:          true,
-		"server.go:" + serverPgxpoolImportPath:       true,
-		"shares.go:" + serverSQLCImportPath:          true,
-		"workflows.go:" + serverSQLCImportPath:       true,
+		"agent_tools.go:" + serverSQLCImportPath: true,
+		"goals.go:" + serverSQLCImportPath:       true,
+		"groups.go:" + serverSQLCImportPath:      true,
+		"inbox.go:" + serverSQLCImportPath:       true,
+		"profile.go:" + serverSQLCImportPath:     true,
+		"projects.go:" + serverSQLCImportPath:    true,
+		"server.go:" + serverSQLCImportPath:      true,
+		"server.go:" + serverPgxpoolImportPath:   true,
+		"workflows.go:" + serverSQLCImportPath:   true,
 	}
 )
 

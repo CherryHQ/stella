@@ -11,8 +11,8 @@ import (
 // those go through credential.Service so the /api front door stays single.
 // Revocation is a single flag on the family: killing a family (reuse detection or
 // a user disconnect) revokes every access + refresh token under it, enforced at
-// resolve time by joining the family. The concrete implementation adapts sqlc in
-// internal/server/oauth_wire.go.
+// resolve time by joining the family. The concrete implementation is
+// PostgresStore in store_pg.go.
 type Store interface {
 	// Clients.
 	CreateClient(ctx context.Context, c ClientCreate) (Client, error)

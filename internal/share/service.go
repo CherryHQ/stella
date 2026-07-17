@@ -48,15 +48,61 @@ type Service struct {
 	baseURL    string
 }
 
+// Share is the transport-neutral view of one share row. Content carries the
+// stored bytes for a freshly created share and the public token view; it is nil
+// for list summaries, whose query does not select the payload. Times are UTC;
+// ExpiresAt is nil for a share that never expires. This is the only share shape
+// that crosses the package boundary — callers never see sqlc rows or pgtype
+// nulls.
+type Share struct {
+	ID        string
+	Title     string
+	MediaType string
+	Content   []byte
+	ExpiresAt *time.Time
+	CreatedAt time.Time
+}
+
 type Created struct {
-	Share sqlc.Share
+	Share Share
 	Token string
 	URL   string
 }
 
 type ListResult struct {
-	Shares        []sqlc.ListSharesByUserRow
+	Shares        []Share
 	NextPageToken string
+}
+
+// shareFromRow maps the full share row (including content) to the domain value.
+func shareFromRow(r sqlc.Share) Share {
+	return Share{
+		ID:        r.ID,
+		Title:     r.Title,
+		MediaType: r.MediaType,
+		Content:   r.Content,
+		ExpiresAt: timePtr(r.ExpiresAt),
+		CreatedAt: r.CreatedAt.UTC(),
+	}
+}
+
+// summaryFromRow maps a list row (no content) to the domain value.
+func summaryFromRow(r sqlc.ListSharesByUserRow) Share {
+	return Share{
+		ID:        r.ID,
+		Title:     r.Title,
+		MediaType: r.MediaType,
+		ExpiresAt: timePtr(r.ExpiresAt),
+		CreatedAt: r.CreatedAt.UTC(),
+	}
+}
+
+func timePtr(n pgtype.Timestamptz) *time.Time {
+	if !n.Valid {
+		return nil
+	}
+	t := n.Time.UTC()
+	return &t
 }
 
 func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string) *Service {
@@ -89,7 +135,24 @@ func (s *Service) create(ctx context.Context, userID, title, mediaType string, c
 	if err != nil {
 		return Created{}, err
 	}
-	return Created{Share: row, Token: token, URL: s.PublicURL(token)}, nil
+	return Created{Share: shareFromRow(row), Token: token, URL: s.PublicURL(token)}, nil
+}
+
+// PublicContent resolves a public share by its capability token. It hashes the
+// token, looks the row up by hash, and returns the share with its content. This
+// is the capability-URL view served without a session (see Access), so it does
+// not authorize against a user; possession of the unguessable token is the
+// grant. An unknown token (or any lookup failure) is authz.ErrNotFound, so the
+// transport surfaces a uniform 404 and never distinguishes missing from expired.
+func (s *Service) PublicContent(ctx context.Context, token string) (Share, error) {
+	if s == nil || token == "" {
+		return Share{}, authz.ErrNotFound
+	}
+	row, err := s.q.GetShareByTokenHash(ctx, TokenHash(token))
+	if err != nil {
+		return Share{}, authz.ErrNotFound
+	}
+	return shareFromRow(row), nil
 }
 
 func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident authz.Identity, sessionID, scope string) (string, error) {

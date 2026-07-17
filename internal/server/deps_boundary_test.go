@@ -6,10 +6,9 @@ package server
 //   - TestServerNewReadsNoEnvConstructsNoService (AST): Server.New must only wire
 //     injected Deps — it reads no environment and constructs no service. It flags
 //     BOTH selector calls (connections.NewService) and same-package identifier
-//     calls (NewCredentialFrontDoor) whose name is constructor-shaped (New*/new*),
-//     except a small allowlist of language/runtime constructors New legitimately
-//     needs (a query handle over the injected pool, a mux, the readiness probe,
-//     etc.).
+//     calls whose name is constructor-shaped (New*/new*), except a small allowlist
+//     of language/runtime constructors New legitimately needs (a query handle over
+//     the injected pool, a mux, the readiness probe, etc.).
 //   - TestDepsBroadCapabilityFieldsFrozen freezes today's explicitly documented
 //     broad-capability debt on server.Deps and rejects any new broad field or
 //     nesting (a second pool, a raw sqlc.Queries, a blob.Store, a memory
@@ -54,8 +53,8 @@ var envReadsForbiddenInNew = map[string]bool{
 // constructorsAllowedInNew is the exact set of constructor-shaped calls New may
 // make: language/runtime primitives and same-package presentation/wiring
 // helpers that build no domain service. Anything else whose callee name starts
-// with New/new (a selector like connections.NewService, or a same-package ident
-// like NewCredentialFrontDoor) fails — those instances must be built by the
+// with New/new (a selector like connections.NewService, or a same-package
+// identifier constructor) fails — those instances must be built by the
 // composition root and injected.
 var constructorsAllowedInNew = map[string]bool{
 	"auth.NewRateLimiter":           true, // in-memory rate limiter, not a domain service

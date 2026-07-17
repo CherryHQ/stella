@@ -27,9 +27,11 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/observability"
+	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
@@ -242,9 +244,25 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	// Unified bearer credential front door (PAT/OAuth storage) + OAuth2
 	// authorization server, built once by the composition root and injected into
-	// the admin server via Deps. Server.New never constructs the credential
-	// surface itself.
-	credFrontDoor, oauthAuthServer := server.NewCredentialFrontDoor(s.db, slog.With("component", "admin"))
+	// the admin server via Deps. The PAT/user-lookup adapter is owned by
+	// internal/credential; the OAuth access + client/code/refresh adapter is owned
+	// by internal/oidc and satisfies both credential.OAuthAccessStore and
+	// oidc.Store. The authorization server mints access tokens through the front
+	// door (never its own JWT), so the credential surface has a single owner.
+	credLog := slog.With("component", "admin")
+	credPATStore := credential.NewPostgresStore(s.db)
+	oauthStore := oauthserver.NewPostgresStore(s.db)
+	credFrontDoor := credential.NewService(credential.Config{
+		PATs:   credPATStore,
+		OAuth:  oauthStore,
+		Users:  credPATStore,
+		Logger: credLog,
+	})
+	oauthAuthServer := oauthserver.NewService(oauthserver.Config{
+		Store:  oauthStore,
+		Issuer: credFrontDoor,
+		Logger: credLog,
+	})
 
 	// Vault recipient for the admin server (new-user age keygen) and the channel
 	// coordinator. The MCP service and the pool-side vault env loader / MCP tool
