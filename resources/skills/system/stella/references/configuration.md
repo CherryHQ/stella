@@ -23,7 +23,7 @@ All config lives in normalized PostgreSQL tables:
 | `settings`                | Key-value JSON settings (runner, scheduler, plugins)                                                    |
 | `settings_agents`         | Agent definitions (provider, model, system prompt, workspace)                                           |
 | `settings_plugins`        | Unified plugin table (tools, channels, hooks, providers). Provider credentials stored in `config` JSON. |
-| `settings_users`          | Auto-created platform users with default agent preference                                               |
+| `settings_users`          | User accounts with default-agent preference                                                             |
 | `settings_channel_agents` | Per-group agent assignment                                                                              |
 | `ctx_agent_memory`        | Per-user-per-agent persistent notes                                                                     |
 
@@ -71,7 +71,7 @@ Channel access is enforced by Stella's trusted Authority-based domain services; 
 
 **QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 
-**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`
+**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`, `tenant_key`, `auto_provision`
 
 Feishu is a chat channel only.
 

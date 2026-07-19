@@ -216,7 +216,10 @@ func (p *OAuthProvider) fetchFeishuProfile(ctx context.Context, accessToken stri
 	}
 	claims := out.Data
 	profile := profileFromClaims(claims)
-	profile.Subject = firstClaim(claims, "union_id", "open_id", "user_id")
+	profile.Subject = firstClaim(claims, "union_id")
+	if profile.Subject == "" {
+		return nil, errors.New("oauth login: Feishu user info missing union_id")
+	}
 	profile.Email = firstClaim(claims, "email", "enterprise_email")
 	profile.EmailVerified = true
 	profile.Name = firstClaim(claims, "name", "en_name")

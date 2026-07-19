@@ -121,11 +121,12 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		text = stripMentions(text, mentions)
 	}
 
-	// Auto-provision the sender if enabled. Done after dedup+group checks so
-	// duplicate events and bots in disabled groups never trigger provisioning.
-	// Skip for /link so the existing manual-link flow stays authoritative.
-	// Run synchronously so the user exists before HandleIncoming does the identity lookup.
-	if cmd0, _ := channel.ParseSlashCommand(text); cmd0 != "/link" {
+	// Auto-provision only direct messages or group messages that explicitly
+	// mention this bot. Group arbitration happens asynchronously after this
+	// boundary, so using its eventual decision here would admit unaddressed
+	// group traffic before it is selected. Skip /link to keep manual linking
+	// authoritative. Run synchronously so the user exists before identity lookup.
+	if cmd0, _ := channel.ParseSlashCommand(text); cmd0 != "/link" && b.isAutoProvisionMessage(chatType, mentions) {
 		unionID := derefStr(sender.SenderId.UnionId)
 		tenantKey := derefStr(sender.TenantKey)
 		provCtx, provCancel := b.apiContext()

@@ -6,11 +6,31 @@ import (
 	"time"
 
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
+	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 const provisionCacheTTL = time.Hour
+
+// isAutoProvisionMessage restricts group enrollment to users who directly
+// address this bot. The later semantic-group decision is asynchronous and must
+// not be used as an admission signal.
+func (b *Bot) isAutoProvisionMessage(chatType string, mentions []*larkim.MentionEvent) bool {
+	if chatType != "group" {
+		return true
+	}
+	botOpenID, _ := b.botOpenID.Load().(string)
+	if botOpenID == "" {
+		return false
+	}
+	for _, mention := range mentions {
+		if mention != nil && mention.Id != nil && derefStr(mention.Id.OpenId) == botOpenID {
+			return true
+		}
+	}
+	return false
+}
 
 func (b *Bot) isCachedProvision(key string) bool {
 	b.provisionedMu.Lock()

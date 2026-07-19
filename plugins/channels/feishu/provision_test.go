@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -32,6 +34,25 @@ func newProvisionBot(cfg Config, p *mockProvisioner) *Bot {
 		},
 	}
 	return b
+}
+
+func TestAutoProvisionGroupMessagesRequireBotMention(t *testing.T) {
+	b := &Bot{}
+	if !b.isAutoProvisionMessage("p2p", nil) {
+		t.Fatal("direct message should be eligible")
+	}
+	if b.isAutoProvisionMessage("group", nil) {
+		t.Fatal("unmentioned group message should not be eligible")
+	}
+
+	b.botOpenID.Store("ou_bot")
+	otherID, botID := "ou_other", "ou_bot"
+	if b.isAutoProvisionMessage("group", []*larkim.MentionEvent{{Id: &larkim.UserId{OpenId: &otherID}}}) {
+		t.Fatal("other-bot mention should not be eligible")
+	}
+	if !b.isAutoProvisionMessage("group", []*larkim.MentionEvent{{Id: &larkim.UserId{OpenId: &botID}}}) {
+		t.Fatal("this-bot mention should be eligible")
+	}
 }
 
 func TestMaybeAutoProvisionDisabled(t *testing.T) {

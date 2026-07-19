@@ -43,7 +43,7 @@ Use semantic environment variables for Agent files, never host or sandbox litera
 ## Architecture
 
 - **Multi-agent**: Multiple agents can run simultaneously, each with its own global Provider/model selection, optional API-key override, system prompt, and workspace. Provider endpoints, types, models, and enabled state remain administrator-controlled; per-Agent key overrides are API-only.
-- **Multi-user**: Users are auto-created from platform identity. Each user has per-agent memory that persists across sessions.
+- **Multi-user**: Channel identities resolve users. Verified Feishu tenant members can be auto-provisioned when their channel enables it; each user has per-agent memory that persists across sessions.
 - **Single bot per platform**: One Telegram/Discord/QQ/Feishu/WeChat bot serves all agents. Users switch agents via `/agent` command.
 - **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.
 - **Session scoping**: Sessions are scoped to (agent, platform, user, chat context) so switching agents gives you a fresh conversation.
