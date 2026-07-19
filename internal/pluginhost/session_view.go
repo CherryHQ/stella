@@ -21,9 +21,11 @@ func (h *Host) SessionPluginView(ctx context.Context) (pkgplugins.SessionPluginV
 		registeredSet[meta.ID] = struct{}{}
 	}
 
-	// Add manifest-only plugins to RegisteredPluginIDs (they are not in metadataRegs).
+	// Add every manifest-only plugin to RegisteredPluginIDs (they are not in
+	// metadataRegs). Disabled IDs remain registered so owner_plugin visibility
+	// can distinguish a disabled plugin from an unrelated standalone skill.
 	h.mu.RLock()
-	for id := range h.manifestEnabledIDs {
+	for id := range h.manifestIDs {
 		if _, exists := registeredSet[id]; !exists {
 			view.RegisteredPluginIDs = append(view.RegisteredPluginIDs, id)
 			registeredSet[id] = struct{}{}

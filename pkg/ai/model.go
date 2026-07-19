@@ -90,7 +90,7 @@ type Model struct {
 // current models are multimodal and sending images is the primary intent.
 //
 // Accepted risk: a non-vision model whose config omits Input will receive the
-// inlined image instead of the kreuzberg text fallback. We accept this because
+// inlined image instead of the Xberg text fallback. We accept this because
 // the modern default is multimodal and a stricter fail-closed policy would
 // silently degrade the common case; non-vision models must declare Input
 // explicitly to opt into the text path.

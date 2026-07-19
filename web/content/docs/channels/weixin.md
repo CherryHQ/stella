@@ -54,7 +54,7 @@ The bot can also send images back. Generated images are encrypted, uploaded, and
 
 ### File Support
 
-You can send files to the bot. Files are downloaded, decrypted, saved to your private assets directory, and passed to the agent with a kreuzberg extraction hint. The agent can then use the `kreuzberg extract` command to parse the file content. Video messages are logged and skipped.
+You can send files to the bot. Files are downloaded, decrypted, saved to your private assets directory, and passed to the agent with an Xberg extraction hint. The agent can then use the `xberg extract` command to parse the file content. Video messages are logged and skipped.
 
 ### Typing Indicators
 
@@ -118,7 +118,7 @@ All settings below are managed through the Web UI.
 **Images or files not being analyzed?**
 
 - Ensure you are using a vision-capable model for image analysis.
-- For file analysis, the kreuzberg skill must be enabled for the active agent.
+- For file analysis, the Xberg skill must be enabled for the active agent.
 
 **Messages getting cut off?**
 

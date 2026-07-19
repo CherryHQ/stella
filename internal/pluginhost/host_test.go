@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -339,6 +340,28 @@ func TestValidateRegistrationsAcceptsToolLifecycleOnly(t *testing.T) {
 
 	if err := host.ValidateRegistrations(); err != nil {
 		t.Fatalf("ValidateRegistrations: %v", err)
+	}
+}
+
+func TestSessionPluginViewRegistersDisabledManifestPlugins(t *testing.T) {
+	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+	host.RegisterManifestPlugins(&manifestplugins.Manifest{Plugins: []manifestplugins.ManifestPlugin{
+		{ID: "tool/xberg", Kind: "tool", Name: "xberg", Enabled: false, Binaries: []manifestplugins.ManifestBinary{{Name: "xberg", Tool: "github:xberg-io/xberg"}}},
+		{ID: "tool/enabled", Kind: "tool", Name: "enabled", Enabled: true, Prompt: "enabled"},
+	}})
+
+	view, err := host.SessionPluginView(context.Background())
+	if err != nil {
+		t.Fatalf("SessionPluginView: %v", err)
+	}
+	if !slices.Contains(view.RegisteredPluginIDs, "tool/xberg") {
+		t.Fatalf("RegisteredPluginIDs = %v, want disabled manifest plugin", view.RegisteredPluginIDs)
+	}
+	if slices.Contains(view.EnabledPluginIDs, "tool/xberg") {
+		t.Fatalf("EnabledPluginIDs = %v, contains disabled manifest plugin", view.EnabledPluginIDs)
+	}
+	if !slices.Contains(view.EnabledPluginIDs, "tool/enabled") {
+		t.Fatalf("EnabledPluginIDs = %v, missing enabled manifest plugin", view.EnabledPluginIDs)
 	}
 }
 

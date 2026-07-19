@@ -145,6 +145,27 @@ func setupCommandTestStellaHome(t *testing.T) string {
 	return stellaHome
 }
 
+func TestEnsureEmbeddedAssetsReplacesRetiredKreuzbergSkill(t *testing.T) {
+	stellaHome := setupCommandTestStellaHome(t)
+	retired := filepath.Join(stellaHome, ".agents", "skills", "system", "kreuzberg")
+	if err := os.MkdirAll(retired, 0o755); err != nil {
+		t.Fatalf("create retired skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(retired, "SKILL.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write retired skill: %v", err)
+	}
+
+	if err := ensureEmbeddedAssets(); err != nil {
+		t.Fatalf("ensureEmbeddedAssets: %v", err)
+	}
+	if _, err := os.Stat(retired); !os.IsNotExist(err) {
+		t.Fatalf("retired skill still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stellaHome, ".agents", "skills", "system", "xberg", "SKILL.md")); err != nil {
+		t.Fatalf("Xberg skill missing: %v", err)
+	}
+}
+
 func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 	setupCommandTestStellaHome(t)
 	db := dbtest.New(t)

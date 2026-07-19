@@ -103,6 +103,23 @@ func TestReconcile_CacheHit(t *testing.T) {
 
 // TestReconcile_DisabledPlugin verifies that disabled plugins are skipped entirely
 // and do not appear in the result map.
+func TestReconcile_XbergDoesNotReuseLegacyBinaryState(t *testing.T) {
+	// Keep the historical plugin ID so persisted overrides and state remain in
+	// place, but a prior executable must never satisfy Xberg's cache entry.
+	const pluginID = "tool/kreuzberg"
+	state := &ManifestState{Plugins: map[string]PluginInstallState{
+		pluginID: {Binaries: []BinaryInstallState{{Name: "kreuzberg", Spec: "1.0.0-rc.28"}}},
+	}}
+	if isCacheHit(state, pluginID, "xberg", "1.0.0-rc.29") {
+		t.Fatal("legacy binary state must not be an Xberg cache hit")
+	}
+
+	upsertBinaryState(state, pluginID, BinaryInstallState{Name: "xberg", Spec: "1.0.0-rc.29"})
+	if !isCacheHit(state, pluginID, "xberg", "1.0.0-rc.29") {
+		t.Fatal("Xberg state was not recorded under the stable plugin ID")
+	}
+}
+
 func TestReconcile_DisabledPlugin(t *testing.T) {
 	stellaHome := t.TempDir()
 	const (

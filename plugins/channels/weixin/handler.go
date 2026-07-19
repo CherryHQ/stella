@@ -286,7 +286,7 @@ func (b *Bot) handleVoice(msg WeixinMessage, voiceItem *VoiceItem) {
 }
 
 // handleFile downloads a file from CDN, saves it to the user's assets directory,
-// and forwards a kreuzberg extraction hint to the agent.
+// and forwards an Xberg extraction hint to the agent.
 func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 	fileName := fileItem.FileName
 	if fileName == "" {

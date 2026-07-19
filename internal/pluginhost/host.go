@@ -30,6 +30,7 @@ type Host struct {
 	// SetEnabled/Stop/RegisterManifestPlugins) stays available.
 	sealed             bool
 	pluginIDs          map[string]struct{}
+	manifestIDs        map[string]struct{}
 	manifestEnabledIDs map[string]struct{}
 	manifestOwnedIDs   map[string]struct{}
 	metadataRegs       map[string]pkgplugins.PluginInfo
@@ -61,6 +62,7 @@ func New(store config.Store, opts ...Option) *Host {
 		store:              store,
 		log:                slog.With("component", "plugin_host"),
 		pluginIDs:          map[string]struct{}{},
+		manifestIDs:        map[string]struct{}{},
 		manifestEnabledIDs: map[string]struct{}{},
 		manifestOwnedIDs:   map[string]struct{}{},
 		metadataRegs:       map[string]pkgplugins.PluginInfo{},
@@ -191,10 +193,12 @@ func (h *Host) RegisterManifestPlugins(m *manifestplugins.Manifest) {
 		delete(h.metadataRegs, id)
 		delete(h.sessionEnvRegs, id)
 	}
+	h.manifestIDs = map[string]struct{}{}
 	h.manifestEnabledIDs = map[string]struct{}{}
 	h.manifestOwnedIDs = map[string]struct{}{}
 
 	for _, p := range m.Plugins {
+		h.manifestIDs[p.ID] = struct{}{}
 		if !p.Enabled {
 			continue
 		}
