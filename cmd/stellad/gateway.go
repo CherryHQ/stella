@@ -332,6 +332,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		return fmt.Errorf("oidc: setup: %w", err)
 	}
 	slog.Info("oidc: authentication configured")
+	coordOpts = append(coordOpts, channel.WithFeishuEnrollment(auth.NewFeishuEnrollmentService(oidcStore, vaultRecipient)))
 
 	intentClassifier := newIntentClassifier(s.snapshotLoader, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))

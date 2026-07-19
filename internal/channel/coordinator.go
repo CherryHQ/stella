@@ -32,6 +32,12 @@ type channelAuthStore interface {
 	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
 }
 
+// feishuEnroller is the auth-owned admission boundary for verified Feishu
+// members. The coordinator translates the plugin-neutral request only.
+type feishuEnroller interface {
+	Enroll(ctx context.Context, input auth.FeishuEnrollmentInput) (auth.FeishuEnrollmentResult, error)
+}
+
 // Coordinator implements pkgchannel.Handler. It owns all business logic
 // that channels previously called directly: user/agent resolution, session
 // management, command handling, account linking, and model/agent switching.
@@ -48,6 +54,7 @@ type Coordinator struct {
 	invalidator          userInvalidator
 	store                config.Store
 	auth                 channelAuthStore
+	feishuEnroller       feishuEnroller
 	agentAccess          *agentaccess.Service
 	linkCodes            *auth.LinkCodeStore
 	vaultRecipient       *age.X25519Recipient
@@ -77,6 +84,15 @@ func WithCoordinatorAuth(store channelAuthStore, agentAccess *agentaccess.Servic
 		c.auth = store
 		c.agentAccess = agentAccess
 		c.linkCodes = linkCodes
+	}
+}
+
+// WithFeishuEnrollment configures verified-member enrollment. It is separate
+// from identity lookup because only the composition root may supply the
+// transactional auth service.
+func WithFeishuEnrollment(enroller feishuEnroller) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.feishuEnroller = enroller
 	}
 }
 
@@ -592,28 +608,26 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 	return out
 }
 
-// ProvisionUser checks whether a channel identity exists for the sender.
-// Returns an error if the identity is not found — the user must first log in
-// via OIDC and link their channel account.
+// ProvisionUser delegates verified Feishu-member enrollment to auth. It never
+// performs account or identity policy in the channel domain.
 func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error {
-	if c.auth == nil {
-		return errors.New("provision: auth not configured")
+	if c.feishuEnroller == nil {
+		return errors.New("provision: Feishu enrollment not configured")
 	}
-	_, err := c.auth.GetChannelIdentityByPlatform(ctx, req.Platform, req.ExternalID)
-	if err == nil {
-		return nil
+	if req.Platform != pkgchannel.PlatformFeishu {
+		return errors.New("provision: unsupported platform")
 	}
-	if !isNotFound(err) {
-		return fmt.Errorf("provision: lookup channel identity: %w", err)
+	_, err := c.feishuEnroller.Enroll(ctx, auth.FeishuEnrollmentInput{
+		UnionID:   req.ExternalID,
+		TenantKey: req.TenantKey,
+		Email:     req.Email,
+		Name:      req.Name,
+		AvatarURL: req.AvatarURL,
+	})
+	if err != nil {
+		return fmt.Errorf("provision: enroll verified Feishu member: %w", err)
 	}
-	_, _, ok, linkErr := linkLoginIdentityAsChannelIdentity(ctx, c.auth, req.Platform, req.ExternalID, req.Name)
-	if linkErr != nil {
-		return fmt.Errorf("provision: link login identity: %w", linkErr)
-	}
-	if ok {
-		return nil
-	}
-	return fmt.Errorf("provision: channel identity not found (user must link account via OIDC first): %w", err)
+	return nil
 }
 
 // ResolveUserRoot resolves the per-user writable root for the sender in msg.

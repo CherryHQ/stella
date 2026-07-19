@@ -55,13 +55,17 @@ type Config struct {
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
-type listChatsFunc func(context.Context, *larkim.ListChatReq) (*larkim.ListChatResp, error)
+type (
+	listChatsFunc        func(context.Context, *larkim.ListChatReq) (*larkim.ListChatResp, error)
+	tenantProfileFetcher func(context.Context, string) *TenantProfile
+)
 
 type Bot struct {
-	client    *lark.Client
-	wsClient  *larkws.Client
-	listChats listChatsFunc
-	handler   channel.Handler
+	client               *lark.Client
+	wsClient             *larkws.Client
+	listChats            listChatsFunc
+	fetchTenantProfileFn tenantProfileFetcher // test seam; production uses Contact API
+	handler              channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 

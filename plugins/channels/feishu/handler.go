@@ -60,16 +60,6 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	// against the correct session (group vs private, threaded vs not).
 	chatID, chatType, rootID := b.getMessageContext(messageID)
 
-	// Auto-provision the reacting user. TenantKey is not available in reaction
-	// events; the contact API failure acts as the implicit tenant filter.
-	// Run synchronously so the user exists before HandleIncoming does the identity lookup.
-	if data.UserId != nil {
-		unionID := derefStr(data.UserId.UnionId)
-		provCtx, provCancel := b.apiContext()
-		b.maybeAutoProvision(provCtx, openID, unionID, "")
-		provCancel()
-	}
-
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
 	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(reactionText))

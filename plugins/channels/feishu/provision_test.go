@@ -27,6 +27,9 @@ func newProvisionBot(cfg Config, p *mockProvisioner) *Bot {
 		provisioned: make(map[string]time.Time),
 		chatModels:  make(map[string]pkgchannel.ModelOption),
 		seenMsgs:    make(map[string]time.Time),
+		fetchTenantProfileFn: func(context.Context, string) *TenantProfile {
+			return &TenantProfile{UnionID: "on_union1", Name: "Member", Email: "member@example.com"}
+		},
 	}
 	return b
 }
@@ -80,10 +83,15 @@ func TestMaybeAutoProvisionCacheHit(t *testing.T) {
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
 	// Pre-populate the cache so it looks like this user was recently provisioned.
 	b.provisioned["on_union1"] = time.Now()
+	fetches := 0
+	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
+		fetches++
+		return &TenantProfile{UnionID: "on_union1"}
+	}
 
 	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "t1")
-	if len(p.calls) != 0 {
-		t.Errorf("cache hit: expected 0 calls, got %d", len(p.calls))
+	if len(p.calls) != 0 || fetches != 0 {
+		t.Errorf("cache hit: calls=%d fetches=%d, want zero", len(p.calls), fetches)
 	}
 }
 
@@ -98,14 +106,51 @@ func TestMaybeAutoProvisionWrongTenantSkips(t *testing.T) {
 }
 
 func TestMaybeAutoProvisionNilProfileSkips(t *testing.T) {
-	// Bot with a nil lark client — fetchTenantProfile will fail and return nil.
-	// maybeAutoProvision should skip silently.
 	p := &mockProvisioner{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
-	// client is nil → fetchTenantProfile returns nil
+	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile { return nil }
 	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "t1")
-	// No panic, no provision call (profile was nil).
 	if len(p.calls) != 0 {
 		t.Errorf("nil profile: expected 0 calls, got %d", len(p.calls))
+	}
+}
+
+func TestMaybeAutoProvisionFailsClosedWithoutEventTenantEvidence(t *testing.T) {
+	p := &mockProvisioner{}
+	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
+	fetches := 0
+	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
+		fetches++
+		return &TenantProfile{UnionID: "on_union1"}
+	}
+	b.maybeAutoProvision(context.Background(), "ou_open1", "on_event", "")
+	b.maybeAutoProvision(context.Background(), "ou_open1", "on_event", "wrong")
+	if len(p.calls) != 0 || fetches != 0 {
+		t.Fatalf("calls=%d fetches=%d, want zero", len(p.calls), fetches)
+	}
+}
+
+func TestMaybeAutoProvisionPassesCanonicalProfileAndCachesOnlyAfterSuccess(t *testing.T) {
+	p := &mockProvisioner{err: context.DeadlineExceeded}
+	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
+	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
+		return &TenantProfile{UnionID: "on_canonical", Name: "Canonical Member", Email: "canonical@example.com"}
+	}
+
+	b.maybeAutoProvision(context.Background(), "ou_open", "on_untrusted_event", "t1")
+	b.maybeAutoProvision(context.Background(), "ou_open", "on_untrusted_event", "t1")
+	if len(p.calls) != 2 {
+		t.Fatalf("failed enrollment calls = %d, want 2 (not cached)", len(p.calls))
+	}
+	want := pkgchannel.ProvisionRequest{Platform: pkgchannel.PlatformFeishu, ExternalID: "on_canonical", TenantKey: "t1", Email: "canonical@example.com", Name: "Canonical Member"}
+	if p.calls[0] != want {
+		t.Fatalf("request = %+v, want %+v", p.calls[0], want)
+	}
+
+	p.err = nil
+	b.maybeAutoProvision(context.Background(), "ou_open", "on_untrusted_event", "t1")
+	b.maybeAutoProvision(context.Background(), "ou_open", "on_untrusted_event", "t1")
+	if len(p.calls) != 3 {
+		t.Fatalf("successful enrollment calls = %d, want 3 (one success then cache)", len(p.calls))
 	}
 }
