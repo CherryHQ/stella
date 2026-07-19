@@ -116,6 +116,23 @@ func TestMaybeAutoProvisionCacheHit(t *testing.T) {
 	}
 }
 
+func TestProvisionCacheSweepsExpiredEntries(t *testing.T) {
+	b := newProvisionBot(Config{}, &mockProvisioner{})
+	now := time.Now()
+	b.provisioned["expired"] = now.Add(-provisionCacheTTL)
+	b.provisioned["recent"] = now
+
+	if b.isCachedProvision("expired") {
+		t.Fatal("expired entry reported as cached")
+	}
+	if _, ok := b.provisioned["expired"]; ok {
+		t.Fatal("expired entry was not removed")
+	}
+	if !b.isCachedProvision("recent") {
+		t.Fatal("recent entry was removed during sweep")
+	}
+}
+
 func TestMaybeAutoProvisionWrongTenantSkips(t *testing.T) {
 	p := &mockProvisioner{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)

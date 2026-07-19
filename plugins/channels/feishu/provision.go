@@ -35,8 +35,19 @@ func (b *Bot) isAutoProvisionMessage(chatType string, mentions []*larkim.Mention
 func (b *Bot) isCachedProvision(key string) bool {
 	b.provisionedMu.Lock()
 	defer b.provisionedMu.Unlock()
-	t, ok := b.provisioned[key]
-	return ok && time.Since(t) < provisionCacheTTL
+
+	now := time.Now()
+	if now.Sub(b.lastProvisionSweep) >= provisionCacheTTL {
+		for unionID, provisionedAt := range b.provisioned {
+			if now.Sub(provisionedAt) >= provisionCacheTTL {
+				delete(b.provisioned, unionID)
+			}
+		}
+		b.lastProvisionSweep = now
+	}
+
+	provisionedAt, ok := b.provisioned[key]
+	return ok && now.Sub(provisionedAt) < provisionCacheTTL
 }
 
 // effectiveTenantKey returns the configured tenant key, or the one auto-detected

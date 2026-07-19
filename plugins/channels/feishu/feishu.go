@@ -74,8 +74,9 @@ type Bot struct {
 	seenMsgs      map[string]time.Time // message ID -> first seen time
 	lastSeenSweep time.Time            // last time seenMsgs was swept
 
-	provisionedMu sync.Mutex
-	provisioned   map[string]time.Time // union_id -> last provision time (1h TTL)
+	provisionedMu      sync.Mutex
+	provisioned        map[string]time.Time // union_id -> last provision time (1h TTL)
+	lastProvisionSweep time.Time
 
 	learnedTenantKeyMu sync.RWMutex
 	learnedTenantKey   string // tenant_key auto-detected at startup via tenant API
