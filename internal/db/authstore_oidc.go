@@ -52,6 +52,8 @@ func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() er
 	stores := auth.AuthStores{
 		Users:       txStore,
 		Logins:      txStore,
+		Channels:    txStore,
+		Admins:      txStore,
 		Sessions:    txStore,
 		Credentials: txStore,
 	}
@@ -72,6 +74,7 @@ var (
 	_ auth.UserRoleConditionalDeactivator = (*OIDCStore)(nil)
 	_ auth.LoginIdentityStore             = (*OIDCStore)(nil)
 	_ auth.ChannelIdentityStore           = (*OIDCStore)(nil)
+	_ auth.ActiveAdminStore               = (*OIDCStore)(nil)
 	_ auth.SessionStore                   = (*OIDCStore)(nil)
 	_ auth.CredentialStore                = (*OIDCStore)(nil)
 )
@@ -141,10 +144,10 @@ func (s *OIDCStore) CreateUser(ctx context.Context, u auth.User) (auth.User, err
 		u.Role = auth.RoleUser
 	}
 	const q = `INSERT INTO auth_user (id, email, name, avatar_url, role, age_public_key, age_private_key)
-	           VALUES ($1, $2, $3, $4, $5, $6, '') RETURNING id, email, name, avatar_url, role, is_active,
+	           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, email, name, avatar_url, role, is_active,
 	           default_agent_id, notify_identity_id, age_public_key, age_private_key,
 	           created_at, updated_at`
-	row := s.db.QueryRow(ctx, q, u.ID, u.Email, u.Name, u.AvatarURL, u.Role, u.AgePublicKey)
+	row := s.db.QueryRow(ctx, q, u.ID, u.Email, u.Name, u.AvatarURL, u.Role, u.AgePublicKey, u.AgePrivateKey)
 	return scanUser(row)
 }
 
@@ -238,6 +241,18 @@ func (s *OIDCStore) CountUsers(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.db.QueryRow(ctx, `SELECT COUNT(*) FROM auth_user`).Scan(&n)
 	return n, err
+}
+
+// LockActiveAdmin holds a row lock on an active administrator until the current
+// transaction commits. The lock prevents enrollment from observing an admin
+// that is concurrently deactivated or demoted.
+func (s *OIDCStore) LockActiveAdmin(ctx context.Context) error {
+	var id string
+	err := s.db.QueryRow(ctx, `SELECT id FROM auth_user WHERE role=$1 AND is_active=true LIMIT 1 FOR SHARE`, auth.RoleAdmin).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.ErrNotFound
+	}
+	return err
 }
 
 func (s *OIDCStore) UpdateUserAgeKeys(ctx context.Context, userID, publicKey, privateKey string) error {

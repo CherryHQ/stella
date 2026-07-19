@@ -47,6 +47,13 @@ type ChannelIdentityStore interface {
 	DeleteChannelIdentity(ctx context.Context, id string) error
 }
 
+// ActiveAdminStore locks one active administrator for the enclosing transaction.
+// The lock prevents an enrollment from racing the last administrator's removal
+// or deactivation.
+type ActiveAdminStore interface {
+	LockActiveAdmin(ctx context.Context) error
+}
+
 // SessionStore provides CRUD for auth_session (token-hash-based sessions).
 type SessionStore interface {
 	CreateSession(ctx context.Context, s Session) (Session, error)
@@ -71,6 +78,8 @@ type CredentialStore interface {
 type AuthStores struct {
 	Users       UserStore
 	Logins      LoginIdentityStore
+	Channels    ChannelIdentityStore
+	Admins      ActiveAdminStore
 	Sessions    SessionStore
 	Credentials CredentialStore
 }
