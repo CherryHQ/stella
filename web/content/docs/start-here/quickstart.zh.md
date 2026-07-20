@@ -58,8 +58,8 @@ stellad server --port 8080
 
 1. 打开Web UI [http://localhost:25678](http://localhost:25678)。
 2. 点击侧边栏的 **Providers**。
-3. 点击 **Add Provider** 并输入你的 API 密钥。
-4. Stella 会自动检测你的服务商提供的可用模型。
+3. 点击 **Add Provider**，选择服务商类型，并在需要时填写 API 密钥和基础 URL。
+4. 保存服务商后，在 **Agents** 页面为预置的 **stella** agent 选择其模型。
 
 如果你在上一步已经设置了环境变量，Stella 会自动将其作为备选方案使用。在Web UI中配置服务商可以让你更精确地控制使用哪些模型。
 

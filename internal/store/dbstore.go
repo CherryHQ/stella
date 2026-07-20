@@ -714,13 +714,10 @@ const defaultStellaSoul = `You are Stella — a sharp, efficient personal AI ass
 - Own your mistakes quickly. No hedging or over-apologizing.
 - Use humor sparingly and naturally — never forced.`
 
+const defaultStellaAgentID = "stella"
+
+// Seed removes legacy configuration and creates Stella only for an empty agent catalog.
 func (s *DBStore) Seed(ctx context.Context) error {
-	if err := s.seedChannelInstances(ctx); err != nil {
-		return err
-	}
-	if err := s.seedProviders(ctx); err != nil {
-		return err
-	}
 	// The trace hook is no longer a plugin; drop any stale row from prior versions.
 	if err := s.DeletePlugin(ctx, "hook/trace"); err != nil {
 		return fmt.Errorf("seed: delete stale trace plugin: %w", err)
@@ -733,95 +730,24 @@ func (s *DBStore) Seed(ctx context.Context) error {
 	if len(agents) > 0 {
 		return nil
 	}
-	workspace := filepath.Join(config.StellaHome(), "agents", "stella")
+	workspace := filepath.Join(config.StellaHome(), "agents", defaultStellaAgentID)
 	sandboxJSON, err := marshalSandboxConfig(config.SandboxConfig{})
 	if err != nil {
 		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)
 	}
-	providers, err := s.ListProviders(ctx)
-	if err != nil {
-		return fmt.Errorf("seed: list providers: %w", err)
-	}
-	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID:                   uuid.Must(uuid.NewV7()).String(),
+	if err := s.q.SeedAgent(ctx, sqlc.SeedAgentParams{
+		ID:                   defaultStellaAgentID,
 		Name:                 "Stella",
-		Model:                defaultAgentModelRef(providers),
 		SystemPrompt:         defaultStellaSoul,
 		Workspace:            workspace,
 		Sandbox:              sandboxJSON,
 		EnabledBuiltinSkills: json.RawMessage("[]"),
 		Scope:                config.AgentScopeSystem,
 		Enabled:              true,
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("seed: create stella agent: %w", err)
 	}
 
-	return nil
-}
-
-func (s *DBStore) seedChannelInstances(ctx context.Context) error {
-	rows, err := s.q.ListChannels(ctx)
-	if err != nil {
-		return fmt.Errorf("seed: list channel instances: %w", err)
-	}
-	existingTypes := make(map[string]bool, len(rows))
-	for _, row := range rows {
-		t := row.Type
-		if t == "" {
-			t = row.ID
-		}
-		existingTypes[t] = true
-	}
-	for _, name := range config.BuiltinChannelNames {
-		if existingTypes[name] {
-			continue
-		}
-		if err := s.UpsertChannel(ctx, config.Channel{
-			ID:      uuid.Must(uuid.NewV7()).String(),
-			Name:    name,
-			Type:    name,
-			Enabled: false,
-			Config:  "{}",
-		}); err != nil {
-			return fmt.Errorf("seed: default channel instance %q: %w", name, err)
-		}
-	}
-	return nil
-}
-
-func (s *DBStore) seedProviders(ctx context.Context) error {
-	existing, err := s.q.ListProviders(ctx)
-	if err != nil {
-		return fmt.Errorf("seed: list providers: %w", err)
-	}
-	existingTypes := make(map[string]bool, len(existing))
-	for _, r := range existing {
-		existingTypes[r.Type] = true
-	}
-	for _, name := range config.BuiltinProviderNames {
-		if existingTypes[name] {
-			continue
-		}
-		provider := config.Provider{
-			ID:   name,
-			Type: name,
-			Name: name,
-		}
-		configJSON, err := json.Marshal(providerConfig(provider))
-		if err != nil {
-			return fmt.Errorf("seed: marshal provider config %q: %w", name, err)
-		}
-		if err := s.q.SeedProvider(ctx, sqlc.SeedProviderParams{
-			ID:      provider.ID,
-			Type:    provider.Type,
-			Name:    provider.Name,
-			Enabled: false,
-			Config:  configJSON,
-		}); err != nil {
-			return fmt.Errorf("seed: provider %q: %w", name, err)
-		}
-	}
 	return nil
 }
 

@@ -137,31 +137,6 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 	return items, nil
 }
 
-const seedProvider = `-- name: SeedProvider :exec
-INSERT INTO provider (id, type, name, enabled, config)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT DO NOTHING
-`
-
-type SeedProviderParams struct {
-	ID      string          `json:"id"`
-	Type    string          `json:"type"`
-	Name    string          `json:"name"`
-	Enabled bool            `json:"enabled"`
-	Config  json.RawMessage `json:"config"`
-}
-
-func (q *Queries) SeedProvider(ctx context.Context, arg SeedProviderParams) error {
-	_, err := q.db.Exec(ctx, seedProvider,
-		arg.ID,
-		arg.Type,
-		arg.Name,
-		arg.Enabled,
-		arg.Config,
-	)
-	return err
-}
-
 const updateProvider = `-- name: UpdateProvider :exec
 UPDATE provider SET
     type = $1,

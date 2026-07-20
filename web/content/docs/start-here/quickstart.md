@@ -58,8 +58,8 @@ stellad server --port 8080
 
 1. Open the Web UI at [http://localhost:25678](http://localhost:25678).
 2. Go to **Providers** in the sidebar.
-3. Click **Add Provider** and enter your API key.
-4. Stella will auto-detect available models from your provider.
+3. Click **Add Provider**, select its type, and enter its API key and base URL when required.
+4. Save the provider, then select one of its models for the seeded **stella** agent on the **Agents** page.
 
 If you already set an environment variable in the previous step, Stella picks it up automatically as a fallback. Configuring the provider in the Web UI gives you more control over which models to use.
 

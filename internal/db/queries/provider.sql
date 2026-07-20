@@ -23,8 +23,3 @@ WHERE id = $5;
 
 -- name: DeleteProvider :exec
 DELETE FROM provider WHERE id = $1;
-
--- name: SeedProvider :exec
-INSERT INTO provider (id, type, name, enabled, config)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT DO NOTHING;
