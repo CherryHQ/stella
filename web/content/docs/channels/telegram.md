@@ -89,12 +89,12 @@ If the model returns images (e.g. from tool results), they are sent back as Tele
 You can send documents (PDF, DOCX, XLSX, and other file types) to the bot. When you send a document:
 
 1. The bot saves the file to your private assets directory on disk
-2. A kreuzberg extraction hint is passed to the agent so it can read the file content
+2. A Xberg extraction hint is passed to the agent so it can read the file content
 3. Any caption you attached to the document is included as your text message
 
-The agent can then use the `kreuzberg extract` command to parse the file.
+The agent can then use the `xberg extract` command to parse the file.
 
-> **Note:** File uploads require a vision/document-capable model and the kreuzberg skill to be enabled for the active agent.
+> **Note:** File uploads require a vision/document-capable model and the Xberg skill to be enabled for the active agent.
 
 ## Group Support
 
@@ -162,7 +162,7 @@ All settings below are managed through the Web UI.
 **Images or files not being analyzed?**
 
 - Ensure you are using a vision-capable model (e.g. Claude 3+, GPT-4o).
-- For file uploads, the kreuzberg skill must be enabled for the active agent.
+- For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**
 

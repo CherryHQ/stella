@@ -89,12 +89,12 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 你可以向机器人发送文档（PDF、DOCX、XLSX 等文件类型）。当你发送文档时：
 
 1. 机器人将文件保存到你的私有 assets 目录
-2. 附带 kreuzberg 提取提示传递给 agent，以便读取文件内容
+2. 附带 xberg 提取提示传递给 agent，以便读取文件内容
 3. 你附加的说明文字会作为你的文本消息一并传入
 
-Agent 随后可使用 `kreuzberg extract` 命令解析文件。
+Agent 随后可使用 `xberg extract` 命令解析文件。
 
-> **注意：** 文件上传需要支持视觉/文档的模型，并且需要为活跃 agent 启用 kreuzberg skill。
+> **注意：** 文件上传需要支持视觉/文档的模型，并且需要为活跃 agent 启用 Xberg skill。
 
 ## 群组支持
 
@@ -162,7 +162,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 **图片或文件未被分析？**
 
 - 确保你使用的是支持视觉的模型（如 Claude 3+、GPT-4o）。
-- 文件上传需要为活跃 agent 启用 kreuzberg skill。
+- 文件上传需要为活跃 agent 启用 Xberg skill。
 
 **通知不工作？**
 

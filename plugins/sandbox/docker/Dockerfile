@@ -11,6 +11,28 @@
 # Cross-compile from the build host's arch (BUILDPLATFORM) to the target arch so
 # buildx multi-arch builds don't run the Go toolchain under QEMU. TARGETOS/ARCH
 # are auto-populated by BuildKit (default to the host arch for a plain build).
+# Xberg's GNU release links libheif dynamically. Debian 13's packaged version
+# is too old, so build the upstream-supported 1.23.0 locally for each target.
+FROM debian:13-slim AS libheif-builder
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates cmake curl g++ make \
+        libaom-dev libde265-dev libx265-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL -o /tmp/libheif.tar.gz "https://github.com/strukturag/libheif/releases/download/v1.23.0/libheif-1.23.0.tar.gz" \
+    && echo "4c9182b18897617182eed12ab5eb9f9d855b3aa3a736d6bdb31abc034ec7d393  /tmp/libheif.tar.gz" | sha256sum --check - \
+    && tar -xzf /tmp/libheif.tar.gz -C /tmp \
+    && cmake -S /tmp/libheif-1.23.0 -B /tmp/libheif-build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DWITH_EXAMPLES=OFF \
+        -DWITH_GDK_PIXBUF=OFF \
+        -DBUILD_TESTING=OFF \
+    && cmake --build /tmp/libheif-build -j"$(nproc)" \
+    && cmake --install /tmp/libheif-build
+
 FROM --platform=$BUILDPLATFORM golang:1.25 AS stella-builder
 
 WORKDIR /src
@@ -35,12 +57,15 @@ FROM debian:13-slim
 # them via mise shims exactly as the host does. Only non-mise base runtime deps
 # are installed via apt.
 COPY --from=jdxcode/mise:2026.4.25 /usr/local/bin/mise /opt/stella/bin/mise
+COPY --from=libheif-builder /usr/local/lib/libheif.so.1.23.0 /usr/local/lib/
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates git curl wget \
+        libaom3 libde265-0 libx265-215 \
         python3 python3-venv \
         nodejs npm && \
+    ldconfig && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ARG USER_UID=1000
@@ -79,6 +104,7 @@ ENV PATH=/opt/stella/.mise-tools/shims:/opt/stella/bin:/usr/local/sbin:/usr/loca
 RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/bin/stellad \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
     STELLA_HOME=/opt/stella stellad mise reconcile-builtins && \
+    xberg --version && \
     rm -rf /opt/stella/.mise-tools/cache
 
 ENV HOME=/workspace

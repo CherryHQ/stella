@@ -535,9 +535,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 }
 
 func ensureEmbeddedAssets() error {
-	// Remove the CLI binary older releases copied here so stale copies don't linger on sandbox PATH.
+	// Remove assets retired or renamed by newer releases so stale copies do not
+	// remain discoverable beside their replacements.
 	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella"))
 	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella.exe"))
+	_ = os.RemoveAll(filepath.Join(config.StellaHome(), ".agents", "skills", "system", "kreuzberg"))
 	if err := binaries.EnsureTools(config.StellaHome()); err != nil {
 		return fmt.Errorf("extract embedded tools: %w", err)
 	}

@@ -11,9 +11,11 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -37,6 +39,37 @@ func writePNG(t *testing.T, path string, w, h int) {
 
 func newTestReadTool(projectRoot string) *hostReadTool {
 	return &hostReadTool{host: pkgsandbox.NopSession(), projectRoot: projectRoot}
+}
+
+func TestExtractWithXbergUsesManagedShim(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test helper uses a POSIX shell script")
+	}
+	stellaHome := t.TempDir()
+	t.Setenv("STELLA_HOME", stellaHome)
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+
+	shim := filepath.Join(pkgsandbox.MiseShimsDir(stellaHome), "xberg")
+	if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil {
+		t.Fatalf("create shim directory: %v", err)
+	}
+	if err := os.WriteFile(shim, []byte("#!/bin/sh\n[ \"$1\" = extract ] || exit 1\nprintf %s \"$PWD\"\n"), 0o755); err != nil {
+		t.Fatalf("write Xberg shim: %v", err)
+	}
+	inputDir := t.TempDir()
+
+	got, err := extractWithXberg(context.Background(), filepath.Join(inputDir, "document.pdf"))
+	if err != nil {
+		t.Fatalf("extractWithXberg() error: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(inputDir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	if got != want {
+		t.Errorf("extractWithXberg() cwd = %q, want %q", got, want)
+	}
 }
 
 func TestReadImageVisionReturnsImageBlock(t *testing.T) {

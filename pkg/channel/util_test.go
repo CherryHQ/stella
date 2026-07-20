@@ -107,6 +107,14 @@ func TestParseSlashCommand(t *testing.T) {
 	}
 }
 
+func TestFileReceivedContentUsesXberg(t *testing.T) {
+	blocks := FileReceivedContent("report.pdf", "/home/stella/assets", "/home/stella/assets/report.pdf")
+	got := ai.FlattenText(blocks)
+	if !strings.Contains(got, "Read Xberg skill") || !strings.Contains(got, "`xberg extract") {
+		t.Fatalf("FileReceivedContent() = %q, want Xberg extraction hint", got)
+	}
+}
+
 func TestTextContent(t *testing.T) {
 	blocks := TextContent("hello")
 	if len(blocks) != 1 {
