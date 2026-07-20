@@ -310,59 +310,76 @@ func TestProviderCustomModels(t *testing.T) {
 	}
 }
 
-func TestProviderEnvFallback(t *testing.T) {
+func TestProviderCredentialsIgnoreEnvironment(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := s.CreateProvider(ctx, config.Provider{ID: "anthropic", Name: "Anthropic"}); err != nil {
-		t.Fatalf("CreateProvider: %v", err)
+	for key, value := range map[string]string{
+		"ANTHROPIC_API_KEY":  "anthropic-env-key",
+		"ANTHROPIC_BASE_URL": "https://anthropic.env.example.com",
+		"OPENAI_API_KEY":     "openai-env-key",
+		"OPENAI_BASE_URL":    "https://openai.env.example.com",
+	} {
+		t.Setenv(key, value)
+	}
+	if err := s.CreateProvider(ctx, config.Provider{ID: "anthropic-empty", Type: "anthropic", Name: "Anthropic Empty"}); err != nil {
+		t.Fatalf("CreateProvider(anthropic-empty): %v", err)
+	}
+	if err := s.CreateProvider(ctx, config.Provider{ID: "openai-configured", Type: "openai", Name: "OpenAI Configured", APIKey: "db-key", BaseURL: "https://db.example.com"}); err != nil {
+		t.Fatalf("CreateProvider(openai-configured): %v", err)
+	}
+	for _, agent := range []config.Agent{
+		{ID: "empty", Name: "Empty", Model: "anthropic-empty/claude", Enabled: true},
+		{ID: "configured", Name: "Configured", Model: "openai-configured/gpt", Enabled: true},
+	} {
+		if err := s.CreateAgent(ctx, agent); err != nil {
+			t.Fatalf("CreateAgent(%s): %v", agent.ID, err)
+		}
 	}
 
-	t.Setenv("ANTHROPIC_API_KEY", "env-key")
-	t.Setenv("ANTHROPIC_BASE_URL", "https://env.example.com")
-
-	got, err := s.GetProvider(ctx, "anthropic")
+	providers, err := s.ListProviders(ctx)
 	if err != nil {
-		t.Fatalf("GetProvider: %v", err)
+		t.Fatalf("ListProviders: %v", err)
 	}
-	if got.APIKey != "env-key" {
-		t.Errorf("APIKey = %q, want env fallback", got.APIKey)
+	listed := make(map[string]config.Provider, len(providers))
+	for _, provider := range providers {
+		listed[provider.ID] = provider
 	}
-	if got.BaseURL != "https://env.example.com" {
-		t.Errorf("BaseURL = %q, want env fallback", got.BaseURL)
+	if got := listed["anthropic-empty"]; got.APIKey != "" || got.BaseURL != "" {
+		t.Errorf("ListProviders empty credentials = (%q, %q), want empty DB values", got.APIKey, got.BaseURL)
 	}
-}
-
-func TestProviderEnvFallbackOpenAI(t *testing.T) {
-	s := setupDBStore(t)
-	ctx := testCtx()
-
-	if err := s.CreateProvider(ctx, config.Provider{ID: "openai", Name: "OpenAI"}); err != nil {
-		t.Fatalf("CreateProvider: %v", err)
+	if got := listed["openai-configured"]; got.APIKey != "db-key" || got.BaseURL != "https://db.example.com" {
+		t.Errorf("ListProviders configured credentials = (%q, %q), want DB values", got.APIKey, got.BaseURL)
 	}
 
-	t.Setenv("OPENAI_API_KEY", "openai-env-key")
-	got, err := s.GetProvider(ctx, "openai")
-	if err != nil {
-		t.Fatalf("GetProvider: %v", err)
-	}
-	if got.APIKey != "openai-env-key" {
-		t.Errorf("APIKey = %q, want env fallback", got.APIKey)
-	}
-}
-
-func TestProviderEnvNoOverwrite(t *testing.T) {
-	s := setupDBStore(t)
-	ctx := testCtx()
-
-	if err := s.CreateProvider(ctx, config.Provider{ID: "anthropic", Name: "Anthropic", APIKey: "db-key"}); err != nil {
-		t.Fatalf("CreateProvider: %v", err)
+	for _, want := range []config.Provider{
+		{ID: "anthropic-empty"},
+		{ID: "openai-configured", APIKey: "db-key", BaseURL: "https://db.example.com"},
+	} {
+		got, err := s.GetProvider(ctx, want.ID)
+		if err != nil {
+			t.Fatalf("GetProvider(%s): %v", want.ID, err)
+		}
+		if got.APIKey != want.APIKey || got.BaseURL != want.BaseURL {
+			t.Errorf("GetProvider(%s) credentials = (%q, %q), want (%q, %q)", want.ID, got.APIKey, got.BaseURL, want.APIKey, want.BaseURL)
+		}
 	}
 
-	t.Setenv("ANTHROPIC_API_KEY", "env-key")
-	got, _ := s.GetProvider(ctx, "anthropic")
-	if got.APIKey != "db-key" {
-		t.Errorf("APIKey = %q, want DB value preserved over env", got.APIKey)
+	for _, want := range []struct {
+		agentID string
+		apiKey  string
+		baseURL string
+	}{
+		{agentID: "empty"},
+		{agentID: "configured", apiKey: "db-key", baseURL: "https://db.example.com"},
+	} {
+		snap, err := s.Snapshot(ctx, want.agentID)
+		if err != nil {
+			t.Fatalf("Snapshot(%s): %v", want.agentID, err)
+		}
+		if snap.APIKey != want.apiKey || snap.BaseURL != want.baseURL {
+			t.Errorf("Snapshot(%s) credentials = (%q, %q), want (%q, %q)", want.agentID, snap.APIKey, snap.BaseURL, want.apiKey, want.baseURL)
+		}
 	}
 }
 

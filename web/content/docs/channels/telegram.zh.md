@@ -28,7 +28,7 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 
 你可以创建多个 Telegram 频道实例（如果你有多个机器人）。每个实例可以在Web UI中绑定到专用的 agent。
 
-所有频道配置（token、允许的 ID、专用 agent 绑定等）都通过Web UI管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
+所有频道配置（token、允许的 ID、专用 agent 绑定等）都通过Web UI管理。
 
 ## 多用户支持
 

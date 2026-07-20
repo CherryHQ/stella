@@ -10,8 +10,6 @@ The home directory defaults to `~/.stella` and can be changed by setting the `ST
 
 Open the **Providers** page in the Web UI to add your AI provider credentials. Stella works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc.).
 
-Environment variables `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are supported as fallbacks when the Web UI credentials are empty.
-
 ## Agents
 
 Open the **Agents** page to create and configure agents. Each agent has:
@@ -86,8 +84,6 @@ Only a small set of environment variables is recognized:
 | `STELLA_BLOB_S3_SECRET_KEY`   | Secret key for the asset mirror                                                                                   |
 | `STELLA_BLOB_S3_REGION`       | Optional S3 region                                                                                                |
 | `STELLA_BLOB_S3_USE_SSL`      | Use HTTPS for S3-compatible storage; defaults to `true`                                                           |
-| `ANTHROPIC_API_KEY`           | Fallback API key for Anthropic                                                                                    |
-| `OPENAI_API_KEY`              | Fallback API key for OpenAI                                                                                       |
 | `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
 | `STELLA_DOCKER_SANDBOX_MODE`  | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                       |
 | `STELLA_HOME_HOST`            | Host-side path for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                            |

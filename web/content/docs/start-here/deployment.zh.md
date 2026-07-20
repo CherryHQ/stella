@@ -175,7 +175,6 @@ docker run -d \
   -v ~/.stella:/home/stella/.stella \
   -p 25678:25678 \
   -e STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require' \
-  -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
   stellad server
 ```
@@ -196,8 +195,6 @@ services:
       - ./stella-data:/home/stella/.stella
     environment:
       - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
-      - ANTHROPIC_API_KEY=sk-...
-      # - OPENAI_API_KEY=sk-...
 ```
 
 `seccomp=unconfined` 标志是 `local` 沙箱后端（bubblewrap）所必需的。如果 agent 使用 `docker` 沙箱后端，需要额外挂载 Docker socket 和设置模式相关的环境变量——请参阅[沙箱指南](/docs/guides/sandbox#docker-compose-示例)了解所有 compose 变体。
@@ -348,14 +345,10 @@ PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、
 | `STELLA_BLOB_S3_SECRET_KEY`      | 否§                       | 资产镜像使用的 secret key                                                                                              |
 | `STELLA_BLOB_S3_REGION`          | 否                        | 可选 S3 region                                                                                                         |
 | `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
-| `ANTHROPIC_API_KEY`              | 是\*                      | Anthropic 提供商密钥                                                                                                   |
-| `OPENAI_API_KEY`                 | 是\*                      | OpenAI 提供商密钥                                                                                                      |
 | `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
 | `STELLA_DOCKER_SANDBOX_MODE`     | 否‡                       | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                                                   |
 | `STELLA_HOME_HOST`               | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                                              |
 | `STELLA_HOME_VOLUME`             | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要                               |
-
-\* 至少需要一个提供商密钥。API 密钥也可以通过Web UI配置。
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 

@@ -100,15 +100,11 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 
 ## Environment variables
 
-Environment variables serve as fallbacks for provider API keys:
+Provider credentials and base URLs are stored in explicit provider rows managed through the Web UI or API; they are not read from the server environment.
 
-| Variable             | Fallback for                                |
-| -------------------- | ------------------------------------------- |
-| `STELLA_HOME`        | stella home directory (default `~/.stella`) |
-| `ANTHROPIC_API_KEY`  | anthropic provider API key                  |
-| `ANTHROPIC_BASE_URL` | anthropic provider base URL                 |
-| `OPENAI_API_KEY`     | openai/openai-response provider API key     |
-| `OPENAI_BASE_URL`    | openai/openai-response provider base URL    |
+| Variable      | Purpose                                     |
+| ------------- | ------------------------------------------- |
+| `STELLA_HOME` | stella home directory (default `~/.stella`) |
 
 Note: The old YAML-based environment variables (`STELLA_PROVIDER`, `STELLA_MODEL`, `STELLA_TELEGRAM_TOKEN`, etc.) are no longer supported. Use the Web UI or database directly.
 

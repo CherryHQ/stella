@@ -21,39 +21,7 @@ Models are managed through the Web UI (web UI). You can browse available models,
 
 ## Provider setup
 
-### Anthropic
-
-```yaml
-providers:
-  anthropic:
-    api_key: "sk-..."
-```
-
-Or: `export ANTHROPIC_API_KEY="sk-..."`
-
-### OpenAI
-
-```yaml
-providers:
-  openai:
-    api_key: "sk-..."
-    base_url: "https://api.openai.com/v1" # optional
-```
-
-Or: `export OPENAI_API_KEY="sk-..."`
-
-### OpenAI-Compatible (Responses API)
-
-For Perplexity, Together.ai, or any OpenAI-compatible service:
-
-```yaml
-providers:
-  openai-response:
-    api_key: "sk-..."
-    base_url: "https://api.perplexity.ai"
-```
-
-Uses same `OPENAI_API_KEY` / `OPENAI_BASE_URL` env vars.
+Create provider rows in the Web UI or API. Select **Anthropic**, **OpenAI**, or **OpenAI-compatible**, then store that provider's API key and base URL (when required) in its row. Provider credentials and base URLs are not read from server environment variables.
 
 ## Runtime switching
 

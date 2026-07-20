@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -39,7 +38,6 @@ func (s *DBStore) ListProviders(ctx context.Context) ([]config.Provider, error) 
 	out := make([]config.Provider, len(rows))
 	for i, r := range rows {
 		out[i] = providerFromDB(r)
-		applyProviderEnvFallback(&out[i])
 	}
 	return out, nil
 }
@@ -49,9 +47,7 @@ func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, 
 	if err != nil {
 		return config.Provider{}, fmt.Errorf("get provider %q: %w", id, err)
 	}
-	p := providerFromDB(r)
-	applyProviderEnvFallback(&p)
-	return p, nil
+	return providerFromDB(r), nil
 }
 
 func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
@@ -672,7 +668,6 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	typeCount := make(map[string]int)
 	for _, row := range rows {
 		p := providerFromDB(row)
-		applyProviderEnvFallback(&p)
 		byID[p.ID] = p
 		if p.Type != "" {
 			typeCount[p.Type]++
@@ -876,31 +871,6 @@ func providerModelsFromAny(value any) map[string]config.ProviderModel {
 		models[id] = model
 	}
 	return models
-}
-
-var providerEnvVars = map[string][2]string{
-	"anthropic":       {"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"},
-	"openai":          {"OPENAI_API_KEY", "OPENAI_BASE_URL"},
-	"openai-response": {"OPENAI_API_KEY", "OPENAI_BASE_URL"},
-}
-
-func applyProviderEnvFallback(p *config.Provider) {
-	providerKey := p.Type
-	if providerKey == "" {
-		providerKey = p.ID
-	}
-	if envs, ok := providerEnvVars[providerKey]; ok {
-		envFallback(&p.APIKey, envs[0])
-		envFallback(&p.BaseURL, envs[1])
-	}
-}
-
-func envFallback(dst *string, envKey string) {
-	if *dst == "" {
-		if v := os.Getenv(envKey); v != "" {
-			*dst = v
-		}
-	}
 }
 
 func agentFromDB(r sqlc.Agent) (config.Agent, error) {

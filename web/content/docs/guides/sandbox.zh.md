@@ -61,8 +61,6 @@ services:
       - seccomp=unconfined
     volumes:
       - ./stella-data:/home/stella/.stella
-    environment:
-      - ANTHROPIC_API_KEY=sk-...
 ```
 
 agent 使用 `local` 沙箱时保留 `seccomp=unconfined`（bubblewrap 需要它）；使用 `none` 时可以移除。
@@ -78,7 +76,6 @@ services:
       - ./stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - ANTHROPIC_API_KEY=sk-...
       - STELLA_DOCKER_SANDBOX_MODE=bind
       - STELLA_HOME_HOST=${PWD}/stella-data
 ```
@@ -94,7 +91,6 @@ services:
       - stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - ANTHROPIC_API_KEY=sk-...
       - STELLA_DOCKER_SANDBOX_MODE=volume
       - STELLA_HOME_VOLUME=stella-data
 
