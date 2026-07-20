@@ -1198,6 +1198,13 @@ function SkillFileView({
     if (file.data?.content != null) setDraft(file.data.content);
   }, [file.data?.content]);
   async function save() {
+    // Hard gate at the mutation boundary: never write a file whose content was
+    // not successfully loaded (a failed fetch would overwrite it with an empty
+    // draft) and never write a binary file's base64 transport form back.
+    if (!file.isSuccess || binaryFile) {
+      notify(t("common.error"), "error");
+      return;
+    }
     // Keep the conversion decision stable while local editor state is reset after saving.
     const shouldConvertToManual = convertToManual;
     try {
@@ -1244,7 +1251,7 @@ function SkillFileView({
           <Copy size={16} />
           <span className="max-sm:hidden">{t("common.copy")}</span>
         </Button>
-        {!readOnly && !binaryFile && (
+        {!readOnly && file.isSuccess && !binaryFile && (
           <Button
             size="sm"
             variant="outline"

@@ -262,6 +262,12 @@ export interface AgentsPageState {
   selectedSkillFileContent: string;
   /** "base64" when the active file is binary; empty for text files. */
   selectedSkillFileEncoding: string;
+  /**
+   * True only after the active file's content was successfully fetched.
+   * Saving must never write a file whose content was not loaded — an unloaded
+   * or failed fetch would otherwise overwrite it with empty or stale text.
+   */
+  selectedSkillFileLoaded: boolean;
   selectedSkillFileLoading: boolean;
   selectedSkillFileCache: Record<string, { content: string; encoding?: string }>;
   selectedSkillAddingFile: boolean;
@@ -317,6 +323,7 @@ export function AgentsPage() {
     selectedSkillActiveFile: "SKILL.md",
     selectedSkillFileContent: "",
     selectedSkillFileEncoding: "",
+    selectedSkillFileLoaded: false,
     selectedSkillFileLoading: false,
     selectedSkillFileCache: {},
     selectedSkillAddingFile: false,
@@ -452,6 +459,7 @@ export function AgentsPage() {
       selectedSkillActiveFile: "SKILL.md",
       selectedSkillFileContent: "",
       selectedSkillFileEncoding: "",
+      selectedSkillFileLoaded: false,
       selectedSkillFileCache: {},
       selectedSkillAddingFile: false,
       selectedSkillNewFileName: "",
@@ -678,12 +686,22 @@ export function AgentsPage() {
     ) => {
       if (!skill || !path) return;
       if (!skipDirtyCheck && isDirty && !confirm("Discard unsaved changes?")) return;
-      setState((prev) => ({ ...prev, selectedSkillActiveFile: path }));
+      // Drop the previous file's content and mark the new one unloaded before
+      // fetching, so a failed fetch can never leave stale text attributed to
+      // the newly active file.
+      setState((prev) => ({
+        ...prev,
+        selectedSkillActiveFile: path,
+        selectedSkillFileContent: "",
+        selectedSkillFileEncoding: "",
+        selectedSkillFileLoaded: false,
+      }));
       if (Object.prototype.hasOwnProperty.call(fileCache, path)) {
         setState((prev) => ({
           ...prev,
           selectedSkillFileContent: fileCache[path].content,
           selectedSkillFileEncoding: fileCache[path].encoding ?? "",
+          selectedSkillFileLoaded: true,
           selectedSkillDirty: false,
         }));
         return;
@@ -702,6 +720,7 @@ export function AgentsPage() {
           ...prev,
           selectedSkillFileContent: content,
           selectedSkillFileEncoding: encoding,
+          selectedSkillFileLoaded: true,
           selectedSkillFileCache: {
             ...prev.selectedSkillFileCache,
             [path]: { content, encoding: encoding || undefined },
@@ -765,9 +784,12 @@ export function AgentsPage() {
     async (currentState: AgentsPageState) => {
       const { selectedSkill, selectedSkillFileContent, selectedSkillActiveFile } = currentState;
       if (!selectedSkill || selectedSkill.scope === "system") return;
-      // Binary files are view-only: writing their base64 transport form back
-      // through the JSON files map would corrupt them.
-      const activeFileEditable = currentState.selectedSkillFileEncoding !== "base64";
+      // Hard gate at the mutation boundary: only write the active file back if
+      // its content was successfully loaded and it is not binary. An unloaded
+      // or failed fetch would overwrite the file with empty/stale text, and a
+      // binary file's base64 transport form would corrupt it.
+      const activeFileEditable =
+        currentState.selectedSkillFileLoaded && currentState.selectedSkillFileEncoding !== "base64";
       setState((prev) => ({ ...prev, selectedSkillSaving: true }));
       try {
         await updateAgentSkill({

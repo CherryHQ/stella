@@ -64,6 +64,7 @@ export function SkillsTab({
     selectedSkillActiveFile,
     selectedSkillFileContent,
     selectedSkillFileEncoding,
+    selectedSkillFileLoaded,
     selectedSkillFileLoading,
     selectedSkillAddingFile,
     selectedSkillNewFileName,
@@ -472,7 +473,9 @@ export function SkillsTab({
                     <div className="py-8 flex justify-center">
                       <Spinner className="size-5" />
                     </div>
-                  ) : selectedSkillEditMode && selectedSkillFileEncoding !== "base64" ? (
+                  ) : selectedSkillEditMode &&
+                    selectedSkillFileLoaded &&
+                    selectedSkillFileEncoding !== "base64" ? (
                     <Textarea
                       value={selectedSkillFileContent}
                       onChange={(e) =>
