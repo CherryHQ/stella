@@ -94,70 +94,14 @@ func (s testStateStore) Delete(ctx context.Context, scope pkgplugins.StateScope,
 	return s.store.Delete(ctx, "reflect", scope, key)
 }
 
-func TestWatermarkStore_GetMissing(t *testing.T) {
+func TestWatermarkStore_LineGetMissing(t *testing.T) {
 	ws, ctx := newTestWatermarkStore(t)
-	ts, err := ws.get(ctx, "nonexistent")
+	mark, err := ws.getLine(ctx, "nonexistent", reflectLineFact)
 	if err != nil {
 		t.Fatalf("expected nil error for missing key, got %v", err)
 	}
-	if !ts.IsZero() {
-		t.Errorf("expected zero time for missing key, got %v", ts)
-	}
-}
-
-func TestWatermarkStore_SetAndGet(t *testing.T) {
-	ws, ctx := newTestWatermarkStore(t)
-
-	now := time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)
-	if err := ws.set(ctx, "s1", now); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := ws.get(ctx, "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Equal(now) {
-		t.Errorf("expected %v, got %v", now, got)
-	}
-}
-
-func TestWatermarkStore_Upsert(t *testing.T) {
-	ws, ctx := newTestWatermarkStore(t)
-
-	t1 := time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)
-	t2 := time.Date(2026, 4, 6, 13, 0, 0, 0, time.UTC)
-
-	if err := ws.set(ctx, "s1", t1); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.set(ctx, "s1", t2); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := ws.get(ctx, "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Equal(t2) {
-		t.Errorf("expected upserted value %v, got %v", t2, got)
-	}
-}
-
-func TestWatermarkStore_LineGetSeedsFromLegacy(t *testing.T) {
-	ws, ctx := newTestWatermarkStore(t)
-
-	legacy := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
-	if err := ws.set(ctx, "s1", legacy); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := ws.getLine(ctx, "s1", reflectLineFact)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.At.Equal(legacy) {
-		t.Fatalf("expected legacy seed %v, got %v", legacy, got)
+	if mark != (reviewWatermark{}) {
+		t.Errorf("expected zero watermark for missing line, got %#v", mark)
 	}
 }
 
@@ -189,123 +133,6 @@ func TestWatermarkStore_LineSetWritesRFC3339(t *testing.T) {
 	}
 	if raw["reviewed_at"] != at.Format(time.RFC3339) {
 		t.Fatalf("expected RFC3339 value %q, got %#v", at.Format(time.RFC3339), raw["reviewed_at"])
-	}
-}
-
-func TestWatermarkStore_LinePrefersLineValueOverLegacy(t *testing.T) {
-	ws, ctx := newTestWatermarkStore(t)
-
-	legacy := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
-	line := time.Date(2026, 7, 2, 11, 0, 0, 0, time.UTC)
-	if err := ws.set(ctx, "s1", legacy); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: line}); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := ws.getLine(ctx, "s1", reflectLineFact)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.At.Equal(line) {
-		t.Fatalf("expected line value %v, got %v", line, got)
-	}
-}
-
-func TestWatermarkStore_LineAdvancesToNewerLegacyAndClearsSequence(t *testing.T) {
-	ws, ctx := newTestWatermarkStore(t)
-
-	line := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
-	legacy := line.Add(time.Hour)
-	if err := ws.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: line, Seq: 42}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.set(ctx, "s1", legacy); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := ws.getLine(ctx, "s1", reflectLineFact)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.At.Equal(legacy) || got.Seq != 0 {
-		t.Fatalf("line watermark = %#v, want legacy time with cleared sequence", got)
-	}
-	raw, ok, err := ws.store.Get(ctx, pkgplugins.StateScope{Kind: pkgplugins.StateScopeSession, ID: "s1"}, lineWatermarkKey(reflectLineFact))
-	if err != nil || !ok {
-		t.Fatalf("read persisted line: ok=%t err=%v", ok, err)
-	}
-	if _, exists := raw["reviewed_seq"]; exists {
-		t.Fatalf("persisted watermark kept stale sequence: %#v", raw)
-	}
-}
-
-func TestWatermarkStore_GetLegacyAdvancesToOlderStructuredLine(t *testing.T) {
-	ws, ctx := newTestWatermarkStore(t)
-
-	legacy := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
-	fact := legacy.Add(2 * time.Hour)
-	skill := legacy.Add(time.Hour)
-	if err := ws.set(ctx, "s1", legacy); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: fact}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.setLine(ctx, "s1", reflectLineSkill, reviewWatermark{At: skill}); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := ws.getLegacy(ctx, "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Equal(skill) {
-		t.Fatalf("legacy watermark = %v, want older structured line %v", got, skill)
-	}
-	persisted, err := ws.get(ctx, "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !persisted.Equal(skill) {
-		t.Fatalf("persisted legacy watermark = %v, want %v", persisted, skill)
-	}
-}
-
-func TestWatermarkStore_GetLegacyRequiresBothStructuredLinesAndNeverRewinds(t *testing.T) {
-	ws, ctx := newTestWatermarkStore(t)
-
-	legacy := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
-	if err := ws.set(ctx, "missing", legacy); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.setLine(ctx, "missing", reflectLineFact, reviewWatermark{At: legacy.Add(time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ws.getLegacy(ctx, "missing")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Equal(legacy) {
-		t.Fatalf("legacy with one line = %v, want unchanged %v", got, legacy)
-	}
-
-	if err := ws.setLine(ctx, "older", reflectLineFact, reviewWatermark{At: legacy.Add(-2 * time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.setLine(ctx, "older", reflectLineSkill, reviewWatermark{At: legacy.Add(-time.Hour)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := ws.set(ctx, "older", legacy); err != nil {
-		t.Fatal(err)
-	}
-	got, err = ws.getLegacy(ctx, "older")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Equal(legacy) {
-		t.Fatalf("legacy watermark rewound to %v, want %v", got, legacy)
 	}
 }
 

@@ -138,29 +138,23 @@ Skills remain reusable procedures and no longer create or store fact/context kno
 
 Normal conversation tools do not directly write facts. Structured Reflect generates and evaluates Fact and Skill candidates, discovers related Reflect-owned records, reconciles accepted candidates, and writes each line through host-validated operations. Usage tracking and the curator maintain the lifecycle of active Reflect-owned Knowledge and Skills.
 
-## Structured Reflect and Curator Rollout
+## Structured Reflect and Curator
 
-Reflect and the curator have independent boot-time controls:
+Structured Reflect is the only scheduler writer. It runs the Fact and Skill lines concurrently with independent failures and watermarks; one failed line does not cancel or advance the other. The obsolete `STELLA_REFLECT_MODE` variable no longer selects a writer. During the transition release, an empty value or `structured` is accepted for deployment compatibility, while an explicit `legacy` or unknown value fails startup.
 
-| Variable                      | Values                 | Rollout default | Meaning                                                      |
-| ----------------------------- | ---------------------- | --------------- | ------------------------------------------------------------ |
-| `STELLA_REFLECT_MODE`         | `legacy`, `structured` | `legacy`        | Selects the only Reflect writer used by the scheduler        |
-| `STELLA_REFLECT_CURATOR_MODE` | `shadow`, `armed`      | `shadow`        | Selects dry-run scanning or Knowledge/Skill lifecycle writes |
+The cutover migration copies every legacy session `review_watermark` into missing `reflect_watermark:fact` and `reflect_watermark:skill` state. When a line already exists, the newer timestamp wins; if the legacy timestamp wins, the old line sequence is cleared because it belongs to an earlier boundary. The migration is idempotent and leaves global rows untouched as inert rollback data. Runtime code reads and advances only the two line watermarks.
 
-Invalid mode values fail server startup. Structured mode runs the Fact and Skill lines concurrently, with independent failures and watermarks; one failed line does not cancel or advance the other.
+The curator remains an independent boot-time control:
 
-Mode transitions reuse the existing watermarks instead of adding mode state. On every legacy-to-structured transition, each line advances to at least the legacy global watermark. Structured mode then advances only its line watermarks. On a structured-to-legacy transition, the global watermark advances to the older line boundary, so pending content on the lagging line is not skipped; the ahead line may be conservatively replayed.
+| Variable                      | Values            | Default | Meaning                                                          |
+| ----------------------------- | ----------------- | ------- | ---------------------------------------------------------------- |
+| `STELLA_REFLECT_CURATOR_MODE` | `armed`, `shadow` | `armed` | Executes lifecycle writes or keeps a non-mutating emergency stop |
 
-Curator Shadow is a non-mutating production dry-run and the rollback target for armed mode. It runs the same deterministic eligibility scan and records candidate kind, record ID, matched rule, activity inputs, candidate counts, rule distribution, duration, and errors, but does not mutate record status, changelog, or usage state. Automated tests, rather than human review in Shadow, enforce ownership/scope gates, usage checks, write-time rechecks, and fail-closed dependencies.
+In `armed`, startup fails closed unless all Structured Reflect and curator read/write dependencies are available. Eligible Reflect-owned Knowledge is deprecated and can be recovered through authenticated management APIs; eligible Reflect-owned Skills are permanently deleted.
 
-Roll out in this order:
+Curator Shadow executes the same deterministic eligibility scan and records candidate kind, record ID, matched rule, activity inputs, candidate counts, rule distribution, duration, and errors, but does not mutate record status, changelog, or usage state. It is the emergency stop for future lifecycle writes and a read-only way to inspect production scan volume and wiring. Automated tests enforce ownership/scope gates, usage checks, write-time rechecks, and fail-closed dependencies.
 
-1. Deploy `legacy + shadow` and run at least one complete production Shadow scan.
-2. Inspect candidate volume, rule distribution, runtime, and unexplained errors.
-3. Enable `structured + shadow`; inspect per-line duration, LLM calls, generated/accepted candidates, writes, no-ops, failures, and watermark progress.
-4. Enable `armed` only after authenticated Knowledge/Skill restore is available and recovery tests pass.
-
-Rollback the writer by setting `STELLA_REFLECT_MODE=legacy`. The conservative global watermark transition prevents lagging-line loss. Roll back lifecycle writes independently by setting `STELLA_REFLECT_CURATOR_MODE=shadow`; scans and telemetry continue while future deprecations stop.
+After deployment, verify one complete Structured Reflect run, armed curator eligibility writes, Knowledge recovery, and the switch back to non-mutating Shadow. Rolling back the entire release means deploying the previous binary; the retained global and line watermark state lets that binary resume conservatively.
 
 ## LCM Plugin
 

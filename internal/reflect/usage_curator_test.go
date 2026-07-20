@@ -25,6 +25,13 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
+func TestUsageCuratorSettingsDefaultArmed(t *testing.T) {
+	settings := (UsageCuratorSettings{}).withDefaults()
+	if settings.Mode != UsageCuratorModeArmed {
+		t.Fatalf("default curator mode = %q, want armed", settings.Mode)
+	}
+}
+
 func TestUsageCuratorShadowReportsWithoutWriting(t *testing.T) {
 	store := fakeUsageCuratorStore{
 		knowledge: []usageCuratorKnowledgeCandidate{{

@@ -140,13 +140,13 @@ type BlobS3Config struct {
 	UseSSL    string
 }
 
-// ReflectConfig carries the raw reflect-scheduler tuning strings so the reflect
-// setup keeps ownership of interval parsing (lenient warn-and-clamp) and curator
-// mode parsing (fail-fast enum).
+// ReflectConfig carries raw reflect-scheduler settings. LegacyModeGuard is only
+// used to reject stale STELLA_REFLECT_MODE values during the structured-only
+// transition; it does not select a writer.
 type ReflectConfig struct {
-	Interval    string
-	Mode        string
-	CuratorMode string
+	Interval        string
+	LegacyModeGuard string
+	CuratorMode     string
 }
 
 // DiagnosticsConfig holds optional local debug-server settings.
@@ -278,9 +278,9 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 		UseSSL:    get(blobS3UseSSLEnv),
 	}
 	cfg.Reflect = ReflectConfig{
-		Interval:    get(reflectIntervalEnv),
-		Mode:        get(reflectModeEnv),
-		CuratorMode: get(reflectCuratorModeEnv),
+		Interval:        get(reflectIntervalEnv),
+		LegacyModeGuard: get(reflectModeEnv),
+		CuratorMode:     get(reflectCuratorModeEnv),
 	}
 	cfg.Diagnostics.PprofAddr = get(pprofAddrEnv)
 	cfg.Observability.RecordToolIO = get(recordToolIOEnv) == "true"

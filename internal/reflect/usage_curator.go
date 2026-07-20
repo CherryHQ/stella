@@ -50,7 +50,7 @@ type usageCuratorSettings = UsageCuratorSettings
 
 func (s UsageCuratorSettings) withDefaults() UsageCuratorSettings {
 	if s.Mode == "" {
-		s.Mode = UsageCuratorModeShadow
+		s.Mode = UsageCuratorModeArmed
 	}
 	if s.KnowledgeMaxIdle <= 0 {
 		s.KnowledgeMaxIdle = defaultKnowledgeMaxIdle

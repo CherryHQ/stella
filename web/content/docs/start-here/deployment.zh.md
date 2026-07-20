@@ -73,17 +73,20 @@ stellad upgrade --install-dir "$HOME/.local/bin"  # 自定义安装路径
 
 `stellad upgrade` 从 GitHub 获取稳定版本（默认最新，也可通过参数指定版本），下载与当前操作系统/架构匹配的安装包并显示下载进度，并默认替换当前正在运行的 `stellad` 二进制文件。如果目标目录不可写，请用具备对应系统权限的用户重新运行，或使用 `--install-dir` 指定其他目录。如果二进制文件被锁定或显示 busy，请先停止正在运行的 Stella 进程或服务，再重试。
 
-### 启用 Structured Reflect
+### Structured Reflect 与 Curator
 
-Reflect 写入器和生命周期 curator 是两个独立的启动时开关。每次修改模式后都需要重启 Stella。
+Structured Reflect 始终启用，生命周期 curator 默认使用 `armed`。从双模式版本升级前，请删除部署中的 `STELLA_REFLECT_MODE=legacy`；过渡版本检测到该旧值时会拒绝启动。
 
-1. 先使用 `STELLA_REFLECT_MODE=legacy` 和 `STELLA_REFLECT_CURATOR_MODE=shadow`。Shadow 会扫描生产数据并记录候选数量、命中规则、耗时和错误，但不会修改 Knowledge 或 Skill。
-2. 至少完成一次完整 Shadow 扫描后，将 `STELLA_REFLECT_MODE` 改为 `structured`，curator 继续保持 `shadow`。检查 Fact/Skill 两条线的进度、模型调用、写入、no-op 和失败情况。
-3. 只有在经过认证的 Knowledge 和 Skill 恢复能力可用且恢复测试通过后，才将 `STELLA_REFLECT_CURATOR_MODE` 改为 `armed`。
+部署后执行以下检查：
 
-回滚 Reflect 写入时，将 `STELLA_REFLECT_MODE` 改回 `legacy` 并重启。要单独停止 curator 生命周期写入，将 `STELLA_REFLECT_CURATOR_MODE` 改回 `shadow` 并重启；只读扫描和 telemetry 会继续运行。模式切换会保守地维护 watermark，避免落后的处理线丢失待处理对话。
+1. 确认一次完整 Reflect scheduler 运行推进 Fact/Skill 两条独立 watermark，并记录预期的模型调用、写入、no-op、耗时和错误。
+2. 确认 curator 以 `armed` 运行，并且只处理符合条件的 Reflect-owned Knowledge 和 Skill。
+3. 验证符合条件的 Knowledge 可以恢复。Curator 删除的 Reflect-owned Skill 不可恢复。
+4. 如需停止后续生命周期写入，将 `STELLA_REFLECT_CURATOR_MODE=shadow` 并重启。Shadow 会继续执行确定性扫描和记录 telemetry，但不会废弃 Knowledge 或删除 Skill。
 
-默认值和可选值见[配置](/docs/start-here/configuration#环境变量)。[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator-上线机制)进一步说明 watermark 切换、Shadow 证据和 fail-closed 行为。
+如果必须回滚整个版本，请部署上一版本二进制，而不是在新版本中选择 legacy writer。切换迁移会保留旧 global watermark，并初始化两条 structured line watermark，使上一版本能够保守地继续处理。
+
+可选值见[配置](/docs/start-here/configuration#环境变量)。[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)进一步说明 watermark 迁移、Shadow 行为和 fail-closed wiring。
 
 ## 作为后台服务运行
 

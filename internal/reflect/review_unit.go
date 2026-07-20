@@ -56,7 +56,9 @@ type reviewSkillUsage struct {
 }
 
 const (
-	maxToolSummaryChars = 1200
+	maxFallbackReviewTokens = 100_000
+	maxToolSummaryChars     = 1200
+	toolNameSkills          = "skills"
 
 	priorContextOpen       = "<prior_context>\n"
 	priorContextClose      = "</prior_context>\n\n"

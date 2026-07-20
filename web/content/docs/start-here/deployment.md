@@ -73,17 +73,20 @@ stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 
 `stellad upgrade` fetches a stable release from GitHub (the latest by default, or the version you pass as an argument), downloads the matching archive for the current OS/architecture while showing download progress, and replaces the running `stellad` binary by default. If the target directory is not writable, rerun the command with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
 
-### Roll Out Structured Reflect
+### Structured Reflect and Curator
 
-Reflect's writer and lifecycle curator are independent boot-time controls. Restart Stella after each mode change.
+Structured Reflect is always enabled, and the lifecycle curator defaults to `armed`. Before upgrading from a dual-mode release, remove any `STELLA_REFLECT_MODE=legacy` deployment value; the transition release fails startup when that stale value is present.
 
-1. Start with `STELLA_REFLECT_MODE=legacy` and `STELLA_REFLECT_CURATOR_MODE=shadow`. Shadow scans production data and records candidate volume, matched rules, runtime, and errors without changing Knowledge or Skills.
-2. After at least one complete Shadow scan, set `STELLA_REFLECT_MODE=structured` while keeping the curator in `shadow`. Verify Fact/Skill line progress, model calls, writes, no-ops, and failures.
-3. Set `STELLA_REFLECT_CURATOR_MODE=armed` only after authenticated Knowledge and Skill recovery is available and its recovery tests pass.
+After deployment:
 
-To roll back Reflect writes, set `STELLA_REFLECT_MODE=legacy` and restart. To stop curator lifecycle writes independently, set `STELLA_REFLECT_CURATOR_MODE=shadow` and restart; read-only scans and telemetry continue. Mode changes preserve conservative watermarks so the lagging pipeline does not lose pending conversation content.
+1. Confirm a complete Reflect scheduler run advances the independent Fact and Skill watermarks and reports expected model calls, writes, no-ops, latency, and errors.
+2. Confirm the curator runs in `armed` and changes only eligible Reflect-owned Knowledge and Skills.
+3. Verify eligible Knowledge can be recovered. Reflect-owned Skills deleted by the curator are not recoverable.
+4. To stop future lifecycle writes, set `STELLA_REFLECT_CURATOR_MODE=shadow` and restart. Shadow continues deterministic scans and telemetry without deprecating Knowledge or deleting Skills.
 
-See [Configuration](/docs/start-here/configuration#environment-variables) for defaults and accepted values. The [memory internals page](/docs/development/memory-internals#structured-reflect-and-curator-rollout) explains watermark transitions, Shadow evidence, and fail-closed behavior.
+If the entire release must be rolled back, deploy the previous binary rather than selecting a legacy writer in the new release. The cutover migration preserves old global watermark rows and initializes both structured line watermarks so the previous release can resume conservatively.
+
+See [Configuration](/docs/start-here/configuration#environment-variables) for accepted values. The [memory internals page](/docs/development/memory-internals#structured-reflect-and-curator) explains the watermark migration, Shadow behavior, and fail-closed wiring.
 
 ## Run as a Background Service
 

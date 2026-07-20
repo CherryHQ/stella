@@ -83,14 +83,14 @@ if err != nil {
 
 `StateStore()` 给插件一个用于操作状态的作用域持久化存储。
 
-这与配置不同。使用它来处理派生状态，如光标、检查点或审查水位线。
+这与配置不同。使用它来处理派生状态，如光标或检查点。
 
 ```go
 err := ctx.Platform.StateStore().Set(ctx, pkgplugins.StateScope{
     Kind: pkgplugins.StateScopeSession,
     ID:   sessionID,
-}, "review_watermark", map[string]any{
-    "reviewed_at": timestamp,
+}, "sync_cursor", map[string]any{
+	"last_item_id": itemID,
 })
 ```
 

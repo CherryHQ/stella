@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 const (
+	candidateReviewerTimeout = 2 * time.Minute
+
 	toolSubmitFactGeneration  = "submit_fact_generation"
 	toolSubmitFactEvaluations = "submit_fact_evaluations"
 
@@ -278,7 +281,7 @@ func renderCaptureRepairPrompt(submitName string, err error) string {
 
 func defaultCandidateCompleteOptions(opts ai.CompleteOptions) ai.CompleteOptions {
 	if opts.Timeout == 0 {
-		opts.Timeout = reviewerTimeout
+		opts.Timeout = candidateReviewerTimeout
 	}
 	if opts.Temperature == nil {
 		temperature := 0.0

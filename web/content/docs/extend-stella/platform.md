@@ -84,14 +84,14 @@ Use this when the plugin needs to read or update its own desired config outside 
 
 `StateStore()` gives the plugin a scoped persistence store for operational state.
 
-This is not the same thing as config. Use it for derived state such as cursors, checkpoints, or review watermarks.
+This is not the same thing as config. Use it for derived state such as cursors or checkpoints.
 
 ```go
 err := ctx.Platform.StateStore().Set(ctx, pkgplugins.StateScope{
     Kind: pkgplugins.StateScopeSession,
     ID:   sessionID,
-}, "review_watermark", map[string]any{
-    "reviewed_at": timestamp,
+}, "sync_cursor", map[string]any{
+	"last_item_id": itemID,
 })
 ```
 

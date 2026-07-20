@@ -23,22 +23,22 @@ const (
 // as a builtin job. The cadence defaults to 6h and can be overridden
 // for development via STELLA_REFLECT_INTERVAL (Go duration string), threaded in
 // as intervalRaw; reflectModeRaw and curatorModeRaw carry the independent
-// writer and lifecycle controls. The interval override is intentionally omitted
+// rollout-compatibility and lifecycle controls. Reflect is structured-only;
+// reflectModeRaw exists for one transition release so stale legacy deployment
+// configuration fails clearly. The interval override is intentionally omitted
 // from user-facing docs: it exists so development wiring can be verified without
 // a rebuild. Parsing stays here (not in the config layer) so the interval keeps
-// its lenient warn-and-clamp behavior while both mode enums fail fast before the
-// scheduler job is registered.
+// its lenient warn-and-clamp behavior while mode validation fails fast before
+// the scheduler job is registered.
 func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config, intervalRaw, reflectModeRaw, curatorModeRaw string) error {
 	every := resolveReflectInterval(intervalRaw)
-	runtimeMode, err := resolveReflectMode(reflectModeRaw)
-	if err != nil {
+	if err := validateReflectModeCompatibility(reflectModeRaw); err != nil {
 		return err
 	}
 	usageCuratorSettings, err := resolveUsageCuratorSettings(curatorModeRaw)
 	if err != nil {
 		return err
 	}
-	cfg.RuntimeMode = runtimeMode
 	cfg.UsageCuratorSettings = usageCuratorSettings
 
 	handler, err := reflect.NewBuiltinHandler(cfg)
@@ -52,22 +52,19 @@ func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config, interval
 	}); err != nil {
 		return fmt.Errorf("register reflect builtin: %w", err)
 	}
-	slog.Info("reflect: registered scheduler builtin", "every", every, "mode", runtimeMode, "usage_curator_mode", usageCuratorSettings.Mode)
+	slog.Info("reflect: registered scheduler builtin", "every", every, "usage_curator_mode", usageCuratorSettings.Mode)
 	return nil
 }
 
-func resolveReflectMode(rawMode string) (reflect.RuntimeMode, error) {
+func validateReflectModeCompatibility(rawMode string) error {
 	raw := strings.TrimSpace(rawMode)
-	if raw == "" {
-		return reflect.RuntimeModeLegacy, nil
-	}
 	switch strings.ToLower(raw) {
-	case string(reflect.RuntimeModeLegacy):
-		return reflect.RuntimeModeLegacy, nil
-	case string(reflect.RuntimeModeStructured):
-		return reflect.RuntimeModeStructured, nil
+	case "", "structured":
+		return nil
+	case "legacy":
+		return fmt.Errorf("reflect: STELLA_REFLECT_MODE=legacy is no longer supported; remove the setting to use structured Reflect")
 	default:
-		return "", fmt.Errorf("reflect: unsupported STELLA_REFLECT_MODE %q (want legacy or structured)", raw)
+		return fmt.Errorf("reflect: unsupported STELLA_REFLECT_MODE %q; structured Reflect is always enabled", raw)
 	}
 }
 
@@ -92,7 +89,7 @@ func resolveReflectInterval(raw string) time.Duration {
 func resolveUsageCuratorSettings(rawMode string) (reflect.UsageCuratorSettings, error) {
 	raw := strings.TrimSpace(rawMode)
 	if raw == "" {
-		return reflect.UsageCuratorSettings{Mode: reflect.UsageCuratorModeShadow}, nil
+		return reflect.UsageCuratorSettings{Mode: reflect.UsageCuratorModeArmed}, nil
 	}
 	switch strings.ToLower(raw) {
 	case string(reflect.UsageCuratorModeShadow):
