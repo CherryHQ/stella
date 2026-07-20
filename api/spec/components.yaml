@@ -309,6 +309,11 @@ components:
           type: string
         content:
           type: string
+        encoding:
+          type: string
+          enum: [utf8, base64]
+          description: >-
+            How `content` is encoded. Omitted or `utf8` for text files; `base64` when the stored file is not valid UTF-8 (binary).
     SkillUpgradeResult:
       type: object
       properties:

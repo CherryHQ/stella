@@ -121,7 +121,7 @@ func (s *testSkillStore) LoadFile(ctx context.Context, skillID, path string) (st
 	if err != nil {
 		return "", err
 	}
-	return f.Content, nil
+	return string(f.Content), nil
 }
 
 func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files map[string]string) (string, error) {
@@ -163,7 +163,7 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 		return "", err
 	}
 	for path, content := range files {
-		if err := qtx.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{SkillID: sk.ID, Path: path, Content: content}); err != nil {
+		if err := qtx.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{SkillID: sk.ID, Path: path, Content: []byte(content)}); err != nil {
 			return "", err
 		}
 	}
@@ -210,7 +210,7 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 }
 
 func (s *testSkillStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
-	return s.q.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{SkillID: skillID, Path: path, Content: content})
+	return s.q.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{SkillID: skillID, Path: path, Content: []byte(content)})
 }
 
 func (s *testSkillStore) DeleteFile(ctx context.Context, skillID, path string) error {

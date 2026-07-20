@@ -524,5 +524,38 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 	}
 }
 
+func TestSkillFileBinaryContentRoundTrip(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+
+	// NUL byte plus invalid UTF-8 sequences — rejected outright by a text column.
+	binary := string([]byte{0x89, 'P', 'N', 'G', 0x00, 0xFF, 0xFE, 0x01})
+	snapshot, err := store.CreateManagedSkill(ctx, Skill{
+		Scope: "user", UserID: userID, Name: "binary-skill", Description: "d",
+	}, map[string]string{
+		MainFile:          "---\nname: binary-skill\ndescription: d\n---\n",
+		"assets/logo.png": binary,
+	})
+	if err != nil {
+		t.Fatalf("CreateManagedSkill with binary file: %v", err)
+	}
+
+	got, err := store.LoadFile(ctx, snapshot.Skill.ID, "assets/logo.png")
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if got != binary {
+		t.Fatalf("LoadFile content = %q, want %q", got, binary)
+	}
+
+	all, err := store.ListFilesWithContent(ctx, snapshot.Skill.ID)
+	if err != nil {
+		t.Fatalf("ListFilesWithContent: %v", err)
+	}
+	if all["assets/logo.png"] != binary {
+		t.Fatalf("ListFilesWithContent content = %q, want %q", all["assets/logo.png"], binary)
+	}
+}
+
 // Compile-time assertion that PGStore satisfies the Store interface.
 var _ Store = (*PGStore)(nil)

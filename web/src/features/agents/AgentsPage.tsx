@@ -39,6 +39,7 @@ import type {
   Skill,
   User,
 } from "@/lib/types";
+import { apiErrorMessage } from "@/lib/api-error";
 import { fetchAllAuthUsers } from "@/lib/auth-users";
 import { AgentForm } from "./AgentForm";
 import { TemplateModal } from "./TemplateModal";
@@ -259,8 +260,10 @@ export interface AgentsPageState {
   selectedSkillShowAdvanced: boolean;
   selectedSkillActiveFile: string;
   selectedSkillFileContent: string;
+  /** "base64" when the active file is binary; empty for text files. */
+  selectedSkillFileEncoding: string;
   selectedSkillFileLoading: boolean;
-  selectedSkillFileCache: Record<string, string>;
+  selectedSkillFileCache: Record<string, { content: string; encoding?: string }>;
   selectedSkillAddingFile: boolean;
   selectedSkillNewFileName: string;
   skillInstallModalOpen: boolean;
@@ -313,6 +316,7 @@ export function AgentsPage() {
     selectedSkillShowAdvanced: false,
     selectedSkillActiveFile: "SKILL.md",
     selectedSkillFileContent: "",
+    selectedSkillFileEncoding: "",
     selectedSkillFileLoading: false,
     selectedSkillFileCache: {},
     selectedSkillAddingFile: false,
@@ -447,6 +451,7 @@ export function AgentsPage() {
       selectedSkillShowAdvanced: false,
       selectedSkillActiveFile: "SKILL.md",
       selectedSkillFileContent: "",
+      selectedSkillFileEncoding: "",
       selectedSkillFileCache: {},
       selectedSkillAddingFile: false,
       selectedSkillNewFileName: "",
@@ -561,7 +566,7 @@ export function AgentsPage() {
         await loadAgents();
         showToast("Saved");
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
     [
@@ -619,7 +624,7 @@ export function AgentsPage() {
         await loadAgents();
         showToast("Deleted");
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
     [loadAgents, showToast, navigate],
@@ -638,7 +643,7 @@ export function AgentsPage() {
         await loadAssignedUsers(currentState.editingId);
         showToast("User assigned");
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
     [loadAssignedUsers, showToast],
@@ -654,7 +659,7 @@ export function AgentsPage() {
         await loadAssignedUsers(editingId);
         showToast("User removed");
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
     [loadAssignedUsers, showToast],
@@ -666,7 +671,7 @@ export function AgentsPage() {
     async (
       path: string,
       skill: Skill,
-      fileCache: Record<string, string>,
+      fileCache: Record<string, { content: string; encoding?: string }>,
       editingId: string | null,
       skipDirtyCheck = false,
       isDirty = false,
@@ -677,7 +682,8 @@ export function AgentsPage() {
       if (Object.prototype.hasOwnProperty.call(fileCache, path)) {
         setState((prev) => ({
           ...prev,
-          selectedSkillFileContent: fileCache[path],
+          selectedSkillFileContent: fileCache[path].content,
+          selectedSkillFileEncoding: fileCache[path].encoding ?? "",
           selectedSkillDirty: false,
         }));
         return;
@@ -689,16 +695,22 @@ export function AgentsPage() {
           query: { path, scope: skill.scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
-        const content = (res as { content?: string })?.content ?? "";
+        const file = res as { content?: string; encoding?: string } | undefined;
+        const content = file?.content ?? "";
+        const encoding = file?.encoding ?? "";
         setState((prev) => ({
           ...prev,
           selectedSkillFileContent: content,
-          selectedSkillFileCache: { ...prev.selectedSkillFileCache, [path]: content },
+          selectedSkillFileEncoding: encoding,
+          selectedSkillFileCache: {
+            ...prev.selectedSkillFileCache,
+            [path]: { content, encoding: encoding || undefined },
+          },
           selectedSkillDirty: false,
           selectedSkillFileLoading: false,
         }));
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
         setState((prev) => ({ ...prev, selectedSkillFileLoading: false }));
       }
     },
@@ -742,7 +754,7 @@ export function AgentsPage() {
         }));
         await selectSkillFile(initialFile, skill, {}, currentState.editingId, true, false);
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
         setState((prev) => ({ ...prev, selectedSkillLoading: false }));
       }
     },
@@ -753,6 +765,9 @@ export function AgentsPage() {
     async (currentState: AgentsPageState) => {
       const { selectedSkill, selectedSkillFileContent, selectedSkillActiveFile } = currentState;
       if (!selectedSkill || selectedSkill.scope === "system") return;
+      // Binary files are view-only: writing their base64 transport form back
+      // through the JSON files map would corrupt them.
+      const activeFileEditable = currentState.selectedSkillFileEncoding !== "base64";
       setState((prev) => ({ ...prev, selectedSkillSaving: true }));
       try {
         await updateAgentSkill({
@@ -764,17 +779,21 @@ export function AgentsPage() {
           body: {
             description: selectedSkill.description,
             disable_model_invocation: !!selectedSkill.disable_model_invocation,
-            files: { [selectedSkillActiveFile]: selectedSkillFileContent },
+            ...(activeFileEditable
+              ? { files: { [selectedSkillActiveFile]: selectedSkillFileContent } }
+              : {}),
           } as UpdateAgentSkillData["body"],
           throwOnError: true,
         });
         setState((prev) => ({
           ...prev,
           selectedSkillDirty: false,
-          selectedSkillFileCache: {
-            ...prev.selectedSkillFileCache,
-            [selectedSkillActiveFile]: selectedSkillFileContent,
-          },
+          selectedSkillFileCache: activeFileEditable
+            ? {
+                ...prev.selectedSkillFileCache,
+                [selectedSkillActiveFile]: { content: selectedSkillFileContent },
+              }
+            : prev.selectedSkillFileCache,
         }));
         const { data: raw2 } = await getAgentSkill({
           path: {
@@ -792,7 +811,7 @@ export function AgentsPage() {
         await loadAgentSkills(currentState.editingId);
         showToast("Saved");
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
         setState((prev) => ({ ...prev, selectedSkillSaving: false }));
       }
     },
@@ -821,7 +840,7 @@ export function AgentsPage() {
         await loadAgentSkills(currentState.editingId);
         showToast("Skill removed");
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
     [loadAgentSkills, showToast],
@@ -855,7 +874,7 @@ export function AgentsPage() {
           });
         }
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       } finally {
         setState((prev) => {
           const p = prev as AgentsPageState & { skillInstalling?: boolean };
@@ -891,7 +910,7 @@ export function AgentsPage() {
           });
         }
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
     [loadAgentSkills, selectSkill, showToast],
@@ -936,7 +955,7 @@ export function AgentsPage() {
           false,
         );
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
     [selectSkillFile, showToast],
@@ -956,7 +975,7 @@ export function AgentsPage() {
         }));
       } catch (e) {
         setState((prev) => ({ ...prev, selectedSoulID: "" }));
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
     [showToast],
@@ -995,7 +1014,7 @@ export function AgentsPage() {
           activeTab: "config",
         }));
       } catch (e) {
-        showToast((e as Error).message, "error");
+        showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
     [showToast],

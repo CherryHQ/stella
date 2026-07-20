@@ -893,7 +893,7 @@ type SkillChangelog struct {
 type SkillFile struct {
 	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
-	Content string `json:"content"`
+	Content []byte `json:"content"`
 }
 
 type SkillUsage struct {

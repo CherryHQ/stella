@@ -1058,7 +1058,7 @@ ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content
 type UpsertSkillFileParams struct {
 	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
-	Content string `json:"content"`
+	Content []byte `json:"content"`
 }
 
 func (q *Queries) UpsertSkillFile(ctx context.Context, arg UpsertSkillFileParams) error {
