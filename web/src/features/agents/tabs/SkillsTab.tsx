@@ -63,6 +63,8 @@ export function SkillsTab({
     selectedSkillShowAdvanced,
     selectedSkillActiveFile,
     selectedSkillFileContent,
+    selectedSkillFileEncoding,
+    selectedSkillFileLoaded,
     selectedSkillFileLoading,
     selectedSkillAddingFile,
     selectedSkillNewFileName,
@@ -471,7 +473,9 @@ export function SkillsTab({
                     <div className="py-8 flex justify-center">
                       <Spinner className="size-5" />
                     </div>
-                  ) : selectedSkillEditMode ? (
+                  ) : selectedSkillEditMode &&
+                    selectedSkillFileLoaded &&
+                    selectedSkillFileEncoding !== "base64" ? (
                     <Textarea
                       value={selectedSkillFileContent}
                       onChange={(e) =>
@@ -489,6 +493,7 @@ export function SkillsTab({
                     <SkillFilePreview
                       path={selectedSkillActiveFile}
                       content={selectedSkillFileContent}
+                      encoding={selectedSkillFileEncoding || undefined}
                       emptyText={t("agents.skills.noContent")}
                     />
                   )}

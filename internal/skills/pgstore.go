@@ -161,13 +161,9 @@ func (s *PGStore) ListForUser(ctx context.Context, userID string, agentIDs []str
 
 // ListFiles returns all file paths for a skill (no content).
 func (s *PGStore) ListFiles(ctx context.Context, skillID string) ([]string, error) {
-	rows, err := s.q.ListSkillFiles(ctx, skillID)
+	paths, err := s.q.ListSkillFilePaths(ctx, skillID)
 	if err != nil {
 		return nil, fmt.Errorf("skills: list files for %s: %w", skillID, err)
-	}
-	paths := make([]string, 0, len(rows))
-	for _, r := range rows {
-		paths = append(paths, r.Path)
 	}
 	return paths, nil
 }
@@ -180,7 +176,7 @@ func (s *PGStore) ListFilesWithContent(ctx context.Context, skillID string) (map
 	}
 	files := make(map[string]string, len(rows))
 	for _, r := range rows {
-		files[r.Path] = r.Content
+		files[r.Path] = string(r.Content)
 	}
 	return files, nil
 }
@@ -214,7 +210,7 @@ func (s *PGStore) LoadFile(ctx context.Context, skillID, path string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("skills: load file %q on skill %s: %w", path, skillID, err)
 	}
-	return f.Content, nil
+	return string(f.Content), nil
 }
 
 // Create preserves the plugin-facing ID-only contract while the internal
@@ -283,7 +279,7 @@ func (s *PGStore) CreateManagedSkill(ctx context.Context, sk Skill, files map[st
 		if err := qtx.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{
 			SkillID: sk.ID,
 			Path:    path,
-			Content: content,
+			Content: []byte(content),
 		}); err != nil {
 			return SkillSnapshot{}, fmt.Errorf("skills: insert file %q for skill %q: %w", path, sk.ID, err)
 		}
@@ -356,7 +352,7 @@ func (s *PGStore) UpsertFile(ctx context.Context, skillID, path, content string)
 	if err := s.q.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{
 		SkillID: skillID,
 		Path:    path,
-		Content: content,
+		Content: []byte(content),
 	}); err != nil {
 		return fmt.Errorf("skills: upsert file %q on skill %s: %w", path, skillID, err)
 	}

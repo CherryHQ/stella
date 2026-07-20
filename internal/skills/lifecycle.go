@@ -55,7 +55,7 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 		return SkillSnapshot{}, err
 	}
 	for path, content := range in.Files {
-		if err := qtx.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{SkillID: before.ID, Path: path, Content: content}); err != nil {
+		if err := qtx.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{SkillID: before.ID, Path: path, Content: []byte(content)}); err != nil {
 			return SkillSnapshot{}, fmt.Errorf("update managed skill file %q: %w", path, err)
 		}
 	}

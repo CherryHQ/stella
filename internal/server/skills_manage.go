@@ -1,14 +1,30 @@
 package server
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http"
+	"unicode/utf8"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 )
+
+// skillFileResponse shapes a stored skill file for JSON transport. Binary
+// content is base64-encoded and flagged via "encoding" — JSON marshalling
+// would otherwise replace invalid UTF-8 with U+FFFD and corrupt the bytes.
+func skillFileResponse(path, content string) map[string]string {
+	if utf8.ValidString(content) {
+		return map[string]string{"path": path, "content": content}
+	}
+	return map[string]string{
+		"path":     path,
+		"content":  base64.StdEncoding.EncodeToString([]byte(content)),
+		"encoding": "base64",
+	}
+}
 
 // writeConflictOrInternal maps caller-correctable Skill mutations before using
 // the shared internal-error response for storage failures.
@@ -335,7 +351,7 @@ func (s *Server) GetScopedSkillFile(w http.ResponseWriter, r *http.Request, id s
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"path": params.Path, "content": content})
+	writeData(w, http.StatusOK, skillFileResponse(params.Path, content))
 }
 
 // DeleteScopedSkillFile handles DELETE /api/skills/{id}/file.

@@ -3,6 +3,7 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/base64"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -34,6 +35,46 @@ func TestReadUploadedSkillArchiveAcceptsSkillAtArchiveRoot(t *testing.T) {
 	}
 	if up.files["SKILL.md"] == "" || up.files["references/api.md"] != "notes" {
 		t.Fatalf("uploaded files = %#v, want root-relative skill files", up.files)
+	}
+}
+
+func TestReadUploadedSkillArchivePreservesBinaryFiles(t *testing.T) {
+	// NUL byte plus invalid UTF-8 — must survive the parser byte-for-byte.
+	binary := string([]byte{0x89, 'P', 'N', 'G', 0x00, 0xFF, 0xFE, 0x01})
+	archive := makeUploadArchive(t, map[string]string{
+		"SKILL.md":        "---\nname: binary-skill\ndescription: Skill with binary asset\n---\n# Binary\n",
+		"assets/logo.png": binary,
+	})
+
+	up, err := readUploadedSkillArchive(
+		uploadArchiveFile{Reader: bytes.NewReader(archive)},
+		&multipart.FileHeader{Filename: "binary-skill.zip"},
+	)
+	if err != nil {
+		t.Fatalf("read archive with binary file: %v", err)
+	}
+	if up.files["assets/logo.png"] != binary {
+		t.Fatalf("binary file content = %q, want %q", up.files["assets/logo.png"], binary)
+	}
+}
+
+func TestSkillFileResponseEncodesBinaryContent(t *testing.T) {
+	text := skillFileResponse("SKILL.md", "# hello")
+	if text["content"] != "# hello" || text["encoding"] != "" {
+		t.Fatalf("text response = %#v, want raw content without encoding", text)
+	}
+
+	binary := string([]byte{0x00, 0xFF, 0xFE})
+	resp := skillFileResponse("assets/logo.png", binary)
+	if resp["encoding"] != "base64" {
+		t.Fatalf("binary response encoding = %q, want base64", resp["encoding"])
+	}
+	decoded, err := base64.StdEncoding.DecodeString(resp["content"])
+	if err != nil {
+		t.Fatalf("decode base64 content: %v", err)
+	}
+	if string(decoded) != binary {
+		t.Fatalf("decoded content = %q, want %q", decoded, binary)
 	}
 }
 

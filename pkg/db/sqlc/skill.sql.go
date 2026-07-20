@@ -552,6 +552,30 @@ func (q *Queries) ListSkillChangelogBySkill(ctx context.Context, arg ListSkillCh
 	return items, nil
 }
 
+const listSkillFilePaths = `-- name: ListSkillFilePaths :many
+SELECT path FROM skill_file WHERE skill_id = $1 ORDER BY path
+`
+
+func (q *Queries) ListSkillFilePaths(ctx context.Context, skillID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listSkillFilePaths, skillID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		items = append(items, path)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSkillFiles = `-- name: ListSkillFiles :many
 SELECT skill_id, path, content FROM skill_file WHERE skill_id = $1 ORDER BY path
 `
@@ -1058,7 +1082,7 @@ ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content
 type UpsertSkillFileParams struct {
 	SkillID string `json:"skill_id"`
 	Path    string `json:"path"`
-	Content string `json:"content"`
+	Content []byte `json:"content"`
 }
 
 func (q *Queries) UpsertSkillFile(ctx context.Context, arg UpsertSkillFileParams) error {

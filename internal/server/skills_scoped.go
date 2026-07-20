@@ -838,7 +838,7 @@ func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	writeData(w, http.StatusOK, map[string]string{"path": params.Path, "content": content})
+	writeData(w, http.StatusOK, skillFileResponse(params.Path, content))
 }
 
 func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.DeleteAgentSkillFileParams) {
