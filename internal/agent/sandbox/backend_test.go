@@ -85,6 +85,61 @@ func TestResolveSessionRequiresUserRoot(t *testing.T) {
 	}
 }
 
+func TestResolveSessionRejectsNoneWithoutUnsafeHostExecution(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T) func(context.Context) string
+	}{
+		{
+			name: "environment override",
+			setup: func(t *testing.T) func(context.Context) string {
+				t.Setenv("STELLA_SANDBOX_BACKEND", config.SandboxBackendNone)
+				return func(context.Context) string { return config.ActiveSandboxBackend(nil) }
+			},
+		},
+		{
+			name: "enabled database plugin",
+			setup: func(_ *testing.T) func(context.Context) string {
+				plugins := []config.Plugin{{
+					Kind:    config.PluginKindSandbox,
+					Name:    config.SandboxBackendNone,
+					Enabled: true,
+				}}
+				return func(context.Context) string { return config.ActiveSandboxBackend(plugins) }
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ResolveSession(context.Background(), Config{SandboxBackendFn: tc.setup(t)})
+			if err == nil {
+				t.Fatal("ResolveSession() error = nil, want unsafe host execution rejection")
+			}
+			if got := err.Error(); got != unsafeHostExecutionError {
+				t.Errorf("ResolveSession() error = %q, want %q", got, unsafeHostExecutionError)
+			}
+		})
+	}
+}
+
+func TestResolveSessionAllowsNoneWithUnsafeHostExecution(t *testing.T) {
+	root := t.TempDir()
+	session, err := ResolveSession(context.Background(), Config{
+		AllowUnsafeHostExecution: true,
+		SandboxBackendFn:         func(context.Context) string { return config.SandboxBackendNone },
+		Paths: Paths{
+			StellaHome: root,
+			AgentRoot:  filepath.Join(root, "agent"),
+			UserRoot:   filepath.Join(root, "user"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	if err := session.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+}
+
 func TestSandboxProcessEnvLeavesHomeUnsetForDocker(t *testing.T) {
 	cfg := Config{
 		Paths: Paths{

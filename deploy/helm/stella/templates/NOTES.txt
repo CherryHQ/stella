@@ -38,15 +38,9 @@ Updating the Secret does NOT restart the pod. Roll it after a secret change:
 Sandbox
 -------
 sandbox.backend = {{ .Values.sandbox.backend }}
-{{- if eq (trim .Values.sandbox.backend) "none" }}
-  backend=none runs agent tools directly inside the Stella pod WITHOUT sandbox
-  isolation. It does not disable agent tools.
-{{- else }}
   backend=local (bubblewrap) is experimental and requires a cluster that permits
-  unprivileged user namespaces. If tools fail with bwrap/unshare errors, switch
-  to backend=none (and set sandbox.allowUnsafeHostExecution=true) or adjust the
-  cluster.
-{{- end }}
+  unprivileged user namespaces. If tools fail with bwrap/unshare errors, adjust
+  the cluster; this chart intentionally does not support host execution.
 
 Storage
 -------

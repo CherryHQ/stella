@@ -133,6 +133,12 @@ func WithAssetStorePM(a *asset.Store) PoolManagerOption {
 	return func(pm *PoolManager) { pm.assets = a }
 }
 
+// WithUnsafeHostExecution permits the explicitly unsafe none sandbox backend.
+// The boot-time setting is passed only to the session-selection boundary.
+func WithUnsafeHostExecution(allow bool) PoolManagerOption {
+	return func(pm *PoolManager) { pm.allowUnsafeHostExecution = allow }
+}
+
 // PoolManager manages one Service per enabled agent. It reads enabled agents
 // from the config Store and creates a Service (session.Registry + runtime.Runtime)
 // per agent.
@@ -167,6 +173,7 @@ type PoolManager struct {
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	assets                   *asset.Store
+	allowUnsafeHostExecution bool
 	sessionAccess            SessionAccessService
 	log                      *slog.Logger
 }
@@ -685,6 +692,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		ToolOverrideFetcher:      pm.toolOverrideFetcher,
 		ToolLifecycle:            pm.toolLifecycle,
 		SandboxBackendFn:         sandboxBackendFn,
+		AllowUnsafeHostExecution: pm.allowUnsafeHostExecution,
 		VaultEnvLoader:           pm.vaultEnvLoader,
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,

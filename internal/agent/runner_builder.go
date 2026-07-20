@@ -51,6 +51,7 @@ type runnerBuilderConfig struct {
 	ToolOverrideFetcher      ToolOverrideFetcher
 	ToolLifecycle            *coreagent.ToolLifecycle
 	SandboxBackendFn         func(ctx context.Context) string
+	AllowUnsafeHostExecution bool
 	VaultEnvLoader           sandbox.VaultEnvLoader
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
@@ -202,8 +203,9 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		sessionSecretValues := sandbox.NewSessionSecretValues()
 		sandboxCfg := sandbox.Config{
-			SandboxConfig:    cfg.Snap.Sandbox,
-			SandboxBackendFn: cfg.SandboxBackendFn,
+			SandboxConfig:            cfg.Snap.Sandbox,
+			SandboxBackendFn:         cfg.SandboxBackendFn,
+			AllowUnsafeHostExecution: cfg.AllowUnsafeHostExecution,
 			Paths: sandbox.Paths{
 				StellaHome:  config.StellaHome(),
 				AgentRoot:   cfg.Snap.Workspace,

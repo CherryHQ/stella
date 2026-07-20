@@ -24,18 +24,19 @@ type VaultEnvLoader interface {
 // Config is passed to sandbox operations.
 // It is constructed from the runner config in the parent agent package.
 type Config struct {
-	SandboxConfig       config.SandboxConfig
-	SandboxBackendFn    func(ctx context.Context) string
-	Paths               Paths
-	UserID              string
-	GroupID             string // non-empty for group sessions; vault/env use group principal
-	AgentID             string
-	SessionID           string
-	ProjectID           string
-	SessionEnvSpecs     []pkgplugins.SessionEnvSpec
-	VaultEnvLoader      VaultEnvLoader
-	SessionSecretValues *SessionSecretValues
-	TokenManager        *oauth.TokenManager
+	SandboxConfig            config.SandboxConfig
+	SandboxBackendFn         func(ctx context.Context) string
+	AllowUnsafeHostExecution bool
+	Paths                    Paths
+	UserID                   string
+	GroupID                  string // non-empty for group sessions; vault/env use group principal
+	AgentID                  string
+	SessionID                string
+	ProjectID                string
+	SessionEnvSpecs          []pkgplugins.SessionEnvSpec
+	VaultEnvLoader           VaultEnvLoader
+	SessionSecretValues      *SessionSecretValues
+	TokenManager             *oauth.TokenManager
 	// OAuthEnvBindings records which sandbox env vars were injected from an OAuth
 	// bundle at session creation, so a later live refresh reloads only those and
 	// never overwrites an explicit vault override of the same name. Shared by

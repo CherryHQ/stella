@@ -409,6 +409,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithAssetStorePM(assetStore),
+		agent.WithUnsafeHostExecution(cfg.Sandbox.AllowUnsafeHostExecution),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),

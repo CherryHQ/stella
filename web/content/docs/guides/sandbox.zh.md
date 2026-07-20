@@ -104,13 +104,14 @@ volumes:
 
 ### 环境变量
 
-| 变量                         | 描述                                                                |
-| ---------------------------- | ------------------------------------------------------------------- |
-| `STELLA_DOCKER_SANDBOX_MODE` | `docker` 沙箱后端必须设置：`host`、`bind` 或 `volume`               |
-| `STELLA_HOME_HOST`           | `STELLA_HOME` 的宿主机侧路径；仅 `bind` 模式需要                    |
-| `STELLA_HOME_VOLUME`         | `STELLA_HOME` 对应的 Docker named volume 名称；仅 `volume` 模式需要 |
+| 变量                                 | 描述                                                                |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| `STELLA_DOCKER_SANDBOX_MODE`         | `docker` 沙箱后端必须设置：`host`、`bind` 或 `volume`               |
+| `STELLA_HOME_HOST`                   | `STELLA_HOME` 的宿主机侧路径；仅 `bind` 模式需要                    |
+| `STELLA_HOME_VOLUME`                 | `STELLA_HOME` 对应的 Docker named volume 名称；仅 `volume` 模式需要 |
+| `STELLA_ALLOW_UNSAFE_HOST_EXECUTION` | 必须为 `true` 才能选择不安全的 `none` 后端                          |
 
-agent 使用 `local` 或 `none` 时，这些变量都不需要。
+agent 使用 `local` 时，这些变量都不需要。
 
 ## 本地后端
 
@@ -164,6 +165,8 @@ Docker 后端把 mise 工具链烤在绝对 `/opt/stella` 下——与 Linux `lo
 ## None 后端
 
 `none` 后端以当前用户权限直接在宿主机上运行 agent，不提供任何隔离——无文件系统限制、无网络限制、无进程组终止，也无资源限制。
+
+它默认禁用。要选择它，请在启动 stellad 前设置 `STELLA_ALLOW_UNSAFE_HOST_EXECUTION=true`。这明确表示运营者接受 agent 代码能访问 stellad 进程、其文件和环境变量（包括经由 `/proc` 可读取的密钥）；清理环境变量并不能形成隔离。
 
 **仅在单用户本地部署中对完全受信任的 agent 使用。** 不适用于不受信任的 agent 或多用户环境。
 

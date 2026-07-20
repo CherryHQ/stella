@@ -165,10 +165,22 @@ func resolveBackendName(ctx context.Context, cfg Config) string {
 	return name
 }
 
+const unsafeHostExecutionError = "sandbox backend \"none\" requires STELLA_ALLOW_UNSAFE_HOST_EXECUTION=true"
+
+func validateBackendSelection(name string, allowUnsafeHostExecution bool) error {
+	if name == config.SandboxBackendNone && !allowUnsafeHostExecution {
+		return fmt.Errorf("%s", unsafeHostExecutionError)
+	}
+	return nil
+}
+
 // ResolveSession creates a sandbox session from configuration.
 // The active backend is determined by SandboxBackendFn, defaulting to local.
 func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
 	name := resolveBackendName(ctx, cfg)
+	if err := validateBackendSelection(name, cfg.AllowUnsafeHostExecution); err != nil {
+		return nil, err
+	}
 
 	ctx, span := sandboxTracer.Start(ctx, "sandbox.create_session",
 		trace.WithAttributes(
@@ -187,7 +199,11 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	}
 
 	return pkgsandbox.NewResilientSession(session, func(ctx context.Context) (pkgsandbox.Session, error) {
-		return createSessionForBackend(ctx, cfg, resolveBackendName(ctx, cfg))
+		name := resolveBackendName(ctx, cfg)
+		if err := validateBackendSelection(name, cfg.AllowUnsafeHostExecution); err != nil {
+			return nil, err
+		}
+		return createSessionForBackend(ctx, cfg, name)
 	}), nil
 }
 

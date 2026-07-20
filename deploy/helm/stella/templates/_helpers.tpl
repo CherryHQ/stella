@@ -114,19 +114,10 @@ actionable message. Kept in one place so every template shares the same checks.
 
 {{- $backend := trim $v.sandbox.backend -}}
 {{- if not $backend -}}
-{{- fail "stella: sandbox.backend is required — set it to 'local' (bubblewrap, experimental) or 'none' (no isolation). The 'docker' backend is not supported by this chart." -}}
+{{- fail "stella: sandbox.backend is required — set it to 'local' (bubblewrap, experimental). Host execution (none) and the docker backend are not supported by this chart." -}}
 {{- end -}}
-{{- if not (has $backend (list "local" "none")) -}}
-{{- fail (printf "stella: sandbox.backend must be 'local' or 'none' (got %q). The 'docker' backend is not supported by this chart." $backend) -}}
-{{- end -}}
-{{- if and (eq $backend "none") (not $v.sandbox.allowUnsafeHostExecution) -}}
-{{- fail "stella: sandbox.backend=none runs agent tools directly inside the Stella pod with no isolation. Set sandbox.allowUnsafeHostExecution=true to acknowledge this, or choose sandbox.backend=local." -}}
-{{- end -}}
-{{- /* Unconfined seccomp only exists to unblock the local (bubblewrap) backend;
-       none never needs it, and keeping it (e.g. carried over by --reuse-values
-       when switching from local) would drop defence-in-depth for no reason. */ -}}
-{{- if and (eq $backend "none") (ne (trim $v.sandbox.seccompProfile) "RuntimeDefault") -}}
-{{- fail "stella: sandbox.backend=none requires sandbox.seccompProfile=RuntimeDefault; Unconfined is only an escape hatch for the local bubblewrap backend." -}}
+{{- if ne $backend "local" -}}
+{{- fail (printf "stella: sandbox.backend must be 'local' (got %q). Host execution (none) and the docker backend are not supported by this chart." $backend) -}}
 {{- end -}}
 
 {{- $s := $v.shutdown -}}

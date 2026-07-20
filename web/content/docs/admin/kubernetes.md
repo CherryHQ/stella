@@ -56,9 +56,8 @@ helm install stella ./deploy/helm/stella \
   --set sandbox.backend=local
 ```
 
-`sandbox.backend=local` is the recommended choice — it isolates agent-run tools with
-bubblewrap. Only fall back to `none` after reading [Sandbox backend](#sandbox-backend);
-`none` runs agent code with no isolation and exposes deployment secrets to it.
+`sandbox.backend=local` is the only supported choice. It isolates agent-run tools with
+bubblewrap; this chart intentionally rejects unsafe host execution (`none`).
 
 `baseURL`, `secrets.existingSecret`, and `sandbox.backend` are required — the chart
 refuses to render without them. `baseURL` must be the externally reachable URL
@@ -90,36 +89,35 @@ install with `-f values.yaml`.
 
 ## Values reference
 
-| Key                                      | Default                         | Description                                                        |
-| ---------------------------------------- | ------------------------------- | ------------------------------------------------------------------ |
-| `replicaCount`                           | `1`                             | Must be `1`. Any other value is rejected.                          |
-| `image.repository`                       | `ghcr.io/cherryhq/stella`       | Container image.                                                   |
-| `image.tag`                              | `""`                            | Defaults to `latest`; pin a version tag or digest for production.  |
-| `image.digest`                           | `""`                            | `sha256:…` digest; pins the image and overrides `tag`.             |
-| `image.pullPolicy`                       | `IfNotPresent`                  |                                                                    |
-| `imagePullSecrets`                       | `[]`                            | For a private registry.                                            |
-| `baseURL`                                | `""`                            | **Required.** Public URL (`STELLA_BASE_URL`).                      |
-| `secrets.existingSecret`                 | `""`                            | **Required.** Name of the Secret with the vault key and DSN.       |
-| `secrets.keys.vaultKey`                  | `STELLA_VAULT_KEY`              | Key in the Secret holding the vault key.                           |
-| `secrets.keys.databaseURL`               | `STELLA_DATABASE_URL`           | Key in the Secret holding the DSN.                                 |
-| `sandbox.backend`                        | `""`                            | **Required.** `local` or `none` (see [Sandbox](#sandbox-backend)). |
-| `sandbox.allowUnsafeHostExecution`       | `false`                         | Must be `true` when `backend=none`.                                |
-| `sandbox.seccompProfile`                 | `RuntimeDefault`                | Pod seccomp profile. `Unconfined` if `local` needs it.             |
-| `shutdown.preStopSeconds`                | `10`                            | preStop sleep, for endpoint propagation.                           |
-| `shutdown.httpSeconds`                   | `60`                            | `STELLA_HTTP_SHUTDOWN_TIMEOUT`.                                    |
-| `shutdown.riverSoftStopSeconds`          | `120`                           | `STELLA_RIVER_SOFT_STOP_TIMEOUT`.                                  |
-| `shutdown.terminationGracePeriodSeconds` | `200`                           | Pod grace period (see [formula](#graceful-shutdown)).              |
-| `persistence.enabled`                    | `true`                          | Mount a PVC at `/home/stella/.stella`.                             |
-| `persistence.allowEphemeralDataLoss`     | `false`                         | Must be `true` to disable persistence (emptyDir loses user data).  |
-| `persistence.size`                       | `10Gi`                          | Requested volume size.                                             |
-| `persistence.accessMode`                 | `ReadWriteOnce`                 |                                                                    |
-| `persistence.storageClass`               | `""`                            | Empty = cluster default; `-` disables dynamic provisioning.        |
-| `persistence.existingClaim`              | `""`                            | Reuse a PVC you manage instead of creating one.                    |
-| `service.type` / `service.port`          | `ClusterIP` / `25678`           |                                                                    |
-| `ingress.*`                              | disabled                        | `className`, `annotations`, `hosts`, `tls`.                        |
-| `resources`                              | 500m/1Gi requests, 2/4Gi limits |                                                                    |
-| `extraEnv`                               | `[]`                            | Passthrough plain env vars (S3, OIDC, provider keys).              |
-| `serviceAccount.*`                       | `create: true`                  | Token automount is always off.                                     |
+| Key                                      | Default                         | Description                                                       |
+| ---------------------------------------- | ------------------------------- | ----------------------------------------------------------------- |
+| `replicaCount`                           | `1`                             | Must be `1`. Any other value is rejected.                         |
+| `image.repository`                       | `ghcr.io/cherryhq/stella`       | Container image.                                                  |
+| `image.tag`                              | `""`                            | Defaults to `latest`; pin a version tag or digest for production. |
+| `image.digest`                           | `""`                            | `sha256:…` digest; pins the image and overrides `tag`.            |
+| `image.pullPolicy`                       | `IfNotPresent`                  |                                                                   |
+| `imagePullSecrets`                       | `[]`                            | For a private registry.                                           |
+| `baseURL`                                | `""`                            | **Required.** Public URL (`STELLA_BASE_URL`).                     |
+| `secrets.existingSecret`                 | `""`                            | **Required.** Name of the Secret with the vault key and DSN.      |
+| `secrets.keys.vaultKey`                  | `STELLA_VAULT_KEY`              | Key in the Secret holding the vault key.                          |
+| `secrets.keys.databaseURL`               | `STELLA_DATABASE_URL`           | Key in the Secret holding the DSN.                                |
+| `sandbox.backend`                        | `""`                            | **Required.** `local` only (see [Sandbox](#sandbox-backend)).     |
+| `sandbox.seccompProfile`                 | `RuntimeDefault`                | Pod seccomp profile. `Unconfined` if `local` needs it.            |
+| `shutdown.preStopSeconds`                | `10`                            | preStop sleep, for endpoint propagation.                          |
+| `shutdown.httpSeconds`                   | `60`                            | `STELLA_HTTP_SHUTDOWN_TIMEOUT`.                                   |
+| `shutdown.riverSoftStopSeconds`          | `120`                           | `STELLA_RIVER_SOFT_STOP_TIMEOUT`.                                 |
+| `shutdown.terminationGracePeriodSeconds` | `200`                           | Pod grace period (see [formula](#graceful-shutdown)).             |
+| `persistence.enabled`                    | `true`                          | Mount a PVC at `/home/stella/.stella`.                            |
+| `persistence.allowEphemeralDataLoss`     | `false`                         | Must be `true` to disable persistence (emptyDir loses user data). |
+| `persistence.size`                       | `10Gi`                          | Requested volume size.                                            |
+| `persistence.accessMode`                 | `ReadWriteOnce`                 |                                                                   |
+| `persistence.storageClass`               | `""`                            | Empty = cluster default; `-` disables dynamic provisioning.       |
+| `persistence.existingClaim`              | `""`                            | Reuse a PVC you manage instead of creating one.                   |
+| `service.type` / `service.port`          | `ClusterIP` / `25678`           |                                                                   |
+| `ingress.*`                              | disabled                        | `className`, `annotations`, `hosts`, `tls`.                       |
+| `resources`                              | 500m/1Gi requests, 2/4Gi limits |                                                                   |
+| `extraEnv`                               | `[]`                            | Passthrough plain env vars (S3, OIDC, provider keys).             |
+| `serviceAccount.*`                       | `create: true`                  | Token automount is always off.                                    |
 
 ### Optional integrations via `extraEnv`
 
@@ -149,38 +147,20 @@ defaults, so its contract holds for any `image.repository` you substitute.
 
 ## Sandbox backend
 
-`sandbox.backend` is required and has no default. It decides how the tools an agent
-runs (`bash`, file edits) are isolated from the Stella process. This chart supports
-two backends; the `docker` backend is intentionally unsupported (it would need a
-mounted Docker socket).
+`sandbox.backend` is required and has no default. This chart supports only
+**`local`** (bubblewrap) isolation; it intentionally rejects both `none` host
+execution and the `docker` backend (which would require a mounted Docker socket).
 
-- **`local`** (recommended) — bubblewrap isolation. Tool processes run in their own
-  user, PID, and mount namespaces with the Stella process's environment scrubbed, so
-  they cannot read its secrets. **Experimental on Kubernetes:** it depends on the
-  cluster allowing _unprivileged user namespaces_ (bubblewrap calls `unshare(2)`).
-  The chart adds no privileged securityContext and mounts no Docker socket, and
-  defaults the pod's seccomp profile to `RuntimeDefault`. If tools fail with `bwrap:`
-  / `unshare` / "Operation not permitted" errors, first set
-  `sandbox.seccompProfile=Unconfined` (some clusters' default profile blocks
-  bubblewrap's namespace syscalls); if that is not enough, reconfigure the
-  cluster/node to permit unprivileged user namespaces — do not reach for `none` to
-  work around it on a multi-user deployment.
-- **`none`** — no isolation. `none` does not disable agent tools; it runs them
-  directly inside the Stella pod as the same user and in the same process namespace.
-
-  > **`none` exposes deployment secrets to agent code.** With no process isolation,
-  > a tool can read the Stella process's environment (e.g. `/proc/1/environ`) and
-  > recover `STELLA_VAULT_KEY` — the master key that decrypts **every user's**
-  > secrets and tokens — and `STELLA_DATABASE_URL`. `secretKeyRef` and the `extraEnv`
-  > guard do not protect against this. Only choose `none` when every user who can
-  > drive an agent is fully trusted (e.g. a single-operator install), never for a
-  > multi-user or public deployment. Hardening the `none` backend itself is
-  > tracked in [#705](https://github.com/CherryHQ/stella/issues/705).
-
-  Because of that, `none` also requires `sandbox.allowUnsafeHostExecution=true` to
-  render. The chart still drops all Linux capabilities and disallows privilege
-  escalation for the container in this mode, but that does not restore the process
-  isolation the secret exposure depends on.
+Tool processes run in their own user, PID, and mount namespaces with the Stella
+process's environment scrubbed. **Experimental on Kubernetes:** it depends on the
+cluster allowing _unprivileged user namespaces_ (bubblewrap calls `unshare(2)`). The
+chart adds no privileged securityContext and mounts no Docker socket, and defaults
+the pod's seccomp profile to `RuntimeDefault`. If tools fail with `bwrap:` /
+`unshare` / "Operation not permitted" errors, first set
+`sandbox.seccompProfile=Unconfined` (some clusters' default profile blocks
+bubblewrap's namespace syscalls); if that is not enough, reconfigure the
+cluster/node to permit unprivileged user namespaces. Do not disable isolation to
+work around the cluster configuration.
 
 ## Why only one replica?
 
@@ -290,9 +270,8 @@ Stella needs outbound access to:
 If your cluster restricts egress, allow these destinations. The chart does not ship
 a NetworkPolicy.
 
-**Restrict egress when you run untrusted agents.** Agent tools reach the network
-with the pod's full access — and with `sandbox.backend=none` they do so as arbitrary
-model-driven code. At minimum, block the cloud metadata endpoint
+**Restrict egress when you run untrusted agents.** Agent tools can reach the network
+with the pod's configured access. At minimum, block the cloud metadata endpoint
 (`169.254.169.254`), which on IMDSv1 clusters can hand out node IAM credentials, and
 deny east-west traffic you do not need. A starting NetworkPolicy:
 
@@ -334,8 +313,6 @@ spec:
   StorageClass whose driver honors `fsGroup`.
 - **Agent tools fail with `bwrap` / `unshare` errors.** You are on
   `sandbox.backend=local` in a cluster that blocks unprivileged user namespaces.
-  Reconfigure the node to allow them. Switching to `sandbox.backend=none` also makes
-  the error go away, but on a multi-user deployment that trades an isolation error
-  for a secret-exposure problem — see [Sandbox backend](#sandbox-backend) first.
+  Reconfigure the node to allow them; this chart intentionally rejects host execution.
 - **OAuth/channel links point at localhost.** `baseURL` is wrong or unset upstream —
   set it to the public ingress URL.

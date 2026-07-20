@@ -33,6 +33,9 @@ func TestLoadServerConfigDefaults(t *testing.T) {
 	if cfg.Database.RequireExternalDB {
 		t.Errorf("RequireExternalDB = true, want false")
 	}
+	if cfg.Sandbox.AllowUnsafeHostExecution {
+		t.Errorf("AllowUnsafeHostExecution = true, want false")
+	}
 	if cfg.Database.URL != "" {
 		t.Errorf("Database.URL = %q, want empty", cfg.Database.URL)
 	}
@@ -152,6 +155,42 @@ func TestLoadServerConfigBoolQuadrants(t *testing.T) {
 	}
 }
 
+func TestLoadServerConfigUnsafeHostExecutionBool(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   string
+		want    bool
+		wantErr bool
+	}{
+		{name: "unset is false", want: false},
+		{name: "whitespace is false", value: "  ", want: false},
+		{name: "true permits none", value: "true", want: true},
+		{name: "one permits none", value: "1", want: true},
+		{name: "invalid is rejected", value: "unsafe", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := map[string]string{}
+			if tc.value != "" {
+				env[allowUnsafeHostExecutionEnv] = tc.value
+			}
+			cfg, err := LoadServerConfig(lookupFrom(env))
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), allowUnsafeHostExecutionEnv) {
+					t.Fatalf("LoadServerConfig() error = %v, want %s parse error", err, allowUnsafeHostExecutionEnv)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadServerConfig() unexpected error: %v", err)
+			}
+			if cfg.Sandbox.AllowUnsafeHostExecution != tc.want {
+				t.Errorf("AllowUnsafeHostExecution = %v, want %v", cfg.Sandbox.AllowUnsafeHostExecution, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoadServerConfigDurationMessage(t *testing.T) {
 	_, err := LoadServerConfig(lookupFrom(map[string]string{httpShutdownTimeoutEnv: "nope"}))
 	if err == nil {
@@ -178,9 +217,10 @@ func TestLoadServerConfigBoolMessage(t *testing.T) {
 // once (via env.AggregateError), not one per restart.
 func TestLoadServerConfigAggregatesErrors(t *testing.T) {
 	_, err := LoadServerConfig(lookupFrom(map[string]string{
-		requireExternalDBEnv:    "maybe",
-		httpShutdownTimeoutEnv:  "nope",
-		riverSoftStopTimeoutEnv: "later",
+		requireExternalDBEnv:        "maybe",
+		httpShutdownTimeoutEnv:      "nope",
+		riverSoftStopTimeoutEnv:     "later",
+		allowUnsafeHostExecutionEnv: "unsafe",
 	}))
 	if err == nil {
 		t.Fatal("expected error")
@@ -189,10 +229,10 @@ func TestLoadServerConfigAggregatesErrors(t *testing.T) {
 	if !errors.As(err, &agg) {
 		t.Fatalf("error is not env.AggregateError: %T", err)
 	}
-	if len(agg.Errors) != 3 {
-		t.Fatalf("aggregate has %d errors, want 3: %v", len(agg.Errors), agg.Errors)
+	if len(agg.Errors) != 4 {
+		t.Fatalf("aggregate has %d errors, want 4: %v", len(agg.Errors), agg.Errors)
 	}
-	for _, name := range []string{requireExternalDBEnv, httpShutdownTimeoutEnv, riverSoftStopTimeoutEnv} {
+	for _, name := range []string{requireExternalDBEnv, allowUnsafeHostExecutionEnv, httpShutdownTimeoutEnv, riverSoftStopTimeoutEnv} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("aggregated error %q missing field %q", err.Error(), name)
 		}

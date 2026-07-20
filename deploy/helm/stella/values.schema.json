@@ -56,10 +56,9 @@
       "properties": {
         "backend": {
           "type": "string",
-          "enum": ["", "local", "none"],
-          "description": "docker is intentionally unsupported by this chart."
+          "enum": ["", "local"],
+          "description": "host execution (none) and docker are intentionally unsupported by this chart."
         },
-        "allowUnsafeHostExecution": { "type": "boolean" },
         "seccompProfile": {
           "type": "string",
           "enum": ["RuntimeDefault", "Unconfined"]

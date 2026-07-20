@@ -52,7 +52,8 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
-		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+		SandboxBackendFn:         func(context.Context) string { return config.SandboxBackendNone },
+		AllowUnsafeHostExecution: true,
 		ProjectResolver: func(ctx context.Context, projectID, userID string) (string, error) {
 			if projectID != "project-1" || userID != "user-1" {
 				t.Fatalf("ProjectResolver called with projectID=%q userID=%q", projectID, userID)

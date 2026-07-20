@@ -95,11 +95,6 @@ expect_ok "image digest pins over tag" "${BASE[@]}" --set sandbox.backend=local 
   --set image.digest=sha256:0123456789abcdef
 assert_contains "image pinned by digest"     "ghcr.io/cherryhq/stella@sha256:0123456789abcdef"
 
-expect_ok "sandbox=none with confirmation" "${BASE[@]}" \
-  --set sandbox.backend=none --set sandbox.allowUnsafeHostExecution=true
-assert_contains "none drops escalation"      "allowPrivilegeEscalation: false"
-assert_contains "none drops capabilities"    'drop: ["ALL"]'
-
 expect_ok "ephemeral storage with confirmation" "${BASE[@]}" \
   --set sandbox.backend=local --set persistence.enabled=false \
   --set persistence.allowEphemeralDataLoss=true
@@ -142,8 +137,10 @@ expect_fail "missing existingSecret" "existingSecret" \
 expect_fail "replicaCount=2" "replica" \
   "${BASE[@]}" --set sandbox.backend=local --set replicaCount=2
 expect_fail "sandbox backend missing" "sandbox.backend" "${BASE[@]}"
-expect_fail "sandbox=none without confirmation" "allowUnsafeHostExecution" \
+expect_fail "sandbox=none is unsupported" 'sandbox.backend must be one of the following: "", "local"' \
   "${BASE[@]}" --set sandbox.backend=none
+expect_fail "sandbox=none escape hatch is unsupported" 'sandbox.backend must be one of the following: "", "local"' \
+  "${BASE[@]}" --set sandbox.backend=none --set sandbox.allowUnsafeHostExecution=true
 expect_fail "grace period too small" "terminationGracePeriodSeconds" \
   "${BASE[@]}" --set sandbox.backend=local \
   --set shutdown.terminationGracePeriodSeconds=50
@@ -172,9 +169,6 @@ expect_fail "podLabels overrides selector" "podLabels must not set" \
   --set 'podLabels.app\.kubernetes\.io/name=evil'
 expect_fail "invalid seccompProfile rejected" "seccompProfile" \
   "${BASE[@]}" --set sandbox.backend=local --set sandbox.seccompProfile=Wide
-expect_fail "none must not weaken seccomp" "seccompProfile=RuntimeDefault" \
-  "${BASE[@]}" --set sandbox.backend=none --set sandbox.allowUnsafeHostExecution=true \
-  --set sandbox.seccompProfile=Unconfined
 expect_fail "ingress enabled without hosts" "ingress.hosts" \
   "${BASE[@]}" --set sandbox.backend=local --set ingress.enabled=true --set 'ingress.hosts=null'
 

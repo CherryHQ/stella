@@ -14,9 +14,10 @@ import (
 // source of truth for the normalized-environment key set and the parse-error
 // messages.
 const (
-	requireExternalDBEnv    = "STELLA_REQUIRE_EXTERNAL_DB"
-	httpShutdownTimeoutEnv  = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
-	riverSoftStopTimeoutEnv = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
+	requireExternalDBEnv        = "STELLA_REQUIRE_EXTERNAL_DB"
+	httpShutdownTimeoutEnv      = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
+	riverSoftStopTimeoutEnv     = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
+	allowUnsafeHostExecutionEnv = "STELLA_ALLOW_UNSAFE_HOST_EXECUTION"
 
 	// Raw passthrough vars: read with os.Getenv semantics (value or "" for
 	// unset/empty; no trim, no default). Their group-level validation stays with
@@ -104,6 +105,8 @@ type ServerConfig struct {
 	// Observability holds tracing/telemetry toggles owned by this server (the
 	// standard OTEL SDK variables stay with the SDK and are not mirrored here).
 	Observability ObservabilityConfig
+	// Sandbox controls server-wide safety gates for sandbox backend selection.
+	Sandbox SandboxRuntimeConfig
 }
 
 // VaultConfig carries the vault master key (STELLA_VAULT_KEY). The key is a
@@ -147,6 +150,13 @@ type ReflectConfig struct {
 	Interval    string
 	Mode        string
 	CuratorMode string
+}
+
+// SandboxRuntimeConfig holds server-wide sandbox safety settings.
+type SandboxRuntimeConfig struct {
+	// AllowUnsafeHostExecution permits the explicitly unsafe none backend. When
+	// false, agent sessions reject that backend before creating a host process.
+	AllowUnsafeHostExecution bool
 }
 
 // DiagnosticsConfig holds optional local debug-server settings.
@@ -199,9 +209,10 @@ const defaultServerURL = "http://127.0.0.1:25678"
 // with the Go field name and cannot enforce the ">0" bound — so we parse those
 // after the struct is populated to preserve the existing actionable messages.
 type rawServerConfig struct {
-	RequireExternalDB    string `env:"STELLA_REQUIRE_EXTERNAL_DB"`
-	HTTPShutdownTimeout  string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
-	RiverSoftStopTimeout string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
+	RequireExternalDB        string `env:"STELLA_REQUIRE_EXTERNAL_DB"`
+	AllowUnsafeHostExecution string `env:"STELLA_ALLOW_UNSAFE_HOST_EXECUTION"`
+	HTTPShutdownTimeout      string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
+	RiverSoftStopTimeout     string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
 }
 
 // serverConfigKeys is the closed set of normalized (trimmed, empty=default)
@@ -210,6 +221,7 @@ type rawServerConfig struct {
 // unrelated variable can never leak into the parse.
 var serverConfigKeys = []string{
 	requireExternalDBEnv,
+	allowUnsafeHostExecutionEnv,
 	httpShutdownTimeoutEnv,
 	riverSoftStopTimeoutEnv,
 }
@@ -297,6 +309,10 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	if err != nil {
 		errs = append(errs, err)
 	}
+	allowUnsafeHostExecution, err := parseServerBool(allowUnsafeHostExecutionEnv, raw.AllowUnsafeHostExecution)
+	if err != nil {
+		errs = append(errs, err)
+	}
 	httpTimeout, err := parseServerDuration(httpShutdownTimeoutEnv, raw.HTTPShutdownTimeout, defaultHTTPShutdownTimeout)
 	if err != nil {
 		errs = append(errs, err)
@@ -316,6 +332,9 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 		Lifecycle: Lifecycle{
 			HTTPShutdownTimeout:  httpTimeout,
 			RiverSoftStopTimeout: riverTimeout,
+		},
+		Sandbox: SandboxRuntimeConfig{
+			AllowUnsafeHostExecution: allowUnsafeHostExecution,
 		},
 	}, nil
 }

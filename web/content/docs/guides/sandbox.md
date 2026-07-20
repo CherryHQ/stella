@@ -104,13 +104,14 @@ volumes:
 
 ### Environment Variables
 
-| Variable                     | Description                                                               |
-| ---------------------------- | ------------------------------------------------------------------------- |
-| `STELLA_DOCKER_SANDBOX_MODE` | Required for the `docker` sandbox backend: `host`, `bind`, or `volume`    |
-| `STELLA_HOME_HOST`           | Host-side path backing `STELLA_HOME`; required only in `bind` mode        |
-| `STELLA_HOME_VOLUME`         | Docker named volume backing `STELLA_HOME`; required only in `volume` mode |
+| Variable                             | Description                                                               |
+| ------------------------------------ | ------------------------------------------------------------------------- |
+| `STELLA_DOCKER_SANDBOX_MODE`         | Required for the `docker` sandbox backend: `host`, `bind`, or `volume`    |
+| `STELLA_HOME_HOST`                   | Host-side path backing `STELLA_HOME`; required only in `bind` mode        |
+| `STELLA_HOME_VOLUME`                 | Docker named volume backing `STELLA_HOME`; required only in `volume` mode |
+| `STELLA_ALLOW_UNSAFE_HOST_EXECUTION` | Required as `true` to select the unsafe `none` backend                    |
 
-If agents use `local` or `none`, none of these variables are needed.
+If agents use `local`, none of these variables are needed.
 
 ## Local Backend
 
@@ -164,6 +165,8 @@ The docker backend bakes its mise toolchain under absolute `/opt/stella` — the
 ## None Backend
 
 The `none` backend runs the agent directly on the host with the current user's permissions. No isolation of any kind — no filesystem confinement, no network restrictions, no process group kill, no resource limits.
+
+It is disabled by default. To select it, set `STELLA_ALLOW_UNSAFE_HOST_EXECUTION=true` before starting stellad. This is an explicit acceptance that agent code can access the stellad process, its files, and its environment (including secrets reachable through `/proc`); environment scrubbing does not create isolation.
 
 **Use only for fully trusted agents in single-user local deployments.** Not safe for untrusted agents or multi-user environments.
 

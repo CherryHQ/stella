@@ -50,9 +50,8 @@ helm install stella ./deploy/helm/stella \
   --set sandbox.backend=local
 ```
 
-`sandbox.backend=local` 是推荐选项 —— 它用 bubblewrap 隔离 agent 运行的工具。只有在
-读过 [沙箱后端](#sandbox-backend) 之后才考虑退回 `none`；`none` 让 agent 代码无隔离
-运行，并会把部署密钥暴露给它。
+`sandbox.backend=local` 是唯一支持的选项。它用 bubblewrap 隔离 agent 运行的工具；此 chart
+刻意拒绝不安全的宿主机执行（`none`）。
 
 `baseURL`、`secrets.existingSecret`、`sandbox.backend` 为必填 —— 缺任意一个 chart 都
 拒绝渲染。`baseURL` 必须是外部可达的 URL（ingress 地址），绝不能是 loopback：它是
@@ -82,36 +81,35 @@ kubectl -n stella port-forward svc/stella 25678:25678
 
 ## Values 参考
 
-| 键                                       | 默认值                          | 说明                                                          |
-| ---------------------------------------- | ------------------------------- | ------------------------------------------------------------- |
-| `replicaCount`                           | `1`                             | 必须为 `1`，其他值一律拒绝。                                  |
-| `image.repository`                       | `ghcr.io/cherryhq/stella`       | 容器镜像。                                                    |
-| `image.tag`                              | `""`                            | 为空时用 `latest`；生产建议固定版本 tag 或 digest。           |
-| `image.digest`                           | `""`                            | `sha256:…` 摘要；固定镜像并覆盖 `tag`。                       |
-| `image.pullPolicy`                       | `IfNotPresent`                  |                                                               |
-| `imagePullSecrets`                       | `[]`                            | 私有 registry 用。                                            |
-| `baseURL`                                | `""`                            | **必填。** 公网 URL（`STELLA_BASE_URL`）。                    |
-| `secrets.existingSecret`                 | `""`                            | **必填。** 含 vault key 与 DSN 的 Secret 名。                 |
-| `secrets.keys.vaultKey`                  | `STELLA_VAULT_KEY`              | Secret 中存 vault key 的键名。                                |
-| `secrets.keys.databaseURL`               | `STELLA_DATABASE_URL`           | Secret 中存 DSN 的键名。                                      |
-| `sandbox.backend`                        | `""`                            | **必填。** `local` 或 `none`（见 [沙箱](#sandbox-backend)）。 |
-| `sandbox.allowUnsafeHostExecution`       | `false`                         | `backend=none` 时必须为 `true`。                              |
-| `sandbox.seccompProfile`                 | `RuntimeDefault`                | Pod seccomp profile。`local` 需要时设 `Unconfined`。          |
-| `shutdown.preStopSeconds`                | `10`                            | preStop sleep，等待 endpoint 摘除传播。                       |
-| `shutdown.httpSeconds`                   | `60`                            | `STELLA_HTTP_SHUTDOWN_TIMEOUT`。                              |
-| `shutdown.riverSoftStopSeconds`          | `120`                           | `STELLA_RIVER_SOFT_STOP_TIMEOUT`。                            |
-| `shutdown.terminationGracePeriodSeconds` | `200`                           | Pod grace period（见 [公式](#graceful-shutdown)）。           |
-| `persistence.enabled`                    | `true`                          | 在 `/home/stella/.stella` 挂 PVC。                            |
-| `persistence.allowEphemeralDataLoss`     | `false`                         | 关闭持久化时必须为 `true`（emptyDir 会丢用户数据）。          |
-| `persistence.size`                       | `10Gi`                          | 申请卷大小。                                                  |
-| `persistence.accessMode`                 | `ReadWriteOnce`                 |                                                               |
-| `persistence.storageClass`               | `""`                            | 空 = 集群默认；`-` 关闭动态供给。                             |
-| `persistence.existingClaim`              | `""`                            | 复用你自己管理的 PVC，不由 chart 创建。                       |
-| `service.type` / `service.port`          | `ClusterIP` / `25678`           |                                                               |
-| `ingress.*`                              | 关闭                            | `className`、`annotations`、`hosts`、`tls`。                  |
-| `resources`                              | requests 500m/1Gi，limits 2/4Gi |                                                               |
-| `extraEnv`                               | `[]`                            | 透传普通环境变量（S3、OIDC、provider key）。                  |
-| `serviceAccount.*`                       | `create: true`                  | token automount 始终关闭。                                    |
+| 键                                       | 默认值                          | 说明                                                   |
+| ---------------------------------------- | ------------------------------- | ------------------------------------------------------ |
+| `replicaCount`                           | `1`                             | 必须为 `1`，其他值一律拒绝。                           |
+| `image.repository`                       | `ghcr.io/cherryhq/stella`       | 容器镜像。                                             |
+| `image.tag`                              | `""`                            | 为空时用 `latest`；生产建议固定版本 tag 或 digest。    |
+| `image.digest`                           | `""`                            | `sha256:…` 摘要；固定镜像并覆盖 `tag`。                |
+| `image.pullPolicy`                       | `IfNotPresent`                  |                                                        |
+| `imagePullSecrets`                       | `[]`                            | 私有 registry 用。                                     |
+| `baseURL`                                | `""`                            | **必填。** 公网 URL（`STELLA_BASE_URL`）。             |
+| `secrets.existingSecret`                 | `""`                            | **必填。** 含 vault key 与 DSN 的 Secret 名。          |
+| `secrets.keys.vaultKey`                  | `STELLA_VAULT_KEY`              | Secret 中存 vault key 的键名。                         |
+| `secrets.keys.databaseURL`               | `STELLA_DATABASE_URL`           | Secret 中存 DSN 的键名。                               |
+| `sandbox.backend`                        | `""`                            | **必填。** 仅 `local`（见 [沙箱](#sandbox-backend)）。 |
+| `sandbox.seccompProfile`                 | `RuntimeDefault`                | Pod seccomp profile。`local` 需要时设 `Unconfined`。   |
+| `shutdown.preStopSeconds`                | `10`                            | preStop sleep，等待 endpoint 摘除传播。                |
+| `shutdown.httpSeconds`                   | `60`                            | `STELLA_HTTP_SHUTDOWN_TIMEOUT`。                       |
+| `shutdown.riverSoftStopSeconds`          | `120`                           | `STELLA_RIVER_SOFT_STOP_TIMEOUT`。                     |
+| `shutdown.terminationGracePeriodSeconds` | `200`                           | Pod grace period（见 [公式](#graceful-shutdown)）。    |
+| `persistence.enabled`                    | `true`                          | 在 `/home/stella/.stella` 挂 PVC。                     |
+| `persistence.allowEphemeralDataLoss`     | `false`                         | 关闭持久化时必须为 `true`（emptyDir 会丢用户数据）。   |
+| `persistence.size`                       | `10Gi`                          | 申请卷大小。                                           |
+| `persistence.accessMode`                 | `ReadWriteOnce`                 |                                                        |
+| `persistence.storageClass`               | `""`                            | 空 = 集群默认；`-` 关闭动态供给。                      |
+| `persistence.existingClaim`              | `""`                            | 复用你自己管理的 PVC，不由 chart 创建。                |
+| `service.type` / `service.port`          | `ClusterIP` / `25678`           |                                                        |
+| `ingress.*`                              | 关闭                            | `className`、`annotations`、`hosts`、`tls`。           |
+| `resources`                              | requests 500m/1Gi，limits 2/4Gi |                                                        |
+| `extraEnv`                               | `[]`                            | 透传普通环境变量（S3、OIDC、provider key）。           |
+| `serviceAccount.*`                       | `create: true`                  | token automount 始终关闭。                             |
 
 ### 通过 `extraEnv` 接入可选集成
 
@@ -139,31 +137,16 @@ chart 通过 typed values 管理的变量在 `extraEnv` 里会被**拒绝**（`S
 
 ## 沙箱后端 {#sandbox-backend}
 
-`sandbox.backend` 必填且无默认值。它决定 agent 运行的工具（`bash`、文件编辑）如何与
-Stella 进程隔离。本 chart 支持两种后端；`docker` 后端刻意不支持（它需要挂载 Docker
-socket）。
+`sandbox.backend` 必填且无默认值。本 chart 只支持 **`local`**（bubblewrap）隔离；它刻意
+拒绝 `none` 宿主机执行和 `docker` 后端（后者需要挂载 Docker socket）。
 
-- **`local`**（推荐）—— bubblewrap 隔离。工具进程运行在自己独立的 user、PID、mount
-  namespace 里，且 Stella 进程的环境变量被擦除，因此读不到它的密钥。**在 Kubernetes
-  上属实验性：** 依赖集群允许 _非特权 user namespace_（bubblewrap 会调用
-  `unshare(2)`）。chart 不加任何特权 securityContext，也不挂 Docker socket，并把 pod
-  的 seccomp profile 默认设为 `RuntimeDefault`。若工具报 `bwrap:` / `unshare` /
-  “Operation not permitted” 错误，先设 `sandbox.seccompProfile=Unconfined`（某些集群
-  的默认 profile 会拦掉 bubblewrap 的 namespace 系统调用）；若还不够，再把集群/节点改成
-  允许非特权 user namespace —— 在多用户部署上不要用切到 `none` 来绕过。
-- **`none`** —— 无隔离。`none` 不会禁用 agent 工具；它让工具以同一用户、同一进程
-  namespace 直接在 Stella pod 内运行。
-
-  > **`none` 会把部署密钥暴露给 agent 代码。** 没有进程隔离，工具可以读取 Stella
-  > 进程的环境变量（如 `/proc/1/environ`），拿到 `STELLA_VAULT_KEY`——解密**每一个
-  > 用户**密钥与 token 的主密钥——以及 `STELLA_DATABASE_URL`。`secretKeyRef` 和
-  > `extraEnv` 防护都挡不住这条路径。只有当每个能驱动 agent 的用户都完全可信时
-  > （例如单运维者的私有部署）才用 `none`，绝不要用于多用户或公开部署。加固 `none`
-  > 后端本身的工作追踪在 [#705](https://github.com/CherryHQ/stella/issues/705)。
-
-  正因如此，`none` 还要求 `sandbox.allowUnsafeHostExecution=true` 才能渲染。这种模式
-  下 chart 仍会为容器 drop 所有 Linux capability 并禁止提权，但这并不能恢复密钥暴露
-  所依赖的那层进程隔离。
+工具进程运行在自己独立的 user、PID、mount namespace 里，且 Stella 进程的环境变量被擦除。
+**在 Kubernetes 上属实验性：** 依赖集群允许 _非特权 user namespace_（bubblewrap 会调用
+`unshare(2)`）。chart 不加任何特权 securityContext，也不挂 Docker socket，并把 pod 的
+seccomp profile 默认设为 `RuntimeDefault`。若工具报 `bwrap:` / `unshare` /
+“Operation not permitted” 错误，先设 `sandbox.seccompProfile=Unconfined`（某些集群的默认
+profile 会拦掉 bubblewrap 的 namespace 系统调用）；若还不够，再把集群/节点改成允许非特权
+user namespace。不要为了绕过集群配置而关闭隔离。
 
 ## 为什么只能单副本？ {#why-only-one-replica}
 
@@ -257,8 +240,7 @@ Stella 需要出站访问：
 
 若集群限制出站，请放行这些目标。chart 不提供 NetworkPolicy。
 
-**运行不受信任的 agent 时请限制出站。** agent 工具以 pod 的完整网络权限访问外部——
-在 `sandbox.backend=none` 下更是以任意模型驱动的代码身份访问。至少要阻断云元数据端点
+**运行不受信任的 agent 时请限制出站。** agent 工具可用 pod 配置的网络权限访问外部。至少要阻断云元数据端点
 （`169.254.169.254`），它在 IMDSv1 集群上可能交出节点 IAM 凭据；并拒绝不需要的东西向
 流量。一个起步的 NetworkPolicy：
 
@@ -297,8 +279,6 @@ spec:
   chart 设了 `fsGroup: 1000`；若你的 CSI 驱动忽略 `fsGroup`（有些会），请在外部给卷
   设好属主，或选一个驱动尊重 `fsGroup` 的 StorageClass。
 - **agent 工具报 `bwrap` / `unshare` 错误。** 你在一个禁止非特权 user namespace 的
-  集群上用 `sandbox.backend=local`。把节点改成允许它们。切到 `sandbox.backend=none`
-  也能让错误消失，但在多用户部署上这是用一个隔离错误换来一个密钥暴露问题 —— 请先看
-  [沙箱后端](#sandbox-backend)。
+  集群上用 `sandbox.backend=local`。把节点改成允许它们；此 chart 刻意拒绝宿主机执行。
 - **OAuth/通道链接指向 localhost。** 上游的 `baseURL` 错了或没设 —— 把它设成公网
   ingress URL。

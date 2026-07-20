@@ -51,15 +51,6 @@ spec:
         - name: stella
           image: {{ include "stella.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if eq (trim .Values.sandbox.backend) "none" }}
-          # With no sandbox there is no reason to keep escalation paths open.
-          # The local (bubblewrap) backend omits this: bwrap needs user
-          # namespaces and, on setuid installs, privilege escalation.
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          {{- end }}
           ports:
             - name: http
               containerPort: 25678

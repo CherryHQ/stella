@@ -47,20 +47,11 @@ secrets:
     databaseURL: STELLA_DATABASE_URL
 
 sandbox:
-  # Which sandbox backend agent tools use. Required, no default. One of:
-  #   local — bubblewrap isolation. EXPERIMENTAL: needs a cluster that permits
-  #           unprivileged user namespaces. The chart adds no privileges and
-  #           mounts no docker socket.
-  #   none  — no sandbox isolation. Agent tools run directly inside the Stella
-  #           pod. This does NOT disable agent tools; it removes their isolation.
-  # The `docker` backend is intentionally unsupported here (no docker socket).
+  # Required local bubblewrap backend. The chart adds no privileges and mounts
+  # no Docker socket; host execution (backend=none) is intentionally unsupported.
   backend: ""
-  # Must be true when backend is "none" to acknowledge that agent tools execute
-  # unsandboxed inside the pod. Ignored for other backends.
-  allowUnsafeHostExecution: false
   # Pod seccomp profile. RuntimeDefault is the hardened default. If backend=local
-  # (bubblewrap) fails with seccomp/namespace errors on your cluster, set this to
-  # Unconfined; backend=none never needs it.
+  # fails with seccomp/namespace errors on your cluster, set this to Unconfined.
   seccompProfile: RuntimeDefault
 
 # Two-phase graceful-shutdown budget, in whole seconds. See the deployment docs

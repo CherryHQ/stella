@@ -70,7 +70,8 @@ services:
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       # External PostgreSQL DSN -> use the postgres service instead of the managed embedded server
       - STELLA_DATABASE_URL=postgres://postgres:postgres@postgres:5432/stella?sslmode=disable
-      # Lock sandbox backend via env (docker | local | none); UI becomes read-only
+      # Lock sandbox backend via env (docker | local | none); none also requires
+      # STELLA_ALLOW_UNSAFE_HOST_EXECUTION=true. UI becomes read-only.
       - STELLA_SANDBOX_BACKEND=docker
       # Explicit Docker sandbox mode: host | bind | volume
       - STELLA_DOCKER_SANDBOX_MODE=volume
