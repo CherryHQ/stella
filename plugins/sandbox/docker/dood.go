@@ -46,40 +46,30 @@ var lookupSandboxServerURL = func() string {
 	return strings.TrimSpace(os.Getenv("STELLA_SANDBOX_SERVER_URL"))
 }
 
-// autodetectServerReachability fills SandboxNetwork/ServerURL by inspecting the
-// container stellad runs in, so DooD sandboxes reach stellad with zero extra
-// configuration: they join the same Docker network and target stellad's address
-// on it instead of their own empty 127.0.0.1 loopback. Best-effort — running on
-// the host, no user-defined network, or a daemon hiccup leaves cfg untouched and
-// the caller falls back to loopback. Explicit env values always win.
-func autodetectServerReachability(ctx context.Context, cfg Config) Config {
-	if cfg.RuntimeMode == DockerSandboxModeHost {
-		// stellad runs on the host, so there is no own-container to inspect.
-		// Reaching the host from a sandbox container needs a host-gateway address
-		// (e.g. host.docker.internal) which is deployment-specific — out of scope
-		// here; set STELLA_SANDBOX_SERVER_URL explicitly if sandboxes need it.
-		return cfg
-	}
-	if cfg.SandboxNetwork != "" && cfg.ServerURL != "" {
-		return cfg // fully configured by env
-	}
+// identifySelf resolves stellad's daemon-visible container identity. DooD owner
+// labels depend on this identity, so unlike reachability detection it fails
+// closed when the daemon cannot identify the current container.
+func identifySelf(ctx context.Context) (*dockerclient.SelfContainer, error) {
 	host, err := lookupHostname()
 	if err != nil {
-		return cfg
+		return nil, fmt.Errorf("docker backend: determine container hostname: %w", err)
 	}
 	client, err := getSharedClient()
 	if err != nil {
-		return cfg
+		return nil, fmt.Errorf("docker backend: create client to identify own container: %w", err)
 	}
+	return identifySelfWithClient(ctx, client, host)
+}
+
+func identifySelfWithClient(ctx context.Context, client *dockerclient.Client, host string) (*dockerclient.SelfContainer, error) {
 	self, err := client.InspectSelf(ctx, host)
-	if err != nil || self == nil {
-		// Silent failure here would surface only as connection-refused inside the
-		// sandbox, which is miserable to debug — point the operator at the override.
-		slog.Warn("docker backend: could not identify stellad's own container for sandbox networking; set STELLA_SANDBOX_NETWORK and STELLA_SANDBOX_SERVER_URL if sandboxes cannot reach stellad",
-			"component", "runner_sandbox", "ref", host, "err", err)
-		return cfg
+	if err != nil {
+		return nil, fmt.Errorf("docker backend: inspect own container %q: %w", host, err)
 	}
-	return applyReachability(cfg, self)
+	if self == nil || self.ID == "" {
+		return nil, fmt.Errorf("docker backend: could not identify own container; docker bind and volume modes require stellad to run in a daemon-visible container")
+	}
+	return self, nil
 }
 
 // applyReachability merges a detected self-container into cfg, filling only the

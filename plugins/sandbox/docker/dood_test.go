@@ -1,8 +1,15 @@
 package docker
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/moby/moby/api/types/container"
+	mobyclient "github.com/moby/moby/client"
+
+	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
 func withDockerModeEnv(t *testing.T, mode, stellaHomeHost, stellaHomeVolume string) {
@@ -165,6 +172,45 @@ func TestApplyDockerMode_MissingModeErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), dockerSandboxModeEnv) {
 		t.Errorf("error should mention %s, got: %v", dockerSandboxModeEnv, err)
+	}
+}
+
+type selfIdentityAPI struct {
+	noopAPI
+	result mobyclient.ContainerInspectResult
+	err    error
+}
+
+func (f selfIdentityAPI) ContainerInspect(context.Context, string, mobyclient.ContainerInspectOptions) (mobyclient.ContainerInspectResult, error) {
+	return f.result, f.err
+}
+
+func TestIdentifySelfWithClientFailsClosed(t *testing.T) {
+	cases := []struct {
+		name string
+		api  selfIdentityAPI
+		want string
+	}{
+		{"not a container", selfIdentityAPI{}, "could not identify"},
+		{"inspect error", selfIdentityAPI{err: errors.New("daemon down")}, "inspect own container"},
+		{"empty ID", selfIdentityAPI{result: mobyclient.ContainerInspectResult{Container: container.InspectResponse{}}}, "could not identify"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := identifySelfWithClient(context.Background(), dockerclient.NewWithAPI(tc.api), "self")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestIdentifySelfWithClientCachesDaemonVisibleID(t *testing.T) {
+	self, err := identifySelfWithClient(context.Background(), dockerclient.NewWithAPI(selfIdentityAPI{
+		result: mobyclient.ContainerInspectResult{Container: container.InspectResponse{ID: "daemon-visible-id"}},
+	}), "self")
+	if err != nil || self.ID != "daemon-visible-id" {
+		t.Fatalf("self, err = %+v, %v", self, err)
 	}
 }
 

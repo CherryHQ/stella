@@ -147,9 +147,15 @@ defaults, so its contract holds for any `image.repository` you substitute.
 
 ## Sandbox backend
 
+| Deployment                      | Supported sandbox backends                                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Helm on Kubernetes              | `local` only                                                                                               |
+| Docker Compose or a native host | `docker`, `local`, or explicitly enabled `none` as documented in the [sandbox guide](/docs/guides/sandbox) |
+
 `sandbox.backend` is required and has no default. This chart supports only
 **`local`** (bubblewrap) isolation; it intentionally rejects both `none` host
-execution and the `docker` backend (which would require a mounted Docker socket).
+execution and the `docker` backend. Docker is unsupported on Kubernetes: the
+chart never mounts a Docker socket and offers no values or escape hatch to add one.
 
 Tool processes run in their own user, PID, and mount namespaces with the Stella
 process's environment scrubbed. **Experimental on Kubernetes:** it depends on the
@@ -233,6 +239,12 @@ the old pod stops and the new one starts and passes its startup probe.
   back to an older image does not undo migrations that the newer version already
   applied. If you must roll back across a migration, restore the database from your
   backup as well.
+- **Docker sandbox upgrades are outside Helm.** If you previously ran Docker-outside-
+  of-Docker (DooD), running sandbox containers with the legacy `owner_pid` label are
+  preserved on the first upgrade because a container PID is not safely meaningful to
+  the Docker daemon. End those old sessions deliberately, or remove their stopped
+  containers after confirming they are not in use. New DooD sessions use daemon-
+  visible container ownership and are cleaned up safely after restarts.
 
 ## Storage
 

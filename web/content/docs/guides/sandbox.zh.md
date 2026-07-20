@@ -21,6 +21,13 @@ Stella 在沙箱内运行 agent 代码。你可以为每个 agent 选择沙箱�
 
 Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守护进程必须正在运行且可访问。支持所有平台（Linux、macOS、Windows）。
 
+| 部署方式                        | Docker 沙箱支持                         |
+| ------------------------------- | --------------------------------------- |
+| 原生宿主机或 Docker Compose     | 支持（`host`、`bind` 或 `volume` 模式） |
+| Stella Helm chart 的 Kubernetes | 不支持——仅使用 `local`                  |
+
+Helm chart 绝不挂载 Docker socket，也没有挂载 socket 的逃生口。不要自行添加：这会让 agent 控制的容器获得节点 Docker daemon 的访问权。
+
 ### 何时使用
 
 - 需要 agent 与宿主机之间的强隔离。
@@ -47,6 +54,12 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守
 每种模式都会拒绝属于其他模式的环境变量。例如，`bind` 模式下设置 `STELLA_HOME_VOLUME` 会报错。
 
 Volume 模式需要 Docker Engine 25+ 以支持 volume subpath 挂载。
+
+### 升级 DooD 归属
+
+升级时，仍在运行且只带 `stella.sandbox.owner_pid` 标签的旧 DooD 沙箱容器会被保留：该 PID
+属于容器 namespace，无法安全地用于 daemon 侧存活判断。请有意结束这些 session，或在确认未使用后
+删除已停止的容器。新 session 使用 daemon 可见的所属容器 ID，重启后可被安全清理。
 
 ### Docker Compose 示例
 

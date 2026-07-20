@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"context"
 	"testing"
 
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
@@ -67,22 +66,6 @@ func TestApplyReachability(t *testing.T) {
 		got := applyReachability(Config{ServerURL: "http://stella:9000"}, composeSelf)
 		if got.ServerURL != "http://stella:9000" {
 			t.Fatalf("url overridden: %q", got.ServerURL)
-		}
-	})
-}
-
-func TestAutodetectServerReachabilityShortCircuits(t *testing.T) {
-	t.Run("host mode skips detection", func(t *testing.T) {
-		got := autodetectServerReachability(context.Background(), Config{RuntimeMode: DockerSandboxModeHost})
-		if got.SandboxNetwork != "" || got.ServerURL != "" {
-			t.Fatalf("host mode mutated cfg: %+v", got)
-		}
-	})
-
-	t.Run("fully configured by env skips detection", func(t *testing.T) {
-		got := autodetectServerReachability(context.Background(), Config{RuntimeMode: DockerSandboxModeVolume, SandboxNetwork: "n", ServerURL: "u"})
-		if got.SandboxNetwork != "n" || got.ServerURL != "u" {
-			t.Fatalf("configured cfg mutated: %+v", got)
 		}
 	})
 }

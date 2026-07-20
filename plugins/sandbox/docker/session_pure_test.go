@@ -5,10 +5,33 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
+
+func TestSessionLabelsUseCachedOwnerIdentity(t *testing.T) {
+	createdAt := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name  string
+		owner dockerclient.Owner
+	}{
+		{"host process", dockerclient.Owner{Kind: dockerclient.OwnerKindProcess, ID: "1234"}},
+		{"DooD container", dockerclient.Owner{Kind: dockerclient.OwnerKindContainer, ID: "daemon-visible-container-id"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			labels := (&dockerFactory{owner: tc.owner}).sessionLabels("session", "/stella", createdAt)
+			if labels[dockerclient.LabelOwnerKind] != tc.owner.Kind || labels[dockerclient.LabelOwnerID] != tc.owner.ID {
+				t.Fatalf("owner labels = %q/%q, want %q/%q", labels[dockerclient.LabelOwnerKind], labels[dockerclient.LabelOwnerID], tc.owner.Kind, tc.owner.ID)
+			}
+			if _, legacy := labels[dockerclient.LabelOwnerPID]; legacy {
+				t.Fatalf("new labels must not write %s: %v", dockerclient.LabelOwnerPID, labels)
+			}
+		})
+	}
+}
 
 func TestMergeEnv(t *testing.T) {
 	t.Run("nil inputs", func(t *testing.T) {

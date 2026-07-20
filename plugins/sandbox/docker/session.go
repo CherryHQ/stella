@@ -48,6 +48,7 @@ func logSessionClosed(sessionID, backend, reason string) {
 // dockerFactory creates docker-backed sandbox sessions.
 type dockerFactory struct {
 	cfg                Config
+	owner              dockerclient.Owner
 	cleanupOrphansOnce sync.Once
 	toolCacheGCOnce    sync.Once
 }
@@ -58,21 +59,31 @@ type dockerFactory struct {
 //   - Runtime mode resolution: reads $STELLA_DOCKER_SANDBOX_MODE and the
 //     matching mode-specific env ($STELLA_HOME_HOST or $STELLA_HOME_VOLUME).
 //     No container runtime auto-detection is used.
+//   - DooD owner identity: inspects the daemon-visible current container once;
+//     bind and volume modes fail closed when that identity cannot be resolved.
 //   - User tool resolution: loads the builtin and user plugin manifests
 //     ($STELLA_HOME/plugins.yaml) to populate UserToolBinaries.
 //
-// Both steps are skipped when StellaHome is empty (e.g. unit tests), making
+// These steps are skipped when StellaHome is empty (e.g. unit tests), making
 // construction cheap and infallible in that case.
 func NewFactory(cfg Config) (sandboxpkg.Factory, error) {
+	owner := dockerclient.Owner{Kind: dockerclient.OwnerKindProcess, ID: strconv.Itoa(os.Getpid())}
 	if cfg.StellaHome != "" {
 		var err error
 		cfg, err = applyDockerMode(cfg, cfg.StellaHome)
 		if err != nil {
 			return nil, err
 		}
-		detectCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		cfg = autodetectServerReachability(detectCtx, cfg)
-		cancel()
+		if cfg.RuntimeMode != DockerSandboxModeHost {
+			detectCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			self, err := identifySelf(detectCtx)
+			cancel()
+			if err != nil {
+				return nil, err
+			}
+			cfg = applyReachability(cfg, self)
+			owner = dockerclient.Owner{Kind: dockerclient.OwnerKindContainer, ID: self.ID}
+		}
 		if len(cfg.UserToolBinaries) == 0 {
 			tools, err := resolveUserToolBinaries(cfg.StellaHome)
 			if err != nil {
@@ -81,7 +92,7 @@ func NewFactory(cfg Config) (sandboxpkg.Factory, error) {
 			cfg.UserToolBinaries = tools
 		}
 	}
-	return &dockerFactory{cfg: cfg}, nil
+	return &dockerFactory{cfg: cfg, owner: owner}, nil
 }
 
 func (f *dockerFactory) Name() string { return "docker" }
@@ -129,7 +140,7 @@ func (f *dockerFactory) EnsureReady(ctx context.Context) error {
 		if err != nil {
 			return
 		}
-		dockerclient.CleanupOrphanedContainers(ctx, client, scope)
+		dockerclient.CleanupOrphanedContainers(ctx, client, scope, f.owner)
 	})
 	f.toolCacheGCOnce.Do(func() {
 		client, err := getSharedClient()
@@ -197,13 +208,8 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		NetworkMode:    networkMode,
 		Network:        f.cfg.SandboxNetwork,
 		Env:            mergeEnv(policy.Env, nil),
-		Labels: map[string]string{
-			dockerclient.LabelSessionID:  sessionID,
-			dockerclient.LabelStellaHome: cleanupScope,
-			dockerclient.LabelCreatedAt:  time.Now().UTC().Format(time.RFC3339),
-			dockerclient.LabelOwnerPID:   strconv.Itoa(os.Getpid()),
-		},
-		Name: "stella-sandbox-" + sessionID,
+		Labels:         f.sessionLabels(sessionID, cleanupScope, time.Now().UTC()),
+		Name:           "stella-sandbox-" + sessionID,
 	}
 
 	mountedPolicyMounts, mountedTempDirHost, mountedUserDataHost, err := f.configureSessionMounts(&opts, policy, workspaceHost, userDataHost)
@@ -346,6 +352,16 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 // returns the mounted process-view mounts, the mounted temp-dir host, and the
 // mounted user-data host ("" when /user could not be mounted, so callers don't
 // wire a /user that isn't really there).
+func (f *dockerFactory) sessionLabels(sessionID, cleanupScope string, createdAt time.Time) map[string]string {
+	return map[string]string{
+		dockerclient.LabelSessionID:  sessionID,
+		dockerclient.LabelStellaHome: cleanupScope,
+		dockerclient.LabelCreatedAt:  createdAt.UTC().Format(time.RFC3339),
+		dockerclient.LabelOwnerKind:  f.owner.Kind,
+		dockerclient.LabelOwnerID:    f.owner.ID,
+	}
+}
+
 func (f *dockerFactory) configureSessionMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost, userDataHost string) ([]sandboxpkg.Mount, string, string, error) {
 	if len(policy.Filesystem.Mounts) == 0 {
 		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: workspaceHost, SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite})

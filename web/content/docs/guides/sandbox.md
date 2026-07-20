@@ -21,6 +21,13 @@ Change the active sandbox backend from the **Plugins** page in the Web UI. Only 
 
 Docker provides full container-level process, filesystem, and network isolation. The Docker daemon must be running and reachable. All platforms (Linux, macOS, Windows) are supported.
 
+| Deployment                            | Docker sandbox support                       |
+| ------------------------------------- | -------------------------------------------- |
+| Native host or Docker Compose         | Supported (`host`, `bind`, or `volume` mode) |
+| Kubernetes with the Stella Helm chart | Unsupported — use `local` only               |
+
+The Helm chart never mounts a Docker socket and has no socket-mount escape hatch. Do not add one: it would give agent-controlled containers access to the node's Docker daemon.
+
 ### When to Use
 
 - You need strong isolation between the agent and the host.
@@ -47,6 +54,14 @@ When stellad itself runs inside a Docker container and agents use the `docker` s
 Each mode rejects env vars that belong to other modes. For example, `bind` mode with `STELLA_HOME_VOLUME` set is an error.
 
 Volume mode requires Docker Engine 25+ for volume subpath mounts.
+
+### Upgrading DooD ownership
+
+Existing DooD sandbox containers labelled only with `stella.sandbox.owner_pid` are
+preserved while running after upgrading: that PID belongs to a container namespace
+and cannot safely establish daemon-side liveness. End those sessions deliberately,
+or remove their stopped containers after verifying they are unused. New sessions use
+the daemon-visible owning container ID and are cleaned up safely after a restart.
 
 ### Docker Compose Examples
 

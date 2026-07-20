@@ -137,8 +137,14 @@ chart 通过 typed values 管理的变量在 `extraEnv` 里会被**拒绝**（`S
 
 ## 沙箱后端 {#sandbox-backend}
 
+| 部署方式                    | 支持的沙箱后端                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| Kubernetes 上的 Helm        | 仅 `local`                                                                      |
+| Docker Compose 或原生宿主机 | 按[沙箱指南](/docs/guides/sandbox)配置的 `docker`、`local`，或显式启用的 `none` |
+
 `sandbox.backend` 必填且无默认值。本 chart 只支持 **`local`**（bubblewrap）隔离；它刻意
-拒绝 `none` 宿主机执行和 `docker` 后端（后者需要挂载 Docker socket）。
+拒绝 `none` 宿主机执行和 `docker` 后端。Kubernetes 上不支持 Docker：chart 绝不挂载 Docker
+socket，也没有通过 values 添加它的逃生口。
 
 工具进程运行在自己独立的 user、PID、mount namespace 里，且 Stella 进程的环境变量被擦除。
 **在 Kubernetes 上属实验性：** 依赖集群允许 _非特权 user namespace_（bubblewrap 会调用
@@ -207,6 +213,10 @@ terminationGracePeriodSeconds >=
   Stella 启动时会自动应用待执行的数据库迁移。
 - **`helm rollback` 只回滚 workload，不回滚数据库。** 把 chart 回滚到旧镜像不会撤销
   新版本已经应用的迁移。若必须跨迁移回滚，请一并从备份恢复数据库。
+- **Docker 沙箱升级不属于 Helm 范围。** 若你之前运行的是 Docker-outside-of-Docker（DooD），
+  带旧 `owner_pid` 标签且仍在运行的沙箱容器会在首次升级时被保留：容器内 PID 对 Docker daemon
+  没有可安全解释的含义。请在确认不再使用后结束这些旧 session，或删除已停止的容器。新的 DooD
+  session 会记录 daemon 可见的容器归属，重启后可被安全清理。
 
 ## 存储
 
