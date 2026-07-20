@@ -161,13 +161,9 @@ func (s *PGStore) ListForUser(ctx context.Context, userID string, agentIDs []str
 
 // ListFiles returns all file paths for a skill (no content).
 func (s *PGStore) ListFiles(ctx context.Context, skillID string) ([]string, error) {
-	rows, err := s.q.ListSkillFiles(ctx, skillID)
+	paths, err := s.q.ListSkillFilePaths(ctx, skillID)
 	if err != nil {
 		return nil, fmt.Errorf("skills: list files for %s: %w", skillID, err)
-	}
-	paths := make([]string, 0, len(rows))
-	for _, r := range rows {
-		paths = append(paths, r.Path)
 	}
 	return paths, nil
 }
