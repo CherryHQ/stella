@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -48,58 +50,51 @@ func TestSeed(t *testing.T) {
 		t.Fatalf("Seed: %v", err)
 	}
 
-	providers, err := s.ListProviders(ctx)
-	if err != nil {
-		t.Fatalf("ListProviders: %v", err)
-	}
-	if len(providers) != len(config.BuiltinProviderNames) {
-		t.Errorf("expected %d providers, got %d", len(config.BuiltinProviderNames), len(providers))
-	}
-	found := false
-	for _, p := range providers {
-		if p.Enabled {
-			t.Errorf("provider %q should be disabled until an admin enables it", p.ID)
-		}
-		if p.Type == "anthropic" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected anthropic provider to be seeded")
-	}
-
-	agents, err := s.ListAgents(ctx)
-	if err != nil {
-		t.Fatalf("ListAgents: %v", err)
-	}
-	if len(agents) != 1 || agents[0].Name != "Stella" {
-		t.Errorf("expected 1 Stella agent, got %v", agents)
-	}
-	if !agents[0].Enabled {
-		t.Error("stella agent should be enabled")
-	}
-}
-
-func TestSeedUsesConfiguredProviderInstanceForAgentModel(t *testing.T) {
-	s := setupDBStore(t)
-	ctx := testCtx()
-
-	if err := s.CreateProvider(ctx, config.Provider{ID: "claude", Type: "anthropic", Name: "Claude"}); err != nil {
-		t.Fatalf("CreateProvider: %v", err)
-	}
-	if err := s.Seed(ctx); err != nil {
-		t.Fatalf("Seed: %v", err)
-	}
-
 	agents, err := s.ListAgents(ctx)
 	if err != nil {
 		t.Fatalf("ListAgents: %v", err)
 	}
 	if len(agents) != 1 {
-		t.Fatalf("expected 1 agent, got %d", len(agents))
+		t.Fatalf("agents = %v, want one Stella agent", agents)
 	}
-	if agents[0].Model != "anthropic/claude-sonnet-4-6" {
-		t.Fatalf("agent.Model = %q, want %q", agents[0].Model, "anthropic/claude-sonnet-4-6")
+	if got := agents[0]; got.ID != "stella" || got.Name != "Stella" || !got.Enabled || got.Model != "" {
+		t.Errorf("seeded agent = %+v, want enabled Stella with id stella and empty model", got)
+	}
+
+	providers, err := s.ListProviders(ctx)
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	if len(providers) != 0 {
+		t.Errorf("providers = %v, want none", providers)
+	}
+	channels, err := s.ListChannels(ctx)
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+	if len(channels) != 0 {
+		t.Errorf("channels = %v, want none", channels)
+	}
+}
+
+func TestSeedRemovesLegacyTracePlugin(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+
+	if err := s.UpsertPlugin(ctx, config.Plugin{ID: "hook/trace", Kind: config.PluginKindHook, Name: "trace", Enabled: true}); err != nil {
+		t.Fatalf("UpsertPlugin: %v", err)
+	}
+	if err := s.Seed(ctx); err != nil {
+		t.Fatalf("Seed: %v", err)
+	}
+	overrides, err := s.ListPluginOverrides(ctx)
+	if err != nil {
+		t.Fatalf("ListPluginOverrides: %v", err)
+	}
+	for _, override := range overrides {
+		if override.ID == "hook/trace" {
+			t.Fatal("legacy trace plugin was not removed")
+		}
 	}
 }
 
@@ -114,15 +109,112 @@ func TestSeedIdempotent(t *testing.T) {
 		t.Fatalf("second Seed: %v", err)
 	}
 
-	providers, _ := s.ListProviders(ctx)
-	if len(providers) != len(config.BuiltinProviderNames) {
-		t.Errorf("expected %d providers after double seed, got %d", len(config.BuiltinProviderNames), len(providers))
+	agents, err := s.ListAgents(ctx)
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 1 || agents[0].ID != "stella" {
+		t.Errorf("agents after double Seed = %v, want one stella", agents)
+	}
+}
+
+func TestSeedConcurrent(t *testing.T) {
+	s := setupDBStore(t)
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			<-start
+			errs <- s.Seed(testCtx())
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent Seed: %v", err)
+		}
 	}
 
-	for _, p := range providers {
-		if p.ID != p.Type {
-			t.Errorf("provider %q should have deterministic ID equal to type, got ID=%q", p.Type, p.ID)
-		}
+	agents, err := s.ListAgents(testCtx())
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 1 || agents[0].ID != "stella" {
+		t.Fatalf("agents after concurrent Seed = %v, want one stella", agents)
+	}
+	providers, err := s.ListProviders(testCtx())
+	if err != nil {
+		t.Fatalf("ListProviders: %v", err)
+	}
+	if len(providers) != 0 {
+		t.Errorf("providers after concurrent Seed = %v, want none", providers)
+	}
+	channels, err := s.ListChannels(testCtx())
+	if err != nil {
+		t.Fatalf("ListChannels: %v", err)
+	}
+	if len(channels) != 0 {
+		t.Errorf("channels after concurrent Seed = %v, want none", channels)
+	}
+}
+
+func TestSeedPreservesExistingAgent(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+
+	if err := s.CreateAgent(ctx, config.Agent{ID: "existing-agent", Name: "Existing", Model: "test/model", Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	if err := s.Seed(ctx); err != nil {
+		t.Fatalf("Seed: %v", err)
+	}
+
+	agents, err := s.ListAgents(ctx)
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 1 || agents[0].ID != "existing-agent" {
+		t.Fatalf("agents after Seed = %v, want only existing agent", agents)
+	}
+}
+
+func TestSeedAgentConflictDoesNotOverwriteExistingAgent(t *testing.T) {
+	_, db := setupDBStoreWithDB(t)
+	ctx := testCtx()
+	q := sqlc.New(db)
+
+	first := sqlc.SeedAgentParams{
+		ID:                   "stella",
+		Name:                 "first",
+		Model:                "test/model",
+		Workspace:            "/tmp/first",
+		Sandbox:              json.RawMessage(`{}`),
+		EnabledBuiltinSkills: json.RawMessage(`[]`),
+		Scope:                config.AgentScopeSystem,
+		Enabled:              true,
+	}
+	if err := q.SeedAgent(ctx, first); err != nil {
+		t.Fatalf("seed first agent: %v", err)
+	}
+	second := first
+	second.Name = "second"
+	second.Model = "other/model"
+	second.Enabled = false
+	if err := q.SeedAgent(ctx, second); err != nil {
+		t.Fatalf("seed conflicting agent: %v", err)
+	}
+
+	var name, model string
+	var enabled bool
+	if err := db.QueryRow(ctx, `SELECT name, model, enabled FROM agent WHERE id = 'stella'`).Scan(&name, &model, &enabled); err != nil {
+		t.Fatalf("get seeded agent: %v", err)
+	}
+	if name != "first" || model != "test/model" || !enabled {
+		t.Errorf("conflicting seed overwrote agent: name=%q model=%q enabled=%t", name, model, enabled)
 	}
 }
 
@@ -218,59 +310,76 @@ func TestProviderCustomModels(t *testing.T) {
 	}
 }
 
-func TestProviderEnvFallback(t *testing.T) {
+func TestProviderCredentialsIgnoreEnvironment(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()
 
-	if err := s.CreateProvider(ctx, config.Provider{ID: "anthropic", Name: "Anthropic"}); err != nil {
-		t.Fatalf("CreateProvider: %v", err)
+	for key, value := range map[string]string{
+		"ANTHROPIC_API_KEY":  "anthropic-env-key",
+		"ANTHROPIC_BASE_URL": "https://anthropic.env.example.com",
+		"OPENAI_API_KEY":     "openai-env-key",
+		"OPENAI_BASE_URL":    "https://openai.env.example.com",
+	} {
+		t.Setenv(key, value)
+	}
+	if err := s.CreateProvider(ctx, config.Provider{ID: "anthropic-empty", Type: "anthropic", Name: "Anthropic Empty"}); err != nil {
+		t.Fatalf("CreateProvider(anthropic-empty): %v", err)
+	}
+	if err := s.CreateProvider(ctx, config.Provider{ID: "openai-configured", Type: "openai", Name: "OpenAI Configured", APIKey: "db-key", BaseURL: "https://db.example.com"}); err != nil {
+		t.Fatalf("CreateProvider(openai-configured): %v", err)
+	}
+	for _, agent := range []config.Agent{
+		{ID: "empty", Name: "Empty", Model: "anthropic-empty/claude", Enabled: true},
+		{ID: "configured", Name: "Configured", Model: "openai-configured/gpt", Enabled: true},
+	} {
+		if err := s.CreateAgent(ctx, agent); err != nil {
+			t.Fatalf("CreateAgent(%s): %v", agent.ID, err)
+		}
 	}
 
-	t.Setenv("ANTHROPIC_API_KEY", "env-key")
-	t.Setenv("ANTHROPIC_BASE_URL", "https://env.example.com")
-
-	got, err := s.GetProvider(ctx, "anthropic")
+	providers, err := s.ListProviders(ctx)
 	if err != nil {
-		t.Fatalf("GetProvider: %v", err)
+		t.Fatalf("ListProviders: %v", err)
 	}
-	if got.APIKey != "env-key" {
-		t.Errorf("APIKey = %q, want env fallback", got.APIKey)
+	listed := make(map[string]config.Provider, len(providers))
+	for _, provider := range providers {
+		listed[provider.ID] = provider
 	}
-	if got.BaseURL != "https://env.example.com" {
-		t.Errorf("BaseURL = %q, want env fallback", got.BaseURL)
+	if got := listed["anthropic-empty"]; got.APIKey != "" || got.BaseURL != "" {
+		t.Errorf("ListProviders empty credentials = (%q, %q), want empty DB values", got.APIKey, got.BaseURL)
 	}
-}
-
-func TestProviderEnvFallbackOpenAI(t *testing.T) {
-	s := setupDBStore(t)
-	ctx := testCtx()
-
-	if err := s.CreateProvider(ctx, config.Provider{ID: "openai", Name: "OpenAI"}); err != nil {
-		t.Fatalf("CreateProvider: %v", err)
+	if got := listed["openai-configured"]; got.APIKey != "db-key" || got.BaseURL != "https://db.example.com" {
+		t.Errorf("ListProviders configured credentials = (%q, %q), want DB values", got.APIKey, got.BaseURL)
 	}
 
-	t.Setenv("OPENAI_API_KEY", "openai-env-key")
-	got, err := s.GetProvider(ctx, "openai")
-	if err != nil {
-		t.Fatalf("GetProvider: %v", err)
-	}
-	if got.APIKey != "openai-env-key" {
-		t.Errorf("APIKey = %q, want env fallback", got.APIKey)
-	}
-}
-
-func TestProviderEnvNoOverwrite(t *testing.T) {
-	s := setupDBStore(t)
-	ctx := testCtx()
-
-	if err := s.CreateProvider(ctx, config.Provider{ID: "anthropic", Name: "Anthropic", APIKey: "db-key"}); err != nil {
-		t.Fatalf("CreateProvider: %v", err)
+	for _, want := range []config.Provider{
+		{ID: "anthropic-empty"},
+		{ID: "openai-configured", APIKey: "db-key", BaseURL: "https://db.example.com"},
+	} {
+		got, err := s.GetProvider(ctx, want.ID)
+		if err != nil {
+			t.Fatalf("GetProvider(%s): %v", want.ID, err)
+		}
+		if got.APIKey != want.APIKey || got.BaseURL != want.BaseURL {
+			t.Errorf("GetProvider(%s) credentials = (%q, %q), want (%q, %q)", want.ID, got.APIKey, got.BaseURL, want.APIKey, want.BaseURL)
+		}
 	}
 
-	t.Setenv("ANTHROPIC_API_KEY", "env-key")
-	got, _ := s.GetProvider(ctx, "anthropic")
-	if got.APIKey != "db-key" {
-		t.Errorf("APIKey = %q, want DB value preserved over env", got.APIKey)
+	for _, want := range []struct {
+		agentID string
+		apiKey  string
+		baseURL string
+	}{
+		{agentID: "empty"},
+		{agentID: "configured", apiKey: "db-key", baseURL: "https://db.example.com"},
+	} {
+		snap, err := s.Snapshot(ctx, want.agentID)
+		if err != nil {
+			t.Fatalf("Snapshot(%s): %v", want.agentID, err)
+		}
+		if snap.APIKey != want.apiKey || snap.BaseURL != want.baseURL {
+			t.Errorf("Snapshot(%s) credentials = (%q, %q), want (%q, %q)", want.agentID, snap.APIKey, snap.BaseURL, want.apiKey, want.baseURL)
+		}
 	}
 }
 
@@ -481,18 +590,9 @@ func TestSnapshot(t *testing.T) {
 	}
 	stellaID := agents[0].ID
 
-	providers, err := s.ListProviders(ctx)
-	if err != nil {
-		t.Fatalf("ListProviders: %v", err)
+	if err := s.CreateProvider(ctx, config.Provider{ID: "anthropic", Type: "anthropic", Name: "Anthropic", APIKey: "sk-test", Enabled: true}); err != nil {
+		t.Fatalf("CreateProvider: %v", err)
 	}
-	var anthropicID string
-	for _, p := range providers {
-		if p.Type == "anthropic" {
-			anthropicID = p.ID
-			break
-		}
-	}
-	_ = s.UpdateProvider(ctx, config.Provider{ID: anthropicID, Type: "anthropic", Name: "Anthropic", APIKey: "sk-test", Enabled: true})
 	_ = s.UpdateAgent(ctx, config.Agent{
 		ID:           stellaID,
 		Name:         "Stella",

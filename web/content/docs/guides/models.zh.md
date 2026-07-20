@@ -46,15 +46,3 @@ Stella 中的每个代理最多使用三个模型层级：
 - **在Web UI中** -- 进入**模型**页面浏览可用模型并切换当前模型。
 
 切换会在下一条消息时生效。
-
-## 环境变量回退
-
-如果你不想在Web UI中存储 API key，可以将其设置为环境变量。当提供商没有配置 key 时，Stella 会检查这些环境变量：
-
-| 提供商      | 环境变量            | 可选              |
-| ----------- | ------------------- | ----------------- |
-| Anthropic   | `ANTHROPIC_API_KEY` |                   |
-| OpenAI      | `OPENAI_API_KEY`    | `OPENAI_BASE_URL` |
-| OpenAI 兼容 | `OPENAI_API_KEY`    | `OPENAI_BASE_URL` |
-
-将这些添加到你的 shell 配置文件或部署环境中，以便重启后依然有效。Web UI中配置的提供商 key 优先于环境变量。

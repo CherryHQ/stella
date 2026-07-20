@@ -516,11 +516,8 @@ func TestListProviders(t *testing.T) {
 	if err := json.Unmarshal(parseListItems(t, rr, "providers"), &providers); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(providers) == 0 {
-		t.Fatal("expected at least one provider")
-	}
-	if providers[0].Type != "anthropic" {
-		t.Errorf("provider Type = %q, want %q", providers[0].Type, "anthropic")
+	if len(providers) != 0 {
+		t.Fatalf("providers = %v, want none before explicit configuration", providers)
 	}
 }
 

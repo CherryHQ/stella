@@ -79,7 +79,6 @@ var envReadAllowlist = map[string]map[string]bool{
 
 	// Dynamic per-key reads over a computed key set.
 	"internal/manifestplugins/mise_installer.go": {nonLiteralRead: true},
-	"internal/store/dbstore.go":                  {nonLiteralRead: true},
 
 	// Host environment passthrough for the sandbox: PATH and selected host vars
 	// are forwarded into the sandbox, not stella configuration.

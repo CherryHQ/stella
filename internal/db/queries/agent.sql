@@ -3,6 +3,11 @@ INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_t
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING *;
 
+-- name: SeedAgent :exec
+INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (id) DO NOTHING;
+
 -- name: GetAgent :one
 SELECT * FROM agent WHERE id = $1;
 

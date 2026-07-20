@@ -26,7 +26,7 @@ Before you start, make sure you have:
 5. Enter your AppID and AppSecret, then save.
 6. Restart `stellad server` to activate the new channel.
 
-All channel configuration (credentials, allowed IDs, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
+All channel configuration (credentials, allowed IDs, etc.) is managed through the Web UI.
 
 ## Multi-User Support
 

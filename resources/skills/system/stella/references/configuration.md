@@ -12,7 +12,7 @@ The easiest way to configure stella is to run `stellad server` and open `http://
 4. Configure channels (Telegram token, etc.)
 5. Restart: `stellad server`
 
-Or just: `export ANTHROPIC_API_KEY="sk-..."` and run `stellad server`. Default bootstrapping will create an "anthropic" provider and "stella" agent automatically.
+On first run, Stella creates an enabled `stella` agent without a provider or model. Add a provider and choose its model for Stella in the Web UI before chatting.
 
 ## Database tables
 
@@ -40,7 +40,7 @@ Create agents via the Web UI or directly in the database.
 
 ## Channel configuration
 
-Channels are stored in `settings_channels`. Each row is a channel instance with an `id`, platform `type`, optional dedicated `agent_id`, enabled flag, and JSON config. The default instance IDs match their platform types (`telegram`, `qq`, `feishu`, `weixin`) for compatibility. Configure channels via the Web UI.
+Channels are stored in the `channel` table. Each row is a channel instance with an `id`, platform `type`, optional dedicated `agent_id`, enabled flag, and JSON config. Stella does not create channel instances on startup; configure them via the Web UI.
 
 **Telegram config fields:**
 
@@ -100,23 +100,14 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 
 ## Environment variables
 
-Environment variables serve as fallbacks for provider API keys:
+Provider credentials and base URLs are stored in explicit provider rows managed through the Web UI or API; they are not read from the server environment.
 
-| Variable             | Fallback for                                |
-| -------------------- | ------------------------------------------- |
-| `STELLA_HOME`        | stella home directory (default `~/.stella`) |
-| `ANTHROPIC_API_KEY`  | anthropic provider API key                  |
-| `ANTHROPIC_BASE_URL` | anthropic provider base URL                 |
-| `OPENAI_API_KEY`     | openai/openai-response provider API key     |
-| `OPENAI_BASE_URL`    | openai/openai-response provider base URL    |
+| Variable      | Purpose                                     |
+| ------------- | ------------------------------------------- |
+| `STELLA_HOME` | stella home directory (default `~/.stella`) |
 
 Note: The old YAML-based environment variables (`STELLA_PROVIDER`, `STELLA_MODEL`, `STELLA_TELEGRAM_TOKEN`, etc.) are no longer supported. Use the Web UI or database directly.
 
 ## Defaults
 
-On first run, `SeedDefaults` creates:
-
-- All built-in provider plugins (anthropic, openai, openai-response) with env var fallback for API keys
-- An "stella" agent using the anthropic provider with `claude-sonnet-4-6` model
-- Default system prompt with stella's personality
-- All built-in tool, channel, and hook plugins
+On first run, Stella creates one enabled `stella` agent with an empty model and Stella's default system prompt. Provider and channel instances are explicit administrator configuration; built-in plugin capabilities are code-defined and do not require database rows.

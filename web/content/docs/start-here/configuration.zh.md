@@ -10,8 +10,6 @@ title: 配置
 
 在Web UI中打开 **提供商** 页面，添加你的 AI 提供商凭证。Stella 支持 Anthropic、OpenAI 以及任何兼容 OpenAI API 的服务（Perplexity、Together.ai、通过 Ollama 运行的本地模型等）。
 
-环境变量 `ANTHROPIC_API_KEY` 和 `OPENAI_API_KEY` 在Web UI中未填写凭证时可作为备用。
-
 ## 代理
 
 打开 **代理** 页面来创建和配置代理。每个代理包含：
@@ -86,8 +84,6 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | `STELLA_BLOB_S3_SECRET_KEY`   | 资产镜像使用的 secret key                                                                |
 | `STELLA_BLOB_S3_REGION`       | 可选 S3 region                                                                           |
 | `STELLA_BLOB_S3_USE_SSL`      | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
-| `ANTHROPIC_API_KEY`           | Anthropic 的备用 API 密钥                                                                |
-| `OPENAI_API_KEY`              | OpenAI 的备用 API 密钥                                                                   |
 | `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
 | `STELLA_DOCKER_SANDBOX_MODE`  | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
 | `STELLA_HOME_HOST`            | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |

@@ -249,6 +249,39 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 	return items, nil
 }
 
+const seedAgent = `-- name: SeedAgent :exec
+INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (id) DO NOTHING
+`
+
+type SeedAgentParams struct {
+	ID                   string          `json:"id"`
+	Name                 string          `json:"name"`
+	Model                string          `json:"model"`
+	SystemPrompt         string          `json:"system_prompt"`
+	Workspace            string          `json:"workspace"`
+	Sandbox              json.RawMessage `json:"sandbox"`
+	EnabledBuiltinSkills json.RawMessage `json:"enabled_builtin_skills"`
+	Scope                string          `json:"scope"`
+	Enabled              bool            `json:"enabled"`
+}
+
+func (q *Queries) SeedAgent(ctx context.Context, arg SeedAgentParams) error {
+	_, err := q.db.Exec(ctx, seedAgent,
+		arg.ID,
+		arg.Name,
+		arg.Model,
+		arg.SystemPrompt,
+		arg.Workspace,
+		arg.Sandbox,
+		arg.EnabledBuiltinSkills,
+		arg.Scope,
+		arg.Enabled,
+	)
+	return err
+}
+
 const updateAgent = `-- name: UpdateAgent :exec
 UPDATE agent SET
     name = $1,

@@ -28,7 +28,7 @@ Before you start, make sure you have:
 
 You can create multiple Telegram channel instances if you have multiple bots. Each instance can optionally be bound to a dedicated agent in the Web UI.
 
-All channel configuration (token, allowed IDs, dedicated agent binding, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
+All channel configuration (token, allowed IDs, dedicated agent binding, etc.) is managed through the Web UI.
 
 ## Multi-User Support
 

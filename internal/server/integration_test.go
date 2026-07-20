@@ -465,47 +465,30 @@ func TestSeedDataPresent(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 
-	// Default agent "Stella" should exist.
 	agents, err := env.store.ListAgents(ctx)
 	if err != nil {
 		t.Fatalf("ListAgents: %v", err)
 	}
-	var foundStella bool
-	for _, a := range agents {
-		if a.Name == "Stella" {
-			foundStella = true
-			if !a.Enabled {
-				t.Error("Stella agent should be enabled")
-			}
-		}
+	if len(agents) != 1 {
+		t.Fatalf("agents = %v, want one Stella agent", agents)
 	}
-	if !foundStella {
-		t.Error("expected seeded Stella agent")
+	if got := agents[0]; got.ID != "stella" || got.Name != "Stella" || !got.Enabled || got.Model != "" {
+		t.Errorf("seeded agent = %+v, want enabled Stella with id stella and empty model", got)
 	}
 
-	// Default providers should exist.
 	providers, err := env.store.ListProviders(ctx)
 	if err != nil {
 		t.Fatalf("ListProviders: %v", err)
 	}
-	if len(providers) == 0 {
-		t.Fatal("expected at least one seeded provider")
+	if len(providers) != 0 {
+		t.Errorf("providers = %v, want none", providers)
 	}
-	providerTypes := make(map[string]bool)
-	for _, p := range providers {
-		providerTypes[p.Type] = true
-	}
-	if !providerTypes["anthropic"] {
-		t.Error("expected seeded anthropic provider")
-	}
-
-	// Default channels should exist.
 	channels, err := env.store.ListChannels(ctx)
 	if err != nil {
 		t.Fatalf("ListChannels: %v", err)
 	}
-	if len(channels) == 0 {
-		t.Fatal("expected at least one seeded channel")
+	if len(channels) != 0 {
+		t.Errorf("channels = %v, want none", channels)
 	}
 }
 
@@ -534,8 +517,8 @@ func TestSeedDataAccessibleViaAPI(t *testing.T) {
 	if err := json.Unmarshal(parseListItems(t, rr, "providers"), &providers); err != nil {
 		t.Fatalf("unmarshal providers: %v", err)
 	}
-	if len(providers) == 0 {
-		t.Fatal("no providers returned from API")
+	if len(providers) != 0 {
+		t.Fatalf("providers returned from API = %v, want none", providers)
 	}
 }
 

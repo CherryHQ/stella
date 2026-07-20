@@ -26,7 +26,7 @@ Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连�
 5. 输入你的 AppID 和 AppSecret，然后保存。
 6. 重启 `stellad server` 以激活新频道。
 
-所有频道配置（凭据、允许的 ID 等）都通过Web UI管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
+所有频道配置（凭据、允许的 ID 等）都通过Web UI管理。
 
 ## 多用户支持
 

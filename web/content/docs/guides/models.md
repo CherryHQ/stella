@@ -46,15 +46,3 @@ You can switch models mid-conversation without losing context:
 - **In the Web UI** -- go to the **Models** page to browse available models and switch the active model.
 
 The change takes effect on the next message.
-
-## Environment variable fallbacks
-
-If you prefer not to store API keys in the Web UI, you can set them as environment variables. Stella checks these when a provider does not have a key configured:
-
-| Provider          | Environment variable | Optional          |
-| ----------------- | -------------------- | ----------------- |
-| Anthropic         | `ANTHROPIC_API_KEY`  |                   |
-| OpenAI            | `OPENAI_API_KEY`     | `OPENAI_BASE_URL` |
-| OpenAI-compatible | `OPENAI_API_KEY`     | `OPENAI_BASE_URL` |
-
-Add these to your shell profile or deployment environment so they persist across restarts. Provider keys configured in the Web UI take priority over environment variables.

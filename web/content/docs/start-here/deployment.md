@@ -175,7 +175,6 @@ docker run -d \
   -v ~/.stella:/home/stella/.stella \
   -p 25678:25678 \
   -e STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require' \
-  -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
   stellad server
 ```
@@ -196,8 +195,6 @@ services:
       - ./stella-data:/home/stella/.stella
     environment:
       - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
-      - ANTHROPIC_API_KEY=sk-...
-      # - OPENAI_API_KEY=sk-...
 ```
 
 The `seccomp=unconfined` flag is needed for the `local` sandbox backend (bubblewrap). If agents use the `docker` sandbox backend, you need additional Docker socket mounts and mode-specific environment variables — see the [Sandbox guide](/docs/guides/sandbox#docker-compose-examples) for all compose variants.
@@ -348,14 +345,10 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | `STELLA_BLOB_S3_SECRET_KEY`      | No§                       | Secret key for the asset mirror                                                                                                                                               |
 | `STELLA_BLOB_S3_REGION`          | No                        | Optional S3 region                                                                                                                                                            |
 | `STELLA_BLOB_S3_USE_SSL`         | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
-| `ANTHROPIC_API_KEY`              | Yes\*                     | Anthropic provider key                                                                                                                                                        |
-| `OPENAI_API_KEY`                 | Yes\*                     | OpenAI provider key                                                                                                                                                           |
 | `STELLA_VAULT_KEY`               | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
 | `STELLA_DOCKER_SANDBOX_MODE`     | No‡                       | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                                                                                   |
 | `STELLA_HOME_HOST`               | No‡                       | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                                                                   |
 | `STELLA_HOME_VOLUME`             | No‡                       | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                                                                            |
-
-\* At least one provider key is required. API keys can also be configured via the Web UI.
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 
