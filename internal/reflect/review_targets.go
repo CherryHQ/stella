@@ -147,11 +147,6 @@ func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo)
 }
 
 func (s *Service) reviewProgress(ctx context.Context, sessionID string, lastActive time.Time, latestSeq int64) (time.Time, bool, error) {
-	if s.runtimeMode != RuntimeModeStructured {
-		mark, err := s.wm.getLegacy(ctx, sessionID)
-		return mark, lastActive.After(mark), err
-	}
-
 	fact, err := s.wm.getLine(ctx, sessionID, reflectLineFact)
 	if err != nil {
 		return time.Time{}, false, fmt.Errorf("get fact watermark: %w", err)

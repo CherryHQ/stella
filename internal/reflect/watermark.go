@@ -15,8 +15,6 @@ type watermarkStore struct {
 	store pkgplugins.StateStore
 }
 
-const reviewWatermarkKey = "review_watermark"
-
 type reflectLine string
 
 const (
@@ -37,97 +35,12 @@ func lineWatermarkKey(line reflectLine) string {
 	return "reflect_watermark:" + string(line)
 }
 
-// get returns the last reviewed timestamp for a session.
-// Returns zero time and nil error if never reviewed (pgx.ErrNoRows).
-// Returns a non-nil error for actual DB failures.
-func (ws *watermarkStore) get(ctx context.Context, sessionID string) (time.Time, error) {
-	val, ok, err := ws.store.Get(ctx, pkgplugins.StateScope{
-		Kind: pkgplugins.StateScopeSession,
-		ID:   sessionID,
-	}, reviewWatermarkKey)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("get watermark %s: %w", sessionID, err)
-	}
-	if !ok {
-		return time.Time{}, nil
-	}
-	raw, _ := val["reviewed_at"].(string)
-	if raw == "" {
-		return time.Time{}, nil
-	}
-	t, err := parseWatermark(raw)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("parse watermark %s: %w", sessionID, err)
-	}
-	return t, nil
-}
-
-// set records the last reviewed timestamp for a session.
-func (ws *watermarkStore) set(ctx context.Context, sessionID string, at time.Time) error {
-	return ws.store.Set(ctx, pkgplugins.StateScope{
-		Kind: pkgplugins.StateScopeSession,
-		ID:   sessionID,
-	}, reviewWatermarkKey, map[string]any{
-		"reviewed_at": at.UTC().Format("2006-01-02 15:04:05"),
-	})
-}
-
 func (ws *watermarkStore) getLine(ctx context.Context, sessionID string, line reflectLine) (reviewWatermark, error) {
-	mark, ok, err := ws.getStoredLine(ctx, sessionID, line)
+	mark, _, err := ws.getStoredLine(ctx, sessionID, line)
 	if err != nil {
 		return reviewWatermark{}, err
-	}
-
-	legacy, err := ws.get(ctx, sessionID)
-	if err != nil {
-		return reviewWatermark{}, err
-	}
-	// A structured line always starts at least at the legacy boundary. This is
-	// also applied when the line already exists so every legacy -> structured
-	// transition consumes the interval handled by the legacy writer. Reset Seq
-	// when flooring to a newer timestamp because the old sequence belongs to an
-	// earlier message boundary.
-	if !ok || legacy.After(mark.At) {
-		mark = reviewWatermark{At: legacy}
-		if legacy.IsZero() {
-			return mark, nil
-		}
-		if err := ws.setLine(ctx, sessionID, line, mark); err != nil {
-			return reviewWatermark{}, err
-		}
 	}
 	return mark, nil
-}
-
-// getLegacy returns the conservative boundary for the legacy writer. When
-// both structured lines exist, legacy may advance to the older line without
-// skipping content still pending on the lagging line. Missing lines leave the
-// existing global boundary unchanged.
-func (ws *watermarkStore) getLegacy(ctx context.Context, sessionID string) (time.Time, error) {
-	legacy, err := ws.get(ctx, sessionID)
-	if err != nil {
-		return time.Time{}, err
-	}
-	fact, factOK, err := ws.getStoredLine(ctx, sessionID, reflectLineFact)
-	if err != nil {
-		return time.Time{}, err
-	}
-	skill, skillOK, err := ws.getStoredLine(ctx, sessionID, reflectLineSkill)
-	if err != nil {
-		return time.Time{}, err
-	}
-	if !factOK || !skillOK {
-		return legacy, nil
-	}
-
-	structured := olderWatermarkTime(fact.At, skill.At)
-	if structured.After(legacy) {
-		if err := ws.set(ctx, sessionID, structured); err != nil {
-			return time.Time{}, err
-		}
-		return structured, nil
-	}
-	return legacy, nil
 }
 
 func (ws *watermarkStore) getStoredLine(ctx context.Context, sessionID string, line reflectLine) (reviewWatermark, bool, error) {

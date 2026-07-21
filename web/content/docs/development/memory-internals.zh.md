@@ -138,29 +138,23 @@ Skills 仍然只表示可复用流程，不再通过 `metadata.knowledge_type` �
 
 普通会话工具不直接写 facts。Structured Reflect 会生成并评估 Fact/Skill 候选、发现相关的 Reflect-owned 记录、协调通过门控的候选，并通过 host 校验后的操作分别写入两条线。Usage tracking 和 curator 负责维护 active Reflect-owned Knowledge/Skill 的生命周期。
 
-## Structured Reflect 与 Curator 上线
+## Structured Reflect 与 Curator
 
-Reflect writer 和 curator 使用相互独立的启动时配置：
+Structured Reflect 是 scheduler 唯一执行的 writer。Fact/Skill 两条线并发运行，但错误和 watermark 相互独立；一条线失败不会取消另一条，也不会推进失败线。已经废弃的 `STELLA_REFLECT_MODE` 不再选择 writer。过渡版本为了兼容部署可接受空值或 `structured`，但显式 `legacy` 或未知值会让服务启动失败。
 
-| 环境变量                      | 可选值                 | 上线默认值 | 含义                                                |
-| ----------------------------- | ---------------------- | ---------- | --------------------------------------------------- |
-| `STELLA_REFLECT_MODE`         | `legacy`、`structured` | `legacy`   | 选择 scheduler 唯一执行的 Reflect writer            |
-| `STELLA_REFLECT_CURATOR_MODE` | `shadow`、`armed`      | `shadow`   | 选择只读扫描或实际执行 Knowledge/Skill 生命周期写入 |
+切换迁移会把每个 session 的旧 `review_watermark` 复制到缺失的 `reflect_watermark:fact` 和 `reflect_watermark:skill` 状态。line 已存在时保留时间更新的一方；如果旧 global 时间更新，则清除原 line sequence，因为该 sequence 属于更早的边界。迁移可以重复执行，并把 global row 原样保留为不再参与运行的回滚数据。运行时代码只读取和推进两条 line watermark。
 
-非法 mode 会让服务启动失败。Structured 模式并发运行 Fact/Skill 两条线，但错误与 watermark 相互独立；一条线失败不会取消另一条，也不会推进失败线。
+Curator 仍使用独立的启动时配置：
 
-模式切换复用已有 watermark，不新增 mode 状态。每次从 legacy 切到 structured 时，两条 line watermark 都至少推进到当前 legacy global watermark；之后 structured 只推进各自的 line watermark。从 structured 切回 legacy 时，global watermark 只推进到两条线中较旧的边界，确保落后线尚未处理的内容不会被跳过；领先线的内容可能被 legacy 保守重放。
+| 环境变量                      | 可选值            | 默认值  | 含义                                             |
+| ----------------------------- | ----------------- | ------- | ------------------------------------------------ |
+| `STELLA_REFLECT_CURATOR_MODE` | `armed`、`shadow` | `armed` | 执行生命周期写入，或保持不产生写入的紧急停止状态 |
 
-Curator Shadow 是不产生业务写入的生产 dry-run，也是 armed 的回滚目标。它执行与 armed 相同的确定性 eligibility scan，记录候选类型、record ID、命中规则、活动输入、候选数量、规则分布、耗时和错误，但不修改记录 status、changelog 或 usage state。Ownership/scope gate、usage 检查、写入时 recheck 和依赖缺失时 fail-closed 由自动化测试保证，不在 Shadow 中增加逐条人工评审。
+`armed` 模式缺少任何 Structured Reflect 或 curator 读写依赖时都会在启动阶段 fail closed。符合条件的 Reflect-owned Knowledge 会被废弃，并可通过经过身份认证的管理 API 恢复；符合条件的 Reflect-owned Skill 会被永久删除。
 
-按以下顺序上线：
+Curator Shadow 会执行与 armed 相同的确定性 eligibility scan，记录候选类型、record ID、命中规则、活动输入、候选数量、规则分布、耗时和错误，但不修改记录 status、changelog 或 usage state。它既是停止后续生命周期写入的紧急开关，也是观察生产扫描规模和 wiring 的只读模式。Ownership/scope gate、usage 检查、写入时 recheck 和依赖缺失时 fail-closed 由自动化测试保证。
 
-1. 部署 `legacy + shadow`，至少完成一次生产全量 Shadow 扫描。
-2. 检查候选规模、规则分布、运行耗时和无法解释的错误。
-3. 启用 `structured + shadow`，检查每条线的耗时、LLM 调用、生成/通过候选、写入、no-op、失败和 watermark 进度。
-4. 仅在具备经身份认证的 Knowledge/Skill 恢复入口且恢复测试通过后启用 `armed`。
-
-Writer 回滚时设置 `STELLA_REFLECT_MODE=legacy`，保守的 global watermark 切换可避免落后线丢失内容。生命周期写入可独立回滚为 `STELLA_REFLECT_CURATOR_MODE=shadow`；此时继续扫描和记录 telemetry，但停止后续废弃写入。
+部署后需要验证一次完整 Structured Reflect 运行、armed curator 的 eligible 写入、Knowledge 恢复，以及切回不产生写入的 Shadow。回滚整个版本需要部署上一版本二进制；保留的 global 和 line watermark 状态可以让上一版本保守地继续处理。
 
 ## LCM 插件
 

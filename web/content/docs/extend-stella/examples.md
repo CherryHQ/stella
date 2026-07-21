@@ -93,7 +93,7 @@ This is the right pattern when the tool depends on host-owned services such as n
 
 ## Example 3: Managed Runtime Plugin
 
-This example follows the same shape used by `reflect`.
+This is the generic shape for a host-managed background service.
 
 ```go
 host.SetInfo(pkgplugins.PluginInfo{

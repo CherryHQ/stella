@@ -88,10 +88,9 @@ Only a small set of environment variables is recognized:
 | `STELLA_DOCKER_SANDBOX_MODE`  | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                       |
 | `STELLA_HOME_HOST`            | Host-side path for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                            |
 | `STELLA_HOME_VOLUME`          | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                     |
-| `STELLA_REFLECT_MODE`         | Reflect writer: `legacy` (default and rollback target) or `structured`                                            |
-| `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `shadow` (default and rollback target) or `armed`                                              |
+| `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |
 
-The Reflect mode variables are read at server startup, so restart Stella after changing them. Invalid writer or curator modes stop startup. See [Deployment](/docs/start-here/deployment#roll-out-structured-reflect) for the activation and rollback procedure and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator-rollout) for the detailed mechanism.
+Structured Reflect is the only writer. Remove the obsolete `STELLA_REFLECT_MODE` variable before upgrading; the transition release rejects an explicit `legacy` value instead of silently changing behavior. Curator mode is read at server startup, so restart Stella after changing it. Invalid curator modes stop startup. See [Deployment](/docs/start-here/deployment#structured-reflect-and-curator) for operational checks and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator) for the detailed mechanism.
 
 See the [Sandbox guide](/docs/guides/sandbox) for how to choose a sandbox backend and configure Docker sandbox modes.
 

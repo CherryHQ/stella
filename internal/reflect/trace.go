@@ -13,12 +13,11 @@ import (
 var tracer = otel.Tracer("stella/reflect")
 
 // startCycleSpan starts a span covering one full review cycle across all agents.
-func startCycleSpan(ctx context.Context, agentCount int, mode RuntimeMode) (context.Context, trace.Span) {
+func startCycleSpan(ctx context.Context, agentCount int) (context.Context, trace.Span) {
 	ctx, span := tracer.Start(ctx, "reflect.cycle",
 		trace.WithAttributes(
 			attribute.String("stella.reflect.operation", "cycle"),
 			attribute.Int("stella.reflect.agent_count", agentCount),
-			attribute.String("stella.reflect.mode", string(mode)),
 		),
 	)
 	return ctx, span

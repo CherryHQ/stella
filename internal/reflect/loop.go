@@ -21,25 +21,10 @@ func (s *Service) RunOnce(ctx context.Context) error {
 }
 
 func (s *Service) runCycle(ctx context.Context) error {
-	review, err := selectReviewTargetFunc(s.runtimeMode, s.reviewConversation, s.reviewConversationStructured)
-	if err != nil {
-		return err
-	}
-	return s.runCycleWithReviewer(ctx, review)
+	return s.runCycleWithReviewer(ctx, s.reviewConversationStructured)
 }
 
 type reviewTargetFunc func(context.Context, *config.Snapshot, reviewTarget) error
-
-func selectReviewTargetFunc(mode RuntimeMode, legacy, structured reviewTargetFunc) (reviewTargetFunc, error) {
-	switch mode.withDefault() {
-	case RuntimeModeLegacy:
-		return legacy, nil
-	case RuntimeModeStructured:
-		return structured, nil
-	default:
-		return nil, fmt.Errorf("reflect: unsupported runtime mode %q", mode)
-	}
-}
 
 func (s *Service) runCycleWithReviewer(ctx context.Context, review reviewTargetFunc) error {
 	if err := ctx.Err(); err != nil {
@@ -53,7 +38,7 @@ func (s *Service) runCycleWithReviewer(ctx context.Context, review reviewTargetF
 		return fmt.Errorf("list enabled agents: %w", err)
 	}
 
-	ctx, span := startCycleSpan(ctx, len(agents), s.runtimeMode.withDefault())
+	ctx, span := startCycleSpan(ctx, len(agents))
 	defer span.End()
 
 	agents = s.orderAgentsForReview(ctx, agents)

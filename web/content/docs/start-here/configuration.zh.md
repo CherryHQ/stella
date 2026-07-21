@@ -88,10 +88,9 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | `STELLA_DOCKER_SANDBOX_MODE`  | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
 | `STELLA_HOME_HOST`            | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
 | `STELLA_HOME_VOLUME`          | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
-| `STELLA_REFLECT_MODE`         | Reflect 写入模式：`legacy`（默认值和回滚目标）或 `structured`                            |
-| `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`shadow`（默认值和回滚目标）或 `armed`                                 |
+| `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |
 
-Reflect 模式变量在服务启动时读取，修改后需要重启 Stella。无效的写入或 curator 模式会阻止启动。启用和回滚步骤见[部署](/docs/start-here/deployment#启用-structured-reflect)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator-上线机制)。
+Structured Reflect 是唯一写入器。升级前请删除已经废弃的 `STELLA_REFLECT_MODE` 环境变量；过渡版本遇到显式 `legacy` 值时会拒绝启动，而不会静默改变行为。Curator 模式在服务启动时读取，修改后需要重启 Stella；非法值会阻止启动。运行检查见[部署](/docs/start-here/deployment#structured-reflect-与-curator)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)。
 
 有关如何选择沙箱后端和配置 Docker 沙箱模式，请参阅[沙箱指南](/docs/guides/sandbox)。
 

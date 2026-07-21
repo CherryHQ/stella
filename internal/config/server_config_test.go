@@ -261,8 +261,8 @@ func TestLoadServerConfigRawPassthrough(t *testing.T) {
 	if cfg.Reflect.Interval != "  garbage  " {
 		t.Errorf("Reflect.Interval not carried verbatim: %q", cfg.Reflect.Interval)
 	}
-	if cfg.Reflect.Mode != "  structured  " {
-		t.Errorf("Reflect.Mode not carried verbatim: %q", cfg.Reflect.Mode)
+	if cfg.Reflect.LegacyModeGuard != "  structured  " {
+		t.Errorf("Reflect.LegacyModeGuard not carried verbatim: %q", cfg.Reflect.LegacyModeGuard)
 	}
 }
 

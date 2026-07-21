@@ -35,7 +35,6 @@ Examples in the current tree:
 
 - `tool/notify` is a simple tool plugin
 - `channel/telegram` owns config, status, channel registration, and runtime lifecycle
-- `reflect` owns config, status, and a managed runtime
 
 ## Why The Design Matters
 
@@ -59,7 +58,6 @@ Stella ships built-in plugins across several areas:
 | hook     | `trace`, `rtk`                           |
 | provider | `anthropic`, `openai`, `openai-response` |
 | memory   | `lcm`, `simple`                          |
-| runtime  | `reflect`                                |
 
 ## Declared Capabilities
 

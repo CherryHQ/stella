@@ -260,19 +260,15 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
-		Memory:                   memProvider,
-		Store:                    store,
-		SkillStore:               skillStoreAdapter,
-		SkillAuthorizer:          skillAccess,
-		SkillReadAuthorizer:      skillAccess,
-		SkillToolWriteAuthorizer: skillAccess,
-		UsageCuratorStore:        reflect.NewSQLUsageCuratorStoreForPool(db),
-		Notifier:                 dispatcher,
-		StateStore:               pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
-		Workspace:                config.StellaHome(),
-		Providers:                providerStreamBuilder,
-		Services:                 &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-	}, cfg.Reflect.Interval, cfg.Reflect.Mode, cfg.Reflect.CuratorMode); err != nil {
+		Memory:            memProvider,
+		Store:             store,
+		SkillStore:        skillStoreAdapter,
+		SkillAuthorizer:   skillAccess,
+		UsageCuratorStore: reflect.NewSQLUsageCuratorStoreForPool(db),
+		StateStore:        pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
+		Providers:         providerStreamBuilder,
+		Services:          &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
+	}, cfg.Reflect.Interval, cfg.Reflect.LegacyModeGuard, cfg.Reflect.CuratorMode); err != nil {
 		return nil, err
 	}
 
