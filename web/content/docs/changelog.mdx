@@ -11,6 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.1] - 2026-07-21
+
+### ✨ Features
+
+- Reflect: launch structured Reflect and retire the legacy writer. ([#762](https://github.com/CherryHQ/stella/pull/762))
+- Skills: support binary files in skill uploads and surface upload errors. ([#761](https://github.com/CherryHQ/stella/pull/761))
+
+### 🐛 Bug Fixes
+
+- Startup: make startup configuration explicit and idempotent. ([#763](https://github.com/CherryHQ/stella/pull/763))
+- Skills: accept root-level skill ZIP uploads. ([#756](https://github.com/CherryHQ/stella/pull/756))
+
+### ♻️ Refactoring
+
+- Xberg: migrate the Kreuzberg document integration to Xberg. ([#754](https://github.com/CherryHQ/stella/pull/754))
+
+**Full Changelog**: [v0.60.0...v0.60.1](https://github.com/CherryHQ/stella/compare/v0.60.0...v0.60.1)
+
 ## [0.60.0] - 2026-07-19
 
 > **Breaking:** The deprecated `stella` agent CLI has been removed. Agents now use native tools, and `stellad` is the only Stella binary. Installations running v0.50.x must upgrade manually once (download the archive or reinstall): that release's `stellad upgrade` expects the removed `stella` binary. Later releases self-upgrade normally.

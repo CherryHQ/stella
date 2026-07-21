@@ -11,6 +11,24 @@ icon: History
 
 ## [Unreleased]
 
+## [0.60.1] - 2026-07-21
+
+### ✨ 功能
+
+- Reflect：上线结构化 Reflect，下线旧版写入器。([#762](https://github.com/CherryHQ/stella/pull/762))
+- 技能：支持技能上传中的二进制文件，并暴露上传错误。([#761](https://github.com/CherryHQ/stella/pull/761))
+
+### 🐛 修复
+
+- 启动：使启动配置显式且幂等。([#763](https://github.com/CherryHQ/stella/pull/763))
+- 技能：接受根级别的技能 ZIP 上传。([#756](https://github.com/CherryHQ/stella/pull/756))
+
+### ♻️ 重构
+
+- Xberg：将 Kreuzberg 文档集成迁移到 Xberg。([#754](https://github.com/CherryHQ/stella/pull/754))
+
+**完整变更记录**：[v0.60.0...v0.60.1](https://github.com/CherryHQ/stella/compare/v0.60.0...v0.60.1)
+
 ## [0.60.0] - 2026-07-19
 
 > **重大变更：** 已移除废弃的 agent `stella` CLI。Agent 现使用原生工具，`stellad` 是唯一的 Stella 二进制程序。运行 v0.50.x 的安装必须手动完成这一次升级（下载归档或重新安装）：该版本的 `stellad upgrade` 仍依赖已移除的 `stella` 二进制程序；后续版本可正常自升级。
