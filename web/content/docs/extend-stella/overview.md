@@ -9,7 +9,7 @@ In Stella, a plugin is the ownership unit for a feature area.
 
 A plugin:
 
-- has one canonical plugin ID such as `tool/webfetch`, `channel/telegram`, or `reflect`
+- has one canonical plugin ID such as `tool/webfetch` or `channel/telegram`
 - owns its own metadata, config schema, validation, and status behavior
 - can register one or more capabilities against the plugin host
 - is compiled into the `stellad` binary at build time
@@ -62,7 +62,6 @@ Examples:
 - `channel/telegram`
 - `hook/rtk`
 - `provider/openai`
-- `reflect`
 
 Capabilities are registered under that plugin ID, but each capability may also have its own capability-local name.
 
@@ -70,7 +69,6 @@ Examples:
 
 - plugin `tool/notify` owns tool capability `notify`
 - plugin `channel/telegram` owns config, channel registration, and a managed runtime
-- plugin `reflect` owns runtime `reviewer` and admin/status behavior
 
 This matters because one plugin can own more than one capability.
 
@@ -97,7 +95,6 @@ Examples:
 
 - `tool/notify` is a simple tool plugin
 - `channel/telegram` owns config, status, channel registration, and runtime lifecycle
-- `reflect` owns config, status, and a managed runtime
 
 ## CLI-Backed Tool Plugins
 
@@ -171,7 +168,6 @@ Common examples:
 - `plugins/tools/webfetch/`
 - `plugins/channels/telegram/`
 - `plugins/providers/openai/`
-- `internal/reflect/`
 
 This keeps plugin ownership obvious: the package that registers a plugin also owns its config logic, runtime wiring, and capability-specific behavior.
 
