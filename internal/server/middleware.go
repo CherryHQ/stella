@@ -207,9 +207,9 @@ func isAuthExempt(method, path string) bool {
 		// exempt -- it needs a logged-in user to render consent.
 		return true
 	case method == http.MethodPost && strings.HasPrefix(path, "/webhooks/"):
-		// Inbound webhook ingress authenticates itself via the caller's PAT and
-		// enforces the agent:write scope in the handler (it never reaches
-		// credential.Enforce). Only POST is exempt.
+		// Inbound webhook ingress authenticates with its opaque URL capability,
+		// which resolves one fixed owner/Agent/worker Authority in webhook.Service.
+		// Authorization headers are ignored there; only POST is exempt.
 		return true
 	case strings.HasPrefix(path, "/api/auth/"):
 		if slices.Contains(publicAuthAPIPaths, path) {

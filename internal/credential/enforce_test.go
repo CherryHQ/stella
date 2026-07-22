@@ -140,16 +140,3 @@ func TestExposableScopesExcludeSandboxInternal(t *testing.T) {
 		}
 	}
 }
-
-// TestScopeAgentWriteMatchesRouteMapping pins the exported constant the
-// auth-exempt webhook ingress checks to the scope Enforce derives for the
-// equivalent /api agent-write routes. If this fails, the webhook surface has
-// drifted from PAT policy.
-func TestScopeAgentWriteMatchesRouteMapping(t *testing.T) {
-	if got := scopeForMethod("agent", "POST"); got != ScopeAgentWrite {
-		t.Fatalf("ScopeAgentWrite = %q, but scopeForMethod(agent, POST) = %q", ScopeAgentWrite, got)
-	}
-	if !patReachable(ScopeAgentWrite) {
-		t.Fatal("agent:write must remain PAT-reachable while the webhook ingress depends on it")
-	}
-}

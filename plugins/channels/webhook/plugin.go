@@ -2,7 +2,7 @@
 //
 // Unlike the bot channels (telegram/feishu/…), the webhook channel has no
 // long-running runtime: it is a plain channel type whose ingress is an HTTP
-// endpoint (POST /webhooks/{id}) served by internal/server. This plugin exists
+// endpoint (POST /webhooks/{capability}) served by internal/server. This plugin exists
 // only to provide the admin config schema + validation and to make "webhook" a
 // selectable channel type; it registers no runtime, so ApplyChannel is a no-op
 // for webhook instances.

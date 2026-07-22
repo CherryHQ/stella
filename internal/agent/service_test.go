@@ -159,6 +159,22 @@ func TestService_Chat_PropagatesEvents(t *testing.T) {
 }
 
 // TestService_Chat_MissingUser returns an error event when no UserID is supplied.
+func TestService_ChatAdmitted_ReportsPreTurnResolutionFailure(t *testing.T) {
+	svc, _ := newTestService(t, nil)
+	stream, err := svc.ChatAdmitted(context.Background(), agent.ChatRequest{AgentID: "agent1", Message: "hi"})
+	if err == nil || stream != nil {
+		t.Fatalf("admission = %v, %v; want nil stream and error", stream, err)
+	}
+
+	// The legacy API retains its stream-only error behavior for existing callers.
+	for event := range svc.Chat(context.Background(), agent.ChatRequest{AgentID: "agent1", Message: "hi"}) {
+		if event.Err != nil {
+			return
+		}
+	}
+	t.Fatal("Chat did not preserve its immediate error event")
+}
+
 func TestService_Chat_MissingUser(t *testing.T) {
 	svc, _ := newTestService(t, nil)
 

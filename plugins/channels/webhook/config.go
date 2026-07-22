@@ -68,8 +68,9 @@ func Validate(raw map[string]any) error {
 	return nil
 }
 
-// RedactConfig has nothing secret to hide (auth is via the caller's PAT, not a
-// stored token), so it returns the config unchanged.
+// RedactConfig returns the behavior-only config unchanged. URL capability
+// verifiers and encrypted provider secrets live in the endpoint domain, never
+// in plugin config.
 func RedactConfig(raw map[string]any) map[string]any {
 	return pkgchannel.CloneConfigMap(raw)
 }

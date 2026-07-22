@@ -272,14 +272,14 @@ func safeClose(ch chan Event) {
 	close(ch)
 }
 
-func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) <-chan Event {
-	out := make(chan Event, 100)
-
+// ChatAdmitted starts one turn only after synchronously acquiring the session's
+// busy guard. A nil error means the turn is admitted; every later runtime failure
+// is delivered on the returned stream. ErrSessionBusy means no turn was started.
+func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) (<-chan Event, error) {
 	if _, loaded := rt.active.LoadOrStore(info.ID, struct{}{}); loaded {
-		out <- Event{Err: fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)}
-		close(out)
-		return out
+		return nil, fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)
 	}
+	out := make(chan Event, 100)
 
 	var co chatOptions
 	for _, o := range opts {
@@ -337,5 +337,22 @@ func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageConte
 			}
 		}
 	}()
+	return out, nil
+}
+
+// Chat preserves the historic stream-only API. Callers that need to distinguish
+// a rejected admission from an admitted turn use ChatAdmitted instead.
+func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) <-chan Event {
+	stream, err := rt.ChatAdmitted(ctx, info, msg, opts...)
+	if err != nil {
+		return errorStream(err)
+	}
+	return stream
+}
+
+func errorStream(err error) <-chan Event {
+	out := make(chan Event, 1)
+	out <- Event{Err: err}
+	close(out)
 	return out
 }

@@ -35,6 +35,7 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 )
 
@@ -75,6 +76,9 @@ type Server struct {
 	schedulerSvc   *scheduler.Service    // optional; if set, create/delete go through the live scheduler
 	goalSvc        *goal.Service         // optional; if nil, goal endpoints return 503
 	workflowSvc    *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
+	webhooks       *webhook.Service      // fixed-capability webhook ingress boundary
+	webhookIngress webhookIngressPort    // narrow capability-domain adapter
+	webhookRun     webhookRunPort        // ingress-only agent execution adapter
 	builtinTools   []agent.BuiltinTool
 	startedAt      time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
@@ -191,6 +195,9 @@ type Deps struct {
 	// handlers use its narrow durable-write/restore/move/delete ports instead of a
 	// raw blob store, so the HTTP transport never holds process-global blob state.
 	Assets *asset.Store
+	// Webhooks resolves public ingress capabilities into fixed owner, Agent, and
+	// worker Authority. It is required because /webhooks is always mounted.
+	Webhooks *webhook.Service
 
 	// Optional capabilities. A nil field is a supported configuration: the
 	// matching endpoints report 503 through the centralized unavailable mapping
@@ -252,6 +259,7 @@ func (d Deps) validate() error {
 	req(d.Share != nil, "Share")
 	req(d.Recally != nil, "Recally")
 	req(d.Assets != nil, "Assets")
+	req(d.Webhooks != nil, "Webhooks")
 	req(d.OIDC.AuthSvc != nil, "OIDC.AuthSvc")
 	req(d.OIDC.SessionMgr != nil, "OIDC.SessionMgr")
 	if len(missing) > 0 {
@@ -310,6 +318,9 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		schedulerSvc:    deps.Scheduler,
 		goalSvc:         deps.Goal,
 		workflowSvc:     deps.Workflow,
+		webhooks:        deps.Webhooks,
+		webhookIngress:  webhookServiceIngressPort{svc: deps.Webhooks},
+		webhookRun:      poolWebhookRunPort{pool: deps.PoolManager},
 		groupSvc:        deps.Group,
 		assets:          deps.Assets,
 		authProviders:   deps.OIDC.Providers,

@@ -99,8 +99,8 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 			return config.Channel{}, &ConflictError{Msg: "channel already exists"}
 		}
 	}
-	// A webhook is a runtime-less trigger: it must name the agent it runs, but its
-	// caller is resolved dynamically from the PAT (not bound to one user).
+	// A webhook is a runtime-less trigger: it must name the Agent an issued
+	// capability endpoint will run for its fixed owner.
 	if ch.Type == pkgchannel.PlatformWebhook && ch.AgentID == "" {
 		return config.Channel{}, invalid("webhook channel requires a bound agent")
 	}

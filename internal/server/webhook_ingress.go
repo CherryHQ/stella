@@ -12,92 +12,40 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/credential"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/internal/webhook"
 )
 
 const (
 	// maxWebhookBody caps the request body (and therefore the agent prompt) an
 	// inbound webhook may carry.
 	maxWebhookBody = 256 << 10 // 256 KiB
-	// webhookBusyPeekWindow is how long the fire-and-forget path watches the
-	// stream before acknowledging. ErrSessionBusy is emitted synchronously
-	// before any work starts, so a busy rejection lands inside this window; a
-	// real run does not. Without the peek, a 202 would acknowledge a message
-	// the runtime already dropped.
-	webhookBusyPeekWindow = 100 * time.Millisecond
 )
 
-// handleWebhookIngress serves POST /webhooks/{id}: an inbound-only trigger that
-// runs the channel's bound agent as the PAT-authenticated caller. It is
-// registered auth-exempt (registerStaticRoutes / isAuthExempt) and does its own
-// PAT resolution, scope check, user-binding and agent-access authorization.
+// handleWebhookIngress serves POST /webhooks/{capability}. It is auth-exempt
+// because the opaque URL capability is the credential: webhook.Service resolves
+// the endpoint's fixed owner, Agent, and WorkerAgentAuthority before this
+// transport can create a session. Authorization headers are deliberately ignored
+// and can never alter that durable identity.
 func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	id := r.PathValue("id")
-
-	// --- Authentication: PAT only, honoring the resolver's 3-way contract. ---
-	principal, err := s.credResolver.Resolve(ctx, r.Header.Get("Authorization"))
-	if err != nil || principal == nil {
-		writeError(w, http.StatusUnauthorized, "missing or invalid personal access token")
-		return
-	}
-	if principal.Kind != credential.KindPAT {
-		writeError(w, http.StatusUnauthorized, "webhook requires a personal access token")
-		return
-	}
-	// The ingress is auth-exempt and bypasses credential.Enforce, so the scope
-	// must be checked here; the constant is pinned to the /api route mapping in
-	// the credential package.
-	if !credential.MatchScope(principal.Scopes, credential.ScopeAgentWrite) {
-		writeError(w, http.StatusForbidden, "personal access token missing the agent:write scope")
-		return
-	}
-
-	// --- Load and validate the webhook instance. ---
-	ch, err := s.channelResolver.Channel(ctx, id)
-	if err != nil || ch.Type != pkgchannel.PlatformWebhook {
-		writeError(w, http.StatusNotFound, "webhook not found")
-		return
-	}
-	if !ch.Enabled {
-		writeError(w, http.StatusConflict, "webhook is disabled")
-		return
-	}
-
-	// --- Resolve + authorize the bound agent. ---
-	// There is no static user binding: the run executes as the caller (the PAT's
-	// user), gated by whether that user may execute the bound agent below.
-	if ch.AgentID == "" {
-		writeError(w, http.StatusConflict, "webhook has no bound agent")
-		return
-	}
-	authority, err := principal.Authority()
+	capability := r.PathValue("capability")
+	invocation, err := s.webhookIngress.ResolveCapability(ctx, capability)
 	if err != nil {
-		writeError(w, http.StatusForbidden, "not authorized to run the bound agent")
-		return
-	}
-	ag, err := s.agentAccess.Use(ctx, authority, ch.AgentID)
-	if err != nil {
-		code, msg := agentAccessError(err)
-		if code == http.StatusNotFound {
-			code, msg = http.StatusConflict, "bound agent not found"
+		if errors.Is(err, webhook.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "webhook not found")
+			return
 		}
-		writeError(w, code, msg)
-		return
-	}
-	if !ag.Enabled {
-		writeError(w, http.StatusConflict, "bound agent is disabled")
+		s.log.ErrorContext(ctx, "resolve webhook capability", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to resolve webhook")
 		return
 	}
 
-	// --- Rate limit (per webhook instance). ---
-	if s.webhookLimiter != nil && !s.webhookLimiter.allow(id) {
-		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+	ch, err := s.channelResolver.Channel(ctx, invocation.Endpoint.ChannelID)
+	if err != nil {
+		s.log.ErrorContext(ctx, "load webhook channel configuration", "endpoint_id", invocation.Endpoint.ID, "error", err)
+		writeError(w, http.StatusInternalServerError, "invalid webhook config")
 		return
 	}
-
-	// --- Config + payload. ---
 	cfgMap, err := parseChannelConfig(ch.Config)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "invalid webhook config")
@@ -108,6 +56,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "invalid webhook config")
 		return
 	}
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBody+1))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read request body")
@@ -117,132 +66,197 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "payload too large")
 		return
 	}
-	message := strings.TrimSpace(string(body))
-	if message == "" {
-		writeError(w, http.StatusBadRequest, "empty request body")
-		return
+
+	message := ""
+	var githubDelivery webhook.GitHubDelivery
+	githubClaimed := false
+	if invocation.Endpoint.Provider == webhook.ProviderGitHub {
+		// GitHub is intentionally fire-and-forget. A synchronous reply would put
+		// Agent output in GitHub's delivery UI; callers asking for one get an
+		// explicit error rather than a silent semantic change.
+		if q := r.URL.Query().Get("wait"); q != "" {
+			wait, parseErr := strconv.ParseBool(q)
+			if parseErr != nil {
+				writeError(w, http.StatusBadRequest, "invalid wait parameter: use true or false")
+				return
+			}
+			if wait {
+				writeError(w, http.StatusBadRequest, "GitHub webhooks do not support wait=true")
+				return
+			}
+		}
+		endpointCfg, err := s.pluginHost.DecodeWebhookEndpointConfig(cfgMap)
+		if err != nil || endpointCfg.Provider != string(webhook.ProviderGitHub) {
+			writeError(w, http.StatusInternalServerError, "invalid webhook config")
+			return
+		}
+		githubDelivery, err = s.webhookIngress.ValidateGitHub(invocation, r.Header, body, webhook.GitHubPolicy{
+			Events: endpointCfg.GitHubEvents, Repositories: endpointCfg.GitHubRepositories,
+		})
+		switch {
+		case errors.Is(err, webhook.ErrGitHubDeliveryIgnored):
+			writeGitHubAccepted(w)
+			return
+		case errors.Is(err, webhook.ErrInvalidGitHubDelivery):
+			writeError(w, http.StatusUnauthorized, "invalid GitHub webhook delivery")
+			return
+		case err != nil:
+			s.log.ErrorContext(ctx, "validate GitHub webhook delivery", "endpoint_id", invocation.Endpoint.ID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to validate GitHub webhook delivery")
+			return
+		}
+	} else {
+		message = strings.TrimSpace(string(body))
+		if message == "" {
+			writeError(w, http.StatusBadRequest, "empty request body")
+			return
+		}
 	}
-	// Parse the reply-mode override before anything irreversible: a malformed
-	// value must reject the request, not silently pick a mode (or worse,
-	// reject after the run already started).
+
 	wait := cfg.DefaultWait
-	if q := r.URL.Query().Get("wait"); q != "" {
-		v, perr := strconv.ParseBool(q)
-		if perr != nil {
+	if invocation.Endpoint.Provider == webhook.ProviderGitHub {
+		wait = false
+	} else if q := r.URL.Query().Get("wait"); q != "" {
+		wait, err = strconv.ParseBool(q)
+		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid wait parameter: use true or false")
 			return
 		}
-		wait = v
 	}
 
-	// --- Acquire the agent service. ---
-	svc := s.poolManager.GetService(ch.AgentID)
+	// Only valid, policy-accepted deliveries consume a per-endpoint acceptance
+	// token. GitHub validation deliberately precedes both this limiter and claim.
+	if s.webhookLimiter != nil && !s.webhookLimiter.allow(invocation.Endpoint.ID) {
+		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+		return
+	}
+	if invocation.Endpoint.Provider == webhook.ProviderGitHub {
+		claimed, err := s.webhookIngress.ClaimGitHubDelivery(ctx, githubDelivery)
+		if err != nil {
+			s.log.ErrorContext(ctx, "claim GitHub webhook delivery", "endpoint_id", invocation.Endpoint.ID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to claim GitHub webhook delivery")
+			return
+		}
+		if !claimed {
+			writeGitHubAccepted(w)
+			return
+		}
+		githubClaimed = true
+		envelope, err := githubDelivery.Envelope()
+		if err != nil {
+			s.releaseGitHubDelivery(ctx, invocation.Endpoint.ID, githubDelivery)
+			writeError(w, http.StatusInternalServerError, "failed to prepare GitHub webhook delivery")
+			return
+		}
+		message = string(envelope)
+	}
+
+	svc := s.webhookRun.Get(invocation.AgentID)
 	if svc == nil {
+		if githubClaimed {
+			s.releaseGitHubDelivery(ctx, invocation.Endpoint.ID, githubDelivery)
+		}
 		writeError(w, http.StatusServiceUnavailable, "agent is not available")
 		return
 	}
 
-	// --- Resolve the session (ephemeral by default; persistent when configured). ---
 	var info session.Info
 	if cfg.Persistent {
-		key := agent.BuildUserSessionKey(ch.AgentID, principal.UserID, "webhook:"+id)
-		info, err = svc.ResolvePrivateChannelSession(ctx, authority, key, principal.UserID, ch.AgentID, session.ChannelWebhook)
+		key := agent.BuildUserSessionKey(invocation.AgentID, invocation.Endpoint.OwnerUserID, "webhook:"+invocation.Endpoint.ID)
+		info, err = svc.ResolvePrivateChannelSession(ctx, invocation.Authority, key, invocation.Endpoint.OwnerUserID, invocation.AgentID, session.ChannelWebhook)
 	} else {
-		info, err = svc.NewSession(ctx, authority, principal.UserID, ch.AgentID, "", session.KindChat, session.ChannelWebhook)
+		info, err = svc.NewSession(ctx, invocation.Authority, invocation.Endpoint.OwnerUserID, invocation.AgentID, "", session.KindChat, session.ChannelWebhook)
 	}
 	if err != nil {
+		if githubClaimed {
+			s.releaseGitHubDelivery(ctx, invocation.Endpoint.ID, githubDelivery)
+		}
 		writeError(w, http.StatusInternalServerError, "failed to create session")
 		return
 	}
 
-	// --- Cap concurrent runs: a run can outlive this request by minutes, so
-	// the acceptance-rate bucket alone cannot bound resource usage. ---
-	if s.webhookLimiter != nil && !s.webhookLimiter.beginRun(id) {
+	if s.webhookLimiter != nil && !s.webhookLimiter.beginRun(invocation.Endpoint.ID) {
+		if githubClaimed {
+			s.releaseGitHubDelivery(ctx, invocation.Endpoint.ID, githubDelivery)
+		}
 		writeError(w, http.StatusTooManyRequests, "too many concurrent runs for this webhook")
 		return
 	}
 
-	// --- Run the agent on a detached, bounded context (never the request ctx). ---
-	// WithoutCancel: runtimeCtx is the server work context, which graceful
-	// shutdown cancels the moment its errgroup empties — mid-drain, before the
-	// accepted-work wait (#744). The run's lifetime is decided by its own
-	// timeout and by the drain waiting on the pool's in-flight turns, not by
-	// that cancellation; values (tracing) are preserved.
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(s.runtimeCtx), time.Duration(cfg.MaxRunTimeoutSeconds)*time.Second)
-	// done releases everything tied to the run's lifetime; every path that
-	// consumes the drain result calls it exactly once.
 	done := func() {
 		cancel()
 		if s.webhookLimiter != nil {
-			s.webhookLimiter.endRun(id)
+			s.webhookLimiter.endRun(invocation.Endpoint.ID)
 		}
 	}
-	stream := svc.Chat(runCtx, agent.ChatRequest{
-		SessionID: info.ID,
-		UserID:    principal.UserID,
-		AgentID:   ch.AgentID,
-		Kind:      session.KindChat,
-		Channel:   session.ChannelWebhook,
-		Message:   message,
-		Authority: authority,
+	stream, err := svc.ChatAdmitted(runCtx, agent.ChatRequest{
+		SessionID: info.ID, UserID: invocation.Endpoint.OwnerUserID, AgentID: invocation.AgentID,
+		Kind: session.KindChat, Channel: session.ChannelWebhook, Message: message, Authority: invocation.Authority,
 	})
-	// A single drainer owns the stream for its whole life. The result channel is
-	// buffered so the drainer never blocks on send after the caller stops waiting.
+	if err != nil {
+		done()
+		if githubClaimed {
+			s.releaseGitHubDelivery(ctx, invocation.Endpoint.ID, githubDelivery)
+		}
+		if errors.Is(err, agenterr.ErrSessionBusy) {
+			if githubClaimed {
+				writeError(w, http.StatusServiceUnavailable, "GitHub webhook session is busy; retry later")
+				return
+			}
+			writeWebhookBusy(w, info.ID)
+			return
+		}
+		writeError(w, http.StatusServiceUnavailable, "agent did not admit webhook run; retry later")
+		return
+	}
 	resCh := drainWebhookStream(stream)
-
 	start := time.Now()
 
 	if !wait {
-		// Fire-and-forget — but peek briefly so an immediate busy rejection
-		// (persistent session with a turn already running) becomes a 429
-		// instead of a 202 for a message that was never processed.
-		if res, ok := peekWebhookResult(resCh, webhookBusyPeekWindow); ok {
-			done()
-			if errors.Is(res.err, agenterr.ErrSessionBusy) {
-				s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, "busy", start, res.err)
-				writeWebhookBusy(w, info.ID)
-				return
-			}
-			// The run finished inside the peek window; record its terminal
-			// status now, the response stays 202 for a stable contract.
-			s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, webhookRunStatus(res.err), start, res.err)
-		} else {
-			s.logWebhook(id, principal.UserID, ch.AgentID, "async", info.ID, "accepted", start, nil)
-			s.finishWebhookRun(id, principal.UserID, ch.AgentID, "async", info.ID, start, resCh, done)
+		// ChatAdmitted is the admission boundary: once it returned a stream, the
+		// delivery claim is retained even when the runtime fails immediately.
+		s.logWebhook(invocation.Endpoint.ID, invocation.Endpoint.OwnerUserID, invocation.AgentID, "async", info.ID, "accepted", start, nil)
+		s.finishWebhookRun(invocation.Endpoint.ID, invocation.Endpoint.OwnerUserID, invocation.AgentID, "async", info.ID, start, resCh, done)
+		if githubClaimed {
+			writeGitHubAccepted(w)
+			return
 		}
 		writeData(w, http.StatusAccepted, map[string]any{"session_id": info.ID})
 		return
 	}
 
-	// Synchronous: wait up to wait_timeout for the reply.
 	select {
 	case res := <-resCh:
 		done()
 		if res.err != nil {
 			if errors.Is(res.err, agenterr.ErrSessionBusy) {
-				s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "busy", start, res.err)
+				s.logWebhook(invocation.Endpoint.ID, invocation.Endpoint.OwnerUserID, invocation.AgentID, "sync", info.ID, "busy", start, res.err)
 				writeWebhookBusy(w, info.ID)
 				return
 			}
-			s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "error", start, res.err)
+			s.logWebhook(invocation.Endpoint.ID, invocation.Endpoint.OwnerUserID, invocation.AgentID, "sync", info.ID, "error", start, res.err)
 			writeErrorDetails(w, http.StatusBadGateway, "agent run failed", map[string]any{"session_id": info.ID})
 			return
 		}
-		s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "ok", start, nil)
+		s.logWebhook(invocation.Endpoint.ID, invocation.Endpoint.OwnerUserID, invocation.AgentID, "sync", info.ID, "ok", start, nil)
 		writeData(w, http.StatusOK, map[string]any{"session_id": info.ID, "output": res.output})
 	case <-time.After(time.Duration(cfg.WaitTimeoutSeconds) * time.Second):
-		// Stop waiting, but the drainer keeps consuming the stream to
-		// completion; the terminal status lands in the log.
-		s.logWebhook(id, principal.UserID, ch.AgentID, "sync", info.ID, "timeout", start, nil)
-		s.finishWebhookRun(id, principal.UserID, ch.AgentID, "sync", info.ID, start, resCh, done)
+		s.logWebhook(invocation.Endpoint.ID, invocation.Endpoint.OwnerUserID, invocation.AgentID, "sync", info.ID, "timeout", start, nil)
+		s.finishWebhookRun(invocation.Endpoint.ID, invocation.Endpoint.OwnerUserID, invocation.AgentID, "sync", info.ID, start, resCh, done)
 		writeErrorDetails(w, http.StatusGatewayTimeout, "timed out waiting for agent reply", map[string]any{"session_id": info.ID})
+	}
+}
+
+func (s *Server) releaseGitHubDelivery(ctx context.Context, endpointID string, delivery webhook.GitHubDelivery) {
+	if _, err := s.webhookIngress.ReleaseGitHubDelivery(ctx, delivery); err != nil {
+		s.log.ErrorContext(ctx, "release GitHub webhook delivery", "endpoint_id", endpointID, "error", err)
 	}
 }
 
 // finishWebhookRun consumes the run result in the background after the HTTP
 // response has been written, releases the run's resources via done, and emits
-// the terminal audit record — the log line is the only place the final
-// outcome is visible.
+// the terminal audit record.
 func (s *Server) finishWebhookRun(webhookID, userID, agentID, mode, sessionID string, start time.Time, resCh <-chan webhookResult, done func()) {
 	go func() {
 		res := <-resCh
@@ -251,18 +265,6 @@ func (s *Server) finishWebhookRun(webhookID, userID, agentID, mode, sessionID st
 	}()
 }
 
-// peekWebhookResult waits up to window for a result that is already (or about
-// to be) available, reporting whether one arrived.
-func peekWebhookResult(resCh <-chan webhookResult, window time.Duration) (webhookResult, bool) {
-	select {
-	case res := <-resCh:
-		return res, true
-	case <-time.After(window):
-		return webhookResult{}, false
-	}
-}
-
-// webhookRunStatus maps a terminal run error to the audit-log status value.
 func webhookRunStatus(err error) string {
 	if err != nil {
 		return "failed"
@@ -270,8 +272,12 @@ func webhookRunStatus(err error) string {
 	return "done"
 }
 
-// writeWebhookBusy reports a busy persistent session: the message was NOT
-// processed and the caller should retry once the in-flight turn finishes.
+// writeGitHubAccepted deliberately returns no Agent output: GitHub deliveries
+// are always asynchronous and their external contract is a bare 202.
+func writeGitHubAccepted(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func writeWebhookBusy(w http.ResponseWriter, sessionID string) {
 	w.Header().Set("Retry-After", "1")
 	writeErrorDetails(w, http.StatusTooManyRequests, "session is busy with another run; retry later", map[string]any{"session_id": sessionID})
@@ -282,9 +288,6 @@ type webhookResult struct {
 	err    error
 }
 
-// drainWebhookStream consumes the whole agent event stream, accumulating text.
-// The returned channel is buffered(1) so the goroutine can always deliver its
-// result even if nobody is waiting (e.g. after a 504).
 func drainWebhookStream(stream <-chan agent.Event) <-chan webhookResult {
 	res := make(chan webhookResult, 1)
 	go func() {
@@ -303,10 +306,11 @@ func drainWebhookStream(stream <-chan agent.Event) <-chan webhookResult {
 	return res
 }
 
-// logWebhook emits the structured audit record for one webhook invocation.
+// logWebhook emits the structured audit record for one endpoint invocation.
+// webhookID is always the durable endpoint ID, never the URL capability.
 func (s *Server) logWebhook(webhookID, userID, agentID, mode, sessionID, status string, start time.Time, err error) {
 	s.log.Info("webhook ingress",
-		"webhook_id", webhookID,
+		"endpoint_id", webhookID,
 		"user_id", userID,
 		"agent_id", agentID,
 		"mode", mode,

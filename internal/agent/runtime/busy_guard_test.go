@@ -103,6 +103,23 @@ func TestChat_BusyGuard_RejectsConcurrentSameSession(t *testing.T) {
 	}
 }
 
+func TestChatAdmitted_BusyGuardReturnsSynchronousRejection(t *testing.T) {
+	gate := make(chan struct{})
+	rt := newTestRuntime(gate)
+	info := session.Info{ID: "sess-admitted", UserID: "u1", AgentID: "a1"}
+	first, err := rt.ChatAdmitted(context.Background(), info, "first")
+	if err != nil || first == nil {
+		t.Fatalf("first admission = %v, %v", first, err)
+	}
+	second, err := rt.ChatAdmitted(context.Background(), info, "second")
+	if second != nil || !errors.Is(err, ErrSessionBusy) {
+		t.Fatalf("second admission = %v, %v; want nil, ErrSessionBusy", second, err)
+	}
+	close(gate)
+	for range first {
+	}
+}
+
 func TestChat_BusyGuard_AllowsDifferentSessions(t *testing.T) {
 	gate := make(chan struct{})
 	rt := newTestRuntime(gate)
