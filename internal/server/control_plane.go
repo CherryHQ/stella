@@ -44,11 +44,14 @@ func controlPlaneError(err error) (int, string) {
 	var fe *controlplane.ForbiddenError
 	var ce *controlplane.ConflictError
 	var ue *controlplane.UpstreamError
+	var unavailable *controlplane.UnavailableError
 	switch {
 	case err == nil:
 		return 0, ""
 	case errors.Is(err, controlplane.ErrUnavailable):
 		return http.StatusServiceUnavailable, "control plane unavailable"
+	case errors.As(err, &unavailable):
+		return http.StatusServiceUnavailable, unavailable.Msg
 	case errors.Is(err, authz.ErrUnauthenticated):
 		return http.StatusUnauthorized, "authentication required"
 	case errors.As(err, &fe):

@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/config"
+
+	"github.com/CherryHQ/stella/internal/webhook"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -82,6 +86,12 @@ func (m *ChannelManagement) Channel(ctx context.Context, id string) (config.Chan
 // control-plane operation. It intentionally makes no further authorization call.
 func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error) {
 	a := m.access
+	// Every channel mutation must be able to take the endpoint domain's shared
+	// row lock. Do not silently fall back to an unlocked upsert: an old endpoint
+	// could otherwise acquire a new Agent through a partial composition.
+	if a.svc.webhooks == nil {
+		return config.Channel{}, ErrUnavailable
+	}
 	// POST is create-only: a silent upsert would let a re-POST overwrite an existing
 	// channel's config and flip a deliberately disabled webhook back on.
 	if create {
@@ -106,12 +116,27 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 		return config.Channel{}, invalid("invalid config JSON")
 	}
 	ch.Config = string(cfgJSON)
-	if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
-		var conflict *config.ChannelBindingConflictError
-		if errors.As(err, &conflict) {
-			return config.Channel{}, invalid(conflict.Error())
+	if !create {
+		// Every existing-channel write takes the endpoint domain's channel-row
+		// lock. It permits safe behavior/allowlist changes but rejects a type,
+		// agent, or provider change while an endpoint is active.
+		if _, err := a.svc.store.GetChannel(ctx, ch.ID); err == nil {
+			err := a.svc.webhooks.UpdateChannel(ctx, webhook.ChannelBinding{
+				ChannelID: ch.ID,
+				AgentID:   ch.AgentID,
+			}, ch.Name, ch.Type, ch.Enabled, ch.Config)
+			if err != nil {
+				return config.Channel{}, endpointError(err)
+			}
+		} else if errors.Is(err, pgx.ErrNoRows) {
+			if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
+				return config.Channel{}, channelSaveError(err)
+			}
+		} else {
+			return config.Channel{}, err
 		}
-		return config.Channel{}, err
+	} else if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
+		return config.Channel{}, channelSaveError(err)
 	}
 	if err := a.svc.ensureChannelPluginEnabled(ctx, ch.Type, cfgMap); err != nil {
 		return config.Channel{}, err
@@ -146,6 +171,14 @@ func (a *Access) DeleteChannel(ctx context.Context, id string) error {
 // This mirrors the server-side helper that the feishu/weixin registration
 // handlers still use; the admin channel CRUD path owns its own copy so those
 // out-of-scope ingress handlers are untouched.
+func channelSaveError(err error) error {
+	var conflict *config.ChannelBindingConflictError
+	if errors.As(err, &conflict) {
+		return invalid(conflict.Error())
+	}
+	return err
+}
+
 func (s *Service) channelAgentPlatformBindingConflict(ctx context.Context, ch config.Channel) (string, error) {
 	if ch.AgentID == "" || ch.Type == "" {
 		return "", nil

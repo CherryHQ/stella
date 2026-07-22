@@ -60,6 +60,69 @@ components:
           description: "JSON string of the channel config",
         }
 
+    WebhookProvider:
+      type: string
+      enum: [generic, github]
+
+    WebhookEndpoint:
+      type: object
+      required: [
+        id,
+        channel_id,
+        owner_user_id,
+        provider,
+        token_last4,
+        created_at,
+        updated_at,
+        github_events,
+        github_repositories,
+      ]
+      properties:
+        id: { type: string, readOnly: true }
+        channel_id: { type: string, readOnly: true }
+        owner_user_id: { type: string, readOnly: true }
+        provider: {
+          $ref: "#/components/schemas/WebhookProvider",
+          readOnly: true,
+        }
+        token_last4: { type: string, readOnly: true }
+        created_at: { type: string, format: date-time, readOnly: true }
+        updated_at: { type: string, format: date-time, readOnly: true }
+        rotated_at: {
+          type: string,
+          format: date-time,
+          nullable: true,
+          readOnly: true,
+        }
+        github_events:
+          type: array
+          items: { type: string }
+          readOnly: true
+        github_repositories:
+          type: array
+          items: { type: string }
+          readOnly: true
+
+    IssueWebhookEndpointRequest:
+      type: object
+      required: [owner_user_id, provider]
+      properties:
+        owner_user_id: { type: string }
+        provider: { $ref: "#/components/schemas/WebhookProvider" }
+
+    WebhookEndpointSecret:
+      type: object
+      required: [endpoint, url]
+      properties:
+        endpoint: { $ref: "#/components/schemas/WebhookEndpoint" }
+        url:
+          type: string
+          format: uri
+          description: One-time webhook capability URL. It is never returned by GET.
+        github_webhook_secret:
+          type: string
+          description: One-time GitHub HMAC secret. Omitted for generic endpoints.
+
     FeishuRegistrationInitRequest:
       type: object
       properties:

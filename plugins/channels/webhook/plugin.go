@@ -52,6 +52,19 @@ func configSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
+			"provider": map[string]any{
+				"type":        "string",
+				"enum":        []any{pkgchannel.WebhookProviderGeneric, pkgchannel.WebhookProviderGitHub},
+				"description": "Endpoint provider. GitHub requires explicit event and repository allowlists.",
+			},
+			"github_events": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "string"},
+			},
+			"github_repositories": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "string"},
+			},
 			"default_wait": map[string]any{
 				"type":        "boolean",
 				"description": "Wait for the agent reply by default (synchronous). Overridable per request with ?wait=true|false.",

@@ -29,6 +29,7 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
@@ -48,6 +49,7 @@ import (
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -460,7 +462,19 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
 	// pool and shared connections service are fully wired.
-	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	webhookSvc, err := webhook.NewService(webhook.Config{
+		Store:  webhook.NewPostgresStore(db),
+		Users:  webhook.NewUserState(credential.NewPostgresStore(db)),
+		Access: webhook.NewOwnerAgentAccess(agentAccess),
+		Cipher: vaultSvc,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build webhook endpoint service: %w", err)
+	}
+	controlPlaneSvc := controlplane.NewService(
+		store, phost, poolMgr, credSvc, slog.With("component", "controlplane"),
+		controlplane.WithWebhookEndpoints(webhookSvc),
+	)
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and

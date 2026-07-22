@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
+
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/credential"
 )
@@ -18,6 +20,9 @@ func NewUserState(lookup credential.UserLookup) UserStateFromLookup {
 
 func (s UserStateFromLookup) IsActive(ctx context.Context, userID string) (bool, error) {
 	identity, err := s.lookup.LookupUser(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}

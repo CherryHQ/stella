@@ -50,13 +50,16 @@ WHERE endpoint.token_public_id = $1
   AND agent.enabled = true;
 
 -- name: GetWebhookChannelBindingForUpdate :one
-SELECT id, agent_id
+SELECT
+    channel.id,
+    channel.type,
+    channel.agent_id,
+    COALESCE(agent.enabled, false) AS agent_enabled,
+    channel.config
 FROM channel
-WHERE id = $1
-  AND type = 'webhook'
-  AND agent_id IS NOT NULL
-  AND agent_id <> ''
-FOR UPDATE;
+LEFT JOIN agent ON agent.id = channel.agent_id
+WHERE channel.id = $1
+FOR UPDATE OF channel;
 
 -- name: RotateChannelWebhookEndpoint :one
 UPDATE channel_webhook_endpoint

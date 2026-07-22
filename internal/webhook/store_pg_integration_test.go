@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
@@ -200,6 +202,115 @@ func TestPostgresStoreIssueHoldsChannelLockAcrossOwnerValidation(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreUpdateChannelPreservesBindingConflict(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	channelA, _ := seedWebhookChannel(t, db, "agent-a")
+	channelB, _ := seedWebhookChannel(t, db, "agent-b")
+	if _, err := db.Exec(ctx, "UPDATE channel SET type = 'telegram' WHERE id IN ($1, $2)", channelA, channelB); err != nil {
+		t.Fatal(err)
+	}
+	var agentA string
+	if err := db.QueryRow(ctx, "SELECT agent_id FROM channel WHERE id = $1", channelA).Scan(&agentA); err != nil {
+		t.Fatal(err)
+	}
+	err := NewPostgresStore(db).UpdateChannel(ctx, ChannelBinding{ChannelID: channelB, AgentID: agentA}, "", "telegram", true, `{}`)
+	var conflict *config.ChannelBindingConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("update error = %v, want ChannelBindingConflictError", err)
+	}
+	if conflict.ChannelID != channelA {
+		t.Fatalf("conflict channel = %q, want %q", conflict.ChannelID, channelA)
+	}
+}
+
+func TestPostgresStoreIssueAndChannelRebindShareOneLock(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	channelID, ownerID := seedWebhookChannel(t, db, "agent-a")
+	oldAgentID := "agent-a-" + channelID
+	newAgentID := "agent-b-" + channelID
+	if _, err := db.Exec(ctx, "INSERT INTO agent (id, name, workspace, enabled) VALUES ($1, $2, $3, true)", newAgentID, "agent-b", "/tmp"); err != nil {
+		t.Fatal(err)
+	}
+
+	access := &blockingOwnerAccess{expectedAgent: oldAgentID, entered: make(chan struct{}), release: make(chan struct{})}
+	store := NewPostgresStore(db)
+	svc, err := NewService(Config{Store: store, Users: testUsers{true}, Access: access})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued := make(chan error, 1)
+	go func() {
+		_, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric})
+		issued <- err
+	}()
+	select {
+	case <-access.entered:
+	case <-time.After(time.Second):
+		t.Fatal("issuance did not reach owner validation")
+	}
+
+	updatePID := make(chan int, 1)
+	store.beforeUpdateLock = func(ctx context.Context, tx pgx.Tx) {
+		var pid int
+		if err := tx.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
+			t.Errorf("update backend PID: %v", err)
+			return
+		}
+		updatePID <- pid
+	}
+	rebound := make(chan error, 1)
+	go func() {
+		rebound <- store.UpdateChannel(ctx, ChannelBinding{ChannelID: channelID, AgentID: newAgentID}, "", "webhook", true, `{}`)
+	}()
+	pid := <-updatePID
+	deadline := time.Now().Add(time.Second)
+	for {
+		var waitEvent *string
+		if err := db.QueryRow(ctx, "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1", pid).Scan(&waitEvent); err != nil {
+			t.Fatal(err)
+		}
+		if waitEvent != nil && *waitEvent == "Lock" {
+			break
+		}
+		if time.Now().After(deadline) {
+			select {
+			case err := <-rebound:
+				t.Fatalf("rebind bypassed issue lock: %v", err)
+			default:
+				t.Fatal("rebind did not block on the channel row")
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	close(access.release)
+	select {
+	case err := <-issued:
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("issuance did not complete")
+	}
+	select {
+	case err := <-rebound:
+		if !errors.Is(err, ErrChannelEndpointActive) {
+			t.Fatalf("rebind error = %v, want ErrChannelEndpointActive", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("rebind stayed blocked after issuance")
+	}
+	var agentID string
+	if err := db.QueryRow(ctx, "SELECT agent_id FROM channel WHERE id = $1", channelID).Scan(&agentID); err != nil {
+		t.Fatal(err)
+	}
+	if agentID != oldAgentID {
+		t.Fatalf("channel agent = %q, want %q", agentID, oldAgentID)
+	}
+}
+
 func TestPostgresStoreIssueRejectsConcurrentEndpoint(t *testing.T) {
 	db := dbtest.New(t)
 	ctx := context.Background()
@@ -298,7 +409,10 @@ func seedWebhookChannel(t *testing.T, db *pgxpool.Pool, agentID string) (string,
 
 func createEndpoint(t *testing.T, store *PostgresStore, channelID, ownerID string) Endpoint {
 	t.Helper()
-	row, err := store.BindEndpoint(context.Background(), channelID, func(context.Context, string) (endpointRecord, error) {
+	row, err := store.BindEndpoint(context.Background(), channelID, func(_ context.Context, binding ChannelBinding) (endpointRecord, error) {
+		if binding.AgentID == "" {
+			return endpointRecord{}, ErrNotFound
+		}
 		return endpointRecord{Endpoint: Endpoint{
 			ID: uuid.Must(uuid.NewV7()).String(), OwnerUserID: ownerID, Provider: ProviderGitHub, TokenLast4: "last",
 		}, TokenPublicID: uuid.Must(uuid.NewV7()).String(), TokenHash: "hash", ProviderSecretCiphertext: "cipher"}, nil

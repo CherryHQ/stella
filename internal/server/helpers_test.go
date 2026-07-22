@@ -33,6 +33,7 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/webhook"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -81,6 +82,14 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
 	}
 	agentAccess := agentaccess.NewService(store, as)
+	webhookSvc, err := webhook.NewService(webhook.Config{
+		Store:  webhook.NewPostgresStore(db),
+		Users:  webhook.NewUserState(credPATStore),
+		Access: webhook.NewOwnerAgentAccess(agentAccess),
+	})
+	if err != nil {
+		t.Fatalf("webhook.NewService: %v", err)
+	}
 	sessionSvc, err := sessionaccess.NewService(mem, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
@@ -111,7 +120,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		WeixinRegistrar:     NewTestWeixinRegistrar(),
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
-		ControlPlane:        controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test")),
+		ControlPlane:        controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test"), controlplane.WithWebhookEndpoints(webhookSvc)),
 		Email:               email.NewService(nil, sqlc.New(db)),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Recally:             recally.NewService(recallyStore, t.TempDir()),

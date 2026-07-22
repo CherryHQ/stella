@@ -171,6 +171,10 @@ paths:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels"
   /api/channels/{id}:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}"
+  /api/channels/{id}/webhook-endpoint:
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}~1webhook-endpoint"
+  /api/channels/{id}/webhook-endpoint/rotate:
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}~1webhook-endpoint~1rotate"
   /api/channels/feishu/register/init:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1feishu~1register~1init"
   /api/channels/feishu/register/begin:
@@ -503,6 +507,18 @@ components:
     }
     ChannelWriteRequest: {
       $ref: "./components.yaml#/components/schemas/ChannelWriteRequest",
+    }
+    WebhookProvider: {
+      $ref: "./components.yaml#/components/schemas/WebhookProvider",
+    }
+    WebhookEndpoint: {
+      $ref: "./components.yaml#/components/schemas/WebhookEndpoint",
+    }
+    IssueWebhookEndpointRequest: {
+      $ref: "./components.yaml#/components/schemas/IssueWebhookEndpointRequest",
+    }
+    WebhookEndpointSecret: {
+      $ref: "./components.yaml#/components/schemas/WebhookEndpointSecret",
     }
     WeixinQRCode: { $ref: "./components.yaml#/components/schemas/WeixinQRCode" }
     WeixinQRStatus: {

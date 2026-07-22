@@ -15,6 +15,8 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 )
 
+const testOwnerID = "00000000-0000-7000-8000-000000000001"
+
 type memoryStore struct {
 	mu        sync.Mutex
 	binding   string
@@ -27,13 +29,13 @@ func newMemoryStore() *memoryStore {
 	return &memoryStore{binding: "agent-1", endpoints: map[string]endpointRecord{}, byPublic: map[string]string{}, claims: map[string]bool{}}
 }
 
-func (s *memoryStore) BindEndpoint(ctx context.Context, channelID string, build func(context.Context, string) (endpointRecord, error)) (endpointRecord, error) {
+func (s *memoryStore) BindEndpoint(ctx context.Context, channelID string, build func(context.Context, ChannelBinding) (endpointRecord, error)) (endpointRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.binding == "" {
 		return endpointRecord{}, ErrNotFound
 	}
-	rec, err := build(ctx, s.binding)
+	rec, err := build(ctx, ChannelBinding{ChannelID: channelID, Type: "webhook", AgentID: s.binding, AgentEnabled: true})
 	if err != nil {
 		return endpointRecord{}, err
 	}
@@ -42,6 +44,16 @@ func (s *memoryStore) BindEndpoint(ctx context.Context, channelID string, build 
 	s.endpoints[rec.ID] = rec
 	s.byPublic[rec.TokenPublicID] = rec.ID
 	return rec, nil
+}
+
+func (s *memoryStore) UpdateChannel(_ context.Context, next ChannelBinding, _ string, _ string, _ bool, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.binding == "" {
+		return ErrNotFound
+	}
+	s.binding = next.AgentID
+	return nil
 }
 
 func (s *memoryStore) GetEndpoint(_ context.Context, id string) (endpointRecord, error) {
@@ -167,7 +179,7 @@ func TestMatchesTokenHashUsesOpaqueVerifier(t *testing.T) {
 func TestIssueStoresOnlyVerifierAndRotatesCapability(t *testing.T) {
 	store := newMemoryStore()
 	svc := newTestService(t, store)
-	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "channel", OwnerUserID: "owner", Provider: ProviderGitHub, GitHub: GitHubPolicy{Events: []string{"push"}, Repositories: []string{"acme/repo"}}})
+	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "channel", OwnerUserID: testOwnerID, Provider: ProviderGitHub, GitHub: GitHubPolicy{Events: []string{"push"}, Repositories: []string{"acme/repo"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +217,7 @@ func TestIssueStoresOnlyVerifierAndRotatesCapability(t *testing.T) {
 func TestResolveRejectsCapabilityWithoutPrefix(t *testing.T) {
 	store := newMemoryStore()
 	svc := newTestService(t, store)
-	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "channel", OwnerUserID: "owner", Provider: ProviderGeneric})
+	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "channel", OwnerUserID: testOwnerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +229,7 @@ func TestResolveRejectsCapabilityWithoutPrefix(t *testing.T) {
 func TestResolveRejectsInactiveDurableStateAndRevocation(t *testing.T) {
 	store := newMemoryStore()
 	svc := newTestService(t, store)
-	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "channel", OwnerUserID: "owner", Provider: ProviderGeneric})
+	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "channel", OwnerUserID: testOwnerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatal(err)
 	}

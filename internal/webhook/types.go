@@ -19,16 +19,21 @@ const (
 )
 
 var (
-	ErrNotFound              = errors.New("webhook: endpoint not found")
-	ErrEndpointExists        = errors.New("webhook: endpoint already exists")
-	ErrInvalidChannelID      = errors.New("webhook: channel id is required")
-	ErrInvalidOwnerUserID    = errors.New("webhook: owner user id is required")
-	ErrInvalidProvider       = errors.New("webhook: invalid provider")
-	ErrInvalidGitHubPolicy   = errors.New("webhook: invalid github allowlist")
-	ErrInvalidGitHubDelivery = errors.New("webhook: invalid github delivery")
-	ErrGitHubDeliveryIgnored = errors.New("webhook: github delivery ignored")
-	ErrOwnerInactive         = errors.New("webhook: owner is inactive")
-	ErrOwnerAgentForbidden   = errors.New("webhook: owner cannot use agent")
+	ErrNotFound                = errors.New("webhook: endpoint not found")
+	ErrEndpointExists          = errors.New("webhook: endpoint already exists")
+	ErrInvalidChannelID        = errors.New("webhook: channel id is required")
+	ErrInvalidOwnerUserID      = errors.New("webhook: owner user id is invalid")
+	ErrInvalidProvider         = errors.New("webhook: invalid provider")
+	ErrInvalidGitHubPolicy     = errors.New("webhook: invalid github allowlist")
+	ErrInvalidGitHubDelivery   = errors.New("webhook: invalid github delivery")
+	ErrGitHubDeliveryIgnored   = errors.New("webhook: github delivery ignored")
+	ErrOwnerInactive           = errors.New("webhook: owner is inactive")
+	ErrOwnerAgentForbidden     = errors.New("webhook: owner cannot use agent")
+	ErrAgentDisabled           = errors.New("webhook: channel agent is disabled")
+	ErrChannelNotWebhook       = errors.New("webhook: channel is not a webhook")
+	ErrChannelEndpointActive   = errors.New("webhook: active endpoint prevents channel rebind")
+	ErrGitHubSecretUnavailable = errors.New("webhook: github endpoint requires an available system vault")
+	ErrChannelConfigChanged    = errors.New("webhook: channel config changed during endpoint issuance")
 )
 
 type Provider string
@@ -66,6 +71,10 @@ type IssueRequest struct {
 	OwnerUserID string
 	Provider    Provider
 	GitHub      GitHubPolicy
+	// ExpectedChannelConfig is the exact config from which GitHub policy was
+	// decoded. Control-plane issuance sets it so the locked channel row cannot
+	// change provider or allowlists between decode and credential binding.
+	ExpectedChannelConfig *string
 }
 
 type IssueResult struct {
@@ -84,6 +93,16 @@ type Invocation struct {
 	Authority authz.Authority
 
 	githubSecret string
+}
+
+// ChannelBinding is the channel state read under the row lock shared by endpoint
+// issuance and channel agent/type mutation.
+type ChannelBinding struct {
+	ChannelID    string
+	Type         string
+	AgentID      string
+	AgentEnabled bool
+	Config       string
 }
 
 type endpointRecord struct {
@@ -106,10 +125,14 @@ type resolvedRecord struct {
 // and claim the new row in one transaction.
 type Store interface {
 	// BindEndpoint locks the channel row, supplies its exact current webhook
-	// agent to build, then persists the returned record in that same transaction.
-	// Future channel rebinds must take this same lock before rejecting active
-	// endpoints; neither path may acquire another row lock first.
-	BindEndpoint(context.Context, string, func(context.Context, string) (endpointRecord, error)) (endpointRecord, error)
+	// binding to build, then persists the returned record in that same transaction.
+	// Channel mutation takes this exact lock before checking endpoint absence;
+	// neither path may acquire another row lock first.
+	BindEndpoint(context.Context, string, func(context.Context, ChannelBinding) (endpointRecord, error)) (endpointRecord, error)
+	// UpdateChannel locks the existing channel row and rejects an active endpoint
+	// only when the type or agent changes. It leaves endpoint-safe behavior
+	// changes (name, enabled state, config) updateable.
+	UpdateChannel(context.Context, ChannelBinding, string, string, bool, string) error
 	GetEndpoint(context.Context, string) (endpointRecord, error)
 	GetEndpointByChannel(context.Context, string) (endpointRecord, error)
 	ResolveEndpoint(context.Context, string) (resolvedRecord, error)

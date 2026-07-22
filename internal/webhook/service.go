@@ -42,7 +42,7 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 	if req.ChannelID == "" {
 		return IssueResult{}, ErrInvalidChannelID
 	}
-	if req.OwnerUserID == "" {
+	if uuid.Validate(req.OwnerUserID) != nil {
 		return IssueResult{}, ErrInvalidOwnerUserID
 	}
 	if !req.Provider.Valid() {
@@ -53,7 +53,19 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 	}
 
 	var capability, githubSecret string
-	rec, err := s.store.BindEndpoint(ctx, req.ChannelID, func(ctx context.Context, agentID string) (endpointRecord, error) {
+	rec, err := s.store.BindEndpoint(ctx, req.ChannelID, func(ctx context.Context, binding ChannelBinding) (endpointRecord, error) {
+		if binding.Type != "webhook" {
+			return endpointRecord{}, ErrChannelNotWebhook
+		}
+		if binding.AgentID == "" {
+			return endpointRecord{}, ErrNotFound
+		}
+		if !binding.AgentEnabled {
+			return endpointRecord{}, ErrAgentDisabled
+		}
+		if req.ExpectedChannelConfig != nil && *req.ExpectedChannelConfig != binding.Config {
+			return endpointRecord{}, ErrChannelConfigChanged
+		}
 		active, err := s.users.IsActive(ctx, req.OwnerUserID)
 		if err != nil {
 			return endpointRecord{}, fmt.Errorf("webhook: get owner state: %w", err)
@@ -61,7 +73,7 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 		if !active {
 			return endpointRecord{}, ErrOwnerInactive
 		}
-		allowed, err := s.access.CanUseOwner(ctx, req.OwnerUserID, agentID)
+		allowed, err := s.access.CanUseOwner(ctx, req.OwnerUserID, binding.AgentID)
 		if err != nil {
 			return endpointRecord{}, fmt.Errorf("webhook: authorize endpoint owner: %w", err)
 		}
@@ -82,6 +94,16 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 		return IssueResult{}, err
 	}
 	return IssueResult{Endpoint: rec.Endpoint, Capability: capability, GitHubWebhookSecret: githubSecret}, nil
+}
+
+// UpdateChannel applies a control-plane channel write under the channel row lock
+// shared with Issue. An active endpoint can never acquire a different type or
+// agent through a stale check-then-upsert write.
+func (s *Service) UpdateChannel(ctx context.Context, current ChannelBinding, name, channelType string, enabled bool, config string) error {
+	if s == nil || s.store == nil {
+		return errors.New("webhook: endpoint service unavailable")
+	}
+	return s.store.UpdateChannel(ctx, current, name, channelType, enabled, config)
 }
 
 func (s *Service) GetByChannel(ctx context.Context, channelID string) (Endpoint, error) {
@@ -136,7 +158,7 @@ func (s *Service) newCredential(provider Provider) (endpointRecord, string, stri
 		return rec, "", minted.Plaintext, nil
 	}
 	if s.cipher == nil {
-		return endpointRecord{}, "", "", errors.New("webhook: github endpoint requires a system secret cipher")
+		return endpointRecord{}, "", "", ErrGitHubSecretUnavailable
 	}
 	secret, err := randomSecret()
 	if err != nil {
@@ -144,7 +166,7 @@ func (s *Service) newCredential(provider Provider) (endpointRecord, string, stri
 	}
 	ciphertext, err := s.cipher.EncryptSystem(secret)
 	if err != nil {
-		return endpointRecord{}, "", "", fmt.Errorf("webhook: encrypt github secret: %w", err)
+		return endpointRecord{}, "", "", fmt.Errorf("%w: %w", ErrGitHubSecretUnavailable, err)
 	}
 	rec.ProviderSecretCiphertext = ciphertext
 	return rec, secret, minted.Plaintext, nil

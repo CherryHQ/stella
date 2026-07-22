@@ -151,24 +151,36 @@ func (q *Queries) GetChannelWebhookEndpointByPublicID(ctx context.Context, token
 }
 
 const getWebhookChannelBindingForUpdate = `-- name: GetWebhookChannelBindingForUpdate :one
-SELECT id, agent_id
+SELECT
+    channel.id,
+    channel.type,
+    channel.agent_id,
+    COALESCE(agent.enabled, false) AS agent_enabled,
+    channel.config
 FROM channel
-WHERE id = $1
-  AND type = 'webhook'
-  AND agent_id IS NOT NULL
-  AND agent_id <> ''
-FOR UPDATE
+LEFT JOIN agent ON agent.id = channel.agent_id
+WHERE channel.id = $1
+FOR UPDATE OF channel
 `
 
 type GetWebhookChannelBindingForUpdateRow struct {
-	ID      string      `json:"id"`
-	AgentID pgtype.Text `json:"agent_id"`
+	ID           string      `json:"id"`
+	Type         string      `json:"type"`
+	AgentID      pgtype.Text `json:"agent_id"`
+	AgentEnabled bool        `json:"agent_enabled"`
+	Config       string      `json:"config"`
 }
 
 func (q *Queries) GetWebhookChannelBindingForUpdate(ctx context.Context, id string) (GetWebhookChannelBindingForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, getWebhookChannelBindingForUpdate, id)
 	var i GetWebhookChannelBindingForUpdateRow
-	err := row.Scan(&i.ID, &i.AgentID)
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.AgentID,
+		&i.AgentEnabled,
+		&i.Config,
+	)
 	return i, err
 }
 

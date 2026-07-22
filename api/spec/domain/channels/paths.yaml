@@ -121,6 +121,93 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/channels/{id}/webhook-endpoint:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [channels]
+      summary: Get webhook endpoint metadata (admin only)
+      operationId: getWebhookEndpoint
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WebhookEndpoint",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    post:
+      tags: [channels]
+      summary: Issue a webhook endpoint (admin only)
+      operationId: issueWebhookEndpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/IssueWebhookEndpointRequest",
+            }
+      responses:
+        "201":
+          description: issued; the URL and optional GitHub secret are returned once
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WebhookEndpointSecret",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    delete:
+      tags: [channels]
+      summary: Revoke a webhook endpoint (admin only)
+      operationId: deleteWebhookEndpoint
+      responses:
+        "204": { description: revoked }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/channels/{id}/webhook-endpoint/rotate:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [channels]
+      summary: Rotate webhook endpoint credentials (admin only)
+      operationId: rotateWebhookEndpoint
+      responses:
+        "200":
+          description: rotated; the URL and optional GitHub secret are returned once
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WebhookEndpointSecret",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
   /api/channels/feishu/register/init:
     post:
       tags: [channels]

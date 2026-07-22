@@ -62,11 +62,26 @@ const (
 	WebhookRunTimeoutCeilingSeconds  = 3600
 )
 
+// Webhook endpoint providers. The endpoint's durable provider binding is
+// immutable while active; this config selects which provider may be issued and
+// holds the non-secret GitHub delivery allowlists.
+const (
+	WebhookProviderGeneric = "generic"
+	WebhookProviderGitHub  = "github"
+)
+
 // WebhookConfig is the persisted config for the inbound webhook channel.
-// The agent binding lives on the channel row (agent_id), not here; there is no
-// user binding — each run executes as the calling PAT's user. This holds only
-// behavioural knobs.
+// The agent binding lives on the channel row (agent_id), not here. Provider
+// secrets live only in the encrypted endpoint record; config holds behavior and
+// GitHub's non-secret allowlists.
 type WebhookConfig struct {
+	// Provider selects generic capability-only or GitHub HMAC verification.
+	// Empty remains the generic default for pre-endpoint channel configuration.
+	Provider string `json:"provider"`
+	// GitHubEvents and GitHubRepositories constrain signed GitHub deliveries.
+	// Both must be non-empty for the GitHub provider.
+	GitHubEvents       []string `json:"github_events"`
+	GitHubRepositories []string `json:"github_repositories"`
 	// DefaultWait selects synchronous (true) vs. fire-and-forget (false) when a
 	// request does not set the ?wait query parameter.
 	DefaultWait bool `json:"default_wait"`
