@@ -114,6 +114,9 @@ func startServer(t *testing.T, runID, home, dsn, vaultKey string) (*serverProces
 			"STELLA_HOME="+home,
 			"STELLA_DATABASE_URL="+dsn,
 			"STELLA_VAULT_KEY="+vaultKey,
+			// The webhook journey needs a normal owner distinct from the bootstrap
+			// admin. This explicit isolated-process setting is never inherited.
+			"LOCAL_PASSWORD_ALLOW_REGISTRATION=true",
 			"HOST=127.0.0.1",
 			fmt.Sprintf("PORT=%d", port),
 			"LOG_LEVEL=debug",
