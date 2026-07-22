@@ -63,7 +63,7 @@ stellad server
 
 ### Webhook capability
 
-Webhook URL 是一次性显示的 bearer capability，固定绑定一个所有者和一个 Agent，不使用 PAT。发生泄露时，请在 Web UI 中轮换或撤销。GitHub webhook 同时需要 capability URL 作为 **Payload URL**，以及单独签发的 **Secret**。GitHub 投递 ID 会在 30 天内去重；繁忙或 Agent 接纳前失败的请求可以重试。Webhook Agent 和 GitHub 访问权限都应采用最小权限。旧的 `/webhooks/<channel-id>` URL 已不可用。详见 [Webhook 指南](web/content/docs/channels/webhook.zh.md)。
+Webhook URL 是一次性显示的 bearer capability，固定绑定一个所有者和一个 Agent，不使用 PAT。发生泄露时，请在 Web UI 中轮换或撤销。GitHub webhook 同时需要 capability URL 作为 **Payload URL**，以及单独签发的 **Secret**。GitHub 投递 ID 会在 30 天内去重；繁忙或 Agent 接纳前失败的请求可以重试。Webhook Agent 和 GitHub 访问权限都应采用最小权限。详见 [Webhook 指南](web/content/docs/channels/webhook.zh.md)。
 
 ## 技能
 

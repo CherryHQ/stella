@@ -8,7 +8,7 @@ import (
 
 // defaultWebhookMaxInflight caps concurrent runs per webhook. A run can
 // outlive its request by minutes (up to max_run_timeout), so an acceptance
-// rate alone would let a leaked PAT stack up hundreds of background runs.
+// rate alone would let a leaked capability stack up hundreds of background runs.
 // Ceiling: raise (or make configurable) if a legit fan-out workload appears.
 const defaultWebhookMaxInflight = 10
 

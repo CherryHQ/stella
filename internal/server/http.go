@@ -24,22 +24,13 @@ func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/agents", http.StatusFound)
 }
 
-// WebhookIngressHandler returns the auth-exempt inbound webhook ingress handler
-// (POST /webhooks/{capability}). The composition root mounts it at the HTTP root,
-// in front of the admin middleware chain, because the URL is a bearer capability
-// rather than a Stella session credential. It stays in internal/server because it
-// only orchestrates transport/session work over the injected webhook domain.
-func (s *Server) WebhookIngressHandler() http.Handler {
-	return s.accessLogMiddleware(http.HandlerFunc(s.handleWebhookIngress))
-}
-
-// RedactWebhookCapability removes the raw URL bearer capability before a request
+// redactWebhookCapability removes the raw URL bearer capability before a request
 // reaches observability or logging. ServeMux has already selected the route when
 // this wrapper runs, so PathValue remains available to the handler; clone and
 // restore it explicitly to make that contract robust across request wrappers.
 // Query parameters remain available through URL.Query, but RequestURI is made
 // deliberately opaque too: traces and access logs must never see the token.
-func RedactWebhookCapability(next http.Handler) http.Handler {
+func redactWebhookCapability(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capability := r.PathValue("capability")
 		if capability == "" && !strings.HasPrefix(r.URL.Path, "/webhooks/") {
@@ -55,11 +46,12 @@ func RedactWebhookCapability(next http.Handler) http.Handler {
 	})
 }
 
-// ObservedWebhookIngressHandler applies the root-boundary redaction before both
-// OTel and access logging. It is separate from Handler because this public route
-// bypasses the admin auth/CORS/JSON middleware chain.
-func (s *Server) ObservedWebhookIngressHandler() http.Handler {
-	return RedactWebhookCapability(observability.Handler(s.WebhookIngressHandler()))
+// webhookIngressHandler applies the root-boundary redaction before both OTel
+// and access logging. This public route is mounted outside the admin middleware
+// chain because its opaque URL is the complete credential.
+func (s *Server) webhookIngressHandler() http.Handler {
+	logged := s.accessLogMiddleware(http.HandlerFunc(s.handleWebhookIngress))
+	return redactWebhookCapability(observability.Handler(logged))
 }
 
 // NewRootMux constructs the production root handler. Every /webhooks/ subtree
@@ -68,8 +60,8 @@ func (s *Server) ObservedWebhookIngressHandler() http.Handler {
 // ingress, and every other shape fails closed.
 func NewRootMux(s *Server) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.Handle("POST /webhooks/{capability}", s.ObservedWebhookIngressHandler())
-	mux.Handle("/webhooks/{path...}", RedactWebhookCapability(http.NotFoundHandler()))
+	mux.Handle("POST /webhooks/{capability}", s.webhookIngressHandler())
+	mux.Handle("/webhooks/{path...}", redactWebhookCapability(http.NotFoundHandler()))
 	mux.Handle("/", s.Handler())
 	return mux
 }

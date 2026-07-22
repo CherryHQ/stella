@@ -192,4 +192,3 @@ For GitHub, set `provider` to `github` and use non-empty, narrow `github_events`
 - GitHub delivery IDs are deduplicated for 30 days. Duplicate or ignored signed deliveries return 202; pre-admission failures are retryable. Make external mutations idempotent.
 - Limits: 256 KiB body, per-endpoint rate limit, and max 10 in-flight runs (429 when exceeded)
 - Give webhook agents and their GitHub credentials only the minimum tools and repository access. Payload content remains untrusted external data.
-- A PAT cannot replace the capability. Old `/webhooks/<channel-id>` URLs return 404 after capability cutover.

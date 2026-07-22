@@ -14,7 +14,7 @@ func DecodeConfig(raw map[string]any) (pkgchannel.WebhookConfig, error) {
 // validateConfig returns a non-empty reason when the config is invalid.
 func validateConfig(cfg pkgchannel.WebhookConfig) string {
 	switch cfg.Provider {
-	case "", pkgchannel.WebhookProviderGeneric:
+	case pkgchannel.WebhookProviderGeneric:
 		if len(cfg.GitHubEvents) != 0 || len(cfg.GitHubRepositories) != 0 {
 			return "webhook: github allowlists require provider github"
 		}

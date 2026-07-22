@@ -78,10 +78,6 @@ GitHub 自动化仍应保持幂等。投递可能在 30 天窗口后重试，外
 - `404 Not Found` 表示 capability 格式错误、不存在、已撤销、已禁用，或其所有者或 Agent 不再活跃。Stella 刻意不会说明具体原因。
 - `503 Service Unavailable` 表示 Agent 未能接纳运行，请稍后重试。
 
-## 从渠道 ID URL 迁移
-
-PAT 不能替代 capability URL。升级后，旧的 `/webhooks/<channel-id>` URL 会返回 `404`。已有 Webhook 渠道仍会显示，但在管理员启用端点并分发新的 capability URL 前，不会有活跃端点。
-
 ## 最小权限
 
 尽可能为 webhook 创建独立 Agent。只给它此自动化所需的工具、GitHub 凭据、仓库和指令，并选择同样采用最小权限的所有者。有效签名只能证明负载来自 GitHub；它不能让 issue 文本、Pull Request 内容或其他负载字段变成可信指令。

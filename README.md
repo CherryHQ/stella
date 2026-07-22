@@ -63,7 +63,7 @@ You can bind a channel to a specific agent, or let users switch agents with `/ag
 
 ### Webhook capabilities
 
-Webhook URLs are one-time-disclosed bearer capabilities bound to one owner and one agent; they do not use a PAT. Rotate or revoke them in the Web UI if they leak. GitHub webhooks require both the capability URL as **Payload URL** and the separately issued **Secret**. GitHub delivery IDs are deduplicated for 30 days; busy or pre-admission failures are retryable. Keep webhook agents and their GitHub access least-privileged. Old `/webhooks/<channel-id>` URLs no longer work. See the [Webhook guide](web/content/docs/channels/webhook.md).
+Webhook URLs are one-time-disclosed bearer capabilities bound to one owner and one agent; they do not use a PAT. Rotate or revoke them in the Web UI if they leak. GitHub webhooks require both the capability URL as **Payload URL** and the separately issued **Secret**. GitHub delivery IDs are deduplicated for 30 days; busy or pre-admission failures are retryable. Keep webhook agents and their GitHub access least-privileged. See the [Webhook guide](web/content/docs/channels/webhook.md).
 
 ## Skills
 

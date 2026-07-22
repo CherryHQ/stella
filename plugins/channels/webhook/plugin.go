@@ -50,7 +50,8 @@ func init() {
 
 func configSchema() map[string]any {
 	return map[string]any{
-		"type": "object",
+		"type":     "object",
+		"required": []any{"provider"},
 		"properties": map[string]any{
 			"provider": map[string]any{
 				"type":        "string",

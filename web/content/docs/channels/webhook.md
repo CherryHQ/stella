@@ -78,10 +78,6 @@ Write GitHub automations to be idempotent anyway. A delivery can be retried afte
 - `404 Not Found` means the capability is malformed, unknown, revoked, disabled, or no longer has an active owner or agent. Stella intentionally does not reveal which.
 - `503 Service Unavailable` means the agent could not admit the run; retry later.
 
-## Breaking cutover from channel-ID URLs
-
-A PAT cannot replace the capability URL. Old `/webhooks/<channel-id>` URLs return `404` after this upgrade. Existing webhook channels remain visible, but they have no active endpoint until an administrator activates one and distributes the new capability URL.
-
 ## Least privilege
 
 Create a separate webhook agent whenever possible. Give it only the tools, GitHub credentials, repositories, and instructions needed for this one automation. Select an owner with the same minimum access. A valid signature proves GitHub sent the payload; it does not make issue text, pull request content, or any other payload field trustworthy instructions.

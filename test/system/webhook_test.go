@@ -71,15 +71,6 @@ func (h *harness) testGitHubWebhookIngress(t *testing.T) {
 	h.assertWebhookRequestCount(t, fake, 1)
 	h.assertWebhookDeliveryCount(t, ctx, endpoint.ID, invalidDeliveryID, 0)
 
-	// The old route shape is no longer an alternate credential path: even a live
-	// PAT presented to /webhooks/{channel-id} must be treated as an invalid
-	// capability and fail closed.
-	pat, patID := h.createPAT(t, ctx, []string{"agent:read"})
-	if code := h.postOldWebhookPath(t, ctx, channelID, pat, body); code != http.StatusNotFound {
-		t.Fatalf("old channel-ID webhook path with PAT %s = %d, want %d\n%s", patID, code, http.StatusNotFound, h.proc.logTail(40))
-	}
-	h.assertWebhookRequestCount(t, fake, 1)
-
 	// This busy proof is deterministic at subprocess level: the fake has already
 	// received the first persistent-session model request and holds its stream
 	// open, while Runtime.ChatAdmitted retains that session's synchronous guard.
@@ -287,22 +278,6 @@ func (h *harness) postGitHubDelivery(t *testing.T, ctx context.Context, endpoint
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		t.Fatal("POST GitHub delivery")
-	}
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode
-}
-
-func (h *harness) postOldWebhookPath(t *testing.T, ctx context.Context, channelID, pat string, body []byte) int {
-	t.Helper()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.baseURL+"/webhooks/"+channelID, bytes.NewReader(body))
-	if err != nil {
-		t.Fatal("build old webhook-path request")
-	}
-	req.Header.Set("Authorization", "Bearer "+pat)
-	resp, err := (&http.Client{}).Do(req)
-	if err != nil {
-		t.Fatal("POST old webhook path")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)

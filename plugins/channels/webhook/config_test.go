@@ -8,9 +8,9 @@ func TestValidate(t *testing.T) {
 		raw     map[string]any
 		wantErr bool
 	}{
-		{"empty ok", map[string]any{}, false},
-		{"ephemeral ok", map[string]any{"session_mode": "ephemeral"}, false},
-		{"persistent ok", map[string]any{"session_mode": "persistent"}, false},
+		{"provider required", map[string]any{}, true},
+		{"ephemeral ok", map[string]any{"provider": "generic", "session_mode": "ephemeral"}, false},
+		{"persistent ok", map[string]any{"provider": "generic", "session_mode": "persistent"}, false},
 		{"github ok", map[string]any{"provider": "github", "github_events": []any{"push"}, "github_repositories": []any{"acme/repo"}}, false},
 		{"github missing allowlists", map[string]any{"provider": "github"}, true},
 		{"generic with github allowlist", map[string]any{"provider": "generic", "github_events": []any{"push"}}, true},
@@ -21,6 +21,7 @@ func TestValidate(t *testing.T) {
 		{"wait over ceiling", map[string]any{"wait_timeout_seconds": 601}, true},
 		{"max run over ceiling", map[string]any{"max_run_timeout_seconds": 3601}, true},
 		{"valid full", map[string]any{
+			"provider":                "generic",
 			"default_wait":            true,
 			"wait_timeout_seconds":    30,
 			"max_run_timeout_seconds": 120,

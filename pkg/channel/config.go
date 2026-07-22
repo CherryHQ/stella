@@ -76,7 +76,6 @@ const (
 // GitHub's non-secret allowlists.
 type WebhookConfig struct {
 	// Provider selects generic capability-only or GitHub HMAC verification.
-	// Empty remains the generic default for pre-endpoint channel configuration.
 	Provider string `json:"provider"`
 	// GitHubEvents and GitHubRepositories constrain signed GitHub deliveries.
 	// Both must be non-empty for the GitHub provider.

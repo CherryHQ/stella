@@ -206,11 +206,6 @@ func isAuthExempt(method, path string) bool {
 		// require a Stella user session. /oauth/authorize is deliberately NOT
 		// exempt -- it needs a logged-in user to render consent.
 		return true
-	case method == http.MethodPost && strings.HasPrefix(path, "/webhooks/"):
-		// Inbound webhook ingress authenticates with its opaque URL capability,
-		// which resolves one fixed owner/Agent/worker Authority in webhook.Service.
-		// Authorization headers are ignored there; only POST is exempt.
-		return true
 	case strings.HasPrefix(path, "/api/auth/"):
 		if slices.Contains(publicAuthAPIPaths, path) {
 			return true

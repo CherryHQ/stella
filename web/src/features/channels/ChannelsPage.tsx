@@ -88,7 +88,7 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
   webhook: {
     label: "Webhook",
     // Undefined numeric defaults keep backend defaults absent from JSON while
-    // safely preserving finite numeric timeout values already in channel config.
+    // preserving explicit timeout values set through the current API.
     defaults: {
       provider: "generic",
       github_events: [],

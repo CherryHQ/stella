@@ -126,8 +126,8 @@ func webhookProvider(raw string) string {
 	var config struct {
 		Provider string `json:"provider"`
 	}
-	if json.Unmarshal([]byte(raw), &config) != nil || config.Provider == "" {
-		return string(ProviderGeneric)
+	if json.Unmarshal([]byte(raw), &config) != nil {
+		return ""
 	}
 	return config.Provider
 }

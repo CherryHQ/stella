@@ -26,10 +26,6 @@ type WebhookRunConfig struct {
 	WaitTimeoutSeconds int
 }
 
-// DecodeWebhookRunConfig decodes a webhook channel config map into the
-// behaviour-only view consumed by the webhook ingress handler. The plugin owns
-// the decode + default-resolution rules; the transport receives only the
-// resolved values.
 // DecodeWebhookEndpointConfig exposes the non-secret provider policy needed by
 // control-plane endpoint issuance. The plugin remains the single decoder for
 // persisted webhook behavior; no provider secret can enter this view.
@@ -38,17 +34,17 @@ func (h *Host) DecodeWebhookEndpointConfig(cfg map[string]any) (WebhookEndpointC
 	if err != nil {
 		return WebhookEndpointConfig{}, err
 	}
-	provider := c.Provider
-	if provider == "" {
-		provider = "generic"
-	}
 	return WebhookEndpointConfig{
-		Provider:           provider,
+		Provider:           c.Provider,
 		GitHubEvents:       append([]string(nil), c.GitHubEvents...),
 		GitHubRepositories: append([]string(nil), c.GitHubRepositories...),
 	}, nil
 }
 
+// DecodeWebhookRunConfig decodes a webhook channel config map into the
+// behaviour-only view consumed by the webhook ingress handler. The plugin owns
+// the decode + default-resolution rules; the transport receives only the
+// resolved values.
 func (h *Host) DecodeWebhookRunConfig(cfg map[string]any) (WebhookRunConfig, error) {
 	c, err := webhookplugin.DecodeConfig(cfg)
 	if err != nil {
