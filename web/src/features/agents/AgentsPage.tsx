@@ -10,6 +10,7 @@ import {
   getAgentSkillFile,
   getBuiltinResource,
   getMe,
+  getWebhookEndpoint,
   installAgentSkill,
   listAgents,
   listAgentSkills,
@@ -139,6 +140,7 @@ export interface AgentsSettingsLoaderData {
   builtinSouls: BuiltinItem[];
   agentSkills: Skill[];
   selectedChannelIDs: string[];
+  lockedWebhookChannelIDs: string[];
   personalisation: Personalisation;
   selectedAgent?: AgentDetail;
 }
@@ -220,6 +222,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     selectedChannelIDs: agentId
       ? channels.filter((ch) => ch.id !== ch.type && ch.agent_id === agentId).map((c) => c.id)
       : [],
+    lockedWebhookChannelIDs: channels.filter((ch) => ch.type === "webhook").map((ch) => ch.id),
     personalisation,
   };
 }
@@ -243,6 +246,7 @@ export interface AgentsPageState {
   assignedUsers: User[];
   addUserId: string;
   selectedChannelIDs: string[];
+  lockedWebhookChannelIDs: string[];
   confirmMsg: string;
   confirmAction: () => void;
   agentSkills: Skill[];
@@ -305,6 +309,9 @@ export function AgentsPage() {
     assignedUsers: [],
     addUserId: "",
     selectedChannelIDs: loaderData?.selectedChannelIDs ?? [],
+    lockedWebhookChannelIDs: (loaderData?.channels ?? [])
+      .filter((channel) => channel.type === "webhook")
+      .map((channel) => channel.id),
     confirmMsg: "",
     confirmAction: () => {},
     agentSkills: loaderData?.agentSkills ?? [],
@@ -373,13 +380,39 @@ export function AgentsPage() {
     try {
       const { data } = await listChannels({ throwOnError: true });
       const channels = ((data?.channels ?? []) as Channel[]).map(normalizeChannel);
-      setState((prev) => ({ ...prev, channels }));
+      const endpointChecks = await Promise.all(
+        channels
+          .filter((channel) => channel.type === "webhook")
+          .map(async (channel) => {
+            try {
+              const { response } = await getWebhookEndpoint({ path: { id: channel.id } });
+              return response?.status === 404 ? null : channel.id;
+            } catch {
+              // A failed lookup must not let an operator accidentally rebind a
+              // capability endpoint. Only an explicit 404 means it is inactive.
+              return channel.id;
+            }
+          }),
+      );
+      setState((prev) => ({
+        ...prev,
+        channels,
+        lockedWebhookChannelIDs: endpointChecks.filter((id): id is string => id !== null),
+      }));
       return channels;
     } catch {
-      setState((prev) => ({ ...prev, channels: [] }));
+      setState((prev) => ({
+        ...prev,
+        channels: [],
+        lockedWebhookChannelIDs: [],
+      }));
       return [];
     }
   }, []);
+
+  useEffect(() => {
+    if (state.isAdmin) void loadChannels();
+  }, [loadChannels, state.isAdmin]);
 
   const loadAgentSkills = useCallback(async (agentId: string | null) => {
     if (!agentId) {
@@ -591,8 +624,13 @@ export function AgentsPage() {
     async (agentID: string, currentState: AgentsPageState) => {
       if (!currentState.isAdmin) return;
       const selected = new Set(currentState.selectedChannelIDs);
+      const lockedWebhookChannelIDs = new Set(currentState.lockedWebhookChannelIDs);
       const available = currentState.channels.filter(
-        (ch) => ch.id !== ch.type && ch.enabled && (!ch.agent_id || ch.agent_id === agentID),
+        (ch) =>
+          ch.id !== ch.type &&
+          ch.enabled &&
+          (!ch.agent_id || ch.agent_id === agentID) &&
+          !lockedWebhookChannelIDs.has(ch.id),
       );
       for (const ch of available) {
         const wantsAgent = selected.has(ch.id);

@@ -50,16 +50,20 @@ stellad server
 
 所有渠道共享同一套记忆。你可以从一个渠道开始，再切换到另一个渠道，Stella 会接上之前的上下文。
 
-| 渠道     | 连接方式               | 流式响应支持         |
-| -------- | ---------------------- | -------------------- |
-| Terminal | 内置 TUI               | Token-by-token       |
-| Telegram | 长轮询，无需公网 IP    | 支持                 |
-| QQ       | WebSocket              | 支持                 |
-| 飞书     | WebSocket，无需公网 IP | Edit-in-place        |
-| 微信     | 长轮询（iLink Bot）    | 不支持               |
-| Webhook  | 入站 HTTP POST + PAT   | 不支持（同步或 202） |
+| 渠道     | 连接方式                  | 流式响应支持         |
+| -------- | ------------------------- | -------------------- |
+| Terminal | 内置 TUI                  | Token-by-token       |
+| Telegram | 长轮询，无需公网 IP       | 支持                 |
+| QQ       | WebSocket                 | 支持                 |
+| 飞书     | WebSocket，无需公网 IP    | Edit-in-place        |
+| 微信     | 长轮询（iLink Bot）       | 不支持               |
+| Webhook  | 入站 capability HTTP POST | 不支持（同步或 202） |
 
 你可以把某个渠道绑定到特定 agent，也可以让用户通过 Telegram 的 `/agent` 切换 agent。
+
+### Webhook capability
+
+Webhook URL 是一次性显示的 bearer capability，固定绑定一个所有者和一个 Agent，不使用 PAT。发生泄露时，请在 Web UI 中轮换或撤销。GitHub webhook 同时需要 capability URL 作为 **Payload URL**，以及单独签发的 **Secret**。GitHub 投递 ID 会在 30 天内去重；繁忙或 Agent 接纳前失败的请求可以重试。Webhook Agent 和 GitHub 访问权限都应采用最小权限。旧的 `/webhooks/<channel-id>` URL 已不可用。详见 [Webhook 指南](web/content/docs/channels/webhook.zh.md)。
 
 ## 技能
 
@@ -71,7 +75,7 @@ stellad server
 | ---- | -------------------------------------- | -------------------------------------------- |
 | 入门 | 安装、部署、配置                       | [快速开始](/docs/getting-started/quickstart) |
 | 指南 | 记忆、定时任务、技能、通知             | [指南](/docs/guides/memory)                  |
-| 渠道 | Telegram、QQ、飞书、微信、Webhook 配置 | [渠道](/docs/channels/telegram)              |
+| 渠道 | Telegram、QQ、飞书、微信、Webhook 配置 | [渠道](/docs/channels/webhook)               |
 | 管理 | Kubernetes / Helm 部署                 | [Kubernetes](/docs/admin/kubernetes)         |
 | 开发 | 架构、插件、贡献                       | [开发](/docs/development/architecture)       |
 

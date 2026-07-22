@@ -57,9 +57,13 @@ All channels share the same memory. Chat from one, switch to another, and Stella
 | QQ       | WebSocket                    | Yes               |
 | Feishu   | WebSocket, no public IP      | Edit-in-place     |
 | WeChat   | Long polling (iLink Bot)     | No                |
-| Webhook  | Inbound HTTP POST with a PAT | No (sync or 202)  |
+| Webhook  | Inbound capability HTTP POST | No (sync or 202)  |
 
 You can bind a channel to a specific agent, or let users switch agents with `/agent`.
+
+### Webhook capabilities
+
+Webhook URLs are one-time-disclosed bearer capabilities bound to one owner and one agent; they do not use a PAT. Rotate or revoke them in the Web UI if they leak. GitHub webhooks require both the capability URL as **Payload URL** and the separately issued **Secret**. GitHub delivery IDs are deduplicated for 30 days; busy or pre-admission failures are retryable. Keep webhook agents and their GitHub access least-privileged. Old `/webhooks/<channel-id>` URLs no longer work. See the [Webhook guide](web/content/docs/channels/webhook.md).
 
 ## Skills
 
@@ -71,7 +75,7 @@ Skills are reusable playbooks that teach Stella how to perform specific tasks. S
 | --------------- | ------------------------------------------- | ----------------------------------------------- |
 | Getting Started | Install, deploy, configure                  | [Quick Start](/docs/getting-started/quickstart) |
 | Guides          | Memory, scheduling, skills, notifications   | [Guides](/docs/guides/memory)                   |
-| Channels        | Telegram, QQ, Feishu, WeChat, Webhook setup | [Channels](/docs/channels/telegram)             |
+| Channels        | Telegram, QQ, Feishu, WeChat, Webhook setup | [Channels](/docs/channels/webhook)              |
 | Admin           | Kubernetes / Helm deployment                | [Kubernetes](/docs/admin/kubernetes)            |
 | Development     | Architecture, plugins, contributing         | [Development](/docs/development/architecture)   |
 

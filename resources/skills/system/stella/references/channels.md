@@ -162,18 +162,22 @@ Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 
 ## Webhook (inbound trigger)
 
-Not a chat bot: an inbound-only HTTP endpoint that runs the bound agent. There is no outbound messaging and no in-chat commands.
+Not a chat bot: an inbound-only capability endpoint that runs a bound agent as one fixed owner. There is no outbound messaging and no in-chat commands.
 
-1. Open the Web UI and add a channel of type Webhook with a channel ID (e.g. `deploy-notify`)
-2. Bind an agent (required). The channel is enabled the moment it's created
-3. Callers POST to `https://your-host/webhooks/<channel-id>` with a Bearer personal access token carrying the `agent:write` scope; the request body becomes the agent's message
+1. Open the Web UI and add a channel of type Webhook with a channel ID (for example `deploy-notify`)
+2. Bind an enabled agent, then select **Activate webhook endpoint**
+3. Select an active owner and provider. Stella returns an unguessable URL once; store it outside Stella
+4. POST to `https://your-host/webhooks/<capability>` without a PAT. Authorization headers are ignored and cannot change identity
 
-The agent runs **as the calling PAT's user** (that user must be allowed to run the bound agent); there is no user binding on the channel.
+The endpoint always runs as the configured owner with the channel's bound agent. Revoke the endpoint before changing its agent or channel type.
 
 Webhook channel config (JSON):
 
 ```json
 {
+  "provider": "generic",
+  "github_events": [],
+  "github_repositories": [],
   "default_wait": false,
   "wait_timeout_seconds": 60,
   "max_run_timeout_seconds": 300,
@@ -181,6 +185,11 @@ Webhook channel config (JSON):
 }
 ```
 
-- `?wait=true|false` on the request overrides `default_wait`: sync (200 with the reply, up to `wait_timeout_seconds`, then 504) vs fire-and-forget (202 with `session_id`)
-- `session_mode`: `ephemeral` = fresh session per trigger; `persistent` = one long-lived session per caller per webhook (busy session → 429, retry later)
-- Limits: 256 KiB body, per-webhook rate limit and max 10 in-flight runs (429 when exceeded)
+For GitHub, set `provider` to `github` and use non-empty, narrow `github_events` and `github_repositories` allowlists before activation. Save the one-time URL and GitHub HMAC secret, then configure both as GitHub's **Payload URL** and **Secret**. GitHub is always asynchronous, validates its signature before running work, and never returns agent output.
+
+- Generic `?wait=true|false` overrides `default_wait`: sync (200 with the reply, up to `wait_timeout_seconds`, then 504) vs fire-and-forget (202 with `session_id`)
+- `session_mode`: `ephemeral` = fresh session per trigger; `persistent` = one stable session for this endpoint (busy session → 429, retry later)
+- GitHub delivery IDs are deduplicated for 30 days. Duplicate or ignored signed deliveries return 202; pre-admission failures are retryable. Make external mutations idempotent.
+- Limits: 256 KiB body, per-endpoint rate limit, and max 10 in-flight runs (429 when exceeded)
+- Give webhook agents and their GitHub credentials only the minimum tools and repository access. Payload content remains untrusted external data.
+- A PAT cannot replace the capability. Old `/webhooks/<channel-id>` URLs return 404 after capability cutover.

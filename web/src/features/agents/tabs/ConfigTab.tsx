@@ -137,11 +137,13 @@ function channelDisplayName(ch: Channel): string {
 function ChannelSelector({
   channels,
   selectedIds,
+  lockedIds,
   onToggle,
   onRemove,
 }: {
   channels: Channel[];
   selectedIds: string[];
+  lockedIds: string[];
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
@@ -150,6 +152,7 @@ function ChannelSelector({
   const containerRef = useRef<HTMLDivElement>(null);
   const unselected = channels.filter((ch) => !selectedIds.includes(ch.id));
   const selected = channels.filter((ch) => selectedIds.includes(ch.id));
+  const locked = new Set(lockedIds);
 
   return (
     <div>
@@ -177,6 +180,7 @@ function ChannelSelector({
               {channelDisplayName(ch)}
               <button
                 type="button"
+                disabled={locked.has(ch.id)}
                 onClick={(e) => {
                   e.stopPropagation();
                   onRemove(ch.id);
@@ -188,6 +192,9 @@ function ChannelSelector({
             </span>
           ))}
         </div>
+        {selected.some((channel) => locked.has(channel.id)) && (
+          <p className="text-xs text-muted-foreground mt-2">{t("channels.webhookRebindLocked")}</p>
+        )}
         {open && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
@@ -224,7 +231,15 @@ function ChannelSelector({
 
 export function ConfigTab({ state, onSetState }: Props) {
   const { t } = useI18n();
-  const { form, cachedModels, isAdmin, editingId, channels, selectedChannelIDs } = state;
+  const {
+    form,
+    cachedModels,
+    isAdmin,
+    editingId,
+    channels,
+    selectedChannelIDs,
+    lockedWebhookChannelIDs,
+  } = state;
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
@@ -233,6 +248,7 @@ export function ConfigTab({ state, onSetState }: Props) {
   );
 
   const toggleChannel = (chId: string) => {
+    if (lockedWebhookChannelIDs.includes(chId)) return;
     const ids = selectedChannelIDs.includes(chId)
       ? selectedChannelIDs.filter((id) => id !== chId)
       : [...selectedChannelIDs, chId];
@@ -240,6 +256,7 @@ export function ConfigTab({ state, onSetState }: Props) {
   };
 
   const removeChannel = (chId: string) => {
+    if (lockedWebhookChannelIDs.includes(chId)) return;
     onSetState({ selectedChannelIDs: selectedChannelIDs.filter((id) => id !== chId) });
   };
 
@@ -333,6 +350,7 @@ export function ConfigTab({ state, onSetState }: Props) {
         <ChannelSelector
           channels={availableChannels}
           selectedIds={selectedChannelIDs}
+          lockedIds={lockedWebhookChannelIDs}
           onToggle={toggleChannel}
           onRemove={removeChannel}
         />

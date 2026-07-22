@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
+import { Field, FieldLabel } from "@/components/ui/field";
 import {
   Dialog,
   DialogClose,
@@ -51,12 +52,14 @@ import {
   SettingsGridPage,
 } from "@/features/settings/SettingsCardGrid";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
+import { WebhookEndpointPanel, type EndpointSecret } from "./WebhookEndpointPanel";
 import { MessageCircle, Plus } from "lucide-react";
 import { siQq, siTelegram, siWechat } from "simple-icons";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
-type PlatformDefaults = Record<string, string | boolean>;
+type PlatformConfigDefault = string | boolean | string[] | number | undefined;
+type PlatformDefaults = Record<string, PlatformConfigDefault>;
 
 const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; icon?: string }> = {
   telegram: {
@@ -84,10 +87,17 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
   },
   webhook: {
     label: "Webhook",
-    // Only behavioural knobs the UI can safely round-trip as string/bool. The
-    // int timeout fields (wait/max) stay at backend defaults; the config decoder
-    // is strict JSON, so a stringified number would fail to unmarshal.
-    defaults: { default_wait: false, session_mode: "ephemeral" },
+    // Undefined numeric defaults keep backend defaults absent from JSON while
+    // safely preserving finite numeric timeout values already in channel config.
+    defaults: {
+      provider: "generic",
+      github_events: [],
+      github_repositories: [],
+      default_wait: false,
+      wait_timeout_seconds: undefined,
+      max_run_timeout_seconds: undefined,
+      session_mode: "ephemeral",
+    },
   },
 };
 
@@ -127,21 +137,32 @@ function platformConfigDefaults(type: string): PlatformDefaults {
   return { ...platformMeta[type]?.defaults };
 }
 
-function normalizeConfigValue(defaultValue: string | boolean, value: unknown): string | boolean {
-  if (typeof defaultValue === "boolean") return Boolean(value);
-  return (value as string) || "";
+function normalizeConfigValue(
+  defaultValue: PlatformConfigDefault,
+  value: unknown,
+): PlatformConfigDefault {
+  if (typeof defaultValue === "number" || defaultValue === undefined) {
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof defaultValue === "boolean") return typeof value === "boolean" ? value : false;
+  if (Array.isArray(defaultValue)) {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+  }
+  return typeof value === "string" ? value : "";
 }
 
 function serializePlatformConfig(
   type: string,
   data: Record<string, unknown>,
 ): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => [
-      key,
-      normalizeConfigValue(defaultValue, data[key]),
-    ]),
-  );
+  const config: Record<string, string | boolean | string[] | number> = {};
+  for (const [key, defaultValue] of Object.entries(platformConfigDefaults(type))) {
+    const value = normalizeConfigValue(defaultValue, data[key]);
+    if (value !== undefined) config[key] = value;
+  }
+  return config;
 }
 
 function hasConfig(type: string, data: Record<string, unknown>): boolean {
@@ -263,9 +284,8 @@ function InstanceFields({
   );
 }
 
-// WebhookConfigFields renders the two round-trippable webhook knobs. Timeouts
-// are intentionally omitted (see platformMeta.webhook) — the strict JSON decoder
-// rejects stringified ints, so they stay at backend defaults.
+// WebhookConfigFields intentionally does not expose timeout inputs. The typed
+// serializer still preserves valid numeric values already in channel config.
 function WebhookConfigFields({
   ch,
   onChange,
@@ -311,7 +331,7 @@ interface ChannelDetailProps {
   wxQrStatus: string;
   wxQrPolling: boolean;
   onUpdate: (key: string, value: unknown) => void;
-  onSave: (ch: NormalizedChannel) => void;
+  onSave: (ch: NormalizedChannel) => Promise<NormalizedChannel | null>;
   onDelete: (id: string) => void;
   onGenerateCode: (platform: string) => void;
   onStartWeixinQR: () => void;
@@ -319,6 +339,8 @@ interface ChannelDetailProps {
   onCopyLinkCode: () => void;
   wxQrStatusVariant: (status: string) => "warning" | "info" | "success" | "error" | "secondary";
   onRefreshWxQr: () => void;
+  onSecret: (secret: EndpointSecret) => void;
+  onToast: (message: string, kind?: "success" | "error") => void;
 }
 
 function ChannelDetail({
@@ -339,6 +361,8 @@ function ChannelDetail({
   onCopyLinkCode,
   wxQrStatusVariant,
   onRefreshWxQr,
+  onSecret,
+  onToast,
 }: ChannelDetailProps) {
   const { t } = useI18n();
   const [channel, setChannel] = useState<NormalizedChannel>(initialChannel);
@@ -359,7 +383,9 @@ function ChannelDetail({
 
   return (
     <DetailPanel
-      onSave={() => onSave(channel)}
+      onSave={() => {
+        void onSave(channel);
+      }}
       onDelete={!isDefaultInstance ? () => setConfirmDeleteOpen(true) : undefined}
       saveLabel={t("common.save")}
       deleteLabel={t("common.delete")}
@@ -390,8 +416,19 @@ function ChannelDetail({
         />
       </div>
 
-      {/* Webhook ingress URL (inbound-only channel, no bot runtime). */}
-      {channel.type === "webhook" && <WebhookIngress channelId={channel.id} />}
+      {channel.type === "webhook" && (
+        <WebhookEndpointPanel
+          channel={channel}
+          onPersistConfig={async (config) => {
+            const saved = await onSave({ ...channel, ...config });
+            if (!saved) return false;
+            setChannel(saved);
+            return true;
+          }}
+          onSecret={onSecret}
+          onToast={onToast}
+        />
+      )}
 
       {/* Config section */}
       {Object.keys(platformConfigDefaults(channel.type)).length > 0 && (
@@ -406,8 +443,8 @@ function ChannelDetail({
         </div>
       )}
 
-      {/* Identity / account section — bot channels only; webhook has no linked
-          account (it authenticates via the caller's PAT). */}
+      {/* Identity / account section — bot channels only; webhook endpoints bind
+          their owner during activation. */}
       {channel.type !== "webhook" && (
         <div className="space-y-3">
           <FormSectionTitle>My account</FormSectionTitle>
@@ -490,36 +527,6 @@ function ChannelDetail({
         onConfirm={() => onDelete(channel.id)}
       />
     </DetailPanel>
-  );
-}
-
-// WebhookIngress shows the read-only POST URL callers hit to trigger this
-// channel. It's derived from the current origin + channel id, so it stays
-// correct behind any reverse proxy the browser reached.
-function WebhookIngress({ channelId }: { channelId: string }) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const url = `${origin}/webhooks/${channelId}`;
-  const copy = () => {
-    void navigator.clipboard?.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
-  return (
-    <div className="space-y-2">
-      <FormSectionTitle>{t("channels.webhookUrl")}</FormSectionTitle>
-      <div className="flex items-center gap-2 flex-wrap">
-        <code className="font-mono text-sm bg-muted text-foreground px-3 py-1 rounded select-all break-all">
-          {url}
-        </code>
-        <Button onClick={copy} variant="ghost" size="xs">
-          {copied ? t("channels.copied") : t("channels.copy")}
-        </Button>
-      </div>
-      <p className="text-xs text-muted-foreground">{t("channels.webhookUrlDesc")}</p>
-    </div>
   );
 }
 
@@ -1094,6 +1101,8 @@ export function ChannelsPage() {
   const wxQrIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [creatingInstance, setCreatingInstance] = useState(false);
+  const [oneTimeWebhookSecret, setOneTimeWebhookSecret] = useState<EndpointSecret | null>(null);
+  const [webhookCredentialsOpen, setWebhookCredentialsOpen] = useState(false);
 
   const { toasts, showToast } = useToast();
 
@@ -1216,6 +1225,25 @@ export function ChannelsPage() {
     showToast("Copied");
   };
 
+  const showWebhookCredentials = (secret: EndpointSecret) => {
+    setOneTimeWebhookSecret(secret);
+    setWebhookCredentialsOpen(true);
+  };
+
+  const acknowledgeWebhookCredentials = () => {
+    setWebhookCredentialsOpen(false);
+    setOneTimeWebhookSecret(null);
+  };
+
+  const copyWebhookCredential = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast(t("channels.copied"));
+    } catch {
+      showToast(t("channels.webhookCopyFailed"), "error");
+    }
+  };
+
   // ── weixin QR ──
 
   const stopWeixinQRPolling = () => {
@@ -1299,7 +1327,7 @@ export function ChannelsPage() {
     setInstances((prev) => prev.map((ch) => (ch.id === id ? { ...ch, [key]: value } : ch)));
   };
 
-  const saveInstance = async (ch: NormalizedChannel) => {
+  const saveInstance = async (ch: NormalizedChannel): Promise<NormalizedChannel | null> => {
     try {
       const { data: saved } = await updateChannel({
         path: { id: ch.id },
@@ -1315,8 +1343,10 @@ export function ChannelsPage() {
       const normalized = normalizeChannel(saved as Channel);
       setInstances((prev) => prev.map((c) => (c.id === ch.id ? normalized : c)));
       showToast(ch.id + " saved");
+      return normalized;
     } catch (e) {
       showToast((e as Error).message, "error");
+      return null;
     }
   };
 
@@ -1439,6 +1469,8 @@ export function ChannelsPage() {
           onCopyLinkCode={copyLinkCode}
           wxQrStatusVariant={wxQrStatusVariant}
           onRefreshWxQr={startWeixinQR}
+          onSecret={showWebhookCredentials}
+          onToast={showToast}
         />
       );
     }
@@ -1578,6 +1610,68 @@ export function ChannelsPage() {
       <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>
         {detail}
       </SettingsDetailSheet>
+
+      <Dialog
+        open={webhookCredentialsOpen}
+        onOpenChange={(open) => {
+          if (open && oneTimeWebhookSecret) setWebhookCredentialsOpen(true);
+        }}
+      >
+        <DialogPopup showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>{t("channels.webhookCredentialsTitle")}</DialogTitle>
+            <DialogDescription>{t("channels.webhookCredentialsDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            {oneTimeWebhookSecret && (
+              <div className="flex flex-col gap-4">
+                <Field>
+                  <FieldLabel>{t("channels.webhookUrl")}</FieldLabel>
+                  <div className="flex gap-2">
+                    <Input nativeInput readOnly value={oneTimeWebhookSecret.url} />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void copyWebhookCredential(oneTimeWebhookSecret.url)}
+                    >
+                      {t("channels.copy")}
+                    </Button>
+                  </div>
+                </Field>
+                {oneTimeWebhookSecret.github_webhook_secret && (
+                  <Field>
+                    <FieldLabel>{t("channels.webhookGitHubSecret")}</FieldLabel>
+                    <div className="flex gap-2">
+                      <Input
+                        nativeInput
+                        readOnly
+                        value={oneTimeWebhookSecret.github_webhook_secret}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() =>
+                          void copyWebhookCredential(
+                            oneTimeWebhookSecret.github_webhook_secret ?? "",
+                          )
+                        }
+                      >
+                        {t("channels.copy")}
+                      </Button>
+                    </div>
+                  </Field>
+                )}
+                <p>{t("channels.webhookCredentialsWarning")}</p>
+              </div>
+            )}
+          </DialogPanel>
+          <DialogFooter>
+            <Button type="button" onClick={acknowledgeWebhookCredentials}>
+              {t("channels.webhookCredentialsSaved")}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
 
       <ToastContainer messages={toasts} />
     </>
