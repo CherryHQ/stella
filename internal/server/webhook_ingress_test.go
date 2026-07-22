@@ -44,6 +44,7 @@ type fakeWebhookIngress struct {
 	releases      int
 	claimActive   bool
 	validateRuns  int
+	releaseCtxErr error
 	resolvedToken string
 }
 
@@ -66,8 +67,12 @@ func (f *fakeWebhookIngress) ClaimGitHubDelivery(context.Context, webhook.GitHub
 	return true, nil
 }
 
-func (f *fakeWebhookIngress) ReleaseGitHubDelivery(context.Context, webhook.GitHubDelivery) (bool, error) {
+func (f *fakeWebhookIngress) ReleaseGitHubDelivery(ctx context.Context, _ webhook.GitHubDelivery) (bool, error) {
 	f.releases++
+	f.releaseCtxErr = ctx.Err()
+	if f.releaseCtxErr != nil {
+		return false, f.releaseCtxErr
+	}
 	f.claimActive = false
 	return true, nil
 }
@@ -267,6 +272,19 @@ func TestGitHubWebhookIngressAdmissionAndDeduplication(t *testing.T) {
 		s.handleWebhookIngress(rr, newRequest())
 		if rr.Code != http.StatusAccepted || run.chatCalls != 2 {
 			t.Fatalf("retry status/turns = %d/%d", rr.Code, run.chatCalls)
+		}
+	})
+	t.Run("request cancellation does not cancel pre-admission release", func(t *testing.T) {
+		ingress := &fakeWebhookIngress{}
+		run := &fakeWebhookAgentRun{info: session.Info{ID: "s"}, admitErr: agenterr.ErrSessionBusy}
+		s := newIngressServer(t, webhook.ProviderGitHub, ingress, run, newWebhookLimiter(100, 100))
+		ctx, cancel := context.WithCancel(context.Background())
+		req := newRequest().WithContext(ctx)
+		cancel()
+		rr := httptest.NewRecorder()
+		s.handleWebhookIngress(rr, req)
+		if rr.Code != http.StatusServiceUnavailable || ingress.releases != 1 || ingress.releaseCtxErr != nil || ingress.claimActive {
+			t.Fatalf("cancelled request status/releases/release-context/claim = %d/%d/%v/%t", rr.Code, ingress.releases, ingress.releaseCtxErr, ingress.claimActive)
 		}
 	})
 	t.Run("admitted fast failure retains claim", func(t *testing.T) {

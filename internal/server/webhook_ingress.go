@@ -249,8 +249,13 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) releaseGitHubDelivery(ctx context.Context, endpointID string, delivery webhook.GitHubDelivery) {
-	if _, err := s.webhookIngress.ReleaseGitHubDelivery(ctx, delivery); err != nil {
-		s.log.ErrorContext(ctx, "release GitHub webhook delivery", "endpoint_id", endpointID, "error", err)
+	// Releasing a pre-admission claim must outlive the caller: GitHub can cancel
+	// its request before Stella returns the retryable response. Keep request
+	// values for tracing, but detach cancellation and bound the cleanup itself.
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if _, err := s.webhookIngress.ReleaseGitHubDelivery(releaseCtx, delivery); err != nil {
+		s.log.ErrorContext(releaseCtx, "release GitHub webhook delivery", "endpoint_id", endpointID, "error", err)
 	}
 }
 
