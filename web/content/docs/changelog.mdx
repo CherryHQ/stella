@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> **Breaking:** Webhook channels now use one-time-disclosed capability URLs bound to a fixed owner and agent. The legacy `/webhooks/<channel-id>` route and PAT authentication no longer work; administrators must activate each existing webhook endpoint and update callers. GitHub repository webhooks also require the separately issued signing secret. ([#773](https://github.com/CherryHQ/stella/issues/773))
+
+### ✨ Features
+
+- Webhooks: add capability rotation and revocation, GitHub HMAC and allowlist validation, 30-day delivery deduplication, and endpoint management in the Web UI. ([#773](https://github.com/CherryHQ/stella/issues/773))
+
 ## [0.60.4] - 2026-07-28
 
 ### 🐛 Bug Fixes

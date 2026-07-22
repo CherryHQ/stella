@@ -11,6 +11,12 @@ icon: History
 
 ## [Unreleased]
 
+> **破坏性变更：**Webhook 渠道现改用一次性显示、固定绑定所有者和 Agent 的 capability URL。旧的 `/webhooks/<channel-id>` 路由和 PAT 认证不再可用；管理员必须为每个已有 Webhook 启用端点，并更新调用方。GitHub repository webhook 还必须配置单独签发的签名密钥。([#773](https://github.com/CherryHQ/stella/issues/773))
+
+### ✨ 功能
+
+- Webhook：新增 capability 轮换与撤销、GitHub HMAC 与 allowlist 验证、30 天投递去重，以及 Web UI 端点管理。([#773](https://github.com/CherryHQ/stella/issues/773))
+
 ## [0.60.4] - 2026-07-28
 
 ### 🐛 修复
