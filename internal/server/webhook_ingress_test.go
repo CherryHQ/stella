@@ -81,6 +81,10 @@ type fakeWebhookRunPort struct{ run webhookAgentRun }
 
 func (p fakeWebhookRunPort) Get(string) webhookAgentRun { return p.run }
 
+type missingWebhookAgentPool struct{}
+
+func (missingWebhookAgentPool) GetService(string) *agent.Service { return nil }
+
 type fakeWebhookAgentRun struct {
 	info       session.Info
 	sessionErr error
@@ -255,6 +259,24 @@ func TestGitHubWebhookIngressAdmissionAndDeduplication(t *testing.T) {
 		}
 		if run.chatCalls != 1 || ingress.claims != 2 || ingress.releases != 0 {
 			t.Fatalf("turns/claims/releases = %d/%d/%d", run.chatCalls, ingress.claims, ingress.releases)
+		}
+	})
+	t.Run("missing pooled service releases so redelivery retries", func(t *testing.T) {
+		ingress := &fakeWebhookIngress{}
+		s := newIngressServer(t, webhook.ProviderGitHub, ingress, nil, newWebhookLimiter(100, 100))
+		s.webhookRun = poolWebhookRunPort{pool: missingWebhookAgentPool{}}
+		rr := httptest.NewRecorder()
+		s.handleWebhookIngress(rr, newRequest())
+		if rr.Code != http.StatusServiceUnavailable || ingress.releases != 1 || ingress.claimActive {
+			t.Fatalf("missing service status/releases/claim = %d/%d/%t", rr.Code, ingress.releases, ingress.claimActive)
+		}
+
+		run := &fakeWebhookAgentRun{info: session.Info{ID: "s"}, stream: closedWebhookStream()}
+		s.webhookRun = fakeWebhookRunPort{run: run}
+		rr = httptest.NewRecorder()
+		s.handleWebhookIngress(rr, newRequest())
+		if rr.Code != http.StatusAccepted || run.chatCalls != 1 {
+			t.Fatalf("retry status/turns = %d/%d", rr.Code, run.chatCalls)
 		}
 	})
 	t.Run("not admitted releases so redelivery retries", func(t *testing.T) {

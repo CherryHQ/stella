@@ -59,5 +59,9 @@ func (p poolWebhookRunPort) Get(agentID string) webhookAgentRun {
 	if p.pool == nil {
 		return nil
 	}
-	return p.pool.GetService(agentID)
+	svc := p.pool.GetService(agentID)
+	if svc == nil {
+		return nil
+	}
+	return svc
 }

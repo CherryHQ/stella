@@ -126,6 +126,9 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 
 	// Only valid, policy-accepted deliveries consume a per-endpoint acceptance
 	// token. GitHub validation deliberately precedes both this limiter and claim.
+	// Claim stays after the limiter because GitHub does not sign the delivery ID:
+	// a captured signed body with varied IDs must not create unbounded DB rows.
+	// Consequently, duplicate retries consume a token by design.
 	if s.webhookLimiter != nil && !s.webhookLimiter.allow(invocation.Endpoint.ID) {
 		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
