@@ -37,12 +37,9 @@ func (s *Server) IssueWebhookEndpoint(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	provider := webhook.Provider(req.Provider)
-	result, err := access.IssueWebhookEndpoint(r.Context(), id, req.OwnerUserId, provider)
-	if err != nil {
-		s.writeControlPlaneError(w, err)
-		return
-	}
-	policy, err := access.WebhookPolicy(r.Context(), id, provider)
+	// Policy is captured before the endpoint commit and returned with the result:
+	// no fallible read may strand a newly issued one-time credential.
+	result, policy, err := access.IssueWebhookEndpoint(r.Context(), id, req.OwnerUserId, provider)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
 		return
@@ -55,12 +52,10 @@ func (s *Server) RotateWebhookEndpoint(w http.ResponseWriter, r *http.Request, i
 	if !ok {
 		return
 	}
-	result, err := access.RotateWebhookEndpoint(r.Context(), id)
-	if err != nil {
-		s.writeControlPlaneError(w, err)
-		return
-	}
-	policy, err := access.WebhookPolicy(r.Context(), id, result.Endpoint.Provider)
+	// Resolve metadata before rotation so the successful mutation is followed
+	// only by response serialization; otherwise a failed read would invalidate
+	// the old URL without delivering the new one.
+	result, policy, err := access.RotateWebhookEndpoint(r.Context(), id)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
 		return

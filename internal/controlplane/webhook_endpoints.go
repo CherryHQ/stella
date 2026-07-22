@@ -28,40 +28,45 @@ func (a *Access) GetWebhookEndpoint(ctx context.Context, channelID string) (webh
 // IssueWebhookEndpoint binds an owner to the channel's current Agent. Provider
 // policy comes from the persisted webhook plugin config; the request cannot
 // smuggle a GitHub allowlist or secret around that boundary.
-func (a *Access) IssueWebhookEndpoint(ctx context.Context, channelID, ownerID string, provider webhook.Provider) (webhook.IssueResult, error) {
+func (a *Access) IssueWebhookEndpoint(ctx context.Context, channelID, ownerID string, provider webhook.Provider) (webhook.IssueResult, webhook.GitHubPolicy, error) {
 	ch, err := a.webhookChannel(ctx, channelID)
 	if err != nil {
-		return webhook.IssueResult{}, err
+		return webhook.IssueResult{}, webhook.GitHubPolicy{}, err
 	}
 	policy, err := a.webhookPolicy(ch, provider)
 	if err != nil {
-		return webhook.IssueResult{}, err
+		return webhook.IssueResult{}, webhook.GitHubPolicy{}, err
 	}
 	svc, err := a.requireEndpointService()
 	if err != nil {
-		return webhook.IssueResult{}, err
+		return webhook.IssueResult{}, webhook.GitHubPolicy{}, err
 	}
 	result, err := svc.Issue(ctx, webhook.IssueRequest{
 		ChannelID: channelID, OwnerUserID: ownerID, Provider: provider, GitHub: policy,
 		ExpectedChannelConfig: &ch.Config,
 	})
-	return result, endpointError(err)
+	return result, policy, endpointError(err)
 }
 
-func (a *Access) RotateWebhookEndpoint(ctx context.Context, channelID string) (webhook.RotationResult, error) {
-	if _, err := a.webhookChannel(ctx, channelID); err != nil {
-		return webhook.RotationResult{}, err
+func (a *Access) RotateWebhookEndpoint(ctx context.Context, channelID string) (webhook.RotationResult, webhook.GitHubPolicy, error) {
+	ch, err := a.webhookChannel(ctx, channelID)
+	if err != nil {
+		return webhook.RotationResult{}, webhook.GitHubPolicy{}, err
 	}
 	svc, err := a.requireEndpointService()
 	if err != nil {
-		return webhook.RotationResult{}, err
+		return webhook.RotationResult{}, webhook.GitHubPolicy{}, err
 	}
 	endpoint, err := svc.GetByChannel(ctx, channelID)
 	if err != nil {
-		return webhook.RotationResult{}, endpointError(err)
+		return webhook.RotationResult{}, webhook.GitHubPolicy{}, endpointError(err)
+	}
+	policy, err := a.webhookPolicy(ch, endpoint.Provider)
+	if err != nil {
+		return webhook.RotationResult{}, webhook.GitHubPolicy{}, err
 	}
 	result, err := svc.Rotate(ctx, endpoint.ID)
-	return result, endpointError(err)
+	return result, policy, endpointError(err)
 }
 
 func (a *Access) DeleteWebhookEndpoint(ctx context.Context, channelID string) error {
