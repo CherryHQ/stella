@@ -45,18 +45,6 @@ WHERE endpoint.token_public_id = $1
   AND auth_user.is_active = true
   AND agent.enabled = true;
 
--- name: GetWebhookChannelBindingForUpdate :one
-SELECT
-    channel.id,
-    channel.type,
-    channel.agent_id,
-    COALESCE(agent.enabled, false) AS agent_enabled,
-    channel.config
-FROM channel
-LEFT JOIN agent ON agent.id = channel.agent_id
-WHERE channel.id = $1
-FOR UPDATE OF channel;
-
 -- name: RotateChannelWebhookEndpoint :one
 UPDATE channel_webhook_endpoint
 SET token_public_id = $1,

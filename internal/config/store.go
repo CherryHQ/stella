@@ -33,6 +33,9 @@ type Store interface {
 	ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error)
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	CreateChannel(ctx context.Context, ch Channel) error
+	// UpdateChannel atomically writes an existing channel. It rejects binding or
+	// webhook-provider changes while an endpoint is active.
+	UpdateChannel(ctx context.Context, update ChannelUpdate) error
 	UpsertChannel(ctx context.Context, ch Channel) error
 	DeleteChannel(ctx context.Context, id string) error
 

@@ -94,6 +94,9 @@ func (commandTestStore) GetChannel(context.Context, string) (config.Channel, err
 	return config.Channel{}, nil
 }
 func (commandTestStore) CreateChannel(context.Context, config.Channel) error { return nil }
+func (commandTestStore) UpdateChannel(context.Context, config.ChannelUpdate) error {
+	return nil
+}
 func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) DeleteChannel(context.Context, string) error         { return nil }
 func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {

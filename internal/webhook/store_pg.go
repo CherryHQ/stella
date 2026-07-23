@@ -2,17 +2,14 @@ package webhook
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -20,10 +17,6 @@ import (
 type PostgresStore struct {
 	db *pgxpool.Pool
 	q  *sqlc.Queries
-
-	// beforeUpdateLock is a package-private deterministic test seam. Production
-	// construction leaves it nil; it never changes transaction behavior.
-	beforeUpdateLock func(context.Context, pgx.Tx)
 }
 
 func NewPostgresStore(db *pgxpool.Pool) *PostgresStore {
@@ -37,7 +30,7 @@ func (s *PostgresStore) BindEndpoint(ctx context.Context, channelID string, buil
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	binding, err := qtx.GetWebhookChannelBindingForUpdate(ctx, channelID)
+	binding, err := qtx.GetChannelBindingForUpdate(ctx, channelID)
 	if err != nil {
 		return endpointRecord{}, mapNotFound(err)
 	}
@@ -66,70 +59,6 @@ func (s *PostgresStore) BindEndpoint(ctx context.Context, channelID string, buil
 		return endpointRecord{}, fmt.Errorf("webhook: commit endpoint bind: %w", err)
 	}
 	return endpointFromRow(row), nil
-}
-
-// UpdateChannel takes exactly the same SELECT ... FOR UPDATE row lock as
-// BindEndpoint. It examines endpoint state and writes the channel in one
-// transaction, closing the issue-vs-rebind race without a check-then-upsert.
-func (s *PostgresStore) UpdateChannel(ctx context.Context, next ChannelBinding, name, channelType string, enabled bool, config string) error {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("webhook: begin channel update: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
-	if s.beforeUpdateLock != nil {
-		s.beforeUpdateLock(ctx, tx)
-	}
-	locked, err := qtx.GetWebhookChannelBindingForUpdate(ctx, next.ChannelID)
-	if err != nil {
-		return mapNotFound(err)
-	}
-	currentType := locked.Type
-	if currentType == "" {
-		currentType = locked.ID
-	}
-	nextType := channelType
-	if nextType == "" {
-		nextType = locked.ID
-	}
-	providerChanged := webhookProvider(locked.Config) != webhookProvider(config)
-	if currentType != nextType || locked.AgentID.String != next.AgentID || providerChanged {
-		_, err := qtx.GetChannelWebhookEndpointByChannelID(ctx, locked.ID)
-		if err == nil {
-			return ErrChannelEndpointActive
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("webhook: read endpoint before channel update: %w", err)
-		}
-	}
-	if err := qtx.UpsertChannel(ctx, sqlc.UpsertChannelParams{
-		ID: locked.ID, Name: name, Type: nextType,
-		AgentID: pgtype.Text{String: next.AgentID, Valid: next.AgentID != ""},
-		Enabled: enabled, Config: config,
-	}); err != nil {
-		if isChannelBindingViolation(err) {
-			// The failed transaction cannot perform the diagnostic list. Release
-			// its row lock first, then restore DBStore.UpsertChannel's typed error.
-			_ = tx.Rollback(ctx)
-			return s.channelBindingConflict(ctx, locked.ID, next.AgentID, nextType, err)
-		}
-		return fmt.Errorf("webhook: update channel: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("webhook: commit channel update: %w", err)
-	}
-	return nil
-}
-
-func webhookProvider(raw string) string {
-	var config struct {
-		Provider string `json:"provider"`
-	}
-	if json.Unmarshal([]byte(raw), &config) != nil {
-		return ""
-	}
-	return config.Provider
 }
 
 func (s *PostgresStore) GetEndpoint(ctx context.Context, id string) (endpointRecord, error) {
@@ -232,24 +161,6 @@ func mapNotFound(err error) error {
 		return ErrNotFound
 	}
 	return err
-}
-
-func (s *PostgresStore) channelBindingConflict(ctx context.Context, channelID, agentID, channelType string, original error) error {
-	rows, err := s.q.ListChannels(ctx)
-	if err != nil {
-		return original
-	}
-	for _, row := range rows {
-		if row.ID != channelID && row.AgentID.Valid && row.AgentID.String == agentID && row.Type == channelType {
-			return &config.ChannelBindingConflictError{AgentID: agentID, Type: channelType, ChannelID: row.ID}
-		}
-	}
-	return original
-}
-
-func isChannelBindingViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_channel_agent_id_type"
 }
 
 func mapEndpointConflict(err error) error {

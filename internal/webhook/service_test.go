@@ -46,16 +46,6 @@ func (s *memoryStore) BindEndpoint(ctx context.Context, channelID string, build 
 	return rec, nil
 }
 
-func (s *memoryStore) UpdateChannel(_ context.Context, next ChannelBinding, _ string, _ string, _ bool, _ string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.binding == "" {
-		return ErrNotFound
-	}
-	s.binding = next.AgentID
-	return nil
-}
-
 func (s *memoryStore) GetEndpoint(_ context.Context, id string) (endpointRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

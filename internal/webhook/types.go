@@ -27,7 +27,6 @@ var (
 	ErrOwnerAgentForbidden     = errors.New("webhook: owner cannot use agent")
 	ErrAgentDisabled           = errors.New("webhook: channel agent is disabled")
 	ErrChannelNotWebhook       = errors.New("webhook: channel is not a webhook")
-	ErrChannelEndpointActive   = errors.New("webhook: active endpoint prevents channel rebind")
 	ErrGitHubSecretUnavailable = errors.New("webhook: github endpoint requires an available system vault")
 	ErrChannelConfigChanged    = errors.New("webhook: channel config changed during endpoint issuance")
 )
@@ -124,10 +123,6 @@ type Store interface {
 	// Channel mutation takes this exact lock before checking endpoint absence;
 	// neither path may acquire another row lock first.
 	BindEndpoint(context.Context, string, func(context.Context, ChannelBinding) (endpointRecord, error)) (endpointRecord, error)
-	// UpdateChannel locks the existing channel row and rejects an active endpoint
-	// only when the type or agent changes. It leaves endpoint-safe behavior
-	// changes (name, enabled state, config) updateable.
-	UpdateChannel(context.Context, ChannelBinding, string, string, bool, string) error
 	GetEndpoint(context.Context, string) (endpointRecord, error)
 	GetEndpointByChannel(context.Context, string) (endpointRecord, error)
 	ResolveEndpoint(context.Context, string) (resolvedRecord, error)

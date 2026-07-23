@@ -20,12 +20,13 @@ import (
 
 // DBStore implements config.Store using sqlc queries backed by PostgreSQL.
 type DBStore struct {
-	q *sqlc.Queries
+	db *pgxpool.Pool
+	q  *sqlc.Queries
 }
 
 // NewDBStore creates a new DBStore wrapping the given database connection.
 func NewDBStore(db *pgxpool.Pool) *DBStore {
-	return &DBStore{q: sqlc.New(db)}
+	return &DBStore{db: db, q: sqlc.New(db)}
 }
 
 // --- Providers (backed by provider) ---
@@ -334,6 +335,62 @@ func (s *DBStore) CreateChannel(ctx context.Context, ch config.Channel) error {
 		return err
 	}
 	return s.channelBindingConflict(ctx, ch.ID, ch.AgentID, channelType, err)
+}
+
+// UpdateChannel takes the channel row lock shared with webhook endpoint
+// issuance. If an endpoint exists, its fixed type, agent, and provider binding
+// cannot change; behavior-only writes remain safe.
+func (s *DBStore) UpdateChannel(ctx context.Context, update config.ChannelUpdate) error {
+	ch := update.Channel
+	channelType := ch.Type
+	if channelType == "" {
+		channelType = ch.ID
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin channel update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+
+	locked, err := qtx.GetChannelBindingForUpdate(ctx, ch.ID)
+	if err != nil {
+		return err
+	}
+	currentType := locked.Type
+	if currentType == "" {
+		currentType = locked.ID
+	}
+	endpoint, endpointErr := qtx.GetChannelWebhookEndpointByChannelID(ctx, locked.ID)
+	if endpointErr == nil {
+		if currentType != channelType || locked.AgentID.String != ch.AgentID || endpoint.Provider != update.EndpointProvider {
+			return config.ErrChannelEndpointActive
+		}
+	} else if !errors.Is(endpointErr, pgx.ErrNoRows) {
+		return fmt.Errorf("read channel endpoint before update: %w", endpointErr)
+	}
+
+	if err := qtx.UpsertChannel(ctx, sqlc.UpsertChannelParams{
+		ID:      locked.ID,
+		Name:    ch.Name,
+		Type:    channelType,
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: ch.Enabled,
+		Config:  ch.Config,
+	}); err != nil {
+		if isChannelBindingViolation(err) {
+			// The failed transaction cannot perform the diagnostic list. Release
+			// its row lock first, then restore the typed conflict.
+			_ = tx.Rollback(ctx)
+			return s.channelBindingConflict(ctx, locked.ID, ch.AgentID, channelType, err)
+		}
+		return fmt.Errorf("update channel %q: %w", locked.ID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit channel update: %w", err)
+	}
+	return nil
 }
 
 func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {

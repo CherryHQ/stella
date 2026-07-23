@@ -7,6 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/webhook"
 )
 
@@ -61,6 +62,71 @@ func TestChannelCreateConflictIsStable(t *testing.T) {
 	}
 }
 
+type channelSaveStore struct {
+	config.Store
+	channel config.Channel
+	update  config.ChannelUpdate
+}
+
+func (s *channelSaveStore) ListChannels(context.Context) ([]config.Channel, error) {
+	return nil, nil
+}
+
+func (s *channelSaveStore) UpdateChannel(_ context.Context, update config.ChannelUpdate) error {
+	s.update = update
+	s.channel = update.Channel
+	return nil
+}
+
+func (s *channelSaveStore) GetChannel(context.Context, string) (config.Channel, error) {
+	return s.channel, nil
+}
+
+func (s *channelSaveStore) UpsertPlugin(context.Context, config.Plugin) error { return nil }
+
+func (s *channelSaveStore) GetPlugin(_ context.Context, id string) (config.Plugin, error) {
+	return config.Plugin{ID: id, Enabled: true, Config: map[string]any{}}, nil
+}
+
+func TestSaveOrdinaryChannelDoesNotRequireWebhookService(t *testing.T) {
+	ctx := context.Background()
+	store := &channelSaveStore{}
+	svc := NewService(store, pluginhost.New(store), nil, nil, nil)
+	access, err := svc.Begin(ctx, adminAuthority(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := config.Channel{ID: "telegram", Type: "telegram", Name: "Telegram", Enabled: true, Config: `{}`}
+	got, err := access.SaveChannel(ctx, want, map[string]any{}, false)
+	if err != nil {
+		t.Fatalf("SaveChannel without webhook service: %v", err)
+	}
+	if got != want || store.update.Channel != want || store.update.EndpointProvider != "" {
+		t.Fatalf("saved = %+v, update = %+v, want %+v", got, store.update, want)
+	}
+}
+
+func TestSaveWebhookChannelPassesPluginDecodedEndpointProvider(t *testing.T) {
+	ctx := context.Background()
+	store := &channelSaveStore{}
+	svc := NewService(store, pluginhost.New(store), nil, nil, nil)
+	access, err := svc.Begin(ctx, adminAuthority(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := config.Channel{ID: "hook", Type: "webhook", AgentID: "agent-1", Enabled: true}
+	got, err := access.SaveChannel(ctx, ch, map[string]any{"provider": "generic"}, false)
+	if err != nil {
+		t.Fatalf("SaveChannel webhook: %v", err)
+	}
+	if store.update.EndpointProvider != "generic" {
+		t.Fatalf("endpoint provider = %q, want generic", store.update.EndpointProvider)
+	}
+	if got.Config != `{"provider":"generic"}` {
+		t.Fatalf("saved config = %q", got.Config)
+	}
+}
+
 func TestEndpointErrorDistinguishesConfigurationRetryFromEndpointRevocation(t *testing.T) {
 	configChanged := &ConflictError{}
 	ok := errors.As(endpointError(webhook.ErrChannelConfigChanged), &configChanged)
@@ -72,9 +138,9 @@ func TestEndpointErrorDistinguishesConfigurationRetryFromEndpointRevocation(t *t
 	}
 
 	active := &ConflictError{}
-	ok = errors.As(endpointError(webhook.ErrChannelEndpointActive), &active)
+	ok = errors.As(channelSaveError(config.ErrChannelEndpointActive), &active)
 	if !ok {
-		t.Fatalf("endpoint-active error = %T, want *ConflictError", endpointError(webhook.ErrChannelEndpointActive))
+		t.Fatalf("endpoint-active error = %T, want *ConflictError", channelSaveError(config.ErrChannelEndpointActive))
 	}
 	if active.Msg != "webhook endpoint is active; revoke it before changing the channel binding" {
 		t.Fatalf("endpoint-active message = %q", active.Msg)

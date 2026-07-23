@@ -6,6 +6,18 @@ INSERT INTO channel (id, name, type, agent_id, enabled, config)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
+-- name: GetChannelBindingForUpdate :one
+SELECT
+    channel.id,
+    channel.type,
+    channel.agent_id,
+    COALESCE(agent.enabled, false) AS agent_enabled,
+    channel.config
+FROM channel
+LEFT JOIN agent ON agent.id = channel.agent_id
+WHERE channel.id = $1
+FOR UPDATE OF channel;
+
 -- name: UpsertChannel :exec
 INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, now())

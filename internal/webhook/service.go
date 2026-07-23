@@ -96,16 +96,6 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 	return IssueResult{Endpoint: rec.Endpoint, Capability: capability, GitHubWebhookSecret: githubSecret}, nil
 }
 
-// UpdateChannel applies a control-plane channel write under the channel row lock
-// shared with Issue. An active endpoint can never acquire a different type or
-// agent through a stale check-then-upsert write.
-func (s *Service) UpdateChannel(ctx context.Context, current ChannelBinding, name, channelType string, enabled bool, config string) error {
-	if s == nil || s.store == nil {
-		return errors.New("webhook: endpoint service unavailable")
-	}
-	return s.store.UpdateChannel(ctx, current, name, channelType, enabled, config)
-}
-
 func (s *Service) GetByChannel(ctx context.Context, channelID string) (Endpoint, error) {
 	rec, err := s.store.GetEndpointByChannel(ctx, channelID)
 	if err != nil {

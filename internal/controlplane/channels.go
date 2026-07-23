@@ -8,8 +8,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/config"
-
-	"github.com/CherryHQ/stella/internal/webhook"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -86,12 +84,6 @@ func (m *ChannelManagement) Channel(ctx context.Context, id string) (config.Chan
 // control-plane operation. It intentionally makes no further authorization call.
 func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error) {
 	a := m.access
-	// Every channel mutation must be able to take the endpoint domain's shared
-	// row lock. Do not silently fall back to an unlocked upsert: an old endpoint
-	// could otherwise acquire a new Agent through a partial composition.
-	if a.svc.webhooks == nil {
-		return config.Channel{}, ErrUnavailable
-	}
 	// A webhook is a runtime-less trigger: it must name the Agent an issued
 	// capability endpoint will run for its fixed owner.
 	if ch.Type == pkgchannel.PlatformWebhook && ch.AgentID == "" {
@@ -109,24 +101,28 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 		return config.Channel{}, invalid("invalid config JSON")
 	}
 	ch.Config = string(cfgJSON)
+	update := config.ChannelUpdate{Channel: ch}
+	if ch.Type == pkgchannel.PlatformWebhook {
+		// The plugin is the sole decoder of desired webhook behavior. DBStore
+		// receives only this policy value and never inspects raw plugin config.
+		endpointCfg, err := a.svc.plugins.DecodeWebhookEndpointConfig(cfgMap)
+		if err != nil {
+			return config.Channel{}, invalid("invalid webhook config")
+		}
+		update.EndpointProvider = endpointCfg.Provider
+	}
 	if !create {
-		// Every existing-channel write takes the endpoint domain's channel-row
-		// lock. It permits safe behavior/allowlist changes but rejects a type,
-		// agent, or provider change while an endpoint is active.
-		if _, err := a.svc.store.GetChannel(ctx, ch.ID); err == nil {
-			err := a.svc.webhooks.UpdateChannel(ctx, webhook.ChannelBinding{
-				ChannelID: ch.ID,
-				AgentID:   ch.AgentID,
-			}, ch.Name, ch.Type, ch.Enabled, ch.Config)
-			if err != nil {
-				return config.Channel{}, endpointError(err)
+		// DBStore takes the exact channel row lock endpoint issuance holds. It
+		// safely permits behavior changes while rejecting a binding/provider
+		// change against an active endpoint.
+		if err := a.svc.store.UpdateChannel(ctx, update); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				if err := a.svc.store.CreateChannel(ctx, ch); err != nil {
+					return config.Channel{}, channelCreateError(err)
+				}
+			} else {
+				return config.Channel{}, channelSaveError(err)
 			}
-		} else if errors.Is(err, pgx.ErrNoRows) {
-			if err := a.svc.store.CreateChannel(ctx, ch); err != nil {
-				return config.Channel{}, channelCreateError(err)
-			}
-		} else {
-			return config.Channel{}, err
 		}
 	} else if err := a.svc.store.CreateChannel(ctx, ch); err != nil {
 		return config.Channel{}, channelCreateError(err)
@@ -159,7 +155,10 @@ func (a *Access) DeleteChannel(ctx context.Context, id string) error {
 
 func channelSaveError(err error) error {
 	var conflict *config.ChannelBindingConflictError
-	if errors.As(err, &conflict) {
+	switch {
+	case errors.Is(err, config.ErrChannelEndpointActive):
+		return &ConflictError{Msg: "webhook endpoint is active; revoke it before changing the channel binding"}
+	case errors.As(err, &conflict):
 		return invalid(conflict.Error())
 	}
 	return err

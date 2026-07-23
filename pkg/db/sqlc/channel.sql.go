@@ -94,6 +94,40 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
 	return i, err
 }
 
+const getChannelBindingForUpdate = `-- name: GetChannelBindingForUpdate :one
+SELECT
+    channel.id,
+    channel.type,
+    channel.agent_id,
+    COALESCE(agent.enabled, false) AS agent_enabled,
+    channel.config
+FROM channel
+LEFT JOIN agent ON agent.id = channel.agent_id
+WHERE channel.id = $1
+FOR UPDATE OF channel
+`
+
+type GetChannelBindingForUpdateRow struct {
+	ID           string      `json:"id"`
+	Type         string      `json:"type"`
+	AgentID      pgtype.Text `json:"agent_id"`
+	AgentEnabled bool        `json:"agent_enabled"`
+	Config       string      `json:"config"`
+}
+
+func (q *Queries) GetChannelBindingForUpdate(ctx context.Context, id string) (GetChannelBindingForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getChannelBindingForUpdate, id)
+	var i GetChannelBindingForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.AgentID,
+		&i.AgentEnabled,
+		&i.Config,
+	)
+	return i, err
+}
+
 const listChannels = `-- name: ListChannels :many
 SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel ORDER BY type, id
 `
