@@ -182,6 +182,14 @@ description = "Run tests with race detection and coverage report (CI)"
 depends = ["pg:runtime:download"]
 run = "go test -race -coverprofile=coverage.out ./..."
 
+[tasks."test:capabilities"]
+description = "Validate the release capability inventory and generate coverage and gap reports"
+run = """
+go test -tags capability -count=1 ./test/capabilities/...
+go test -tags capability -count=1 ./cmd/stellad -run '^TestCapabilityCommandSurface$'
+go run -tags capability ./test/capabilities/cmd/report
+"""
+
 [tasks.system-test]
 description = "Run the subprocess system test suite: real stellad over TCP against embedded PostgreSQL"
 depends = ["pg:runtime:download", "build"]
@@ -255,6 +263,7 @@ run = """
 set -e
 mise run format
 mise run build
+mise run test:capabilities
 mise run test
 mise run system-test
 mise run release:check

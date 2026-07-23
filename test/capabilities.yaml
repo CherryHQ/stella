@@ -1,0 +1,2076 @@
+# This file is the long-lived release capability inventory. Update it with the
+# product change that adds, removes, or renames a public surface; release runs
+# validate it but never regenerate or overwrite it.
+schema_version: 1
+
+baseline:
+  commit: 8e454a0112d51e0cde7e81ffd3ba2df0fb69672d
+  note: Initial phase-one inventory against upstream/main for issue 772.
+
+surface_exemptions:
+  openapi: []
+  web_routes:
+    - id: /docs/$
+      reason: Documentation delivery route, not a Stella product capability.
+    - id: /settings
+      reason: Generated settings layout node; concrete child routes own the product capabilities.
+    - id: /settings/
+      reason: Generated settings index redirect; concrete child routes own the product capabilities.
+  cli_commands: []
+  plugins: []
+  system_skills: []
+
+test_assets:
+  - id: A01
+    category: framework
+    name: Go standard testing
+    automation: automated
+    entrypoints: [mise run test, go test]
+    evidence_paths: [go.mod]
+    summary: Primary framework for unit, integration, conformance, and package contract tests.
+    limitations: Does not by itself prove a real stellad process, browser, or external service.
+
+  - id: A02
+    category: helper
+    name: net/http/httptest
+    automation: automated
+    entrypoints: [mise run test]
+    evidence_paths: [
+      internal/server/auth_test.go,
+      plugins/tools/webfetch/webfetch_test.go,
+    ]
+    summary: In-process HTTP recorders and fake servers for handlers and external protocols.
+    limitations: Does not traverse the real stellad process and TCP listener.
+
+  - id: A03
+    category: harness
+    name: internal/db/dbtest with embedded PostgreSQL
+    automation: automated
+    entrypoints: [mise run test]
+    evidence_paths: [
+      internal/db/dbtest/dbtest.go,
+      internal/db/dbtest/dbtest_test.go,
+    ]
+    summary: Migrates a template database and clones an isolated real PostgreSQL database per test.
+    limitations: Most consumers remain in-process and do not cover process startup or network transport.
+
+  - id: A04
+    category: harness
+    name: internal/memory/memorytest
+    automation: automated
+    entrypoints: [mise run test]
+    evidence_paths: [
+      internal/memory/memorytest/fake.go,
+      internal/memory/memorytest/conformance.go,
+    ]
+    summary: Reusable Memory fake and provider conformance suite.
+    limitations: Covers the provider contract rather than complete user journeys.
+
+  - id: A05
+    category: helper
+    name: Package-local fakes, stubs, recorders, and trace helpers
+    automation: automated
+    entrypoints: [mise run test]
+    evidence_paths: [
+      test/system/fake_anthropic_test.go,
+      internal/observability/tracehook/tracehook_test.go,
+    ]
+    summary: Purpose-built protocol recording, fake providers, filesystem, subprocess, and trace assertions.
+    limitations: There is no single cross-package mock or fixture framework.
+
+  - id: A06
+    category: harness
+    name: Subprocess System Test Harness
+    automation: automated
+    entrypoints: [mise run system-test]
+    evidence_paths: [test/system/system_test.go, test/system/harness_test.go]
+    summary: Runs the real stellad binary over TCP with embedded PostgreSQL and a scripted fake Anthropic provider.
+    limitations: Six ordered journeys cover only selected process seams and no browser.
+
+  - id: A07
+    category: harness
+    name: Docker Sandbox Contract Test
+    automation: conditional
+    entrypoints: [go test ./plugins/sandbox/docker/...]
+    evidence_paths: [plugins/sandbox/docker/contract_test.go]
+    summary: Exercises container lifecycle and execution through the project Docker client against a real daemon.
+    limitations: Skips when Docker is unavailable and has no release platform result matrix.
+
+  - id: A08
+    category: orchestration
+    name: mise task runner
+    automation: automated
+    entrypoints: [mise tasks]
+    evidence_paths: [mise.toml]
+    summary: Provides the repository test, system-test, build, and release command entrypoints.
+    limitations: Task existence is orchestration evidence, not product behavior evidence.
+
+  - id: A09
+    category: quality-gate
+    name: Go coverage and race detector
+    automation: automated
+    entrypoints: [mise run test:coverage, mise run test:coverage:race]
+    evidence_paths: [mise.toml, .github/workflows/lint-and-test.yml]
+    summary: Measures Go line coverage and detects data races in ordinary CI.
+    limitations: Line coverage cannot substitute for Capability and Scenario coverage.
+
+  - id: A10
+    category: quality-gate
+    name: Generate, format, migration, package, and chart checks
+    automation: automated
+    entrypoints: [
+      mise run generate:check,
+      mise run format,
+      mise run release:check,
+      mise run release:snapshot,
+      mise run deploy:helm:check,
+    ]
+    evidence_paths: [mise.toml, .pre-commit-config.yaml, deploy/helm/check.sh]
+    summary: Validates generated output, formatting, lint, migrations, archives, and Helm rendering.
+    limitations: These gates generally do not prove runtime product behavior.
+
+  - id: A11
+    category: execution
+    name: GitHub Actions
+    automation: automated
+    entrypoints: [lint-and-test workflow, release workflow]
+    evidence_paths: [
+      .github/workflows/lint-and-test.yml,
+      .github/workflows/release.yml,
+    ]
+    summary: Runs ordinary generate, format, race, coverage, build, and publication jobs.
+    limitations: Ordinary CI does not run System Test and the tag workflow does not enforce the full local release gate.
+
+  - id: A12
+    category: exploratory
+    name: tap browser runbook
+    automation: agent-driven
+    entrypoints: [tap browser]
+    evidence_paths: [web/content/docs/development/rules/web-ui-test.md]
+    summary: Drives page text, interactions, URLs, network requests, and screenshots on a running server.
+    limitations: Not a versioned browser suite or runner and has no repository-owned report or trace contract.
+
+  - id: A13
+    category: exploratory
+    name: curl and database API runbook
+    automation: manual
+    entrypoints: [curl, psql]
+    evidence_paths: [web/content/docs/development/rules/api-test.md]
+    summary: Drives a running stellad through HTTP and inspects PostgreSQL invariants.
+    limitations: No shared fixture, result format, cleanup runner, or release invocation.
+
+  - id: A14
+    category: harness
+    name: Reflect tagged model evaluation tests
+    automation: manual
+    entrypoints: [go test -tags reflecteval]
+    evidence_paths: [
+      internal/reflect/candidate_eval_manual_test.go,
+      internal/reflect/reconciliation_eval_manual_test.go,
+    ]
+    summary: Runs opt-in real-model evaluation cases and writes diagnostic reports under dist.
+    limitations: Requires an explicit environment flag and provider access; it is not part of a unified release runner.
+
+capabilities:
+  - id: C01
+    class: core
+    name: runtime-storage
+    title: Runtime and storage
+    description: Start stellad, initialize or connect PostgreSQL, migrate, report readiness and version, and shut down safely.
+    surfaces:
+      openapi: [getStatus]
+      web_routes: [/settings/about]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C01-S01
+        name: boot-migrate-ready-drain
+        layer: system
+        status: covered
+        release_policy: blocking
+        summary: The release binary migrates its database, becomes ready, drains in-flight work, and exits cleanly.
+        evidence:
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: readiness
+            direct: true
+            proves: Real binary startup, migration, TCP readiness, and process ownership.
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: graceful_drain
+            direct: true
+            proves: Readiness transition, in-flight completion, and zero exit on SIGTERM.
+        gap: ""
+      - id: C01-S02
+        name: restart-and-external-postgres
+        layer: system
+        status: partial
+        release_policy: blocking
+        summary: Data and migrations remain correct across restart and when using supported external PostgreSQL.
+        evidence:
+          - kind: go_test
+            path: internal/db/embedded_smoke_test.go
+            direct: false
+            proves: Embedded database lifecycle behavior below the release process boundary.
+        gap: No automated restart journey or deployed external-PostgreSQL release scenario exists.
+
+  - id: C02
+    class: core
+    name: local-authentication
+    title: Local authentication
+    description: Register the first user, log in and out, inspect the current user and sessions, revoke sessions, and change password.
+    surfaces:
+      openapi: [
+        logout,
+        loginLocal,
+        registerLocal,
+        getMe,
+        listAuthSessions,
+        deleteAuthSession,
+        listAuthProviders,
+        changePassword,
+      ]
+      web_routes: [/login, /signup, /profile, /settings/account]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C02-S01
+        name: registration-login-session-revocation
+        layer: system
+        status: covered
+        release_policy: blocking
+        summary: A user registers, authenticates over real HTTP, uses a session, and loses access after revocation or logout.
+        evidence:
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: startup_and_auth
+            direct: true
+            proves: Registration and cookie-authenticated access through the real process.
+          - kind: go_test
+            path: internal/server/auth_test.go
+            test: TestLogout
+            direct: true
+            proves: Logout invalidates the authenticated server session.
+        gap: ""
+      - id: C02-S02
+        name: browser-login-and-logout
+        layer: browser
+        status: manual-only
+        release_policy: blocking
+        summary: The Web UI presents registration and login errors, establishes a session, and visibly logs out.
+        evidence:
+          - kind: runbook
+            path: web/content/docs/development/rules/web-ui-test.md
+            direct: false
+            proves: Manual browser commands can drive login and registration.
+        gap: No repository-owned Browser E2E scenario proves the UI lifecycle.
+
+  - id: C03
+    class: core
+    name: users-and-authorization
+    title: Users and authorization
+    description: Administer users, roles, activation, agent access, default agents, identities, and notification routing with fail-closed authorization.
+    surfaces:
+      openapi:
+        - updateUserDefaultAgent
+        - updateUserNotifyIdentity
+        - listAuthUsers
+        - getAuthUser
+        - updateAuthUserRole
+        - listAuthUserAgents
+        - updateAuthUserAgents
+        - listAuthUserLoginIdentities
+        - linkAuthUserLoginIdentity
+        - listAuthUserChannelIdentities
+        - deleteAuthUserIdentity
+        - updateAuthUserActive
+      web_routes: [/settings/users, /settings/users/$userId]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C03-S01
+        name: admin-user-and-role-management
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Admin operations enforce role, activation, identity, and agent-assignment boundaries in PostgreSQL-backed handlers.
+        evidence:
+          - kind: go_test
+            path: internal/server/auth_users_test.go
+            direct: true
+            proves: User administration endpoints, identity visibility, and error handling.
+          - kind: go_test
+            path: internal/authz/authority_test.go
+            direct: true
+            proves: Core authorization decisions fail closed across roles.
+        gap: ""
+      - id: C03-S02
+        name: browser-user-administration
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: An administrator manages a user while a normal user cannot see or invoke privileged controls.
+        evidence: []
+        gap: No automated browser journey covers the users and roles pages.
+
+  - id: C04
+    class: core
+    name: tokens-and-oauth-clients
+    title: Personal access tokens and OAuth clients
+    description: Discover scopes, create and revoke personal tokens, manage OAuth clients and secrets, and revoke authorized applications.
+    surfaces:
+      openapi:
+        - listPersonalAccessTokens
+        - createPersonalAccessToken
+        - getPersonalAccessToken
+        - revokePersonalAccessToken
+        - listTokenScopes
+        - listOAuthClients
+        - createOAuthClient
+        - disableOAuthClient
+        - rotateOAuthClientSecret
+        - listOAuthClientScopes
+        - listAuthorizedApps
+        - revokeAuthorizedApp
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C04-S01
+        name: pat-lifecycle-and-scope
+        layer: system
+        status: covered
+        release_policy: blocking
+        summary: A scoped PAT authenticates a permitted route and stops authenticating after revocation.
+        evidence:
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: startup_and_auth
+            direct: true
+            proves: PAT creation, bearer use, scope reachability, and revocation through real HTTP.
+          - kind: go_test
+            path: internal/server/pat_integration_test.go
+            direct: true
+            proves: PostgreSQL-backed PAT endpoint behavior and secret handling.
+        gap: ""
+      - id: C04-S02
+        name: oauth-client-management
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: OAuth clients can be created, disabled, rotated, scoped, listed, and revoked without exposing stored secrets.
+        evidence:
+          - kind: go_test
+            path: internal/server/oauth_pat_e2e_test.go
+            test: TestOAuthClientManagementSmoke_E2E
+            direct: true
+            proves: OAuth client management through the in-process HTTP stack and real database.
+        gap: ""
+
+  - id: C05
+    class: core
+    name: agent-management
+    title: Agent management
+    description: Create, update, delete, assign, and inspect agents, their user access, visible tools, and tool overrides.
+    surfaces:
+      openapi: [
+        listAgents,
+        createAgent,
+        getAgent,
+        updateAgent,
+        deleteAgent,
+        listAgentUsers,
+        assignAgentUser,
+        removeAgentUser,
+        listAgentTools,
+        updateAgentTool,
+      ]
+      web_routes: [
+        /,
+        /agents,
+        /agents/,
+        /agents/$agentId,
+        /agents/$agentId/,
+        /settings/agents,
+        /settings/agents/$agentId,
+        /settings/agents/$agentId/$tab,
+      ]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C05-S01
+        name: agent-crud-access-and-tools
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Agent CRUD, user grants, ownership, tool visibility, and overrides enforce authorization and persistence.
+        evidence:
+          - kind: go_test
+            path: internal/server/agents_test.go
+            direct: true
+            proves: Agent HTTP CRUD and validation behavior.
+          - kind: go_test
+            path: internal/server/agent_access_test.go
+            direct: true
+            proves: Agent-user access boundaries and assignments.
+          - kind: go_test
+            path: internal/agent/tool_override_test.go
+            direct: true
+            proves: Tool override behavior in the agent runtime.
+        gap: ""
+      - id: C05-S02
+        name: browser-agent-management
+        layer: browser
+        status: missing
+        release_policy: blocking
+        summary: Users manage an agent and see only tools and actions allowed by their role.
+        evidence: []
+        gap: No automated browser journey covers agent creation, editing, assignment, or tool overrides.
+
+  - id: C06
+    class: core
+    name: provider-model-control-plane
+    title: Provider and model control plane
+    description: Manage provider configuration and types, discover models, fetch remote model catalogs, and maintain the model cache.
+    surfaces:
+      openapi: [
+        listProviders,
+        createProvider,
+        getProvider,
+        updateProvider,
+        deleteProvider,
+        listProviderModels,
+        fetchProviderModels,
+        listProviderTypes,
+        listModels,
+      ]
+      web_routes: [/settings/providers, /settings/providers/$providerId]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C06-S01
+        name: provider-crud-and-model-cache
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Provider configuration and cached models remain scoped, redacted, and refreshable.
+        evidence:
+          - kind: go_test
+            path: internal/controlplane/authorized_test.go
+            direct: true
+            proves: Authorized provider and model control-plane service behavior.
+          - kind: go_test
+            path: internal/server/models_test.go
+            direct: true
+            proves: Model listing and per-provider cache replacement behavior.
+        gap: Existing tests do not directly cover every provider CRUD endpoint and secret-redaction response as one lifecycle.
+      - id: C06-S02
+        name: browser-provider-management
+        layer: browser
+        status: missing
+        release_policy: blocking
+        summary: An administrator configures a provider and observes model discovery and validation errors in the Web UI.
+        evidence: []
+        gap: No automated browser provider-management journey exists.
+
+  - id: C07
+    class: core
+    name: sessions-and-chat
+    title: Sessions and chat
+    description: Manage sessions, message history, SSE chat and event streams, context, summaries, and system prompts.
+    surfaces:
+      openapi: [
+        listSessions,
+        createSession,
+        getSession,
+        updateSession,
+        deleteSession,
+        getSessionMessages,
+        sendSessionMessage,
+        streamSessionEvents,
+        getSessionContextItems,
+        getSessionSummary,
+        getSessionSystemPrompt,
+      ]
+      web_routes: [/sessions, /sessions/$, /agents/$agentId/sessions/$sessionId]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C07-S01
+        name: session-crud-and-history
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Session CRUD, visibility, message history, context, summary, and prompt endpoints enforce scope and persistence.
+        evidence:
+          - kind: go_test
+            path: internal/server/sessions_api_test.go
+            direct: true
+            proves: Session update, delete, and listing behavior.
+          - kind: go_test
+            path: internal/server/sessions_test.go
+            direct: true
+            proves: Session handler persistence and visibility behavior.
+        gap: ""
+      - id: C07-S02
+        name: real-sse-chat-and-provider-error
+        layer: system
+        status: covered
+        release_policy: blocking
+        summary: A real client receives streamed chat content, terminal frames, and provider errors without hanging.
+        evidence:
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: chat_sse
+            direct: true
+            proves: Real HTTP and SSE chat completion through the release binary.
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: chat_provider_error
+            direct: true
+            proves: Provider failure is delivered in-band and the stream terminates.
+        gap: ""
+      - id: C07-S03
+        name: browser-chat-journey
+        layer: browser
+        status: missing
+        release_policy: blocking
+        summary: A user creates a session, sends a message, sees streaming output, reloads, and sees persisted history.
+        evidence: []
+        gap: No repository-owned Browser E2E chat journey exists.
+
+  - id: C08
+    class: core
+    name: session-workspace
+    title: Session workspace
+    description: List, read, create, update, upload, move, and delete files within an authorized session workspace.
+    surfaces:
+      openapi: [
+        getSessionWorkspace,
+        createWorkspaceFile,
+        deleteWorkspaceFile,
+        moveWorkspaceFile,
+        getWorkspaceFileContent,
+        updateWorkspaceFileContent,
+        uploadWorkspaceFile,
+      ]
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C08-S01
+        name: workspace-file-lifecycle-and-isolation
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Workspace paths and file mutations stay within the authorized session and survive expected reads.
+        evidence:
+          - kind: go_test
+            path: internal/agent/workspace_test.go
+            direct: true
+            proves: Workspace setup, shared-user layout, and isolation rules.
+          - kind: go_test
+            path: internal/server/sessions_blob_test.go
+            direct: true
+            proves: Session blob and upload behavior through server handlers.
+        gap: No single API lifecycle test covers create, content update, move, upload, delete, traversal rejection, and quota reporting.
+
+  - id: C09
+    class: core
+    name: projects
+    title: Projects
+    description: Manage projects and project-scoped sessions, tasks, skills, and memories with ownership and path isolation.
+    surfaces:
+      openapi: [
+        listProjects,
+        createProject,
+        getProject,
+        updateProject,
+        deleteProject,
+      ]
+      web_routes:
+        - /agents/$agentId/projects/$projectId/
+        - /agents/$agentId/projects/$projectId/memories
+        - /agents/$agentId/projects/$projectId/sessions/$sessionId
+        - /agents/$agentId/projects/$projectId/skills/
+        - /agents/$agentId/projects/$projectId/tasks
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C09-S01
+        name: project-crud-scope-and-path-safety
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Projects enforce owner and agent access while resolving safe project directories and scoped resources.
+        evidence:
+          - kind: go_test
+            path: internal/agent/project_store_test.go
+            test: TestProjectStoreCRUDOwnershipAndTraversal
+            direct: true
+            proves: Project persistence, ownership, and traversal protection.
+          - kind: go_test
+            path: internal/agent/project_test.go
+            direct: true
+            proves: Project directory validation and symlink escape rejection.
+        gap: Existing evidence does not cover the complete HTTP CRUD lifecycle and all project-scoped child resources together.
+
+  - id: C10
+    class: core
+    name: goals-and-tasks
+    title: Goals and tasks
+    description: Create and control goals, attempts, dependencies, plans, acceptance evidence, verdicts, health, and autonomous task execution.
+    surfaces:
+      openapi:
+        - listGoals
+        - createGoal
+        - getGoalHealth
+        - getGoal
+        - updateGoal
+        - deleteGoal
+        - activateGoal
+        - cancelGoal
+        - abandonGoal
+        - reattemptGoal
+        - unarchiveGoal
+        - getGoalReadiness
+        - listGoalChildren
+        - listAttempts
+        - getAttempt
+        - listAcceptanceEvents
+        - listGoalTimeline
+        - createGoalTimelineEvent
+        - submitVerdict
+        - listEdges
+        - addEdge
+        - waiveEdge
+        - approvePlan
+        - rejectPlan
+      web_routes:
+        - /tasks
+        - /tasks/$taskId
+        - /agents/$agentId/goals/
+        - /agents/$agentId/goals/$goalId
+        - /agents/$agentId/goals/all
+        - /agents/$agentId/goals/new
+        - /agents/$agentId/goals/schedules/$scheduleId
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C10-S01
+        name: goal-state-machine-and-authorization
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Goal lifecycle, readiness, attempts, edges, plans, acceptance, and authorization preserve their database invariants.
+        evidence:
+          - kind: go_test
+            path: internal/goal/lifecycle_leaf_test.go
+            direct: true
+            proves: Leaf goal lifecycle transitions and acceptance rules.
+          - kind: go_test
+            path: internal/goal/edges_readiness_test.go
+            direct: true
+            proves: Dependency readiness and edge semantics.
+          - kind: go_test
+            path: internal/server/goals_test.go
+            direct: true
+            proves: Goal HTTP behavior against the integrated service.
+        gap: ""
+      - id: C10-S02
+        name: autonomous-goal-lifecycle
+        layer: system
+        status: covered
+        release_policy: blocking
+        summary: The real dispatcher and River workers advance a goal through decomposition, execution, submission, and acceptance.
+        evidence:
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: goal_lifecycle
+            direct: true
+            proves: Cross-request asynchronous goal lifecycle through the real binary.
+        gap: ""
+      - id: C10-S03
+        name: browser-goal-management
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: A user creates, monitors, intervenes in, and reviews a goal through the Web UI.
+        evidence: []
+        gap: No automated browser goal journey exists.
+
+  - id: C11
+    class: core
+    name: workflows
+    title: Workflows
+    description: Save accepted goals as workflows, inspect and delete definitions, instantiate runs, and retain run outcomes.
+    surfaces:
+      openapi: [
+        saveGoalAsWorkflow,
+        listWorkflows,
+        getWorkflow,
+        deleteWorkflow,
+        listWorkflowRuns,
+        instantiateWorkflow,
+      ]
+      web_routes: [
+        /agents/$agentId/workflows/,
+        /agents/$agentId/workflows/$workflowId,
+      ]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C11-S01
+        name: save-instantiate-and-resume-workflow
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Saving, instantiating, idempotently resuming, authorizing, and deleting workflows preserves frozen-plan semantics.
+        evidence:
+          - kind: go_test
+            path: internal/workflow/service_test.go
+            test: TestSaveGoalAsWorkflowAndInstantiateIdempotently
+            direct: true
+            proves: Save and instantiate behavior with real PostgreSQL.
+          - kind: go_test
+            path: internal/workflow/policy_matrix_test.go
+            direct: true
+            proves: Workflow authorization and fail-closed dependencies.
+          - kind: go_test
+            path: internal/server/workflows_test.go
+            test: TestWorkflows_ListGetAndDeleteConflict
+            direct: true
+            proves: Workflow list, get, and delete conflict HTTP behavior.
+        gap: ""
+      - id: C11-S02
+        name: browser-workflow-management
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: A user saves, inspects, instantiates, and observes a workflow run in the Web UI.
+        evidence: []
+        gap: No automated browser workflow journey exists.
+
+  - id: C12
+    class: core
+    name: scheduler
+    title: Scheduler
+    description: Manage scheduler jobs, templates, immediate runs, durable execution, authorization, and run history.
+    surfaces:
+      openapi: [
+        listJobTemplates,
+        listSchedulerJobs,
+        createSchedulerJob,
+        getSchedulerJob,
+        updateSchedulerJob,
+        deleteSchedulerJob,
+        triggerSchedulerJob,
+        listSchedulerJobRuns,
+      ]
+      web_routes: [/scheduler]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C12-S01
+        name: scheduler-crud-authorization-and-dispatch
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Job CRUD, idempotency, ownership, templates, durable firing, workflow dispatch, and run records remain consistent.
+        evidence:
+          - kind: go_test
+            path: internal/scheduler/authorized_test.go
+            direct: true
+            proves: Scheduler authorization, idempotency, and durable-fire rules.
+          - kind: go_test
+            path: internal/scheduler/scheduler_test.go
+            direct: true
+            proves: PostgreSQL-backed scheduling and workflow dispatch.
+          - kind: go_test
+            path: internal/server/scheduler_test.go
+            direct: true
+            proves: Scheduler HTTP handlers and disabled-service behavior.
+        gap: ""
+      - id: C12-S02
+        name: restart-persistent-scheduling
+        layer: system
+        status: missing
+        release_policy: blocking
+        summary: Scheduled work survives a real process restart and fires once at the intended time.
+        evidence: []
+        gap: No real-process restart and persistent scheduler journey exists.
+      - id: C12-S03
+        name: browser-scheduler-management
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: A user creates, triggers, edits, disables, and inspects a scheduler job through the Web UI.
+        evidence: []
+        gap: No automated browser scheduler journey exists.
+
+  - id: C13
+    class: core
+    name: memory-and-reflect
+    title: Memory and Reflect
+    description: Manage profile, soul, constraints, knowledge, changelog, compaction, snapshots, and background Reflect reconciliation.
+    surfaces:
+      openapi:
+        - listUserMemories
+        - setUserMemory
+        - deleteUserMemory
+        - listProfileMemories
+        - getProfileMemory
+        - setProfileMemory
+        - deleteProfileMemory
+        - setProfileSoul
+        - listProfileConstraints
+        - addProfileConstraint
+        - deleteProfileConstraint
+        - listProfileKnowledge
+        - createProfileKnowledge
+        - updateProfileKnowledge
+        - deleteProfileKnowledge
+        - restoreProfileKnowledge
+        - listProfileChangelog
+      web_routes: [
+        /agents/$agentId/memories,
+        /agents/$agentId/memories/profile,
+        /agents/$agentId/memories/soul,
+      ]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C13-S01
+        name: memory-facts-versioning-and-access
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Memory writes, replacement, restore, versions, changelog, scope, and authorization preserve PostgreSQL invariants.
+        evidence:
+          - kind: go_test
+            path: internal/memory/memorywrite/facts_test.go
+            direct: true
+            proves: Fact creation, replacement, restore, snapshots, and atomic rollback.
+          - kind: go_test
+            path: internal/server/profile_test.go
+            direct: true
+            proves: Profile and soul HTTP behavior.
+          - kind: go_test
+            path: internal/server/knowledge_test.go
+            direct: true
+            proves: Knowledge lifecycle and authorization through handlers.
+        gap: ""
+      - id: C13-S02
+        name: compaction-and-reflect-workers
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Session compaction and background Reflect produce durable, scoped memory and skill changes with recoverable watermarks.
+        evidence:
+          - kind: go_test
+            path: internal/agent/compact_session_test.go
+            direct: true
+            proves: Session compaction behavior in the agent service.
+          - kind: go_test
+            path: internal/reflect/reconciliation_pipeline_test.go
+            direct: true
+            proves: Fact and skill reconciliation pipeline behavior and watermark advancement.
+        gap: No real-process asynchronous journey proves compaction and Reflect across worker scheduling and restart.
+      - id: C13-S03
+        name: browser-memory-management
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: A user edits profile, soul, constraints, and knowledge and sees history in the Web UI.
+        evidence: []
+        gap: No automated browser memory journey exists.
+
+  - id: C14
+    class: core
+    name: local-skills
+    title: Local skills
+    description: Search and manage scoped skills, files, archives, agent visibility, project precedence, and runtime injection.
+    surfaces:
+      openapi:
+        - searchSkills
+        - listScopedSkills
+        - createScopedSkill
+        - installScopedSkill
+        - uploadScopedSkill
+        - getScopedSkill
+        - updateScopedSkill
+        - deleteScopedSkill
+        - getScopedSkillFile
+        - deleteScopedSkillFile
+        - listAgentSkills
+        - createAgentSkill
+        - installAgentSkill
+        - uploadAgentSkill
+        - getAgentSkill
+        - updateAgentSkill
+        - deleteAgentSkill
+        - upgradeAgentSkill
+        - getAgentSkillFile
+        - deleteAgentSkillFile
+      web_routes: [
+        /settings/skills,
+        /agents/$agentId/skills/,
+        /agents/$agentId/skills/$scope/$skillId,
+        /agents/$agentId/skills/$skillId,
+        /agents/$agentId/skills/new,
+      ]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C14-S01
+        name: scoped-skill-lifecycle-and-files
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Scoped create, upload, install, update, file access, delete, visibility, and precedence remain authorized and atomic.
+        evidence:
+          - kind: go_test
+            path: internal/server/skills_lifecycle_test.go
+            test: TestAgentSkillsLifecycleActiveKeysetAndCompatibility
+            direct: true
+            proves: Agent skill lifecycle and active-key behavior.
+          - kind: go_test
+            path: internal/server/skills_upload_test.go
+            direct: true
+            proves: Archive upload validation and persistence through HTTP handlers.
+          - kind: go_test
+            path: internal/skills/pgstore_test.go
+            direct: true
+            proves: PostgreSQL skill and file lifecycle.
+          - kind: go_test
+            path: internal/skills/tool_test.go
+            direct: true
+            proves: Agent skill tool authorization, search, install, load, patch, and remove.
+        gap: ""
+      - id: C14-S02
+        name: browser-skill-management
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: A user creates, uploads, edits, installs, and removes skills through agent and settings pages.
+        evidence: []
+        gap: No automated browser skill journey exists.
+
+  - id: C15
+    class: core
+    name: group-collaboration
+    title: Group collaboration
+    description: Manage groups and agent members, retain group messages, stream group chat, and coordinate multi-agent turns.
+    surfaces:
+      openapi: [
+        listGroups,
+        createGroup,
+        getGroup,
+        updateGroup,
+        deleteGroup,
+        listGroupMembers,
+        addGroupMember,
+        removeGroupMember,
+        listGroupMessages,
+        sendGroupMessage,
+      ]
+      web_routes: [/groups/$groupId]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C15-S01
+        name: group-membership-messages-and-sse
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Group CRUD, member access, durable history, speaker routing, and SSE delivery preserve scope and ordering.
+        evidence:
+          - kind: go_test
+            path: internal/server/groups_sse_test.go
+            direct: true
+            proves: Group message streaming and authorization through handlers.
+          - kind: go_test
+            path: internal/agent/group_session_test.go
+            direct: true
+            proves: Group session and multi-agent runtime behavior.
+        gap: No real-process or browser group journey proves the full multi-agent flow and persisted history together.
+
+  - id: C16
+    class: core
+    name: inbox-and-notifications
+    title: Inbox and notifications
+    description: Aggregate attention items and route agent notifications to linked or explicitly selected user identities.
+    surfaces:
+      openapi: [listInbox]
+      web_routes: [/inbox]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C16-S01
+        name: inbox-aggregation-and-notification-routing
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Actionable items are aggregated while notifications route to preferred, dedicated, or explicit channels with isolated failures.
+        evidence:
+          - kind: go_test
+            path: internal/server/inbox_test.go
+            test: TestListInboxAggregatesAttentionItems
+            direct: true
+            proves: Inbox aggregation and exclusion rules.
+          - kind: go_test
+            path: internal/notify/dispatcher_test.go
+            direct: true
+            proves: Notification routing, fallback, and partial-failure behavior.
+        gap: ""
+      - id: C16-S02
+        name: browser-inbox-and-live-notification
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: A user sees actionable inbox items and observes a notification delivered to the configured identity.
+        evidence: []
+        gap: No browser inbox journey or real notification target is automated.
+
+  - id: C17
+    class: core
+    name: artifact-sharing
+    title: Artifact sharing
+    description: Create, list, revoke, and publicly resolve tokenized shares for articles and workspace artifacts.
+    surfaces:
+      openapi: [listShares, createShare, revokeShare, getShareContent]
+      web_routes: [/s/$token]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C17-S01
+        name: share-lifecycle-public-content-and-isolation
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Owners create and revoke shares while public tokens resolve safe content without exposing foreign data or unsafe files.
+        evidence:
+          - kind: go_test
+            path: internal/share/service_test.go
+            test: TestPublicContentResolvesByToken
+            direct: true
+            proves: Public token resolution and persisted content restoration.
+          - kind: go_test
+            path: internal/share/access_test.go
+            direct: true
+            proves: Share ownership and cross-user isolation.
+        gap: ""
+      - id: C17-S02
+        name: browser-share-link
+        layer: browser
+        status: missing
+        release_policy: blocking
+        summary: A user creates a share, opens the unauthenticated link, and sees it stop working after revocation.
+        evidence: []
+        gap: No automated browser public-share journey exists.
+
+  - id: C18
+    class: core
+    name: vault-and-secrets
+    title: Vault and secrets
+    description: Encrypt, scope, list, read, write, delete, and resolve secrets for users, agents, projects, and system services.
+    surfaces:
+      openapi: [
+        listScopedVaultEntries,
+        getScopedVaultEntry,
+        setScopedVaultEntry,
+        deleteScopedVaultEntry,
+      ]
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C18-S01
+        name: encrypted-secret-lifecycle-and-scope
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Secret values are encrypted at rest, scoped, authorized, redacted, mutable, and unavailable after deletion.
+        evidence:
+          - kind: go_test
+            path: internal/vault/service_test.go
+            direct: true
+            proves: PostgreSQL-backed encrypted secret lifecycle and scope rules.
+          - kind: go_test
+            path: internal/server/vault_test.go
+            test: TestVaultCRUD
+            direct: true
+            proves: Vault HTTP CRUD, validation, and response behavior.
+          - kind: go_test
+            path: internal/vault/access_test.go
+            direct: true
+            proves: Owner, admin, agent, and foreign-user boundaries.
+        gap: ""
+      - id: C18-S02
+        name: browser-secret-management
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: A user manages scoped secrets without values appearing in page, network, trace, or screenshot diagnostics.
+        evidence: []
+        gap: No automated browser secret-management and diagnostic-redaction journey exists.
+
+  - id: C19
+    class: core
+    name: builtin-resources-and-tools
+    title: Built-in resources and tools
+    description: Discover bundled resources and assemble the built-in Memory, Goal, Scheduler, Workflow, Share, Vault, and notification tools for authorized agents.
+    surfaces:
+      openapi: [listBuiltinResources, getBuiltinResource]
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C19-S01
+        name: builtin-resource-discovery-and-tool-assembly
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Bundled resources are discoverable and the agent runtime exposes only authorized built-in tools with valid schemas.
+        evidence:
+          - kind: go_test
+            path: internal/server/builtin_test.go
+            direct: true
+            proves: Built-in resource listing and content retrieval handlers.
+          - kind: go_test
+            path: internal/agent/coretools_builder_test.go
+            direct: true
+            proves: Core tool construction and dependency gating.
+          - kind: go_test
+            path: internal/agent/access/invocation_inventory_test.go
+            direct: true
+            proves: Tool invocation inventory remains aligned with access policy.
+        gap: No single runtime scenario verifies discovery and successful invocation of every advertised built-in tool.
+
+  - id: X01
+    class: extension
+    name: stellad-cli
+    title: stellad operator CLI
+    description: Start the server, show and upgrade versions, manage PostgreSQL runtime and vault bootstrap, reconcile tools, and manage OS services.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands:
+        - stellad server
+        - stellad version
+        - stellad upgrade
+        - stellad postgres
+        - stellad postgres download-runtime
+        - stellad vault
+        - stellad vault keygen
+        - stellad mise
+        - stellad mise reconcile-builtins
+        - stellad service
+        - stellad service install
+        - stellad service uninstall
+        - stellad service start
+        - stellad service stop
+        - stellad service restart
+        - stellad service status
+        - stellad service logs
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X01-S01
+        name: command-tree-and-local-behavior
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Every documented command is registered and local version, upgrade, runtime, key generation, reconciliation, and service adapters handle success and failure safely.
+        evidence:
+          - kind: go_test
+            path: cmd/stellad/commands_test.go
+            direct: true
+            proves: App construction and CLI error behavior.
+          - kind: go_test
+            path: cmd/stellad/version_test.go
+            direct: true
+            proves: Release lookup, checksum, archive, and upgrade behavior.
+          - kind: go_test
+            path: cmd/stellad/postgres_test.go
+            direct: true
+            proves: PostgreSQL runtime download and replacement behavior.
+          - kind: go_test
+            path: cmd/stellad/service_linux_test.go
+            direct: true
+            proves: Linux service manager command rendering and lifecycle behavior.
+        gap: macOS service behavior and the complete command tree are not executed as released subprocess commands on every supported platform.
+      - id: X01-S02
+        name: released-cli-and-service-lifecycle
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: An extracted release binary runs commands and completes install, start, status, logs, restart, stop, and uninstall on every supported OS.
+        evidence: []
+        gap: No cross-platform release CLI and real service-manager runner exists.
+
+  - id: X02
+    class: extension
+    name: channel-platform
+    title: Channel platform
+    description: Manage channel instances, expose safe public metadata, route inbound identities, publish outbound messages, stream replies, and control runtime lifecycle.
+    surfaces:
+      openapi: [
+        listPublicChannels,
+        listChannels,
+        createChannel,
+        getChannel,
+        updateChannel,
+        deleteChannel,
+      ]
+      web_routes: [/settings/channels, /settings/channels/$channelId]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X02-S01
+        name: channel-control-plane-and-runtime-contract
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: Generic channel CRUD, safe metadata, identity routing, runtime apply, streaming publication, and shutdown obey a shared contract.
+        evidence:
+          - kind: go_test
+            path: internal/server/channels_test.go
+            direct: true
+            proves: Public metadata filtering and channel write defaults.
+          - kind: go_test
+            path: internal/pluginhost/discovery_test.go
+            direct: true
+            proves: Channel plugin discovery, configuration, and runtime registration.
+          - kind: go_test
+            path: internal/channel/runtime_resolver_test.go
+            direct: true
+            proves: Channel persistence and platform behavior.
+        gap: There is no reusable conformance suite that every built-in channel implementation must pass.
+      - id: X02-S02
+        name: browser-channel-management
+        layer: browser
+        status: missing
+        release_policy: blocking
+        summary: An administrator creates, configures, starts, observes, and removes a channel from the Web UI.
+        evidence: []
+        gap: No automated browser channel-management journey exists.
+
+  - id: X03
+    class: extension
+    name: feishu-channel
+    title: Feishu channel
+    description: Register Feishu personal agents and handle group, thread, reference, reaction, attachment, and streaming behavior.
+    surfaces:
+      openapi: [
+        initFeishuRegistration,
+        beginFeishuRegistration,
+        pollFeishuRegistration,
+      ]
+      web_routes: []
+      cli_commands: []
+      plugins: [channel/feishu]
+      system_skills: []
+    scenarios:
+      - id: X03-S01
+        name: feishu-protocol-contract
+        layer: contract
+        status: covered
+        release_policy: blocking
+        summary: Feishu registration, configuration, routing, references, threads, provisioning, and runtime behavior match recorded protocol fixtures.
+        evidence:
+          - kind: contract_test
+            path: plugins/channels/feishu/feishu_test.go
+            direct: true
+            proves: Feishu message conversion and client behavior.
+          - kind: contract_test
+            path: plugins/channels/feishu/thread_routing_test.go
+            direct: true
+            proves: Thread and group routing rules.
+          - kind: go_test
+            path: internal/server/feishu_registration_test.go
+            direct: true
+            proves: Registration polling and channel creation handlers.
+        gap: ""
+      - id: X03-S02
+        name: feishu-live-message
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: A real external Feishu sender reaches Stella and receives a streamed reply with identity and thread routing intact.
+        evidence: []
+        gap: No test tenant, automated sender, or Live Smoke runner is registered.
+
+  - id: X04
+    class: extension
+    name: qq-channel
+    title: QQ channel
+    description: Configure a QQ bot and convert, route, render, publish, and stream QQ messages.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: [channel/qq]
+      system_skills: []
+    scenarios:
+      - id: X04-S01
+        name: qq-protocol-contract
+        layer: contract
+        status: covered
+        release_policy: blocking
+        summary: QQ message conversion, configuration, runtime creation, rendering, and publication follow stable fixtures.
+        evidence:
+          - kind: contract_test
+            path: plugins/channels/qq/qq_test.go
+            direct: true
+            proves: QQ inbound and outbound protocol behavior.
+          - kind: contract_test
+            path: plugins/channels/qq/runtime_test.go
+            direct: true
+            proves: QQ plugin runtime configuration and lifecycle.
+        gap: ""
+      - id: X04-S02
+        name: qq-live-message
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: A real QQ sender reaches Stella and receives a streamed response from a configured test bot.
+        evidence: []
+        gap: No QQ test bot, automated sender, or Live Smoke runner is registered.
+
+  - id: X05
+    class: extension
+    name: telegram-channel
+    title: Telegram channel
+    description: Configure Telegram bots and route identities, messages, rendering, publication, and streaming replies.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: [channel/telegram]
+      system_skills: []
+    scenarios:
+      - id: X05-S01
+        name: telegram-protocol-contract
+        layer: contract
+        status: covered
+        release_policy: blocking
+        summary: Telegram plugin registration, configuration, inbound routing, publication, and runtime status follow deterministic fixtures.
+        evidence:
+          - kind: contract_test
+            path: plugins/channels/telegram/telegram_test.go
+            direct: true
+            proves: Telegram inbound and outbound behavior.
+          - kind: contract_test
+            path: plugins/channels/telegram/plugin_test.go
+            direct: true
+            proves: Self-registration, configuration, apply, and status behavior.
+        gap: ""
+      - id: X05-S02
+        name: telegram-live-message
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: A real Telegram sender reaches Stella and receives a streamed response from a configured test bot.
+        evidence: []
+        gap: No Telegram test bot, automated sender, or Live Smoke runner is registered.
+
+  - id: X06
+    class: extension
+    name: weixin-channel
+    title: Weixin channel
+    description: Perform QR and iLink registration, enforce message guards, handle media, and route streamed Weixin messages.
+    surfaces:
+      openapi: [
+        beginWeixinRegistration,
+        pollWeixinRegistration,
+        startWeixinQR,
+        pollWeixinQRStatus,
+      ]
+      web_routes: []
+      cli_commands: []
+      plugins: [channel/weixin]
+      system_skills: []
+    scenarios:
+      - id: X06-S01
+        name: weixin-registration-and-protocol-contract
+        layer: contract
+        status: covered
+        release_policy: blocking
+        summary: QR registration, pending and completed states, media, message guards, runtime routing, and publication follow fixtures.
+        evidence:
+          - kind: contract_test
+            path: plugins/channels/weixin/weixin_test.go
+            direct: true
+            proves: Weixin protocol and message conversion behavior.
+          - kind: contract_test
+            path: plugins/channels/weixin/guard_test.go
+            direct: true
+            proves: Message guard rejection and acceptance behavior.
+          - kind: go_test
+            path: internal/server/weixin_registration_test.go
+            direct: true
+            proves: QR and registration polling handlers create only valid channels.
+        gap: ""
+      - id: X06-S02
+        name: weixin-live-message
+        layer: live
+        status: manual-only
+        release_policy: manual
+        summary: A real Weixin identity completes registration and exchanges a streamed message with Stella.
+        evidence:
+          - kind: runbook
+            path: test/manual/release-integrations.md
+            direct: false
+            proves: Required setup, execution, pass criteria, and release evidence for the Weixin live check.
+        gap: No compliant, stable automated Weixin identity is currently available; every release requires a recorded manual result or explicit waiver.
+
+  - id: X07
+    class: extension
+    name: webhook-channel
+    title: Webhook channel
+    description: Configure outbound webhook delivery and enforce safe, rate-limited inbound webhook behavior.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: [channel/webhook]
+      system_skills: []
+    scenarios:
+      - id: X07-S01
+        name: webhook-ingress-and-config-contract
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: Webhook configuration, inbound authorization, rate limiting, payload parsing, and outbound delivery obey the protocol contract.
+        evidence:
+          - kind: contract_test
+            path: plugins/channels/webhook/config_test.go
+            direct: true
+            proves: Webhook configuration decoding and validation.
+          - kind: go_test
+            path: internal/server/webhook_ingress_test.go
+            direct: true
+            proves: Inbound webhook authentication and request behavior.
+          - kind: go_test
+            path: internal/server/webhook_ratelimit_test.go
+            direct: true
+            proves: Webhook rate-limit enforcement.
+        gap: No deterministic outbound receiver contract proves retries, payload contents, and delivery failures.
+      - id: X07-S02
+        name: webhook-controlled-delivery-contract
+        layer: contract
+        status: missing
+        release_policy: blocking
+        summary: Stella delivers messages to a controlled self-hosted receiver with the expected payload, retry, permanent-failure, and cleanup behavior.
+        evidence: []
+        gap: No self-hosted webhook receiver contract currently proves the complete outbound delivery lifecycle.
+
+  - id: X08
+    class: extension
+    name: email
+    title: Email
+    description: Manage accounts and folders, list and read messages, mark state, send mail, and expose the scoped agent email tool.
+    surfaces:
+      openapi: [
+        listEmailAccounts,
+        listEmailFolders,
+        listEmailMessages,
+        getEmailMessage,
+        sendEmail,
+        markEmailMessage,
+      ]
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X08-S01
+        name: email-config-access-and-send-contract
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: Account configuration, egress safety, scope, listing, reading, state changes, idempotent sending, and agent-tool access obey one contract.
+        evidence:
+          - kind: go_test
+            path: internal/email/email_test.go
+            direct: true
+            proves: Account configuration, validation, and resolution.
+          - kind: go_test
+            path: internal/email/service_test.go
+            direct: true
+            proves: Service errors and duplicate-send suppression.
+          - kind: go_test
+            path: internal/email/access_test.go
+            direct: true
+            proves: User and agent scope isolation.
+        gap: No fake IMAP/SMTP or provider server covers list, read, mark, and send as one deterministic protocol lifecycle.
+      - id: X08-S02
+        name: email-live-round-trip
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: A dedicated mailbox receives, lists, reads, marks, sends, and observes a real round-trip message.
+        evidence: []
+        gap: No dedicated mailbox credentials, controlled correspondent, or Live Smoke runner is registered.
+
+  - id: X09
+    class: extension
+    name: mcp
+    title: Model Context Protocol
+    description: Manage scoped MCP servers, discover and namespace tools, invoke them, cache discovery, and isolate credentials and failures.
+    surfaces:
+      openapi: [
+        listScopedMCPServers,
+        createScopedMCPServer,
+        updateScopedMCPServer,
+        deleteScopedMCPServer,
+      ]
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X09-S01
+        name: mcp-management-discovery-and-invocation
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: Scoped server CRUD, secret storage, endpoint safety, discovery, namespacing, caching, concurrency, invocation, errors, and timeouts obey the MCP contract.
+        evidence:
+          - kind: contract_test
+            path: internal/mcp/mcp_test.go
+            direct: true
+            proves: MCP validation, credential storage, resolution, discovery, caching, and namespacing.
+          - kind: go_test
+            path: internal/mcp/service_integration_test.go
+            direct: true
+            proves: Encrypted credentials and scope precedence with real PostgreSQL.
+        gap: Existing tests do not prove a complete fake-server invocation lifecycle through stellad HTTP and agent runtime.
+      - id: X09-S02
+        name: mcp-self-hosted-lifecycle-contract
+        layer: contract
+        status: missing
+        release_policy: blocking
+        summary: Stella initializes, discovers, and invokes a self-hosted MCP echo server and handles timeout, disconnect, and reconnect with scoped credentials.
+        evidence: []
+        gap: No self-hosted MCP echo-server harness currently proves the complete client lifecycle through Stella.
+
+  - id: X10
+    class: extension
+    name: plugin-extension-runtime
+    title: Plugin and extension runtime
+    description: Discover, configure, enable, disable, validate, reload, and observe built-in and manifest plugins, tools, hooks, and managed binaries.
+    surfaces:
+      openapi: [
+        listPlugins,
+        togglePlugin,
+        getPluginStatus,
+        getPluginConfig,
+        updatePluginConfig,
+        getPluginConfigSchema,
+        listManifestPlugins,
+        saveManifestPlugins,
+        syncManifestPlugins,
+        searchCliToolRegistry,
+        getCliToolLatest,
+      ]
+      web_routes: [/settings/plugins, /settings/plugins/$pluginId]
+      cli_commands: []
+      plugins: [hook/rtk, tool/webfetch]
+      system_skills: []
+    scenarios:
+      - id: X10-S01
+        name: plugin-discovery-config-runtime-and-reconcile
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Static and manifest plugins expose valid metadata, enforce capability boundaries, persist config, reconcile tools, and cleanly apply or stop runtimes.
+        evidence:
+          - kind: go_test
+            path: internal/pluginhost/discovery_test.go
+            direct: true
+            proves: Discovery, metadata, config, sandbox exclusivity, and managed runtime registration.
+          - kind: go_test
+            path: internal/pluginhost/capability_test.go
+            direct: true
+            proves: Required platform capabilities are validated and fail closed.
+          - kind: go_test
+            path: internal/manifestplugins/reconcile_test.go
+            direct: true
+            proves: Manifest reconciliation, state, and cleanup behavior.
+          - kind: contract_test
+            path: plugins/tools/webfetch/webfetch_test.go
+            direct: true
+            proves: Built-in WebFetch tool protocol and safety behavior.
+        gap: ""
+      - id: X10-S02
+        name: plugin-browser-management
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: An administrator configures, toggles, synchronizes, and diagnoses plugins in the Web UI.
+        evidence: []
+        gap: No automated browser plugin-management journey exists.
+      - id: X10-S03
+        name: external-cli-plugin-smoke
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: A plugin requiring a managed external CLI installs, runs, reloads, and reports status in the release environment.
+        evidence: []
+        gap: No controlled external CLI target or Live Smoke runner is registered.
+
+  - id: X11
+    class: extension
+    name: recally
+    title: Recally
+    description: Manage feeds, entries, articles, search, polling, stored and generated digests, agent tools, and scheduler templates.
+    surfaces:
+      openapi: [
+        listArticles,
+        saveArticle,
+        getArticle,
+        updateArticle,
+        deleteArticle,
+        listFeeds,
+        createFeed,
+        getFeed,
+        updateFeed,
+        deleteFeed,
+        pollFeed,
+        listFeedEntries,
+        createFeedEntry,
+        updateFeedEntry,
+        getDigest,
+        listStoredDigests,
+        saveDigest,
+        getStoredDigest,
+      ]
+      web_routes: [/recally]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X11-S01
+        name: feed-article-search-and-digest-contract
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Feed and entry CRUD, polling isolation, article persistence and search, digest storage, access, and scheduler templates remain consistent.
+        evidence:
+          - kind: go_test
+            path: internal/recally/store_test.go
+            direct: true
+            proves: PostgreSQL article, feed, entry, search, and user-scope behavior.
+          - kind: contract_test
+            path: internal/recally/service_poll_test.go
+            direct: true
+            proves: Feed polling, error isolation, ownership, and digest persistence.
+          - kind: go_test
+            path: internal/recally/access_test.go
+            direct: true
+            proves: Recally scope and cross-user authorization.
+        gap: ""
+      - id: X11-S02
+        name: recally-browser-journey
+        layer: browser
+        status: missing
+        release_policy: nonblocking
+        summary: A user adds a feed, polls it, reads and searches articles, and views a digest in the Web UI.
+        evidence: []
+        gap: No automated browser Recally journey exists.
+      - id: X11-S03
+        name: public-feed-live-smoke
+        layer: live
+        status: missing
+        release_policy: nonblocking
+        summary: A stable external feed is fetched and ingested through the release environment without fixture substitution.
+        evidence: []
+        gap: No registered external feed target or Live Smoke runner exists.
+
+  - id: X12
+    class: extension
+    name: model-providers
+    title: Model providers
+    description: Discover models and translate streaming text, thinking, tool calls, usage, stop reasons, and errors for Anthropic and OpenAI protocols.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: [provider/anthropic, provider/openai, provider/openai-response]
+      system_skills: []
+    scenarios:
+      - id: X12-S01
+        name: provider-protocol-conformance
+        layer: contract
+        status: covered
+        release_policy: blocking
+        summary: Anthropic, OpenAI Chat Completions, and OpenAI Responses convert messages and stream text, thinking, tools, usage, stops, and errors consistently.
+        evidence:
+          - kind: contract_test
+            path: plugins/providers/anthropic/stream_test.go
+            direct: true
+            proves: Anthropic streaming event and error conversion.
+          - kind: contract_test
+            path: plugins/providers/openai/stream_test.go
+            direct: true
+            proves: OpenAI Chat Completions streaming conversion.
+          - kind: contract_test
+            path: plugins/providers/openai-response/stream_test.go
+            direct: true
+            proves: OpenAI Responses streaming conversion.
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: chat_provider_error
+            direct: true
+            proves: Stable provider failure semantics through the real process.
+        gap: ""
+      - id: X12-S02
+        name: provider-live-tool-call
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: Each advertised provider returns streamed text and completes a controlled tool call using a dedicated low-quota account.
+        evidence: []
+        gap: No provider test accounts, target registry, or Live Smoke runner exists.
+
+  - id: X13
+    class: extension
+    name: oauth-oidc-connections
+    title: OAuth and OIDC connections
+    description: Configure identity providers, run device and callback flows, connect and disconnect identities, generate link codes, and support OIDC login.
+    surfaces:
+      openapi:
+        - listProfileIdentities
+        - unlinkProfileIdentity
+        - generateLinkCode
+        - listOAuthProviders
+        - startOAuthFlow
+        - pollOAuthFlow
+        - getOAuthConnected
+        - disconnectOAuth
+        - oauthCallback
+        - oauthCallbackLegacy
+        - getOAuthProviderConfig
+        - deleteOAuthProviderConfig
+        - setOAuthProviderConfig
+      web_routes: [/settings/credentials, /settings/credentials/$section]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X13-S01
+        name: oauth-oidc-flow-contract
+        layer: contract
+        status: covered
+        release_policy: blocking
+        summary: Provider configuration, state, device polling, callbacks, token refresh, vault storage, linking, disconnect, and OIDC login resist replay and cross-user access.
+        evidence:
+          - kind: contract_test
+            path: internal/connections/oauth/registry_test.go
+            direct: true
+            proves: OAuth provider registry and protocol selection.
+          - kind: contract_test
+            path: internal/connections/oauth/token_manager_test.go
+            direct: true
+            proves: Token refresh, storage, and failure handling.
+          - kind: contract_test
+            path: internal/auth/oidc/state_test.go
+            direct: true
+            proves: OIDC state creation, verification, expiry, and replay protection.
+          - kind: go_test
+            path: internal/server/oauth_test.go
+            direct: true
+            proves: OAuth management and callback HTTP behavior.
+        gap: ""
+      - id: X13-S02
+        name: identity-provider-live-login
+        layer: live
+        status: manual-only
+        release_policy: manual
+        summary: A dedicated external identity tenant completes connection, refresh, OIDC login, and disconnect against the release candidate.
+        evidence:
+          - kind: runbook
+            path: test/manual/release-integrations.md
+            direct: false
+            proves: Required setup, execution, pass criteria, and release evidence for the external identity-provider check.
+        gap: No compliant, stable automated identity tenant and browser target is currently available; every release requires a recorded manual result or explicit waiver.
+
+  - id: X14
+    class: extension
+    name: embedding-and-semantic-search
+    title: Embedding and semantic search
+    description: Configure external and local embeddings, normalize vectors, backfill indexes, enforce sensitivity rules, and execute semantic queries.
+    surfaces:
+      openapi: [getEmbeddingSettings, updateEmbeddingSettings]
+      web_routes: [/settings/embedding]
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X14-S01
+        name: embedding-config-index-and-query
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: Configuration changes rebuild providers, vectors normalize safely, sensitive text avoids external APIs, backfill persists, and semantic query returns scoped results.
+        evidence:
+          - kind: contract_test
+            path: internal/embedding/chain_test.go
+            direct: true
+            proves: Provider fallback, sensitivity, and circuit-breaker behavior.
+          - kind: go_test
+            path: internal/embedding/indexer_test.go
+            direct: true
+            proves: Indexing and backfill behavior with PostgreSQL.
+          - kind: go_test
+            path: internal/embedding/service_test.go
+            direct: true
+            proves: Configuration caching, invalidation, and disabled behavior.
+        gap: No end-to-end semantic query scenario crosses settings, external fake protocol, worker backfill, restart, and search.
+      - id: X14-S02
+        name: embedding-provider-live-query
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: A dedicated external embedding account indexes known content and returns the expected semantic result.
+        evidence: []
+        gap: No embedding test account, fixture corpus, or Live Smoke runner exists.
+
+  - id: X15
+    class: extension
+    name: sandbox-backends
+    title: Sandbox backends
+    description: Select Local, Docker, or None backends and enforce process or container lifecycle, permissions, preflight, tool cache, observability, and cleanup.
+    surfaces:
+      openapi: []
+      web_routes: [/settings/sandbox]
+      cli_commands: []
+      plugins: [sandbox/docker, sandbox/local, sandbox/none]
+      system_skills: []
+    scenarios:
+      - id: X15-S01
+        name: local-none-and-docker-contracts
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: Backend selection, filesystem and network policy, process or container execution, output, preflight, tool cache, and cleanup obey the sandbox contract.
+        evidence:
+          - kind: contract_test
+            path: plugins/sandbox/docker/contract_test.go
+            direct: true
+            proves: Real Docker container create, execute, completion, and close behavior when a daemon is available.
+          - kind: contract_test
+            path: plugins/sandbox/local/session_test.go
+            direct: true
+            proves: Local sandbox session execution and lifecycle.
+          - kind: contract_test
+            path: plugins/sandbox/none/session_test.go
+            direct: true
+            proves: None backend session behavior.
+        gap: Docker coverage can Skip, and no single required platform matrix records an actual result for every advertised backend.
+      - id: X15-S02
+        name: sandbox-docker-platform-contract
+        layer: contract
+        status: missing
+        release_policy: blocking
+        summary: Each advertised sandbox backend, including a CI Docker daemon, executes commands, enforces policy, handles timeout, and leaves no resource residue.
+        evidence: []
+        gap: No required self-hosted backend matrix currently records deterministic execution and cleanup results for every advertised sandbox.
+
+  - id: X16
+    class: extension
+    name: remote-skill-sources
+    title: Remote skill sources
+    description: Search and inspect ClawHub and other remote catalogs, then safely install and upgrade remote skills with canonical files and credentials.
+    surfaces:
+      openapi: [listClawhubSkills, getClawhubSkill]
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X16-S01
+        name: remote-search-install-and-upgrade-contract
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: Remote search, detail, source parsing, authenticated fetch, canonical file layout, install, and upgrade handle success and failure safely.
+        evidence:
+          - kind: contract_test
+            path: internal/skills/clawhub_test.go
+            direct: true
+            proves: ClawHub search, detail, and response conversion against an HTTP fake.
+          - kind: contract_test
+            path: internal/skills/install_lib_test.go
+            direct: true
+            proves: Remote source parsing, token propagation, file normalization, and upgrade failures.
+        gap: Other advertised marketplace sources and a complete search-to-installed-skill lifecycle are not covered by one deterministic contract.
+      - id: X16-S02
+        name: remote-marketplace-live-smoke
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: A stable public test skill can be searched, installed, loaded, upgraded, and removed from each supported remote source.
+        evidence: []
+        gap: No stable marketplace target or Live Smoke runner is registered.
+
+  - id: X17
+    class: extension
+    name: builtin-system-skills
+    title: Built-in system skills
+    description: Discover and inject the Email, HTML Artifact, Lark CLI, Python, Recally, Scheduler, Skill Creator, Stella, Tap Web, and Xberg system skills.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: [
+        email,
+        html-artifact,
+        lark-cli,
+        python-script,
+        recally,
+        scheduler,
+        skill-creator,
+        stella,
+        tap-web,
+        xberg,
+      ]
+    scenarios:
+      - id: X17-S01
+        name: system-skill-discovery-and-injection
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Every bundled system skill is registered, visible under the right plugin state, and injected into the runtime prompt with valid files.
+        evidence:
+          - kind: go_test
+            path: resources/registry_test.go
+            direct: true
+            proves: Embedded resource and skill registry contents.
+          - kind: go_test
+            path: internal/skills/prompt_test.go
+            test: TestBuildPromptSectionListsSystemSkillsAndSearchesOthers
+            direct: true
+            proves: System skill discovery and prompt injection behavior.
+        gap: There is no per-skill conformance test proving each skill's declared commands, prerequisites, and stable observable result.
+      - id: X17-S02
+        name: external-system-skill-smoke
+        layer: live
+        status: missing
+        release_policy: blocking
+        summary: System skills requiring browser, Lark, Python, or other external tools execute successfully in the release environment.
+        evidence: []
+        gap: No external CLI environment, target registry, or Live Smoke runner exists.
+
+  - id: X18
+    class: extension
+    name: release-and-deployment
+    title: Release and deployment
+    description: Build and verify archives, upgrade binaries, install services, run Docker images and Helm deployments, and use external PostgreSQL.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X18-S01
+        name: release-config-and-package-shape
+        layer: package
+        status: partial
+        release_policy: blocking
+        summary: GoReleaser configuration, host archive contents, Docker builds, and Helm templates are syntactically and structurally valid.
+        evidence:
+          - kind: task
+            path: mise.toml
+            direct: false
+            proves: Existing release check, snapshot, Docker build, and Helm check entrypoints.
+          - kind: workflow
+            path: .github/workflows/release.yml
+            direct: false
+            proves: Tag-triggered build and publication configuration.
+          - kind: go_test
+            path: cmd/stellad/version_test.go
+            direct: true
+            proves: Upgrade archive selection, checksum, extraction, and replacement behavior.
+        gap: Existing package checks do not extract and start every archive or prove a deployed Docker and Helm service reaches readiness.
+      - id: X18-S02
+        name: release-artifact-deployment-smoke
+        layer: package
+        status: missing
+        release_policy: blocking
+        summary: Exact release-candidate archives, Docker images, and Helm deployment start against external PostgreSQL, migrate, become ready, serve a request, and clean up.
+        evidence: []
+        gap: No runner currently validates the exact candidate artifacts with Docker, kind, Helm, and external PostgreSQL before publication.
+
+  - id: X19
+    class: extension
+    name: observability
+    title: Observability
+    description: Emit structured logs and traces, export OpenTelemetry data, preserve diagnostic context, and redact secrets and private content.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: X19-S01
+        name: structured-log-and-trace-hooks
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: HTTP, agent, and lifecycle spans and structured logs preserve context, honor enablement, and avoid known sensitive fields.
+        evidence:
+          - kind: go_test
+            path: internal/observability/observability_test.go
+            direct: true
+            proves: Observability configuration and provider construction.
+          - kind: go_test
+            path: internal/observability/slog_test.go
+            direct: true
+            proves: Structured logging and attribute behavior.
+          - kind: go_test
+            path: internal/observability/tracehook/tracehook_test.go
+            direct: true
+            proves: Agent trace hook spans, events, and redaction behavior.
+        gap: There is no release-wide assertion that all failure artifacts, screenshots, traces, and server logs remain secret-free.
+      - id: X19-S02
+        name: otlp-self-hosted-export-contract
+        layer: contract
+        status: missing
+        release_policy: blocking
+        summary: A release deployment exports Run-ID-correlated traces to a self-hosted OpenTelemetry collector, recovers from failure, flushes on shutdown, and exposes no secrets.
+        evidence: []
+        gap: No self-hosted collector contract currently proves export, recovery, shutdown flush, querying, and redaction.
