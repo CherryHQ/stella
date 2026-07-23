@@ -1,15 +1,27 @@
 # Release integration manual checks
 
 Use this runbook only for release scenarios that currently lack a compliant,
-stable automation target. Record the release commit, tester, time, environment,
-result, and evidence link for every check. A skipped or failed check must have an
-explicit release waiver; absence of a result is not a pass.
+stable automation target. The automated release jobs must finish before this
+manual gate begins, and the candidate artifacts must not be rebuilt afterward.
+
+The mentor downloads the exact candidate archive or image digest produced by the
+current Tag workflow, verifies that its commit and checksum match the automated
+release summary, and runs it in a local Linux/Docker test environment. Use a
+fresh `STELLA_HOME`, database, and Run ID for every release.
+
+Record the release Tag and commit, candidate checksum or image digest, tester,
+time, environment, result, and evidence link for every check. A skipped or
+externally blocked check needs an explicit waiver tied to the current commit and
+Scenario ID. A product failure cannot be waived, and absence of a result is not
+a pass. Approve artifact promotion only after every Manual Scenario has a Pass
+or an allowed waiver.
 
 ## X06-S02: Weixin live message
 
 Prerequisites:
 
-- A release-candidate Stella deployment reachable by the approved Weixin client.
+- The exact release-candidate Stella artifact running in the mentor's local
+  Linux/Docker test environment.
 - A compliant test identity and a clean Weixin channel registration.
 - Access to Stella server logs with secrets redacted.
 
@@ -33,9 +45,13 @@ Pass criteria:
 
 Prerequisites:
 
-- A release-candidate Stella deployment with its public callback URL configured.
+- The exact release-candidate Stella artifact running in the mentor's local
+  Linux/Docker test environment.
 - A dedicated test tenant for one supported external identity provider.
 - A test user that can be deleted or reset after the check.
+- A registered callback URL. Use a localhost callback when the identity provider
+  permits it; otherwise the mentor must provide an approved public HTTPS test
+  domain or temporary tunnel before this check can run.
 
 Procedure:
 
