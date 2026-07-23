@@ -147,9 +147,10 @@ func endpointError(err error) error {
 		return nil
 	case errors.Is(err, webhook.ErrNotFound):
 		return notFound("webhook endpoint not found")
+	case errors.Is(err, webhook.ErrChannelConfigChanged):
+		return &ConflictError{Msg: "channel configuration changed; retry endpoint issuance"}
 	case errors.Is(err, webhook.ErrEndpointExists),
-		errors.Is(err, webhook.ErrChannelEndpointActive),
-		errors.Is(err, webhook.ErrChannelConfigChanged):
+		errors.Is(err, webhook.ErrChannelEndpointActive):
 		return &ConflictError{Msg: "webhook endpoint is active; revoke it before changing the channel binding"}
 	case errors.Is(err, webhook.ErrGitHubSecretUnavailable):
 		return unavailable("system vault unavailable")

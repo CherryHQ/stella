@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -24,6 +25,14 @@ type commandTestProvider struct{}
 func (commandTestProvider) API() string { return "anthropic" }
 func (commandTestProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("not implemented")
+}
+
+func TestWebhookSecretCipherAvoidsTypedNilVault(t *testing.T) {
+	var vaultSvc *vault.Service
+	if cipher := webhookSecretCipher(vaultSvc); cipher != nil {
+		t.Fatalf("webhook cipher = %#v, want nil", cipher)
+	}
+	_ = webhookSecretCipher(nil)
 }
 
 func TestIntentClassifierStreamFuncBuilderUsesProvidedProviderType(t *testing.T) {
@@ -84,6 +93,7 @@ func (commandTestStore) ListChannelsByType(context.Context, string) ([]config.Ch
 func (commandTestStore) GetChannel(context.Context, string) (config.Channel, error) {
 	return config.Channel{}, nil
 }
+func (commandTestStore) CreateChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (commandTestStore) DeleteChannel(context.Context, string) error         { return nil }
 func (commandTestStore) ListPlugins(context.Context) ([]config.Plugin, error) {

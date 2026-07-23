@@ -46,6 +46,7 @@ WHERE id IN (
     WHERE created_at < now() - interval '30 days'
     ORDER BY created_at
     LIMIT $1
+    FOR UPDATE SKIP LOCKED
 )
 `
 

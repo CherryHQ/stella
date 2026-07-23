@@ -19,10 +19,6 @@ WHERE id = $1;
 SELECT * FROM channel_webhook_endpoint
 WHERE channel_id = $1;
 
--- name: GetChannelWebhookEndpointByPublicID :one
-SELECT * FROM channel_webhook_endpoint
-WHERE token_public_id = $1;
-
 -- name: ResolveChannelWebhookEndpointByPublicID :one
 SELECT
     endpoint.id AS endpoint_id,

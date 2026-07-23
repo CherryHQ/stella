@@ -483,6 +483,89 @@ func TestChannelCRUD(t *testing.T) {
 	}
 }
 
+func TestCreateChannelDoesNotReplaceExistingConfiguration(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+	for _, id := range []string{"agent-1", "agent-2"} {
+		if err := s.CreateAgent(ctx, config.Agent{ID: id, Name: id, Model: "anthropic/test", Enabled: true}); err != nil {
+			t.Fatalf("CreateAgent %q: %v", id, err)
+		}
+	}
+	first := config.Channel{ID: "webhook", Name: "first", Type: "webhook", AgentID: "agent-1", Enabled: true, Config: `{"provider":"generic"}`}
+	if err := s.CreateChannel(ctx, first); err != nil {
+		t.Fatalf("CreateChannel first: %v", err)
+	}
+
+	// Reuse the same binding so this insert violates both channel_pkey and
+	// idx_channel_agent_id_type; duplicate-ID semantics must win either way.
+	second := config.Channel{ID: "webhook", Name: "second", Type: "webhook", AgentID: "agent-1", Enabled: false, Config: `{"provider":"github"}`}
+	if err := s.CreateChannel(ctx, second); !errors.Is(err, config.ErrChannelExists) {
+		t.Fatalf("CreateChannel duplicate error = %v, want ErrChannelExists", err)
+	}
+	got, err := s.GetChannel(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("GetChannel: %v", err)
+	}
+	if got != first {
+		t.Fatalf("channel after duplicate create = %+v, want %+v", got, first)
+	}
+}
+
+func TestCreateChannelIsAtomic(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+	for _, id := range []string{"agent-1", "agent-2"} {
+		if err := s.CreateAgent(ctx, config.Agent{ID: id, Name: id, Model: "anthropic/test", Enabled: true}); err != nil {
+			t.Fatalf("CreateAgent %q: %v", id, err)
+		}
+	}
+	candidates := []config.Channel{
+		{ID: "webhook", Name: "first", Type: "webhook", AgentID: "agent-1", Enabled: true, Config: `{"provider":"generic"}`},
+		{ID: "webhook", Name: "second", Type: "webhook", AgentID: "agent-2", Enabled: false, Config: `{"provider":"github"}`},
+	}
+	start := make(chan struct{})
+	type result struct {
+		channel config.Channel
+		err     error
+	}
+	results := make(chan result, len(candidates))
+	var wg sync.WaitGroup
+	for _, candidate := range candidates {
+		wg.Add(1)
+		go func(candidate config.Channel) {
+			defer wg.Done()
+			<-start
+			results <- result{channel: candidate, err: s.CreateChannel(ctx, candidate)}
+		}(candidate)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	var winner config.Channel
+	var succeeded int
+	for result := range results {
+		if result.err == nil {
+			succeeded++
+			winner = result.channel
+			continue
+		}
+		if !errors.Is(result.err, config.ErrChannelExists) {
+			t.Fatalf("CreateChannel error = %v, want ErrChannelExists", result.err)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("successful CreateChannel calls = %d, want 1", succeeded)
+	}
+	got, err := s.GetChannel(ctx, winner.ID)
+	if err != nil {
+		t.Fatalf("GetChannel: %v", err)
+	}
+	if got != winner {
+		t.Fatalf("channel after concurrent creates = %+v, want winner %+v", got, winner)
+	}
+}
+
 func TestChannelBindingIsAtomic(t *testing.T) {
 	s := setupDBStore(t)
 	ctx := testCtx()

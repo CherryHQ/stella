@@ -11,6 +11,44 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createChannel = `-- name: CreateChannel :one
+INSERT INTO channel (id, name, type, agent_id, enabled, config)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at
+`
+
+type CreateChannelParams struct {
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Type    string      `json:"type"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Enabled bool        `json:"enabled"`
+	Config  string      `json:"config"`
+}
+
+func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, createChannel,
+		arg.ID,
+		arg.Name,
+		arg.Type,
+		arg.AgentID,
+		arg.Enabled,
+		arg.Config,
+	)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.AgentID,
+		&i.Enabled,
+		&i.Config,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createWebChannelIfNotExists = `-- name: CreateWebChannelIfNotExists :exec
 INSERT INTO channel (id, name, type, agent_id)
 VALUES ($1, 'Web', 'web', $2)

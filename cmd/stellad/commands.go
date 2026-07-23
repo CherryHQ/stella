@@ -80,6 +80,13 @@ the server, or use "stellad service" to manage it as a background service.`,
 	}
 }
 
+func webhookSecretCipher(vaultSvc *vault.Service) webhook.SecretCipher {
+	if vaultSvc == nil {
+		return nil
+	}
+	return vaultSvc
+}
+
 type setupResult struct {
 	ctx context.Context
 	// cfg is the parsed boot-time server config, carried so runServer reads the
@@ -467,7 +474,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Store:  webhook.NewPostgresStore(db),
 		Users:  webhook.NewUserState(credential.NewPostgresStore(db)),
 		Access: webhook.NewOwnerAgentAccess(agentAccess),
-		Cipher: vaultSvc,
+		Cipher: webhookSecretCipher(vaultSvc),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build webhook endpoint service: %w", err)

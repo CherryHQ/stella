@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/webhook"
 )
 
 func newService() *Service {
@@ -49,6 +51,33 @@ func TestNonAdminDenied(t *testing.T) {
 	acc, err := newService().Begin(context.Background(), userAuthority(t))
 	if !errors.Is(err, authz.ErrForbidden) || acc != nil {
 		t.Fatalf("non-admin Begin = (%v, %v), want forbidden and no Access", acc, err)
+	}
+}
+
+func TestChannelCreateConflictIsStable(t *testing.T) {
+	conflict := &ConflictError{}
+	if !errors.As(channelCreateError(config.ErrChannelExists), &conflict) || conflict.Msg != "channel already exists" {
+		t.Fatalf("channel create conflict = %#v", conflict)
+	}
+}
+
+func TestEndpointErrorDistinguishesConfigurationRetryFromEndpointRevocation(t *testing.T) {
+	configChanged := &ConflictError{}
+	ok := errors.As(endpointError(webhook.ErrChannelConfigChanged), &configChanged)
+	if !ok {
+		t.Fatalf("config-changed error = %T, want *ConflictError", endpointError(webhook.ErrChannelConfigChanged))
+	}
+	if configChanged.Msg != "channel configuration changed; retry endpoint issuance" {
+		t.Fatalf("config-changed message = %q", configChanged.Msg)
+	}
+
+	active := &ConflictError{}
+	ok = errors.As(endpointError(webhook.ErrChannelEndpointActive), &active)
+	if !ok {
+		t.Fatalf("endpoint-active error = %T, want *ConflictError", endpointError(webhook.ErrChannelEndpointActive))
+	}
+	if active.Msg != "webhook endpoint is active; revoke it before changing the channel binding" {
+		t.Fatalf("endpoint-active message = %q", active.Msg)
 	}
 }
 

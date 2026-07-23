@@ -46,6 +46,7 @@ func (s *stubStore) ListChannelsByType(context.Context, string) ([]config.Channe
 func (s *stubStore) GetChannel(context.Context, string) (config.Channel, error) {
 	return config.Channel{}, nil
 }
+func (s *stubStore) CreateChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) UpsertChannel(context.Context, config.Channel) error { return nil }
 func (s *stubStore) DeleteChannel(context.Context, string) error         { return nil }
 func (s *stubStore) ListPlugins(context.Context) ([]config.Plugin, error) {

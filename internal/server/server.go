@@ -76,7 +76,6 @@ type Server struct {
 	schedulerSvc   *scheduler.Service    // optional; if set, create/delete go through the live scheduler
 	goalSvc        *goal.Service         // optional; if nil, goal endpoints return 503
 	workflowSvc    *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
-	webhooks       *webhook.Service      // fixed-capability webhook ingress boundary
 	webhookIngress webhookIngressPort    // narrow capability-domain adapter
 	webhookRun     webhookRunPort        // ingress-only agent execution adapter
 	builtinTools   []agent.BuiltinTool
@@ -318,7 +317,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		schedulerSvc:    deps.Scheduler,
 		goalSvc:         deps.Goal,
 		workflowSvc:     deps.Workflow,
-		webhooks:        deps.Webhooks,
 		webhookIngress:  webhookServiceIngressPort{svc: deps.Webhooks},
 		webhookRun:      poolWebhookRunPort{pool: deps.PoolManager},
 		groupSvc:        deps.Group,

@@ -32,6 +32,7 @@ type Store interface {
 	ListChannels(ctx context.Context) ([]Channel, error)
 	ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error)
 	GetChannel(ctx context.Context, id string) (Channel, error)
+	CreateChannel(ctx context.Context, ch Channel) error
 	UpsertChannel(ctx context.Context, ch Channel) error
 	DeleteChannel(ctx context.Context, id string) error
 

@@ -1,6 +1,11 @@
 -- name: GetChannel :one
 SELECT * FROM channel WHERE id = $1;
 
+-- name: CreateChannel :one
+INSERT INTO channel (id, name, type, agent_id, enabled, config)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING *;
+
 -- name: UpsertChannel :exec
 INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, now())

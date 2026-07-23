@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -37,15 +38,18 @@ func (s ingressStore) GetChannel(context.Context, string) (config.Channel, error
 }
 
 type fakeWebhookIngress struct {
-	inv           webhook.Invocation
-	resolveErr    error
-	validateErr   error
-	claims        int
-	releases      int
-	claimActive   bool
-	validateRuns  int
-	releaseCtxErr error
-	resolvedToken string
+	inv              webhook.Invocation
+	resolveErr       error
+	validateErr      error
+	claims           int
+	releases         int
+	claimActive      bool
+	validateRuns     int
+	claimCtxErr      error
+	claimDeadline    time.Time
+	claimHasDeadline bool
+	releaseCtxErr    error
+	resolvedToken    string
 }
 
 func (f *fakeWebhookIngress) ResolveCapability(_ context.Context, raw string) (webhook.Invocation, error) {
@@ -58,8 +62,13 @@ func (f *fakeWebhookIngress) ValidateGitHub(webhook.Invocation, http.Header, []b
 	return webhook.GitHubDelivery{}, f.validateErr
 }
 
-func (f *fakeWebhookIngress) ClaimGitHubDelivery(context.Context, webhook.GitHubDelivery) (bool, error) {
+func (f *fakeWebhookIngress) ClaimGitHubDelivery(ctx context.Context, _ webhook.GitHubDelivery) (bool, error) {
 	f.claims++
+	f.claimCtxErr = ctx.Err()
+	f.claimDeadline, f.claimHasDeadline = ctx.Deadline()
+	if f.claimCtxErr != nil {
+		return false, f.claimCtxErr
+	}
 	if f.claimActive {
 		return false, nil
 	}
@@ -86,17 +95,19 @@ type missingWebhookAgentPool struct{}
 func (missingWebhookAgentPool) GetService(string) *agent.Service { return nil }
 
 type fakeWebhookAgentRun struct {
-	info       session.Info
-	sessionErr error
-	admitErr   error
-	stream     <-chan agent.Event
-	newCalls   int
-	chatCalls  int
-	lastAuth   authz.Authority
-	lastReq    agent.ChatRequest
+	info         session.Info
+	sessionErr   error
+	admitErr     error
+	stream       <-chan agent.Event
+	newCalls     int
+	resolveCalls int
+	chatCalls    int
+	lastAuth     authz.Authority
+	lastReq      agent.ChatRequest
 }
 
 func (r *fakeWebhookAgentRun) ResolvePrivateChannelSession(_ context.Context, authority authz.Authority, _ string, _, _ string, _ session.Channel) (session.Info, error) {
+	r.resolveCalls++
 	r.lastAuth = authority
 	return r.info, r.sessionErr
 }
@@ -305,8 +316,11 @@ func TestGitHubWebhookIngressAdmissionAndDeduplication(t *testing.T) {
 		cancel()
 		rr := httptest.NewRecorder()
 		s.handleWebhookIngress(rr, req)
-		if rr.Code != http.StatusServiceUnavailable || ingress.releases != 1 || ingress.releaseCtxErr != nil || ingress.claimActive {
-			t.Fatalf("cancelled request status/releases/release-context/claim = %d/%d/%v/%t", rr.Code, ingress.releases, ingress.releaseCtxErr, ingress.claimActive)
+		if rr.Code != http.StatusServiceUnavailable || ingress.releases != 1 || ingress.claimCtxErr != nil || !ingress.claimHasDeadline || ingress.releaseCtxErr != nil || ingress.claimActive {
+			t.Fatalf("cancelled request status/releases/claim-context/claim-deadline/release-context/claim = %d/%d/%v/%t/%v/%t", rr.Code, ingress.releases, ingress.claimCtxErr, ingress.claimHasDeadline, ingress.releaseCtxErr, ingress.claimActive)
+		}
+		if until := time.Until(ingress.claimDeadline); until <= 0 || until > webhookDeliveryStoreTimeout {
+			t.Fatalf("claim deadline remaining = %s, want (0, %s]", until, webhookDeliveryStoreTimeout)
 		}
 	})
 	t.Run("admitted fast failure retains claim", func(t *testing.T) {
@@ -329,6 +343,44 @@ func TestGitHubWebhookIngressAdmissionAndDeduplication(t *testing.T) {
 			t.Fatalf("access failure status/releases = %d/%d", rr.Code, ingress.releases)
 		}
 	})
+}
+
+func TestWebhookIngressReservesRunBeforeCreatingSession(t *testing.T) {
+	limiter := newWebhookLimiter(100, 100)
+	limiter.maxInflight = 1
+	if !limiter.beginRun("endpoint-1") {
+		t.Fatal("failed to occupy the only run slot")
+	}
+	ingress := &fakeWebhookIngress{}
+	run := &fakeWebhookAgentRun{info: session.Info{ID: "s"}, stream: closedWebhookStream()}
+	s := newIngressServer(t, webhook.ProviderGeneric, ingress, run, limiter)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/token", strings.NewReader("hello"))
+	req.SetPathValue("capability", "token")
+	rr := httptest.NewRecorder()
+	s.handleWebhookIngress(rr, req)
+	if rr.Code != http.StatusTooManyRequests || run.newCalls != 0 || run.resolveCalls != 0 || run.chatCalls != 0 {
+		t.Fatalf("status/session/resolve/chat = %d/%d/%d/%d, want 429/0/0/0", rr.Code, run.newCalls, run.resolveCalls, run.chatCalls)
+	}
+	limiter.endRun("endpoint-1")
+}
+
+func TestWebhookIngressReleasesRunSlotWhenSessionCreationFails(t *testing.T) {
+	limiter := newWebhookLimiter(100, 100)
+	limiter.maxInflight = 1
+	ingress := &fakeWebhookIngress{}
+	run := &fakeWebhookAgentRun{sessionErr: errors.New("session create failed")}
+	s := newIngressServer(t, webhook.ProviderGeneric, ingress, run, limiter)
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/token", strings.NewReader("hello"))
+	req.SetPathValue("capability", "token")
+	rr := httptest.NewRecorder()
+	s.handleWebhookIngress(rr, req)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rr.Code)
+	}
+	if !limiter.beginRun("endpoint-1") {
+		t.Fatal("session creation failure leaked the run slot")
+	}
+	limiter.endRun("endpoint-1")
 }
 
 func TestDrainWebhookStream(t *testing.T) {

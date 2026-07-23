@@ -1,6 +1,12 @@
 package config
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrChannelExists reports an insert-only channel create that collided with an existing ID.
+var ErrChannelExists = errors.New("channel already exists")
 
 // ChannelBindingConflictError reports an attempted second bidirectional channel
 // for one (agent_id, type) binding. Webhooks and unbound channels are exempt.

@@ -126,30 +126,6 @@ func (q *Queries) GetChannelWebhookEndpointByID(ctx context.Context, id string) 
 	return i, err
 }
 
-const getChannelWebhookEndpointByPublicID = `-- name: GetChannelWebhookEndpointByPublicID :one
-SELECT id, channel_id, owner_user_id, provider, token_public_id, token_hash, token_last4, provider_secret_ciphertext, created_at, updated_at, rotated_at FROM channel_webhook_endpoint
-WHERE token_public_id = $1
-`
-
-func (q *Queries) GetChannelWebhookEndpointByPublicID(ctx context.Context, tokenPublicID string) (ChannelWebhookEndpoint, error) {
-	row := q.db.QueryRow(ctx, getChannelWebhookEndpointByPublicID, tokenPublicID)
-	var i ChannelWebhookEndpoint
-	err := row.Scan(
-		&i.ID,
-		&i.ChannelID,
-		&i.OwnerUserID,
-		&i.Provider,
-		&i.TokenPublicID,
-		&i.TokenHash,
-		&i.TokenLast4,
-		&i.ProviderSecretCiphertext,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.RotatedAt,
-	)
-	return i, err
-}
-
 const getWebhookChannelBindingForUpdate = `-- name: GetWebhookChannelBindingForUpdate :one
 SELECT
     channel.id,

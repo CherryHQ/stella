@@ -54,7 +54,8 @@ func TestNewUsesInjectedInstances(t *testing.T) {
 	if srv.poolManager != deps.PoolManager {
 		t.Error("server.poolManager is not the injected PoolManager instance")
 	}
-	if srv.webhooks != deps.Webhooks {
-		t.Error("server.webhooks is not the injected Webhooks instance")
+	ingress, ok := srv.webhookIngress.(webhookServiceIngressPort)
+	if !ok || ingress.svc != deps.Webhooks {
+		t.Error("server.webhookIngress is not backed by the injected Webhooks instance")
 	}
 }

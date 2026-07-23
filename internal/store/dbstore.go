@@ -302,6 +302,40 @@ func (s *DBStore) GetChannel(ctx context.Context, id string) (config.Channel, er
 	return channelFromDB(r), nil
 }
 
+// CreateChannel inserts a new channel without replacing an existing configuration.
+func (s *DBStore) CreateChannel(ctx context.Context, ch config.Channel) error {
+	if ch.ID == "" {
+		ch.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	channelType := ch.Type
+	if channelType == "" {
+		channelType = ch.ID
+	}
+	_, err := s.q.CreateChannel(ctx, sqlc.CreateChannelParams{
+		ID:      ch.ID,
+		Name:    ch.Name,
+		Type:    channelType,
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: ch.Enabled,
+		Config:  ch.Config,
+	})
+	if isChannelAlreadyExists(err) {
+		return config.ErrChannelExists
+	}
+	if !isChannelBindingViolation(err) {
+		return err
+	}
+	// The same existing row can violate both the primary key and the
+	// (agent_id, type) index; PostgreSQL does not promise which unique index is
+	// reported first. Create semantics care about the ID collision first.
+	if _, getErr := s.q.GetChannel(ctx, ch.ID); getErr == nil {
+		return config.ErrChannelExists
+	} else if !errors.Is(getErr, pgx.ErrNoRows) {
+		return err
+	}
+	return s.channelBindingConflict(ctx, ch.ID, ch.AgentID, channelType, err)
+}
+
 func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 	if ch.ID == "" {
 		ch.ID = uuid.Must(uuid.NewV7()).String()
@@ -321,17 +355,26 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 	if !isChannelBindingViolation(err) {
 		return err
 	}
-	rows, listErr := s.q.ListChannels(ctx)
-	if listErr != nil {
-		return err
+	return s.channelBindingConflict(ctx, ch.ID, ch.AgentID, channelType, err)
+}
+
+func (s *DBStore) channelBindingConflict(ctx context.Context, channelID, agentID, channelType string, original error) error {
+	rows, err := s.q.ListChannels(ctx)
+	if err != nil {
+		return original
 	}
 	for _, row := range rows {
 		existing := channelFromDB(row)
-		if existing.ID != ch.ID && existing.AgentID == ch.AgentID && existing.Type == channelType {
-			return &config.ChannelBindingConflictError{AgentID: ch.AgentID, Type: channelType, ChannelID: existing.ID}
+		if existing.ID != channelID && existing.AgentID == agentID && existing.Type == channelType {
+			return &config.ChannelBindingConflictError{AgentID: agentID, Type: channelType, ChannelID: existing.ID}
 		}
 	}
-	return err
+	return original
+}
+
+func isChannelAlreadyExists(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "channel_pkey"
 }
 
 func isChannelBindingViolation(err error) bool {

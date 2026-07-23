@@ -18,7 +18,8 @@ import (
 const (
 	// maxWebhookBody caps the request body (and therefore the agent prompt) an
 	// inbound webhook may carry.
-	maxWebhookBody = 256 << 10 // 256 KiB
+	maxWebhookBody              = 256 << 10 // 256 KiB
+	webhookDeliveryStoreTimeout = 5 * time.Second
 )
 
 // handleWebhookIngress serves POST /webhooks/{capability}. It is auth-exempt
@@ -134,7 +135,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if invocation.Endpoint.Provider == webhook.ProviderGitHub {
-		claimed, err := s.webhookIngress.ClaimGitHubDelivery(ctx, githubDelivery)
+		claimed, err := s.claimGitHubDelivery(ctx, githubDelivery)
 		if err != nil {
 			s.log.ErrorContext(ctx, "claim GitHub webhook delivery", "endpoint_id", invocation.Endpoint.ID, "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to claim GitHub webhook delivery")
@@ -163,6 +164,14 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.webhookLimiter != nil && !s.webhookLimiter.beginRun(invocation.Endpoint.ID) {
+		if githubClaimed {
+			s.releaseGitHubDelivery(ctx, invocation.Endpoint.ID, githubDelivery)
+		}
+		writeError(w, http.StatusTooManyRequests, "too many concurrent runs for this webhook")
+		return
+	}
+
 	var info session.Info
 	if cfg.Persistent {
 		key := agent.BuildUserSessionKey(invocation.AgentID, invocation.Endpoint.OwnerUserID, "webhook:"+invocation.Endpoint.ID)
@@ -171,18 +180,13 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		info, err = svc.NewSession(ctx, invocation.Authority, invocation.Endpoint.OwnerUserID, invocation.AgentID, "", session.KindChat, session.ChannelWebhook)
 	}
 	if err != nil {
+		if s.webhookLimiter != nil {
+			s.webhookLimiter.endRun(invocation.Endpoint.ID)
+		}
 		if githubClaimed {
 			s.releaseGitHubDelivery(ctx, invocation.Endpoint.ID, githubDelivery)
 		}
 		writeError(w, http.StatusInternalServerError, "failed to create session")
-		return
-	}
-
-	if s.webhookLimiter != nil && !s.webhookLimiter.beginRun(invocation.Endpoint.ID) {
-		if githubClaimed {
-			s.releaseGitHubDelivery(ctx, invocation.Endpoint.ID, githubDelivery)
-		}
-		writeError(w, http.StatusTooManyRequests, "too many concurrent runs for this webhook")
 		return
 	}
 
@@ -251,11 +255,19 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) claimGitHubDelivery(ctx context.Context, delivery webhook.GitHubDelivery) (bool, error) {
+	// Claiming must outlive the caller for the same reason as release: an HTTP
+	// client cancellation during COMMIT must not leave the outcome ambiguous.
+	claimCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), webhookDeliveryStoreTimeout)
+	defer cancel()
+	return s.webhookIngress.ClaimGitHubDelivery(claimCtx, delivery)
+}
+
 func (s *Server) releaseGitHubDelivery(ctx context.Context, endpointID string, delivery webhook.GitHubDelivery) {
 	// Releasing a pre-admission claim must outlive the caller: GitHub can cancel
 	// its request before Stella returns the retryable response. Keep request
 	// values for tracing, but detach cancellation and bound the cleanup itself.
-	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), webhookDeliveryStoreTimeout)
 	defer cancel()
 	if _, err := s.webhookIngress.ReleaseGitHubDelivery(releaseCtx, delivery); err != nil {
 		s.log.ErrorContext(releaseCtx, "release GitHub webhook delivery", "endpoint_id", endpointID, "error", err)

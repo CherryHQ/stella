@@ -1,6 +1,3 @@
-// Package webhook owns the durable capability endpoint domain. It deliberately
-// has no HTTP or plugin dependency: transports receive an already-resolved,
-// fixed invocation and cannot choose an owner or agent.
 package webhook
 
 import (
@@ -14,7 +11,6 @@ import (
 const (
 	TokenPrefix       = "stella_whk_"
 	deliveryIDMaxLen  = 256
-	deliveryTTL       = 30 * 24 * time.Hour
 	cleanupBatchLimit = 100 // Global inline cleanup; move to a job if claim latency or table growth is material.
 )
 
@@ -58,9 +54,8 @@ type Endpoint struct {
 	RotatedAt   *time.Time
 }
 
-// GitHubPolicy is persisted as webhook behavior configuration in the next
-// control-plane phase. The domain accepts it here to validate issuance and
-// deliveries without depending on a channel plugin implementation.
+// GitHubPolicy is persisted webhook behavior configuration. The domain validates
+// issuance and deliveries without depending on a channel plugin implementation.
 type GitHubPolicy struct {
 	Events       []string
 	Repositories []string

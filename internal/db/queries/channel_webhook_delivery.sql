@@ -28,4 +28,5 @@ WHERE id IN (
     WHERE created_at < now() - interval '30 days'
     ORDER BY created_at
     LIMIT sqlc.arg('limit')
+    FOR UPDATE SKIP LOCKED
 );

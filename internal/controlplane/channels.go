@@ -92,13 +92,6 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 	if a.svc.webhooks == nil {
 		return config.Channel{}, ErrUnavailable
 	}
-	// POST is create-only: a silent upsert would let a re-POST overwrite an existing
-	// channel's config and flip a deliberately disabled webhook back on.
-	if create {
-		if _, err := a.svc.store.GetChannel(ctx, ch.ID); err == nil {
-			return config.Channel{}, &ConflictError{Msg: "channel already exists"}
-		}
-	}
 	// A webhook is a runtime-less trigger: it must name the Agent an issued
 	// capability endpoint will run for its fixed owner.
 	if ch.Type == pkgchannel.PlatformWebhook && ch.AgentID == "" {
@@ -129,14 +122,14 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 				return config.Channel{}, endpointError(err)
 			}
 		} else if errors.Is(err, pgx.ErrNoRows) {
-			if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
-				return config.Channel{}, channelSaveError(err)
+			if err := a.svc.store.CreateChannel(ctx, ch); err != nil {
+				return config.Channel{}, channelCreateError(err)
 			}
 		} else {
 			return config.Channel{}, err
 		}
-	} else if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
-		return config.Channel{}, channelSaveError(err)
+	} else if err := a.svc.store.CreateChannel(ctx, ch); err != nil {
+		return config.Channel{}, channelCreateError(err)
 	}
 	if err := a.svc.ensureChannelPluginEnabled(ctx, ch.Type, cfgMap); err != nil {
 		return config.Channel{}, err
@@ -164,13 +157,6 @@ func (a *Access) DeleteChannel(ctx context.Context, id string) error {
 	return a.svc.store.DeleteChannel(ctx, id)
 }
 
-// channelAgentPlatformBindingConflict enforces one bidirectional-channel binding
-// per (agent, platform). Webhooks are exempt: an agent may back many endpoints.
-// A non-empty string is the client-facing conflict message.
-//
-// This mirrors the server-side helper that the feishu/weixin registration
-// handlers still use; the admin channel CRUD path owns its own copy so those
-// out-of-scope ingress handlers are untouched.
 func channelSaveError(err error) error {
 	var conflict *config.ChannelBindingConflictError
 	if errors.As(err, &conflict) {
@@ -179,6 +165,20 @@ func channelSaveError(err error) error {
 	return err
 }
 
+func channelCreateError(err error) error {
+	if errors.Is(err, config.ErrChannelExists) {
+		return &ConflictError{Msg: "channel already exists"}
+	}
+	return channelSaveError(err)
+}
+
+// channelAgentPlatformBindingConflict enforces one bidirectional-channel binding
+// per (agent, platform). Webhooks are exempt: an agent may back many endpoints.
+// A non-empty string is the client-facing conflict message.
+//
+// This mirrors the server-side helper that the feishu/weixin registration
+// handlers still use; the admin channel CRUD path owns its own copy so those
+// out-of-scope ingress handlers are untouched.
 func (s *Service) channelAgentPlatformBindingConflict(ctx context.Context, ch config.Channel) (string, error) {
 	if ch.AgentID == "" || ch.Type == "" {
 		return "", nil
