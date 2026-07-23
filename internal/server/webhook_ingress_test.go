@@ -390,11 +390,23 @@ func TestDrainWebhookStream(t *testing.T) {
 	stream <- agent.Event{Reasoning: "ignored"}
 	close(stream)
 
-	res := <-drainWebhookStream(stream)
+	res := <-drainWebhookStream(context.Background(), stream)
 	if res.err != nil {
 		t.Fatalf("unexpected err: %v", res.err)
 	}
 	if res.output != "Hello, world" {
 		t.Fatalf("output = %q, want %q", res.output, "Hello, world")
+	}
+}
+
+func TestDrainWebhookStreamPreservesRunCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stream := make(chan agent.Event)
+	close(stream)
+
+	res := <-drainWebhookStream(ctx, stream)
+	if !errors.Is(res.err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", res.err)
 	}
 }

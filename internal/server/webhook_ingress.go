@@ -217,7 +217,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "agent did not admit webhook run; retry later")
 		return
 	}
-	resCh := drainWebhookStream(stream)
+	resCh := drainWebhookStream(runCtx, stream)
 	start := time.Now()
 
 	if !wait {
@@ -308,7 +308,7 @@ type webhookResult struct {
 	err    error
 }
 
-func drainWebhookStream(stream <-chan agent.Event) <-chan webhookResult {
+func drainWebhookStream(ctx context.Context, stream <-chan agent.Event) <-chan webhookResult {
 	res := make(chan webhookResult, 1)
 	go func() {
 		var b strings.Builder
@@ -320,6 +320,12 @@ func drainWebhookStream(stream <-chan agent.Event) <-chan webhookResult {
 			if ev.Err != nil {
 				runErr = ev.Err
 			}
+		}
+		// The runtime deliberately drops terminal events after its context is
+		// canceled. Preserve that cancellation here so timeout and shutdown runs
+		// cannot be audited as successful merely because the stream closed cleanly.
+		if runErr == nil {
+			runErr = ctx.Err()
 		}
 		res <- webhookResult{output: b.String(), err: runErr}
 	}()
