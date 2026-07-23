@@ -1225,15 +1225,15 @@ capabilities:
             path: cmd/stellad/service_linux_test.go
             direct: true
             proves: Linux service manager command rendering and lifecycle behavior.
-        gap: macOS service behavior and the complete command tree are not executed as released subprocess commands on every supported platform.
+        gap: The complete command tree and real systemd lifecycle are not executed through the exact Linux amd64 release-candidate binary.
       - id: X01-S02
-        name: released-cli-and-service-lifecycle
-        layer: live
+        name: released-linux-cli-and-service-lifecycle
+        layer: system
         status: missing
         release_policy: blocking
-        summary: An extracted release binary runs commands and completes install, start, status, logs, restart, stop, and uninstall on every supported OS.
+        summary: On Linux amd64, the extracted release-candidate binary runs the documented CLI and completes systemd install, start, status, logs, restart, stop, and uninstall.
         evidence: []
-        gap: No cross-platform release CLI and real service-manager runner exists.
+        gap: No Linux amd64 runner currently executes the exact candidate binary through the real CLI and systemd lifecycle.
 
   - id: X02
     class: extension
@@ -2010,7 +2010,7 @@ capabilities:
         layer: package
         status: partial
         release_policy: blocking
-        summary: GoReleaser configuration, host archive contents, Docker builds, and Helm templates are syntactically and structurally valid.
+        summary: GoReleaser produces structurally valid Linux, macOS, and Windows archives for amd64 and arm64 with checksums, while Docker multi-architecture builds and Helm templates remain valid.
         evidence:
           - kind: task
             path: mise.toml
@@ -2024,15 +2024,15 @@ capabilities:
             path: cmd/stellad/version_test.go
             direct: true
             proves: Upgrade archive selection, checksum, extraction, and replacement behavior.
-        gap: Existing package checks do not extract and start every archive or prove a deployed Docker and Helm service reaches readiness.
+        gap: Existing checks do not record a result for all six candidate archives or prove that the staged Docker digests and Helm deployment are the same artifacts later promoted.
       - id: X18-S02
         name: release-artifact-deployment-smoke
         layer: package
         status: missing
         release_policy: blocking
-        summary: Exact release-candidate archives, Docker images, and Helm deployment start against external PostgreSQL, migrate, become ready, serve a request, and clean up.
+        summary: The exact Linux amd64 candidate completes binary, Docker, and Helm deployment checks; Linux arm64 completes the deterministic System suite and Docker Smoke; Docker and Helm use a temporary networked PostgreSQL started from the pinned Stella PG Runtime.
         evidence: []
-        gap: No runner currently validates the exact candidate artifacts with Docker, kind, Helm, and external PostgreSQL before publication.
+        gap: No build-once runner currently validates and cleans up the amd64 and arm64 candidate matrix with Docker, kind, Helm, embedded PostgreSQL, and a temporary external-DSN PostgreSQL before promotion.
 
   - id: X19
     class: extension
