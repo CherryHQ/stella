@@ -108,7 +108,7 @@ func (s *PGStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in Refle
 	if err := qtx.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{
 		SkillID: row.ID,
 		Path:    MainFile,
-		Content: in.MainFileContent,
+		Content: []byte(in.MainFileContent),
 	}); err != nil {
 		return Skill{}, fmt.Errorf("skills: create reflect-owned SKILL.md: %w", err)
 	}
@@ -197,7 +197,7 @@ func (s *PGStore) resolveReflectOwnedCreateRetry(
 	if err != nil {
 		return Skill{}, fmt.Errorf("skills: load reflect create retry SKILL.md: %w", err)
 	}
-	if mainFile.Content != in.MainFileContent {
+	if string(mainFile.Content) != in.MainFileContent {
 		return Skill{}, conflictErr
 	}
 	return existing, nil
@@ -269,7 +269,7 @@ func (s *PGStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Reflec
 		if err := qtx.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{
 			SkillID: in.ID,
 			Path:    MainFile,
-			Content: *in.MainFileContent,
+			Content: []byte(*in.MainFileContent),
 		}); err != nil {
 			return Skill{}, fmt.Errorf("skills: patch reflect-owned SKILL.md: %w", err)
 		}
@@ -347,7 +347,7 @@ func reflectSkillPatchAlreadyApplied(ctx context.Context, qtx *sqlc.Queries, bef
 		if err != nil {
 			return false, fmt.Errorf("skills: load stale patch SKILL.md: %w", err)
 		}
-		if mainFile.Content != *in.MainFileContent {
+		if string(mainFile.Content) != *in.MainFileContent {
 			return false, nil
 		}
 	}

@@ -1,23 +1,61 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/reflect"
 )
 
-func TestResolveUsageCuratorSettingsDefaultShadow(t *testing.T) {
-	// Empty and whitespace-only both mean "unset" => shadow (the raw string is
+func TestResolveUsageCuratorSettingsDefaultArmed(t *testing.T) {
+	// Empty and whitespace-only both mean "unset" => armed (the raw string is
 	// trimmed here, since the config layer carries it verbatim).
 	for _, raw := range []string{"", "   "} {
 		settings, err := resolveUsageCuratorSettings(raw)
 		if err != nil {
 			t.Fatalf("resolveUsageCuratorSettings(%q): %v", raw, err)
 		}
-		if settings.Mode != reflect.UsageCuratorModeShadow {
-			t.Fatalf("mode = %q, want shadow", settings.Mode)
+		if settings.Mode != reflect.UsageCuratorModeArmed {
+			t.Fatalf("mode = %q, want armed", settings.Mode)
 		}
+	}
+}
+
+func TestValidateReflectModeCompatibility(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      string
+		wantErr  bool
+		wantText string
+	}{
+		{name: "empty"},
+		{name: "whitespace", raw: "   "},
+		{name: "structured case insensitive", raw: " Structured "},
+		{name: "stale legacy", raw: "legacy", wantErr: true, wantText: "no longer supported"},
+		{name: "invalid", raw: "both", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateReflectModeCompatibility(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateReflectModeCompatibility(%q) error = %v, wantErr %t", tt.raw, err, tt.wantErr)
+			}
+			if tt.wantText != "" && !strings.Contains(err.Error(), tt.wantText) {
+				t.Fatalf("validateReflectModeCompatibility(%q) error = %q, want text %q", tt.raw, err, tt.wantText)
+			}
+		})
+	}
+}
+
+func TestResolveUsageCuratorSettingsShadow(t *testing.T) {
+	settings, err := resolveUsageCuratorSettings("shadow")
+	if err != nil {
+		t.Fatalf("resolveUsageCuratorSettings: %v", err)
+	}
+	if settings.Mode != reflect.UsageCuratorModeShadow {
+		t.Fatalf("mode = %q, want shadow", settings.Mode)
 	}
 }
 

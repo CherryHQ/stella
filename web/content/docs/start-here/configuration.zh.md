@@ -10,8 +10,6 @@ title: 配置
 
 在Web UI中打开 **提供商** 页面，添加你的 AI 提供商凭证。Stella 支持 Anthropic、OpenAI 以及任何兼容 OpenAI API 的服务（Perplexity、Together.ai、通过 Ollama 运行的本地模型等）。
 
-环境变量 `ANTHROPIC_API_KEY` 和 `OPENAI_API_KEY` 在Web UI中未填写凭证时可作为备用。
-
 ## 代理
 
 打开 **代理** 页面来创建和配置代理。每个代理包含：
@@ -76,22 +74,23 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 
 仅识别少量环境变量：
 
-| 变量                         | 描述                                                                                     |
-| ---------------------------- | ---------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                | 覆盖主目录（默认 `~/.stella`）                                                           |
-| `STELLA_DATABASE_URL`        | 使用外部 PostgreSQL 数据库，而不是内嵌集群                                               |
-| `STELLA_BLOB_S3_ENDPOINT`    | 可选的 S3 兼容 endpoint，用于持久化用户资产镜像                                          |
-| `STELLA_BLOB_S3_BUCKET`      | 镜像用户上传资产的 bucket；需与 endpoint/access/secret 同时设置，或全部不设置            |
-| `STELLA_BLOB_S3_ACCESS_KEY`  | 资产镜像使用的 access key                                                                |
-| `STELLA_BLOB_S3_SECRET_KEY`  | 资产镜像使用的 secret key                                                                |
-| `STELLA_BLOB_S3_REGION`      | 可选 S3 region                                                                           |
-| `STELLA_BLOB_S3_USE_SSL`     | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
-| `ANTHROPIC_API_KEY`          | Anthropic 的备用 API 密钥                                                                |
-| `OPENAI_API_KEY`             | OpenAI 的备用 API 密钥                                                                   |
-| `STELLA_VAULT_KEY`           | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
-| `STELLA_DOCKER_SANDBOX_MODE` | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
-| `STELLA_HOME_HOST`           | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
-| `STELLA_HOME_VOLUME`         | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
+| 变量                          | 描述                                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                 | 覆盖主目录（默认 `~/.stella`）                                                           |
+| `STELLA_DATABASE_URL`         | 使用外部 PostgreSQL 数据库，而不是内嵌集群                                               |
+| `STELLA_BLOB_S3_ENDPOINT`     | 可选的 S3 兼容 endpoint，用于持久化用户资产镜像                                          |
+| `STELLA_BLOB_S3_BUCKET`       | 镜像用户上传资产的 bucket；需与 endpoint/access/secret 同时设置，或全部不设置            |
+| `STELLA_BLOB_S3_ACCESS_KEY`   | 资产镜像使用的 access key                                                                |
+| `STELLA_BLOB_S3_SECRET_KEY`   | 资产镜像使用的 secret key                                                                |
+| `STELLA_BLOB_S3_REGION`       | 可选 S3 region                                                                           |
+| `STELLA_BLOB_S3_USE_SSL`      | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
+| `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
+| `STELLA_DOCKER_SANDBOX_MODE`  | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
+| `STELLA_HOME_HOST`            | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
+| `STELLA_HOME_VOLUME`          | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
+| `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |
+
+Structured Reflect 是唯一写入器。升级前请删除已经废弃的 `STELLA_REFLECT_MODE` 环境变量；过渡版本遇到显式 `legacy` 值时会拒绝启动，而不会静默改变行为。Curator 模式在服务启动时读取，修改后需要重启 Stella；非法值会阻止启动。运行检查见[部署](/docs/start-here/deployment#structured-reflect-与-curator)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)。
 
 有关如何选择沙箱后端和配置 Docker 沙箱模式，请参阅[沙箱指南](/docs/guides/sandbox)。
 

@@ -61,8 +61,6 @@ services:
       - seccomp=unconfined
     volumes:
       - ./stella-data:/home/stella/.stella
-    environment:
-      - ANTHROPIC_API_KEY=sk-...
 ```
 
 agent 使用 `local` 沙箱时保留 `seccomp=unconfined`（bubblewrap 需要它）；使用 `none` 时可以移除。
@@ -78,7 +76,6 @@ services:
       - ./stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - ANTHROPIC_API_KEY=sk-...
       - STELLA_DOCKER_SANDBOX_MODE=bind
       - STELLA_HOME_HOST=${PWD}/stella-data
 ```
@@ -94,7 +91,6 @@ services:
       - stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - ANTHROPIC_API_KEY=sk-...
       - STELLA_DOCKER_SANDBOX_MODE=volume
       - STELLA_HOME_VOLUME=stella-data
 
@@ -192,6 +188,9 @@ Docker 和 Linux 本地后端会在会话创建时验证网络模式，如果后
 
 **Volume 模式："workspace is not inside STELLA_HOME"：**
 在 volume 模式下，所有沙箱工作区必须是 `STELLA_HOME` 的子目录。此错误意味着工作区路径解析到了 volume 边界之外。检查 `STELLA_HOME` 和 `STELLA_HOME_VOLUME` 配置是否正确。
+
+**Xberg 无法加载 `libheif`：**
+Stella 的 Docker 镜像已包含兼容版本。本机 Linux 部署需要 libheif 1.21 或更高版本；Debian 13 的软件包版本过旧。macOS 可运行 `brew install libheif` 安装。如果无法提供兼容的本机动态库，请使用 Docker 沙箱后端。
 
 **macOS/Windows 上绑定挂载性能慢：**
 Docker Desktop 对绑定挂载使用虚拟化文件系统层。对于高 I/O 工作负载，考虑使用 named volume（`volume` 模式）或在宿主机上原生运行 stellad（`host` 模式）。

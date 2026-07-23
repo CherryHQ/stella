@@ -74,7 +74,9 @@ dprint fmt api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/types.yaml   api/spec/components.yaml
 go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
 go run ./internal/goal/cmd/gengoalcontrolschema
-pnpm --package=@redocly/cli dlx redocly bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
+# Pin: redocly 2.40.0 tightened YAML parsing and rejects openapi.yaml's flow
+# mappings (issue #769). Bump deliberately after verifying the spec still bundles.
+pnpm --package=@redocly/cli@2.39.0 dlx redocly bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
 go run ./internal/cmd/toolgen
 """
 

@@ -3,6 +3,7 @@ package reflect
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -33,8 +34,20 @@ func (e candidateLineError) Unwrap() error {
 type candidatePipelineResult struct {
 	FactAccepted  []factCandidate
 	SkillAccepted []skillCandidate
+	FactStats     candidateLineStats
+	SkillStats    candidateLineStats
 	Skipped       []ReviewSkip
 	Errors        []candidateLineError
+}
+
+type candidateLineStats struct {
+	Duration   time.Duration
+	LLMCalls   int
+	Candidates int
+	Accepted   int
+	Writes     int
+	Noops      int
+	Failed     bool
 }
 
 func (s *Service) runCandidatePipeline(ctx context.Context, target reviewTarget, opts candidatePipelineOptions) (candidatePipelineResult, error) {
@@ -58,17 +71,64 @@ func (s *Service) runCandidatePipeline(ctx context.Context, target reviewTarget,
 		return result, err
 	}
 
-	if err := s.runFactCandidateLine(ctx, target.session.ID, factUnit, opts.FactLine, &result); err != nil {
-		result.Errors = append(result.Errors, candidateLineError{Line: reflectLineFact, Err: err})
+	var factResult, skillResult candidatePipelineResult
+	var factErr, skillErr error
+	var lines sync.WaitGroup
+	lines.Add(2)
+	go func() {
+		defer lines.Done()
+		started := time.Now()
+		factErr = s.runFactCandidateLine(ctx, target.session.ID, factUnit, opts.FactLine, &factResult)
+		factResult.FactStats.Duration = time.Since(started)
+		factResult.FactStats.Accepted = len(factResult.FactAccepted)
+		factResult.FactStats.Failed = factErr != nil
+	}()
+	go func() {
+		defer lines.Done()
+		started := time.Now()
+		skillErr = s.runSkillCandidateLine(ctx, target.session.ID, skillUnit, opts.SkillLine, &skillResult)
+		skillResult.SkillStats.Duration = time.Since(started)
+		skillResult.SkillStats.Accepted = len(skillResult.SkillAccepted)
+		skillResult.SkillStats.Failed = skillErr != nil
+	}()
+	lines.Wait()
+
+	result = mergeCandidatePipelineResults(factResult, skillResult)
+	if factErr != nil {
+		result.Errors = append(result.Errors, candidateLineError{Line: reflectLineFact, Err: factErr})
 	}
-	if err := s.runSkillCandidateLine(ctx, target.session.ID, skillUnit, opts.SkillLine, &result); err != nil {
-		result.Errors = append(result.Errors, candidateLineError{Line: reflectLineSkill, Err: err})
+	if skillErr != nil {
+		result.Errors = append(result.Errors, candidateLineError{Line: reflectLineSkill, Err: skillErr})
 	}
 	result.Skipped = dedupeReviewSkips(result.Skipped)
 	if len(result.Errors) > 0 {
 		return result, fmt.Errorf("candidate pipeline: %d line(s) failed", len(result.Errors))
 	}
 	return result, nil
+}
+
+func mergeCandidatePipelineResults(results ...candidatePipelineResult) candidatePipelineResult {
+	var merged candidatePipelineResult
+	for _, result := range results {
+		merged.FactAccepted = append(merged.FactAccepted, result.FactAccepted...)
+		merged.SkillAccepted = append(merged.SkillAccepted, result.SkillAccepted...)
+		merged.FactStats = mergeCandidateLineStats(merged.FactStats, result.FactStats)
+		merged.SkillStats = mergeCandidateLineStats(merged.SkillStats, result.SkillStats)
+		merged.Skipped = append(merged.Skipped, result.Skipped...)
+	}
+	return merged
+}
+
+func mergeCandidateLineStats(left, right candidateLineStats) candidateLineStats {
+	return candidateLineStats{
+		Duration:   left.Duration + right.Duration,
+		LLMCalls:   left.LLMCalls + right.LLMCalls,
+		Candidates: left.Candidates + right.Candidates,
+		Accepted:   left.Accepted + right.Accepted,
+		Writes:     left.Writes + right.Writes,
+		Noops:      left.Noops + right.Noops,
+		Failed:     left.Failed || right.Failed,
+	}
 }
 
 func (s *Service) buildCandidateReviewUnits(ctx context.Context, target reviewTarget, factSince, skillSince reviewWatermark, budget int) (ReviewUnit, ReviewUnit, error) {

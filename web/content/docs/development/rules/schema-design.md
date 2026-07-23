@@ -151,6 +151,10 @@ constraints) rot silently.
 - Composite indexes: equality columns first, range/sort columns last.
 - Don't over-index — each index slows writes and consumes storage.
 - Partial indexes for selective queries (`WHERE status = 'pending'`).
+- Validate important query shapes with `EXPLAIN`; use `EXPLAIN ANALYZE` only
+  when it is safe to execute the query. A sequential scan is not automatically
+  wrong on small tables or broad result sets — investigate when the measured
+  plan or latency is wrong.
 
 ## Deletion Strategy
 
@@ -190,10 +194,51 @@ If you're querying inside JSON frequently, extract it into proper columns.
 ## Change Management
 
 - Migrations only — never manual DDL in production.
-- Prefer additive changes: add column → backfill → switch code → remove old
-  column.
-- New columns should be nullable or have defaults (avoid locking large tables).
-- Never drop columns without verifying no code reads them.
+- Prefer additive, backwards-compatible changes: add → backfill → switch code →
+  remove. Application and schema versions overlap during deployments.
+- Keep DDL lock waits bounded; a migration should fail and be retried rather
+  than wait indefinitely behind production traffic.
+- On populated tables, review lock behavior for every `ALTER TABLE`. Build large
+  indexes with `CREATE INDEX CONCURRENTLY` in a narrowly scoped,
+  non-transactional goose migration, and inspect or clean up an invalid index
+  before retrying after failure. Add large foreign-key or check constraints as
+  `NOT VALID`, then `VALIDATE CONSTRAINT` when existing rows can be scanned
+  safely.
+- Backfill large tables in small, resumable batches and commit between batches.
+  Avoid one transaction that rewrites the whole table.
+- New columns should be nullable or have defaults chosen with the generated SQL
+  and table size in mind; review the migration for rewrites and lock duration.
+- Never drop columns without verifying no deployed code reads them.
+
+## Transactions and Connections
+
+- Keep transactions scoped to the database work that must be atomic. Never hold
+  one open across network calls, model inference, user input, or other slow work.
+- Lock rows in a consistent order when concurrent paths update the same set;
+  handle deadlock or serialization failures explicitly instead of assuming they
+  cannot occur.
+- Bound statements and lock waits with context deadlines. For worker claims,
+  use row locking such as `FOR UPDATE SKIP LOCKED` only when its queue semantics
+  match the operation.
+- For measured high-throughput write paths, prefer bounded multi-row statements,
+  `COPY`, or pgx batching over one round trip per row. Keep batch size,
+  atomicity, retry behavior, and partial-failure handling explicit; batching is
+  an optimization, not a reason to create an unbounded transaction.
+- Use the shared connection pool, size it against the database connection
+  budget, and monitor acquisition latency and saturation. More connections are
+  not automatically more throughput.
+
+## Table Growth and Maintenance
+
+- Keep bulk inserts, updates, and deletes bounded. Large deletes create dead
+  tuples and can hold locks long enough to disrupt normal traffic.
+- Long-running or idle transactions delay vacuum cleanup and retain dead rows;
+  find and fix them before treating autovacuum tuning as the first solution.
+- Monitor hot, update-heavy tables for dead tuples, bloat, and stale planner
+  statistics. Tune autovacuum per table only from measured evidence.
+- Partition only when a large table has a clear pruning or retention key and
+  measurements show that indexes, batching, and maintenance are insufficient.
+  Partitioning adds migration, constraint, and operational complexity.
 
 ## Security
 
@@ -271,8 +316,13 @@ Before approving any schema change:
 6. Are uniqueness rules enforced?
 7. Are timestamps `TIMESTAMPTZ` (UTC), booleans `BOOLEAN`, blobs `JSONB`, and
    money integer cents?
-8. Are common queries supported by indexes?
+8. Are common queries supported by indexes, with important plans checked using
+   `EXPLAIN`?
 9. Is deletion behavior intentional per table?
-10. Did the change follow [`goose.md`](./goose.md) for the migration workflow,
+10. Are migrations backwards-compatible, lock-bounded, and batched where table
+    size makes that necessary?
+11. Are transactions short, with no external work while locks or connections
+    are held?
+12. Did the change follow [`goose.md`](./goose.md) for the migration workflow,
     with no edits to already-committed migrations?
-11. Is sensitive data protected?
+13. Is sensitive data protected?

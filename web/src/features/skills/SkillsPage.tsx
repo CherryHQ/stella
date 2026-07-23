@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { ScopedSkillScope } from "@/lib/queries/skills";
@@ -109,6 +110,7 @@ export function SkillsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailFile, setDetailFile] = useState("SKILL.md");
   const [detailFileContent, setDetailFileContent] = useState("");
+  const [detailFileEncoding, setDetailFileEncoding] = useState<string | undefined>(undefined);
   const [detailFileLoading, setDetailFileLoading] = useState(false);
 
   const { toasts, showToast } = useToast();
@@ -225,7 +227,7 @@ export function SkillsPage() {
       setAddSheetOpen(false);
       await reloadScope(scope, agentScoped ? formAgentID : undefined);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : t("skills.installFailed"), "error");
+      showToast(apiErrorMessage(e, t("skills.installFailed")), "error");
     } finally {
       setSaving(false);
     }
@@ -244,7 +246,7 @@ export function SkillsPage() {
           isAgentScope(skill.scope as ScopedSkillScope) ? (skill.agent_id ?? undefined) : undefined,
         );
       } catch (e) {
-        showToast(e instanceof Error ? e.message : t("skills.updateFailed"), "error");
+        showToast(apiErrorMessage(e, t("skills.updateFailed")), "error");
       }
     },
     [reloadScope, showToast, t],
@@ -262,7 +264,7 @@ export function SkillsPage() {
           isAgentScope(skill.scope as ScopedSkillScope) ? (skill.agent_id ?? undefined) : undefined,
         );
       } catch (e) {
-        showToast(e instanceof Error ? e.message : t("skills.deleteFailed"), "error");
+        showToast(apiErrorMessage(e, t("skills.deleteFailed")), "error");
       }
     },
     [detailSkill, reloadScope, showToast, t],
@@ -278,8 +280,10 @@ export function SkillsPage() {
         throwOnError: true,
       });
       setDetailFileContent(data?.content ?? "");
+      setDetailFileEncoding(data?.encoding);
     } catch {
       setDetailFileContent("");
+      setDetailFileEncoding(undefined);
     } finally {
       setDetailFileLoading(false);
     }
@@ -485,6 +489,7 @@ export function SkillsPage() {
             <SkillFilePreview
               path={detailFile}
               content={detailFileContent}
+              encoding={detailFileEncoding}
               emptyText={t("skills.noContent")}
             />
           )}

@@ -11,6 +11,56 @@ icon: History
 
 ## [Unreleased]
 
+## [0.60.1] - 2026-07-21
+
+### ✨ 功能
+
+- Reflect：上线结构化 Reflect，下线旧版写入器。([#762](https://github.com/CherryHQ/stella/pull/762))
+- 技能：支持技能上传中的二进制文件，并暴露上传错误。([#761](https://github.com/CherryHQ/stella/pull/761))
+
+### 🐛 修复
+
+- 启动：使启动配置显式且幂等。([#763](https://github.com/CherryHQ/stella/pull/763))
+- 技能：接受根级别的技能 ZIP 上传。([#756](https://github.com/CherryHQ/stella/pull/756))
+
+### ♻️ 重构
+
+- Xberg：将 Kreuzberg 文档集成迁移到 Xberg。([#754](https://github.com/CherryHQ/stella/pull/754))
+
+**完整变更记录**：[v0.60.0...v0.60.1](https://github.com/CherryHQ/stella/compare/v0.60.0...v0.60.1)
+
+## [0.60.0] - 2026-07-19
+
+> **重大变更：** 已移除废弃的 agent `stella` CLI。Agent 现使用原生工具，`stellad` 是唯一的 Stella 二进制程序。运行 v0.50.x 的安装必须手动完成这一次升级（下载归档或重新安装）：该版本的 `stellad upgrade` 仍依赖已移除的 `stella` 二进制程序；后续版本可正常自升级。
+
+### ✨ 功能
+
+- 认证与集成：新增个人访问令牌、OpenID Connect 授权服务器，以及有作用域限制的 MCP HTTP/SSE 客户端。([#615](https://github.com/CherryHQ/stella/pull/615), [#616](https://github.com/CherryHQ/stella/pull/616), [#617](https://github.com/CherryHQ/stella/pull/617))
+- Agent：为目标、日程、密钥、OAuth、分享、Recally 和邮件新增按上下文限定的原生工具；已接受的目标现在可保存为可调度工作流。([#632](https://github.com/CherryHQ/stella/pull/632), [#636](https://github.com/CherryHQ/stella/pull/636), [#657](https://github.com/CherryHQ/stella/pull/657))
+- 知识：引入基于事实的记忆、搜索优先的发现、结构化 Reflect 审核及其发布控制，并在 Web UI 中支持管理知识和已启用技能。([#593](https://github.com/CherryHQ/stella/pull/593), [#610](https://github.com/CherryHQ/stella/pull/610), [#661](https://github.com/CherryHQ/stella/pull/661), [#683](https://github.com/CherryHQ/stella/pull/683), [#732](https://github.com/CherryHQ/stella/pull/732), [#733](https://github.com/CherryHQ/stella/pull/733), [#734](https://github.com/CherryHQ/stella/pull/734))
+- 存储：将 Recally 文章正文持久化到 PostgreSQL，并为用户资产增加可选的 S3 兼容持久镜像，移除剩余的 Pod 本地持久状态。([#667](https://github.com/CherryHQ/stella/pull/667), [#673](https://github.com/CherryHQ/stella/pull/673), [#675](https://github.com/CherryHQ/stella/pull/675))
+- 密钥：完善工具覆盖的四级作用域，并为 Agent 自动注入环境密钥。([#688](https://github.com/CherryHQ/stella/pull/688), [#694](https://github.com/CherryHQ/stella/pull/694))
+- 自动化：新增入站 webhook channel，让 CI 系统和第三方服务可通过带作用域限制的个人访问令牌触发 Agent。([#691](https://github.com/CherryHQ/stella/pull/691))
+- 部署：新增生产 Kubernetes 健康检查、优雅停机和 Helm chart。([#700](https://github.com/CherryHQ/stella/pull/700), [#704](https://github.com/CherryHQ/stella/pull/704))
+
+### 🔐 安全
+
+- 沙盒：修复 read 工具路径绕过问题，加固 Docker 与 bubblewrap 隔离，并从 shell 输出中脱敏会话密钥。([#668](https://github.com/CherryHQ/stella/pull/668), [#670](https://github.com/CherryHQ/stella/pull/670))
+- 授权：在执行、用户、插件和控制平面操作中强制执行能力边界与应用边界检查。([#717](https://github.com/CherryHQ/stella/pull/717), [#718](https://github.com/CherryHQ/stella/pull/718), [#720](https://github.com/CherryHQ/stella/pull/720), [#748](https://github.com/CherryHQ/stella/pull/748))
+
+### 🐛 修复
+
+- Goals：强制执行分解契约，避免回滚 mint 后留下孤儿会话，并避免在终态 turn 仍在排空时重试。([#604](https://github.com/CherryHQ/stella/pull/604), [#608](https://github.com/CherryHQ/stella/pull/608), [#628](https://github.com/CherryHQ/stella/pull/628))
+- OAuth：刷新长生命周期会话中的凭据，并请求管理飞书权限设置所需的 scope。([#731](https://github.com/CherryHQ/stella/pull/731), [#738](https://github.com/CherryHQ/stella/pull/738))
+- 网关：在拆除前完成优雅排空，确保停机时正在处理的 HTTP 请求不会中断。([#743](https://github.com/CherryHQ/stella/pull/743))
+- Anthropic：在工具 schema 中保留 `oneOf` 和必填字段。([#681](https://github.com/CherryHQ/stella/pull/681))
+
+### ♻️ 重构
+
+- Agent：淘汰旧版 `stella` CLI，改用原生工具和单一 `stellad` 二进制程序。([#659](https://github.com/CherryHQ/stella/pull/659))
+
+**完整变更日志**：[v0.50.7...v0.60.0](https://github.com/CherryHQ/stella/compare/v0.50.7...v0.60.0)
+
 ## [0.50.5] - 2026-06-26
 
 ### ♻️ 重构

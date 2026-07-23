@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,56 +24,55 @@ func testLogger() *slog.Logger {
 
 // fakeWatermarks is a test double for watermarker.
 type fakeWatermarks struct {
-	marks     map[string]time.Time
+	mu        sync.RWMutex
 	lineMarks map[string]time.Time
 	lineSeqs  map[string]int64
 }
 
 func newFakeWatermarks() *fakeWatermarks {
 	return &fakeWatermarks{
-		marks:     make(map[string]time.Time),
 		lineMarks: make(map[string]time.Time),
 		lineSeqs:  make(map[string]int64),
 	}
 }
 
-func (f *fakeWatermarks) get(_ context.Context, sessionID string) (time.Time, error) {
-	return f.marks[sessionID], nil
-}
-
-func (f *fakeWatermarks) set(_ context.Context, sessionID string, at time.Time) error {
-	f.marks[sessionID] = at
-	return nil
-}
-
 func (f *fakeWatermarks) getLine(_ context.Context, sessionID string, line reflectLine) (reviewWatermark, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	key := fakeLineWatermarkKey(sessionID, line)
-	mark := reviewWatermark{Seq: f.lineSeqs[key]}
-	if at, ok := f.lineMarks[key]; ok {
-		mark.At = at
-		return mark, nil
-	}
-	mark.At = f.marks[sessionID]
-	return mark, nil
+	return reviewWatermark{At: f.lineMarks[key], Seq: f.lineSeqs[key]}, nil
 }
 
 func (f *fakeWatermarks) setLine(_ context.Context, sessionID string, line reflectLine, mark reviewWatermark) error {
-	f.setLineMark(sessionID, line, mark.At)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := fakeLineWatermarkKey(sessionID, line)
+	f.lineMarks[key] = mark.At
 	if mark.Seq > 0 {
-		f.lineSeqs[fakeLineWatermarkKey(sessionID, line)] = mark.Seq
+		f.lineSeqs[key] = mark.Seq
+	} else {
+		delete(f.lineSeqs, key)
 	}
 	return nil
 }
 
 func (f *fakeWatermarks) setLineMark(sessionID string, line reflectLine, at time.Time) {
-	f.lineMarks[fakeLineWatermarkKey(sessionID, line)] = at
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := fakeLineWatermarkKey(sessionID, line)
+	f.lineMarks[key] = at
+	delete(f.lineSeqs, key)
 }
 
 func (f *fakeWatermarks) lineMark(sessionID string, line reflectLine) time.Time {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.lineMarks[fakeLineWatermarkKey(sessionID, line)]
 }
 
 func (f *fakeWatermarks) lineSeq(sessionID string, line reflectLine) int64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.lineSeqs[fakeLineWatermarkKey(sessionID, line)]
 }
 
@@ -118,6 +118,7 @@ func mapStateKey(scope pkgplugins.StateScope, key string) string {
 type reviewListOnlyFake struct {
 	*memorytest.Fake
 	reviewCalled bool
+	latestSeq    map[string]int64
 }
 
 type reviewHistoryProvider struct {
@@ -163,7 +164,14 @@ func (f *reviewListOnlyFake) ListInfo(ctx context.Context, opts memory.ListOptio
 
 func (f *reviewListOnlyFake) ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
 	f.reviewCalled = true
-	return f.Fake.ListInfo(ctx, opts)
+	infos, err := f.Fake.ListInfo(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	for i := range infos {
+		infos[i].LatestSeq = f.latestSeq[infos[i].ID]
+	}
+	return infos, nil
 }
 
 func seedFakeSession(t *testing.T, fake *memorytest.Fake, id, agentID string, userID string, lastActive time.Time) {
@@ -254,7 +262,8 @@ func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 	seedFakeSession(t, fake, "s2", "a", "2", now)
 
 	// Mark s1 as reviewed at or after its LastActive.
-	wm.marks["s1"] = now
+	wm.setLineMark("s1", reflectLineFact, now)
+	wm.setLineMark("s1", reflectLineSkill, now)
 
 	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {
@@ -268,6 +277,70 @@ func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 	}
 }
 
+func TestListUnreviewed_StructuredUsesOldestIncompleteLine(t *testing.T) {
+	fake := memorytest.New()
+	wm := newFakeWatermarks()
+	svc := &Service{memory: fake, wm: wm, log: testLogger()}
+
+	lastActive := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	seedFakeSession(t, fake, "s1", "a", "1", lastActive)
+	wm.setLineMark("s1", reflectLineFact, lastActive)
+	wm.setLineMark("s1", reflectLineSkill, lastActive.Add(-time.Hour))
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("targets = %d, want one while skill line is behind", len(targets))
+	}
+	if !targets[0].lastReview.Equal(lastActive.Add(-time.Hour)) {
+		t.Fatalf("lastReview = %v, want lagging skill boundary", targets[0].lastReview)
+	}
+}
+
+func TestReviewProgressStructuredSeqDetectsTruncatedSuffix(t *testing.T) {
+	ctx := context.Background()
+	wm := newFakeWatermarks()
+	at := time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC)
+	if err := wm.setLine(ctx, "s1", reflectLineFact, reviewWatermark{At: at, Seq: 15}); err != nil {
+		t.Fatal(err)
+	}
+	if err := wm.setLine(ctx, "s1", reflectLineSkill, reviewWatermark{At: at, Seq: 20}); err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{wm: wm}
+
+	_, pending, err := svc.reviewProgress(ctx, "s1", at.Add(-time.Minute), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pending {
+		t.Fatal("Seq 16..20 must remain pending when the fact line stopped at Seq 15")
+	}
+}
+
+func TestListUnreviewedStructuredSeqDetectsConcurrentSuffix(t *testing.T) {
+	fake := &reviewListOnlyFake{Fake: memorytest.New(), latestSeq: map[string]int64{"s1": 16}}
+	wm := newFakeWatermarks()
+	lastActive := time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC)
+	seedFakeSession(t, fake.Fake, "s1", "a", "1", lastActive)
+	for _, line := range []reflectLine{reflectLineFact, reflectLineSkill} {
+		if err := wm.setLine(context.Background(), "s1", line, reviewWatermark{At: lastActive.Add(time.Minute), Seq: 15}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := &Service{memory: fake, wm: wm, log: testLogger()}
+
+	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].session.ID != "s1" {
+		t.Fatalf("targets = %#v, want s1 despite LastActive not advancing", targets)
+	}
+}
+
 func TestListUnreviewed_OldestFirst(t *testing.T) {
 	fake := memorytest.New()
 	wm := newFakeWatermarks()
@@ -278,7 +351,8 @@ func TestListUnreviewed_OldestFirst(t *testing.T) {
 	seedFakeSession(t, fake, "old", "a", "2", now.Add(-2*time.Hour))
 
 	// Give "new" a recent watermark so it still qualifies but is "more recently reviewed".
-	wm.marks["new"] = now.Add(-10 * time.Minute)
+	wm.setLineMark("new", reflectLineFact, now.Add(-10*time.Minute))
+	wm.setLineMark("new", reflectLineSkill, now.Add(-10*time.Minute))
 
 	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
 	if err != nil {

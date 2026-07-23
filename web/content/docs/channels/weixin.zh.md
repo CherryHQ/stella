@@ -54,7 +54,7 @@ Stella 内置了一个通过 iLink Bot API 长轮询连接的微信机器人 —
 
 ### 文件支持
 
-你可以向机器人发送文件。文件会被下载、解密、保存到你的私有 assets 目录，并附带 kreuzberg 提取提示传递给 agent。Agent 随后可使用 `kreuzberg extract` 命令解析文件内容。视频消息会被记录但跳过处理。
+你可以向机器人发送文件。文件会被下载、解密、保存到你的私有 assets 目录，并附带 xberg 提取提示传递给 agent。Agent 随后可使用 `xberg extract` 命令解析文件内容。视频消息会被记录但跳过处理。
 
 ### 输入指示器
 
@@ -118,7 +118,7 @@ Stella 内置了一个通过 iLink Bot API 长轮询连接的微信机器人 —
 **图片或文件未被分析？**
 
 - 分析图片需要使用支持视觉的模型。
-- 文件分析需要为活跃 agent 启用 kreuzberg skill。
+- 文件分析需要为活跃 agent 启用 Xberg skill。
 
 **消息被截断？**
 

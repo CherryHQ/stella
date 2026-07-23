@@ -47,9 +47,6 @@ var BuiltinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
 // BuiltinHookNames lists the built-in hook plugins.
 var BuiltinHookNames = []string{"rtk"}
 
-// BuiltinProviderNames lists the built-in provider types.
-var BuiltinProviderNames = []string{"anthropic", "openai", "openai-response"}
-
 // BuiltinSandboxNames lists the built-in sandbox backend plugins.
 var BuiltinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal, SandboxBackendNone}
 

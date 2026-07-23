@@ -26,20 +26,6 @@ go install github.com/CherryHQ/stella/cmd/stellad@latest
 stellad upgrade
 ```
 
-## 设置 API 密钥
-
-你需要至少一个服务商的 API 密钥。Stella 支持 Anthropic、OpenAI 以及任何 OpenAI 兼容的 API。
-
-将密钥设为环境变量，Stella 启动时会自动读取：
-
-```bash
-# 选择一个（或两个都设置）
-export ANTHROPIC_API_KEY="sk-ant-..."
-export OPENAI_API_KEY="sk-..."
-```
-
-你也可以将这些添加到 shell 配置文件（`~/.zshrc`、`~/.bashrc` 等），这样它们会在每次打开终端时自动生效。
-
 ## 启动服务
 
 ```bash
@@ -58,10 +44,10 @@ stellad server --port 8080
 
 1. 打开Web UI [http://localhost:25678](http://localhost:25678)。
 2. 点击侧边栏的 **Providers**。
-3. 点击 **Add Provider** 并输入你的 API 密钥。
-4. Stella 会自动检测你的服务商提供的可用模型。
+3. 点击 **Add Provider**，选择服务商类型，并在需要时填写 API 密钥和基础 URL。
+4. 保存服务商后，在 **Agents** 页面为预置的 **stella** agent 选择其模型。
 
-如果你在上一步已经设置了环境变量，Stella 会自动将其作为备选方案使用。在Web UI中配置服务商可以让你更精确地控制使用哪些模型。
+提供商凭据和模型选择都通过Web UI管理。
 
 ## 开始你的第一次对话
 

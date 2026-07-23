@@ -26,7 +26,7 @@ Before you start, make sure you have:
 5. Enter your AppID and AppSecret, then save.
 6. Restart `stellad server` to activate the new channel.
 
-All channel configuration (credentials, allowed IDs, etc.) is managed through the Web UI. Environment variables are limited to provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) and `STELLA_HOME`.
+All channel configuration (credentials, allowed IDs, etc.) is managed through the Web UI.
 
 ## Multi-User Support
 
@@ -66,11 +66,11 @@ You can send file attachments (non-image, non-video) to the bot. When you send a
 
 1. The bot downloads the file from the QQ attachment URL
 2. Saves it to your private assets directory on disk
-3. A kreuzberg extraction hint is passed to the agent so it can read the file content
+3. A Xberg extraction hint is passed to the agent so it can read the file content
 
-The agent can then use the `kreuzberg extract` command to parse the file.
+The agent can then use the `xberg extract` command to parse the file.
 
-> **Note:** File uploads require the kreuzberg skill to be enabled for the active agent.
+> **Note:** File uploads require the Xberg skill to be enabled for the active agent.
 
 ## Commands
 
@@ -111,7 +111,7 @@ All settings below are managed through the Web UI.
 
 **Files not being analyzed?**
 
-- Make sure the kreuzberg skill is enabled for the active agent.
+- Make sure the Xberg skill is enabled for the active agent.
 
 **Connection issues?**
 

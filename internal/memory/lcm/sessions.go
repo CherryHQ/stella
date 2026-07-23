@@ -164,7 +164,12 @@ func (p *Provider) ListInfoForReview(ctx context.Context, opts memory.ListOption
 	if err != nil {
 		return nil, fmt.Errorf("list review conversations: %w", err)
 	}
-	return convsToSessionInfo(convs), nil
+	infos := make([]memory.SessionInfo, len(convs))
+	for i, conv := range convs {
+		infos[i] = convToSessionInfo(conv.CtxConversation)
+		infos[i].LatestSeq = conv.LatestSeq
+	}
+	return infos, nil
 }
 
 // LoadHistory implements memory.SessionManager.

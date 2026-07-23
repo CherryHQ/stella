@@ -302,7 +302,7 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 
 // handleDocument processes incoming document (file) messages.
 // It resolves the per-user assets directory, downloads the file, saves it to
-// disk, and passes a kreuzberg extraction hint to the agent.
+// disk, and passes an Xberg extraction hint to the agent.
 func (b *Bot) handleDocument(c tele.Context) error {
 	doc := c.Message().Document
 	if doc == nil {

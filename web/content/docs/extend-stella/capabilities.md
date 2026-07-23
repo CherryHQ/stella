@@ -125,7 +125,6 @@ Use it when the plugin owns a process-local runtime that should be reconciled fr
 Examples:
 
 - MCP manager
-- Reflect review loop
 - managed channel runtimes
 
 ## PromptInventorySpec

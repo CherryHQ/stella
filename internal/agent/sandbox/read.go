@@ -13,12 +13,16 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // register webp decoder for image.Decode
 
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -36,8 +40,8 @@ const (
 	// maxImagePixels bounds total pixels (width*height) decoded, guarding
 	// against decompression bombs whose header is tiny but expand enormously.
 	maxImagePixels = 50_000_000
-	// kreuzbergTimeout bounds synchronous text extraction for non-vision models.
-	kreuzbergTimeout = 60 * time.Second
+	// xbergTimeout bounds synchronous text extraction for non-vision models.
+	xbergTimeout = 60 * time.Second
 )
 
 func readDefinition() pkgtools.Definition {
@@ -128,7 +132,7 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 
 // imageBlocks turns an image file into content blocks. Vision-capable models get
 // the (resized) image inline; otherwise the image is extracted to text via
-// kreuzberg, with a note explaining the substitution. Failures degrade to a
+// Xberg, with a note explaining the substitution. Failures degrade to a
 // text note rather than erroring, so a readable image never aborts the read.
 func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath, resolvedPath string, content []byte, mime string) []ai.ContentBlock {
 	cfg, err := validateImageBudget(content)
@@ -150,11 +154,11 @@ func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath, resolvedPat
 		}
 	}
 
-	text, err := extractWithKreuzberg(ctx, resolvedPath)
+	text, err := extractWithXberg(ctx, resolvedPath)
 	if err != nil {
 		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. The current model cannot view images and text extraction failed: %v", mime, displayPath, err)}}
 	}
-	return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. The current model cannot view images; extracted text via kreuzberg:\n\n%s", mime, displayPath, text)}}
+	return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. The current model cannot view images; extracted text via Xberg:\n\n%s", mime, displayPath, text)}}
 }
 
 // detectImageMime returns the canonical MIME type for supported image bytes, or
@@ -178,7 +182,7 @@ func detectImageMime(data []byte) string {
 // pixel buffer: first by raw byte size, then by the decoded dimensions read from
 // the header alone. It returns the parsed config so callers can reuse it without
 // decoding the header twice. Runs on every image path (vision inline and the
-// kreuzberg text fallback) so a decompression bomb cannot reach either decoder.
+// Xberg text fallback) so a decompression bomb cannot reach either decoder.
 func validateImageBudget(data []byte) (image.Config, error) {
 	if len(data) > maxImageInputBytes {
 		return image.Config{}, fmt.Errorf("image input too large: %d bytes exceeds %d", len(data), maxImageInputBytes)
@@ -244,24 +248,67 @@ func fitImage(src image.Image, maxDim int) image.Image {
 	return dst
 }
 
-// extractWithKreuzberg shells out to the kreuzberg CLI to extract text from a
+// extractWithXberg shells out to the Xberg CLI to extract text from a
 // file. It returns an error when the binary is missing or extraction fails.
-func extractWithKreuzberg(ctx context.Context, path string) (string, error) {
-	bin, err := exec.LookPath("kreuzberg")
-	if err != nil {
-		return "", fmt.Errorf("kreuzberg not available: %w", err)
+func extractWithXberg(ctx context.Context, path string) (string, error) {
+	// Reconciliation installs the Xberg shim under STELLA_HOME; the daemon's
+	// own PATH need not contain sandbox-only tool directories.
+	stellaHome := config.StellaHome()
+	bin := filepath.Join(pkgsandbox.MiseShimsDir(stellaHome), "xberg")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
 	}
-	cctx, cancel := context.WithTimeout(ctx, kreuzbergTimeout)
+	managedShim := true
+	if _, err := os.Stat(bin); err != nil {
+		managedShim = false
+		bin, err = exec.LookPath("xberg")
+		if err != nil {
+			return "", fmt.Errorf("xberg not available: %w", err)
+		}
+	}
+	cctx, cancel := context.WithTimeout(ctx, xbergTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, bin, "extract", path).Output()
+	cmd := exec.CommandContext(cctx, bin, "extract", path)
+	// Xberg auto-discovers config from its cwd and parents. Anchor discovery to
+	// the input file instead of leaking stellad's operator-controlled cwd.
+	cmd.Dir = filepath.Dir(path)
+	if managedShim {
+		miseEnv := manifestplugins.RuntimeMiseEnv(stellaHome, "", "")
+		// RuntimeMiseEnv uses the sandbox's /tmp by default; this command runs in
+		// the daemon process, so use the host platform's temporary directory.
+		miseEnv["MISE_STATE_DIR"] = filepath.Join(os.TempDir(), "stella-mise-state")
+		cmd.Env = withEnvOverrides(os.Environ(), miseEnv)
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
 	text := strings.TrimSpace(string(out))
 	if text == "" {
-		return "", fmt.Errorf("kreuzberg returned no text")
+		return "", fmt.Errorf("xberg returned no text")
 	}
 	return text, nil
+}
+
+// withEnvOverrides replaces environment values while retaining the process
+// environment required by external tools (for example, PATH and certificates).
+func withEnvOverrides(env []string, overrides map[string]string) []string {
+	out := append([]string(nil), env...)
+	for key, value := range overrides {
+		prefix := key + "="
+		found := false
+		for i, entry := range out {
+			if strings.HasPrefix(entry, prefix) {
+				out[i] = prefix + value
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, prefix+value)
+		}
+	}
+	return out
 }
 
 func paginateReadContent(content string, offset, limit int) (string, int) {

@@ -10,8 +10,6 @@ The home directory defaults to `~/.stella` and can be changed by setting the `ST
 
 Open the **Providers** page in the Web UI to add your AI provider credentials. Stella works with Anthropic, OpenAI, and any OpenAI-compatible API (Perplexity, Together.ai, local models via Ollama, etc.).
 
-Environment variables `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are supported as fallbacks when the Web UI credentials are empty.
-
 ## Agents
 
 Open the **Agents** page to create and configure agents. Each agent has:
@@ -76,22 +74,23 @@ All data lives under `~/.stella` (configurable via `STELLA_HOME`):
 
 Only a small set of environment variables is recognized:
 
-| Variable                     | Description                                                                                                       |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                | Override the home directory (default `~/.stella`)                                                                 |
-| `STELLA_DATABASE_URL`        | Use an external PostgreSQL database instead of the embedded cluster                                               |
-| `STELLA_BLOB_S3_ENDPOINT`    | Optional S3-compatible endpoint for the durable user-asset mirror                                                 |
-| `STELLA_BLOB_S3_BUCKET`      | Bucket for mirrored user-uploaded assets; set with endpoint/access/secret or leave all unset                      |
-| `STELLA_BLOB_S3_ACCESS_KEY`  | Access key for the asset mirror                                                                                   |
-| `STELLA_BLOB_S3_SECRET_KEY`  | Secret key for the asset mirror                                                                                   |
-| `STELLA_BLOB_S3_REGION`      | Optional S3 region                                                                                                |
-| `STELLA_BLOB_S3_USE_SSL`     | Use HTTPS for S3-compatible storage; defaults to `true`                                                           |
-| `ANTHROPIC_API_KEY`          | Fallback API key for Anthropic                                                                                    |
-| `OPENAI_API_KEY`             | Fallback API key for OpenAI                                                                                       |
-| `STELLA_VAULT_KEY`           | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
-| `STELLA_DOCKER_SANDBOX_MODE` | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                       |
-| `STELLA_HOME_HOST`           | Host-side path for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                            |
-| `STELLA_HOME_VOLUME`         | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                     |
+| Variable                      | Description                                                                                                       |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                 | Override the home directory (default `~/.stella`)                                                                 |
+| `STELLA_DATABASE_URL`         | Use an external PostgreSQL database instead of the embedded cluster                                               |
+| `STELLA_BLOB_S3_ENDPOINT`     | Optional S3-compatible endpoint for the durable user-asset mirror                                                 |
+| `STELLA_BLOB_S3_BUCKET`       | Bucket for mirrored user-uploaded assets; set with endpoint/access/secret or leave all unset                      |
+| `STELLA_BLOB_S3_ACCESS_KEY`   | Access key for the asset mirror                                                                                   |
+| `STELLA_BLOB_S3_SECRET_KEY`   | Secret key for the asset mirror                                                                                   |
+| `STELLA_BLOB_S3_REGION`       | Optional S3 region                                                                                                |
+| `STELLA_BLOB_S3_USE_SSL`      | Use HTTPS for S3-compatible storage; defaults to `true`                                                           |
+| `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
+| `STELLA_DOCKER_SANDBOX_MODE`  | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                       |
+| `STELLA_HOME_HOST`            | Host-side path for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                            |
+| `STELLA_HOME_VOLUME`          | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                     |
+| `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |
+
+Structured Reflect is the only writer. Remove the obsolete `STELLA_REFLECT_MODE` variable before upgrading; the transition release rejects an explicit `legacy` value instead of silently changing behavior. Curator mode is read at server startup, so restart Stella after changing it. Invalid curator modes stop startup. See [Deployment](/docs/start-here/deployment#structured-reflect-and-curator) for operational checks and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator) for the detailed mechanism.
 
 See the [Sandbox guide](/docs/guides/sandbox) for how to choose a sandbox backend and configure Docker sandbox modes.
 

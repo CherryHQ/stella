@@ -1,6 +1,6 @@
 # Supported Formats Reference
 
-Kreuzberg supports 91+ file formats across 8 major categories with intelligent format detection and comprehensive metadata extraction. All formats support text and metadata extraction. Additional capabilities like OCR and table detection are noted per format.
+Xberg supports 97+ file formats across 8 major categories with intelligent format detection and comprehensive metadata extraction. All formats support text and metadata extraction. Additional capabilities like OCR and table detection are noted per format.
 
 ## Office Documents
 
@@ -216,8 +216,8 @@ Archives and nested formats support file listing and sequential extraction:
 
 ## Getting Started
 
-For language-specific examples and detailed API documentation, see the [API Reference](https://docs.kreuzberg.dev/reference/api-python/).
+For language-specific examples and detailed API documentation, see the [API Reference](https://docs.xberg.io/reference/api-python/).
 
-For OCR configuration and backend selection, see the [OCR Backends Guide](https://docs.kreuzberg.dev/guides/ocr/).
+For OCR configuration and backend selection, see the [OCR Backends Guide](https://docs.xberg.io/guides/ocr/).
 
-For comprehensive format details and format detection, see the [Complete Format Reference](https://docs.kreuzberg.dev/reference/formats/).
+For comprehensive format details and format detection, see the [Complete Format Reference](https://docs.xberg.io/reference/formats/).

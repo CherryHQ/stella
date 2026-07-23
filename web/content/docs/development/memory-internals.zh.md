@@ -136,7 +136,25 @@ Reflect 被明确禁止添加、删除或编辑约束。普通会话工具也不
 
 Skills 仍然只表示可复用流程，不再通过 `metadata.knowledge_type` 创建或存储 fact/context knowledge。旧的 `user_agent` skill-backed knowledge 会由 v1 facts migration 迁移为 `subject=world` facts；更宽的 knowledge scope 留给后续设计。
 
-Reflect 可以维护 user profile 和 skills，但普通会话工具不直接写 facts。新的 `subject=world` fact 生成/写入工具链、related-fact search、confidence、usage tracking 和生命周期维护都是后续工作。
+普通会话工具不直接写 facts。Structured Reflect 会生成并评估 Fact/Skill 候选、发现相关的 Reflect-owned 记录、协调通过门控的候选，并通过 host 校验后的操作分别写入两条线。Usage tracking 和 curator 负责维护 active Reflect-owned Knowledge/Skill 的生命周期。
+
+## Structured Reflect 与 Curator
+
+Structured Reflect 是 scheduler 唯一执行的 writer。Fact/Skill 两条线并发运行，但错误和 watermark 相互独立；一条线失败不会取消另一条，也不会推进失败线。已经废弃的 `STELLA_REFLECT_MODE` 不再选择 writer。过渡版本为了兼容部署可接受空值或 `structured`，但显式 `legacy` 或未知值会让服务启动失败。
+
+切换迁移会把每个 session 的旧 `review_watermark` 复制到缺失的 `reflect_watermark:fact` 和 `reflect_watermark:skill` 状态。line 已存在时保留时间更新的一方；如果旧 global 时间更新，则清除原 line sequence，因为该 sequence 属于更早的边界。迁移可以重复执行，并把 global row 原样保留为不再参与运行的回滚数据。运行时代码只读取和推进两条 line watermark。
+
+Curator 仍使用独立的启动时配置：
+
+| 环境变量                      | 可选值            | 默认值  | 含义                                             |
+| ----------------------------- | ----------------- | ------- | ------------------------------------------------ |
+| `STELLA_REFLECT_CURATOR_MODE` | `armed`、`shadow` | `armed` | 执行生命周期写入，或保持不产生写入的紧急停止状态 |
+
+`armed` 模式缺少任何 Structured Reflect 或 curator 读写依赖时都会在启动阶段 fail closed。符合条件的 Reflect-owned Knowledge 会被废弃，并可通过经过身份认证的管理 API 恢复；符合条件的 Reflect-owned Skill 会被永久删除。
+
+Curator Shadow 会执行与 armed 相同的确定性 eligibility scan，记录候选类型、record ID、命中规则、活动输入、候选数量、规则分布、耗时和错误，但不修改记录 status、changelog 或 usage state。它既是停止后续生命周期写入的紧急开关，也是观察生产扫描规模和 wiring 的只读模式。Ownership/scope gate、usage 检查、写入时 recheck 和依赖缺失时 fail-closed 由自动化测试保证。
+
+部署后需要验证一次完整 Structured Reflect 运行、armed curator 的 eligible 写入、Knowledge 恢复，以及切回不产生写入的 Shadow。回滚整个版本需要部署上一版本二进制；保留的 global 和 line watermark 状态可以让上一版本保守地继续处理。
 
 ## LCM 插件
 

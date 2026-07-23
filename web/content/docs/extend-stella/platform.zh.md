@@ -49,7 +49,6 @@ Meta: pkgplugins.PluginInfo{
 - `Auth()`
 - `RuntimeLookup()`
 - `ChannelPlatform()`
-- `ReflectPlatform()`
 
 这些中的一些是通用的并对许多插件安全的。一些专门针对特定的运行时类型。
 
@@ -83,14 +82,14 @@ if err != nil {
 
 `StateStore()` 给插件一个用于操作状态的作用域持久化存储。
 
-这与配置不同。使用它来处理派生状态，如光标、检查点或审查水位线。
+这与配置不同。使用它来处理派生状态，如光标或检查点。
 
 ```go
 err := ctx.Platform.StateStore().Set(ctx, pkgplugins.StateScope{
     Kind: pkgplugins.StateScopeSession,
     ID:   sessionID,
-}, "review_watermark", map[string]any{
-    "reviewed_at": timestamp,
+}, "sync_cursor", map[string]any{
+	"last_item_id": itemID,
 })
 ```
 
@@ -102,9 +101,9 @@ err := ctx.Platform.StateStore().Set(ctx, pkgplugins.StateScope{
 
 ```go
 err := ctx.Platform.Scheduler().ReconcileJobs(ctx, []pkgplugins.SchedulerJobSpec{{
-    Key:         "review",
+    Key:         "refresh-cache",
     RuntimeName: RuntimeName,
-    Name:        "Reflect Review",
+    Name:        "Refresh Cache",
     Schedule: pkgplugins.SchedulerSchedule{
         Every: "30m",
     },
@@ -177,20 +176,6 @@ notifications := channelRuntime.Notifications()
 
 这个服务只对通道运行时插件有意义。
 
-## ReflectPlatform
-
-`ReflectPlatform()` 专门用于 Reflect 运行时。
-
-它给访问：
-
-- 父上下文
-- 内存提供程序
-- reflect 存储
-- 工作区
-- 提供程序注册表构造
-
-这是有意专门的。它存在是因为 Reflect 是一个具有狭窄但不寻常的依赖的复杂托管运行时。
-
 ## 上下文决定你得到什么
 
 `Platform` 不是全部。每个能力上下文还带有能力特定的字段。
@@ -243,7 +228,7 @@ notifications := channelRuntime.Notifications()
 - 使用 `StateStore()` 来处理派生的操作状态，而不是配置
 - 使用 `ConfigStore()` 处理所需配置，而不是运行时快照
 - 在状态路径中使用 `RuntimeLookup()` 而不是存储全局指针
-- 保持专门服务专门化，如 `ChannelPlatform()` 和 `ReflectPlatform()`
+- 保持专门服务专门化，如 `ChannelPlatform()`
 
 ## 不良模式
 

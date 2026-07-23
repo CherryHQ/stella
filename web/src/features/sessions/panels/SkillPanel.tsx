@@ -60,6 +60,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
   const [files, setFiles] = useState<string[]>(["SKILL.md"]);
   const [activeFile, setActiveFile] = useState("SKILL.md");
   const [fileContents, setFileContents] = useState<Record<string, string>>({});
+  const [fileEncodings, setFileEncodings] = useState<Record<string, string | undefined>>({});
   const [fileLoading, setFileLoading] = useState(false);
 
   const isReadOnly = !isNew && skill !== null && skill.scope === "system";
@@ -90,7 +91,8 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
         query: { path: initialFile, scope: skillScope },
         throwOnError: true,
       }).catch(() => null);
-      const content = (res?.data as { content?: string })?.content ?? "";
+      const fileData = res?.data as { content?: string; encoding?: string } | undefined;
+      const content = fileData?.content ?? "";
       const f: Form = {
         name: sk.name,
         description: sk.description ?? "",
@@ -101,6 +103,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       setFiles(skillFiles);
       setActiveFile(initialFile);
       setFileContents({ [initialFile]: content });
+      setFileEncodings({ [initialFile]: fileData?.encoding });
       setSavedForm(f);
       setForm(f);
       setEditing(false);
@@ -119,6 +122,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       setFiles(["SKILL.md"]);
       setActiveFile("SKILL.md");
       setFileContents({ "SKILL.md": "" });
+      setFileEncodings({});
       setEditing(true);
     } else {
       void load();
@@ -136,8 +140,10 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
           query: { path, scope: scope as UpdateAgentSkillData["query"]["scope"] },
           throwOnError: true,
         });
-        const content = (res.data as { content?: string })?.content ?? "";
+        const fileData = res.data as { content?: string; encoding?: string } | undefined;
+        const content = fileData?.content ?? "";
         setFileContents((current) => ({ ...current, [path]: content }));
+        setFileEncodings((current) => ({ ...current, [path]: fileData?.encoding }));
       } catch (e) {
         console.error(e);
         setFileContents((current) => ({ ...current, [path]: "" }));
@@ -295,6 +301,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                   <SkillFilePreview
                     path={activeFile}
                     content={activeFileContent}
+                    encoding={fileEncodings[activeFile]}
                     emptyText={t("sessions.skill.noContent")}
                   />
                 )}

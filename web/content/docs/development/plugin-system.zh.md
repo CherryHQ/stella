@@ -35,7 +35,6 @@ Stella 采用编译内置的插件系统。插件内置于 `stellad` 二进制�
 
 - `tool/notify` 是一个简单的工具插件
 - `channel/telegram` 拥有配置、状态、通道注册和运行时生命周期
-- `reflect` 拥有配置、状态和一个托管运行时
 
 ## 为什么这个设计很重要
 
@@ -59,7 +58,6 @@ Stella 在多个领域提供内置插件：
 | hook     | `trace`、`rtk`                           |
 | provider | `anthropic`、`openai`、`openai-response` |
 | memory   | `lcm`、`simple`                          |
-| runtime  | `reflect`                                |
 
 ## 声明式能力
 

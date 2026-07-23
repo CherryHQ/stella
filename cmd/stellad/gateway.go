@@ -266,7 +266,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	warnDeploymentBaseURL(baseURL, s.cfg.OIDC.IssuerURL, len(loginConfig.OAuth) > 0)
 
-	// Seed default data (channels, providers, default agent) if absent.
+	// Remove legacy configuration and seed the default Agent if no Agent exists.
 	if err := s.store.Seed(gctx); err != nil {
 		return fmt.Errorf("seed default data: %w", err)
 	}

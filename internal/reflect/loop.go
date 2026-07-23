@@ -21,7 +21,7 @@ func (s *Service) RunOnce(ctx context.Context) error {
 }
 
 func (s *Service) runCycle(ctx context.Context) error {
-	return s.runCycleWithReviewer(ctx, s.reviewConversation)
+	return s.runCycleWithReviewer(ctx, s.reviewConversationStructured)
 }
 
 type reviewTargetFunc func(context.Context, *config.Snapshot, reviewTarget) error

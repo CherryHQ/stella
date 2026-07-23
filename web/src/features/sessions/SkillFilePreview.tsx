@@ -1,4 +1,5 @@
 import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const codeExtensions = new Set([
@@ -39,10 +40,16 @@ interface Props {
   path: string;
   content: string;
   emptyText: string;
+  /** Content encoding from the skill file API: "base64" marks a binary file. */
+  encoding?: string;
   className?: string;
 }
 
-export function SkillFilePreview({ path, content, emptyText, className }: Props) {
+export function SkillFilePreview({ path, content, emptyText, encoding, className }: Props) {
+  const { t } = useI18n();
+  if (encoding === "base64") {
+    return <p className="text-sm text-muted-foreground italic">{t("skills.binaryFile")}</p>;
+  }
   if (!content) {
     return <p className="text-sm text-muted-foreground italic">{emptyText}</p>;
   }

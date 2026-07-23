@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -40,14 +42,26 @@ func (s *Service) maybeRunUsageCurator(ctx context.Context) {
 
 		pairSettings := settings
 		pairSettings.Now = func() time.Time { return now }
-		report, err := s.runUsageCuratorOnce(ctx, pair, pairSettings)
+		pairCtx, span := startUsageCuratorSpan(ctx, pair, settings.Mode)
+		report, err := s.runUsageCuratorOnce(pairCtx, pair, pairSettings)
+		span.SetAttributes(
+			attribute.Int("stella.reflect.curator.knowledge_candidates", report.KnowledgeCandidates),
+			attribute.Int("stella.reflect.curator.knowledge_deprecated", report.KnowledgeDeprecated),
+			attribute.Int("stella.reflect.curator.skill_candidates", report.SkillCandidates),
+			attribute.Int("stella.reflect.curator.skill_deleted", report.SkillDeleted),
+			attribute.Int64("stella.reflect.curator.duration_ms", report.Duration.Milliseconds()),
+			attribute.Int("stella.reflect.curator.errors", report.Errors),
+		)
 		if report.Mode == UsageCuratorModeShadow {
 			s.logUsageCuratorShadowEvidence(report)
 		}
 		if err != nil {
+			recordError(span, err)
+			span.End()
 			s.log.Error("reflect usage curator: pair run failed", "user_id", pair.UserID, "agent_id", pair.AgentID, "error", err, "report", report)
 			continue
 		}
+		span.End()
 		if err := s.recordUsageCuratorSuccess(ctx, pair, now, report); err != nil {
 			s.log.Error("reflect usage curator: record pair success", "user_id", pair.UserID, "agent_id", pair.AgentID, "error", err)
 			continue
@@ -103,6 +117,9 @@ func (s *Service) recordUsageCuratorSuccess(ctx context.Context, pair usageCurat
 		"knowledge_deprecated": report.KnowledgeDeprecated,
 		"skill_candidates":     report.SkillCandidates,
 		"skill_deleted":        report.SkillDeleted,
+		"rule_counts":          report.RuleCounts,
+		"duration_ms":          report.Duration.Milliseconds(),
+		"errors":               report.Errors,
 	})
 }
 

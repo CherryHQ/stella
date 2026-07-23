@@ -11,6 +11,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.1] - 2026-07-21
+
+### ✨ Features
+
+- Reflect: launch structured Reflect and retire the legacy writer. ([#762](https://github.com/CherryHQ/stella/pull/762))
+- Skills: support binary files in skill uploads and surface upload errors. ([#761](https://github.com/CherryHQ/stella/pull/761))
+
+### 🐛 Bug Fixes
+
+- Startup: make startup configuration explicit and idempotent. ([#763](https://github.com/CherryHQ/stella/pull/763))
+- Skills: accept root-level skill ZIP uploads. ([#756](https://github.com/CherryHQ/stella/pull/756))
+
+### ♻️ Refactoring
+
+- Xberg: migrate the Kreuzberg document integration to Xberg. ([#754](https://github.com/CherryHQ/stella/pull/754))
+
+**Full Changelog**: [v0.60.0...v0.60.1](https://github.com/CherryHQ/stella/compare/v0.60.0...v0.60.1)
+
+## [0.60.0] - 2026-07-19
+
+> **Breaking:** The deprecated `stella` agent CLI has been removed. Agents now use native tools, and `stellad` is the only Stella binary. Installations running v0.50.x must upgrade manually once (download the archive or reinstall): that release's `stellad upgrade` expects the removed `stella` binary. Later releases self-upgrade normally.
+
+### ✨ Features
+
+- Authentication and integrations: add personal access tokens, an OpenID Connect authorization server, and a scoped MCP HTTP/SSE client. ([#615](https://github.com/CherryHQ/stella/pull/615), [#616](https://github.com/CherryHQ/stella/pull/616), [#617](https://github.com/CherryHQ/stella/pull/617))
+- Agents: add native, context-scoped tools for goals, schedules, secrets, OAuth, sharing, Recally, and email; accepted goals can now be saved and scheduled as workflows. ([#632](https://github.com/CherryHQ/stella/pull/632), [#636](https://github.com/CherryHQ/stella/pull/636), [#657](https://github.com/CherryHQ/stella/pull/657))
+- Knowledge: introduce facts-backed memory, search-first discovery, structured Reflect review and rollout controls, and Web UI management for Knowledge and active Skills. ([#593](https://github.com/CherryHQ/stella/pull/593), [#610](https://github.com/CherryHQ/stella/pull/610), [#661](https://github.com/CherryHQ/stella/pull/661), [#683](https://github.com/CherryHQ/stella/pull/683), [#732](https://github.com/CherryHQ/stella/pull/732), [#733](https://github.com/CherryHQ/stella/pull/733), [#734](https://github.com/CherryHQ/stella/pull/734))
+- Storage: persist Recally article bodies in PostgreSQL and add an optional S3-compatible durable mirror for user assets, removing remaining pod-local durable state. ([#667](https://github.com/CherryHQ/stella/pull/667), [#673](https://github.com/CherryHQ/stella/pull/673), [#675](https://github.com/CherryHQ/stella/pull/675))
+- Secrets: complete four-scope tool overrides and automatic ambient secret delivery for agents. ([#688](https://github.com/CherryHQ/stella/pull/688), [#694](https://github.com/CherryHQ/stella/pull/694))
+- Automation: add an inbound webhook channel so CI systems and third-party services can trigger an agent with a scoped personal access token. ([#691](https://github.com/CherryHQ/stella/pull/691))
+- Deployment: add production Kubernetes health checks, graceful shutdown, and a Helm chart. ([#700](https://github.com/CherryHQ/stella/pull/700), [#704](https://github.com/CherryHQ/stella/pull/704))
+
+### 🔐 Security
+
+- Sandbox: close the read-tool path bypass, harden Docker and bubblewrap isolation, and redact session secrets from shell output. ([#668](https://github.com/CherryHQ/stella/pull/668), [#670](https://github.com/CherryHQ/stella/pull/670))
+- Authorization: enforce capability- and application-boundary checks across execution, user, plugin, and control-plane operations. ([#717](https://github.com/CherryHQ/stella/pull/717), [#718](https://github.com/CherryHQ/stella/pull/718), [#720](https://github.com/CherryHQ/stella/pull/720), [#748](https://github.com/CherryHQ/stella/pull/748))
+
+### 🐛 Bug Fixes
+
+- Goals: enforce decomposition contracts, prevent orphaned sessions after rolled-back mints, and avoid retries while a terminal turn is still draining. ([#604](https://github.com/CherryHQ/stella/pull/604), [#608](https://github.com/CherryHQ/stella/pull/608), [#628](https://github.com/CherryHQ/stella/pull/628))
+- OAuth: refresh credentials in long-lived sessions and request the Feishu permission-setting scopes required for management. ([#731](https://github.com/CherryHQ/stella/pull/731), [#738](https://github.com/CherryHQ/stella/pull/738))
+- Gateway: finish the graceful drain before teardown so in-flight HTTP requests survive shutdown. ([#743](https://github.com/CherryHQ/stella/pull/743))
+- Anthropic: preserve `oneOf` and required fields in tool schemas. ([#681](https://github.com/CherryHQ/stella/pull/681))
+
+### ♻️ Refactoring
+
+- Agents: retire the legacy `stella` CLI in favor of native tools and a single `stellad` binary. ([#659](https://github.com/CherryHQ/stella/pull/659))
+
+**Full Changelog**: [v0.50.7...v0.60.0](https://github.com/CherryHQ/stella/compare/v0.50.7...v0.60.0)
+
 ## [0.50.5] - 2026-06-26
 
 ### ♻️ Refactoring

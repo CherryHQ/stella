@@ -46,6 +46,16 @@ func startConversationSpan(ctx context.Context, target reviewTarget) (context.Co
 	return ctx, span
 }
 
+func startUsageCuratorSpan(ctx context.Context, pair usageCuratorPair, mode UsageCuratorMode) (context.Context, trace.Span) {
+	return tracer.Start(ctx, "reflect.usage_curator",
+		trace.WithAttributes(
+			attribute.String("user_id", pair.UserID),
+			attribute.String("agent_id", pair.AgentID),
+			attribute.String("stella.reflect.curator.mode", string(mode)),
+		),
+	)
+}
+
 // recordError records an error on a span and sets its status.
 func recordError(span trace.Span, err error) {
 	span.RecordError(err)

@@ -205,6 +205,9 @@ SELECT * FROM skill_file WHERE skill_id = $1 AND path = $2;
 -- name: ListSkillFiles :many
 SELECT * FROM skill_file WHERE skill_id = $1 ORDER BY path;
 
+-- name: ListSkillFilePaths :many
+SELECT path FROM skill_file WHERE skill_id = $1 ORDER BY path;
+
 -- name: GetSystemSkillByName :one
 SELECT * FROM skill WHERE scope = 'system' AND name = $1;
 

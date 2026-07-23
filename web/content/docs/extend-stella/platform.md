@@ -50,7 +50,6 @@ Calling an accessor you did not declare returns `nil` — always nil-check servi
 - `Auth()`
 - `RuntimeLookup()`
 - `ChannelPlatform()`
-- `ReflectPlatform()`
 
 Some of these are generic and safe for many plugins. Some are specialized for specific runtime types.
 
@@ -84,14 +83,14 @@ Use this when the plugin needs to read or update its own desired config outside 
 
 `StateStore()` gives the plugin a scoped persistence store for operational state.
 
-This is not the same thing as config. Use it for derived state such as cursors, checkpoints, or review watermarks.
+This is not the same thing as config. Use it for derived state such as cursors or checkpoints.
 
 ```go
 err := ctx.Platform.StateStore().Set(ctx, pkgplugins.StateScope{
     Kind: pkgplugins.StateScopeSession,
     ID:   sessionID,
-}, "review_watermark", map[string]any{
-    "reviewed_at": timestamp,
+}, "sync_cursor", map[string]any{
+	"last_item_id": itemID,
 })
 ```
 
@@ -103,9 +102,9 @@ The plugin does not pass its own plugin ID. The store is already scoped.
 
 ```go
 err := ctx.Platform.Scheduler().ReconcileJobs(ctx, []pkgplugins.SchedulerJobSpec{{
-    Key:         "review",
+    Key:         "refresh-cache",
     RuntimeName: RuntimeName,
-    Name:        "Reflect Review",
+    Name:        "Refresh Cache",
     Schedule: pkgplugins.SchedulerSchedule{
         Every: "30m",
     },
@@ -178,20 +177,6 @@ notifications := channelRuntime.Notifications()
 
 This service is only meaningful for channel runtime plugins.
 
-## ReflectPlatform
-
-`ReflectPlatform()` is specialized for the Reflect runtime.
-
-It gives access to:
-
-- parent context
-- memory provider
-- reflect store
-- workspace
-- provider registry construction
-
-This is intentionally specialized. It exists because Reflect is a complex managed runtime with narrow but unusual dependencies.
-
 ## Contexts Determine What Else You Get
 
 `Platform` is not the whole story. Each capability context also carries capability-specific fields.
@@ -244,7 +229,7 @@ Do not use `Platform` as a general dumping ground. If a capability needs a new h
 - use `StateStore()` for derived operational state, not config
 - use `ConfigStore()` for desired config, not runtime snapshots
 - use `RuntimeLookup()` in status paths instead of storing global pointers
-- keep specialized services specialized, as with `ChannelPlatform()` and `ReflectPlatform()`
+- keep specialized services specialized, as with `ChannelPlatform()`
 
 ## Bad Patterns
 

@@ -26,7 +26,7 @@ Stella 内置了一个通过 WebSocket 连接的 QQ 机器人 —— 持久连�
 5. 输入你的 AppID 和 AppSecret，然后保存。
 6. 重启 `stellad server` 以激活新频道。
 
-所有频道配置（凭据、允许的 ID 等）都通过Web UI管理。环境变量仅限于提供商 API 密钥（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）和 `STELLA_HOME`。
+所有频道配置（凭据、允许的 ID 等）都通过Web UI管理。
 
 ## 多用户支持
 
@@ -66,11 +66,11 @@ QQ 群组消息作为 @提及事件接收。在群聊中机器人会自动参与
 
 1. 机器人从 QQ 附件 URL 下载文件
 2. 将其保存到你的私有 assets 目录
-3. 附带 kreuzberg 提取提示传递给 agent，以便读取文件内容
+3. 附带 xberg 提取提示传递给 agent，以便读取文件内容
 
-Agent 随后可使用 `kreuzberg extract` 命令解析文件。
+Agent 随后可使用 `xberg extract` 命令解析文件。
 
-> **注意：** 文件上传需要为活跃 agent 启用 kreuzberg skill。
+> **注意：** 文件上传需要为活跃 agent 启用 Xberg skill。
 
 ## 命令
 
@@ -111,7 +111,7 @@ Agent 随后可使用 `kreuzberg extract` 命令解析文件。
 
 **文件未被分析？**
 
-- 确保为活跃 agent 启用了 kreuzberg skill。
+- 确保为活跃 agent 启用了 Xberg skill。
 
 **连接问题？**
 

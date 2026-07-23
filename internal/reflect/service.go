@@ -7,7 +7,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/memory"
-	skillstool "github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -32,19 +31,13 @@ type Config struct {
 	SkillStore pkgplugins.SkillStore
 	// SkillAuthorizer applies Skill domain rules to reflect's staged writes (the
 	// reconciliation-plan/usage-curator path); when nil those fail closed.
-	// SkillReadAuthorizer gates the reviewer tool's DB-skill reads and
-	// SkillToolWriteAuthorizer gates its prompt-driven create/patch/deprecate.
-	SkillAuthorizer          skillWriteAuthorizer
-	SkillReadAuthorizer      skillstool.SkillReadAuthorizer
-	SkillToolWriteAuthorizer skillstool.SkillWriteAuthorizer
-	UsageCuratorStore        UsageCuratorStore
-	Notifier                 pkgplugins.Notifier
-	Workspace                string
-	Log                      *slog.Logger
-	Providers                func(api, apiKey, baseURL string) (providers.StreamFunc, error)
-	CandidateGates           CandidateGateSettings
-	// UsageCuratorSettings defaults to shadow mode. Production may enable armed
-	// mode explicitly via host wiring; restore remains an internal/admin path.
+	SkillAuthorizer   skillWriteAuthorizer
+	UsageCuratorStore UsageCuratorStore
+	Log               *slog.Logger
+	Providers         func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	CandidateGates    CandidateGateSettings
+	// UsageCuratorSettings defaults to armed. Operators may switch to shadow to
+	// stop lifecycle writes while keeping scans and telemetry active.
 	UsageCuratorSettings UsageCuratorSettings
 	// Services provides per-agent session registries for review target listing.
 	// When set, reflect uses Registry.ListForReview and Registry.MemoryScope
@@ -54,8 +47,6 @@ type Config struct {
 
 // watermarker abstracts watermark storage for testability.
 type watermarker interface {
-	get(ctx context.Context, sessionID string) (time.Time, error)
-	set(ctx context.Context, sessionID string, at time.Time) error
 	getLine(ctx context.Context, sessionID string, line reflectLine) (reviewWatermark, error)
 	setLine(ctx context.Context, sessionID string, line reflectLine, mark reviewWatermark) error
 }
@@ -66,13 +57,9 @@ type Service struct {
 	store                    Store
 	skillStore               pkgplugins.SkillStore
 	skillAuthorizer          skillWriteAuthorizer
-	skillReadAuthz           skillstool.SkillReadAuthorizer
-	skillToolWriteAuthz      skillstool.SkillWriteAuthorizer
 	stateStore               pkgplugins.StateStore
 	usageCuratorStore        UsageCuratorStore
-	notifier                 pkgplugins.Notifier
 	wm                       watermarker
-	workspace                string
 	maxReviewTargetsPerAgent int
 	runSoftBudget            time.Duration
 	now                      func() time.Time
@@ -93,13 +80,9 @@ func New(cfg Config) *Service {
 		store:                    cfg.Store,
 		skillStore:               cfg.SkillStore,
 		skillAuthorizer:          cfg.SkillAuthorizer,
-		skillReadAuthz:           cfg.SkillReadAuthorizer,
-		skillToolWriteAuthz:      cfg.SkillToolWriteAuthorizer,
 		stateStore:               cfg.StateStore,
 		usageCuratorStore:        cfg.UsageCuratorStore,
-		notifier:                 cfg.Notifier,
 		wm:                       newWatermarkStore(cfg.StateStore),
-		workspace:                cfg.Workspace,
 		maxReviewTargetsPerAgent: defaultMaxReviewTargetsPerAgent,
 		runSoftBudget:            defaultReflectRunSoftBudget,
 		now:                      time.Now,

@@ -30,7 +30,8 @@ func Unwrap(p Provider) Provider {
 // WithTracing wraps a Provider to emit PostMemoryCall hooks after each operation.
 // hooksFn is called on each operation to get the current HookSet; it may return nil.
 // The returned Provider implements all optional capability interfaces (Compactor,
-// Searcher, Explorer, ProfileStore, SessionManager, Reviewer). Methods for
+// Searcher, Explorer, ProfileStore, SessionManager, ReviewHistoryReader,
+// Reviewer). Methods for
 // capabilities not supported by the inner provider return sensible zero values or errors.
 // Use [Unwrap] to check the inner provider's actual capabilities.
 //
@@ -501,6 +502,28 @@ func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]a
 	hctx.Error = err
 	hctx.MessageCount = len(msgs)
 	hctx.Detail = formatMessages("loaded history", msgs)
+	t.finish(ctx, start, hctx)
+	return msgs, err
+}
+
+// LoadReviewHistory forwards stable storage boundaries used by background
+// reviewers. Keeping this capability visible through the tracing wrapper avoids
+// falling back to timestamp-only LoadHistory processing.
+func (t *tracedProvider) LoadReviewHistory(ctx context.Context, sessionID string) ([]ReviewMessage, error) {
+	rr, ok := t.inner.(ReviewHistoryReader)
+	if !ok {
+		return nil, errCapabilityNotSupported("ReviewHistoryReader")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: sessionID}, Op: hooks.MemoryOpLoadReviewHistory, SessionID: sessionID}
+	ctx, start := t.begin(ctx, hctx)
+	msgs, err := rr.LoadReviewHistory(ctx, sessionID)
+	hctx.Error = err
+	hctx.MessageCount = len(msgs)
+	raw := make([]ai.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		raw = append(raw, msg.Message)
+	}
+	hctx.Detail = formatMessages("loaded review history", raw)
 	t.finish(ctx, start, hctx)
 	return msgs, err
 }

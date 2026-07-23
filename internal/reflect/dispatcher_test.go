@@ -75,20 +75,51 @@ func (stubPluginSkillStore) DeleteFile(context.Context, string, string) error { 
 
 func (stubPluginSkillStore) Delete(context.Context, string) error { return nil }
 
-type stubUsageCuratorSkillStore struct {
+type stubStructuredMemory struct {
+	stubMemory
+	memory.FactStore
+	factBatchWriter
+}
+
+type stubStructuredSkillStore struct {
 	stubPluginSkillStore
 }
 
-func (stubUsageCuratorSkillStore) DeleteReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDelete) (skills.Skill, error) {
+func (stubStructuredSkillStore) ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]pkgplugins.Skill, error) {
+	return nil, nil
+}
+
+func (stubStructuredSkillStore) CreateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillCreate) (skills.Skill, error) {
 	return skills.Skill{}, nil
+}
+
+func (stubStructuredSkillStore) PatchReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillPatch) (skills.Skill, error) {
+	return skills.Skill{}, nil
+}
+
+type stubArmedSkillStore struct {
+	stubStructuredSkillStore
+}
+
+func (stubArmedSkillStore) DeleteReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDelete) (skills.Skill, error) {
+	return skills.Skill{}, nil
+}
+
+type dispatcherSkillAuthorizer struct{}
+
+func (dispatcherSkillAuthorizer) AuthorizeWorkerWrite(context.Context, string, string, string, bool) error {
+	return nil
 }
 
 func validConfig(store Store) Config {
 	return Config{
-		Memory:     stubMemory{},
-		Store:      store,
-		StateStore: stubStateStore{},
-		Providers:  stubProviders,
+		Memory:            stubStructuredMemory{stubMemory: stubMemory{}},
+		Store:             store,
+		StateStore:        stubStateStore{},
+		Providers:         stubProviders,
+		SkillStore:        stubArmedSkillStore{},
+		SkillAuthorizer:   dispatcherSkillAuthorizer{},
+		UsageCuratorStore: fakeUsageCuratorStore{},
 	}
 }
 
@@ -115,32 +146,46 @@ func TestNewBuiltinHandlerRejectsMissingDeps(t *testing.T) {
 	}
 }
 
-func TestNewBuiltinHandlerRejectsArmedCuratorWithoutStore(t *testing.T) {
+func TestNewBuiltinHandlerValidatesStructuredDependencies(t *testing.T) {
 	cfg := validConfig(&fakeReflectStore{})
-	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeArmed}
-
+	cfg.Memory = stubMemory{}
 	if _, err := NewBuiltinHandler(cfg); err == nil {
-		t.Fatal("expected error for armed usage curator without store")
+		t.Fatal("expected missing structured memory dependencies to fail")
+	}
+
+	cfg.Memory = stubStructuredMemory{stubMemory: stubMemory{}}
+	if _, err := NewBuiltinHandler(cfg); err != nil {
+		t.Fatalf("structured dependencies rejected: %v", err)
 	}
 }
 
-func TestNewBuiltinHandlerRejectsArmedCuratorWithoutFactWriter(t *testing.T) {
-	cfg := validConfig(&fakeReflectStore{})
-	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeArmed}
-	cfg.UsageCuratorStore = fakeUsageCuratorStore{}
-	cfg.SkillStore = stubUsageCuratorSkillStore{}
+func TestNewBuiltinHandlerRejectsCuratorWithoutStore(t *testing.T) {
+	for _, mode := range []UsageCuratorMode{UsageCuratorModeArmed, UsageCuratorModeShadow} {
+		t.Run(string(mode), func(t *testing.T) {
+			cfg := validConfig(&fakeReflectStore{})
+			cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: mode}
+			cfg.UsageCuratorStore = nil
 
-	if _, err := NewBuiltinHandler(cfg); err == nil {
-		t.Fatal("expected error for armed usage curator without fact writer")
+			if _, err := NewBuiltinHandler(cfg); err == nil {
+				t.Fatalf("expected error for %s usage curator without store", mode)
+			}
+		})
+	}
+}
+
+func TestNewBuiltinHandlerAllowsShadowWithoutCuratorWriteDependencies(t *testing.T) {
+	cfg := validConfig(&fakeReflectStore{})
+	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeShadow}
+	cfg.SkillStore = stubStructuredSkillStore{}
+
+	if _, err := NewBuiltinHandler(cfg); err != nil {
+		t.Fatalf("shadow mode rejected without curator write dependencies: %v", err)
 	}
 }
 
 func TestNewBuiltinHandlerRejectsArmedCuratorWithoutSkillWriter(t *testing.T) {
 	cfg := validConfig(&fakeReflectStore{})
-	cfg.Memory = memory.WithTracing(&fakeUsageCuratorMemoryProvider{}, nil)
-	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeArmed}
-	cfg.UsageCuratorStore = fakeUsageCuratorStore{}
-	cfg.SkillStore = stubPluginSkillStore{}
+	cfg.SkillStore = stubStructuredSkillStore{}
 
 	if _, err := NewBuiltinHandler(cfg); err == nil {
 		t.Fatal("expected error for armed usage curator without skill writer")

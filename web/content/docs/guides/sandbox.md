@@ -61,8 +61,6 @@ services:
       - seccomp=unconfined
     volumes:
       - ./stella-data:/home/stella/.stella
-    environment:
-      - ANTHROPIC_API_KEY=sk-...
 ```
 
 Keep `seccomp=unconfined` if agents use the `local` sandbox (bubblewrap needs it); remove it if you use `none`.
@@ -78,7 +76,6 @@ services:
       - ./stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - ANTHROPIC_API_KEY=sk-...
       - STELLA_DOCKER_SANDBOX_MODE=bind
       - STELLA_HOME_HOST=${PWD}/stella-data
 ```
@@ -94,7 +91,6 @@ services:
       - stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      - ANTHROPIC_API_KEY=sk-...
       - STELLA_DOCKER_SANDBOX_MODE=volume
       - STELLA_HOME_VOLUME=stella-data
 
@@ -192,6 +188,9 @@ Session creation fails and the runner does not start. Ensure the Docker daemon i
 
 **Volume mode: "workspace is not inside STELLA_HOME":**
 All sandbox workspaces must be subdirectories of `STELLA_HOME` in volume mode. This error means a workspace path was resolved outside the volume boundary. Check that `STELLA_HOME` and `STELLA_HOME_VOLUME` are correctly configured.
+
+**Xberg fails to load `libheif`:**
+Stella's Docker images include the compatible library. Native Linux deployments need libheif 1.21 or newer; Debian 13's package is too old. On macOS, install it with `brew install libheif`. If you cannot provide a compatible native library, use the Docker sandbox backend.
 
 **Bind-mount performance is slow on macOS/Windows:**
 Docker Desktop uses a virtualized filesystem layer for bind mounts. For heavy I/O workloads, consider using a named volume (`volume` mode) or running stellad natively on the host with `host` mode.

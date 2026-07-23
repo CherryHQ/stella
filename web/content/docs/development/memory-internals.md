@@ -136,7 +136,25 @@ Knowledge is stored as active `facts` rows with `subject=world` and `scope=user_
 
 Skills remain reusable procedures and no longer create or store fact/context knowledge via `metadata.knowledge_type`. Legacy `user_agent` skill-backed knowledge is migrated into `subject=world` facts by the v1 facts migration; broader knowledge scopes are intentionally left for a follow-up design.
 
-Reflect may maintain the user profile and skills, but normal conversation tools do not directly write facts. New `subject=world` fact generation/write tooling, related-fact search, confidence, usage tracking, and lifecycle maintenance are follow-up work.
+Normal conversation tools do not directly write facts. Structured Reflect generates and evaluates Fact and Skill candidates, discovers related Reflect-owned records, reconciles accepted candidates, and writes each line through host-validated operations. Usage tracking and the curator maintain the lifecycle of active Reflect-owned Knowledge and Skills.
+
+## Structured Reflect and Curator
+
+Structured Reflect is the only scheduler writer. It runs the Fact and Skill lines concurrently with independent failures and watermarks; one failed line does not cancel or advance the other. The obsolete `STELLA_REFLECT_MODE` variable no longer selects a writer. During the transition release, an empty value or `structured` is accepted for deployment compatibility, while an explicit `legacy` or unknown value fails startup.
+
+The cutover migration copies every legacy session `review_watermark` into missing `reflect_watermark:fact` and `reflect_watermark:skill` state. When a line already exists, the newer timestamp wins; if the legacy timestamp wins, the old line sequence is cleared because it belongs to an earlier boundary. The migration is idempotent and leaves global rows untouched as inert rollback data. Runtime code reads and advances only the two line watermarks.
+
+The curator remains an independent boot-time control:
+
+| Variable                      | Values            | Default | Meaning                                                          |
+| ----------------------------- | ----------------- | ------- | ---------------------------------------------------------------- |
+| `STELLA_REFLECT_CURATOR_MODE` | `armed`, `shadow` | `armed` | Executes lifecycle writes or keeps a non-mutating emergency stop |
+
+In `armed`, startup fails closed unless all Structured Reflect and curator read/write dependencies are available. Eligible Reflect-owned Knowledge is deprecated and can be recovered through authenticated management APIs; eligible Reflect-owned Skills are permanently deleted.
+
+Curator Shadow executes the same deterministic eligibility scan and records candidate kind, record ID, matched rule, activity inputs, candidate counts, rule distribution, duration, and errors, but does not mutate record status, changelog, or usage state. It is the emergency stop for future lifecycle writes and a read-only way to inspect production scan volume and wiring. Automated tests enforce ownership/scope gates, usage checks, write-time rechecks, and fail-closed dependencies.
+
+After deployment, verify one complete Structured Reflect run, armed curator eligibility writes, Knowledge recovery, and the switch back to non-mutating Shadow. Rolling back the entire release means deploying the previous binary; the retained global and line watermark state lets that binary resume conservatively.
 
 ## LCM Plugin
 

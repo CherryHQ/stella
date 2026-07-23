@@ -73,6 +73,21 @@ stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 
 `stellad upgrade` fetches a stable release from GitHub (the latest by default, or the version you pass as an argument), downloads the matching archive for the current OS/architecture while showing download progress, and replaces the running `stellad` binary by default. If the target directory is not writable, rerun the command with the required OS permission or use `--install-dir`. If the binary is locked or busy, stop the running Stella process or service first, then retry.
 
+### Structured Reflect and Curator
+
+Structured Reflect is always enabled, and the lifecycle curator defaults to `armed`. Before upgrading from a dual-mode release, remove any `STELLA_REFLECT_MODE=legacy` deployment value; the transition release fails startup when that stale value is present.
+
+After deployment:
+
+1. Confirm a complete Reflect scheduler run advances the independent Fact and Skill watermarks and reports expected model calls, writes, no-ops, latency, and errors.
+2. Confirm the curator runs in `armed` and changes only eligible Reflect-owned Knowledge and Skills.
+3. Verify eligible Knowledge can be recovered. Reflect-owned Skills deleted by the curator are not recoverable.
+4. To stop future lifecycle writes, set `STELLA_REFLECT_CURATOR_MODE=shadow` and restart. Shadow continues deterministic scans and telemetry without deprecating Knowledge or deleting Skills.
+
+If the entire release must be rolled back, deploy the previous binary rather than selecting a legacy writer in the new release. The cutover migration preserves old global watermark rows and initializes both structured line watermarks so the previous release can resume conservatively.
+
+See [Configuration](/docs/start-here/configuration#environment-variables) for accepted values. The [memory internals page](/docs/development/memory-internals#structured-reflect-and-curator) explains the watermark migration, Shadow behavior, and fail-closed wiring.
+
 ## Run as a Background Service
 
 ### macOS — Homebrew
@@ -163,7 +178,6 @@ docker run -d \
   -v ~/.stella:/home/stella/.stella \
   -p 25678:25678 \
   -e STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require' \
-  -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
   stellad server
 ```
@@ -184,8 +198,6 @@ services:
       - ./stella-data:/home/stella/.stella
     environment:
       - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
-      - ANTHROPIC_API_KEY=sk-...
-      # - OPENAI_API_KEY=sk-...
 ```
 
 The `seccomp=unconfined` flag is needed for the `local` sandbox backend (bubblewrap). If agents use the `docker` sandbox backend, you need additional Docker socket mounts and mode-specific environment variables — see the [Sandbox guide](/docs/guides/sandbox#docker-compose-examples) for all compose variants.
@@ -336,14 +348,10 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | `STELLA_BLOB_S3_SECRET_KEY`      | No§                       | Secret key for the asset mirror                                                                                                                                               |
 | `STELLA_BLOB_S3_REGION`          | No                        | Optional S3 region                                                                                                                                                            |
 | `STELLA_BLOB_S3_USE_SSL`         | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
-| `ANTHROPIC_API_KEY`              | Yes\*                     | Anthropic provider key                                                                                                                                                        |
-| `OPENAI_API_KEY`                 | Yes\*                     | OpenAI provider key                                                                                                                                                           |
 | `STELLA_VAULT_KEY`               | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
 | `STELLA_DOCKER_SANDBOX_MODE`     | No‡                       | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                                                                                   |
 | `STELLA_HOME_HOST`               | No‡                       | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                                                                   |
 | `STELLA_HOME_VOLUME`             | No‡                       | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                                                                            |
-
-\* At least one provider key is required. API keys can also be configured via the Web UI.
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 

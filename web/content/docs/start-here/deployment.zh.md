@@ -73,6 +73,21 @@ stellad upgrade --install-dir "$HOME/.local/bin"  # 自定义安装路径
 
 `stellad upgrade` 从 GitHub 获取稳定版本（默认最新，也可通过参数指定版本），下载与当前操作系统/架构匹配的安装包并显示下载进度，并默认替换当前正在运行的 `stellad` 二进制文件。如果目标目录不可写，请用具备对应系统权限的用户重新运行，或使用 `--install-dir` 指定其他目录。如果二进制文件被锁定或显示 busy，请先停止正在运行的 Stella 进程或服务，再重试。
 
+### Structured Reflect 与 Curator
+
+Structured Reflect 始终启用，生命周期 curator 默认使用 `armed`。从双模式版本升级前，请删除部署中的 `STELLA_REFLECT_MODE=legacy`；过渡版本检测到该旧值时会拒绝启动。
+
+部署后执行以下检查：
+
+1. 确认一次完整 Reflect scheduler 运行推进 Fact/Skill 两条独立 watermark，并记录预期的模型调用、写入、no-op、耗时和错误。
+2. 确认 curator 以 `armed` 运行，并且只处理符合条件的 Reflect-owned Knowledge 和 Skill。
+3. 验证符合条件的 Knowledge 可以恢复。Curator 删除的 Reflect-owned Skill 不可恢复。
+4. 如需停止后续生命周期写入，将 `STELLA_REFLECT_CURATOR_MODE=shadow` 并重启。Shadow 会继续执行确定性扫描和记录 telemetry，但不会废弃 Knowledge 或删除 Skill。
+
+如果必须回滚整个版本，请部署上一版本二进制，而不是在新版本中选择 legacy writer。切换迁移会保留旧 global watermark，并初始化两条 structured line watermark，使上一版本能够保守地继续处理。
+
+可选值见[配置](/docs/start-here/configuration#环境变量)。[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)进一步说明 watermark 迁移、Shadow 行为和 fail-closed wiring。
+
 ## 作为后台服务运行
 
 ### macOS — Homebrew
@@ -163,7 +178,6 @@ docker run -d \
   -v ~/.stella:/home/stella/.stella \
   -p 25678:25678 \
   -e STELLA_DATABASE_URL='postgres://user:pass@postgres.example.com:5432/stella?sslmode=require' \
-  -e ANTHROPIC_API_KEY=sk-... \
   ghcr.io/cherryhq/stella:latest \
   stellad server
 ```
@@ -184,8 +198,6 @@ services:
       - ./stella-data:/home/stella/.stella
     environment:
       - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
-      - ANTHROPIC_API_KEY=sk-...
-      # - OPENAI_API_KEY=sk-...
 ```
 
 `seccomp=unconfined` 标志是 `local` 沙箱后端（bubblewrap）所必需的。如果 agent 使用 `docker` 沙箱后端，需要额外挂载 Docker socket 和设置模式相关的环境变量——请参阅[沙箱指南](/docs/guides/sandbox#docker-compose-示例)了解所有 compose 变体。
@@ -336,14 +348,10 @@ PostgreSQL 数据是唯一需要备份的关键数据。它包含所有配置、
 | `STELLA_BLOB_S3_SECRET_KEY`      | 否§                       | 资产镜像使用的 secret key                                                                                              |
 | `STELLA_BLOB_S3_REGION`          | 否                        | 可选 S3 region                                                                                                         |
 | `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
-| `ANTHROPIC_API_KEY`              | 是\*                      | Anthropic 提供商密钥                                                                                                   |
-| `OPENAI_API_KEY`                 | 是\*                      | OpenAI 提供商密钥                                                                                                      |
 | `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
 | `STELLA_DOCKER_SANDBOX_MODE`     | 否‡                       | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                                                   |
 | `STELLA_HOME_HOST`               | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                                              |
 | `STELLA_HOME_VOLUME`             | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要                               |
-
-\* 至少需要一个提供商密钥。API 密钥也可以通过Web UI配置。
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 

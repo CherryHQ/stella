@@ -140,8 +140,12 @@ func TestExecuteSkillPlanCanRetryAfterPartialCommit(t *testing.T) {
 		},
 	}}
 
-	if _, err := executeSkillReconciliationPlan(ctx, writer, &stubSkillAuthorizer{}, userID, agentID, bundle, plan); !errors.Is(err, wantFailure) {
+	partial, err := executeSkillReconciliationPlan(ctx, writer, &stubSkillAuthorizer{}, userID, agentID, bundle, plan)
+	if !errors.Is(err, wantFailure) {
 		t.Fatalf("first execute error = %v, want injected failure", err)
+	}
+	if len(partial) != 1 || partial[0].Name != "partial-commit-first" {
+		t.Fatalf("partial writes = %#v, want the committed first skill", partial)
 	}
 	written, err := executeSkillReconciliationPlan(ctx, writer, &stubSkillAuthorizer{}, userID, agentID, bundle, plan)
 	if err != nil {

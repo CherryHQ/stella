@@ -10,7 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
-// findStellaID lists agents and returns the seeded Stella agent's UUID.
+// findStellaID returns the seeded Stella agent's reserved ID.
 func findStellaID(t *testing.T, env *testEnv) string {
 	t.Helper()
 	agents, err := env.store.ListAgents(context.Background())

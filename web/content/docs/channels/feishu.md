@@ -179,18 +179,18 @@ Consecutive buttons are grouped horizontally. A single button takes a full row.
 
 ## Supported Message Types
 
-| Type               | Behavior                                                                            |
-| ------------------ | ----------------------------------------------------------------------------------- |
-| Text               | Sent to the model as text                                                           |
-| Image              | Downloaded and passed as multimodal input                                           |
-| Post               | Raw rich-text JSON is forwarded                                                     |
-| Audio              | Sent as descriptive text with duration                                              |
-| Video              | Sent as descriptive text with duration                                              |
-| File               | Downloaded, saved to disk, and passed to the agent with a kreuzberg extraction hint |
-| Sticker            | Sent as descriptive text                                                            |
-| Location           | Sent as descriptive text with coordinates when present                              |
-| Shared chat/user   | Sent as descriptive text                                                            |
-| Forwarded messages | Sent as a summary marker                                                            |
+| Type               | Behavior                                                                         |
+| ------------------ | -------------------------------------------------------------------------------- |
+| Text               | Sent to the model as text                                                        |
+| Image              | Downloaded and passed as multimodal input                                        |
+| Post               | Raw rich-text JSON is forwarded                                                  |
+| Audio              | Sent as descriptive text with duration                                           |
+| Video              | Sent as descriptive text with duration                                           |
+| File               | Downloaded, saved to disk, and passed to the agent with an Xberg extraction hint |
+| Sticker            | Sent as descriptive text                                                         |
+| Location           | Sent as descriptive text with coordinates when present                           |
+| Shared chat/user   | Sent as descriptive text                                                         |
+| Forwarded messages | Sent as a summary marker                                                         |
 
 ## Native Threading
 
@@ -284,7 +284,7 @@ Semantic routing may keep chatter silent, so users should @mention the bot for r
 **Images or files not being analyzed?**
 
 - Ensure you are using a vision-capable model for image analysis.
-- For file uploads, the kreuzberg skill must be enabled for the active agent.
+- For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**
 

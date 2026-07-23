@@ -230,6 +230,7 @@ func TestLoadServerConfigRawPassthrough(t *testing.T) {
 		blobS3UseSSLEnv:     "yes",
 		blobS3EndpointEnv:   "s3.example.com",
 		reflectIntervalEnv:  "  garbage  ",
+		reflectModeEnv:      "  structured  ",
 	}))
 	if err != nil {
 		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
@@ -259,6 +260,9 @@ func TestLoadServerConfigRawPassthrough(t *testing.T) {
 	}
 	if cfg.Reflect.Interval != "  garbage  " {
 		t.Errorf("Reflect.Interval not carried verbatim: %q", cfg.Reflect.Interval)
+	}
+	if cfg.Reflect.LegacyModeGuard != "  structured  " {
+		t.Errorf("Reflect.LegacyModeGuard not carried verbatim: %q", cfg.Reflect.LegacyModeGuard)
 	}
 }
 

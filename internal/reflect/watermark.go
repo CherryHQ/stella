@@ -15,8 +15,6 @@ type watermarkStore struct {
 	store pkgplugins.StateStore
 }
 
-const reviewWatermarkKey = "review_watermark"
-
 type reflectLine string
 
 const (
@@ -37,66 +35,38 @@ func lineWatermarkKey(line reflectLine) string {
 	return "reflect_watermark:" + string(line)
 }
 
-// get returns the last reviewed timestamp for a session.
-// Returns zero time and nil error if never reviewed (pgx.ErrNoRows).
-// Returns a non-nil error for actual DB failures.
-func (ws *watermarkStore) get(ctx context.Context, sessionID string) (time.Time, error) {
-	val, ok, err := ws.store.Get(ctx, pkgplugins.StateScope{
-		Kind: pkgplugins.StateScopeSession,
-		ID:   sessionID,
-	}, reviewWatermarkKey)
-	if !ok {
-		return time.Time{}, nil
-	}
-	if err != nil {
-		return time.Time{}, fmt.Errorf("get watermark %s: %w", sessionID, err)
-	}
-	raw, _ := val["reviewed_at"].(string)
-	if raw == "" {
-		return time.Time{}, nil
-	}
-	t, err := parseWatermark(raw)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("parse watermark %s: %w", sessionID, err)
-	}
-	return t, nil
-}
-
-// set records the last reviewed timestamp for a session.
-func (ws *watermarkStore) set(ctx context.Context, sessionID string, at time.Time) error {
-	return ws.store.Set(ctx, pkgplugins.StateScope{
-		Kind: pkgplugins.StateScopeSession,
-		ID:   sessionID,
-	}, reviewWatermarkKey, map[string]any{
-		"reviewed_at": at.UTC().Format("2006-01-02 15:04:05"),
-	})
-}
-
 func (ws *watermarkStore) getLine(ctx context.Context, sessionID string, line reflectLine) (reviewWatermark, error) {
+	mark, _, err := ws.getStoredLine(ctx, sessionID, line)
+	if err != nil {
+		return reviewWatermark{}, err
+	}
+	return mark, nil
+}
+
+func (ws *watermarkStore) getStoredLine(ctx context.Context, sessionID string, line reflectLine) (reviewWatermark, bool, error) {
 	key := lineWatermarkKey(line)
 	val, ok, err := ws.store.Get(ctx, pkgplugins.StateScope{
 		Kind: pkgplugins.StateScopeSession,
 		ID:   sessionID,
 	}, key)
 	if err != nil {
-		return reviewWatermark{}, fmt.Errorf("get watermark %s %s: %w", sessionID, line, err)
+		return reviewWatermark{}, false, fmt.Errorf("get watermark %s %s: %w", sessionID, line, err)
 	}
-	if ok {
-		return parseWatermarkValue(sessionID, key, val)
+	if !ok {
+		return reviewWatermark{}, false, nil
 	}
-
-	legacy, err := ws.get(ctx, sessionID)
+	mark, err := parseWatermarkValue(sessionID, key, val)
 	if err != nil {
-		return reviewWatermark{}, err
+		return reviewWatermark{}, false, err
 	}
-	if legacy.IsZero() {
-		return reviewWatermark{}, nil
+	return mark, true, nil
+}
+
+func olderWatermarkTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
 	}
-	mark := reviewWatermark{At: legacy}
-	if err := ws.setLine(ctx, sessionID, line, mark); err != nil {
-		return reviewWatermark{}, err
-	}
-	return mark, nil
+	return b
 }
 
 func (ws *watermarkStore) setLine(ctx context.Context, sessionID string, line reflectLine, mark reviewWatermark) error {

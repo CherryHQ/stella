@@ -56,7 +56,9 @@ type reviewSkillUsage struct {
 }
 
 const (
-	maxToolSummaryChars = 1200
+	maxFallbackReviewTokens = 100_000
+	maxToolSummaryChars     = 1200
+	toolNameSkills          = "skills"
 
 	priorContextOpen       = "<prior_context>\n"
 	priorContextClose      = "</prior_context>\n\n"
@@ -94,15 +96,22 @@ func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark
 		return unit, nil
 	}
 
-	priorLines, fresh, err := s.buildReviewLines(ctx, target, mark)
+	priorLines, fresh, observed, err := s.buildReviewLines(ctx, target, mark)
 	if err != nil {
 		return ReviewUnit{}, err
 	}
-	if len(priorLines) == 0 && len(fresh) == 0 {
+	if len(priorLines) == 0 && len(fresh) == 0 && observed.Seq == 0 && observed.At.IsZero() {
 		return unit, nil
 	}
 	if len(fresh) == 0 {
 		unit.Skipped = append(unit.Skipped, ReviewSkip{Reason: reviewSkipNoFreshContent})
+		if observed.Seq > mark.Seq || observed.At.After(mark.At) {
+			unit.LastIncludedSeq = observed.Seq
+			unit.LastIncludedAt = mark.At
+			if observed.At.After(unit.LastIncludedAt) {
+				unit.LastIncludedAt = observed.At
+			}
+		}
 		return unit, nil
 	}
 
@@ -247,20 +256,22 @@ func renderedReviewLinesLength(lines []reviewLine) int {
 	return length
 }
 
-func (s *Service) buildReviewLines(ctx context.Context, target reviewTarget, mark reviewWatermark) ([]string, []reviewLine, error) {
-	if rr, ok := s.memory.(memory.ReviewHistoryReader); ok {
-		return s.buildReviewLinesFromReviewHistory(ctx, target, mark, rr)
+func (s *Service) buildReviewLines(ctx context.Context, target reviewTarget, mark reviewWatermark) ([]string, []reviewLine, reviewWatermark, error) {
+	if _, supported := memory.Unwrap(s.memory).(memory.ReviewHistoryReader); supported {
+		if rr, ok := s.memory.(memory.ReviewHistoryReader); ok {
+			return s.buildReviewLinesFromReviewHistory(ctx, target, mark, rr)
+		}
 	}
 	return s.buildReviewLinesFromLoadHistory(ctx, target, mark)
 }
 
-func (s *Service) buildReviewLinesFromReviewHistory(ctx context.Context, target reviewTarget, mark reviewWatermark, rr memory.ReviewHistoryReader) ([]string, []reviewLine, error) {
+func (s *Service) buildReviewLinesFromReviewHistory(ctx context.Context, target reviewTarget, mark reviewWatermark, rr memory.ReviewHistoryReader) ([]string, []reviewLine, reviewWatermark, error) {
 	msgs, err := rr.LoadReviewHistory(ctx, target.session.ID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, reviewWatermark{}, err
 	}
 	if len(msgs) == 0 {
-		return nil, nil, nil
+		return nil, nil, reviewWatermark{}, nil
 	}
 
 	sort.SliceStable(msgs, func(i, j int) bool {
@@ -269,8 +280,19 @@ func (s *Service) buildReviewLinesFromReviewHistory(ctx context.Context, target 
 
 	var priorLines []string
 	var fresh []reviewLine
+	var observed reviewWatermark
 	skillUsageByCall := map[string]reviewSkillUsage{}
 	for _, msg := range msgs {
+		lastSeq := msg.LastSeq
+		if lastSeq == 0 {
+			lastSeq = msg.FirstSeq
+		}
+		if lastSeq > observed.Seq {
+			observed.Seq = lastSeq
+		}
+		if at := memory.MessageTimestamp(msg.Message); at.After(observed.At) {
+			observed.At = at
+		}
 		usages := collectReviewSkillUsage(msg.Message)
 		for _, usage := range usages {
 			if usage.CallID != "" {
@@ -294,21 +316,21 @@ func (s *Service) buildReviewLinesFromReviewHistory(ctx context.Context, target 
 		}
 		fresh = append(fresh, line)
 	}
-	return priorLines, fresh, nil
+	return priorLines, fresh, observed, nil
 }
 
-func (s *Service) buildReviewLinesFromLoadHistory(ctx context.Context, target reviewTarget, mark reviewWatermark) ([]string, []reviewLine, error) {
+func (s *Service) buildReviewLinesFromLoadHistory(ctx context.Context, target reviewTarget, mark reviewWatermark) ([]string, []reviewLine, reviewWatermark, error) {
 	sm, ok := s.memory.(memory.SessionManager)
 	if !ok {
-		return nil, nil, nil
+		return nil, nil, reviewWatermark{}, nil
 	}
 
 	msgs, err := sm.LoadHistory(ctx, target.session.ID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, reviewWatermark{}, err
 	}
 	if len(msgs) == 0 {
-		return nil, nil, nil
+		return nil, nil, reviewWatermark{}, nil
 	}
 
 	sort.SliceStable(msgs, func(i, j int) bool {
@@ -321,8 +343,12 @@ func (s *Service) buildReviewLinesFromLoadHistory(ctx context.Context, target re
 
 	var priorLines []string
 	var fresh []reviewLine
+	var observed reviewWatermark
 	skillUsageByCall := map[string]reviewSkillUsage{}
 	for _, msg := range msgs {
+		if at := memory.MessageTimestamp(msg); at.After(observed.At) {
+			observed.At = at
+		}
 		usages := collectReviewSkillUsage(msg)
 		for _, usage := range usages {
 			if usage.CallID != "" {
@@ -340,7 +366,7 @@ func (s *Service) buildReviewLinesFromLoadHistory(ctx context.Context, target re
 		}
 		fresh = append(fresh, line)
 	}
-	return priorLines, fresh, nil
+	return priorLines, fresh, observed, nil
 }
 
 type reviewLine struct {

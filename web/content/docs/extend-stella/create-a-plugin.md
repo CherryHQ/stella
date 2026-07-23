@@ -14,7 +14,6 @@ Typical patterns:
 - `hook/<name>`
 - `provider/<name>`
 - `memory/<name>`
-- standalone IDs like `reflect` when the feature does not fit the kind/name pattern
 
 The plugin ID is the ownership key for config, runtime state, status, and capability registration. Treat it as a long-lived identifier.
 
@@ -214,26 +213,22 @@ The important part is not the feature itself. The important part is the pattern:
 
 ## A Real Managed Runtime Example
 
-The `reflect` plugin is a good managed-runtime reference because it owns config, runtime, and status in one package:
+The Telegram channel plugin is a current managed-runtime reference. It uses the channel helper to register metadata, config, status, channel behavior, and the runtime under one plugin ID:
 
 ```go
-host.AddRuntime(pkgplugins.RuntimeSpec{
-    PluginID: PluginID,
-    Name:     RuntimeName,
-    Build: func(ctx pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) {
-        return newRuntime(ctx.Platform)
+pkgplugins.RegisterManagedChannelPlugin(host, pkgplugins.ManagedChannelPluginRegistration{
+    PluginID:    PluginID,
+    RuntimeName: RuntimeName,
+    Meta: pkgplugins.PluginInfo{
+        ID:   PluginID,
+        Kind: "channel",
+        // ...
     },
-})
-
-host.AddAdmin(pkgplugins.AdminSpec{
-    PluginID: PluginID,
-    Status: func(ctx context.Context, build pkgplugins.AdminContext) (any, error) {
-        return runtimeStatusFromLookup(ctx, build.Platform.RuntimeLookup())
-    },
+    RuntimeFactory: newRuntime,
 })
 ```
 
-This is the standard pattern for host-managed background services.
+Use direct `RuntimeSpec` registration when the runtime is not a managed channel; the host contract is the same.
 
 ## Testing A New Plugin
 
@@ -247,7 +242,7 @@ At minimum, add tests for:
 Good examples already exist in:
 
 - `plugins/channels/telegram/plugin_test.go`
-- `internal/reflect/plugin_runtime_test.go`
+- `internal/pluginhost/runtime_test.go`
 - `plugins/tools/webfetch/webfetch_test.go`
 
 ## Common Mistakes
