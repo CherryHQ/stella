@@ -93,6 +93,7 @@ func (s *sseCommentStripper) Read(p []byte) (int, error) {
 
 	for !s.done {
 		// Drain comment lines and blank separator lines from the front of buf.
+	drain:
 		for len(s.buf) > 0 {
 			b := s.buf[0]
 			switch b {
@@ -100,13 +101,14 @@ func (s *sseCommentStripper) Read(p []byte) (int, error) {
 				// Skip entire comment line.
 				idx := bytes.IndexByte(s.buf, '\n')
 				if idx < 0 {
-					break // Need more data to find end of comment line.
+					break drain // Need more data to find end of comment line.
 				}
 				s.buf = s.buf[idx+1:]
 			case '\n', '\r':
 				s.buf = s.buf[1:]
 			default:
 				s.done = true
+				break drain
 			}
 		}
 		if s.done {
