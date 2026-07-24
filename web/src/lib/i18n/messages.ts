@@ -1261,6 +1261,8 @@ const en = {
   "chat.executionTrace": "Execution trace",
   "chat.noExecutionDetails": "No execution details found.",
   "chat.you": "You",
+  "chat.error.title": "Response failed",
+  "chat.error.generic": "The response could not be completed.",
 
   // Groups
   "groups.title": "Groups",
@@ -3168,6 +3170,8 @@ const zh: Record<MessageKey, string> = {
   "chat.executionTrace": "执行追踪",
   "chat.noExecutionDetails": "未找到执行细节。",
   "chat.you": "你",
+  "chat.error.title": "响应失败",
+  "chat.error.generic": "响应未能完成。",
 
   // Groups
   "groups.title": "群组",
