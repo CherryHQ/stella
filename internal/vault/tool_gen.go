@@ -16,82 +16,9 @@ func InputSchema() map[string]any {
 }
 
 const InputSchemaJSON = `{
-  "oneOf": [
-    {
-      "properties": {
-        "action": {
-          "const": "delete",
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "scope": {
-          "default": "user",
-          "enum": [
-            "user",
-            "user_agent"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "action",
-        "name"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "action": {
-          "const": "list",
-          "type": "string"
-        },
-        "scope": {
-          "default": "user",
-          "enum": [
-            "user",
-            "user_agent"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "action"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "action": {
-          "const": "set",
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "scope": {
-          "default": "user",
-          "enum": [
-            "user",
-            "user_agent"
-          ],
-          "type": "string"
-        },
-        "value": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "action",
-        "name",
-        "value"
-      ],
-      "type": "object"
-    }
-  ],
   "properties": {
     "action": {
+      "description": "Required parameters by action: delete(name); set(name, value).",
       "enum": [
         "delete",
         "list",

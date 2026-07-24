@@ -16,110 +16,9 @@ func InputSchema() map[string]any {
 }
 
 const InputSchemaJSON = `{
-  "oneOf": [
-    {
-      "properties": {
-        "action": {
-          "const": "get",
-          "type": "string"
-        },
-        "id": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "action",
-        "id"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "action": {
-          "const": "list",
-          "type": "string"
-        }
-      },
-      "required": [
-        "action"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "action": {
-          "const": "run",
-          "type": "string"
-        },
-        "id": {
-          "type": "string"
-        },
-        "idempotency_key": {
-          "description": "Optional idempotency key. When omitted, the server generates a UUID, so retries must provide their own key to be idempotent.",
-          "type": "string"
-        },
-        "inputs": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
-        }
-      },
-      "required": [
-        "action",
-        "id"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "action": {
-          "const": "save",
-          "type": "string"
-        },
-        "id": {
-          "type": "string"
-        },
-        "inputs": {
-          "items": {
-            "properties": {
-              "default": {
-                "description": "Default value used when the caller omits this input.",
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              },
-              "name": {
-                "description": "Input placeholder name used as {{inputs.name}}.",
-                "type": "string"
-              },
-              "required": {
-                "default": false,
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "name"
-            ],
-            "type": "object"
-          },
-          "type": "array"
-        },
-        "name": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "action",
-        "id",
-        "name"
-      ],
-      "type": "object"
-    }
-  ],
   "properties": {
     "action": {
+      "description": "Required parameters by action: get(id); run(id); save(id, name).",
       "enum": [
         "get",
         "list",
@@ -135,7 +34,9 @@ const InputSchemaJSON = `{
       "description": "Optional idempotency key. When omitted, the server generates a UUID, so retries must provide their own key to be idempotent.",
       "type": "string"
     },
-    "inputs": {},
+    "inputs": {
+      "description": "Type depends on action — run: object; save: array."
+    },
     "name": {
       "type": "string"
     }

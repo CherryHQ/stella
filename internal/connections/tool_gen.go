@@ -16,74 +16,9 @@ func InputSchema() map[string]any {
 }
 
 const InputSchemaJSON = `{
-  "oneOf": [
-    {
-      "properties": {
-        "action": {
-          "const": "connect",
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "action",
-        "provider"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "action": {
-          "const": "disconnect",
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "action",
-        "provider"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "action": {
-          "const": "list",
-          "type": "string"
-        }
-      },
-      "required": [
-        "action"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "action": {
-          "const": "status",
-          "type": "string"
-        },
-        "flow_id": {
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "action",
-        "flow_id",
-        "provider"
-      ],
-      "type": "object"
-    }
-  ],
   "properties": {
     "action": {
+      "description": "Required parameters by action: connect(provider); disconnect(provider); status(flow_id, provider).",
       "enum": [
         "connect",
         "disconnect",
