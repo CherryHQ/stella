@@ -18,6 +18,7 @@ func InputSchema() map[string]any {
 const InputSchemaJSON = `{
   "properties": {
     "action": {
+      "description": "Required parameters by action: connect(provider); disconnect(provider); status(flow_id, provider).",
       "enum": [
         "connect",
         "disconnect",

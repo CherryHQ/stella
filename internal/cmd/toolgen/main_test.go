@@ -55,13 +55,18 @@ components:
 
 func TestToolSchemaIsPlainObjectWithActionEnum(t *testing.T) {
 	schema := toolSchema([]toolAction{
-		{Action: "get", Schema: objectSchema(map[string]any{"id": map[string]any{"type": "string"}}, []string{"id"})},
+		{Action: "get", Schema: objectSchema(map[string]any{"id": map[string]any{"type": "string"}}, []string{"id"}), Required: []string{"id"}},
 		{Action: "list", Schema: objectSchema(nil, nil)},
 	})
 	props := schema["properties"].(map[string]any)
 	action := props["action"].(map[string]any)
 	if len(action["enum"].([]any)) != 2 {
 		t.Fatalf("action enum=%#v, want two actions", action["enum"])
+	}
+	// Per-action requiredness cannot live in `required`, so it rides in the
+	// action property's description for the model.
+	if desc, _ := action["description"].(string); desc != "Required parameters by action: get(id)." {
+		t.Errorf("action description=%q, want per-action required list", desc)
 	}
 	// OpenAI-compatible providers reject function schemas carrying combinators
 	// or constraints at the top level; the wire schema must be a plain object.
@@ -104,6 +109,10 @@ func TestToolSchemaLoosensConflictingBranchTypes(t *testing.T) {
 	inputs := schema["properties"].(map[string]any)["inputs"].(map[string]any)
 	if _, ok := inputs["type"]; ok {
 		t.Fatalf("top-level inputs kept a conflicting type: %#v", inputs)
+	}
+	// The dropped type is replaced by a description naming each action's shape.
+	if desc, _ := inputs["description"].(string); desc != "Type depends on action — run: object; save: array." {
+		t.Errorf("inputs description=%q, want per-action type note", desc)
 	}
 	// A field all branches agree on keeps its type.
 	schema2 := toolSchema([]toolAction{

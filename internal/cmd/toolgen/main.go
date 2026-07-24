@@ -501,19 +501,22 @@ func renderTool(tool, packageName string, actions []toolAction) ([]byte, error) 
 
 func toolSchema(actions []toolAction) map[string]any {
 	enum := make([]any, 0, len(actions))
-	branches := make([]map[string]any, 0, len(actions))
 	for _, action := range actions {
 		enum = append(enum, action.Action)
-		branches = append(branches, cloneMap(action.Schema))
 	}
 	// Hoist the union of every action's fields into the top-level `properties` so
 	// a model sees all possible parameters up front. The schema must stay a plain
 	// object: OpenAI-compatible providers reject function schemas that carry
 	// oneOf/anyOf/allOf/enum/const/not at the top level, so per-action
-	// requiredness and constraints are not expressed here — Dispatch/DecodeInput
-	// enforce them at runtime. Top-level `required` stays [action] only.
-	properties := hoistProperties(branches)
-	properties["action"] = map[string]any{"type": "string", "enum": enum}
+	// requiredness and constraints cannot be expressed structurally — they ride
+	// in generated descriptions for the model and Dispatch/DecodeInput enforce
+	// them at runtime. Top-level `required` stays [action] only.
+	properties := hoistProperties(actions)
+	actionProp := map[string]any{"type": "string", "enum": enum}
+	if desc := actionRequiredDescription(actions); desc != "" {
+		actionProp["description"] = desc
+	}
+	properties["action"] = actionProp
 	return map[string]any{
 		"type":       "object",
 		"required":   []any{"action"},
@@ -521,16 +524,39 @@ func toolSchema(actions []toolAction) map[string]any {
 	}
 }
 
-// hoistProperties merges the field schemas across every action branch (excluding
-// `action`, handled separately). When branches agree on a field's schema it is
+// actionRequiredDescription lists each action's required parameters (the exact
+// lists DecodeInput enforces) so the model sees them despite the flattened
+// top-level `required` staying [action] only.
+func actionRequiredDescription(actions []toolAction) string {
+	parts := make([]string, 0, len(actions))
+	for _, action := range actions {
+		if len(action.Required) == 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s(%s)", action.Action, strings.Join(action.Required, ", ")))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "Required parameters by action: " + strings.Join(parts, "; ") + "."
+}
+
+// propVariant is one action's schema for a shared field name.
+type propVariant struct {
+	action string
+	schema map[string]any
+}
+
+// hoistProperties merges the field schemas across every action (excluding
+// `action`, handled separately). When actions agree on a field's schema it is
 // copied verbatim; when they disagree the hoisted copy is loosened to type +
 // description only, so the top-level descriptor can never contradict what the
 // action's Dispatch decoding actually accepts.
-func hoistProperties(branches []map[string]any) map[string]any {
-	variants := map[string][]map[string]any{}
+func hoistProperties(actions []toolAction) map[string]any {
+	variants := map[string][]propVariant{}
 	var order []string
-	for _, branch := range branches {
-		props, _ := branch["properties"].(map[string]any)
+	for _, action := range actions {
+		props, _ := action.Schema["properties"].(map[string]any)
 		for name, raw := range props {
 			if name == "action" {
 				continue
@@ -539,7 +565,7 @@ func hoistProperties(branches []map[string]any) map[string]any {
 			if _, seen := variants[name]; !seen {
 				order = append(order, name)
 			}
-			variants[name] = append(variants[name], ps)
+			variants[name] = append(variants[name], propVariant{action: action.Action, schema: ps})
 		}
 	}
 	sort.Strings(order)
@@ -548,13 +574,13 @@ func hoistProperties(branches []map[string]any) map[string]any {
 		vs := variants[name]
 		identical := true
 		for _, v := range vs[1:] {
-			if !schemaEqual(vs[0], v) {
+			if !schemaEqual(vs[0].schema, v.schema) {
 				identical = false
 				break
 			}
 		}
 		if identical {
-			out[name] = cloneMap(vs[0])
+			out[name] = cloneMap(vs[0].schema)
 		} else {
 			out[name] = loosenProperty(vs)
 		}
@@ -564,16 +590,17 @@ func hoistProperties(branches []map[string]any) map[string]any {
 
 // loosenProperty reduces a set of divergent field schemas to a conflict-free
 // descriptor. `type` is kept only when every variant agrees on it — otherwise it
-// is dropped so the hoisted copy can never contradict a branch (e.g. `inputs` is
-// an object for one action and an array for another). Enum/const/format and other
-// per-action constraints are dropped here; Dispatch/DecodeInput and the backing
-// service validation are what actually gate a call.
-func loosenProperty(vs []map[string]any) map[string]any {
+// is dropped and the description names each action's expected type instead
+// (e.g. `inputs` is an object for one action and an array for another), since
+// the flattened schema cannot express per-action shapes structurally.
+// Enum/const/format and other per-action constraints are dropped here;
+// Dispatch/DecodeInput and the backing service validation gate a call.
+func loosenProperty(vs []propVariant) map[string]any {
 	out := map[string]any{}
-	if sharedType, ok := vs[0]["type"]; ok {
-		unanimous := true
+	unanimous := true
+	if sharedType, ok := vs[0].schema["type"]; ok {
 		for _, v := range vs[1:] {
-			if t, has := v["type"]; !has || t != sharedType {
+			if t, has := v.schema["type"]; !has || t != sharedType {
 				unanimous = false
 				break
 			}
@@ -581,12 +608,34 @@ func loosenProperty(vs []map[string]any) map[string]any {
 		if unanimous {
 			out["type"] = sharedType
 		}
+	} else {
+		unanimous = false
 	}
+	var desc string
 	for _, v := range vs {
-		if d, ok := v["description"]; ok {
-			out["description"] = d
+		if d, ok := v.schema["description"].(string); ok {
+			desc = d
 			break
 		}
+	}
+	if !unanimous {
+		parts := make([]string, 0, len(vs))
+		for _, v := range vs {
+			t, _ := v.schema["type"].(string)
+			if t == "" {
+				t = "any"
+			}
+			parts = append(parts, v.action+": "+t)
+		}
+		note := "Type depends on action — " + strings.Join(parts, "; ") + "."
+		if desc != "" {
+			desc += " " + note
+		} else {
+			desc = note
+		}
+	}
+	if desc != "" {
+		out["description"] = desc
 	}
 	return out
 }

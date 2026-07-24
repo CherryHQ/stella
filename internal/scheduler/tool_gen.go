@@ -18,6 +18,7 @@ func InputSchema() map[string]any {
 const InputSchemaJSON = `{
   "properties": {
     "action": {
+      "description": "Required parameters by action: delete(id); get(id); pause(id); resume(id); update(id).",
       "enum": [
         "create",
         "delete",

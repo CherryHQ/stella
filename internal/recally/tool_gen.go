@@ -18,6 +18,7 @@ func InputSchema() map[string]any {
 const InputSchemaJSON = `{
   "properties": {
     "action": {
+      "description": "Required parameters by action: digest_save(narrative); entry_add(feed_id, guid); entry_list(feed_id); entry_update(feed_id, id, status); feed_add(url); feed_remove(id); get_article(id); save(articles).",
       "enum": [
         "digest",
         "digest_save",

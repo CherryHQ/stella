@@ -21,6 +21,7 @@ const InputSchemaJSON = `{
       "type": "string"
     },
     "action": {
+      "description": "Required parameters by action: read(uid); send(body, idempotency_key, subject, to).",
       "enum": [
         "accounts",
         "list",

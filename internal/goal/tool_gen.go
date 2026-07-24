@@ -82,6 +82,7 @@ const InputSchemaJSON = `{
       "type": "object"
     },
     "action": {
+      "description": "Required parameters by action: cancel(id); create(title); get(id).",
       "enum": [
         "cancel",
         "create",

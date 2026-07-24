@@ -18,6 +18,7 @@ func InputSchema() map[string]any {
 const InputSchemaJSON = `{
   "properties": {
     "action": {
+      "description": "Required parameters by action: get(id); run(id); save(id, name).",
       "enum": [
         "get",
         "list",
@@ -33,7 +34,9 @@ const InputSchemaJSON = `{
       "description": "Optional idempotency key. When omitted, the server generates a UUID, so retries must provide their own key to be idempotent.",
       "type": "string"
     },
-    "inputs": {},
+    "inputs": {
+      "description": "Type depends on action — run: object; save: array."
+    },
     "name": {
       "type": "string"
     }
