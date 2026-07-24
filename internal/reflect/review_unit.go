@@ -37,6 +37,8 @@ type ReviewSkip struct {
 // advance independently after a successful review.
 type ReviewUnit struct {
 	Text            string
+	ReviewFromAt    time.Time
+	ReviewFromSeq   int64
 	LastIncludedAt  time.Time
 	LastIncludedSeq int64
 	// Truncated means more fresh content exists after LastIncluded*, but it did
@@ -90,7 +92,11 @@ var (
 )
 
 func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark reviewWatermark, budget int) (ReviewUnit, error) {
-	unit := ReviewUnit{PrivateOneToOne: target.privateOneToOne}
+	unit := ReviewUnit{
+		ReviewFromAt:    mark.At,
+		ReviewFromSeq:   mark.Seq,
+		PrivateOneToOne: target.privateOneToOne,
+	}
 	if !target.privateOneToOne {
 		unit.Skipped = append(unit.Skipped, ReviewSkip{Reason: reviewSkipNotPrivateOneToOne})
 		return unit, nil

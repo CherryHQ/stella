@@ -12,7 +12,15 @@ type factBatchWriter interface {
 	ApplyFactBatch(ctx context.Context, userID string, agentID string, ops []memorywrite.FactBatchOperation) ([]memory.Fact, error)
 }
 
-func executeFactReconciliationPlan(ctx context.Context, writer factBatchWriter, userID string, agentID string, bundle factRelatedBundle, plan factReconciliationPlan) ([]memory.Fact, error) {
+func executeFactReconciliationPlan(
+	ctx context.Context,
+	writer factBatchWriter,
+	userID string,
+	agentID string,
+	bundle factRelatedBundle,
+	plan factReconciliationPlan,
+	provenance factProvenanceInput,
+) ([]memory.Fact, error) {
 	if writer == nil {
 		return nil, fmt.Errorf("fact reconciliation: fact batch writer is required")
 	}
@@ -22,6 +30,16 @@ func executeFactReconciliationPlan(ctx context.Context, writer factBatchWriter, 
 	ops := factBatchOperationsFromPlan(plan)
 	if len(ops) == 0 {
 		return nil, nil
+	}
+	metadata, err := buildFactPlanProvenance(provenance, bundle, plan)
+	if err != nil {
+		return nil, fmt.Errorf("fact reconciliation provenance: %w", err)
+	}
+	if len(metadata) != len(ops) {
+		return nil, fmt.Errorf("fact reconciliation provenance: metadata count %d does not match operation count %d", len(metadata), len(ops))
+	}
+	for index := range ops {
+		ops[index].ChangelogMetadata = metadata[index]
 	}
 	writeCtx := memory.WithChangeSource(ctx, memory.SourceReflect)
 	return writer.ApplyFactBatch(writeCtx, userID, agentID, ops)

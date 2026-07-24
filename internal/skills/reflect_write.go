@@ -34,7 +34,10 @@ type ReflectSkillCreate struct {
 	Name            string
 	Description     string
 	MainFileContent string
-	Metadata        json.RawMessage
+	// Metadata is persisted on the skill entity.
+	Metadata json.RawMessage
+	// ChangelogMetadata records audit context for the create changelog row.
+	ChangelogMetadata json.RawMessage
 }
 
 type ReflectSkillPatch struct {
@@ -46,7 +49,10 @@ type ReflectSkillPatch struct {
 	Status                 *string
 	DisableModelInvocation *bool
 	MainFileContent        *string
-	Metadata               json.RawMessage
+	// Metadata overwrites skill entity metadata when present.
+	Metadata json.RawMessage
+	// ChangelogMetadata records audit context for the patch changelog row.
+	ChangelogMetadata json.RawMessage
 }
 
 type ReflectSkillDelete struct {
@@ -68,6 +74,10 @@ func (s *PGStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in Refle
 	}
 	if in.MainFileContent == "" {
 		return Skill{}, fmt.Errorf("skills: SKILL.md content is required")
+	}
+	changelogMetadata, err := normalizeReflectSkillChangelogMetadata(in.ChangelogMetadata)
+	if err != nil {
+		return Skill{}, err
 	}
 
 	metadata, err := MarkReflectOwnedMetadata(in.Metadata)
@@ -128,7 +138,7 @@ func (s *PGStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in Refle
 		Scope:        skill.Scope,
 		Action:       "create",
 		VersionAfter: skill.Version,
-		Metadata:     json.RawMessage(`{}`),
+		Metadata:     changelogMetadata,
 	}); err != nil {
 		return Skill{}, fmt.Errorf("skills: record reflect create changelog: %w", err)
 	}
@@ -212,6 +222,10 @@ func (s *PGStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Reflec
 	}
 	if in.ExpectedVersion <= 0 {
 		return Skill{}, fmt.Errorf("skills: expected_version is required")
+	}
+	changelogMetadata, err := normalizeReflectSkillChangelogMetadata(in.ChangelogMetadata)
+	if err != nil {
+		return Skill{}, err
 	}
 
 	tx, err := s.db.Begin(ctx)
@@ -308,7 +322,7 @@ func (s *PGStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Reflec
 		Action:        "patch",
 		VersionBefore: pgtype.Int8{Int64: before.Version, Valid: true},
 		VersionAfter:  after.Version,
-		Metadata:      json.RawMessage(`{}`),
+		Metadata:      changelogMetadata,
 	}); err != nil {
 		return Skill{}, fmt.Errorf("skills: record reflect patch changelog: %w", err)
 	}
@@ -368,6 +382,17 @@ func semanticJSONEqual(left json.RawMessage, right json.RawMessage) (bool, error
 		return false, fmt.Errorf("skills: decode requested metadata: %w", err)
 	}
 	return semanticJSONValueEqual(leftValue, rightValue), nil
+}
+
+func normalizeReflectSkillChangelogMetadata(metadata json.RawMessage) (json.RawMessage, error) {
+	if len(metadata) == 0 {
+		return json.RawMessage(`{}`), nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(metadata, &object); err != nil || object == nil {
+		return nil, fmt.Errorf("skills: changelog metadata must be a JSON object")
+	}
+	return metadata, nil
 }
 
 // semanticJSONValueEqual compares JSON numbers as exact rationals so equivalent

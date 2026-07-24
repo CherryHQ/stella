@@ -32,10 +32,11 @@ func TestBuildReviewUnit_ChronologicalWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	mark := reviewWatermark{At: old.Add(time.Minute)}
 	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
 		session:         sess,
 		privateOneToOne: true,
-	}, reviewWatermark{At: old.Add(time.Minute)}, 32)
+	}, mark, 32)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +55,9 @@ func TestBuildReviewUnit_ChronologicalWindow(t *testing.T) {
 	}
 	if unit.FreshCount != 1 {
 		t.Fatalf("expected one fresh message included, got %d", unit.FreshCount)
+	}
+	if !unit.ReviewFromAt.Equal(mark.At) || unit.ReviewFromSeq != 0 {
+		t.Fatalf("review start boundary = seq:%d at:%v, want seq:0 at:%v", unit.ReviewFromSeq, unit.ReviewFromAt, mark.At)
 	}
 }
 
@@ -152,10 +156,11 @@ func TestBuildReviewUnit_UsesReviewSeqBoundary(t *testing.T) {
 		log: testLogger(),
 	}
 
+	mark := reviewWatermark{Seq: 1}
 	unit, err := svc.buildReviewUnit(context.Background(), reviewTarget{
 		session:         memory.Session{ID: "s1", AgentID: "a", UserID: "u1"},
 		privateOneToOne: true,
-	}, reviewWatermark{Seq: 1}, 1000)
+	}, mark, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +176,9 @@ func TestBuildReviewUnit_UsesReviewSeqBoundary(t *testing.T) {
 	}
 	if !unit.LastIncludedAt.Equal(at) {
 		t.Fatalf("expected timestamp retained for compatibility, got %v", unit.LastIncludedAt)
+	}
+	if unit.ReviewFromSeq != mark.Seq || !unit.ReviewFromAt.IsZero() {
+		t.Fatalf("review start boundary = seq:%d at:%v, want seq:%d", unit.ReviewFromSeq, unit.ReviewFromAt, mark.Seq)
 	}
 }
 
