@@ -10,7 +10,6 @@ import (
 	"image/jpeg"
 	"image/png"
 	"math"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,7 +99,7 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 
 	// Image/binary handling applies to the first page only.
 	if offset <= 1 {
-		if mime := detectImageMime(content); mime != "" {
+		if mime := pkgtools.DetectImageMime(content); mime != "" {
 			return t.imageBlocks(ctx, path, resolvedPath, content, mime), nil
 		}
 		sample := content
@@ -159,23 +158,6 @@ func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath, resolvedPat
 		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. The current model cannot view images and text extraction failed: %v", mime, displayPath, err)}}
 	}
 	return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. The current model cannot view images; extracted text via Xberg:\n\n%s", mime, displayPath, text)}}
-}
-
-// detectImageMime returns the canonical MIME type for supported image bytes, or
-// "" when the data is not a supported image.
-func detectImageMime(data []byte) string {
-	if len(data) == 0 {
-		return ""
-	}
-	ct := http.DetectContentType(data)
-	if i := strings.IndexByte(ct, ';'); i >= 0 {
-		ct = ct[:i]
-	}
-	switch ct {
-	case "image/png", "image/jpeg", "image/gif", "image/webp":
-		return ct
-	}
-	return ""
 }
 
 // validateImageBudget rejects oversized inputs before any full decode allocates a

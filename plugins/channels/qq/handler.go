@@ -102,9 +102,21 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.Conte
 			logger().Warn("download image failed", "url", img.URL, "error", err)
 			continue
 		}
-		encoded := base64.StdEncoding.EncodeToString(data)
-		blocks = append(blocks, ai.ImageContent{Data: encoded, MimeType: mime})
 		logger().Debug("image received", "size", len(data), "mime", mime)
+		fileName := img.FileName
+		if fileName == "" {
+			fileName = channel.ImageFileName("image", mime)
+		}
+		if assetsDir != "" {
+			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
+			if saveErr == nil {
+				blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
+				continue
+			}
+			logger().Warn("save inbound image failed", "error", saveErr)
+		}
+		// Persistence unavailable — degrade to inline-only so the message still lands.
+		blocks = append(blocks, ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime})
 	}
 	for _, f := range files {
 		fileName := f.FileName
@@ -125,7 +137,7 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.Conte
 				continue
 			}
 			logger().Debug("file attachment received", "file_name", fileName, "size", len(data))
-			blocks = append(blocks, channel.FileReceivedContent(fileName, assetsDir, savedPath)...)
+			blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
 		} else {
 			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s]", fileName)})
 		}

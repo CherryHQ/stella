@@ -179,18 +179,18 @@ Consecutive buttons are grouped horizontally. A single button takes a full row.
 
 ## Supported Message Types
 
-| Type               | Behavior                                                                         |
-| ------------------ | -------------------------------------------------------------------------------- |
-| Text               | Sent to the model as text                                                        |
-| Image              | Downloaded and passed as multimodal input                                        |
-| Post               | Raw rich-text JSON is forwarded                                                  |
-| Audio              | Sent as descriptive text with duration                                           |
-| Video              | Sent as descriptive text with duration                                           |
-| File               | Downloaded, saved to disk, and passed to the agent with an Xberg extraction hint |
-| Sticker            | Sent as descriptive text                                                         |
-| Location           | Sent as descriptive text with coordinates when present                           |
-| Shared chat/user   | Sent as descriptive text                                                         |
-| Forwarded messages | Sent as a summary marker                                                         |
+| Type               | Behavior                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------- |
+| Text               | Sent to the model as text                                                                               |
+| Image              | Downloaded, saved to your assets directory, and passed as multimodal input                              |
+| Post               | Raw rich-text JSON is forwarded                                                                         |
+| Audio              | Sent as descriptive text with duration                                                                  |
+| Video              | Sent as descriptive text with duration                                                                  |
+| File               | Downloaded and saved to disk; images pass as multimodal input, other files get an Xberg extraction hint |
+| Sticker            | Sent as descriptive text                                                                                |
+| Location           | Sent as descriptive text with coordinates when present                                                  |
+| Shared chat/user   | Sent as descriptive text                                                                                |
+| Forwarded messages | Sent as a summary marker                                                                                |
 
 ## Native Threading
 

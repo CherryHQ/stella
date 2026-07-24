@@ -144,11 +144,12 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		provCancel()
 	}
 
-	// For file messages: resolve the per-user assets directory before building
-	// content so the downloaded file lands in the user's persistent workspace
-	// rather than a throwaway temp directory.
+	// For file and image-bearing messages: resolve the per-user assets directory
+	// before building content so the downloaded attachment lands in the user's
+	// persistent workspace rather than a throwaway temp directory.
 	var assetsDir string
-	if derefStr(msg.MessageType) == "file" {
+	switch derefStr(msg.MessageType) {
+	case "file", "image", "post":
 		if resolver, ok := b.handler.(channel.UserRootResolver); ok {
 			probeMsg := b.incomingMsg(senderIDs, chatID, chatType, nil)
 			probeMsg.ThreadID = rootID
@@ -234,17 +235,27 @@ func prependSystemPrompt(content []ai.ContentBlock, prompt string) []ai.ContentB
 	return append([]ai.ContentBlock{prefix}, content...)
 }
 
-// imageContentBlock downloads an image by key and returns it as an ImageContent
-// block. The bool is false when the download fails (already logged), letting
-// callers decide whether to drop the message or emit a text fallback.
-func (b *Bot) imageContentBlock(messageID, imageKey string) (ai.ImageContent, bool) {
+// imageContentBlocks downloads an image by key, persists it to the user's
+// assets when possible, and returns the unified attachment blocks. Without an
+// assets dir (or when saving fails) the image degrades to inline-only. The
+// bool is false when the download fails (already logged), letting callers
+// decide whether to drop the message or emit a text fallback.
+func (b *Bot) imageContentBlocks(messageID, imageKey, assetsDir string) ([]ai.ContentBlock, bool) {
 	data, mime, err := b.downloadImage(messageID, imageKey)
 	if err != nil {
 		logger().Error("download image failed", "image_key", imageKey, "error", err)
-		return ai.ImageContent{}, false
+		return nil, false
 	}
 	logger().Debug("image received", "size", len(data), "mime", mime)
-	return ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime}, true
+	fileName := channel.ImageFileName(imageKey, mime)
+	if assetsDir != "" {
+		savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
+		if saveErr == nil {
+			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data), true
+		}
+		logger().Warn("save inbound image failed", "error", saveErr)
+	}
+	return []ai.ContentBlock{ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime}}, true
 }
 
 // buildMessageContent constructs the message content from a Feishu message.
@@ -283,12 +294,12 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 			blocks = append(blocks, ai.TextContent{Text: text})
 		}
 		for _, imgKey := range imageKeys {
-			block, ok := b.imageContentBlock(messageID, imgKey)
+			imgBlocks, ok := b.imageContentBlocks(messageID, imgKey, assetsDir)
 			if !ok {
 				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[Failed to download image: %s]", imgKey)})
 				continue
 			}
-			blocks = append(blocks, block)
+			blocks = append(blocks, imgBlocks...)
 		}
 		if len(blocks) == 0 {
 			return nil
@@ -301,11 +312,11 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 			logger().Warn("image message missing image_key")
 			return nil
 		}
-		block, ok := b.imageContentBlock(messageID, imageKey)
+		blocks, ok := b.imageContentBlocks(messageID, imageKey, assetsDir)
 		if !ok {
 			return channel.TextContent("[Failed to download image]")
 		}
-		return []ai.ContentBlock{block}
+		return blocks
 
 	case "audio":
 		return channel.TextContent(parseAudioContent(rawContent))
@@ -320,11 +331,11 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 			fileName = "file"
 		}
 		if fileKey != "" && assetsDir != "" {
-			path, err := b.downloadFile(messageID, fileKey, fileName, assetsDir)
+			path, data, err := b.downloadFile(messageID, fileKey, fileName, assetsDir)
 			if err != nil {
 				logger().Error("download file failed", "file_key", fileKey, "error", err)
 			} else {
-				return channel.FileReceivedContent(fileName, assetsDir, path)
+				return channel.AttachmentReceivedContent(fileName, assetsDir, path, data)
 			}
 		}
 		return channel.TextContent(parseFileContent(rawContent))

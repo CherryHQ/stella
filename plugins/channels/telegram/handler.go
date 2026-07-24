@@ -273,7 +273,6 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	}
 
 	mimeType := http.DetectContentType(data)
-	encoded := base64.StdEncoding.EncodeToString(data)
 
 	var content []ai.ContentBlock
 	if caption := c.Message().Caption; caption != "" {
@@ -282,7 +281,7 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 		}
 		content = append(content, ai.TextContent{Text: caption})
 	}
-	content = append(content, ai.ImageContent{Data: encoded, MimeType: mimeType})
+	content = append(content, b.imageContent(c, photo.UniqueID, mimeType, data)...)
 
 	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
 
@@ -300,6 +299,37 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	return b.handleStream(c, stream)
 }
 
+// resolveAssetsDir resolves the per-user assets directory for the message's
+// author, or "" when the handler cannot resolve a user root.
+func (b *Bot) resolveAssetsDir(c tele.Context) string {
+	resolver, ok := b.handler.(channel.UserRootResolver)
+	if !ok {
+		return ""
+	}
+	probeMsg := b.incomingMsg(c, nil)
+	userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg)
+	if err != nil {
+		logger().Warn("resolve user root failed", "error", err)
+		return ""
+	}
+	return agent.UserAssetsDir(userRoot)
+}
+
+// imageContent persists an inbound image message to the user's assets and
+// returns the unified attachment blocks. When persistence is unavailable the
+// image degrades to inline-only so the message still reaches the agent.
+func (b *Bot) imageContent(c tele.Context, uniqueID, mimeType string, data []byte) []ai.ContentBlock {
+	fileName := channel.ImageFileName(uniqueID, mimeType)
+	if assetsDir := b.resolveAssetsDir(c); assetsDir != "" {
+		savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
+		if err == nil {
+			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)
+		}
+		logger().Warn("save inbound image failed", "error", err)
+	}
+	return []ai.ContentBlock{ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mimeType}}
+}
+
 // handleDocument processes incoming document (file) messages.
 // It resolves the per-user assets directory, downloads the file, saves it to
 // disk, and passes an Xberg extraction hint to the agent.
@@ -315,16 +345,7 @@ func (b *Bot) handleDocument(c tele.Context) error {
 	}
 
 	// Resolve the per-user assets directory before downloading.
-	var assetsDir string
-	if resolver, ok := b.handler.(channel.UserRootResolver); ok {
-		probeMsg := b.incomingMsg(c, nil)
-		if userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg); err == nil {
-			assetsDir = agent.UserAssetsDir(userRoot)
-		} else {
-			logger().Warn("resolve user root failed for document", "error", err)
-		}
-	}
-
+	assetsDir := b.resolveAssetsDir(c)
 	if assetsDir == "" {
 		return c.Send("Unable to resolve storage directory for this file.")
 	}
@@ -363,7 +384,7 @@ func (b *Bot) handleDocument(c tele.Context) error {
 		}
 		content = append(content, ai.TextContent{Text: caption})
 	}
-	content = append(content, channel.FileReceivedContent(fileName, assetsDir, savedPath)...)
+	content = append(content, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
 
 	msg := b.incomingMsg(c, content)
 	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")

@@ -49,9 +49,11 @@ func (b *Bot) downloadImage(messageID, imageKey string) ([]byte, string, error) 
 	return data, mime, nil
 }
 
-// downloadFile downloads a file from Feishu and saves it to assetsDir.
+// downloadFile downloads a file from Feishu and saves it to assetsDir. It
+// returns the saved path together with the raw bytes so callers can present
+// image files inline without re-reading the file.
 // The filename is prefixed with a Unix timestamp to avoid collisions.
-func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (string, error) {
+func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (string, []byte, error) {
 	apiCtx, cancel := b.apiContext()
 	defer cancel()
 
@@ -62,13 +64,13 @@ func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (stri
 			Type("file").
 			Build())
 	if err != nil {
-		return "", fmt.Errorf("get resource: %w", err)
+		return "", nil, fmt.Errorf("get resource: %w", err)
 	}
 	if !resp.Success() {
-		return "", fmt.Errorf("api error: code=%d msg=%s", resp.Code, resp.Msg)
+		return "", nil, fmt.Errorf("api error: code=%d msg=%s", resp.Code, resp.Msg)
 	}
 	if resp.File == nil {
-		return "", fmt.Errorf("empty file in response")
+		return "", nil, fmt.Errorf("empty file in response")
 	}
 	if closer, ok := resp.File.(io.Closer); ok {
 		defer func() { _ = closer.Close() }()
@@ -76,8 +78,12 @@ func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (stri
 
 	data, err := io.ReadAll(resp.File)
 	if err != nil {
-		return "", fmt.Errorf("read file: %w", err)
+		return "", nil, fmt.Errorf("read file: %w", err)
 	}
 
-	return b.saveAsset(b.ctx, assetsDir, fileName, data)
+	path, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
+	if err != nil {
+		return "", nil, err
+	}
+	return path, data, nil
 }

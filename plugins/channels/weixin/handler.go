@@ -189,6 +189,7 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 		content = append(content, ai.TextContent{Text: caption})
 	}
 
+	assetsDir := b.resolveAssetsDir(msg)
 	for _, imageItem := range images {
 		data, err := b.downloadImage(msg.FromUserID, imageItem)
 		if err != nil {
@@ -196,9 +197,18 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 			continue
 		}
 		mimeType := http.DetectContentType(data)
-		encoded := base64.StdEncoding.EncodeToString(data)
-		content = append(content, ai.ImageContent{Data: encoded, MimeType: mimeType})
 		logger().Debug("image received", "user_id", msg.FromUserID, "size", len(data), "mime", mimeType)
+		if assetsDir != "" {
+			fileName := channel.ImageFileName("image", mimeType)
+			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
+			if saveErr == nil {
+				content = append(content, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
+				continue
+			}
+			logger().Warn("save inbound image failed", "user_id", msg.FromUserID, "error", saveErr)
+		}
+		// Persistence unavailable — degrade to inline-only so the message still lands.
+		content = append(content, ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mimeType})
 	}
 
 	// Nothing decoded successfully.
@@ -335,7 +345,7 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 
 	logger().Debug("file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(data))
 
-	incoming := b.incomingMsg(msg, channel.FileReceivedContent(fileName, assetsDir, savedPath))
+	incoming := b.incomingMsg(msg, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data))
 	b.handleIncoming(msg, incoming, "", "")
 }
 

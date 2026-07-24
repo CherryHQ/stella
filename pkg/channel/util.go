@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"encoding/base64"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 // WelcomeMessage is the shared welcome/help text for all channels.
@@ -110,20 +112,74 @@ func TextContent(text string) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: text}}
 }
 
+// maxInlineAttachmentImageBytes caps raw image bytes inlined into the
+// conversation, matching the read tool's provider inline-image ceiling.
+// Larger images are presented as a saved path with a read-tool hint so the
+// read tool's resize and non-vision fallback logic takes over.
+const maxInlineAttachmentImageBytes = 5 * 1024 * 1024
+
+// AttachmentReceivedContent returns the content blocks for an inbound
+// attachment that has been saved to disk. Images are presented as a saved-path
+// note plus the inline image so the model sees the pixels immediately and can
+// still reach the file later; everything else gets the Xberg extraction hint
+// via FileReceivedContent. data is the raw file content used for image
+// detection and inlining.
+func AttachmentReceivedContent(fileName, assetsDir, savedPath string, data []byte) []ai.ContentBlock {
+	mime := tools.DetectImageMime(data)
+	if mime == "" {
+		return FileReceivedContent(fileName, assetsDir, savedPath)
+	}
+	displayPath := attachmentDisplayPath(assetsDir, savedPath)
+	if len(data) > maxInlineAttachmentImageBytes {
+		return TextContent(fmt.Sprintf(
+			"[Image: %s — saved to %s]\n The image is too large to attach inline; use the `read` tool on that path to view it.",
+			fileName, displayPath,
+		))
+	}
+	return []ai.ContentBlock{
+		ai.TextContent{Text: fmt.Sprintf("[Image: %s — saved to %s]", fileName, displayPath)},
+		ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime},
+	}
+}
+
 // FileReceivedContent returns the standard content block telling the agent
 // about a file that has been saved to disk, with an Xberg extraction hint.
 // assetsDir is the host-side assets directory; savedPath is the host-side absolute
 // path returned by SaveAsset. The hint uses a path relative to the user root
 // (parent of assetsDir) so it resolves correctly inside the bwrap sandbox at /workspace.
 func FileReceivedContent(fileName, assetsDir, savedPath string) []ai.ContentBlock {
-	displayPath := savedPath
-	if assetsDir != "" {
-		if rel, err := filepath.Rel(filepath.Dir(assetsDir), savedPath); err == nil {
-			displayPath = rel
-		}
-	}
+	displayPath := attachmentDisplayPath(assetsDir, savedPath)
 	return TextContent(fmt.Sprintf(
 		"[File: %s — saved to %s]\n Read Xberg skill and use `xberg extract %q` to read its content.",
 		fileName, displayPath, displayPath,
 	))
+}
+
+// ImageFileName builds a file name for an inbound image message that carries no
+// client-supplied name, deriving the extension from the detected MIME type.
+func ImageFileName(base, mime string) string {
+	if base == "" {
+		base = "image"
+	}
+	ext := strings.TrimPrefix(mime, "image/")
+	switch ext {
+	case "", mime:
+		ext = "bin"
+	case "jpeg":
+		ext = "jpg"
+	}
+	return base + "." + ext
+}
+
+// attachmentDisplayPath rewrites a host-side saved path relative to the user
+// root (parent of assetsDir) so it resolves inside the bwrap sandbox at
+// /workspace; without an assetsDir the host path is shown as-is.
+func attachmentDisplayPath(assetsDir, savedPath string) string {
+	if assetsDir == "" {
+		return savedPath
+	}
+	if rel, err := filepath.Rel(filepath.Dir(assetsDir), savedPath); err == nil {
+		return rel
+	}
+	return savedPath
 }
