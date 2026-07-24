@@ -501,36 +501,31 @@ func renderTool(tool, packageName string, actions []toolAction) ([]byte, error) 
 
 func toolSchema(actions []toolAction) map[string]any {
 	enum := make([]any, 0, len(actions))
-	oneOf := make([]any, 0, len(actions))
 	branches := make([]map[string]any, 0, len(actions))
 	for _, action := range actions {
 		enum = append(enum, action.Action)
-		branch := cloneMap(action.Schema)
-		props := branch["properties"].(map[string]any)
-		props["action"] = map[string]any{"type": "string", "const": action.Action}
-		addRequired(branch, "action")
-		branches = append(branches, branch)
-		oneOf = append(oneOf, branch)
+		branches = append(branches, cloneMap(action.Schema))
 	}
-	// Hoist the union of every branch's fields into the top-level `properties` so
-	// a model sees all possible parameters up front instead of having to reason
-	// through oneOf. The oneOf branches still carry the exact per-action
-	// requiredness and constraints; top-level `required` stays [action] only.
+	// Hoist the union of every action's fields into the top-level `properties` so
+	// a model sees all possible parameters up front. The schema must stay a plain
+	// object: OpenAI-compatible providers reject function schemas that carry
+	// oneOf/anyOf/allOf/enum/const/not at the top level, so per-action
+	// requiredness and constraints are not expressed here — Dispatch/DecodeInput
+	// enforce them at runtime. Top-level `required` stays [action] only.
 	properties := hoistProperties(branches)
 	properties["action"] = map[string]any{"type": "string", "enum": enum}
 	return map[string]any{
 		"type":       "object",
 		"required":   []any{"action"},
 		"properties": properties,
-		"oneOf":      oneOf,
 	}
 }
 
 // hoistProperties merges the field schemas across every action branch (excluding
 // `action`, handled separately). When branches agree on a field's schema it is
 // copied verbatim; when they disagree the hoisted copy is loosened to type +
-// description only, so the top-level descriptor can never contradict the branch a
-// given action must satisfy.
+// description only, so the top-level descriptor can never contradict what the
+// action's Dispatch decoding actually accepts.
 func hoistProperties(branches []map[string]any) map[string]any {
 	variants := map[string][]map[string]any{}
 	var order []string
@@ -571,8 +566,8 @@ func hoistProperties(branches []map[string]any) map[string]any {
 // descriptor. `type` is kept only when every variant agrees on it — otherwise it
 // is dropped so the hoisted copy can never contradict a branch (e.g. `inputs` is
 // an object for one action and an array for another). Enum/const/format and other
-// per-action constraints are dropped here but preserved in the matching oneOf
-// branch, which is what actually gates a call.
+// per-action constraints are dropped here; Dispatch/DecodeInput and the backing
+// service validation are what actually gate a call.
 func loosenProperty(vs []map[string]any) map[string]any {
 	out := map[string]any{}
 	if sharedType, ok := vs[0]["type"]; ok {
