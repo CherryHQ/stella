@@ -149,6 +149,11 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}, nil
 }
 
+const (
+	knowledgeSearchToolName           = "knowledge_search"
+	knowledgeSearchMaxCallsPerRequest = 2
+)
+
 func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
@@ -166,6 +171,7 @@ func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, stream
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
+		coreagent.WithToolCallLimit(knowledgeSearchToolName, knowledgeSearchMaxCallsPerRequest),
 	)
 }
 

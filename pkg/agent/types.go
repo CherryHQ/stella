@@ -28,6 +28,7 @@ type loopConfig struct {
 	Hooks           *hooks.HookSet
 	HookMeta        hooks.HookMeta
 	ToolLifecycle   *ToolLifecycle
+	ToolCallLimits  map[string]int
 	// TurnNotify is called at the start of each turn. If it returns a non-nil
 	// string, that text is injected as a UserMessage before the model call.
 	// Intended for progress nudges at milestone turns (e.g. 50, 80, 100).

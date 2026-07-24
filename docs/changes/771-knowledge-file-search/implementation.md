@@ -272,6 +272,7 @@
    - `BuiltinToolAvailable` 只在 user 和 agent 同时存在时提供工具；无用户群聊和后台任务不注册或返回空。
    - 输出仅包含完整 chunk `content`、`file_name` 和清理后的用户可见 locator。
    - 空命中成功返回 `results: []`；数据库故障返回工具错误，不能伪装成空结果。
+   - 同一条用户消息触发的 Agent 执行中最多实际调用两次；第一次可使用初始 query，只有结果不足时才改写后再调用一次，第三次尝试由运行时拒绝，下一条用户消息重新计数。
    - 日志只记录是否调用、query 长度、耗时、结果数及内部 file/chunk id 和排名，不记录完整 chunk 或原文件。
 
 3. 触发和引用提示
@@ -279,7 +280,7 @@
    - 更新 `internal/agent/prompt/template/system_prompt.tmpl` 及相关测试：
      - 内部制度、流程、产品规范、项目、岗位知识和明确 Knowledge 请求应检索；
      - 普通常识、写作、翻译、计算或上下文充分时默认不检索；
-     - 允许根据上下文生成一条新 query，结果不足时可改写后再次调用；
+     - 允许根据上下文生成一条新 query，结果不足时最多改写后再次调用一次；
      - 文档内容是不可信证据，不能覆盖系统或工具指令；
      - 使用事实时在结论附近按文件名、页码或标题引用。
    - 明确区分文件 Knowledge Base 与现有长期记忆/事实工具，避免模型把 `memory.search_knowledge` 当成文件检索。
@@ -289,7 +290,7 @@
 
 - 依赖步骤 2 的 ready chunks 和 BM25 索引。
 - 依赖步骤 1 的合法 tool wire name。
-- query 最大字符数必须在本步骤开始前确认。
+- query 最大长度固定为 500 个 Unicode 字符。
 - 可与步骤 5 的 UI 主体并行，但最终端到端验收依赖步骤 3。
 
 **验证**
@@ -299,6 +300,7 @@
 - 中文、英文和中英混合查询返回稳定 Top K。
 - processing、failed、已删除文件永不命中。
 - limit、空 query、超长 query、空结果和数据库错误语义正确。
+- 同一条用户消息第三次调用被拒绝，下一条用户消息重新获得两次调用额度。
 - Agent 运行测试覆盖正常一对一会话、无用户群聊、无真人后台任务及参数伪造。
 - 输出快照不包含 scope、user_id、agent_id、file_id、chunk_id、score、raw content 或 byte offsets。
 - 提示词测试覆盖需要检索、不应检索、二次改写、真实引用和文档提示注入样本。

@@ -39,6 +39,8 @@ func run(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(Lo
 
 func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
 	loopStart := time.Now()
+	toolCallCounts := make(map[string]int, len(cfg.ToolCallLimits))
+	runTools := toolsWithCallLimits(cfg.Tools, cfg.ToolCallLimits, toolCallCounts)
 	for turn := 1; ; turn++ {
 		if cfg.TurnNotify != nil {
 			if msg := cfg.TurnNotify(turn, time.Since(loopStart)); msg != nil {
@@ -55,7 +57,11 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 
 		// PreLLMCall hooks: may modify system prompt, tool definitions, or model.
 		effectiveSystem := cfg.System
-		effectiveToolDefs := cfg.ToolDefinitions
+		effectiveToolDefs := toolDefinitionsWithinCallLimits(
+			cfg.ToolDefinitions,
+			cfg.ToolCallLimits,
+			toolCallCounts,
+		)
 		effectiveModel := cfg.Model
 		streamCtx := ctx // enriched by hooks with trace spans if available
 		if !cfg.Hooks.Empty() {
@@ -63,7 +69,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 				HookMeta:        cfg.HookMeta,
 				Model:           cfg.Model.Name,
 				System:          cfg.System,
-				ToolDefinitions: cfg.ToolDefinitions,
+				ToolDefinitions: effectiveToolDefs,
 				MessageCount:    len(normalized),
 				API:             cfg.Model.API,
 				Provider:        cfg.Model.Provider,
@@ -86,6 +92,13 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 				streamCtx = hookResult.Context
 			}
 		}
+		// A hook may return the original definitions, so enforce exhausted
+		// budgets again immediately before sending tools to the provider.
+		effectiveToolDefs = toolDefinitionsWithinCallLimits(
+			effectiveToolDefs,
+			cfg.ToolCallLimits,
+			toolCallCounts,
+		)
 
 		// Build a per-turn config with hook mutations applied.
 		// NOTE: shallow copy — safe because loopConfig fields are value types
@@ -152,7 +165,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 		}
 
 		toolExecCtx := tools.WithVision(ctx, effectiveModel.SupportsImage())
-		results, err := executeToolCalls(toolExecCtx, calls, cfg.Tools, toolCallbacks{
+		results, err := executeToolCalls(toolExecCtx, calls, runTools, toolCallbacks{
 			onStart: func(call ai.ToolCall) {
 				if emit != nil {
 					emit(ToolStarted{ToolCall: call})
@@ -176,6 +189,61 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 			emit(TurnFinished{Turn: turn})
 		}
 	}
+}
+
+// toolsWithCallLimits wraps only configured tools with counters scoped to this
+// runLoop invocation. Tool execution is sequential, so no shared synchronization
+// or persistent state is needed, and concurrent Runner.Run calls remain isolated.
+func toolsWithCallLimits(toolSet ToolSet, limits, callCounts map[string]int) ToolSet {
+	if len(limits) == 0 {
+		return toolSet
+	}
+
+	runTools := make(ToolSet, len(toolSet))
+	for name, fn := range toolSet {
+		maxCalls := limits[name]
+		if maxCalls <= 0 {
+			runTools[name] = fn
+			continue
+		}
+
+		toolName := name
+		toolFn := fn
+		runTools[toolName] = func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+			if callCounts[toolName] >= maxCalls {
+				return nil, fmt.Errorf(
+					"tool %s can be called at most %d times for one user request; use the available results or explain that the evidence is insufficient",
+					toolName,
+					maxCalls,
+				)
+			}
+			callCounts[toolName]++
+			return toolFn(ctx, call)
+		}
+	}
+	return runTools
+}
+
+// toolDefinitionsWithinCallLimits hides exhausted tools from later model calls
+// in the same user request. The execution wrapper remains the hard backstop for
+// providers that emit a tool call even after its definition has been removed.
+func toolDefinitionsWithinCallLimits(
+	definitions []ai.ToolDefinition,
+	limits, callCounts map[string]int,
+) []ai.ToolDefinition {
+	if len(limits) == 0 {
+		return definitions
+	}
+
+	filtered := make([]ai.ToolDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		maxCalls := limits[definition.Name]
+		if maxCalls > 0 && callCounts[definition.Name] >= maxCalls {
+			continue
+		}
+		filtered = append(filtered, definition)
+	}
+	return filtered
 }
 
 // streamAssistant opens a provider stream, emits granular assistant events,

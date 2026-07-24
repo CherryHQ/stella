@@ -14,17 +14,18 @@ import (
 // Runner is a configured agent loop executor. It is safe for concurrent use.
 // All configuration is set at construction time via RunnerConfig + options.
 type Runner struct {
-	stream        providers.StreamFunc
-	model         ai.Model
-	streamOptions ai.StreamOptions
-	tools         ToolSet
-	toolDefs      []ai.ToolDefinition
-	system        string
-	interrupt     <-chan struct{}
-	hooks         *hooks.HookSet
-	hookMeta      hooks.HookMeta
-	toolLifecycle *ToolLifecycle
-	turnNotify    func(turn int, elapsed time.Duration) *string
+	stream         providers.StreamFunc
+	model          ai.Model
+	streamOptions  ai.StreamOptions
+	tools          ToolSet
+	toolDefs       []ai.ToolDefinition
+	system         string
+	interrupt      <-chan struct{}
+	hooks          *hooks.HookSet
+	hookMeta       hooks.HookMeta
+	toolLifecycle  *ToolLifecycle
+	toolCallLimits map[string]int
+	turnNotify     func(turn int, elapsed time.Duration) *string
 }
 
 // RunnerConfig holds the required fields for constructing a Runner.
@@ -65,6 +66,21 @@ func WithHooks(hs *hooks.HookSet, meta hooks.HookMeta) Option {
 func WithToolLifecycle(tl *ToolLifecycle) Option {
 	return func(r *Runner) {
 		r.toolLifecycle = tl
+	}
+}
+
+// WithToolCallLimit caps one tool's executions during a single Run call.
+// Each subsequent Run starts with a fresh counter.
+func WithToolCallLimit(toolName string, maxCalls int) Option {
+	return func(r *Runner) {
+		if r.toolCallLimits == nil {
+			r.toolCallLimits = make(map[string]int)
+		}
+		if maxCalls <= 0 {
+			delete(r.toolCallLimits, toolName)
+			return
+		}
+		r.toolCallLimits[toolName] = maxCalls
 	}
 }
 
@@ -140,6 +156,7 @@ func (r *Runner) loopConfig() loopConfig {
 		Hooks:           r.hooks,
 		HookMeta:        r.hookMeta,
 		ToolLifecycle:   r.toolLifecycle,
+		ToolCallLimits:  r.toolCallLimits,
 		TurnNotify:      r.turnNotify,
 	}
 }
