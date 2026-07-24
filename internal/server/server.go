@@ -26,6 +26,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/inbox"
+	"github.com/CherryHQ/stella/internal/knowledge"
 	"github.com/CherryHQ/stella/internal/mcp"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
@@ -72,6 +73,7 @@ type Server struct {
 	shareSvc       *sharepkg.Service     // shared share service
 	recallySvc     *recally.Service      // shared recally service
 	recally        *recallyHandlers      // recally HTTP API (articles, feeds, digest)
+	knowledgeSvc   *knowledge.Service    // optional; if nil, Knowledge Base endpoints return 503
 	schedulerSvc   *scheduler.Service    // optional; if set, create/delete go through the live scheduler
 	goalSvc        *goal.Service         // optional; if nil, goal endpoints return 503
 	workflowSvc    *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
@@ -199,6 +201,7 @@ type Deps struct {
 	Vault          *vault.Service
 	VaultRecipient *age.X25519Recipient
 	MCP            *mcp.Service
+	Knowledge      *knowledge.Service
 	Scheduler      *scheduler.Service
 	Goal           *goal.Service
 	Workflow       *workflowpkg.Service
@@ -307,6 +310,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		shareSvc:        deps.Share,
 		recallySvc:      deps.Recally,
 		recally:         newRecallyHandlersWithService(deps.Recally, log),
+		knowledgeSvc:    deps.Knowledge,
 		schedulerSvc:    deps.Scheduler,
 		goalSvc:         deps.Goal,
 		workflowSvc:     deps.Workflow,

@@ -2036,6 +2036,89 @@ components:
         next_page_token:
           type: string
           nullable: true
+    KnowledgeFileScope:
+      type: string
+      enum: [system, system_agent, user, user_agent]
+    KnowledgeFileStatus:
+      type: string
+      enum: [processing, ready, failed]
+    KnowledgeFile:
+      type: object
+      required: [
+        id,
+        scope,
+        file_name,
+        media_type,
+        size_bytes,
+        status,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        scope:
+          $ref: "#/components/schemas/KnowledgeFileScope"
+        file_name:
+          type: string
+        media_type:
+          type: string
+          enum: [
+            application/pdf,
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document,
+            text/markdown,
+            text/plain,
+          ]
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        status:
+          $ref: "#/components/schemas/KnowledgeFileStatus"
+        error_message:
+          type: string
+          nullable: true
+          description: Safe user-facing parser error, present only when status is failed.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    KnowledgeFileQuota:
+      type: object
+      required: [used_files, max_files, used_bytes, max_bytes]
+      properties:
+        used_files:
+          type: integer
+          format: int64
+          minimum: 0
+        max_files:
+          type: integer
+          format: int64
+          minimum: 0
+        used_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        max_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    KnowledgeFileList:
+      type: object
+      required: [knowledge_files, quota]
+      properties:
+        knowledge_files:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeFile"
+        next_page_token:
+          type: string
+          nullable: true
+        quota:
+          $ref: "#/components/schemas/KnowledgeFileQuota"
     MCPServer:
       type: object
       required: [id, scope, name, url, transport, auth_type, enabled]

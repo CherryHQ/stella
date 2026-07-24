@@ -6,6 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useSidebar } from "@/components/ui/sidebar";
 import { AppShell } from "@/layouts/AppShell";
+import { Library } from "lucide-react";
 
 const settingsNav: {
   section: string;
@@ -139,6 +140,13 @@ const settingsNav: {
             />
           </svg>
         ),
+      },
+      {
+        id: "knowledge",
+        label: "settings.nav.knowledge",
+        href: "/settings/knowledge",
+        adminOnly: false,
+        icon: <Library className="size-4 shrink-0 opacity-50 group-[.active]/item:opacity-80" />,
       },
       {
         id: "plugins",

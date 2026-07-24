@@ -112,7 +112,7 @@ plugins:
     binaries:
       - name: xberg
         tool: github:xberg-io/xberg
-        version: "1.0.0-rc.29"
+        version: "1.0.0-rc.35"
         platforms:
           linux-arm64:
             asset_pattern: "xberg-cli-aarch64-unknown-linux-gnu.tar.gz"

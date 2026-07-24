@@ -31,6 +31,7 @@ import { Route as AppSettingsSkillsRouteImport } from './routes/_app/settings/sk
 import { Route as AppSettingsSandboxRouteImport } from './routes/_app/settings/sandbox'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsPluginsRouteImport } from './routes/_app/settings/plugins'
+import { Route as AppSettingsKnowledgeRouteImport } from './routes/_app/settings/knowledge'
 import { Route as AppSettingsEmbeddingRouteImport } from './routes/_app/settings/embedding'
 import { Route as AppSettingsCredentialsRouteImport } from './routes/_app/settings/credentials'
 import { Route as AppSettingsChannelsRouteImport } from './routes/_app/settings/channels'
@@ -48,6 +49,7 @@ import { Route as AppSettingsCredentialsSectionRouteImport } from './routes/_app
 import { Route as AppSettingsChannelsChannelIdRouteImport } from './routes/_app/settings/channels.$channelId'
 import { Route as AppSettingsAgentsAgentIdRouteImport } from './routes/_app/settings/agents.$agentId'
 import { Route as AppAgentsAgentIdMemoriesRouteImport } from './routes/_app/agents.$agentId/memories'
+import { Route as AppAgentsAgentIdKnowledgeRouteImport } from './routes/_app/agents.$agentId/knowledge'
 import { Route as AppAgentsAgentIdWorkflowsIndexRouteImport } from './routes/_app/agents.$agentId/workflows/index'
 import { Route as AppAgentsAgentIdSkillsIndexRouteImport } from './routes/_app/agents.$agentId/skills/index'
 import { Route as AppAgentsAgentIdGoalsIndexRouteImport } from './routes/_app/agents.$agentId/goals/index'
@@ -188,6 +190,13 @@ const AppSettingsPluginsRoute = AppSettingsPluginsRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/settings/plugins.lazy').then((d) => d.Route),
 )
+const AppSettingsKnowledgeRoute = AppSettingsKnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
+  getParentRoute: () => AppSettingsRoute,
+} as any).lazy(() =>
+  import('./routes/_app/settings/knowledge.lazy').then((d) => d.Route),
+)
 const AppSettingsEmbeddingRoute = AppSettingsEmbeddingRouteImport.update({
   id: '/embedding',
   path: '/embedding',
@@ -315,6 +324,12 @@ const AppAgentsAgentIdMemoriesRoute =
   AppAgentsAgentIdMemoriesRouteImport.update({
     id: '/memories',
     path: '/memories',
+    getParentRoute: () => AppAgentsAgentIdRoute,
+  } as any)
+const AppAgentsAgentIdKnowledgeRoute =
+  AppAgentsAgentIdKnowledgeRouteImport.update({
+    id: '/knowledge',
+    path: '/knowledge',
     getParentRoute: () => AppAgentsAgentIdRoute,
   } as any)
 const AppAgentsAgentIdWorkflowsIndexRoute =
@@ -517,6 +532,7 @@ export interface FileRoutesByFullPath {
   '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
+  '/settings/knowledge': typeof AppSettingsKnowledgeRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
@@ -525,6 +541,7 @@ export interface FileRoutesByFullPath {
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
+  '/agents/$agentId/knowledge': typeof AppAgentsAgentIdKnowledgeRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
   '/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
@@ -574,6 +591,7 @@ export interface FileRoutesByTo {
   '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
+  '/settings/knowledge': typeof AppSettingsKnowledgeRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/sandbox': typeof AppSettingsSandboxRoute
@@ -582,6 +600,7 @@ export interface FileRoutesByTo {
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/agents': typeof AppAgentsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
+  '/agents/$agentId/knowledge': typeof AppAgentsAgentIdKnowledgeRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
   '/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
@@ -636,6 +655,7 @@ export interface FileRoutesById {
   '/_app/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/_app/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/_app/settings/embedding': typeof AppSettingsEmbeddingRoute
+  '/_app/settings/knowledge': typeof AppSettingsKnowledgeRoute
   '/_app/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/_app/settings/sandbox': typeof AppSettingsSandboxRoute
@@ -644,6 +664,7 @@ export interface FileRoutesById {
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
+  '/_app/agents/$agentId/knowledge': typeof AppAgentsAgentIdKnowledgeRoute
   '/_app/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRouteWithChildren
   '/_app/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
   '/_app/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
@@ -698,6 +719,7 @@ export interface FileRouteTypes {
     | '/settings/channels'
     | '/settings/credentials'
     | '/settings/embedding'
+    | '/settings/knowledge'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/sandbox'
@@ -706,6 +728,7 @@ export interface FileRouteTypes {
     | '/tasks/$taskId'
     | '/agents/'
     | '/settings/'
+    | '/agents/$agentId/knowledge'
     | '/agents/$agentId/memories'
     | '/settings/agents/$agentId'
     | '/settings/channels/$channelId'
@@ -755,6 +778,7 @@ export interface FileRouteTypes {
     | '/settings/channels'
     | '/settings/credentials'
     | '/settings/embedding'
+    | '/settings/knowledge'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/sandbox'
@@ -763,6 +787,7 @@ export interface FileRouteTypes {
     | '/tasks/$taskId'
     | '/agents'
     | '/settings'
+    | '/agents/$agentId/knowledge'
     | '/agents/$agentId/memories'
     | '/settings/agents/$agentId'
     | '/settings/channels/$channelId'
@@ -816,6 +841,7 @@ export interface FileRouteTypes {
     | '/_app/settings/channels'
     | '/_app/settings/credentials'
     | '/_app/settings/embedding'
+    | '/_app/settings/knowledge'
     | '/_app/settings/plugins'
     | '/_app/settings/providers'
     | '/_app/settings/sandbox'
@@ -824,6 +850,7 @@ export interface FileRouteTypes {
     | '/_app/tasks/$taskId'
     | '/_app/agents/'
     | '/_app/settings/'
+    | '/_app/agents/$agentId/knowledge'
     | '/_app/agents/$agentId/memories'
     | '/_app/settings/agents/$agentId'
     | '/_app/settings/channels/$channelId'
@@ -1020,6 +1047,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsPluginsRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/knowledge': {
+      id: '/_app/settings/knowledge'
+      path: '/knowledge'
+      fullPath: '/settings/knowledge'
+      preLoaderRoute: typeof AppSettingsKnowledgeRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/embedding': {
       id: '/_app/settings/embedding'
       path: '/embedding'
@@ -1137,6 +1171,13 @@ declare module '@tanstack/react-router' {
       path: '/memories'
       fullPath: '/agents/$agentId/memories'
       preLoaderRoute: typeof AppAgentsAgentIdMemoriesRouteImport
+      parentRoute: typeof AppAgentsAgentIdRoute
+    }
+    '/_app/agents/$agentId/knowledge': {
+      id: '/_app/agents/$agentId/knowledge'
+      path: '/knowledge'
+      fullPath: '/agents/$agentId/knowledge'
+      preLoaderRoute: typeof AppAgentsAgentIdKnowledgeRouteImport
       parentRoute: typeof AppAgentsAgentIdRoute
     }
     '/_app/agents/$agentId/workflows/': {
@@ -1299,6 +1340,7 @@ const AppAgentsAgentIdMemoriesRouteWithChildren =
   )
 
 interface AppAgentsAgentIdRouteChildren {
+  AppAgentsAgentIdKnowledgeRoute: typeof AppAgentsAgentIdKnowledgeRoute
   AppAgentsAgentIdMemoriesRoute: typeof AppAgentsAgentIdMemoriesRouteWithChildren
   AppAgentsAgentIdIndexRoute: typeof AppAgentsAgentIdIndexRoute
   AppAgentsAgentIdGoalsGoalIdRoute: typeof AppAgentsAgentIdGoalsGoalIdRoute
@@ -1321,6 +1363,7 @@ interface AppAgentsAgentIdRouteChildren {
 }
 
 const AppAgentsAgentIdRouteChildren: AppAgentsAgentIdRouteChildren = {
+  AppAgentsAgentIdKnowledgeRoute: AppAgentsAgentIdKnowledgeRoute,
   AppAgentsAgentIdMemoriesRoute: AppAgentsAgentIdMemoriesRouteWithChildren,
   AppAgentsAgentIdIndexRoute: AppAgentsAgentIdIndexRoute,
   AppAgentsAgentIdGoalsGoalIdRoute: AppAgentsAgentIdGoalsGoalIdRoute,
@@ -1470,6 +1513,7 @@ interface AppSettingsRouteChildren {
   AppSettingsChannelsRoute: typeof AppSettingsChannelsRouteWithChildren
   AppSettingsCredentialsRoute: typeof AppSettingsCredentialsRouteWithChildren
   AppSettingsEmbeddingRoute: typeof AppSettingsEmbeddingRoute
+  AppSettingsKnowledgeRoute: typeof AppSettingsKnowledgeRoute
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRouteWithChildren
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
   AppSettingsSandboxRoute: typeof AppSettingsSandboxRoute
@@ -1485,6 +1529,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsChannelsRoute: AppSettingsChannelsRouteWithChildren,
   AppSettingsCredentialsRoute: AppSettingsCredentialsRouteWithChildren,
   AppSettingsEmbeddingRoute: AppSettingsEmbeddingRoute,
+  AppSettingsKnowledgeRoute: AppSettingsKnowledgeRoute,
   AppSettingsPluginsRoute: AppSettingsPluginsRouteWithChildren,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
   AppSettingsSandboxRoute: AppSettingsSandboxRoute,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -35,6 +36,21 @@ type BuiltinTool struct {
 
 func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
 	return params.UserID != "" && params.AgentID != ""
+}
+
+// KnowledgeToolAvailable limits file knowledge retrieval to private,
+// human-initiated chat sessions. Durable workers and group sessions must not
+// inherit a user's knowledge merely because they carry user and agent IDs.
+func KnowledgeToolAvailable(_ context.Context, params RunnerParams) bool {
+	if params.UserID == "" || params.AgentID == "" || params.GroupID != "" {
+		return false
+	}
+	switch session.Kind(params.SessionKind) {
+	case "", session.KindMain, session.KindChat:
+		return true
+	default:
+		return false
+	}
 }
 
 // runnerBuilderConfig holds all dependencies needed to assemble a NewRunnerFunc.
@@ -181,17 +197,18 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			promptUserID = ""
 		}
 		system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt: cfg.Snap.SystemPrompt,
-			AgentSoul:    cfg.Snap.Soul,
-			Memory:       memProvider,
-			UserID:       promptUserID,
-			AgentID:      params.AgentID,
-			GroupID:      params.GroupID,
-			StellaHome:   config.StellaHome(),
-			AgentRoot:    cfg.Snap.Workspace,
-			ProjectRoot:  projectRoot,
-			UserRoot:     userRoot,
-			Sections:     sections,
+			SystemPrompt:       cfg.Snap.SystemPrompt,
+			AgentSoul:          cfg.Snap.Soul,
+			Memory:             memProvider,
+			UserID:             promptUserID,
+			AgentID:            params.AgentID,
+			GroupID:            params.GroupID,
+			StellaHome:         config.StellaHome(),
+			AgentRoot:          cfg.Snap.Workspace,
+			ProjectRoot:        projectRoot,
+			UserRoot:           userRoot,
+			Sections:           sections,
+			KnowledgeAvailable: KnowledgeToolAvailable(ctx, params),
 		})
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.

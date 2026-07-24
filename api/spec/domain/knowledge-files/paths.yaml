@@ -1,0 +1,156 @@
+paths:
+  /api/knowledge-files:
+    get:
+      tags: [knowledge-files]
+      summary: List knowledge files in one manageable scope
+      operationId: listKnowledgeFiles
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            $ref: "../../components.yaml#/components/schemas/KnowledgeFileScope"
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+        - name: q
+          in: query
+          required: false
+          description: Case-insensitive literal substring match on file_name.
+          schema: { type: string, maxLength: 200 }
+        - name: page_size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 500, default: 20 }
+        - name: page_token
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/KnowledgeFileList"
+        "400":
+          $ref: "../../components.yaml#/components/responses/BadRequest"
+        "401":
+          $ref: "../../components.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "../../components.yaml#/components/responses/Forbidden"
+        "503":
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable"
+        "500":
+          description: internal server error
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+    post:
+      tags: [knowledge-files]
+      summary: Upload one immutable knowledge file
+      operationId: createKnowledgeFile
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            $ref: "../../components.yaml#/components/schemas/KnowledgeFileScope"
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/KnowledgeFile"
+        "400":
+          $ref: "../../components.yaml#/components/responses/BadRequest"
+        "401":
+          $ref: "../../components.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "../../components.yaml#/components/responses/Forbidden"
+        "429":
+          description: knowledge quota exhausted
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+        "503":
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable"
+        "500":
+          description: internal server error
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+
+  /api/knowledge-files/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [knowledge-files]
+      summary: Get knowledge file metadata
+      operationId: getKnowledgeFile
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/KnowledgeFile"
+        "401":
+          $ref: "../../components.yaml#/components/responses/Unauthorized"
+        "404":
+          $ref: "../../components.yaml#/components/responses/NotFound"
+        "503":
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable"
+        "500":
+          description: internal server error
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+    delete:
+      tags: [knowledge-files]
+      summary: Delete a knowledge file
+      operationId: deleteKnowledgeFile
+      responses:
+        "204":
+          description: deleted
+        "401":
+          $ref: "../../components.yaml#/components/responses/Unauthorized"
+        "404":
+          $ref: "../../components.yaml#/components/responses/NotFound"
+        "503":
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable"
+        "500":
+          description: internal server error
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }

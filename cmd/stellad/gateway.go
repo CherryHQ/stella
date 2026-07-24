@@ -438,6 +438,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,
+		Knowledge:           s.knowledgeSvc,
 		Assets:              s.assetStore,
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
@@ -651,6 +652,16 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// immediately before blocking on the errgroup, so a probe never sees ready
 	// while wiring is still in progress.
 	adminSrv.MarkStartupComplete()
+
+	// Knowledge reconciliation repairs uploads left in processing after an
+	// interrupted worker or missing River job.
+	if s.knowledgeSvc != nil && s.riverClient != nil {
+		handle, err := s.knowledgeSvc.StartReconciliation()
+		if err != nil {
+			return fmt.Errorf("start knowledge reconciliation: %w", err)
+		}
+		defer s.knowledgeSvc.StopReconciliation(handle)
+	}
 
 	waitErr := g.Wait()
 	// The errgroup empties at the START of a graceful drain, not the end:

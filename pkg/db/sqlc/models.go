@@ -545,6 +545,29 @@ type Fact struct {
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
+type KnowledgeChunk struct {
+	ID      string          `json:"id"`
+	FileID  string          `json:"file_id"`
+	Ordinal int64           `json:"ordinal"`
+	Content string          `json:"content"`
+	Locator json.RawMessage `json:"locator"`
+}
+
+type KnowledgeFile struct {
+	ID           string      `json:"id"`
+	Scope        string      `json:"scope"`
+	UserID       pgtype.Text `json:"user_id"`
+	AgentID      pgtype.Text `json:"agent_id"`
+	FileName     string      `json:"file_name"`
+	MediaType    string      `json:"media_type"`
+	SizeBytes    int64       `json:"size_bytes"`
+	RawContent   []byte      `json:"raw_content"`
+	Status       string      `json:"status"`
+	ErrorMessage pgtype.Text `json:"error_message"`
+	CreatedAt    time.Time   `json:"created_at"`
+	UpdatedAt    time.Time   `json:"updated_at"`
+}
+
 type KnowledgeUsage struct {
 	FactID     string    `json:"fact_id"`
 	UserID     string    `json:"user_id"`

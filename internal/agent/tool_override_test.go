@@ -36,3 +36,15 @@ func TestResolveToolOverrideCoreExemption(t *testing.T) {
 		t.Fatalf("core tool decision = (%v, %q), want enabled default", got.Enabled, got.Origin)
 	}
 }
+
+func TestResolveToolOverrideKnowledgeSearchCoreExemption(t *testing.T) {
+	rows := []ToolOverride{{
+		ToolName: "knowledge_search",
+		Scope:    ToolOverrideScopeSystem,
+		Enabled:  false,
+	}}
+	got := ResolveToolOverride(true, "knowledge_search", rows)
+	if !got.Enabled || got.Origin != ToolOverrideOriginDefault {
+		t.Fatalf("knowledge_search decision = %+v, want enabled core default", got)
+	}
+}

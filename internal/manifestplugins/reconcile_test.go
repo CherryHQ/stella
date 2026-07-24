@@ -110,12 +110,12 @@ func TestReconcile_XbergDoesNotReuseLegacyBinaryState(t *testing.T) {
 	state := &ManifestState{Plugins: map[string]PluginInstallState{
 		pluginID: {Binaries: []BinaryInstallState{{Name: "kreuzberg", Spec: "1.0.0-rc.28"}}},
 	}}
-	if isCacheHit(state, pluginID, "xberg", "1.0.0-rc.29") {
+	if isCacheHit(state, pluginID, "xberg", "1.0.0-rc.35") {
 		t.Fatal("legacy binary state must not be an Xberg cache hit")
 	}
 
-	upsertBinaryState(state, pluginID, BinaryInstallState{Name: "xberg", Spec: "1.0.0-rc.29"})
-	if !isCacheHit(state, pluginID, "xberg", "1.0.0-rc.29") {
+	upsertBinaryState(state, pluginID, BinaryInstallState{Name: "xberg", Spec: "1.0.0-rc.35"})
+	if !isCacheHit(state, pluginID, "xberg", "1.0.0-rc.35") {
 		t.Fatal("Xberg state was not recorded under the stable plugin ID")
 	}
 }

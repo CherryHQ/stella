@@ -30,10 +30,14 @@ type ToolOverrideDecision struct {
 type ToolOverrideFetcher func(ctx context.Context, userID, agentID string) ([]ToolOverride, error)
 
 var coreToolNames = func() map[string]struct{} {
-	m := make(map[string]struct{}, 4)
+	m := make(map[string]struct{}, 5)
 	for _, d := range sandbox.ToolDefinitions() {
 		m[d.Name] = struct{}{}
 	}
+	// File retrieval is a core RAG capability once the session-level identity
+	// gate admits it. Letting a generic tool override remove it would leave the
+	// rendered Knowledge Base guidance out of sync with the actual tool set.
+	m["knowledge_search"] = struct{}{}
 	return m
 }()
 

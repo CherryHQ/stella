@@ -24,6 +24,7 @@ var deniedResources = map[string]bool{
 	"embedding-settings": true,
 	"groups":             true,
 	"inbox":              true,
+	"knowledge-files":    true,
 	"manifest-plugins":   true,
 	"models":             true,
 	"plugins":            true,

@@ -23,6 +23,37 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
+func TestKnowledgeFilesMigrationDownUp(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+
+	// The Knowledge migration is currently the latest migration, so rolling
+	// back to its immediate predecessor isolates its Down path.
+	if _, err := provider.DownTo(ctx, 20260720091113); err != nil {
+		t.Fatalf("goose down knowledge migration: %v", err)
+	}
+	if tableExists(t, db, "knowledge_file") || tableExists(t, db, "knowledge_chunk") {
+		t.Fatal("knowledge tables should not exist after down")
+	}
+	if _, err := provider.UpTo(ctx, 20260723064256); err != nil {
+		t.Fatalf("goose up knowledge migration: %v", err)
+	}
+	if !tableExists(t, db, "knowledge_file") || !tableExists(t, db, "knowledge_chunk") {
+		t.Fatal("knowledge tables should exist after up")
+	}
+}
+
 func TestGoalAttemptRepairRoundsMigrationDownUp(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
