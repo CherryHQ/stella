@@ -534,8 +534,9 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 	}
 	if bundle != nil {
 		ps.Connected = true
-		ps.AccessExpiresAt = bundle.AccessExpiresAt
-		ps.RefreshExpiresAt = bundle.RefreshExpiresAt
+		// UTC so direct JSON serialization emits RFC3339 with a Z zone.
+		ps.AccessExpiresAt = bundle.AccessExpiresAt.UTC()
+		ps.RefreshExpiresAt = bundle.RefreshExpiresAt.UTC()
 
 		requested := s.providerScopes(ctx, provider)
 		ps.RequestedScopes = requested

@@ -54,6 +54,7 @@ func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 		ClientID:     body.ClientId,
 		ClientSecret: body.ClientSecret,
 		RedirectURL:  stringVal(body.RedirectUrl),
+		Scopes:       sliceVal(body.Scopes),
 	})
 	if err != nil {
 		s.writeControlPlaneError(w, err)
@@ -71,12 +72,25 @@ func toAPIProviderConfig(cfg connections.OAuthProviderConfig) apiserver.OAuthPro
 	if cfg.RedirectURL != "" {
 		out.RedirectUrl = &cfg.RedirectURL
 	}
+	if len(cfg.Scopes) > 0 {
+		out.Scopes = &cfg.Scopes
+	}
+	if len(cfg.DefaultScopes) > 0 {
+		out.DefaultScopes = &cfg.DefaultScopes
+	}
 	return out
 }
 
 func stringVal(s *string) string {
 	if s == nil {
 		return ""
+	}
+	return *s
+}
+
+func sliceVal(s *[]string) []string {
+	if s == nil {
+		return nil
 	}
 	return *s
 }
