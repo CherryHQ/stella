@@ -135,10 +135,10 @@ const SCOPE_DESC_KEY: Record<VaultScope, MessageKey> = {
   system_agent: "credentials.scope.systemAgent.desc",
 };
 
-// ProviderIcon resolves a brand mark for the provider. The icon string (from
-// the provider YAML) drives simple-icons lookups (`simpleicons:<slug>`); brands
-// simple-icons lacks fall back to a bundled asset keyed by provider id, then to
-// a generic plug glyph.
+// ProviderIcon resolves a brand mark from the provider's icon string (set in
+// the provider YAML): `simpleicons:<slug>` for marks simple-icons carries,
+// `asset:<name>` for bundled brand SVGs it does not (Feishu/Lark). Falls back to
+// a bundled asset keyed by provider id, then to a generic plug glyph.
 function ProviderIcon({
   provider,
   icon,
@@ -149,15 +149,19 @@ function ProviderIcon({
   label: string;
 }) {
   const [family, name] = (icon ?? "").split(":");
-  const brand = family === "simpleicons" ? SIMPLE_ICONS[name?.toLowerCase()] : undefined;
-  if (brand) {
-    return (
-      <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-label={label}>
-        <path d={brand.path} />
-      </svg>
-    );
+  if (family === "simpleicons") {
+    const brand = SIMPLE_ICONS[name?.toLowerCase()];
+    if (brand) {
+      return (
+        <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-label={label}>
+          <path d={brand.path} />
+        </svg>
+      );
+    }
   }
-  const asset = ASSET_ICONS[provider.toLowerCase()];
+  const asset =
+    (family === "asset" ? ASSET_ICONS[name?.toLowerCase()] : undefined) ??
+    ASSET_ICONS[provider.toLowerCase()];
   if (asset) return <img src={asset} alt="" className="size-4" />;
   return <Plug className="size-4" />;
 }

@@ -23,15 +23,6 @@ func BuiltinOAuthYAML() []byte { return builtinOAuthYAML }
 // BuiltinToolsYAML returns the raw bytes of the builtin tool plugin manifest.
 func BuiltinToolsYAML() []byte { return builtinToolsYAML }
 
-// BuiltinPluginsYAML returns the legacy combined builtin plugin manifest.
-func BuiltinPluginsYAML() []byte {
-	out := make([]byte, 0, len(builtinOAuthYAML)+1+len(builtinToolsYAML))
-	out = append(out, builtinOAuthYAML...)
-	out = append(out, '\n')
-	out = append(out, builtinToolsYAML...)
-	return out
-}
-
 // FS returns the full embedded filesystem rooted at the package directory.
 // Prefer SubFS for kind-scoped access.
 func FS() fs.FS { return fsys }

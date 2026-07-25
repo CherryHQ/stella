@@ -68,7 +68,7 @@ type Config struct {
 	// baked into the versioned sandbox image. They are installed in a Linux
 	// helper container and exposed to sessions through a Docker-managed tool
 	// cache, never through host $STELLA_HOME/bin.
-	// Normally auto-resolved by NewFactory from $STELLA_HOME/plugins.yaml.
+	// Normally auto-resolved by NewFactory from the builtin tool manifest.
 	UserToolBinaries []ToolBinary
 }
 

@@ -58,8 +58,8 @@ type dockerFactory struct {
 //   - Runtime mode resolution: reads $STELLA_DOCKER_SANDBOX_MODE and the
 //     matching mode-specific env ($STELLA_HOME_HOST or $STELLA_HOME_VOLUME).
 //     No container runtime auto-detection is used.
-//   - User tool resolution: loads the builtin and user plugin manifests
-//     ($STELLA_HOME/plugins.yaml) to populate UserToolBinaries.
+//   - User tool resolution: loads the builtin tool manifest to populate
+//     UserToolBinaries (manifest-declared CLIs not baked into the image).
 //
 // Both steps are skipped when StellaHome is empty (e.g. unit tests), making
 // construction cheap and infallible in that case.
@@ -74,7 +74,7 @@ func NewFactory(cfg Config) (sandboxpkg.Factory, error) {
 		cfg = autodetectServerReachability(detectCtx, cfg)
 		cancel()
 		if len(cfg.UserToolBinaries) == 0 {
-			tools, err := resolveUserToolBinaries(cfg.StellaHome)
+			tools, err := resolveUserToolBinaries()
 			if err != nil {
 				return nil, fmt.Errorf("resolve docker user tools: %w", err)
 			}

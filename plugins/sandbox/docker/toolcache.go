@@ -474,7 +474,7 @@ func shellQuoteForDoubleQuotedPath(s string) string {
 // tool binaries that differ from builtins. Called by NewFactory when
 // StellaHome is set. Sandbox tool binaries derive from manifest defaults
 // only — overrides cannot change which binaries ship in the image.
-func resolveUserToolBinaries(_ string) ([]ToolBinary, error) {
+func resolveUserToolBinaries() ([]ToolBinary, error) {
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
 		return nil, err
