@@ -9,6 +9,7 @@ import { groupMembersQueryOptions } from "@/lib/queries/groups";
 import { agentSkillsOptions } from "@/lib/queries/agents";
 import { createGroupTransport, groupMessagesToUIMessages } from "@/lib/chat-transport";
 import { ChatPane } from "@/components/chat/ChatPane";
+import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { BUILTIN_COMMANDS, ChatComposer } from "@/features/sessions/ChatComposer";
 import { useFileAttachments } from "@/features/sessions/useFileAttachments";
 import { GroupInspector } from "./GroupInspector";
@@ -90,6 +91,7 @@ export function GroupChat({ groupId }: Props) {
     setMessages: setChatMessages,
     status: chatStatus,
     stop: chatStop,
+    error: chatError,
   } = useChat({
     id: `group-${groupId}`,
     transport,
@@ -97,6 +99,7 @@ export function GroupChat({ groupId }: Props) {
       void loadMessages();
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
     },
+    onError: (err) => console.error("[group chat]", err),
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
@@ -263,6 +266,7 @@ export function GroupChat({ groupId }: Props) {
             uploadSessionId={uploadContext?.sessionId}
           />
         }
+        notice={<ChatErrorNotice error={chatError} />}
         composer={
           <ChatComposer
             value={userInput}

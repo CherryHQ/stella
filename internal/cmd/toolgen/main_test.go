@@ -1,7 +1,6 @@
 package main
 
 import (
-	"slices"
 	"strings"
 	"testing"
 )
@@ -54,9 +53,9 @@ components:
 	}
 }
 
-func TestToolSchemaUsesActionEnumAndOneOf(t *testing.T) {
+func TestToolSchemaIsPlainObjectWithActionEnum(t *testing.T) {
 	schema := toolSchema([]toolAction{
-		{Action: "get", Schema: objectSchema(map[string]any{"id": map[string]any{"type": "string"}}, []string{"id"})},
+		{Action: "get", Schema: objectSchema(map[string]any{"id": map[string]any{"type": "string"}}, []string{"id"}), Required: []string{"id"}},
 		{Action: "list", Schema: objectSchema(nil, nil)},
 	})
 	props := schema["properties"].(map[string]any)
@@ -64,14 +63,20 @@ func TestToolSchemaUsesActionEnumAndOneOf(t *testing.T) {
 	if len(action["enum"].([]any)) != 2 {
 		t.Fatalf("action enum=%#v, want two actions", action["enum"])
 	}
-	oneOf := schema["oneOf"].([]any)
-	if len(oneOf) != 2 {
-		t.Fatalf("oneOf branches=%d, want 2", len(oneOf))
+	// Per-action requiredness cannot live in `required`, so it rides in the
+	// action property's description for the model.
+	if desc, _ := action["description"].(string); desc != "Required parameters by action: get(id)." {
+		t.Errorf("action description=%q, want per-action required list", desc)
 	}
-	branch := oneOf[0].(map[string]any)
-	branchProps := branch["properties"].(map[string]any)
-	if branchProps["action"].(map[string]any)["const"] == "" {
-		t.Fatal("oneOf branch missing action const")
+	// OpenAI-compatible providers reject function schemas carrying combinators
+	// or constraints at the top level; the wire schema must be a plain object.
+	if schema["type"] != "object" {
+		t.Fatalf("top-level type=%#v, want object", schema["type"])
+	}
+	for _, banned := range []string{"oneOf", "anyOf", "allOf", "enum", "const", "not"} {
+		if _, ok := schema[banned]; ok {
+			t.Errorf("top-level schema must not carry %q: %#v", banned, schema[banned])
+		}
 	}
 }
 
@@ -87,17 +92,10 @@ func TestToolSchemaHoistsBranchPropertiesToTopLevel(t *testing.T) {
 			t.Errorf("top-level properties missing %q: %#v", want, props)
 		}
 	}
+	// Per-action requiredness (create requires title) is deliberately absent
+	// from the schema; Dispatch/DecodeInput enforce it at runtime.
 	if req := schema["required"].([]any); len(req) != 1 || req[0] != "action" {
 		t.Fatalf("top-level required=%#v, want [action]", req)
-	}
-	// The per-action requiredness stays in the matching oneOf branch.
-	for _, raw := range schema["oneOf"].([]any) {
-		branch := raw.(map[string]any)
-		if branch["properties"].(map[string]any)["action"].(map[string]any)["const"] == "create" {
-			if req := stringSlice(branch["required"]); !contains(req, "title") {
-				t.Errorf("create branch required=%#v, want title", req)
-			}
-		}
 	}
 }
 
@@ -112,6 +110,10 @@ func TestToolSchemaLoosensConflictingBranchTypes(t *testing.T) {
 	if _, ok := inputs["type"]; ok {
 		t.Fatalf("top-level inputs kept a conflicting type: %#v", inputs)
 	}
+	// The dropped type is replaced by a description naming each action's shape.
+	if desc, _ := inputs["description"].(string); desc != "Type depends on action — run: object; save: array." {
+		t.Errorf("inputs description=%q, want per-action type note", desc)
+	}
 	// A field all branches agree on keeps its type.
 	schema2 := toolSchema([]toolAction{
 		{Action: "a", Schema: objectSchema(map[string]any{"name": map[string]any{"type": "string"}}, nil)},
@@ -124,10 +126,6 @@ func TestToolSchemaLoosensConflictingBranchTypes(t *testing.T) {
 	if _, ok := name["minLength"]; ok {
 		t.Errorf("per-branch constraint leaked to top level: %#v", name)
 	}
-}
-
-func contains(s []string, v string) bool {
-	return slices.Contains(s, v)
 }
 
 func TestRestrictAnnotationNarrowsPropertyEnum(t *testing.T) {
