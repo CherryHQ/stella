@@ -49,11 +49,11 @@ func (b *Bot) downloadImage(messageID, imageKey string) ([]byte, string, error) 
 	return data, mime, nil
 }
 
-// downloadFile downloads a file from Feishu and saves it to assetsDir. It
-// returns the saved path together with the raw bytes so callers can present
-// image files inline without re-reading the file.
-// The filename is prefixed with a Unix timestamp to avoid collisions.
-func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (string, []byte, error) {
+// downloadFile downloads a file from Feishu and returns the raw bytes.
+// Downloading is intentionally decoupled from persistence: callers save the
+// bytes separately so a save failure never discards an already-downloaded file
+// and can fall back to inline/placeholder content instead.
+func (b *Bot) downloadFile(messageID, fileKey string) ([]byte, error) {
 	apiCtx, cancel := b.apiContext()
 	defer cancel()
 
@@ -64,13 +64,13 @@ func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (stri
 			Type("file").
 			Build())
 	if err != nil {
-		return "", nil, fmt.Errorf("get resource: %w", err)
+		return nil, fmt.Errorf("get resource: %w", err)
 	}
 	if !resp.Success() {
-		return "", nil, fmt.Errorf("api error: code=%d msg=%s", resp.Code, resp.Msg)
+		return nil, fmt.Errorf("api error: code=%d msg=%s", resp.Code, resp.Msg)
 	}
 	if resp.File == nil {
-		return "", nil, fmt.Errorf("empty file in response")
+		return nil, fmt.Errorf("empty file in response")
 	}
 	if closer, ok := resp.File.(io.Closer); ok {
 		defer func() { _ = closer.Close() }()
@@ -78,12 +78,7 @@ func (b *Bot) downloadFile(messageID, fileKey, fileName, assetsDir string) (stri
 
 	data, err := io.ReadAll(resp.File)
 	if err != nil {
-		return "", nil, fmt.Errorf("read file: %w", err)
+		return nil, fmt.Errorf("read file: %w", err)
 	}
-
-	path, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
-	if err != nil {
-		return "", nil, err
-	}
-	return path, data, nil
+	return data, nil
 }

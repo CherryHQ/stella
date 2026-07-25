@@ -173,6 +173,94 @@ func TestAttachmentReceivedContentOversizedImageHintsRead(t *testing.T) {
 	}
 }
 
+func TestInlineImageFallbackInlinesWithinCeiling(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	data := buf.Bytes()
+
+	blocks := InlineImageFallback("photo.png", "image/png", data)
+	if len(blocks) != 1 {
+		t.Fatalf("expected single inline image block, got %d: %#v", len(blocks), blocks)
+	}
+	img, ok := blocks[0].(ai.ImageContent)
+	if !ok || img.MimeType != "image/png" {
+		t.Fatalf("block = %#v, want inline image/png", blocks[0])
+	}
+	if img.Data != base64.StdEncoding.EncodeToString(data) {
+		t.Fatalf("inline image data does not round-trip the file bytes")
+	}
+}
+
+func TestInlineImageFallbackOversizedBecomesTextNote(t *testing.T) {
+	data := make([]byte, maxInlineAttachmentImageBytes+1)
+	blocks := InlineImageFallback("huge.png", "image/png", data)
+	if len(blocks) != 1 {
+		t.Fatalf("expected single text block, got %d", len(blocks))
+	}
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("oversized image must not be inlined")
+	}
+	got := ai.FlattenText(blocks)
+	if !strings.Contains(got, "huge.png") || !strings.Contains(got, "could not be stored") {
+		t.Fatalf("oversized note = %q, want filename + could-not-store text", got)
+	}
+}
+
+func TestInlineImageFallbackEmptyMimeBecomesTextNote(t *testing.T) {
+	blocks := InlineImageFallback("mystery.bin", "", []byte("tiny"))
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("empty mime must not be inlined")
+	}
+	if got := ai.FlattenText(blocks); !strings.Contains(got, "mystery.bin") {
+		t.Fatalf("note = %q, want filename", got)
+	}
+}
+
+func TestAttachmentSaveFailureContentInlinesImage(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	blocks := AttachmentSaveFailureContent("photo.png", buf.Bytes())
+	if len(blocks) != 1 {
+		t.Fatalf("expected single inline image block, got %d", len(blocks))
+	}
+	if img, ok := blocks[0].(ai.ImageContent); !ok || img.MimeType != "image/png" {
+		t.Fatalf("block = %#v, want inline image/png", blocks[0])
+	}
+}
+
+func TestAttachmentSaveFailureContentOversizedImageBecomesTextNote(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	data := append(buf.Bytes(), make([]byte, maxInlineAttachmentImageBytes)...)
+	blocks := AttachmentSaveFailureContent("huge.png", data)
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("oversized image must not be inlined on save failure")
+	}
+	if got := ai.FlattenText(blocks); !strings.Contains(got, "huge.png") {
+		t.Fatalf("note = %q, want filename", got)
+	}
+}
+
+func TestAttachmentSaveFailureContentNonImageBecomesPlaceholder(t *testing.T) {
+	blocks := AttachmentSaveFailureContent("report.pdf", []byte("%PDF-1.7 not an image"))
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("non-image must not be inlined")
+	}
+	got := ai.FlattenText(blocks)
+	if !strings.Contains(got, "report.pdf") || !strings.Contains(got, "could not be stored") {
+		t.Fatalf("placeholder = %q, want filename + could-not-store text", got)
+	}
+	if strings.Contains(got, "xberg") {
+		t.Fatalf("save-failure placeholder %q must not steer to Xberg (no saved path)", got)
+	}
+}
+
 func TestImageFileName(t *testing.T) {
 	tests := []struct {
 		base, mime, want string

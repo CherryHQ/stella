@@ -142,6 +142,57 @@ func AttachmentReceivedContent(fileName, assetsDir, savedPath string, data []byt
 	}
 }
 
+// InlineImageFallback returns the content blocks for an inbound image that could
+// not be persisted to the user's assets, so the turn still reaches the agent
+// without a saved path. It honors the same inline ceiling as
+// AttachmentReceivedContent: images within maxInlineAttachmentImageBytes are
+// attached inline so the model sees the pixels; larger images cannot be stored
+// or inlined (they would balloon the request past the provider limit), so they
+// degrade to an explicit text note naming the file and its size. Callers pass
+// the mime they already detected; an empty mime is treated as non-inlineable.
+func InlineImageFallback(fileName, mime string, data []byte) []ai.ContentBlock {
+	if mime != "" && len(data) <= maxInlineAttachmentImageBytes {
+		return []ai.ContentBlock{
+			ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime},
+		}
+	}
+	return TextContent(fmt.Sprintf(
+		"[Image: %s — received but could not be stored or attached inline (%s).]",
+		fileName, humanReadableSize(len(data)),
+	))
+}
+
+// AttachmentSaveFailureContent returns the blocks to route to the agent when an
+// inbound attachment downloaded successfully but could not be persisted. It
+// keeps the four channel plugins symmetric on the save-failure path: image
+// bytes degrade via InlineImageFallback (inline within the ceiling, else a text
+// note) and any other file gets an explicit placeholder so the turn is never
+// silently dropped. data is the raw downloaded bytes used for image detection.
+func AttachmentSaveFailureContent(fileName string, data []byte) []ai.ContentBlock {
+	if mime := tools.DetectImageMime(data); mime != "" {
+		return InlineImageFallback(fileName, mime, data)
+	}
+	return TextContent(fmt.Sprintf(
+		"[File: %s — received but could not be stored (%s).]",
+		fileName, humanReadableSize(len(data)),
+	))
+}
+
+// humanReadableSize renders a byte count using binary units (B, KiB, MiB, …)
+// for the attachment fallback notes.
+func humanReadableSize(n int) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for size := int64(n) / unit; size >= unit; size /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
 // FileReceivedContent returns the standard content block telling the agent
 // about a file that has been saved to disk, with an Xberg extraction hint.
 // assetsDir is the host-side assets directory; savedPath is the host-side absolute

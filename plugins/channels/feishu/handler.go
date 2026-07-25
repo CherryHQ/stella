@@ -2,7 +2,6 @@ package feishu
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -255,7 +254,9 @@ func (b *Bot) imageContentBlocks(messageID, imageKey, assetsDir string) ([]ai.Co
 		}
 		logger().Warn("save inbound image failed", "error", saveErr)
 	}
-	return []ai.ContentBlock{ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime}}, true
+	// Persistence unavailable — degrade to inline within the ceiling; images past
+	// the inline limit become an explicit text note instead.
+	return channel.InlineImageFallback(fileName, mime, data), true
 }
 
 // buildMessageContent constructs the message content from a Feishu message.
@@ -331,12 +332,19 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 			fileName = "file"
 		}
 		if fileKey != "" && assetsDir != "" {
-			path, data, err := b.downloadFile(messageID, fileKey, fileName, assetsDir)
+			data, err := b.downloadFile(messageID, fileKey)
 			if err != nil {
 				logger().Error("download file failed", "file_key", fileKey, "error", err)
-			} else {
-				return channel.AttachmentReceivedContent(fileName, assetsDir, path, data)
+				return channel.TextContent(parseFileContent(rawContent))
 			}
+			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
+			if saveErr != nil {
+				// Persistence failed after a successful download — route a fallback
+				// to the agent rather than discarding the bytes.
+				logger().Warn("save inbound file failed", "error", saveErr)
+				return channel.AttachmentSaveFailureContent(fileName, data)
+			}
+			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)
 		}
 		return channel.TextContent(parseFileContent(rawContent))
 

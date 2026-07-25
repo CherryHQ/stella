@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -317,7 +316,8 @@ func (b *Bot) resolveAssetsDir(c tele.Context) string {
 
 // imageContent persists an inbound image message to the user's assets and
 // returns the unified attachment blocks. When persistence is unavailable the
-// image degrades to inline-only so the message still reaches the agent.
+// image degrades via the shared inline fallback (inline within the ceiling, else
+// a text note) so the message still reaches the agent.
 func (b *Bot) imageContent(c tele.Context, uniqueID, mimeType string, data []byte) []ai.ContentBlock {
 	fileName := channel.ImageFileName(uniqueID, mimeType)
 	if assetsDir := b.resolveAssetsDir(c); assetsDir != "" {
@@ -327,12 +327,13 @@ func (b *Bot) imageContent(c tele.Context, uniqueID, mimeType string, data []byt
 		}
 		logger().Warn("save inbound image failed", "error", err)
 	}
-	return []ai.ContentBlock{ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mimeType}}
+	return channel.InlineImageFallback(fileName, mimeType, data)
 }
 
-// handleDocument processes incoming document (file) messages.
-// It resolves the per-user assets directory, downloads the file, saves it to
-// disk, and passes an Xberg extraction hint to the agent.
+// handleDocument processes incoming document (file) messages. It downloads the
+// file, persists it to the user's assets, and passes an Xberg extraction hint to
+// the agent. A persistence failure never drops the turn: image documents degrade
+// via the shared inline fallback and other files get an explicit placeholder.
 func (b *Bot) handleDocument(c tele.Context) error {
 	doc := c.Message().Document
 	if doc == nil {
@@ -344,38 +345,12 @@ func (b *Bot) handleDocument(c tele.Context) error {
 		fileName = doc.FileID
 	}
 
-	// Resolve the per-user assets directory before downloading.
-	assetsDir := b.resolveAssetsDir(c)
-	if assetsDir == "" {
-		return c.Send("Unable to resolve storage directory for this file.")
+	attachment, ok := b.documentAttachment(c, doc, fileName)
+	if !ok {
+		// Download failed and there is nothing to give the agent; the error was
+		// already replied to the chat.
+		return nil
 	}
-
-	// Download the file from Telegram.
-	_ = c.Notify(tele.UploadingDocument)
-	file, err := b.bot.File(&doc.File)
-	if err != nil {
-		logger().Error("download document failed", "error", err)
-		return c.Send(fmt.Sprintf("Failed to download file: %v", err))
-	}
-	defer func() { _ = file.Close() }()
-
-	const maxFileSize = 50 << 20 // 50 MB
-	data, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
-	if err != nil {
-		logger().Error("read document failed", "error", err)
-		return c.Send(fmt.Sprintf("Failed to read file: %v", err))
-	}
-	if len(data) > maxFileSize {
-		return c.Send("File too large (max 50 MB).")
-	}
-
-	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
-	if err != nil {
-		logger().Error("save document failed", "error", err)
-		return c.Send(fmt.Sprintf("Failed to save file: %v", err))
-	}
-
-	logger().Debug("document received", "file_name", fileName, "size", len(data), "path", savedPath)
 
 	var content []ai.ContentBlock
 	if caption := c.Message().Caption; caption != "" {
@@ -384,7 +359,7 @@ func (b *Bot) handleDocument(c tele.Context) error {
 		}
 		content = append(content, ai.TextContent{Text: caption})
 	}
-	content = append(content, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
+	content = append(content, attachment...)
 
 	msg := b.incomingMsg(c, content)
 	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")
@@ -396,6 +371,52 @@ func (b *Bot) handleDocument(c tele.Context) error {
 		return nil
 	}
 	return b.handleStream(c, stream)
+}
+
+// documentAttachment downloads a Telegram document and returns the content
+// blocks to route to the agent. It persists the file to the user's assets when a
+// storage directory is available; on save failure the turn is never dropped
+// (image bytes degrade via the shared inline fallback, other files get a
+// placeholder). The bool is false only when the download itself failed and the
+// error was already replied to the chat, so nothing can be given to the agent.
+func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName string) ([]ai.ContentBlock, bool) {
+	// Resolve the per-user assets directory before downloading.
+	assetsDir := b.resolveAssetsDir(c)
+	if assetsDir == "" {
+		_ = c.Send("Unable to resolve storage directory for this file.")
+		return nil, false
+	}
+
+	// Download the file from Telegram.
+	_ = c.Notify(tele.UploadingDocument)
+	file, err := b.bot.File(&doc.File)
+	if err != nil {
+		logger().Error("download document failed", "error", err)
+		_ = c.Send(fmt.Sprintf("Failed to download file: %v", err))
+		return nil, false
+	}
+	defer func() { _ = file.Close() }()
+
+	const maxFileSize = 50 << 20 // 50 MB
+	data, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
+	if err != nil {
+		logger().Error("read document failed", "error", err)
+		_ = c.Send(fmt.Sprintf("Failed to read file: %v", err))
+		return nil, false
+	}
+	if len(data) > maxFileSize {
+		_ = c.Send("File too large (max 50 MB).")
+		return nil, false
+	}
+
+	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
+	if err != nil {
+		logger().Warn("save document failed", "error", err)
+		return channel.AttachmentSaveFailureContent(fileName, data), true
+	}
+
+	logger().Debug("document received", "file_name", fileName, "size", len(data), "path", savedPath)
+	return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data), true
 }
 
 // handleStream renders a ChatStream to the Telegram chat.
