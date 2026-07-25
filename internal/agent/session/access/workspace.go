@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 var (
@@ -110,7 +111,14 @@ type WorkspaceUploadInput struct {
 }
 
 type WorkspaceUploadResult struct {
+	// Path is the sandbox-view path the agent reads (e.g. /user/assets/... on
+	// isolating backends, the absolute host path otherwise).
 	Path string `json:"path"`
+	// RelativePath is the upload location relative to its workspace root.
+	// Combine with Scope to build a workspace file-content read URL.
+	RelativePath string `json:"relative_path"`
+	// Scope is the workspace root the file was written to.
+	Scope WorkspaceScope `json:"scope"`
 }
 
 func (a *Access) ListWorkspace(ctx context.Context, in WorkspaceListInput) (WorkspaceInfo, error) {
@@ -198,11 +206,24 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 	if in.Path == "" {
 		return WorkspaceReadResult{}, ErrInvalid
 	}
-	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionRead)
+	scope, path := in.Scope, in.Path
+	// An absolute path is self-describing (e.g. a host path embedded in a chat
+	// message by a non-isolating backend, or a sandbox-view mount path). Resolve
+	// which authorized workspace root contains it and read under that root's
+	// scope, ignoring the requested scope. This never widens authority: the file
+	// must already be reachable via one of the two roots the caller may read.
+	if filepath.IsAbs(filepath.FromSlash(path)) {
+		resolvedScope, rel, err := a.canonicalizeAbsPath(ctx, in.AgentID, in.SessionID, path)
+		if err != nil {
+			return WorkspaceReadResult{}, err
+		}
+		scope, path = resolvedScope, rel
+	}
+	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionRead)
 	if err != nil {
 		return WorkspaceReadResult{}, err
 	}
-	rootFS, name, err := sharepkg.OpenSafeRoot(root, in.Path)
+	rootFS, name, err := sharepkg.OpenSafeRoot(root, path)
 	if err != nil {
 		return WorkspaceReadResult{}, ErrInvalid
 	}
@@ -225,12 +246,12 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		return WorkspaceReadResult{}, err
 	}
 	if in.Raw {
-		mediaType := mime.TypeByExtension(filepath.Ext(in.Path))
+		mediaType := mime.TypeByExtension(filepath.Ext(path))
 		if mediaType == "" {
 			mediaType = "application/octet-stream"
 		}
 		return WorkspaceReadResult{
-			Path: in.Path, Raw: true, RawName: filepath.Base(in.Path),
+			Path: path, Raw: true, RawName: filepath.Base(path),
 			RawMediaType: mediaType, RawContent: data,
 		}, nil
 	}
@@ -241,7 +262,116 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 	if slices.Contains(probe, 0) {
 		return WorkspaceReadResult{}, ErrBinary
 	}
-	return WorkspaceReadResult{Path: in.Path, Content: string(data), Language: DetectLanguage(in.Path)}, nil
+	return WorkspaceReadResult{Path: path, Content: string(data), Language: DetectLanguage(path)}, nil
+}
+
+// canonicalizeAbsPath maps an absolute request path to the (scope, relative
+// path) pair under whichever authorized workspace root the endpoint may read.
+// Both roots are resolved through the same ActionRead authorization the endpoint
+// applies for an explicit scope, so an absolute path can only ever resolve to
+// content already reachable via (scope, relative path) — no new roots, no
+// widening.
+//
+// Resolution order is deliberate:
+//  1. Host-root containment. A path that physically lives inside a workspace
+//     root is served from that root. This wins so a genuine host path that
+//     happens to sit under a /workspace-like STELLA_HOME is served from the root
+//     that actually contains it, never mistaken for a sandbox mount view.
+//  2. Sandbox mount mapping. A path under neither host root may still be a
+//     sandbox-view mount path (/user, /workspace) that an isolating backend
+//     embedded in a chat message. It maps to the owning scope; the mapped
+//     relative path flows through the same ActionRead authz and OpenSafeRoot
+//     containment as any relative request, so a ".."-escaping mount path is
+//     rejected and mount mapping can only reach content (scope, rel) already
+//     could.
+//
+// A path matched by neither step is ErrNotFound, identical to a missing relative
+// file. The two host roots are disjoint siblings (users/<id>/data vs
+// users/<id>/agents/<id>), so the containment check order is immaterial.
+func (a *Access) canonicalizeAbsPath(ctx context.Context, agentID, sessionID, absPath string) (WorkspaceScope, string, error) {
+	for _, scope := range []WorkspaceScope{WorkspaceScopeUser, WorkspaceScopeAgent} {
+		root, err := a.workspaceRoot(ctx, agentID, sessionID, scope, authz.ActionRead)
+		if err != nil {
+			return "", "", err
+		}
+		if rel, ok := containedRel(root, absPath); ok {
+			return scope, rel, nil
+		}
+	}
+	if scope, rel, ok := mountScopeRel(absPath); ok {
+		return scope, rel, nil
+	}
+	return "", "", ErrNotFound
+}
+
+// mountScopeRel maps a sandbox mount-view absolute path to the workspace scope
+// that mount belongs to and the path relative to the mount. It matches only on a
+// full path-segment boundary — exactly the mount, or the mount followed by "/" —
+// so /userdata never matches the /user mount. The remainder is returned
+// uncleaned; the caller runs it through OpenSafeRoot, which rejects any
+// non-local (".."-escaping) result. That boundary means /workspace/../user/...
+// maps to the agent scope with a "../user/..." remainder and is rejected, never
+// crossing into the user root.
+func mountScopeRel(absPath string) (WorkspaceScope, string, bool) {
+	p := filepath.ToSlash(absPath)
+	for _, m := range []struct {
+		mount string
+		scope WorkspaceScope
+	}{
+		{pkgsandbox.MountUserData, WorkspaceScopeUser},
+		{pkgsandbox.MountWorkspace, WorkspaceScopeAgent},
+	} {
+		if p == m.mount {
+			return m.scope, ".", true
+		}
+		if rel, ok := strings.CutPrefix(p, m.mount+"/"); ok {
+			return m.scope, rel, true
+		}
+	}
+	return "", "", false
+}
+
+// containedRel reports whether absPath resolves to a location strictly inside
+// root and, if so, returns the cleaned root-relative path. It resolves symlinks
+// on both sides — matching macOS realities like /var → /private/var — the same
+// way agent.ValidateProjectDir does, then requires the relative result to be
+// local (filepath.IsLocal rejects any ".." escape). A path equal to or outside
+// root yields ok=false, so authority is never widened.
+func containedRel(root, absPath string) (string, bool) {
+	cleanRoot := resolveExistingSymlinks(filepath.Clean(root))
+	cleanPath := resolveExistingSymlinks(filepath.Clean(filepath.FromSlash(absPath)))
+	rel, err := filepath.Rel(cleanRoot, cleanPath)
+	if err != nil {
+		return "", false
+	}
+	if rel == "." || !filepath.IsLocal(rel) {
+		return "", false
+	}
+	return rel, true
+}
+
+// resolveExistingSymlinks returns path with symlinks resolved, falling back to
+// the longest existing ancestor so a symlinked parent cannot mask an escape
+// even when the leaf does not exist yet. Mirrors agent.ValidateProjectDir.
+func resolveExistingSymlinks(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	dir := path
+	for dir != string(filepath.Separator) && dir != "." {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Fixed point (e.g. a Windows drive root that itself fails to
+			// resolve); the request path is attacker-controlled, so never spin.
+			break
+		}
+		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+			tail, _ := filepath.Rel(parent, path)
+			return filepath.Join(resolved, tail)
+		}
+		dir = parent
+	}
+	return path
 }
 
 func (a *Access) WriteWorkspacePath(ctx context.Context, in WorkspaceWriteInput) (WorkspaceReadResult, error) {
@@ -286,8 +416,13 @@ func (a *Access) UploadWorkspacePath(ctx context.Context, in WorkspaceUploadInpu
 		return WorkspaceUploadResult{}, err
 	}
 	rel, _ := filepath.Rel(root, abs)
+	relSlash := filepath.ToSlash(rel)
 	sandboxRoot := sandbox.UserDataViewFor(a.svc.sandboxBackend(ctx), root)
-	return WorkspaceUploadResult{Path: filepath.ToSlash(filepath.Join(sandboxRoot, rel))}, nil
+	return WorkspaceUploadResult{
+		Path:         filepath.ToSlash(filepath.Join(sandboxRoot, rel)),
+		RelativePath: relSlash,
+		Scope:        WorkspaceScopeUser,
+	}, nil
 }
 
 func (a *Access) workspaceRoot(ctx context.Context, agentID, sessionID string, scope WorkspaceScope, action authz.Action) (string, error) {
