@@ -50,6 +50,20 @@ func TestContentBlocksToText(t *testing.T) {
 			ai.TextContent{Text: ""},
 			ai.TextContent{Text: "world"},
 		}, "hello\nworld"},
+		// Image-only messages must project to a non-empty placeholder so the
+		// semantic arbiter does not treat them as "nothing to route" (Major 1).
+		{"image only", []ai.ContentBlock{
+			ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
+		}, imageContentPlaceholder},
+		{"multiple images only", []ai.ContentBlock{
+			ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
+			ai.ImageContent{Data: "Ynll", MimeType: "image/jpeg"},
+		}, imageContentPlaceholder},
+		// Real text wins over the placeholder when both are present.
+		{"text and image", []ai.ContentBlock{
+			ai.TextContent{Text: "look"},
+			ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
+		}, "look"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -117,6 +131,42 @@ func TestGroupMessageContentRehydration(t *testing.T) {
 	blocks = groupMessageContentBlocks(corrupt)
 	if len(blocks) != 1 || ai.HasImage(blocks) {
 		t.Fatalf("corrupt blocks = %#v, want text fallback", blocks)
+	}
+}
+
+// TestImageOnlyMessageProjectionAndRehydration pins the Major 1 contract: an
+// image-only group message stores a non-empty "[image]" text projection (so the
+// semantic arbiter routes it instead of dropping it), yet dispatch rehydrates
+// the real image blocks — the placeholder must never leak into them.
+func TestImageOnlyMessageProjectionAndRehydration(t *testing.T) {
+	blocks := []ai.ContentBlock{ai.ImageContent{Data: "aGk=", MimeType: "image/png"}}
+
+	// Ingest-side projection: what the arbiter and history assembly see.
+	content := contentBlocksToText(blocks)
+	if content != imageContentPlaceholder {
+		t.Fatalf("image-only projection = %q, want %q", content, imageContentPlaceholder)
+	}
+	if content == "" {
+		t.Fatal("arbiter-visible projection must be non-empty for image-only messages")
+	}
+
+	// Persisted row: placeholder in content, real blocks in content_blocks.
+	stored := marshalGroupContentBlocks(blocks)
+	if stored == nil {
+		t.Fatal("image-bearing blocks must serialize to content_blocks")
+	}
+	msg := sqlc.CtxGroupMessage{Content: content, ContentBlocks: stored}
+
+	// Dispatch-side rehydration must prefer content_blocks and return the real
+	// image, with no "[image]" placeholder text block leaking through.
+	got := groupMessageContentBlocks(msg)
+	if len(got) != 1 || !ai.HasImage(got) {
+		t.Fatalf("rehydrated blocks = %#v, want a single image block", got)
+	}
+	for _, b := range got {
+		if tc, ok := b.(ai.TextContent); ok && tc.Text == imageContentPlaceholder {
+			t.Fatalf("placeholder %q leaked into rehydrated blocks", imageContentPlaceholder)
+		}
 	}
 }
 
