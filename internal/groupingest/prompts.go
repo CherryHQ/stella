@@ -42,7 +42,8 @@ Reject:
 - temporary promises, deadlines, schedules, availability, or meeting details;
 - personal preferences, biography, social trivia, jokes, speculation, secrets,
   or sensitive information;
-- details that an 80k per-Agent LCM should naturally carry;
+- details that are useful only within the current or recent conversation and
+  do not need to remain available after that context is compacted;
 - compound facts or anything likely to expire without explicit replacement.
 
 Return at most %d candidates, keeping only the highest-value Top-K. If no
@@ -78,8 +79,9 @@ Rubric:
   0=ephemeral; 1=task/status/deadline; 2=uncertain duration; 3=likely stable
   across future group activity; 4=explicitly enduring until replaced.
 - future_utility:
-  0=trivia; 1=LCM-only detail; 2=occasionally useful; 3=repeatedly useful for
-  future coordination; 4=materially changes recurring decisions or routing.
+  0=trivia; 1=useful only within the current or recent conversation;
+  2=occasionally useful; 3=repeatedly useful for future coordination;
+  4=materially changes recurring decisions or routing.
 - atomicity:
   0=unusable bundle; 1=multiple unrelated claims; 2=partly separable;
   3=one clear fact; 4=minimal, precise, and independently replaceable.
