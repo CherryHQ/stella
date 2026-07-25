@@ -277,6 +277,9 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 		ClientID:        cfg.ClientID,
 		ClientSecretEnc: secretEnc,
 		RedirectUrl:     cfg.RedirectURL,
+		// Non-nil so pgx encodes '{}' (no override), not NULL. Phase 2 threads
+		// the real scope override through here.
+		Scopes: []string{},
 	})
 }
 

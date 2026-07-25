@@ -668,6 +668,7 @@ type PluginOauthProvider struct {
 	RedirectUrl     string    `json:"redirect_url"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	Scopes          []string  `json:"scopes"`
 }
 
 type PluginOverride struct {
