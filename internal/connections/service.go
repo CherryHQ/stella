@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -151,6 +152,9 @@ func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, fl
 		endpoint.AuthStyle = oauth2.AuthStyleInParams
 	}
 
+	// DB override wins over the YAML default, independent of the credential gate.
+	scopes := s.providerScopes(ctx, providerID)
+
 	switch flow.Type {
 	case "authorization_code":
 		endpoint.AuthURL = flow.AuthURL
@@ -158,7 +162,7 @@ func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, fl
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			RedirectURL:  redirectURI,
-			Scopes:       providerCfg.Scopes,
+			Scopes:       scopes,
 			Endpoint:     endpoint,
 		}
 		return oauth.NewAuthCodeBroker(cfg, s.flowStore, flow.PKCE), nil
@@ -168,7 +172,7 @@ func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, fl
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			RedirectURL:  redirectURI,
-			Scopes:       providerCfg.Scopes,
+			Scopes:       scopes,
 			Endpoint:     endpoint,
 		}
 		return oauth.NewDeviceCodeBroker(cfg, s.flowStore, s.persistDeviceToken), nil
@@ -218,6 +222,24 @@ func (s *Service) providerCredentialsWithOrigin(_ context.Context, providerID st
 	return "", "", "", fmt.Errorf("oauth credentials not configured for provider %q — set client_id and client_secret on the Credentials page", providerID)
 }
 
+// providerScopes returns the effective OAuth scopes for providerID: the DB
+// override when a row exists with a non-empty scopes array, otherwise the YAML
+// seed default (D2). Resolution is independent of the client_id credential gate,
+// so an admin can override scopes without also overriding credentials.
+func (s *Service) providerScopes(ctx context.Context, providerID string) []string {
+	if s.q != nil {
+		if cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID); err == nil && len(cfg.Scopes) > 0 {
+			return cfg.Scopes
+		}
+	}
+	if s.registry != nil {
+		if providerCfg, ok := s.registry.Get(providerID); ok {
+			return providerCfg.Scopes
+		}
+	}
+	return nil
+}
+
 // GetOAuthProviderConfig returns the effective config for a provider:
 // DB override merged over the YAML default. ClientSecret is masked.
 func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string) (OAuthProviderConfig, error) {
@@ -230,18 +252,23 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 			if providerCfg.ClientSecret != "" {
 				out.ClientSecret = "***"
 			}
+			out.DefaultScopes = providerCfg.Scopes
 		}
 	}
 
-	// DB override (takes precedence).
+	// DB override (takes precedence). ClientID gate applies to credentials only;
+	// the scopes override is surfaced independently (D2).
 	if s.q != nil {
 		cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID)
-		if err == nil && cfg.ClientID != "" {
-			out.ClientID = cfg.ClientID
-			out.RedirectURL = cfg.RedirectUrl
-			if cfg.ClientSecretEnc != "" {
-				out.ClientSecret = "***"
+		if err == nil {
+			if cfg.ClientID != "" {
+				out.ClientID = cfg.ClientID
+				out.RedirectURL = cfg.RedirectUrl
+				if cfg.ClientSecretEnc != "" {
+					out.ClientSecret = "***"
+				}
 			}
+			out.Scopes = cfg.Scopes
 		}
 	}
 
@@ -254,8 +281,16 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 	if s.q == nil {
 		return fmt.Errorf("database not configured")
 	}
+
+	// Existing row drives both secret preservation and credential-change
+	// detection. A read error (no row yet) leaves existing zero-valued.
+	existing, existingErr := s.q.GetAuthOAuthProvider(ctx, cfg.ProviderID)
+	hadRow := existingErr == nil
+
 	secretEnc := ""
-	if cfg.ClientSecret != "" {
+	// A new secret was submitted → encrypt and treat as a credential rotation.
+	secretSubmitted := cfg.ClientSecret != ""
+	if secretSubmitted {
 		if s.vaultSvc == nil {
 			return fmt.Errorf("vault not configured: cannot encrypt client_secret")
 		}
@@ -264,23 +299,42 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 		if err != nil {
 			return fmt.Errorf("encrypt client_secret: %w", err)
 		}
-	} else {
+	} else if hadRow {
 		// Preserve existing encrypted secret when no new value is provided.
-		existing, err := s.q.GetAuthOAuthProvider(ctx, cfg.ProviderID)
-		if err == nil {
-			secretEnc = existing.ClientSecretEnc
-		}
+		secretEnc = existing.ClientSecretEnc
 	}
-	return s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
+
+	// Normalize at the write boundary: trim, drop empties, dedupe (D2). Non-nil
+	// so pgx encodes '{}' (no override) rather than NULL.
+	scopes := normalizeScopes(cfg.Scopes)
+	if scopes == nil {
+		scopes = []string{}
+	}
+
+	if err := s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
 		ID:              uuid.Must(uuid.NewV7()).String(),
 		ProviderID:      cfg.ProviderID,
 		ClientID:        cfg.ClientID,
 		ClientSecretEnc: secretEnc,
 		RedirectUrl:     cfg.RedirectURL,
-		// Non-nil so pgx encodes '{}' (no override), not NULL. Phase 2 threads
-		// the real scope override through here.
-		Scopes: []string{},
-	})
+		Scopes:          scopes,
+	}); err != nil {
+		return err
+	}
+
+	// Credential rotation must not keep serving sessions built on old
+	// credentials (D4). A scope-only change (same client_id, no new secret)
+	// leaves existing tokens valid and does not invalidate.
+	// global lock: InvalidateAll on provider credential change; scope to affected
+	// users if it ever disrupts unrelated sessions.
+	credentialChanged := secretSubmitted || (hadRow && existing.ClientID != cfg.ClientID)
+	if credentialChanged {
+		if err := s.InvalidateAll(); err != nil {
+			s.log.Warn("invalidate runners after provider credential change",
+				"provider", cfg.ProviderID, "error", err)
+		}
+	}
+	return nil
 }
 
 // DeleteOAuthProviderConfig removes the DB override for a provider, reverting to YAML defaults.
@@ -304,11 +358,12 @@ func (s *Service) saveToken(ctx context.Context, providerID string, userID strin
 	if ri, ok := tok.Extra("refresh_token_expires_in").(float64); ok && ri > 0 {
 		refreshExpiresAt = time.Now().Add(time.Duration(ri) * time.Second)
 	}
-	return s.saveBundle(ctx, providerID, userID, tok.AccessToken, tok.RefreshToken, tok.Expiry, refreshExpiresAt)
+	grantedScope, _ := tok.Extra("scope").(string)
+	return s.saveBundle(ctx, providerID, userID, tok.AccessToken, tok.RefreshToken, tok.Expiry, refreshExpiresAt, grantedScope)
 }
 
 // saveBundle is the shared implementation for persisting an OAuth token bundle.
-func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToken, refreshToken string, accessExpiresAt, refreshExpiresAt time.Time) error {
+func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToken, refreshToken string, accessExpiresAt, refreshExpiresAt time.Time, grantedScope string) error {
 	if s.vaultSvc == nil {
 		return fmt.Errorf("vault not configured")
 	}
@@ -331,6 +386,7 @@ func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToke
 		RefreshToken:     refreshToken,
 		AccessExpiresAt:  accessExpiresAt,
 		RefreshExpiresAt: refreshExpiresAt,
+		GrantedScope:     grantedScope,
 	}
 	switch providerID {
 	case "lark":
@@ -478,11 +534,26 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 	}
 	if bundle != nil {
 		ps.Connected = true
-		if bundle.ClientID != "" {
-			ps.Username = bundle.ClientID
+		ps.AccessExpiresAt = bundle.AccessExpiresAt
+		ps.RefreshExpiresAt = bundle.RefreshExpiresAt
+
+		requested := s.providerScopes(ctx, provider)
+		ps.RequestedScopes = requested
+
+		// Empty GrantedScope means unknown (pre-capture bundle), not "no scopes".
+		grantedKnown := bundle.GrantedScope != ""
+		var granted []string
+		if grantedKnown {
+			granted = strings.Fields(bundle.GrantedScope)
+			ps.GrantedScopes = granted
 		}
-		if bundle.Brand != "" {
-			ps.Username = bundle.Brand + ":" + bundle.ClientID
+
+		// Compare the connected bundle's client_id against the effective one to
+		// detect credential rotation (D4). A credentials read error here just
+		// leaves needs_reconnect unset — the connection still shows as connected.
+		if effectiveClientID, _, _, cerr := s.providerCredentials(ctx, provider); cerr == nil {
+			ps.NeedsReconnect, ps.ReconnectReason = reconnectDecision(
+				bundle.ClientID, effectiveClientID, requested, granted, grantedKnown)
 		}
 	}
 	return ps
@@ -673,5 +744,6 @@ func toFlowStatus(fs oauth.FlowStatus) FlowStatus {
 		UserCode:        fs.UserCode,
 		ExpiresAt:       fs.ExpiresAt,
 		State:           string(fs.State),
+		Error:           fs.Error,
 	}
 }
