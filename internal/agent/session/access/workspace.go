@@ -314,6 +314,11 @@ func resolveExistingSymlinks(path string) string {
 	dir := path
 	for dir != string(filepath.Separator) && dir != "." {
 		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Fixed point (e.g. a Windows drive root that itself fails to
+			// resolve); the request path is attacker-controlled, so never spin.
+			break
+		}
 		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
 			tail, _ := filepath.Rel(parent, path)
 			return filepath.Join(resolved, tail)
