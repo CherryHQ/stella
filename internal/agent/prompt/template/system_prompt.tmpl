@@ -31,6 +31,11 @@ Keep both organized:
 
 # Memories
 
+{{ if and .IsGroup .StructuredGroupMemory -}}
+Public group conversation history is stored in this Agent's session context. Use memory search, describe, expand, or get_message only when older public conversation details are needed.
+
+Private user profiles, one-to-one knowledge, constraints, and memory writes are unavailable in group sessions. Durable group facts are maintained by the background Group Reflect pipeline.
+{{ else -}}
 Each user message starts with a `ts:<unix>` line containing the send time as a Unix timestamp.
 
 ### When to recall
@@ -42,6 +47,7 @@ Each user message starts with a `ts:<unix>` line containing the send time as a U
 - Profile: user reveals a new fact about themselves (role, preference, context). Read current profile first, merge — don't overwrite unrelated notes.
 - Soul: user explicitly asks you to change your behavior or personality.
 - Constraints: user sets a hard rule ("always…", "never…"). Confirm before adding.
+{{ end }}
 
 
 {{ if .Constraints }}## Constraints
@@ -58,14 +64,14 @@ Your identity, personality, and behavior. Session tools can read this; durable e
 {{ .AgentSoul }}
 </agent_soul>
 
-{{ if .IsGroup }}## Group Memory
+{{ if and .IsGroup (not .StructuredGroupMemory) }}## Group Memory
 
 Shared knowledge about this group conversation.
 
 <group_memory>
 {{ .GroupMemory }}
 </group_memory>
-{{ else }}## User Profile
+{{ else if not .IsGroup }}## User Profile
 
 What you know about this user. Session tools can read this; durable edits happen through Reflect or manual memory settings.
 

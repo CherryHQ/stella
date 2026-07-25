@@ -685,7 +685,12 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	creds := make(map[string]config.ProviderCreds, len(provIDs))
 	for _, pid := range provIDs {
 		if p, ok := byID[pid]; ok {
-			creds[pid] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL}
+			creds[pid] = config.ProviderCreds{
+				Type:    p.Type,
+				APIKey:  p.APIKey,
+				BaseURL: p.BaseURL,
+				Models:  normalizeProviderModels(p.Models),
+			}
 		}
 	}
 

@@ -74,6 +74,38 @@ WHERE group_id = sqlc.arg(group_id)
 ORDER BY seq DESC
 LIMIT sqlc.arg(max_count);
 
+-- name: ListGroupMessagesForLCM :many
+WITH eligible AS (
+  SELECT
+    gm.id,
+    gm.seq,
+    CAST(GREATEST((octet_length(gm.content) + 3) / 4, 1) AS BIGINT) AS estimated_tokens
+  FROM ctx_group_message gm
+  WHERE gm.group_id = sqlc.arg(group_id)
+    AND gm.seq > sqlc.arg(after_seq)
+    AND gm.seq < sqlc.arg(before_seq)
+    AND gm.content <> ''
+    AND NOT (gm.actor_type = 'agent' AND gm.actor_id = sqlc.arg(self_agent_id))
+    -- A single oversized public message is not useful as bootstrap context.
+    AND GREATEST((octet_length(gm.content) + 3) / 4, 1) <= sqlc.arg(token_budget)::bigint
+),
+bounded AS (
+  SELECT
+    id,
+    seq,
+    SUM(estimated_tokens) OVER (ORDER BY seq DESC) AS running_tokens
+  FROM eligible
+),
+selected AS (
+  SELECT id
+  FROM bounded
+  WHERE running_tokens <= sqlc.arg(token_budget)::bigint
+)
+SELECT gm.*
+FROM ctx_group_message gm
+WHERE gm.id IN (SELECT id FROM selected)
+ORDER BY gm.seq ASC;
+
 -- name: ListGroupMessagesPaginated :many
 SELECT * FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
@@ -83,7 +115,19 @@ LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 -- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id
+  actor_display_name, platform_message_id, reply_to, platform_timestamp,
+  idempotency_key, content, reasoning, agent_session_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 RETURNING *;
+
+-- name: ListLatestGroupActorDisplayNames :many
+SELECT DISTINCT ON (actor_type, actor_id)
+  actor_type,
+  actor_id,
+  actor_display_name
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND actor_display_name IS NOT NULL
+  AND btrim(actor_display_name) <> ''
+ORDER BY actor_type, actor_id, seq DESC;

@@ -56,6 +56,16 @@ type reviewHistoryProvider struct {
 	messages []memory.ReviewMessage
 }
 
+type groupCursorProvider struct {
+	memory.Provider
+	committed int64
+}
+
+func (p *groupCursorProvider) CommitGroupCursor(_ context.Context, _ memory.Session, triggerSeq int64) error {
+	p.committed = triggerSeq
+	return nil
+}
+
 func (p *reviewHistoryProvider) LoadReviewHistory(context.Context, string) ([]memory.ReviewMessage, error) {
 	return append([]memory.ReviewMessage(nil), p.messages...), nil
 }
@@ -87,6 +97,21 @@ func TestTracedProvider_Unwrap(t *testing.T) {
 	}
 }
 
+func TestTracedProvider_ForwardsGroupCursorCommit(t *testing.T) {
+	inner := &groupCursorProvider{Provider: memorytest.New()}
+	traced := memory.WithTracing(inner, nil)
+	committer, ok := traced.(memory.GroupCursorCommitter)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupCursorCommitter")
+	}
+	if err := committer.CommitGroupCursor(context.Background(), testSession, 42); err != nil {
+		t.Fatalf("commit group cursor: %v", err)
+	}
+	if inner.committed != 42 {
+		t.Fatalf("inner committed seq = %d, want 42", inner.committed)
+	}
+}
+
 func TestUnwrap_NonWrapped(t *testing.T) {
 	fake := memorytest.New()
 	got := memory.Unwrap(fake)
@@ -108,6 +133,32 @@ func TestTracedProvider_Bootstrap(t *testing.T) {
 	}
 	if col.events[0].Op != hooks.MemoryOpBootstrap {
 		t.Errorf("expected Bootstrap op, got %q", col.events[0].Op)
+	}
+}
+
+func TestTracedProvider_GroupSessionHookDoesNotExposeStorageOwnerAsUser(t *testing.T) {
+	fake := memorytest.New()
+	traced, col := newTracedWithCollector(fake)
+	groupID := "11111111-1111-4111-8111-111111111111"
+	groupSession := memory.Session{
+		ID:      "group-session-1",
+		AgentID: "agent-1",
+		UserID:  groupID,
+		GroupID: groupID,
+	}
+
+	if err := traced.Bootstrap(context.Background(), groupSession); err != nil {
+		t.Fatal(err)
+	}
+	if len(col.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(col.events))
+	}
+	got := col.events[0]
+	if got.UserID != "" {
+		t.Fatalf("group hook UserID = %q, want empty", got.UserID)
+	}
+	if got.SessionID != groupSession.ID || got.AgentID != groupSession.AgentID {
+		t.Fatalf("group hook metadata = %+v, want session=%q agent=%q", got.HookMeta, groupSession.ID, groupSession.AgentID)
 	}
 }
 
@@ -425,6 +476,32 @@ func TestTracedProvider_SaveInfo(t *testing.T) {
 	}
 	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpSaveInfo {
 		t.Errorf("expected SaveInfo event, got %v", col.events)
+	}
+}
+
+func TestTracedProvider_SaveGroupInfoHookDoesNotExposeStorageOwnerAsUser(t *testing.T) {
+	fake := memorytest.New()
+	traced, col := newTracedWithCollector(fake)
+	groupID := "11111111-1111-4111-8111-111111111111"
+	info := memory.SessionInfo{
+		ID:      "group-session-1",
+		AgentID: "agent-1",
+		UserID:  groupID,
+		GroupID: groupID,
+	}
+
+	if err := traced.(memory.SessionManager).SaveInfo(context.Background(), info); err != nil {
+		t.Fatal(err)
+	}
+	if len(col.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(col.events))
+	}
+	got := col.events[0]
+	if got.UserID != "" {
+		t.Fatalf("group SaveInfo hook UserID = %q, want empty", got.UserID)
+	}
+	if got.SessionID != info.ID || got.AgentID != info.AgentID {
+		t.Fatalf("group SaveInfo hook metadata = %+v, want session=%q agent=%q", got.HookMeta, info.ID, info.AgentID)
 	}
 }
 

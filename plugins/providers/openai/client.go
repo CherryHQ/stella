@@ -82,6 +82,9 @@ type sseCommentStripper struct {
 }
 
 func (s *sseCommentStripper) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
 	if s.done {
 		if len(s.buf) > 0 {
 			n := copy(p, s.buf)
@@ -93,6 +96,7 @@ func (s *sseCommentStripper) Read(p []byte) (int, error) {
 
 	for !s.done {
 		// Drain comment lines and blank separator lines from the front of buf.
+	drain:
 		for len(s.buf) > 0 {
 			b := s.buf[0]
 			switch b {
@@ -100,13 +104,15 @@ func (s *sseCommentStripper) Read(p []byte) (int, error) {
 				// Skip entire comment line.
 				idx := bytes.IndexByte(s.buf, '\n')
 				if idx < 0 {
-					break // Need more data to find end of comment line.
+					// The comment arrived across multiple network reads.
+					break drain
 				}
 				s.buf = s.buf[idx+1:]
 			case '\n', '\r':
 				s.buf = s.buf[1:]
 			default:
 				s.done = true
+				break drain
 			}
 		}
 		if s.done {
@@ -117,7 +123,18 @@ func (s *sseCommentStripper) Read(p []byte) (int, error) {
 		n, err := s.rc.Read(tmp)
 		s.buf = append(s.buf, tmp[:n]...)
 		if err != nil {
+			if n > 0 {
+				// Process the returned bytes before observing the terminal error.
+				continue
+			}
+			// A stream ending inside a leading comment has no SSE payload.
+			if len(s.buf) > 0 && s.buf[0] == ':' {
+				s.buf = nil
+			}
 			s.done = true
+			if len(s.buf) == 0 {
+				return 0, err
+			}
 			break
 		}
 	}

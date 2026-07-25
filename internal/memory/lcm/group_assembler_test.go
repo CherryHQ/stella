@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,6 +39,34 @@ func groupCtx(triggerSeq int64) context.Context {
 	return ctx
 }
 
+func assembleGroupForTest(
+	t *testing.T,
+	p *Provider,
+	ctx context.Context,
+	session memory.Session,
+	budget int,
+	freshTail int,
+) []ai.Message {
+	t.Helper()
+	if err := p.SyncGroupEventsBefore(ctx, session, memory.GroupSeqFromContext(ctx)); err != nil {
+		t.Fatalf("sync group events: %v", err)
+	}
+	msgs, err := p.Assemble(ctx, session, budget, freshTail)
+	if err != nil {
+		t.Fatalf("assemble group: %v", err)
+	}
+	return msgs
+}
+
+func mustGroupCursor(t *testing.T, p *Provider, groupID, pipeline string) int64 {
+	t.Helper()
+	cursor, err := p.getGroupCursor(context.Background(), groupID, pipeline)
+	if err != nil {
+		t.Fatalf("get group cursor: %v", err)
+	}
+	return cursor
+}
+
 func TestGroupAssemble_HybridFlow(t *testing.T) {
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)
@@ -73,10 +100,7 @@ func TestGroupAssemble_HybridFlow(t *testing.T) {
 	// Turn 1: triggered by user2's message (seq=2).
 	// Between-turn injection: seq > 0 (watermark) AND seq < 2 → seq=1 (user1's "hello").
 	assembleCtx := groupCtx(res2.Seq)
-	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
+	msgs := assembleGroupForTest(t, p, assembleCtx, sess, 100_000, 20)
 
 	// Should inject user1's "hello" (seq=1). user2's "hey" (seq=2=triggerSeq) is excluded.
 	if len(msgs) != 1 {
@@ -120,10 +144,7 @@ func TestGroupAssemble_HybridFlow(t *testing.T) {
 	// Turn 2: triggered by seq=4.
 	// Between-turn injection: seq > 2 (watermark) AND seq < 4 → seq=3 (agent-a, skipped as self).
 	assembleCtx2 := groupCtx(res4.Seq)
-	msgs2, err := p.Assemble(assembleCtx2, sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble turn 2: %v", err)
-	}
+	msgs2 := assembleGroupForTest(t, p, assembleCtx2, sess, 100_000, 20)
 
 	// Should have: persisted injected [user1]: hello from turn 1, plus ctx_message [user: "hey", assistant: "Hi there!"].
 	// seq=3 (agent-a self) is skipped in between-turn.
@@ -161,10 +182,7 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 	if err := p.Bootstrap(assembleCtx, sess); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
-	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
+	msgs := assembleGroupForTest(t, p, assembleCtx, sess, 100_000, 20)
 	if len(msgs) != 0 {
 		t.Fatalf("expected 0 messages on first trigger, got %d", len(msgs))
 	}
@@ -209,10 +227,7 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 	// Turn 2: trigger = seq=4.
 	// Between-turn: seq 2 (agent-a, skip), seq 3 (agent-b, inject).
 	assembleCtx2 := groupCtx(res4.Seq)
-	msgs2, err := p.Assemble(assembleCtx2, sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble turn 2: %v", err)
-	}
+	msgs2 := assembleGroupForTest(t, p, assembleCtx2, sess, 100_000, 20)
 
 	// Should have: agent history [user:"hello", assistant:"hi"] + injected [agent-b].
 	if len(msgs2) != 3 {
@@ -247,63 +262,19 @@ func TestGroupAssemble_DedupsPersistedInjectedOutsideBudget(t *testing.T) {
 	}
 	sess := groupSess("agent-a", gid)
 	assembleCtx := groupCtx(res2.Seq)
-	if _, err := p.Assemble(assembleCtx, sess, 100_000, 20); err != nil {
-		t.Fatalf("first assemble: %v", err)
-	}
+	_ = assembleGroupForTest(t, p, assembleCtx, sess, 100_000, 20)
 	for i := range 20 {
 		if err := p.Append(ctx, sess, ai.UserMessage{Content: fmt.Sprintf("large retry filler %02d %s", i, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")}); err != nil {
 			t.Fatalf("append filler %d: %v", i, err)
 		}
 	}
-	if _, err := p.Assemble(assembleCtx, sess, 20, 20); err != nil {
-		t.Fatalf("retry assemble: %v", err)
-	}
+	_ = assembleGroupForTest(t, p, assembleCtx, sess, 20, 20)
 	var count int
 	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM ctx_message WHERE role = 'user' AND content = $1`, "[seq:1 user1]: already persisted").Scan(&count); err != nil {
 		t.Fatalf("count persisted injected: %v", err)
 	}
 	if count != 1 {
 		t.Fatalf("persisted injected count = %d, want 1", count)
-	}
-}
-
-func TestFilterAlreadyPersistedInjectedBatchesLargeCandidateSet(t *testing.T) {
-	db := openTestDB(t)
-	p, err := New(db, nil, map[string]any{})
-	if err != nil {
-		t.Fatalf("new provider: %v", err)
-	}
-	q := sqlc.New(db)
-	ctx := context.Background()
-	convID := uuid.NewString()
-	if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{ID: convID, SessionID: "session-large", Channel: "test", Kind: "chat", LastActive: time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)}); err != nil {
-		t.Fatalf("create conversation: %v", err)
-	}
-	for i, content := range []string{"candidate-0000", "candidate-0500", "candidate-1001"} {
-		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: convID, Seq: int64(i + 1), Role: "user", EventType: "text", Content: content}); err != nil {
-			t.Fatalf("create message %s: %v", content, err)
-		}
-	}
-	injected := make([]ai.Message, 0, 1005)
-	for i := range 1005 {
-		injected = append(injected, ai.UserMessage{Content: fmt.Sprintf("candidate-%04d", i)})
-	}
-
-	filtered, err := p.filterAlreadyPersistedInjected(ctx, convID, injected)
-	if err != nil {
-		t.Fatalf("filter injected: %v", err)
-	}
-	if len(filtered) != 1002 {
-		t.Fatalf("filtered len = %d, want 1002", len(filtered))
-	}
-	for _, msg := range filtered {
-		content := msg.(ai.UserMessage).Content.(string)
-		if content == "candidate-0000" || content == "candidate-0500" || content == "candidate-1001" {
-			t.Fatalf("persisted content %q was not filtered", content)
-		}
-	}
-	if got := filtered[0].(ai.UserMessage).Content.(string); got != "candidate-0001" {
-		t.Fatalf("first filtered content = %q, want order preserved", got)
 	}
 }
 
@@ -348,10 +319,7 @@ func TestGroupAssemble_TokenBudget(t *testing.T) {
 
 	// Very small budget.
 	assembleCtx := groupCtx(res6.Seq)
-	msgs, err := p.Assemble(assembleCtx, sess, 20, 20)
-	if err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
+	msgs := assembleGroupForTest(t, p, assembleCtx, sess, 20, 20)
 	if len(msgs) >= 5 {
 		t.Fatalf("expected fewer than 5 messages with tight budget, got %d", len(msgs))
 	}
@@ -375,10 +343,7 @@ func TestGroupAssemble_EmptyGroup(t *testing.T) {
 
 	sess := groupSess("agent-a", gid)
 	assembleCtx := groupCtx(1)
-	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
+	msgs := assembleGroupForTest(t, p, assembleCtx, sess, 100_000, 20)
 	if len(msgs) != 0 {
 		t.Fatalf("expected 0 messages for empty group, got %d", len(msgs))
 	}
@@ -412,10 +377,7 @@ func TestGroupAppend_StoresMessages(t *testing.T) {
 	}
 
 	// Verify messages are in ctx_message by assembling (standard path).
-	msgs, err := p.Assemble(ctx, sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
+	msgs := assembleGroupForTest(t, p, ctx, sess, 100_000, 20)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages from ctx_message, got %d", len(msgs))
 	}
@@ -451,7 +413,7 @@ func TestGroupBootstrap_CreatesConversation(t *testing.T) {
 	}
 }
 
-func TestGroupNeedsCompaction_AlwaysFalse(t *testing.T) {
+func TestGroupNeedsCompactionDisabledWithoutSummarizer(t *testing.T) {
 	db := openTestDB(t)
 	p, err := New(db, nil, nil)
 	if err != nil {
@@ -466,7 +428,7 @@ func TestGroupNeedsCompaction_AlwaysFalse(t *testing.T) {
 
 	sess := groupSess("agent-a", gid)
 	if p.NeedsCompaction(context.Background(), sess, 1.0) {
-		t.Fatal("group sessions should never need compaction")
+		t.Fatal("compaction should stay disabled without a summarizer")
 	}
 }
 
@@ -505,15 +467,12 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 	sess := groupSess("agent-a", gid)
 
 	// Turn 1: trigger=seq3. Between-turn: seq1, seq2.
-	msgs, err := p.Assemble(groupCtx(res3.Seq), sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble turn 1: %v", err)
-	}
+	msgs := assembleGroupForTest(t, p, groupCtx(res3.Seq), sess, 100_000, 20)
 	if len(msgs) != 2 {
 		t.Fatalf("turn 1: expected 2 injected, got %d", len(msgs))
 	}
 
-	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != 0 {
+	if got := mustGroupCursor(t, p, gid, groupCursorPipeline("agent-a")); got != 0 {
 		t.Fatalf("assemble advanced cursor before commit: got %d", got)
 	}
 
@@ -528,7 +487,7 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 	if err := p.CommitGroupCursor(context.Background(), sess, res3.Seq); err != nil {
 		t.Fatalf("commit cursor turn 1: %v", err)
 	}
-	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != res3.Seq {
+	if got := mustGroupCursor(t, p, gid, groupCursorPipeline("agent-a")); got != res3.Seq {
 		t.Fatalf("cursor after commit = %d, want %d", got, res3.Seq)
 	}
 
@@ -542,10 +501,7 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 	}
 
 	// Turn 2: trigger=seq4. Between-turn: seq > 3 AND seq < 4 → nothing.
-	msgs2, err := p.Assemble(groupCtx(res4.Seq), sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble turn 2: %v", err)
-	}
+	msgs2 := assembleGroupForTest(t, p, groupCtx(res4.Seq), sess, 100_000, 20)
 	// Should have persisted injected [user1]:a + [user2]:b from turn 1, plus agent history user "c" + assistant "reply".
 	if len(msgs2) != 4 {
 		t.Fatalf("turn 2: expected 4 (2 persisted injected + 2 agent history), got %d", len(msgs2))
@@ -579,14 +535,11 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 		t.Fatalf("new: %v", err)
 	}
 	sess := groupSess("agent-a", res1.GroupID)
-	msgs, err := p.Assemble(groupCtx(res2.Seq), sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
+	msgs := assembleGroupForTest(t, p, groupCtx(res2.Seq), sess, 100_000, 20)
 	if len(msgs) != 1 {
 		t.Fatalf("assemble messages = %d, want 1", len(msgs))
 	}
-	if got := p.getGroupCursor(context.Background(), res1.GroupID, groupCursorPipeline("agent-a")); got != 0 {
+	if got := mustGroupCursor(t, p, res1.GroupID, groupCursorPipeline("agent-a")); got != 0 {
 		t.Fatalf("cursor before commit = %d, want 0", got)
 	}
 	historyBeforeCommit, err := p.assembler.assemble(context.Background(), mustConversationID(t, p, sess), 100_000, 20)
@@ -599,10 +552,7 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 	if err := p.Append(groupCtx(res2.Seq), sess, ai.UserMessage{Content: "trigger"}); err != nil {
 		t.Fatalf("append failed trigger: %v", err)
 	}
-	retryBeforeCommit, err := p.Assemble(groupCtx(res2.Seq), sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("retry assemble before commit: %v", err)
-	}
+	retryBeforeCommit := assembleGroupForTest(t, p, groupCtx(res2.Seq), sess, 100_000, 20)
 	if len(retryBeforeCommit) != 2 {
 		t.Fatalf("retry before commit messages = %d, want persisted injected + trigger without duplicate injected", len(retryBeforeCommit))
 	}
@@ -615,7 +565,7 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 	if err := p.CommitGroupCursor(context.Background(), sess, res2.Seq); err != nil {
 		t.Fatalf("commit cursor: %v", err)
 	}
-	if got := p.getGroupCursor(context.Background(), res1.GroupID, groupCursorPipeline("agent-a")); got != res2.Seq {
+	if got := mustGroupCursor(t, p, res1.GroupID, groupCursorPipeline("agent-a")); got != res2.Seq {
 		t.Fatalf("cursor after commit = %d, want %d", got, res2.Seq)
 	}
 	historyAfterCommit, err := p.assembler.assemble(context.Background(), mustConversationID(t, p, sess), 100_000, 20)
@@ -625,10 +575,7 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 	if len(historyAfterCommit) != 2 {
 		t.Fatalf("persisted messages after commit = %d, want 2", len(historyAfterCommit))
 	}
-	retryMsgs, err := p.Assemble(groupCtx(res2.Seq), sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("retry assemble: %v", err)
-	}
+	retryMsgs := assembleGroupForTest(t, p, groupCtx(res2.Seq), sess, 100_000, 20)
 	if len(retryMsgs) != 2 {
 		t.Fatalf("retry assemble messages = %d, want 2 without duplicate injected", len(retryMsgs))
 	}
@@ -657,13 +604,194 @@ func TestGroupAssemble_TriggerSeqZero(t *testing.T) {
 	// triggerSeq=0: no GroupSeq on context. Should still assemble without error,
 	// just skip event log injection entirely.
 	assembleCtx := groupCtx(0)
-	msgs, err := p.Assemble(assembleCtx, sess, 100_000, 20)
-	if err != nil {
-		t.Fatalf("assemble with triggerSeq=0 should not error: %v", err)
-	}
+	msgs := assembleGroupForTest(t, p, assembleCtx, sess, 100_000, 20)
 	if len(msgs) != 0 {
 		t.Fatalf("expected 0 messages with triggerSeq=0, got %d", len(msgs))
 	}
+}
+
+func TestGroupEventSyncPersistsStableOriginIdempotently(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	first, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform:          "test",
+		PlatformGroupID:   "origin-sync",
+		ActorType:         eventlog.ActorHuman,
+		ActorID:           "user-1",
+		ActorDisplayName:  "Alice",
+		Content:           "public context",
+		PlatformMessageID: "origin-1",
+	})
+	if err != nil {
+		t.Fatalf("append first event: %v", err)
+	}
+	trigger, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform:          "test",
+		PlatformGroupID:   "origin-sync",
+		ActorType:         eventlog.ActorHuman,
+		ActorID:           "user-2",
+		Content:           "trigger",
+		PlatformMessageID: "origin-2",
+	})
+	if err != nil {
+		t.Fatalf("append trigger event: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	session := groupSess("agent-a", first.GroupID)
+	for range 2 {
+		if err := p.SyncGroupEventsBefore(ctx, session, trigger.Seq); err != nil {
+			t.Fatalf("sync group events: %v", err)
+		}
+	}
+
+	convID := mustConversationID(t, p, session)
+	rows, err := p.q.GetMessagesByConversation(ctx, convID)
+	if err != nil {
+		t.Fatalf("list conversation messages: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("persisted messages = %d, want 1", len(rows))
+	}
+	if got := rows[0].OriginGroupMessageID; !got.Valid || got.String != first.Message.ID {
+		t.Fatalf("origin = %#v, want %s", got, first.Message.ID)
+	}
+	if rows[0].Content != "[seq:1 Alice]: public context" {
+		t.Fatalf("content = %q", rows[0].Content)
+	}
+	if got := mustGroupCursor(t, p, first.GroupID, groupCursorPipeline("agent-a")); got != 0 {
+		t.Fatalf("sync advanced cursor to %d before successful turn", got)
+	}
+}
+
+func TestAppendGroupTurnIsAtomicAndIdempotent(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+	trigger, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform:          "test",
+		PlatformGroupID:   "atomic-turn",
+		ActorType:         eventlog.ActorHuman,
+		ActorID:           "user-1",
+		ActorDisplayName:  "Alice",
+		Content:           "please respond",
+		PlatformMessageID: "atomic-1",
+	})
+	if err != nil {
+		t.Fatalf("append trigger event: %v", err)
+	}
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	session := groupSess("agent-a", trigger.GroupID)
+	reply := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "done"}}}
+	if err := p.AppendGroupTurn(ctx, session, trigger.Message.ID, ai.UserMessage{Content: "fallback"}, reply); err != nil {
+		t.Fatalf("append group turn: %v", err)
+	}
+	if err := p.AppendGroupTurn(
+		ctx,
+		session,
+		trigger.Message.ID,
+		ai.UserMessage{Content: "fallback"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "duplicate"}}},
+	); err != nil {
+		t.Fatalf("retry group turn: %v", err)
+	}
+
+	rows, err := p.q.GetMessagesByConversation(ctx, mustConversationID(t, p, session))
+	if err != nil {
+		t.Fatalf("list conversation messages: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("persisted messages = %d, want trigger + one reply", len(rows))
+	}
+	if !rows[0].OriginGroupMessageID.Valid || rows[0].OriginGroupMessageID.String != trigger.Message.ID {
+		t.Fatalf("trigger origin = %#v", rows[0].OriginGroupMessageID)
+	}
+	if rows[0].Content != "[seq:1 Alice]: please respond" {
+		t.Fatalf("trigger content = %q", rows[0].Content)
+	}
+	if rows[1].Content != "done" {
+		t.Fatalf("reply content = %q, want done", rows[1].Content)
+	}
+}
+
+func TestGroupCompactionTailProtectsSixNewestPublicInputs(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	var session memory.Session
+	for i := 1; i <= 8; i++ {
+		result, appendErr := el.AppendGroupMessage(ctx, eventlog.Message{
+			Platform:          "test",
+			PlatformGroupID:   "compaction-tail",
+			ActorType:         eventlog.ActorHuman,
+			ActorID:           "user-1",
+			Content:           fmt.Sprintf("public-%d", i),
+			PlatformMessageID: fmt.Sprintf("tail-%d", i),
+		})
+		if appendErr != nil {
+			t.Fatalf("append event %d: %v", i, appendErr)
+		}
+		session = groupSess("agent-a", result.GroupID)
+		if appendErr := p.AppendGroupTurn(
+			ctx,
+			session,
+			result.Message.ID,
+			ai.UserMessage{Content: "fallback"},
+			ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("reply-%d", i)}}},
+		); appendErr != nil {
+			t.Fatalf("append turn %d: %v", i, appendErr)
+		}
+	}
+
+	convID := mustConversationID(t, p, session)
+	items, err := p.q.GetContextItems(ctx, convID)
+	if err != nil {
+		t.Fatalf("get context items: %v", err)
+	}
+	tail, older, err := splitCompactionTail(ctx, p.q, convID, items, true, 99)
+	if err != nil {
+		t.Fatalf("split group tail: %v", err)
+	}
+	if got := countOriginMessages(t, p, convID, older); got != 2 {
+		t.Fatalf("older public origins = %d, want 2", got)
+	}
+	if got := countOriginMessages(t, p, convID, tail); got != groupLCMFreshTail {
+		t.Fatalf("tail public origins = %d, want %d", got, groupLCMFreshTail)
+	}
+}
+
+func countOriginMessages(t *testing.T, p *Provider, convID string, items []sqlc.CtxItem) int {
+	t.Helper()
+	count := 0
+	for _, item := range items {
+		if item.ItemType != itemTypeMessage || !item.MessageID.Valid {
+			continue
+		}
+		row, err := p.q.GetMessage(context.Background(), sqlc.GetMessageParams{
+			ID:             item.MessageID.String,
+			ConversationID: convID,
+		})
+		if err != nil {
+			t.Fatalf("get message %s: %v", item.MessageID.String, err)
+		}
+		if row.OriginGroupMessageID.Valid {
+			count++
+		}
+	}
+	return count
 }
 
 func mustConversationID(t *testing.T, p *Provider, session memory.Session) string {

@@ -6,7 +6,7 @@ WHERE group_id = sqlc.arg(group_id) AND pipeline = sqlc.arg(pipeline);
 INSERT INTO ctx_group_ingest_cursor (group_id, pipeline, last_seq, updated_at)
 VALUES (sqlc.arg(group_id), sqlc.arg(pipeline), sqlc.arg(last_seq), now())
 ON CONFLICT(group_id, pipeline) DO UPDATE SET
-    last_seq = excluded.last_seq,
+    last_seq = GREATEST(ctx_group_ingest_cursor.last_seq, excluded.last_seq),
     updated_at = now();
 
 -- name: CreateIngestError :exec

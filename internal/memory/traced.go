@@ -29,10 +29,10 @@ func Unwrap(p Provider) Provider {
 
 // WithTracing wraps a Provider to emit PostMemoryCall hooks after each operation.
 // hooksFn is called on each operation to get the current HookSet; it may return nil.
-// The returned Provider implements all optional capability interfaces (Compactor,
-// Searcher, Explorer, ProfileStore, SessionManager, ReviewHistoryReader,
-// Reviewer). Methods for
-// capabilities not supported by the inner provider return sensible zero values or errors.
+// The returned Provider implements all optional capability interfaces, including
+// group event ingestion, cursor commits, and Group Fact reads. Methods for
+// capabilities not supported by the inner provider return sensible zero values
+// or errors.
 // Use [Unwrap] to check the inner provider's actual capabilities.
 //
 // The Detail field is always populated with content previews. The trace hook
@@ -91,9 +91,15 @@ func (t *tracedProvider) finish(ctx context.Context, start time.Time, hctx *hook
 
 // metaFromSession populates HookMeta from a memory Session.
 func metaFromSession(s Session) hooks.HookMeta {
+	userID := s.UserID
+	if s.GroupID != "" {
+		// Group sessions reuse UserID as a storage-owner key. Do not expose that
+		// synthetic owner to hooks as an authenticated user identity.
+		userID = ""
+	}
 	return hooks.HookMeta{
 		SessionID: s.ID,
-		UserID:    s.UserID,
+		UserID:    userID,
 		AgentID:   s.AgentID,
 	}
 }
@@ -122,6 +128,79 @@ func (t *tracedProvider) Append(ctx context.Context, session Session, msgs ...ai
 	hctx.Detail = formatMessages("appended", msgs)
 	t.finish(ctx, start, hctx)
 	return err
+}
+
+func (t *tracedProvider) SyncGroupEventsBefore(ctx context.Context, session Session, triggerSeq int64) error {
+	ingestor, ok := t.inner.(GroupEventIngestor)
+	if !ok {
+		return errCapabilityNotSupported("GroupEventIngestor")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := ingestor.SyncGroupEventsBefore(ctx, session, triggerSeq)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("synchronized public group events before seq=%d", triggerSeq)
+	t.finish(ctx, start, hctx)
+	return err
+}
+
+func (t *tracedProvider) AppendGroupTurn(
+	ctx context.Context,
+	session Session,
+	groupMessageID string,
+	trigger ai.Message,
+	continuation ...ai.Message,
+) error {
+	ingestor, ok := t.inner.(GroupEventIngestor)
+	if !ok {
+		return errCapabilityNotSupported("GroupEventIngestor")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := ingestor.AppendGroupTurn(ctx, session, groupMessageID, trigger, continuation...)
+	hctx.Error = err
+	hctx.MessageCount = len(continuation) + 1
+	hctx.Detail = fmt.Sprintf("appended group turn origin=%s", groupMessageID)
+	t.finish(ctx, start, hctx)
+	return err
+}
+
+func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error {
+	committer, ok := t.inner.(GroupCursorCommitter)
+	if !ok {
+		return errCapabilityNotSupported("GroupCursorCommitter")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := committer.CommitGroupCursor(ctx, session, triggerSeq)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("committed public group cursor through seq=%d", triggerSeq)
+	t.finish(ctx, start, hctx)
+	return err
+}
+
+func (t *tracedProvider) ListActiveGroupFacts(ctx context.Context, groupID string) ([]GroupFact, error) {
+	store, ok := t.inner.(GroupFactStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("GroupFactStore")
+	}
+	return store.ListActiveGroupFacts(ctx, groupID)
+}
+
+func (t *tracedProvider) GetGroupFactVersion(ctx context.Context, groupID string) (int64, error) {
+	store, ok := t.inner.(GroupFactStore)
+	if !ok {
+		return 0, errCapabilityNotSupported("GroupFactStore")
+	}
+	return store.GetGroupFactVersion(ctx, groupID)
+}
+
+func (t *tracedProvider) ListGroupActorDisplayNames(ctx context.Context, groupID string) ([]GroupActorDisplayName, error) {
+	store, ok := t.inner.(GroupFactStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("GroupFactStore")
+	}
+	return store.ListGroupActorDisplayNames(ctx, groupID)
 }
 
 func (t *tracedProvider) Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error) {
@@ -430,7 +509,12 @@ func (t *tracedProvider) SaveInfo(ctx context.Context, info SessionInfo) error {
 	if !ok {
 		return errCapabilityNotSupported("SessionManager")
 	}
-	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID}, Op: hooks.MemoryOpSaveInfo, SessionID: info.ID}
+	userID := info.UserID
+	if info.GroupID != "" {
+		// GroupID is the storage owner; it must not become hook user identity.
+		userID = ""
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: info.ID, UserID: userID, AgentID: info.AgentID}, Op: hooks.MemoryOpSaveInfo, SessionID: info.ID}
 	ctx, start := t.begin(ctx, hctx)
 	err := sm.SaveInfo(ctx, info)
 	hctx.Error = err

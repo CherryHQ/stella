@@ -18,6 +18,20 @@ func (q *Queries) DeleteGroupMemory(ctx context.Context, groupID string) error {
 	return err
 }
 
+const ensureGroupMemoryVersion = `-- name: EnsureGroupMemoryVersion :one
+INSERT INTO ctx_group_memory (group_id, content, version, updated_at)
+VALUES ($1, '', 0, now())
+ON CONFLICT(group_id) DO UPDATE SET group_id = excluded.group_id
+RETURNING version
+`
+
+func (q *Queries) EnsureGroupMemoryVersion(ctx context.Context, groupID string) (int64, error) {
+	row := q.db.QueryRow(ctx, ensureGroupMemoryVersion, groupID)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
+}
+
 const getGroupMemory = `-- name: GetGroupMemory :one
 SELECT group_id, content, version, created_at, updated_at FROM ctx_group_memory WHERE group_id = $1
 `
@@ -33,6 +47,50 @@ func (q *Queries) GetGroupMemory(ctx context.Context, groupID string) (CtxGroupM
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getGroupMemoryVersion = `-- name: GetGroupMemoryVersion :one
+SELECT version
+FROM ctx_group_memory
+WHERE group_id = $1
+`
+
+func (q *Queries) GetGroupMemoryVersion(ctx context.Context, groupID string) (int64, error) {
+	row := q.db.QueryRow(ctx, getGroupMemoryVersion, groupID)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
+}
+
+const getGroupMemoryVersionForUpdate = `-- name: GetGroupMemoryVersionForUpdate :one
+SELECT version
+FROM ctx_group_memory
+WHERE group_id = $1
+FOR UPDATE
+`
+
+func (q *Queries) GetGroupMemoryVersionForUpdate(ctx context.Context, groupID string) (int64, error) {
+	row := q.db.QueryRow(ctx, getGroupMemoryVersionForUpdate, groupID)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
+}
+
+const updateGroupMemoryVersion = `-- name: UpdateGroupMemoryVersion :exec
+UPDATE ctx_group_memory
+SET version = $1,
+    updated_at = now()
+WHERE group_id = $2
+`
+
+type UpdateGroupMemoryVersionParams struct {
+	Version int64  `json:"version"`
+	GroupID string `json:"group_id"`
+}
+
+func (q *Queries) UpdateGroupMemoryVersion(ctx context.Context, arg UpdateGroupMemoryVersionParams) error {
+	_, err := q.db.Exec(ctx, updateGroupMemoryVersion, arg.Version, arg.GroupID)
+	return err
 }
 
 const upsertGroupMemoryVersioned = `-- name: UpsertGroupMemoryVersioned :one

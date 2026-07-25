@@ -33,6 +33,9 @@ var (
 	_ memory.ChangelogPageReader   = (*Provider)(nil)
 	_ memory.ConstraintStore       = (*Provider)(nil)
 	_ memory.KnowledgeUsageTracker = (*Provider)(nil)
+	_ memory.GroupEventIngestor    = (*Provider)(nil)
+	_ memory.GroupCursorCommitter  = (*Provider)(nil)
+	_ memory.GroupFactStore        = (*Provider)(nil)
 )
 
 // Provider implements memory.Provider and all six capability interfaces
@@ -246,9 +249,7 @@ func (p *Provider) NeedsCompaction(ctx context.Context, session memory.Session, 
 	if p.summarizer == nil {
 		return false
 	}
-	if session.GroupID != "" {
-		return false
-	}
+	isGroup := session.GroupID != ""
 	session, err := requireMemorySessionScope(ctx, session)
 	if err != nil {
 		return false
@@ -265,11 +266,14 @@ func (p *Provider) NeedsCompaction(ctx context.Context, session memory.Session, 
 	if err != nil {
 		return false
 	}
-	return p.hasCompactableRun(ctx, items)
+	return p.hasCompactableRun(ctx, conv.ID, items, isGroup)
 }
 
-func (p *Provider) hasCompactableRun(ctx context.Context, items []sqlc.CtxItem) bool {
-	_, older := splitFreshTail(items, p.freshTail)
+func (p *Provider) hasCompactableRun(ctx context.Context, convID string, items []sqlc.CtxItem, isGroup bool) bool {
+	_, older, err := splitCompactionTail(ctx, p.q, convID, items, isGroup, p.freshTail)
+	if err != nil {
+		return false
+	}
 	if len(findMessageRuns(older, defaultLeafChunkSize)) > 0 {
 		return true
 	}
@@ -327,7 +331,7 @@ func (p *Provider) Compact(ctx context.Context, session memory.Session, mode mem
 			return cErr
 		}
 		var compErr error
-		result, compErr = p.compaction.compact(ctx, convID, mode)
+		result, compErr = p.compaction.compact(ctx, convID, mode, session.GroupID != "")
 		return compErr
 	})
 	return result, err

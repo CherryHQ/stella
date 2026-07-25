@@ -190,6 +190,33 @@ func TestBeforeRunUsesPluginIDDirectly(t *testing.T) {
 	}
 }
 
+func TestBeforeRunForwardsGroupID(t *testing.T) {
+	store := &stubStore{plugins: map[string]config.Plugin{}}
+	host := New(store)
+	host.RegisterPluginID("group/context")
+
+	var seen string
+	host.AddBeforeRun(pkgplugins.BeforeRunSpec{
+		PluginID: "group/context",
+		Name:     "capture-group",
+		Required: true,
+		Run: func(_ context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error) {
+			seen = build.GroupID
+			return pkgplugins.BeforeRunResult{}, nil
+		},
+	})
+
+	if _, err := host.BeforeRun(context.Background(), pkgplugins.BeforeRunContext{
+		GroupID:      "group-123",
+		SystemPrompt: "base",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if seen != "group-123" {
+		t.Fatalf("GroupID = %q, want group-123", seen)
+	}
+}
+
 func TestBeforeToolCallUsesPluginIDDirectly(t *testing.T) {
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)

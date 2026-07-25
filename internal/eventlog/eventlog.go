@@ -47,6 +47,9 @@ type Message struct {
 
 	ActorType ActorType
 	ActorID   string // platform sender id (human) or agent id (agent)
+	// ActorDisplayName is an event-time presentation snapshot. Stable identity
+	// remains ActorType + ActorID, so later renames do not change ownership.
+	ActorDisplayName string
 
 	PlatformMessageID string // "" when the adapter cannot supply one
 	ReplyTo           string // platform message id this replies to; "" if none
@@ -147,6 +150,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		SourceChannelID:   pgnull.TextTrim(msg.SourceChannelID),
 		ActorType:         string(msg.ActorType),
 		ActorID:           msg.ActorID,
+		ActorDisplayName:  pgnull.TextTrim(msg.ActorDisplayName),
 		PlatformMessageID: pgnull.TextTrim(msg.PlatformMessageID),
 		ReplyTo:           pgnull.TextTrim(msg.ReplyTo),
 		PlatformTimestamp: nullTime(msg.PlatformTimestamp),
@@ -225,14 +229,15 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 		return AppendResult{}, fmt.Errorf("eventlog: bump seq: %w", err)
 	}
 	row, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
-		ID:             uuid.Must(uuid.NewV7()).String(),
-		GroupID:        groupID,
-		Seq:            seq,
-		ActorType:      string(msg.ActorType),
-		ActorID:        msg.ActorID,
-		Content:        msg.Content,
-		Reasoning:      msg.Reasoning,
-		AgentSessionID: msg.AgentSessionID,
+		ID:               uuid.Must(uuid.NewV7()).String(),
+		GroupID:          groupID,
+		Seq:              seq,
+		ActorType:        string(msg.ActorType),
+		ActorID:          msg.ActorID,
+		ActorDisplayName: pgnull.TextTrim(msg.ActorDisplayName),
+		Content:          msg.Content,
+		Reasoning:        msg.Reasoning,
+		AgentSessionID:   msg.AgentSessionID,
 	})
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
@@ -255,11 +260,12 @@ func validateGroupAppend(groupID string, msg GroupMessage) error {
 
 // GroupMessage is a simplified message for direct group append (pre-resolved groupID).
 type GroupMessage struct {
-	ActorType      ActorType
-	ActorID        string
-	Content        string
-	Reasoning      string
-	AgentSessionID string
+	ActorType        ActorType
+	ActorID          string
+	ActorDisplayName string
+	Content          string
+	Reasoning        string
+	AgentSessionID   string
 }
 
 func validate(msg Message) error {

@@ -38,6 +38,7 @@ type (
 	SessionPluginViewBuilder func(ctx context.Context) (pkgplugins.SessionPluginView, error)
 	BeforeRunBuilder         func(ctx context.Context, build pkgplugins.BeforeRunContext) (pkgplugins.BeforeRunResult, error)
 	ProviderStreamBuilder    func(api, apiKey, baseURL string) (providers.StreamFunc, error)
+	GroupFactPromptLoader    func(ctx context.Context, groupID, system string) (string, error)
 )
 
 // PoolManagerOption configures a PoolManager.
@@ -81,6 +82,15 @@ func WithSessionPluginViewBuilder(b SessionPluginViewBuilder) PoolManagerOption 
 
 func WithBeforeRunBuilderPM(b BeforeRunBuilder) PoolManagerOption {
 	return func(pm *PoolManager) { pm.beforeRunBuilder = b }
+}
+
+// WithStructuredGroupMemoryPM disables legacy Blob prompt reads and injects
+// current Group Facts into every group turn through loader.
+func WithStructuredGroupMemoryPM(loader GroupFactPromptLoader) PoolManagerOption {
+	return func(pm *PoolManager) {
+		pm.structuredGroupMemory = true
+		pm.groupFactPromptLoader = loader
+	}
 }
 
 func WithToolLifecyclePM(tl *coreagent.ToolLifecycle) PoolManagerOption {
@@ -155,6 +165,8 @@ type PoolManager struct {
 	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder SessionPluginViewBuilder
 	beforeRunBuilder         BeforeRunBuilder
+	structuredGroupMemory    bool
+	groupFactPromptLoader    GroupFactPromptLoader
 	toolLifecycle            *coreagent.ToolLifecycle
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
@@ -296,6 +308,10 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 		pm.mu.Unlock()
 		return errors.New("agent: PoolManager.StartAll requires SessionAccess")
 	}
+	if pm.structuredGroupMemory && pm.groupFactPromptLoader == nil {
+		pm.mu.Unlock()
+		return errors.New("agent: structured group memory requires a Group Fact prompt loader")
+	}
 	pm.started = true
 	pm.mu.Unlock()
 
@@ -361,14 +377,15 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	}
 
 	cfg := agentruntime.Config{
-		NewRunner:       factory,
-		Memory:          pm.mem,
-		IdleTimeout:     pm.idleTimeout,
-		DefaultModel:    snap.ResolveModelID(config.ModelTierStrong),
-		DefaultThinking: snap.ResolveThinkingLevel(config.ModelTierStrong),
-		HooksFn:         pm.HookPlugins,
-		BeforeRun:       pm.runtimeBeforeRunFunc(snap),
-		SnapshotPrompt:  pm.buildSnapshotPromptFunc(snap),
+		NewRunner:             factory,
+		Memory:                pm.mem,
+		IdleTimeout:           pm.idleTimeout,
+		DefaultModel:          snap.ResolveModelID(config.ModelTierStrong),
+		DefaultThinking:       snap.ResolveThinkingLevel(config.ModelTierStrong),
+		HooksFn:               pm.HookPlugins,
+		BeforeRun:             pm.runtimeBeforeRunFunc(snap),
+		SnapshotPrompt:        pm.buildSnapshotPromptFunc(snap),
+		StructuredGroupMemory: pm.structuredGroupMemory,
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -393,8 +410,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 
 // promptScope computes the per-session workspace root and the prompt subject for
 // profile rendering. Group sessions blank the prompt UserID so the group id is
-// never treated as a human profile subject (D9); plugin/skill sections still use
-// the session's UserID (the group id) so they match the cached group runner.
+// never treated as a human Profile or Skill owner (D9).
 func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot, promptUserID, groupID string) {
 	if info.GroupID != "" {
 		if dir, err := SetupGroupWorkspace(config.StellaHome(), info.GroupID, agentID); err == nil {
@@ -436,11 +452,17 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 	if pm.sessionPluginViewBuilder != nil {
 		pluginView, _ = pm.sessionPluginViewBuilder(ctx)
 	}
+	promptUserID := info.UserID
+	if info.GroupID != "" {
+		// Group skill visibility is system/system_agent/project only. Never use
+		// the synthetic group UserID as a real user principal.
+		promptUserID = ""
+	}
 	promptBuild := pkgplugins.SystemPromptContext{
 		StellaHome:          config.StellaHome(),
 		HomeDir:             homeDir,
 		AgentRoot:           snap.Workspace,
-		UserID:              info.UserID,
+		UserID:              promptUserID,
 		AgentID:             info.AgentID,
 		UserRoot:            userRoot,
 		WorkspaceRoot:       userRoot,
@@ -466,43 +488,63 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 		sections := pm.promptSections(ctx, snap, info, userRoot)
 
 		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt:    snap.SystemPrompt,
-			AgentSoul:       snap.Soul,
-			Memory:          pm.mem,
-			UserID:          promptUserID,
-			AgentID:         info.AgentID,
-			GroupID:         groupID,
-			StellaHome:      config.StellaHome(),
-			AgentRoot:       snap.Workspace,
-			UserRoot:        userRoot,
-			Sections:        sections,
-			SnapshotVersion: &version,
+			SystemPrompt:          snap.SystemPrompt,
+			AgentSoul:             snap.Soul,
+			Memory:                pm.mem,
+			UserID:                promptUserID,
+			AgentID:               info.AgentID,
+			GroupID:               groupID,
+			StellaHome:            config.StellaHome(),
+			AgentRoot:             snap.Workspace,
+			UserRoot:              userRoot,
+			Sections:              sections,
+			SnapshotVersion:       &version,
+			StructuredGroupMemory: pm.structuredGroupMemory,
 		})
 	}
 }
 
 func (pm *PoolManager) runtimeBeforeRunFunc(snap *config.Snapshot) agentruntime.BeforeRunFunc {
 	return func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (string, error) {
-		if pm.beforeRunBuilder == nil {
-			return system, nil
+		if pm.beforeRunBuilder != nil {
+			pluginUserID := info.UserID
+			if info.GroupID != "" {
+				// A group session's UserID is only a conversation lookup key. Plugins
+				// receive GroupID explicitly and must not mistake that key for a user.
+				pluginUserID = ""
+			}
+			result, err := pm.beforeRunBuilder(ctx, pkgplugins.BeforeRunContext{
+				SessionID:    info.ID,
+				Channel:      info.Channel,
+				UserID:       pluginUserID,
+				AgentID:      info.AgentID,
+				GroupID:      info.GroupID,
+				Model:        model,
+				MessageText:  msgText,
+				SystemPrompt: system,
+				History:      append([]ai.Message(nil), history...),
+			})
+			if err != nil {
+				return "", err
+			}
+			if result.SystemPrompt != "" {
+				system = result.SystemPrompt
+			}
 		}
-		result, err := pm.beforeRunBuilder(ctx, pkgplugins.BeforeRunContext{
-			SessionID:    info.ID,
-			Channel:      info.Channel,
-			UserID:       info.UserID,
-			AgentID:      info.AgentID,
-			Model:        model,
-			MessageText:  msgText,
-			SystemPrompt: system,
-			History:      append([]ai.Message(nil), history...),
-		})
-		if err != nil {
-			return "", err
+
+		// Inject Group Facts after plugins so a plugin that replaces the system
+		// prompt cannot accidentally remove the required shared group context.
+		if info.GroupID != "" && pm.structuredGroupMemory {
+			if pm.groupFactPromptLoader == nil {
+				return "", errors.New("structured group memory prompt loader is unavailable")
+			}
+			loaded, err := pm.groupFactPromptLoader(ctx, info.GroupID, system)
+			if err != nil {
+				return "", err
+			}
+			system = loaded
 		}
-		if result.SystemPrompt == "" {
-			return system, nil
-		}
-		return result.SystemPrompt, nil
+		return system, nil
 	}
 }
 
@@ -688,6 +730,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		VaultEnvLoader:           pm.vaultEnvLoader,
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
+		StructuredGroupMemory:    pm.structuredGroupMemory,
 	})
 }
 

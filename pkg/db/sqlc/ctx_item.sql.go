@@ -369,3 +369,39 @@ func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItems
 	}
 	return items, nil
 }
+
+const listRecentGroupOriginOrdinals = `-- name: ListRecentGroupOriginOrdinals :many
+SELECT ci.ordinal
+FROM ctx_item ci
+JOIN ctx_message m ON m.id = ci.message_id
+WHERE ci.conversation_id = $1
+  AND ci.item_type = 'message'
+  AND m.origin_group_message_id IS NOT NULL
+ORDER BY ci.ordinal DESC
+LIMIT $2
+`
+
+type ListRecentGroupOriginOrdinalsParams struct {
+	ConversationID string `json:"conversation_id"`
+	MaxCount       int32  `json:"max_count"`
+}
+
+func (q *Queries) ListRecentGroupOriginOrdinals(ctx context.Context, arg ListRecentGroupOriginOrdinalsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, listRecentGroupOriginOrdinals, arg.ConversationID, arg.MaxCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var ordinal int64
+		if err := rows.Scan(&ordinal); err != nil {
+			return nil, err
+		}
+		items = append(items, ordinal)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

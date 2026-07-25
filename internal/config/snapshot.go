@@ -18,6 +18,7 @@ type ProviderCreds struct {
 	Type    string
 	APIKey  string
 	BaseURL string
+	Models  map[string]ProviderModel
 }
 
 // Snapshot is a read-only config snapshot assembled from DB for downstream
@@ -103,7 +104,12 @@ func (s *Snapshot) ResolveModel() ai.Model {
 // It parses the provider from the model ref and looks up per-provider
 // credentials from the Providers map.
 func (s *Snapshot) ResolveModelTier(tier string) ai.Model {
-	modelRef := s.ResolveModelID(tier)
+	return s.ResolveModelRef(s.ResolveModelID(tier))
+}
+
+// ResolveModelRef resolves one configured provider/model reference together
+// with its declared capabilities from the immutable agent snapshot.
+func (s *Snapshot) ResolveModelRef(modelRef string) ai.Model {
 	provID, modelID := ParseModelRef(modelRef)
 
 	// Fall back to default provider if no prefix.
@@ -113,19 +119,35 @@ func (s *Snapshot) ResolveModelTier(tier string) ai.Model {
 
 	api := provID
 	baseURL := s.BaseURL
+	var metadata ProviderModel
 	if creds, ok := s.Providers[provID]; ok {
 		if creds.Type != "" {
 			api = creds.Type
 		}
 		baseURL = creds.BaseURL
+		metadata = creds.Models[modelID]
 	}
 
+	name := metadata.Name
+	if name == "" {
+		name = modelID
+	}
 	return ai.Model{
-		ID:       modelID,
-		Name:     modelID,
-		API:      api,
-		Provider: provID,
-		BaseURL:  baseURL,
+		ID:            modelID,
+		Name:          name,
+		API:           api,
+		Provider:      provID,
+		BaseURL:       baseURL,
+		Reasoning:     metadata.Reasoning,
+		Input:         append([]string(nil), metadata.Input...),
+		ContextWindow: metadata.ContextWindow,
+		MaxTokens:     metadata.MaxTokens,
+		Cost: ai.ModelCost{
+			Input:      metadata.Cost.Input,
+			Output:     metadata.Cost.Output,
+			CacheRead:  metadata.Cost.CacheRead,
+			CacheWrite: metadata.Cost.CacheWrite,
+		},
 	}
 }
 

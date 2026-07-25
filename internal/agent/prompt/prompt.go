@@ -66,7 +66,8 @@ type promptData struct {
 	// Group session rendering. IsGroup switches the template from the per-user
 	// "## User Profile" section to "## Group Memory" (+ optional current speaker),
 	// driven by session kind, not by whether group memory text is non-empty.
-	IsGroup bool
+	IsGroup               bool
+	StructuredGroupMemory bool
 }
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
@@ -78,12 +79,15 @@ type DBPromptParams struct {
 	AgentID      string          // agent ID for profile lookup
 	GroupID      string          // group ID for group memory lookup (D4); mutually exclusive with UserID
 	GroupMemory  string          // pre-loaded group memory content; injected when non-empty
-	StellaHome   string
-	AgentRoot    string
-	ProjectRoot  string // optional project root for local/project-attached runs
-	UserRoot     string // per-user writable root
-	Sections     []pkgplugins.SystemPromptSection
-	Host         sandbox.Host
+	// StructuredGroupMemory disables the legacy Blob read. Structured Group
+	// Facts are injected per turn after the cached runner prompt is loaded.
+	StructuredGroupMemory bool
+	StellaHome            string
+	AgentRoot             string
+	ProjectRoot           string // optional project root for local/project-attached runs
+	UserRoot              string // per-user writable root
+	Sections              []pkgplugins.SystemPromptSection
+	Host                  sandbox.Host
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
 
@@ -117,8 +121,9 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		agentSoul = DefaultAgentSoul()
 	}
 	data := promptData{
-		SystemPrompt: sysPrompt,
-		AgentSoul:    agentSoul,
+		SystemPrompt:          sysPrompt,
+		AgentSoul:             agentSoul,
+		StructuredGroupMemory: p.StructuredGroupMemory,
 	}
 
 	// Memory: per-user soul overrides the agent default when set.
@@ -171,7 +176,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// Group mode is keyed on GroupID, not on group memory being non-empty, so a
 	// group turn never falls through to the per-user "## User Profile" section.
 	data.IsGroup = p.GroupID != ""
-	if p.GroupID != "" && p.Memory != nil {
+	if p.GroupID != "" && p.Memory != nil && !p.StructuredGroupMemory {
 		if gms, ok := p.Memory.(memory.GroupMemoryStore); ok {
 			if content, err := gms.GetGroupMemory(ctx, p.GroupID); err == nil && content != "" {
 				data.GroupMemory = strings.TrimRight(content, "\n")

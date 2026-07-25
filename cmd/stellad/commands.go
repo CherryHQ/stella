@@ -59,6 +59,10 @@ import (
 	"github.com/CherryHQ/stella/resources/binaries"
 )
 
+// Group turns may inspect only their group-owned LCM. Private profile,
+// knowledge, soul, and constraint actions remain unavailable by construction.
+var structuredGroupMemoryActions = []string{"status", "search", "describe", "expand", "get_message"}
+
 func newApp() *ucli.App {
 	return &ucli.App{
 		Name:  "stellad",
@@ -216,8 +220,30 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	var poolMgr *agent.PoolManager
 	memProvider = wrapMemoryWithTracing(memProvider, &poolMgr)
 
-	builtinTools := []agent.BuiltinTool{
-		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites())},
+	groupMemory, err := setupGroupMemory(parent, schedulerSvc, db, store, memProvider, providerStreamBuilder, cfg.GroupMemory)
+	if err != nil {
+		return nil, err
+	}
+
+	var builtinTools []agent.BuiltinTool
+	if groupMemory.structured {
+		builtinTools = append(builtinTools,
+			agent.BuiltinTool{
+				Tool:      memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites()),
+				Available: agent.NonGroupBuiltinToolAvailable,
+			},
+			agent.BuiltinTool{
+				Tool: memory.BuildTool(memProvider,
+					memory.WithSessionReadOnlyWrites(),
+					memory.WithActionsOnly(structuredGroupMemoryActions...),
+				),
+				Available: agent.GroupBuiltinToolAvailable,
+			},
+		)
+	} else {
+		builtinTools = append(builtinTools, agent.BuiltinTool{
+			Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites()),
+		})
 	}
 	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})
@@ -402,7 +428,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// fetching; the composition root passes the pool, not raw queries.
 	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess)
 
-	poolMgr = agent.NewPoolManager(store, memProvider,
+	poolOptions := []agent.PoolManagerOption{
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithAssetStorePM(assetStore),
 		agent.WithBuiltinTools(builtinTools),
@@ -421,7 +447,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithProjectEnsurerPM(projectStore.Ensure),
-	)
+	}
+	if groupMemory.structured {
+		poolOptions = append(poolOptions, agent.WithStructuredGroupMemoryPM(groupMemory.promptLoader))
+	}
+	poolMgr = agent.NewPoolManager(store, memProvider, poolOptions...)
 
 	// Bind the static Vault/MCP/OAuth capabilities into the pool BEFORE StartAll,
 	// as one-shot pre-start binds. Binding them up front means agents are built

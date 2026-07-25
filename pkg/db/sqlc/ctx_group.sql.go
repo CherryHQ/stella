@@ -29,10 +29,11 @@ func (q *Queries) BumpGroupSeq(ctx context.Context, id string) (int64, error) {
 const createGroupMessage = `-- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id
+  actor_display_name, platform_message_id, reply_to, platform_timestamp,
+  idempotency_key, content, reasoning, agent_session_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name
 `
 
 type CreateGroupMessageParams struct {
@@ -42,6 +43,7 @@ type CreateGroupMessageParams struct {
 	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
 	ActorType         string             `json:"actor_type"`
 	ActorID           string             `json:"actor_id"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
 	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
 	ReplyTo           pgtype.Text        `json:"reply_to"`
 	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
@@ -59,6 +61,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		arg.SourceChannelID,
 		arg.ActorType,
 		arg.ActorID,
+		arg.ActorDisplayName,
 		arg.PlatformMessageID,
 		arg.ReplyTo,
 		arg.PlatformTimestamp,
@@ -83,6 +86,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		&i.Reasoning,
 		&i.AgentSessionID,
 		&i.CreatedAt,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }
@@ -151,7 +155,7 @@ func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (time.Time,
 }
 
 const getGroupMessage = `-- name: GetGroupMessage :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message WHERE id = $1
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message WHERE id = $1
 `
 
 func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessage, error) {
@@ -172,12 +176,13 @@ func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessa
 		&i.Reasoning,
 		&i.AgentSessionID,
 		&i.CreatedAt,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }
 
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
 WHERE idempotency_key = $1
 `
 
@@ -199,12 +204,13 @@ func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempoten
 		&i.Reasoning,
 		&i.AgentSessionID,
 		&i.CreatedAt,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }
 
 const getGroupMessageByPlatformID = `-- name: GetGroupMessageByPlatformID :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
 WHERE group_id = $1
   AND platform_message_id = $2
 `
@@ -232,6 +238,7 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 		&i.Reasoning,
 		&i.AgentSessionID,
 		&i.CreatedAt,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }
@@ -308,8 +315,91 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 	return i, err
 }
 
+const listGroupMessagesForLCM = `-- name: ListGroupMessagesForLCM :many
+WITH eligible AS (
+  SELECT
+    gm.id,
+    gm.seq,
+    CAST(GREATEST((octet_length(gm.content) + 3) / 4, 1) AS BIGINT) AS estimated_tokens
+  FROM ctx_group_message gm
+  WHERE gm.group_id = $1
+    AND gm.seq > $2
+    AND gm.seq < $3
+    AND gm.content <> ''
+    AND NOT (gm.actor_type = 'agent' AND gm.actor_id = $4)
+    -- A single oversized public message is not useful as bootstrap context.
+    AND GREATEST((octet_length(gm.content) + 3) / 4, 1) <= $5::bigint
+),
+bounded AS (
+  SELECT
+    id,
+    seq,
+    SUM(estimated_tokens) OVER (ORDER BY seq DESC) AS running_tokens
+  FROM eligible
+),
+selected AS (
+  SELECT id
+  FROM bounded
+  WHERE running_tokens <= $5::bigint
+)
+SELECT gm.id, gm.group_id, gm.seq, gm.source_channel_id, gm.actor_type, gm.actor_id, gm.platform_message_id, gm.reply_to, gm.platform_timestamp, gm.idempotency_key, gm.content, gm.reasoning, gm.agent_session_id, gm.created_at, gm.actor_display_name
+FROM ctx_group_message gm
+WHERE gm.id IN (SELECT id FROM selected)
+ORDER BY gm.seq ASC
+`
+
+type ListGroupMessagesForLCMParams struct {
+	GroupID     string `json:"group_id"`
+	AfterSeq    int64  `json:"after_seq"`
+	BeforeSeq   int64  `json:"before_seq"`
+	SelfAgentID string `json:"self_agent_id"`
+	TokenBudget int64  `json:"token_budget"`
+}
+
+func (q *Queries) ListGroupMessagesForLCM(ctx context.Context, arg ListGroupMessagesForLCMParams) ([]CtxGroupMessage, error) {
+	rows, err := q.db.Query(ctx, listGroupMessagesForLCM,
+		arg.GroupID,
+		arg.AfterSeq,
+		arg.BeforeSeq,
+		arg.SelfAgentID,
+		arg.TokenBudget,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxGroupMessage{}
+	for rows.Next() {
+		var i CtxGroupMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.Seq,
+			&i.SourceChannelID,
+			&i.ActorType,
+			&i.ActorID,
+			&i.PlatformMessageID,
+			&i.ReplyTo,
+			&i.PlatformTimestamp,
+			&i.IdempotencyKey,
+			&i.Content,
+			&i.Reasoning,
+			&i.AgentSessionID,
+			&i.CreatedAt,
+			&i.ActorDisplayName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGroupMessagesPaginated = `-- name: ListGroupMessagesPaginated :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
 WHERE group_id = $1
 ORDER BY seq DESC
 LIMIT $3 OFFSET $2
@@ -345,6 +435,7 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -419,8 +510,46 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 	return items, nil
 }
 
+const listLatestGroupActorDisplayNames = `-- name: ListLatestGroupActorDisplayNames :many
+SELECT DISTINCT ON (actor_type, actor_id)
+  actor_type,
+  actor_id,
+  actor_display_name
+FROM ctx_group_message
+WHERE group_id = $1
+  AND actor_display_name IS NOT NULL
+  AND btrim(actor_display_name) <> ''
+ORDER BY actor_type, actor_id, seq DESC
+`
+
+type ListLatestGroupActorDisplayNamesRow struct {
+	ActorType        string      `json:"actor_type"`
+	ActorID          string      `json:"actor_id"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+}
+
+func (q *Queries) ListLatestGroupActorDisplayNames(ctx context.Context, groupID string) ([]ListLatestGroupActorDisplayNamesRow, error) {
+	rows, err := q.db.Query(ctx, listLatestGroupActorDisplayNames, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLatestGroupActorDisplayNamesRow{}
+	for rows.Next() {
+		var i ListLatestGroupActorDisplayNamesRow
+		if err := rows.Scan(&i.ActorType, &i.ActorID, &i.ActorDisplayName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
 WHERE group_id = $1
 ORDER BY seq DESC
 LIMIT $2
@@ -455,6 +584,7 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -467,7 +597,7 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 }
 
 const listRecentGroupMessagesBeforeSeq = `-- name: ListRecentGroupMessagesBeforeSeq :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
 WHERE group_id = $1
   AND seq < $2
 ORDER BY seq DESC
@@ -504,6 +634,7 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}

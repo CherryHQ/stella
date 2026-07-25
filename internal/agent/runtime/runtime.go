@@ -19,15 +19,16 @@ import (
 // It owns the runner cache, runner factory, and event streaming.
 // It does NOT own session creation, kind validation, or list/archive APIs.
 type Runtime struct {
-	cache          *runnerCache
-	mem            memory.Provider
-	log            *slog.Logger
-	compact        CompactionConfig
-	beforeRun      BeforeRunFunc
-	snapshotPrompt SnapshotPromptFunc
-	active         sync.Map // session ID → struct{}, tracks in-flight turns
-	turns          turnTracker
-	hub            *SessionHub
+	cache                 *runnerCache
+	mem                   memory.Provider
+	log                   *slog.Logger
+	compact               CompactionConfig
+	beforeRun             BeforeRunFunc
+	snapshotPrompt        SnapshotPromptFunc
+	structuredGroupMemory bool
+	active                sync.Map // session ID → struct{}, tracks in-flight turns
+	turns                 turnTracker
+	hub                   *SessionHub
 }
 
 // turnTracker counts in-flight chat turns so a graceful drain can wait,
@@ -121,6 +122,9 @@ type Config struct {
 	HooksFn         func() []hooks.HookPlugin
 	BeforeRun       BeforeRunFunc
 	SnapshotPrompt  SnapshotPromptFunc
+	// StructuredGroupMemory removes legacy current-speaker private Profile
+	// affordances from public group turns.
+	StructuredGroupMemory bool
 }
 
 // New creates a Runtime from the given config.
@@ -141,13 +145,14 @@ func New(cfg Config) (*Runtime, error) {
 	cache.defaultThinking = cfg.DefaultThinking
 	cache.hooksFn = cfg.HooksFn
 	return &Runtime{
-		cache:          cache,
-		mem:            cfg.Memory,
-		log:            log,
-		compact:        cfg.Compaction.WithDefaults(),
-		beforeRun:      cfg.BeforeRun,
-		snapshotPrompt: cfg.SnapshotPrompt,
-		hub:            NewSessionHub(),
+		cache:                 cache,
+		mem:                   cfg.Memory,
+		log:                   log,
+		compact:               cfg.Compaction.WithDefaults(),
+		beforeRun:             cfg.BeforeRun,
+		snapshotPrompt:        cfg.SnapshotPrompt,
+		structuredGroupMemory: cfg.StructuredGroupMemory,
+		hub:                   NewSessionHub(),
 	}, nil
 }
 

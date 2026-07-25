@@ -21,6 +21,12 @@ import (
 func requireSessionScope(ctx context.Context, userID, agentID string) (string, string, error) {
 	if userID == "" {
 		userID = authz.UserIDFromContext(ctx)
+		if userID == "" {
+			// Group conversations are persisted in the same owner column using
+			// their canonical group UUID. Read it directly from the trusted group
+			// identity instead of minting a synthetic authenticated user.
+			userID = authz.GroupIDFromContext(ctx)
+		}
 	}
 	if agentID == "" {
 		agentID = authz.AgentIDFromContext(ctx)

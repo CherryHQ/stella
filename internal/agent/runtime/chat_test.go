@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -23,13 +25,60 @@ type recordingMemory struct {
 	assembleError error
 }
 
+type blockingCommitMemory struct {
+	*recordingMemory
+	started chan struct{}
+	release chan struct{}
+}
+
 type snapshotRecordingMemory struct {
 	*recordingMemory
 	snapshot memory.SessionSnapshot
 }
 
+type saveInfoContextMemory struct {
+	*recordingMemory
+	savedAuthzUserID string
+}
+
+type groupMemoryWithoutCommitter struct {
+	memory.Provider
+	ingestor memory.GroupEventIngestor
+}
+
+func (m *groupMemoryWithoutCommitter) SyncGroupEventsBefore(ctx context.Context, session memory.Session, triggerSeq int64) error {
+	return m.ingestor.SyncGroupEventsBefore(ctx, session, triggerSeq)
+}
+
+func (m *groupMemoryWithoutCommitter) AppendGroupTurn(
+	ctx context.Context,
+	session memory.Session,
+	groupMessageID string,
+	trigger ai.Message,
+	continuation ...ai.Message,
+) error {
+	return m.ingestor.AppendGroupTurn(ctx, session, groupMessageID, trigger, continuation...)
+}
+
 func (m *snapshotRecordingMemory) GetOrCreateSessionSnapshot(context.Context, string, string, string) (memory.SessionSnapshot, error) {
 	return m.snapshot, nil
+}
+
+func (m *saveInfoContextMemory) SaveInfo(ctx context.Context, _ memory.SessionInfo) error {
+	m.savedAuthzUserID = authz.UserIDFromContext(ctx)
+	return nil
+}
+
+func (*saveInfoContextMemory) LoadInfo(context.Context, string) (memory.SessionInfo, error) {
+	return memory.SessionInfo{}, nil
+}
+
+func (*saveInfoContextMemory) ListInfo(context.Context, memory.ListOptions) ([]memory.SessionInfo, error) {
+	return nil, nil
+}
+
+func (*saveInfoContextMemory) LoadHistory(context.Context, string) ([]ai.Message, error) {
+	return nil, nil
 }
 
 func (*snapshotRecordingMemory) AdvanceSessionSnapshot(context.Context, string, string, string) error {
@@ -67,10 +116,47 @@ func (m *recordingMemory) CommitGroupCursor(_ context.Context, _ memory.Session,
 	return nil
 }
 
+func (m *blockingCommitMemory) CommitGroupCursor(ctx context.Context, session memory.Session, seq int64) error {
+	close(m.started)
+	select {
+	case <-m.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return m.recordingMemory.CommitGroupCursor(ctx, session, seq)
+}
+
+func (*recordingMemory) SyncGroupEventsBefore(context.Context, memory.Session, int64) error {
+	return nil
+}
+
+func (m *recordingMemory) AppendGroupTurn(
+	ctx context.Context,
+	session memory.Session,
+	_ string,
+	trigger ai.Message,
+	continuation ...ai.Message,
+) error {
+	msgs := make([]ai.Message, 0, len(continuation)+1)
+	msgs = append(msgs, trigger)
+	msgs = append(msgs, continuation...)
+	return m.Append(ctx, session, msgs...)
+}
+
 type chatFakeRunner struct {
 	events   []Event
 	system   string
 	messages *[]MessageContent
+}
+
+type recordingPreAgentHook struct {
+	userID string
+}
+
+func (*recordingPreAgentHook) Name() string  { return "recording-pre-agent" }
+func (*recordingPreAgentHook) Priority() int { return 0 }
+func (h *recordingPreAgentHook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext) {
+	h.userID = hctx.UserID
 }
 
 func (r chatFakeRunner) Chat(_ context.Context, _ []ai.Message, msg MessageContent) <-chan Event {
@@ -90,6 +176,68 @@ func (r chatFakeRunner) Busy() bool              { return false }
 func (r chatFakeRunner) LastActivity() time.Time { return time.Now() }
 func (r chatFakeRunner) SystemPrompt() string    { return r.system }
 func (r chatFakeRunner) Close() error            { return nil }
+
+func TestRuntimeChatDoesNotExposeGroupOwnerAsHookUser(t *testing.T) {
+	mem := &recordingMemory{}
+	hook := &recordingPreAgentHook{}
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+		},
+		HooksFn: func() []hooks.HookPlugin { return []hooks.HookPlugin{hook} },
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	ctx := memory.WithGroupMessageID(context.Background(), "group-message-1")
+	ctx = memory.WithGroupSeq(ctx, 1)
+	out := rt.Chat(ctx, session.Info{
+		ID:      "session-1",
+		UserID:  "11111111-1111-4111-8111-111111111111",
+		GroupID: "11111111-1111-4111-8111-111111111111",
+		AgentID: "agent-1",
+	}, "hello")
+	for evt := range out {
+		if evt.Err != nil {
+			t.Fatalf("chat: %v", evt.Err)
+		}
+	}
+	if hook.userID != "" {
+		t.Fatalf("group hook UserID = %q, want empty", hook.userID)
+	}
+}
+
+func TestRuntimeChatDoesNotPutGroupOwnerInSaveInfoAuthzContext(t *testing.T) {
+	mem := &saveInfoContextMemory{recordingMemory: &recordingMemory{}}
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	ctx := memory.WithGroupMessageID(context.Background(), "group-message-1")
+	ctx = memory.WithGroupSeq(ctx, 1)
+	out := rt.Chat(ctx, session.Info{
+		ID:      "session-1",
+		UserID:  "11111111-1111-4111-8111-111111111111",
+		GroupID: "11111111-1111-4111-8111-111111111111",
+		AgentID: "agent-1",
+	}, "hello")
+	for evt := range out {
+		if evt.Err != nil {
+			t.Fatalf("chat: %v", evt.Err)
+		}
+	}
+	if mem.savedAuthzUserID != "" {
+		t.Fatalf("SaveInfo authz UserID = %q, want empty", mem.savedAuthzUserID)
+	}
+}
 
 func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 	mem := &snapshotRecordingMemory{
@@ -164,6 +312,50 @@ func TestRuntimeChatCommitsGroupCursorAfterSuccessfulGroupTurn(t *testing.T) {
 	}
 }
 
+func TestRuntimeChatRejectsGroupMemoryWithoutCursorCommitter(t *testing.T) {
+	inner := &recordingMemory{}
+	mem := &groupMemoryWithoutCommitter{Provider: inner, ingestor: inner}
+	var modelMessages []MessageContent
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{
+				events:   []Event{{Text: "unexpected"}},
+				messages: &modelMessages,
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	out := make(chan Event, 10)
+	rt.chat(
+		memory.WithGroupSeq(context.Background(), 42),
+		out,
+		session.Info{
+			ID:      "sess-1",
+			UserID:  "11111111-1111-4111-8111-111111111111",
+			AgentID: "agent-1",
+			GroupID: "11111111-1111-4111-8111-111111111111",
+		},
+		"hello",
+		chatOptions{},
+	)
+	var gotErr error
+	for evt := range out {
+		if evt.Err != nil {
+			gotErr = evt.Err
+		}
+	}
+	if gotErr == nil || !strings.Contains(gotErr.Error(), "group cursor commits") {
+		t.Fatalf("error = %v, want missing group cursor committer", gotErr)
+	}
+	if len(modelMessages) != 0 {
+		t.Fatal("model should not run without a group cursor committer")
+	}
+}
+
 func TestRuntimeChatDoesNotCommitGroupCursorOnChatError(t *testing.T) {
 	mem := &recordingMemory{}
 	boom := errors.New("boom")
@@ -208,6 +400,58 @@ func TestRuntimeChatDoesNotCommitGroupCursorWhenContextCanceled(t *testing.T) {
 	}
 	if len(mem.commits) != 0 {
 		t.Fatalf("commits = %v, want none", mem.commits)
+	}
+}
+
+func TestRuntimeChatClosesOnlyAfterGroupCursorCommit(t *testing.T) {
+	mem := &blockingCommitMemory{
+		recordingMemory: &recordingMemory{},
+		started:         make(chan struct{}),
+		release:         make(chan struct{}),
+	}
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	ctx := memory.WithGroupMessageID(context.Background(), "group-message-1")
+	ctx = memory.WithGroupSeq(ctx, 42)
+	out := rt.Chat(ctx, session.Info{
+		ID:      "sess-1",
+		UserID:  "11111111-1111-4111-8111-111111111111",
+		AgentID: "agent-1",
+		GroupID: "11111111-1111-4111-8111-111111111111",
+	}, "hello")
+
+	if evt := <-out; evt.Text != "ok" {
+		t.Fatalf("first event = %#v, want text event", evt)
+	}
+	select {
+	case <-mem.started:
+	case <-time.After(time.Second):
+		t.Fatal("group cursor commit did not start")
+	}
+	select {
+	case _, ok := <-out:
+		if !ok {
+			t.Fatal("chat stream closed before group cursor commit completed")
+		}
+	case <-time.After(50 * time.Millisecond):
+		// The stream stays open while the durable commit is in flight.
+	}
+
+	close(mem.release)
+	select {
+	case _, ok := <-out:
+		if ok {
+			t.Fatal("unexpected event after group cursor commit")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("chat stream did not close after group cursor commit")
 	}
 }
 
@@ -343,9 +587,10 @@ func TestStreamEventsDoesNotDuplicateBufferedAssistantStore(t *testing.T) {
 	}}}
 	close(stream)
 
-	if err := rt.streamEvents(context.Background(), "session-1", memory.Session{ID: "session-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); err != nil {
+	if err := rt.streamEvents(context.Background(), "session-1", memory.Session{ID: "session-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now(), "", nil); err != nil {
 		t.Fatalf("stream events: %v", err)
 	}
+	close(out)
 	for range out {
 	}
 
@@ -377,9 +622,10 @@ func TestStreamEvents_TimeoutDoesNotForwardError(t *testing.T) {
 	stream <- Event{Err: ErrChatTimeout}
 	close(stream)
 
-	if err := rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, ErrChatTimeout) {
+	if err := rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now(), "", nil); !errors.Is(err, ErrChatTimeout) {
 		t.Fatalf("stream events error = %v, want timeout", err)
 	}
+	close(out)
 
 	var events []Event
 	for evt := range out {
@@ -408,9 +654,10 @@ func TestStreamEvents_NonTimeoutErrorForwarded(t *testing.T) {
 	stream <- Event{Err: realErr}
 	close(stream)
 
-	if err := rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, realErr) {
+	if err := rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now(), "", nil); !errors.Is(err, realErr) {
 		t.Fatalf("stream events error = %v, want provider error", err)
 	}
+	close(out)
 
 	var gotErr bool
 	for evt := range out {

@@ -69,6 +69,7 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		SourceChannelID:   channelID,
 		ActorType:         eventlog.ActorHuman,
 		ActorID:           msg.SenderID,
+		ActorDisplayName:  msg.SenderName,
 		PlatformMessageID: msg.MessageID,
 		PlatformTimestamp: msg.Timestamp,
 		ReplyTo:           msg.ReplyTo,
@@ -210,9 +211,9 @@ func (c *Coordinator) resolveGroupChat(ctx context.Context, msg pkgchannel.Incom
 	}, nil
 }
 
-// platformGroupSpeaker builds the per-turn speaker for a platform group sender.
-// A linked sender carries the resolved auth user id (profile target); an unlinked
-// sender carries an empty UserID, so no profile is ever injected for them.
+// platformGroupSpeaker builds the per-turn public speaker label. UserID remains
+// available only for the legacy group-memory compatibility path; structured
+// group memory never exposes the linked user's private memory.
 func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName string) memory.CurrentSpeaker {
 	displayName := msg.SenderName
 	if displayName == "" {

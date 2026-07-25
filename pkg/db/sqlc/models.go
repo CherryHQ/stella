@@ -373,6 +373,31 @@ type CtxGroupDispatch struct {
 	UpdatedAt       time.Time          `json:"updated_at"`
 }
 
+type CtxGroupFact struct {
+	ID        string      `json:"id"`
+	GroupID   string      `json:"group_id"`
+	Subject   string      `json:"subject"`
+	SubjectID pgtype.Text `json:"subject_id"`
+	Content   string      `json:"content"`
+	Status    string      `json:"status"`
+	Source    string      `json:"source"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
+}
+
+type CtxGroupFactChangelog struct {
+	ID                 string    `json:"id"`
+	GroupID            string    `json:"group_id"`
+	FactID             string    `json:"fact_id"`
+	Action             string    `json:"action"`
+	Source             string    `json:"source"`
+	GroupVersionBefore int64     `json:"group_version_before"`
+	GroupVersionAfter  int64     `json:"group_version_after"`
+	BeforeState        []byte    `json:"before_state"`
+	AfterState         []byte    `json:"after_state"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
 type CtxGroupIngestCursor struct {
 	GroupID   string    `json:"group_id"`
 	Pipeline  string    `json:"pipeline"`
@@ -412,6 +437,7 @@ type CtxGroupMessage struct {
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
 }
 
 type CtxGroupOutbox struct {
@@ -452,14 +478,15 @@ type CtxItem struct {
 }
 
 type CtxMessage struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	Seq            int64     `json:"seq"`
-	Role           string    `json:"role"`
-	EventType      string    `json:"event_type"`
-	Content        string    `json:"content"`
-	TokenCount     int64     `json:"token_count"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID                   string      `json:"id"`
+	ConversationID       string      `json:"conversation_id"`
+	Seq                  int64       `json:"seq"`
+	Role                 string      `json:"role"`
+	EventType            string      `json:"event_type"`
+	Content              string      `json:"content"`
+	TokenCount           int64       `json:"token_count"`
+	CreatedAt            time.Time   `json:"created_at"`
+	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
 }
 
 type CtxMessageEmbedding struct {

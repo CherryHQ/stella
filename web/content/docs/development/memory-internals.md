@@ -20,18 +20,20 @@ The core `Provider` interface (`internal/memory/provider.go`) has 5 methods:
 
 Providers can implement additional interfaces detected via type assertion:
 
-| Interface                                            | Description                                        |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| `Compactor`                                          | Context window compaction                          |
-| `Searcher`                                           | Full-text search across messages and summaries     |
-| `Explorer`                                           | Inspect and drill into summaries                   |
-| `ProfileStore`                                       | Per-user-per-agent profile and soul text           |
-| `ConstraintStore`                                    | Per-user-per-agent hard constraints                |
-| `ChangelogReader` / `ChangelogWriter`                | Version history for memory writes                  |
-| `VersionedProfileStore` / `VersionedConstraintStore` | Read identity/constraint state at a frozen version |
-| `SessionSnapshotStore`                               | Freeze and advance per-session memory versions     |
-| `SessionManager`                                     | Session metadata and history management            |
-| `ReviewSource`                                       | Self-improvement review data for Reflect           |
+| Interface                                            | Description                                                            |
+| ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| `Compactor`                                          | Context window compaction                                              |
+| `Searcher`                                           | Full-text search across messages and summaries                         |
+| `Explorer`                                           | Inspect and drill into summaries                                       |
+| `ProfileStore`                                       | Per-user-per-agent profile and soul text                               |
+| `ConstraintStore`                                    | Per-user-per-agent hard constraints                                    |
+| `ChangelogReader` / `ChangelogWriter`                | Version history for memory writes                                      |
+| `VersionedProfileStore` / `VersionedConstraintStore` | Read identity/constraint state at a frozen version                     |
+| `SessionSnapshotStore`                               | Freeze and advance per-session memory versions                         |
+| `SessionManager`                                     | Session metadata and history management                                |
+| `ReviewSource`                                       | Self-improvement review data for Reflect                               |
+| `GroupEventIngestor` / `GroupCursorCommitter`        | Idempotent public Group Event replication and post-turn cursor commits |
+| `GroupFactStore`                                     | Group-scoped atomic Fact reads and version checks                      |
 
 The LCM plugin implements the full set. The Simple plugin implements the core provider plus identity, constraints, changelog, snapshots, and session management, but it does not compact/search/explore.
 
@@ -57,17 +59,14 @@ The LCM plugin implements the full set. The Simple plugin implements the core pr
 
 The tool's JSON schema, description, and dispatch all adapt dynamically. A provider with fewer capabilities produces a tool with fewer actions. A model-facing chat session is additionally read-only for durable memory writes: it cannot call `profile_update`, `soul_update`, `profile_rollback`, `constraint_add`, or `constraint_remove`.
 
-### Group turns: current-speaker fallback
+### Group turns
 
-In a group session the runtime identity is the group, so there is no session user (D9). To still let an agent read facts about the person speaking, `profile_get` falls back to the current speaker when no session user is present. The lower-level resolver also supports `profile_update` for explicitly write-enabled tools, but ordinary chat runners do not expose that action:
+`STELLA_GROUP_MEMORY_MODE` controls the transition:
 
-1. Session user (`UserIDFromContext`) — normal DM behavior.
-2. Otherwise the linked current speaker (`CurrentSpeaker.UserID`) — group personalization.
-3. Otherwise fail closed with `no linked current speaker` (unlinked sender).
+- `legacy` keeps the old shared Blob prompt and its compatibility behavior.
+- `structured` exposes only `status`, `search`, `describe`, `expand`, and `get_message` for the current group session. It does not expose Profile, Soul, Constraint, or one-to-one Knowledge actions and does not use current-speaker Profile fallback.
 
-The fallback is deliberately narrow. **Only `profile_get` gets it in ordinary chat, and only when the model explicitly calls the tool.** `soul_get`, `soul_update`, `constraint_*`, `profile_history`, and `profile_rollback` stay on the strict session-user resolver, so in a group turn they fail closed — a public room is not a place to read or rewrite one member's soul, constraints, or history through a shared agent. If an explicitly write-enabled internal tool calls `profile_update` through the fallback, it advances the speaker's own snapshot row `(session, speaker.UserID, agent)`, never the group's.
-
-See [Group chat: current speaker (D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10).
+The runtime group identity contains `(group_id, agent_id)` and no authenticated user. This same boundary hides user/user_agent Skills; group Agents can read system, their own system_agent, and project Skills only.
 
 ## System Prompt Layers
 
@@ -77,13 +76,13 @@ Each turn can rebuild the system prompt from the current or frozen memory versio
 2. **Tools and plugin prompt inventory** — available tools, plugin capabilities, skills.
 3. **Constraints** — user-approved hard rules from `ConstraintStore`; injected before soul/profile and not touched by Reflect.
 4. **Agent soul** — agent identity/personality text.
-5. **User profile** — durable user notes. **Group turns replace this with `## Group Memory` (the shared group drawer) plus an optional `## Current Speaker` section** that contains only speaker name and linked status; the per-user profile is never rendered in a group turn. Group mode is keyed on the session having a `group_id`, not on group memory being non-empty.
+5. **User profile or Group Facts** — DM sessions use their frozen user profile. Structured group sessions inject all active atomic Group Facts through the per-turn before-run hook; they do not render a user profile or legacy Group Memory Blob.
 6. **Knowledge** — active `subject=world` facts from the facts table.
 7. **Project context** — `AGENTS.md` and related project instructions.
 
 Conversation history is assembled separately by the memory provider. Constraints, identity, and knowledge live in the system prompt, so conversation compaction does not remove them.
 
-For group turns the PoolManager before-run path re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are intentionally not auto-injected into public group prompts; profile access remains behind explicit read-only `memory.profile_get` calls.
+Structured Group Facts are not snapshotted per session. A process-shared cache is keyed only by `group_id`: it reuses the last successful block for two hours, checks the group version after expiry, and reloads all active Facts only when the version changes. Current public messages take precedence over stale or conflicting Facts. Facts provide context only and cannot grant permissions or override system/constraint instructions.
 
 ## Changelog and Rollback
 
@@ -137,6 +136,19 @@ Knowledge is stored as active `facts` rows with `subject=world` and `scope=user_
 Skills remain reusable procedures and no longer create or store fact/context knowledge via `metadata.knowledge_type`. Legacy `user_agent` skill-backed knowledge is migrated into `subject=world` facts by the v1 facts migration; broader knowledge scopes are intentionally left for a follow-up design.
 
 Normal conversation tools do not directly write facts. Structured Reflect generates and evaluates Fact and Skill candidates, discovers related Reflect-owned records, reconciles accepted candidates, and writes each line through host-validated operations. Usage tracking and the curator maintain the lifecycle of active Reflect-owned Knowledge and Skills.
+
+## Structured Group Facts
+
+Group Facts are a separate public collaboration memory scoped by `group_id`. They never read or write one-to-one Profile, Soul, Constraint, Knowledge, or user-owned Skills.
+
+- Subjects are `group`, `human:<actor_id>`, or `agent:<actor_id>`.
+- Group Reflect runs every six hours on a dedicated 128k+ model and reads bounded public Event Log windows only.
+- Generation emits at most five candidates; an independent evaluator applies the stricter group rubric and deterministic host gate.
+- Accepted candidates are reconciled against all active Facts in that group using `noop`, `create`, `replace_many`, or `deprecate_many`.
+- Facts, changelog, group version, and `group_reflect` cursor commit in one short per-group transaction.
+- There is no group snapshot, usage/LRU expiry, private Profile fallback, or automatic Skill generation.
+
+Each Agent keeps an independent LCM. Public Group Events are copied into that LCM with `origin_group_message_id`, so retries are idempotent. Pending public Events are synchronized before compaction; group LCM uses an 80k budget and preserves the six newest Group Event input anchors plus their causal assistant/tool tail.
 
 ## Structured Reflect and Curator
 

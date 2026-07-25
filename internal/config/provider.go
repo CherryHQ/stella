@@ -1,5 +1,7 @@
 package config
 
+const GroupMemoryMinimumContextWindow = 128_000
+
 type ProviderModelCost struct {
 	Input      float64 `json:"input,omitempty"`
 	Output     float64 `json:"output,omitempty"`

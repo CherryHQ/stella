@@ -75,7 +75,7 @@ func (q *Queries) IsIngestError(ctx context.Context, arg IsIngestErrorParams) (b
 }
 
 const listGroupMessagesAfterSeq = `-- name: ListGroupMessagesAfterSeq :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
 WHERE group_id = $1 AND seq > $2
 ORDER BY seq ASC
 LIMIT $3
@@ -111,6 +111,7 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -123,7 +124,7 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 }
 
 const listGroupMessagesBetweenSeqs = `-- name: ListGroupMessagesBetweenSeqs :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
 WHERE group_id = $1
   AND seq > $2
   AND seq < $3
@@ -160,6 +161,7 @@ func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGrou
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -211,7 +213,7 @@ const upsertIngestCursor = `-- name: UpsertIngestCursor :exec
 INSERT INTO ctx_group_ingest_cursor (group_id, pipeline, last_seq, updated_at)
 VALUES ($1, $2, $3, now())
 ON CONFLICT(group_id, pipeline) DO UPDATE SET
-    last_seq = excluded.last_seq,
+    last_seq = GREATEST(ctx_group_ingest_cursor.last_seq, excluded.last_seq),
     updated_at = now()
 `
 

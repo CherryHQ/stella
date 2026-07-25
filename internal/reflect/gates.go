@@ -65,6 +65,17 @@ func gateCandidates(inputs []CandidateGateInput, cfg CandidateGateConfig) Candid
 	return result
 }
 
+// GateCandidates applies the shared deterministic score and secret filters.
+func GateCandidates(inputs []CandidateGateInput, cfg CandidateGateConfig) CandidateGateResult {
+	return gateCandidates(inputs, cfg)
+}
+
+// ContainsSecretLikeContent exposes the deterministic secret guard to other
+// structured Reflect pipelines.
+func ContainsSecretLikeContent(content string) bool {
+	return containsSecretLikeContent(content)
+}
+
 func normalizedWeightedScore(scores map[string]int, weights map[string]float64) float64 {
 	fields := make([]string, 0, len(weights))
 	for field := range weights {

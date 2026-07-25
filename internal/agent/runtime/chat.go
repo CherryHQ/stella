@@ -25,7 +25,11 @@ import (
 // ErrChatTimeout is emitted when a chat turn exceeds its deadline.
 var ErrChatTimeout = agenterr.ErrChatTimeout
 
-const autoCompactionTimeout = 2 * time.Minute
+const (
+	autoCompactionTimeout = 2 * time.Minute
+	groupLCMMaxTokens     = 80_000
+	groupLCMKeepTail      = 6
+)
 
 // BeforeRunFunc is called before each chat turn to inject/override the system prompt.
 type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (systemOut string, err error)
@@ -35,10 +39,13 @@ type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory
 
 // chat is the goroutine body for Runtime.Chat.
 func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
+	// A closed event stream means the complete turn, including durable group
+	// cursor commit, has finished.
+	defer close(out)
+
 	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
-		close(out)
 		return
 	}
 
@@ -50,8 +57,13 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		// identity remains the group (D9).
 		ctx = authz.WithGroupID(ctx, info.GroupID)
 		if co.hasSpeaker {
-			// Attach the speaker as a personalization target only.
-			ctx = memory.WithCurrentSpeaker(ctx, co.currentSpeaker)
+			speaker := co.currentSpeaker
+			if rt.structuredGroupMemory {
+				// Structured group turns retain only public actor metadata. The
+				// private Stella-user link exists solely for legacy Profile fallback.
+				speaker.UserID = ""
+			}
+			ctx = memory.WithCurrentSpeaker(ctx, speaker)
 		}
 	}
 	ctx = authz.WithAgentID(ctx, info.AgentID)
@@ -65,7 +77,6 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	memSess, err := info.MemoryScope()
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("session scope: %w", err)}
-		close(out)
 		return
 	}
 
@@ -76,9 +87,15 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	chatStart := time.Now()
 	hookPlugins := rt.hookPlugins()
 	hs := hooks.NewHookSet(hookPlugins)
+	hookUserID := info.UserID
+	if info.GroupID != "" {
+		// Group sessions persist under a synthetic owner key, but hooks must not
+		// interpret that key as an authenticated user identity.
+		hookUserID = ""
+	}
 	hookMeta := hooks.HookMeta{
 		SessionID: info.ID,
-		UserID:    info.UserID,
+		UserID:    hookUserID,
 		AgentID:   info.AgentID,
 		Channel:   info.Channel,
 	}
@@ -88,8 +105,30 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		Channel:    info.Channel,
 	})
 
+	// Public group events must enter the per-agent LCM before compaction. The
+	// triggering event itself remains excluded until the turn succeeds.
+	var groupCommitter memory.GroupCursorCommitter
+	if memSess.GroupID != "" {
+		ingestor, ok := rt.mem.(memory.GroupEventIngestor)
+		if !ok {
+			out <- Event{Err: errors.New("memory provider does not support group event ingestion")}
+			return
+		}
+		groupCommitter, ok = rt.mem.(memory.GroupCursorCommitter)
+		if !ok {
+			out <- Event{Err: errors.New("memory provider does not support group cursor commits")}
+			return
+		}
+		if err := ingestor.SyncGroupEventsBefore(ctx, memSess, memory.GroupSeqFromContext(ctx)); err != nil {
+			out <- Event{Err: fmt.Errorf("sync group events: %w", err)}
+			return
+		}
+	}
+
+	maxTokens, keepTail := rt.compactionLimits(memSess)
+
 	// Auto-compact.
-	if rt.needsCompaction(ctx, memSess) {
+	if rt.needsCompaction(ctx, memSess, maxTokens) {
 		rt.log.Info("auto-compaction triggered", "session_id", info.ID)
 		compactCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), autoCompactionTimeout)
 		if summary, err := rt.compact_(compactCtx, memSess); err != nil {
@@ -101,7 +140,6 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 			cs, r, err = rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
 			if err != nil {
 				out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
-				close(out)
 				return
 			}
 		}
@@ -115,7 +153,12 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		if updated.Title == "" && len(msgText) > 0 {
 			updated.Title = autoTitle(msgText)
 		}
-		saveCtx := authz.WithUserID(ctx, info.UserID)
+		saveCtx := ctx
+		if info.GroupID == "" {
+			// Group sessions use UserID only as a durable storage owner. Keep
+			// authz user identity unset when persisting group metadata.
+			saveCtx = authz.WithUserID(saveCtx, info.UserID)
+		}
 		saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
 		if rec, err := updated.Record(); err != nil {
 			rt.log.Warn("skip saving invalid session info", "session_id", info.ID, "error", err)
@@ -127,12 +170,11 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	// Assemble history before appending the new user message.
 	var history []ai.Message
 	assembledOK := false
-	assembled, err := rt.mem.Assemble(ctx, memSess, rt.compact.MaxTokens, rt.compact.KeepTail)
+	assembled, err := rt.mem.Assemble(ctx, memSess, maxTokens, keepTail)
 	if err != nil {
 		rt.log.Warn("memory assemble failed", "session_id", info.ID, "error", err)
 		if memSess.GroupID != "" {
 			out <- Event{Err: fmt.Errorf("assemble group memory: %w", err)}
-			close(out)
 			return
 		}
 	} else {
@@ -163,7 +205,6 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		systemOut, err := rt.beforeRun(ctx, info, cs.model, msgText, baseSystem, history)
 		if err != nil {
 			out <- Event{Err: fmt.Errorf("before run: %w", err)}
-			close(out)
 			return
 		}
 		if systemOut != "" {
@@ -185,23 +226,31 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now()}
 	modelMsg := userMsg
 	if memSess.GroupID != "" && co.hasSpeaker {
-		modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker)
+		modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker, !rt.structuredGroupMemory)
 	}
-	var storePrefix []ai.Message
-	if memSess.GroupID != "" {
-		storePrefix = []ai.Message{userMsg}
-	} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
-		rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
+	if memSess.GroupID == "" {
+		if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
+			rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
+		}
 	}
 
 	stream := r.Chat(ctx, history, modelMsg)
-	chatErr := rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	chatErr := rt.streamEvents(
+		ctx,
+		info.ID,
+		memSess,
+		stream,
+		out,
+		hs,
+		hookMeta,
+		chatStart,
+		memory.GroupMessageIDFromContext(ctx),
+		userMsg,
+	)
 	if chatErr == nil && assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
-		if committer, ok := rt.mem.(memory.GroupCursorCommitter); ok {
-			commitCtx := context.WithoutCancel(ctx)
-			if err := committer.CommitGroupCursor(commitCtx, memSess, memory.GroupSeqFromContext(ctx)); err != nil {
-				rt.log.Warn("group cursor commit failed", "session_id", info.ID, "group_id", memSess.GroupID, "error", err)
-			}
+		commitCtx := context.WithoutCancel(ctx)
+		if err := groupCommitter.CommitGroupCursor(commitCtx, memSess, memory.GroupSeqFromContext(ctx)); err != nil {
+			rt.log.Warn("group cursor commit failed", "session_id", info.ID, "group_id", memSess.GroupID, "error", err)
 		}
 	}
 }
@@ -247,15 +296,22 @@ func (rt *Runtime) hookPlugins() []hooks.HookPlugin {
 	return fn()
 }
 
-func (rt *Runtime) needsCompaction(ctx context.Context, sess memory.Session) bool {
-	if rt.compact.MaxTokens <= 0 {
+func (rt *Runtime) compactionLimits(sess memory.Session) (maxTokens, keepTail int) {
+	if sess.GroupID != "" {
+		return groupLCMMaxTokens, groupLCMKeepTail
+	}
+	return rt.compact.MaxTokens, rt.compact.KeepTail
+}
+
+func (rt *Runtime) needsCompaction(ctx context.Context, sess memory.Session, maxTokens int) bool {
+	if maxTokens <= 0 {
 		return false
 	}
 	c, ok := rt.mem.(memory.Compactor)
 	if !ok {
 		return false
 	}
-	return c.NeedsCompaction(ctx, sess, float64(rt.compact.MaxTokens))
+	return c.NeedsCompaction(ctx, sess, float64(maxTokens))
 }
 
 func (rt *Runtime) compact_(ctx context.Context, sess memory.Session) (string, error) {
@@ -304,25 +360,19 @@ func (rt *Runtime) streamEvents(
 	hs *hooks.HookSet,
 	hookMeta hooks.HookMeta,
 	chatStart time.Time,
-	storePrefix ...ai.Message,
+	groupMessageID string,
+	groupTrigger ai.Message,
 ) error {
 	persistCtx := context.WithoutCancel(ctx)
 	isGroup := memSess.GroupID != ""
 	var chatErr error
 	var pendingStores []ai.Message
-	appendWithPrefix := func(msgs ...ai.Message) error {
-		storeMessages := make([]ai.Message, 0, len(storePrefix)+len(msgs))
-		storeMessages = append(storeMessages, storePrefix...)
-		storeMessages = append(storeMessages, msgs...)
-		storePrefix = nil
-		return rt.mem.Append(persistCtx, memSess, storeMessages...)
-	}
 	storeCurrent := func(msgs ...ai.Message) error {
 		if isGroup {
 			pendingStores = append(pendingStores, msgs...)
 			return nil
 		}
-		return appendWithPrefix(msgs...)
+		return rt.mem.Append(persistCtx, memSess, msgs...)
 	}
 	defer func() {
 		hs.RunPostAgentCall(ctx, &hooks.PostAgentCallContext{
@@ -330,7 +380,6 @@ func (rt *Runtime) streamEvents(
 			Duration: time.Since(chatStart),
 			Error:    chatErr,
 		})
-		close(out)
 	}()
 
 	var textBuf strings.Builder
@@ -408,16 +457,18 @@ func (rt *Runtime) streamEvents(
 		pendingStores = append(pendingStores, bufferedAssistantMessage(textBuf.String(), reasoningBuf.String()))
 	}
 	if isGroup {
-		if len(storePrefix) > 0 || len(pendingStores) > 0 {
-			if err := appendWithPrefix(pendingStores...); err != nil {
-				rt.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
-				return fmt.Errorf("memory append final message: %w", err)
-			}
+		ingestor, ok := rt.mem.(memory.GroupEventIngestor)
+		if !ok {
+			return errors.New("memory provider does not support group event ingestion")
+		}
+		if err := ingestor.AppendGroupTurn(persistCtx, memSess, groupMessageID, groupTrigger, pendingStores...); err != nil {
+			rt.log.Warn("memory append group turn failed", "session_id", sessionID, "error", err)
+			return fmt.Errorf("memory append group turn: %w", err)
 		}
 		return nil
 	}
 	if len(pendingStores) > 0 {
-		if err := appendWithPrefix(pendingStores...); err != nil {
+		if err := rt.mem.Append(persistCtx, memSess, pendingStores...); err != nil {
 			rt.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
 			return fmt.Errorf("memory append final message: %w", err)
 		}

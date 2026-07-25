@@ -37,6 +37,14 @@ func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
 	return params.UserID != "" && params.AgentID != ""
 }
 
+func NonGroupBuiltinToolAvailable(ctx context.Context, params RunnerParams) bool {
+	return params.GroupID == "" && BuiltinToolAvailable(ctx, params)
+}
+
+func GroupBuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
+	return params.GroupID != "" && params.AgentID != ""
+}
+
 // runnerBuilderConfig holds all dependencies needed to assemble a NewRunnerFunc.
 type runnerBuilderConfig struct {
 	Snap                     *config.Snapshot
@@ -54,6 +62,7 @@ type runnerBuilderConfig struct {
 	VaultEnvLoader           sandbox.VaultEnvLoader
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
+	StructuredGroupMemory    bool
 }
 
 // newRunnerFunc assembles a NewRunnerFunc for a given config snapshot.
@@ -77,6 +86,17 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			provID = cfg.Snap.Provider
 		}
 		creds := cfg.Snap.ResolveProviderCreds(provID)
+		if params.GroupID != "" && cfg.StructuredGroupMemory {
+			groupModel := cfg.Snap.ResolveModelRef(modelRef)
+			if groupModel.ContextWindow < config.GroupMemoryMinimumContextWindow {
+				return nil, fmt.Errorf(
+					"group chat model %q declares context window %d; structured group memory requires at least %d",
+					modelRef,
+					groupModel.ContextWindow,
+					config.GroupMemoryMinimumContextWindow,
+				)
+			}
+		}
 		apiName := creds.Type
 		if apiName == "" {
 			apiName = provID
@@ -135,12 +155,18 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if cfg.SessionPluginViewBuilder != nil {
 			pluginView, _ = cfg.SessionPluginViewBuilder(ctx)
 		}
+		promptUserID := params.UserID
+		if params.GroupID != "" {
+			// A group session has a synthetic UserID equal to group_id. It is
+			// workspace identity, not a Skill owner.
+			promptUserID = ""
+		}
 		promptBuild := pkgplugins.SystemPromptContext{
 			StellaHome:          config.StellaHome(),
 			HomeDir:             homeDir,
 			AgentRoot:           cfg.Snap.Workspace,
 			ProjectRoot:         projectRoot,
-			UserID:              params.UserID,
+			UserID:              promptUserID,
 			AgentID:             params.AgentID,
 			UserRoot:            userRoot,
 			WorkspaceRoot:       userRoot,
@@ -173,25 +199,22 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			}
 		}
 
-		// Build the full system prompt per-session with profile from memory provider.
-		// Group sessions skip private profile injection (D9 isolation); group memory
-		// is Phase 3 concern.
-		promptUserID := params.UserID
-		if params.GroupID != "" {
-			promptUserID = ""
-		}
+		// Build the full system prompt per session. Group sessions skip private
+		// profile injection; structured Group Facts are added per turn after
+		// plugin prompt hooks have completed.
 		system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt: cfg.Snap.SystemPrompt,
-			AgentSoul:    cfg.Snap.Soul,
-			Memory:       memProvider,
-			UserID:       promptUserID,
-			AgentID:      params.AgentID,
-			GroupID:      params.GroupID,
-			StellaHome:   config.StellaHome(),
-			AgentRoot:    cfg.Snap.Workspace,
-			ProjectRoot:  projectRoot,
-			UserRoot:     userRoot,
-			Sections:     sections,
+			SystemPrompt:          cfg.Snap.SystemPrompt,
+			AgentSoul:             cfg.Snap.Soul,
+			Memory:                memProvider,
+			UserID:                promptUserID,
+			AgentID:               params.AgentID,
+			GroupID:               params.GroupID,
+			StellaHome:            config.StellaHome(),
+			AgentRoot:             cfg.Snap.Workspace,
+			ProjectRoot:           projectRoot,
+			UserRoot:              userRoot,
+			Sections:              sections,
+			StructuredGroupMemory: cfg.StructuredGroupMemory,
 		})
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.

@@ -40,6 +40,10 @@ const (
 	reflectModeEnv        = "STELLA_REFLECT_MODE"
 	reflectCuratorModeEnv = "STELLA_REFLECT_CURATOR_MODE"
 
+	groupMemoryModeEnv      = "STELLA_GROUP_MEMORY_MODE"
+	groupReflectModelEnv    = "STELLA_GROUP_REFLECT_MODEL"
+	groupReflectIntervalEnv = "STELLA_GROUP_REFLECT_INTERVAL"
+
 	oidcProviderNameEnv = "OIDC_PROVIDER_NAME"
 	oidcIssuerURLEnv    = "OIDC_ISSUER_URL"
 	oidcClientIDEnv     = "OIDC_CLIENT_ID"
@@ -99,6 +103,9 @@ type ServerConfig struct {
 	// the reflect setup so its lenient-warn-and-clamp interval behavior and
 	// fail-fast curator-mode enum are preserved exactly.
 	Reflect ReflectConfig
+	// GroupMemory carries the controlled legacy/structured rollout settings.
+	// The Group Reflect setup owns mode, model, and interval validation.
+	GroupMemory GroupMemoryConfig
 	// Diagnostics holds optional debug-server settings.
 	Diagnostics DiagnosticsConfig
 	// Observability holds tracing/telemetry toggles owned by this server (the
@@ -147,6 +154,12 @@ type ReflectConfig struct {
 	Interval        string
 	LegacyModeGuard string
 	CuratorMode     string
+}
+
+type GroupMemoryConfig struct {
+	Mode            string
+	ReflectModel    string
+	ReflectInterval string
 }
 
 // DiagnosticsConfig holds optional local debug-server settings.
@@ -281,6 +294,11 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 		Interval:        get(reflectIntervalEnv),
 		LegacyModeGuard: get(reflectModeEnv),
 		CuratorMode:     get(reflectCuratorModeEnv),
+	}
+	cfg.GroupMemory = GroupMemoryConfig{
+		Mode:            get(groupMemoryModeEnv),
+		ReflectModel:    get(groupReflectModelEnv),
+		ReflectInterval: get(groupReflectIntervalEnv),
 	}
 	cfg.Diagnostics.PprofAddr = get(pprofAddrEnv)
 	cfg.Observability.RecordToolIO = get(recordToolIOEnv) == "true"

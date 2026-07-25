@@ -88,7 +88,7 @@ func TestWithCurrentSpeakerContextSupportsMultimodalContent(t *testing.T) {
 		ai.ImageContent{Data: "abc", MimeType: "image/png"},
 		ai.TextContent{Text: "what is this?"},
 	}
-	got, ok := withCurrentSpeakerContext(msg, memory.CurrentSpeaker{DisplayName: "Bob"}).([]ai.ContentBlock)
+	got, ok := withCurrentSpeakerContext(msg, memory.CurrentSpeaker{DisplayName: "Bob"}, true).([]ai.ContentBlock)
 	if !ok {
 		t.Fatalf("speaker context content = %T, want []ai.ContentBlock", got)
 	}
@@ -101,5 +101,54 @@ func TestWithCurrentSpeakerContextSupportsMultimodalContent(t *testing.T) {
 	}
 	if got[1] != msg[0] || got[2] != msg[1] {
 		t.Fatalf("original blocks not preserved: %#v", got)
+	}
+}
+
+func TestStructuredGroupTurnOmitsPrivateSpeakerProfileAffordance(t *testing.T) {
+	mem := &recordingMemory{}
+	runner := &recordingChatRunner{events: []Event{{Text: "ok"}}}
+	var contextSpeaker memory.CurrentSpeaker
+	rt, err := New(Config{
+		Memory:                mem,
+		StructuredGroupMemory: true,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return runner, nil
+		},
+		BeforeRun: func(ctx context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
+			contextSpeaker, _ = memory.CurrentSpeakerFromContext(ctx)
+			return system, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	out := make(chan Event, 10)
+	rt.chat(
+		memory.WithGroupSeq(context.Background(), 7),
+		out,
+		session.Info{
+			ID:      "sess-1",
+			UserID:  "11111111-1111-4111-8111-111111111111",
+			AgentID: "agent-1",
+			GroupID: "11111111-1111-4111-8111-111111111111",
+		},
+		"hello",
+		chatOptions{currentSpeaker: memory.CurrentSpeaker{DisplayName: "Alice", UserID: "private-user"}, hasSpeaker: true},
+	)
+	for range out {
+	}
+
+	got := flattenRuntimeUserMessage(runner.message.(ai.UserMessage))
+	if !strings.Contains(got, "Name: Alice") {
+		t.Fatalf("structured speaker context missing public display name:\n%s", got)
+	}
+	for _, forbidden := range []string{"Linked Stella user", "profile available", "memory.profile_get"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("structured speaker context leaked legacy affordance %q:\n%s", forbidden, got)
+		}
+	}
+	if contextSpeaker.UserID != "" || contextSpeaker.DisplayName != "Alice" {
+		t.Fatalf("structured context speaker = %#v, want public display name without private user link", contextSpeaker)
 	}
 }
