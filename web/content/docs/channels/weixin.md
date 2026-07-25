@@ -48,13 +48,13 @@ The bot sends and receives text messages with a 2000 character limit. Messages e
 
 ### Image Support
 
-You can send images to the bot for analysis. Images are downloaded, decrypted, and passed to the AI model as multimodal content.
+You can send images to the bot for analysis. Images are downloaded, decrypted, saved to your private assets directory, and passed to the AI model as multimodal content.
 
 The bot can also send images back. Generated images are encrypted, uploaded, and delivered as image messages.
 
 ### File Support
 
-You can send files to the bot. Files are downloaded, decrypted, saved to your private assets directory, and passed to the agent with an Xberg extraction hint. The agent can then use the `xberg extract` command to parse the file content. Video messages are logged and skipped.
+You can send files to the bot. Files are downloaded, decrypted, and saved to your private assets directory; image files pass to the model as multimodal input, while other files get an Xberg extraction hint so the agent can use the `xberg extract` command to parse their content. Video messages are logged and skipped.
 
 ### Typing Indicators
 
