@@ -322,7 +322,10 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 }
 
 const listGroupMessagesPaginated = `-- name: ListGroupMessagesPaginated :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       platform_message_id, reply_to, platform_timestamp, idempotency_key,
+       content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = $1
 ORDER BY seq DESC
 LIMIT $3 OFFSET $2
@@ -334,15 +337,32 @@ type ListGroupMessagesPaginatedParams struct {
 	LimitCount  int32  `json:"limit_count"`
 }
 
-func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupMessagesPaginatedParams) ([]CtxGroupMessage, error) {
+type ListGroupMessagesPaginatedRow struct {
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
+func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupMessagesPaginatedParams) ([]ListGroupMessagesPaginatedRow, error) {
 	rows, err := q.db.Query(ctx, listGroupMessagesPaginated, arg.GroupID, arg.OffsetCount, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxGroupMessage{}
+	items := []ListGroupMessagesPaginatedRow{}
 	for rows.Next() {
-		var i CtxGroupMessage
+		var i ListGroupMessagesPaginatedRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.GroupID,
@@ -358,7 +378,6 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
-			&i.ContentBlocks,
 		); err != nil {
 			return nil, err
 		}
@@ -446,9 +465,17 @@ type ListRecentGroupMessagesParams struct {
 	MaxCount int32  `json:"max_count"`
 }
 
-// List queries SELECT * and therefore drag content_blocks (image payloads,
-// bounded by the channel inline ceiling) for history windows; switch to an
-// explicit column list if measured dispatch latency makes that matter.
+// content_blocks holds inbound image payloads, so a single row is bounded only
+// by the channel inline ceiling (telegram/qq inline up to 20MB today; 5MB once
+// #786 lands). Only the dispatch reads above (GetGroupMessage / the dedup
+// :one lookups) rehydrate images, so they keep SELECT *. The text-only list
+// consumers below — semantic-arbiter recent context, LCM cross-agent assembly,
+// and web pagination — read only the projected text columns, so they select an
+// explicit column list that EXCLUDES content_blocks and never drag image blobs
+// across a history window.
+// ListRecentGroupMessages currently has no caller; it keeps SELECT * so a future
+// replay/dispatch consumer that needs content_blocks gets the full row. Give it
+// an explicit lean list only if a text-only consumer adopts it.
 func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGroupMessagesParams) ([]CtxGroupMessage, error) {
 	rows, err := q.db.Query(ctx, listRecentGroupMessages, arg.GroupID, arg.MaxCount)
 	if err != nil {
@@ -486,7 +513,10 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 }
 
 const listRecentGroupMessagesBeforeSeq = `-- name: ListRecentGroupMessagesBeforeSeq :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       platform_message_id, reply_to, platform_timestamp, idempotency_key,
+       content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = $1
   AND seq < $2
 ORDER BY seq DESC
@@ -499,15 +529,32 @@ type ListRecentGroupMessagesBeforeSeqParams struct {
 	MaxCount  int32  `json:"max_count"`
 }
 
-func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]CtxGroupMessage, error) {
+type ListRecentGroupMessagesBeforeSeqRow struct {
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
+func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]ListRecentGroupMessagesBeforeSeqRow, error) {
 	rows, err := q.db.Query(ctx, listRecentGroupMessagesBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.MaxCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxGroupMessage{}
+	items := []ListRecentGroupMessagesBeforeSeqRow{}
 	for rows.Next() {
-		var i CtxGroupMessage
+		var i ListRecentGroupMessagesBeforeSeqRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.GroupID,
@@ -523,7 +570,6 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
-			&i.ContentBlocks,
 		); err != nil {
 			return nil, err
 		}

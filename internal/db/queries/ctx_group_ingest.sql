@@ -18,14 +18,26 @@ ON CONFLICT(group_id, pipeline, seq) DO NOTHING;
 SELECT count(*) > 0 as is_error FROM ctx_group_ingest_error
 WHERE group_id = sqlc.arg(group_id) AND pipeline = sqlc.arg(pipeline) AND seq = sqlc.arg(seq);
 
+-- Both ingest list queries feed text-only consumers (group-memory extraction and
+-- LCM cross-agent assembly); neither reads content_blocks. They select an
+-- explicit column list that EXCLUDES content_blocks so a lagging agent or a
+-- memory batch never drags inbound image payloads across the seq range —
+-- ListGroupMessagesBetweenSeqs has no LIMIT, so the interval alone bounds it.
+
 -- name: ListGroupMessagesAfterSeq :many
-SELECT * FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       platform_message_id, reply_to, platform_timestamp, idempotency_key,
+       content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id) AND seq > sqlc.arg(min_seq)
 ORDER BY seq ASC
 LIMIT sqlc.arg(batch_limit);
 
 -- name: ListGroupMessagesBetweenSeqs :many
-SELECT * FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       platform_message_id, reply_to, platform_timestamp, idempotency_key,
+       content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
   AND seq > sqlc.arg(after_seq)
   AND seq < sqlc.arg(before_seq)
