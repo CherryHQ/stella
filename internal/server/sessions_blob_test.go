@@ -128,6 +128,101 @@ func TestGetWorkspaceFileContentRestoresAssetFromAuthorityOnMiss(t *testing.T) {
 	}
 }
 
+// TestGetWorkspaceFileContentAbsoluteHostPathResolvesToUserRoot is the macOS
+// non-isolating repro: an uploaded file is referenced in a chat message by its
+// absolute host path (no /user mount to strip). The client cannot know the
+// scope, so it sends no scope param; the server must recognize the path lies
+// inside the user-data root and serve it there.
+func TestGetWorkspaceFileContentAbsoluteHostPathResolvesToUserRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: local})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil || body.Content != "hello" {
+		t.Fatalf("body=%s err=%v", rr.Body.String(), err)
+	}
+}
+
+// TestGetWorkspaceFileContentAbsolutePathOutsideRootsRejected asserts an
+// absolute path that lies inside neither workspace root is never served.
+func TestGetWorkspaceFileContentAbsolutePathOutsideRootsRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "/etc/passwd"})
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s, want 404", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "root:") {
+		t.Fatalf("served host file contents: %s", rr.Body.String())
+	}
+}
+
+// TestGetWorkspaceFileContentAbsoluteTraversalRejected asserts an absolute path
+// that descends into a workspace root then climbs back out (via ..) resolves,
+// after cleaning, to a location outside the root and is rejected — the sibling
+// secret is never served.
+func TestGetWorkspaceFileContentAbsoluteTraversalRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	// A secret outside both workspace roots (roots live under home/users/u1/).
+	secret := filepath.Join(home, "secret.txt")
+	if err := os.WriteFile(secret, []byte("top secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	userData := agent.UserDataDir(agent.UserHomeDir(home, "u1"))
+	if err := os.MkdirAll(userData, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// userData is home/users/u1/data; three ".." climb out to home/secret.txt.
+	escape := userData + "/../../../secret.txt"
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: escape})
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s, want 404", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "top secret") {
+		t.Fatalf("served secret outside root: %s", rr.Body.String())
+	}
+}
+
 func TestGetWorkspaceRawContentUsesConstrainedInlineResponse(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STELLA_HOME", home)

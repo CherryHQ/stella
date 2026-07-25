@@ -434,7 +434,13 @@ paths:
           in: query
           required: true
           schema: { type: string }
-          description: Relative path of the file within the workspace
+          description: >-
+            Either a workspace-relative path (paired with scope) or a
+            sandbox-view/host absolute path that resolves inside one of the
+            session's workspace roots. When the path is absolute it is
+            self-describing: the server resolves which authorized root contains
+            it and ignores the scope parameter. An absolute path outside every
+            workspace root is rejected.
         - name: raw
           in: query
           required: false

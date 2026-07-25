@@ -205,11 +205,24 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 	if in.Path == "" {
 		return WorkspaceReadResult{}, ErrInvalid
 	}
-	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionRead)
+	scope, path := in.Scope, in.Path
+	// An absolute path is self-describing (e.g. a host path embedded in a chat
+	// message by a non-isolating backend, or a sandbox-view mount path). Resolve
+	// which authorized workspace root contains it and read under that root's
+	// scope, ignoring the requested scope. This never widens authority: the file
+	// must already be reachable via one of the two roots the caller may read.
+	if filepath.IsAbs(filepath.FromSlash(path)) {
+		resolvedScope, rel, err := a.canonicalizeAbsPath(ctx, in.AgentID, in.SessionID, path)
+		if err != nil {
+			return WorkspaceReadResult{}, err
+		}
+		scope, path = resolvedScope, rel
+	}
+	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionRead)
 	if err != nil {
 		return WorkspaceReadResult{}, err
 	}
-	rootFS, name, err := sharepkg.OpenSafeRoot(root, in.Path)
+	rootFS, name, err := sharepkg.OpenSafeRoot(root, path)
 	if err != nil {
 		return WorkspaceReadResult{}, ErrInvalid
 	}
@@ -232,12 +245,12 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		return WorkspaceReadResult{}, err
 	}
 	if in.Raw {
-		mediaType := mime.TypeByExtension(filepath.Ext(in.Path))
+		mediaType := mime.TypeByExtension(filepath.Ext(path))
 		if mediaType == "" {
 			mediaType = "application/octet-stream"
 		}
 		return WorkspaceReadResult{
-			Path: in.Path, Raw: true, RawName: filepath.Base(in.Path),
+			Path: path, Raw: true, RawName: filepath.Base(path),
 			RawMediaType: mediaType, RawContent: data,
 		}, nil
 	}
@@ -248,7 +261,66 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 	if slices.Contains(probe, 0) {
 		return WorkspaceReadResult{}, ErrBinary
 	}
-	return WorkspaceReadResult{Path: in.Path, Content: string(data), Language: DetectLanguage(in.Path)}, nil
+	return WorkspaceReadResult{Path: path, Content: string(data), Language: DetectLanguage(path)}, nil
+}
+
+// canonicalizeAbsPath maps an absolute request path to the (scope, relative
+// path) pair under whichever authorized workspace root contains it. Both roots
+// are resolved through the same ActionRead authorization the endpoint applies
+// for an explicit scope, so an absolute path can only ever resolve to content
+// already reachable via (scope, relative path) — no new roots, no widening.
+// A path inside neither root is ErrNotFound, identical to a missing relative
+// file. The two roots are disjoint siblings (users/<id>/data vs
+// users/<id>/agents/<id>), so the checked order is immaterial.
+func (a *Access) canonicalizeAbsPath(ctx context.Context, agentID, sessionID, absPath string) (WorkspaceScope, string, error) {
+	for _, scope := range []WorkspaceScope{WorkspaceScopeUser, WorkspaceScopeAgent} {
+		root, err := a.workspaceRoot(ctx, agentID, sessionID, scope, authz.ActionRead)
+		if err != nil {
+			return "", "", err
+		}
+		if rel, ok := containedRel(root, absPath); ok {
+			return scope, rel, nil
+		}
+	}
+	return "", "", ErrNotFound
+}
+
+// containedRel reports whether absPath resolves to a location strictly inside
+// root and, if so, returns the cleaned root-relative path. It resolves symlinks
+// on both sides — matching macOS realities like /var → /private/var — the same
+// way agent.ValidateProjectDir does, then requires the relative result to be
+// local (filepath.IsLocal rejects any ".." escape). A path equal to or outside
+// root yields ok=false, so authority is never widened.
+func containedRel(root, absPath string) (string, bool) {
+	cleanRoot := resolveExistingSymlinks(filepath.Clean(root))
+	cleanPath := resolveExistingSymlinks(filepath.Clean(filepath.FromSlash(absPath)))
+	rel, err := filepath.Rel(cleanRoot, cleanPath)
+	if err != nil {
+		return "", false
+	}
+	if rel == "." || !filepath.IsLocal(rel) {
+		return "", false
+	}
+	return rel, true
+}
+
+// resolveExistingSymlinks returns path with symlinks resolved, falling back to
+// the longest existing ancestor so a symlinked parent cannot mask an escape
+// even when the leaf does not exist yet. Mirrors agent.ValidateProjectDir.
+func resolveExistingSymlinks(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	dir := path
+	for dir != string(filepath.Separator) && dir != "." {
+		parent := filepath.Dir(dir)
+		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+			tail, _ := filepath.Rel(parent, path)
+			return filepath.Join(resolved, tail)
+		}
+		dir = parent
+	}
+	return path
 }
 
 func (a *Access) WriteWorkspacePath(ctx context.Context, in WorkspaceWriteInput) (WorkspaceReadResult, error) {
