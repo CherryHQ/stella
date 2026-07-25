@@ -8,34 +8,16 @@ export function basename(path: string): string {
   return path.split("/").pop() || path;
 }
 
-// Sandbox mount prefixes on isolating backends. A file reference embedded in a
-// message (e.g. an uploaded `[file: /user/assets/...]`) carries the sandbox-view
-// path the agent reads; the file-content endpoint instead wants a workspace root
-// plus a relative path. Map the mount prefix back to its scope and strip it so
-// the read URL is scoped and relative (see UserDataViewFor/WorkspaceViewFor).
-const SANDBOX_MOUNT_SCOPES: ReadonlyArray<readonly [string, "user" | "agent"]> = [
-  ["/user/", "user"],
-  ["/workspace/", "agent"],
-];
-
-// workspaceRef splits a message-embedded file path into the workspace-relative
-// path and scope the file-content endpoint expects. Paths without a known sandbox
-// mount prefix (e.g. non-isolating backends) pass through unchanged with no scope.
-export function workspaceRef(path: string): { path: string; scope?: "user" | "agent" } {
-  for (const [prefix, scope] of SANDBOX_MOUNT_SCOPES) {
-    if (path.startsWith(prefix)) {
-      return { path: path.slice(prefix.length), scope };
-    }
-  }
-  return { path };
-}
-
+// workspaceFileURL builds a raw file-content read URL for a message-embedded
+// file path. The path is passed verbatim: an absolute sandbox-view (/user/...,
+// /workspace/...) or host path is self-describing, and the server resolves which
+// authorized workspace root contains it (host containment first, then sandbox
+// mount mapping). The client cannot disambiguate mount views from real host
+// paths, so it must not guess a scope — that decision belongs to the server.
 export function workspaceFileURL(agentId: string, sessionId: string, path: string): string {
-  const ref = workspaceRef(path);
-  const scopeParam = ref.scope ? `&scope=${ref.scope}` : "";
   return `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(
     sessionId,
-  )}/workspace/file-content?path=${encodeURIComponent(ref.path)}&raw=true${scopeParam}`;
+  )}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true`;
 }
 
 // parseFileRefs splits a user message into the `[file: path]` attachments the

@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 var (
@@ -265,13 +266,28 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 }
 
 // canonicalizeAbsPath maps an absolute request path to the (scope, relative
-// path) pair under whichever authorized workspace root contains it. Both roots
-// are resolved through the same ActionRead authorization the endpoint applies
-// for an explicit scope, so an absolute path can only ever resolve to content
-// already reachable via (scope, relative path) — no new roots, no widening.
-// A path inside neither root is ErrNotFound, identical to a missing relative
-// file. The two roots are disjoint siblings (users/<id>/data vs
-// users/<id>/agents/<id>), so the checked order is immaterial.
+// path) pair under whichever authorized workspace root the endpoint may read.
+// Both roots are resolved through the same ActionRead authorization the endpoint
+// applies for an explicit scope, so an absolute path can only ever resolve to
+// content already reachable via (scope, relative path) — no new roots, no
+// widening.
+//
+// Resolution order is deliberate:
+//  1. Host-root containment. A path that physically lives inside a workspace
+//     root is served from that root. This wins so a genuine host path that
+//     happens to sit under a /workspace-like STELLA_HOME is served from the root
+//     that actually contains it, never mistaken for a sandbox mount view.
+//  2. Sandbox mount mapping. A path under neither host root may still be a
+//     sandbox-view mount path (/user, /workspace) that an isolating backend
+//     embedded in a chat message. It maps to the owning scope; the mapped
+//     relative path flows through the same ActionRead authz and OpenSafeRoot
+//     containment as any relative request, so a ".."-escaping mount path is
+//     rejected and mount mapping can only reach content (scope, rel) already
+//     could.
+//
+// A path matched by neither step is ErrNotFound, identical to a missing relative
+// file. The two host roots are disjoint siblings (users/<id>/data vs
+// users/<id>/agents/<id>), so the containment check order is immaterial.
 func (a *Access) canonicalizeAbsPath(ctx context.Context, agentID, sessionID, absPath string) (WorkspaceScope, string, error) {
 	for _, scope := range []WorkspaceScope{WorkspaceScopeUser, WorkspaceScopeAgent} {
 		root, err := a.workspaceRoot(ctx, agentID, sessionID, scope, authz.ActionRead)
@@ -282,7 +298,37 @@ func (a *Access) canonicalizeAbsPath(ctx context.Context, agentID, sessionID, ab
 			return scope, rel, nil
 		}
 	}
+	if scope, rel, ok := mountScopeRel(absPath); ok {
+		return scope, rel, nil
+	}
 	return "", "", ErrNotFound
+}
+
+// mountScopeRel maps a sandbox mount-view absolute path to the workspace scope
+// that mount belongs to and the path relative to the mount. It matches only on a
+// full path-segment boundary — exactly the mount, or the mount followed by "/" —
+// so /userdata never matches the /user mount. The remainder is returned
+// uncleaned; the caller runs it through OpenSafeRoot, which rejects any
+// non-local (".."-escaping) result. That boundary means /workspace/../user/...
+// maps to the agent scope with a "../user/..." remainder and is rejected, never
+// crossing into the user root.
+func mountScopeRel(absPath string) (WorkspaceScope, string, bool) {
+	p := filepath.ToSlash(absPath)
+	for _, m := range []struct {
+		mount string
+		scope WorkspaceScope
+	}{
+		{pkgsandbox.MountUserData, WorkspaceScopeUser},
+		{pkgsandbox.MountWorkspace, WorkspaceScopeAgent},
+	} {
+		if p == m.mount {
+			return m.scope, ".", true
+		}
+		if rel, ok := strings.CutPrefix(p, m.mount+"/"); ok {
+			return m.scope, rel, true
+		}
+	}
+	return "", "", false
 }
 
 // containedRel reports whether absPath resolves to a location strictly inside

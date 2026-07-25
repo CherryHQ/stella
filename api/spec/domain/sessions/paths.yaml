@@ -438,9 +438,11 @@ paths:
             Either a workspace-relative path (paired with scope) or a
             sandbox-view/host absolute path that resolves inside one of the
             session's workspace roots. When the path is absolute it is
-            self-describing: the server resolves which authorized root contains
-            it and ignores the scope parameter. An absolute path outside every
-            workspace root is rejected.
+            self-describing and the scope parameter is ignored: the server first
+            checks host-root containment (a real host path is served from the
+            root that physically contains it), then falls back to sandbox mount
+            mapping (/user and /workspace map to the user-data and agent roots).
+            An absolute path that matches neither is rejected.
         - name: raw
           in: query
           required: false

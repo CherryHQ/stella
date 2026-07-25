@@ -223,6 +223,128 @@ func TestGetWorkspaceFileContentAbsoluteTraversalRejected(t *testing.T) {
 	}
 }
 
+// TestGetWorkspaceFileContentSandboxViewUserPathResolves is the isolating-backend
+// repro (docker, linux local): an uploaded file is referenced in a chat message
+// by its sandbox-view mount path (/user/...), which lives under no host root. The
+// client sends it verbatim with no scope; the server must map the /user mount to
+// the user-data root and serve the file. This is the Major-1 regression guard —
+// before mount mapping the path failed host containment and 404'd.
+func TestGetWorkspaceFileContentSandboxViewUserPathResolves(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "/user/assets/202607/note.txt"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil || body.Content != "hello" {
+		t.Fatalf("body=%s err=%v", rr.Body.String(), err)
+	}
+}
+
+// TestGetWorkspaceFileContentSandboxViewMountTraversalRejected asserts a mount
+// path that climbs out of its mount with ".." before descending into the other
+// mount (/workspace/../user/...) is rejected, not silently re-mapped to the user
+// root. Mount matching keys off the leading /workspace segment; the "../user/..."
+// remainder is non-local and OpenSafeRoot rejects it.
+func TestGetWorkspaceFileContentSandboxViewMountTraversalRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "/workspace/../user/assets/202607/note.txt"})
+	if rr.Code == http.StatusOK {
+		t.Fatalf("status=%d body=%s, want rejection", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "hello") {
+		t.Fatalf("served file via mount traversal: %s", rr.Body.String())
+	}
+}
+
+// TestGetWorkspaceFileContentSymlinkedRootAliasResolves pins the symlink
+// resolution in containedRel: STELLA_HOME is a symlink alias, so the workspace
+// root the server computes differs in symlink form from the canonical host path
+// a chat message may carry. The absolute request path (fully resolved) must still
+// resolve inside the root. This covers the macOS /var → /private/var reality; it
+// fails if resolveExistingSymlinks were removed (raw filepath.Rel would see the
+// two forms as disjoint and 404).
+func TestGetWorkspaceFileContentSymlinkedRootAliasResolves(t *testing.T) {
+	realHome := t.TempDir()
+	aliasHome := filepath.Join(t.TempDir(), "home-alias")
+	if err := os.Symlink(realHome, aliasHome); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	t.Setenv("STELLA_HOME", aliasHome)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	// Written through the alias-form root the server computes from STELLA_HOME.
+	aliasLocal := filepath.Join(agent.UserDataDir(agent.UserHomeDir(aliasHome, "u1")), "assets", "202607", "note.txt")
+	if err := os.MkdirAll(filepath.Dir(aliasLocal), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(aliasLocal, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The request carries the fully-resolved canonical path, which differs in
+	// symlink form from the alias-form root; only symlink resolution reconciles them.
+	canonical, err := filepath.EvalSymlinks(aliasLocal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical == aliasLocal {
+		t.Skipf("temp dir not symlinked; alias and canonical paths identical")
+	}
+	s := assetServer(t, aliasHome, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: canonical})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil || body.Content != "hello" {
+		t.Fatalf("body=%s err=%v", rr.Body.String(), err)
+	}
+}
+
 func TestGetWorkspaceRawContentUsesConstrainedInlineResponse(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STELLA_HOME", home)
