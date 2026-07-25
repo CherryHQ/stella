@@ -19,6 +19,8 @@ import { formatTime } from "@/lib/time";
 import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -32,6 +34,8 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
+import { ScopeEditor } from "@/features/credentials/ScopeEditor";
+import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import {
   SettingsDetailSheet,
   SettingsGridPage,
@@ -40,11 +44,7 @@ import {
   SettingsSection,
 } from "@/features/settings/SettingsCardGrid";
 import type { RowAction } from "@/features/settings/SettingsCardGrid";
-import {
-  DetailPanel,
-  DetailPanelHeader,
-  FormSectionTitle,
-} from "@/features/settings/SettingsDetailPanel";
+import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { KeyRound, Lock, Plug, Plus } from "lucide-react";
 import { siGithub, siX } from "simple-icons";
 
@@ -180,6 +180,21 @@ export function CredentialsPage() {
   >({});
   const [configSaving, setConfigSaving] = useState<Record<string, boolean>>({});
   const [hasExistingSecret, setHasExistingSecret] = useState<Record<string, boolean>>({});
+  // Scope override editing is a separate model from the credential inputs: the
+  // ScopeEditor mutates the working list frequently, and we keep the saved and
+  // default baselines to drive the diff bar and reset without a second fetch.
+  const [scopeDraft, setScopeDraft] = useState<Record<string, string[]>>({});
+  const [scopeMeta, setScopeMeta] = useState<
+    Record<string, { saved: string[]; defaults: string[] }>
+  >({});
+
+  // One pending confirmation at a time; ConfirmDialog is controlled by this.
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const { toasts, showToast } = useToast();
   const pollAbortRef = useRef<Record<string, boolean>>({});
@@ -304,6 +319,10 @@ export function CredentialsPage() {
           ...prev,
           [provider]: cfg.client_secret === "***",
         }));
+        const saved = cfg.scopes ?? [];
+        const defaults = cfg.default_scopes ?? [];
+        setScopeDraft((prev) => ({ ...prev, [provider]: saved }));
+        setScopeMeta((prev) => ({ ...prev, [provider]: { saved, defaults } }));
       }
     } catch {
       // not admin or no config yet
@@ -437,7 +456,6 @@ export function CredentialsPage() {
 
   const deleteVaultEntry = useCallback(
     async (entry: VaultEntry) => {
-      if (!window.confirm(t("credentials.deleteSecretConfirm", { name: entry.name }))) return;
       try {
         await deleteVaultEntryRequest({
           path: { name: entry.name },
@@ -518,7 +536,6 @@ export function CredentialsPage() {
 
   const disconnectOAuth = useCallback(
     async (provider: string) => {
-      if (!window.confirm(t("credentials.oauth.disconnectConfirm", { provider }))) return;
       try {
         await disconnectOAuthRequest({
           path: { provider },
@@ -551,6 +568,7 @@ export function CredentialsPage() {
             client_id: vals.clientId,
             client_secret: vals.clientSecret,
             redirect_url: vals.redirectUrl || undefined,
+            scopes: scopeDraft[provider] ?? [],
           },
           throwOnError: true,
         });
@@ -567,12 +585,19 @@ export function CredentialsPage() {
         setConfigSaving((prev) => ({ ...prev, [provider]: false }));
       }
     },
-    [configValues, showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected, t],
+    [
+      configValues,
+      scopeDraft,
+      showToast,
+      loadOAuthProviders,
+      loadProviderConfig,
+      checkOAuthConnected,
+      t,
+    ],
   );
 
   const deleteProviderConfig = useCallback(
     async (provider: string) => {
-      if (!window.confirm(t("credentials.oauth.resetConfirm", { provider }))) return;
       try {
         await deleteOAuthProviderConfig({
           path: { id: provider },
@@ -590,6 +615,38 @@ export function CredentialsPage() {
       }
     },
     [showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected, t],
+  );
+
+  // Destructive actions route through one controlled ConfirmDialog rather than
+  // the native browser prompt, so the modal matches the rest of the UI.
+  const confirmDeleteVaultEntry = useCallback(
+    (entry: VaultEntry) =>
+      setConfirm({
+        title: t("credentials.deleteSecretTitle"),
+        message: t("credentials.deleteSecretConfirm", { name: entry.name }),
+        onConfirm: () => void deleteVaultEntry(entry),
+      }),
+    [deleteVaultEntry, t],
+  );
+  const confirmDisconnectOAuth = useCallback(
+    (provider: string) =>
+      setConfirm({
+        title: t("credentials.oauth.disconnectTitle"),
+        message: t("credentials.oauth.disconnectConfirm", { provider }),
+        confirmLabel: t("credentials.oauth.disconnect"),
+        onConfirm: () => void disconnectOAuth(provider),
+      }),
+    [disconnectOAuth, t],
+  );
+  const confirmResetProviderConfig = useCallback(
+    (provider: string) =>
+      setConfirm({
+        title: t("credentials.oauth.resetTitle"),
+        message: t("credentials.oauth.resetConfirm", { provider }),
+        confirmLabel: t("credentials.oauth.reset"),
+        onConfirm: () => void deleteProviderConfig(provider),
+      }),
+    [deleteProviderConfig, t],
   );
 
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
@@ -770,8 +827,18 @@ export function CredentialsPage() {
   const sp = sheetProviderData;
   const spConnected = sp ? oauthStatus[sp.provider] === "connected" : false;
   const spFlow = sp ? oauthFlow[sp.provider] : null;
+  const spMeta = sp ? scopeMeta[sp.provider] : undefined;
   const providerSheet = sp ? (
-    <DetailPanel>
+    <DetailPanel
+      onSave={isAdmin ? () => saveProviderConfig(sp.provider) : undefined}
+      isSaving={isAdmin ? configSaving[sp.provider] : undefined}
+      saveLabel={t("common.save")}
+      isSavingLabel={t("common.saving")}
+      onDelete={
+        isAdmin && sp.configured ? () => confirmResetProviderConfig(sp.provider) : undefined
+      }
+      deleteLabel={t("credentials.oauth.reset")}
+    >
       <DetailPanelHeader title={sp.provider} subtitle={statusBadge(sp)} />
 
       {sp.available && !spConnected && (sp.required_by?.length ?? 0) > 0 && (
@@ -802,7 +869,7 @@ export function CredentialsPage() {
             size="sm"
             variant="destructive-outline"
             className="text-destructive hover:bg-destructive/10"
-            onClick={() => disconnectOAuth(sp.provider)}
+            onClick={() => confirmDisconnectOAuth(sp.provider)}
           >
             {t("credentials.oauth.disconnect")}
           </Button>
@@ -833,12 +900,10 @@ export function CredentialsPage() {
       )}
 
       {isAdmin && (
-        <div className="space-y-3 border-t border-border pt-4">
-          <FormSectionTitle>{t("credentials.oauth.app")}</FormSectionTitle>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("credentials.oauth.clientId")}
-            </label>
+        <Fieldset className="space-y-3 border-t border-border pt-4">
+          <FieldsetLegend>{t("credentials.oauth.app")}</FieldsetLegend>
+          <Field>
+            <FieldLabel>{t("credentials.oauth.clientId")}</FieldLabel>
             <Input
               type="text"
               value={configValues[sp.provider]?.clientId ?? ""}
@@ -855,11 +920,9 @@ export function CredentialsPage() {
               autoComplete="off"
               nativeInput
             />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("credentials.oauth.clientSecret")}
-            </label>
+          </Field>
+          <Field>
+            <FieldLabel>{t("credentials.oauth.clientSecret")}</FieldLabel>
             <Input
               type="password"
               value={configValues[sp.provider]?.clientSecret ?? ""}
@@ -882,27 +945,18 @@ export function CredentialsPage() {
               autoComplete="new-password"
               nativeInput
             />
-          </div>
-          <div className="flex items-center justify-end gap-2 pt-1">
-            {sp.configured && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive hover:bg-destructive/10"
-                onClick={() => deleteProviderConfig(sp.provider)}
-              >
-                {t("credentials.oauth.reset")}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              loading={configSaving[sp.provider]}
-              onClick={() => saveProviderConfig(sp.provider)}
-            >
-              {t("common.save")}
-            </Button>
-          </div>
-        </div>
+          </Field>
+          <Field>
+            <FieldLabel>{t("credentials.oauth.scopes.title")}</FieldLabel>
+            <ScopeEditor
+              value={scopeDraft[sp.provider] ?? []}
+              saved={spMeta?.saved ?? []}
+              defaults={spMeta?.defaults ?? []}
+              onChange={(next) => setScopeDraft((prev) => ({ ...prev, [sp.provider]: next }))}
+            />
+            <FieldDescription>{t("credentials.oauth.scopes.saveHint")}</FieldDescription>
+          </Field>
+        </Fieldset>
       )}
     </DetailPanel>
   ) : null;
@@ -954,7 +1008,7 @@ export function CredentialsPage() {
                   menu.push({
                     label: t("credentials.oauth.disconnect"),
                     destructive: true,
-                    onClick: () => void disconnectOAuth(p.provider),
+                    onClick: () => confirmDisconnectOAuth(p.provider),
                   });
 
                 let primary: React.ReactNode = undefined;
@@ -1066,7 +1120,7 @@ export function CredentialsPage() {
                                   {
                                     label: t("common.delete"),
                                     destructive: true,
-                                    onClick: () => void deleteVaultEntry(entry),
+                                    onClick: () => confirmDeleteVaultEntry(entry),
                                   },
                                 ]
                           }
@@ -1101,6 +1155,17 @@ export function CredentialsPage() {
       >
         {vaultAddPanel}
       </SettingsDetailSheet>
+
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+        title={confirm?.title ?? ""}
+        message={confirm?.message ?? ""}
+        confirmLabel={confirm?.confirmLabel}
+        onConfirm={() => confirm?.onConfirm()}
+      />
 
       <ToastContainer messages={toasts} />
     </>

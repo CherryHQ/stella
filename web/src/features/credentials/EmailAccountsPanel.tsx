@@ -15,6 +15,7 @@ import {
 } from "@/features/settings/SettingsCardGrid";
 import type { RowAction } from "@/features/settings/SettingsCardGrid";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
+import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { Mail, Plus } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
@@ -74,6 +75,7 @@ export function EmailAccountsPanel({
   const [editingName, setEditingName] = useState<string | null>(null);
   const [form, setForm] = useState<EmailFormValues>(INITIAL_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -121,8 +123,6 @@ export function EmailAccountsPanel({
   };
 
   const handleDelete = async (name: string) => {
-    if (!window.confirm(t("credentials.email.deleteConfirm", { name }))) return;
-
     const updatedAccounts = { ...config.accounts };
     delete updatedAccounts[name];
 
@@ -271,7 +271,7 @@ export function EmailAccountsPanel({
               menu.push({
                 label: t("common.delete"),
                 destructive: true,
-                onClick: () => void handleDelete(name),
+                onClick: () => setPendingDelete(name),
               });
               return (
                 <SettingsRow
@@ -497,6 +497,18 @@ export function EmailAccountsPanel({
           </div>
         </DetailPanel>
       </SettingsDetailSheet>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title={t("credentials.email.deleteTitle")}
+        message={pendingDelete ? t("credentials.email.deleteConfirm", { name: pendingDelete }) : ""}
+        onConfirm={() => {
+          if (pendingDelete) void handleDelete(pendingDelete);
+        }}
+      />
     </>
   );
 }
