@@ -73,6 +73,7 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		PlatformTimestamp: msg.Timestamp,
 		ReplyTo:           msg.ReplyTo,
 		Content:           contentBlocksToText(msg.Content),
+		ContentBlocks:     marshalGroupContentBlocks(msg.Content),
 	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
 		members, err := q.ListGroupMembers(ctx, result.GroupID)
 		if err != nil {
@@ -256,6 +257,21 @@ func contentBlocksToText(blocks []ai.ContentBlock) string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// marshalGroupContentBlocks serializes message content for event-log storage
+// when it carries more than text. Text-only messages store nothing and replay
+// from the text projection; a marshal failure degrades the same way rather
+// than dropping the message.
+func marshalGroupContentBlocks(blocks []ai.ContentBlock) []byte {
+	if !ai.HasImage(blocks) {
+		return nil
+	}
+	data, err := ai.MarshalContentBlocks(blocks)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // FuncGroupMemberLister adapts a function to GroupMemberLister.

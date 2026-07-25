@@ -61,6 +61,10 @@ WHERE idempotency_key = sqlc.arg(idempotency_key);
 -- name: GetGroupMessage :one
 SELECT * FROM ctx_group_message WHERE id = $1;
 
+-- List queries SELECT * and therefore drag content_blocks (image payloads,
+-- bounded by the channel inline ceiling) for history windows; switch to an
+-- explicit column list if measured dispatch latency makes that matter.
+
 -- name: ListRecentGroupMessages :many
 SELECT * FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
@@ -83,7 +87,13 @@ LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 -- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id
+  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, content_blocks, reasoning, agent_session_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+VALUES (
+  sqlc.arg(id), sqlc.arg(group_id), sqlc.arg(seq), sqlc.arg(source_channel_id),
+  sqlc.arg(actor_type), sqlc.arg(actor_id), sqlc.arg(platform_message_id),
+  sqlc.arg(reply_to), sqlc.arg(platform_timestamp), sqlc.arg(idempotency_key),
+  sqlc.arg(content), COALESCE(sqlc.arg(content_blocks)::jsonb, '[]'::jsonb),
+  sqlc.arg(reasoning), sqlc.arg(agent_session_id)
+)
 RETURNING *;

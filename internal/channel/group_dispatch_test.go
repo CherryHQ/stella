@@ -61,6 +61,65 @@ func TestContentBlocksToText(t *testing.T) {
 	}
 }
 
+func TestMarshalGroupContentBlocks(t *testing.T) {
+	textOnly := []ai.ContentBlock{ai.TextContent{Text: "hello"}}
+	if got := marshalGroupContentBlocks(textOnly); got != nil {
+		t.Errorf("text-only blocks = %s, want nil (replay from text projection)", got)
+	}
+
+	withImage := []ai.ContentBlock{
+		ai.TextContent{Text: "look"},
+		ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
+	}
+	data := marshalGroupContentBlocks(withImage)
+	if data == nil {
+		t.Fatal("image-bearing blocks must serialize")
+	}
+	blocks, err := ai.UnmarshalContentBlocks(data)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(blocks) != 2 || !ai.HasImage(blocks) {
+		t.Fatalf("round-trip = %#v, want text+image", blocks)
+	}
+}
+
+func TestGroupMessageContentRehydration(t *testing.T) {
+	// Legacy/text-only row: empty JSON array falls back to the text projection.
+	legacy := sqlc.CtxGroupMessage{Content: "just text", ContentBlocks: []byte("[]")}
+	blocks := groupMessageContentBlocks(legacy)
+	if len(blocks) != 1 {
+		t.Fatalf("legacy blocks = %#v, want single text block", blocks)
+	}
+	if tc, ok := blocks[0].(ai.TextContent); !ok || tc.Text != "just text" {
+		t.Fatalf("legacy block = %#v, want text projection", blocks[0])
+	}
+	if got, ok := groupMessageChatContent(legacy).(string); !ok || got != "just text" {
+		t.Fatalf("legacy chat content = %#v, want plain string", groupMessageChatContent(legacy))
+	}
+
+	// Image-bearing row: structured blocks win over the text projection.
+	withImage := sqlc.CtxGroupMessage{
+		Content:       "look",
+		ContentBlocks: []byte(`[{"kind":"text","text":"look"},{"kind":"image","data":"aGk=","mime_type":"image/png"}]`),
+	}
+	blocks = groupMessageContentBlocks(withImage)
+	if len(blocks) != 2 || !ai.HasImage(blocks) {
+		t.Fatalf("rehydrated blocks = %#v, want text+image", blocks)
+	}
+	chat, ok := groupMessageChatContent(withImage).([]ai.ContentBlock)
+	if !ok || !ai.HasImage(chat) {
+		t.Fatalf("chat content = %#v, want blocks with image", chat)
+	}
+
+	// Corrupt blocks degrade to the text projection instead of dropping the message.
+	corrupt := sqlc.CtxGroupMessage{Content: "still here", ContentBlocks: []byte("{not json")}
+	blocks = groupMessageContentBlocks(corrupt)
+	if len(blocks) != 1 || ai.HasImage(blocks) {
+		t.Fatalf("corrupt blocks = %#v, want text fallback", blocks)
+	}
+}
+
 func TestFirstMentionedAgent(t *testing.T) {
 	if got := firstMentionedAgent(nil); got != "" {
 		t.Errorf("expected empty, got %q", got)
