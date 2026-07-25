@@ -427,3 +427,60 @@ func TestUploadWorkspaceFileMirrorsToAuthority(t *testing.T) {
 		t.Fatalf("local data=%q err=%v", localData, err)
 	}
 }
+
+// TestUploadWorkspaceFileReturnsRelativePathAndScope asserts the upload response
+// exposes the workspace-relative path and scope the web chat needs to build a
+// working file-content read URL, alongside the sandbox-view path the agent reads.
+func TestUploadWorkspaceFileReturnsRelativePathAndScope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	part, err := mw.CreateFormFile("file", "photo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("upload")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, remote, mem)
+	req := httptest.NewRequest(http.MethodPost, "/", &buf).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	s.UploadWorkspaceFile(rr, req, "a1", "s1")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var body apitypes.WorkspaceUploadResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Scope != apitypes.WorkspaceScopeUser {
+		t.Fatalf("scope=%q, want %q", body.Scope, apitypes.WorkspaceScopeUser)
+	}
+	rel := filepath.ToSlash(body.RelativePath)
+	if rel == "" || strings.HasPrefix(rel, "/") || strings.Contains(rel, "..") {
+		t.Fatalf("relative_path=%q, want a non-empty local path", rel)
+	}
+	if !strings.HasPrefix(rel, "assets/") || !strings.HasSuffix(rel, "-photo.png") {
+		t.Fatalf("relative_path=%q, want assets/...-photo.png", rel)
+	}
+	// The sandbox-view path is the scope root joined with the relative path, so
+	// the relative path is always its suffix regardless of sandbox backend.
+	if !strings.HasSuffix(filepath.ToSlash(body.Path), rel) {
+		t.Fatalf("path=%q does not end with relative_path=%q", body.Path, rel)
+	}
+}

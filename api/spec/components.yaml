@@ -3786,11 +3786,20 @@ components:
           description: New file content to write
     WorkspaceUploadResponse:
       type: object
-      required: [path]
+      required: [path, relative_path, scope]
       properties:
         path:
           type: string
-          description: Relative path of the uploaded file within the workspace
+          description: >-
+            Sandbox-view path of the uploaded file (e.g. /user/assets/...), embedded in the message text the agent reads.
+        relative_path:
+          type: string
+          description: >-
+            Path of the uploaded file relative to its workspace root. Combine with scope to build a workspace file-content read URL.
+        scope:
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceScope"
+          description: Which workspace root the file was written to.
     SessionList:
       type: object
       required: [sessions]

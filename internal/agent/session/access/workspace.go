@@ -110,7 +110,14 @@ type WorkspaceUploadInput struct {
 }
 
 type WorkspaceUploadResult struct {
+	// Path is the sandbox-view path the agent reads (e.g. /user/assets/... on
+	// isolating backends, the absolute host path otherwise).
 	Path string `json:"path"`
+	// RelativePath is the upload location relative to its workspace root.
+	// Combine with Scope to build a workspace file-content read URL.
+	RelativePath string `json:"relative_path"`
+	// Scope is the workspace root the file was written to.
+	Scope WorkspaceScope `json:"scope"`
 }
 
 func (a *Access) ListWorkspace(ctx context.Context, in WorkspaceListInput) (WorkspaceInfo, error) {
@@ -286,8 +293,13 @@ func (a *Access) UploadWorkspacePath(ctx context.Context, in WorkspaceUploadInpu
 		return WorkspaceUploadResult{}, err
 	}
 	rel, _ := filepath.Rel(root, abs)
+	relSlash := filepath.ToSlash(rel)
 	sandboxRoot := sandbox.UserDataViewFor(a.svc.sandboxBackend(ctx), root)
-	return WorkspaceUploadResult{Path: filepath.ToSlash(filepath.Join(sandboxRoot, rel))}, nil
+	return WorkspaceUploadResult{
+		Path:         filepath.ToSlash(filepath.Join(sandboxRoot, rel)),
+		RelativePath: relSlash,
+		Scope:        WorkspaceScopeUser,
+	}, nil
 }
 
 func (a *Access) workspaceRoot(ctx context.Context, agentID, sessionID string, scope WorkspaceScope, action authz.Action) (string, error) {
