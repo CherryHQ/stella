@@ -169,6 +169,52 @@ func TestGroupGenerationContractUsesConfiguredCapAndResolvableSubjects(t *testin
 	}
 }
 
+func TestGroupCandidatePromptsDefineHighDensitySelectionAndScoring(t *testing.T) {
+	generationPrompt := strings.Join(strings.Fields(groupFactGenerationPromptTemplate), " ")
+	generationChecks := []string{
+		"Split independent rules, responsibilities",
+		"Never satisfy the candidate cap by bundling independent facts",
+		"explicit handoff from one known participant to another",
+		"emit two separate candidates",
+		"explicitly ends one known participant's durable",
+		"never restate the old positive",
+		"one-off instruction, approval, or exercise of authority",
+		"do not generalize",
+		"Do not prefer a candidate only because it appears later",
+		"omit no_candidate_reason entirely",
+	}
+	for _, phrase := range generationChecks {
+		if !strings.Contains(generationPrompt, phrase) {
+			t.Fatalf("generation prompt missing %q", phrase)
+		}
+	}
+
+	evaluationPrompt := strings.Join(strings.Fields(groupFactEvaluationPrompt), " ")
+	evaluationChecks := []string{
+		"General 0-4 scoring scale",
+		"Only messages inside <fresh_public_messages>",
+		"never counts as evidence",
+		"generator summary, not an independent source",
+		"Do not collapse scores 2 and 3",
+		"some wording overreaches",
+		"No individual score decides overall acceptance",
+		"Reserve scores 3",
+		"Group Fact rubric boundary",
+		"Group collaboration scope is mandatory",
+		"score at most 1 for subject_fit and future_utility",
+		"Durability must outlive the current work item",
+		"still task-scoped",
+		"eligible reconciliation input",
+		"does not by itself prove standing authority",
+		"does not by itself establish a group-wide policy",
+	}
+	for _, phrase := range evaluationChecks {
+		if !strings.Contains(evaluationPrompt, phrase) {
+			t.Fatalf("evaluation prompt missing %q", phrase)
+		}
+	}
+}
+
 func TestValidateGeneratedGroupCandidateRejectsTemporarySubjectRefInContent(t *testing.T) {
 	unit := GroupReviewUnit{
 		Subjects: map[string]GroupSubjectCatalogEntry{

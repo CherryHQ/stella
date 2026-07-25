@@ -2,6 +2,7 @@ package groupingest
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/memory"
@@ -73,6 +74,25 @@ func TestGroupReconciliationNormalizesExactCreateAndReplacementToNoop(t *testing
 		op := normalized.Operations[0]
 		if op.Operation != memory.GroupFactActionNoop || len(op.TargetFactIDs) != 0 || op.NewContent != "" {
 			t.Fatalf("normalized operation = %#v", op)
+		}
+	}
+}
+
+func TestGroupReconciliationPromptRequiresMaterialChangesAndSeparateHandoffs(t *testing.T) {
+	prompt := strings.Join(strings.Fields(groupFactReconciliationPrompt), " ")
+	for _, phrase := range []string{
+		"Wording polish, synonym substitution, tone-only rephrasing",
+		"semantically entails",
+		"makes obsolete a material meaning",
+		"do not split it into create plus deprecate_many",
+		"Cancellation decision table",
+		"always use deprecate_many",
+		"Never use replace_many to persist negative status text",
+		"cross-participant handoff",
+		"Do not write merely to cover a candidate",
+	} {
+		if !strings.Contains(prompt, phrase) {
+			t.Fatalf("reconciliation prompt missing %q", phrase)
 		}
 	}
 }
