@@ -9,6 +9,24 @@
 -- group's first message would each create an active row, and the binding's
 -- newest-match lookup would silently strand one of them along with its history.
 -- Group rows carry user_id = group_id, so (agent_id, user_id) is (agent, group).
+--
+-- The race this index closes could itself have left duplicates, and a unique
+-- index over dirty data aborts the migration — which on an embedded-PostgreSQL
+-- deployment means stellad refuses to start. Archive all but the newest active
+-- row per binding first: the newest is what the binding's newest-match
+-- resolution already answers with, so the losers were unreachable anyway and
+-- their history stays intact. ctx_conversation holds one row per session (not
+-- per message), so a plain in-transaction index build is fine here.
+UPDATE ctx_conversation
+SET archived = true, updated_at = now()
+WHERE kind = 'chat' AND archived = false AND group_id IS NOT NULL
+  AND session_id NOT IN (
+    SELECT DISTINCT ON (agent_id, user_id) session_id
+    FROM ctx_conversation
+    WHERE kind = 'chat' AND archived = false AND group_id IS NOT NULL
+    ORDER BY agent_id, user_id, last_active DESC, session_id DESC
+  );
+
 CREATE UNIQUE INDEX idx_one_agent_group_chat ON ctx_conversation (agent_id, user_id)
 WHERE kind = 'chat' AND archived = false AND group_id IS NOT NULL;
 

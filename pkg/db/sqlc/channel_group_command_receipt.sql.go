@@ -38,18 +38,6 @@ func (q *Queries) CreateGroupCommandReceipt(ctx context.Context, arg CreateGroup
 	return result.RowsAffected(), nil
 }
 
-const deleteExpiredGroupCommandReceipt = `-- name: DeleteExpiredGroupCommandReceipt :exec
-DELETE FROM channel_group_command_receipt
-WHERE created_at < now() - interval '24 hours'
-`
-
-// Bounds the table without a background sweeper. Platform redeliveries land
-// within minutes, so a day-old receipt can no longer dedup anything.
-func (q *Queries) DeleteExpiredGroupCommandReceipt(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, deleteExpiredGroupCommandReceipt)
-	return err
-}
-
 const deleteGroupCommandReceipt = `-- name: DeleteGroupCommandReceipt :exec
 DELETE FROM channel_group_command_receipt
 WHERE group_id = $1 AND platform = $2 AND message_id = $3
@@ -62,6 +50,12 @@ type DeleteGroupCommandReceiptParams struct {
 }
 
 // Releases a claim whose command did not run, so the next redelivery may retry.
+// This is the ONLY delete: a consumed receipt lives until its group is deleted
+// (ON DELETE CASCADE). Ordinary group messages dedup against ctx_group_message,
+// which is also permanent, and the Web API promises client_message_id
+// idempotency with no time window — a TTL here would quietly reopen the
+// destructive replay the receipt exists to prevent. Volume is one row per
+// executed command, so permanence costs nothing.
 func (q *Queries) DeleteGroupCommandReceipt(ctx context.Context, arg DeleteGroupCommandReceiptParams) error {
 	_, err := q.db.Exec(ctx, deleteGroupCommandReceipt, arg.GroupID, arg.Platform, arg.MessageID)
 	return err

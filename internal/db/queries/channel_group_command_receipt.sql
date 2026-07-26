@@ -8,11 +8,11 @@ ON CONFLICT (group_id, platform, message_id) DO NOTHING;
 
 -- name: DeleteGroupCommandReceipt :exec
 -- Releases a claim whose command did not run, so the next redelivery may retry.
+-- This is the ONLY delete: a consumed receipt lives until its group is deleted
+-- (ON DELETE CASCADE). Ordinary group messages dedup against ctx_group_message,
+-- which is also permanent, and the Web API promises client_message_id
+-- idempotency with no time window — a TTL here would quietly reopen the
+-- destructive replay the receipt exists to prevent. Volume is one row per
+-- executed command, so permanence costs nothing.
 DELETE FROM channel_group_command_receipt
 WHERE group_id = $1 AND platform = $2 AND message_id = $3;
-
--- name: DeleteExpiredGroupCommandReceipt :exec
--- Bounds the table without a background sweeper. Platform redeliveries land
--- within minutes, so a day-old receipt can no longer dedup anything.
-DELETE FROM channel_group_command_receipt
-WHERE created_at < now() - interval '24 hours';

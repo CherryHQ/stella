@@ -7,7 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -131,6 +134,80 @@ func TestGroupNewReceiptReleasedWhenRotationNeverRan(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("a failed /new left %d claims behind, want 0", count)
+	}
+}
+
+// rotateFailAccessSvc lets the session resolve succeed while the rotation
+// itself fails with a chosen error — the seam the receipt's release contract
+// distinguishes on.
+type rotateFailAccessSvc struct {
+	reg       *session.Registry
+	rotateErr error
+}
+
+func (s rotateFailAccessSvc) Begin(context.Context, authz.Authority) (agent.SessionAccess, error) {
+	return rotateFailAccess{compactSessionAccess{reg: s.reg}, s.rotateErr}, nil
+}
+
+type rotateFailAccess struct {
+	compactSessionAccess
+	rotateErr error
+}
+
+func (a rotateFailAccess) RotateChannel(context.Context, session.ChannelRequest) (session.Info, error) {
+	return session.Info{}, a.rotateErr
+}
+
+// TestGroupNewReceiptReleasedWhenRotationFails pins the release decision to the
+// rotation OUTCOME, not to whether the queued callback returned an error:
+// RotateInfo is one transaction, so a non-stale failure means nothing was
+// archived and the same message must be allowed to try again. Folding the error
+// into the reply string (as NewSessionReply does) would strand the claim.
+func TestGroupNewReceiptReleasedWhenRotationFails(t *testing.T) {
+	const groupID = "11111111-1111-4111-8111-111111111111"
+	db, receiptGroupID := newReceiptTestGroup(t, "grp-rotatefail")
+	d := &GroupDispatcher{q: sqlc.New(db)}
+	ctx := context.Background()
+
+	rc := newCompactTestChat(t, groupID, auth.User{})
+	rc.Service.SessionAccess = rotateFailAccessSvc{reg: rc.Service.Sessions, rotateErr: errors.New("db down")}
+	receipt := newCommandReceipt(sqlc.New(db), receiptGroupID, "telegram", "m-rotatefail", newSessionCommand)
+	if reply := d.rotateGroupChat(ctx, rc, receipt); reply == pkgchannel.NewSessionStartedMessage {
+		t.Fatalf("reply = %q, want a failure", reply)
+	}
+
+	var count int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_group_command_receipt`).Scan(&count); err != nil {
+		t.Fatalf("count receipts: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("a rotation that never ran left %d claims behind, want 0", count)
+	}
+}
+
+// TestGroupNewReceiptKeptWhenRotationWasStale is the other half of that
+// contract: a stale CAS means another /new already performed this message's
+// reset, so the claim must stand — releasing it would let a redelivery rotate
+// the successor.
+func TestGroupNewReceiptKeptWhenRotationWasStale(t *testing.T) {
+	const groupID = "11111111-1111-4111-8111-111111111111"
+	db, receiptGroupID := newReceiptTestGroup(t, "grp-stale")
+	d := &GroupDispatcher{q: sqlc.New(db)}
+	ctx := context.Background()
+
+	rc := newCompactTestChat(t, groupID, auth.User{})
+	rc.Service.SessionAccess = rotateFailAccessSvc{reg: rc.Service.Sessions, rotateErr: session.ErrStaleRotation}
+	receipt := newCommandReceipt(sqlc.New(db), receiptGroupID, "telegram", "m-stale", newSessionCommand)
+	if reply := d.rotateGroupChat(ctx, rc, receipt); reply != pkgchannel.SessionAlreadyResetMessage {
+		t.Fatalf("reply = %q, want %q", reply, pkgchannel.SessionAlreadyResetMessage)
+	}
+
+	var count int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_group_command_receipt`).Scan(&count); err != nil {
+		t.Fatalf("count receipts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("an already-done reset kept %d claims, want 1", count)
 	}
 }
 

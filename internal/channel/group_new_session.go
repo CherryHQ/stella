@@ -2,10 +2,12 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
@@ -62,14 +64,15 @@ func (r commandReceipt) inert() bool {
 
 // claim reserves the right to run the command once. false means the claim was
 // already taken, i.e. this is a redelivery of a message whose command has run.
+//
+// Consumed claims are never expired: the Web API promises client_message_id
+// idempotency with no time window, and ctx_group_message's dedup for ordinary
+// messages is permanent too, so a TTL here would quietly reopen the destructive
+// replay this receipt exists to prevent. One row per executed command keeps the
+// table small on its own; rows leave with their group (ON DELETE CASCADE).
 func (r commandReceipt) claim(ctx context.Context) (bool, error) {
 	if r.inert() {
 		return true, nil
-	}
-	// Each claim pays for one sweep of day-old receipts, which is what keeps the
-	// table bounded without a background job.
-	if err := r.q.DeleteExpiredGroupCommandReceipt(ctx); err != nil {
-		slog.WarnContext(ctx, "failed to prune group command receipts", "error", err)
 	}
 	rows, err := r.q.CreateGroupCommandReceipt(ctx, sqlc.CreateGroupCommandReceiptParams{
 		GroupID:   r.groupID,
@@ -90,6 +93,12 @@ func (r commandReceipt) release(ctx context.Context) {
 	if r.inert() {
 		return
 	}
+	// The command often failed BECAUSE the request context died (a timeout while
+	// queued behind a long turn), and a release on that same context would fail
+	// with it — leaving a claim for a command that never ran. Detach, but keep a
+	// deadline: release is best-effort by contract.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	if err := r.q.DeleteGroupCommandReceipt(ctx, sqlc.DeleteGroupCommandReceiptParams{
 		GroupID:   r.groupID,
 		Platform:  r.platform,
@@ -178,10 +187,24 @@ func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat,
 			return d.queue.EnqueueControl(ctx, rc.SessionKey, fn)
 		}
 	}
+	// Not NewSessionReply: it folds every outcome into a reply string, and the
+	// receipt needs to know which one happened. RotateInfo is a single
+	// transaction, so any error other than a stale CAS means the rotation rolled
+	// back and never ran — release so a redelivery may retry. A stale CAS means
+	// another `/new` already did the reset this message asked for, so the claim
+	// stands and a redelivery answers "already reset".
 	var reply string
 	if err := run(func(qctx context.Context) error {
-		reply = NewSessionReply(qctx, rc, current.ID)
-		return nil
+		switch _, err := rc.RotateSession(qctx, current.ID); {
+		case err == nil:
+			reply = pkgchannel.NewSessionStartedMessage
+			return nil
+		case errors.Is(err, session.ErrStaleRotation):
+			reply = pkgchannel.SessionAlreadyResetMessage
+			return nil
+		default:
+			return err
+		}
 	}); err != nil {
 		receipt.release(ctx)
 		return fmt.Sprintf("Starting a new session failed: %v", err)
