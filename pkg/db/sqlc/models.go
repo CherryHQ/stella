@@ -144,6 +144,18 @@ type AgentGoalEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type AgentSessionRotationNonce struct {
+	ID         string             `json:"id"`
+	SessionID  string             `json:"session_id"`
+	BindingKey string             `json:"binding_key"`
+	ActorID    string             `json:"actor_id"`
+	TurnMarker string             `json:"turn_marker"`
+	ExpiresAt  time.Time          `json:"expires_at"`
+	UsedAt     pgtype.Timestamptz `json:"used_at"`
+	CreatedAt  time.Time          `json:"created_at"`
+	UpdatedAt  time.Time          `json:"updated_at"`
+}
+
 type AgentWorkflow struct {
 	ID                 string          `json:"id"`
 	OwnerKind          string          `json:"owner_kind"`

@@ -7,6 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -67,6 +68,21 @@ func (rc *ResolvedChat) chatChannelRequest() agent.ChatChannelRequest {
 		Channel:    rc.Channel,
 		SessionKey: rc.SessionKey,
 	}
+}
+
+// withChatBinding marks a turn's context as backed by this durable chat
+// binding. It is the sole entry gate for tools that may only run inside a chat
+// a user can keep talking in (`session_control`): a Web/API send, a webhook, or
+// a scheduler run never passes through here, so it never carries the marker.
+//
+// A session row cannot stand in for this — the Web UI can open the same main
+// session a DM is pinned to — so the adapter that knows has to say so.
+func (rc *ResolvedChat) withChatBinding(ctx context.Context) context.Context {
+	return agentctx.WithChatBinding(ctx, agentctx.ChatBinding{
+		Main:       rc.usesMainSession(),
+		Channel:    string(rc.Channel),
+		SessionKey: rc.SessionKey,
+	})
 }
 
 func (rc *ResolvedChat) ResolveSession(ctx context.Context) (session.Info, error) {
@@ -142,7 +158,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve session: %w", err)
 	}
-	stream := rc.Service.Chat(ctx, agent.ChatRequest{
+	stream := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
 		SessionID:      info.ID,
 		UserID:         rc.sessionUserID(),
 		AgentID:        rc.AgentID,
