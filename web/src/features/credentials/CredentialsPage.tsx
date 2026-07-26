@@ -967,7 +967,7 @@ export function CredentialsPage() {
       )}
 
       {isAdmin && (
-        <Fieldset className="space-y-3 border-t border-border pt-4">
+        <Fieldset className="flex flex-1 min-h-0 flex-col gap-3 border-t border-border pt-4">
           <FieldsetLegend>{t("credentials.oauth.app")}</FieldsetLegend>
           <Field>
             <FieldLabel>{t("credentials.oauth.clientId")}</FieldLabel>
@@ -1013,8 +1013,7 @@ export function CredentialsPage() {
               nativeInput
             />
           </Field>
-          <Field>
-            <FieldLabel>{t("credentials.oauth.scopes.title")}</FieldLabel>
+          <Field className="min-h-0 flex-1">
             <ScopeEditor
               value={scopeDraft[sp.provider] ?? []}
               saved={spMeta?.saved ?? []}

@@ -116,7 +116,7 @@ export function ScopeEditor({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-3">
       {missingDefaults.length > 0 && saved.length > 0 && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-warning/36 bg-warning/8 px-3 py-2 text-xs">
           <span className="text-foreground">
@@ -170,7 +170,7 @@ export function ScopeEditor({
             />
           </div>
 
-          <div className="max-h-64 space-y-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
             {groups.length === 0 && (
               <p className="px-1 py-3 text-center text-xs text-muted-foreground">
                 {universe.length === 0
@@ -214,18 +214,23 @@ export function ScopeEditor({
                     </CollapsibleTrigger>
                   </div>
                   <CollapsibleContent>
-                    <ul className="space-y-0.5 pb-1 pl-7">
+                    <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-x-4 gap-y-0.5 pb-1 pl-7">
                       {group.scopes.map((scope) => {
                         const isCustom = !defaultSet.has(scope);
                         return (
-                          <li key={scope} className="flex items-center gap-2 py-0.5">
+                          <li key={scope} className="flex min-w-0 items-center gap-2 py-0.5">
                             <Checkbox
                               checked={selected.has(scope)}
                               onCheckedChange={(c) => toggle(scope, c === true)}
                             />
-                            <span className="font-mono text-xs text-foreground">{scope}</span>
+                            <span
+                              className="truncate font-mono text-xs text-foreground"
+                              title={scope}
+                            >
+                              {scope}
+                            </span>
                             {isCustom && (
-                              <Badge variant="secondary" size="sm">
+                              <Badge variant="secondary" size="sm" className="shrink-0">
                                 {t("credentials.oauth.scopes.custom")}
                               </Badge>
                             )}
