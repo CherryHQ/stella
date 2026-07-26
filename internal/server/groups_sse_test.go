@@ -24,16 +24,30 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // fakeGroupRunner counts synchronous dispatches so the SSE tests can prove the
-// handler routes only the fresh-message outcome into the dispatch turn.
-type fakeGroupRunner struct{ calls int }
+// handler routes only the fresh-message outcome into the dispatch turn. It also
+// records group rotations so a `/new` can be told apart from a normal send.
+type fakeGroupRunner struct {
+	calls    int
+	rotated  []string
+	roterErr error
+}
 
 func (f *fakeGroupRunner) DispatchSync(_ context.Context, _ sqlc.CtxGroupOutbox, _ channel.GroupPublisher) error {
 	f.calls++
 	return nil
+}
+
+func (f *fakeGroupRunner) RotateGroupSession(_ context.Context, _, agentID string) (string, error) {
+	if f.roterErr != nil {
+		return "", f.roterErr
+	}
+	f.rotated = append(f.rotated, agentID)
+	return pkgchannel.NewSessionStartedMessage, nil
 }
 
 // setupGroupSSE builds a minimal Server whose group boundary has a real event log

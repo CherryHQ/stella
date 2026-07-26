@@ -39,6 +39,9 @@ type Registry struct {
 	store   store
 	agentID string // optional: scopes all operations to this agent when set
 	mainMu  keyedMutex
+	// channelMu serializes resolution per chat-channel binding, so two concurrent
+	// first messages on one chat cannot each create a session for it.
+	channelMu keyedMutex
 }
 
 // NewRegistry creates a Registry backed by the given memory.Provider.
@@ -275,6 +278,163 @@ func newMainInfo(agentID, userID string) Info {
 	id := uuid.Must(uuid.NewV7()).String()
 	channel := agentID + ":user:" + userID + ":private"
 	return NewInfo(id, agentID, userID, channel, KindMain, "", now)
+}
+
+// ResolveChatChannel returns the chat session a channel chat is currently bound
+// to, creating one when the binding has none yet. Unlike Ensure it never uses a
+// derived key as the session id, so the binding can rotate onto a successor
+// while staying the same chat.
+func (r *Registry) ResolveChatChannel(ctx context.Context, req ChannelRequest) (Info, error) {
+	req.AgentID = r.resolveAgentID(req.AgentID)
+	if err := req.validate(); err != nil {
+		return Info{}, err
+	}
+	unlock := r.channelMu.lock(req.bindingKey())
+	defer unlock()
+
+	current, found, err := r.currentChannelLocked(ctx, req)
+	if err != nil {
+		return Info{}, err
+	}
+	if found {
+		return current, nil
+	}
+
+	info := newChannelInfo(req)
+	if err := r.store.save(ctx, info); err != nil {
+		return Info{}, fmt.Errorf("create chat channel session: %w", err)
+	}
+	return info, nil
+}
+
+// RotateChannel archives the chat channel's current session and returns its
+// successor, so the next turn starts with an empty context while the old session
+// stays searchable. The archive and the create are one store-level transaction,
+// so the binding is never left without an active session.
+//
+// When req.ExpectedSessionID is set it must still be the binding's current
+// session; otherwise the rotation is stale (another `/new` already ran) and
+// reports ErrStaleRotation without changing anything.
+func (r *Registry) RotateChannel(ctx context.Context, req ChannelRequest) (Info, error) {
+	req.AgentID = r.resolveAgentID(req.AgentID)
+	if err := req.validate(); err != nil {
+		return Info{}, err
+	}
+	unlock := r.channelMu.lock(req.bindingKey())
+	defer unlock()
+
+	current, found, err := r.currentChannelLocked(ctx, req)
+	if err != nil {
+		return Info{}, err
+	}
+	successor := newChannelInfo(req)
+
+	if !found {
+		if req.ExpectedSessionID != "" {
+			return Info{}, fmt.Errorf("%w: %s is no longer the chat session", ErrStaleRotation, req.ExpectedSessionID)
+		}
+		if err := r.store.save(ctx, successor); err != nil {
+			return Info{}, fmt.Errorf("create chat channel session: %w", err)
+		}
+		return successor, nil
+	}
+	if req.ExpectedSessionID != "" && req.ExpectedSessionID != current.ID {
+		return Info{}, fmt.Errorf("%w: %s is no longer the chat session", ErrStaleRotation, req.ExpectedSessionID)
+	}
+	if err := r.store.rotate(ctx, current.ID, successor); err != nil {
+		return Info{}, fmt.Errorf("rotate chat channel session: %w", err)
+	}
+	return successor, nil
+}
+
+// currentChannelLocked resolves the session currently bound to a chat channel:
+// the newest active kind=chat session matching the binding, else the legacy
+// key-as-ID session adopted into the binding. Callers must hold the binding lock.
+func (r *Registry) currentChannelLocked(ctx context.Context, req ChannelRequest) (Info, bool, error) {
+	opts := memory.ListOptions{
+		UserID:          req.UserID,
+		AgentID:         req.AgentID,
+		Kind:            string(KindChat),
+		ProjectIDIsNull: true,
+	}
+	// A group's channel varies with the reply channel a message arrives through,
+	// so only a private chat channel binds on it. The group binds on its owner.
+	if req.GroupID == "" {
+		opts.Channel = string(req.Channel)
+	}
+	matches, err := r.store.list(ctx, req.UserID, req.AgentID, opts)
+	if err != nil {
+		return Info{}, false, fmt.Errorf("list chat channel sessions: %w", err)
+	}
+	// The listing is newest-first, so the most recent match is the live one; older
+	// matches are pre-rotation sessions the binding has already left behind.
+	if len(matches) > 0 {
+		bound, err := r.bindChannelInfo(matches[0], req)
+		if err != nil {
+			return Info{}, false, err
+		}
+		return bound, true, nil
+	}
+
+	// Legacy fallback: before the binding existed a chat was pinned to a session
+	// whose id was its derived key. Such a row is invisible to the binding query
+	// when its channel was never recorded (the column defaults to ''), so adopt it
+	// once instead of stranding the user's history behind a new empty session.
+	if req.LegacyID == "" {
+		return Info{}, false, nil
+	}
+	// A load miss is the ordinary case (most chats never had a legacy row), and a
+	// row this binding must not claim is equivalent to none: either way the caller
+	// starts a fresh session rather than failing the turn.
+	legacy, loadErr := r.store.load(ctx, req.LegacyID, req.UserID, req.AgentID)
+	if loadErr == nil && !legacy.Archived && Kind(legacy.Kind) == KindChat && legacy.ProjectID == "" {
+		bound, err := r.bindChannelInfo(legacy, req)
+		if err != nil {
+			return Info{}, false, err
+		}
+		if err := r.store.save(ctx, bound); err != nil {
+			return Info{}, false, fmt.Errorf("adopt legacy chat channel session: %w", err)
+		}
+		return bound, true, nil
+	}
+	return Info{}, false, nil
+}
+
+// bindChannelInfo reconciles a candidate against the binding it was resolved
+// for, backfilling the fields a legacy row may lack. It fails closed on a
+// mismatch: the durable group owner is an ownership claim, never a rebind.
+func (r *Registry) bindChannelInfo(info Info, req ChannelRequest) (Info, error) {
+	if info.UserID != req.UserID || info.AgentID != req.AgentID {
+		return Info{}, fmt.Errorf("%w: %s", ErrForbidden, info.ID)
+	}
+	if info.Channel == "" && !req.Channel.isZero() {
+		info.Channel = string(req.Channel)
+	}
+	if req.GroupID != "" {
+		switch info.GroupID {
+		case req.GroupID:
+		case "":
+			// Legacy row with a NULL group_id whose owner is this group: reattach.
+			info.GroupID = req.GroupID
+		default:
+			return Info{}, fmt.Errorf("%w: session %s belongs to group %q, not %q", ErrForbidden, info.ID, info.GroupID, req.GroupID)
+		}
+	} else if info.GroupID != "" {
+		return Info{}, fmt.Errorf("%w: session %s is owned by group %q", ErrForbidden, info.ID, info.GroupID)
+	}
+	if err := info.Validate(); err != nil {
+		return Info{}, err
+	}
+	return info, nil
+}
+
+// newChannelInfo builds a fresh session carrying a chat channel's binding.
+func newChannelInfo(req ChannelRequest) Info {
+	now := time.Now().UTC()
+	id := uuid.Must(uuid.NewV7()).String()
+	info := NewInfo(id, req.AgentID, req.UserID, string(req.Channel), KindChat, "", now)
+	info.GroupID = req.GroupID
+	return info
 }
 
 // ListForReview returns sessions that are candidates for reflect review.

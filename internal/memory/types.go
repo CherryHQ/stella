@@ -118,6 +118,7 @@ type ListOptions struct {
 	AgentID         string // filter by agent (empty = all)
 	UserID          string // filter by user (empty = all)
 	Kind            string // filter by kind (empty = all)
+	Channel         string // filter by durable channel binding (empty = all)
 	ProjectID       string // filter by project (empty = all)
 	ProjectIDIsNull bool   // when true, require project_id IS NULL
 	IncludeArchived bool

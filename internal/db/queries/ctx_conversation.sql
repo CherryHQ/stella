@@ -73,6 +73,14 @@ SET
     WHEN sqlc.narg(project_id)::text IS NOT NULL AND (project_id IS NULL OR project_id != sqlc.narg(project_id)) THEN sqlc.narg(project_id)
     ELSE project_id
   END,
+  -- Make a legacy row's durable channel binding stick: adopt the supplied channel
+  -- only when the stored one is blank (the column defaults to ''). Chat-channel
+  -- sessions are resolved by this binding, so a row written before the binding
+  -- existed has to acquire it once. Never overwrite an existing channel.
+  channel = CASE
+    WHEN channel = '' AND sqlc.narg(channel)::text IS NOT NULL THEN sqlc.narg(channel)
+    ELSE channel
+  END,
   -- Make a legacy canonical group row durable: adopt the supplied group_id only
   -- when the stored value is NULL. Never overwrite or clear an existing group_id.
   group_id = CASE
@@ -105,6 +113,10 @@ WHERE user_id = sqlc.arg(user_id)
   AND (sqlc.arg(include_archived) != 0 OR archived = false)
   AND (sqlc.arg(exclude_internal)::boolean = false OR kind NOT IN ('task', 'delegate'))
   AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
+  -- Durable channel binding: chat-channel sessions are resolved by their channel
+  -- rather than by a key-derived session id, so a channel can rotate onto a fresh
+  -- session while its binding stays stable.
+  AND (sqlc.narg(channel)::text IS NULL OR channel = sqlc.narg(channel))
   AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
   AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
 ORDER BY last_active DESC, session_id DESC

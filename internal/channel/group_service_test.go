@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -33,15 +35,25 @@ func (noAssignStore) ListUserAgentIDs(context.Context, string) ([]string, error)
 // fakeDispatchRunner records the outbox handed to DispatchSync so a test can
 // prove the send boundary claims the right row without running a real agent turn.
 type fakeDispatchRunner struct {
-	called   bool
-	outboxID string
-	err      error
+	called    bool
+	outboxID  string
+	err       error
+	rotated   []string
+	rotateErr error
 }
 
 func (f *fakeDispatchRunner) DispatchSync(_ context.Context, outbox sqlc.CtxGroupOutbox, _ GroupPublisher) error {
 	f.called = true
 	f.outboxID = outbox.ID
 	return f.err
+}
+
+func (f *fakeDispatchRunner) RotateGroupSession(_ context.Context, _, agentID string) (string, error) {
+	if f.rotateErr != nil {
+		return "", f.rotateErr
+	}
+	f.rotated = append(f.rotated, agentID)
+	return pkgchannel.NewSessionStartedMessage, nil
 }
 
 type groupFixture struct {
@@ -267,6 +279,94 @@ func TestGroupPrepareSendCommand(t *testing.T) {
 	}
 	if len(msgs) != 0 {
 		t.Fatalf("command wrote %d messages, want 0", len(msgs))
+	}
+}
+
+// TestGroupPrepareSendNewRotatesSingleAgent proves the Web group `/new` rotates
+// the group's only agent and never reaches the event log — the command that
+// clears group context must not itself become part of it.
+func TestGroupPrepareSendNewRotatesSingleAgent(t *testing.T) {
+	fx := setupGroupFixture(t)
+	ctx := fx.ts.ctx()
+	user := createTestUser(t, fx.ts.oidcStore, "user@example.com")
+	acc := fx.begin(t, user.ID, false)
+	g, err := acc.Create(ctx, "team", []string{fx.stella})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	prep, err := acc.PrepareSend(ctx, g.ID, "/new", "")
+	if err != nil {
+		t.Fatalf("PrepareSend /new: %v", err)
+	}
+	if !prep.Command || prep.Reply != pkgchannel.NewSessionStartedMessage {
+		t.Fatalf("/new = %+v, want an intercepted command with the started reply", prep)
+	}
+	if got := fx.runner.rotated; len(got) != 1 || got[0] != fx.stella {
+		t.Fatalf("rotated = %v, want [%s]", got, fx.stella)
+	}
+	msgs, err := acc.Messages(ctx, g.ID, 0, 50)
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("/new wrote %d messages to the event log, want 0", len(msgs))
+	}
+}
+
+// TestGroupPrepareSendNewRequiresTargetWhenMultiAgent proves rotation is
+// per-agent: a bare `/new` in a multi-agent group answers with usage instead of
+// silently resetting everyone, and `/new @agent` rotates exactly that agent.
+func TestGroupPrepareSendNewRequiresTargetWhenMultiAgent(t *testing.T) {
+	fx := setupGroupFixture(t)
+	ctx := fx.ts.ctx()
+	user := createTestUser(t, fx.ts.oidcStore, "user@example.com")
+	fx.createSystemAgent(t, "second")
+	acc := fx.begin(t, user.ID, false)
+	g, err := acc.Create(ctx, "team", []string{fx.stella, "second"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	prep, err := acc.PrepareSend(ctx, g.ID, "/new", "")
+	if err != nil {
+		t.Fatalf("PrepareSend bare /new: %v", err)
+	}
+	if !prep.Command || !strings.Contains(prep.Reply, "/new @agent") {
+		t.Fatalf("bare /new = %+v, want a usage reply", prep)
+	}
+	if len(fx.runner.rotated) != 0 {
+		t.Fatalf("bare /new rotated %v, want nothing", fx.runner.rotated)
+	}
+
+	// An unknown target is a usage reply too, never a fallback to the first agent.
+	prep, err = acc.PrepareSend(ctx, g.ID, "/new @nobody", "")
+	if err != nil {
+		t.Fatalf("PrepareSend /new @nobody: %v", err)
+	}
+	if !prep.Command || !strings.Contains(prep.Reply, "/new @agent") {
+		t.Fatalf("/new @nobody = %+v, want a usage reply", prep)
+	}
+	if len(fx.runner.rotated) != 0 {
+		t.Fatalf("/new @nobody rotated %v, want nothing", fx.runner.rotated)
+	}
+
+	prep, err = acc.PrepareSend(ctx, g.ID, "/new @second", "")
+	if err != nil {
+		t.Fatalf("PrepareSend /new @second: %v", err)
+	}
+	if !prep.Command || prep.Reply != pkgchannel.NewSessionStartedMessage {
+		t.Fatalf("/new @second = %+v, want the started reply", prep)
+	}
+	if got := fx.runner.rotated; len(got) != 1 || got[0] != "second" {
+		t.Fatalf("rotated = %v, want [second]", got)
+	}
+	msgs, err := acc.Messages(ctx, g.ID, 0, 50)
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("/new wrote %d messages to the event log, want 0", len(msgs))
 	}
 }
 

@@ -11,11 +11,6 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-// ErrRotationUnsupported reports a chat whose session cannot be rotated yet:
-// group chats and unlinked private channels are still pinned to a session whose
-// ID is their session key, so there is no successor to switch to.
-var ErrRotationUnsupported = errors.New("starting a fresh session is not supported for this chat")
-
 // HandleCommand processes common bot commands shared across all channels.
 // /model and /agent are left to each channel because they need platform-specific UI.
 //
@@ -57,8 +52,6 @@ func NewSessionReply(ctx context.Context, rc *ResolvedChat, expectedSessionID st
 		return pkgchannel.NewSessionStartedMessage
 	case errors.Is(err, session.ErrStaleRotation):
 		return pkgchannel.SessionAlreadyResetMessage
-	case errors.Is(err, ErrRotationUnsupported):
-		return pkgchannel.NewSessionUnsupportedMessage
 	default:
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}

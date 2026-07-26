@@ -54,10 +54,28 @@ const NewSessionStartedMessage = "Started a fresh session. Previous history stay
 // another one already rotated the same chat, so it has nothing left to do.
 const SessionAlreadyResetMessage = "Session was already reset."
 
-// NewSessionUnsupportedMessage is the shared reply for chats whose session is
-// still pinned to a fixed key (group chats and unlinked private channels), where
-// `/new` cannot rotate anything yet.
-const NewSessionUnsupportedMessage = "⚠️ Starting a fresh session here is not supported yet."
+// GroupNewSessionUnavailableMessage is the reply when a group `/new` arrives at
+// a deployment whose group plumbing (group identity resolution or the member
+// roster) is not wired, so there is no roster to rotate against.
+const GroupNewSessionUnavailableMessage = "⚠️ Starting a fresh session is not available in this group."
+
+// GroupNewSessionNoAgentsMessage is the reply for a `/new` in a group that has
+// no agent members, so there is no session to reset.
+const GroupNewSessionNoAgentsMessage = "⚠️ This group has no agents, so there is no session to reset."
+
+// GroupNewSessionUsageMessage is the reply for an ambiguous group `/new`. Each
+// agent in a group keeps its own session, so a multi-agent group requires an
+// explicit target: resetting every agent's context on an unclear command would
+// be destructive by default.
+func GroupNewSessionUsageMessage(agentIDs []string) string {
+	var b strings.Builder
+	b.WriteString("⚠️ This group has more than one agent, so `/new` needs a target.\nUse `/new @agent`:")
+	for _, id := range agentIDs {
+		b.WriteString("\n  @")
+		b.WriteString(id)
+	}
+	return b.String()
+}
 
 // SplitMessage splits text into chunks that fit within maxLen.
 // It tries to split at newline boundaries and avoids cutting multi-byte

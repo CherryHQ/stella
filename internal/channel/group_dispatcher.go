@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -832,24 +831,13 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 	speaker := webGroupSpeaker(message)
 	// A persisted group membership is not an execute grant forever. The human
 	// speaker is audit/personalization only; never borrow their private user
-	// authority to execute a group turn.
-	if d.coord == nil || d.coord.agentAccess == nil {
-		return nil, ErrAgentAccessDenied
-	}
-	authority, err := agentaccess.GroupAgentAuthority(row.GroupID, row.AgentID)
+	// authority to execute a group turn. resolveWebGroupChat mints and re-checks
+	// the group authority; `/new` enters through the same door.
+	rc, err := d.resolveWebGroupChat(ctx, row.GroupID, row.AgentID)
 	if err != nil {
-		return nil, ErrAgentAccessDenied
+		return nil, err
 	}
-	if _, err := d.coord.agentAccess.Use(ctx, authority, row.AgentID); err != nil {
-		return nil, ErrAgentAccessDenied
-	}
-	svc := d.coord.serviceManager.GetService(row.AgentID)
-	if svc == nil {
-		return nil, fmt.Errorf("agent service %q not found", row.AgentID)
-	}
-	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
-	channelStr := "group:" + row.GroupID
-	info, err := svc.ResolveGroupChannelSession(ctx, authority, sessionKey, row.GroupID, row.AgentID, session.Channel(channelStr))
+	info, err := rc.Service.ResolveChatChannelSession(ctx, rc.chatChannelRequest())
 	if err != nil {
 		return nil, fmt.Errorf("resolve session: %w", err)
 	}
@@ -860,16 +848,16 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 			speaker.DisplayName = u.Name
 		}
 	}
-	events := svc.Chat(ctx, agent.ChatRequest{
+	events := rc.Service.Chat(ctx, agent.ChatRequest{
 		SessionID:      info.ID,
 		UserID:         row.GroupID,
 		AgentID:        row.AgentID,
 		Kind:           session.KindChat,
 		GroupID:        row.GroupID,
-		Channel:        session.Channel(channelStr),
+		Channel:        rc.Channel,
 		Message:        groupMessageChatContent(message),
 		CurrentSpeaker: speaker,
-		Authority:      authority,
+		Authority:      rc.Authority,
 	})
 	out := make(chan pkgchannel.Event, 100)
 	go func() {

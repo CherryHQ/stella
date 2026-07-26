@@ -40,6 +40,14 @@ func (a fakeSessionAccess) RotateMain(ctx context.Context, userID, agentID, expe
 	return a.reg.RotateMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID, ExpectedSessionID: expectedSessionID})
 }
 
+func (a fakeSessionAccess) ResolveChatChannel(ctx context.Context, req session.ChannelRequest) (session.Info, error) {
+	return a.reg.ResolveChatChannel(ctx, req)
+}
+
+func (a fakeSessionAccess) RotateChannel(ctx context.Context, req session.ChannelRequest) (session.Info, error) {
+	return a.reg.RotateChannel(ctx, req)
+}
+
 func (a fakeSessionAccess) Use(ctx context.Context, agentID, sessionID string) (session.Info, error) {
 	return a.reg.Get(ctx, session.Scope{AgentID: agentID, System: true}, sessionID)
 }

@@ -331,6 +331,87 @@ func TestResolveMentionAgents(t *testing.T) {
 	})
 }
 
+// TestGroupIncomingNewIsInterceptedBeforeEventLog proves the platform group
+// `/new` is answered before the event-log append: the command never becomes part
+// of the group context it exists to clear, and a multi-agent group gets a usage
+// reply instead of an implicit reset of every agent.
+func TestGroupIncomingNewIsInterceptedBeforeEventLog(t *testing.T) {
+	db := dbtest.New(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	coord := &Coordinator{
+		eventLog:      el,
+		groupResolver: el,
+		memberLister: FuncGroupMemberLister(func(context.Context, string) ([]GroupMember, error) {
+			return []GroupMember{{AgentID: "a1"}, {AgentID: "a2"}}, nil
+		}),
+	}
+	msg := pkgchannel.IncomingMessage{
+		Platform: "telegram", ChatID: "chat-new", SenderID: "alice",
+		MessageID: "m-new", IsGroup: true,
+		Content: []ai.ContentBlock{ai.TextContent{Text: "/new"}},
+	}
+
+	reply, handled, stream, err := coord.handleGroupIncoming(ctx, msg, "/new", "")
+	if err != nil {
+		t.Fatalf("handleGroupIncoming: %v", err)
+	}
+	if !handled || stream != nil {
+		t.Fatalf("handled=%v stream=%v, want an immediate plain reply", handled, stream)
+	}
+	if reply != pkgchannel.GroupNewSessionUsageMessage([]string{"a1", "a2"}) {
+		t.Fatalf("reply = %q, want the multi-agent usage message", reply)
+	}
+
+	groupID, err := el.ResolveGroupID(ctx, "telegram", "chat-new", "")
+	if err != nil {
+		t.Fatalf("ResolveGroupID: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id = $1`, groupID).Scan(&count); err != nil {
+		t.Fatalf("count group messages: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("/new appended %d group messages, want 0", count)
+	}
+}
+
+// TestGroupNewTarget covers the per-agent rotation rules: no roster, the
+// single-agent shortcut, an explicit mention, an `@name` argument, an unknown
+// target, and the ambiguous multi-agent case.
+func TestGroupNewTarget(t *testing.T) {
+	tests := []struct {
+		name      string
+		mentioned string
+		args      string
+		agentIDs  []string
+		target    string
+		usage     string
+	}{
+		{name: "no agents", usage: pkgchannel.GroupNewSessionNoAgentsMessage},
+		{name: "single agent needs no target", agentIDs: []string{"a1"}, target: "a1"},
+		{name: "resolved mention wins", mentioned: "a2", agentIDs: []string{"a1", "a2"}, target: "a2"},
+		{name: "named arg selects", args: "@a2", agentIDs: []string{"a1", "a2"}, target: "a2"},
+		{
+			name: "unknown target never falls back", args: "@ghost", agentIDs: []string{"a1"},
+			usage: pkgchannel.GroupNewSessionUsageMessage([]string{"a1"}),
+		},
+		{
+			name: "ambiguous multi-agent", agentIDs: []string{"a1", "a2"},
+			usage: pkgchannel.GroupNewSessionUsageMessage([]string{"a1", "a2"}),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			target, usage := groupNewTarget(tc.mentioned, tc.args, tc.agentIDs)
+			if target != tc.target || usage != tc.usage {
+				t.Fatalf("groupNewTarget = (%q, %q), want (%q, %q)", target, usage, tc.target, tc.usage)
+			}
+		})
+	}
+}
+
 func TestFuncGroupMemberLister(t *testing.T) {
 	lister := FuncGroupMemberLister(func(_ context.Context, groupID string) ([]GroupMember, error) {
 		if groupID == "g1" {

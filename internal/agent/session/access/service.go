@@ -270,6 +270,80 @@ func (a *Access) RotateMain(ctx context.Context, userID, agentID, expectedSessio
 	return a.svc.registry.RotateMain(ctx, agentsession.MainRequest{UserID: userID, AgentID: agentID, ExpectedSessionID: expectedSessionID})
 }
 
+// ResolveChatChannel resolves the session a chat channel is currently bound to,
+// creating one when the binding has none yet. It is the channel adapters' entry
+// point: unlike EnsureUse it never treats a derived key as a session id, so the
+// chat can rotate onto a successor without changing identity.
+func (a *Access) ResolveChatChannel(ctx context.Context, req agentsession.ChannelRequest) (agentsession.Info, error) {
+	if err := a.authorizeChannelBinding(ctx, req, authz.ActionCreate); err != nil {
+		return agentsession.Info{}, err
+	}
+	info, err := a.svc.registry.ResolveChatChannel(ctx, req)
+	if err != nil {
+		return agentsession.Info{}, err
+	}
+	if err := assertChannelBinding(req, info); err != nil {
+		return agentsession.Info{}, err
+	}
+	return a.authorizeInfo(ctx, info, authz.ActionRead)
+}
+
+// RotateChannel archives a chat channel's current session and returns its
+// successor. Both halves are decided here under one evaluation — Delete on the
+// session being retired and Create on the one replacing it — because the
+// successor does not exist yet and the predecessor is chosen by the registry.
+// req.ExpectedSessionID, when set, makes this a compare-and-rotate.
+func (a *Access) RotateChannel(ctx context.Context, req agentsession.ChannelRequest) (agentsession.Info, error) {
+	if err := a.authorizeChannelBinding(ctx, req, authz.ActionDelete); err != nil {
+		return agentsession.Info{}, err
+	}
+	info, err := a.svc.registry.RotateChannel(ctx, req)
+	if err != nil {
+		return agentsession.Info{}, err
+	}
+	if err := assertChannelBinding(req, info); err != nil {
+		return agentsession.Info{}, err
+	}
+	return info, nil
+}
+
+// authorizeChannelBinding decides a chat-channel binding operation from the
+// binding's own facts. The session it names does not exist yet (or is chosen by
+// the registry), so the decision is made on the binding rather than on an Info a
+// caller could have pre-authorized. Create is always required; extra is the
+// additional action a mutating use case needs.
+func (a *Access) authorizeChannelBinding(ctx context.Context, req agentsession.ChannelRequest, extra authz.Action) error {
+	if req.UserID == "" || req.AgentID == "" {
+		return ErrForbidden
+	}
+	if req.GroupID != "" && req.GroupID != req.UserID {
+		return ErrForbidden
+	}
+	if err := a.authorizeAgent(ctx, req.AgentID, authz.ActionRead); err != nil {
+		return err
+	}
+	actor := a.authority
+	facts := sessionFacts{
+		isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == req.UserID,
+		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == req.AgentID,
+		isGroup:     req.GroupID != "",
+		isSameGroup: req.GroupID != "" && string(actor.GroupID()) == req.GroupID,
+	}
+	if !a.allowSession(authz.ActionCreate, facts) || !a.allowSession(extra, facts) {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// assertChannelBinding fails closed when the registry hands back a session that
+// does not carry the binding that was authorized.
+func assertChannelBinding(req agentsession.ChannelRequest, info agentsession.Info) error {
+	if info.UserID != req.UserID || info.AgentID != req.AgentID || info.GroupID != req.GroupID {
+		return ErrForbidden
+	}
+	return nil
+}
+
 // List lists the actor's sessions and filters every row through the same
 // evaluation. Collection visibility and individual visibility therefore cannot
 // drift apart.
