@@ -7,11 +7,21 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
+// ErrRotationUnsupported reports a chat whose session cannot be rotated yet:
+// group chats and unlinked private channels are still pinned to a session whose
+// ID is their session key, so there is no successor to switch to.
+var ErrRotationUnsupported = errors.New("starting a fresh session is not supported for this chat")
+
 // HandleCommand processes common bot commands shared across all channels.
 // /model and /agent are left to each channel because they need platform-specific UI.
+//
+// /new is deliberately absent: rotating a session must run in the same
+// per-session FIFO queue as chat turns, so the coordinator owns it (see
+// Coordinator.handleNewSessionCommand) and calls NewSessionReply from there.
 func HandleCommand(ctx context.Context, rc *ResolvedChat, text, senderID string) (string, bool) {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
@@ -22,7 +32,7 @@ func HandleCommand(ctx context.Context, rc *ResolvedChat, text, senderID string)
 	switch cmd {
 	case "/start", "/help":
 		return pkgchannel.WelcomeMessage, true
-	case "/new", "/compact":
+	case "/compact":
 		if _, err := rc.CompactSession(ctx); err != nil {
 			if errors.Is(err, agent.ErrGroupCompactionUnsupported) {
 				return pkgchannel.GroupCompactUnsupportedMessage, true
@@ -35,4 +45,21 @@ func HandleCommand(ctx context.Context, rc *ResolvedChat, text, senderID string)
 	}
 
 	return "", false
+}
+
+// NewSessionReply rotates the chat onto a fresh session and returns the user
+// reply. expectedSessionID is the session observed when the command arrived; a
+// rotation that no longer matches it is reported as an already-done reset rather
+// than resetting the successor a concurrent /new just created.
+func NewSessionReply(ctx context.Context, rc *ResolvedChat, expectedSessionID string) string {
+	switch _, err := rc.RotateSession(ctx, expectedSessionID); {
+	case err == nil:
+		return pkgchannel.NewSessionStartedMessage
+	case errors.Is(err, session.ErrStaleRotation):
+		return pkgchannel.SessionAlreadyResetMessage
+	case errors.Is(err, ErrRotationUnsupported):
+		return pkgchannel.NewSessionUnsupportedMessage
+	default:
+		return fmt.Sprintf("Starting a new session failed: %v", err)
+	}
 }

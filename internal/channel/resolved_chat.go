@@ -47,8 +47,15 @@ func (rc *ResolvedChat) sessionUserID() string {
 	return rc.User.ID
 }
 
+// usesMainSession reports whether this chat is pinned to the user's singleton
+// main session — a linked user talking on their private channel. Every other
+// chat (group, unlinked private channel) is pinned to a key-derived session ID.
+func (rc *ResolvedChat) usesMainSession() bool {
+	return rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:")
+}
+
 func (rc *ResolvedChat) ResolveSession(ctx context.Context) (session.Info, error) {
-	if rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:") {
+	if rc.usesMainSession() {
 		return rc.Service.ResolveMainSession(ctx, rc.Authority, rc.User.ID, rc.AgentID)
 	}
 	if rc.GroupID != "" {
@@ -63,7 +70,7 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 		err  error
 	)
 	switch {
-	case rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:"):
+	case rc.usesMainSession():
 		info, err = rc.Service.ResolveMainSessionForUse(ctx, rc.Authority, rc.User.ID, rc.AgentID)
 	case rc.GroupID != "":
 		info, err = rc.Service.ResolveGroupChannelSessionForUse(ctx, rc.Authority, rc.SessionKey, rc.GroupID, rc.AgentID, rc.Channel)
@@ -74,6 +81,27 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("resolve session for compaction: %w", err)
 	}
 	return rc.Service.CompactAuthorizedSession(ctx, info)
+}
+
+// CurrentSessionForRotation resolves and authorizes the session a `/new` would
+// replace. It runs before the rotation is queued so the queued operation carries
+// the session the user actually saw; a duplicate `/new` behind it then resolves
+// as stale instead of resetting a second time.
+func (rc *ResolvedChat) CurrentSessionForRotation(ctx context.Context) (session.Info, error) {
+	if !rc.usesMainSession() {
+		return session.Info{}, ErrRotationUnsupported
+	}
+	return rc.Service.ResolveMainSessionForUse(ctx, rc.Authority, rc.User.ID, rc.AgentID)
+}
+
+// RotateSession archives the chat's current session and returns its empty
+// successor. Only the DM main session rotates today; group and unlinked
+// private-channel chats are still pinned to a key-derived session ID.
+func (rc *ResolvedChat) RotateSession(ctx context.Context, expectedSessionID string) (session.Info, error) {
+	if !rc.usesMainSession() {
+		return session.Info{}, ErrRotationUnsupported
+	}
+	return rc.Service.RotateMainSession(ctx, rc.Authority, rc.User.ID, rc.AgentID, expectedSessionID)
 }
 
 // AuthorizeUse performs the fresh execution decision at dequeue time. The

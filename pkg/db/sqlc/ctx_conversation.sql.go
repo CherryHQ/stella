@@ -12,6 +12,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const archiveActiveConversationBySessionID = `-- name: ArchiveActiveConversationBySessionID :execrows
+UPDATE ctx_conversation SET archived = true, updated_at = now()
+WHERE session_id = $1
+  AND user_id = $2
+  AND agent_id IS NOT DISTINCT FROM $3
+  AND kind = $4
+  AND project_id IS NOT DISTINCT FROM $5
+  AND archived = false
+`
+
+type ArchiveActiveConversationBySessionIDParams struct {
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
+	Kind      string      `json:"kind"`
+	ProjectID pgtype.Text `json:"project_id"`
+}
+
+// Compare-and-rotate half of a session rotation: the row is archived only while
+// it is still active and still matches the caller's expected binding, so a
+// rotation that lost a race reports zero rows instead of archiving the successor
+// another rotation just created. The UPDATE also holds the row lock for the rest
+// of the enclosing transaction, serializing concurrent rotations of one session.
+func (q *Queries) ArchiveActiveConversationBySessionID(ctx context.Context, arg ArchiveActiveConversationBySessionIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, archiveActiveConversationBySessionID,
+		arg.SessionID,
+		arg.UserID,
+		arg.AgentID,
+		arg.Kind,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, group_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -518,17 +555,18 @@ SELECT
   ), 0)::bigint AS latest_seq
 FROM ctx_conversation c
 WHERE c.agent_id = $1
-  AND c.archived = false
+  AND ($2 != 0 OR c.archived = false)
   AND c.user_id IS NOT NULL AND c.user_id <> ''
-  AND ($2::text IS NULL OR c.kind = $2)
-  AND ($3 = 0 OR c.project_id IS NULL)
-  AND ($4::text IS NULL OR c.project_id = $4)
+  AND ($3::text IS NULL OR c.kind = $3)
+  AND ($4 = 0 OR c.project_id IS NULL)
+  AND ($5::text IS NULL OR c.project_id = $5)
 ORDER BY c.last_active DESC, c.session_id DESC
-LIMIT NULLIF($6, -1) OFFSET $5
+LIMIT NULLIF($7, -1) OFFSET $6
 `
 
 type ListConversationsForReviewFilteredParams struct {
 	AgentID         pgtype.Text `json:"agent_id"`
+	IncludeArchived interface{} `json:"include_archived"`
 	Kind            pgtype.Text `json:"kind"`
 	ProjectIDIsNull interface{} `json:"project_id_is_null"`
 	ProjectID       pgtype.Text `json:"project_id"`
@@ -543,9 +581,14 @@ type ListConversationsForReviewFilteredRow struct {
 
 // Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
 // and such rows were never review candidates.
+// An archived session is still a candidate when include_archived is set: rotation
+// (/new) archives a session the moment the user starts a fresh one, and its last
+// messages would otherwise never be distilled. The caller drops archived rows
+// once their review watermarks reach latest_seq.
 func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]ListConversationsForReviewFilteredRow, error) {
 	rows, err := q.db.Query(ctx, listConversationsForReviewFiltered,
 		arg.AgentID,
+		arg.IncludeArchived,
 		arg.Kind,
 		arg.ProjectIDIsNull,
 		arg.ProjectID,

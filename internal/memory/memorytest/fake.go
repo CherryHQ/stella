@@ -64,6 +64,8 @@ type Fake struct {
 	changelog []memory.ChangeEntry
 	// snapshots maps "sessionID:userID:agentID" -> SessionSnapshot.
 	snapshots map[string]memory.SessionSnapshot
+	// rotateErr, when set, fails every RotateInfo (see FailRotation).
+	rotateErr error
 	// mu protects all maps.
 	mu sync.Mutex
 }
@@ -446,6 +448,34 @@ func (f *Fake) SaveInfo(_ context.Context, info memory.SessionInfo) error {
 	defer f.mu.Unlock()
 	f.sessionInfos[info.ID] = fakeSessionInfo{info: info}
 	return nil
+}
+
+// RotateInfo implements memory.SessionManager. The mutex stands in for the real
+// provider's transaction: the archive and the successor become visible together.
+func (f *Fake) RotateInfo(_ context.Context, expectedSessionID string, successor memory.SessionInfo) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.rotateErr != nil {
+		return f.rotateErr
+	}
+	expected, ok := f.sessionInfos[expectedSessionID]
+	if !ok || expected.info.Archived || expected.info.Kind != successor.Kind ||
+		expected.info.UserID != successor.UserID || expected.info.AgentID != successor.AgentID ||
+		expected.info.ProjectID != successor.ProjectID {
+		return fmt.Errorf("%w: %s", memory.ErrStaleRotation, expectedSessionID)
+	}
+	expected.info.Archived = true
+	f.sessionInfos[expectedSessionID] = expected
+	f.sessionInfos[successor.ID] = fakeSessionInfo{info: successor}
+	return nil
+}
+
+// FailRotation makes the next RotateInfo calls fail with err, so callers can
+// prove a rotation failure leaves the predecessor untouched.
+func (f *Fake) FailRotation(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rotateErr = err
 }
 
 // LoadInfo implements memory.SessionManager.

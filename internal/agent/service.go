@@ -37,6 +37,7 @@ type SessionAccessService interface {
 type SessionAccess interface {
 	Create(context.Context, string, string, string, session.Kind, session.Channel) (session.Info, error)
 	ResolveMain(context.Context, string, string) (session.Info, error)
+	RotateMain(context.Context, string, string, string) (session.Info, error)
 	Use(context.Context, string, string) (session.Info, error)
 	EnsureRead(context.Context, session.Request) (session.Info, error)
 	EnsureUse(context.Context, session.Request) (session.Info, error)
@@ -524,6 +525,25 @@ func (s *Service) resolveMainSession(ctx context.Context, authority authz.Author
 		return info, err
 	}
 	return access.Use(ctx, info.AgentID, info.ID)
+}
+
+// RotateMainSession archives the user's current main session and returns the
+// successor, which starts empty. It is the `/new` counterpart to
+// ResolveMainSessionForUse: rotation is one authorized compare-and-rotate use
+// case rather than a resolve followed by a separate archive, so a turn that
+// raced another rotation cannot archive the successor.
+//
+// expectedSessionID is the main session the caller observed; an empty value
+// rotates whatever is current. A mismatch reports session.ErrStaleRotation.
+func (s *Service) RotateMainSession(ctx context.Context, authority authz.Authority, userID, agentID, expectedSessionID string) (session.Info, error) {
+	if agentID == "" {
+		agentID = s.AgentID
+	}
+	access, err := s.beginSessionAccess(ctx, authority)
+	if err != nil {
+		return session.Info{}, err
+	}
+	return access.RotateMain(ctx, userID, agentID, expectedSessionID)
 }
 
 // CompactSession runs full compaction on the session identified by sessionID.

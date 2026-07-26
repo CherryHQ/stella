@@ -36,6 +36,10 @@ func (a fakeSessionAccess) ResolveMain(ctx context.Context, userID, agentID stri
 	return a.reg.ResolveMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID})
 }
 
+func (a fakeSessionAccess) RotateMain(ctx context.Context, userID, agentID, expectedSessionID string) (session.Info, error) {
+	return a.reg.RotateMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID, ExpectedSessionID: expectedSessionID})
+}
+
 func (a fakeSessionAccess) Use(ctx context.Context, agentID, sessionID string) (session.Info, error) {
 	return a.reg.Get(ctx, session.Scope{AgentID: agentID, System: true}, sessionID)
 }

@@ -2,6 +2,7 @@ package memorytest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -314,6 +315,45 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 			}
 			if len(history) < 5 {
 				t.Errorf("expected at least 5 messages in history, got %d", len(history))
+			}
+
+			// Rotation runs on its own session so the shared conformance session
+			// stays active for the capability blocks that follow.
+			rotated := info
+			rotated.ID = session.ID + "-rotating"
+			rotated.Kind = "chat"
+			rotated.Title = "Rotating Session"
+			if err := sm.SaveInfo(ctx, rotated); err != nil {
+				t.Fatalf("SaveInfo rotating session: %v", err)
+			}
+			successor := rotated
+			successor.ID = session.ID + "-successor"
+			successor.Title = "Successor Session"
+			if err := sm.RotateInfo(ctx, rotated.ID, successor); err != nil {
+				t.Fatalf("RotateInfo: %v", err)
+			}
+			predecessor, err := sm.LoadInfo(ctx, rotated.ID)
+			if err != nil {
+				t.Fatalf("LoadInfo predecessor: %v", err)
+			}
+			if !predecessor.Archived {
+				t.Error("RotateInfo must archive the predecessor")
+			}
+			created, err := sm.LoadInfo(ctx, successor.ID)
+			if err != nil {
+				t.Fatalf("LoadInfo successor: %v", err)
+			}
+			if created.Archived {
+				t.Error("RotateInfo must leave the successor active")
+			}
+
+			stale := successor
+			stale.ID = session.ID + "-stale"
+			if err := sm.RotateInfo(ctx, rotated.ID, stale); !errors.Is(err, memory.ErrStaleRotation) {
+				t.Fatalf("RotateInfo on an archived predecessor = %v, want ErrStaleRotation", err)
+			}
+			if _, err := sm.LoadInfo(ctx, stale.ID); err == nil {
+				t.Error("a stale rotation must not create a successor")
 			}
 		})
 	}

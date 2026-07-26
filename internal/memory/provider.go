@@ -7,6 +7,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -328,10 +329,22 @@ type ConstraintStore interface {
 // Capability: SessionManager
 // ---------------------------------------------------------------------------
 
+// ErrStaleRotation reports that the session a rotation expected to replace is no
+// longer the active one — a concurrent rotation already won. Rotation is a
+// compare-and-rotate, so a stale caller changed nothing and must not retry.
+var ErrStaleRotation = errors.New("session rotation is stale")
+
 // SessionManager is implemented by providers that support session lifecycle management.
 type SessionManager interface {
 	// SaveInfo persists or updates session metadata.
 	SaveInfo(ctx context.Context, info SessionInfo) error
+
+	// RotateInfo archives expectedSessionID and creates successor as one atomic
+	// unit, so a durable binding is never left without an active session and a
+	// one-active-session-per-binding index is never violated mid-rotation.
+	// It returns ErrStaleRotation, with nothing persisted, when expectedSessionID
+	// is no longer active or no longer matches successor's binding.
+	RotateInfo(ctx context.Context, expectedSessionID string, successor SessionInfo) error
 
 	// LoadInfo retrieves metadata for a single session.
 	LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error)

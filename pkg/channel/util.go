@@ -22,7 +22,7 @@ Some agents/channels also support a few short natural-language controls.
 For those shortcuts, keep them short and command-like.
 
 Session control
-  /new       Compact conversation context (same as /compact)
+  /new       Start a fresh session (previous history stays searchable)
              When enabled, short phrases like: "new session", "start over", "新会话", "重新开始"
   /compact   Compact conversation context
              When enabled, short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
@@ -44,6 +44,20 @@ Just send a message to get started.`
 // per-agent LCM conversation, so manual compaction does not apply. Both the web
 // group endpoint and the shared channel command handler use this text.
 const GroupCompactUnsupportedMessage = "⚠️ Group memory is managed automatically from the shared event log, so manual compaction is not available in group chats."
+
+// NewSessionStartedMessage is the shared reply after `/new` rotated the chat
+// onto a fresh session. The previous session is archived, not deleted, so it
+// stays reachable through cross-session memory search.
+const NewSessionStartedMessage = "Started a fresh session. Previous history stays searchable via memory."
+
+// SessionAlreadyResetMessage is the shared reply when a `/new` arrives after
+// another one already rotated the same chat, so it has nothing left to do.
+const SessionAlreadyResetMessage = "Session was already reset."
+
+// NewSessionUnsupportedMessage is the shared reply for chats whose session is
+// still pinned to a fixed key (group chats and unlinked private channels), where
+// `/new` cannot rotate anything yet.
+const NewSessionUnsupportedMessage = "⚠️ Starting a fresh session here is not supported yet."
 
 // SplitMessage splits text into chunks that fit within maxLen.
 // It tries to split at newline boundaries and avoids cutting multi-byte

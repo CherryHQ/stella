@@ -73,8 +73,11 @@ func (s *Service) reviewTargetLimit() int {
 	return defaultMaxReviewTargetsPerAgent
 }
 
+// listSessionInfoForReview includes archived sessions: a rotated-away session is
+// archived immediately, and its pre-rotation messages must still be distilled.
+// The watermark check in unreviewedTarget drops it once review catches up.
 func listSessionInfoForReview(ctx context.Context, sm memory.SessionManager, agentID string) ([]memory.SessionInfo, error) {
-	opts := memory.ListOptions{AgentID: agentID, IncludeArchived: false}
+	opts := memory.ListOptions{AgentID: agentID, IncludeArchived: true}
 	if lister, ok := sm.(interface {
 		ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error)
 	}); ok {

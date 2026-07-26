@@ -326,6 +326,11 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		if command == "/config" {
 			return c.handleConfigCommand(ctx, rc, args)
 		}
+		// /new runs through the session queue, so it cannot go through the
+		// stateless shared command handler.
+		if command == "/new" {
+			return c.handleNewSessionCommand(ctx, rc), true, nil, nil
+		}
 		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
 		}
@@ -336,7 +341,9 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		switch intent {
 		case IntentAbort:
 			return c.handleAbort(rc), true, nil, nil
-		case IntentHelp, IntentNew, IntentCompact:
+		case IntentNew:
+			return c.handleNewSessionCommand(ctx, rc), true, nil, nil
+		case IntentHelp, IntentCompact:
 			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
 				return resp, true, nil, nil
 			}
@@ -378,6 +385,31 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 		return "", false, nil, err
 	}
 	return "", false, stream, nil
+}
+
+// handleNewSessionCommand starts a fresh session for this chat. The rotation is
+// queued behind any in-flight turn on the same session: aborting the user's
+// running work on a reset request would be surprising, and rotating underneath it
+// would land its reply in a session the user already left.
+func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat) string {
+	// Resolve before queueing so the queued rotation names the session the user
+	// was actually looking at; a second /new behind it is then stale, not a
+	// second reset.
+	current, err := rc.CurrentSessionForRotation(ctx)
+	if err != nil {
+		if errors.Is(err, ErrRotationUnsupported) {
+			return pkgchannel.NewSessionUnsupportedMessage
+		}
+		return fmt.Sprintf("Starting a new session failed: %v", err)
+	}
+	var reply string
+	if err := c.queue.EnqueueControl(ctx, rc.SessionKey, func(qctx context.Context) error {
+		reply = NewSessionReply(qctx, rc, current.ID)
+		return nil
+	}); err != nil {
+		return fmt.Sprintf("Starting a new session failed: %v", err)
+	}
+	return reply
 }
 
 // handleAbort cancels the currently-running request for the resolved session.

@@ -38,6 +38,20 @@ WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DIST
 UPDATE ctx_conversation SET archived = sqlc.arg(archived), updated_at = now()
 WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
 
+-- name: ArchiveActiveConversationBySessionID :execrows
+-- Compare-and-rotate half of a session rotation: the row is archived only while
+-- it is still active and still matches the caller's expected binding, so a
+-- rotation that lost a race reports zero rows instead of archiving the successor
+-- another rotation just created. The UPDATE also holds the row lock for the rest
+-- of the enclosing transaction, serializing concurrent rotations of one session.
+UPDATE ctx_conversation SET archived = true, updated_at = now()
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
+  AND kind = sqlc.arg(kind)
+  AND project_id IS NOT DISTINCT FROM sqlc.narg(project_id)
+  AND archived = false;
+
 -- name: UpdateConversationLastActive :exec
 UPDATE ctx_conversation SET last_active = now(), updated_at = now()
 WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
@@ -116,6 +130,10 @@ ORDER BY last_active DESC, session_id DESC;
 -- name: ListConversationsForReviewFiltered :many
 -- Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
 -- and such rows were never review candidates.
+-- An archived session is still a candidate when include_archived is set: rotation
+-- (/new) archives a session the moment the user starts a fresh one, and its last
+-- messages would otherwise never be distilled. The caller drops archived rows
+-- once their review watermarks reach latest_seq.
 SELECT
   sqlc.embed(c),
   COALESCE((
@@ -125,7 +143,7 @@ SELECT
   ), 0)::bigint AS latest_seq
 FROM ctx_conversation c
 WHERE c.agent_id = sqlc.arg(agent_id)
-  AND c.archived = false
+  AND (sqlc.arg(include_archived) != 0 OR c.archived = false)
   AND c.user_id IS NOT NULL AND c.user_id <> ''
   AND (sqlc.narg(kind)::text IS NULL OR c.kind = sqlc.narg(kind))
   AND (sqlc.arg(project_id_is_null) = 0 OR c.project_id IS NULL)

@@ -859,6 +859,10 @@ func (p *nonReviewerProvider) ListInfo(ctx context.Context, opts memory.ListOpti
 	return p.inner.ListInfo(ctx, opts)
 }
 
+func (p *nonReviewerProvider) RotateInfo(ctx context.Context, expectedSessionID string, successor memory.SessionInfo) error {
+	return p.inner.RotateInfo(ctx, expectedSessionID, successor)
+}
+
 func (p *nonReviewerProvider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
 	return p.inner.LoadHistory(ctx, sessionID)
 }

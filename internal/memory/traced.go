@@ -439,6 +439,20 @@ func (t *tracedProvider) SaveInfo(ctx context.Context, info SessionInfo) error {
 	return err
 }
 
+func (t *tracedProvider) RotateInfo(ctx context.Context, expectedSessionID string, successor SessionInfo) error {
+	sm, ok := t.inner.(SessionManager)
+	if !ok {
+		return errCapabilityNotSupported("SessionManager")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: successor.ID, UserID: successor.UserID, AgentID: successor.AgentID}, Op: hooks.MemoryOpRotateInfo, SessionID: successor.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := sm.RotateInfo(ctx, expectedSessionID, successor)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("expected=%s successor=%s kind=%s", expectedSessionID, successor.ID, successor.Kind)
+	t.finish(ctx, start, hctx)
+	return err
+}
+
 func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error) {
 	sm, ok := t.inner.(SessionManager)
 	if !ok {
