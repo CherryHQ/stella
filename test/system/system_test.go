@@ -21,6 +21,7 @@ func TestSystem(t *testing.T) {
 	t.Run("chat_sse", h.testChatSSE)
 	t.Run("chat_provider_error", h.testChatProviderError)
 	t.Run("goal_lifecycle", h.testGoalLifecycle)
+	t.Run("group_new_session", h.testGroupNewSession)
 	// graceful_drain MUST run last: it sends SIGTERM to the shared server and
 	// asserts the process exits, consuming the server no later journey can use.
 	t.Run("graceful_drain", h.testGracefulDrain)

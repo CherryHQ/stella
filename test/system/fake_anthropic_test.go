@@ -24,7 +24,9 @@ import (
 // It supports two scripting modes, one per journey:
 //
 //   - Chat (Phase 1): an ordered FIFO script of text/tool responses, replayed in
-//     arrival order, failing on any unscripted request. See enqueueText.
+//     arrival order, failing on any unscripted request. See enqueueText and
+//     enqueueTool (a tool-using turn is scripted as the call plus the text that
+//     ends the turn once the tool result comes back).
 //   - Goal (Phase 2): responses keyed by the goal_control action the server
 //     advertises in the request's tool schema (decompose/submit), matched on
 //     that stable structural field rather than arrival order — because a Goal
@@ -163,6 +165,20 @@ func (f *fakeAnthropic) enqueueText(text string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scripts = append(f.scripts, fakeResponse{text: text})
+}
+
+// enqueueTool scripts the next FIFO turn as a single tool call. The tool loop
+// answers a tool_use with a tool_result and calls the model again, so a turn
+// that uses a tool is scripted as two entries: this one, then the text reply
+// that ends the turn.
+func (f *fakeAnthropic) enqueueTool(name, args string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scripts = append(f.scripts, fakeResponse{
+		toolID:   fmt.Sprintf("toolu_%s_%d", name, len(f.scripts)),
+		toolName: name,
+		toolArgs: args,
+	})
 }
 
 // enqueueGoalControl scripts the tool_use reply for one goal_control stage,

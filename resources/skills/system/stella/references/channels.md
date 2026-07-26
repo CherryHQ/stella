@@ -14,10 +14,16 @@ In the Web UI, groups appear alongside agents in the main agent sidebar. A group
 Commands available in all channels:
 
 - `/agent` -- List available agents or switch to a specific one
-- `/new` -- Compact conversation context (same as `/compact`)
-- `/compact` -- Compact conversation context
+- `/new` -- Start a fresh session; the previous one is archived and stays searchable
+- `/compact` -- Compress the current session in place (same session, shorter context)
 - `/model` -- Switch model interactively
 - `/whoami` -- Show your user/chat ID
+
+In a group each agent has its own session, so `/new` resets the single agent
+present and `/new @agent` is required when the group has several. `/compact` is
+not available in groups. A user can also just ask ("new session", "新会话"); the
+agent then asks for confirmation before resetting anything, while a compaction
+request needs no confirmation.
 
 ## Telegram bot
 

@@ -22,6 +22,19 @@ The key thing to know: **nothing is lost.** Summaries preserve the important det
 
 If you start a new session, Stella carries forward your profile and constraints automatically. Past conversation content is available through search.
 
+## Starting a Fresh Session
+
+Sometimes you do not want a shorter conversation, you want a clean one. Two commands cover the difference:
+
+- **`/new`** starts a fresh session. The previous one is archived, not deleted — it stays searchable, and your profile and constraints carry over.
+- **`/compact`** keeps the session you are in and compresses its history, so the context gets shorter without losing the thread.
+
+You can also just ask: "start a new session", "新会话". Because a reset clears the working context, Stella asks you to confirm first and resets only after you agree in your next message. Typing `/new` is consent on its own, so it takes effect immediately. Asking for compaction needs no confirmation.
+
+In a group chat, every agent keeps its own session. `/new` resets the single agent in the group, and a group with several agents needs `/new @agent` so an unclear command never resets everyone. `/compact` does not apply to group chats — there, `/new` is the way to clear an agent's context.
+
+In the Web UI you start a new session from the sidebar rather than with a command, because an open chat window stays on the session it was opened with.
+
 ## Managing Your Profile
 
 Stella learns about you naturally through conversation. If you say "I'm in the Pacific timezone" or "I prefer TypeScript over JavaScript," she remembers.

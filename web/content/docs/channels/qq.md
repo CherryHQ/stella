@@ -76,16 +76,18 @@ The agent can then use the `xberg extract` command to parse the file.
 
 Send these commands as text messages to the bot:
 
-| Command             | Description                     |
-| ------------------- | ------------------------------- |
-| `/start` or `/help` | Welcome and help                |
-| `/new`              | Compact conversation context    |
-| `/compact`          | Compact conversation context    |
-| `/abort`            | Cancel the in-progress response |
-| `/model`            | List available models           |
-| `/model <number>`   | Switch to model by number       |
-| `/model <query>`    | Filter models by name           |
-| `/whoami`           | Show your user ID for config    |
+| Command             | Description                                               |
+| ------------------- | --------------------------------------------------------- |
+| `/start` or `/help` | Welcome and help                                          |
+| `/new`              | Start a fresh session (previous history stays searchable) |
+| `/compact`          | Compress the current session in place                     |
+| `/abort`            | Cancel the in-progress response                           |
+| `/model`            | List available models                                     |
+| `/model <number>`   | Switch to model by number                                 |
+| `/model <query>`    | Filter models by name                                     |
+| `/whoami`           | Show your user ID for config                              |
+
+Each agent in a group keeps its own session, so `/new` in a group with several agents needs a target: `/new @agent`. The command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.
 
 ## Configuration Reference
 

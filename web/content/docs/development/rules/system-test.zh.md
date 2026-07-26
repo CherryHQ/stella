@@ -63,6 +63,9 @@ PostgreSQL 来手动运行服务器，或为该平台提 issue。由于套件在
 - `chat_provider_error` —— 一次失败的模型调用以带内 error 帧的方式出现在发送流上，随后是
   finish 与 [DONE]——该轮次绝不挂起。
 - `goal_lifecycle` —— 一个 Goal 从创建被派发器的异步 worker 驱动到自主验收。
+- `group_new_session` —— Web 群聊的会话重置：输入 `/new` 会轮换群会话且不进入事件日志，
+  ingest watermark 在轮换后仍然保留，因此新会话干净起步；随后 `session_control` 工具的
+  两阶段确认（一轮请求、下一轮确认）再次完成轮换。
 - `graceful_drain` —— 在一个轮次仍在途中时发送 SIGTERM：`/readyz` 从 ready 翻转，一个 attach
   订阅被 drain 取消，被钉住的轮次仍在其流上完整收尾（全文、finish、[DONE]），进程以 0 退出。
   它最后运行，因为会消费掉共享服务器。
@@ -88,8 +91,9 @@ journey 依赖另一个 journey 的业务数据 —— 唯一的复用是共享�
 fake **绝不根据 prompt 文案分支** —— 只有稳定的请求字段（model、tool 名、`goal_control` 的
 action 枚举）才选择响应，所以普通的 prompt 改动永远不会变成系统测试失败。它有两种脚本模式：
 
-- **FIFO 文本**（`enqueueText`）—— 一个按到达顺序回放的纯文本轮次有序队列；由 `chat_sse`
-  使用。未脚本化的请求会让测试失败。
+- **FIFO 轮次**（`enqueueText`、`enqueueTool`）—— 一个按到达顺序回放的有序队列；由 `chat_sse`
+  与 `group_new_session` 使用。调用工具的一轮是两个条目：先是工具调用，再是拿到工具结果后
+  结束该轮的文本。未脚本化的请求会让测试失败。
 - **goal_control 变体匹配**（`enqueueGoalControl`）—— 响应按服务器在请求 tool schema 中广告
   的 `goal_control` action（`decompose`、`submit`）作键，按该稳定字段而非到达顺序匹配；由
   `goal_lifecycle` 使用。

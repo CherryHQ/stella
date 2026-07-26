@@ -31,7 +31,7 @@ func Unwrap(p Provider) Provider {
 // hooksFn is called on each operation to get the current HookSet; it may return nil.
 // The returned Provider implements all optional capability interfaces (Compactor,
 // Searcher, Explorer, ProfileStore, SessionManager, ReviewHistoryReader,
-// Reviewer). Methods for
+// Reviewer, GroupCursorCommitter). Methods for
 // capabilities not supported by the inner provider return sensible zero values or errors.
 // Use [Unwrap] to check the inner provider's actual capabilities.
 //
@@ -451,6 +451,19 @@ func (t *tracedProvider) RotateInfo(ctx context.Context, expectedSessionID strin
 	hctx.Detail = fmt.Sprintf("expected=%s successor=%s kind=%s", expectedSessionID, successor.ID, successor.Kind)
 	t.finish(ctx, start, hctx)
 	return err
+}
+
+// CommitGroupCursor forwards group event-log cursor movement to the inner
+// provider. The runtime reaches this capability by type assertion, so a wrapper
+// that did not carry it would silently freeze every group's ingest watermark and
+// make each turn re-read the log from seq 0. A provider without the capability
+// has no cursor to move, so the call is a no-op rather than an error.
+func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error {
+	committer, ok := t.inner.(GroupCursorCommitter)
+	if !ok {
+		return nil
+	}
+	return committer.CommitGroupCursor(ctx, session, triggerSeq)
 }
 
 func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error) {
