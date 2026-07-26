@@ -57,6 +57,34 @@ Once configured, all users can connect their accounts.
 
 Follow the same steps as GitHub -- either ask Stella in chat or use the Credentials page in the Web UI. Stella walks you through the same device authorization flow.
 
+## Admin: managing providers
+
+Admins manage each OAuth provider from the provider's detail panel on the **Credentials** page.
+
+### App credentials
+
+Set the provider's **Client ID** and **Client Secret** (App ID / App Secret for Feishu/Lark). Saving new credentials marks already-connected users as needing to reconnect, because a token issued by the old app no longer matches.
+
+### Scopes
+
+Each provider ships with a built-in default scope list. Admins can override it with the scope editor:
+
+- Scopes are grouped by namespace prefix (for example `im:`, `docs:`) and searchable. Paste a multi-line list to add many at once -- it is split, trimmed, and de-duplicated.
+- The diff bar shows what changed versus the saved override and versus the built-in defaults. Non-default entries are tagged **custom**; removed defaults stay visible so a deletion is reversible.
+- **Reset to default** clears the override and reverts to the built-in list.
+- When a Stella upgrade adds new default scopes that your override omits, a merge hint offers to add them in one click.
+
+An empty override means "use the built-in defaults". Widening the requested scopes does **not** change already-issued tokens: connected users must reconnect to grant the newly requested scopes.
+
+### Reconnect semantics
+
+A connection can be **connected** yet still need action. The provider shows a **Reconnect needed** state when either:
+
+- the app credentials were rotated since the user connected, or
+- the requested scopes now include ones the stored token does not hold (the panel lists the concrete missing scopes).
+
+The user reconnects from the same panel; the token health block shows access- and refresh-token expiry so it is clear when a refresh is due.
+
 ## Using connected services
 
 After connecting, `gh` and `lark-cli` commands just work in agent sessions. You can ask Stella things like:

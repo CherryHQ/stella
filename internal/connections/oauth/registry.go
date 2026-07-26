@@ -280,6 +280,11 @@ func (r *ProviderRegistry) tryRefresh(ctx context.Context, vs VaultStore, cfg Pr
 	if ri, ok := newTok.Extra("refresh_token_expires_in").(float64); ok && ri > 0 {
 		updated.RefreshExpiresAt = time.Now().Add(time.Duration(ri) * time.Second)
 	}
+	// Capture the granted scope when the refresh response reports it; preserve
+	// the prior value otherwise (a refresh that omits scope is not a downgrade).
+	if scope, ok := newTok.Extra("scope").(string); ok && scope != "" {
+		updated.GrantedScope = scope
+	}
 
 	if err := SaveOAuthBundle(ctx, vs, userID, cfg.VaultKey, updated); err != nil {
 		return nil, fmt.Errorf("save refreshed token: %w", err)

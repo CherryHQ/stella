@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 )
 
 const deleteAuthOAuthProvider = `-- name: DeleteAuthOAuthProvider :exec
@@ -19,20 +20,32 @@ func (q *Queries) DeleteAuthOAuthProvider(ctx context.Context, providerID string
 }
 
 const getAuthOAuthProvider = `-- name: GetAuthOAuthProvider :one
-SELECT id, provider_id, client_id, client_secret_enc, redirect_url, created_at, updated_at
+SELECT id, provider_id, client_id, client_secret_enc, redirect_url, scopes, created_at, updated_at
 FROM plugin_oauth_provider
 WHERE provider_id = $1
 `
 
-func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (PluginOauthProvider, error) {
+type GetAuthOAuthProviderRow struct {
+	ID              string    `json:"id"`
+	ProviderID      string    `json:"provider_id"`
+	ClientID        string    `json:"client_id"`
+	ClientSecretEnc string    `json:"client_secret_enc"`
+	RedirectUrl     string    `json:"redirect_url"`
+	Scopes          []string  `json:"scopes"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (GetAuthOAuthProviderRow, error) {
 	row := q.db.QueryRow(ctx, getAuthOAuthProvider, providerID)
-	var i PluginOauthProvider
+	var i GetAuthOAuthProviderRow
 	err := row.Scan(
 		&i.ID,
 		&i.ProviderID,
 		&i.ClientID,
 		&i.ClientSecretEnc,
 		&i.RedirectUrl,
+		&i.Scopes,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -40,21 +53,23 @@ func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (
 }
 
 const upsertAuthOAuthProvider = `-- name: UpsertAuthOAuthProvider :exec
-INSERT INTO plugin_oauth_provider (id, provider_id, client_id, client_secret_enc, redirect_url)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO plugin_oauth_provider (id, provider_id, client_id, client_secret_enc, redirect_url, scopes)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT(provider_id) DO UPDATE SET
     client_id         = excluded.client_id,
     client_secret_enc = excluded.client_secret_enc,
     redirect_url      = excluded.redirect_url,
+    scopes            = excluded.scopes,
     updated_at        = now()
 `
 
 type UpsertAuthOAuthProviderParams struct {
-	ID              string `json:"id"`
-	ProviderID      string `json:"provider_id"`
-	ClientID        string `json:"client_id"`
-	ClientSecretEnc string `json:"client_secret_enc"`
-	RedirectUrl     string `json:"redirect_url"`
+	ID              string   `json:"id"`
+	ProviderID      string   `json:"provider_id"`
+	ClientID        string   `json:"client_id"`
+	ClientSecretEnc string   `json:"client_secret_enc"`
+	RedirectUrl     string   `json:"redirect_url"`
+	Scopes          []string `json:"scopes"`
 }
 
 func (q *Queries) UpsertAuthOAuthProvider(ctx context.Context, arg UpsertAuthOAuthProviderParams) error {
@@ -64,6 +79,7 @@ func (q *Queries) UpsertAuthOAuthProvider(ctx context.Context, arg UpsertAuthOAu
 		arg.ClientID,
 		arg.ClientSecretEnc,
 		arg.RedirectUrl,
+		arg.Scopes,
 	)
 	return err
 }

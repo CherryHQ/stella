@@ -3,6 +3,7 @@ package oauth
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,14 +77,18 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 		defer cancel()
 		tok, err := b.cfg.DeviceAccessToken(bgCtx, da)
 		if err != nil {
-			b.store.Update(flowID, FlowStateFailed, nil)
+			slog.Warn("oauth: device flow poll failed",
+				"provider", provider, "user_id", userID, "flow_id", flowID, "error", err)
+			b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })
 			return
 		}
 		// Persist before marking authorized so the token is in the vault the
 		// moment any observer sees the flow complete.
 		if b.onAuthorized != nil {
 			if err := b.onAuthorized(flowID, tok); err != nil {
-				b.store.Update(flowID, FlowStateFailed, nil)
+				slog.Warn("oauth: device flow persist failed",
+					"provider", provider, "user_id", userID, "flow_id", flowID, "error", err)
+				b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })
 				return
 			}
 		}
