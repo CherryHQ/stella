@@ -109,6 +109,28 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	return nil
 }
 
+// TouchActiveInfo implements memory.SessionManager. The guard lives in the
+// UPDATE's own predicate, so an archive that commits between a turn's start and
+// this call simply matches nothing.
+func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
+	userID, agentID, err := requireSessionScope(ctx, info.UserID, info.AgentID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.UpdateConversationTurnMetaBySessionID(ctx, sqlc.UpdateConversationTurnMetaBySessionIDParams{
+		Title:     pgnull.Text(info.Title),
+		Channel:   pgnull.Text(info.Channel),
+		GroupID:   pgnull.Text(info.GroupID),
+		SessionID: info.ID,
+		UserID:    pgtype.Text{String: userID, Valid: true},
+		AgentID:   pgnull.Text(agentID),
+	})
+	if err != nil {
+		return false, fmt.Errorf("touch conversation: %w", err)
+	}
+	return rows > 0, nil
+}
+
 // RotateInfo implements memory.SessionManager.
 //
 // Order inside the transaction matters: idx_one_agent_main admits a single

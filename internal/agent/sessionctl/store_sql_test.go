@@ -27,9 +27,29 @@ func seedConversation(t *testing.T, pool *pgxpool.Pool, sessionID string) {
 
 func newSQLStore(t *testing.T, sessionID string) NonceStore {
 	t.Helper()
+	store, _ := newSQLStoreWithPool(t, sessionID)
+	return store
+}
+
+// newSQLStoreWithPool also hands back the pool, for the assertions that are
+// about what the table holds rather than what the store returns.
+func newSQLStoreWithPool(t *testing.T, sessionID string) (NonceStore, *pgxpool.Pool) {
+	t.Helper()
 	pool := dbtest.New(t)
 	seedConversation(t, pool, sessionID)
-	return NewSQLNonceStoreForPool(pool)
+	return NewSQLNonceStoreForPool(pool), pool
+}
+
+func assertNonceRowCount(t *testing.T, pool *pgxpool.Pool, want int) {
+	t.Helper()
+	var got int
+	if err := pool.QueryRow(context.Background(),
+		"SELECT count(*) FROM agent_session_rotation_nonce").Scan(&got); err != nil {
+		t.Fatalf("count nonces: %v", err)
+	}
+	if got != want {
+		t.Fatalf("nonce rows = %d, want %d", got, want)
+	}
 }
 
 func pendingNonce(sessionID string) Nonce {
@@ -89,7 +109,7 @@ func TestSQLNonceStoreUnknownIDIsNotFound(t *testing.T) {
 // produce exactly one rotation.
 func TestSQLNonceStoreClaimIsSingleUse(t *testing.T) {
 	const sessionID = "sess-claim"
-	store := newSQLStore(t, sessionID)
+	store, pool := newSQLStoreWithPool(t, sessionID)
 	ctx := context.Background()
 
 	n := pendingNonce(sessionID)
@@ -127,13 +147,45 @@ func TestSQLNonceStoreClaimIsSingleUse(t *testing.T) {
 		t.Fatalf("%d concurrent claims succeeded, want exactly 1", wins)
 	}
 
-	claimed, err := store.Get(ctx, n.ID)
-	if err != nil {
-		t.Fatalf("get after claim: %v", err)
+	// Claiming deletes: a spent nonce authorizes nothing, so it leaves no row for
+	// a later confirmation to find and none for the sweep to carry.
+	if _, err := store.Get(ctx, n.ID); !errors.Is(err, ErrNonceNotFound) {
+		t.Fatalf("get after claim: err = %v, want ErrNonceNotFound", err)
 	}
-	if !claimed.Used() {
-		t.Fatal("a claimed nonce must record when it was spent")
+	if _, err := store.Claim(ctx, n.ID); !errors.Is(err, ErrNonceNotFound) {
+		t.Fatalf("re-claim: err = %v, want ErrNonceNotFound", err)
 	}
+	assertNonceRowCount(t, pool, 0)
+}
+
+// TestSQLNonceStoreCreateSweepsExpiredAcrossBindings pins the table's bound. The
+// sweep has to be global: a chat that asks for a reset once and never comes back
+// would otherwise keep its expired row forever, because nothing in its own
+// binding ever writes again.
+func TestSQLNonceStoreCreateSweepsExpiredAcrossBindings(t *testing.T) {
+	const sessionID = "sess-sweep"
+	store, pool := newSQLStoreWithPool(t, sessionID)
+	ctx := context.Background()
+
+	abandoned := pendingNonce(sessionID)
+	abandoned.BindingKey = "channel:someone-else:agent:tg"
+	abandoned.ExpiresAt = time.Now().UTC().Add(-time.Minute)
+	if err := store.Create(ctx, abandoned); err != nil {
+		t.Fatalf("create abandoned: %v", err)
+	}
+
+	fresh := pendingNonce(sessionID)
+	if err := store.Create(ctx, fresh); err != nil {
+		t.Fatalf("create fresh: %v", err)
+	}
+
+	if _, err := store.Get(ctx, abandoned.ID); !errors.Is(err, ErrNonceNotFound) {
+		t.Fatalf("expired nonce from another binding survived: err = %v", err)
+	}
+	if _, err := store.Get(ctx, fresh.ID); err != nil {
+		t.Fatalf("the sweep took the live nonce with it: %v", err)
+	}
+	assertNonceRowCount(t, pool, 1)
 }
 
 func TestSQLNonceStoreClaimRejectsExpired(t *testing.T) {

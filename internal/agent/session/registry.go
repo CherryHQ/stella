@@ -373,6 +373,15 @@ func (r *Registry) currentChannelLocked(ctx context.Context, req ChannelRequest)
 		if err != nil {
 			return Info{}, false, err
 		}
+		// bindChannelInfo backfills a legacy row's binding fields in memory only.
+		// Persist them here, exactly as the legacy fallback below does: every later
+		// resolve reads the durable row, so an adoption that stays in memory is
+		// re-done on every turn and the row's group ownership never becomes real.
+		if bound.Channel != matches[0].Channel || bound.GroupID != matches[0].GroupID {
+			if err := r.store.save(ctx, bound); err != nil {
+				return Info{}, false, fmt.Errorf("persist adopted chat channel binding: %w", err)
+			}
+		}
 		return bound, true, nil
 	}
 

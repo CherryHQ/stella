@@ -102,8 +102,13 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	// session_id is globally unique (ctx_conversation_session_id_key), so the
 	// scoped re-read returns their row. Defining the race out of existence beats
 	// surfacing a spurious 23505 to every Append/Assemble caller.
+	//
+	// Only that one constraint: ctx_conversation also carries the one-active-
+	// session-per-binding indexes (idx_one_agent_main, idx_one_agent_group_chat),
+	// and a violation of those is a real invariant breach with no row to re-read.
+	// Treating it as a lost race would hide it behind a "no rows" error.
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "ctx_conversation_session_id_key" {
 		conv, err = p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 		if err != nil {
 			return "", fmt.Errorf("get conversation after create race: %w", err)

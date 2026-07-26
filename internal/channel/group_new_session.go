@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -10,15 +11,20 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // Group `/new` rotates one agent's group session onto a fresh one.
 //
-// Two properties shape this file:
+// Three properties shape this file:
 //
 //   - The command must be intercepted before the group event log is written, in
 //     both group entry points (platform ingest and the Web group send), so the
 //     `/new` text never lands in any agent's assembled context.
+//   - Skipping that append also skips the dedup it carries, so `/new` brings its
+//     own: a receipt keyed on the inbound message id, claimed before the
+//     rotation runs. Without it a platform redelivery would rotate a second
+//     time and silently archive whatever the group said in between.
 //   - Rotation is per agent. Each agent in a group keeps its own session
 //     (BuildGroupSessionKey), so a group with several agents requires
 //     `/new @agent`; a bare `/new` there returns a usage reply rather than
@@ -29,16 +35,85 @@ import (
 // coordinator's, so rotation is enqueued there and therefore runs after any
 // in-flight group turn for that agent instead of racing it.
 
+// newSessionCommand is the command string recorded on a `/new` receipt.
+const newSessionCommand = "/new"
+
+// commandReceipt is the durable "this inbound message's command already ran"
+// marker for one group command. A receipt with no queries or no message id is
+// inert: a delivery Stella cannot name (a platform that sends no message id, a
+// Web send with no client_message_id) cannot be recognised on redelivery either,
+// so it runs unguarded exactly as before rather than collapsing every such
+// message onto one shared row.
+type commandReceipt struct {
+	q         *sqlc.Queries
+	groupID   string
+	platform  string
+	messageID string
+	command   string
+}
+
+func newCommandReceipt(q *sqlc.Queries, groupID, platform, messageID, command string) commandReceipt {
+	return commandReceipt{q: q, groupID: groupID, platform: platform, messageID: messageID, command: command}
+}
+
+func (r commandReceipt) inert() bool {
+	return r.q == nil || r.groupID == "" || r.messageID == ""
+}
+
+// claim reserves the right to run the command once. false means the claim was
+// already taken, i.e. this is a redelivery of a message whose command has run.
+func (r commandReceipt) claim(ctx context.Context) (bool, error) {
+	if r.inert() {
+		return true, nil
+	}
+	// Each claim pays for one sweep of day-old receipts, which is what keeps the
+	// table bounded without a background job.
+	if err := r.q.DeleteExpiredGroupCommandReceipt(ctx); err != nil {
+		slog.WarnContext(ctx, "failed to prune group command receipts", "error", err)
+	}
+	rows, err := r.q.CreateGroupCommandReceipt(ctx, sqlc.CreateGroupCommandReceiptParams{
+		GroupID:   r.groupID,
+		Platform:  r.platform,
+		MessageID: r.messageID,
+		Command:   r.command,
+	})
+	if err != nil {
+		return false, fmt.Errorf("claim group command receipt: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// release drops a claim whose command never ran, so a redelivery may retry it.
+// A release failure is only logged: the claim it leaves behind costs the group
+// one retry of a command the user can simply repeat.
+func (r commandReceipt) release(ctx context.Context) {
+	if r.inert() {
+		return
+	}
+	if err := r.q.DeleteGroupCommandReceipt(ctx, sqlc.DeleteGroupCommandReceiptParams{
+		GroupID:   r.groupID,
+		Platform:  r.platform,
+		MessageID: r.messageID,
+	}); err != nil {
+		slog.WarnContext(ctx, "failed to release group command receipt", "error", err,
+			"group_id", r.groupID, "platform", r.platform)
+	}
+}
+
 // RotateGroupSession starts a fresh session for one agent in a Web group and
 // returns the user-facing reply. It runs in the same per-(agent,group) queue as
 // that agent's group turns, so a rotation waits for an in-flight turn instead of
 // stranding its reply in a session the group has already left.
-func (d *GroupDispatcher) RotateGroupSession(ctx context.Context, groupID, agentID string) (string, error) {
+//
+// clientMessageID is the browser's idempotency token for the send, the same one
+// PrepareSend hands the event log; it makes a retried `/new` a no-op.
+func (d *GroupDispatcher) RotateGroupSession(ctx context.Context, groupID, agentID, clientMessageID string) (string, error) {
 	rc, err := d.resolveWebGroupChat(ctx, groupID, agentID)
 	if err != nil {
 		return "", err
 	}
-	return d.rotateGroupChat(ctx, rc), nil
+	receipt := newCommandReceipt(d.q, groupID, webGroupPlatform, clientMessageID, newSessionCommand)
+	return d.rotateGroupChat(ctx, rc, receipt), nil
 }
 
 // resolveWebGroupChat builds the group chat binding for an agent in a Web group.
@@ -71,13 +146,30 @@ func (d *GroupDispatcher) resolveWebGroupChat(ctx context.Context, groupID, agen
 	}, nil
 }
 
-// rotateGroupChat resolves the session the command names, then rotates it from
-// inside the agent's group turn queue. Resolving first (outside the queue) makes
-// a duplicate `/new` behind this one name a session that is already archived, so
-// it reports the reset as done instead of resetting a second time.
-func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat) string {
+// rotateGroupChat claims the command's receipt, then resolves the session it
+// names and rotates it from inside the agent's group turn queue. Both group
+// entry points funnel through here, so the once-per-message guard and the
+// ordering guarantee are stated in exactly one place.
+//
+// The two guards answer different races. The receipt stops the same inbound
+// message from rotating twice, which redelivery would otherwise turn into a
+// silent wipe of everything the group said since. Resolving the current session
+// outside the queue makes a genuinely different, concurrent `/new` name a
+// session that is already archived, so it reports the reset as done instead of
+// resetting a second time.
+func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat, receipt commandReceipt) string {
+	claimed, err := receipt.claim(ctx)
+	if err != nil {
+		// Fail closed: without the guard this delivery could be a redelivery, and
+		// running it would be destructive. The user can just ask again.
+		return fmt.Sprintf("Starting a new session failed: %v", err)
+	}
+	if !claimed {
+		return pkgchannel.SessionAlreadyResetMessage
+	}
 	current, err := rc.CurrentSessionForRotation(ctx)
 	if err != nil {
+		receipt.release(ctx)
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
 	run := func(fn func(context.Context) error) error { return fn(ctx) }
@@ -91,6 +183,7 @@ func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat)
 		reply = NewSessionReply(qctx, rc, current.ID)
 		return nil
 	}); err != nil {
+		receipt.release(ctx)
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
 	return reply
@@ -124,7 +217,19 @@ func (c *Coordinator) handleGroupNewSessionCommand(ctx context.Context, msg pkgc
 	if err != nil {
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
-	return c.groupDispatcher.rotateGroupChat(ctx, rc)
+	// The receipt is claimed only once the command has a target: an ambiguous or
+	// unusable `/new` changed nothing, so a redelivery may answer it again.
+	receipt := newCommandReceipt(c.queries(), groupID, msg.Platform, msg.MessageID, newSessionCommand)
+	return c.groupDispatcher.rotateGroupChat(ctx, rc, receipt)
+}
+
+// queries returns the coordinator's query set, or nil when it was built without
+// a pool (unit tests, degraded deployments).
+func (c *Coordinator) queries() *sqlc.Queries {
+	if c == nil || c.db == nil {
+		return nil
+	}
+	return sqlc.New(c.db)
 }
 
 // groupNewTarget picks the agent whose group session a `/new` rotates. A group

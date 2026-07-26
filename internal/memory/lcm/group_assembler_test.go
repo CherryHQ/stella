@@ -716,8 +716,17 @@ func TestGroupAssemble_RotationResetsContextButKeepsWatermark(t *testing.T) {
 		t.Fatalf("watermark before rotation = %d, want %d", watermark, res2.Seq)
 	}
 
-	// `/new`: the same group/agent binding now points at a fresh session id.
+	// `/new`: the binding moves onto a fresh session id, and the predecessor is
+	// archived in the same step. Both halves are required —
+	// idx_one_agent_group_chat admits exactly one active kind=chat row per
+	// (agent, group), so a successor cannot simply appear beside its predecessor.
 	after := memory.Session{ID: uuid.Must(uuid.NewV7()).String(), AgentID: "agent-a", UserID: gid, GroupID: gid}
+	rotateCtx := authz.WithAgentID(authz.WithUserID(context.Background(), gid), "agent-a")
+	if err := p.RotateInfo(rotateCtx, before.ID, memory.SessionInfo{
+		ID: after.ID, AgentID: "agent-a", UserID: gid, GroupID: gid, Kind: "chat",
+	}); err != nil {
+		t.Fatalf("rotate group session: %v", err)
+	}
 	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != watermark {
 		t.Fatalf("rotation moved the watermark: got %d, want %d", got, watermark)
 	}

@@ -355,6 +355,30 @@ func RunConformance(t *testing.T, provider memory.Provider) {
 			if _, err := sm.LoadInfo(ctx, stale.ID); err == nil {
 				t.Error("a stale rotation must not create a successor")
 			}
+
+			// TouchActiveInfo is the turn path's only write, and the whole point of
+			// it is that it cannot resurrect what the rotation above archived.
+			applied, err := sm.TouchActiveInfo(ctx, created)
+			if err != nil {
+				t.Fatalf("TouchActiveInfo on an active session: %v", err)
+			}
+			if !applied {
+				t.Error("TouchActiveInfo must apply to an active session")
+			}
+			applied, err = sm.TouchActiveInfo(ctx, predecessor)
+			if err != nil {
+				t.Fatalf("TouchActiveInfo on an archived session: %v", err)
+			}
+			if applied {
+				t.Error("TouchActiveInfo must not write to an archived session")
+			}
+			stillArchived, err := sm.LoadInfo(ctx, rotated.ID)
+			if err != nil {
+				t.Fatalf("LoadInfo after touching an archived session: %v", err)
+			}
+			if !stillArchived.Archived {
+				t.Error("TouchActiveInfo resurrected a session a rotation had archived")
+			}
 		})
 	}
 

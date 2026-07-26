@@ -46,9 +46,15 @@ type GroupDispatchRunner interface {
 	// RotateGroupSession starts a fresh session for one agent in the group and
 	// returns the user-facing reply. It belongs on this port because rotation must
 	// run in the same per-(agent,group) order as that agent's turns, which only
-	// the dispatcher owns.
-	RotateGroupSession(ctx context.Context, groupID, agentID string) (string, error)
+	// the dispatcher owns. clientMessageID is the send's idempotency token, so a
+	// retried `/new` reports the reset rather than performing a second one.
+	RotateGroupSession(ctx context.Context, groupID, agentID, clientMessageID string) (string, error)
 }
+
+// webGroupPlatform is the platform value the Web group surface writes: it names
+// the origin of a message id, so a browser's client_message_id can never be
+// mistaken for a platform message id in the same group.
+const webGroupPlatform = "web"
 
 // groupOutboxLeaseDuration bounds both the outbox lease written at ingest and
 // the synchronous dispatch turn, so a single Web send cannot hold the outbox
@@ -234,7 +240,7 @@ func (a *GroupAccess) Create(ctx context.Context, name string, agentIDs []string
 	groupID := uuid.Must(uuid.NewV7()).String()
 	g, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
 		ID:               groupID,
-		Platform:         "web",
+		Platform:         webGroupPlatform,
 		PlatformGroupID:  groupID,
 		PlatformThreadID: "",
 		GroupName:        name,
@@ -426,7 +432,7 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 		return PreparedSend{}, fmt.Errorf("list group members: %w", err)
 	}
 
-	if reply, handled := a.groupCommandReply(ctx, groupID, content, members); handled {
+	if reply, handled := a.groupCommandReply(ctx, groupID, content, clientMessageID, members); handled {
 		return PreparedSend{Command: true, Reply: reply}, nil
 	}
 
@@ -434,7 +440,7 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 	// client_message_id disables tier-1 dedup (no fake UUID). The outbox is created
 	// inside the same transaction so a fresh message always has a claimable row.
 	appendResult, err := a.svc.eventLog.AppendGroupMessage(ctx, eventlog.Message{
-		Platform:          "web",
+		Platform:          webGroupPlatform,
 		PlatformGroupID:   groupID,
 		PlatformThreadID:  "",
 		ActorType:         eventlog.ActorHuman,
@@ -553,7 +559,11 @@ func webChannelID(agentID string) string { return "web:" + agentID }
 // commands) falls through as a normal message. Interception happens here rather
 // than after the append so a command never becomes part of group context —
 // which matters most for `/new`, whose whole purpose is to clear that context.
-func (a *GroupAccess) groupCommandReply(ctx context.Context, groupID, content string, members []sqlc.ChannelGroupMember) (string, bool) {
+// clientMessageID is the browser's idempotency token for this send. Only `/new`
+// needs it — the other commands change nothing, so answering a retry twice costs
+// nothing — but it has to reach here because the append that would normally
+// dedup the message is exactly what interception skips.
+func (a *GroupAccess) groupCommandReply(ctx context.Context, groupID, content, clientMessageID string, members []sqlc.ChannelGroupMember) (string, bool) {
 	fields := strings.Fields(content)
 	if len(fields) == 0 {
 		return "", false
@@ -567,7 +577,7 @@ func (a *GroupAccess) groupCommandReply(ctx context.Context, groupID, content st
 		// conversations, so compaction does not apply here.
 		return pkgchannel.GroupCompactUnsupportedMessage, true
 	case "/new":
-		return a.newGroupSessionReply(ctx, groupID, strings.Join(fields[1:], " "), members), true
+		return a.newGroupSessionReply(ctx, groupID, strings.Join(fields[1:], " "), clientMessageID, members), true
 	default:
 		return "", false
 	}
@@ -575,7 +585,7 @@ func (a *GroupAccess) groupCommandReply(ctx context.Context, groupID, content st
 
 // newGroupSessionReply rotates the targeted agent's group session. Each agent
 // keeps its own session, so a multi-agent group needs `/new @agent`.
-func (a *GroupAccess) newGroupSessionReply(ctx context.Context, groupID, args string, members []sqlc.ChannelGroupMember) string {
+func (a *GroupAccess) newGroupSessionReply(ctx context.Context, groupID, args, clientMessageID string, members []sqlc.ChannelGroupMember) string {
 	agentIDs := make([]string, 0, len(members))
 	for _, m := range members {
 		agentIDs = append(agentIDs, m.AgentID)
@@ -584,7 +594,7 @@ func (a *GroupAccess) newGroupSessionReply(ctx context.Context, groupID, args st
 	if target == "" {
 		return usage
 	}
-	reply, err := a.svc.dispatcher.RotateGroupSession(ctx, groupID, target)
+	reply, err := a.svc.dispatcher.RotateGroupSession(ctx, groupID, target, clientMessageID)
 	if err != nil {
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}

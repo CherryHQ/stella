@@ -38,6 +38,30 @@ func WithChatBinding(ctx context.Context, binding ChatBinding) context.Context {
 	return context.WithValue(ctx, chatBindingKey{}, binding)
 }
 
+// clearedChatBinding shadows an inherited ChatBinding. The key must stay
+// occupied — deleting a context value is impossible — so it holds a value of a
+// type no reader can assert to, which makes ChatBindingFromContext answer false
+// exactly as it does for a context that never carried a binding.
+type clearedChatBinding struct{}
+
+// WithoutChatBinding returns a child context with no chat binding, whatever the
+// parent carried.
+//
+// A delegate (or any other nested run) inherits its parent's context, and the
+// parent may be a Telegram or group turn. The binding is the authority to rotate
+// and compact THAT chat's session, so inheriting it would let a delegate — whose
+// own turn nobody is watching and whose task text can come from a tool result —
+// reset the conversation that spawned it.
+func WithoutChatBinding(ctx context.Context) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	if _, ok := ChatBindingFromContext(ctx); !ok {
+		return ctx
+	}
+	return context.WithValue(ctx, chatBindingKey{}, clearedChatBinding{})
+}
+
 // ChatBindingFromContext returns the durable chat binding of the current turn.
 // The bool is false for any turn that did not enter through a chat channel.
 func ChatBindingFromContext(ctx context.Context) (ChatBinding, bool) {

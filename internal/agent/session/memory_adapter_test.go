@@ -20,6 +20,10 @@ func (f *fakeSessionManager) RotateInfo(context.Context, string, memory.SessionI
 	return nil
 }
 
+func (f *fakeSessionManager) TouchActiveInfo(context.Context, memory.SessionInfo) (bool, error) {
+	return true, nil
+}
+
 func (f *fakeSessionManager) LoadInfo(context.Context, string) (memory.SessionInfo, error) {
 	return f.rec, nil
 }

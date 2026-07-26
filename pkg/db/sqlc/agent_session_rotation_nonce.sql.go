@@ -11,8 +11,7 @@ import (
 )
 
 const claimSessionRotationNonce = `-- name: ClaimSessionRotationNonce :one
-UPDATE agent_session_rotation_nonce
-SET used_at = now(), updated_at = now()
+DELETE FROM agent_session_rotation_nonce
 WHERE id = $1
   AND used_at IS NULL
   AND expires_at > now()
@@ -21,6 +20,8 @@ RETURNING id, session_id, binding_key, actor_id, turn_marker, expires_at, used_a
 
 // Single-use is enforced here, not in Go: the guard and the write are one
 // statement, so two confirmations racing across nodes cannot both rotate.
+// Claiming deletes rather than marks: a spent nonce authorizes nothing, so
+// keeping it would only leave residue the sweep below has to carry.
 func (q *Queries) ClaimSessionRotationNonce(ctx context.Context, id string) (AgentSessionRotationNonce, error) {
 	row := q.db.QueryRow(ctx, claimSessionRotationNonce, id)
 	var i AgentSessionRotationNonce
@@ -79,14 +80,17 @@ func (q *Queries) CreateSessionRotationNonce(ctx context.Context, arg CreateSess
 	return i, err
 }
 
-const deleteExpiredSessionRotationNonceForBinding = `-- name: DeleteExpiredSessionRotationNonceForBinding :exec
+const deleteExpiredSessionRotationNonce = `-- name: DeleteExpiredSessionRotationNonce :exec
 DELETE FROM agent_session_rotation_nonce
-WHERE binding_key = $1
-  AND (expires_at <= now() OR used_at IS NOT NULL)
+WHERE expires_at < now()
 `
 
-func (q *Queries) DeleteExpiredSessionRotationNonceForBinding(ctx context.Context, bindingKey string) error {
-	_, err := q.db.Exec(ctx, deleteExpiredSessionRotationNonceForBinding, bindingKey)
+// Bounds the table without a background sweeper: every issued nonce either gets
+// claimed (deleted above) or expires, and each new nonce pays for one global
+// sweep of the expired ones. The predicate is served by
+// idx_agent_session_rotation_nonce_expires_at.
+func (q *Queries) DeleteExpiredSessionRotationNonce(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteExpiredSessionRotationNonce)
 	return err
 }
 

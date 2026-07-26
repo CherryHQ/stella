@@ -346,6 +346,17 @@ type SessionManager interface {
 	// is no longer active or no longer matches successor's binding.
 	RotateInfo(ctx context.Context, expectedSessionID string, successor SessionInfo) error
 
+	// TouchActiveInfo records a running turn's metadata — its last-active
+	// timestamp, and a title for a session that has none — against a session that
+	// is still active, and reports false without writing when it is not.
+	//
+	// It exists because SaveInfo cannot serve the turn path: a turn holds the
+	// snapshot it resolved at the start, a rotation can archive that session
+	// while the turn runs, and replaying the snapshot would un-archive a session
+	// the chat has already left. Checking first and then saving only narrows the
+	// race; this is the guard and the write in one statement.
+	TouchActiveInfo(ctx context.Context, info SessionInfo) (bool, error)
+
 	// LoadInfo retrieves metadata for a single session.
 	LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error)
 

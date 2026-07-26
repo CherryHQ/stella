@@ -107,8 +107,19 @@ func (r ChannelRequest) validate() error {
 
 // bindingKey identifies the binding for the in-process resolve lock. Two
 // concurrent first messages on one chat must not each create a session.
+//
+// The key has to be exactly the predicate currentChannelLocked resolves on, or
+// the lock guards the wrong thing. A group resolves on (agent, group) alone —
+// its channel varies with the reply channel a message arrives through — so
+// keying the lock on the channel too would let the Web send and the platform
+// ingest of one group's first message take different locks and each create an
+// active session. Private chats do bind on their channel, so it stays in theirs.
 func (r ChannelRequest) bindingKey() string {
-	return r.AgentID + "\x00" + r.UserID + "\x00" + r.GroupID + "\x00" + string(r.Channel)
+	channel := string(r.Channel)
+	if r.GroupID != "" {
+		channel = ""
+	}
+	return r.AgentID + "\x00" + r.UserID + "\x00" + r.GroupID + "\x00" + channel
 }
 
 // ReviewRequest describes which sessions are candidates for reflect review.
