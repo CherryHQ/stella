@@ -10,17 +10,17 @@ import (
 )
 
 const createChatCommandReceipt = `-- name: CreateChatCommandReceipt :execrows
-INSERT INTO channel_chat_command_receipt (agent_id, binding, channel_id, message_id, command)
+INSERT INTO channel_chat_command_receipt (channel_id, chat_key, message_id, command, binding)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (binding, channel_id, message_id) DO NOTHING
+ON CONFLICT (channel_id, chat_key, message_id) DO NOTHING
 `
 
 type CreateChatCommandReceiptParams struct {
-	AgentID   string `json:"agent_id"`
-	Binding   string `json:"binding"`
 	ChannelID string `json:"channel_id"`
+	ChatKey   string `json:"chat_key"`
 	MessageID string `json:"message_id"`
 	Command   string `json:"command"`
+	Binding   string `json:"binding"`
 }
 
 // Claims the right to execute one inbound private-chat message's command. Zero
@@ -28,11 +28,11 @@ type CreateChatCommandReceiptParams struct {
 // the command must not run again.
 func (q *Queries) CreateChatCommandReceipt(ctx context.Context, arg CreateChatCommandReceiptParams) (int64, error) {
 	result, err := q.db.Exec(ctx, createChatCommandReceipt,
-		arg.AgentID,
-		arg.Binding,
 		arg.ChannelID,
+		arg.ChatKey,
 		arg.MessageID,
 		arg.Command,
+		arg.Binding,
 	)
 	if err != nil {
 		return 0, err
@@ -42,12 +42,12 @@ func (q *Queries) CreateChatCommandReceipt(ctx context.Context, arg CreateChatCo
 
 const deleteChatCommandReceipt = `-- name: DeleteChatCommandReceipt :exec
 DELETE FROM channel_chat_command_receipt
-WHERE binding = $1 AND channel_id = $2 AND message_id = $3
+WHERE channel_id = $1 AND chat_key = $2 AND message_id = $3
 `
 
 type DeleteChatCommandReceiptParams struct {
-	Binding   string `json:"binding"`
 	ChannelID string `json:"channel_id"`
+	ChatKey   string `json:"chat_key"`
 	MessageID string `json:"message_id"`
 }
 
@@ -55,6 +55,6 @@ type DeleteChatCommandReceiptParams struct {
 // This is the ONLY delete; a consumed receipt is permanent for the same reason
 // the group receipt's is (see channel_group_command_receipt.sql).
 func (q *Queries) DeleteChatCommandReceipt(ctx context.Context, arg DeleteChatCommandReceiptParams) error {
-	_, err := q.db.Exec(ctx, deleteChatCommandReceipt, arg.Binding, arg.ChannelID, arg.MessageID)
+	_, err := q.db.Exec(ctx, deleteChatCommandReceipt, arg.ChannelID, arg.ChatKey, arg.MessageID)
 	return err
 }

@@ -396,13 +396,7 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 // running work on a reset request would be surprising, and rotating underneath it
 // would land its reply in a session the user already left.
 func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
-	// The receipt is keyed on the channel instance the message arrived on;
-	// adapters that leave ChannelID blank fall back to the platform name.
-	channelID := msg.ChannelID
-	if channelID == "" {
-		channelID = msg.Platform
-	}
-	receipt := newChatCommandReceipt(c.receiptQueries(), rc, channelID, msg.MessageID, newSessionCommand)
+	receipt := chatReceiptForMessage(c.receiptQueries(), rc, msg, newSessionCommand)
 	return rotateChatSession(ctx, rc, receipt, c.queue)
 }
 

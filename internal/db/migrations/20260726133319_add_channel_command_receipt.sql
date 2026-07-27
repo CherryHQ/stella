@@ -28,6 +28,7 @@ CREATE TABLE channel_group_command_receipt (
     message_id TEXT NOT NULL,
     command    TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (group_id, platform, message_id)
 );
 
