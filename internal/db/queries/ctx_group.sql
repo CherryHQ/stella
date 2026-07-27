@@ -61,6 +61,18 @@ WHERE idempotency_key = sqlc.arg(idempotency_key);
 -- name: GetGroupMessage :one
 SELECT * FROM ctx_group_message WHERE id = $1;
 
+-- content_blocks holds inbound image payloads, so a single row is bounded only
+-- by the channel inline ceiling (telegram/qq inline up to 20MB today; 5MB once
+-- #786 lands). Only the dispatch reads above (GetGroupMessage / the dedup
+-- :one lookups) rehydrate images, so they keep SELECT *. The text-only list
+-- consumers below — semantic-arbiter recent context, LCM cross-agent assembly,
+-- and web pagination — read only the projected text columns, so they select an
+-- explicit column list that EXCLUDES content_blocks and never drag image blobs
+-- across a history window.
+
+-- ListRecentGroupMessages currently has no caller; it keeps SELECT * so a future
+-- replay/dispatch consumer that needs content_blocks gets the full row. Give it
+-- an explicit lean list only if a text-only consumer adopts it.
 -- name: ListRecentGroupMessages :many
 SELECT * FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
@@ -68,7 +80,10 @@ ORDER BY seq DESC
 LIMIT sqlc.arg(max_count);
 
 -- name: ListRecentGroupMessagesBeforeSeq :many
-SELECT * FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
   AND seq < sqlc.arg(before_seq)
 ORDER BY seq DESC
@@ -101,13 +116,20 @@ selected AS (
   FROM bounded
   WHERE running_tokens <= sqlc.arg(token_budget)::bigint
 )
-SELECT gm.*
+SELECT gm.id, gm.group_id, gm.seq, gm.source_channel_id,
+       gm.actor_type, gm.actor_id, gm.actor_display_name,
+       gm.platform_message_id, gm.reply_to, gm.platform_timestamp,
+       gm.idempotency_key, gm.content, gm.reasoning,
+       gm.agent_session_id, gm.created_at
 FROM ctx_group_message gm
 WHERE gm.id IN (SELECT id FROM selected)
 ORDER BY gm.seq ASC;
 
 -- name: ListGroupMessagesPaginated :many
-SELECT * FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
 ORDER BY seq DESC
 LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
@@ -116,9 +138,16 @@ LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
   actor_display_name, platform_message_id, reply_to, platform_timestamp,
-  idempotency_key, content, reasoning, agent_session_id
+  idempotency_key, content, content_blocks, reasoning, agent_session_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+VALUES (
+  sqlc.arg(id), sqlc.arg(group_id), sqlc.arg(seq), sqlc.arg(source_channel_id),
+  sqlc.arg(actor_type), sqlc.arg(actor_id), sqlc.arg(actor_display_name),
+  sqlc.arg(platform_message_id), sqlc.arg(reply_to),
+  sqlc.arg(platform_timestamp), sqlc.arg(idempotency_key), sqlc.arg(content),
+  COALESCE(sqlc.arg(content_blocks)::jsonb, '[]'::jsonb),
+  sqlc.arg(reasoning), sqlc.arg(agent_session_id)
+)
 RETURNING *;
 
 -- name: ListLatestGroupActorDisplayNames :many

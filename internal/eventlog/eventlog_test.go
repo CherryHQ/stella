@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -53,6 +54,44 @@ func TestAppendInsertsFirstMessageWithSeqOne(t *testing.T) {
 	}
 	if !res.Message.ActorDisplayName.Valid || res.Message.ActorDisplayName.String != "Alice" {
 		t.Fatalf("actor display name = %#v, want Alice", res.Message.ActorDisplayName)
+	}
+}
+
+func TestAppendPersistsContentBlocks(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	msg := humanMsg()
+	msg.PlatformMessageID = "m-blocks"
+	msg.ContentBlocks = []byte(`[{"kind":"text","text":"hi"},{"kind":"image","data":"aGk=","mime_type":"image/png"}]`)
+
+	res, err := s.AppendGroupMessage(ctx, msg)
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	// jsonb normalizes formatting; compare decoded blocks, not raw bytes.
+	blocks, err := ai.UnmarshalContentBlocks(res.Message.ContentBlocks)
+	if err != nil {
+		t.Fatalf("unmarshal stored blocks: %v", err)
+	}
+	if len(blocks) != 2 || !ai.HasImage(blocks) {
+		t.Fatalf("stored blocks = %#v, want text+image", blocks)
+	}
+}
+
+func TestAppendWithoutContentBlocksStoresEmptyArray(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+
+	msg := humanMsg()
+	msg.PlatformMessageID = "m-noblocks"
+
+	res, err := s.AppendGroupMessage(ctx, msg)
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if got := string(res.Message.ContentBlocks); got != "[]" {
+		t.Fatalf("content_blocks = %s, want []", got)
 	}
 }
 

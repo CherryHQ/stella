@@ -1,24 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   deleteOAuthProviderConfig,
   deleteScopedVaultEntry as deleteVaultEntryRequest,
   disconnectOAuth as disconnectOAuthRequest,
-  getOAuthConnected,
-  getOAuthProviderConfig,
   getScopedVaultEntry,
   listAgents,
-  listOAuthProviders,
   listScopedVaultEntries,
   pollOAuthFlow,
   setOAuthProviderConfig,
   setScopedVaultEntry,
   startOAuthFlow,
 } from "@/lib/api-client/sdk.gen";
+import {
+  oauthProviderConfigOptions,
+  oauthProvidersQueryKey,
+  oauthProvidersQueryOptions,
+} from "@/lib/queries/oauth";
 import { formatTime } from "@/lib/time";
 import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -32,6 +36,8 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
+import { ScopeEditor } from "@/features/credentials/ScopeEditor";
+import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import {
   SettingsDetailSheet,
   SettingsGridPage,
@@ -40,17 +46,24 @@ import {
   SettingsSection,
 } from "@/features/settings/SettingsCardGrid";
 import type { RowAction } from "@/features/settings/SettingsCardGrid";
-import {
-  DetailPanel,
-  DetailPanelHeader,
-  FormSectionTitle,
-} from "@/features/settings/SettingsDetailPanel";
+import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { KeyRound, Lock, Plug, Plus } from "lucide-react";
 import { siGithub, siX } from "simple-icons";
+import feishuIcon from "@/assets/auth/feishu.svg";
 
-const SIMPLE_ICON_PATHS: Record<string, string> = {
-  github: siGithub.path,
-  x: siX.path,
+// Brand marks carried by simple-icons, resolved by slug. Adding a simple-icons
+// brand is one named import + one entry here; unknown slugs fall through to the
+// generic glyph.
+const SIMPLE_ICONS: Record<string, { path: string }> = {
+  github: siGithub,
+  x: siX,
+};
+
+// Brands simple-icons does not carry, rendered from bundled assets. Feishu and
+// its international brand Lark share one mark.
+const ASSET_ICONS: Record<string, string> = {
+  feishu: feishuIcon,
+  lark: feishuIcon,
 };
 
 type VaultScope = VaultEntry["scope"];
@@ -122,15 +135,35 @@ const SCOPE_DESC_KEY: Record<VaultScope, MessageKey> = {
   system_agent: "credentials.scope.systemAgent.desc",
 };
 
-function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
+// ProviderIcon resolves a brand mark from the provider's icon string (set in
+// the provider YAML): `simpleicons:<slug>` for marks simple-icons carries,
+// `asset:<name>` for bundled brand SVGs it does not (Feishu/Lark). Falls back to
+// a bundled asset keyed by provider id, then to a generic plug glyph.
+function ProviderIcon({
+  provider,
+  icon,
+  label,
+}: {
+  provider: string;
+  icon?: string;
+  label: string;
+}) {
   const [family, name] = (icon ?? "").split(":");
-  const path = family === "simpleicons" ? SIMPLE_ICON_PATHS[name?.toLowerCase()] : undefined;
-  if (!path) return <Plug className="size-4" />;
-  return (
-    <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-label={label}>
-      <path d={path} />
-    </svg>
-  );
+  if (family === "simpleicons") {
+    const brand = SIMPLE_ICONS[name?.toLowerCase()];
+    if (brand) {
+      return (
+        <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-label={label}>
+          <path d={brand.path} />
+        </svg>
+      );
+    }
+  }
+  const asset =
+    (family === "asset" ? ASSET_ICONS[name?.toLowerCase()] : undefined) ??
+    ASSET_ICONS[provider.toLowerCase()];
+  if (asset) return <img src={asset} alt="" className="size-4" />;
+  return <Plug className="size-4" />;
 }
 
 export function CredentialsPage() {
@@ -167,12 +200,18 @@ export function CredentialsPage() {
     setAddSheetOpen(true);
   }, [resetVaultForm]);
 
-  const [oauthProviders, setOauthProviders] = useState<OAuthProvider[]>([]);
-  const [oauthStatus, setOauthStatus] = useState<
-    Record<string, "checking" | "connected" | "disconnected">
-  >({});
+  const queryClient = useQueryClient();
+  // The provider list (with per-user connection/reconnect state) is server
+  // cache: one query drives the whole OAuth section. Connect/disconnect/save
+  // invalidate it instead of hand-refetching.
+  const { data: oauthProviders = [], isLoading: oauthLoading } = useQuery(
+    oauthProvidersQueryOptions,
+  );
+  // Flow progress and the last failure reason are ephemeral connect-flow UI,
+  // not server cache, so they stay local.
   const [oauthFlow, setOauthFlow] = useState<Record<string, OAuthFlow | null>>({});
   const [oauthFlowActive, setOauthFlowActive] = useState<Record<string, boolean>>({});
+  const [oauthFlowError, setOauthFlowError] = useState<Record<string, string | null>>({});
 
   const [sheetProvider, setSheetProvider] = useState<string | null>(null);
   const [configValues, setConfigValues] = useState<
@@ -180,6 +219,21 @@ export function CredentialsPage() {
   >({});
   const [configSaving, setConfigSaving] = useState<Record<string, boolean>>({});
   const [hasExistingSecret, setHasExistingSecret] = useState<Record<string, boolean>>({});
+  // Scope override editing is a separate model from the credential inputs: the
+  // ScopeEditor mutates the working list frequently, and we keep the saved and
+  // default baselines to drive the diff bar and reset without a second fetch.
+  const [scopeDraft, setScopeDraft] = useState<Record<string, string[]>>({});
+  const [scopeMeta, setScopeMeta] = useState<
+    Record<string, { saved: string[]; defaults: string[] }>
+  >({});
+
+  // One pending confirmation at a time; ConfirmDialog is controlled by this.
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const { toasts, showToast } = useToast();
   const pollAbortRef = useRef<Record<string, boolean>>({});
@@ -252,104 +306,52 @@ export function CredentialsPage() {
     }
   }, []);
 
-  const loadOAuthProviders = useCallback(async () => {
-    try {
-      const { data } = await listOAuthProviders({ throwOnError: true });
-      const providers = (data?.providers as OAuthProvider[]) ?? [];
-      setOauthProviders(providers);
-      setOauthStatus((prev) => {
-        const next = { ...prev };
-        for (const p of providers) {
-          if (!next[p.provider]) next[p.provider] = "checking";
-        }
-        return next;
-      });
-      setOauthFlow((prev) => {
-        const next = { ...prev };
-        for (const p of providers) {
-          if (!(p.provider in next)) next[p.provider] = null;
-        }
-        return next;
-      });
-      setOauthFlowActive((prev) => {
-        const next = { ...prev };
-        for (const p of providers) {
-          if (!(p.provider in next)) next[p.provider] = false;
-        }
-        return next;
-      });
-      return providers;
-    } catch {
-      setOauthProviders([]);
-      return [];
-    }
-  }, []);
+  const invalidateProviders = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: oauthProvidersQueryKey }),
+    [queryClient],
+  );
 
-  const loadProviderConfig = useCallback(async (provider: string) => {
-    try {
-      const { data: cfg } = await getOAuthProviderConfig({
-        path: { id: provider },
-        throwOnError: true,
-      });
-      if (cfg) {
-        setConfigValues((prev) => ({
-          ...prev,
-          [provider]: {
-            clientId: cfg.client_id,
-            clientSecret: "",
-            redirectUrl: cfg.redirect_url ?? "",
-          },
-        }));
-        setHasExistingSecret((prev) => ({
-          ...prev,
-          [provider]: cfg.client_secret === "***",
-        }));
-      }
-    } catch {
-      // not admin or no config yet
-    }
-  }, []);
+  // Admin credentials + scope override for the open sheet only. The form edits
+  // live in local state (configValues/scopeDraft), seeded from this query when
+  // it loads; the query stays the source of truth for the saved baseline.
+  const { data: providerConfig } = useQuery(
+    oauthProviderConfigOptions(sheetProvider, isAdmin && !!sheetProvider),
+  );
 
-  const checkOAuthConnected = useCallback(async (provider: string) => {
-    setOauthStatus((prev) => ({ ...prev, [provider]: "checking" }));
-    try {
-      const { data } = await getOAuthConnected({
-        path: { provider },
-        throwOnError: true,
-      });
-      setOauthStatus((prev) => ({
-        ...prev,
-        [provider]: data?.connected ? "connected" : "disconnected",
-      }));
-    } catch {
-      setOauthStatus((prev) => ({ ...prev, [provider]: "disconnected" }));
-    }
-  }, []);
+  useEffect(() => {
+    if (!sheetProvider || !providerConfig) return;
+    const provider = sheetProvider;
+    setConfigValues((prev) => ({
+      ...prev,
+      [provider]: {
+        clientId: providerConfig.client_id,
+        clientSecret: "",
+        redirectUrl: providerConfig.redirect_url ?? "",
+      },
+    }));
+    setHasExistingSecret((prev) => ({
+      ...prev,
+      [provider]: providerConfig.client_secret === "***",
+    }));
+    const saved = providerConfig.scopes ?? [];
+    const defaults = providerConfig.default_scopes ?? [];
+    setScopeDraft((prev) => ({ ...prev, [provider]: saved }));
+    setScopeMeta((prev) => ({ ...prev, [provider]: { saved, defaults } }));
+  }, [sheetProvider, providerConfig]);
 
   useEffect(() => {
     const init = async () => {
       const agentList = await loadAgents();
       await loadVaultEntries(agentList);
-      const providers = await loadOAuthProviders();
-      await Promise.all([
-        ...providers.map((p) => checkOAuthConnected(p.provider)),
-        ...(isAdmin ? providers.map((p) => loadProviderConfig(p.provider)) : []),
-      ]);
     };
     void init();
+    const pollAbort = pollAbortRef.current;
     return () => {
-      for (const key of Object.keys(pollAbortRef.current)) {
-        pollAbortRef.current[key] = true;
+      for (const key of Object.keys(pollAbort)) {
+        pollAbort[key] = true;
       }
     };
-  }, [
-    loadVaultEntries,
-    loadAgents,
-    loadOAuthProviders,
-    checkOAuthConnected,
-    loadProviderConfig,
-    isAdmin,
-  ]);
+  }, [loadVaultEntries, loadAgents]);
 
   const openEditSheet = useCallback(async (entry: VaultEntry) => {
     setEditingEntry(entry);
@@ -437,7 +439,6 @@ export function CredentialsPage() {
 
   const deleteVaultEntry = useCallback(
     async (entry: VaultEntry) => {
-      if (!window.confirm(t("credentials.deleteSecretConfirm", { name: entry.name }))) return;
       try {
         await deleteVaultEntryRequest({
           path: { name: entry.name },
@@ -459,33 +460,48 @@ export function CredentialsPage() {
     [showToast, reloadScope, t],
   );
 
+  const invalidateProviderConfig = useCallback(
+    (provider: string) =>
+      queryClient.invalidateQueries({ queryKey: ["oauth-provider-config", provider] }),
+    [queryClient],
+  );
+
   const pollUntilDone = useCallback(
     async (provider: string, flowID: string) => {
       pollAbortRef.current[provider] = false;
       while (!pollAbortRef.current[provider]) {
         await new Promise((r) => setTimeout(r, 3000));
         if (pollAbortRef.current[provider]) break;
-        let status: { state: string } | null = null;
+        let status: { state: string; error?: string } | null = null;
         try {
           const { data } = await pollOAuthFlow({
             path: { provider, flowId: flowID },
             throwOnError: true,
           });
-          status = data as { state: string };
+          status = data as { state: string; error?: string };
         } catch {
           break;
         }
         if (!status || status.state !== "pending") {
           if (status?.state === "authorized")
             showToast(t("credentials.oauth.connectedSuccess", { provider }));
-          else if (status)
+          else if (status) {
+            // Surface the server-provided failure reason inline (and as a toast).
+            setOauthFlowError((prev) => ({
+              ...prev,
+              [provider]:
+                status.error ||
+                t("credentials.oauth.authorizationState", { provider, state: status.state }),
+            }));
             showToast(
-              t("credentials.oauth.authorizationState", {
-                provider,
-                state: status.state,
-              }),
+              status.error ||
+                t("credentials.oauth.authorizationState", {
+                  provider,
+                  state: status.state,
+                }),
               "error",
             );
+          }
           break;
         }
       }
@@ -497,6 +513,7 @@ export function CredentialsPage() {
     async (provider: string) => {
       setOauthFlowActive((prev) => ({ ...prev, [provider]: true }));
       setOauthFlow((prev) => ({ ...prev, [provider]: null }));
+      setOauthFlowError((prev) => ({ ...prev, [provider]: null }));
       try {
         const { data } = await startOAuthFlow({
           path: { provider },
@@ -506,26 +523,27 @@ export function CredentialsPage() {
         setOauthFlow((prev) => ({ ...prev, [provider]: flow }));
         await pollUntilDone(provider, flow.flow_id);
       } catch (e) {
-        showToast(e instanceof Error ? e.message : t("credentials.oauth.error"), "error");
+        const msg = e instanceof Error ? e.message : t("credentials.oauth.error");
+        setOauthFlowError((prev) => ({ ...prev, [provider]: msg }));
+        showToast(msg, "error");
       } finally {
         setOauthFlowActive((prev) => ({ ...prev, [provider]: false }));
         setOauthFlow((prev) => ({ ...prev, [provider]: null }));
-        await checkOAuthConnected(provider);
+        await invalidateProviders();
       }
     },
-    [pollUntilDone, showToast, checkOAuthConnected, t],
+    [pollUntilDone, showToast, invalidateProviders, t],
   );
 
   const disconnectOAuth = useCallback(
     async (provider: string) => {
-      if (!window.confirm(t("credentials.oauth.disconnectConfirm", { provider }))) return;
       try {
         await disconnectOAuthRequest({
           path: { provider },
           throwOnError: true,
         });
         showToast(t("credentials.oauth.disconnected", { provider }));
-        await checkOAuthConnected(provider);
+        await invalidateProviders();
       } catch (e) {
         showToast(
           e instanceof Error ? e.message : t("credentials.oauth.disconnectFailed"),
@@ -533,7 +551,7 @@ export function CredentialsPage() {
         );
       }
     },
-    [showToast, checkOAuthConnected, t],
+    [showToast, invalidateProviders, t],
   );
 
   const saveProviderConfig = useCallback(
@@ -551,13 +569,12 @@ export function CredentialsPage() {
             client_id: vals.clientId,
             client_secret: vals.clientSecret,
             redirect_url: vals.redirectUrl || undefined,
+            scopes: scopeDraft[provider] ?? [],
           },
           throwOnError: true,
         });
         showToast(t("credentials.oauth.configSaved", { provider }));
-        await loadOAuthProviders();
-        await loadProviderConfig(provider);
-        await checkOAuthConnected(provider);
+        await Promise.all([invalidateProviders(), invalidateProviderConfig(provider)]);
       } catch (e) {
         showToast(
           e instanceof Error ? e.message : t("credentials.oauth.configSaveFailed"),
@@ -567,21 +584,18 @@ export function CredentialsPage() {
         setConfigSaving((prev) => ({ ...prev, [provider]: false }));
       }
     },
-    [configValues, showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected, t],
+    [configValues, scopeDraft, showToast, invalidateProviders, invalidateProviderConfig, t],
   );
 
   const deleteProviderConfig = useCallback(
     async (provider: string) => {
-      if (!window.confirm(t("credentials.oauth.resetConfirm", { provider }))) return;
       try {
         await deleteOAuthProviderConfig({
           path: { id: provider },
           throwOnError: true,
         });
         showToast(t("credentials.oauth.configReset", { provider }));
-        await loadOAuthProviders();
-        await loadProviderConfig(provider);
-        await checkOAuthConnected(provider);
+        await Promise.all([invalidateProviders(), invalidateProviderConfig(provider)]);
       } catch (e) {
         showToast(
           e instanceof Error ? e.message : t("credentials.oauth.configResetFailed"),
@@ -589,7 +603,39 @@ export function CredentialsPage() {
         );
       }
     },
-    [showToast, loadOAuthProviders, loadProviderConfig, checkOAuthConnected, t],
+    [showToast, invalidateProviders, invalidateProviderConfig, t],
+  );
+
+  // Destructive actions route through one controlled ConfirmDialog rather than
+  // the native browser prompt, so the modal matches the rest of the UI.
+  const confirmDeleteVaultEntry = useCallback(
+    (entry: VaultEntry) =>
+      setConfirm({
+        title: t("credentials.deleteSecretTitle"),
+        message: t("credentials.deleteSecretConfirm", { name: entry.name }),
+        onConfirm: () => void deleteVaultEntry(entry),
+      }),
+    [deleteVaultEntry, t],
+  );
+  const confirmDisconnectOAuth = useCallback(
+    (provider: string) =>
+      setConfirm({
+        title: t("credentials.oauth.disconnectTitle"),
+        message: t("credentials.oauth.disconnectConfirm", { provider }),
+        confirmLabel: t("credentials.oauth.disconnect"),
+        onConfirm: () => void disconnectOAuth(provider),
+      }),
+    [disconnectOAuth, t],
+  );
+  const confirmResetProviderConfig = useCallback(
+    (provider: string) =>
+      setConfirm({
+        title: t("credentials.oauth.resetTitle"),
+        message: t("credentials.oauth.resetConfirm", { provider }),
+        confirmLabel: t("credentials.oauth.reset"),
+        onConfirm: () => void deleteProviderConfig(provider),
+      }),
+    [deleteProviderConfig, t],
   );
 
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
@@ -741,20 +787,27 @@ export function CredentialsPage() {
     : undefined;
 
   function statusBadge(p: OAuthProvider) {
-    const status = oauthStatus[p.provider];
-    if (status === "connected")
+    if (p.connected) {
+      // A connected-but-stale credential needs the user to re-authorize.
+      if (p.needs_reconnect)
+        return (
+          <Badge variant="warning" size="sm">
+            {t("credentials.oauth.status.reconnect")}
+          </Badge>
+        );
       return (
         <Badge variant="success" size="sm">
           {t("credentials.oauth.status.connected")}
         </Badge>
       );
+    }
     if (!p.available)
       return (
         <Badge variant="warning" size="sm">
           {t("credentials.oauth.status.setupRequired")}
         </Badge>
       );
-    if (status === "checking")
+    if (oauthLoading)
       return (
         <Badge variant="outline" size="sm">
           {t("credentials.oauth.status.checking")}
@@ -767,11 +820,32 @@ export function CredentialsPage() {
     );
   }
 
+  // Scopes the connected token lacks vs. what the connect flow now requests.
+  // granted_scopes absent means "unknown" (pre-capture token), so we only claim
+  // a concrete gap when the grant is known.
+  function missingScopes(p: OAuthProvider): string[] {
+    if (!p.granted_scopes) return [];
+    const granted = new Set(p.granted_scopes);
+    return (p.requested_scopes ?? []).filter((s) => !granted.has(s));
+  }
+
   const sp = sheetProviderData;
-  const spConnected = sp ? oauthStatus[sp.provider] === "connected" : false;
+  const spConnected = sp?.connected ?? false;
   const spFlow = sp ? oauthFlow[sp.provider] : null;
+  const spFlowError = sp ? oauthFlowError[sp.provider] : null;
+  const spMeta = sp ? scopeMeta[sp.provider] : undefined;
+  const spMissingScopes = sp ? missingScopes(sp) : [];
   const providerSheet = sp ? (
-    <DetailPanel>
+    <DetailPanel
+      onSave={isAdmin ? () => saveProviderConfig(sp.provider) : undefined}
+      isSaving={isAdmin ? configSaving[sp.provider] : undefined}
+      saveLabel={t("common.save")}
+      isSavingLabel={t("common.saving")}
+      onDelete={
+        isAdmin && sp.configured ? () => confirmResetProviderConfig(sp.provider) : undefined
+      }
+      deleteLabel={t("credentials.oauth.reset")}
+    >
       <DetailPanelHeader title={sp.provider} subtitle={statusBadge(sp)} />
 
       {sp.available && !spConnected && (sp.required_by?.length ?? 0) > 0 && (
@@ -787,6 +861,48 @@ export function CredentialsPage() {
         </div>
       )}
 
+      {spConnected && sp.needs_reconnect && (
+        <div className="space-y-2 rounded-lg border border-warning/36 bg-warning/8 p-3 text-xs">
+          <p className="font-medium text-foreground">
+            {sp.reconnect_reason === "missing_scopes" && spMissingScopes.length > 0
+              ? t("credentials.oauth.reconnectMissingScopes", {
+                  count: spMissingScopes.length,
+                })
+              : sp.reconnect_reason === "credentials_rotated"
+                ? t("credentials.oauth.reconnectRotated")
+                : t("credentials.oauth.reconnectGeneric")}
+          </p>
+          {sp.reconnect_reason === "missing_scopes" && spMissingScopes.length > 0 && (
+            <ul className="flex flex-wrap gap-1">
+              {spMissingScopes.map((s) => (
+                <li key={s}>
+                  <Badge variant="warning" size="sm" className="font-mono">
+                    {s}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {spConnected && (sp.access_expires_at || sp.refresh_expires_at) && (
+        <dl className="space-y-1 rounded-lg border border-border bg-muted/40 p-3 text-xs">
+          {sp.access_expires_at && (
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-muted-foreground">{t("credentials.oauth.accessExpires")}</dt>
+              <dd className="font-mono text-foreground">{formatTime(sp.access_expires_at)}</dd>
+            </div>
+          )}
+          {sp.refresh_expires_at && (
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-muted-foreground">{t("credentials.oauth.refreshExpires")}</dt>
+              <dd className="font-mono text-foreground">{formatTime(sp.refresh_expires_at)}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         {sp.available && !spConnected && (
           <Button
@@ -797,17 +913,35 @@ export function CredentialsPage() {
             {t("credentials.oauth.connect")}
           </Button>
         )}
+        {spConnected && sp.available && sp.needs_reconnect && (
+          <Button
+            size="sm"
+            loading={oauthFlowActive[sp.provider]}
+            onClick={() => connectOAuth(sp.provider)}
+          >
+            {t("credentials.oauth.reconnect")}
+          </Button>
+        )}
         {spConnected && sp.available && (
           <Button
             size="sm"
             variant="destructive-outline"
             className="text-destructive hover:bg-destructive/10"
-            onClick={() => disconnectOAuth(sp.provider)}
+            onClick={() => confirmDisconnectOAuth(sp.provider)}
           >
             {t("credentials.oauth.disconnect")}
           </Button>
         )}
       </div>
+
+      {spFlowError && !spFlow && (
+        <div className="rounded-lg border border-destructive/36 bg-destructive/8 p-3 text-xs">
+          <p className="font-medium text-destructive-foreground">
+            {t("credentials.oauth.flowFailed")}
+          </p>
+          <p className="mt-1 break-words text-muted-foreground">{spFlowError}</p>
+        </div>
+      )}
 
       {spFlow && (
         <div className="rounded-lg border border-info/36 bg-info/8 p-3 text-xs">
@@ -833,12 +967,10 @@ export function CredentialsPage() {
       )}
 
       {isAdmin && (
-        <div className="space-y-3 border-t border-border pt-4">
-          <FormSectionTitle>{t("credentials.oauth.app")}</FormSectionTitle>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("credentials.oauth.clientId")}
-            </label>
+        <Fieldset className="flex flex-1 min-h-0 flex-col gap-3 border-t border-border pt-4">
+          <FieldsetLegend>{t("credentials.oauth.app")}</FieldsetLegend>
+          <Field>
+            <FieldLabel>{t("credentials.oauth.clientId")}</FieldLabel>
             <Input
               type="text"
               value={configValues[sp.provider]?.clientId ?? ""}
@@ -855,11 +987,9 @@ export function CredentialsPage() {
               autoComplete="off"
               nativeInput
             />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("credentials.oauth.clientSecret")}
-            </label>
+          </Field>
+          <Field>
+            <FieldLabel>{t("credentials.oauth.clientSecret")}</FieldLabel>
             <Input
               type="password"
               value={configValues[sp.provider]?.clientSecret ?? ""}
@@ -882,27 +1012,17 @@ export function CredentialsPage() {
               autoComplete="new-password"
               nativeInput
             />
-          </div>
-          <div className="flex items-center justify-end gap-2 pt-1">
-            {sp.configured && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive hover:bg-destructive/10"
-                onClick={() => deleteProviderConfig(sp.provider)}
-              >
-                {t("credentials.oauth.reset")}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              loading={configSaving[sp.provider]}
-              onClick={() => saveProviderConfig(sp.provider)}
-            >
-              {t("common.save")}
-            </Button>
-          </div>
-        </div>
+          </Field>
+          <Field className="min-h-0 flex-1">
+            <ScopeEditor
+              value={scopeDraft[sp.provider] ?? []}
+              saved={spMeta?.saved ?? []}
+              defaults={spMeta?.defaults ?? []}
+              onChange={(next) => setScopeDraft((prev) => ({ ...prev, [sp.provider]: next }))}
+            />
+            <FieldDescription>{t("credentials.oauth.scopes.saveHint")}</FieldDescription>
+          </Field>
+        </Fieldset>
       )}
     </DetailPanel>
   ) : null;
@@ -920,8 +1040,7 @@ export function CredentialsPage() {
           ) : (
             <SettingsList>
               {oauthProviders.map((p) => {
-                const status = oauthStatus[p.provider];
-                const connected = status === "connected";
+                const connected = p.connected;
                 const ready = p.available && !connected;
                 const needsSetup = !p.available;
                 const clientId = configValues[p.provider]?.clientId ?? "";
@@ -954,7 +1073,7 @@ export function CredentialsPage() {
                   menu.push({
                     label: t("credentials.oauth.disconnect"),
                     destructive: true,
-                    onClick: () => void disconnectOAuth(p.provider),
+                    onClick: () => confirmDisconnectOAuth(p.provider),
                   });
 
                 let primary: React.ReactNode = undefined;
@@ -983,7 +1102,7 @@ export function CredentialsPage() {
                 return (
                   <SettingsRow
                     key={p.provider}
-                    icon={<ProviderIcon icon={p.icon} label={p.provider} />}
+                    icon={<ProviderIcon provider={p.provider} icon={p.icon} label={p.provider} />}
                     title={p.provider}
                     subtitle={subtitle}
                     status={statusBadge(p)}
@@ -1066,7 +1185,7 @@ export function CredentialsPage() {
                                   {
                                     label: t("common.delete"),
                                     destructive: true,
-                                    onClick: () => void deleteVaultEntry(entry),
+                                    onClick: () => confirmDeleteVaultEntry(entry),
                                   },
                                 ]
                           }
@@ -1101,6 +1220,17 @@ export function CredentialsPage() {
       >
         {vaultAddPanel}
       </SettingsDetailSheet>
+
+      <ConfirmDialog
+        open={confirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+        title={confirm?.title ?? ""}
+        message={confirm?.message ?? ""}
+        confirmLabel={confirm?.confirmLabel}
+        onConfirm={() => confirm?.onConfirm()}
+      />
 
       <ToastContainer messages={toasts} />
     </>

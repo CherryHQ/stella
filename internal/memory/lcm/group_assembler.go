@@ -20,6 +20,19 @@ const (
 	groupLCMFreshTail   = 6
 )
 
+// groupHistoryMessage is the lightweight Event Log projection copied into one
+// Agent's LCM. Historical scans omit image blobs; the current trigger carries
+// ContentBlocks because it is fetched by ID as one complete event.
+type groupHistoryMessage struct {
+	ID               string
+	Seq              int64
+	ActorType        string
+	ActorID          string
+	ActorDisplayName pgtype.Text
+	Content          string
+	ContentBlocks    []byte
+}
+
 func groupCursorPipeline(agentID string) string { return "lcm:" + agentID }
 
 // assembleGroup reads the already-synchronized per-agent LCM. The runtime calls
@@ -58,7 +71,18 @@ func (p *Provider) SyncGroupEventsBefore(ctx context.Context, session memory.Ses
 	if err != nil {
 		return fmt.Errorf("list group messages for lcm: %w", err)
 	}
-	if err := p.appendGroupHistory(ctx, session, rows, nil, false); err != nil {
+	publicRows := make([]groupHistoryMessage, 0, len(rows))
+	for _, row := range rows {
+		publicRows = append(publicRows, groupHistoryMessage{
+			ID:               row.ID,
+			Seq:              row.Seq,
+			ActorType:        row.ActorType,
+			ActorID:          row.ActorID,
+			ActorDisplayName: row.ActorDisplayName,
+			Content:          row.Content,
+		})
+	}
+	if err := p.appendGroupHistory(ctx, session, publicRows, nil, false); err != nil {
 		return err
 	}
 	p.log.Debug("group lcm public events synchronized",
@@ -91,7 +115,16 @@ func (p *Provider) AppendGroupTurn(
 	if row.GroupID != session.GroupID {
 		return fmt.Errorf("group message %s does not belong to group %s", groupMessageID, session.GroupID)
 	}
-	if err := p.appendGroupHistory(ctx, session, []sqlc.CtxGroupMessage{row}, continuation, true); err != nil {
+	publicRow := groupHistoryMessage{
+		ID:               row.ID,
+		Seq:              row.Seq,
+		ActorType:        row.ActorType,
+		ActorID:          row.ActorID,
+		ActorDisplayName: row.ActorDisplayName,
+		Content:          row.Content,
+		ContentBlocks:    row.ContentBlocks,
+	}
+	if err := p.appendGroupHistory(ctx, session, []groupHistoryMessage{publicRow}, continuation, true); err != nil {
 		return err
 	}
 	p.log.Debug("group lcm turn ensured",
@@ -106,7 +139,7 @@ func (p *Provider) AppendGroupTurn(
 func (p *Provider) appendGroupHistory(
 	ctx context.Context,
 	session memory.Session,
-	publicRows []sqlc.CtxGroupMessage,
+	publicRows []groupHistoryMessage,
 	continuation []ai.Message,
 	atomicTurn bool,
 ) error {
@@ -274,15 +307,21 @@ func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string)
 
 // groupRowToMessage renders public identity for model context while durable
 // deduplication remains based on the event row ID, never this display text.
-func groupRowToMessage(row sqlc.CtxGroupMessage) (ai.Message, bool) {
-	if row.Content == "" {
-		return nil, false
-	}
+func groupRowToMessage(row groupHistoryMessage) (ai.Message, bool) {
 	label := row.ActorID
 	if row.ActorDisplayName.Valid && row.ActorDisplayName.String != "" {
 		label = row.ActorDisplayName.String
 	} else if row.ActorType == string(eventlog.ActorAgent) {
 		label = "agent:" + row.ActorID
+	}
+	if blocks, err := ai.UnmarshalContentBlocks(row.ContentBlocks); err == nil && len(blocks) > 0 {
+		content := make([]ai.ContentBlock, 0, len(blocks)+1)
+		content = append(content, ai.TextContent{Text: fmt.Sprintf("[seq:%d %s]:", row.Seq, label)})
+		content = append(content, blocks...)
+		return ai.UserMessage{Content: content}, true
+	}
+	if row.Content == "" {
+		return nil, false
 	}
 	return ai.UserMessage{Content: fmt.Sprintf("[seq:%d %s]: %s", row.Seq, label, row.Content)}, true
 }

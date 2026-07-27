@@ -84,6 +84,32 @@ components:
           description: >-
             Display names of enabled tools that need this provider connected.
             Drives the "connect to enable X" prompt on the credentials page.
+        requested_scopes:
+          type: array
+          items: { type: string }
+          description: Effective scope list the connect flow requests.
+        granted_scopes:
+          type: array
+          items: { type: string }
+          description: >-
+            Scopes the stored token actually holds. Absent means unknown (a
+            token captured before grant tracking), which is distinct from "no
+            scopes".
+        access_expires_at:
+          type: string
+          format: date-time
+          description: Access-token expiry; omitted when unknown.
+        refresh_expires_at:
+          type: string
+          format: date-time
+          description: Refresh-token expiry; omitted when unknown.
+        needs_reconnect:
+          type: boolean
+          description: True when the user must re-authorize to stay usable.
+        reconnect_reason:
+          type: string
+          enum: [credentials_rotated, missing_scopes]
+          description: Why a reconnect is needed, when needs_reconnect is true.
 
     OAuthProviderConfig:
       type: object
@@ -93,6 +119,14 @@ components:
         client_id: { type: string }
         client_secret: { type: string }
         redirect_url: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+          description: Admin scope override; empty means "use the default".
+        default_scopes:
+          type: array
+          items: { type: string }
+          description: Built-in YAML default scopes (output-only, for diff/reset).
 
     OAuthProviderConfigInput:
       type: object
@@ -101,6 +135,12 @@ components:
         client_id: { type: string }
         client_secret: { type: string }
         redirect_url: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+          description: >-
+            Scope override to request on connect. Empty or omitted clears the
+            override (reverts to the built-in default).
 
     OAuthFlowStatus:
       type: object
@@ -112,6 +152,9 @@ components:
         user_code: { type: string }
         expires_at: { type: string, format: date-time }
         state: { type: string }
+        error:
+          type: string
+          description: Failure reason when state is "failed".
 
     OAuthConnectedResponse:
       type: object

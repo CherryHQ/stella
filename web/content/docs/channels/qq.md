@@ -58,7 +58,7 @@ You can restrict which QQ users can interact with your bot by adding allowed Ope
 
 ## Image Support
 
-You can send images to the bot for analysis. The bot downloads image attachments, encodes them, and passes them to the AI model as multimodal content alongside any caption text.
+You can send images to the bot for analysis. The bot downloads image attachments, saves them to your private assets directory, and passes them to the AI model as multimodal content alongside any caption text.
 
 ## File Support
 

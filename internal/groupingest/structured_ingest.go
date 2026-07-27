@@ -414,7 +414,17 @@ func (ing *StructuredIngester) loadFreshRows(ctx context.Context, groupID string
 			return rows, nil
 		}
 		for _, row := range page {
-			rows = append(rows, row)
+			// The ingest query intentionally omits image blobs; Group
+			// Reflect only consumes the public text projection and identity.
+			rows = append(rows, sqlc.CtxGroupMessage{
+				ID:               row.ID,
+				GroupID:          row.GroupID,
+				Seq:              row.Seq,
+				ActorType:        row.ActorType,
+				ActorID:          row.ActorID,
+				ActorDisplayName: row.ActorDisplayName,
+				Content:          row.Content,
+			})
 			tokens := memory.EstimateTokens(row.Content)
 			if strings.TrimSpace(row.Content) == "" || tokens > ing.freshBudget {
 				afterSeq = row.Seq
@@ -460,7 +470,15 @@ func (ing *StructuredIngester) loadPriorRows(ctx context.Context, groupID string
 				stop = true
 				break
 			}
-			descending = append(descending, row)
+			descending = append(descending, sqlc.CtxGroupMessage{
+				ID:               row.ID,
+				GroupID:          row.GroupID,
+				Seq:              row.Seq,
+				ActorType:        row.ActorType,
+				ActorID:          row.ActorID,
+				ActorDisplayName: row.ActorDisplayName,
+				Content:          row.Content,
+			})
 			used += tokens
 		}
 		if stop || used >= ing.priorBudget || len(page) < int(ing.pageSize) {

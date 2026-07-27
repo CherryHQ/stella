@@ -783,7 +783,7 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	}
 	ctx = memory.WithGroupSeq(ctx, message.Seq)
 	ctx = memory.WithGroupMessageID(ctx, message.ID)
-	content := []ai.ContentBlock{ai.TextContent{Text: message.Content}}
+	content := groupMessageContentBlocks(message)
 	var stream *pkgchannel.ChatStream
 	var err error
 	if state.Platform == "web" {
@@ -810,6 +810,25 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 		return nil, err
 	}
 	return stream, nil
+}
+
+// groupMessageContentBlocks rebuilds the structured blocks persisted for a
+// group message (images survive the event log via content_blocks), falling
+// back to the plain-text projection for text-only or legacy rows.
+func groupMessageContentBlocks(message sqlc.CtxGroupMessage) []ai.ContentBlock {
+	if blocks, err := ai.UnmarshalContentBlocks(message.ContentBlocks); err == nil && blocks != nil {
+		return blocks
+	}
+	return []ai.ContentBlock{ai.TextContent{Text: message.Content}}
+}
+
+// groupMessageChatContent is groupMessageContentBlocks for agent.ChatRequest,
+// which keeps plain strings for text-only messages.
+func groupMessageChatContent(message sqlc.CtxGroupMessage) agent.MessageContent {
+	if blocks, err := ai.UnmarshalContentBlocks(message.ContentBlocks); err == nil && blocks != nil {
+		return blocks
+	}
+	return message.Content
 }
 
 func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage) (*pkgchannel.ChatStream, error) {
@@ -851,7 +870,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 		Kind:           session.KindChat,
 		GroupID:        row.GroupID,
 		Channel:        session.Channel(channelStr),
-		Message:        message.Content,
+		Message:        groupMessageChatContent(message),
 		CurrentSpeaker: speaker,
 		Authority:      authority,
 	})

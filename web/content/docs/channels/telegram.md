@@ -74,8 +74,8 @@ While the assistant runs tools, you will see status indicators in the stream:
 You can send photos to the bot in private chats. When you send an image:
 
 1. The bot downloads the highest-resolution version from Telegram
-2. Detects the MIME type and encodes the image
-3. Sends it as a multimodal message (image + optional caption) to the model
+2. Saves it to your private assets directory so the agent can revisit it later (crop, OCR, re-send)
+3. Sends it as a multimodal message (saved path + image + optional caption) to the model
 4. The model analyzes the image and responds with text
 
 Use cases: describe screenshots, analyze diagrams, read documents from photos, etc.
@@ -89,10 +89,10 @@ If the model returns images (e.g. from tool results), they are sent back as Tele
 You can send documents (PDF, DOCX, XLSX, and other file types) to the bot. When you send a document:
 
 1. The bot saves the file to your private assets directory on disk
-2. A Xberg extraction hint is passed to the agent so it can read the file content
+2. Image files are passed to the model directly as multimodal input; other files get an Xberg extraction hint so the agent can read their content
 3. Any caption you attached to the document is included as your text message
 
-The agent can then use the `xberg extract` command to parse the file.
+For non-image files, the agent can then use the `xberg extract` command to parse the file.
 
 > **Note:** File uploads require a vision/document-capable model and the Xberg skill to be enabled for the active agent.
 

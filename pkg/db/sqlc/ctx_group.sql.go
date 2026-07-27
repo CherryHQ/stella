@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -30,10 +31,17 @@ const createGroupMessage = `-- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
   actor_display_name, platform_message_id, reply_to, platform_timestamp,
-  idempotency_key, content, reasoning, agent_session_id
+  idempotency_key, content, content_blocks, reasoning, agent_session_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name
+VALUES (
+  $1, $2, $3, $4,
+  $5, $6, $7,
+  $8, $9,
+  $10, $11, $12,
+  COALESCE($13::jsonb, '[]'::jsonb),
+  $14, $15
+)
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name, content_blocks
 `
 
 type CreateGroupMessageParams struct {
@@ -49,6 +57,7 @@ type CreateGroupMessageParams struct {
 	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
 	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
 	Content           string             `json:"content"`
+	ContentBlocks     json.RawMessage    `json:"content_blocks"`
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 }
@@ -67,6 +76,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		arg.PlatformTimestamp,
 		arg.IdempotencyKey,
 		arg.Content,
+		arg.ContentBlocks,
 		arg.Reasoning,
 		arg.AgentSessionID,
 	)
@@ -87,6 +97,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ActorDisplayName,
+		&i.ContentBlocks,
 	)
 	return i, err
 }
@@ -155,7 +166,7 @@ func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (time.Time,
 }
 
 const getGroupMessage = `-- name: GetGroupMessage :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message WHERE id = $1
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name, content_blocks FROM ctx_group_message WHERE id = $1
 `
 
 func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessage, error) {
@@ -177,12 +188,13 @@ func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessa
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ActorDisplayName,
+		&i.ContentBlocks,
 	)
 	return i, err
 }
 
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name, content_blocks FROM ctx_group_message
 WHERE idempotency_key = $1
 `
 
@@ -205,12 +217,13 @@ func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempoten
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ActorDisplayName,
+		&i.ContentBlocks,
 	)
 	return i, err
 }
 
 const getGroupMessageByPlatformID = `-- name: GetGroupMessageByPlatformID :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name, content_blocks FROM ctx_group_message
 WHERE group_id = $1
   AND platform_message_id = $2
 `
@@ -239,6 +252,7 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ActorDisplayName,
+		&i.ContentBlocks,
 	)
 	return i, err
 }
@@ -342,7 +356,11 @@ selected AS (
   FROM bounded
   WHERE running_tokens <= $5::bigint
 )
-SELECT gm.id, gm.group_id, gm.seq, gm.source_channel_id, gm.actor_type, gm.actor_id, gm.platform_message_id, gm.reply_to, gm.platform_timestamp, gm.idempotency_key, gm.content, gm.reasoning, gm.agent_session_id, gm.created_at, gm.actor_display_name
+SELECT gm.id, gm.group_id, gm.seq, gm.source_channel_id,
+       gm.actor_type, gm.actor_id, gm.actor_display_name,
+       gm.platform_message_id, gm.reply_to, gm.platform_timestamp,
+       gm.idempotency_key, gm.content, gm.reasoning,
+       gm.agent_session_id, gm.created_at
 FROM ctx_group_message gm
 WHERE gm.id IN (SELECT id FROM selected)
 ORDER BY gm.seq ASC
@@ -356,7 +374,25 @@ type ListGroupMessagesForLCMParams struct {
 	TokenBudget int64  `json:"token_budget"`
 }
 
-func (q *Queries) ListGroupMessagesForLCM(ctx context.Context, arg ListGroupMessagesForLCMParams) ([]CtxGroupMessage, error) {
+type ListGroupMessagesForLCMRow struct {
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
+func (q *Queries) ListGroupMessagesForLCM(ctx context.Context, arg ListGroupMessagesForLCMParams) ([]ListGroupMessagesForLCMRow, error) {
 	rows, err := q.db.Query(ctx, listGroupMessagesForLCM,
 		arg.GroupID,
 		arg.AfterSeq,
@@ -368,9 +404,9 @@ func (q *Queries) ListGroupMessagesForLCM(ctx context.Context, arg ListGroupMess
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxGroupMessage{}
+	items := []ListGroupMessagesForLCMRow{}
 	for rows.Next() {
-		var i CtxGroupMessage
+		var i ListGroupMessagesForLCMRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.GroupID,
@@ -378,6 +414,7 @@ func (q *Queries) ListGroupMessagesForLCM(ctx context.Context, arg ListGroupMess
 			&i.SourceChannelID,
 			&i.ActorType,
 			&i.ActorID,
+			&i.ActorDisplayName,
 			&i.PlatformMessageID,
 			&i.ReplyTo,
 			&i.PlatformTimestamp,
@@ -386,7 +423,6 @@ func (q *Queries) ListGroupMessagesForLCM(ctx context.Context, arg ListGroupMess
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
-			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -399,7 +435,10 @@ func (q *Queries) ListGroupMessagesForLCM(ctx context.Context, arg ListGroupMess
 }
 
 const listGroupMessagesPaginated = `-- name: ListGroupMessagesPaginated :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = $1
 ORDER BY seq DESC
 LIMIT $3 OFFSET $2
@@ -411,15 +450,33 @@ type ListGroupMessagesPaginatedParams struct {
 	LimitCount  int32  `json:"limit_count"`
 }
 
-func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupMessagesPaginatedParams) ([]CtxGroupMessage, error) {
+type ListGroupMessagesPaginatedRow struct {
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
+func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupMessagesPaginatedParams) ([]ListGroupMessagesPaginatedRow, error) {
 	rows, err := q.db.Query(ctx, listGroupMessagesPaginated, arg.GroupID, arg.OffsetCount, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxGroupMessage{}
+	items := []ListGroupMessagesPaginatedRow{}
 	for rows.Next() {
-		var i CtxGroupMessage
+		var i ListGroupMessagesPaginatedRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.GroupID,
@@ -427,6 +484,7 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 			&i.SourceChannelID,
 			&i.ActorType,
 			&i.ActorID,
+			&i.ActorDisplayName,
 			&i.PlatformMessageID,
 			&i.ReplyTo,
 			&i.PlatformTimestamp,
@@ -435,7 +493,6 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
-			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -549,7 +606,8 @@ func (q *Queries) ListLatestGroupActorDisplayNames(ctx context.Context, groupID 
 }
 
 const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
+
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name, content_blocks FROM ctx_group_message
 WHERE group_id = $1
 ORDER BY seq DESC
 LIMIT $2
@@ -560,6 +618,17 @@ type ListRecentGroupMessagesParams struct {
 	MaxCount int32  `json:"max_count"`
 }
 
+// content_blocks holds inbound image payloads, so a single row is bounded only
+// by the channel inline ceiling (telegram/qq inline up to 20MB today; 5MB once
+// #786 lands). Only the dispatch reads above (GetGroupMessage / the dedup
+// :one lookups) rehydrate images, so they keep SELECT *. The text-only list
+// consumers below — semantic-arbiter recent context, LCM cross-agent assembly,
+// and web pagination — read only the projected text columns, so they select an
+// explicit column list that EXCLUDES content_blocks and never drag image blobs
+// across a history window.
+// ListRecentGroupMessages currently has no caller; it keeps SELECT * so a future
+// replay/dispatch consumer that needs content_blocks gets the full row. Give it
+// an explicit lean list only if a text-only consumer adopts it.
 func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGroupMessagesParams) ([]CtxGroupMessage, error) {
 	rows, err := q.db.Query(ctx, listRecentGroupMessages, arg.GroupID, arg.MaxCount)
 	if err != nil {
@@ -585,6 +654,7 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 			&i.AgentSessionID,
 			&i.CreatedAt,
 			&i.ActorDisplayName,
+			&i.ContentBlocks,
 		); err != nil {
 			return nil, err
 		}
@@ -597,7 +667,10 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 }
 
 const listRecentGroupMessagesBeforeSeq = `-- name: ListRecentGroupMessagesBeforeSeq :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = $1
   AND seq < $2
 ORDER BY seq DESC
@@ -610,15 +683,33 @@ type ListRecentGroupMessagesBeforeSeqParams struct {
 	MaxCount  int32  `json:"max_count"`
 }
 
-func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]CtxGroupMessage, error) {
+type ListRecentGroupMessagesBeforeSeqRow struct {
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
+func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]ListRecentGroupMessagesBeforeSeqRow, error) {
 	rows, err := q.db.Query(ctx, listRecentGroupMessagesBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.MaxCount)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxGroupMessage{}
+	items := []ListRecentGroupMessagesBeforeSeqRow{}
 	for rows.Next() {
-		var i CtxGroupMessage
+		var i ListRecentGroupMessagesBeforeSeqRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.GroupID,
@@ -626,6 +717,7 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 			&i.SourceChannelID,
 			&i.ActorType,
 			&i.ActorID,
+			&i.ActorDisplayName,
 			&i.PlatformMessageID,
 			&i.ReplyTo,
 			&i.PlatformTimestamp,
@@ -634,7 +726,6 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
-			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}

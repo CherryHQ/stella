@@ -722,6 +722,65 @@ func TestAppendGroupTurnIsAtomicAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestAppendGroupTurnPreservesCurrentTriggerImageBlocks(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+	blocks := []ai.ContentBlock{
+		ai.TextContent{Text: "please inspect"},
+		ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
+	}
+	contentBlocks, err := ai.MarshalContentBlocks(blocks)
+	if err != nil {
+		t.Fatalf("marshal content blocks: %v", err)
+	}
+	trigger, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform:          "test",
+		PlatformGroupID:   "image-turn",
+		ActorType:         eventlog.ActorHuman,
+		ActorID:           "user-1",
+		ActorDisplayName:  "Alice",
+		Content:           "please inspect",
+		ContentBlocks:     contentBlocks,
+		PlatformMessageID: "image-1",
+	})
+	if err != nil {
+		t.Fatalf("append trigger event: %v", err)
+	}
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	session := groupSess("agent-a", trigger.GroupID)
+	if err := p.AppendGroupTurn(ctx, session, trigger.Message.ID, ai.UserMessage{}, ai.AssistantMessage{
+		Content: []ai.ContentBlock{ai.TextContent{Text: "done"}},
+	}); err != nil {
+		t.Fatalf("append group turn: %v", err)
+	}
+
+	messages, err := p.Assemble(ctx, session, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble group turn: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("assembled messages = %d, want trigger + reply", len(messages))
+	}
+	user, ok := messages[0].(ai.UserMessage)
+	if !ok {
+		t.Fatalf("first message = %T, want ai.UserMessage", messages[0])
+	}
+	userBlocks, ok := user.Content.([]ai.ContentBlock)
+	if !ok || len(userBlocks) != 3 {
+		t.Fatalf("trigger content = %#v, want attribution + text + image", user.Content)
+	}
+	if prefix, ok := userBlocks[0].(ai.TextContent); !ok || prefix.Text != "[seq:1 Alice]:" {
+		t.Fatalf("attribution block = %#v", userBlocks[0])
+	}
+	if !ai.HasImage(userBlocks) {
+		t.Fatal("current trigger image was not preserved in per-Agent LCM")
+	}
+}
+
 func TestGroupCompactionTailProtectsSixNewestPublicInputs(t *testing.T) {
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)

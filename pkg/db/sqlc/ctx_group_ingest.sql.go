@@ -7,6 +7,9 @@ package sqlc
 
 import (
 	"context"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createIngestError = `-- name: CreateIngestError :exec
@@ -75,7 +78,11 @@ func (q *Queries) IsIngestError(ctx context.Context, arg IsIngestErrorParams) (b
 }
 
 const listGroupMessagesAfterSeq = `-- name: ListGroupMessagesAfterSeq :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
+
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = $1 AND seq > $2
 ORDER BY seq ASC
 LIMIT $3
@@ -87,15 +94,38 @@ type ListGroupMessagesAfterSeqParams struct {
 	BatchLimit int32  `json:"batch_limit"`
 }
 
-func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMessagesAfterSeqParams) ([]CtxGroupMessage, error) {
+type ListGroupMessagesAfterSeqRow struct {
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
+// Both ingest list queries feed text-only consumers (group-memory extraction and
+// LCM cross-agent assembly); neither reads content_blocks. They select an
+// explicit column list that EXCLUDES content_blocks so a lagging agent or a
+// memory batch never drags inbound image payloads across the seq range —
+// ListGroupMessagesBetweenSeqs has no LIMIT, so the interval alone bounds it.
+func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMessagesAfterSeqParams) ([]ListGroupMessagesAfterSeqRow, error) {
 	rows, err := q.db.Query(ctx, listGroupMessagesAfterSeq, arg.GroupID, arg.MinSeq, arg.BatchLimit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxGroupMessage{}
+	items := []ListGroupMessagesAfterSeqRow{}
 	for rows.Next() {
-		var i CtxGroupMessage
+		var i ListGroupMessagesAfterSeqRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.GroupID,
@@ -103,6 +133,7 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 			&i.SourceChannelID,
 			&i.ActorType,
 			&i.ActorID,
+			&i.ActorDisplayName,
 			&i.PlatformMessageID,
 			&i.ReplyTo,
 			&i.PlatformTimestamp,
@@ -111,7 +142,6 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
-			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}
@@ -124,7 +154,10 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 }
 
 const listGroupMessagesBetweenSeqs = `-- name: ListGroupMessagesBetweenSeqs :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, actor_display_name FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
+FROM ctx_group_message
 WHERE group_id = $1
   AND seq > $2
   AND seq < $3
@@ -137,15 +170,33 @@ type ListGroupMessagesBetweenSeqsParams struct {
 	BeforeSeq int64  `json:"before_seq"`
 }
 
-func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGroupMessagesBetweenSeqsParams) ([]CtxGroupMessage, error) {
+type ListGroupMessagesBetweenSeqsRow struct {
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
+func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGroupMessagesBetweenSeqsParams) ([]ListGroupMessagesBetweenSeqsRow, error) {
 	rows, err := q.db.Query(ctx, listGroupMessagesBetweenSeqs, arg.GroupID, arg.AfterSeq, arg.BeforeSeq)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []CtxGroupMessage{}
+	items := []ListGroupMessagesBetweenSeqsRow{}
 	for rows.Next() {
-		var i CtxGroupMessage
+		var i ListGroupMessagesBetweenSeqsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.GroupID,
@@ -153,6 +204,7 @@ func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGrou
 			&i.SourceChannelID,
 			&i.ActorType,
 			&i.ActorID,
+			&i.ActorDisplayName,
 			&i.PlatformMessageID,
 			&i.ReplyTo,
 			&i.PlatformTimestamp,
@@ -161,7 +213,6 @@ func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGrou
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
-			&i.ActorDisplayName,
 		); err != nil {
 			return nil, err
 		}
