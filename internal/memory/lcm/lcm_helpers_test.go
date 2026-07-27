@@ -295,6 +295,40 @@ func TestFormatMessageForSummarizer(t *testing.T) {
 	}
 }
 
+// A multimodal message stores its image base64 inline. Reaching the summarizer
+// with those bytes would send megabytes of base64 to the model for one
+// screenshot, so the image must be named rather than carried.
+func TestFormatMessageForSummarizerOmitsImageData(t *testing.T) {
+	payload := strings.Repeat("A", 4096)
+	blocks := []contentBlockJSON{
+		{Kind: "text", Text: "look at this"},
+		{Kind: "image", Data: payload, MimeType: "image/png"},
+		{Kind: "text", Text: "what is it?"},
+	}
+	data, _ := json.Marshal(blocks)
+	msg := sqlc.CtxMessage{Role: "user", EventType: eventTypeMultimodal, Content: string(data)}
+
+	got := formatMessageForSummarizer(msg)
+
+	if strings.Contains(got, payload) {
+		t.Fatalf("image base64 reached the summarizer prompt: len=%d", len(got))
+	}
+	for _, want := range []string{"look at this", "what is it?", "[image 1 omitted (image/png)]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+}
+
+// A corrupt multimodal row must not fall through to the raw content either: the
+// whole point is that this row is the one that can be enormous.
+func TestFormatMessageForSummarizerTruncatesMalformedMultimodal(t *testing.T) {
+	msg := sqlc.CtxMessage{Role: "user", EventType: eventTypeMultimodal, Content: strings.Repeat("B", 4096)}
+	if got := formatMessageForSummarizer(msg); len([]rune(got)) > len("[user] ")+300+3 {
+		t.Errorf("malformed multimodal not truncated: len=%d", len(got))
+	}
+}
+
 func TestToolResultImageRoundTrip(t *testing.T) {
 	orig := ai.ToolResultMessage{
 		ToolCallID: "tc1",

@@ -203,6 +203,30 @@ func trimOrphanedToolPairs(items []sqlc.CtxItem) []sqlc.CtxItem {
 // format is returned as a safe fallback on JSON parse errors.
 func formatMessageForSummarizer(msg sqlc.CtxMessage) string {
 	switch msg.EventType {
+	case eventTypeMultimodal:
+		// A multimodal user message stores its blocks as JSON with the image's
+		// base64 inline. The default branch below would splat that whole payload
+		// into the summarizer prompt — megabytes of base64 for one screenshot —
+		// so keep the text and name the images instead of carrying their bytes.
+		var blocks []contentBlockJSON
+		if err := json.Unmarshal([]byte(msg.Content), &blocks); err != nil {
+			return fmt.Sprintf("[%s] %s", msg.Role, truncateUTF8(msg.Content, 300))
+		}
+		var parts []string
+		images := 0
+		for _, b := range blocks {
+			switch b.Kind {
+			case "text":
+				if b.Text != "" {
+					parts = append(parts, b.Text)
+				}
+			case "image":
+				images++
+				parts = append(parts, fmt.Sprintf("[image %d omitted (%s)]", images, b.MimeType))
+			}
+		}
+		return fmt.Sprintf("[%s] %s", msg.Role, strings.Join(parts, "\n"))
+
 	case eventTypeToolResult:
 		var env toolResultEnvelope
 		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
