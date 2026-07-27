@@ -230,7 +230,10 @@ func TestInvalidateUserNilInvalidator(t *testing.T) {
 	}
 }
 
-type stubInvalidator struct{ called string }
+type stubInvalidator struct {
+	called    string
+	allCalled int
+}
 
 func (s *stubInvalidator) InvalidateUser(userID string) error {
 	s.called = userID
@@ -239,7 +242,10 @@ func (s *stubInvalidator) InvalidateUser(userID string) error {
 
 func (s *stubInvalidator) InvalidateAgent(agentID string) error { return nil }
 
-func (s *stubInvalidator) InvalidateAll() error { return nil }
+func (s *stubInvalidator) InvalidateAll() error {
+	s.allCalled++
+	return nil
+}
 
 func TestInvalidateUserCallsInvalidator(t *testing.T) {
 	svc := newService(t)
@@ -279,5 +285,48 @@ func TestSetAndGetOAuthProviderConfig(t *testing.T) {
 	}
 	if got.ClientID != "my-client" {
 		t.Fatalf("ClientID = %q, want %q", got.ClientID, "my-client")
+	}
+}
+
+// A credential change (client_id) invalidates all runners; a scope-only change
+// leaves existing sessions running (D4).
+func TestSetOAuthProviderConfigInvalidatesOnCredentialChange(t *testing.T) {
+	db := dbtest.New(t)
+	svc := connections.NewService(nil, pkgdb.New(db), oauth.NewFlowStore(), "http://localhost:8080")
+	inv := &stubInvalidator{}
+	svc.SetInvalidator(inv)
+	ctx := context.Background()
+
+	// First-time config: no prior override, no secret → no invalidation.
+	if err := svc.SetOAuthProviderConfig(ctx, connections.OAuthProviderConfig{ProviderID: "github", ClientID: "client-a"}); err != nil {
+		t.Fatalf("initial set: %v", err)
+	}
+	if inv.allCalled != 0 {
+		t.Fatalf("first-time set invalidated %d times, want 0", inv.allCalled)
+	}
+
+	// client_id change → InvalidateAll.
+	if err := svc.SetOAuthProviderConfig(ctx, connections.OAuthProviderConfig{ProviderID: "github", ClientID: "client-b"}); err != nil {
+		t.Fatalf("credential change set: %v", err)
+	}
+	if inv.allCalled != 1 {
+		t.Fatalf("credential change invalidated %d times, want 1", inv.allCalled)
+	}
+
+	// scope-only change (same client_id, no secret) → no further invalidation.
+	if err := svc.SetOAuthProviderConfig(ctx, connections.OAuthProviderConfig{ProviderID: "github", ClientID: "client-b", Scopes: []string{"repo", "read:org"}}); err != nil {
+		t.Fatalf("scope-only set: %v", err)
+	}
+	if inv.allCalled != 1 {
+		t.Errorf("scope-only change invalidated %d times, want it to stay at 1", inv.allCalled)
+	}
+
+	// The override round-trips with defaults exposed.
+	got, err := svc.GetOAuthProviderConfig(ctx, "github")
+	if err != nil {
+		t.Fatalf("GetOAuthProviderConfig: %v", err)
+	}
+	if len(got.Scopes) != 2 || got.Scopes[0] != "repo" || got.Scopes[1] != "read:org" {
+		t.Errorf("Scopes = %v, want [repo read:org]", got.Scopes)
 	}
 }

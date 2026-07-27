@@ -276,7 +276,9 @@ func TestRunToolCallLimitResetsBetweenRuns(t *testing.T) {
 	}
 }
 
-func TestRunStopsOnErrorStopReason(t *testing.T) {
+func TestRunErrorStopReasonSurfacesError(t *testing.T) {
+	// A provider may signal StopReason=Error without any EventError detail;
+	// the loop must still fail loudly instead of finishing cleanly.
 	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 		out := providers.NewChannelEventStream(8)
 		go func() {
@@ -288,12 +290,18 @@ func TestRunStopsOnErrorStopReason(t *testing.T) {
 	}
 
 	runner := newTestRunner(stream)
-	history, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
+	if err == nil {
+		t.Fatal("expected error for StopReason=Error with no detail, got nil")
 	}
-	if len(history) != 2 {
-		t.Fatalf("expected history len 2, got %d", len(history))
+	if !strings.Contains(err.Error(), "provider:") {
+		t.Fatalf("expected provider error, got %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("expected history len 1 (failed turn not appended), got %d", len(history))
+	}
+	if countEvents[AgentErrored](events) != 1 {
+		t.Fatalf("expected 1 AgentErrored, got %d", countEvents[AgentErrored](events))
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -771,5 +772,115 @@ func TestIncomingMsgGroup(t *testing.T) {
 	}
 	if !msg.IsGroup {
 		t.Error("IsGroup should be true for group")
+	}
+}
+
+// --- pure-image persistence (regression: image-only messages must persist) ---
+
+// assetMockHandler extends mockHandler with the UserRootResolver and AssetSaver
+// capabilities so buildMessageContent can resolve a storage dir and persist.
+type assetMockHandler struct {
+	mockHandler
+	userRoot  string
+	saveErr   error
+	saveCalls []savedAsset
+}
+
+type savedAsset struct {
+	assetsDir string
+	fileName  string
+	data      []byte
+}
+
+func (m *assetMockHandler) ResolveUserRoot(_ context.Context, _ channel.IncomingMessage) (string, error) {
+	return m.userRoot, nil
+}
+
+func (m *assetMockHandler) SaveAsset(_ context.Context, assetsDir, fileName string, data []byte) (string, error) {
+	if m.saveErr != nil {
+		return "", m.saveErr
+	}
+	m.saveCalls = append(m.saveCalls, savedAsset{assetsDir: assetsDir, fileName: fileName, data: append([]byte(nil), data...)})
+	return filepath.Join(assetsDir, fileName), nil
+}
+
+func TestResolveAssetsDirImageOnlyMessage(t *testing.T) {
+	h := &assetMockHandler{userRoot: "/home/stella"}
+	bot := &Bot{handler: h, ctx: context.Background()}
+	msg := &dto.Message{
+		Attachments: []*dto.MessageAttachment{
+			{URL: "https://example.com/a.png", ContentType: "image/png"},
+		},
+	}
+	// Regression: an image-only message (no file attachments) must still resolve a
+	// storage dir so the image is persisted rather than inline-only.
+	if got := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg); got == "" {
+		t.Fatal("expected a resolved assets dir for an image-only message, got \"\"")
+	}
+}
+
+func TestBuildMessageContentPersistsPureImage(t *testing.T) {
+	pngBytes := []byte("\x89PNG\r\n\x1a\nfake png body")
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	h := &assetMockHandler{userRoot: "/home/stella"}
+	bot := &Bot{handler: h, ctx: context.Background()}
+	msg := &dto.Message{
+		Attachments: []*dto.MessageAttachment{
+			{URL: srv.URL, ContentType: "image/png", FileName: "pic.png"},
+		},
+	}
+
+	assetsDir := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg)
+	if assetsDir == "" {
+		t.Fatal("expected a resolved assets dir for an image-only message")
+	}
+
+	content := bot.buildMessageContent(msg, assetsDir)
+	if len(h.saveCalls) != 1 {
+		t.Fatalf("expected the image to be persisted once, got %d save calls", len(h.saveCalls))
+	}
+	if string(h.saveCalls[0].data) != string(pngBytes) {
+		t.Fatalf("persisted bytes do not match the downloaded image")
+	}
+	got := ai.FlattenText(content)
+	if !strings.Contains(got, "saved to") {
+		t.Fatalf("content = %q, want a saved-path note", got)
+	}
+}
+
+func TestBuildMessageContentImageSaveFailureInlines(t *testing.T) {
+	pngBytes := []byte("\x89PNG\r\n\x1a\nfake png body")
+	srv := newTestHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	h := &assetMockHandler{userRoot: "/home/stella", saveErr: fmt.Errorf("storage down")}
+	bot := &Bot{handler: h, ctx: context.Background()}
+	msg := &dto.Message{
+		Attachments: []*dto.MessageAttachment{
+			{URL: srv.URL, ContentType: "image/png", FileName: "pic.png"},
+		},
+	}
+
+	assetsDir := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg)
+	content := bot.buildMessageContent(msg, assetsDir)
+
+	// Save failed, but the turn must not be dropped: a small image degrades to an
+	// inline image block via the shared fallback.
+	hasInlineImage := false
+	for _, block := range content {
+		if _, ok := block.(ai.ImageContent); ok {
+			hasInlineImage = true
+		}
+	}
+	if !hasInlineImage {
+		t.Fatalf("expected an inline image fallback on save failure, got %#v", content)
 	}
 }

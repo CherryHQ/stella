@@ -89,6 +89,50 @@ func TestSaveLoadOAuthBundle_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveLoadOAuthBundle_GrantedScopeRoundTrip(t *testing.T) {
+	vs := newMockVaultStore()
+	ctx := context.Background()
+	userID := "gs"
+
+	bundle := OAuthBundle{
+		Version:      1,
+		AccessToken:  "tok",
+		GrantedScope: "im:message docs:read offline_access",
+	}
+	if err := SaveOAuthBundle(ctx, vs, userID, VaultKeyGitHub, bundle); err != nil {
+		t.Fatalf("SaveOAuthBundle: %v", err)
+	}
+	got, err := LoadOAuthBundle(ctx, vs, userID, VaultKeyGitHub)
+	if err != nil {
+		t.Fatalf("LoadOAuthBundle: %v", err)
+	}
+	if got.GrantedScope != bundle.GrantedScope {
+		t.Errorf("GrantedScope = %q, want %q", got.GrantedScope, bundle.GrantedScope)
+	}
+}
+
+func TestLoadOAuthBundle_OldFormatHasEmptyGrantedScope(t *testing.T) {
+	vs := newMockVaultStore()
+	ctx := context.Background()
+	userID := "old"
+
+	// A pre-D3 bundle serialized without the granted_scope field.
+	raw := `{"version":1,"client_id":"cid","access_token":"tok","access_expires_at":"2026-01-01T00:00:00Z"}`
+	if err := vs.Set(ctx, userID, VaultKeyGitHub, raw); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	got, err := LoadOAuthBundle(ctx, vs, userID, VaultKeyGitHub)
+	if err != nil {
+		t.Fatalf("LoadOAuthBundle: %v", err)
+	}
+	if got == nil {
+		t.Fatal("LoadOAuthBundle: expected non-nil bundle")
+	}
+	if got.GrantedScope != "" {
+		t.Errorf("GrantedScope = %q, want empty (unknown) for old-format bundle", got.GrantedScope)
+	}
+}
+
 func TestLoadOAuthBundle_AbsentKeyReturnsNil(t *testing.T) {
 	vs := newMockVaultStore()
 	ctx := context.Background()

@@ -2,7 +2,6 @@ package weixin
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -189,6 +188,7 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 		content = append(content, ai.TextContent{Text: caption})
 	}
 
+	assetsDir := b.resolveAssetsDir(msg)
 	for _, imageItem := range images {
 		data, err := b.downloadImage(msg.FromUserID, imageItem)
 		if err != nil {
@@ -196,9 +196,19 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 			continue
 		}
 		mimeType := http.DetectContentType(data)
-		encoded := base64.StdEncoding.EncodeToString(data)
-		content = append(content, ai.ImageContent{Data: encoded, MimeType: mimeType})
 		logger().Debug("image received", "user_id", msg.FromUserID, "size", len(data), "mime", mimeType)
+		fileName := channel.ImageFileName("image", mimeType)
+		if assetsDir != "" {
+			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
+			if saveErr == nil {
+				content = append(content, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
+				continue
+			}
+			logger().Warn("save inbound image failed", "user_id", msg.FromUserID, "error", saveErr)
+		}
+		// Persistence unavailable — degrade to inline within the ceiling; images
+		// past the inline limit become an explicit text note instead.
+		content = append(content, channel.InlineImageFallback(fileName, mimeType, data)...)
 	}
 
 	// Nothing decoded successfully.
@@ -328,14 +338,18 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 
 	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 	if err != nil {
-		logger().Error("save file asset failed", "user_id", msg.FromUserID, "error", err)
-		b.sendReply(msg, fmt.Sprintf("[File: %s] (save failed)", fileName))
+		// Persistence failed after a successful download — route a fallback to the
+		// agent (image bytes inline within the ceiling, other files as a
+		// placeholder) rather than dropping the turn.
+		logger().Warn("save file asset failed", "user_id", msg.FromUserID, "error", err)
+		incoming := b.incomingMsg(msg, channel.AttachmentSaveFailureContent(fileName, data))
+		b.handleIncoming(msg, incoming, "", "")
 		return
 	}
 
 	logger().Debug("file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(data))
 
-	incoming := b.incomingMsg(msg, channel.FileReceivedContent(fileName, assetsDir, savedPath))
+	incoming := b.incomingMsg(msg, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data))
 	b.handleIncoming(msg, incoming, "", "")
 }
 

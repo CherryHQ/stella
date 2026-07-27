@@ -2615,6 +2615,32 @@ components:
             type: string
           description: >-
             Display names of enabled tools that need this provider connected. Drives the "connect to enable X" prompt on the credentials page.
+        requested_scopes:
+          type: array
+          items:
+            type: string
+          description: Effective scope list the connect flow requests.
+        granted_scopes:
+          type: array
+          items:
+            type: string
+          description: >-
+            Scopes the stored token actually holds. Absent means unknown (a token captured before grant tracking), which is distinct from "no scopes".
+        access_expires_at:
+          type: string
+          format: date-time
+          description: Access-token expiry; omitted when unknown.
+        refresh_expires_at:
+          type: string
+          format: date-time
+          description: Refresh-token expiry; omitted when unknown.
+        needs_reconnect:
+          type: boolean
+          description: True when the user must re-authorize to stay usable.
+        reconnect_reason:
+          type: string
+          enum: [credentials_rotated, missing_scopes]
+          description: Why a reconnect is needed, when needs_reconnect is true.
     OAuthProviderConfig:
       type: object
       required: [provider_id, client_id, client_secret]
@@ -2627,6 +2653,16 @@ components:
           type: string
         redirect_url:
           type: string
+        scopes:
+          type: array
+          items:
+            type: string
+          description: Admin scope override; empty means "use the default".
+        default_scopes:
+          type: array
+          items:
+            type: string
+          description: Built-in YAML default scopes (output-only, for diff/reset).
     OAuthProviderConfigInput:
       type: object
       required: [client_id, client_secret]
@@ -2637,6 +2673,12 @@ components:
           type: string
         redirect_url:
           type: string
+        scopes:
+          type: array
+          items:
+            type: string
+          description: >-
+            Scope override to request on connect. Empty or omitted clears the override (reverts to the built-in default).
     OAuthFlowStatus:
       type: object
       required: [provider, flow_id, verification_uri, expires_at, state]
@@ -2654,6 +2696,9 @@ components:
           format: date-time
         state:
           type: string
+        error:
+          type: string
+          description: Failure reason when state is "failed".
     OAuthConnectedResponse:
       type: object
       required: [connected]
@@ -3869,11 +3914,20 @@ components:
           description: New file content to write
     WorkspaceUploadResponse:
       type: object
-      required: [path]
+      required: [path, relative_path, scope]
       properties:
         path:
           type: string
-          description: Relative path of the uploaded file within the workspace
+          description: >-
+            Sandbox-view path of the uploaded file (e.g. /user/assets/...), embedded in the message text the agent reads.
+        relative_path:
+          type: string
+          description: >-
+            Path of the uploaded file relative to its workspace root. Combine with scope to build a workspace file-content read URL.
+        scope:
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceScope"
+          description: Which workspace root the file was written to.
     SessionList:
       type: object
       required: [sessions]

@@ -15,6 +15,7 @@ oauth_providers:
         token_url: https://github.com/login/oauth/access_token
 
   - id: lark
+    icon: asset:feishu
     scopes:
       - offline_access
       - approval:instance:read
@@ -200,6 +201,7 @@ oauth_providers:
         pkce: true
 
   - id: feishu
+    icon: asset:feishu
     scopes:
       - offline_access
       - approval:instance:read

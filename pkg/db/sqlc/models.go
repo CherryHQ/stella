@@ -412,6 +412,7 @@ type CtxGroupMessage struct {
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
+	ContentBlocks     json.RawMessage    `json:"content_blocks"`
 }
 
 type CtxGroupOutbox struct {
@@ -690,6 +691,7 @@ type PluginOauthProvider struct {
 	RedirectUrl     string    `json:"redirect_url"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	Scopes          []string  `json:"scopes"`
 }
 
 type PluginOverride struct {

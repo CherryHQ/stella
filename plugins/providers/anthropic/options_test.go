@@ -151,11 +151,12 @@ func TestConvertToolsWithRequired(t *testing.T) {
 	}
 }
 
-// Multi-action tools describe per-action parameters inside a oneOf. The SDK's
-// typed schema only models properties/required/type, so oneOf must survive via
-// ExtraFields or Claude sees a tool with no usable parameters.
+// Tool schemas (e.g. from MCP servers or plugins) may describe per-action
+// parameters inside a oneOf. The SDK's typed schema only models
+// properties/required/type, so oneOf must survive via ExtraFields or Claude
+// sees a tool with no usable parameters.
 func TestConvertToolsPreservesOneOf(t *testing.T) {
-	// Mirror a toolgen schema decoded via json.Unmarshal: arrays are []any.
+	// Mirror a schema decoded via json.Unmarshal: arrays are []any.
 	tools := []ai.ToolDefinition{
 		{
 			Name: "goal",

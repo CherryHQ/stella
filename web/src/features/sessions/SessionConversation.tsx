@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Transcript } from "./Transcript";
+import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { useI18n } from "@/lib/i18n";
 
 interface Props {
@@ -54,9 +55,11 @@ export function SessionConversation({
     setMessages: setChatMessages,
     status: chatStatus,
     stop: chatStop,
+    error: chatError,
   } = useChat({
     id: `conv-${sessionId}`,
     transport,
+    onError: (err) => console.error("[session conversation chat]", err),
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
@@ -150,6 +153,7 @@ export function SessionConversation({
         sessionId={sessionId}
         activeStreaming={isStreaming}
       />
+      <ChatErrorNotice error={chatError} />
       <div className="flex flex-col gap-2 border-t border-border p-2 sm:flex-row sm:p-3">
         <input
           value={userInput}

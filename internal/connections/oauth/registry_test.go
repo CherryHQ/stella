@@ -182,6 +182,99 @@ func TestGetToken_RefreshesNearExpiry(t *testing.T) {
 	}
 }
 
+func TestGetToken_RefreshCapturesGrantedScope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "new_access_token",
+			"token_type":   "Bearer",
+			"expires_in":   7200,
+			"scope":        "im:message docs:read",
+		})
+	}))
+	defer srv.Close()
+
+	vs := newMockVaultStore()
+	ctx := context.Background()
+	userID := "1"
+
+	reg := NewProviderRegistry()
+	reg.Register(ProviderConfig{
+		ID:       "testprovider",
+		VaultKey: "TEST_OAUTH",
+		Flows: []ProviderFlowConfig{
+			{Type: "authorization_code", TokenURL: srv.URL + "/token", AuthStyle: oauth2.AuthStyleInParams},
+		},
+	})
+
+	bundle := OAuthBundle{
+		Version:         1,
+		ClientID:        "client_id",
+		ClientSecret:    "client_secret",
+		AccessToken:     "old_access_token",
+		RefreshToken:    "old_refresh_token",
+		AccessExpiresAt: time.Now().Add(5 * time.Minute),
+		GrantedScope:    "im:message", // narrower than what the refresh reports
+	}
+	if err := SaveOAuthBundle(ctx, vs, userID, "TEST_OAUTH", bundle); err != nil {
+		t.Fatalf("SaveOAuthBundle: %v", err)
+	}
+
+	got, err := reg.GetToken(ctx, vs, "testprovider", userID, 0)
+	if err != nil {
+		t.Fatalf("GetToken: %v", err)
+	}
+	if got.GrantedScope != "im:message docs:read" {
+		t.Errorf("GrantedScope = %q, want %q", got.GrantedScope, "im:message docs:read")
+	}
+}
+
+func TestGetToken_RefreshPreservesGrantedScopeWhenAbsent(t *testing.T) {
+	// A refresh response that omits scope must not wipe the prior grant.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "new_access_token",
+			"token_type":   "Bearer",
+			"expires_in":   7200,
+		})
+	}))
+	defer srv.Close()
+
+	vs := newMockVaultStore()
+	ctx := context.Background()
+	userID := "1"
+
+	reg := NewProviderRegistry()
+	reg.Register(ProviderConfig{
+		ID:       "testprovider",
+		VaultKey: "TEST_OAUTH",
+		Flows: []ProviderFlowConfig{
+			{Type: "authorization_code", TokenURL: srv.URL + "/token", AuthStyle: oauth2.AuthStyleInParams},
+		},
+	})
+
+	bundle := OAuthBundle{
+		Version:         1,
+		ClientID:        "client_id",
+		AccessToken:     "old_access_token",
+		RefreshToken:    "old_refresh_token",
+		AccessExpiresAt: time.Now().Add(5 * time.Minute),
+		GrantedScope:    "im:message docs:read",
+	}
+	if err := SaveOAuthBundle(ctx, vs, userID, "TEST_OAUTH", bundle); err != nil {
+		t.Fatalf("SaveOAuthBundle: %v", err)
+	}
+
+	got, err := reg.GetToken(ctx, vs, "testprovider", userID, 0)
+	if err != nil {
+		t.Fatalf("GetToken: %v", err)
+	}
+	if got.GrantedScope != "im:message docs:read" {
+		t.Errorf("GrantedScope = %q, want preserved %q", got.GrantedScope, "im:message docs:read")
+	}
+}
+
 func TestGetToken_SkipsRefreshWhenFreshToken(t *testing.T) {
 	// Token endpoint should never be called for a fresh token.
 	called := false

@@ -2,6 +2,17 @@ package connections
 
 import "time"
 
+// Reconnect reasons reported in ProviderStatus.ReconnectReason (D4). This is a
+// Go-enforced closed enum; callers must not invent new values.
+const (
+	// ReconnectReasonCredentialsRotated means the connected bundle carries a
+	// client_id that no longer matches the effective provider config.
+	ReconnectReasonCredentialsRotated = "credentials_rotated"
+	// ReconnectReasonMissingScopes means the granted scopes lack one or more
+	// currently-requested scopes.
+	ReconnectReasonMissingScopes = "missing_scopes"
+)
+
 // ProviderStatus describes the availability of an OAuth provider.
 type ProviderStatus struct {
 	Provider    string `json:"provider"`
@@ -15,6 +26,17 @@ type ProviderStatus struct {
 	// provider being connected. Empty when no enabled tool needs it. Populated
 	// at the server layer, which has access to the plugin manifest.
 	RequiredBy []string `json:"required_by,omitempty"`
+	// RequestedScopes is the effective scope list the connect flow requests.
+	RequestedScopes []string `json:"requested_scopes,omitempty"`
+	// GrantedScopes is the scope set the stored token actually holds. Nil means
+	// unknown (pre-capture bundle), which is distinct from "no scopes".
+	GrantedScopes []string `json:"granted_scopes,omitempty"`
+	// AccessExpiresAt / RefreshExpiresAt expose token health; zero when absent.
+	AccessExpiresAt  time.Time `json:"access_expires_at,omitzero"`
+	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitzero"`
+	// NeedsReconnect and ReconnectReason are computed at read time (D4).
+	NeedsReconnect  bool   `json:"needs_reconnect,omitempty"`
+	ReconnectReason string `json:"reconnect_reason,omitempty"`
 }
 
 // OAuthProviderConfig holds the mutable credentials for an OAuth provider.
@@ -24,6 +46,12 @@ type OAuthProviderConfig struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	RedirectURL  string `json:"redirect_url,omitempty"`
+	// Scopes is the admin scope override; empty means "no override, use the
+	// YAML default" (D2).
+	Scopes []string `json:"scopes,omitempty"`
+	// DefaultScopes is the YAML seed default, output-only, so the UI can diff
+	// and reset without a second call (D7). Ignored on writes.
+	DefaultScopes []string `json:"default_scopes,omitempty"`
 }
 
 // FlowStatus is the model-visible view of an in-flight OAuth flow.
@@ -34,6 +62,7 @@ type FlowStatus struct {
 	UserCode        string
 	ExpiresAt       time.Time
 	State           string
+	Error           string // failure reason when State is "failed" (D5)
 }
 
 // VaultEntry holds non-sensitive metadata for a stored secret.

@@ -73,6 +73,7 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		PlatformTimestamp: msg.Timestamp,
 		ReplyTo:           msg.ReplyTo,
 		Content:           contentBlocksToText(msg.Content),
+		ContentBlocks:     marshalGroupContentBlocks(msg.Content),
 	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
 		members, err := q.ListGroupMembers(ctx, result.GroupID)
 		if err != nil {
@@ -247,7 +248,24 @@ func firstMentionedAgent(mentions []pkgchannel.Mention) string {
 	return ""
 }
 
-// contentBlocksToText extracts text from content blocks for event log storage.
+// imageContentPlaceholder is the deterministic text projection stored for a
+// group message that carries images but no text (see contentBlocksToText).
+const imageContentPlaceholder = "[image]"
+
+// contentBlocksToText projects content blocks onto the plain-text `content`
+// column that the semantic arbiter and history assembly read (rehydration for
+// dispatch goes through content_blocks instead).
+//
+// An image-only message has no text blocks, so a naive projection stores "".
+// But LLMSemanticGroupArbiter.Decide treats an empty message as "nothing to
+// route" and returns silence, so without an explicit @mention a pure-image
+// group message would never dispatch — and the content_blocks rehydration path
+// would never run. To honor that arbiter/history contract, project an
+// image-only message to a fixed "[image]" placeholder (one per message,
+// regardless of image count) so the arbiter sees a non-empty message and
+// history assembly gets a meaningful line. The placeholder lives only in this
+// text projection; groupMessageContentBlocks prefers content_blocks, so it
+// never leaks into the rehydrated image blocks the agent actually sees.
 func contentBlocksToText(blocks []ai.ContentBlock) string {
 	var parts []string
 	for _, b := range blocks {
@@ -255,7 +273,25 @@ func contentBlocksToText(blocks []ai.ContentBlock) string {
 			parts = append(parts, tc.Text)
 		}
 	}
+	if len(parts) == 0 && ai.HasImage(blocks) {
+		return imageContentPlaceholder
+	}
 	return strings.Join(parts, "\n")
+}
+
+// marshalGroupContentBlocks serializes message content for event-log storage
+// when it carries more than text. Text-only messages store nothing and replay
+// from the text projection; a marshal failure degrades the same way rather
+// than dropping the message.
+func marshalGroupContentBlocks(blocks []ai.ContentBlock) []byte {
+	if !ai.HasImage(blocks) {
+		return nil
+	}
+	data, err := ai.MarshalContentBlocks(blocks)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // FuncGroupMemberLister adapts a function to GroupMemberLister.

@@ -296,9 +296,9 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 		case ai.EventStop:
 			msg.StopReason = e.Reason
 		case ai.EventError:
+			msg.StopReason = ai.StopReasonError
 			if e.Err != nil {
 				msg.ErrorMessage = e.Err.Error()
-				msg.StopReason = ai.StopReasonError
 			}
 		}
 
@@ -326,8 +326,12 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 	// Surface provider-level errors that were delivered as EventError events
 	// rather than as a stream-level Wait() error. Without this, the error
 	// is silently swallowed: StopReason=Error causes runLoop to return nil,
-	// and the caller never learns what went wrong.
-	if msg.StopReason == ai.StopReasonError && msg.ErrorMessage != "" {
+	// and the caller never learns what went wrong. Providers may signal
+	// StopReason=Error without any error detail; that is still a failure.
+	if msg.StopReason == ai.StopReasonError {
+		if msg.ErrorMessage == "" {
+			msg.ErrorMessage = "stream ended with error stop reason"
+		}
 		return streamResult{Message: msg, TimeToFirstToken: ttft}, fmt.Errorf("provider: %s", msg.ErrorMessage)
 	}
 

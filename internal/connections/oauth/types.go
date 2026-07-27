@@ -36,6 +36,7 @@ type FlowStatus struct {
 	FlowType        string        // "device_code" or "authorization_code"
 	Token           *oauth2.Token // set by DeviceCodeBroker when authorized
 	PKCEVerifier    string        // PKCE code verifier; set when PKCE is enabled
+	Error           string        // failure reason when State is FlowStateFailed (D5)
 }
 
 // OAuthBundle is the generic versioned vault payload for all YAML-driven
@@ -50,6 +51,10 @@ type OAuthBundle struct {
 	AccessExpiresAt  time.Time `json:"access_expires_at"`
 	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitzero"`
 	Brand            string    `json:"brand,omitempty"` // e.g. "lark" or "feishu"
+	// GrantedScope is the raw space-separated scope string the provider returned
+	// with the token (oauth2.Token.Extra("scope")). Empty means "unknown" — a
+	// pre-D3 bundle or a provider that omitted the field — not "no scopes".
+	GrantedScope string `json:"granted_scope,omitempty"`
 }
 
 // Vault key names for the supported providers.
