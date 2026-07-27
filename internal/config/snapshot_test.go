@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/CherryHQ/stella/pkg/ai"
+)
 
 func TestSnapshotResolveModelID(t *testing.T) {
 	tests := []struct {
@@ -69,6 +73,63 @@ func TestSnapshotResolveModel(t *testing.T) {
 	}
 	if model.BaseURL != "https://api.example.com" {
 		t.Errorf("model.BaseURL = %q, want %q", model.BaseURL, "https://api.example.com")
+	}
+}
+
+func TestSnapshotResolveModelTierCarriesInput(t *testing.T) {
+	snap := Snapshot{
+		Provider:  "anthropic",
+		Model:     "anthropic/claude-sonnet-4-6",
+		ModelFast: "openai/gpt-text-only",
+		Providers: map[string]ProviderCreds{
+			"anthropic": {Type: "anthropic"},
+			"openai":    {Type: "openai"},
+		},
+		ModelInputs: map[ModelKey][]string{
+			{Provider: "anthropic", Model: "claude-sonnet-4-6"}: {"text", "image"},
+			{Provider: "openai", Model: "gpt-text-only"}:        {"text"},
+		},
+	}
+
+	strong := snap.ResolveModelTier(ModelTierStrong)
+	if got := strong.ImageCapability(); got != ai.ImageSupported {
+		t.Errorf("strong tier ImageCapability = %v, want ImageSupported (Input=%v)", got, strong.Input)
+	}
+
+	fast := snap.ResolveModelTier(ModelTierFast)
+	if got := fast.ImageCapability(); got != ai.ImageUnsupported {
+		t.Errorf("fast tier ImageCapability = %v, want ImageUnsupported (Input=%v)", got, fast.Input)
+	}
+}
+
+func TestSnapshotResolveModelTierWithoutDeclaredInput(t *testing.T) {
+	snap := Snapshot{
+		Provider:  "anthropic",
+		Model:     "anthropic/claude-sonnet-4-6",
+		Providers: map[string]ProviderCreds{"anthropic": {Type: "anthropic"}},
+	}
+
+	model := snap.ResolveModel()
+	if model.Input != nil {
+		t.Errorf("Input = %v, want nil", model.Input)
+	}
+	if got := model.ImageCapability(); got != ai.ImageUnknown {
+		t.Errorf("ImageCapability = %v, want ImageUnknown", got)
+	}
+}
+
+func TestSnapshotModelInputHandlesNestedModelID(t *testing.T) {
+	snap := Snapshot{
+		Provider:  "openrouter",
+		Model:     "openrouter/anthropic/claude-sonnet-4-6",
+		Providers: map[string]ProviderCreds{"openrouter": {Type: "openai"}},
+		ModelInputs: map[ModelKey][]string{
+			{Provider: "openrouter", Model: "anthropic/claude-sonnet-4-6"}: {"text", "image"},
+		},
+	}
+
+	if got := snap.ResolveModel().ImageCapability(); got != ai.ImageSupported {
+		t.Errorf("ImageCapability = %v, want ImageSupported", got)
 	}
 }
 

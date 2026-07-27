@@ -224,6 +224,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			Provider: providerConfig{
 				API:     apiName,
 				Model:   modelID,
+				Input:   cfg.Snap.ModelInput(provID, modelID),
 				APIKey:  creds.APIKey,
 				BaseURL: creds.BaseURL,
 				Builder: cfg.ProviderStreamBuilder,

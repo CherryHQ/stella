@@ -151,7 +151,13 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 			}
 		}
 
-		toolExecCtx := tools.WithVision(ctx, effectiveModel.SupportsImage())
+		// Unknown capability fails open, i.e. it is treated as vision-capable:
+		// most current models are multimodal, and a deployment that never
+		// declared input modalities should keep receiving inline images rather
+		// than silently degrading to the text fallback. Only an explicit
+		// "no image" declaration turns vision off. Revisit this default if
+		// undeclared models rejecting images becomes a real problem.
+		toolExecCtx := tools.WithVision(ctx, effectiveModel.ImageCapability() != ai.ImageUnsupported)
 		results, err := executeToolCalls(toolExecCtx, calls, cfg.Tools, toolCallbacks{
 			onStart: func(call ai.ToolCall) {
 				if emit != nil {

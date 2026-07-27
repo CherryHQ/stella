@@ -88,6 +88,47 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
+	stellaHome := t.TempDir()
+	t.Setenv("STELLA_HOME", stellaHome)
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+
+	snap := &config.Snapshot{
+		AgentID:   "test-agent",
+		Provider:  "anthropic",
+		Model:     "anthropic/text-only-model",
+		APIKey:    "test-key",
+		Providers: map[string]config.ProviderCreds{"anthropic": {Type: "anthropic", APIKey: "test-key"}},
+		ModelInputs: map[config.ModelKey][]string{
+			{Provider: "anthropic", Model: "text-only-model"}: {"text"},
+		},
+	}
+	snap.Workspace = t.TempDir()
+
+	build := newRunnerFunc(runnerBuilderConfig{
+		Snap: snap,
+		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
+		},
+		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+	})
+
+	r, err := build(context.Background(), RunnerParams{UserID: "user-1", AgentID: snap.AgentID})
+	if err != nil {
+		t.Fatalf("build runner: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+
+	impl, ok := r.(*runner)
+	if !ok {
+		t.Fatalf("runner type = %T, want *runner", r)
+	}
+	if got := impl.model.ImageCapability(); got != ai.ImageUnsupported {
+		t.Fatalf("model.ImageCapability() = %v, want ImageUnsupported (Input=%v)", got, impl.model.Input)
+	}
+}
+
 func TestNewRunnerFunc(t *testing.T) {
 	stellaHome := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(stellaHome, "bin"), 0o755); err != nil {

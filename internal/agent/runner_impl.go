@@ -29,8 +29,9 @@ import (
 
 // providerConfig groups LLM provider settings.
 type providerConfig struct {
-	API     string // provider key: "anthropic", "openai"
-	Model   string // e.g. "claude-sonnet-4-20250514"
+	API     string   // provider key: "anthropic", "openai"
+	Model   string   // e.g. "claude-sonnet-4-20250514"
+	Input   []string // declared model input modalities, e.g. ["text", "image"]; nil when undeclared
 	APIKey  string
 	BaseURL string // optional provider base URL override
 	Builder ProviderStreamBuilder
@@ -88,7 +89,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	systemPrompt := cfg.System
 
-	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL}
+	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input}
 
 	// Propagate the turn budget into the sandbox config so both initial OAuth env
 	// injection and per-turn refresh size their min-validity to the actual chat

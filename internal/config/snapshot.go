@@ -20,6 +20,14 @@ type ProviderCreds struct {
 	BaseURL string
 }
 
+// ModelKey identifies one model within one provider. Model IDs may themselves
+// contain "/" (e.g. "openrouter/anthropic/claude"), so the two parts are kept
+// separate instead of being joined back into a ref string.
+type ModelKey struct {
+	Provider string
+	Model    string
+}
+
 // Snapshot is a read-only config snapshot assembled from DB for downstream
 // consumption. It replaces the old *Config for code that needs provider/model
 // information for a specific agent.
@@ -50,6 +58,19 @@ type Snapshot struct {
 	// Providers maps provider ID to credentials, enabling per-tier provider
 	// resolution when model_strong or model_fast use a different provider.
 	Providers map[string]ProviderCreds
+
+	// ModelInputs carries the input modalities each model declares in provider
+	// config (e.g. ["text", "image"]). Only this one per-model field is
+	// snapshotted: it is what downstream capability checks need, and the rest
+	// of ProviderModel has no consumer here. A missing entry means the
+	// deployment never declared modalities, not that there are none.
+	ModelInputs map[ModelKey][]string
+}
+
+// ModelInput returns the input modalities declared for a provider's model, or
+// nil when none were declared.
+func (s *Snapshot) ModelInput(providerID, modelID string) []string {
+	return s.ModelInputs[ModelKey{Provider: providerID, Model: modelID}]
 }
 
 // ParseModelRef splits a "provider/model" string into its parts.
@@ -126,6 +147,7 @@ func (s *Snapshot) ResolveModelTier(tier string) ai.Model {
 		API:      api,
 		Provider: provID,
 		BaseURL:  baseURL,
+		Input:    s.ModelInput(provID, modelID),
 	}
 }
 

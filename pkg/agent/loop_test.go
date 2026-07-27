@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 func defaultFakeStream() providers.StreamFunc {
@@ -253,6 +254,65 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 	}
 	if len(history) != 2 {
 		t.Fatalf("expected history len 2, got %d", len(history))
+	}
+}
+
+// TestRunPropagatesVisionCapability locks the policy the loop applies to the
+// model's declared image capability: only an explicit "no image" declaration
+// turns vision off; an undeclared model keeps the fail-open default.
+func TestRunPropagatesVisionCapability(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []string
+		want  bool
+	}{
+		{"declared with image", []string{"text", "image"}, true},
+		{"declared without image", []string{"text"}, false},
+		{"undeclared fails open", nil, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var callCount atomic.Int32
+			stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+				out := providers.NewChannelEventStream(8)
+				n := callCount.Add(1)
+				go func() {
+					if n == 1 {
+						out.Emit(ai.EventToolCallDelta{ID: "call_1", Name: "test_tool", Arguments: "{}"})
+						out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+					} else {
+						out.Emit(ai.EventTextDelta{Text: "done"})
+						out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+					}
+					out.Finish(nil)
+				}()
+				return out, nil
+			}
+
+			runner, err := NewRunner(RunnerConfig{
+				Stream: stream,
+				Model:  ai.Model{API: "fake", Name: "stub", Input: tt.input},
+			})
+			if err != nil {
+				t.Fatalf("NewRunner: %v", err)
+			}
+
+			var gotVision bool
+			runner.tools = ToolSet{
+				"test_tool": func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+					gotVision = tools.VisionFromContext(ctx)
+					return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+				},
+			}
+
+			if _, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotVision != tt.want {
+				t.Errorf("VisionFromContext = %v, want %v", gotVision, tt.want)
+			}
+		})
 	}
 }
 
