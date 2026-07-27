@@ -11,7 +11,7 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func TestBuildFactPlanProvenanceSelectsOnlyWrittenOperationData(t *testing.T) {
+func TestBuildFactBatchOperationsSelectsOnlyWrittenOperationData(t *testing.T) {
 	written := validFactCandidate("fact-0001", factSubjectWorld)
 	noop := validFactCandidate("fact-0002", factSubjectWorld)
 	input := factProvenanceInput{
@@ -61,15 +61,15 @@ func TestBuildFactPlanProvenanceSelectsOnlyWrittenOperationData(t *testing.T) {
 		}},
 	}
 
-	got, err := buildFactPlanProvenance(input, bundle, plan)
+	got, err := buildFactBatchOperations(bundle, plan, input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("metadata count = %d, want 1", len(got))
+		t.Fatalf("operation count = %d, want 1", len(got))
 	}
 	var decoded reflectProvenanceMetadata[factOperationProvenance]
-	if err := json.Unmarshal(got[0], &decoded); err != nil {
+	if err := json.Unmarshal(got[0].ChangelogMetadata, &decoded); err != nil {
 		t.Fatal(err)
 	}
 	provenance := decoded.ReflectProvenance
@@ -86,12 +86,12 @@ func TestBuildFactPlanProvenanceSelectsOnlyWrittenOperationData(t *testing.T) {
 		provenance.RelatedRecords[0].Relation != knowledgeRelationConflict {
 		t.Fatalf("unexpected related projection: %#v", provenance.RelatedRecords)
 	}
-	if strings.Contains(string(got[0]), "full related fact content") {
+	if strings.Contains(string(got[0].ChangelogMetadata), "full related fact content") {
 		t.Fatal("provenance copied full related fact content")
 	}
 }
 
-func TestBuildFactPlanProvenanceUsesEmptyRelatedRecordArray(t *testing.T) {
+func TestBuildFactBatchOperationsUsesEmptyRelatedRecordArray(t *testing.T) {
 	candidate := validFactCandidate("fact-0001", factSubjectUser)
 	input := factProvenanceInput{
 		Context:   testReflectProvenanceContext(),
@@ -107,12 +107,12 @@ func TestBuildFactPlanProvenanceUsesEmptyRelatedRecordArray(t *testing.T) {
 		Soul: soulSingletonWritePlan{Operation: singletonOperationNoop},
 	}
 
-	got, err := buildFactPlanProvenance(input, factRelatedBundle{}, plan)
+	got, err := buildFactBatchOperations(factRelatedBundle{}, plan, input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || !strings.Contains(string(got[0]), `"related_records":[]`) {
-		t.Fatalf("expected stable empty related_records array, got %s", got[0])
+	if len(got) != 1 || !strings.Contains(string(got[0].ChangelogMetadata), `"related_records":[]`) {
+		t.Fatalf("expected stable empty related_records array, got %s", got[0].ChangelogMetadata)
 	}
 }
 
@@ -182,7 +182,7 @@ func TestBuildSkillPlanProvenanceUsesPlanIndexAndContentDigest(t *testing.T) {
 	}
 }
 
-func TestBuildFactPlanProvenanceRejectsWriteWithoutCandidateRefs(t *testing.T) {
+func TestBuildFactBatchOperationsRejectsWriteWithoutCandidateRefs(t *testing.T) {
 	plan := factReconciliationPlan{
 		Profile: factSingletonWritePlan{
 			Operation:       singletonOperationCreate,
@@ -191,7 +191,7 @@ func TestBuildFactPlanProvenanceRejectsWriteWithoutCandidateRefs(t *testing.T) {
 		},
 		Soul: soulSingletonWritePlan{Operation: singletonOperationNoop},
 	}
-	_, err := buildFactPlanProvenance(factProvenanceInput{Context: testReflectProvenanceContext()}, factRelatedBundle{}, plan)
+	_, err := buildFactBatchOperations(factRelatedBundle{}, plan, factProvenanceInput{Context: testReflectProvenanceContext()})
 	if err == nil || !strings.Contains(err.Error(), "has no candidate refs") {
 		t.Fatalf("expected missing candidate refs error, got %v", err)
 	}
@@ -209,6 +209,99 @@ func TestMarshalReflectProvenanceEnforcesByteLimit(t *testing.T) {
 	_, err = marshalReflectProvenance(exactPayload + "x")
 	if !errors.Is(err, errReflectProvenanceTooLarge) {
 		t.Fatalf("expected size error, got %v", err)
+	}
+}
+
+func TestBuildSkillPlanProvenanceRejectsSecretsInPersistedModelFields(t *testing.T) {
+	const fakeSecret = "api_key=not-a-real-secret-value"
+	tests := []struct {
+		name   string
+		mutate func(*skillCandidateDecision, *skillWriteOperation, *skillRelatedBundle)
+	}{
+		{
+			name: "procedure prerequisites",
+			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, _ *skillRelatedBundle) {
+				decision.Candidate.Procedure.Prerequisites = []string{fakeSecret}
+			},
+		},
+		{
+			name: "procedure decision points",
+			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, _ *skillRelatedBundle) {
+				decision.Candidate.Procedure.DecisionPoints = []string{fakeSecret}
+			},
+		},
+		{
+			name: "procedure pitfalls",
+			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, _ *skillRelatedBundle) {
+				decision.Candidate.Procedure.Pitfalls = []string{fakeSecret}
+			},
+		},
+		{
+			name: "session skill context",
+			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, _ *skillRelatedBundle) {
+				decision.Candidate.SessionSkillContext = &sessionSkillContext{
+					UsedSkillRefs:            []string{"loaded-skill"},
+					ChangeAgainstLoadedSkill: fakeSecret,
+				}
+			},
+		},
+		{
+			name: "evaluation rationale",
+			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, _ *skillRelatedBundle) {
+				decision.Evaluation.Rationale = fakeSecret
+			},
+		},
+		{
+			name: "related selection reason",
+			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, bundle *skillRelatedBundle) {
+				bundle.RelatedRecords = []skillRelatedRecord{{
+					Skill: pkgplugins.Skill{ID: "related-skill", Version: 2},
+				}}
+				bundle.RelationHints = []skillRelatedSelection{{
+					CandidateRef: decision.Candidate.Ref,
+					Related: []skillRelatedHint{{
+						SkillID:  "related-skill",
+						Relation: skillRelationPatchableGap,
+					}},
+					Reason: fakeSecret,
+				}}
+			},
+		},
+		{
+			name: "reconciliation rationale",
+			mutate: func(_ *skillCandidateDecision, operation *skillWriteOperation, _ *skillRelatedBundle) {
+				operation.Rationale = fakeSecret
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := validSkillCandidate("skill-0001")
+			decision := testSkillCandidateDecision(candidate, 0.93)
+			operation := skillWriteOperation{
+				Operation:       skillOperationCreate,
+				CandidateRefs:   []CandidateRef{candidate.Ref},
+				Name:            "safe-skill",
+				Description:     "safe description",
+				MainFileContent: "# Safe skill\n",
+				Rationale:       "safe rationale",
+			}
+			bundle := skillRelatedBundle{Candidates: []skillCandidate{candidate}}
+			test.mutate(&decision, &operation, &bundle)
+
+			_, err := buildSkillPlanProvenance(
+				skillProvenanceInput{
+					Context:   testReflectProvenanceContext(),
+					Decisions: []skillCandidateDecision{decision},
+				},
+				bundle,
+				skillReconciliationPlan{Operations: []skillWriteOperation{operation}},
+			)
+			if !errors.Is(err, errReflectProvenanceSecretDetected) {
+				t.Fatalf("expected secret detection error, got %v", err)
+			}
+		})
 	}
 }
 

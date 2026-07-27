@@ -43,7 +43,7 @@ func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarg
 	if err != nil {
 		return reconciliationWriteStats{}, err
 	}
-	writes := len(factBatchOperationsFromPlan(plan))
+	writes := factReconciliationWriteCount(plan)
 	provenance := factProvenanceInput{Decisions: decisions}
 	if writes > 0 {
 		provenance.Context, err = newReflectProvenanceContext(target.session.ID, runner.Model.ID, unit)

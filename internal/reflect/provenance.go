@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,7 +19,10 @@ const (
 	maxReflectProvenanceBytes      = 64 << 10
 )
 
-var errReflectProvenanceTooLarge = errors.New("reflect provenance exceeds size limit")
+var (
+	errReflectProvenanceTooLarge       = errors.New("reflect provenance exceeds size limit")
+	errReflectProvenanceSecretDetected = errors.New("reflect provenance contains secret-like content")
+)
 
 type reflectProvenanceContext struct {
 	RunID     string
@@ -153,62 +157,6 @@ func formatReflectProvenanceTime(value time.Time) string {
 		return ""
 	}
 	return value.UTC().Truncate(time.Second).Format(time.RFC3339)
-}
-
-func buildFactPlanProvenance(input factProvenanceInput, bundle factRelatedBundle, plan factReconciliationPlan) ([]json.RawMessage, error) {
-	var metadata []json.RawMessage
-	if plan.Profile.Operation != singletonOperationNoop {
-		value, err := buildFactOperationProvenance(
-			input,
-			"profile",
-			string(plan.Profile.Operation),
-			plan.Profile.CandidateRefs,
-			plan.Profile.CoveredCandidateRefs,
-			nil,
-			nil,
-			plan.Profile.Rationale,
-		)
-		if err != nil {
-			return nil, err
-		}
-		metadata = append(metadata, value)
-	}
-	if plan.Soul.Operation != singletonOperationNoop {
-		value, err := buildFactOperationProvenance(
-			input,
-			"soul",
-			string(plan.Soul.Operation),
-			plan.Soul.CandidateRefs,
-			plan.Soul.CoveredCandidateRefs,
-			nil,
-			nil,
-			plan.Soul.Rationale,
-		)
-		if err != nil {
-			return nil, err
-		}
-		metadata = append(metadata, value)
-	}
-	for index, operation := range plan.Knowledge.Operations {
-		if operation.Operation == knowledgeOperationNoop {
-			continue
-		}
-		value, err := buildFactOperationProvenance(
-			input,
-			fmt.Sprintf("knowledge-%04d", index+1),
-			string(operation.Operation),
-			operation.CandidateRefs,
-			operation.CoveredCandidateRefs,
-			operation.TargetFactIDs,
-			&bundle.Knowledge,
-			operation.Rationale,
-		)
-		if err != nil {
-			return nil, err
-		}
-		metadata = append(metadata, value)
-	}
-	return metadata, nil
 }
 
 func buildFactOperationProvenance(
@@ -456,12 +404,41 @@ func candidateRefSet(refs []CandidateRef) map[CandidateRef]struct{} {
 }
 
 func marshalReflectProvenance[T any](payload T) (json.RawMessage, error) {
-	encoded, err := json.Marshal(reflectProvenanceMetadata[T]{ReflectProvenance: payload})
+	metadata := reflectProvenanceMetadata[T]{ReflectProvenance: payload}
+	encoded, err := json.Marshal(metadata)
 	if err != nil {
 		return nil, fmt.Errorf("marshal reflect provenance: %w", err)
 	}
 	if len(encoded) > maxReflectProvenanceBytes {
 		return nil, fmt.Errorf("%w: %d bytes exceeds %d", errReflectProvenanceTooLarge, len(encoded), maxReflectProvenanceBytes)
 	}
+	var persisted any
+	if err := json.Unmarshal(encoded, &persisted); err != nil {
+		return nil, fmt.Errorf("inspect reflect provenance: %w", err)
+	}
+	if containsReflectProvenanceSecret(persisted) {
+		return nil, errReflectProvenanceSecretDetected
+	}
 	return json.RawMessage(encoded), nil
+}
+
+// containsReflectProvenanceSecret scans the exact JSON payload passed to the
+// persistence boundary. It intentionally does not depend on candidate gates:
+// evaluator and reconciliation text is produced after those gates run.
+func containsReflectProvenanceSecret(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return containsSecretLikeContent(typed)
+	case []any:
+		if slices.ContainsFunc(typed, containsReflectProvenanceSecret) {
+			return true
+		}
+	case map[string]any:
+		for key, item := range typed {
+			if containsSecretLikeContent(key) || containsReflectProvenanceSecret(item) {
+				return true
+			}
+		}
+	}
+	return false
 }

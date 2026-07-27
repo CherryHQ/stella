@@ -27,64 +27,120 @@ func executeFactReconciliationPlan(
 	if err := validateFactReconciliationPlan(bundle, plan); err != nil {
 		return nil, err
 	}
-	ops := factBatchOperationsFromPlan(plan)
-	if len(ops) == 0 {
-		return nil, nil
-	}
-	metadata, err := buildFactPlanProvenance(provenance, bundle, plan)
+	ops, err := buildFactBatchOperations(bundle, plan, provenance)
 	if err != nil {
 		return nil, fmt.Errorf("fact reconciliation provenance: %w", err)
 	}
-	if len(metadata) != len(ops) {
-		return nil, fmt.Errorf("fact reconciliation provenance: metadata count %d does not match operation count %d", len(metadata), len(ops))
-	}
-	for index := range ops {
-		ops[index].ChangelogMetadata = metadata[index]
+	if len(ops) == 0 {
+		return nil, nil
 	}
 	writeCtx := memory.WithChangeSource(ctx, memory.SourceReflect)
 	return writer.ApplyFactBatch(writeCtx, userID, agentID, ops)
 }
 
-func factBatchOperationsFromPlan(plan factReconciliationPlan) []memorywrite.FactBatchOperation {
+func buildFactBatchOperations(bundle factRelatedBundle, plan factReconciliationPlan, provenance factProvenanceInput) ([]memorywrite.FactBatchOperation, error) {
 	ops := make([]memorywrite.FactBatchOperation, 0, 2+len(plan.Knowledge.Operations))
 	if plan.Profile.Operation != singletonOperationNoop {
+		metadata, err := buildFactOperationProvenance(
+			provenance,
+			"profile",
+			string(plan.Profile.Operation),
+			plan.Profile.CandidateRefs,
+			plan.Profile.CoveredCandidateRefs,
+			nil,
+			nil,
+			plan.Profile.Rationale,
+		)
+		if err != nil {
+			return nil, err
+		}
 		ops = append(ops, memorywrite.FactBatchOperation{
-			Action:  memorywrite.FactBatchSetSingleton,
-			Subject: memory.FactSubjectUser,
-			Content: plan.Profile.ProposedContent,
+			Action:            memorywrite.FactBatchSetSingleton,
+			Subject:           memory.FactSubjectUser,
+			Content:           plan.Profile.ProposedContent,
+			ChangelogMetadata: metadata,
 		})
 	}
 	if plan.Soul.Operation != singletonOperationNoop {
+		metadata, err := buildFactOperationProvenance(
+			provenance,
+			"soul",
+			string(plan.Soul.Operation),
+			plan.Soul.CandidateRefs,
+			plan.Soul.CoveredCandidateRefs,
+			nil,
+			nil,
+			plan.Soul.Rationale,
+		)
+		if err != nil {
+			return nil, err
+		}
 		ops = append(ops, memorywrite.FactBatchOperation{
-			Action:  memorywrite.FactBatchSetSingleton,
-			Subject: memory.FactSubjectAgent,
-			Content: plan.Soul.ProposedContent,
+			Action:            memorywrite.FactBatchSetSingleton,
+			Subject:           memory.FactSubjectAgent,
+			Content:           plan.Soul.ProposedContent,
+			ChangelogMetadata: metadata,
 		})
 	}
-	for _, op := range plan.Knowledge.Operations {
-		switch op.Operation {
-		case knowledgeOperationNoop:
+	for index, operation := range plan.Knowledge.Operations {
+		if operation.Operation == knowledgeOperationNoop {
 			continue
+		}
+		var batchOperation memorywrite.FactBatchOperation
+		switch operation.Operation {
 		case knowledgeOperationCreate:
-			ops = append(ops, memorywrite.FactBatchOperation{
+			batchOperation = memorywrite.FactBatchOperation{
 				Action:  memorywrite.FactBatchCreate,
 				Subject: memory.FactSubjectWorld,
-				Content: op.NewContent,
-			})
+				Content: operation.NewContent,
+			}
 		case knowledgeOperationReplaceMany:
-			ops = append(ops, memorywrite.FactBatchOperation{
+			batchOperation = memorywrite.FactBatchOperation{
 				Action:        memorywrite.FactBatchReplaceMany,
 				Subject:       memory.FactSubjectWorld,
-				Content:       op.NewContent,
-				TargetFactIDs: append([]string(nil), op.TargetFactIDs...),
-			})
+				Content:       operation.NewContent,
+				TargetFactIDs: append([]string(nil), operation.TargetFactIDs...),
+			}
 		case knowledgeOperationDeprecateMany:
-			ops = append(ops, memorywrite.FactBatchOperation{
+			batchOperation = memorywrite.FactBatchOperation{
 				Action:        memorywrite.FactBatchDeprecateMany,
 				Subject:       memory.FactSubjectWorld,
-				TargetFactIDs: append([]string(nil), op.TargetFactIDs...),
-			})
+				TargetFactIDs: append([]string(nil), operation.TargetFactIDs...),
+			}
+		default:
+			return nil, fmt.Errorf("unsupported knowledge operation %q", operation.Operation)
+		}
+		metadata, err := buildFactOperationProvenance(
+			provenance,
+			fmt.Sprintf("knowledge-%04d", index+1),
+			string(operation.Operation),
+			operation.CandidateRefs,
+			operation.CoveredCandidateRefs,
+			operation.TargetFactIDs,
+			&bundle.Knowledge,
+			operation.Rationale,
+		)
+		if err != nil {
+			return nil, err
+		}
+		batchOperation.ChangelogMetadata = metadata
+		ops = append(ops, batchOperation)
+	}
+	return ops, nil
+}
+
+func factReconciliationWriteCount(plan factReconciliationPlan) int {
+	count := 0
+	if plan.Profile.Operation != singletonOperationNoop {
+		count++
+	}
+	if plan.Soul.Operation != singletonOperationNoop {
+		count++
+	}
+	for _, operation := range plan.Knowledge.Operations {
+		if operation.Operation != knowledgeOperationNoop {
+			count++
 		}
 	}
-	return ops
+	return count
 }

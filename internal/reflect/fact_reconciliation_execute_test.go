@@ -22,7 +22,10 @@ func TestExecuteFactReconciliationPlanWritesReflectFactBatch(t *testing.T) {
 			Candidates: []factCandidate{validFactCandidate("fact-0001", factSubjectUser)},
 		},
 		Knowledge: knowledgeRelatedBundle{
-			Candidates: []factCandidate{validFactCandidate("fact-0002", factSubjectWorld)},
+			Candidates: []factCandidate{
+				validFactCandidate("fact-0002", factSubjectWorld),
+				validFactCandidate("fact-0003", factSubjectWorld),
+			},
 			RelatedRecords: []memory.Fact{{
 				ID:      "old-world",
 				Subject: memory.FactSubjectWorld,
@@ -38,12 +41,19 @@ func TestExecuteFactReconciliationPlanWritesReflectFactBatch(t *testing.T) {
 			ProposedContent: "The user prefers concise Chinese replies.",
 		},
 		Soul: noopSoulPlan(),
-		Knowledge: knowledgeWritePlan{Operations: []knowledgeWriteOperation{{
-			Operation:     knowledgeOperationReplaceMany,
-			CandidateRefs: []CandidateRef{"fact-0002"},
-			TargetFactIDs: []string{"old-world"},
-			NewContent:    "New world fact.",
-		}}},
+		Knowledge: knowledgeWritePlan{Operations: []knowledgeWriteOperation{
+			{
+				Operation:     knowledgeOperationReplaceMany,
+				CandidateRefs: []CandidateRef{"fact-0002"},
+				TargetFactIDs: []string{"old-world"},
+				NewContent:    "Replacement world fact.",
+			},
+			{
+				Operation:     knowledgeOperationCreate,
+				CandidateRefs: []CandidateRef{"fact-0003"},
+				NewContent:    "Independent world fact.",
+			},
+		}},
 	}
 
 	provenance := factProvenanceInput{
@@ -51,6 +61,7 @@ func TestExecuteFactReconciliationPlanWritesReflectFactBatch(t *testing.T) {
 		Decisions: []factCandidateDecision{
 			testFactCandidateDecision(bundle.Profile.Candidates[0], 0.91),
 			testFactCandidateDecision(bundle.Knowledge.Candidates[0], 0.92),
+			testFactCandidateDecision(bundle.Knowledge.Candidates[1], 0.93),
 		},
 	}
 	if _, err := executeFactReconciliationPlan(context.Background(), writer, "user-1", "agent-1", bundle, plan, provenance); err != nil {
@@ -63,8 +74,8 @@ func TestExecuteFactReconciliationPlanWritesReflectFactBatch(t *testing.T) {
 	if writer.userID != "user-1" || writer.agentID != "agent-1" {
 		t.Fatalf("wrong user-agent: user=%q agent=%q", writer.userID, writer.agentID)
 	}
-	if len(writer.ops) != 2 {
-		t.Fatalf("expected 2 batch ops, got %#v", writer.ops)
+	if len(writer.ops) != 3 {
+		t.Fatalf("expected 3 batch ops, got %#v", writer.ops)
 	}
 	if writer.ops[0].Action != memorywrite.FactBatchSetSingleton || writer.ops[0].Subject != memory.FactSubjectUser {
 		t.Fatalf("unexpected profile op: %#v", writer.ops[0])
@@ -72,9 +83,28 @@ func TestExecuteFactReconciliationPlanWritesReflectFactBatch(t *testing.T) {
 	if writer.ops[1].Action != memorywrite.FactBatchReplaceMany || writer.ops[1].TargetFactIDs[0] != "old-world" {
 		t.Fatalf("unexpected knowledge op: %#v", writer.ops[1])
 	}
-	for index, op := range writer.ops {
-		if len(op.ChangelogMetadata) == 0 {
-			t.Fatalf("operation %d is missing changelog metadata", index)
+	if writer.ops[2].Action != memorywrite.FactBatchCreate || writer.ops[2].Content != "Independent world fact." {
+		t.Fatalf("unexpected second knowledge op: %#v", writer.ops[2])
+	}
+	expected := []struct {
+		operationRef string
+		candidateRef CandidateRef
+		operation    string
+	}{
+		{operationRef: "profile", candidateRef: "fact-0001", operation: string(singletonOperationCreate)},
+		{operationRef: "knowledge-0001", candidateRef: "fact-0002", operation: string(knowledgeOperationReplaceMany)},
+		{operationRef: "knowledge-0002", candidateRef: "fact-0003", operation: string(knowledgeOperationCreate)},
+	}
+	for index, want := range expected {
+		var metadata reflectProvenanceMetadata[factOperationProvenance]
+		if err := json.Unmarshal(writer.ops[index].ChangelogMetadata, &metadata); err != nil {
+			t.Fatalf("decode operation %d provenance: %v", index, err)
+		}
+		got := metadata.ReflectProvenance
+		if got.OperationRef != want.operationRef || got.Reconciliation.Operation != want.operation ||
+			len(got.Candidates) != 1 || got.Candidates[0].Ref != want.candidateRef {
+			t.Fatalf("operation %d provenance = %#v, want ref=%q candidate=%q operation=%q",
+				index, got, want.operationRef, want.candidateRef, want.operation)
 		}
 	}
 }
