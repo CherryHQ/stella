@@ -12,6 +12,10 @@ export function createSessionTransport(agentId: string, sessionId: string) {
       const parts = last.parts
         .map((p) => {
           if (p.type === "text") return { type: "text" as const, text: p.text };
+          // File parts carry a workspace path the server resolves; the browser's
+          // media type rides along as a hint only.
+          if (p.type === "file")
+            return { type: "file" as const, url: p.url, mimeType: p.mediaType };
           return null;
         })
         .filter(Boolean);
@@ -292,6 +296,15 @@ export function uiMessageToMessage(m: UIMessage): Message {
         blocks.push({ type: "text", text: part.text });
         content += part.text;
         break;
+      case "file": {
+        // Mirror the marker the server stores beside the attachment, so the
+        // message just sent renders its thumbnail the same way the reloaded
+        // one does.
+        const marker = `[file: ${part.url}]`;
+        blocks.push({ type: "text", text: marker });
+        content += content ? `\n${marker}` : marker;
+        break;
+      }
       case "reasoning":
         blocks.push({ type: "thinking", thinking: part.text });
         break;

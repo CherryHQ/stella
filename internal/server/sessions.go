@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,8 +22,10 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID string) {
@@ -95,8 +98,17 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 	if !ok {
 		return
 	}
+	// File parts are resolved through the same authorized access the workspace
+	// endpoints use, so an attachment reference can only reach files this caller
+	// may already read.
+	access, err := s.sessionAccess.Begin(r.Context(), authority)
+	if err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	message := partsToMessageContent(r.Context(), workspaceUploadReader(access, agentID, sessionID), body.Parts)
 
-	result, err := s.sessionAccess.Send(r.Context(), sessionaccess.SendInput{Authority: authority, AgentID: agentID, SessionID: sessionID, Message: partsToMessageContent(body.Parts)})
+	result, err := s.sessionAccess.Send(r.Context(), sessionaccess.SendInput{Authority: authority, AgentID: agentID, SessionID: sessionID, Message: message})
 	if err != nil {
 		// An archived session is a state conflict, not a missing one: the client
 		// holds a session that was rotated away and needs to move to the new one
@@ -372,8 +384,31 @@ func (s *Server) StreamSessionEvents(w http.ResponseWriter, r *http.Request, age
 	})
 }
 
+// workspaceRawReader reads an uploaded file's bytes by the path the composer
+// referenced. Implementations carry the caller's authority, so the read can only
+// reach files that caller may already see.
+type workspaceRawReader func(ctx context.Context, path string) ([]byte, error)
+
+// workspaceUploadReader reads composer uploads through the session's authorized
+// workspace access. Uploads land in the user scope; an absolute sandbox-view
+// path is canonicalized against the roots this caller may already read.
+func workspaceUploadReader(access *sessionaccess.Access, agentID, sessionID string) workspaceRawReader {
+	return func(ctx context.Context, path string) ([]byte, error) {
+		res, err := access.ReadWorkspacePath(ctx, sessionaccess.WorkspaceReadInput{
+			AgentID: agentID, SessionID: sessionID,
+			Scope: sessionaccess.WorkspaceScopeUser, Path: path, Raw: true,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return res.RawContent, nil
+	}
+}
+
 // partsToMessageContent converts API MessageParts to internal MessageContent.
-func partsToMessageContent(parts []apitypes.MessagePart) agent.MessageContent {
+// File parts name a workspace upload, so they are resolved through read rather
+// than trusted as paths.
+func partsToMessageContent(ctx context.Context, read workspaceRawReader, parts []apitypes.MessagePart) agent.MessageContent {
 	if len(parts) == 1 && parts[0].Type == apitypes.Text && parts[0].Text != nil {
 		return *parts[0].Text
 	}
@@ -392,12 +427,47 @@ func partsToMessageContent(parts []apitypes.MessagePart) agent.MessageContent {
 				}
 				blocks = append(blocks, ai.ImageContent{Data: *p.Image, MimeType: mime})
 			}
+		case apitypes.File:
+			blocks = append(blocks, fileAttachmentBlocks(ctx, read, p)...)
 		}
 	}
 	if len(blocks) == 0 {
 		return ""
 	}
 	return blocks
+}
+
+// fileAttachmentBlocks turns one composer attachment into message content.
+//
+// The saved-path marker is always emitted: the transcript renders attachments
+// from it, and it is how the agent reaches the file with a tool. When the upload
+// is an image small enough to inline, the pixels ride along, so a vision model
+// answers without spending a read call and the request-time materializer can
+// render it for a model that cannot see.
+//
+// Unreadable uploads still yield their marker rather than failing the send. The
+// client's declared MIME is ignored in favour of the actual bytes.
+func fileAttachmentBlocks(ctx context.Context, read workspaceRawReader, part apitypes.MessagePart) []ai.ContentBlock {
+	path := strings.TrimSpace(derefStr(part.Url))
+	if path == "" {
+		return nil
+	}
+	marker := ai.TextContent{Text: fmt.Sprintf("[file: %s]", path)}
+	if read == nil {
+		return []ai.ContentBlock{marker}
+	}
+	data, err := read(ctx, path)
+	if err != nil {
+		return []ai.ContentBlock{marker}
+	}
+	imageMime := pkgtools.DetectImageMime(data)
+	if imageMime == "" || len(data) > vision.MaxInlineBytes {
+		return []ai.ContentBlock{marker}
+	}
+	return []ai.ContentBlock{marker, ai.ImageContent{
+		Data:     base64.StdEncoding.EncodeToString(data),
+		MimeType: imageMime,
+	}}
 }
 
 // detectMIME returns a MIME type based on file extension.

@@ -101,7 +101,7 @@ export function SessionDetail({
     },
     [agentId, sessionId],
   );
-  const { attachments, selectFiles, removeAttachment, clearAttachments, buildMessageText } =
+  const { attachments, selectFiles, removeAttachment, clearAttachments, buildMessageParts } =
     useFileAttachments(uploadFn);
 
   const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
@@ -391,7 +391,7 @@ export function SessionDetail({
       if ((!input.trim() && attachments.length === 0) || isStreaming || !session) return;
       if (attachments.some((a) => a.uploading)) return;
 
-      const text = buildMessageText(input);
+      const parts = buildMessageParts(input);
       clearAttachments();
       shouldAutoScrollRef.current = true;
       setTimeout(() => {
@@ -399,9 +399,9 @@ export function SessionDetail({
           transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
       }, 0);
 
-      void chatSendMessage({ text });
+      void chatSendMessage({ parts });
     },
-    [isStreaming, session, attachments, buildMessageText, clearAttachments, chatSendMessage],
+    [isStreaming, session, attachments, buildMessageParts, clearAttachments, chatSendMessage],
   );
 
   const exportSessionAs = useCallback(
