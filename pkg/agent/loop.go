@@ -157,13 +157,15 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 			}
 		}
 
-		// Unknown capability fails open, i.e. it is treated as vision-capable:
-		// most current models are multimodal, and a deployment that never
-		// declared input modalities should keep receiving inline images rather
-		// than silently degrading to the text fallback. Only an explicit
-		// "no image" declaration turns vision off. Revisit this default if
-		// undeclared models rejecting images becomes a real problem.
-		toolExecCtx := tools.WithVision(ctx, effectiveModel.ImageCapability() != ai.ImageUnsupported)
+		// Only an explicit "image" declaration earns the image itself. Anything
+		// else — declared text-only, or never declared — goes through the text
+		// rendering ladder instead. Undeclared is treated as "cannot see" on
+		// purpose: providers do not report modalities, so most models arrive
+		// undeclared, and handing an image to one that cannot read it produces
+		// a silent placeholder the model then burns a turn working around.
+		// Rendering costs image detail; a wasted turn costs more, and declaring
+		// "text, image" on the provider's model restores full fidelity.
+		toolExecCtx := tools.WithVision(ctx, effectiveModel.ImageCapability() == ai.ImageSupported)
 		results, err := executeToolCalls(toolExecCtx, calls, cfg.Tools, toolCallbacks{
 			onStart: func(call ai.ToolCall) {
 				if emit != nil {

@@ -129,11 +129,14 @@ func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath, resolvedPat
 
 	// The bytes already sit on disk, so hand the service the path: the Xberg
 	// fallback then reads the original file instead of staging a copy.
+	// "not configured to receive images" rather than "cannot see": this path is
+	// also taken for a model that never declared its modalities, and telling a
+	// model a falsehood about itself invites it to argue with the premise.
 	res, err := t.vision.Understand(ctx, vision.Request{Data: content, MimeType: mime, Path: resolvedPath})
 	if err != nil {
-		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. The current model cannot view images and text extraction failed: %v", mime, displayPath, err)}}
+		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. This model is not configured to receive images and text extraction failed: %v", mime, displayPath, err)}}
 	}
-	return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. The current model cannot view images; rendered as text via %s:\n\n%s", mime, displayPath, res.Source, res.Text)}}
+	return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. This model is not configured to receive images; rendered as text via %s:\n\n%s", mime, displayPath, res.Source, res.Text)}}
 }
 
 func paginateReadContent(content string, offset, limit int) (string, int) {

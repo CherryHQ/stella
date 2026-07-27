@@ -258,8 +258,10 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 }
 
 // TestRunPropagatesVisionCapability locks the policy the loop applies to the
-// model's declared image capability: only an explicit "no image" declaration
-// turns vision off; an undeclared model keeps the fail-open default.
+// model's declared image capability: only an explicit "image" declaration lets
+// a tool hand back the image itself. An undeclared model is rendered to text —
+// providers do not report modalities, so undeclared is the common case and
+// guessing "can see" costs a wasted turn against a placeholder.
 func TestRunPropagatesVisionCapability(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -268,7 +270,7 @@ func TestRunPropagatesVisionCapability(t *testing.T) {
 	}{
 		{"declared with image", []string{"text", "image"}, true},
 		{"declared without image", []string{"text"}, false},
-		{"undeclared fails open", nil, true},
+		{"undeclared renders to text", nil, false},
 	}
 
 	for _, tt := range tests {

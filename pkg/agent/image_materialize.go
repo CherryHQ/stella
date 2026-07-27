@@ -15,16 +15,19 @@ import (
 type ImageTextFunc func(ctx context.Context, index int, img ai.ImageContent) string
 
 // materializeImages replaces every inline image in the outgoing request with
-// its text rendering, but only for a model whose configuration explicitly says
-// it cannot accept images. Supported and undeclared models are left alone — the
-// undeclared case fails open for the same reason tool-side vision does.
+// its text rendering. Only a model that explicitly declares "image" keeps the
+// image itself; a text-only or undeclared model gets the rendering, matching
+// the policy the loop applies to tool-side vision.
+//
+// Without a renderer there is nothing to substitute, so the images are sent
+// as-is whatever the declaration says.
 //
 // The returned slice is safe to send: nothing the caller passed in is modified.
 // history is shared with the session store, so both the message slice and each
 // message's content slice are copied before a block is replaced. Persisted
 // history keeps the original images; only this request sees the text.
 func materializeImages(ctx context.Context, cfg loopConfig, messages []ai.Message) []ai.Message {
-	if cfg.ImageText == nil || cfg.Model.ImageCapability() != ai.ImageUnsupported {
+	if cfg.ImageText == nil || cfg.Model.ImageCapability() == ai.ImageSupported {
 		return messages
 	}
 

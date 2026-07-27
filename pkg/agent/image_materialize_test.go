@@ -89,24 +89,35 @@ func TestMaterializeImagesLeavesHistoryUnmodified(t *testing.T) {
 	}
 }
 
-func TestMaterializeImagesSkipsCapableAndUndeclaredModels(t *testing.T) {
-	for name, model := range map[string]ai.Model{
-		"supported": supportedModel(),
-		"unknown":   unknownModel(),
-	} {
-		t.Run(name, func(t *testing.T) {
-			render, calls := stubImageText()
-			history := imageHistory()
+// Only a declared "image" model keeps the image itself.
+func TestMaterializeImagesSkipsDeclaredCapableModel(t *testing.T) {
+	render, calls := stubImageText()
+	history := imageHistory()
 
-			out := materializeImages(context.Background(), loopConfig{Model: model, ImageText: render}, history)
+	out := materializeImages(context.Background(), loopConfig{Model: supportedModel(), ImageText: render}, history)
 
-			if *calls != 0 {
-				t.Errorf("render calls = %d, want 0", *calls)
-			}
-			if !ai.HasImage(contentBlocks(out[0])) {
-				t.Error("image block must survive for a model that may accept it")
-			}
-		})
+	if *calls != 0 {
+		t.Errorf("render calls = %d, want 0", *calls)
+	}
+	if !ai.HasImage(contentBlocks(out[0])) {
+		t.Error("image block must survive for a model that declared image input")
+	}
+}
+
+// An undeclared model is rendered like a text-only one: providers do not report
+// modalities, so undeclared is the common case, and guessing "can see" leaves
+// the model staring at a placeholder.
+func TestMaterializeImagesRendersForUndeclaredModel(t *testing.T) {
+	render, calls := stubImageText()
+	history := imageHistory()
+
+	out := materializeImages(context.Background(), loopConfig{Model: unknownModel(), ImageText: render}, history)
+
+	if *calls != 2 {
+		t.Errorf("render calls = %d, want 2", *calls)
+	}
+	if ai.HasImage(contentBlocks(out[0])) {
+		t.Error("an undeclared model must not receive the image itself")
 	}
 }
 

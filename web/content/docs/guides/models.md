@@ -40,11 +40,23 @@ Configure model tiers per agent in the Web UI on the agent settings page.
 
 ## Vision model
 
-The vision model reads images on behalf of a model that cannot see them. When a model that does not accept image input meets one -- a photo you sent in a channel, or an image file the agent opens -- Stella asks the vision model to transcribe the text in it and describe what it shows, then hands the answering model that text. The vision model never answers you directly.
+The vision model reads images on behalf of a model that does not receive them itself. It transcribes the text in an image and describes what it shows, then hands the answering model that text. The vision model never answers you directly.
 
 Unlike the agent tiers above, this is one setting for the whole deployment: an administrator picks it once under **Settings -> Vision**. Reading an image is infrastructure, not personality -- there is no reason for two agents to transcribe the same screenshot differently, and a per-agent setting would mean every new agent silently started blind.
 
-Leave it unset and Stella falls back to local text extraction, which reads text in an image but cannot describe a photo, chart, or layout. It never falls back to an agent's default model: that is the model that could not read the image to begin with.
+### Which model sees the image
+
+When an image turns up -- a photo you sent in a channel, or an image file the agent opens -- Stella takes the first of these that applies:
+
+1. **The answering model itself**, if its **Input** modalities declare `image`. Full fidelity, no extra call.
+2. **The vision model**, otherwise.
+3. **Local text extraction (Xberg)**, if no vision model is set or the vision model fails. This reads text in an image but cannot describe a photo, chart, or layout.
+
+The important part is step 1: **a model only receives images if you declare that it can.** Providers do not report their models' modalities, so a model you have not configured arrives undeclared, and Stella treats undeclared as "does not receive images". Handing an image to a model that cannot read it produces a blank placeholder that the agent then wastes a turn trying to work around, so the safe assumption is the useful one.
+
+To give a multimodal model the image itself, open **Settings -> Providers**, edit the model, and set **Input** to `text, image`.
+
+The ladder never falls back to an agent's default model: that is the model that did not receive the image to begin with.
 
 ## Switching models
 

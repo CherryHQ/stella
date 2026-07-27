@@ -105,7 +105,7 @@ func TestReadImageNonVisionFallsBackToText(t *testing.T) {
 	if ai.HasImage(blocks) {
 		t.Fatal("non-vision model must not receive an image block")
 	}
-	if !strings.Contains(ai.FlattenText(blocks), "cannot view images") {
+	if !strings.Contains(ai.FlattenText(blocks), "not configured to receive images") {
 		t.Errorf("expected non-vision note, got %q", ai.FlattenText(blocks))
 	}
 }

@@ -94,7 +94,8 @@ type ImageCapability int
 const (
 	// ImageUnknown means no input modalities were declared, so the capability
 	// was never stated. It is the zero value: an undeclared model is unknown,
-	// never implicitly unsupported.
+	// never implicitly unsupported — callers that must choose treat it as
+	// "cannot see", but the distinction stays visible here.
 	ImageUnknown ImageCapability = iota
 	// ImageSupported means the declared input modalities include images.
 	ImageSupported
