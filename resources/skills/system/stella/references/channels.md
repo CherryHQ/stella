@@ -20,8 +20,10 @@ Commands available in all channels:
 - `/whoami` -- Show your user/chat ID
 
 In a group each agent has its own session, so `/new` resets the single agent
-present and `/new @agent` is required when the group has several. `/compact` is
-not available in groups. A user can also just ask ("new session", "新会话"); the
+present and `/new @agent` is required when the group has several. The reset is
+a message boundary: pre-reset group messages are never carried into the fresh
+session, including ones that agent had not read yet. `/compact` is not
+available in groups. A user can also just ask ("new session", "新会话"); the
 agent then asks for confirmation before resetting anything, while a compaction
 request needs no confirmation.
 

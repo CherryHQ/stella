@@ -13,7 +13,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-func groupCursorPipeline(agentID string) string { return "lcm:" + agentID }
+func groupCursorPipeline(agentID string) string { return memory.GroupIngestPipeline(agentID) }
 
 // assembleGroup builds a hybrid context window for group sessions.
 //

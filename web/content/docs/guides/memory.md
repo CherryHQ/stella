@@ -31,7 +31,7 @@ Sometimes you do not want a shorter conversation, you want a clean one. Two comm
 
 You can also just ask: "start a new session", "新会话". Because a reset clears the working context, Stella asks you to confirm first and resets only after you agree in your next message. Typing `/new` is consent on its own, so it takes effect immediately. Asking for compaction needs no confirmation.
 
-In a group chat, every agent keeps its own session. `/new` resets the single agent in the group, and a group with several agents needs `/new @agent` so an unclear command never resets everyone. `/compact` does not apply to group chats — there, `/new` is the way to clear an agent's context.
+In a group chat, every agent keeps its own session. `/new` resets the single agent in the group, and a group with several agents needs `/new @agent` so an unclear command never resets everyone. The reset is a clean cut: messages sent before it never reach the fresh session, even ones that agent had not replied to yet. `/compact` does not apply to group chats — there, `/new` is the way to clear an agent's context.
 
 In the Web UI you start a new session from the sidebar rather than with a command, because an open chat window stays on the session it was opened with.
 

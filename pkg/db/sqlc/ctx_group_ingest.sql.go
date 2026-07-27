@@ -12,6 +12,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const advanceIngestCursorToLatest = `-- name: AdvanceIngestCursorToLatest :exec
+INSERT INTO ctx_group_ingest_cursor (group_id, pipeline, last_seq, updated_at)
+VALUES (
+    $1,
+    $2,
+    (SELECT COALESCE(MAX(seq), 0) FROM ctx_group_message WHERE group_id = $1),
+    now()
+)
+ON CONFLICT(group_id, pipeline) DO UPDATE SET
+    last_seq = GREATEST(ctx_group_ingest_cursor.last_seq, excluded.last_seq),
+    updated_at = now()
+`
+
+type AdvanceIngestCursorToLatestParams struct {
+	GroupID  string `json:"group_id"`
+	Pipeline string `json:"pipeline"`
+}
+
+// Fast-forwards one pipeline's cursor to the group's newest event-log seq,
+// never moving it backwards. Session rotation uses this as its persistent
+// boundary: everything at or before the reset is marked consumed, so a
+// successor session can never inherit pre-reset messages through watermark
+// injection or a restarted dispatch row.
+func (q *Queries) AdvanceIngestCursorToLatest(ctx context.Context, arg AdvanceIngestCursorToLatestParams) error {
+	_, err := q.db.Exec(ctx, advanceIngestCursorToLatest, arg.GroupID, arg.Pipeline)
+	return err
+}
+
 const createIngestError = `-- name: CreateIngestError :exec
 INSERT INTO ctx_group_ingest_error (id, group_id, pipeline, seq, reason)
 VALUES ($1, $2, $3, $4, $5)

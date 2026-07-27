@@ -88,6 +88,13 @@ type Session struct {
 	GroupID string // non-empty for group sessions; assembles history from event log instead of ctx_message
 }
 
+// GroupIngestPipeline names the ctx_group_ingest_cursor pipeline that tracks
+// one agent's consumption of a group's event log. The LCM assembler owns the
+// cursor's movement, but the name is shared: session rotation fast-forwards it
+// as a message boundary, and the group dispatcher reads it to drop restarted
+// dispatch rows whose trigger that boundary already consumed.
+func GroupIngestPipeline(agentID string) string { return "lcm:" + agentID }
+
 // GroupCursorCommitter advances group event-log ingestion only after a chat turn
 // has completed successfully. Assemble may prepare between-turn rows, but commit
 // owns durable cursor movement.

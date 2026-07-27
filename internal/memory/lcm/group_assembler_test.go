@@ -767,6 +767,77 @@ func TestGroupAssemble_RotationResetsContextButKeepsWatermark(t *testing.T) {
 	}
 }
 
+// TestGroupAssemble_RotationDiscardsUnconsumedBacklog pins the boundary half of
+// a group `/new`: event-log messages nobody's turn ever consumed sit above the
+// old watermark, and without a boundary the successor's first assembly would
+// inject them — pre-reset conversation resurfacing in a session the user just
+// asked to be fresh. The rotation fast-forwards the ingest cursor to the
+// group's newest seq in the same transaction that swaps the sessions.
+func TestGroupAssemble_RotationDiscardsUnconsumedBacklog(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "gdisc", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "stale-a", PlatformMessageID: "d1",
+	})
+	if err != nil {
+		t.Fatalf("seed d1: %v", err)
+	}
+	gid := res1.GroupID
+	res2, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "gdisc", ActorType: eventlog.ActorHuman,
+		ActorID: "user2", Content: "stale-b", PlatformMessageID: "d2",
+	})
+	if err != nil {
+		t.Fatalf("seed d2: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	// No turn ever ran: the cursor still sits at 0 with two unconsumed messages
+	// above it when the `/new` arrives.
+	rotateCtx := authz.WithAgentID(authz.WithUserID(context.Background(), gid), "agent-a")
+	before := memory.SessionInfo{
+		ID: uuid.Must(uuid.NewV7()).String(), AgentID: "agent-a", UserID: gid, GroupID: gid, Kind: "chat",
+	}
+	if err := p.SaveInfo(rotateCtx, before); err != nil {
+		t.Fatalf("save before: %v", err)
+	}
+	afterID := uuid.Must(uuid.NewV7()).String()
+	if err := p.RotateInfo(rotateCtx, before.ID, memory.SessionInfo{
+		ID: afterID, AgentID: "agent-a", UserID: gid, GroupID: gid, Kind: "chat",
+	}); err != nil {
+		t.Fatalf("rotate group session: %v", err)
+	}
+	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != res2.Seq {
+		t.Fatalf("cursor after rotation = %d, want fast-forward to %d", got, res2.Seq)
+	}
+
+	// The first post-reset trigger assembles an empty window: the backlog sits
+	// at or below the boundary, and nothing new landed between boundary and
+	// trigger.
+	res3, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "gdisc", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "new-a", PlatformMessageID: "d3",
+	})
+	if err != nil {
+		t.Fatalf("seed d3: %v", err)
+	}
+	after := memory.Session{ID: afterID, AgentID: "agent-a", UserID: gid, GroupID: gid}
+	msgs, err := p.Assemble(groupCtx(res3.Seq), after, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble after rotation: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("pre-reset backlog leaked into the successor: %d injected messages", len(msgs))
+	}
+}
+
 func mustConversationID(t *testing.T, p *Provider, session memory.Session) string {
 	t.Helper()
 	convID, err := p.getOrCreateConversation(context.Background(), session)
