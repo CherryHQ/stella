@@ -171,6 +171,23 @@ test_assets:
     summary: Runs opt-in real-model evaluation cases and writes diagnostic reports under dist.
     limitations: Requires an explicit environment flag and provider access; it is not part of a unified release runner.
 
+  - id: A15
+    category: orchestration
+    name: Release result and candidate gate
+    automation: automated
+    entrypoints: [
+      mise run release:aggregate,
+      mise run release:candidate:create,
+      mise run release:candidate:verify,
+    ]
+    evidence_paths: [
+      test/release,
+      test/capabilities/aggregate.go,
+      .github/workflows/release.yml,
+    ]
+    summary: Binds Scenario outcomes, diagnostic artifacts, candidate file hashes, and Docker digests to one release Run before Promotion.
+    limitations: Capability-specific deterministic, Browser, Contract, and Live runners still need to emit results into this shared gate.
+
 capabilities:
   - id: C01
     class: core
@@ -2041,7 +2058,12 @@ capabilities:
             path: cmd/stellad/version_test.go
             direct: true
             proves: Upgrade archive selection, checksum, extraction, and replacement behavior.
-        gap: Existing checks do not record a result for all six candidate archives or prove that the staged Docker digests and Helm deployment are the same artifacts later promoted.
+          - kind: go_test
+            path: test/release/candidate_test.go
+            test: TestBuildAndVerifyCandidateManifest
+            direct: true
+            proves: The candidate gate requires all six archives, four Linux packages, checksum, Homebrew formula, and both Linux image digests to retain their recorded identity before Promotion.
+        gap: The build-once identity contract is implemented, but downstream Binary, Docker, and Helm deployment tests do not yet consume and report against the recorded Artifact ID and digests.
       - id: X18-S02
         name: release-artifact-deployment-smoke
         layer: package

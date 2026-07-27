@@ -250,12 +250,37 @@ run = 'goose -dir internal/db/migrations postgres "$STELLA_DATABASE_URL" status'
 # ============================================================================
 
 [tasks.release]
-description = "Create production release with GoReleaser"
-run = "goreleaser release --clean"
+description = "Build tag candidates with GoReleaser without publishing; CI Promotion owns formal release writes"
+run = "goreleaser release --clean --skip=publish"
 
 [tasks."release:check"]
 description = "Validate GoReleaser configuration"
 run = "goreleaser check"
+
+[tasks."release:candidate:create"]
+description = "Create the immutable candidate file and Docker digest manifest"
+run = """
+set -eu
+: "${STELLA_RELEASE_RUN_ID:?set STELLA_RELEASE_RUN_ID}"
+: "${STELLA_RELEASE_VERSION:?set STELLA_RELEASE_VERSION}"
+: "${STELLA_RELEASE_COMMIT:?set STELLA_RELEASE_COMMIT}"
+: "${STELLA_CANDIDATE_ARTIFACT_NAME:?set STELLA_CANDIDATE_ARTIFACT_NAME}"
+: "${STELLA_CANDIDATE_ARTIFACT_ID:?set STELLA_CANDIDATE_ARTIFACT_ID}"
+go run ./test/release/cmd/candidate \
+  --mode=create \
+  --artifact-name="$STELLA_CANDIDATE_ARTIFACT_NAME" \
+  --artifact-id="$STELLA_CANDIDATE_ARTIFACT_ID"
+"""
+
+[tasks."release:candidate:verify"]
+description = "Verify candidate files still match the current Run manifest"
+run = """
+set -eu
+: "${STELLA_RELEASE_RUN_ID:?set STELLA_RELEASE_RUN_ID}"
+: "${STELLA_RELEASE_VERSION:?set STELLA_RELEASE_VERSION}"
+: "${STELLA_RELEASE_COMMIT:?set STELLA_RELEASE_COMMIT}"
+go run ./test/release/cmd/candidate --mode=verify
+"""
 
 [tasks."release:validate"]
 description = "Full local pre-release gate: format, build, capability inventory, unit tests, system suite, then release checks"

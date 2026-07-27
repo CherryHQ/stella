@@ -53,7 +53,19 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
    Filter the project board by the `release:vX.Y.Z` label to confirm the release scope.
 
 9. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
-10. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
+10. CI triggers `.github/workflows/release.yml`:
+    - GoReleaser builds archives and packages once with publishing disabled.
+    - Docker builds one untagged image digest per Linux architecture.
+    - CI hashes the candidate files and records both image digests in the
+      candidate manifest for that workflow Run.
+    - Release gates consume those immutable candidates. The sole Promotion job
+      later creates the GitHub Release, formal Docker tags, and stable Homebrew
+      update without rebuilding.
+
+If a candidate or gate fails, keep the Git tag for diagnosis but do not publish
+formal release assets. Re-run failed downstream jobs to retain successful
+candidate artifacts; do not re-run every job and silently substitute a rebuilt
+candidate.
 
 ## Update Changelog
 
@@ -89,13 +101,30 @@ mise run release:validate
 
 The capability inventory check (`test:capabilities`) validates the maintained
 release scenario map and writes its coverage and gap reports before ordinary
-tests run. The system suite (`system-test`) is a **local** release gate: it is
-skipped on hosts without a published embedded PostgreSQL runtime and is not run
-in CI, so it runs here as part of `release:validate` rather than in the release
-workflow. See `system-test.md`.
+tests run. The system suite (`system-test`) remains part of this local
+preparation gate while the Release Full Test workflow is being completed. See
+`system-test.md`.
+
+The candidate identity commands are separate from ordinary validation:
+
+```bash
+# Tag checkout only: build once without publishing.
+mise run release
+
+# CI supplies Run metadata, candidate Artifact identity, and Docker digests.
+mise run release:candidate:create
+mise run release:candidate:verify
+```
+
+The manifest is written below
+`dist/test-results/release/<run-id>/candidate.json`. Any file hash, candidate
+Commit, version, or Docker digest mismatch must fail before Promotion.
 
 ## Artifacts
 
-- **Binaries**: linux/darwin/windows × amd64/arm64 (GoReleaser)
-- **Docker**: `ghcr.io/cherryhq/stella` — linux/amd64 + linux/arm64
-- **Docker tags**: `latest` (stable), `vX.Y.Z` (release), SHA (every build)
+- **Candidate binaries**: linux/darwin/windows × amd64/arm64, plus Linux
+  deb/rpm packages and checksums, stored as an immutable Actions Artifact.
+- **Candidate Docker**: `ghcr.io/cherryhq/stella` linux/amd64 + linux/arm64,
+  stored only by digest until Promotion.
+- **Formal Docker tags after Promotion**: `latest` (stable), `vX.Y.Z`
+  (release), and full commit SHA.
