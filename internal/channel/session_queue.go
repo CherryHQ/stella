@@ -188,11 +188,20 @@ func (q *sessionQueue) EnqueueControl(ctx context.Context, sessionKey string, fn
 		// and the flag share one critical section with the caller's read, so the
 		// two can only serialize as: caller reads false → this check must then
 		// observe the same cancellation and refuse, or this check passes → the
-		// caller can only read true. Returning the context error (not nil) also
-		// covers an /abort landing between the worker's own skip check and this
-		// call: the caller then gets an error with started == false, which is
-		// exactly what happened.
+		// caller can only read true.
+		//
+		// The check must be against ctx — the same object whose cancellation the
+		// caller acted on. Its derived qctx is NOT equivalent: a parent's Done
+		// closes before cancellation propagates to children, so a child check
+		// could still pass after the caller has already returned started=false.
+		// qctx is checked too, but only to cover an /abort landing between the
+		// worker's own skip check and this call: the caller then gets an error
+		// with started == false, which is exactly what happened.
 		mu.Lock()
+		if err := ctx.Err(); err != nil {
+			mu.Unlock()
+			return nil, err
+		}
 		if err := qctx.Err(); err != nil {
 			mu.Unlock()
 			return nil, err
