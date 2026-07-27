@@ -263,6 +263,19 @@ func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandCla
 
 // handleGroupNewSessionCommand answers a platform group's `/new`. It runs before
 // the event-log append, so the command itself never enters group context.
+//
+// Any group member may reset: the group's context is shared, so clearing it is
+// treated like anything else a member can say to the agent, not as an
+// administrative act. Stella has no trustworthy notion of a platform group
+// admin — membership records agents and their reply channels, never human
+// roles, and each platform exposes roles through a different API that several
+// adapters cannot query at all, so gating on "admin" would fail closed into
+// "nobody may reset" exactly where it is least expected. The reset is also
+// recoverable: the predecessor is archived, not deleted, and stays searchable.
+// If a deployment ever needs owner-only resets, that arrives as a channel
+// capability that can answer roles for every adapter, not as an agent-ownership
+// check — agent ownership and platform group authority are different things.
+// Documented for users in web/content/docs/guides/memory.md.
 func (c *Coordinator) handleGroupNewSessionCommand(ctx context.Context, msg pkgchannel.IncomingMessage, args string) string {
 	if c.groupResolver == nil || c.memberLister == nil {
 		return pkgchannel.GroupNewSessionUnavailableMessage
