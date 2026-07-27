@@ -1,27 +1,36 @@
 # Release integration manual checks
 
+> **Current status:** this is a planned release gate. The current Tag workflow
+> publishes GoReleaser artifacts and Docker images directly, so these checks are
+> post-release verification until candidate build and promotion are separated
+> in the second implementation phase.
+
 Use this runbook only for release scenarios that currently lack a compliant,
-stable automation target. The automated release jobs must finish before this
-manual gate begins, and the candidate artifacts must not be rebuilt afterward.
+stable automation target. Under the current workflow, the mentor downloads the
+exact published archive or image digest produced by the Tag workflow, verifies
+that its commit and checksum match the release summary, and runs it in a local
+Linux/Docker test environment. Use a fresh `STELLA_HOME`, database, and Run ID
+for every release.
 
-The mentor downloads the exact candidate archive or image digest produced by the
-current Tag workflow, verifies that its commit and checksum match the automated
-release summary, and runs it in a local Linux/Docker test environment. Use a
-fresh `STELLA_HOME`, database, and Run ID for every release.
+The target second-phase workflow runs these checks after automated candidate
+validation and before promotion, without rebuilding the candidate. At that
+point, record the release Tag and commit, candidate checksum or image digest,
+tester, time, environment, result, and evidence link for every check. A skipped
+or externally blocked check needs an explicit waiver tied to the current commit
+and Scenario ID. A product failure cannot be waived, and absence of a result is
+not a pass. Promotion requires every Manual Scenario to have a Pass or an
+allowed waiver.
 
-Record the release Tag and commit, candidate checksum or image digest, tester,
-time, environment, result, and evidence link for every check. A skipped or
-externally blocked check needs an explicit waiver tied to the current commit and
-Scenario ID. A product failure cannot be waived, and absence of a result is not
-a pass. Approve artifact promotion only after every Manual Scenario has a Pass
-or an allowed waiver.
+Until that promotion boundary exists, record the same evidence against the
+published artifact. Treat a product failure as a release incident; do not claim
+that this runbook blocked publication.
 
 ## X06-S02: Weixin live message
 
 Prerequisites:
 
-- The exact release-candidate Stella artifact running in the mentor's local
-  Linux/Docker test environment.
+- The exact tagged-release Stella artifact, or future release candidate, running
+  in the mentor's local Linux/Docker test environment.
 - A compliant test identity and a clean Weixin channel registration.
 - Access to Stella server logs with secrets redacted.
 
@@ -45,8 +54,8 @@ Pass criteria:
 
 Prerequisites:
 
-- The exact release-candidate Stella artifact running in the mentor's local
-  Linux/Docker test environment.
+- The exact tagged-release Stella artifact, or future release candidate, running
+  in the mentor's local Linux/Docker test environment.
 - A dedicated test tenant for one supported external identity provider.
 - A test user that can be deleted or reset after the check.
 - A registered callback URL. Use a localhost callback when the identity provider

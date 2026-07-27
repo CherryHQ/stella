@@ -18,7 +18,7 @@ Stella is a single-tenant, multi-user, multi-agent AI assistant platform written
 - On a fresh clone, run `mise run setup` once. Use `mise tasks` to discover workflows.
 - Run project workflows through `mise run <task>` instead of invoking underlying tools directly.
 - Before committing, **ALWAYS** run: `mise run format && mise run build && mise run test`.
-- `mise run system-test` runs the subprocess system suite (real `stellad` over TCP against embedded PostgreSQL); it is a local gate, skipped on unsupported hosts. `mise run release:validate` runs the full pre-release gate sequentially (format → build → test → system-test → release checks).
+- `mise run system-test` runs the subprocess system suite (real `stellad` over TCP against embedded PostgreSQL); it is a local gate, skipped on unsupported hosts. `mise run release:validate` runs the full pre-release gate sequentially (format → build → capability inventory → test → system-test → release checks).
 - When touching platform-specific behavior, run a targeted cross-platform build before committing (e.g., `GOOS=windows GOARCH=amd64 go build -o dist/bin/stellad-windows-amd64.exe ./cmd/stellad`).
 - Do not run Go tests with `-race` locally by default.
 - Build with `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stellad` explicitly; never build the `stellad` binary into the repo root.

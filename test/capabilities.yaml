@@ -241,7 +241,7 @@ capabilities:
       - id: C02-S01
         name: registration-login-session-revocation
         layer: system
-        status: covered
+        status: partial
         release_policy: blocking
         summary: A user registers, authenticates over real HTTP, uses a session, and loses access after revocation or logout.
         evidence:
@@ -250,13 +250,13 @@ capabilities:
             test: TestSystem
             subtest: startup_and_auth
             direct: true
-            proves: Registration and cookie-authenticated access through the real process.
+            proves: Registration, cookie-authenticated access, and PAT revocation through the real process.
           - kind: go_test
             path: internal/server/auth_test.go
             test: TestLogout
             direct: true
-            proves: Logout invalidates the authenticated server session.
-        gap: ""
+            proves: Logout returns success and clears the session cookie response.
+        gap: Existing tests do not reuse the old session after logout or session revocation against a protected endpoint to prove that access is denied.
       - id: C02-S02
         name: browser-login-and-logout
         layer: browser
@@ -510,19 +510,36 @@ capabilities:
       - id: C07-S01
         name: session-crud-and-history
         layer: integration
-        status: covered
+        status: partial
         release_policy: blocking
         summary: Session CRUD, visibility, message history, context, summary, and prompt endpoints enforce scope and persistence.
         evidence:
           - kind: go_test
             path: internal/server/sessions_api_test.go
+            test: TestUpdateAndDeleteSession
             direct: true
-            proves: Session update, delete, and listing behavior.
+            proves: Session update and delete behavior through HTTP handlers.
           - kind: go_test
-            path: internal/server/sessions_test.go
+            path: internal/server/sessions_api_test.go
+            test: TestListSessionsHidesInternalKindsByDefault
             direct: true
-            proves: Session handler persistence and visibility behavior.
-        gap: ""
+            proves: Session listing visibility and kind filtering through HTTP handlers.
+          - kind: go_test
+            path: internal/server/context_items_test.go
+            test: TestSessionContextItemsAndSummaryEndpoints
+            direct: true
+            proves: Message history, context item, and summary HTTP responses.
+          - kind: go_test
+            path: internal/server/context_items_test.go
+            test: TestSessionContextItemsTenantIsolation
+            direct: true
+            proves: Context and summary endpoints reject cross-user access.
+          - kind: go_test
+            path: internal/server/skills_scoped_test.go
+            test: TestSessionSystemPromptAdvertisesSkillSearch
+            direct: true
+            proves: The system-prompt endpoint renders skill discovery instructions for a persisted session.
+        gap: Existing tests do not directly prove the complete create/get lifecycle or consistent scope and cross-request persistence across every endpoint in this scenario.
       - id: C07-S02
         name: real-sse-chat-and-provider-error
         layer: system
