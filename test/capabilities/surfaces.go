@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/CherryHQ/stella/resources"
 	"gopkg.in/yaml.v3"
 )
 
@@ -124,19 +125,21 @@ func collectWebRoutes(root string) ([]string, error) {
 }
 
 func collectSystemSkills(root string) ([]string, error) {
-	dir := filepath.Join(root, "resources", "skills", "system")
-	entries, err := os.ReadDir(dir)
+	resourceRoot := filepath.Join(root, "resources")
+	registry, err := resources.Load(os.DirFS(resourceRoot))
 	if err != nil {
-		return nil, fmt.Errorf("read system skill directory: %w", err)
+		return nil, fmt.Errorf("load builtin resources: %w", err)
 	}
-	var skills []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(dir, entry.Name(), "SKILL.md")); err == nil {
-			skills = append(skills, entry.Name())
-		}
+
+	// Registry.Load is the runtime source of truth for recursive skill-root
+	// discovery and frontmatter-based IDs.
+	skillResources := registry.List(resources.KindSkill)
+	skills := make([]string, 0, len(skillResources))
+	for _, resource := range skillResources {
+		skills = append(skills, resource.ID)
+	}
+	if len(skills) == 0 {
+		return nil, fmt.Errorf("no system skills found in %s", resourceRoot)
 	}
 	return sortedUnique(skills), nil
 }

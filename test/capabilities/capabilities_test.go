@@ -43,6 +43,26 @@ func TestCollectRepositorySurfacesUsesPublicIdentifiers(t *testing.T) {
 	}
 }
 
+func TestCollectRepositorySurfacesUsesRuntimeSkillDiscovery(t *testing.T) {
+	root := t.TempDir()
+	writeRepositoryFixture(t, root)
+	// The runtime recursively discovers skill roots and uses frontmatter for the
+	// canonical ID rather than assuming every skill is a direct child directory.
+	writeFixture(
+		t,
+		filepath.Join(root, "resources", "skills", "system", "group", "nested-directory", "SKILL.md"),
+		"---\nname: nested-skill\n---\n# Nested\n",
+	)
+
+	surfaces, err := CollectRepositorySurfaces(root, []string{"tool/demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(surfaces.SystemSkills, ","), "demo,nested-skill"; got != want {
+		t.Fatalf("system skills = %q, want %q", got, want)
+	}
+}
+
 func TestCollectTestMetricsExcludesCapabilityTaggedSelfTests(t *testing.T) {
 	root := t.TempDir()
 	writeFixture(t, filepath.Join(root, "existing_test.go"), "package demo\n\nimport (\"net/http/httptest\"; \"testing\")\n\nfunc TestExisting(t *testing.T) { _ = httptest.NewRecorder() }\n")

@@ -13,19 +13,8 @@ import (
 	"strings"
 	"time"
 
-	// These blank imports populate the same builtin plugin catalog used by
-	// stellad. Catalog discovery is stronger than inferring IDs from directories.
-	_ "github.com/CherryHQ/stella/plugins/channels/feishu"
-	_ "github.com/CherryHQ/stella/plugins/channels/qq"
-	_ "github.com/CherryHQ/stella/plugins/channels/telegram"
-	_ "github.com/CherryHQ/stella/plugins/channels/webhook"
-	_ "github.com/CherryHQ/stella/plugins/channels/weixin"
-	_ "github.com/CherryHQ/stella/plugins/hooks/rtk"
-	_ "github.com/CherryHQ/stella/plugins/providers/anthropic"
-	_ "github.com/CherryHQ/stella/plugins/providers/openai"
-	_ "github.com/CherryHQ/stella/plugins/providers/openai-response"
-	_ "github.com/CherryHQ/stella/plugins/sandbox"
-	_ "github.com/CherryHQ/stella/plugins/tools/webfetch"
+	// Populate the exact builtin catalog linked into stellad.
+	_ "github.com/CherryHQ/stella/plugins/builtin"
 
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/test/capabilities"
