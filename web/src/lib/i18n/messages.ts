@@ -199,6 +199,19 @@ const en = {
   "embedding.saved": "Embedding settings saved",
   "embedding.saveFailed": "Failed to save embedding settings",
   "embedding.apiKeyRequired": "An API key is required to enable embedding",
+
+  "settings.nav.vision": "Vision",
+  "vision.title": "Vision",
+  "vision.description":
+    "The model that reads images for agents whose own model cannot see them. One setting for the whole deployment.",
+  "vision.modelTitle": "Vision model",
+  "vision.modelHint":
+    "Transcribes the text in an image and describes what it shows, then hands that text to the answering model. Leave it unset to fall back to local Xberg text extraction, which reads text but cannot describe a photo, chart, or layout.",
+  "vision.model": "Model",
+  "vision.modelUnset": "None — use local text extraction",
+  "vision.save": "Save",
+  "vision.saved": "Vision settings saved",
+  "vision.saveFailed": "Failed to save vision settings",
   "settings.nav.about": "About",
 
   // MCP Servers
@@ -315,15 +328,11 @@ const en = {
   "agents.form.modelDefault": "Default",
   "agents.form.modelStrong": "Strong",
   "agents.form.modelFast": "Fast",
-  "agents.form.modelVision": "Vision",
   "agents.form.modelThinking": "Default thinking",
   "agents.form.modelStrongThinking": "Strong thinking",
   "agents.form.modelFastThinking": "Fast thinking",
   "agents.form.thinkingDefault": "Default",
   "agents.form.modelFallback": "Falls back to default",
-  "agents.form.modelVisionUnset": "None",
-  "agents.form.modelVisionHint":
-    "Reads images as text for models that cannot see them. Unset falls back to local Xberg text extraction, not to the default model.",
   "agents.form.scope": "Scope",
   "agents.form.scopeSystem": "system — all users can access",
   "agents.form.scopeRestricted": "restricted — only assigned users",
@@ -2178,6 +2187,18 @@ const zh: Record<MessageKey, string> = {
   "embedding.saved": "嵌入设置已保存",
   "embedding.saveFailed": "保存嵌入设置失败",
   "embedding.apiKeyRequired": "启用向量嵌入需要提供 API 密钥",
+
+  "settings.nav.vision": "视觉",
+  "vision.title": "视觉",
+  "vision.description": "替看不了图的模型读取图片的模型。整个部署共用一份设置。",
+  "vision.modelTitle": "视觉模型",
+  "vision.modelHint":
+    "转写图中的文字并描述画面内容，再把这段文字交给回答问题的模型。留空则回退到本地 Xberg 文本提取，它能读出文字，但无法描述照片、图表或版面。",
+  "vision.model": "模型",
+  "vision.modelUnset": "无 — 使用本地文本提取",
+  "vision.save": "保存",
+  "vision.saved": "视觉设置已保存",
+  "vision.saveFailed": "保存视觉设置失败",
   "settings.nav.about": "关于",
 
   // MCP Servers
@@ -2290,15 +2311,11 @@ const zh: Record<MessageKey, string> = {
   "agents.form.modelDefault": "默认",
   "agents.form.modelStrong": "强力",
   "agents.form.modelFast": "快速",
-  "agents.form.modelVision": "视觉",
   "agents.form.modelThinking": "默认思考等级",
   "agents.form.modelStrongThinking": "强力思考等级",
   "agents.form.modelFastThinking": "快速思考等级",
   "agents.form.thinkingDefault": "默认",
   "agents.form.modelFallback": "回退到默认",
-  "agents.form.modelVisionUnset": "无",
-  "agents.form.modelVisionHint":
-    "为无法识图的模型把图片转成文字。留空时回退到本地 Xberg 文本提取，而不是回退到默认模型。",
   "agents.form.scope": "范围",
   "agents.form.scopeSystem": "系统 — 所有用户可访问",
   "agents.form.scopeRestricted": "受限 — 仅已分配用户",

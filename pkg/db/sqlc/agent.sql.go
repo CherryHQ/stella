@@ -11,9 +11,9 @@ import (
 )
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, model_vision, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-RETURNING id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, model_vision
+INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+RETURNING id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at
 `
 
 type CreateAgentParams struct {
@@ -25,7 +25,6 @@ type CreateAgentParams struct {
 	ModelStrongThinking  string          `json:"model_strong_thinking"`
 	ModelFast            string          `json:"model_fast"`
 	ModelFastThinking    string          `json:"model_fast_thinking"`
-	ModelVision          string          `json:"model_vision"`
 	SystemPrompt         string          `json:"system_prompt"`
 	Soul                 string          `json:"soul"`
 	Workspace            string          `json:"workspace"`
@@ -46,7 +45,6 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		arg.ModelStrongThinking,
 		arg.ModelFast,
 		arg.ModelFastThinking,
-		arg.ModelVision,
 		arg.SystemPrompt,
 		arg.Soul,
 		arg.Workspace,
@@ -76,7 +74,6 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.ModelVision,
 	)
 	return i, err
 }
@@ -91,7 +88,7 @@ func (q *Queries) DeleteAgent(ctx context.Context, id string) error {
 }
 
 const getAgent = `-- name: GetAgent :one
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, model_vision FROM agent WHERE id = $1
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent WHERE id = $1
 `
 
 func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
@@ -116,13 +113,12 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.ModelVision,
 	)
 	return i, err
 }
 
 const listAccessibleAgents = `-- name: ListAccessibleAgents :many
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, model_vision FROM agent
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent
 WHERE enabled = true
   AND (scope = 'system' OR id IN (SELECT agent_id FROM auth_user_agent WHERE user_id = $1))
 ORDER BY name
@@ -156,7 +152,6 @@ func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.ModelVision,
 		); err != nil {
 			return nil, err
 		}
@@ -169,7 +164,7 @@ func (q *Queries) ListAccessibleAgents(ctx context.Context, userID string) ([]Ag
 }
 
 const listAgents = `-- name: ListAgents :many
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, model_vision FROM agent ORDER BY name
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent ORDER BY name
 `
 
 func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
@@ -200,7 +195,6 @@ func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.ModelVision,
 		); err != nil {
 			return nil, err
 		}
@@ -213,7 +207,7 @@ func (q *Queries) ListAgents(ctx context.Context) ([]Agent, error) {
 }
 
 const listEnabledAgents = `-- name: ListEnabledAgents :many
-SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at, model_vision FROM agent WHERE enabled = true ORDER BY name
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent WHERE enabled = true ORDER BY name
 `
 
 func (q *Queries) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
@@ -244,7 +238,6 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.ModelVision,
 		); err != nil {
 			return nil, err
 		}
@@ -298,16 +291,15 @@ UPDATE agent SET
     model_strong_thinking = $5,
     model_fast = $6,
     model_fast_thinking = $7,
-    model_vision = $8,
-    system_prompt = $9,
-    soul = $10,
-    workspace = $11,
-    sandbox = $12,
-    enabled_builtin_skills = $13,
-    scope = $14,
-    enabled = $15,
+    system_prompt = $8,
+    soul = $9,
+    workspace = $10,
+    sandbox = $11,
+    enabled_builtin_skills = $12,
+    scope = $13,
+    enabled = $14,
     updated_at = now()
-WHERE id = $16
+WHERE id = $15
 `
 
 type UpdateAgentParams struct {
@@ -318,7 +310,6 @@ type UpdateAgentParams struct {
 	ModelStrongThinking  string          `json:"model_strong_thinking"`
 	ModelFast            string          `json:"model_fast"`
 	ModelFastThinking    string          `json:"model_fast_thinking"`
-	ModelVision          string          `json:"model_vision"`
 	SystemPrompt         string          `json:"system_prompt"`
 	Soul                 string          `json:"soul"`
 	Workspace            string          `json:"workspace"`
@@ -338,7 +329,6 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error 
 		arg.ModelStrongThinking,
 		arg.ModelFast,
 		arg.ModelFastThinking,
-		arg.ModelVision,
 		arg.SystemPrompt,
 		arg.Soul,
 		arg.Workspace,

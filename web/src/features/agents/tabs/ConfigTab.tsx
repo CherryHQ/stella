@@ -312,18 +312,6 @@ export function ConfigTab({ state, onSetState }: Props) {
               onChange={(v) => setForm({ model_fast_thinking: v })}
             />
           </div>
-          <div className="rounded-lg border border-border p-4 space-y-4">
-            <ModelComboField
-              label={t("agents.form.modelVision")}
-              field="model_vision"
-              value={form.model_vision ?? ""}
-              placeholder={t("agents.form.modelVisionUnset")}
-              optional
-              cachedModels={cachedModels}
-              onChange={(v) => setForm({ model_vision: v })}
-            />
-            <p className="text-xs text-muted-foreground">{t("agents.form.modelVisionHint")}</p>
-          </div>
         </div>
       </div>
       {isAdmin && (

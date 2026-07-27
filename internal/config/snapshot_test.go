@@ -134,7 +134,7 @@ func TestSnapshotResolveVisionModel(t *testing.T) {
 	// Unset must not fall back to the default model: sending images back to the
 	// model that cannot read them is the bug this tier exists to avoid.
 	if _, ok := snap.ResolveVisionModel(); ok {
-		t.Fatal("expected no vision model when model_vision is unset")
+		t.Fatal("expected no vision model when the vision setting is unset")
 	}
 	if got := snap.ResolveModelID(ModelTierVision); got != "" {
 		t.Errorf("ResolveModelID(vision) = %q, want empty", got)
@@ -143,7 +143,7 @@ func TestSnapshotResolveVisionModel(t *testing.T) {
 	snap.ModelVision = "openai/gpt-4o"
 	model, ok := snap.ResolveVisionModel()
 	if !ok {
-		t.Fatal("expected a vision model once model_vision is set")
+		t.Fatal("expected a vision model once the vision setting is set")
 	}
 	if model.ID != "gpt-4o" || model.Provider != "openai" || model.API != "openai" {
 		t.Errorf("model = %+v, want the openai gpt-4o entry", model)

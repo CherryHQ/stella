@@ -214,7 +214,6 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 		ModelStrongThinking:  a.ModelStrongThinking,
 		ModelFast:            a.ModelFast,
 		ModelFastThinking:    a.ModelFastThinking,
-		ModelVision:          a.ModelVision,
 		SystemPrompt:         a.SystemPrompt,
 		Soul:                 a.Soul,
 		Workspace:            a.Workspace,
@@ -251,7 +250,6 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 		ModelStrongThinking:  a.ModelStrongThinking,
 		ModelFast:            a.ModelFast,
 		ModelFastThinking:    a.ModelFastThinking,
-		ModelVision:          a.ModelVision,
 		SystemPrompt:         a.SystemPrompt,
 		Soul:                 a.Soul,
 		Workspace:            a.Workspace,
@@ -661,7 +659,15 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
 	}
 
-	providers, modelInputs, defaultCreds, err := s.resolveProviders(ctx, ag.Model, ag.ModelStrong, ag.ModelFast, ag.ModelVision)
+	// The vision model is deployment-wide rather than per-agent, so it is read
+	// from the singleton setting and then resolved alongside the agent's own
+	// tiers — its provider credentials must be in the snapshot like any other.
+	visionCfg, err := config.LoadVisionSettings(ctx, s)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: load vision settings: %w", err)
+	}
+
+	providers, modelInputs, defaultCreds, err := s.resolveProviders(ctx, ag.Model, ag.ModelStrong, ag.ModelFast, visionCfg.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -682,7 +688,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		ModelStrongThinking: ag.ModelStrongThinking,
 		ModelFast:           ag.ModelFast,
 		ModelFastThinking:   ag.ModelFastThinking,
-		ModelVision:         ag.ModelVision,
+		ModelVision:         visionCfg.Model,
 		Workspace:           ag.Workspace,
 		Sandbox:             sandboxCfg,
 		APIKey:              defaultCreds.APIKey,
@@ -957,7 +963,6 @@ func agentFromDB(r sqlc.Agent) (config.Agent, error) {
 		ModelStrongThinking: r.ModelStrongThinking,
 		ModelFast:           r.ModelFast,
 		ModelFastThinking:   r.ModelFastThinking,
-		ModelVision:         r.ModelVision,
 		SystemPrompt:        r.SystemPrompt,
 		Soul:                r.Soul,
 		Workspace:           r.Workspace,

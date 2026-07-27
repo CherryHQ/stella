@@ -43,6 +43,7 @@ tags:
   - name: weixin
   - name: providers
   - name: embedding
+  - name: vision
   - name: sessions
   - name: shares
   - name: agents
@@ -205,6 +206,9 @@ paths:
   # ── Embedding ──────────────────────────────────────────────────────────────
   /api/embedding-settings:
     $ref: "./domain/embedding/paths.yaml#/paths/~1api~1embedding-settings"
+  # ── Vision ─────────────────────────────────────────────────────────────────
+  /api/vision-settings:
+    $ref: "./domain/vision/paths.yaml#/paths/~1api~1vision-settings"
   # ── Sessions ───────────────────────────────────────────────────────────────
   /api/agents/{agentId}/sessions:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions"

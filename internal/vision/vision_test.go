@@ -278,12 +278,12 @@ func TestNewFromSnapshotWithoutVisionTier(t *testing.T) {
 		Providers: map[string]config.ProviderCreds{"openai": {Type: "openai-completions", APIKey: "k"}},
 	}
 	if svc := NewFromSnapshot(snap, build); svc.ModelConfigured() {
-		t.Error("an agent with no model_vision must have no vision model")
+		t.Error("a deployment with no vision setting must have no vision model")
 	}
 
 	snap.ModelVision = "openai/gpt-4o"
 	if svc := NewFromSnapshot(snap, build); !svc.ModelConfigured() {
-		t.Error("an agent with model_vision must have a vision model")
+		t.Error("a deployment with a vision setting must have a vision model")
 	}
 }
 

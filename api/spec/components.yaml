@@ -68,8 +68,6 @@ components:
           type: string
         model_fast_thinking:
           type: string
-        model_vision:
-          type: string
         system_prompt:
           type: string
         soul:
@@ -114,8 +112,6 @@ components:
         model_fast:
           type: string
         model_fast_thinking:
-          type: string
-        model_vision:
           type: string
         system_prompt:
           type: string
@@ -4393,6 +4389,24 @@ components:
           type: array
           items:
             type: string
+    VisionSettings:
+      type: object
+      description: >
+        Deployment-wide image-understanding configuration. model is a "provider/model" reference resolved against the configured providers; an empty string means no vision model is set and image understanding falls back to local text extraction.
+
+      required: [model]
+      properties:
+        model:
+          type: string
+    VisionSettingsUpdate:
+      type: object
+      description: >
+        Update payload for the vision settings. Send an empty model to clear the vision model.
+
+      required: [model]
+      properties:
+        model:
+          type: string
     Webhook:
       type: object
       description: >-

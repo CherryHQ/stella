@@ -1,6 +1,6 @@
 -- name: CreateAgent :one
-INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, model_vision, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 RETURNING *;
 
 -- name: SeedAgent :exec
@@ -32,16 +32,15 @@ UPDATE agent SET
     model_strong_thinking = $5,
     model_fast = $6,
     model_fast_thinking = $7,
-    model_vision = $8,
-    system_prompt = $9,
-    soul = $10,
-    workspace = $11,
-    sandbox = $12,
-    enabled_builtin_skills = $13,
-    scope = $14,
-    enabled = $15,
+    system_prompt = $8,
+    soul = $9,
+    workspace = $10,
+    sandbox = $11,
+    enabled_builtin_skills = $12,
+    scope = $13,
+    enabled = $14,
     updated_at = now()
-WHERE id = $16;
+WHERE id = $15;
 
 -- name: DeleteAgent :exec
 DELETE FROM agent WHERE id = $1;

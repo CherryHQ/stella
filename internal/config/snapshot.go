@@ -47,13 +47,16 @@ type Snapshot struct {
 	ModelStrongThinking string
 	ModelFast           string
 	ModelFastThinking   string
-	ModelVision         string
-	Workspace           string
-	Sandbox             SandboxConfig
-	APIKey              string
-	BaseURL             string
-	SystemPrompt        string // agent's base system prompt from DB
-	Soul                string // agent's default soul from DB (fallback for all users)
+	// ModelVision is the deployment-wide vision model (VisionSettings), copied
+	// into the snapshot so tier resolution treats it like any other tier. It is
+	// the one model field here that does not come from the agent row.
+	ModelVision  string
+	Workspace    string
+	Sandbox      SandboxConfig
+	APIKey       string
+	BaseURL      string
+	SystemPrompt string // agent's base system prompt from DB
+	Soul         string // agent's default soul from DB (fallback for all users)
 
 	Runner     RunnerConfig
 	Compaction CompactionConfig
@@ -161,8 +164,8 @@ func (s *Snapshot) ResolveModelTier(tier string) ai.Model {
 	}
 }
 
-// ResolveVisionModel returns the agent's auxiliary vision model and true when
-// one is configured. It reports false — rather than a model the caller must
+// ResolveVisionModel returns the deployment's auxiliary vision model and true
+// when one is configured. It reports false — rather than a model the caller must
 // then second-guess — when the vision tier is unset, which is the signal that
 // image understanding must degrade to local text extraction.
 func (s *Snapshot) ResolveVisionModel() (ai.Model, bool) {
