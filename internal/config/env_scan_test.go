@@ -80,6 +80,17 @@ var envReadAllowlist = map[string]map[string]bool{
 	// Dynamic per-key reads over a computed key set.
 	"internal/manifestplugins/mise_installer.go": {nonLiteralRead: true},
 
+	// Release-only test runners use an isolated metadata namespace and resolve
+	// an explicit set of secret variable names for post-run leak scanning. These
+	// values are not stellad server configuration and must not enter ServerConfig.
+	"test/release/env.go": {
+		"STELLA_RELEASE_RUN_ID":      true,
+		"STELLA_RELEASE_VERSION":     true,
+		"STELLA_RELEASE_COMMIT":      true,
+		"STELLA_RELEASE_SECRET_ENVS": true,
+		nonLiteralRead:               true,
+	},
+
 	// Host environment passthrough for the sandbox: PATH and selected host vars
 	// are forwarded into the sandbox, not stella configuration.
 	"internal/agent/sandbox/bash.go": {"PATH": true},

@@ -182,6 +182,18 @@ go test -tags capability -count=1 ./cmd/stellad -run '^TestCapabilityCommandSurf
 go run -tags capability ./test/capabilities/cmd/report
 """
 
+[tasks."release:aggregate"]
+description = "Aggregate release-only Scenario results and decide whether Promotion is allowed"
+# STELLA_RELEASE_SECRET_ENVS contains comma-separated environment variable
+# names, never secret values. The command scans the entire Run artifact tree.
+run = """
+set -eu
+: "${STELLA_RELEASE_RUN_ID:?set STELLA_RELEASE_RUN_ID}"
+: "${STELLA_RELEASE_VERSION:?set STELLA_RELEASE_VERSION}"
+: "${STELLA_RELEASE_COMMIT:?set STELLA_RELEASE_COMMIT}"
+go run -tags capability ./test/capabilities/cmd/aggregate
+"""
+
 [tasks.system-test]
 description = "Run the subprocess system test suite: real stellad over TCP against embedded PostgreSQL"
 depends = ["pg:runtime:download", "build"]

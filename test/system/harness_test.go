@@ -29,6 +29,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/pgruntime"
 	"github.com/CherryHQ/stella/internal/vault"
+	releasecontract "github.com/CherryHQ/stella/test/release"
 )
 
 const (
@@ -316,6 +317,15 @@ func repoRoot(t *testing.T) string {
 func logDir(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join(repoRoot(t), "dist", "logs", "system-test")
+	run, present, err := releasecontract.RunFromEnv()
+	if err != nil {
+		t.Fatalf("system: load release metadata: %v", err)
+	}
+	if present {
+		// Release runs keep every diagnostic below their canonical artifact
+		// tree; the short random harness ID still isolates business fixtures.
+		dir = filepath.Join(releasecontract.RunDirectory(repoRoot(t), run.ID), "artifacts", "system")
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("system: create log dir %s: %v", dir, err)
 	}
