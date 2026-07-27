@@ -189,10 +189,11 @@ func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat,
 	}
 	// Not NewSessionReply: it folds every outcome into a reply string, and the
 	// receipt needs to know which one happened. RotateInfo is a single
-	// transaction, so any error other than a stale CAS means the rotation rolled
-	// back and never ran — release so a redelivery may retry. A stale CAS means
-	// another `/new` already did the reset this message asked for, so the claim
-	// stands and a redelivery answers "already reset".
+	// transaction, so an error other than a stale CAS or a lost commit
+	// acknowledgement means the rotation rolled back and never ran — release so
+	// a redelivery may retry. A stale CAS means another `/new` already did the
+	// reset this message asked for, so the claim stands and a redelivery answers
+	// "already reset".
 	var reply string
 	started, err := run(func(qctx context.Context) error {
 		switch _, err := rc.RotateSession(qctx, current.ID); {
@@ -208,12 +209,17 @@ func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat,
 	})
 	if err != nil {
 		// Release only when the reset provably did not happen: the queue never
-		// started it, or the rotation ran and failed for a reason other than its
-		// context dying. A context-flavoured error after the rotation started is
-		// ambiguous — the transaction may have committed in the same instant the
-		// caller gave up — and an ambiguous claim must stand: keeping it costs
-		// one manual retry, releasing it wrongly replays a destructive reset.
-		if !started || (!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)) {
+		// started it, or the rotation ran and definitely rolled back. Two error
+		// shapes cannot prove that and keep the claim: a context-flavoured error
+		// after the rotation started (the transaction may have committed in the
+		// same instant the caller gave up) and a lost commit acknowledgement
+		// (the server may have committed before the connection died). An
+		// ambiguous claim must stand: keeping it costs one manual retry,
+		// releasing it wrongly replays a destructive reset.
+		ambiguous := started && (errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) ||
+			errors.Is(err, session.ErrRotationOutcomeUnknown))
+		if !ambiguous {
 			receipt.release(ctx)
 		}
 		return fmt.Sprintf("Starting a new session failed: %v", err)

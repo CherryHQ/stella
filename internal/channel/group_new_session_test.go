@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -209,6 +210,36 @@ func TestGroupNewReceiptKeptWhenRotationWasStale(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("an already-done reset kept %d claims, want 1", count)
+	}
+}
+
+// TestGroupNewReceiptKeptWhenCommitOutcomeUnknown covers the third ambiguous
+// shape: the rotation's COMMIT was sent but the acknowledgement was lost, so
+// the server may have committed. RotateInfo marks exactly that case with
+// ErrRotationOutcomeUnknown, and the claim must stand — it is the only error
+// after start that is not a definite rollback.
+func TestGroupNewReceiptKeptWhenCommitOutcomeUnknown(t *testing.T) {
+	const groupID = "11111111-1111-4111-8111-111111111111"
+	db, receiptGroupID := newReceiptTestGroup(t, "grp-commit-unknown")
+	d := &GroupDispatcher{q: sqlc.New(db)}
+	ctx := context.Background()
+
+	rc := newCompactTestChat(t, groupID, auth.User{})
+	rc.Service.SessionAccess = rotateFailAccessSvc{
+		reg:       rc.Service.Sessions,
+		rotateErr: fmt.Errorf("connection reset before response: %w", session.ErrRotationOutcomeUnknown),
+	}
+	receipt := newCommandReceipt(sqlc.New(db), receiptGroupID, "telegram", "m-commit-unknown", newSessionCommand)
+	if reply := d.rotateGroupChat(ctx, rc, receipt); reply == pkgchannel.NewSessionStartedMessage {
+		t.Fatalf("reply = %q, want a failure", reply)
+	}
+
+	var count int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_group_command_receipt`).Scan(&count); err != nil {
+		t.Fatalf("count receipts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("a lost commit acknowledgement kept %d claims, want 1: the rotation may have happened", count)
 	}
 }
 

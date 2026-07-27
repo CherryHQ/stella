@@ -334,6 +334,14 @@ type ConstraintStore interface {
 // compare-and-rotate, so a stale caller changed nothing and must not retry.
 var ErrStaleRotation = errors.New("session rotation is stale")
 
+// ErrRotationOutcomeUnknown reports that a rotation failed at the commit
+// acknowledgement: the server may or may not have committed (e.g. the
+// connection to an external PostgreSQL dropped after COMMIT was sent). Every
+// other rotation failure is a definite rollback; this one is not, so a caller
+// compensating for "rotation never happened" — releasing a dedup claim,
+// auto-retrying — must treat it as possibly-happened instead.
+var ErrRotationOutcomeUnknown = errors.New("session rotation outcome unknown")
+
 // SessionManager is implemented by providers that support session lifecycle management.
 type SessionManager interface {
 	// SaveInfo persists or updates session metadata.

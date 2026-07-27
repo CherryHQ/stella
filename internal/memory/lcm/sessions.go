@@ -191,7 +191,13 @@ func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, suc
 		return fmt.Errorf("create successor conversation: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	// Everything above fails as a definite rollback. A commit failure does not:
+	// the server may have committed before the acknowledgement was lost, so it
+	// carries the one sentinel callers must not compensate against.
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("%w: %w", memory.ErrRotationOutcomeUnknown, err)
+	}
+	return nil
 }
 
 // LoadInfo implements memory.SessionManager.

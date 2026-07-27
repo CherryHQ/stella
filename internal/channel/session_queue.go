@@ -184,14 +184,19 @@ func (q *sessionQueue) EnqueueControl(ctx context.Context, sessionKey string, fn
 	var opErr error
 	_, doneC, qerr := q.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
 		// The caller reclaims "never ran" the moment it observes a dead context
-		// and begun == false; honor that by not starting afterwards. Returning
-		// the context error (not nil) also covers an /abort landing between the
-		// worker's own skip check and this call: the caller then gets an error
-		// with started == false, which is exactly what happened.
+		// and begun == false; honor that by not starting afterwards. The check
+		// and the flag share one critical section with the caller's read, so the
+		// two can only serialize as: caller reads false → this check must then
+		// observe the same cancellation and refuse, or this check passes → the
+		// caller can only read true. Returning the context error (not nil) also
+		// covers an /abort landing between the worker's own skip check and this
+		// call: the caller then gets an error with started == false, which is
+		// exactly what happened.
+		mu.Lock()
 		if err := qctx.Err(); err != nil {
+			mu.Unlock()
 			return nil, err
 		}
-		mu.Lock()
 		begun = true
 		mu.Unlock()
 		opErr = fn(qctx)

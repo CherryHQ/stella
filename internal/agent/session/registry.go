@@ -30,6 +30,11 @@ var ErrArchived = errors.New("session is archived")
 // rotation with one errors.Is check regardless of which layer detected it.
 var ErrStaleRotation = memory.ErrStaleRotation
 
+// ErrRotationOutcomeUnknown is returned when a rotation failed at commit
+// acknowledgement and may or may not have been persisted. See
+// memory.ErrRotationOutcomeUnknown.
+var ErrRotationOutcomeUnknown = memory.ErrRotationOutcomeUnknown
+
 // Registry is the sole owner of agent-session lifecycle.
 // It creates, resumes, lists, and archives sessions; it also converts validated
 // session records into memory operation scopes.

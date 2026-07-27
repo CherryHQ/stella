@@ -443,3 +443,32 @@ func TestSessionQueue_ControlOpReportsStartedWhenCancelRacesCompletion(t *testin
 		cancel()
 	}
 }
+
+// TestSessionQueue_ControlOpStartedNeverLiesUnderCancelStress hammers the
+// check/set window round 4 closed: the context-dead check and the begun flag
+// share one critical section, so "started=false with an error" and "fn ran"
+// must never both be true, no matter how the cancellation lands relative to
+// the worker picking the request up.
+func TestSessionQueue_ControlOpStartedNeverLiesUnderCancelStress(t *testing.T) {
+	q := newSessionQueue()
+	for i := range 500 {
+		ctx, cancel := context.WithCancel(context.Background())
+		var ran atomic.Bool
+		go cancel()
+		began, err := q.EnqueueControl(ctx, "sess-atomic", func(context.Context) error {
+			ran.Store(true)
+			return nil
+		})
+		if !began && err != nil {
+			// FIFO on one slot: after this follow-up the worker has passed our
+			// request, so ran is final.
+			if _, ferr := q.EnqueueControl(context.Background(), "sess-atomic", func(context.Context) error { return nil }); ferr != nil {
+				t.Fatalf("iteration %d: follow-up: %v", i, ferr)
+			}
+			if ran.Load() {
+				t.Fatalf("iteration %d: reported started=false (err=%v) but fn ran", i, err)
+			}
+		}
+		cancel()
+	}
+}
