@@ -404,7 +404,7 @@ func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedC
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
 	var reply string
-	if err := c.queue.EnqueueControl(ctx, rc.SessionKey, func(qctx context.Context) error {
+	if _, err := c.queue.EnqueueControl(ctx, rc.SessionKey, func(qctx context.Context) error {
 		reply = NewSessionReply(qctx, rc, current.ID)
 		return nil
 	}); err != nil {

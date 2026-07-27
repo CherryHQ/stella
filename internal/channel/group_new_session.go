@@ -181,9 +181,9 @@ func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat,
 		receipt.release(ctx)
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
-	run := func(fn func(context.Context) error) error { return fn(ctx) }
+	run := func(fn func(context.Context) error) (bool, error) { return true, fn(ctx) }
 	if d != nil && d.queue != nil {
-		run = func(fn func(context.Context) error) error {
+		run = func(fn func(context.Context) error) (bool, error) {
 			return d.queue.EnqueueControl(ctx, rc.SessionKey, fn)
 		}
 	}
@@ -194,7 +194,7 @@ func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat,
 	// another `/new` already did the reset this message asked for, so the claim
 	// stands and a redelivery answers "already reset".
 	var reply string
-	if err := run(func(qctx context.Context) error {
+	started, err := run(func(qctx context.Context) error {
 		switch _, err := rc.RotateSession(qctx, current.ID); {
 		case err == nil:
 			reply = pkgchannel.NewSessionStartedMessage
@@ -205,8 +205,17 @@ func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat,
 		default:
 			return err
 		}
-	}); err != nil {
-		receipt.release(ctx)
+	})
+	if err != nil {
+		// Release only when the reset provably did not happen: the queue never
+		// started it, or the rotation ran and failed for a reason other than its
+		// context dying. A context-flavoured error after the rotation started is
+		// ambiguous — the transaction may have committed in the same instant the
+		// caller gave up — and an ambiguous claim must stand: keeping it costs
+		// one manual retry, releasing it wrongly replays a destructive reset.
+		if !started || (!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)) {
+			receipt.release(ctx)
+		}
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
 	return reply

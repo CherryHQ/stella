@@ -30,7 +30,6 @@ CREATE TABLE channel_group_command_receipt (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (group_id, platform, message_id)
 );
-CREATE INDEX idx_channel_group_command_receipt_created_at ON channel_group_command_receipt (created_at);
 
 -- +goose Down
 DROP TABLE channel_group_command_receipt;

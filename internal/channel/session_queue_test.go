@@ -348,13 +348,16 @@ func TestSessionQueue_ControlOpReleasesSlotWhenCallerGivesUp(t *testing.T) {
 		cancel()
 	}()
 
-	err := q.EnqueueControl(ctx, "sess-ctl", func(opCtx context.Context) error {
+	began, err := q.EnqueueControl(ctx, "sess-ctl", func(opCtx context.Context) error {
 		close(started)
 		<-opCtx.Done()
 		return nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("EnqueueControl error = %v, want context.Canceled", err)
+	}
+	if !began {
+		t.Fatal("the operation demonstrably ran; started must not report false")
 	}
 
 	done := make(chan struct{})
@@ -375,5 +378,68 @@ func TestSessionQueue_ControlOpReleasesSlotWhenCallerGivesUp(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("session slot stayed blocked after an abandoned control operation")
+	}
+}
+
+// TestSessionQueue_ControlOpNeverStartsAfterAbandonedWait pins the half of the
+// started contract that destructive callers (the group /new receipt) release
+// on: started == false with an error is proof the operation never ran and never
+// will, even though the request was already accepted into the queue when the
+// caller gave up.
+func TestSessionQueue_ControlOpNeverStartsAfterAbandonedWait(t *testing.T) {
+	q := newSessionQueue()
+	blockerRunning := make(chan struct{})
+	unblock := make(chan struct{})
+	blockerDone := make(chan struct{})
+	go func() {
+		defer close(blockerDone)
+		_, _ = q.EnqueueControl(context.Background(), "sess-flag", func(context.Context) error {
+			close(blockerRunning)
+			<-unblock
+			return nil
+		})
+	}()
+	<-blockerRunning
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ran := false
+	began, err := q.EnqueueControl(ctx, "sess-flag", func(context.Context) error {
+		ran = true
+		return nil
+	})
+	if err == nil || began {
+		t.Fatalf("abandoned control op: started=%v err=%v, want started=false with an error", began, err)
+	}
+
+	close(unblock)
+	<-blockerDone
+	// FIFO on one slot: by the time this follow-up completes, the worker has
+	// already handled (and must have skipped) the abandoned request.
+	if _, err := q.EnqueueControl(context.Background(), "sess-flag", func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("follow-up control op: %v", err)
+	}
+	if ran {
+		t.Fatal("an operation reported as never-started ran after the caller was told so")
+	}
+}
+
+// TestSessionQueue_ControlOpReportsStartedWhenCancelRacesCompletion drives the
+// race review round 3 found: the operation completes and the caller's context
+// dies in the same instant, so both select branches in Enqueue are ready and Go
+// may take either. Whichever way the wait resolves, started must be true — a
+// destructive caller must never treat a completed operation as "never ran".
+func TestSessionQueue_ControlOpReportsStartedWhenCancelRacesCompletion(t *testing.T) {
+	q := newSessionQueue()
+	for i := range 50 {
+		ctx, cancel := context.WithCancel(context.Background())
+		began, err := q.EnqueueControl(ctx, "sess-race", func(context.Context) error {
+			cancel()
+			return nil
+		})
+		if !began {
+			t.Fatalf("iteration %d: fn ran but started=false (err=%v)", i, err)
+		}
+		cancel()
 	}
 }

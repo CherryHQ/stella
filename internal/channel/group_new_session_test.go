@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -208,6 +209,138 @@ func TestGroupNewReceiptKeptWhenRotationWasStale(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("an already-done reset kept %d claims, want 1", count)
+	}
+}
+
+// cancelThenRotateAccessSvc simulates the round-3 race: the rotation commits in
+// the same instant the request context dies. The rotation itself runs on a
+// background context to guarantee the commit, exactly like a transaction that
+// landed as the caller gave up.
+type cancelThenRotateAccessSvc struct {
+	reg    *session.Registry
+	cancel context.CancelFunc
+}
+
+func (s cancelThenRotateAccessSvc) Begin(context.Context, authz.Authority) (agent.SessionAccess, error) {
+	return cancelThenRotateAccess{compactSessionAccess{reg: s.reg}, s.cancel}, nil
+}
+
+type cancelThenRotateAccess struct {
+	compactSessionAccess
+	cancel context.CancelFunc
+}
+
+func (a cancelThenRotateAccess) RotateChannel(_ context.Context, req session.ChannelRequest) (session.Info, error) {
+	a.cancel()
+	return a.reg.RotateChannel(context.Background(), req)
+}
+
+// TestGroupNewReceiptKeptWhenCancelRacesCommit runs the production path (real
+// queue) through the round-3 race: rotation commits while the request context
+// dies, so EnqueueControl may resolve either way. Whichever reply comes back,
+// the claim must stand — releasing it would let the redelivery rotate the
+// successor and wipe everything said since.
+func TestGroupNewReceiptKeptWhenCancelRacesCommit(t *testing.T) {
+	const groupID = "11111111-1111-4111-8111-111111111111"
+	db, receiptGroupID := newReceiptTestGroup(t, "grp-ambig")
+	d := &GroupDispatcher{q: sqlc.New(db), queue: newSessionQueue()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rc := newCompactTestChat(t, groupID, auth.User{})
+	rc.Service.SessionAccess = cancelThenRotateAccessSvc{reg: rc.Service.Sessions, cancel: cancel}
+	before, err := rc.CurrentSessionForRotation(context.Background())
+	if err != nil {
+		t.Fatalf("resolve session: %v", err)
+	}
+
+	receipt := newCommandReceipt(sqlc.New(db), receiptGroupID, "telegram", "m-ambig", newSessionCommand)
+	_ = d.rotateGroupChat(ctx, rc, receipt) // either reply is legitimate here
+
+	rotated, err := rc.CurrentSessionForRotation(context.Background())
+	if err != nil {
+		t.Fatalf("resolve session after rotation: %v", err)
+	}
+	if rotated.ID == before.ID {
+		t.Fatal("rotation did not commit; the race this test drives never happened")
+	}
+	var count int
+	if err := db.QueryRow(context.Background(), `SELECT count(*) FROM channel_group_command_receipt`).Scan(&count); err != nil {
+		t.Fatalf("count receipts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("a committed rotation kept %d claims, want 1", count)
+	}
+
+	// The redelivery must answer, not rotate the successor.
+	rc.Service.SessionAccess = compactSessionAccessSvc{reg: rc.Service.Sessions}
+	if reply := d.rotateGroupChat(context.Background(), rc, receipt); reply != pkgchannel.SessionAlreadyResetMessage {
+		t.Fatalf("redelivered /new reply = %q, want %q", reply, pkgchannel.SessionAlreadyResetMessage)
+	}
+	after, err := rc.CurrentSessionForRotation(context.Background())
+	if err != nil {
+		t.Fatalf("resolve session after redelivery: %v", err)
+	}
+	if after.ID != rotated.ID {
+		t.Fatalf("a redelivered /new rotated the successor: %q -> %q", rotated.ID, after.ID)
+	}
+}
+
+// TestGroupNewReceiptReleasedWhenQueueNeverRan covers the other side of the
+// started contract on the production path: the caller gives up while the slot
+// is held by an in-flight operation, the rotation provably never starts, and
+// the claim must be dropped so the user's retry works.
+func TestGroupNewReceiptReleasedWhenQueueNeverRan(t *testing.T) {
+	const groupID = "11111111-1111-4111-8111-111111111111"
+	db, receiptGroupID := newReceiptTestGroup(t, "grp-neverran")
+	d := &GroupDispatcher{q: sqlc.New(db), queue: newSessionQueue()}
+	rc := newCompactTestChat(t, groupID, auth.User{})
+	before, err := rc.CurrentSessionForRotation(context.Background())
+	if err != nil {
+		t.Fatalf("resolve session: %v", err)
+	}
+
+	blockerRunning := make(chan struct{})
+	unblock := make(chan struct{})
+	blockerDone := make(chan struct{})
+	go func() {
+		defer close(blockerDone)
+		_, _ = d.queue.EnqueueControl(context.Background(), rc.SessionKey, func(context.Context) error {
+			close(blockerRunning)
+			<-unblock
+			return nil
+		})
+	}()
+	<-blockerRunning
+
+	// Generous for the claim and resolve (local, sub-millisecond), far shorter
+	// than the blocker: the deadline can only fire while waiting on the queue.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	receipt := newCommandReceipt(sqlc.New(db), receiptGroupID, "telegram", "m-neverran", newSessionCommand)
+	if reply := d.rotateGroupChat(ctx, rc, receipt); reply == pkgchannel.NewSessionStartedMessage {
+		t.Fatalf("reply = %q, want a failure", reply)
+	}
+	close(unblock)
+	<-blockerDone
+
+	var count int
+	if err := db.QueryRow(context.Background(), `SELECT count(*) FROM channel_group_command_receipt`).Scan(&count); err != nil {
+		t.Fatalf("count receipts: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("a rotation that never started left %d claims, want 0", count)
+	}
+	// Drain the abandoned request, then prove the rotation really never ran.
+	if _, err := d.queue.EnqueueControl(context.Background(), rc.SessionKey, func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("follow-up control op: %v", err)
+	}
+	after, err := rc.CurrentSessionForRotation(context.Background())
+	if err != nil {
+		t.Fatalf("resolve session after abandoned /new: %v", err)
+	}
+	if after.ID != before.ID {
+		t.Fatalf("an abandoned /new rotated the session: %q -> %q", before.ID, after.ID)
 	}
 }
 

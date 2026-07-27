@@ -166,17 +166,44 @@ func (q *sessionQueue) Enqueue(
 // per-session FIFO order as chat turns and waits for it to finish. Rotating a
 // session ahead of an in-flight turn would strand that turn's reply in a session
 // the user has already left, so control operations wait their turn instead.
-func (q *sessionQueue) EnqueueControl(ctx context.Context, sessionKey string, fn func(context.Context) error) error {
+//
+// started answers what a bare error cannot: whether fn began executing. A
+// cancelled wait alone proves nothing — the worker may have completed fn just
+// as the caller gave up (Go's select chooses arbitrarily when both channels are
+// ready), or may not have reached the request yet. Destructive callers key
+// their compensation on it, so the contract is strict in one direction:
+// `started == false` with a non-nil error means fn never ran and never will.
+// The worker skips requests whose caller has gone away, and the wrapper below
+// refuses to start once its context is dead; a request that slips past that
+// guard in the same instant the caller cancels still runs fn with an
+// already-dead context, which a context-respecting operation fails without
+// side effects.
+func (q *sessionQueue) EnqueueControl(ctx context.Context, sessionKey string, fn func(context.Context) error) (started bool, err error) {
+	var mu sync.Mutex
+	begun := false
 	var opErr error
-	_, doneC, err := q.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+	_, doneC, qerr := q.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+		// The caller reclaims "never ran" the moment it observes a dead context
+		// and begun == false; honor that by not starting afterwards. Returning
+		// the context error (not nil) also covers an /abort landing between the
+		// worker's own skip check and this call: the caller then gets an error
+		// with started == false, which is exactly what happened.
+		if err := qctx.Err(); err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		begun = true
+		mu.Unlock()
 		opErr = fn(qctx)
 		return nil, nil
 	})
-	if err != nil {
-		return err
+	if qerr != nil {
+		mu.Lock()
+		defer mu.Unlock()
+		return begun, qerr
 	}
 	close(doneC)
-	return opErr
+	return true, opErr
 }
 
 // Abort cancels the currently-running request for sessionKey.
