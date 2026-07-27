@@ -2,7 +2,6 @@ package qq
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strings"
@@ -102,9 +101,22 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.Conte
 			logger().Warn("download image failed", "url", img.URL, "error", err)
 			continue
 		}
-		encoded := base64.StdEncoding.EncodeToString(data)
-		blocks = append(blocks, ai.ImageContent{Data: encoded, MimeType: mime})
 		logger().Debug("image received", "size", len(data), "mime", mime)
+		fileName := img.FileName
+		if fileName == "" {
+			fileName = channel.ImageFileName("image", mime)
+		}
+		if assetsDir != "" {
+			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
+			if saveErr == nil {
+				blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
+				continue
+			}
+			logger().Warn("save inbound image failed", "error", saveErr)
+		}
+		// Persistence unavailable — degrade to inline within the ceiling; images
+		// past the inline limit become an explicit text note instead.
+		blocks = append(blocks, channel.InlineImageFallback(fileName, mime, data)...)
 	}
 	for _, f := range files {
 		fileName := f.FileName
@@ -121,11 +133,11 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.Conte
 			savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 			if err != nil {
 				logger().Warn("save file attachment failed", "error", err)
-				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (save failed)", fileName)})
+				blocks = append(blocks, channel.AttachmentSaveFailureContent(fileName, data)...)
 				continue
 			}
 			logger().Debug("file attachment received", "file_name", fileName, "size", len(data))
-			blocks = append(blocks, channel.FileReceivedContent(fileName, assetsDir, savedPath)...)
+			blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
 		} else {
 			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s]", fileName)})
 		}
@@ -165,9 +177,10 @@ func extractFileAttachments(msg *dto.Message) []*dto.MessageAttachment {
 }
 
 // resolveAssetsDir returns the per-user assets directory if the handler supports
-// UserRootResolver and the message contains file attachments. Returns "" otherwise.
+// UserRootResolver and the message contains image or file attachments to persist.
+// Returns "" otherwise.
 func (b *Bot) resolveAssetsDir(probeMsg channel.IncomingMessage, msg *dto.Message) string {
-	if len(extractFileAttachments(msg)) == 0 {
+	if len(extractImageAttachments(msg)) == 0 && len(extractFileAttachments(msg)) == 0 {
 		return ""
 	}
 	resolver, ok := b.handler.(channel.UserRootResolver)

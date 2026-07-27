@@ -17,6 +17,7 @@ import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import { fetchAllSessionMessages } from "@/lib/paginated";
 import type { Message, Session } from "@/lib/types";
 import { ChatPane } from "@/components/chat/ChatPane";
+import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -122,9 +123,11 @@ export function SessionDetail({
     status: chatStatus,
     stop: chatStop,
     resumeStream: chatResume,
+    error: chatError,
   } = useChat({
     id: session?.id ?? "empty",
     transport,
+    onError: (err) => console.error("[session chat]", err),
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
@@ -559,6 +562,7 @@ export function SessionDetail({
             activeStreaming={isStreaming}
           />
         }
+        notice={<ChatErrorNotice error={chatError} />}
         composer={
           session.user_id === currentUserID ? (
             <ChatComposer

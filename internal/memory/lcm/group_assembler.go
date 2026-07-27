@@ -184,7 +184,7 @@ func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string)
 // groupRowsToMessages converts event log rows to ai.Messages.
 // The current agent's own messages are skipped (they're already in ctx_message).
 // All other messages become UserMessages with actor attribution.
-func groupRowsToMessages(rows []sqlc.CtxGroupMessage, selfAgentID string) []ai.Message {
+func groupRowsToMessages(rows []sqlc.ListGroupMessagesBetweenSeqsRow, selfAgentID string) []ai.Message {
 	msgs := make([]ai.Message, 0, len(rows))
 	for _, row := range rows {
 		if row.Content == "" {

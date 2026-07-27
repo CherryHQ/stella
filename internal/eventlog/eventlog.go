@@ -59,6 +59,12 @@ type Message struct {
 	PlatformTimestamp time.Time
 
 	Content string
+
+	// ContentBlocks is the optional structured projection of Content: a JSON
+	// []ai.ContentBlock (see ai.MarshalContentBlocks) carrying non-text blocks
+	// such as inbound images. Empty means text-only; eventlog stores it
+	// verbatim like Content.
+	ContentBlocks []byte
 }
 
 // AppendResult reports the outcome of an append.
@@ -152,6 +158,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		PlatformTimestamp: nullTime(msg.PlatformTimestamp),
 		IdempotencyKey:    idemKey,
 		Content:           msg.Content,
+		ContentBlocks:     contentBlocksOrEmpty(msg.ContentBlocks),
 	})
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
@@ -231,6 +238,7 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 		ActorType:      string(msg.ActorType),
 		ActorID:        msg.ActorID,
 		Content:        msg.Content,
+		ContentBlocks:  contentBlocksOrEmpty(nil),
 		Reasoning:      msg.Reasoning,
 		AgentSessionID: msg.AgentSessionID,
 	})
@@ -238,6 +246,15 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
 	}
 	return AppendResult{GroupID: groupID, Seq: seq, Inserted: true, Message: row}, nil
+}
+
+// contentBlocksOrEmpty normalizes an absent structured projection to the empty
+// JSON array the NOT NULL content_blocks column expects.
+func contentBlocksOrEmpty(blocks []byte) []byte {
+	if len(blocks) == 0 {
+		return []byte("[]")
+	}
+	return blocks
 }
 
 func validateGroupAppend(groupID string, msg GroupMessage) error {

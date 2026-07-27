@@ -8,6 +8,12 @@ export function basename(path: string): string {
   return path.split("/").pop() || path;
 }
 
+// workspaceFileURL builds a raw file-content read URL for a message-embedded
+// file path. The path is passed verbatim: an absolute sandbox-view (/user/...,
+// /workspace/...) or host path is self-describing, and the server resolves which
+// authorized workspace root contains it (host containment first, then sandbox
+// mount mapping). The client cannot disambiguate mount views from real host
+// paths, so it must not guess a scope — that decision belongs to the server.
 export function workspaceFileURL(agentId: string, sessionId: string, path: string): string {
   return `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(
     sessionId,

@@ -11,6 +11,33 @@ icon: History
 
 ## [Unreleased]
 
+## [0.60.3] - 2026-07-27
+
+### ✨ 功能
+
+- 渠道：将收到的图片持久化为资源，并在 Telegram、QQ、飞书和微信中统一呈现。([#786](https://github.com/CherryHQ/stella/pull/786))
+- OAuth：支持管理员在 Web UI 中管理 provider scope 和 provider 设置。([#793](https://github.com/CherryHQ/stella/pull/793))
+
+### 🐛 修复
+
+- 渠道：确保群消息图片块通过事件日志后仍被保留。([#789](https://github.com/CherryHQ/stella/pull/789))
+- Web UI：使用正确的相对路径和 scope 构建工作区文件 URL。([#791](https://github.com/CherryHQ/stella/pull/791))
+
+**完整变更记录**：[v0.60.2...v0.60.3](https://github.com/CherryHQ/stella/compare/v0.60.2...v0.60.3)
+
+## [0.60.2] - 2026-07-24
+
+### 🐛 修复
+
+- 工具生成：为原生多操作工具生成兼容各 provider 的 schema。([#782](https://github.com/CherryHQ/stella/pull/782))
+- 会话：在聊天界面展示 provider 运行错误，不再静默失败。([#784](https://github.com/CherryHQ/stella/pull/784))
+
+### 📝 文档
+
+- 数据库：加强 PostgreSQL schema 设计与生产运维指导。([#776](https://github.com/CherryHQ/stella/pull/776))
+
+**完整变更记录**：[v0.60.1...v0.60.2](https://github.com/CherryHQ/stella/compare/v0.60.1...v0.60.2)
+
 ## [0.60.1] - 2026-07-21
 
 ### ✨ 功能

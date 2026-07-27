@@ -1,6 +1,10 @@
 package channel
 
 import (
+	"bytes"
+	"encoding/base64"
+	"image"
+	"image/png"
 	"strings"
 	"testing"
 	"time"
@@ -112,6 +116,164 @@ func TestFileReceivedContentUsesXberg(t *testing.T) {
 	got := ai.FlattenText(blocks)
 	if !strings.Contains(got, "Read Xberg skill") || !strings.Contains(got, "`xberg extract") {
 		t.Fatalf("FileReceivedContent() = %q, want Xberg extraction hint", got)
+	}
+}
+
+func TestAttachmentReceivedContentInlinesImages(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	data := buf.Bytes()
+
+	blocks := AttachmentReceivedContent("photo.png", "/home/stella/assets", "/home/stella/assets/photo.png", data)
+	if len(blocks) != 2 {
+		t.Fatalf("expected note + image blocks, got %d: %#v", len(blocks), blocks)
+	}
+	note, ok := blocks[0].(ai.TextContent)
+	if !ok || !strings.Contains(note.Text, "assets/photo.png") {
+		t.Fatalf("note block = %#v, want saved-path note", blocks[0])
+	}
+	if strings.Contains(note.Text, "xberg") {
+		t.Fatalf("image note %q must not steer to Xberg", note.Text)
+	}
+	img, ok := blocks[1].(ai.ImageContent)
+	if !ok || img.MimeType != "image/png" {
+		t.Fatalf("image block = %#v, want inline image/png", blocks[1])
+	}
+	if img.Data != base64.StdEncoding.EncodeToString(data) {
+		t.Fatalf("image block data does not round-trip the file bytes")
+	}
+}
+
+func TestAttachmentReceivedContentFallsBackToFileHint(t *testing.T) {
+	blocks := AttachmentReceivedContent("report.pdf", "/home/stella/assets", "/home/stella/assets/report.pdf", []byte("%PDF-1.7 not an image"))
+	got := ai.FlattenText(blocks)
+	if !strings.Contains(got, "`xberg extract") {
+		t.Fatalf("non-image attachment = %q, want Xberg extraction hint", got)
+	}
+}
+
+func TestAttachmentReceivedContentOversizedImageHintsRead(t *testing.T) {
+	// A real PNG header followed by padding past the inline ceiling: detected as
+	// an image but too large to inline.
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	data := append(buf.Bytes(), make([]byte, maxInlineAttachmentImageBytes)...)
+
+	blocks := AttachmentReceivedContent("huge.png", "/home/stella/assets", "/home/stella/assets/huge.png", data)
+	if len(blocks) != 1 {
+		t.Fatalf("expected single text block, got %d", len(blocks))
+	}
+	got := ai.FlattenText(blocks)
+	if !strings.Contains(got, "`read` tool") || strings.Contains(got, "xberg") {
+		t.Fatalf("oversized image = %q, want read-tool hint without Xberg", got)
+	}
+}
+
+func TestInlineImageFallbackInlinesWithinCeiling(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	data := buf.Bytes()
+
+	blocks := InlineImageFallback("photo.png", "image/png", data)
+	if len(blocks) != 1 {
+		t.Fatalf("expected single inline image block, got %d: %#v", len(blocks), blocks)
+	}
+	img, ok := blocks[0].(ai.ImageContent)
+	if !ok || img.MimeType != "image/png" {
+		t.Fatalf("block = %#v, want inline image/png", blocks[0])
+	}
+	if img.Data != base64.StdEncoding.EncodeToString(data) {
+		t.Fatalf("inline image data does not round-trip the file bytes")
+	}
+}
+
+func TestInlineImageFallbackOversizedBecomesTextNote(t *testing.T) {
+	data := make([]byte, maxInlineAttachmentImageBytes+1)
+	blocks := InlineImageFallback("huge.png", "image/png", data)
+	if len(blocks) != 1 {
+		t.Fatalf("expected single text block, got %d", len(blocks))
+	}
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("oversized image must not be inlined")
+	}
+	got := ai.FlattenText(blocks)
+	if !strings.Contains(got, "huge.png") || !strings.Contains(got, "could not be stored") {
+		t.Fatalf("oversized note = %q, want filename + could-not-store text", got)
+	}
+}
+
+func TestInlineImageFallbackEmptyMimeBecomesTextNote(t *testing.T) {
+	blocks := InlineImageFallback("mystery.bin", "", []byte("tiny"))
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("empty mime must not be inlined")
+	}
+	if got := ai.FlattenText(blocks); !strings.Contains(got, "mystery.bin") {
+		t.Fatalf("note = %q, want filename", got)
+	}
+}
+
+func TestAttachmentSaveFailureContentInlinesImage(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	blocks := AttachmentSaveFailureContent("photo.png", buf.Bytes())
+	if len(blocks) != 1 {
+		t.Fatalf("expected single inline image block, got %d", len(blocks))
+	}
+	if img, ok := blocks[0].(ai.ImageContent); !ok || img.MimeType != "image/png" {
+		t.Fatalf("block = %#v, want inline image/png", blocks[0])
+	}
+}
+
+func TestAttachmentSaveFailureContentOversizedImageBecomesTextNote(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	data := append(buf.Bytes(), make([]byte, maxInlineAttachmentImageBytes)...)
+	blocks := AttachmentSaveFailureContent("huge.png", data)
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("oversized image must not be inlined on save failure")
+	}
+	if got := ai.FlattenText(blocks); !strings.Contains(got, "huge.png") {
+		t.Fatalf("note = %q, want filename", got)
+	}
+}
+
+func TestAttachmentSaveFailureContentNonImageBecomesPlaceholder(t *testing.T) {
+	blocks := AttachmentSaveFailureContent("report.pdf", []byte("%PDF-1.7 not an image"))
+	if _, ok := blocks[0].(ai.ImageContent); ok {
+		t.Fatalf("non-image must not be inlined")
+	}
+	got := ai.FlattenText(blocks)
+	if !strings.Contains(got, "report.pdf") || !strings.Contains(got, "could not be stored") {
+		t.Fatalf("placeholder = %q, want filename + could-not-store text", got)
+	}
+	if strings.Contains(got, "xberg") {
+		t.Fatalf("save-failure placeholder %q must not steer to Xberg (no saved path)", got)
+	}
+}
+
+func TestImageFileName(t *testing.T) {
+	tests := []struct {
+		base, mime, want string
+	}{
+		{"abc123", "image/jpeg", "abc123.jpg"},
+		{"abc123", "image/png", "abc123.png"},
+		{"", "image/webp", "image.webp"},
+		{"x", "application/octet-stream", "x.bin"},
+	}
+	for _, tc := range tests {
+		if got := ImageFileName(tc.base, tc.mime); got != tc.want {
+			t.Errorf("ImageFileName(%q, %q) = %q, want %q", tc.base, tc.mime, got, tc.want)
+		}
 	}
 }
 

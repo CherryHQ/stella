@@ -1,7 +1,9 @@
 package scheduler
 
 import (
+	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/recally"
@@ -33,40 +35,57 @@ func recallyTemplates() map[string]JobTemplate {
 	}
 }
 
-// recallyActionProps parses the recally tool schema into action -> declared
-// property names.
+// recallyActionProps maps each recally action to its declared property names.
+// Actions come from the schema's `action` enum; per-action properties come from
+// the json tags of the generated Handler input structs — the exact fields
+// Dispatch/DecodeInput accept at runtime (the wire schema no longer carries
+// per-action variants; OpenAI-compatible providers reject top-level oneOf).
 func recallyActionProps(t *testing.T) map[string]map[string]bool {
 	t.Helper()
 	schema := recally.InputSchema()
-	oneOf, ok := schema["oneOf"].([]any)
+	actionDef, ok := schema["properties"].(map[string]any)["action"].(map[string]any)
 	if !ok {
-		t.Fatalf("recally InputSchema has no oneOf variants: %#v", schema["oneOf"])
+		t.Fatalf("recally InputSchema has no action property: %#v", schema["properties"])
 	}
+	enum, ok := actionDef["enum"].([]any)
+	if !ok || len(enum) == 0 {
+		t.Fatalf("recally action property has no enum: %#v", actionDef)
+	}
+	handler := reflect.TypeFor[recally.Handler]()
 	out := map[string]map[string]bool{}
-	for _, v := range oneOf {
-		variant, ok := v.(map[string]any)
+	for _, raw := range enum {
+		action, ok := raw.(string)
 		if !ok {
-			t.Fatalf("oneOf variant is not an object: %#v", v)
+			t.Fatalf("action enum value is not a string: %#v", raw)
 		}
-		props, ok := variant["properties"].(map[string]any)
+		// Mirror toolgen's exportName: snake_case action -> Handler method name.
+		// If toolgen's naming ever changes, MethodByName fails loudly here.
+		method, ok := handler.MethodByName(exportActionName(action))
 		if !ok {
-			t.Fatalf("variant has no properties: %#v", variant)
+			t.Fatalf("recally.Handler has no method for action %q (looked for %q)", action, exportActionName(action))
 		}
-		actionDef, ok := props["action"].(map[string]any)
-		if !ok {
-			t.Fatalf("variant has no action property: %#v", props)
-		}
-		action, ok := actionDef["const"].(string)
-		if !ok {
-			t.Fatalf("action property has no const string: %#v", actionDef)
-		}
-		set := map[string]bool{}
-		for name := range props {
-			set[name] = true
+		in := method.Type.In(1)
+		set := map[string]bool{"action": true}
+		for i := range in.NumField() {
+			name, _, _ := strings.Cut(in.Field(i).Tag.Get("json"), ",")
+			if name != "" && name != "-" {
+				set[name] = true
+			}
 		}
 		out[action] = set
 	}
 	return out
+}
+
+func exportActionName(action string) string {
+	parts := strings.Split(action, "_")
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + part[1:]
+	}
+	return strings.Join(parts, "")
 }
 
 func TestBuiltinTemplatesMatchRecallySchema(t *testing.T) {

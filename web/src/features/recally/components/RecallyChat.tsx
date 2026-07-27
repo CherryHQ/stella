@@ -9,6 +9,7 @@ import { agentsQueryOptions } from "@/lib/queries/agents";
 import type { Message } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { Button } from "@/components/ui/button";
 import {
   createSessionTransport,
@@ -123,9 +124,11 @@ export function RecallyChat({ articleId, onClose }: Props) {
     sendMessage: chatSendMessage,
     setMessages: setChatMessages,
     status: chatStatus,
+    error: chatError,
   } = useChat({
     id: activeSessionId ?? "recally-chat-empty",
     transport,
+    onError: (err) => console.error("[recally chat]", err),
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
@@ -282,6 +285,8 @@ export function RecallyChat({ articleId, onClose }: Props) {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      <ChatErrorNotice error={chatError} className="max-w-full px-4 pb-2 sm:px-4" />
 
       {/* Input Form */}
       <div className="shrink-0 border-t border-border bg-card p-3">
