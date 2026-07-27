@@ -19,6 +19,11 @@ type reviewTarget struct {
 	privateOneToOne bool
 }
 
+// Discovery loads every session (rotation keeps archived ones as candidates
+// until review catches up) and checks watermarks per session before truncating
+// to the target limit, so per-tick cost grows with lifetime /new count.
+// Acceptable until archived sessions per agent reach the thousands; #802
+// tracks bounding it (terminal review flag or SQL pushdown).
 func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, agentID string) ([]reviewTarget, error) {
 	sessions, err := listSessionInfoForReview(ctx, sm, agentID)
 	if err != nil {

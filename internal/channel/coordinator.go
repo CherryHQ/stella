@@ -329,7 +329,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		// /new runs through the session queue, so it cannot go through the
 		// stateless shared command handler.
 		if command == "/new" {
-			return c.handleNewSessionCommand(ctx, rc), true, nil, nil
+			return c.handleNewSessionCommand(ctx, rc, msg), true, nil, nil
 		}
 		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
@@ -395,27 +395,30 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 // queued behind any in-flight turn on the same session: aborting the user's
 // running work on a reset request would be surprising, and rotating underneath it
 // would land its reply in a session the user already left.
-func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat) string {
-	// Resolve before queueing so the queued rotation names the session the user
-	// was actually looking at; a second /new behind it is then stale, not a
-	// second reset.
-	current, err := rc.CurrentSessionForRotation(ctx)
-	if err != nil {
-		return fmt.Sprintf("Starting a new session failed: %v", err)
+func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
+	// The receipt is keyed on the channel instance the message arrived on;
+	// adapters that leave ChannelID blank fall back to the platform name.
+	channelID := msg.ChannelID
+	if channelID == "" {
+		channelID = msg.Platform
 	}
-	var reply string
-	if _, err := c.queue.EnqueueControl(ctx, rc.SessionKey, func(qctx context.Context) error {
-		reply = NewSessionReply(qctx, rc, current.ID)
+	receipt := newChatCommandReceipt(c.receiptQueries(), rc, channelID, msg.MessageID, newSessionCommand)
+	return rotateChatSession(ctx, rc, receipt, c.queue)
+}
+
+// receiptQueries returns the store backing command receipts, or nil when the
+// coordinator runs without a database (tests); a nil store makes every receipt
+// inert, which degrades to the unguarded pre-receipt behavior.
+func (c *Coordinator) receiptQueries() *sqlc.Queries {
+	if c.db == nil {
 		return nil
-	}); err != nil {
-		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
-	return reply
+	return sqlc.New(c.db)
 }
 
 // handleAbort cancels the currently-running request for the resolved session.
 func (c *Coordinator) handleAbort(rc *ResolvedChat) string {
-	if c.queue.Abort(rc.SessionKey) {
+	if c.queue.Abort(rc.queueKey()) {
 		return "Aborted."
 	}
 	return "No active message to abort."
@@ -426,7 +429,7 @@ func (c *Coordinator) handleAbort(rc *ResolvedChat) string {
 // fully drain (or abandon) Events before the queue will dispatch the next
 // request for the same session.
 func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
-	stream, doneC, err := c.queue.Enqueue(ctx, rc.SessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+	stream, doneC, err := c.queue.Enqueue(ctx, rc.queueKey(), func(qctx context.Context) (*pkgchannel.ChatStream, error) {
 		return c.chatWithRC(qctx, rc, content)
 	})
 	if err != nil {

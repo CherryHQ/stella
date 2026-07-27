@@ -155,18 +155,38 @@ func (d *GroupDispatcher) resolveWebGroupChat(ctx context.Context, groupID, agen
 	}, nil
 }
 
-// rotateGroupChat claims the command's receipt, then resolves the session it
-// names and rotates it from inside the agent's group turn queue. Both group
-// entry points funnel through here, so the once-per-message guard and the
-// ordering guarantee are stated in exactly one place.
+// commandClaim is the once-per-message guard a destructive command runs under:
+// claim reserves the right to execute exactly once, release hands it back when
+// the command provably never ran. The group and DM receipts implement it over
+// their respective tables.
+type commandClaim interface {
+	claim(ctx context.Context) (bool, error)
+	release(ctx context.Context)
+}
+
+// rotateGroupChat routes both group entry points through the shared rotation
+// path with the group's receipt and the dispatcher's per-(agent,group) queue.
+func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat, receipt commandReceipt) string {
+	var q *sessionQueue
+	if d != nil {
+		q = d.queue
+	}
+	return rotateChatSession(ctx, rc, receipt, q)
+}
+
+// rotateChatSession claims the command's receipt, then resolves the session it
+// names and rotates it from inside the chat's turn queue. Every `/new` entry
+// point — platform group ingest, the Web group send, and the DM coordinator —
+// funnels through here, so the once-per-message guard and the ordering
+// guarantee are stated in exactly one place.
 //
 // The two guards answer different races. The receipt stops the same inbound
 // message from rotating twice, which redelivery would otherwise turn into a
-// silent wipe of everything the group said since. Resolving the current session
+// silent wipe of everything the chat said since. Resolving the current session
 // outside the queue makes a genuinely different, concurrent `/new` name a
 // session that is already archived, so it reports the reset as done instead of
 // resetting a second time.
-func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat, receipt commandReceipt) string {
+func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandClaim, queue *sessionQueue) string {
 	claimed, err := receipt.claim(ctx)
 	if err != nil {
 		// Fail closed: without the guard this delivery could be a redelivery, and
@@ -182,9 +202,9 @@ func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat,
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
 	run := func(fn func(context.Context) error) (bool, error) { return true, fn(ctx) }
-	if d != nil && d.queue != nil {
+	if queue != nil {
 		run = func(fn func(context.Context) error) (bool, error) {
-			return d.queue.EnqueueControl(ctx, rc.SessionKey, fn)
+			return queue.EnqueueControl(ctx, rc.queueKey(), fn)
 		}
 	}
 	// Not NewSessionReply: it folds every outcome into a reply string, and the

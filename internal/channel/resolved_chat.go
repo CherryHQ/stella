@@ -55,6 +55,21 @@ func (rc *ResolvedChat) usesMainSession() bool {
 	return rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:")
 }
 
+// queueKey is the per-session FIFO boundary for turns, `/new` and `/abort`.
+// It must match the session the chat resolves to, not the channel instance the
+// message arrived on: a linked user's channels all share one main session
+// (ResolveMain ignores the channel context baked into SessionKey), so they
+// must share one queue slot too — otherwise a `/new` on one channel skips past
+// a turn still running on another and rotates the session underneath it.
+// Group and unlinked private chats keep SessionKey, which for them IS the
+// session binding.
+func (rc *ResolvedChat) queueKey() string {
+	if rc.usesMainSession() {
+		return rc.AgentID + ":user:" + rc.User.ID
+	}
+	return rc.SessionKey
+}
+
 // chatChannelRequest describes this chat's durable session binding. It is used
 // by every chat that is not pinned to the user's singleton main session: group
 // chats and private channel chats resolve (and rotate) by binding rather than by
