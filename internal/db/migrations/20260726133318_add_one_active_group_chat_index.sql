@@ -17,6 +17,12 @@
 -- resolution already answers with, so the losers were unreachable anyway and
 -- their history stays intact. ctx_conversation holds one row per session (not
 -- per message), so a plain in-transaction index build is fine here.
+-- The cleanup UPDATE and the index build both take locks behind live traffic;
+-- bound the wait so a busy deployment fails the migration and retries instead
+-- of queueing indefinitely (and stalling every later DML behind its request).
+-- SET LOCAL scopes the timeout to this migration's transaction.
+SET LOCAL lock_timeout = '10s';
+
 UPDATE ctx_conversation
 SET archived = true, updated_at = now()
 WHERE kind = 'chat' AND archived = false AND group_id IS NOT NULL
