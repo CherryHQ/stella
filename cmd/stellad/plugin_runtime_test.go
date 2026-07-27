@@ -84,7 +84,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 
 	host := &passthroughHost{workDir: dir}
 	reg := pkgtools.NewRegistry()
-	for _, tool := range agentsandbox.NewTools(host, "", "", nil) {
+	for _, tool := range agentsandbox.NewTools(host, "", "", nil, nil) {
 		reg.Register(tool)
 	}
 	defer func() { _ = reg.Close() }()
@@ -144,7 +144,7 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	workDir := t.TempDir()
 	host := &passthroughHost{workDir: workDir}
 	reg := pkgtools.NewRegistry()
-	for _, tool := range agentsandbox.NewTools(host, "", "", nil) {
+	for _, tool := range agentsandbox.NewTools(host, "", "", nil, nil) {
 		reg.Register(tool)
 	}
 	reg.Register(webfetch.New())

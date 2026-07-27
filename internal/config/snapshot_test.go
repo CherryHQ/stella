@@ -118,6 +118,44 @@ func TestSnapshotResolveModelTierWithoutDeclaredInput(t *testing.T) {
 	}
 }
 
+func TestSnapshotResolveVisionModel(t *testing.T) {
+	snap := Snapshot{
+		Provider: "anthropic",
+		Model:    "anthropic/claude-sonnet-4-6",
+		Providers: map[string]ProviderCreds{
+			"anthropic": {Type: "anthropic"},
+			"openai":    {Type: "openai", BaseURL: "https://api.example.com"},
+		},
+		ModelInputs: map[ModelKey][]string{
+			{Provider: "openai", Model: "gpt-4o"}: {"text", "image"},
+		},
+	}
+
+	// Unset must not fall back to the default model: sending images back to the
+	// model that cannot read them is the bug this tier exists to avoid.
+	if _, ok := snap.ResolveVisionModel(); ok {
+		t.Fatal("expected no vision model when model_vision is unset")
+	}
+	if got := snap.ResolveModelID(ModelTierVision); got != "" {
+		t.Errorf("ResolveModelID(vision) = %q, want empty", got)
+	}
+
+	snap.ModelVision = "openai/gpt-4o"
+	model, ok := snap.ResolveVisionModel()
+	if !ok {
+		t.Fatal("expected a vision model once model_vision is set")
+	}
+	if model.ID != "gpt-4o" || model.Provider != "openai" || model.API != "openai" {
+		t.Errorf("model = %+v, want the openai gpt-4o entry", model)
+	}
+	if model.BaseURL != "https://api.example.com" {
+		t.Errorf("BaseURL = %q, want the provider's", model.BaseURL)
+	}
+	if got := model.ImageCapability(); got != ai.ImageSupported {
+		t.Errorf("ImageCapability = %v, want ImageSupported", got)
+	}
+}
+
 func TestSnapshotModelInputHandlesNestedModelID(t *testing.T) {
 	snap := Snapshot{
 		Provider:  "openrouter",

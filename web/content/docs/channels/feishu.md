@@ -268,7 +268,7 @@ Semantic routing may keep chatter silent, so users should @mention the bot for r
 
 **Images or files not being analyzed?**
 
-- Ensure you are using a vision-capable model for image analysis.
+- Ensure you are using a vision-capable model for image analysis, or set a vision model tier for the agent so images are read as text.
 - For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**

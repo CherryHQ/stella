@@ -24,6 +24,7 @@ type Runner struct {
 	hooks         *hooks.HookSet
 	hookMeta      hooks.HookMeta
 	toolLifecycle *ToolLifecycle
+	imageText     ImageTextFunc
 	turnNotify    func(turn int, elapsed time.Duration) *string
 }
 
@@ -66,6 +67,13 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 	return func(r *Runner) {
 		r.toolLifecycle = tl
 	}
+}
+
+// WithImageText sets the renderer used to replace inline images with text when
+// the configured model cannot accept image input. Without it, images are sent
+// as-is — the right default for a model whose capability was never declared.
+func WithImageText(fn ImageTextFunc) Option {
+	return func(r *Runner) { r.imageText = fn }
 }
 
 // WithTurnNotify sets a callback invoked at the start of each turn.
@@ -140,6 +148,7 @@ func (r *Runner) loopConfig() loopConfig {
 		Hooks:           r.hooks,
 		HookMeta:        r.hookMeta,
 		ToolLifecycle:   r.toolLifecycle,
+		ImageText:       r.imageText,
 		TurnNotify:      r.turnNotify,
 	}
 }

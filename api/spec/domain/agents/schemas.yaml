@@ -27,6 +27,7 @@ components:
         model_strong_thinking: { type: string }
         model_fast: { type: string }
         model_fast_thinking: { type: string }
+        model_vision: { type: string }
         system_prompt: { type: string }
         soul: { type: string }
         workspace: { type: string }
@@ -53,6 +54,7 @@ components:
         model_strong_thinking: { type: string }
         model_fast: { type: string }
         model_fast_thinking: { type: string }
+        model_vision: { type: string }
         system_prompt: { type: string }
         soul: { type: string }
         workspace: { type: string }

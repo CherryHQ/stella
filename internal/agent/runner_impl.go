@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -58,6 +59,9 @@ type runnerConfig struct {
 	DelegateRunner      delegatetool.SessionRunner
 	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
+	// Vision renders images as text for the read tool and for inline images in
+	// the transcript. Nil degrades both to local Xberg extraction.
+	Vision *vision.Service
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -70,6 +74,7 @@ type runner struct {
 	system        string
 	hookSet       *hooks.HookSet
 	toolLifecycle *coreagent.ToolLifecycle
+	imageText     coreagent.ImageTextFunc
 	chatTimeout   time.Duration
 	session       pkgsandbox.Session // runner-owned sandbox session lifecycle
 	sandboxCfg    sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
@@ -125,7 +130,8 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
-	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle)
+	imageText := imageTextFunc(cfg.Vision)
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, imageText)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -142,6 +148,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		system:        systemPrompt,
 		hookSet:       hookSet,
 		toolLifecycle: cfg.ToolLifecycle,
+		imageText:     imageText,
 		chatTimeout:   cfg.ChatTimeout,
 		session:       session,
 		sandboxCfg:    cfg.Sandbox,
@@ -150,13 +157,13 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}, nil
 }
 
-func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, imageText coreagent.ImageTextFunc) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, toolSet, toolDefs)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, imageText, toolSet, toolDefs)
 }
 
-func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, imageText coreagent.ImageTextFunc, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
 	return coreagent.NewRunner(coreagent.RunnerConfig{
 		Stream:          stream,
 		Model:           model,
@@ -167,6 +174,7 @@ func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, stream
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
+		coreagent.WithImageText(imageText),
 	)
 }
 
@@ -214,7 +222,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		Runtime: session,
 	}
 
-	coreTools := buildSandboxCoreTools(session, bc, cfg.Sandbox.SessionSecretValues)
+	coreTools := buildSandboxCoreTools(session, bc, cfg.Sandbox.SessionSecretValues, cfg.Vision)
 	if len(coreTools) == 0 {
 		return nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
@@ -423,7 +431,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, toolSet, toolDefs)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.imageText, toolSet, toolDefs)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return

@@ -95,8 +95,14 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 		turnCfg.ToolDefinitions = effectiveToolDefs
 		turnCfg.Model = effectiveModel
 
+		// Channels inline images straight into the transcript, so a text-only
+		// model can meet one without ever calling a tool. Render them to text
+		// for this request only; the stored history keeps the images so a later
+		// switch to a vision model still sees them.
+		outgoing := materializeImages(streamCtx, turnCfg, normalized)
+
 		start := time.Now()
-		result, err := streamAssistant(streamCtx, normalized, turnCfg, emit)
+		result, err := streamAssistant(streamCtx, outgoing, turnCfg, emit)
 		duration := time.Since(start)
 		complete := result.Message
 

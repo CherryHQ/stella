@@ -26,15 +26,18 @@ Once saved, Stella fetches the available models from that provider automatically
 
 ## Model tiers
 
-Each agent in Stella uses up to three model tiers:
+Each agent in Stella uses up to four model tiers:
 
 | Tier        | When Stella uses it                                   |
 | ----------- | ----------------------------------------------------- |
 | **Default** | Everyday conversations and general tasks              |
 | **Strong**  | Hard problems, complex reasoning, multi-step analysis |
 | **Fast**    | Quick checks, simple lookups, lightweight subtasks    |
+| **Vision**  | Reading images for a model that cannot see them       |
 
 If you only set the default model, Stella uses it for everything. The strong and fast tiers are optional -- set them when you want Stella to pick the right tool for the job automatically.
+
+The vision tier never answers you directly. When a model that cannot accept images meets one -- a photo you sent in a channel, or an image file the agent opens -- Stella asks the vision model to transcribe the text in it and describe what it shows, then hands the answering model that text. Leave it unset and Stella falls back to local text extraction, which reads text in an image but cannot describe a photo, chart, or layout. Unlike the other tiers it never falls back to your default model: that is the model that could not read the image to begin with.
 
 Configure model tiers per agent in the Web UI on the agent settings page.
 

@@ -127,7 +127,7 @@ func TestReadTool_ReadsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := &stubHost{}
-	tool := newReadTool(host, "")
+	tool := newReadTool(host, "", nil)
 	out, err := tool.Execute(context.Background(), map[string]any{"path": file})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

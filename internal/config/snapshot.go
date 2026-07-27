@@ -11,6 +11,10 @@ import (
 const (
 	ModelTierStrong = "strong"
 	ModelTierFast   = "fast"
+	// ModelTierVision is the auxiliary multimodal tier used to render images as
+	// text. It is the one tier that does not fall back to the default model:
+	// see ResolveVisionModel.
+	ModelTierVision = "vision"
 )
 
 // ProviderCreds holds credentials for a single provider.
@@ -43,6 +47,7 @@ type Snapshot struct {
 	ModelStrongThinking string
 	ModelFast           string
 	ModelFastThinking   string
+	ModelVision         string
 	Workspace           string
 	Sandbox             SandboxConfig
 	APIKey              string
@@ -90,6 +95,11 @@ func (s *Snapshot) ResolveModelID(tier string) string {
 		if s.ModelFast != "" {
 			return s.ModelFast
 		}
+	case ModelTierVision:
+		// No fallback on purpose: an unset vision tier means the deployment has
+		// no image-understanding model, not "use the main one". Falling back
+		// would send images straight back to the model that cannot read them.
+		return s.ModelVision
 	default: // strong or unknown tier
 		if s.ModelStrong != "" {
 			return s.ModelStrong
@@ -149,6 +159,17 @@ func (s *Snapshot) ResolveModelTier(tier string) ai.Model {
 		BaseURL:  baseURL,
 		Input:    s.ModelInput(provID, modelID),
 	}
+}
+
+// ResolveVisionModel returns the agent's auxiliary vision model and true when
+// one is configured. It reports false — rather than a model the caller must
+// then second-guess — when the vision tier is unset, which is the signal that
+// image understanding must degrade to local text extraction.
+func (s *Snapshot) ResolveVisionModel() (ai.Model, bool) {
+	if s.ModelVision == "" {
+		return ai.Model{}, false
+	}
+	return s.ResolveModelTier(ModelTierVision), true
 }
 
 // ResolveProviderCreds returns the API key and base URL for the given

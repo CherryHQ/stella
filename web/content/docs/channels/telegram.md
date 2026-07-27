@@ -82,7 +82,7 @@ Use cases: describe screenshots, analyze diagrams, read documents from photos, e
 
 If the model returns images (e.g. from tool results), they are sent back as Telegram photos after the text response.
 
-> **Note:** Image support requires a vision-capable model (e.g. Claude 3+, GPT-4o).
+> **Note:** Image support requires a vision-capable model (e.g. Claude 3+, GPT-4o), or a vision model tier configured for the agent.
 
 ## File/Document Support
 
@@ -163,7 +163,7 @@ All settings below are managed through the Web UI.
 
 **Images or files not being analyzed?**
 
-- Ensure you are using a vision-capable model (e.g. Claude 3+, GPT-4o).
+- Ensure you are using a vision-capable model (e.g. Claude 3+, GPT-4o), or set a vision model tier for the agent so images are read as text.
 - For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**

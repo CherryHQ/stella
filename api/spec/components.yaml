@@ -68,6 +68,8 @@ components:
           type: string
         model_fast_thinking:
           type: string
+        model_vision:
+          type: string
         system_prompt:
           type: string
         soul:
@@ -112,6 +114,8 @@ components:
         model_fast:
           type: string
         model_fast_thinking:
+          type: string
+        model_vision:
           type: string
         system_prompt:
           type: string

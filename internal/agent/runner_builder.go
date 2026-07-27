@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -220,6 +221,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		builtinTools := append([]BuiltinTool(nil), cfg.BuiltinTools...)
 		perRunTools := append([]tools.Tool(nil), params.ExtraTools...)
 
+		// One vision service per runner: its rendering cache then lives and dies
+		// with the session, which is the scope where the same image recurs on
+		// every turn. Agents with no vision tier get an Xberg-only service.
+		visionSvc := vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder))
+
 		return newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
 				API:     apiName,
@@ -246,6 +252,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			ToolLifecycle:       cfg.ToolLifecycle,
 			DelegateRunner:      params.DelegateRunner,
 			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
+			Vision:              visionSvc,
 		})
 	}
 }

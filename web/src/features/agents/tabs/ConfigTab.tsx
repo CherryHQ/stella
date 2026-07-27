@@ -264,7 +264,7 @@ export function ConfigTab({ state, onSetState }: Props) {
             — {t("agents.form.modelProvider")}
           </span>
         </p>
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="rounded-lg border border-border p-4 space-y-4">
             <ModelComboField
               label={t("agents.form.modelDefault")}
@@ -311,6 +311,18 @@ export function ConfigTab({ state, onSetState }: Props) {
               value={form.model_fast_thinking ?? ""}
               onChange={(v) => setForm({ model_fast_thinking: v })}
             />
+          </div>
+          <div className="rounded-lg border border-border p-4 space-y-4">
+            <ModelComboField
+              label={t("agents.form.modelVision")}
+              field="model_vision"
+              value={form.model_vision ?? ""}
+              placeholder={t("agents.form.modelVisionUnset")}
+              optional
+              cachedModels={cachedModels}
+              onChange={(v) => setForm({ model_vision: v })}
+            />
+            <p className="text-xs text-muted-foreground">{t("agents.form.modelVisionHint")}</p>
           </div>
         </div>
       </div>
