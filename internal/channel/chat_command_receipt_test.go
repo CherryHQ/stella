@@ -122,20 +122,29 @@ func TestDMNewDistinctAccountsAreDistinctMessages(t *testing.T) {
 	}
 }
 
-// TestDMNewReceiptIsInertWithoutAMessageID mirrors the group rule: a delivery
-// Stella cannot name runs unguarded rather than collapsing every such message
-// onto one shared row.
-func TestDMNewReceiptIsInertWithoutAMessageID(t *testing.T) {
+// TestDMNewFailsClosedWithoutAMessageID mirrors the group rule: a delivery
+// Stella cannot name could be a redelivery of a `/new` that already ran, and
+// the reset is destructive, so it refuses to run instead of running unguarded.
+func TestDMNewFailsClosedWithoutAMessageID(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	c := &Coordinator{db: db, queue: newSessionQueue()}
 	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
 
-	for i := range 2 {
-		msg := pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "tg-bot-a", SenderID: "tg-acct-1"}
-		if reply := c.handleNewSessionCommand(ctx, rc, msg); reply != pkgchannel.NewSessionStartedMessage {
-			t.Fatalf("/new #%d reply = %q, want a rotation", i, reply)
-		}
+	before, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+	msg := pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "tg-bot-a", SenderID: "tg-acct-1"}
+	if reply := c.handleNewSessionCommand(ctx, rc, msg); reply != pkgchannel.NewSessionUnverifiableMessage {
+		t.Fatalf("/new without a message id reply = %q, want %q", reply, pkgchannel.NewSessionUnverifiableMessage)
+	}
+	after, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession after refusal: %v", err)
+	}
+	if after.ID != before.ID {
+		t.Fatalf("an unidentifiable /new rotated the session: %q -> %q", before.ID, after.ID)
 	}
 	var count int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_chat_command_receipt`).Scan(&count); err != nil {

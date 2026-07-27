@@ -22,8 +22,10 @@ import (
 // message across that: a routing-derived key would let a redelivery execute a
 // second time against the new target.
 //
-// Inert on missing pieces for the same reason as the group receipt: a delivery
-// Stella cannot name runs unguarded rather than collapsing onto a shared row.
+// Missing pieces follow the group receipt's rule: no query set (a coordinator
+// built without a database) runs unguarded, but a delivery Stella cannot name
+// fails the claim closed — `/new` is destructive, and without an identity a
+// redelivery cannot be told apart from a new command.
 type chatCommandReceipt struct {
 	q         *sqlc.Queries
 	channelID string
@@ -34,19 +36,11 @@ type chatCommandReceipt struct {
 }
 
 // chatReceiptForMessage derives the receipt's physical coordinates from the
-// inbound message: the configured channel instance (falling back to the
-// platform name), and the platform chat id (falling back to the sender's
-// platform id — DMs on most platforms leave ChatID empty, and one linked
-// Stella user can own several platform accounts whose message ids collide).
+// inbound message (messageDeliveryCoordinates); one linked Stella user can own
+// several platform accounts whose message ids collide, which is why the chat
+// key is part of the identity.
 func chatReceiptForMessage(q *sqlc.Queries, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command string) chatCommandReceipt {
-	channelID := msg.ChannelID
-	if channelID == "" {
-		channelID = msg.Platform
-	}
-	chatKey := msg.ChatID
-	if chatKey == "" {
-		chatKey = msg.SenderID
-	}
+	channelID, chatKey := messageDeliveryCoordinates(msg)
 	return chatCommandReceipt{
 		q:         q,
 		channelID: channelID,
@@ -57,6 +51,36 @@ func chatReceiptForMessage(q *sqlc.Queries, rc *ResolvedChat, msg pkgchannel.Inc
 	}
 }
 
+// messageDeliveryCoordinates names the physical chat a message arrived in: the
+// configured channel instance (falling back to the platform name) and the
+// platform chat id (falling back to the sender's platform id — DMs on most
+// platforms leave ChatID empty). Both the command receipt and the turn's
+// message marker derive from these, so a message keeps one identity everywhere.
+func messageDeliveryCoordinates(msg pkgchannel.IncomingMessage) (channelID, chatKey string) {
+	channelID = msg.ChannelID
+	if channelID == "" {
+		channelID = msg.Platform
+	}
+	chatKey = msg.ChatID
+	if chatKey == "" {
+		chatKey = msg.SenderID
+	}
+	return channelID, chatKey
+}
+
+// messagePhysicalKey flattens a message's delivery coordinates and message id
+// into the one-string identity a turn carries (agentctx.WithTurnMessageID).
+// Empty when the delivery has no stable id: a marker that collapses every
+// id-less message onto one value would make every such turn look like the same
+// turn.
+func messagePhysicalKey(msg pkgchannel.IncomingMessage) string {
+	channelID, chatKey := messageDeliveryCoordinates(msg)
+	if channelID == "" || chatKey == "" || msg.MessageID == "" {
+		return ""
+	}
+	return channelID + ":" + chatKey + ":" + msg.MessageID
+}
+
 func (r chatCommandReceipt) inert() bool {
 	return r.q == nil || r.channelID == "" || r.chatKey == "" || r.messageID == ""
 }
@@ -65,8 +89,11 @@ func (r chatCommandReceipt) inert() bool {
 // of a message whose command has already run. Same contract as the group
 // receipt: claimed before the command runs, consumed claims are permanent.
 func (r chatCommandReceipt) claim(ctx context.Context) (bool, error) {
-	if r.inert() {
+	if r.q == nil {
 		return true, nil
+	}
+	if r.channelID == "" || r.chatKey == "" || r.messageID == "" {
+		return false, errUnidentifiedCommand
 	}
 	rows, err := r.q.CreateChatCommandReceipt(ctx, sqlc.CreateChatCommandReceiptParams{
 		ChannelID: r.channelID,

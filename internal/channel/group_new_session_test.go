@@ -88,21 +88,20 @@ func TestGroupNewRedeliveryRotatesOnce(t *testing.T) {
 	}
 }
 
-// TestGroupNewReceiptIsInertWithoutAMessageID covers deliveries Stella cannot
-// name. Storing a blank id would collapse every such message onto one row and
-// make the first `/new` in a group permanently suppress the rest.
-func TestGroupNewReceiptIsInertWithoutAMessageID(t *testing.T) {
+// TestGroupNewFailsClosedWithoutAMessageID covers deliveries Stella cannot
+// name: without an id a redelivery of a `/new` that already ran is
+// indistinguishable from a new command, so the destructive reset refuses to
+// run instead of running unguarded.
+func TestGroupNewFailsClosedWithoutAMessageID(t *testing.T) {
 	const groupID = "11111111-1111-4111-8111-111111111111"
 	db, receiptGroupID := newReceiptTestGroup(t, "grp-noid")
 	d := &GroupDispatcher{q: sqlc.New(db)}
 	rc := newCompactTestChat(t, groupID, auth.User{})
 	ctx := context.Background()
 
-	for i := range 2 {
-		receipt := newCommandReceipt(sqlc.New(db), receiptGroupID, "telegram", "", newSessionCommand)
-		if reply := d.rotateGroupChat(ctx, rc, receipt); reply != pkgchannel.NewSessionStartedMessage {
-			t.Fatalf("/new #%d reply = %q, want a rotation", i, reply)
-		}
+	receipt := newCommandReceipt(sqlc.New(db), receiptGroupID, "telegram", "", newSessionCommand)
+	if reply := d.rotateGroupChat(ctx, rc, receipt); reply != pkgchannel.NewSessionUnverifiableMessage {
+		t.Fatalf("/new without a message id reply = %q, want %q", reply, pkgchannel.NewSessionUnverifiableMessage)
 	}
 	var count int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_group_command_receipt`).Scan(&count); err != nil {

@@ -208,6 +208,30 @@ func TestGroupConfirmRejectsRedeliveredTurn(t *testing.T) {
 	}
 }
 
+// TestDMConfirmRejectsRedeliveredTurn is the DM counterpart of the group test
+// above: a platform can redeliver the DM that asked for the reset, and the
+// redelivery starts a new runtime turn — so the per-turn id alone would
+// mistake it for the user's answer. The message's physical identity is what
+// keeps the same user message from counting twice.
+func TestDMConfirmRejectsRedeliveredTurn(t *testing.T) {
+	f := newFixture(t)
+	askCtx, before := f.dmTurn(t, newTurnID())
+	askCtx = agentctx.WithTurnMessageID(askCtx, "tg-bot-a:acct-1:msg-7")
+	nonce := requestNew(t, f, askCtx)
+
+	// Same platform message, new runtime turn: not an answer.
+	redelivered := agentctx.WithTurnMessageID(dmTurnCtx(before.ID, newTurnID()), "tg-bot-a:acct-1:msg-7")
+	if _, err := confirmNew(f, redelivered, nonce); err == nil || !strings.Contains(err.Error(), "same turn") {
+		t.Fatalf("a redelivered DM must not count as an answer, got %v", err)
+	}
+
+	// A genuinely new message still confirms.
+	answer := agentctx.WithTurnMessageID(dmTurnCtx(before.ID, newTurnID()), "tg-bot-a:acct-1:msg-8")
+	if _, err := confirmNew(f, answer, nonce); err != nil {
+		t.Fatalf("a new user message must be able to confirm: %v", err)
+	}
+}
+
 // TestRefusesTurnsWithoutChatBinding is the exposure guard. Every surface that
 // is not a chat channel — the Web UI, the API, webhooks, scheduler/task/delegate
 // runs — reaches the tool without a chat binding and must be refused, including

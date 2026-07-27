@@ -22,9 +22,9 @@ CREATE TABLE channel_group_command_receipt (
     -- client_message_id for the same group.
     platform   TEXT NOT NULL,
     -- Platform message id, or the Web client_message_id. Never empty: a message
-    -- with no id cannot be recognised on redelivery, so the caller skips the
-    -- receipt entirely rather than storing a blank that would collapse every
-    -- such message onto one row.
+    -- with no id cannot be recognised on redelivery, so the caller refuses to
+    -- run the destructive command at all rather than storing a blank that
+    -- would collapse every such message onto one row.
     message_id TEXT NOT NULL,
     command    TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -55,6 +55,12 @@ const NewSessionStartedMessage = "Started a fresh session. Previous history stay
 // another one already rotated the same chat, so it has nothing left to do.
 const SessionAlreadyResetMessage = "Session was already reset."
 
+// NewSessionUnverifiableMessage is the reply when a `/new` arrives on a
+// delivery that carries no stable message id. Without an identity the receipt
+// cannot tell a redelivery from a new command, and `/new` is destructive, so
+// it fails closed instead of running unguarded.
+const NewSessionUnverifiableMessage = "⚠️ Cannot start a new session: this delivery has no message id, so a duplicate could not be detected. The session was not reset."
+
 // GroupNewSessionUnavailableMessage is the reply when a group `/new` arrives at
 // a deployment whose group plumbing (group identity resolution or the member
 // roster) is not wired, so there is no roster to rotate against.

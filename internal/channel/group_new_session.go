@@ -40,12 +40,20 @@ import (
 // newSessionCommand is the command string recorded on a `/new` receipt.
 const newSessionCommand = "/new"
 
+// errUnidentifiedCommand reports a destructive command on a delivery that
+// carries no stable message id. Without an identity a redelivery cannot be
+// told apart from a new command, so the command fails closed instead of
+// running unguarded.
+var errUnidentifiedCommand = errors.New("command message has no stable identity")
+
 // commandReceipt is the durable "this inbound message's command already ran"
-// marker for one group command. A receipt with no queries or no message id is
-// inert: a delivery Stella cannot name (a platform that sends no message id, a
-// Web send with no client_message_id) cannot be recognised on redelivery either,
-// so it runs unguarded exactly as before rather than collapsing every such
-// message onto one shared row.
+// marker for one group command. A receipt with no query set (a coordinator
+// built without a database) runs unguarded — there is no store to guard with —
+// but a delivery Stella cannot name (a platform that sends no message id, a
+// Web send with no client_message_id) fails the claim with
+// errUnidentifiedCommand instead: it could not be recognised on redelivery
+// either, and collapsing every such message onto one shared row would be
+// worse.
 type commandReceipt struct {
 	q         *sqlc.Queries
 	groupID   string
@@ -71,8 +79,11 @@ func (r commandReceipt) inert() bool {
 // replay this receipt exists to prevent. One row per executed command keeps the
 // table small on its own; rows leave with their group (ON DELETE CASCADE).
 func (r commandReceipt) claim(ctx context.Context) (bool, error) {
-	if r.inert() {
+	if r.q == nil {
 		return true, nil
+	}
+	if r.groupID == "" || r.messageID == "" {
+		return false, errUnidentifiedCommand
 	}
 	rows, err := r.q.CreateGroupCommandReceipt(ctx, sqlc.CreateGroupCommandReceiptParams{
 		GroupID:   r.groupID,
@@ -188,6 +199,9 @@ func (d *GroupDispatcher) rotateGroupChat(ctx context.Context, rc *ResolvedChat,
 // resetting a second time.
 func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandClaim, queue *sessionQueue) string {
 	claimed, err := receipt.claim(ctx)
+	if errors.Is(err, errUnidentifiedCommand) {
+		return pkgchannel.NewSessionUnverifiableMessage
+	}
 	if err != nil {
 		// Fail closed: without the guard this delivery could be a redelivery, and
 		// running it would be destructive. The user can just ask again.

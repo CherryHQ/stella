@@ -13,6 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -355,7 +356,10 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 	}
 
 	// Not a command or recognized intent — enqueue a chat response for this session.
-	stream, err := c.queuedChat(ctx, rc, msg.Content)
+	// The message's physical identity rides along so session_control can tell a
+	// platform redelivery (same message, new runtime turn) from a genuinely new
+	// user message when it validates a rotation confirmation.
+	stream, err := c.queuedChat(agentctx.WithTurnMessageID(ctx, messagePhysicalKey(msg)), rc, msg.Content)
 	if err != nil {
 		return "", false, nil, err
 	}

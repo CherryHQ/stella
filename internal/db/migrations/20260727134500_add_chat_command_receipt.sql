@@ -31,8 +31,9 @@ CREATE TABLE channel_chat_command_receipt (
     -- identity.
     chat_key   TEXT NOT NULL,
     -- Platform message id. Never empty: a message with no id cannot be
-    -- recognised on redelivery, so the caller skips the receipt entirely rather
-    -- than storing a blank that would collapse every such message onto one row.
+    -- recognised on redelivery, so the caller refuses to run the destructive
+    -- command at all rather than storing a blank that would collapse every
+    -- such message onto one row.
     message_id TEXT NOT NULL,
     command    TEXT NOT NULL,
     -- The chat binding the command executed under, for auditing only.
