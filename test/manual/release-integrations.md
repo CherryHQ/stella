@@ -1,29 +1,63 @@
 # Release integration manual checks
 
-> **Current status:** this is a planned release gate. The current Tag workflow
-> publishes GoReleaser artifacts and Docker images directly, so these checks are
-> post-release verification until candidate build and promotion are separated
-> in the second implementation phase.
+The Tag workflow now builds one immutable candidate, completes all automatic
+jobs, uploads an automatic summary, pauses once at the `release-approval`
+Environment, records the decisions below, runs the strict final aggregate, and
+only then permits Promotion. These checks never rebuild the candidate.
 
-Use this runbook only for release scenarios that currently lack a compliant,
-stable automation target. Under the current workflow, the mentor downloads the
-exact published archive or image digest produced by the Tag workflow, verifies
-that its commit and checksum match the release summary, and runs it in a local
+The mentor downloads the candidate archive or image digest identified by the
+automatic summary, verifies its commit and checksum, and runs it in a local
 Linux/Docker test environment. Use a fresh `STELLA_HOME`, database, and Run ID
 for every release.
 
-The target second-phase workflow runs these checks after automated candidate
-validation and before promotion, without rebuilding the candidate. At that
-point, record the release Tag and commit, candidate checksum or image digest,
-tester, time, environment, result, and evidence link for every check. A skipped
-or externally blocked check needs an explicit waiver tied to the current commit
-and Scenario ID. A product failure cannot be waived, and absence of a result is
-not a pass. Promotion requires every Manual Scenario to have a Pass or an
-allowed waiver.
+## GitHub Environment contract
 
-Until that promotion boundary exists, record the same evidence against the
-published artifact. Treat a product failure as a release incident; do not claim
-that this runbook blocked publication.
+`release-test` owns automatic Live credentials and has no required reviewer.
+It is restricted to Release Tags. The tracked non-secret registry is
+`test/live/targets.yaml`; print the current resource list with:
+
+```bash
+mise run release:live:resources
+```
+
+`release-approval` is the only Environment with a required reviewer. Configure
+the mentor as reviewer and set these non-secret variables for the current
+candidate before approving or rerunning the Manual job:
+
+- `STELLA_MANUAL_COMMIT`: exact candidate commit; stale or missing values fail
+  closed.
+- `STELLA_MANUAL_APPROVER`: reviewer identity recorded in result evidence.
+- `STELLA_MANUAL_X06_S02_STATUS` and
+  `STELLA_MANUAL_X13_S02_STATUS`: `pass`, `product_failure`,
+  `external_blocked`, `not_run`, `manual_pending`, or `waived`.
+- Matching `_EVIDENCE`: redacted evidence URL or immutable audit reference.
+- Matching `_REASON`: required for every non-Pass outcome.
+- Matching `_ORIGINAL_STATUS`: required only for `waived`.
+- `STELLA_RELEASE_WAIVERS_JSON`: optional JSON array for eligible automatic
+  outcomes. Each item contains `scenario_id`, `original_status`, `reason`, and
+  `evidence`.
+
+Example waiver shape:
+
+```json
+[
+  {
+    "scenario_id": "X12-S02",
+    "original_status": "external_blocked",
+    "reason": "provider status page confirms a release-window outage",
+    "evidence": "https://status.example/incidents/example"
+  }
+]
+```
+
+Only `external_blocked`, `not_run`, `flaky`, and `manual_pending` are waivable.
+`product_failure` and `missing_result` cannot be waived. Every waiver is bound
+to the current Commit and Scenario by the runner. Clear or update per-release
+variables after the run so a later candidate cannot inherit stale decisions.
+
+For every Manual check, record the release Tag and commit, candidate checksum or
+image digest, tester, time, environment, result, and redacted evidence link.
+Promotion requires every Manual Scenario to have a Pass or an allowed waiver.
 
 ## X06-S02: Weixin live message
 

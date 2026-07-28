@@ -1,0 +1,114 @@
+schema_version: 1
+
+# This registry stores names and non-secret intent only. Values are supplied by
+# the company-owned release-test GitHub Environment and must never be committed.
+targets:
+  - id: feishu-message
+    capability_id: X03
+    scenario_id: X03-S02
+    adapter: pending
+    summary: A controlled Feishu sender reaches the release candidate and observes its streamed reply.
+    resources:
+      - name: STELLA_LIVE_FEISHU_CONFIG_JSON
+        secret: true
+        required: true
+        description: Company test app, tenant and chat identifiers, credentials, sender automation, and observer settings.
+
+  - id: qq-message
+    capability_id: X04
+    scenario_id: X04-S02
+    adapter: pending
+    summary: A controlled QQ sender reaches the release candidate and observes its streamed reply.
+    resources:
+      - name: STELLA_LIVE_QQ_CONFIG_JSON
+        secret: true
+        required: true
+        description: Company test bot, environment, credentials, sender automation, and observer settings.
+
+  - id: telegram-message
+    capability_id: X05
+    scenario_id: X05-S02
+    adapter: pending
+    summary: A controlled Telegram sender reaches the release candidate and observes its streamed reply.
+    resources:
+      - name: STELLA_LIVE_TELEGRAM_CONFIG_JSON
+        secret: true
+        required: true
+        description: Company bot, chat or channel, bot token, sender automation session, and observer settings.
+
+  - id: email-round-trip
+    capability_id: X08
+    scenario_id: X08-S02
+    adapter: pending
+    summary: A dedicated mailbox completes one tagged IMAP and SMTP round trip.
+    resources:
+      - name: STELLA_LIVE_EMAIL_CONFIG_JSON
+        secret: true
+        required: true
+        description: IMAP and SMTP hosts, ports, TLS modes, mailbox credentials, and controlled correspondent.
+
+  - id: external-cli-plugin
+    capability_id: X10
+    scenario_id: X10-S03
+    adapter: pending
+    summary: One managed external CLI plugin installs, runs, reloads, and reports status.
+    resources:
+      - name: STELLA_LIVE_CLI_PLUGIN_CONFIG_JSON
+        secret: true
+        required: true
+        description: Selected plugin target, company credentials, safe smoke operation, and cleanup identity.
+
+  - id: public-feed
+    capability_id: X11
+    scenario_id: X11-S03
+    adapter: pending
+    summary: A stable public feed is fetched and ingested without fixture substitution.
+    resources:
+      - name: STELLA_LIVE_FEED_URL
+        secret: false
+        required: true
+        description: Stable company-approved public feed URL with predictable test content.
+
+  - id: model-providers
+    capability_id: X12
+    scenario_id: X12-S02
+    adapter: pending
+    summary: The agreed advertised provider set streams text and completes a controlled tool call.
+    resources:
+      - name: STELLA_LIVE_PROVIDER_TARGETS_JSON
+        secret: true
+        required: true
+        description: Provider kinds, endpoints, models, company API keys, request budgets, and expected tool-call behavior.
+
+  - id: embedding-provider
+    capability_id: X14
+    scenario_id: X14-S02
+    adapter: pending
+    summary: A company embedding target indexes a known corpus and returns the expected semantic result.
+    resources:
+      - name: STELLA_LIVE_EMBEDDING_TARGET_JSON
+        secret: true
+        required: true
+        description: Embedding endpoint, model, company API key, request budget, and expected fixture corpus result.
+
+  - id: remote-marketplace
+    capability_id: X16
+    scenario_id: X16-S02
+    adapter: pending
+    summary: A stable public test skill completes search, install, load, upgrade, and removal.
+    resources:
+      - name: STELLA_LIVE_MARKETPLACE_CONFIG_JSON
+        secret: true
+        required: true
+        description: Supported source, stable test skill, optional company token, expected version, and cleanup identity.
+
+  - id: external-system-skills
+    capability_id: X17
+    scenario_id: X17-S02
+    adapter: pending
+    summary: The agreed external-tool system skills execute safe observable smoke operations.
+    resources:
+      - name: STELLA_LIVE_SYSTEM_SKILL_TARGETS_JSON
+        secret: true
+        required: true
+        description: Selected skills, company credentials, bounded operations, expected results, and cleanup instructions.

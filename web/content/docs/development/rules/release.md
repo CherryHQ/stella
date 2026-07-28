@@ -65,8 +65,16 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
       candidate System suite and its Docker digest.
     - Docker and Helm receive a fresh external DSN from the pinned Stella PG
       Runtime; each stage records diagnostics and proves cleanup.
+    - Core Go/System, Browser, deterministic Contract, and registered Live
+      runners emit one shared result format for the same candidate.
+    - The automatic aggregate scans all merged artifacts for configured Live
+      secrets and publishes a Scenario-by-Scenario summary.
+    - The `release-approval` Environment records the two Manual scenarios and
+      any eligible, Commit-bound waivers at the workflow's only human wait.
+    - The final aggregate requires every Scenario result, rejects Product
+      Failure and missing results, and verifies the complete artifact tree.
     - The sole Promotion job creates the GitHub Release, formal Docker tags, and
-      stable Homebrew update only after those immutable-candidate gates pass.
+      stable Homebrew update only after the final Release Full Test gate passes.
 
 If a candidate or gate fails, keep the Git tag for diagnosis but do not publish
 formal release assets. Re-run failed downstream jobs to retain successful
@@ -108,8 +116,8 @@ mise run release:validate
 The capability inventory check (`test:capabilities`) validates the maintained
 release scenario map and writes its coverage and gap reports before ordinary
 tests run. The system suite (`system-test`) remains part of this local
-preparation gate while the Release Full Test workflow is being completed. See
-`system-test.md`.
+preparation gate and is also mapped into release Scenario results when a Tag
+workflow runs. See `system-test.md`.
 
 The candidate identity commands are separate from ordinary validation:
 

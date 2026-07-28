@@ -221,7 +221,9 @@ func (r Result) Validate() error {
 	if containsControl(r.Reason) {
 		return fmt.Errorf("reason cannot contain control characters")
 	}
-	if r.Status == StatusPass && r.Attempt > 1 {
+	// A manual decision may be recorded on a later workflow attempt after the
+	// reviewer supplies evidence; that is not a flaky product execution.
+	if r.Status == StatusPass && r.Attempt > 1 && r.Runner.Kind != RunnerManual {
 		return fmt.Errorf("attempt %d cannot be pass; a retry that succeeds must be flaky", r.Attempt)
 	}
 	if r.Status == StatusFlaky && r.Attempt < 2 {

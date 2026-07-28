@@ -63,6 +63,20 @@ func TestRunFromEnvRejectsPartialMetadata(t *testing.T) {
 	}
 }
 
+func TestPresentSecretValuesFromEnvSkipsUnconfiguredTargets(t *testing.T) {
+	t.Setenv("CONFIGURED_LIVE_SECRET", "canary")
+	if err := os.Unsetenv("MISSING_LIVE_SECRET"); err != nil {
+		t.Fatal(err)
+	}
+	values, err := PresentSecretValuesFromEnv([]string{"CONFIGURED_LIVE_SECRET", "MISSING_LIVE_SECRET"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values["CONFIGURED_LIVE_SECRET"] != "canary" {
+		t.Fatalf("unexpected present secrets: %v", values)
+	}
+}
+
 func writeJSONFixture(t *testing.T, path string, value any) {
 	t.Helper()
 	data, err := json.MarshalIndent(value, "", "  ")

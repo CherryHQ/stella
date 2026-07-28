@@ -32,6 +32,11 @@ func main() {
 		"",
 		"comma-separated secret environment variable names to scan for",
 	)
+	reportOnly := flag.Bool(
+		"report-only",
+		false,
+		"write the current gate report without failing on release blockers",
+	)
 	flag.Parse()
 
 	target := releasecontract.Run{ID: *runID, Version: *version, Commit: *commit}
@@ -70,7 +75,7 @@ func main() {
 		report.Summary.IgnoredStaleResults,
 	)
 	fmt.Printf("JSON report: %s\nMarkdown report: %s\n", jsonPath, markdownPath)
-	if !report.ReleaseAllowed {
+	if !report.ReleaseAllowed && !*reportOnly {
 		os.Exit(2)
 	}
 }
@@ -105,7 +110,7 @@ func run(
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return capabilities.GateReport{}, "", "", fmt.Errorf("create release run directory: %w", err)
 	}
-	secrets, err := releasecontract.SecretValuesFromEnv(secretNames)
+	secrets, err := releasecontract.PresentSecretValuesFromEnv(secretNames)
 	if err != nil {
 		return capabilities.GateReport{}, "", "", err
 	}

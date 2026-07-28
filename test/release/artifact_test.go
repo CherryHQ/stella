@@ -62,3 +62,41 @@ func TestValidateArtifactFilesRejectsSymlink(t *testing.T) {
 		t.Fatalf("expected symlink rejection, got %v", err)
 	}
 }
+
+func TestArtifactForFileBuildsRunScopedReference(t *testing.T) {
+	root := t.TempDir()
+	runDir := RunDirectory(root, "release-1")
+	artifactPath := filepath.Join(runDir, "artifacts", "runner", "evidence.log")
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifactPath, []byte("release evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifact, err := ArtifactForFile(root, "release-1", "runner-log", artifactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Kind != "runner-log" ||
+		artifact.Path != "dist/test-results/release/release-1/artifacts/runner/evidence.log" ||
+		len(artifact.SHA256) != 64 {
+		t.Fatalf("unexpected artifact: %+v", artifact)
+	}
+}
+
+func TestArtifactForFileRejectsAnotherRun(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(RunDirectory(root, "release-2"), "evidence.log")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("evidence"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ArtifactForFile(root, "release-1", "runner-log", path)
+	if err == nil || !strings.Contains(err.Error(), "must stay below") {
+		t.Fatalf("expected run boundary error, got %v", err)
+	}
+}

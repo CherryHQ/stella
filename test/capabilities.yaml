@@ -138,8 +138,8 @@ test_assets:
       .github/workflows/lint-and-test.yml,
       .github/workflows/release.yml,
     ]
-    summary: Runs ordinary generate, format, race, coverage, build, and publication jobs.
-    limitations: Ordinary CI does not run System or Browser E2E; the tag workflow still lacks the remaining planned Contract, Live, and Manual release runners.
+    summary: Runs ordinary generate, format, race, and build jobs, while the Tag workflow owns the separate Release Full Test and Promotion boundary.
+    limitations: Ordinary CI intentionally excludes the release-only System, Browser, Contract, Live, Manual, and Promotion gates.
 
   - id: A12
     category: harness
@@ -179,21 +179,26 @@ test_assets:
 
   - id: A15
     category: orchestration
-    name: Release result, candidate, and platform gate
+    name: Release Full Test result and Promotion gate
     automation: automated
     entrypoints: [
       mise run release:aggregate,
       mise run release:candidate:create,
       mise run release:candidate:verify,
-      release workflow platform jobs,
+      mise run release:core,
+      mise run release:live,
+      mise run release:manual,
+      release workflow,
     ]
     evidence_paths: [
       test/release,
+      test/live,
+      test/manual,
       test/capabilities/aggregate.go,
       .github/workflows/release.yml,
     ]
-    summary: Binds Scenario outcomes, diagnostic artifacts, candidate file hashes, Docker digests, and native deployment stages to one release Run before Promotion.
-    limitations: Remaining Capability-specific deterministic, Contract, Live, and Manual runners still need to emit results into this shared gate.
+    summary: Binds every Scenario outcome, diagnostic artifact, candidate file hash, Docker digest, automatic result, Manual decision, and waiver to one release Run before Promotion.
+    limitations: Pending Live adapters and company-owned external resources remain explicit Not Run results until they are implemented and configured.
 
 capabilities:
   - id: C01
@@ -1446,7 +1451,7 @@ capabilities:
         release_policy: blocking
         summary: A real external Feishu sender reaches Stella and receives a streamed reply with identity and thread routing intact.
         evidence: []
-        gap: No test tenant, automated sender, or Live Smoke runner is registered.
+        gap: The Live runner and resource contract are registered, but the company test tenant, sender automation, observer, and Feishu adapter remain unconfigured.
 
   - id: X04
     class: extension
@@ -1483,7 +1488,7 @@ capabilities:
         release_policy: blocking
         summary: A real QQ sender reaches Stella and receives a streamed response from a configured test bot.
         evidence: []
-        gap: No QQ test bot, automated sender, or Live Smoke runner is registered.
+        gap: The Live runner and resource contract are registered, but the company QQ bot, sender automation, observer, and QQ adapter remain unconfigured.
 
   - id: X05
     class: extension
@@ -1520,7 +1525,7 @@ capabilities:
         release_policy: blocking
         summary: A real Telegram sender reaches Stella and receives a streamed response from a configured test bot.
         evidence: []
-        gap: No Telegram test bot, automated sender, or Live Smoke runner is registered.
+        gap: The Live runner and resource contract are registered, but the company bot, sender automation session, observer, and Telegram adapter remain unconfigured.
 
   - id: X06
     class: extension
@@ -1667,7 +1672,7 @@ capabilities:
         release_policy: blocking
         summary: A dedicated mailbox receives, lists, reads, marks, sends, and observes a real round-trip message.
         evidence: []
-        gap: No dedicated mailbox credentials, controlled correspondent, or Live Smoke runner is registered.
+        gap: The Live runner and resource contract are registered, but the dedicated mailbox, controlled correspondent, and Email adapter remain unconfigured.
 
   - id: X09
     class: extension
@@ -1787,7 +1792,7 @@ capabilities:
         release_policy: blocking
         summary: A plugin requiring a managed external CLI installs, runs, reloads, and reports status in the release environment.
         evidence: []
-        gap: No controlled external CLI target or Live Smoke runner is registered.
+        gap: The Live runner and resource contract are registered, but the selected external CLI target, company credentials, and adapter remain unconfigured.
 
   - id: X11
     class: extension
@@ -1855,7 +1860,7 @@ capabilities:
         release_policy: nonblocking
         summary: A stable external feed is fetched and ingested through the release environment without fixture substitution.
         evidence: []
-        gap: No registered external feed target or Live Smoke runner exists.
+        gap: The Live runner and resource contract are registered, but a stable approved public feed and its adapter remain unconfigured.
 
   - id: X12
     class: extension
@@ -1902,7 +1907,7 @@ capabilities:
         release_policy: blocking
         summary: Each advertised provider returns streamed text and completes a controlled tool call using a dedicated low-quota account.
         evidence: []
-        gap: No provider test accounts, target registry, or Live Smoke runner exists.
+        gap: The Live runner and resource contract are registered, but the advertised Provider scope, company target bundle, and real Stella Session adapter remain unconfigured.
 
   - id: X13
     class: extension
@@ -2005,7 +2010,7 @@ capabilities:
         release_policy: blocking
         summary: A dedicated external embedding account indexes known content and returns the expected semantic result.
         evidence: []
-        gap: No embedding test account, fixture corpus, or Live Smoke runner exists.
+        gap: The Live runner and resource contract are registered, but the company embedding target, fixture corpus, and adapter remain unconfigured.
 
   - id: X15
     class: extension
@@ -2099,7 +2104,7 @@ capabilities:
         release_policy: blocking
         summary: A stable public test skill can be searched, installed, loaded, upgraded, and removed from each supported remote source.
         evidence: []
-        gap: No stable marketplace target or Live Smoke runner is registered.
+        gap: The Live runner and resource contract are registered, but a stable marketplace skill, optional company token, and adapter remain unconfigured.
 
   - id: X17
     class: extension
@@ -2148,7 +2153,7 @@ capabilities:
         release_policy: blocking
         summary: System skills requiring browser, Lark, Python, or other external tools execute successfully in the release environment.
         evidence: []
-        gap: No external CLI environment, target registry, or Live Smoke runner exists.
+        gap: The Live runner and resource contract are registered, but the selected external system skills, credentials, bounded operations, and adapter remain unconfigured.
 
   - id: X18
     class: extension
@@ -2233,7 +2238,7 @@ capabilities:
       - id: X19-S01
         name: structured-log-and-trace-hooks
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
         summary: HTTP, agent, and lifecycle spans and structured logs preserve context, honor enablement, and avoid known sensitive fields.
         evidence:
@@ -2253,7 +2258,11 @@ capabilities:
             path: test/release/secret_test.go
             direct: true
             proves: The release artifact scanner rejects secret values across chunk boundaries, report data, and artifact paths without echoing the value.
-        gap: The scanner exists, but the final Release aggregate job is not yet wired to scan every runner artifact before Promotion.
+          - kind: workflow
+            path: .github/workflows/release.yml
+            direct: false
+            proves: Automatic and final aggregate jobs scan the merged Run artifact tree with every configured Live secret before Promotion.
+        gap: ""
       - id: X19-S02
         name: otlp-self-hosted-export-contract
         layer: contract

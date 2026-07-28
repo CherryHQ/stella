@@ -78,3 +78,27 @@ func SecretValuesFromEnv(names []string) (map[string]string, error) {
 	}
 	return values, nil
 }
+
+// PresentSecretValuesFromEnv resolves only configured values from an explicit
+// potential-secret list. Release Live resources are intentionally allowed to be
+// absent and become Not Run results; every value that is actually present still
+// participates in the final artifact scan.
+func PresentSecretValuesFromEnv(names []string) (map[string]string, error) {
+	values := make(map[string]string, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, rawName := range names {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			return nil, fmt.Errorf("secret environment variable name cannot be empty")
+		}
+		if _, exists := seen[name]; exists {
+			return nil, fmt.Errorf("secret environment variable %s is listed more than once", name)
+		}
+		seen[name] = struct{}{}
+		value, present := os.LookupEnv(name)
+		if present && value != "" {
+			values[name] = value
+		}
+	}
+	return values, nil
+}

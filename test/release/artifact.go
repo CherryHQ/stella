@@ -47,6 +47,41 @@ func ValidateArtifactFiles(repositoryRoot string, result Result) error {
 	return nil
 }
 
+// ArtifactForFile creates a content-addressed artifact reference for a regular
+// file below one release Run directory. Callers still validate the complete
+// Result with ValidateArtifactFiles before it can influence Promotion.
+func ArtifactForFile(repositoryRoot, runID, kind, filePath string) (Artifact, error) {
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("resolve artifact path: %w", err)
+	}
+	relative, err := filepath.Rel(repositoryRoot, absPath)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("make artifact path relative: %w", err)
+	}
+	relative = filepath.ToSlash(relative)
+	requiredPrefix := RunRelativeDir(runID) + "/"
+	if !strings.HasPrefix(relative, requiredPrefix) {
+		return Artifact{}, fmt.Errorf(
+			"artifact %s must stay below %s",
+			relative,
+			strings.TrimSuffix(requiredPrefix, "/"),
+		)
+	}
+	info, err := os.Lstat(absPath)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("inspect artifact %s: %w", relative, err)
+	}
+	if !info.Mode().IsRegular() {
+		return Artifact{}, fmt.Errorf("artifact %s must be a regular file", relative)
+	}
+	digest, err := fileSHA256(absPath)
+	if err != nil {
+		return Artifact{}, fmt.Errorf("hash artifact %s: %w", relative, err)
+	}
+	return Artifact{Kind: kind, Path: relative, SHA256: digest}, nil
+}
+
 func rejectSymlinkComponents(root, relativePath string) error {
 	current := root
 	for component := range strings.SplitSeq(filepath.Clean(relativePath), string(filepath.Separator)) {

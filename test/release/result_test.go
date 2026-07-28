@@ -109,6 +109,15 @@ func TestResultValidateAcceptsExplicitWaiver(t *testing.T) {
 	}
 }
 
+func TestResultValidateAcceptsLaterManualPass(t *testing.T) {
+	result := validResult()
+	result.Runner = Runner{Kind: RunnerManual, Name: "release-manual-gate"}
+	result.Attempt = 2
+	if err := result.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func validResult() Result {
 	started := time.Date(2026, time.July, 27, 8, 0, 0, 0, time.UTC)
 	return Result{

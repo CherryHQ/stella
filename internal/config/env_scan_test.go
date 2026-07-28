@@ -111,6 +111,18 @@ var envReadAllowlist = map[string]map[string]bool{
 		// evidence for one Release workflow attempt.
 		"GITHUB_RUN_ATTEMPT": true,
 	},
+	"test/release/cmd/core/main.go": {
+		// GitHub owns this retry counter; it selects append-only Go/System
+		// evidence for one Release workflow attempt.
+		"GITHUB_RUN_ATTEMPT": true,
+	},
+	"test/release/cmd/live/main.go": {
+		// The Live runner receives the exact candidate path and resolves only
+		// resource names declared by the non-secret target registry.
+		"STELLA_SYSTEM_BINARY": true,
+		"GITHUB_RUN_ATTEMPT":   true,
+		nonLiteralRead:         true,
+	},
 
 	// Host environment passthrough for the sandbox: PATH and selected host vars
 	// are forwarded into the sandbox, not stella configuration.
