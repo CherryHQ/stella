@@ -20,13 +20,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/pgruntime"
 	"github.com/CherryHQ/stella/internal/vault"
 	releasecontract "github.com/CherryHQ/stella/test/release"
@@ -46,17 +46,19 @@ const (
 	startupAttempts = 3
 )
 
-// harness owns every resource of one system-test run: the embedded PostgreSQL
-// cluster, the stellad subprocess, an HTTP client with a cookie jar, and a
-// direct database pool for invariants the API does not expose. Cleanup is
-// registered on t as each resource is acquired, so a failure at any point
-// still tears down everything acquired so far.
+// harness owns every resource of one system-test run: the stellad subprocess
+// (which owns embedded PostgreSQL), an HTTP client with a cookie jar, and a
+// direct database pool for invariants the API does not expose. Its cleanup
+// follows the current proc and db fields so an embedded restart cannot bind
+// replacement resources to the shorter-lived restart subtest.
 type harness struct {
-	runID   string
-	baseURL string
-	client  *http.Client
-	db      *pgxpool.Pool
-	proc    *serverProcess
+	runID    string
+	home     string
+	vaultKey string
+	baseURL  string
+	client   *http.Client
+	db       *pgxpool.Pool
+	proc     *serverProcess
 }
 
 // newHarness starts the full system under test or skips on hosts without an
@@ -67,31 +69,36 @@ func newHarness(t *testing.T) *harness {
 
 	runID := newRunID(t)
 
-	// The embedded cluster belongs to the test process; the subprocess receives
-	// its DSN via STELLA_DATABASE_URL and therefore never starts its own.
-	embedded, err := appdb.StartEmbedded("", 0)
-	if err != nil {
-		t.Fatalf("system: start embedded postgres: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := embedded.Stop(); err != nil {
-			t.Errorf("system: stop embedded postgres: %v", err)
-		}
-	})
-
 	vaultKey, err := vault.GenerateMasterIdentity()
 	if err != nil {
 		t.Fatalf("system: generate vault key: %v", err)
 	}
 	home := t.TempDir()
 
-	proc, baseURL := startServer(t, runID, home, embedded.DSN(), vaultKey)
+	// Do not set STELLA_DATABASE_URL: the candidate process must own the
+	// embedded PostgreSQL lifecycle that a normal single-node installation uses.
+	proc, baseURL := startServer(t, runID, home, vaultKey)
+	h := &harness{
+		runID: runID, home: home, vaultKey: vaultKey,
+		baseURL: baseURL, proc: proc,
+	}
+	// This cleanup is owned by TestSystem, not one of its subtests. It follows
+	// replacements assigned by the restart journey and remains safe after an
+	// explicit stop/close because both operations are idempotent.
+	t.Cleanup(func() {
+		if h.proc != nil {
+			h.proc.stop(t)
+		}
+		if h.db != nil {
+			h.db.Close()
+		}
+	})
 
-	db, err := pgxpool.New(context.Background(), embedded.DSN())
+	db, err := pgxpool.New(context.Background(), embeddedDSN(t, home))
 	if err != nil {
 		t.Fatalf("system: connect assertion pool: %v", err)
 	}
-	t.Cleanup(db.Close)
+	h.db = db
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -99,21 +106,21 @@ func newHarness(t *testing.T) *harness {
 	}
 	// No client-wide timeout: SSE journeys hold one response open for the whole
 	// stream. Every request must carry its own context deadline instead.
-	client := &http.Client{Jar: jar}
+	h.client = &http.Client{Jar: jar}
 
-	return &harness{runID: runID, baseURL: baseURL, client: client, db: db, proc: proc}
+	return h
 }
 
 // startServer boots the stellad subprocess and waits for readiness, retrying
 // with a fresh port when the free-port pick loses its bind race.
-func startServer(t *testing.T, runID, home, dsn, vaultKey string) (*serverProcess, string) {
+func startServer(t *testing.T, runID, home, vaultKey string) (*serverProcess, string) {
 	t.Helper()
 	for attempt := 1; ; attempt++ {
 		port := freePort(t)
 		baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 		env := append(baseSubprocessEnv(),
 			"STELLA_HOME="+home,
-			"STELLA_DATABASE_URL="+dsn,
+			"STELLA_POSTGRES_RUNTIME="+installedRuntimeRoot(t),
 			"STELLA_VAULT_KEY="+vaultKey,
 			"HOST=127.0.0.1",
 			fmt.Sprintf("PORT=%d", port),
@@ -131,6 +138,51 @@ func startServer(t *testing.T, runID, home, dsn, vaultKey string) (*serverProces
 		}
 		t.Fatalf("system: server never became ready: %v", err)
 	}
+}
+
+// installedRuntimeRoot resolves the fixed Stella PostgreSQL runtime downloaded
+// by the system-test task. The candidate receives this immutable runtime while
+// keeping its own fresh STELLA_HOME and database directory.
+func installedRuntimeRoot(t *testing.T) string {
+	t.Helper()
+	source, ok := pgruntime.DefaultRuntimeSource()
+	if !ok {
+		t.Fatalf("system: no PostgreSQL runtime source for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("system: resolve user home for PostgreSQL runtime: %v", err)
+	}
+	root := pgruntime.RuntimeRoot(filepath.Join(userHome, ".stella"), source)
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("system: PostgreSQL runtime not installed at %s (run `mise run pg:runtime:download`): %v", root, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("system: PostgreSQL runtime path %s is not a directory", root)
+	}
+	return root
+}
+
+// embeddedDSN reads the postmaster metadata written below STELLA_HOME after
+// /readyz succeeds. This lets assertions inspect the database started by the
+// candidate itself without injecting an external DSN into that candidate.
+func embeddedDSN(t *testing.T, home string) string {
+	t.Helper()
+	path := filepath.Join(home, "postgres", "postmaster.pid")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("system: read embedded PostgreSQL metadata %s: %v", path, err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 4 {
+		t.Fatalf("system: embedded PostgreSQL metadata %s has %d lines, want at least 4", path, len(lines))
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(lines[3]))
+	if err != nil || port < 1 || port > 65535 {
+		t.Fatalf("system: invalid embedded PostgreSQL port %q in %s", lines[3], path)
+	}
+	return fmt.Sprintf("postgres://postgres:postgres@127.0.0.1:%d/stella?sslmode=disable", port)
 }
 
 // skipUnsupportedHost skips before any resource is acquired on platforms where
@@ -194,7 +246,6 @@ func startServerProcess(t *testing.T, logName string, env []string) *serverProce
 		p.waitErr = cmd.Wait()
 		close(p.done)
 	}()
-	t.Cleanup(func() { p.stop(t) })
 	return p
 }
 
@@ -295,12 +346,22 @@ func (p *serverProcess) logTail(n int) string {
 // skip, because testing an old binary would silently prove nothing.
 func binaryPath(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(repoRoot(t), "dist", "bin", "stellad")
-	if runtime.GOOS == "windows" {
+	bin := os.Getenv("STELLA_SYSTEM_BINARY")
+	if bin != "" && !filepath.IsAbs(bin) {
+		t.Fatalf("system: STELLA_SYSTEM_BINARY must be absolute, got %q", bin)
+	}
+	if bin == "" {
+		bin = filepath.Join(repoRoot(t), "dist", "bin", "stellad")
+	}
+	if runtime.GOOS == "windows" && filepath.Ext(bin) != ".exe" {
 		bin += ".exe"
 	}
-	if _, err := os.Stat(bin); err != nil {
+	info, err := os.Stat(bin)
+	if err != nil {
 		t.Fatalf("system: stellad binary not found at %s (run `mise run system-test`, which builds it first): %v", bin, err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		t.Fatalf("system: stellad binary %s must be a regular executable file", bin)
 	}
 	return bin
 }

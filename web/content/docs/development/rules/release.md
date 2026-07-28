@@ -58,9 +58,15 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
     - Docker builds one untagged image digest per Linux architecture.
     - CI hashes the candidate files and records both image digests in the
       candidate manifest for that workflow Run.
-    - Release gates consume those immutable candidates. The sole Promotion job
-      later creates the GitHub Release, formal Docker tags, and stable Homebrew
-      update without rebuilding.
+    - The archive gate validates checksums, contents, and ELF/Mach-O/PE
+      architectures for all six binary archives.
+    - Native Linux amd64 runs the candidate System suite, real systemd lifecycle,
+      Docker digest, and Helm/kind deployment. Native Linux arm64 runs the same
+      candidate System suite and its Docker digest.
+    - Docker and Helm receive a fresh external DSN from the pinned Stella PG
+      Runtime; each stage records diagnostics and proves cleanup.
+    - The sole Promotion job creates the GitHub Release, formal Docker tags, and
+      stable Homebrew update only after those immutable-candidate gates pass.
 
 If a candidate or gate fails, keep the Git tag for diagnosis but do not publish
 formal release assets. Re-run failed downstream jobs to retain successful

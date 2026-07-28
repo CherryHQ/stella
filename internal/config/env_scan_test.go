@@ -90,6 +90,11 @@ var envReadAllowlist = map[string]map[string]bool{
 		"STELLA_RELEASE_SECRET_ENVS": true,
 		nonLiteralRead:               true,
 	},
+	"test/release/cmd/platform/main.go": {
+		// GitHub owns this retry counter; it selects append-only evidence for
+		// one Release workflow attempt and is not stellad configuration.
+		"GITHUB_RUN_ATTEMPT": true,
+	},
 
 	// Host environment passthrough for the sandbox: PATH and selected host vars
 	// are forwarded into the sandbox, not stella configuration.

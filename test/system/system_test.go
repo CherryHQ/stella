@@ -4,11 +4,16 @@ package system
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	releasecontract "github.com/CherryHQ/stella/test/release"
 )
 
 // TestSystem is the single owner of the suite's server and database. Journeys
@@ -21,6 +26,7 @@ func TestSystem(t *testing.T) {
 	t.Run("chat_sse", h.testChatSSE)
 	t.Run("chat_provider_error", h.testChatProviderError)
 	t.Run("goal_lifecycle", h.testGoalLifecycle)
+	t.Run("embedded_restart", h.testEmbeddedRestart)
 	// graceful_drain MUST run last: it sends SIGTERM to the shared server and
 	// asserts the process exits, consuming the server no later journey can use.
 	t.Run("graceful_drain", h.testGracefulDrain)
@@ -46,14 +52,98 @@ func (h *harness) testReadiness(t *testing.T) {
 		t.Fatalf("GET /readyz = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.logTail(40))
 	}
 
-	// The subprocess, not the harness, must have migrated the database it was
-	// handed: goose records applied versions in goose_db_version.
+	// The subprocess, not the harness, must have created and migrated its
+	// embedded database: goose records applied versions in goose_db_version.
 	var migrations int
 	if err := h.db.QueryRow(ctx, "SELECT count(*) FROM goose_db_version").Scan(&migrations); err != nil {
 		t.Fatalf("query goose_db_version: %v", err)
 	}
 	if migrations == 0 {
 		t.Fatal("goose_db_version is empty: subprocess did not migrate the database")
+	}
+
+	h.assertCandidateIdentity(t, ctx)
+}
+
+// assertCandidateIdentity proves that a release-tag run is serving the version
+// and commit recorded by the shared immutable Run rather than a locally rebuilt
+// binary. Non-release system-test invocations still assert a healthy status.
+func (h *harness) assertCandidateIdentity(t *testing.T, ctx context.Context) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+"/api/status", nil)
+	if err != nil {
+		t.Fatalf("build status request: %v", err)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/status: %v\n%s", err, h.proc.logTail(40))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/status = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.logTail(40))
+	}
+	var status struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		t.Fatalf("decode /api/status: %v", err)
+	}
+	if status.Status != "ok" {
+		t.Fatalf("/api/status status = %q, want ok", status.Status)
+	}
+
+	run, present, err := releasecontract.RunFromEnv()
+	if err != nil {
+		t.Fatalf("load release metadata: %v", err)
+	}
+	if !present {
+		return
+	}
+	versionMatches := status.Version == run.Version || status.Version == strings.TrimPrefix(run.Version, "v")
+	if !versionMatches {
+		t.Fatalf("/api/status version = %q, want release candidate %q", status.Version, run.Version)
+	}
+	if status.Commit == "" || !strings.HasPrefix(run.Commit, status.Commit) {
+		t.Fatalf("/api/status commit = %q, want prefix of %s", status.Commit, run.Commit)
+	}
+}
+
+// testEmbeddedRestart stops the exact candidate and starts it again with the
+// same STELLA_HOME. Readiness, migrations, and the existing session must
+// survive while the candidate owns both application and PostgreSQL lifecycles.
+func (h *harness) testEmbeddedRestart(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	if code := h.statusOf(t, ctx, h.newAuthedGet(t, ctx, nil)); code != http.StatusOK {
+		t.Fatalf("GET /api/auth/me before restart = %d, want %d", code, http.StatusOK)
+	}
+
+	h.proc.stop(t)
+	h.db.Close()
+	h.db = nil
+
+	proc, baseURL := startServer(t, h.runID+"-restart", h.home, h.vaultKey)
+	h.proc = proc
+	h.baseURL = baseURL
+
+	db, err := pgxpool.New(ctx, embeddedDSN(t, h.home))
+	if err != nil {
+		t.Fatalf("connect embedded PostgreSQL after restart: %v", err)
+	}
+	h.db = db
+
+	if code := h.statusOf(t, ctx, h.newAuthedGet(t, ctx, nil)); code != http.StatusOK {
+		t.Fatalf("GET /api/auth/me after restart = %d, want %d\n%s", code, http.StatusOK, h.proc.logTail(40))
+	}
+	var migrations int
+	if err := h.db.QueryRow(ctx, "SELECT count(*) FROM goose_db_version").Scan(&migrations); err != nil {
+		t.Fatalf("query migrations after restart: %v", err)
+	}
+	if migrations == 0 {
+		t.Fatal("goose_db_version is empty after restart")
 	}
 }
 
@@ -74,6 +164,7 @@ func TestHarnessEarlyExit(t *testing.T) {
 		fmt.Sprintf("PORT=%d", port),
 	)
 	proc := startServerProcess(t, "early-exit-"+runID, env)
+	t.Cleanup(func() { proc.stop(t) })
 
 	start := time.Now()
 	err := proc.waitReady(fmt.Sprintf("http://127.0.0.1:%d", port), readyTimeout)

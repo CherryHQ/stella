@@ -34,14 +34,17 @@ of that same subprocess coverage.
 mise run system-test
 ```
 
-The task depends on `pg:runtime:download` and `build`, then runs
+The task depends on `pg:runtime:download`, builds the current worktree unless a
+Release job supplies an absolute `STELLA_SYSTEM_BINARY`, then runs
 `go test -tags system -count=1 -timeout 15m ./test/system/...`. It:
 
 - downloads the embedded PostgreSQL runtime if it is not already present;
-- builds `dist/bin/stellad` (the suite execs this binary, never a `go run`);
+- normally builds `dist/bin/stellad`; Release jobs instead extract and inject the
+  exact immutable candidate (the suite execs a binary, never a `go run`);
 - boots one server subprocess bound to a real loopback TCP port, backed by an
   embedded PostgreSQL cluster the subprocess migrates itself;
-- runs the ordered journeys, then tears the subprocess and cluster down.
+- runs the ordered journeys, restarts against the same data once, then tears the
+  subprocess and cluster down.
 
 ## Supported platforms
 
@@ -56,8 +59,8 @@ resource — it does not fail. Published platforms:
 
 On an unsupported host, point `STELLA_DATABASE_URL` at an external PostgreSQL with
 `pg_search` and `pgvector` to run the server manually, or file an issue for the
-platform. Because the suite is skipped rather than failed off-platform, it stays a
-local gate and is not run in CI.
+platform. Ordinary CI does not run this suite. The Tag Release workflow runs it
+only on native Linux amd64 and arm64 runners against the exact candidate archive.
 
 ## Suite architecture
 
@@ -73,6 +76,8 @@ and one shared database serve them all in sequence:
   on the send stream, then finish and [DONE] — the turn never hangs.
 - `goal_lifecycle` — a Goal driven from creation to autonomous acceptance by the
   dispatcher's async workers.
+- `embedded_restart` — the exact binary restarts with the same `STELLA_HOME`;
+  readiness, migrations, and the existing authenticated session survive.
 - `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
   from ready, an attach subscription is drain-cancelled, the pinned turn still
   completes on its stream (full text, finish, [DONE]), and the process exits 0.
@@ -91,7 +96,8 @@ fast, and needs neither PostgreSQL nor the runtime.
 
 The subprocess environment is an explicit allowlist, not the developer's
 inherited environment, so local `STELLA_*`/`OTEL_*`/`AUTH_*` settings cannot leak
-in and make a run nondeterministic.
+in and make a run nondeterministic. The harness adds only its fresh home, generated
+vault key, selected port, and the verified pinned PostgreSQL runtime path.
 
 ## The fake Anthropic provider
 

@@ -84,8 +84,8 @@ test_assets:
     automation: automated
     entrypoints: [mise run system-test]
     evidence_paths: [test/system/system_test.go, test/system/harness_test.go]
-    summary: Runs the real stellad binary over TCP with embedded PostgreSQL and a scripted fake Anthropic provider.
-    limitations: Six ordered journeys cover only selected process seams and no browser.
+    summary: Runs the real built or extracted-candidate stellad binary over TCP while that process owns embedded PostgreSQL, with a scripted fake Anthropic provider.
+    limitations: Seven ordered journeys cover selected process seams and restart persistence, but no browser.
 
   - id: A07
     category: harness
@@ -173,20 +173,21 @@ test_assets:
 
   - id: A15
     category: orchestration
-    name: Release result and candidate gate
+    name: Release result, candidate, and platform gate
     automation: automated
     entrypoints: [
       mise run release:aggregate,
       mise run release:candidate:create,
       mise run release:candidate:verify,
+      release workflow platform jobs,
     ]
     evidence_paths: [
       test/release,
       test/capabilities/aggregate.go,
       .github/workflows/release.yml,
     ]
-    summary: Binds Scenario outcomes, diagnostic artifacts, candidate file hashes, and Docker digests to one release Run before Promotion.
-    limitations: Capability-specific deterministic, Browser, Contract, and Live runners still need to emit results into this shared gate.
+    summary: Binds Scenario outcomes, diagnostic artifacts, candidate file hashes, Docker digests, and native deployment stages to one release Run before Promotion.
+    limitations: Remaining Capability-specific deterministic, Browser, Contract, and Live runners still need to emit results into this shared gate.
 
 capabilities:
   - id: C01
@@ -1259,15 +1260,23 @@ capabilities:
             path: cmd/stellad/service_linux_test.go
             direct: true
             proves: Linux service manager command rendering and lifecycle behavior.
-        gap: The complete command tree and real systemd lifecycle are not executed through the exact Linux amd64 release-candidate binary.
+        gap: Upgrade, mise reconciliation, and every local failure branch are not all invoked end to end through the exact release-candidate binary; the real systemd lifecycle is covered separately by X01-S02.
       - id: X01-S02
         name: released-linux-cli-and-service-lifecycle
         layer: system
-        status: missing
+        status: covered
         release_policy: blocking
         summary: On Linux amd64, the extracted release-candidate binary runs the documented CLI and completes systemd install, start, status, logs, restart, stop, and uninstall.
-        evidence: []
-        gap: No Linux amd64 runner currently executes the exact candidate binary through the real CLI and systemd lifecycle.
+        evidence:
+          - kind: system_test
+            path: test/release/cmd/platform/platform_release_test.go
+            test: TestReleaseSystemdCandidate
+            direct: true
+            proves: The ephemeral Linux amd64 release runner executes the exact extracted candidate through its real systemd install, readiness, status, logs, restart, stop, start, uninstall, and cleanup lifecycle.
+          - kind: workflow
+            path: .github/workflows/release.yml
+            direct: false
+            proves: The Tag workflow records the systemd stage against the immutable candidate before Promotion.
 
   - id: X02
     class: extension
@@ -2042,7 +2051,7 @@ capabilities:
       - id: X18-S01
         name: release-config-and-package-shape
         layer: package
-        status: partial
+        status: covered
         release_policy: blocking
         summary: GoReleaser produces structurally valid Linux, macOS, and Windows archives for amd64 and arm64 with checksums, while Docker multi-architecture builds and Helm templates remain valid.
         evidence:
@@ -2063,15 +2072,37 @@ capabilities:
             test: TestBuildAndVerifyCandidateManifest
             direct: true
             proves: The candidate gate requires all six archives, four Linux packages, checksum, Homebrew formula, and both Linux image digests to retain their recorded identity before Promotion.
-        gap: The build-once identity contract is implemented, but downstream Binary, Docker, and Helm deployment tests do not yet consume and report against the recorded Artifact ID and digests.
+          - kind: system_test
+            path: test/release/cmd/platform/platform_release_test.go
+            test: TestReleaseArchiveMatrix
+            direct: true
+            proves: All six real candidate archives match the checksum file, contain the documented files, and carry an executable whose ELF, Mach-O, or PE header matches the advertised OS and architecture.
       - id: X18-S02
         name: release-artifact-deployment-smoke
         layer: package
-        status: missing
+        status: covered
         release_policy: blocking
         summary: The exact Linux amd64 candidate completes binary, Docker, and Helm deployment checks; Linux arm64 completes the deterministic System suite and Docker Smoke; Docker and Helm use a temporary networked PostgreSQL started from the pinned Stella PG Runtime.
-        evidence: []
-        gap: No build-once runner currently validates and cleans up the amd64 and arm64 candidate matrix with Docker, kind, Helm, embedded PostgreSQL, and a temporary external-DSN PostgreSQL before promotion.
+        evidence:
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            direct: true
+            proves: The exact extracted native candidate owns embedded PostgreSQL, migrates, serves API journeys, preserves state across restart, and shuts down without a process-group leak.
+          - kind: system_test
+            path: test/release/cmd/platform/platform_release_test.go
+            test: TestReleaseDockerCandidate
+            direct: true
+            proves: Each native Linux runner starts the exact candidate image digest against a fresh networked Stella PG Runtime, checks readiness, identity, migration, clean exit, and resource cleanup.
+          - kind: system_test
+            path: test/release/cmd/platform/platform_release_test.go
+            test: TestReleaseHelmCandidate
+            direct: true
+            proves: Linux amd64 installs the exact candidate digest through Helm in kind, checks Pod identity, readiness, API and migration, then uninstalls and removes the cluster.
+          - kind: workflow
+            path: .github/workflows/release.yml
+            direct: false
+            proves: Native amd64 and arm64 stages are recorded separately and consolidated into one blocking X18-S02 result before Promotion.
 
   - id: X19
     class: extension

@@ -19,7 +19,7 @@ jobs:
 
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
-      artifact-name: candidate-goreleaser-${{ github.sha }}
+      artifact-name: candidate-goreleaser-${{ github.sha }}-a${{ github.run_attempt }}
 
     steps:
       - name: Checkout
@@ -71,7 +71,7 @@ jobs:
         id: upload
         uses: actions/upload-artifact@v5
         with:
-          name: candidate-goreleaser-${{ github.sha }}
+          name: candidate-goreleaser-${{ github.sha }}-a${{ github.run_attempt }}
           path: |
             dist/*.tar.gz
             dist/*.deb
@@ -150,7 +150,7 @@ jobs:
       - name: Upload candidate digest
         uses: actions/upload-artifact@v5
         with:
-          name: candidate-digest-${{ matrix.suffix }}-${{ github.sha }}
+          name: candidate-digest-${{ matrix.suffix }}-${{ github.sha }}-a${{ github.run_attempt }}
           path: docker-digests/*.digest
           if-no-files-found: error
           retention-days: 14
@@ -167,7 +167,7 @@ jobs:
 
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
-      artifact-name: candidate-index-${{ github.sha }}
+      artifact-name: candidate-index-${{ github.sha }}-a${{ github.run_attempt }}
       binaries-artifact-id: ${{ needs.candidate-binaries.outputs.artifact-id }}
       binaries-artifact-name: ${{ needs.candidate-binaries.outputs.artifact-name }}
 
@@ -184,25 +184,45 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download GoReleaser candidates by immutable Artifact ID
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ARTIFACT_ID: ${{ needs.candidate-binaries.outputs.artifact-id }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          curl --fail --location --silent --show-error \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" \
-            -o /tmp/candidate-goreleaser.zip
-          unzip -q /tmp/candidate-goreleaser.zip -d dist
-
-      - name: Download Docker candidate digests
         uses: actions/download-artifact@v5
         with:
-          pattern: candidate-digest-*-${{ github.sha }}
-          path: docker-digests
-          merge-multiple: true
+          artifact-ids: ${{ needs.candidate-binaries.outputs.artifact-id }}
+          path: dist
+
+      # A failed-job rerun does not rebuild successful prerequisite jobs. Keep
+      # every immutable attempt and select the newest available digest per
+      # architecture instead of assuming both were produced in this attempt.
+      - name: Download Docker candidate digest history
+        uses: actions/download-artifact@v5
+        with:
+          pattern: candidate-digest-*-${{ github.sha }}-a*
+          path: docker-digest-artifacts
+
+      - name: Select latest available Docker candidate digests
+        run: |
+          set -euo pipefail
+          mkdir -p docker-digests
+          for suffix in amd64 arm64; do
+            mapfile -t candidates < <(
+              for artifact_dir in \
+                docker-digest-artifacts/candidate-digest-"$suffix"-"$GITHUB_SHA"-a*
+              do
+                [[ -d "$artifact_dir" ]] || continue
+                find "$artifact_dir" -type f -name "linux-$suffix.digest" -print
+              done | sort -V
+            )
+            if [[ "${#candidates[@]}" -eq 0 ]]; then
+              echo "no candidate digest found for linux/$suffix" >&2
+              exit 1
+            fi
+            selected="${candidates[${#candidates[@]}-1]}"
+            if ! grep -Eq '^sha256:[0-9a-f]{64}$' "$selected"; then
+              echo "invalid candidate digest in $selected" >&2
+              exit 1
+            fi
+            install -m 0644 "$selected" "docker-digests/linux-$suffix.digest"
+            echo "selected $selected"
+          done
 
       - name: Create candidate manifest
         env:
@@ -249,17 +269,421 @@ jobs:
         id: upload
         uses: actions/upload-artifact@v5
         with:
-          name: candidate-index-${{ github.sha }}
+          name: candidate-index-${{ github.sha }}-a${{ github.run_attempt }}
           path: dist/test-results/release/${{ github.run_id }}/candidate.json
           if-no-files-found: error
           retention-days: 14
 
-  # Steps 4-9 add their blocking jobs before this job. Promotion remains the
+  platform-archives:
+    name: Verify candidate archive matrix
+    runs-on: ubuntu-24.04
+    needs: [candidate-index]
+
+    permissions:
+      actions: read
+      contents: read
+
+    env:
+      STELLA_RELEASE_RUN_ID: ${{ github.run_id }}
+      STELLA_RELEASE_VERSION: ${{ github.ref_name }}
+      STELLA_RELEASE_COMMIT: ${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download GoReleaser candidates by immutable Artifact ID
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: ${{ needs.candidate-index.outputs.binaries-artifact-id }}
+          path: dist
+
+      - name: Download candidate index by immutable Artifact ID
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: ${{ needs.candidate-index.outputs.artifact-id }}
+          path: dist/test-results/release/${{ github.run_id }}
+
+      - name: Verify checksums, archive contents, and executable architectures
+        run: |
+          mise exec -- go run ./test/release/cmd/platform --mode=archives
+
+      - name: Upload archive result and evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-platform-archives-${{ github.sha }}-a${{ github.run_attempt }}
+          path: |
+            dist/test-results/release/${{ github.run_id }}/results
+            dist/test-results/release/${{ github.run_id }}/artifacts/platform/archive-matrix-*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  platform-linux-amd64:
+    name: Candidate deployment (linux/amd64)
+    runs-on: ubuntu-24.04
+    needs: [candidate-index]
+
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+
+    env:
+      STELLA_RELEASE_RUN_ID: ${{ github.run_id }}
+      STELLA_RELEASE_VERSION: ${{ github.ref_name }}
+      STELLA_RELEASE_COMMIT: ${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache pinned Stella PostgreSQL runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/.stella/pg-runtime
+          key: stella-pg-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('internal/pgruntime/runtime.go') }}
+
+      - name: Download GoReleaser candidates by immutable Artifact ID
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: ${{ needs.candidate-index.outputs.binaries-artifact-id }}
+          path: dist
+
+      - name: Download candidate index by immutable Artifact ID
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: ${{ needs.candidate-index.outputs.artifact-id }}
+          path: dist/test-results/release/${{ github.run_id }}
+
+      - name: Re-verify candidate identity
+        continue-on-error: true
+        run: |
+          mise exec -- go run ./test/release/cmd/candidate --mode=verify
+
+      - name: Extract exact Linux amd64 candidate
+        continue-on-error: true
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=extract \
+            --platform=linux/amd64 \
+            --output=dist/candidate/stellad
+
+      - name: Download pinned Stella PostgreSQL runtime
+        continue-on-error: true
+        run: mise run pg:runtime:download
+
+      - name: Install local sandbox prerequisite
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+
+      - name: Run candidate System suite with embedded PostgreSQL
+        continue-on-error: true
+        env:
+          STELLA_SYSTEM_BINARY: ${{ github.workspace }}/dist/candidate/stellad
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=record \
+            --platform=linux/amd64 \
+            --stage=binary-system \
+            -- mise run system-test
+
+      - name: Run exact candidate through systemd lifecycle
+        continue-on-error: true
+        env:
+          STELLA_SYSTEM_BINARY: ${{ github.workspace }}/dist/candidate/stellad
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=record \
+            --platform=linux/amd64 \
+            --stage=systemd \
+            -- mise exec -- go test \
+              -tags releaseplatform \
+              -count=1 \
+              -run '^TestReleaseSystemdCandidate$' \
+              ./test/release/cmd/platform
+
+      - name: Log into GitHub Container Registry
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run exact candidate Docker digest
+        continue-on-error: true
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=record \
+            --platform=linux/amd64 \
+            --stage=docker \
+            -- mise exec -- go test \
+              -tags releaseplatform \
+              -count=1 \
+              -run '^TestReleaseDockerCandidate$' \
+              ./test/release/cmd/platform
+
+      - name: Install pinned kind and kubectl
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64 \
+            --output /tmp/kind
+          echo "eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa  /tmp/kind" \
+            | sha256sum --check
+          sudo install -o root -g root -m 0755 /tmp/kind /usr/local/bin/kind
+          curl --fail --location --silent --show-error \
+            https://dl.k8s.io/release/v1.35.7/bin/linux/amd64/kubectl \
+            --output /tmp/kubectl
+          echo "12e97f9d23a9f6cbb87b89becd6bd291e1a858a3379a4e11e2c822c4c1530052  /tmp/kubectl" \
+            | sha256sum --check
+          sudo install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+
+      - name: Install exact candidate through Helm in kind
+        continue-on-error: true
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=record \
+            --platform=linux/amd64 \
+            --stage=helm \
+            -- mise exec -- go test \
+              -tags releaseplatform \
+              -count=1 \
+              -run '^TestReleaseHelmCandidate$' \
+              ./test/release/cmd/platform
+
+      - name: Upload Linux amd64 stage evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-platform-amd64-${{ github.sha }}-a${{ github.run_attempt }}
+          path: dist/test-results/release/${{ github.run_id }}/artifacts
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Assert Linux amd64 stages
+        if: ${{ always() }}
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=assert \
+            --platform=linux/amd64 \
+            --expected=binary-system,systemd,docker,helm
+
+  platform-linux-arm64:
+    name: Candidate deployment (linux/arm64)
+    runs-on: ubuntu-24.04-arm
+    needs: [candidate-index]
+
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+
+    env:
+      STELLA_RELEASE_RUN_ID: ${{ github.run_id }}
+      STELLA_RELEASE_VERSION: ${{ github.ref_name }}
+      STELLA_RELEASE_COMMIT: ${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache pinned Stella PostgreSQL runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/.stella/pg-runtime
+          key: stella-pg-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('internal/pgruntime/runtime.go') }}
+
+      - name: Download GoReleaser candidates by immutable Artifact ID
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: ${{ needs.candidate-index.outputs.binaries-artifact-id }}
+          path: dist
+
+      - name: Download candidate index by immutable Artifact ID
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: ${{ needs.candidate-index.outputs.artifact-id }}
+          path: dist/test-results/release/${{ github.run_id }}
+
+      - name: Re-verify candidate identity
+        continue-on-error: true
+        run: |
+          mise exec -- go run ./test/release/cmd/candidate --mode=verify
+
+      - name: Extract exact Linux arm64 candidate
+        continue-on-error: true
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=extract \
+            --platform=linux/arm64 \
+            --output=dist/candidate/stellad
+
+      - name: Download pinned Stella PostgreSQL runtime
+        continue-on-error: true
+        run: mise run pg:runtime:download
+
+      - name: Install local sandbox prerequisite
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+
+      - name: Run candidate System suite with embedded PostgreSQL
+        continue-on-error: true
+        env:
+          STELLA_SYSTEM_BINARY: ${{ github.workspace }}/dist/candidate/stellad
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=record \
+            --platform=linux/arm64 \
+            --stage=binary-system \
+            -- mise run system-test
+
+      - name: Log into GitHub Container Registry
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run exact candidate Docker digest
+        continue-on-error: true
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=record \
+            --platform=linux/arm64 \
+            --stage=docker \
+            -- mise exec -- go test \
+              -tags releaseplatform \
+              -count=1 \
+              -run '^TestReleaseDockerCandidate$' \
+              ./test/release/cmd/platform
+
+      - name: Upload Linux arm64 stage evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-platform-arm64-${{ github.sha }}-a${{ github.run_attempt }}
+          path: dist/test-results/release/${{ github.run_id }}/artifacts
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Assert Linux arm64 stages
+        if: ${{ always() }}
+        run: |
+          mise exec -- go run ./test/release/cmd/platform \
+            --mode=assert \
+            --platform=linux/arm64 \
+            --expected=binary-system,docker
+
+  platform-results:
+    name: Consolidate candidate platform results
+    if: ${{ always() && needs.candidate-index.result == 'success' }}
+    runs-on: ubuntu-24.04
+    needs:
+      - candidate-index
+      - platform-archives
+      - platform-linux-amd64
+      - platform-linux-arm64
+
+    permissions:
+      actions: read
+      contents: read
+
+    env:
+      STELLA_RELEASE_RUN_ID: ${{ github.run_id }}
+      STELLA_RELEASE_VERSION: ${{ github.ref_name }}
+      STELLA_RELEASE_COMMIT: ${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download archive evidence
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-platform-archives-${{ github.sha }}-a*
+          path: dist/test-results/release/${{ github.run_id }}
+          merge-multiple: true
+
+      # Linux artifacts are rooted at the uploaded artifacts/ directory, so
+      # restore them below the Run's artifacts/ path before consolidation.
+      - name: Download Linux amd64 evidence
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-platform-amd64-${{ github.sha }}-a*
+          path: dist/test-results/release/${{ github.run_id }}/artifacts
+          merge-multiple: true
+
+      - name: Download Linux arm64 evidence
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-platform-arm64-${{ github.sha }}-a*
+          path: dist/test-results/release/${{ github.run_id }}/artifacts
+          merge-multiple: true
+
+      - name: Consolidate X01 and X18 platform results
+        run: |
+          mise exec -- go run ./test/release/cmd/platform --mode=finalize
+
+      - name: Upload consolidated platform results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-platform-results-${{ github.sha }}-a${{ github.run_attempt }}
+          path: dist/test-results/release/${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Steps 5-9 add their blocking jobs before this job. Promotion remains the
   # only job allowed to create formal release assets or image tags.
   promotion:
     name: Promote tested candidate
     runs-on: ubuntu-24.04
-    needs: [candidate-index]
+    needs:
+      - candidate-index
+      - platform-archives
+      - platform-linux-amd64
+      - platform-linux-arm64
+      - platform-results
 
     permissions:
       actions: read
@@ -281,26 +705,17 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download tested candidates by immutable Artifact IDs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BINARIES_ARTIFACT_ID: ${{ needs.candidate-index.outputs.binaries-artifact-id }}
-          INDEX_ARTIFACT_ID: ${{ needs.candidate-index.outputs.artifact-id }}
-        run: |
-          set -euo pipefail
-          mkdir -p dist "dist/test-results/release/$GITHUB_RUN_ID"
-          curl --fail --location --silent --show-error \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$BINARIES_ARTIFACT_ID/zip" \
-            -o /tmp/candidate-goreleaser.zip
-          unzip -q /tmp/candidate-goreleaser.zip -d dist
-          curl --fail --location --silent --show-error \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts/$INDEX_ARTIFACT_ID/zip" \
-            -o /tmp/candidate-index.zip
-          unzip -q /tmp/candidate-index.zip -d "dist/test-results/release/$GITHUB_RUN_ID"
+      - name: Download tested GoReleaser candidates by immutable Artifact ID
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: ${{ needs.candidate-index.outputs.binaries-artifact-id }}
+          path: dist
+
+      - name: Download tested candidate index by immutable Artifact ID
+        uses: actions/download-artifact@v5
+        with:
+          artifact-ids: ${{ needs.candidate-index.outputs.artifact-id }}
+          path: dist/test-results/release/${{ github.run_id }}
 
       - name: Re-verify candidate before Promotion
         env:
