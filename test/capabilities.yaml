@@ -139,16 +139,22 @@ test_assets:
       .github/workflows/release.yml,
     ]
     summary: Runs ordinary generate, format, race, coverage, build, and publication jobs.
-    limitations: Ordinary CI does not run System Test and the tag workflow does not enforce the full local release gate.
+    limitations: Ordinary CI does not run System or Browser E2E; the tag workflow still lacks the remaining planned Contract, Live, and Manual release runners.
 
   - id: A12
-    category: exploratory
-    name: tap browser runbook
-    automation: agent-driven
-    entrypoints: [tap browser]
-    evidence_paths: [web/content/docs/development/rules/web-ui-test.md]
-    summary: Drives page text, interactions, URLs, network requests, and screenshots on a running server.
-    limitations: Not a versioned browser suite or runner and has no repository-owned report or trace contract.
+    category: harness
+    name: Playwright Browser release suite
+    automation: automated
+    entrypoints: [mise run browser-test]
+    evidence_paths: [
+      web/playwright.config.ts,
+      web/e2e/release.spec.ts,
+      test/release/cmd/browser,
+      .github/workflows/release.yml,
+      web/content/docs/development/rules/web-ui-test.md,
+    ]
+    summary: Runs six deterministic Browser E2E journeys against the exact Linux amd64 candidate and emits Scenario Results, traces, screenshots, logs, and redacted network summaries.
+    limitations: Covers the six blocking release journeys recorded below; it does not replace finer-grained Integration or System evidence.
 
   - id: A13
     category: exploratory
@@ -187,7 +193,7 @@ test_assets:
       .github/workflows/release.yml,
     ]
     summary: Binds Scenario outcomes, diagnostic artifacts, candidate file hashes, Docker digests, and native deployment stages to one release Run before Promotion.
-    limitations: Remaining Capability-specific deterministic, Browser, Contract, and Live runners still need to emit results into this shared gate.
+    limitations: Remaining Capability-specific deterministic, Contract, Live, and Manual runners still need to emit results into this shared gate.
 
 capabilities:
   - id: C01
@@ -278,15 +284,16 @@ capabilities:
       - id: C02-S02
         name: browser-login-and-logout
         layer: browser
-        status: manual-only
+        status: covered
         release_policy: blocking
         summary: The Web UI presents registration and login errors, establishes a session, and visibly logs out.
         evidence:
-          - kind: runbook
-            path: web/content/docs/development/rules/web-ui-test.md
-            direct: false
-            proves: Manual browser commands can drive login and registration.
-        gap: No repository-owned Browser E2E scenario proves the UI lifecycle.
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C02-S02] authenticate through the browser"
+            direct: true
+            proves: Playwright exercises registration validation, successful registration, failed and successful login, session establishment, and logout through the real candidate UI.
+        gap: ""
 
   - id: C03
     class: core
@@ -448,11 +455,16 @@ capabilities:
       - id: C05-S02
         name: browser-agent-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: blocking
-        summary: Users manage an agent and see only tools and actions allowed by their role.
-        evidence: []
-        gap: No automated browser journey covers agent creation, editing, assignment, or tool overrides.
+        summary: An administrator creates and edits a restricted agent, assigns a user, and the assigned user sees only role-allowed actions.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C05-S02] manage an agent and its user permissions"
+            direct: true
+            proves: Playwright creates and edits a restricted agent, assigns a regular user, and proves the assigned user cannot update it or open the administrator-only Users tab.
+        gap: ""
 
   - id: C06
     class: core
@@ -495,11 +507,16 @@ capabilities:
       - id: C06-S02
         name: browser-provider-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: blocking
-        summary: An administrator configures a provider and observes model discovery and validation errors in the Web UI.
-        evidence: []
-        gap: No automated browser provider-management journey exists.
+        summary: An administrator configures a provider, observes model discovery and validation errors, and sees its API key masked in the Web UI.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C06-S02] configure a provider and mask its secret"
+            direct: true
+            proves: Playwright covers provider creation, failed and successful model discovery, enable and save, password-field masking without visible secret text, and deletion.
+        gap: ""
 
   - id: C07
     class: core
@@ -581,11 +598,16 @@ capabilities:
       - id: C07-S03
         name: browser-chat-journey
         layer: browser
-        status: missing
+        status: covered
         release_policy: blocking
         summary: A user creates a session, sends a message, sees streaming output, reloads, and sees persisted history.
-        evidence: []
-        gap: No repository-owned Browser E2E chat journey exists.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C07-S03] stream and restore a chat session"
+            direct: true
+            proves: Playwright creates a new thread, observes a deliberately gated partial SSE reply, completes it, reloads, and sees persisted user and assistant messages.
+        gap: ""
 
   - id: C08
     class: core
@@ -1122,11 +1144,16 @@ capabilities:
       - id: C17-S02
         name: browser-share-link
         layer: browser
-        status: missing
+        status: covered
         release_policy: blocking
         summary: A user creates a share, opens the unauthenticated link, and sees it stop working after revocation.
-        evidence: []
-        gap: No automated browser public-share journey exists.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C17-S02] share and revoke an artifact"
+            direct: true
+            proves: Playwright creates an artifact share through the workspace UI, renders it in a cookie-free browser context, revokes it, and observes the public link fail.
+        gap: ""
 
   - id: C18
     class: core
@@ -1320,11 +1347,16 @@ capabilities:
       - id: X02-S02
         name: browser-channel-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: blocking
-        summary: An administrator creates, configures, starts, observes, and removes a channel from the Web UI.
-        evidence: []
-        gap: No automated browser channel-management journey exists.
+        summary: An administrator creates, configures, enables, invokes, and removes a webhook channel through the Web UI and its published ingress.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[X02-S02] manage and invoke a webhook channel"
+            direct: true
+            proves: Playwright creates and configures a webhook, proves disabled and enabled ingress behavior with a PAT, reloads persisted settings, and deletes the channel.
+        gap: ""
 
   - id: X03
     class: extension

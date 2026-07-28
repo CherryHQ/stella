@@ -207,6 +207,28 @@ fi
 go test -tags system -count=1 -timeout 15m ./test/system/...
 """
 
+[tasks.browser-test]
+description = "Run the six blocking Playwright release journeys against the exact Linux amd64 candidate"
+depends = ["pg:runtime:download"]
+# Release jobs inject the extracted candidate. Local runs build the worktree
+# once, then the Go runner owns the candidate, database, fixtures, and cleanup.
+run = """
+set -eu
+(
+  cd web
+  vp install --frozen-lockfile
+  if [ -z "${STELLA_SYSTEM_BINARY:-}" ]; then
+    vp run build
+  fi
+  vp exec playwright install chromium
+)
+if [ -z "${STELLA_SYSTEM_BINARY:-}" ]; then
+  # Build after the SPA so Go embeds web/static/dist into this one candidate.
+  mise run build
+fi
+go run ./test/release/cmd/browser
+"""
+
 [tasks.format]
 description = "Fix and format files"
 run = [

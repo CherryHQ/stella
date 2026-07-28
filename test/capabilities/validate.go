@@ -42,7 +42,7 @@ var allowedAssetCategories = map[string]struct{}{
 }
 
 var allowedEvidenceKinds = map[string]struct{}{
-	"go_test": {}, "system_test": {}, "contract_test": {},
+	"go_test": {}, "system_test": {}, "contract_test": {}, "browser_test": {},
 	"runbook": {}, "task": {}, "workflow": {},
 }
 
@@ -215,6 +215,12 @@ func (c *problemCollector) validateScenario(root, capabilityID string, scenario 
 				hasDirectAutomated = true
 			}
 		}
+		if evidence.Kind == "browser_test" {
+			c.validateBrowserTestReference(root, location, evidence)
+			if evidence.Direct {
+				hasDirectAutomated = true
+			}
+		}
 		if evidence.Kind == "runbook" {
 			hasRunbook = true
 			if evidence.Direct {
@@ -276,6 +282,34 @@ func (c *problemCollector) validateGoTestReference(root, location string, eviden
 		if err == nil && !strings.Contains(string(data), strconv.Quote(evidence.Subtest)) {
 			c.add("%s subtest %q is not a string literal in %q", location, evidence.Subtest, evidence.Path)
 		}
+	}
+}
+
+func (c *problemCollector) validateBrowserTestReference(root, location string, evidence *Evidence) {
+	if !strings.HasSuffix(evidence.Path, ".spec.ts") && !strings.HasSuffix(evidence.Path, ".spec.tsx") {
+		c.add("%s path %q must be a Playwright .spec.ts or .spec.tsx file", location, evidence.Path)
+		return
+	}
+	if evidence.Test == "" {
+		c.add("%s requires an exact Playwright test title", location)
+		return
+	}
+	if evidence.Subtest != "" {
+		c.add("%s browser_test does not support subtest", location)
+	}
+	path := filepath.Join(root, filepath.Clean(evidence.Path))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		c.add("%s cannot read %q: %v", location, evidence.Path, err)
+		return
+	}
+	// Require a real top-level declaration at the start of a line. This avoids
+	// accepting a stale title that appears only in prose or a code comment.
+	declaration := regexp.MustCompile(
+		`(?m)^\s*test\s*\(\s*"` + regexp.QuoteMeta(evidence.Test) + `"\s*,`,
+	)
+	if !declaration.Match(data) {
+		c.add("%s test %q does not exist in %q", location, evidence.Test, evidence.Path)
 	}
 }
 

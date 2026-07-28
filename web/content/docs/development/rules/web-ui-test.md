@@ -1,122 +1,89 @@
 ---
 title: Web UI testing
-description: Browser automation workflow for verifying Stella's Web UI.
+description: Release Browser E2E workflow for Stella's Web UI.
 ---
 
-Automate Stella web UI verification using `tap` browser commands.
+Stella's release Browser E2E suite uses Playwright with headless Chromium. It is
+a release-only gate, not part of ordinary pull-request CI.
 
-## Environment
+## Run the suite
 
-| Variable         | Purpose        | Default      |
-| ---------------- | -------------- | ------------ |
-| `DEV_ADMIN_USER` | Admin username | `admin`      |
-| `DEV_ADMIN_PASS` | Admin password | `i-am-admin` |
-| `DEV_USER`       | Normal user    | `user`       |
-| `DEV_PASS`       | Normal pass    | `i-am-user`  |
-
-Base URL: `http://localhost:25678`
+From the repository root:
 
 ```bash
-URL=${URL:-http://localhost:25678}
+mise run browser-test
 ```
 
-## Prerequisites
+The task downloads the fixed Stella PostgreSQL runtime, installs the locked web
+dependencies and Chromium, builds `dist/bin/stellad` when no candidate is
+provided, and runs all six blocking journeys.
 
-1. Stella server must be running (`mise run dev` or similar).
-2. `tap` CLI must be installed and on `$PATH`.
-
-## Tool selection (cheapest first)
-
-| Need                          | Tool                                                      |
-| ----------------------------- | --------------------------------------------------------- |
-| Check page text/state         | `tap browser text [selector]`                             |
-| Discover interactive elements | `tap browser snapshot --interactive -f json`              |
-| Fill forms / click buttons    | `tap browser fill` / `tap browser click`                  |
-| Run JS assertions             | `tap browser evaluate <js>`                               |
-| Check network responses       | `tap browser network wait --url-pattern "*/api/*" --body` |
-| Visual verification only      | `tap browser screenshot`                                  |
-
-Prefer `text` and `snapshot` over `screenshot`. Only screenshot when layout/visual matters.
-
-## Browser lifecycle
+A release job must inject the exact extracted candidate instead of rebuilding:
 
 ```bash
-# Check if browser is already running
-tap status
-
-# If stale or no session, start fresh (visible window)
-tap browser open "$URL" --show
-
-# Subsequent navigations reuse the session
-tap browser open "$URL"
+STELLA_SYSTEM_BINARY=/absolute/path/to/stellad mise run browser-test
 ```
 
-If `tap browser` commands fail with connection errors, the session is stale. Fix:
+`STELLA_SYSTEM_BINARY` must be an absolute, executable, non-symlink file. The
+runner starts it with a fresh temporary `STELLA_HOME`, its real embedded
+PostgreSQL lifecycle, local registration enabled, and an explicit environment
+allowlist.
 
-```bash
-rm "$HOME/.cache/tap/browser/state.json"
-tap browser open "$URL" --show
+## Release journeys
+
+| Scenario | Browser behavior proved                                                                                   |
+| -------- | --------------------------------------------------------------------------------------------------------- |
+| C02-S02  | Registration validation, registration, failed and successful login, and logout                            |
+| C05-S02  | Restricted agent creation/editing, user assignment, and role-limited actions                              |
+| C06-S02  | Provider creation, model-fetch errors/success, enable/save, UI password masking, and deletion             |
+| C07-S03  | New thread, real partial SSE rendering, completion, reload, and persisted history                         |
+| C17-S02  | Workspace share creation, cookie-free public rendering, revocation, and expired-link UI                   |
+| X02-S02  | Webhook creation/configuration, disable/enable behavior, authenticated ingress, persistence, and deletion |
+
+The provider journey proves only that the Web UI renders the API key in a
+password field and does not expose it as visible page text. API response
+redaction remains a separate Integration scenario.
+
+The webhook journey proves the UI controls and the published ingress. The
+current channel page has no separate runtime-status surface, so the test does
+not claim one.
+
+## Deterministic fixtures
+
+The Go runner creates all fixtures through Stella's public registration and API
+surfaces. It does not seed the database or call private test backdoors.
+
+Model discovery and chat use a loopback Anthropic-compatible fake. The chat
+journey deliberately gates the stream after the first text delta, waits for the
+browser to render that partial reply, and then releases the remainder. No real
+provider account, external network, or release secret is needed.
+
+Every invocation generates unique users and object IDs. The temporary Stella
+home and embedded database are removed after the candidate and its process
+group stop.
+
+## Assertions and diagnostics
+
+Tests use role, label, placeholder, and repository-owned data-attribute
+locators. Use Playwright's web-first assertions and response waits; do not add
+fixed sleeps for UI synchronization.
+
+Each Scenario emits an independent release Result. Diagnostics live under:
+
+```text
+dist/test-results/release/<run-id>/
+├── results/
+└── artifacts/browser/
 ```
 
-## Common workflows
+The artifact set includes the raw Playwright report, candidate and runner logs,
+browser console entries, a network summary without headers, bodies, or query
+strings, and failure-only screenshots and traces. Before Results are written,
+the runner scans the complete browser artifact directory for explicitly named
+release secrets. Unsafe diagnostics are removed if that scan fails.
 
-### Login
+## Optional local exploration
 
-```bash
-tap browser open "$URL/login"
-tap browser snapshot --interactive -f json
-# Clear any pre-filled values
-tap browser evaluate 'document.querySelectorAll("input").forEach(i => { i.value = ""; i.dispatchEvent(new Event("input", {bubbles:true})); })'
-tap browser fill @e3 "$USERNAME" @e4 "$PASSWORD" --submit @e1
-sleep 1
-tap browser text | head -20
-```
-
-### Register (if login fails with "Invalid username or password")
-
-```bash
-# From login page, click Register
-tap browser click @e2   # "Need an account? Register"
-tap browser snapshot --interactive -f json
-tap browser fill @e3 "$USERNAME" @e4 "$PASSWORD" @e5 "$PASSWORD" --submit @e1
-sleep 1
-tap browser text | head -20
-```
-
-### Verify page loaded
-
-```bash
-tap browser text | head -30          # Quick text check
-tap browser snapshot --interactive   # See all interactive elements
-```
-
-### Navigate
-
-```bash
-tap browser open "$URL/agents"
-tap browser open "$URL/settings"
-```
-
-## Assertion pattern
-
-After each action, verify the result before moving on:
-
-1. **Text check**: `tap browser text | head -N` — confirm expected heading or content.
-2. **URL check**: `tap status --json` — confirm navigation landed on the right page.
-3. **Error check**: look for error banners in `tap browser text` output.
-
-If an assertion fails, report what was expected vs what was found. Do not silently continue.
-
-## Related
-
-This covers the browser layer. To assert what a UI action actually wrote, pair it
-with the DB checks in `api-test.md` — browser drive here + DB assertions there is a
-full `browser -> API -> DB` e2e. For backend behavior alone, use `api-test.md`
-directly (no browser).
-
-## Notes
-
-- Snapshot refs (`@e1`, `@e2`, ...) are invalidated after navigation — always re-snapshot.
-- Password minimum length is 8 characters.
-- The login form uses `placeholder` attributes: `username`, `password`.
-- After login, the app redirects to `/agents`.
+For exploratory UI work, `mise run dev` and an interactive browser are still
+useful. That workflow is not release evidence and must not be cited as an
+automated Scenario result.

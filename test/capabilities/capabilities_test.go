@@ -160,6 +160,38 @@ func TestValidateManualPolicyRequiresManualOnlyStatus(t *testing.T) {
 	}
 }
 
+func TestValidateBrowserTestReference(t *testing.T) {
+	root := t.TempDir()
+	writeRepositoryFixture(t, root)
+	browserPath := filepath.Join(root, "web", "e2e", "release.spec.ts")
+	writeFixture(t, browserPath, "import { test } from \"@playwright/test\";\n\ntest(\"[C01-S01] read demo in browser\", async () => {});\n")
+	surfaces, err := CollectRepositorySurfaces(root, []string{"tool/demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	surfaces.CLICommands = []string{"stellad demo"}
+
+	manifest := validFixtureManifest()
+	scenario := &manifest.Capabilities[0].Scenarios[0]
+	scenario.Layer = "browser"
+	scenario.Evidence = []Evidence{{
+		Kind:   "browser_test",
+		Path:   "web/e2e/release.spec.ts",
+		Test:   "[C01-S01] read demo in browser",
+		Direct: true,
+		Proves: "The browser renders the demo.",
+	}}
+	if err := Validate(root, manifest, surfaces); err != nil {
+		t.Fatalf("valid browser reference: %v", err)
+	}
+
+	scenario.Evidence[0].Test = "[C01-S01] stale title"
+	err = Validate(root, manifest, surfaces)
+	if err == nil || !strings.Contains(err.Error(), `test "[C01-S01] stale title" does not exist`) {
+		t.Fatalf("expected stale browser title error, got %v", err)
+	}
+}
+
 func TestBuildReportKeepsGapsSeparateFromCoveredEvidence(t *testing.T) {
 	manifest := validFixtureManifest()
 	manifest.Capabilities[0].Scenarios = append(manifest.Capabilities[0].Scenarios, Scenario{

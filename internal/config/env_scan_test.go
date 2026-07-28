@@ -95,6 +95,17 @@ var envReadAllowlist = map[string]map[string]bool{
 		// one Release workflow attempt and is not stellad configuration.
 		"GITHUB_RUN_ATTEMPT": true,
 	},
+	"test/release/cmd/browser/lifecycle.go": {
+		// The release-only runner receives an immutable candidate path and
+		// forwards a narrow host environment to its Playwright child process.
+		"STELLA_SYSTEM_BINARY": true,
+		nonLiteralRead:         true,
+	},
+	"test/release/cmd/browser/main.go": {
+		// GitHub owns this retry counter; it selects append-only Browser
+		// evidence for one Release workflow attempt.
+		"GITHUB_RUN_ATTEMPT": true,
+	},
 
 	// Host environment passthrough for the sandbox: PATH and selected host vars
 	// are forwarded into the sandbox, not stella configuration.
