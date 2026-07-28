@@ -179,6 +179,7 @@ export function CredentialsPage() {
 
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
+  const [vaultLoaded, setVaultLoaded] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [editingEntry, setEditingEntry] = useState<VaultEntry | null>(null);
@@ -271,6 +272,7 @@ export function CredentialsPage() {
         setVaultEntries(results.flat());
       } finally {
         setVaultLoading(false);
+        setVaultLoaded(true);
       }
     },
     [isAdmin],
@@ -295,6 +297,7 @@ export function CredentialsPage() {
       ...fetched,
     ]);
   }, []);
+  const reloadEmailConfigMetadata = useCallback(() => reloadScope("user"), [reloadScope]);
 
   const loadAgents = useCallback(async () => {
     try {
@@ -663,6 +666,9 @@ export function CredentialsPage() {
     [deleteProviderConfig, t],
   );
 
+  const hasStoredEmailConfig = vaultEntries.some(
+    (entry) => entry.scope === "user" && entry.name === "EMAIL_CONFIG",
+  );
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
   const agentName = (id?: string | null) =>
     (id && agents.find((a) => a.id === id)?.name) || id || "";
@@ -1143,7 +1149,12 @@ export function CredentialsPage() {
           )}
         </SettingsSection>
 
-        <EmailAccountsPanel showToast={showToast} />
+        <EmailAccountsPanel
+          showToast={showToast}
+          hasStoredConfig={hasStoredEmailConfig}
+          vaultLoaded={vaultLoaded}
+          onConfigChanged={reloadEmailConfigMetadata}
+        />
 
         <SettingsSection
           icon={<KeyRound className="size-4" />}
