@@ -73,8 +73,17 @@ nfpms:
     formats:
       - deb
       - rpm
-    dependencies:
-      - bubblewrap
+    # Xberg rc.35 bundles its non-system native libraries, but its GNU assets
+    # intentionally rely on the target distribution's C++ runtime.
+    overrides:
+      deb:
+        dependencies:
+          - bubblewrap
+          - libstdc++6
+      rpm:
+        dependencies:
+          - bubblewrap
+          - libstdc++
 
 changelog:
   sort: asc
