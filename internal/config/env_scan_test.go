@@ -106,6 +106,11 @@ var envReadAllowlist = map[string]map[string]bool{
 		// evidence for one Release workflow attempt.
 		"GITHUB_RUN_ATTEMPT": true,
 	},
+	"test/release/cmd/contract/main.go": {
+		// GitHub owns this retry counter; it selects append-only Contract
+		// evidence for one Release workflow attempt.
+		"GITHUB_RUN_ATTEMPT": true,
+	},
 
 	// Host environment passthrough for the sandbox: PATH and selected host vars
 	// are forwarded into the sandbox, not stella configuration.

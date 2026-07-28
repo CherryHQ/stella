@@ -27,7 +27,7 @@ func TestOutcomesFromReportRequiresEveryScenario(t *testing.T) {
 		t.Fatalf("got %d outcomes, want %d", len(outcomes), len(browserScenarios))
 	}
 	last := outcomes[len(outcomes)-1]
-	if last.Definition.ScenarioID != "X02-S02" || last.Status != releasecontract.StatusProductFailure {
+	if last.Definition.ScenarioID != "X07-S02" || last.Status != releasecontract.StatusProductFailure {
 		t.Fatalf("missing Scenario outcome = %#v", last)
 	}
 	if !strings.Contains(last.Reason, "did not report") {
@@ -131,7 +131,12 @@ func passingRawReport(startedAt time.Time) rawReport {
 		FinishedAt:    startedAt.Add(time.Minute),
 		Status:        "passed",
 	}
+	seen := map[string]bool{}
 	for index, definition := range browserScenarios {
+		if seen[definition.Title] {
+			continue
+		}
+		seen[definition.Title] = true
 		report.Tests = append(report.Tests, rawTestResult{
 			Title:          definition.Title,
 			Status:         "passed",

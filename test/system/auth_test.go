@@ -34,7 +34,7 @@ func (h *harness) testStartupAndAuth(t *testing.T) {
 		t.Fatalf("GET /api/auth/me with no credentials = %d, want %d\n%s", code, http.StatusUnauthorized, h.proc.logTail(40))
 	}
 
-	h.registerBootstrapUser(t, ctx)
+	email, password := h.registerBootstrapUser(t, ctx)
 
 	// Session cookie only, no Authorization header: normal session auth succeeds.
 	if code := h.statusOf(t, ctx, h.newAuthedGet(t, ctx, nil)); code != http.StatusOK {
@@ -54,6 +54,7 @@ func (h *harness) testStartupAndAuth(t *testing.T) {
 	}
 
 	h.testPersonalAccessToken(t, ctx)
+	h.testLogoutRevokesSession(t, ctx, email, password)
 }
 
 // testPersonalAccessToken proves the PAT bearer lifecycle end to end over the
@@ -213,18 +214,48 @@ func (h *harness) bearerProbeStatus(t *testing.T, ctx context.Context, token str
 // registration path issues a usable session over the wire. The first account
 // bootstraps without any registration env flag because the server always
 // allows the very first user (BootstrapRegistration).
-func (h *harness) registerBootstrapUser(t *testing.T, ctx context.Context) {
+func (h *harness) registerBootstrapUser(t *testing.T, ctx context.Context) (email, password string) {
 	t.Helper()
+	email = fmt.Sprintf("bootstrap-%s@system.test", h.runID)
+	password = "system-test-" + h.runID
 	body := map[string]string{
 		"name":             "System Test " + h.runID,
-		"email":            fmt.Sprintf("bootstrap-%s@system.test", h.runID),
-		"password":         "system-test-" + h.runID,
-		"confirm_password": "system-test-" + h.runID,
+		"email":            email,
+		"password":         password,
+		"confirm_password": password,
 	}
 	resp := h.postJSON(t, ctx, "/api/auth/local/register", body)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST /api/auth/local/register = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.logTail(40))
+	}
+	return email, password
+}
+
+// testLogoutRevokesSession proves the cookie captured during registration
+// cannot authenticate after logout. It logs back in afterward because later
+// ordered system journeys intentionally reuse the bootstrap session.
+func (h *harness) testLogoutRevokesSession(t *testing.T, ctx context.Context, email, password string) {
+	t.Helper()
+
+	logoutResp := h.postJSON(t, ctx, "/api/auth/logout", map[string]any{})
+	defer func() { _ = logoutResp.Body.Close() }()
+	if logoutResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("POST /api/auth/logout = %d, want %d\n%s", logoutResp.StatusCode, http.StatusNoContent, h.proc.logTail(40))
+	}
+	if code := h.statusOf(t, ctx, h.newAuthedGet(t, ctx, nil)); code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/auth/me after logout = %d, want %d\n%s", code, http.StatusUnauthorized, h.proc.logTail(40))
+	}
+
+	loginResp := h.postJSON(t, ctx, "/api/auth/local/login", map[string]string{
+		"email": email, "password": password,
+	})
+	defer func() { _ = loginResp.Body.Close() }()
+	if loginResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/auth/local/login = %d, want %d\n%s", loginResp.StatusCode, http.StatusOK, h.proc.logTail(40))
+	}
+	if code := h.statusOf(t, ctx, h.newAuthedGet(t, ctx, nil)); code != http.StatusOK {
+		t.Fatalf("GET /api/auth/me after re-login = %d, want %d\n%s", code, http.StatusOK, h.proc.logTail(40))
 	}
 }
 

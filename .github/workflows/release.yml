@@ -766,7 +766,58 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  # Steps 6-9 add their blocking jobs before this job. Promotion remains the
+  contract-tests:
+    name: Deterministic Contract Tests (linux/amd64)
+    runs-on: ubuntu-24.04
+    needs: [candidate-index]
+
+    permissions:
+      contents: read
+
+    env:
+      STELLA_RELEASE_RUN_ID: ${{ github.run_id }}
+      STELLA_RELEASE_VERSION: ${{ github.ref_name }}
+      STELLA_RELEASE_COMMIT: ${{ github.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache pinned Stella PostgreSQL runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/.stella/pg-runtime
+          key: stella-pg-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('internal/pgruntime/runtime.go') }}
+
+      - name: Install Local sandbox prerequisite
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+
+      - name: Run blocking deterministic contracts
+        run: mise run contract-test
+
+      - name: Upload Contract Results and diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-contract-${{ github.sha }}-a${{ github.run_attempt }}
+          path: |
+            dist/test-results/release/${{ github.run_id }}/results
+            dist/test-results/release/${{ github.run_id }}/artifacts/contracts
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Steps 8-9 add their blocking jobs before this job. Promotion remains the
   # only job allowed to create formal release assets or image tags.
   promotion:
     name: Promote tested candidate
@@ -778,6 +829,7 @@ jobs:
       - platform-linux-arm64
       - platform-results
       - browser-e2e
+      - contract-tests
 
     permissions:
       actions: read

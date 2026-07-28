@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -33,6 +34,7 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/inbox"
+	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
@@ -217,7 +219,9 @@ func setupAdmin(t *testing.T) *testEnv {
 	const baseURL = "http://localhost:25678"
 	poolManager := agent.NewPoolManager(store, mem)
 	recallyStore := recally.NewStore(db)
-	assetHome := t.TempDir()
+	// Mirror the production composition root: workspace and uploaded asset paths
+	// are both authorized relative to the same isolated STELLA_HOME.
+	assetHome := config.StellaHome()
 	assetStore, err := asset.NewStore(assetHome, nil, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
@@ -548,6 +552,264 @@ func TestCreateProvider(t *testing.T) {
 	}
 	if !found {
 		t.Error("created provider not found in list")
+	}
+}
+
+func TestProviderAPILifecycleAndAdminScope(t *testing.T) {
+	env := setupAdmin(t)
+	const (
+		providerID = "release-provider"
+		apiKey     = "release-provider-key"
+	)
+
+	rr := doRequest(t, env, http.MethodPost, "/api/providers", config.Provider{
+		ID: providerID, Type: "anthropic", Name: "Release Provider",
+		Enabled: true, APIKey: apiKey,
+		Models: map[string]config.ProviderModel{
+			"claude-release": {ID: "claude-release", Name: "Claude Release", Enabled: true},
+		},
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST provider status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+
+	// Provider credentials are an admin-only control-plane value. The Browser
+	// journey separately proves that this value is rendered only in a password
+	// field and never as visible text.
+	_, userSession := newNonAdmin(t, env, "provider-reader")
+	rr = doRequestWithSession(t, env.srv, userSession, http.MethodGet, "/api/providers/"+providerID, nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin GET provider status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/providers/"+providerID, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET provider status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var got config.Provider
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("decode provider: %v", err)
+	}
+	if got.ID != providerID || got.APIKey != apiKey || !got.Enabled {
+		t.Fatal("GET provider did not preserve the created admin configuration")
+	}
+
+	updated := got
+	updated.Name = "Release Provider Updated"
+	updated.Enabled = false
+	rr = doRequest(t, env, http.MethodPatch, "/api/providers/"+providerID, updated)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH provider status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/providers/"+providerID+"/models", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET provider models status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var models struct {
+		Models []struct {
+			ID      string `json:"id"`
+			Enabled bool   `json:"enabled"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &models); err != nil {
+		t.Fatalf("decode provider models: %v", err)
+	}
+	if len(models.Models) != 1 || models.Models[0].ID != "claude-release" || !models.Models[0].Enabled {
+		t.Fatalf("provider models = %+v, want enabled claude-release", models.Models)
+	}
+
+	rr = doRequest(t, env, http.MethodDelete, "/api/providers/"+providerID, nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("DELETE provider status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	rr = doRequest(t, env, http.MethodGet, "/api/providers/"+providerID, nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("GET deleted provider status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestMCPServerAPILifecycleAndUserScope(t *testing.T) {
+	env := setupAdmin(t)
+	env.rebuild(t, func(deps *server.Deps) {
+		// Bearer-token encryption is exercised by the MCP integration suite.
+		// This HTTP boundary uses auth_type=none so it needs no test vault.
+		deps.MCP = mcp.NewService(sqlc.New(env.db), nil)
+	})
+
+	rr := doRequest(t, env, http.MethodPost, "/api/mcp/servers", map[string]any{
+		"scope":     "user",
+		"name":      "release-mcp",
+		"url":       "https://mcp.example.com/v1",
+		"transport": "streamable_http",
+		"auth_type": "none",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST MCP server status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), `"token"`) {
+		t.Fatal("MCP API response exposed a credential field")
+	}
+	var created apitypes.MCPServer
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &created); err != nil {
+		t.Fatalf("decode created MCP server: %v", err)
+	}
+	if created.Id == "" || created.Name != "release-mcp" || created.Scope != apitypes.MCPServerScopeUser {
+		t.Fatalf("created MCP server = %+v", created)
+	}
+
+	rr = doRequest(t, env, http.MethodGet, "/api/mcp/servers?scope=user", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET MCP servers status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var listed apitypes.MCPServerList
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &listed); err != nil {
+		t.Fatalf("decode MCP server list: %v", err)
+	}
+	if len(listed.Servers) != 1 || listed.Servers[0].Id != created.Id {
+		t.Fatalf("listed MCP servers = %+v, want created server", listed.Servers)
+	}
+
+	_, otherSession := newNonAdmin(t, env, "mcp-other-user")
+	rr = doRequestWithSession(t, env.srv, otherSession, http.MethodGet, "/api/mcp/servers?scope=user", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("other user GET MCP servers status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &listed); err != nil {
+		t.Fatalf("decode other user's MCP server list: %v", err)
+	}
+	if len(listed.Servers) != 0 {
+		t.Fatalf("other user can see scoped MCP servers: %+v", listed.Servers)
+	}
+
+	rr = doRequest(t, env, http.MethodPatch, "/api/mcp/servers/"+created.Id+"?scope=user", map[string]any{
+		"name":    "release-mcp-updated",
+		"enabled": false,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH MCP server status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	var updated apitypes.MCPServer
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &updated); err != nil {
+		t.Fatalf("decode updated MCP server: %v", err)
+	}
+	if updated.Name != "release-mcp-updated" || updated.Enabled {
+		t.Fatalf("updated MCP server = %+v", updated)
+	}
+
+	rr = doRequest(t, env, http.MethodPost, "/api/mcp/servers", map[string]any{
+		"scope": "user",
+		"name":  "unsafe-mcp",
+		"url":   "http://127.0.0.1:9999/mcp",
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unsafe MCP endpoint status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+
+	rr = doRequest(t, env, http.MethodDelete, "/api/mcp/servers/"+created.Id+"?scope=user", nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("DELETE MCP server status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	rr = doRequest(t, env, http.MethodGet, "/api/mcp/servers?scope=user", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET MCP servers after delete status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &listed); err != nil {
+		t.Fatalf("decode MCP server list after delete: %v", err)
+	}
+	if len(listed.Servers) != 0 {
+		t.Fatalf("MCP server remained after delete: %+v", listed.Servers)
+	}
+}
+
+func TestProjectAPILifecycleAndScope(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Project API Agent")
+	baseDir := agent.UserAgentDir(config.StellaHome(), env.adminUser.ID, agentID)
+	projectsPath := "/api/agents/" + agentID + "/projects"
+
+	rr := doRequest(t, env, http.MethodPost, projectsPath, map[string]any{
+		"name": "Release Project", "base_dir": baseDir, "description": "before",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST project status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	var created struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		AgentID     string `json:"agent_id"`
+		UserID      string `json:"user_id"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &created); err != nil {
+		t.Fatalf("decode project: %v", err)
+	}
+	if created.ID == "" || created.AgentID != agentID || created.UserID != env.adminUser.ID {
+		t.Fatalf("created project identity = %+v", created)
+	}
+	projectPath := projectsPath + "/" + created.ID
+
+	rr = doRequest(t, env, http.MethodGet, projectPath, nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET project status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	newName := "Release Project Updated"
+	newDescription := "after"
+	rr = doRequest(t, env, http.MethodPatch, projectPath, map[string]any{
+		"name": newName, "description": newDescription,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH project status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, http.MethodGet, projectsPath, nil)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), newName) {
+		t.Fatalf("GET projects did not return updated project: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// A project-scoped session crosses the project/session boundary and must be
+	// returned by the project filter after a separate request.
+	rr = doRequest(t, env, http.MethodPost, "/api/agents/"+agentID+"/sessions", map[string]any{
+		"kind": "chat", "project_id": created.ID,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST project session status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	var projectSession apitypes.Session
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &projectSession); err != nil {
+		t.Fatalf("decode project session: %v", err)
+	}
+	if projectSession.Id == "" || projectSession.ProjectId == nil || *projectSession.ProjectId != created.ID {
+		t.Fatalf("created project session = %+v, want project %s", projectSession, created.ID)
+	}
+	rr = doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions?project_id="+created.ID, nil)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), created.ID) {
+		t.Fatalf("GET project sessions did not preserve project scope: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	_, otherSession := newNonAdmin(t, env, "project-outsider")
+	rr = doRequestWithSession(t, env.srv, otherSession, http.MethodGet, projectPath, nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("foreign GET project status = %d, want opaque %d", rr.Code, http.StatusNotFound)
+	}
+	rr = doRequest(t, env, http.MethodPost, projectsPath, map[string]any{
+		"name": "Escape", "base_dir": "/etc",
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("traversal POST project status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+
+	rr = doRequest(t, env, http.MethodDelete, "/api/agents/"+agentID+"/sessions/"+projectSession.Id, nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("DELETE project session status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	rr = doRequest(t, env, http.MethodDelete, projectPath, nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("DELETE project status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	rr = doRequest(t, env, http.MethodGet, projectPath, nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("GET deleted project status = %d, want %d", rr.Code, http.StatusNotFound)
 	}
 }
 

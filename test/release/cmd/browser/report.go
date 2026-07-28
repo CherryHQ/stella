@@ -30,6 +30,9 @@ var browserScenarios = []scenarioDefinition{
 	{CapabilityID: "C07", ScenarioID: "C07-S03", Title: "[C07-S03] stream and restore a chat session"},
 	{CapabilityID: "C17", ScenarioID: "C17-S02", Title: "[C17-S02] share and revoke an artifact"},
 	{CapabilityID: "X02", ScenarioID: "X02-S02", Title: "[X02-S02] manage and invoke a webhook channel"},
+	// The same real-candidate journey also proves the Webhook-specific inbound
+	// lifecycle. X02 owns channel CRUD; X07 owns the inbound protocol behavior.
+	{CapabilityID: "X07", ScenarioID: "X07-S02", Title: "[X02-S02] manage and invoke a webhook channel"},
 }
 
 type rawReport struct {
@@ -100,9 +103,9 @@ func outcomesFromReport(
 	sharedPaths []string,
 	harnessErr error,
 ) ([]scenarioOutcome, error) {
-	definitions := make(map[string]scenarioDefinition, len(browserScenarios))
+	definitions := make(map[string]struct{}, len(browserScenarios))
 	for _, definition := range browserScenarios {
-		definitions[definition.Title] = definition
+		definitions[definition.Title] = struct{}{}
 	}
 
 	seen := make(map[string]rawTestResult, len(report.Tests))

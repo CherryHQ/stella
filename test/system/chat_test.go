@@ -74,7 +74,13 @@ func (h *harness) testChatSSE(t *testing.T) {
 // it never collides with the seeded default provider.
 func (h *harness) createFakeProvider(t *testing.T, ctx context.Context, baseURL string) string {
 	t.Helper()
-	id := "anthropic-" + h.runID
+	return h.createNamedFakeProvider(t, ctx, "anthropic-"+h.runID, baseURL)
+}
+
+// createNamedFakeProvider is the shared provider fixture for journeys that need
+// independent scripted fake lifetimes within the same ordered system suite.
+func (h *harness) createNamedFakeProvider(t *testing.T, ctx context.Context, id, baseURL string) string {
+	t.Helper()
 	body := map[string]any{
 		"id":       id,
 		"type":     "anthropic",
@@ -96,8 +102,15 @@ func (h *harness) createFakeProvider(t *testing.T, ctx context.Context, baseURL 
 // rather than assumed).
 func (h *harness) createAgent(t *testing.T, ctx context.Context, model string) string {
 	t.Helper()
+	return h.createNamedAgent(t, ctx, "sys-test-agent-"+h.runID, model)
+}
+
+// createNamedAgent keeps agent IDs independent when multiple journeys need the
+// same fake provider protocol but must not share business fixtures.
+func (h *harness) createNamedAgent(t *testing.T, ctx context.Context, name, model string) string {
+	t.Helper()
 	body := map[string]any{
-		"name":    "sys-test-agent-" + h.runID,
+		"name":    name,
 		"model":   model,
 		"enabled": true,
 	}

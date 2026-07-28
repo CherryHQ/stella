@@ -92,6 +92,101 @@ func (fx groupFixture) createSystemAgent(t *testing.T, id string) {
 	}
 }
 
+// TestGroupLifecyclePersistsMembershipDispatchAndHistory combines the durable
+// group boundaries that otherwise appear in focused tests: owner-scoped CRUD,
+// multi-agent membership, one claimed dispatch, persisted history, opaque
+// foreign access, and final deletion.
+func TestGroupLifecyclePersistsMembershipDispatchAndHistory(t *testing.T) {
+	fx := setupGroupFixture(t)
+	ctx := fx.ts.ctx()
+	owner := createTestUser(t, fx.ts.oidcStore, "lifecycle-owner@example.com")
+	foreign := createTestUser(t, fx.ts.oidcStore, "lifecycle-foreign@example.com")
+	fx.createSystemAgent(t, "group-second")
+	fx.createSystemAgent(t, "group-third")
+
+	ownerAcc := fx.begin(t, owner.ID, false)
+	group, err := ownerAcc.Create(ctx, "release team", []string{fx.stella, "group-second"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if group.ID == "" {
+		t.Fatal("created group has empty id")
+	}
+
+	group, err = ownerAcc.UpdateName(ctx, group.ID, "release team updated")
+	if err != nil {
+		t.Fatalf("UpdateName: %v", err)
+	}
+	if group.GroupName != "release team updated" {
+		t.Fatalf("updated group name = %q", group.GroupName)
+	}
+	list, err := ownerAcc.List(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != group.ID {
+		t.Fatalf("owner groups = %+v, want created group", list)
+	}
+
+	if _, err := ownerAcc.AddMember(ctx, group.ID, "group-third"); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := ownerAcc.RemoveMember(ctx, group.ID, "group-second"); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+	members, err := ownerAcc.Members(ctx, group.ID)
+	if err != nil {
+		t.Fatalf("Members: %v", err)
+	}
+	gotMembers := map[string]bool{}
+	for _, member := range members {
+		gotMembers[member.AgentID] = true
+	}
+	if len(gotMembers) != 2 || !gotMembers[fx.stella] || !gotMembers["group-third"] {
+		t.Fatalf("members = %+v, want Stella and group-third", members)
+	}
+
+	prepared, err := ownerAcc.PrepareSend(ctx, group.ID, "release lifecycle message", "release-lifecycle-1")
+	if err != nil {
+		t.Fatalf("PrepareSend: %v", err)
+	}
+	if prepared.Deduplicated || prepared.Command {
+		t.Fatalf("prepared send = %+v, want fresh message", prepared)
+	}
+	if err := ownerAcc.Dispatch(ctx, prepared, noopGroupPublisher{}); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if !fx.runner.called || fx.runner.outboxID == "" {
+		t.Fatalf("dispatch runner = %+v, want claimed durable outbox", fx.runner)
+	}
+
+	// Read through a fresh access handle so history cannot be satisfied by
+	// transient state held by the writer.
+	historyAcc := fx.begin(t, owner.ID, false)
+	messages, err := historyAcc.Messages(ctx, group.ID, 0, 50)
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if len(messages) != 1 || messages[0].Content != "release lifecycle message" {
+		t.Fatalf("persisted messages = %+v, want lifecycle message", messages)
+	}
+	if messages[0].ActorType != "human" || messages[0].ActorID != owner.ID {
+		t.Fatalf("persisted speaker = %s/%s, want human/%s", messages[0].ActorType, messages[0].ActorID, owner.ID)
+	}
+
+	foreignAcc := fx.begin(t, foreign.ID, false)
+	if _, err := foreignAcc.Messages(ctx, group.ID, 0, 50); !errors.Is(err, ErrGroupNotFound) {
+		t.Fatalf("foreign Messages = %v, want opaque ErrGroupNotFound", err)
+	}
+
+	if err := ownerAcc.Delete(ctx, group.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := ownerAcc.Get(ctx, group.ID); !errors.Is(err, ErrGroupNotFound) {
+		t.Fatalf("Get after delete = %v, want ErrGroupNotFound", err)
+	}
+}
+
 // TestGroupOwnerVisibilityIsOpaque proves owner/admin visibility: the owner and
 // an admin reach a group, while a foreign non-admin sees it as absent (not
 // forbidden), and the foreign caller's own list excludes it.

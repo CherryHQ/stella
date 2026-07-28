@@ -2,9 +2,13 @@ package docker_test
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	mobyclient "github.com/moby/moby/client"
 
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	dockerclient "github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
@@ -26,12 +30,19 @@ func dockerAvailable(ctx context.Context) bool {
 
 const dockerContractImage = "alpine:3.20"
 
+func dockerContractRequired() bool {
+	return os.Getenv("STELLA_REQUIRE_DOCKER_CONTRACT") == "1"
+}
+
 func dockerPreflightForTest(t *testing.T, ctx context.Context) {
 	t.Helper()
 	cfg := dockerplugin.PreflightConfig{Docker: dockerplugin.Config{Image: dockerContractImage}}
 	preflightCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	if err := dockerplugin.Preflight(preflightCtx, cfg); err != nil {
+		if dockerContractRequired() {
+			t.Fatalf("required docker preflight failed: %v", err)
+		}
 		t.Skipf("docker preflight failed (image unavailable): %v", err)
 	}
 }
@@ -40,14 +51,19 @@ func TestSessionContract(t *testing.T) {
 	t.Run("DockerFactory", func(t *testing.T) {
 		ctx := context.Background()
 		if !dockerAvailable(ctx) {
+			if dockerContractRequired() {
+				t.Fatal("required docker daemon is not reachable")
+			}
 			t.Skip("docker daemon not reachable; skipping DockerFactory contract test")
 		}
 		dockerPreflightForTest(t, ctx)
+		before := dockerSessionContainers(t, ctx)
 		factory, err := dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage})
 		if err != nil {
 			t.Fatalf("NewFactory: %v", err)
 		}
 		testSessionContract(t, factory)
+		assertNoNewDockerSessionContainers(t, ctx, before)
 	})
 }
 
@@ -71,12 +87,12 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 			t.Fatalf("CreateSession: %v", err)
 		}
 
-		if !session.Alive() {
-			t.Error("session should be alive after creation")
+		if session == nil {
+			t.Fatal("session should be non-nil")
 		}
 
-		if session == nil {
-			t.Error("session should be non-nil")
+		if !session.Alive() {
+			t.Error("session should be alive after creation")
 		}
 
 		if err := session.Close(); err != nil {
@@ -125,7 +141,7 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		}
 
 		if err := session.Close(); err != nil {
-			t.Logf("second Close returned error (acceptable): %v", err)
+			t.Errorf("second Close: %v", err)
 		}
 	})
 
@@ -180,6 +196,69 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 			t.Errorf("Stdout = %q, should contain %q", execResult.Stdout, "hello")
 		}
 	})
+
+	t.Run("ExecTimeout", func(t *testing.T) {
+		session, err := factory.CreateSession(ctx, policy)
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		defer func() { _ = session.Close() }()
+
+		started := time.Now()
+		_, err = session.Exec(ctx, "sleep 5", sandbox.ExecOptions{Timeout: 150 * time.Millisecond})
+		if err == nil {
+			t.Fatal("Exec succeeded after its deadline")
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Exec error = %v, want context deadline exceeded", err)
+		}
+		if elapsed := time.Since(started); elapsed > 2*time.Second {
+			t.Fatalf("Exec timeout took %s, want under 2s", elapsed)
+		}
+	})
+}
+
+func dockerSessionContainers(t *testing.T, ctx context.Context) map[string]struct{} {
+	t.Helper()
+	client, err := dockerclient.New()
+	if err != nil {
+		t.Fatalf("create docker client for residue check: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	filters := mobyclient.Filters{}.Add("label", dockerclient.LabelSessionID)
+	listCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	result, err := client.ContainerList(listCtx, mobyclient.ContainerListOptions{
+		All:     true,
+		Filters: filters,
+	})
+	if err != nil {
+		t.Fatalf("list docker session containers: %v", err)
+	}
+	ids := make(map[string]struct{}, len(result.Items))
+	for _, container := range result.Items {
+		ids[container.ID] = struct{}{}
+	}
+	return ids
+}
+
+func assertNoNewDockerSessionContainers(
+	t *testing.T,
+	ctx context.Context,
+	before map[string]struct{},
+) {
+	t.Helper()
+	after := dockerSessionContainers(t, ctx)
+	var leaked []string
+	for id := range after {
+		if _, existed := before[id]; !existed {
+			leaked = append(leaked, id)
+		}
+	}
+	if len(leaked) > 0 {
+		t.Fatalf("docker contract left %d Stella sandbox container(s): %v", len(leaked), leaked)
+	}
 }
 
 func contractContainsSubstring(s, substr string) bool {

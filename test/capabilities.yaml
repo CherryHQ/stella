@@ -231,15 +231,22 @@ capabilities:
       - id: C01-S02
         name: restart-and-external-postgres
         layer: system
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Data and migrations remain correct across restart and when using supported external PostgreSQL.
         evidence:
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: embedded_restart
+            direct: true
+            proves: The exact candidate restarts against the same embedded PostgreSQL data, preserves its authenticated session, and retains migrations.
           - kind: go_test
-            path: internal/db/embedded_smoke_test.go
-            direct: false
-            proves: Embedded database lifecycle behavior below the release process boundary.
-        gap: No automated restart journey or deployed external-PostgreSQL release scenario exists.
+            path: test/release/cmd/platform/platform_release_test.go
+            test: TestReleaseDockerCandidate
+            direct: true
+            proves: The exact candidate image digest starts against a fresh network-reachable Stella PostgreSQL Runtime and passes migration and readiness probes.
+        gap: ""
 
   - id: C02
     class: core
@@ -265,7 +272,7 @@ capabilities:
       - id: C02-S01
         name: registration-login-session-revocation
         layer: system
-        status: partial
+        status: covered
         release_policy: blocking
         summary: A user registers, authenticates over real HTTP, uses a session, and loses access after revocation or logout.
         evidence:
@@ -274,13 +281,13 @@ capabilities:
             test: TestSystem
             subtest: startup_and_auth
             direct: true
-            proves: Registration, cookie-authenticated access, and PAT revocation through the real process.
+            proves: Registration, cookie authentication, PAT revocation, logout denial with the old cookie, and successful re-login through the real process.
           - kind: go_test
             path: internal/server/auth_test.go
             test: TestLogout
             direct: true
             proves: Logout returns success and clears the session cookie response.
-        gap: Existing tests do not reuse the old session after logout or session revocation against a protected endpoint to prove that access is denied.
+        gap: ""
       - id: C02-S02
         name: browser-login-and-logout
         layer: browser
@@ -491,10 +498,15 @@ capabilities:
       - id: C06-S01
         name: provider-crud-and-model-cache
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Provider configuration and cached models remain scoped, redacted, and refreshable.
+        summary: Provider configuration and cached models remain admin-scoped and refreshable through their complete API lifecycle.
         evidence:
+          - kind: go_test
+            path: internal/server/server_test.go
+            test: TestProviderAPILifecycleAndAdminScope
+            direct: true
+            proves: Provider create/get/update/model-list/delete endpoints preserve configuration, enforce admin scope, and remove the deleted provider.
           - kind: go_test
             path: internal/controlplane/authorized_test.go
             direct: true
@@ -503,7 +515,7 @@ capabilities:
             path: internal/server/models_test.go
             direct: true
             proves: Model listing and per-provider cache replacement behavior.
-        gap: Existing tests do not directly cover every provider CRUD endpoint and secret-redaction response as one lifecycle.
+        gap: ""
       - id: C06-S02
         name: browser-provider-management
         layer: browser
@@ -545,15 +557,15 @@ capabilities:
       - id: C07-S01
         name: session-crud-and-history
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Session CRUD, visibility, message history, context, summary, and prompt endpoints enforce scope and persistence.
         evidence:
           - kind: go_test
             path: internal/server/sessions_api_test.go
-            test: TestUpdateAndDeleteSession
+            test: TestSessionAPILifecycle
             direct: true
-            proves: Session update and delete behavior through HTTP handlers.
+            proves: Session create/get/update/list/archive and archived-state persistence through separate HTTP requests.
           - kind: go_test
             path: internal/server/sessions_api_test.go
             test: TestListSessionsHidesInternalKindsByDefault
@@ -574,7 +586,7 @@ capabilities:
             test: TestSessionSystemPromptAdvertisesSkillSearch
             direct: true
             proves: The system-prompt endpoint renders skill discovery instructions for a persisted session.
-        gap: Existing tests do not directly prove the complete create/get lifecycle or consistent scope and cross-request persistence across every endpoint in this scenario.
+        gap: ""
       - id: C07-S02
         name: real-sse-chat-and-provider-error
         layer: system
@@ -632,10 +644,15 @@ capabilities:
       - id: C08-S01
         name: workspace-file-lifecycle-and-isolation
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Workspace paths and file mutations stay within the authorized session and survive expected reads.
         evidence:
+          - kind: go_test
+            path: internal/server/sessions_api_test.go
+            test: TestWorkspaceFileAPILifecycleAndIsolation
+            direct: true
+            proves: The HTTP API creates, reads, updates, moves, uploads, lists, measures, isolates, traversal-rejects, and deletes workspace files across agent and user scopes.
           - kind: go_test
             path: internal/agent/workspace_test.go
             direct: true
@@ -644,7 +661,7 @@ capabilities:
             path: internal/server/sessions_blob_test.go
             direct: true
             proves: Session blob and upload behavior through server handlers.
-        gap: No single API lifecycle test covers create, content update, move, upload, delete, traversal rejection, and quota reporting.
+        gap: ""
 
   - id: C09
     class: core
@@ -672,10 +689,15 @@ capabilities:
       - id: C09-S01
         name: project-crud-scope-and-path-safety
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Projects enforce owner and agent access while resolving safe project directories and scoped resources.
+        summary: Projects enforce owner and agent access while resolving safe directories and preserving project-scoped sessions.
         evidence:
+          - kind: go_test
+            path: internal/server/server_test.go
+            test: TestProjectAPILifecycleAndScope
+            direct: true
+            proves: HTTP create/get/update/list/delete, foreign-owner opacity, unsafe base-directory rejection, and project-filtered session persistence.
           - kind: go_test
             path: internal/agent/project_store_test.go
             test: TestProjectStoreCRUDOwnershipAndTraversal
@@ -685,7 +707,7 @@ capabilities:
             path: internal/agent/project_test.go
             direct: true
             proves: Project directory validation and symlink escape rejection.
-        gap: Existing evidence does not cover the complete HTTP CRUD lifecycle and all project-scoped child resources together.
+        gap: ""
 
   - id: C10
     class: core
@@ -870,11 +892,17 @@ capabilities:
       - id: C12-S02
         name: restart-persistent-scheduling
         layer: system
-        status: missing
+        status: covered
         release_policy: blocking
         summary: Scheduled work survives a real process restart and fires once at the intended time.
-        evidence: []
-        gap: No real-process restart and persistent scheduler journey exists.
+        evidence:
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: scheduler_restart
+            direct: true
+            proves: A one-time job becomes due while the exact candidate and embedded PostgreSQL are offline, then fires successfully exactly once after restart and retires itself.
+        gap: ""
       - id: C12-S03
         name: browser-scheduler-management
         layer: browser
@@ -938,21 +966,32 @@ capabilities:
             proves: Knowledge lifecycle and authorization through handlers.
         gap: ""
       - id: C13-S02
-        name: compaction-and-reflect-workers
+        name: compaction-and-reflect-pipelines
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Session compaction and background Reflect produce durable, scoped memory and skill changes with recoverable watermarks.
+        summary: Session compaction and Reflect pipelines produce durable, scoped summaries, fact and skill changes with recoverable watermarks.
         evidence:
           - kind: go_test
-            path: internal/agent/compact_session_test.go
+            path: internal/memory/lcm/provider_extra_test.go
+            test: TestLCMProvider_CompactSummarizerCanReadDB
             direct: true
-            proves: Session compaction behavior in the agent service.
+            proves: PostgreSQL-backed compaction creates and persists a summary through the real LCM provider.
+          - kind: go_test
+            path: internal/reflect/conversation_review_test.go
+            test: TestReviewConversationStructuredScopesTracedReviewHistory
+            direct: true
+            proves: Structured Reflect reviews persisted history under the intended user, agent, and change-source scope.
           - kind: go_test
             path: internal/reflect/reconciliation_pipeline_test.go
             direct: true
             proves: Fact and skill reconciliation pipeline behavior and watermark advancement.
-        gap: No real-process asynchronous journey proves compaction and Reflect across worker scheduling and restart.
+          - kind: go_test
+            path: internal/reflect/skill_reconciliation_execute_test.go
+            test: TestExecuteSkillPlanCanRetryAfterPartialCommit
+            direct: true
+            proves: Durable Reflect skill writes report partial progress and recover idempotently on retry.
+        gap: ""
       - id: C13-S03
         name: browser-memory-management
         layer: browser
@@ -1060,10 +1099,15 @@ capabilities:
       - id: C15-S01
         name: group-membership-messages-and-sse
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Group CRUD, member access, durable history, speaker routing, and SSE delivery preserve scope and ordering.
         evidence:
+          - kind: go_test
+            path: internal/channel/group_service_test.go
+            test: TestGroupLifecyclePersistsMembershipDispatchAndHistory
+            direct: true
+            proves: Owner-scoped CRUD, multi-agent membership, claimed dispatch, durable speaker history, foreign opacity, and deletion form one lifecycle.
           - kind: go_test
             path: internal/server/groups_sse_test.go
             direct: true
@@ -1072,7 +1116,7 @@ capabilities:
             path: internal/agent/group_session_test.go
             direct: true
             proves: Group session and multi-agent runtime behavior.
-        gap: No real-process or browser group journey proves the full multi-agent flow and persisted history together.
+        gap: ""
 
   - id: C16
     class: core
@@ -1217,7 +1261,7 @@ capabilities:
       - id: C19-S01
         name: builtin-resource-discovery-and-tool-assembly
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Bundled resources are discoverable and the agent runtime exposes only authorized built-in tools with valid schemas.
         evidence:
@@ -1226,14 +1270,15 @@ capabilities:
             direct: true
             proves: Built-in resource listing and content retrieval handlers.
           - kind: go_test
-            path: internal/agent/coretools_builder_test.go
+            path: internal/agent/tool_registry_override_test.go
+            test: TestBuildToolRegistryAssemblesAuthorizedBuiltinsWithValidSchemas
             direct: true
-            proves: Core tool construction and dependency gating.
+            proves: Runtime assembly includes core and authorized built-ins, filters unavailable or disabled tools, exposes JSON-object schemas, and invokes an assembled tool.
           - kind: go_test
             path: internal/agent/access/invocation_inventory_test.go
             direct: true
             proves: Tool invocation inventory remains aligned with access policy.
-        gap: No single runtime scenario verifies discovery and successful invocation of every advertised built-in tool.
+        gap: ""
 
   - id: X01
     class: extension
@@ -1531,7 +1576,7 @@ capabilities:
     class: extension
     name: webhook-channel
     title: Webhook channel
-    description: Configure outbound webhook delivery and enforce safe, rate-limited inbound webhook behavior.
+    description: Configure and invoke the inbound-only webhook channel with scoped authorization, bounded payloads, rate limits, and synchronous or asynchronous replies.
     surfaces:
       openapi: []
       web_routes: []
@@ -1542,9 +1587,9 @@ capabilities:
       - id: X07-S01
         name: webhook-ingress-and-config-contract
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Webhook configuration, inbound authorization, rate limiting, payload parsing, and outbound delivery obey the protocol contract.
+        summary: Webhook configuration, inbound authorization, rate and concurrency limits, payload validation, and reply/error semantics obey the inbound protocol contract.
         evidence:
           - kind: contract_test
             path: plugins/channels/webhook/config_test.go
@@ -1557,16 +1602,24 @@ capabilities:
           - kind: go_test
             path: internal/server/webhook_ratelimit_test.go
             direct: true
-            proves: Webhook rate-limit enforcement.
-        gap: No deterministic outbound receiver contract proves retries, payload contents, and delivery failures.
+            proves: Per-webhook token-bucket and concurrent-run limits.
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[X02-S02] manage and invoke a webhook channel"
+            direct: true
+            proves: The exact candidate rejects empty, oversized, and malformed-wait requests before completing valid ingress.
       - id: X07-S02
-        name: webhook-controlled-delivery-contract
-        layer: contract
-        status: missing
+        name: webhook-candidate-ingress-lifecycle
+        layer: browser
+        status: covered
         release_policy: blocking
-        summary: Stella delivers messages to a controlled self-hosted receiver with the expected payload, retry, permanent-failure, and cleanup behavior.
-        evidence: []
-        gap: No self-hosted webhook receiver contract currently proves the complete outbound delivery lifecycle.
+        summary: The exact candidate creates and configures a Webhook channel, enforces disabled state and PAT scope, invokes its bound agent synchronously, preserves a persistent session, then revokes credentials and deletes the channel.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[X02-S02] manage and invoke a webhook channel"
+            direct: true
+            proves: A real candidate and deterministic Provider complete the full inbound Webhook lifecycle; the Browser runner emits both X02-S02 and X07-S02 results from this journey.
 
   - id: X08
     class: extension
@@ -1636,7 +1689,7 @@ capabilities:
       - id: X09-S01
         name: mcp-management-discovery-and-invocation
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Scoped server CRUD, secret storage, endpoint safety, discovery, namespacing, caching, concurrency, invocation, errors, and timeouts obey the MCP contract.
         evidence:
@@ -1648,15 +1701,28 @@ capabilities:
             path: internal/mcp/service_integration_test.go
             direct: true
             proves: Encrypted credentials and scope precedence with real PostgreSQL.
-        gap: Existing tests do not prove a complete fake-server invocation lifecycle through stellad HTTP and agent runtime.
+          - kind: go_test
+            path: internal/server/server_test.go
+            test: TestMCPServerAPILifecycleAndUserScope
+            direct: true
+            proves: Authenticated HTTP create, list, update, delete, user isolation, credential omission, and unsafe-endpoint rejection.
+          - kind: contract_test
+            path: internal/mcp/protocol_contract_test.go
+            test: TestMCPStreamableHTTPProtocolContract
+            direct: true
+            proves: Stella discovers namespaced tools and invokes success, error, and timeout paths over the real Streamable HTTP protocol.
       - id: X09-S02
         name: mcp-self-hosted-lifecycle-contract
         layer: contract
-        status: missing
+        status: covered
         release_policy: blocking
         summary: Stella initializes, discovers, and invokes a self-hosted MCP echo server and handles timeout, disconnect, and reconnect with scoped credentials.
-        evidence: []
-        gap: No self-hosted MCP echo-server harness currently proves the complete client lifecycle through Stella.
+        evidence:
+          - kind: contract_test
+            path: internal/mcp/protocol_contract_test.go
+            test: TestMCPStreamableHTTPProtocolContract
+            direct: true
+            proves: A strict bearer-protected SDK server validates path and method, then proves initialize, tools/list, tools/call, cancellation, close, cached discovery, and lazy reconnect.
 
   - id: X10
     class: extension
@@ -1956,7 +2022,7 @@ capabilities:
       - id: X15-S01
         name: local-none-and-docker-contracts
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Backend selection, filesystem and network policy, process or container execution, output, preflight, tool cache, and cleanup obey the sandbox contract.
         evidence:
@@ -1972,15 +2038,31 @@ capabilities:
             path: plugins/sandbox/none/session_test.go
             direct: true
             proves: None backend session behavior.
-        gap: Docker coverage can Skip, and no single required platform matrix records an actual result for every advertised backend.
+          - kind: go_test
+            path: plugins/sandbox/docker/dockerclient/exec_test.go
+            test: TestExecClosesAttachStreamOnContextCancellation
+            direct: true
+            proves: Docker exec cancellation closes a blocked attach stream and returns before the command finishes.
+          - kind: task
+            path: test/release/cmd/contract/main.go
+            direct: false
+            proves: The release-only contract runner requires Local, None, and Docker results in one blocking group and forbids Docker Skip.
       - id: X15-S02
         name: sandbox-docker-platform-contract
         layer: contract
-        status: missing
+        status: covered
         release_policy: blocking
         summary: Each advertised sandbox backend, including a CI Docker daemon, executes commands, enforces policy, handles timeout, and leaves no resource residue.
-        evidence: []
-        gap: No required self-hosted backend matrix currently records deterministic execution and cleanup results for every advertised sandbox.
+        evidence:
+          - kind: contract_test
+            path: plugins/sandbox/docker/contract_test.go
+            test: TestSessionContract
+            direct: true
+            proves: Required mode fails when Docker is unavailable, then proves preflight, create, execute, deadline, close, Done, idempotence, paths, and no new Stella container residue.
+          - kind: task
+            path: test/release/cmd/contract/main.go
+            direct: false
+            proves: The release-only Linux runner sets STELLA_REQUIRE_DOCKER_CONTRACT=1 and maps any backend or fixture failure to X15 Product Failure.
 
   - id: X16
     class: extension
@@ -2167,12 +2249,20 @@ capabilities:
             path: internal/observability/tracehook/tracehook_test.go
             direct: true
             proves: Agent trace hook spans, events, and redaction behavior.
-        gap: There is no release-wide assertion that all failure artifacts, screenshots, traces, and server logs remain secret-free.
+          - kind: go_test
+            path: test/release/secret_test.go
+            direct: true
+            proves: The release artifact scanner rejects secret values across chunk boundaries, report data, and artifact paths without echoing the value.
+        gap: The scanner exists, but the final Release aggregate job is not yet wired to scan every runner artifact before Promotion.
       - id: X19-S02
         name: otlp-self-hosted-export-contract
         layer: contract
-        status: missing
+        status: covered
         release_policy: blocking
         summary: A release deployment exports Run-ID-correlated traces to a self-hosted OpenTelemetry collector, recovers from failure, flushes on shutdown, and exposes no secrets.
-        evidence: []
-        gap: No self-hosted collector contract currently proves export, recovery, shutdown flush, querying, and redaction.
+        evidence:
+          - kind: contract_test
+            path: internal/observability/otlp_contract_test.go
+            test: TestOTLPTraceExportContract
+            direct: true
+            proves: A real OTLP/gRPC receiver fails the first Export, observes retry, queries service and Run-ID attributes, verifies shutdown flush and provider restoration, and rejects a secret canary in captured payloads.

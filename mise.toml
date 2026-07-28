@@ -229,6 +229,14 @@ fi
 go run ./test/release/cmd/browser
 """
 
+[tasks.contract-test]
+description = "Run deterministic self-hosted Webhook, MCP, sandbox, and OTLP release contracts"
+depends = ["pg:runtime:download"]
+# Docker is optional during ordinary package tests, but this release-only
+# runner sets required mode internally and fails if the daemon or image is
+# unavailable. GitHub's release job installs bubblewrap for the Local backend.
+run = "go run ./test/release/cmd/contract"
+
 [tasks.format]
 description = "Fix and format files"
 run = [

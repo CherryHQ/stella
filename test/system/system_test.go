@@ -26,6 +26,7 @@ func TestSystem(t *testing.T) {
 	t.Run("chat_sse", h.testChatSSE)
 	t.Run("chat_provider_error", h.testChatProviderError)
 	t.Run("goal_lifecycle", h.testGoalLifecycle)
+	t.Run("scheduler_restart", h.testSchedulerRestart)
 	t.Run("embedded_restart", h.testEmbeddedRestart)
 	// graceful_drain MUST run last: it sends SIGTERM to the shared server and
 	// asserts the process exits, consuming the server no later journey can use.
@@ -121,19 +122,7 @@ func (h *harness) testEmbeddedRestart(t *testing.T) {
 		t.Fatalf("GET /api/auth/me before restart = %d, want %d", code, http.StatusOK)
 	}
 
-	h.proc.stop(t)
-	h.db.Close()
-	h.db = nil
-
-	proc, baseURL := startServer(t, h.runID+"-restart", h.home, h.vaultKey)
-	h.proc = proc
-	h.baseURL = baseURL
-
-	db, err := pgxpool.New(ctx, embeddedDSN(t, h.home))
-	if err != nil {
-		t.Fatalf("connect embedded PostgreSQL after restart: %v", err)
-	}
-	h.db = db
+	h.restartEmbeddedCandidate(t, ctx, "embedded-restart")
 
 	if code := h.statusOf(t, ctx, h.newAuthedGet(t, ctx, nil)); code != http.StatusOK {
 		t.Fatalf("GET /api/auth/me after restart = %d, want %d\n%s", code, http.StatusOK, h.proc.logTail(40))
@@ -145,6 +134,27 @@ func (h *harness) testEmbeddedRestart(t *testing.T) {
 	if migrations == 0 {
 		t.Fatal("goose_db_version is empty after restart")
 	}
+}
+
+// restartEmbeddedCandidate replaces the exact candidate process while retaining
+// its STELLA_HOME, embedded PostgreSQL data, browser session jar, and test fake
+// servers. Journeys use it to prove restart boundaries without duplicating
+// process/database ownership code.
+func (h *harness) restartEmbeddedCandidate(t *testing.T, ctx context.Context, suffix string) {
+	t.Helper()
+	h.proc.stop(t)
+	h.db.Close()
+	h.db = nil
+
+	proc, baseURL := startServer(t, h.runID+"-"+suffix, h.home, h.vaultKey)
+	h.proc = proc
+	h.baseURL = baseURL
+
+	db, err := pgxpool.New(ctx, embeddedDSN(t, h.home))
+	if err != nil {
+		t.Fatalf("connect embedded PostgreSQL after restart: %v", err)
+	}
+	h.db = db
 }
 
 // TestHarnessEarlyExit proves the harness detects a subprocess that dies

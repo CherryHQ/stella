@@ -391,6 +391,22 @@ test("[X02-S02] manage and invoke a webhook channel", async ({ page }) => {
   ).toHaveAttribute("aria-checked", "true");
   await expect(selectNearLabel(page, "Session mode")).toHaveValue("persistent");
 
+  const emptyIngress = await page.request.post(`/webhooks/${channelID}?wait=true`, {
+    headers: { Authorization: `Bearer ${pat.token}` },
+    data: "",
+  });
+  expect(emptyIngress.status()).toBe(400);
+  const invalidWait = await page.request.post(`/webhooks/${channelID}?wait=invalid`, {
+    headers: { Authorization: `Bearer ${pat.token}` },
+    data: `${env.fixturePrefix} invalid wait`,
+  });
+  expect(invalidWait.status()).toBe(400);
+  const oversizedIngress = await page.request.post(`/webhooks/${channelID}?wait=true`, {
+    headers: { Authorization: `Bearer ${pat.token}` },
+    data: "x".repeat(256 * 1024 + 1),
+  });
+  expect(oversizedIngress.status()).toBe(413);
+
   const ingress = await page.request.post(`/webhooks/${channelID}?wait=true`, {
     headers: { Authorization: `Bearer ${pat.token}` },
     data: `${env.fixturePrefix} webhook ingress`,
@@ -402,6 +418,18 @@ test("[X02-S02] manage and invoke a webhook channel", async ({ page }) => {
   };
   expect(ingressBody.session_id).toBeTruthy();
   expect(ingressBody.output).toBe("release browser reply");
+
+  const repeatedIngress = await page.request.post(`/webhooks/${channelID}?wait=true`, {
+    headers: { Authorization: `Bearer ${pat.token}` },
+    data: `${env.fixturePrefix} webhook ingress repeated`,
+  });
+  expect(repeatedIngress.status()).toBe(200);
+  const repeatedBody = (await repeatedIngress.json()) as {
+    session_id: string;
+    output: string;
+  };
+  expect(repeatedBody.session_id).toBe(ingressBody.session_id);
+  expect(repeatedBody.output).toBe("release browser reply");
 
   await requestJSON(page, "DELETE", `/api/users/me/tokens/${pat.personal_access_token.id}`);
   await page.getByRole("button", { name: "Delete", exact: true }).click();
