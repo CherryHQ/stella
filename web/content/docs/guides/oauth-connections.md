@@ -69,13 +69,12 @@ Set the provider's **Client ID** and **Client Secret** (App ID / App Secret for 
 
 Each provider ships with a built-in default scope list. Admins can override it with the scope editor:
 
-- The editor shows the **complete requested scope set**. Saving it replaces the saved scope configuration; it does not add a patch to the existing configuration.
-- Scopes are grouped by namespace prefix (for example `im:`, `docs:`) and searchable. Bulk paste is additive: it splits, trims, de-duplicates, and adds pasted scopes to the complete list. Text mode edits the complete list.
-- Built-in defaults omitted from the list remain visible as **removed**. The restore action adds every missing default back to the list.
-- When a provider includes a refresh-token scope (`offline_access` or `offline.access`) in its built-in defaults, Stella marks it **required** and keeps it in checklist, group, and text edits.
-- The diff bar reports additions and removals versus both the saved configuration and the built-in defaults.
+- The checklist always shows every built-in scope. Without an override they start selected; afterward, the checked state matches the saved configuration. Uncheck a scope to remove it from the next authorization request.
+- Scopes are grouped by namespace prefix (for example `im:`, `docs:`) and searchable.
+- Use the input below the checklist to add scopes that are not in the built-in list. Stella splits pasted lines, commas, and spaces and removes duplicates.
+- Refresh-token scopes (`offline_access` or `offline.access`) are marked **required** and cannot be unchecked.
 
-An empty override means "use the built-in defaults", so a provider with defaults cannot save an explicitly empty replacement list. Returning the complete list to those defaults clears the override when you save. Widening the requested scopes does **not** change already-issued tokens: connected users must reconnect to grant the newly requested scopes.
+Saving applies the checked scopes. Widening the requested scopes does **not** change already-issued tokens: connected users must reconnect to grant the newly requested scopes.
 
 ### Reconnect semantics
 

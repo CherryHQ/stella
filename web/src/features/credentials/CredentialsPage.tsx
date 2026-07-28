@@ -36,7 +36,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
-import { ScopeEditor, withRequiredOAuthScopes } from "@/features/credentials/ScopeEditor";
+import { buildOAuthScopeDraft, ScopeEditor } from "@/features/credentials/ScopeEditor";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import {
   SettingsDetailSheet,
@@ -100,11 +100,6 @@ function sameScopeSet(a: string[], b: string[]) {
   const left = new Set(a);
   const right = new Set(b);
   return left.size === right.size && [...left].every((scope) => right.has(scope));
-}
-
-function completeScopeDraft(saved: string[], defaults: string[]) {
-  const effective = saved.length > 0 ? saved : defaults;
-  return withRequiredOAuthScopes(effective, defaults);
 }
 
 // One hue per scope, drawn from the chart palette tokens. Reused by the list
@@ -230,9 +225,8 @@ export function CredentialsPage() {
   >({});
   const [configSaving, setConfigSaving] = useState<Record<string, boolean>>({});
   const [hasExistingSecret, setHasExistingSecret] = useState<Record<string, boolean>>({});
-  // Scope override editing is a separate model from the credential inputs: the
-  // ScopeEditor mutates the working list frequently, and we keep the saved and
-  // default baselines to drive the diff bar and reset without a second fetch.
+  // Scope editing stays separate from credential inputs. The saved and default
+  // lists seed one checklist without another config fetch.
   const [scopeDraft, setScopeDraft] = useState<Record<string, string[]>>({});
   const [scopeMeta, setScopeMeta] = useState<
     Record<string, { saved: string[]; defaults: string[] }>
@@ -346,10 +340,9 @@ export function CredentialsPage() {
     }));
     const saved = providerConfig.scopes ?? [];
     const defaults = providerConfig.default_scopes ?? [];
-    // The editor presents the effective complete list. Retain the raw saved
-    // override separately so a credential-only save still preserves an empty
-    // override (which means "use defaults") at the storage boundary.
-    setScopeDraft((prev) => ({ ...prev, [provider]: completeScopeDraft(saved, defaults) }));
+    // Show every built-in scope, using the saved override as the checked state.
+    // Without an override, the built-in defaults start selected.
+    setScopeDraft((prev) => ({ ...prev, [provider]: buildOAuthScopeDraft(saved, defaults) }));
     setScopeMeta((prev) => ({ ...prev, [provider]: { saved, defaults } }));
   }, [sheetProvider, providerConfig]);
 
@@ -577,19 +570,13 @@ export function CredentialsPage() {
       }
       const saved = scopeMeta[provider]?.saved ?? [];
       const defaults = scopeMeta[provider]?.defaults ?? [];
-      const draft = scopeDraft[provider] ?? completeScopeDraft(saved, defaults);
-      const savedEffective = saved.length > 0 ? saved : defaults;
+      const draft = scopeDraft[provider] ?? buildOAuthScopeDraft(saved, defaults);
       if (draft.length === 0 && defaults.length > 0) {
         showToast(t("credentials.oauth.scopes.emptyOverride"), "error");
         return;
       }
-      // Preserve an unchanged empty override. If an edited full list is back
-      // to defaults, encode the existing backend contract for "use defaults".
-      const scopes = sameScopeSet(draft, defaults)
-        ? []
-        : sameScopeSet(draft, savedEffective)
-          ? saved
-          : draft;
+      // The database uses an empty override to mean "all built-in defaults".
+      const scopes = sameScopeSet(draft, defaults) ? [] : draft;
 
       setConfigSaving((prev) => ({ ...prev, [provider]: true }));
       try {
@@ -1055,9 +1042,8 @@ export function CredentialsPage() {
             <ScopeEditor
               value={
                 scopeDraft[sp.provider] ??
-                completeScopeDraft(spMeta?.saved ?? [], spMeta?.defaults ?? [])
+                buildOAuthScopeDraft(spMeta?.saved ?? [], spMeta?.defaults ?? [])
               }
-              saved={spMeta?.saved ?? []}
               defaults={spMeta?.defaults ?? []}
               onChange={(next) => setScopeDraft((prev) => ({ ...prev, [sp.provider]: next }))}
             />
