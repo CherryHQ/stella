@@ -67,7 +67,26 @@ func (c *Client) Exec(ctx context.Context, opts ExecOptions) (*ExecResult, error
 
 	stdoutBuf := sandboxpkg.NewExecOutputBuffer()
 	stderrBuf := sandboxpkg.NewExecOutputBuffer()
-	copyErr := demuxStreams(stdoutBuf, stderrBuf, attach, opts.Tty)
+	copyDone := make(chan error, 1)
+	go func() {
+		copyDone <- demuxStreams(stdoutBuf, stderrBuf, attach, opts.Tty)
+	}()
+
+	var copyErr error
+	select {
+	case copyErr = <-copyDone:
+	case <-ctx.Done():
+		// A hijacked Docker attach stream does not inherit later context
+		// cancellation. Close it explicitly so a timed-out exec cannot remain
+		// blocked in demuxStreams until the container command eventually exits.
+		attach.Close()
+		<-copyDone
+		return &ExecResult{
+			ExitCode: -1,
+			Stdout:   stdoutBuf.Bytes(),
+			Stderr:   stderrBuf.Bytes(),
+		}, fmt.Errorf("dockerclient: exec: %w", ctx.Err())
+	}
 
 	if ctx.Err() != nil {
 		return &ExecResult{
