@@ -69,12 +69,12 @@ Set the provider's **Client ID** and **Client Secret** (App ID / App Secret for 
 
 Each provider ships with a built-in default scope list. Admins can override it with the scope editor:
 
-- Scopes are grouped by namespace prefix (for example `im:`, `docs:`) and searchable. Paste a multi-line list to add many at once -- it is split, trimmed, and de-duplicated.
-- The diff bar shows what changed versus the saved override and versus the built-in defaults. Non-default entries are tagged **custom**; removed defaults stay visible so a deletion is reversible.
-- **Reset to default** clears the override and reverts to the built-in list.
-- When a Stella upgrade adds new default scopes that your override omits, a merge hint offers to add them in one click.
+- The checklist always shows every built-in scope. Without an override they start selected; afterward, the checked state matches the saved configuration. Uncheck a scope to remove it from the next authorization request.
+- Scopes are grouped by namespace prefix (for example `im:`, `docs:`), collapsed by default, and searchable.
+- **Restore defaults** selects the built-in list and removes custom scopes from the draft.
+- Use the input below the checklist to add scopes that are not in the built-in list. Stella splits pasted lines, commas, and spaces and removes duplicates.
 
-An empty override means "use the built-in defaults". Widening the requested scopes does **not** change already-issued tokens: connected users must reconnect to grant the newly requested scopes.
+Saving applies the checked scopes. Widening the requested scopes does **not** change already-issued tokens: connected users must reconnect to grant the newly requested scopes.
 
 ### Reconnect semantics
 
