@@ -70,9 +70,9 @@ Set the provider's **Client ID** and **Client Secret** (App ID / App Secret for 
 Each provider ships with a built-in default scope list. Admins can override it with the scope editor:
 
 - The checklist always shows every built-in scope. Without an override they start selected; afterward, the checked state matches the saved configuration. Uncheck a scope to remove it from the next authorization request.
-- Scopes are grouped by namespace prefix (for example `im:`, `docs:`) and searchable.
+- Scopes are grouped by namespace prefix (for example `im:`, `docs:`), collapsed by default, and searchable.
+- **Restore defaults** selects the built-in list and removes custom scopes from the draft.
 - Use the input below the checklist to add scopes that are not in the built-in list. Stella splits pasted lines, commas, and spaces and removes duplicates.
-- Refresh-token scopes (`offline_access` or `offline.access`) are marked **required** and cannot be unchecked.
 
 Saving applies the checked scopes. Widening the requested scopes does **not** change already-issued tokens: connected users must reconnect to grant the newly requested scopes.
 

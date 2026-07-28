@@ -24,19 +24,16 @@ function dedupe(scopes: string[]): string[] {
   return Array.from(new Set(scopes));
 }
 
-// OAuth providers use different spellings for the scope that permits refresh
-// token issuance. Lock only names declared by that provider's built-in list.
-const REFRESH_TOKEN_SCOPES = new Set(["offline_access", "offline.access"]);
-
-function refreshTokenScopes(defaults: string[]): string[] {
-  return defaults.filter((scope) => REFRESH_TOKEN_SCOPES.has(scope));
+function sameScopeSet(left: string[], right: string[]): boolean {
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === rightSet.size && [...leftSet].every((scope) => rightSet.has(scope));
 }
 
 // With no override, the built-in list is selected. Once an override exists,
 // its checked state is authoritative while every built-in scope remains visible.
 export function buildOAuthScopeDraft(saved: string[], defaults: string[]): string[] {
-  const selected = saved.length > 0 ? saved : defaults;
-  return dedupe([...selected, ...refreshTokenScopes(defaults)]);
+  return dedupe(saved.length > 0 ? saved : defaults);
 }
 
 export function ScopeEditor({
@@ -51,13 +48,12 @@ export function ScopeEditor({
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [addDraft, setAddDraft] = useState("");
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const selected = useMemo(() => new Set(value), [value]);
   const defaultSet = useMemo(() => new Set(defaults), [defaults]);
-  const requiredScopes = useMemo(() => refreshTokenScopes(defaults), [defaults]);
-  const requiredSet = useMemo(() => new Set(requiredScopes), [requiredScopes]);
   const universe = useMemo(() => dedupe([...defaults, ...value]), [defaults, value]);
+  const isDefault = useMemo(() => sameScopeSet(value, defaults), [defaults, value]);
 
   const query = search.trim().toLowerCase();
   const groups = useMemo(() => {
@@ -72,7 +68,7 @@ export function ScopeEditor({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [query, universe]);
 
-  const setSelected = (next: string[]) => onChange(dedupe([...next, ...requiredScopes]));
+  const setSelected = (next: string[]) => onChange(dedupe(next));
 
   const toggle = (scope: string, checked: boolean) => {
     if (checked) setSelected([...value, scope]);
@@ -85,7 +81,7 @@ export function ScopeEditor({
       return;
     }
     const removed = new Set(scopes);
-    setSelected(value.filter((scope) => !removed.has(scope) || requiredSet.has(scope)));
+    setSelected(value.filter((scope) => !removed.has(scope)));
   };
 
   const addScopes = () => {
@@ -96,13 +92,23 @@ export function ScopeEditor({
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <span className="text-xs font-semibold text-muted-foreground">
-          {t("credentials.oauth.scopes.title")}
-        </span>
-        <p className="text-xs text-muted-foreground">
-          {t("credentials.oauth.scopes.selectionHint")}
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold text-muted-foreground">
+            {t("credentials.oauth.scopes.title")}
+          </span>
+          <p className="text-xs text-muted-foreground">
+            {t("credentials.oauth.scopes.selectionHint")}
+          </p>
+        </div>
+        <Button
+          size="xs"
+          variant="ghost"
+          onClick={() => setSelected(defaults)}
+          disabled={isDefault}
+        >
+          {t("credentials.oauth.scopes.restoreDefaults")}
+        </Button>
       </div>
 
       <div className="relative">
@@ -127,7 +133,7 @@ export function ScopeEditor({
           </p>
         )}
         {groups.map((group) => {
-          const open = query ? true : !collapsed.has(group.name);
+          const open = query ? true : expanded.has(group.name);
           const checkedCount = group.scopes.filter((scope) => selected.has(scope)).length;
           const allChecked = checkedCount === group.scopes.length;
           return (
@@ -135,10 +141,10 @@ export function ScopeEditor({
               key={group.name}
               open={open}
               onOpenChange={(next) =>
-                setCollapsed((previous) => {
+                setExpanded((previous) => {
                   const copy = new Set(previous);
-                  if (next) copy.delete(group.name);
-                  else copy.add(group.name);
+                  if (next) copy.add(group.name);
+                  else copy.delete(group.name);
                   return copy;
                 })
               }
@@ -165,24 +171,17 @@ export function ScopeEditor({
               <CollapsibleContent>
                 <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-x-4 gap-y-0.5 pb-1 pl-7">
                   {group.scopes.map((scope) => {
-                    const required = requiredSet.has(scope);
                     const custom = !defaultSet.has(scope);
                     return (
                       <li key={scope} className="flex min-w-0 items-center gap-2 py-0.5">
                         <Checkbox
                           checked={selected.has(scope)}
-                          disabled={required}
                           onCheckedChange={(checked) => toggle(scope, checked === true)}
                           aria-label={scope}
                         />
                         <span className="truncate font-mono text-xs text-foreground" title={scope}>
                           {scope}
                         </span>
-                        {required && (
-                          <Badge variant="info" size="sm">
-                            {t("credentials.oauth.scopes.required")}
-                          </Badge>
-                        )}
                         {custom && (
                           <Badge variant="secondary" size="sm">
                             {t("credentials.oauth.scopes.custom")}
@@ -215,18 +214,13 @@ export function ScopeEditor({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>
           {t("credentials.oauth.scopes.selectedCount", {
             selected: value.length,
             total: universe.length,
           })}
         </span>
-        {requiredScopes.length > 0 && (
-          <span>
-            {t("credentials.oauth.scopes.requiredHint", { scopes: requiredScopes.join(", ") })}
-          </span>
-        )}
       </div>
     </div>
   );
