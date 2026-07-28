@@ -108,8 +108,9 @@ func TestLocalSession_workspaceAndWorkingDir(t *testing.T) {
 
 // newTestSession returns a localSession with a temporary workspace root.
 // The root is resolved through EvalSymlinks so that macOS /var → /private/var
-// symlinks do not cause false path-escape rejections.
-// sandboxRoot and realRoot are both set to root (no remapping in tests).
+// symlinks do not cause false path-escape rejections. It uses the platform's
+// real sandbox mapping so Exec tests exercise /workspace under Linux bwrap
+// while identity backends keep the host path.
 func newTestSession(t *testing.T) (*localSession, string) {
 	t.Helper()
 	rawRoot := t.TempDir()
@@ -125,11 +126,12 @@ func newTestSession(t *testing.T) (*localSession, string) {
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
 	}
+	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	s := &localSession{
 		id:          "test",
 		policy:      policy,
-		realRoot:    root,
-		sandboxRoot: root,
+		realRoot:    realRoot,
+		sandboxRoot: sandboxRoot,
 		done:        make(chan struct{}),
 	}
 	return s, root

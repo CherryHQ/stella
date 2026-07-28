@@ -93,11 +93,27 @@ func (r *PathResolver) resolve(agentPath string, write bool) (ResolvedPath, erro
 	}
 	candidateSandbox = filepath.Clean(candidateSandbox)
 
-	candidateHost, ok := r.ToHostPath(candidateSandbox)
-	if !ok {
-		// Backwards compatibility and host-absolute inputs: treat an absolute path
-		// under a host mount as already in host space.
-		candidateHost = filepath.Clean(candidateSandbox)
+	// An absolute path already inside a host mount is unambiguously host-space
+	// input, even when its prefix also names another sandbox mount. This matters
+	// for test/development workspaces below host /tmp: interpreting
+	// /tmp/workspace/file as sandbox /tmp would redirect it into the session's
+	// private temporary directory.
+	candidateHost := ""
+	if filepath.IsAbs(agentPath) {
+		if _, _, isHostPath := deepestHostMount(r.mounts, candidateSandbox); isHostPath {
+			candidateHost = candidateSandbox
+		}
+	}
+	if candidateHost == "" {
+		mapped, ok := r.ToHostPath(candidateSandbox)
+		if ok {
+			candidateHost = mapped
+		} else {
+			// Backwards compatibility for an absolute path that no sandbox mount
+			// recognizes; the host-boundary check below will still reject it
+			// unless it belongs to a declared host mount.
+			candidateHost = candidateSandbox
+		}
 	}
 
 	resolved, err := filepath.EvalSymlinks(candidateHost)
