@@ -209,7 +209,9 @@ func setShareContentHeaders(w http.ResponseWriter, share sharepkg.Share, effecti
 	w.Header().Set("Content-Disposition", "inline; filename="+strconv.Quote(share.Title))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Cache-Control", "private, max-age=300")
+	// A revoked capability must stop serving immediately. Browser caching would
+	// otherwise keep the shared content readable after revocation.
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("X-Share-Title", share.Title)
 	w.Header().Set("X-Share-Media-Type", share.MediaType)
 	if share.ExpiresAt != nil {

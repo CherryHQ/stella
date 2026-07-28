@@ -197,7 +197,10 @@ func isAuthExempt(method, path string) bool {
 		strings.HasPrefix(path, "/api-references") ||
 		strings.HasPrefix(path, "/s/"):
 		return true
-	case method == http.MethodGet && strings.HasPrefix(path, "/api/shares/public/"):
+	case (method == http.MethodGet || method == http.MethodHead) &&
+		strings.HasPrefix(path, "/api/shares/public/"):
+		// The public share page uses HEAD to discover title and media type
+		// before loading the content with GET.
 		return true
 	case strings.HasPrefix(path, "/auth/login/") || strings.HasPrefix(path, "/auth/callback/"):
 		return true

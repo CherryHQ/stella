@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	sharepkg "github.com/CherryHQ/stella/internal/share"
 )
 
 func TestIsAPIRoute(t *testing.T) {
@@ -45,6 +47,26 @@ func TestAuthMiddlewareAllowsViteAssets(t *testing.T) {
 	}
 	if rr.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d", rr.Code, http.StatusNoContent)
+	}
+}
+
+func TestIsAuthExemptAllowsPublicShareMetadata(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		if !isAuthExempt(method, "/api/shares/public/release-token") {
+			t.Errorf("%s public share request should bypass session validation", method)
+		}
+	}
+	if isAuthExempt(http.MethodPost, "/api/shares/public/release-token") {
+		t.Error("POST public share request should still require session validation")
+	}
+}
+
+func TestSetShareContentHeadersPreventsRevokedContentCache(t *testing.T) {
+	rr := httptest.NewRecorder()
+	setShareContentHeaders(rr, sharepkg.Share{Title: "release.md"}, "text/markdown")
+
+	if got := rr.Header().Get("Cache-Control"); got != "private, no-store" {
+		t.Errorf("Cache-Control = %q, want %q", got, "private, no-store")
 	}
 }
 
