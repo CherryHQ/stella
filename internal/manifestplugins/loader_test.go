@@ -57,7 +57,7 @@ func TestLoadBuiltinXberg(t *testing.T) {
 	t.Fatal("Xberg plugin not found")
 }
 
-func TestLoadBuiltinLarkCLIUsesNativeAuth(t *testing.T) {
+func TestLoadBuiltinLarkCLIIsStandaloneTool(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {
 		t.Fatalf("LoadBuiltin() error: %v", err)
@@ -67,7 +67,7 @@ func TestLoadBuiltinLarkCLIUsesNativeAuth(t *testing.T) {
 			continue
 		}
 		if p.OAuthProvider != "" {
-			t.Fatalf("OAuthProvider = %q, want native lark-cli auth", p.OAuthProvider)
+			t.Fatalf("OAuthProvider = %q, want standalone CLI", p.OAuthProvider)
 		}
 		if len(p.SessionEnvs) != 0 {
 			t.Fatalf("SessionEnvs = %#v, want no Stella OAuth injection", p.SessionEnvs)

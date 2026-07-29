@@ -2,7 +2,7 @@
 title: OAuth Connections
 ---
 
-Stella OAuth connections provide user tokens to tools that explicitly declare an `oauth_provider`. The built-in `gh` integration uses this path. Feishu and Lark OAuth providers remain available for other manifest tools, but the built-in `lark-cli` no longer consumes them.
+Stella OAuth connections provide user tokens to tools that explicitly declare an `oauth_provider`. The built-in `gh` integration uses this path; Feishu and Lark OAuth providers remain available to manifest tools that declare them.
 
 ## What OAuth connections do
 
@@ -11,7 +11,7 @@ When you connect a service, Stella securely stores its access token and injects 
 - Create GitHub issues, open pull requests, and query repositories using `gh`
 - Authorize a custom manifest tool that explicitly declares a Feishu/Lark OAuth provider
 
-OAuth provider scope settings and token refresh apply only to those consumers. They do not configure or authorize lark-cli.
+OAuth provider scope settings and token refresh apply only to those consumers.
 
 ## Connecting GitHub
 
@@ -40,8 +40,6 @@ Feishu and Lark providers require an admin to configure app credentials before u
 
 Logging in to Stella with Feishu only authenticates your Stella account. Connecting a Feishu/Lark OAuth provider separately authorizes only the tools listed in that provider card's **Required by** hint.
 
-If no tool requires the provider, employees do not need to connect it for lark-cli.
-
 ### Admin setup
 
 Configure the provider in the Web UI with:
@@ -52,8 +50,6 @@ Configure the provider in the Web UI with:
 ### Connecting an employee
 
 Follow the same steps as GitHub -- either ask Stella in chat or use the Credentials page in the Web UI. Stella walks you through the same device authorization flow.
-
-This flow remains generic Stella OAuth. Do not use it to repair lark-cli authorization.
 
 ## Admin: managing providers
 
@@ -92,26 +88,15 @@ After connecting, tools that declare that OAuth provider work in agent sessions.
 
 Stella handles authentication automatically behind the scenes.
 
-## How lark-cli authorization differs
-
-For the built-in lark-cli:
-
-1. An admin configures an enabled Feishu/Lark Channel and binds it to the Agent.
-2. Stella initializes that Channel app in each employee × Agent workspace.
-3. The Agent runs `lark-cli auth status` and starts lark-cli's native device flow when that employee needs user access or additional scopes.
-4. lark-cli stores and refreshes the employee token in that isolated workspace.
-
-Do not use the OAuth Credentials page or `/auth feishu` for this flow. Application scopes are managed on the Channel app in the Feishu/Lark developer console; request only the scopes needed by the deployed workflows.
-
 ## Troubleshooting
 
 ### Feishu/Lark OAuth provider token expired
 
-If a custom tool uses the generic Feishu/Lark OAuth provider, Stella refreshes its token when possible. Reconnect that provider through the Credentials page if refresh fails. This does not affect lark-cli's native token.
+If a tool uses the generic Feishu/Lark OAuth provider, Stella refreshes its token when possible. Reconnect that provider through the Credentials page if refresh fails.
 
 ### Authorization interrupted by a restart
 
-If Stella restarts during a generic provider authorization, start that connection again. For lark-cli, ask the Agent to start a fresh native device flow only after the previous device code has expired or failed.
+If Stella restarts during a provider authorization, start that connection again.
 
 ### GitHub commands not working
 

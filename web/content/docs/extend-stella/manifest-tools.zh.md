@@ -183,7 +183,7 @@ binaries:
 | `oauth.client_id`    | 注入已连接 provider 令牌包中的 client/app ID       |
 | `oauth.brand`        | 注入已连接 provider 令牌包中的品牌标识（如果存在） |
 
-`oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Stella 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。包括飞书/Lark 在内的其他 provider 需要在 Web UI 对应的 OAuth provider 卡片中配置。内置 lark-cli 不声明 `oauth_provider` 或 OAuth session env，而是使用自己的原生授权。
+`oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Stella 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。包括飞书/Lark 在内的其他 provider 需要在 Web UI 对应的 OAuth provider 卡片中配置。
 
 ## 状态与缓存
 
@@ -212,10 +212,6 @@ plugins:
 ```
 
 内置插件覆盖是完整条目替换。如果为了修改某个字段而覆盖内置插件，需要把仍然需要的其他字段也一并写上。
-
-### lark-cli 原生授权
-
-内置 `tool/lark-cli` 是普通 CLI 工具，不是 Stella OAuth 消费者。Stella 从当前 Agent 唯一启用的飞书/Lark Channel 获取 `feishu` 或 `lark`、App ID 和 App Secret，并在每个“员工 × Agent”私有工作区中初始化 lark-cli；员工 scope 和 token 由 lark-cli 原生设备授权管理。不要通过 manifest override 把 `oauth_provider` 或 OAuth token env 再加回来。
 
 ## 管理界面
 

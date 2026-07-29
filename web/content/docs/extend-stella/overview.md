@@ -106,7 +106,7 @@ Examples now include:
 - `tool/mise`: embedded binary + prompt guidance
 - `tool/tap-web`: binary + bundled skill + prompt guidance
 - `tool/gh`: manifest binary + out-of-box OAuth session env
-- `tool/lark-cli`: pinned binary + Channel-app bootstrap + native per-user auth + bundled skill + prompt guidance
+- `tool/lark-cli`: pinned binary + bundled skill + prompt guidance
 
 The important boundary is ownership, not whether the plugin exposes `ToolSpec`.
 If a feature owns a CLI binary, injected env vars, bundled skill, or prompt

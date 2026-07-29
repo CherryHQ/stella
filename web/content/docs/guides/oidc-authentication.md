@@ -133,9 +133,7 @@ Stella requests `contact:user.email:readonly` by default so it can fetch the use
 
 Login requests only the identity scope (`contact:user.email:readonly`), so the login URL stays small and authentication is a single, fast consent. It does **not** grant access to Feishu tools.
 
-The built-in lark-cli is configured from the current Agent's Feishu/Lark Channel app and uses its own per-employee native device authorization. It does not use the login token or the Feishu OAuth credential card. See [Feishu Bot](../channels/feishu#lark-workspace-automation).
-
-Generic Feishu/Lark OAuth providers remain available for other manifest tools that explicitly require them; connect those providers separately from the **Credentials** page. See [OAuth Connections](./oauth-connections).
+Workspace tools authenticate independently from login. Manifest tools that require a Feishu/Lark OAuth provider connect it separately from the **Credentials** page. See [OAuth Connections](./oauth-connections).
 
 ### Custom OAuth provider
 

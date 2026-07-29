@@ -202,11 +202,6 @@ func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 	}
 	cfg["app_id"] = upstream.ClientID
 	cfg["app_secret"] = upstream.ClientSecret
-	savedBrand := tenantBrand(upstream)
-	if savedBrand == "" {
-		savedBrand = brand
-	}
-	cfg["brand"] = savedBrand
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled

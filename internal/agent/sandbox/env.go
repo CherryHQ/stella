@@ -17,12 +17,11 @@ import (
 )
 
 const (
-	// LarkCLIConfigDirEnv keeps lark-cli app configuration private to one
-	// principal and Agent workspace instead of the stellad host account.
+	// LarkCLIConfigDirEnv points lark-cli at the user's shared CLI state so one
+	// native setup is available from all of that user's Agent workspaces.
 	LarkCLIConfigDirEnv = "LARKSUITE_CLI_CONFIG_DIR"
-	// LarkCLIDataDirEnv keeps lark-cli's encrypted keychain and user tokens in
-	// the same isolated workspace. This is required for Docker, whose HOME is
-	// otherwise container-local and would lose native login state on restart.
+	// LarkCLIDataDirEnv keeps lark-cli's keychain and tokens beside its shared
+	// user configuration instead of splitting native auth by Agent workspace.
 	LarkCLIDataDirEnv = "LARKSUITE_CLI_DATA_DIR"
 )
 
@@ -213,9 +212,14 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
-	larkCLIHome := filepath.Join(paths.WorkspaceRoot, ".lark-cli")
-	env[LarkCLIConfigDirEnv] = larkCLIHome
-	env[LarkCLIDataDirEnv] = filepath.Join(larkCLIHome, "data")
+	// lark-cli is an ordinary user-managed CLI. Only redirect its persistent
+	// state into the shared personal directory because sandbox HOME remains the
+	// current Agent workspace. Group and user-less sessions must not inherit it.
+	if cfg.UserID != "" && cfg.GroupID == "" && paths.UserDataDir != "" {
+		larkCLIHome := filepath.Join(paths.UserDataDir, ".lark-cli")
+		env[LarkCLIConfigDirEnv] = larkCLIHome
+		env[LarkCLIDataDirEnv] = filepath.Join(larkCLIHome, "data")
+	}
 
 	// Every backend resolves tools through the same mise layout: the per-user
 	// writable tree ($STELLA_HOME/users/{id}/.mise-tools) over the shared system

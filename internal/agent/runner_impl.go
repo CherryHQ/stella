@@ -57,7 +57,6 @@ type runnerConfig struct {
 	DelegateRunner      delegatetool.SessionRunner
 	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
-	LarkCLIAppConfig    *larkCLIAppConfig
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -99,12 +98,6 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
 	if err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
-	}
-	if cfg.LarkCLIAppConfig != nil {
-		if err := bootstrapLarkCLI(ctx, session, *cfg.LarkCLIAppConfig); err != nil {
-			_ = session.Close()
-			return nil, fmt.Errorf("runner: %w", err)
-		}
 	}
 	paths, err := sandbox.ResolvePaths(cfg.Sandbox)
 	if err != nil {

@@ -64,18 +64,50 @@ func TestBuildSandboxEnvDropsVaultStellaToken(t *testing.T) {
 	}
 }
 
-func TestBuildSandboxEnvIsolatesLarkCLINativeState(t *testing.T) {
-	workspace := "/stella/users/user-1/agents/agent-1"
-	env, err := buildSandboxEnv(context.Background(), Config{}, Paths{WorkspaceRoot: workspace})
+func TestBuildSandboxEnvSharesLarkCLIStateAcrossUserAgents(t *testing.T) {
+	userData := "/stella/users/user-1/data"
+	env, err := buildSandboxEnv(context.Background(), Config{UserID: "user-1"}, Paths{
+		WorkspaceRoot: "/stella/users/user-1/agents/agent-1",
+		UserDataDir:   userData,
+	})
 	if err != nil {
 		t.Fatalf("buildSandboxEnv: %v", err)
 	}
-	configDir := workspace + "/.lark-cli"
+	configDir := userData + "/.lark-cli"
 	if got := env[LarkCLIConfigDirEnv]; got != configDir {
 		t.Fatalf("%s = %q, want %q", LarkCLIConfigDirEnv, got, configDir)
 	}
 	if got := env[LarkCLIDataDirEnv]; got != configDir+"/data" {
 		t.Fatalf("%s = %q, want %q", LarkCLIDataDirEnv, got, configDir+"/data")
+	}
+
+	otherAgentEnv, err := buildSandboxEnv(context.Background(), Config{UserID: "user-1"}, Paths{
+		WorkspaceRoot: "/stella/users/user-1/agents/agent-2",
+		UserDataDir:   userData,
+	})
+	if err != nil {
+		t.Fatalf("buildSandboxEnv for second Agent: %v", err)
+	}
+	for _, key := range []string{LarkCLIConfigDirEnv, LarkCLIDataDirEnv} {
+		if otherAgentEnv[key] != env[key] {
+			t.Fatalf("%s differs across the user's Agents: %q vs %q", key, env[key], otherAgentEnv[key])
+		}
+	}
+}
+
+func TestBuildSandboxEnvDoesNotExposePersonalLarkCLIStateToGroups(t *testing.T) {
+	env, err := buildSandboxEnv(context.Background(), Config{GroupID: "group-1"}, Paths{
+		WorkspaceRoot: "/stella/users/group-group-1/agents/agent-1",
+		UserDataDir:   "/stella/users/group-group-1/data",
+	})
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
+	if _, ok := env[LarkCLIConfigDirEnv]; ok {
+		t.Fatalf("%s must not be set for a group session", LarkCLIConfigDirEnv)
+	}
+	if _, ok := env[LarkCLIDataDirEnv]; ok {
+		t.Fatalf("%s must not be set for a group session", LarkCLIDataDirEnv)
 	}
 }
 

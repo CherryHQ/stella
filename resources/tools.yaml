@@ -53,9 +53,8 @@ plugins:
     kind: tool
     name: lark-cli
     display_name: Lark CLI
-    description: "Lark CLI integration with native per-user authorization and bundled workspace automation skills."
+    description: "Lark CLI with bundled workspace automation skills."
     enabled: true
-    prompt: "Always use lark-cli for Feishu/Lark workspace operations. Stella preconfigures the current Agent's Channel app for private user sessions. Use `lark-cli auth status` and lark-cli's native device authorization when user access or additional scopes are required; use `--as user` for personal resources. Never use Stella's oauth tool to authorize lark-cli."
     binaries:
       - name: lark-cli
         tool: github:larksuite/cli

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -55,7 +54,6 @@ type runnerBuilderConfig struct {
 	VaultEnvLoader           sandbox.VaultEnvLoader
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
-	LarkCLIAppConfigResolver larkCLIAppConfigResolver
 }
 
 // newRunnerFunc assembles a NewRunnerFunc for a given config snapshot.
@@ -136,17 +134,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		pluginView := pkgplugins.SessionPluginView{}
 		if cfg.SessionPluginViewBuilder != nil {
 			pluginView, _ = cfg.SessionPluginViewBuilder(ctx)
-		}
-		var larkCLIApp *larkCLIAppConfig
-		if params.GroupID == "" &&
-			params.UserID != "" &&
-			params.AgentID != "" &&
-			slices.Contains(pluginView.EnabledPluginIDs, larkCLIPluginID) &&
-			cfg.LarkCLIAppConfigResolver != nil {
-			larkCLIApp, err = cfg.LarkCLIAppConfigResolver(ctx, params.AgentID)
-			if err != nil {
-				return nil, err
-			}
 		}
 		promptBuild := pkgplugins.SystemPromptContext{
 			StellaHome:          config.StellaHome(),
@@ -263,7 +250,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			ToolLifecycle:       cfg.ToolLifecycle,
 			DelegateRunner:      params.DelegateRunner,
 			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
-			LarkCLIAppConfig:    larkCLIApp,
 		})
 	}
 }

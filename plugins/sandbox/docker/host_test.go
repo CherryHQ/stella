@@ -216,8 +216,8 @@ func TestTranslateEnvPaths(t *testing.T) {
 		"STELLA_HOME":              "/host/.stella",            // envMap — should translate
 		"STELLA_USER_DIR":          "/host/data",               // mounted at /user — should translate (Pi C2)
 		"WORKING_DIR":              "/host/workspace",          // mounted — should translate
-		"LARKSUITE_CLI_CONFIG_DIR": "/host/workspace/.lark-cli",
-		"LARKSUITE_CLI_DATA_DIR":   "/host/workspace/.lark-cli/data",
+		"LARKSUITE_CLI_CONFIG_DIR": "/host/data/.lark-cli",
+		"LARKSUITE_CLI_DATA_DIR":   "/host/data/.lark-cli/data",
 		"TERM":                     "xterm-256color", // non-path — pass through
 		"LANG":                     "en_US.UTF-8",    // non-path — pass through
 	}
@@ -239,11 +239,11 @@ func TestTranslateEnvPaths(t *testing.T) {
 	if got["WORKING_DIR"] != "/workspace" {
 		t.Errorf("WORKING_DIR: got %q, want /workspace", got["WORKING_DIR"])
 	}
-	if got["LARKSUITE_CLI_CONFIG_DIR"] != "/workspace/.lark-cli" {
-		t.Errorf("LARKSUITE_CLI_CONFIG_DIR: got %q, want /workspace/.lark-cli", got["LARKSUITE_CLI_CONFIG_DIR"])
+	if got["LARKSUITE_CLI_CONFIG_DIR"] != "/user/.lark-cli" {
+		t.Errorf("LARKSUITE_CLI_CONFIG_DIR: got %q, want /user/.lark-cli", got["LARKSUITE_CLI_CONFIG_DIR"])
 	}
-	if got["LARKSUITE_CLI_DATA_DIR"] != "/workspace/.lark-cli/data" {
-		t.Errorf("LARKSUITE_CLI_DATA_DIR: got %q, want /workspace/.lark-cli/data", got["LARKSUITE_CLI_DATA_DIR"])
+	if got["LARKSUITE_CLI_DATA_DIR"] != "/user/.lark-cli/data" {
+		t.Errorf("LARKSUITE_CLI_DATA_DIR: got %q, want /user/.lark-cli/data", got["LARKSUITE_CLI_DATA_DIR"])
 	}
 	if got["TERM"] != "xterm-256color" {
 		t.Errorf("TERM: got %q, want xterm-256color", got["TERM"])

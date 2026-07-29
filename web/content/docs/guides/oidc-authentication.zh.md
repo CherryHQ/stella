@@ -133,9 +133,7 @@ Stella 默认请求 `contact:user.email:readonly`，用于从飞书获取用户�
 
 登录只申请身份权限范围（`contact:user.email:readonly`），所以登录 URL 很短、认证只需一次快速授权确认。它**不会**授予飞书工具的访问权限。
 
-内置 lark-cli 使用当前 Agent 的飞书/Lark Channel 应用配置，并由每位员工单独完成 lark-cli 原生设备授权；它不使用登录 token，也不使用飞书 OAuth 凭据卡。详见[飞书机器人](../channels/feishu#lark-工作区自动化)。
-
-通用飞书/Lark OAuth provider 仍可供显式依赖它们的其他 manifest 工具使用；这些 provider 从**凭据页面**单独连接。详见 [OAuth 连接](./oauth-connections)。
+工作区工具的认证与登录相互独立。需要飞书/Lark OAuth provider 的 manifest 工具，应从**凭据页面**单独连接。详见 [OAuth 连接](./oauth-connections)。
 
 ### 自定义 OAuth 提供商
 
