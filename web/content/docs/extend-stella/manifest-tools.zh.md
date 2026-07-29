@@ -176,14 +176,13 @@ binaries:
 
 ### 环境变量来源
 
-| 来源                 | 描述                                               |
-| -------------------- | -------------------------------------------------- |
-| `static`             | 使用清单中的字面 `value`                           |
-| `oauth.access_token` | 注入已连接 provider 的 OAuth access token          |
-| `oauth.client_id`    | 注入已连接 provider 令牌包中的 client/app ID       |
-| `oauth.brand`        | 注入已连接 provider 令牌包中的品牌标识（如果存在） |
+| 来源                 | 描述                                         |
+| -------------------- | -------------------------------------------- |
+| `static`             | 使用清单中的字面 `value`                     |
+| `oauth.access_token` | 注入已连接 provider 的 OAuth access token    |
+| `oauth.client_id`    | 注入已连接 provider 令牌包中的 client/app ID |
 
-`oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Stella 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。包括飞书/Lark 在内的其他 provider 需要在 Web UI 对应的 OAuth provider 卡片中配置。
+`oauth.*` 来源会通过插件的 `oauth_provider` 解析。GitHub 使用 Stella 内置的 GitHub CLI 设备流程应用，无需管理员配置插件。其他 provider 必须另行声明和配置。
 
 ## 状态与缓存
 

@@ -19,7 +19,7 @@ import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDeta
 const SELECT_CLASS =
   "h-8 w-full rounded-lg border border-input bg-background px-3 text-sm font-mono outline-none";
 
-const ENV_SOURCES = ["static", "oauth.access_token", "oauth.client_id", "oauth.brand"];
+const ENV_SOURCES = ["static", "oauth.access_token", "oauth.client_id"];
 
 let envRowSeq = 0;
 

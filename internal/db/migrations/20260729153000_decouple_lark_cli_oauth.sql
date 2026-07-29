@@ -1,7 +1,13 @@
 -- +goose Up
--- lark-cli is now an ordinary user-managed CLI. Clean only the legacy built-in
--- override fields that could keep Stella OAuth injection alive; preserve enabled,
--- binary, skill, and unrelated prompt customizations.
+-- lark-cli is now an ordinary user-managed CLI. Remove Stella's retired CLI OAuth
+-- bundles, then clean only the legacy built-in override fields that could restore
+-- OAuth injection; preserve enabled, binary, skill, and unrelated customizations.
+DELETE FROM vault_entry
+WHERE name IN ('LARK_CLI_OAUTH', 'FEISHU_CLI_OAUTH');
+
+DELETE FROM plugin_oauth_provider
+WHERE provider_id IN ('lark', 'feishu');
+
 UPDATE plugin_override
 SET config = (
     CASE

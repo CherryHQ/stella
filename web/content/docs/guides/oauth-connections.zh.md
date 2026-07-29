@@ -2,14 +2,14 @@
 title: OAuth 连接
 ---
 
-Stella OAuth 连接会向显式声明 `oauth_provider` 的工具提供用户 token。内置 `gh` 使用这条链路；飞书和 Lark OAuth provider 仍可供声明它们的 manifest 工具使用。
+Stella OAuth 连接会向显式声明 `oauth_provider` 的工具提供用户 token。内置 `gh` 使用这条链路；manifest 工具也可以声明其他已配置的 provider。
 
 ## OAuth 连接的作用
 
 连接服务后，Stella 会安全保存访问令牌，并只注入声明了该 provider 的已启用工具。这意味着 Stella 可以：
 
 - 使用 `gh` 创建 GitHub issue、开 pull request、查询仓库
-- 为显式声明飞书/Lark OAuth provider 的自定义 manifest 工具授权
+- 为显式声明 OAuth provider 的自定义 manifest 工具授权
 
 provider 的 scope 设置和 token 刷新只影响这些消费者。
 
@@ -34,30 +34,13 @@ GitHub 开箱即用——不需要管理员设置。
 
 你可以随时在凭据页面点击**断开**来取消连接。
 
-## 飞书 / Lark OAuth provider
-
-飞书和 Lark provider 需要管理员先配置应用凭据，用户才能连接。如果其他 manifest 工具仍使用它们，就应保留这两张 provider 卡片。
-
-使用飞书登录 Stella 只完成 Stella 身份认证。另行连接飞书/Lark OAuth provider 时，也只会授权 provider 卡片中“依赖此凭据”列出的工具。
-
-### 管理员设置
-
-在 Web UI 中配置 provider：
-
-- 飞书/Lark 应用的 **App ID** 和 **App Secret**
-- **Brand** -- 国内飞书选择 `feishu`，国际版选择 `lark`
-
-### 员工连接
-
-步骤与 GitHub 相同——在聊天中让 Stella 操作，或使用Web UI的凭据页面。Stella 会引导你完成同样的设备授权流程。
-
 ## 管理员：管理 provider
 
 管理员在**凭据**页面各 provider 的详情面板中管理 OAuth provider。
 
 ### 应用凭据
 
-设置 provider 的 **Client ID** 和 **Client Secret**（飞书/Lark 为 App ID / App Secret）。保存新凭据后，已连接的用户会被标记为需要重新连接，因为旧应用签发的令牌不再匹配。
+设置 provider 的 **Client ID** 和 **Client Secret**。保存新凭据后，已连接的用户会被标记为需要重新连接，因为旧应用签发的令牌不再匹配。
 
 ### 权限范围（Scopes）
 
@@ -89,10 +72,6 @@ GitHub 开箱即用——不需要管理员设置。
 Stella 会在后台自动处理认证。
 
 ## 故障排除
-
-### 飞书/Lark OAuth provider token 过期
-
-如果工具使用通用飞书/Lark OAuth provider，Stella 会尽量刷新其 token；刷新失败时从凭据页面重连该 provider。
 
 ### 授权被重启中断
 

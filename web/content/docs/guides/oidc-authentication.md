@@ -133,7 +133,7 @@ Stella requests `contact:user.email:readonly` by default so it can fetch the use
 
 Login requests only the identity scope (`contact:user.email:readonly`), so the login URL stays small and authentication is a single, fast consent. It does **not** grant access to Feishu tools.
 
-Workspace tools authenticate independently from login. Manifest tools that require a Feishu/Lark OAuth provider connect it separately from the **Credentials** page. See [OAuth Connections](./oauth-connections).
+Workspace tools authenticate independently from login according to each tool's own integration. See [OAuth Connections](./oauth-connections).
 
 ### Custom OAuth provider
 

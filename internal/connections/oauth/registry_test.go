@@ -14,7 +14,7 @@ import (
 func TestProviderRegistry_GetAndVaultKeyAndIDs(t *testing.T) {
 	reg := NewProviderRegistry()
 	reg.Register(ProviderConfig{ID: "github", VaultKey: "GH_OAUTH"})
-	reg.Register(ProviderConfig{ID: "lark", VaultKey: "LARK_OAUTH"})
+	reg.Register(ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH"})
 	reg.Register(ProviderConfig{ID: "empty"})
 
 	cfg, ok := reg.Get("github")
@@ -26,9 +26,9 @@ func TestProviderRegistry_GetAndVaultKeyAndIDs(t *testing.T) {
 		t.Fatal("Get(missing) should return false")
 	}
 
-	vk, ok := reg.VaultKey("lark")
-	if !ok || vk != "LARK_OAUTH" {
-		t.Fatalf("VaultKey(lark) = %q, ok=%v, want LARK_OAUTH/true", vk, ok)
+	vk, ok := reg.VaultKey("acme")
+	if !ok || vk != "ACME_OAUTH" {
+		t.Fatalf("VaultKey(acme) = %q, ok=%v, want ACME_OAUTH/true", vk, ok)
 	}
 	_, ok = reg.VaultKey("missing")
 	if ok {
@@ -36,13 +36,13 @@ func TestProviderRegistry_GetAndVaultKeyAndIDs(t *testing.T) {
 	}
 
 	keys := reg.VaultKeys()
-	if len(keys) != 2 || keys[0] != "GH_OAUTH" || keys[1] != "LARK_OAUTH" {
-		t.Fatalf("VaultKeys() = %v, want [GH_OAUTH LARK_OAUTH]", keys)
+	if len(keys) != 2 || keys[0] != "ACME_OAUTH" || keys[1] != "GH_OAUTH" {
+		t.Fatalf("VaultKeys() = %v, want [ACME_OAUTH GH_OAUTH]", keys)
 	}
 
 	ids := reg.IDs()
-	if len(ids) != 3 || ids[0] != "empty" || ids[1] != "github" || ids[2] != "lark" {
-		t.Fatalf("IDs() = %v, want [empty github lark]", ids)
+	if len(ids) != 3 || ids[0] != "acme" || ids[1] != "empty" || ids[2] != "github" {
+		t.Fatalf("IDs() = %v, want [acme empty github]", ids)
 	}
 }
 

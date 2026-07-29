@@ -426,23 +426,23 @@ func TestValidateRegistrationsRejectsDuplicateSessionEnvAndBundledSkills(t *test
 	store := &stubStore{plugins: map[string]config.Plugin{}}
 	host := New(store)
 	host.RegisterPluginID("tool/gh")
-	host.RegisterPluginID("tool/lark-cli")
+	host.RegisterPluginID("tool/acme")
 	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/gh", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token")})
-	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/lark-cli", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceStatic, Value: "x"})
+	host.AddSessionEnv(pkgplugins.SessionEnvSpec{PluginID: "tool/acme", EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSourceStatic, Value: "x"})
 	if err := host.ValidateRegistrations(); err == nil || !strings.Contains(err.Error(), `session env "GH_TOKEN"`) {
 		t.Fatalf("ValidateRegistrations error = %v, want duplicate env", err)
 	}
 
 	host = New(store)
 	host.RegisterPluginID("tool/tap-web")
-	host.RegisterPluginID("tool/lark-cli")
+	host.RegisterPluginID("tool/acme")
 	host.AddBundledSkill(pkgplugins.BundledSkillSpec{
 		PluginID: "tool/tap-web",
 		Name:     "shared-skill",
 		Sync:     func(context.Context, pkgplugins.BundledSkillSyncContext) error { return nil },
 	})
 	host.AddBundledSkill(pkgplugins.BundledSkillSpec{
-		PluginID: "tool/lark-cli",
+		PluginID: "tool/acme",
 		Name:     "shared-skill",
 		Sync:     func(context.Context, pkgplugins.BundledSkillSyncContext) error { return nil },
 	})

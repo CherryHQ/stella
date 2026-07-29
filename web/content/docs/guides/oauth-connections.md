@@ -2,14 +2,14 @@
 title: OAuth Connections
 ---
 
-Stella OAuth connections provide user tokens to tools that explicitly declare an `oauth_provider`. The built-in `gh` integration uses this path; Feishu and Lark OAuth providers remain available to manifest tools that declare them.
+Stella OAuth connections provide user tokens to tools that explicitly declare an `oauth_provider`. The built-in `gh` integration uses this path; manifest tools can declare other configured providers.
 
 ## What OAuth connections do
 
 When you connect a service, Stella securely stores its access token and injects it only into enabled tools that declare that provider. This means Stella can:
 
 - Create GitHub issues, open pull requests, and query repositories using `gh`
-- Authorize a custom manifest tool that explicitly declares a Feishu/Lark OAuth provider
+- Authorize a custom manifest tool that explicitly declares an OAuth provider
 
 OAuth provider scope settings and token refresh apply only to those consumers.
 
@@ -34,30 +34,13 @@ GitHub works out of the box -- no admin setup needed.
 
 You can disconnect at any time by clicking **Disconnect** on the Credentials page.
 
-## Feishu / Lark OAuth providers
-
-Feishu and Lark providers require an admin to configure app credentials before users can connect. Keep these provider cards if another manifest tool uses them.
-
-Logging in to Stella with Feishu only authenticates your Stella account. Connecting a Feishu/Lark OAuth provider separately authorizes only the tools listed in that provider card's **Required by** hint.
-
-### Admin setup
-
-Configure the provider in the Web UI with:
-
-- **App ID** and **App Secret** from your Feishu/Lark app
-- **Brand** -- choose `feishu` for domestic Feishu or `lark` for international Lark
-
-### Connecting an employee
-
-Follow the same steps as GitHub -- either ask Stella in chat or use the Credentials page in the Web UI. Stella walks you through the same device authorization flow.
-
 ## Admin: managing providers
 
 Admins manage each OAuth provider from the provider's detail panel on the **Credentials** page.
 
 ### App credentials
 
-Set the provider's **Client ID** and **Client Secret** (App ID / App Secret for Feishu/Lark). Saving new credentials marks already-connected users as needing to reconnect, because a token issued by the old app no longer matches.
+Set the provider's **Client ID** and **Client Secret**. Saving new credentials marks already-connected users as needing to reconnect, because a token issued by the old app no longer matches.
 
 ### Scopes
 
@@ -89,10 +72,6 @@ After connecting, tools that declare that OAuth provider work in agent sessions.
 Stella handles authentication automatically behind the scenes.
 
 ## Troubleshooting
-
-### Feishu/Lark OAuth provider token expired
-
-If a tool uses the generic Feishu/Lark OAuth provider, Stella refreshes its token when possible. Reconnect that provider through the Credentials page if refresh fails.
 
 ### Authorization interrupted by a restart
 

@@ -317,10 +317,8 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 		AgentID: "a1",
 		VaultEnvLoader: &stubVaultLoader{
 			env: map[string]string{
-				"GH_OAUTH":         `{"version":1,"access_token":"ghp_secret"}`,
-				"LARK_CLI_OAUTH":   `{"version":1,"access_token":"u-lark-secret"}`,
-				"FEISHU_CLI_OAUTH": `{"version":1,"access_token":"u-feishu-secret"}`,
-				"OTHER_SECRET":     "should-pass-through",
+				"GH_OAUTH":     `{"version":1,"access_token":"ghp_secret"}`,
+				"OTHER_SECRET": "should-pass-through",
 			},
 		},
 	}
@@ -338,12 +336,6 @@ func TestBuildSandboxEnv_OAuthBundleKeysStripped(t *testing.T) {
 	if _, ok := env["GH_OAUTH"]; ok {
 		t.Error("GH_OAUTH must not appear in sandbox env")
 	}
-	if _, ok := env["LARK_CLI_OAUTH"]; ok {
-		t.Error("LARK_CLI_OAUTH must not appear in sandbox env")
-	}
-	if _, ok := env["FEISHU_CLI_OAUTH"]; ok {
-		t.Error("FEISHU_CLI_OAUTH must not appear in sandbox env")
-	}
 
 	// Unrelated vault entries must still pass through.
 	if got := env["OTHER_SECRET"]; got != "should-pass-through" {
@@ -359,7 +351,7 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 
 	registry := oauth.NewProviderRegistry()
 	registry.Register(oauth.ProviderConfig{ID: "github", VaultKey: oauth.VaultKeyGitHub})
-	registry.Register(oauth.ProviderConfig{ID: "lark", VaultKey: oauth.VaultKeyLark})
+	registry.Register(oauth.ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH"})
 	tm := oauth.NewTokenManager(store)
 	tm.SetRegistry(registry)
 
@@ -369,22 +361,17 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
-	if err := oauth.SaveOAuthBundle(ctx, store, userID, oauth.VaultKeyLark, oauth.OAuthBundle{
+	if err := oauth.SaveOAuthBundle(ctx, store, userID, "ACME_OAUTH", oauth.OAuthBundle{
 		Version:          1,
-		ClientID:         "lark_app_id",
-		ClientSecret:     "lark_app_secret",
-		Brand:            "feishu",
-		AccessToken:      "lark_access_token",
-		RefreshToken:     "lark_refresh_token",
+		ClientID:         "acme_client_id",
+		ClientSecret:     "acme_client_secret",
+		AccessToken:      "acme_access_token",
+		RefreshToken:     "acme_refresh_token",
 		AccessExpiresAt:  now.Add(2 * time.Hour),
 		RefreshExpiresAt: now.Add(24 * time.Hour),
 	}); err != nil {
 		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
-	if err := store.Set(ctx, userID, "OTHER_SECRET", "still-present"); err != nil {
-		t.Fatalf("Set OTHER_SECRET: %v", err)
-	}
-
 	secretValues := NewSessionSecretValues()
 	cfg := Config{
 		Paths: Paths{
@@ -394,17 +381,14 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 		},
 		UserID:              userID,
 		AgentID:             "a1",
-		VaultEnvLoader:      store,
+		VaultEnvLoader:      &stubVaultLoader{env: map[string]string{"OTHER_SECRET": "still-present"}},
 		SessionSecretValues: secretValues,
 		TokenManager:        tm,
 		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
 			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
-			// The generic Lark OAuth provider remains available to manifest tools,
-			// but the built-in lark-cli no longer consumes these injected values.
-			{EnvVar: "WORKSPACE_API_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
-			{EnvVar: "WORKSPACE_API_REFRESH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.refresh_token"), OAuthProviderID: "lark"},
-			{EnvVar: "WORKSPACE_API_CLIENT_ID", Source: pkgplugins.SessionEnvSource("oauth.client_id"), OAuthProviderID: "lark"},
-			{EnvVar: "WORKSPACE_API_BRAND", Source: pkgplugins.SessionEnvSource("oauth.brand"), OAuthProviderID: "lark"},
+			{EnvVar: "ACME_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "acme"},
+			{EnvVar: "ACME_REFRESH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.refresh_token"), OAuthProviderID: "acme"},
+			{EnvVar: "ACME_CLIENT_ID", Source: pkgplugins.SessionEnvSource("oauth.client_id"), OAuthProviderID: "acme"},
 		},
 	}
 
@@ -420,30 +404,24 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	if _, ok := env[oauth.VaultKeyGitHub]; ok {
 		t.Fatalf("%s must not appear in sandbox env", oauth.VaultKeyGitHub)
 	}
-	if _, ok := env[oauth.VaultKeyLark]; ok {
-		t.Fatalf("%s must not appear in sandbox env", oauth.VaultKeyLark)
-	}
 	if got := env["GH_TOKEN"]; got != "ghp_runtime_token" {
 		t.Fatalf("GH_TOKEN = %q, want %q", got, "ghp_runtime_token")
 	}
-	if got := env["WORKSPACE_API_ACCESS_TOKEN"]; got != "lark_access_token" {
-		t.Fatalf("WORKSPACE_API_ACCESS_TOKEN = %q, want %q", got, "lark_access_token")
+	if got := env["ACME_ACCESS_TOKEN"]; got != "acme_access_token" {
+		t.Fatalf("ACME_ACCESS_TOKEN = %q, want %q", got, "acme_access_token")
 	}
-	if got := env["WORKSPACE_API_REFRESH_TOKEN"]; got != "lark_refresh_token" {
-		t.Fatalf("WORKSPACE_API_REFRESH_TOKEN = %q, want %q", got, "lark_refresh_token")
+	if got := env["ACME_REFRESH_TOKEN"]; got != "acme_refresh_token" {
+		t.Fatalf("ACME_REFRESH_TOKEN = %q, want %q", got, "acme_refresh_token")
 	}
-	if got := env["WORKSPACE_API_CLIENT_ID"]; got != "lark_app_id" {
-		t.Fatalf("WORKSPACE_API_CLIENT_ID = %q, want %q", got, "lark_app_id")
-	}
-	if got := env["WORKSPACE_API_BRAND"]; got != "feishu" {
-		t.Fatalf("WORKSPACE_API_BRAND = %q, want %q", got, "feishu")
+	if got := env["ACME_CLIENT_ID"]; got != "acme_client_id" {
+		t.Fatalf("ACME_CLIENT_ID = %q, want %q", got, "acme_client_id")
 	}
 	if got := env["OTHER_SECRET"]; got != "still-present" {
 		t.Fatalf("OTHER_SECRET = %q, want %q", got, "still-present")
 	}
 	requireSessionSecretValues(t, secretValues.Values(),
-		[]string{"still-present", "ghp_runtime_token", "lark_access_token", "lark_refresh_token", "lark_app_id"},
-		[]string{"feishu", "/stella"},
+		[]string{"still-present", "ghp_runtime_token", "acme_access_token", "acme_refresh_token", "acme_client_id"},
+		[]string{"/stella"},
 	)
 }
 
@@ -454,15 +432,15 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 
 	registry := oauth.NewProviderRegistry()
 	registry.Register(oauth.ProviderConfig{ID: "github", VaultKey: oauth.VaultKeyGitHub})
-	registry.Register(oauth.ProviderConfig{ID: "lark", VaultKey: oauth.VaultKeyLark})
+	registry.Register(oauth.ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH"})
 	tm := oauth.NewTokenManager(store)
 	tm.SetRegistry(registry)
 
 	if err := store.Set(ctx, userID, oauth.VaultKeyGitHub, `{"version":1,"client_id":"","client_secret":"","access_token":""}`); err != nil {
 		t.Fatalf("Set GH_OAUTH: %v", err)
 	}
-	if err := store.Set(ctx, userID, oauth.VaultKeyLark, `{"version":1,"client_id":"app","client_secret":"secret","brand":"lark","access_token":"token","refresh_token":"refresh","access_expires_at":"2000-01-01T00:00:00Z","refresh_expires_at":"2000-01-01T00:00:00Z"}`); err != nil {
-		t.Fatalf("Set LARK_CLI_OAUTH: %v", err)
+	if err := store.Set(ctx, userID, "ACME_OAUTH", `{"version":1,"client_id":"app","client_secret":"secret","access_token":"token","refresh_token":"refresh","access_expires_at":"2000-01-01T00:00:00Z","refresh_expires_at":"2000-01-01T00:00:00Z"}`); err != nil {
+		t.Fatalf("Set ACME_OAUTH: %v", err)
 	}
 
 	cfg := Config{
@@ -473,13 +451,11 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 		},
 		UserID:         userID,
 		AgentID:        "a1",
-		VaultEnvLoader: store,
+		VaultEnvLoader: &stubVaultLoader{},
 		TokenManager:   tm,
 		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
 			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
-			// This is an arbitrary manifest consumer of the generic Lark OAuth
-			// provider, not the built-in lark-cli.
-			{EnvVar: "WORKSPACE_API_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
+			{EnvVar: "ACME_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "acme"},
 		},
 	}
 
@@ -495,15 +471,12 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 	if _, ok := env["GH_TOKEN"]; ok {
 		t.Fatal("GH_TOKEN should be skipped when access token is empty")
 	}
-	// The lark bundle is expired with an expired refresh token, so it cannot be
+	// The acme bundle is expired with an expired refresh token, so it cannot be
 	// renewed; it must be skipped rather than injected as a dead credential (#722).
-	if got, ok := env["WORKSPACE_API_ACCESS_TOKEN"]; ok {
-		t.Fatalf("expired lark token must be skipped, got WORKSPACE_API_ACCESS_TOKEN = %q", got)
+	if got, ok := env["ACME_ACCESS_TOKEN"]; ok {
+		t.Fatalf("expired acme token must be skipped, got ACME_ACCESS_TOKEN = %q", got)
 	}
 	if _, ok := env[oauth.VaultKeyGitHub]; ok {
 		t.Fatal("GH_OAUTH must still be stripped when token injection fails")
-	}
-	if _, ok := env[oauth.VaultKeyLark]; ok {
-		t.Fatal("LARK_CLI_OAUTH must still be stripped when token injection fails")
 	}
 }

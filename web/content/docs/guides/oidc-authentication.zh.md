@@ -133,7 +133,7 @@ Stella 默认请求 `contact:user.email:readonly`，用于从飞书获取用户�
 
 登录只申请身份权限范围（`contact:user.email:readonly`），所以登录 URL 很短、认证只需一次快速授权确认。它**不会**授予飞书工具的访问权限。
 
-工作区工具的认证与登录相互独立。需要飞书/Lark OAuth provider 的 manifest 工具，应从**凭据页面**单独连接。详见 [OAuth 连接](./oauth-connections)。
+工作区工具的认证与登录相互独立，并按各自集成方式完成认证。详见 [OAuth 连接](./oauth-connections)。
 
 ### 自定义 OAuth 提供商
 

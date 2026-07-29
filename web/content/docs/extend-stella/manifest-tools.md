@@ -176,14 +176,13 @@ Platform-specific asset patterns (`platforms:` map) are not supported in the man
 
 ### Env sources
 
-| Source               | Description                                                 |
-| -------------------- | ----------------------------------------------------------- |
-| `static`             | Uses the literal `value` from the manifest                  |
-| `oauth.access_token` | Injects the connected provider's OAuth access token         |
-| `oauth.client_id`    | Injects the connected provider bundle's client/app ID       |
-| `oauth.brand`        | Injects the connected provider bundle's brand, when present |
+| Source               | Description                                           |
+| -------------------- | ----------------------------------------------------- |
+| `static`             | Uses the literal `value` from the manifest            |
+| `oauth.access_token` | Injects the connected provider's OAuth access token   |
+| `oauth.client_id`    | Injects the connected provider bundle's client/app ID |
 
-`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Other providers, including Feishu/Lark, must be configured from their OAuth provider card in the Web UI.
+`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Other providers must be declared and configured separately.
 
 ## State and caching
 

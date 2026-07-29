@@ -196,10 +196,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	}
 
 	// Defense in depth: the vault-side system-managed filter is authoritative,
-	// but these legacy OAuth bundle keys must still never reach the sandbox.
+	// but the OAuth bundle must still never reach the sandbox.
 	delete(env, oauth.VaultKeyGitHub)
-	delete(env, oauth.VaultKeyLark)
-	delete(env, oauth.VaultKeyFeishu)
 	if cfg.GroupID == "" {
 		if err := injectSessionEnv(ctx, cfg, env, vaultEnv, sessionSecretEnv); err != nil {
 			return nil, err
@@ -363,8 +361,6 @@ func oauthBundleField(bundle *oauth.OAuthBundle, field string) (value string, kn
 		return bundle.AccessToken, true
 	case "client_id":
 		return bundle.ClientID, true
-	case "brand":
-		return bundle.Brand, true
 	case "refresh_token":
 		return bundle.RefreshToken, true
 	default:

@@ -40,14 +40,14 @@ type staticSession struct {
 
 func (s *staticSession) Policy() pkgsandbox.Policy { return pkgsandbox.Policy{Env: s.env} }
 
-// larkSpecs is the standard set of oauth-sourced env specs for the lark provider.
-func larkSpecs() []pkgplugins.SessionEnvSpec {
+// acmeSpecs is the standard set of oauth-sourced env specs for the test provider.
+func acmeSpecs() []pkgplugins.SessionEnvSpec {
 	return []pkgplugins.SessionEnvSpec{
-		{EnvVar: "LARK_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
+		{EnvVar: "ACME_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "acme"},
 	}
 }
 
-// oauthRefreshConfig wires a TokenManager over store with a single lark provider
+// oauthRefreshConfig wires a TokenManager over store with a single test provider
 // whose token endpoint is tokenURL (empty when refresh is not expected). By
 // default it binds every oauth-sourced spec as if it had been injected from
 // OAuth at session creation; tests that need an unbound (vault-overridden) var
@@ -55,7 +55,7 @@ func larkSpecs() []pkgplugins.SessionEnvSpec {
 func oauthRefreshConfig(t *testing.T, store oauth.VaultStore, tokenURL string, specs []pkgplugins.SessionEnvSpec) Config {
 	t.Helper()
 	registry := oauth.NewProviderRegistry()
-	pc := oauth.ProviderConfig{ID: "lark", VaultKey: oauth.VaultKeyLark}
+	pc := oauth.ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH"}
 	if tokenURL != "" {
 		pc.Flows = []oauth.ProviderFlowConfig{{Type: "authorization_code", TokenURL: tokenURL}}
 	}
@@ -99,7 +99,7 @@ func TestRefreshSessionEnvLiveRefresh(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := oauth.SaveOAuthBundle(ctx, store, "u1", oauth.VaultKeyLark, oauth.OAuthBundle{
+	if err := oauth.SaveOAuthBundle(ctx, store, "u1", "ACME_OAUTH", oauth.OAuthBundle{
 		Version:         1,
 		ClientID:        "app",
 		ClientSecret:    "secret",
@@ -110,13 +110,13 @@ func TestRefreshSessionEnvLiveRefresh(t *testing.T) {
 		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
-	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"LARK_TOKEN": "about_to_expire"}}
-	cfg := oauthRefreshConfig(t, store, srv.URL+"/token", larkSpecs())
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"ACME_TOKEN": "about_to_expire"}}
+	cfg := oauthRefreshConfig(t, store, srv.URL+"/token", acmeSpecs())
 
 	RefreshSessionEnv(ctx, sess, cfg)
 
-	if got := sess.env["LARK_TOKEN"]; got != "rotated_access_token" {
-		t.Fatalf("LARK_TOKEN = %q, want rotated_access_token", got)
+	if got := sess.env["ACME_TOKEN"]; got != "rotated_access_token" {
+		t.Fatalf("ACME_TOKEN = %q, want rotated_access_token", got)
 	}
 }
 
@@ -138,7 +138,7 @@ func TestRefreshSessionEnvUpdatesRedaction(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := oauth.SaveOAuthBundle(ctx, store, "u1", oauth.VaultKeyLark, oauth.OAuthBundle{
+	if err := oauth.SaveOAuthBundle(ctx, store, "u1", "ACME_OAUTH", oauth.OAuthBundle{
 		Version:         1,
 		ClientID:        "app",
 		ClientSecret:    "secret",
@@ -152,13 +152,13 @@ func TestRefreshSessionEnvUpdatesRedaction(t *testing.T) {
 	secrets := NewSessionSecretValues()
 	secrets.Set([]string{"about_to_expire"}) // captured at session start
 
-	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"LARK_TOKEN": "about_to_expire"}}
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"ACME_TOKEN": "about_to_expire"}}
 	sess.onRefresh = func() {
 		if !slices.Contains(secrets.Values(), "rotated_access_token") {
 			t.Fatal("rotated token became executable before redaction was updated")
 		}
 	}
-	cfg := oauthRefreshConfig(t, store, srv.URL+"/token", larkSpecs())
+	cfg := oauthRefreshConfig(t, store, srv.URL+"/token", acmeSpecs())
 	cfg.SessionSecretValues = secrets
 
 	RefreshSessionEnv(ctx, sess, cfg)
@@ -180,7 +180,7 @@ func TestRefreshSessionEnvSkipsUnboundVar(t *testing.T) {
 	ctx := context.Background()
 	store := newStubOAuthVaultStore()
 
-	if err := oauth.SaveOAuthBundle(ctx, store, "u1", oauth.VaultKeyLark, oauth.OAuthBundle{
+	if err := oauth.SaveOAuthBundle(ctx, store, "u1", "ACME_OAUTH", oauth.OAuthBundle{
 		Version:         1,
 		AccessToken:     "vault_oauth_token",
 		AccessExpiresAt: time.Now().Add(2 * time.Hour),
@@ -188,16 +188,16 @@ func TestRefreshSessionEnvSkipsUnboundVar(t *testing.T) {
 		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
-	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"LARK_TOKEN": "explicit_override"}}
-	cfg := oauthRefreshConfig(t, store, "", larkSpecs())
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"ACME_TOKEN": "explicit_override"}}
+	cfg := oauthRefreshConfig(t, store, "", acmeSpecs())
 	// Simulate injectSessionEnv skipping OAuth because the vault explicitly
-	// provided LARK_TOKEN: the var is never recorded as an OAuth binding.
+	// provided ACME_TOKEN: the var is never recorded as an OAuth binding.
 	cfg.OAuthEnvBindings.Set(nil)
 
 	RefreshSessionEnv(ctx, sess, cfg)
 
-	if got := sess.env["LARK_TOKEN"]; got != "explicit_override" {
-		t.Fatalf("unbound (vault-overridden) var must not be refreshed; LARK_TOKEN = %q", got)
+	if got := sess.env["ACME_TOKEN"]; got != "explicit_override" {
+		t.Fatalf("unbound (vault-overridden) var must not be refreshed; ACME_TOKEN = %q", got)
 	}
 }
 
@@ -207,7 +207,7 @@ func TestRefreshSessionEnvGroupNoOp(t *testing.T) {
 	ctx := context.Background()
 	store := newStubOAuthVaultStore()
 
-	if err := oauth.SaveOAuthBundle(ctx, store, "u1", oauth.VaultKeyLark, oauth.OAuthBundle{
+	if err := oauth.SaveOAuthBundle(ctx, store, "u1", "ACME_OAUTH", oauth.OAuthBundle{
 		Version:         1,
 		AccessToken:     "vault_token",
 		AccessExpiresAt: time.Now().Add(2 * time.Hour),
@@ -215,14 +215,14 @@ func TestRefreshSessionEnvGroupNoOp(t *testing.T) {
 		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
-	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"LARK_TOKEN": "stale"}}
-	cfg := oauthRefreshConfig(t, store, "", larkSpecs())
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"ACME_TOKEN": "stale"}}
+	cfg := oauthRefreshConfig(t, store, "", acmeSpecs())
 	cfg.GroupID = "g1"
 
 	RefreshSessionEnv(ctx, sess, cfg)
 
-	if got := sess.env["LARK_TOKEN"]; got != "stale" {
-		t.Fatalf("group session must not load the human vault; LARK_TOKEN = %q, want stale", got)
+	if got := sess.env["ACME_TOKEN"]; got != "stale" {
+		t.Fatalf("group session must not load the human vault; ACME_TOKEN = %q, want stale", got)
 	}
 }
 
@@ -233,13 +233,13 @@ func TestRefreshSessionEnvPreservesOldEnvOnFailure(t *testing.T) {
 	ctx := context.Background()
 	store := newStubOAuthVaultStore() // no bundle saved -> "has not connected"
 
-	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"LARK_TOKEN": "still_working"}}
-	cfg := oauthRefreshConfig(t, store, "", larkSpecs())
+	sess := &refreshSession{Session: pkgsandbox.NopSession(), env: map[string]string{"ACME_TOKEN": "still_working"}}
+	cfg := oauthRefreshConfig(t, store, "", acmeSpecs())
 
 	RefreshSessionEnv(ctx, sess, cfg)
 
-	if got := sess.env["LARK_TOKEN"]; got != "still_working" {
-		t.Fatalf("failed refresh must preserve old env; LARK_TOKEN = %q, want still_working", got)
+	if got := sess.env["ACME_TOKEN"]; got != "still_working" {
+		t.Fatalf("failed refresh must preserve old env; ACME_TOKEN = %q, want still_working", got)
 	}
 }
 
@@ -248,7 +248,7 @@ func TestRefreshSessionEnvPreservesOldEnvOnFailure(t *testing.T) {
 func TestRefreshSessionEnvNoOpWithoutRefresher(t *testing.T) {
 	ctx := context.Background()
 	store := newStubOAuthVaultStore()
-	if err := oauth.SaveOAuthBundle(ctx, store, "u1", oauth.VaultKeyLark, oauth.OAuthBundle{
+	if err := oauth.SaveOAuthBundle(ctx, store, "u1", "ACME_OAUTH", oauth.OAuthBundle{
 		Version:         1,
 		AccessToken:     "vault_token",
 		AccessExpiresAt: time.Now().Add(2 * time.Hour),
@@ -256,13 +256,13 @@ func TestRefreshSessionEnvNoOpWithoutRefresher(t *testing.T) {
 		t.Fatalf("SaveOAuthBundle: %v", err)
 	}
 
-	sess := &staticSession{Session: pkgsandbox.NopSession(), env: map[string]string{"LARK_TOKEN": "stale"}}
-	cfg := oauthRefreshConfig(t, store, "", larkSpecs())
+	sess := &staticSession{Session: pkgsandbox.NopSession(), env: map[string]string{"ACME_TOKEN": "stale"}}
+	cfg := oauthRefreshConfig(t, store, "", acmeSpecs())
 
 	RefreshSessionEnv(ctx, sess, cfg) // must not panic
 
-	if got := sess.env["LARK_TOKEN"]; got != "stale" {
-		t.Fatalf("static session env must be untouched; LARK_TOKEN = %q", got)
+	if got := sess.env["ACME_TOKEN"]; got != "stale" {
+		t.Fatalf("static session env must be untouched; ACME_TOKEN = %q", got)
 	}
 }
 
