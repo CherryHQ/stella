@@ -246,3 +246,16 @@ func TestValidateConfigNoAutoProvision(t *testing.T) {
 		t.Errorf("unexpected validation error: %q", got)
 	}
 }
+
+func TestValidateConfigBrands(t *testing.T) {
+	for _, brand := range []string{"", pkgchannel.FeishuBrand, pkgchannel.LarkBrand} {
+		cfg := pkgchannel.FeishuConfig{AppID: "a", AppSecret: "s", Brand: brand}
+		if got := validateConfig(cfg); got != "" {
+			t.Errorf("brand %q: unexpected validation error: %q", brand, got)
+		}
+	}
+	cfg := pkgchannel.FeishuConfig{AppID: "a", AppSecret: "s", Brand: "unknown"}
+	if got := validateConfig(cfg); got != "feishu: brand must be feishu or lark" {
+		t.Errorf("invalid brand error = %q", got)
+	}
+}

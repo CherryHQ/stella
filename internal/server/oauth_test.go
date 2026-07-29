@@ -46,15 +46,15 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 	host.RegisterManifestPlugins(&manifestplugins.Manifest{
 		Plugins: []manifestplugins.ManifestPlugin{
 			{
-				ID:            "tool/lark-cli",
+				ID:            "tool/feishu-exporter",
 				Kind:          "tool",
-				Name:          "lark-cli",
-				DisplayName:   "Lark CLI",
+				Name:          "feishu-exporter",
+				DisplayName:   "Feishu Exporter",
 				Enabled:       true,
 				OAuthProvider: "feishu",
 				SessionEnvs: []manifestplugins.ManifestSessionEnv{
-					{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: "oauth.access_token"},
-					{EnvVar: "LARKSUITE_CLI_APP_ID", Source: "oauth.client_id"},
+					{EnvVar: "FEISHU_EXPORTER_TOKEN", Source: "oauth.access_token"},
+					{EnvVar: "FEISHU_EXPORTER_APP_ID", Source: "oauth.client_id"},
 				},
 			},
 			{
@@ -83,7 +83,7 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 
 	got := oauthProviderRequiredBy(host)
 
-	if want := []string{"Lark CLI"}; !reflect.DeepEqual(got["feishu"], want) {
+	if want := []string{"Feishu Exporter"}; !reflect.DeepEqual(got["feishu"], want) {
 		t.Errorf("feishu RequiredBy = %v, want %v", got["feishu"], want)
 	}
 	if want := []string{"GitHub CLI"}; !reflect.DeepEqual(got["github"], want) {

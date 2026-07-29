@@ -399,10 +399,12 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 		TokenManager:        tm,
 		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
 			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
-			{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
-			{EnvVar: "LARKSUITE_CLI_REFRESH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.refresh_token"), OAuthProviderID: "lark"},
-			{EnvVar: "LARKSUITE_CLI_APP_ID", Source: pkgplugins.SessionEnvSource("oauth.client_id"), OAuthProviderID: "lark"},
-			{EnvVar: "LARKSUITE_CLI_BRAND", Source: pkgplugins.SessionEnvSource("oauth.brand"), OAuthProviderID: "lark"},
+			// The generic Lark OAuth provider remains available to manifest tools,
+			// but the built-in lark-cli no longer consumes these injected values.
+			{EnvVar: "WORKSPACE_API_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
+			{EnvVar: "WORKSPACE_API_REFRESH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.refresh_token"), OAuthProviderID: "lark"},
+			{EnvVar: "WORKSPACE_API_CLIENT_ID", Source: pkgplugins.SessionEnvSource("oauth.client_id"), OAuthProviderID: "lark"},
+			{EnvVar: "WORKSPACE_API_BRAND", Source: pkgplugins.SessionEnvSource("oauth.brand"), OAuthProviderID: "lark"},
 		},
 	}
 
@@ -424,17 +426,17 @@ func TestBuildSandboxEnv_RuntimeOAuthEnvInjected(t *testing.T) {
 	if got := env["GH_TOKEN"]; got != "ghp_runtime_token" {
 		t.Fatalf("GH_TOKEN = %q, want %q", got, "ghp_runtime_token")
 	}
-	if got := env["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; got != "lark_access_token" {
-		t.Fatalf("LARKSUITE_CLI_USER_ACCESS_TOKEN = %q, want %q", got, "lark_access_token")
+	if got := env["WORKSPACE_API_ACCESS_TOKEN"]; got != "lark_access_token" {
+		t.Fatalf("WORKSPACE_API_ACCESS_TOKEN = %q, want %q", got, "lark_access_token")
 	}
-	if got := env["LARKSUITE_CLI_REFRESH_TOKEN"]; got != "lark_refresh_token" {
-		t.Fatalf("LARKSUITE_CLI_REFRESH_TOKEN = %q, want %q", got, "lark_refresh_token")
+	if got := env["WORKSPACE_API_REFRESH_TOKEN"]; got != "lark_refresh_token" {
+		t.Fatalf("WORKSPACE_API_REFRESH_TOKEN = %q, want %q", got, "lark_refresh_token")
 	}
-	if got := env["LARKSUITE_CLI_APP_ID"]; got != "lark_app_id" {
-		t.Fatalf("LARKSUITE_CLI_APP_ID = %q, want %q", got, "lark_app_id")
+	if got := env["WORKSPACE_API_CLIENT_ID"]; got != "lark_app_id" {
+		t.Fatalf("WORKSPACE_API_CLIENT_ID = %q, want %q", got, "lark_app_id")
 	}
-	if got := env["LARKSUITE_CLI_BRAND"]; got != "feishu" {
-		t.Fatalf("LARKSUITE_CLI_BRAND = %q, want %q", got, "feishu")
+	if got := env["WORKSPACE_API_BRAND"]; got != "feishu" {
+		t.Fatalf("WORKSPACE_API_BRAND = %q, want %q", got, "feishu")
 	}
 	if got := env["OTHER_SECRET"]; got != "still-present" {
 		t.Fatalf("OTHER_SECRET = %q, want %q", got, "still-present")
@@ -475,7 +477,9 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 		TokenManager:   tm,
 		SessionEnvSpecs: []pkgplugins.SessionEnvSpec{
 			{EnvVar: "GH_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "github"},
-			{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
+			// This is an arbitrary manifest consumer of the generic Lark OAuth
+			// provider, not the built-in lark-cli.
+			{EnvVar: "WORKSPACE_API_ACCESS_TOKEN", Source: pkgplugins.SessionEnvSource("oauth.access_token"), OAuthProviderID: "lark"},
 		},
 	}
 
@@ -493,8 +497,8 @@ func TestBuildSandboxEnv_TokenInjectionErrorsAreSkipped(t *testing.T) {
 	}
 	// The lark bundle is expired with an expired refresh token, so it cannot be
 	// renewed; it must be skipped rather than injected as a dead credential (#722).
-	if got, ok := env["LARKSUITE_CLI_USER_ACCESS_TOKEN"]; ok {
-		t.Fatalf("expired lark token must be skipped, got LARKSUITE_CLI_USER_ACCESS_TOKEN = %q", got)
+	if got, ok := env["WORKSPACE_API_ACCESS_TOKEN"]; ok {
+		t.Fatalf("expired lark token must be skipped, got WORKSPACE_API_ACCESS_TOKEN = %q", got)
 	}
 	if _, ok := env[oauth.VaultKeyGitHub]; ok {
 		t.Fatal("GH_OAUTH must still be stripped when token injection fails")

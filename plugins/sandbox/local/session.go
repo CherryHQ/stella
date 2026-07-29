@@ -147,6 +147,14 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 		env["STELLA_USER_DIR"] = userDataSandbox
 	}
 	env["STELLA_HOME"] = sandboxSH
+	// lark-cli's native config and encrypted token store live under the
+	// per-principal Agent workspace. Rewrite their host paths to the sandbox
+	// view just like the workspace-local mise paths below.
+	for _, key := range []string{"LARKSUITE_CLI_CONFIG_DIR", "LARKSUITE_CLI_DATA_DIR"} {
+		if value := env[key]; value != "" {
+			env[key] = remapMise(value)
+		}
+	}
 	// Rewrite MISE_* path-valued env vars to the agent's view (see remapMise): both
 	// the per-user tree and the system tree land under the sandbox STELLA_HOME, so
 	// their host-relative seed/shim symlinks resolve identically in the sandbox.

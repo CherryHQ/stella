@@ -46,20 +46,17 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 
 ## Lark 工作区自动化
 
-旧的内置 `feishu_*` 工具和 `/auth` 流程已移除。
+旧的内置 `feishu_*` 工具已由生成的 `lark` system skill 和 [`lark-cli`](https://github.com/larksuite/cli) 取代；Stella 发布包会内置 lark-cli。
 
-Stella 现在内置了生成好的 `lark` system skill，发布构建也会自动嵌入 `lark-cli`。如果你要操作日历、任务、文档、知识库、表格、云盘、联系人等工作区数据，直接启用内置 `lark` skill，并配合 [`lark-cli`](https://github.com/larksuite/cli) 使用即可。
+启用 `tool/lark-cli` 后，Stella 会使用当前 Agent 唯一启用的飞书 Channel App ID、App Secret 和 brand，在每位员工的私有 Agent 工作区中初始化 lark-cli。不要让员工运行 `lark-cli config init`、另行安装 lark-cli，或通过飞书/Lark OAuth 凭据卡重复配置这个应用。
 
-常见初始化流程：
+员工第一次执行用户身份操作时，Agent 会检查 `lark-cli auth status`，并仅按当前操作需要的 scope 发起 lark-cli 原生设备授权。员工只需打开一次授权链接或二维码，再回到对话继续。用户 token 按“员工 × Agent”隔离，因此审批和个人云盘操作会以当前员工身份执行，而不是机器人创建者身份。
 
-```bash
-command -v lark-cli || npm install -g @larksuite/cli
-lark-cli config init --new
-lark-cli auth login --recommend
-lark-cli auth status
-```
+群聊不建立个人授权，请让员工转到与该 Agent 的私聊。Stella 通用的 `/auth feishu` 和 OAuth 凭据页面仍供其他 OAuth 消费者使用，但不能为 lark-cli 授权。
 
 内置 `lark` skill 可以覆盖原来的 `feishu_calendar`、`feishu_task`、`feishu_im`、`feishu_doc`、`feishu_wiki`、`feishu_sheets`、`feishu_drive`、`feishu_bitable`、`feishu_user` 和 `feishu_search` 等工作流。
+
+应用权限只开通聊天 Channel 和已部署工作流实际需要的 scope 并集，不要全选。接口提示缺少应用 scope 时，只新增该 scope 并发布应用版本；若只是员工 token 缺少 scope，则由 lark-cli 原生授权增量补充。
 
 ## 自动注册用户
 
@@ -101,6 +98,7 @@ lark-cli auth status
 {
   "app_id": "FEISHU_APP_ID",
   "app_secret": "FEISHU_APP_SECRET",
+  "brand": "feishu",
   "tenant_key": "YOUR_TENANT_KEY",
   "auto_provision": true
 }
@@ -219,6 +217,7 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 {
   "app_id": "FEISHU_APP_ID",
   "app_secret": "FEISHU_APP_SECRET",
+  "brand": "feishu",
   "encrypt_key": "",
   "verification_token": "",
   "enable_notify": false,
@@ -236,6 +235,7 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 | -------------------- | ------------------------------------------------------------------ |
 | `app_id`             | 飞书应用 App ID                                                    |
 | `app_secret`         | 飞书应用 App Secret                                                |
+| `brand`              | 国内飞书填 `feishu`，国际 Lark 填 `lark`                           |
 | `encrypt_key`        | 可选的事件加密密钥                                                 |
 | `verification_token` | 可选的事件校验 token                                               |
 | `enable_notify`      | 允许调度器和 `notify` 输出发送到飞书                               |

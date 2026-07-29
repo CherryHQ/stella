@@ -129,13 +129,13 @@ AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=your_tenant_key
 
 Stella requests `contact:user.email:readonly` by default so it can fetch the user's email from Feishu. Feishu user email fields are directory data, not a live mailbox verification proof, so `AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS` is required. If Feishu does not return an email, Stella creates the account with a stable internal email like `union_id@tenant_key.feishu.local`. Email-domain allowlisting is useful as an extra filter, but if you enable it, Feishu must return a matching email.
 
-#### Connecting Feishu tools
+#### Feishu workspace tools
 
 Login requests only the identity scope (`contact:user.email:readonly`), so the login URL stays small and authentication is a single, fast consent. It does **not** grant access to Feishu tools.
 
-To use Feishu tools (documents, calendar, mail, etc.), connect the tool credential separately on the **Credentials** page — the Feishu provider shows a "connect to enable …" prompt naming the tools that depend on it — or by asking Stella in chat. See the [OAuth Connections](./oauth-connections) guide.
+The built-in lark-cli is configured from the current Agent's Feishu/Lark Channel app and uses its own per-employee native device authorization. It does not use the login token or the Feishu OAuth credential card. See [Feishu Bot](../channels/feishu#lark-workspace-automation).
 
-> Earlier releases merged tool scopes into the login request when the login and tool apps shared an App ID. That bundled 140+ Feishu scopes into one URL and tripped browser header limits (HTTP 431), so tool scopes are now always granted through the separate connect flow.
+Generic Feishu/Lark OAuth providers remain available for other manifest tools that explicitly require them; connect those providers separately from the **Credentials** page. See [OAuth Connections](./oauth-connections).
 
 ### Custom OAuth provider
 

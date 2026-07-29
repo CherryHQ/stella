@@ -98,6 +98,7 @@ Feishu channel config (JSON):
 {
   "app_id": "YOUR_APP_ID",
   "app_secret": "YOUR_APP_SECRET",
+  "brand": "feishu",
   "encrypt_key": "",
   "verification_token": "",
   "enable_notify": false
@@ -114,7 +115,8 @@ Connects via WebSocket (no public URL or webhook needed).
 - Private (p2p) and group @mention support
 - Commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
 - Feishu OAuth login and Feishu channel chat share `union_id`; Feishu OAuth login immediately links the channel identity to the same Stella user, with first channel message as a fallback.
-- Chat transport only. Workspace automation moved out of builtin `feishu_*` tools; add a `lark-cli` skill yourself if you want that workflow.
+- The Channel remains the chat transport. When the built-in lark-cli tool is enabled, Stella also reuses this Agent-bound app configuration to initialize lark-cli in each employee's private Agent workspace. The employee then completes lark-cli's native device authorization for user-scoped workspace operations.
+- `brand` is `feishu` for domestic tenants and `lark` for international tenants. Open only the application scopes required by the Channel and the enabled workspace workflows; do not grant every available scope.
 
 ## WeChat bot (iLink)
 

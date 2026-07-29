@@ -2,16 +2,16 @@
 title: OAuth 连接
 ---
 
-你可以连接 GitHub 和飞书/Lark 账号，让 Stella 代你使用这些服务。连接后，Stella 可以直接运行 `gh` 和 `lark-cli` 命令——无需每次会话手动登录。
+Stella OAuth 连接会向显式声明 `oauth_provider` 的工具提供用户 token。内置 `gh` 使用这条链路；飞书和 Lark OAuth provider 仍可供其他 manifest 工具使用，但内置 `lark-cli` 已不再消费它们。
 
 ## OAuth 连接的作用
 
-当你连接一个服务时，Stella 会安全地存储访问令牌，并将其注入每个代理会话。这意味着 Stella 可以：
+连接服务后，Stella 会安全保存访问令牌，并只注入声明了该 provider 的已启用工具。这意味着 Stella 可以：
 
 - 使用 `gh` 创建 GitHub issue、开 pull request、查询仓库
-- 使用 `lark-cli` 发送飞书/Lark 消息、查询日历、管理文档
+- 为显式声明飞书/Lark OAuth provider 的自定义 manifest 工具授权
 
-你只需授权一次，之后就可以直接使用。
+provider 的 scope 设置和 token 刷新只影响这些消费者，不会配置或授权 lark-cli。
 
 ## 连接 GitHub
 
@@ -34,28 +34,26 @@ GitHub 开箱即用——不需要管理员设置。
 
 你可以随时在凭据页面点击**断开**来取消连接。
 
-## 连接飞书 / Lark
+## 飞书 / Lark OAuth provider
 
-飞书和 Lark 需要管理员先配置应用凭据，然后用户才能连接。
+飞书和 Lark provider 需要管理员先配置应用凭据，用户才能连接。如果其他 manifest 工具仍使用它们，就应保留这两张 provider 卡片。
 
-用飞书登录只完成身份认证，**不会**连接飞书工具。登录后，按下面的步骤连接一次工具凭据即可。你可以在 Web UI 的**凭据**页面查看连接状态——飞书 provider 会显示"连接后启用 …"的提示，列出依赖它的工具。
+使用飞书登录 Stella 只完成 Stella 身份认证。另行连接飞书/Lark OAuth provider 时，也只会授权 provider 卡片中“依赖此凭据”列出的工具。
 
-### 连接
+如果没有工具依赖该 provider，员工无需为了 lark-cli 连接它。
 
-要连接飞书/Lark（或 GitHub）工具：
+### 管理员设置
 
-#### 管理员设置（仅需一次）
-
-管理员需要在Web UI中为 Lark CLI 插件配置以下内容：
+在 Web UI 中配置 provider：
 
 - 飞书/Lark 应用的 **App ID** 和 **App Secret**
 - **Brand** -- 国内飞书选择 `feishu`，国际版选择 `lark`
 
-配置完成后，所有用户都可以连接自己的账号。
-
-#### 连接你的账号
+### 员工连接
 
 步骤与 GitHub 相同——在聊天中让 Stella 操作，或使用Web UI的凭据页面。Stella 会引导你完成同样的设备授权流程。
+
+这是 Stella 通用 OAuth 流程，不能用于修复 lark-cli 授权。
 
 ## 管理员：管理 provider
 
@@ -87,23 +85,33 @@ GitHub 开箱即用——不需要管理员设置。
 
 ## 使用已连接的服务
 
-连接后，`gh` 和 `lark-cli` 命令在代理会话中直接可用。你可以这样问 Stella：
+连接后，声明该 OAuth provider 的工具会在 Agent 会话中获得凭据。例如：
 
 - "列出我仓库中的 open issue"
 - "用这些更改创建一个 pull request"
-- "在飞书的工程频道发一条消息"
 
 Stella 会在后台自动处理认证。
 
+## lark-cli 授权有何不同
+
+内置 lark-cli 使用以下链路：
+
+1. 管理员配置启用的飞书/Lark Channel，并绑定到目标 Agent。
+2. Stella 在每个“员工 × Agent”工作区中初始化该 Channel 应用。
+3. 员工需要用户身份或新增 scope 时，Agent 运行 `lark-cli auth status` 并发起 lark-cli 原生设备授权。
+4. lark-cli 在该隔离工作区保存并刷新员工 token。
+
+不要通过 OAuth 凭据页面或 `/auth feishu` 执行这条流程。应用 scope 在 Channel 应用对应的飞书/Lark 开发者后台管理，只开通已部署工作流实际需要的 scope。
+
 ## 故障排除
 
-### 飞书/Lark 令牌过期
+### 飞书/Lark OAuth provider token 过期
 
-飞书和 Lark 的令牌大约 2 小时后过期。Stella 会在令牌即将过期时自动刷新。如果你在会话中遇到认证错误，通过凭据页面重新连接或让 Stella 重新连接——下一条消息就会使用新令牌。
+如果自定义工具使用通用飞书/Lark OAuth provider，Stella 会尽量刷新其 token；刷新失败时从凭据页面重连该 provider。这不会影响 lark-cli 的原生 token。
 
 ### 授权被重启中断
 
-如果 Stella 在你授权过程中重启了（你已经拿到 URL 但还没完成浏览器步骤），授权流程会丢失。重新开始连接流程即可——只需要一会儿。
+如果 Stella 在通用 provider 授权期间重启，请重新发起该连接。对于 lark-cli，只有当前 device code 已过期或明确失败后，才让 Agent 发起一次新的原生设备授权。
 
 ### GitHub 命令不工作
 

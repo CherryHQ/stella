@@ -89,6 +89,12 @@ func configSchema() map[string]any {
 				"type":        "string",
 				"description": "Feishu bot app secret.",
 			},
+			"brand": map[string]any{
+				"type":        "string",
+				"enum":        []any{pkgchannel.FeishuBrand, pkgchannel.LarkBrand},
+				"default":     pkgchannel.FeishuBrand,
+				"description": "API brand used by this app: feishu for China or lark for international tenants.",
+			},
 			"encrypt_key": map[string]any{
 				"type":        "string",
 				"description": "Optional Feishu event encryption key.",
@@ -138,6 +144,11 @@ func validateConfig(cfg pkgchannel.FeishuConfig) string {
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return "feishu: missing app_id or app_secret"
 	}
+	switch cfg.EffectiveBrand() {
+	case pkgchannel.FeishuBrand, pkgchannel.LarkBrand:
+	default:
+		return "feishu: brand must be feishu or lark"
+	}
 	return ""
 }
 
@@ -148,6 +159,7 @@ func runtimeSnapshot(now time.Time, state pkgplugins.RuntimeState, message strin
 		UpdatedAt: now,
 		Metadata: map[string]any{
 			"app_id":                 cfg.AppID,
+			"brand":                  cfg.EffectiveBrand(),
 			"group_count":            len(cfg.Groups),
 			"has_encrypt_key":        cfg.EncryptKey != "",
 			"has_verification_token": cfg.VerificationToken != "",

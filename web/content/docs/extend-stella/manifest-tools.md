@@ -183,7 +183,7 @@ Platform-specific asset patterns (`platforms:` map) are not supported in the man
 | `oauth.client_id`    | Injects the connected provider bundle's client/app ID       |
 | `oauth.brand`        | Injects the connected provider bundle's brand, when present |
 
-`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Feishu/Lark sources require the Lark CLI plugin credentials to be configured in the Web UI.
+`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Other providers, including Feishu/Lark, must be configured from their OAuth provider card in the Web UI. The built-in lark-cli does not declare `oauth_provider` or OAuth session env; it uses its own native authorization.
 
 ## State and caching
 
@@ -214,18 +214,9 @@ plugins:
 Built-in plugin overrides are full-entry replacements. If you override a built-in
 plugin to change one field, include the rest of the fields you still need.
 
-### Switching `lark-cli` between Feishu and Lark
+### Native lark-cli authorization
 
-The built-in `tool/lark-cli` manifest uses `oauth_provider: lark` by default.
-To switch to Feishu, override the provider in `plugins.yaml`:
-
-```yaml
-plugins:
-  - id: tool/lark-cli
-    oauth_provider: feishu
-```
-
-A manifest override is only needed when changing the binary or env declarations themselves.
+The built-in `tool/lark-cli` is a normal CLI tool, not a Stella OAuth consumer. Stella obtains `feishu` versus `lark`, App ID, and App Secret from the current Agent's enabled Feishu/Lark Channel, then initializes lark-cli in each private user × Agent workspace. lark-cli's native device flow owns employee scopes and tokens. Do not add `oauth_provider` or OAuth token env declarations back through a manifest override.
 
 ## Admin UI
 

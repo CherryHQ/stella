@@ -46,20 +46,17 @@ If you already have a Feishu app, you can still enter credentials manually:
 
 ## Lark Workspace Automation
 
-The old built-in `feishu_*` tools and `/auth` flow were removed.
+The old built-in `feishu_*` tools were replaced by the generated `lark` system skill and [`lark-cli`](https://github.com/larksuite/cli), which is embedded in Stella release builds.
 
-Stella now ships a generated builtin `lark` system skill, and release builds embed `lark-cli` automatically. For calendar, tasks, docs, wiki, sheets, drive, contacts, and other workspace operations, enable the builtin `lark` skill and use it with [`lark-cli`](https://github.com/larksuite/cli).
+When `tool/lark-cli` is enabled, Stella uses this Agent's enabled Feishu Channel App ID, App Secret, and brand to initialize lark-cli in each employee's private Agent workspace. Do not run `lark-cli config init`, install another copy, or configure the same app through the Feishu/Lark OAuth credential card.
 
-Typical setup:
+On the employee's first user-scoped operation, the Agent checks `lark-cli auth status` and starts lark-cli's native device flow with only the scopes required for that operation. The employee opens one authorization link or QR code and then continues the conversation. Native tokens are isolated by employee and Agent, so approvals and personal Drive operations run as the employee rather than the bot creator.
 
-```bash
-command -v lark-cli || npm install -g @larksuite/cli
-lark-cli config init --new
-lark-cli auth login --recommend
-lark-cli auth status
-```
+Personal authorization is disabled in group sessions; ask the employee to continue in a private chat. Stella's generic `/auth feishu` command and OAuth Credentials page remain available for other OAuth consumers, but they do not authorize lark-cli.
 
 The builtin `lark` skill maps the retired `feishu_calendar`, `feishu_task`, `feishu_im`, `feishu_doc`, `feishu_wiki`, `feishu_sheets`, `feishu_drive`, `feishu_bitable`, `feishu_user`, and `feishu_search` workflows to `lark-cli` services.
+
+Grant the app only the union of scopes required by the Chat Channel and the workspace workflows you deploy. Do not select every scope. When an API error reports a missing application scope, add that concrete scope and publish the app version; when only the employee token lacks a scope, let lark-cli run an incremental native authorization.
 
 ## Auto-Provisioning
 
@@ -101,6 +98,7 @@ Setting `tenant_key` explicitly is recommended because it removes one failure mo
 {
   "app_id": "FEISHU_APP_ID",
   "app_secret": "FEISHU_APP_SECRET",
+  "brand": "feishu",
   "tenant_key": "YOUR_TENANT_KEY",
   "auto_provision": true
 }
@@ -221,6 +219,7 @@ Feishu supports the standard chat commands:
 {
   "app_id": "FEISHU_APP_ID",
   "app_secret": "FEISHU_APP_SECRET",
+  "brand": "feishu",
   "encrypt_key": "",
   "verification_token": "",
   "enable_notify": false,
@@ -238,6 +237,7 @@ Feishu supports the standard chat commands:
 | -------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `app_id`             | Feishu app ID                                                                                                        |
 | `app_secret`         | Feishu app secret                                                                                                    |
+| `brand`              | `feishu` for domestic Feishu or `lark` for international Lark                                                        |
 | `encrypt_key`        | Optional event encryption key                                                                                        |
 | `verification_token` | Optional event verification token                                                                                    |
 | `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                   |

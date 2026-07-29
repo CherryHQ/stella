@@ -64,6 +64,21 @@ func TestBuildSandboxEnvDropsVaultStellaToken(t *testing.T) {
 	}
 }
 
+func TestBuildSandboxEnvIsolatesLarkCLINativeState(t *testing.T) {
+	workspace := "/stella/users/user-1/agents/agent-1"
+	env, err := buildSandboxEnv(context.Background(), Config{}, Paths{WorkspaceRoot: workspace})
+	if err != nil {
+		t.Fatalf("buildSandboxEnv: %v", err)
+	}
+	configDir := workspace + "/.lark-cli"
+	if got := env[LarkCLIConfigDirEnv]; got != configDir {
+		t.Fatalf("%s = %q, want %q", LarkCLIConfigDirEnv, got, configDir)
+	}
+	if got := env[LarkCLIDataDirEnv]; got != configDir+"/data" {
+		t.Fatalf("%s = %q, want %q", LarkCLIDataDirEnv, got, configDir+"/data")
+	}
+}
+
 func TestBuildSandboxEnvRecordsOnlyInjectedVaultSecretValues(t *testing.T) {
 	secretValues := NewSessionSecretValues()
 	env, err := buildSandboxEnv(context.Background(), Config{

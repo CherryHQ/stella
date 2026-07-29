@@ -688,6 +688,9 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		VaultEnvLoader:           pm.vaultEnvLoader,
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
+		LarkCLIAppConfigResolver: func(ctx context.Context, agentID string) (*larkCLIAppConfig, error) {
+			return resolveLarkCLIAppConfig(ctx, pm.store, agentID)
+		},
 	})
 }
 

@@ -1,5 +1,12 @@
 package channel
 
+const (
+	// FeishuBrand identifies the domestic Feishu API endpoints.
+	FeishuBrand = "feishu"
+	// LarkBrand identifies the international Lark API endpoints.
+	LarkBrand = "lark"
+)
+
 // TelegramConfig is the persisted Telegram channel plugin configuration.
 type TelegramConfig struct {
 	InstanceID   string `json:"-"`
@@ -28,12 +35,23 @@ type FeishuConfig struct {
 	InstanceID        string                 `json:"-"`
 	AppID             string                 `json:"app_id"`
 	AppSecret         string                 `json:"app_secret"`
+	Brand             string                 `json:"brand"`
 	EncryptKey        string                 `json:"encrypt_key"`
 	VerificationToken string                 `json:"verification_token"`
 	Groups            map[string]FeishuGroup `json:"groups"`
 	EnableNotify      bool                   `json:"enable_notify"`
 	TenantKey         string                 `json:"tenant_key"`
 	AutoProvision     bool                   `json:"auto_provision"`
+}
+
+// EffectiveBrand returns the configured API brand. Existing channel rows did
+// not persist this field, and all of those rows were created by the domestic
+// Feishu channel flow, so an empty value remains backwards-compatible.
+func (c FeishuConfig) EffectiveBrand() string {
+	if c.Brand == "" {
+		return FeishuBrand
+	}
+	return c.Brand
 }
 
 // WeixinConfig is the persisted Weixin channel plugin configuration.

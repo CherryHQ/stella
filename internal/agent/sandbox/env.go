@@ -16,6 +16,16 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
+const (
+	// LarkCLIConfigDirEnv keeps lark-cli app configuration private to one
+	// principal and Agent workspace instead of the stellad host account.
+	LarkCLIConfigDirEnv = "LARKSUITE_CLI_CONFIG_DIR"
+	// LarkCLIDataDirEnv keeps lark-cli's encrypted keychain and user tokens in
+	// the same isolated workspace. This is required for Docker, whose HOME is
+	// otherwise container-local and would lose native login state on restart.
+	LarkCLIDataDirEnv = "LARKSUITE_CLI_DATA_DIR"
+)
+
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	principalDir, id := misePrincipal(cfg)
 	mounts := []pkgsandbox.Mount{
@@ -203,6 +213,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
+	larkCLIHome := filepath.Join(paths.WorkspaceRoot, ".lark-cli")
+	env[LarkCLIConfigDirEnv] = larkCLIHome
+	env[LarkCLIDataDirEnv] = filepath.Join(larkCLIHome, "data")
 
 	// Every backend resolves tools through the same mise layout: the per-user
 	// writable tree ($STELLA_HOME/users/{id}/.mise-tools) over the shared system
