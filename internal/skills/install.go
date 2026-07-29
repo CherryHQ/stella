@@ -32,6 +32,32 @@ func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) 
 		limit = int(v)
 	}
 
+	results, errs := searchRemoteCatalogs(ctx, query, limit, clawhubSearch, mcpskills.Search)
+	if len(results) == 0 {
+		if len(errs) > 0 {
+			return "", fmt.Errorf("search failed: %s", errs[0])
+		}
+		return "No skills found.", nil
+	}
+
+	out, _ := json.MarshalIndent(results, "", "  ")
+	msg := fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=<source from results above>\nOptional: add scope=\"agent\" to install into agent scope.", len(results), out)
+	if len(errs) > 0 {
+		msg += fmt.Sprintf("\n\nNote: some providers failed: %v", errs)
+	}
+	return msg, nil
+}
+
+// searchRemoteCatalogs normalizes the two advertised remote catalogs behind one
+// deterministic helper. Tests inject protocol results here and can carry the
+// returned source through the real fetch/install/load/upgrade lifecycle.
+func searchRemoteCatalogs(
+	ctx context.Context,
+	query string,
+	limit int,
+	searchClawhub func(context.Context, string, int) ([]clawhubSearchResult, error),
+	searchSkillsSh func(context.Context, string, int) ([]mcpskills.SearchResult, error),
+) ([]skillSearchResult, []string) {
 	var (
 		mu      sync.Mutex
 		results []skillSearchResult
@@ -41,7 +67,7 @@ func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) 
 
 	// Search clawhub.ai concurrently.
 	wg.Go(func() {
-		hits, err := clawhubSearch(ctx, query, limit)
+		hits, err := searchClawhub(ctx, query, limit)
 		mu.Lock()
 		defer mu.Unlock()
 		if err != nil {
@@ -65,7 +91,7 @@ func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) 
 
 	// Search skills.sh concurrently.
 	wg.Go(func() {
-		hits, err := mcpskills.Search(ctx, query, limit)
+		hits, err := searchSkillsSh(ctx, query, limit)
 		mu.Lock()
 		defer mu.Unlock()
 		if err != nil {
@@ -87,20 +113,7 @@ func (t *Tool) search(ctx context.Context, args map[string]any) (string, error) 
 	})
 
 	wg.Wait()
-
-	if len(results) == 0 {
-		if len(errs) > 0 {
-			return "", fmt.Errorf("search failed: %s", errs[0])
-		}
-		return "No skills found.", nil
-	}
-
-	out, _ := json.MarshalIndent(results, "", "  ")
-	msg := fmt.Sprintf("Found %d skills:\n%s\n\nInstall with: skills tool action=install source=<source from results above>\nOptional: add scope=\"agent\" to install into agent scope.", len(results), out)
-	if len(errs) > 0 {
-		msg += fmt.Sprintf("\n\nNote: some providers failed: %v", errs)
-	}
-	return msg, nil
+	return results, errs
 }
 
 func (t *Tool) install(ctx context.Context, args map[string]any) (string, error) {

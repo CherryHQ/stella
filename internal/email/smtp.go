@@ -117,7 +117,7 @@ func safeSMTPDialer(acct EmailAccount) mail.DialContextFunc {
 		if network != "tcp" {
 			return nil, fmt.Errorf("unsupported SMTP network %q", network)
 		}
-		conn, err := DialPublicTCP(ctx, "smtp", acct.SMTPHost, acct.SMTPPort)
+		conn, err := dialEmailTCP(ctx, "smtp", acct.SMTPHost, acct.SMTPPort)
 		if err != nil {
 			return nil, err
 		}

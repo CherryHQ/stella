@@ -26,7 +26,7 @@ const maxAttachmentSize = 50 * 1024 * 1024 // 50 MB
 
 // dialIMAP connects to the IMAP server described by acct and logs in.
 func dialIMAP(acct EmailAccount) (*imapclient.Client, error) {
-	conn, err := DialPublicTCP(context.Background(), "imap", acct.IMAPHost, acct.IMAPPort)
+	conn, err := dialEmailTCP(context.Background(), "imap", acct.IMAPHost, acct.IMAPPort)
 	if err != nil {
 		return nil, err
 	}

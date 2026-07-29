@@ -12,6 +12,11 @@ import (
 
 const emailDialTimeout = 30 * time.Second
 
+// dialEmailTCP is the single protocol dial seam. Production keeps the public
+// egress-enforcing implementation; deterministic protocol contract tests swap
+// it for local IMAP/SMTP fakes without weakening Service-side validation.
+var dialEmailTCP = DialPublicTCP
+
 // Ranges that netip.IsPrivate does not cover but are still effectively internal:
 // carrier-grade NAT (RFC 6598) and the NAT64 well-known prefix (RFC 6052).
 var (

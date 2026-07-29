@@ -1316,11 +1316,16 @@ capabilities:
     scenarios:
       - id: X01-S01
         name: command-tree-and-local-behavior
-        layer: integration
-        status: partial
+        layer: system
+        status: covered
         release_policy: blocking
-        summary: Every documented command is registered and local version, upgrade, runtime, key generation, reconciliation, and service adapters handle success and failure safely.
+        summary: The exact candidate exposes every documented operator command while deterministic package tests prove local version, upgrade, runtime, key generation, reconciliation, and service success and failure behavior.
         evidence:
+          - kind: system_test
+            path: test/system/operator_commands_test.go
+            test: TestCandidateOperatorCommands
+            direct: true
+            proves: The exact release candidate dispatches every documented operator command independently of invalid server-only configuration and rejects unknown commands.
           - kind: go_test
             path: cmd/stellad/commands_test.go
             direct: true
@@ -1337,7 +1342,11 @@ capabilities:
             path: cmd/stellad/service_linux_test.go
             direct: true
             proves: Linux service manager command rendering and lifecycle behavior.
-        gap: Upgrade, mise reconciliation, and every local failure branch are not all invoked end to end through the exact release-candidate binary; the real systemd lifecycle is covered separately by X01-S02.
+          - kind: go_test
+            path: internal/manifestplugins/reconcile_test.go
+            direct: true
+            proves: Builtin tool reconciliation handles installed, disabled, and changed desired state deterministically without marketplace access.
+        gap: ""
       - id: X01-S02
         name: released-linux-cli-and-service-lifecycle
         layer: system
@@ -1377,7 +1386,7 @@ capabilities:
       - id: X02-S01
         name: channel-control-plane-and-runtime-contract
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Generic channel CRUD, safe metadata, identity routing, runtime apply, streaming publication, and shutdown obey a shared contract.
         evidence:
@@ -1393,7 +1402,16 @@ capabilities:
             path: internal/channel/runtime_resolver_test.go
             direct: true
             proves: Channel persistence and platform behavior.
-        gap: There is no reusable conformance suite that every built-in channel implementation must pass.
+          - kind: contract_test
+            path: internal/pluginhost/channel_conformance_test.go
+            test: TestBuiltinChannelConformance
+            direct: true
+            proves: Every builtin channel passes the same metadata, config validation, redaction, configured-state, and managed-runtime registration contract.
+          - kind: contract_test
+            path: pkg/plugins/bot_runtime_test.go
+            direct: true
+            proves: The shared managed-channel runtime applies desired state, publishes through the host, and shuts down deterministically.
+        gap: ""
       - id: X02-S02
         name: browser-channel-management
         layer: browser
@@ -1648,7 +1666,7 @@ capabilities:
       - id: X08-S01
         name: email-config-access-and-send-contract
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Account configuration, egress safety, scope, listing, reading, state changes, idempotent sending, and agent-tool access obey one contract.
         evidence:
@@ -1664,7 +1682,12 @@ capabilities:
             path: internal/email/access_test.go
             direct: true
             proves: User and agent scope isolation.
-        gap: No fake IMAP/SMTP or provider server covers list, read, mark, and send as one deterministic protocol lifecycle.
+          - kind: contract_test
+            path: internal/email/protocol_contract_test.go
+            test: TestFakeIMAPSMTPLifecycle
+            direct: true
+            proves: Real IMAP and SMTP clients complete folder, list, read, seen/unseen, and serialized-send behavior against deterministic protocol servers.
+        gap: ""
       - id: X08-S02
         name: email-live-round-trip
         layer: live
@@ -1986,7 +2009,7 @@ capabilities:
       - id: X14-S01
         name: embedding-config-index-and-query
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Configuration changes rebuild providers, vectors normalize safely, sensitive text avoids external APIs, backfill persists, and semantic query returns scoped results.
         evidence:
@@ -2002,7 +2025,12 @@ capabilities:
             path: internal/embedding/service_test.go
             direct: true
             proves: Configuration caching, invalidation, and disabled behavior.
-        gap: No end-to-end semantic query scenario crosses settings, external fake protocol, worker backfill, restart, and search.
+          - kind: contract_test
+            path: internal/embedding/lifecycle_contract_test.go
+            test: TestEmbeddingSettingsBackfillRestartAndSemanticQuery
+            direct: true
+            proves: Persisted settings drive an OpenAI-compatible fake through worker backfill, service restart, and a scoped non-lexical semantic query.
+        gap: ""
       - id: X14-S02
         name: embedding-provider-live-query
         layer: live
@@ -2084,7 +2112,7 @@ capabilities:
       - id: X16-S01
         name: remote-search-install-and-upgrade-contract
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Remote search, detail, source parsing, authenticated fetch, canonical file layout, install, and upgrade handle success and failure safely.
         evidence:
@@ -2096,7 +2124,12 @@ capabilities:
             path: internal/skills/install_lib_test.go
             direct: true
             proves: Remote source parsing, token propagation, file normalization, and upgrade failures.
-        gap: Other advertised marketplace sources and a complete search-to-installed-skill lifecycle are not covered by one deterministic contract.
+          - kind: contract_test
+            path: internal/skills/remote_lifecycle_contract_test.go
+            test: TestRemoteCatalogSearchToInstalledUpgradeLifecycle
+            direct: true
+            proves: ClawHub and skills.sh results normalize together, and a discovered Git source is fetched, installed, loaded, upgraded, and pruned through the real skill store.
+        gap: ""
       - id: X16-S02
         name: remote-marketplace-live-smoke
         layer: live
@@ -2132,7 +2165,7 @@ capabilities:
       - id: X17-S01
         name: system-skill-discovery-and-injection
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
         summary: Every bundled system skill is registered, visible under the right plugin state, and injected into the runtime prompt with valid files.
         evidence:
@@ -2145,7 +2178,12 @@ capabilities:
             test: TestBuildPromptSectionListsSystemSkillsAndSearchesOthers
             direct: true
             proves: System skill discovery and prompt injection behavior.
-        gap: There is no per-skill conformance test proving each skill's declared commands, prerequisites, and stable observable result.
+          - kind: contract_test
+            path: resources/registry_test.go
+            test: TestBuiltinSystemSkillConformance
+            direct: true
+            proves: Every bundled system skill declares its entrypoint, prerequisite boundary, observable result, required files, and manifest-provisioned binary where applicable.
+        gap: ""
       - id: X17-S02
         name: external-system-skill-smoke
         layer: live
