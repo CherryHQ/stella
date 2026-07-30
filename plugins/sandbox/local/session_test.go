@@ -715,11 +715,9 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 	}
 }
 
-// TestAdjustPolicy_homeAndXDG verifies HOME is the agent workspace (/workspace)
-// and the XDG dirs split shared-vs-private: config/data/state stay private under
-// HOME while the cache is pointed at the shared user-data root (/user). HOME and
-// the workspace are the same per-agent dir, so the privacy comes from the
-// workspace itself, not a sub-redirect. STELLA_USER_DIR exposes /user.
+// TestAdjustPolicy_homeAndXDG verifies HOME remains the agent workspace while
+// every persistent XDG directory uses the shared per-principal /user root.
+// STELLA_USER_DIR exposes that root too.
 func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 	root := t.TempDir()
 	userData := filepath.Join(root, "data")
@@ -739,20 +737,23 @@ func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 		{"HOME", sandboxRoot},
 		{"STELLA_USER_DIR", userDataSandbox},
 		{"XDG_CACHE_HOME", filepath.Join(userDataSandbox, ".cache")},
-		{"XDG_CONFIG_HOME", filepath.Join(sandboxRoot, ".config")},
-		{"XDG_DATA_HOME", filepath.Join(sandboxRoot, ".local", "share")},
-		{"XDG_STATE_HOME", filepath.Join(sandboxRoot, ".local", "state")},
+		{"XDG_CONFIG_HOME", filepath.Join(userDataSandbox, ".config")},
+		{"XDG_DATA_HOME", filepath.Join(userDataSandbox, ".local", "share")},
+		{"XDG_STATE_HOME", filepath.Join(userDataSandbox, ".local", "state")},
 	} {
 		if env[tc.key] != tc.want {
 			t.Errorf("env[%s] = %q, want %q", tc.key, env[tc.key], tc.want)
 		}
 	}
+	if _, ok := env["XDG_RUNTIME_DIR"]; ok {
+		t.Error("XDG_RUNTIME_DIR must not be set")
+	}
 }
 
-// TestAdjustPolicy_noUserData_cacheUnderHome verifies a user-less session (no
-// shared user-data root) keeps the cache under HOME and sets no STELLA_USER_DIR,
-// so nothing is shared with other agents.
-func TestAdjustPolicy_noUserData_cacheUnderHome(t *testing.T) {
+// TestAdjustPolicy_noUserDataFallsBackToWorkspace verifies a user-less session
+// (no shared user-data root) keeps every XDG directory under HOME and sets no
+// STELLA_USER_DIR, so nothing is shared with other agents.
+func TestAdjustPolicy_noUserDataFallsBackToWorkspace(t *testing.T) {
 	root := t.TempDir()
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},

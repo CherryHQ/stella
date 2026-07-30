@@ -209,7 +209,10 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	delete(env, "STELLA_TOKEN")
 
 	// Runner-set vars overlay vault entries so they always take precedence.
-	maps.Copy(env, ProcessEnv(paths))
+	maps.Copy(env, ProcessEnv(paths, userDataDirHost(paths, cfg)))
+	// Runtime files are session-scoped and must never be redirected into the
+	// persistent principal root (or accepted from a vault/session env entry).
+	delete(env, "XDG_RUNTIME_DIR")
 	// lark-cli is an ordinary user-managed CLI. Only redirect its persistent
 	// state into the shared personal directory because sandbox HOME remains the
 	// current Agent workspace. Group and user-less sessions must not inherit it.

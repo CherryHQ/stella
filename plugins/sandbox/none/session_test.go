@@ -49,6 +49,71 @@ func TestFactory_createSession(t *testing.T) {
 	}
 }
 
+func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
+	workspace := t.TempDir()
+	userData := t.TempDir()
+	policy := sandboxpkg.Policy{
+		Env: map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"},
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: workspace,
+			WorkingDir:    workspace,
+			Mounts: []sandboxpkg.Mount{
+				{HostPath: workspace, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite},
+				{HostPath: userData, SandboxPath: sandboxpkg.MountUserData, Access: sandboxpkg.MountReadWrite},
+			},
+		},
+	}
+	sess, err := NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	env := sess.Policy().Env
+	for key, want := range map[string]string{
+		"HOME":            workspace,
+		"STELLA_USER_DIR": userData,
+		"XDG_CONFIG_HOME": filepath.Join(userData, ".config"),
+		"XDG_DATA_HOME":   filepath.Join(userData, ".local", "share"),
+		"XDG_STATE_HOME":  filepath.Join(userData, ".local", "state"),
+		"XDG_CACHE_HOME":  filepath.Join(userData, ".cache"),
+	} {
+		if got := env[key]; got != want {
+			t.Errorf("%s = %q, want real host path %q", key, got, want)
+		}
+	}
+	if _, ok := env["XDG_RUNTIME_DIR"]; ok {
+		t.Error("XDG_RUNTIME_DIR must not be set")
+	}
+}
+
+func TestFactoryCreateSession_withoutUserDataFallsBackToWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	sess, err := NewFactory().CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	env := sess.Policy().Env
+	for key, want := range map[string]string{
+		"HOME":            workspace,
+		"XDG_CONFIG_HOME": filepath.Join(workspace, ".config"),
+		"XDG_DATA_HOME":   filepath.Join(workspace, ".local", "share"),
+		"XDG_STATE_HOME":  filepath.Join(workspace, ".local", "state"),
+		"XDG_CACHE_HOME":  filepath.Join(workspace, ".cache"),
+	} {
+		if got := env[key]; got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+	if _, ok := env["STELLA_USER_DIR"]; ok {
+		t.Error("STELLA_USER_DIR must not be set")
+	}
+}
+
 func TestNoneSession_closeAndAlive(t *testing.T) {
 	s := newTestSession(t)
 	if !s.Alive() {

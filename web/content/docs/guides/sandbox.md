@@ -151,9 +151,11 @@ The Linux `local` backend mounts a per-principal temp directory as sandbox `/tmp
 
 ### Home directory and shared data
 
-Inside an isolating sandbox, `$HOME` is `/workspace` — the agent's **own per-agent** directory. Each agent's credential and state directories (the XDG dirs `~/.config`, `~/.local/share`, `~/.local/state`, e.g. `~/.config/gh`) live there and stay private to that one agent. The project tree is the working directory, also under `/workspace`.
+Inside an isolating sandbox, `$HOME` is `/workspace` — the agent's **own per-agent** directory and project working tree. Tools that write directly under `$HOME`, such as to `~/.tool`, keep that state private to the agent.
 
-Data that should be shared across all of a user's agents lives under `/user` (the shared user-data root), exposed as `$STELLA_USER_DIR`: caches, user-scoped skills, and uploaded assets (`/user/assets`). On the Linux `local` backend the per-user mise toolchain also lives here, at `/user/.mise-tools`. Reference this root as `$STELLA_USER_DIR/...` rather than hardcoding `/user`, so the same instruction works on the `none`/macOS backends where it resolves to the real host path.
+Persistent XDG directories are user-level and shared across the user's agents: `XDG_CONFIG_HOME=/user/.config`, `XDG_DATA_HOME=/user/.local/share`, `XDG_STATE_HOME=/user/.local/state`, and `XDG_CACHE_HOME=/user/.cache`. This lets XDG-aware tools reuse configuration and login state while the agent's work remains under `/workspace`. `XDG_RUNTIME_DIR` is not persisted. Sessions without a user-data root keep all four directories under their workspace instead.
+
+The shared user-data root is also exposed as `$STELLA_USER_DIR` and holds user-scoped skills and uploaded assets (`/user/assets`). Reference it as `$STELLA_USER_DIR/...` rather than hardcoding `/user`, so the same instruction works on the `none`/macOS backends where it resolves to the real host path.
 
 The docker backend bakes its mise toolchain under absolute `/opt/stella` — the same path the Linux `local` backend remaps `STELLA_HOME` to — so an agent sees identical mise paths whichever isolating backend runs it, and switching backends has no effect on tool resolution. `MISE_DATA_DIR` and friends are pinned to that tree, so flipping `$HOME` to `/workspace` does not hide the baked-in tools. The image installs its builtins through the same `resources/tools.yaml` reconcile the host runs, and the per-user writable mise tree is mounted at `/opt/stella/users/{id}/.mise-tools` so an agent can install its own tools on top of the shared base.
 

@@ -63,10 +63,9 @@ type tmpMount struct {
 	owned       bool   // true when the session created this directory and should remove it on close
 }
 
-// CreateSession creates a new localSession.
-// If a StellaHome was provided via Config, the factory adjusts the policy env
-// with a sandboxed PATH, HOME, and an allowlist of host variables so callers
-// don't need to know about host-execution specifics.
+// CreateSession creates a new localSession. The factory always sets HOME and
+// XDG roots for the local filesystem view; when Config provides StellaHome, it
+// also builds a sandboxed PATH and copies the host-variable allowlist.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	sessionID := sandboxpkg.NewSessionID()
 	if err := checkSandboxRequirements(); err != nil {
@@ -104,15 +103,25 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 // adjustPolicy applies local-backend-specific environment adjustments.
 // sandboxRoot/realRoot are the sandbox-space and host views of the agent
 // workspace; userDataSandbox/userDataReal are the same for the shared user-data
-// root (empty when none). HOME and the XDG dirs are anchored to the sandbox-space
-// views so the agent sees a clean /workspace + /user pair.
+// root (empty when none). HOME remains the workspace; all persistent XDG dirs
+// use /user when present, otherwise the workspace.
 func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, userDataSandbox, userDataReal string) sandboxpkg.Policy {
-	if f.cfg.StellaHome == "" {
-		return policy
-	}
 	env := maps.Clone(policy.Env)
 	if env == nil {
 		env = make(map[string]string)
+	}
+	env["HOME"] = sandboxRoot
+	setXDGDirs(env, sandboxRoot, userDataSandbox)
+	if userDataSandbox != "" {
+		// The shared user-data root, exposed so the agent (and skills/uploads) can
+		// address it without learning the host users/{id} layout.
+		env["STELLA_USER_DIR"] = userDataSandbox
+	} else {
+		delete(env, "STELLA_USER_DIR")
+	}
+	if f.cfg.StellaHome == "" {
+		policy.Env = env
+		return policy
 	}
 	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
 	hostSH := f.cfg.StellaHome
@@ -136,16 +145,6 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 		userShims = sandboxpkg.MiseUserShimsDir(remapMise(dir))
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
-	// HOME is the agent workspace (/workspace), so XDG config/data/state default
-	// under it and stay private to this agent; only the cache is shared, pointed at
-	// the user-data root (/user). The project dir stays the cwd; only HOME differs.
-	env["HOME"] = sandboxRoot
-	setXDGDirs(env, sandboxRoot, userDataSandbox)
-	if userDataSandbox != "" {
-		// The shared user-data root, exposed so the agent (and skills/uploads) can
-		// address it without learning the host users/{id} layout.
-		env["STELLA_USER_DIR"] = userDataSandbox
-	}
 	env["STELLA_HOME"] = sandboxSH
 	// lark-cli's native config and token store live under the user's shared data
 	// root. Rewrite their host paths to the /user sandbox view.
@@ -191,27 +190,20 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	return policy
 }
 
-// setXDGDirs points the agent's XDG config/data/state under its $HOME (the agent
-// workspace), so each agent's credentials and state (e.g. ~/.config/gh) stay
-// private to it — the workspace is per-agent and siblings are never mounted. The
-// cache is pointed at the shared user-data root (userData, the sandbox-space
-// /user) so toolchain/download caches are reused across the user's agents. When
-// userData is "" (a user-less session with no shared root) the cache falls back
-// to $HOME so nothing is shared.
-//
-// NOTE: /user is a shared writable trust domain for all of one user's agents, not
-// an isolation boundary — a tool that writes credentials into its cache would
-// expose them to the user's other agents. Credentials belong under the private
-// XDG config/data/state (HOME), which is why only the cache is shared here.
+// setXDGDirs points persistent XDG config, data, state, and cache at the
+// shared per-principal user-data root. A user-less session has no such root, so
+// all four stay under its workspace. XDG_RUNTIME_DIR is deliberately not set:
+// runtime files are session-scoped rather than persistent user data.
 func setXDGDirs(env map[string]string, home, userData string) {
-	cacheHome := home
-	if userData != "" {
-		cacheHome = userData
+	persistentRoot := userData
+	if persistentRoot == "" {
+		persistentRoot = home
 	}
-	env["XDG_CACHE_HOME"] = filepath.Join(cacheHome, ".cache")
-	env["XDG_CONFIG_HOME"] = filepath.Join(home, ".config")
-	env["XDG_DATA_HOME"] = filepath.Join(home, ".local", "share")
-	env["XDG_STATE_HOME"] = filepath.Join(home, ".local", "state")
+	env["XDG_CACHE_HOME"] = filepath.Join(persistentRoot, ".cache")
+	env["XDG_CONFIG_HOME"] = filepath.Join(persistentRoot, ".config")
+	env["XDG_DATA_HOME"] = filepath.Join(persistentRoot, ".local", "share")
+	env["XDG_STATE_HOME"] = filepath.Join(persistentRoot, ".local", "state")
+	delete(env, "XDG_RUNTIME_DIR")
 }
 
 // remapToSandboxRoot rewrites a host path under realRoot to its sandbox-space

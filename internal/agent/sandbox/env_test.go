@@ -109,6 +109,20 @@ func TestBuildSandboxEnvDoesNotExposePersonalLarkCLIStateToGroups(t *testing.T) 
 	if _, ok := env[LarkCLIDataDirEnv]; ok {
 		t.Fatalf("%s must not be set for a group session", LarkCLIDataDirEnv)
 	}
+	for key, want := range map[string]string{
+		"HOME":            "/stella/users/group-group-1/agents/agent-1",
+		"XDG_CONFIG_HOME": "/stella/users/group-group-1/data/.config",
+		"XDG_DATA_HOME":   "/stella/users/group-group-1/data/.local/share",
+		"XDG_STATE_HOME":  "/stella/users/group-group-1/data/.local/state",
+		"XDG_CACHE_HOME":  "/stella/users/group-group-1/data/.cache",
+	} {
+		if got := env[key]; got != want {
+			t.Errorf("group %s = %q, want %q", key, got, want)
+		}
+	}
+	if _, ok := env["XDG_RUNTIME_DIR"]; ok {
+		t.Error("XDG_RUNTIME_DIR must not be set")
+	}
 }
 
 func TestBuildSandboxEnvRecordsOnlyInjectedVaultSecretValues(t *testing.T) {

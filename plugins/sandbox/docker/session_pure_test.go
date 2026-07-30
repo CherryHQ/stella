@@ -383,6 +383,36 @@ func TestTranslateEnvPaths_Mise(t *testing.T) {
 	}
 }
 
+func TestSetXDGDirsUsesMountedUserDataOrWorkspace(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		userData string
+		root     string
+	}{
+		{name: "mounted user data", userData: "/host/data", root: "/host/data"},
+		{name: "no user-data mount", root: "/host/workspace"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"}
+			setXDGDirs(env, "/host/workspace", tc.userData)
+			for key, want := range map[string]string{
+				"HOME":            "/host/workspace",
+				"XDG_CONFIG_HOME": filepath.Join(tc.root, ".config"),
+				"XDG_DATA_HOME":   filepath.Join(tc.root, ".local", "share"),
+				"XDG_STATE_HOME":  filepath.Join(tc.root, ".local", "state"),
+				"XDG_CACHE_HOME":  filepath.Join(tc.root, ".cache"),
+			} {
+				if got := env[key]; got != want {
+					t.Errorf("%s = %q, want %q", key, got, want)
+				}
+			}
+			if _, ok := env["XDG_RUNTIME_DIR"]; ok {
+				t.Error("XDG_RUNTIME_DIR must not be set")
+			}
+		})
+	}
+}
+
 func dockerModeTestDirs(t *testing.T) (stellaHome, workspace, extra, tmp string) {
 	t.Helper()
 	stellaHome = t.TempDir()

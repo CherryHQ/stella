@@ -217,19 +217,21 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	// so PATH can point at their shims.
 	perUserTrees := writableToolTrees(mountedPolicyMounts)
 
-	// Expose the user-data root as STELLA_USER_DIR — but only when /user was
-	// actually mounted, keyed off the host path the mount really used. The value
-	// is the HOST path; translateEnvPaths rewrites it to /user via the /user
-	// mount (Pi C2). Setting it (or the mount table entry) when the mount failed
-	// would make env translation and host-side path resolution lie about /user.
-	if mountedUserDataHost != "" {
-		env := maps.Clone(policy.Env)
-		if env == nil {
-			env = make(map[string]string)
-		}
-		env["STELLA_USER_DIR"] = mountedUserDataHost
-		policy.Env = env
+	// Use the root that was actually mounted, not merely requested: an unavailable
+	// /user mount must leave every XDG directory in the workspace. Values remain
+	// host paths here; translateEnvPaths maps them to /workspace or /user for both
+	// the container's create-time environment and later execs.
+	env := maps.Clone(policy.Env)
+	if env == nil {
+		env = make(map[string]string)
 	}
+	setXDGDirs(env, workspaceHost, mountedUserDataHost)
+	if mountedUserDataHost != "" {
+		env["STELLA_USER_DIR"] = mountedUserDataHost
+	} else {
+		delete(env, "STELLA_USER_DIR")
+	}
+	policy.Env = env
 
 	// Point the in-sandbox CLI at stellad over the shared network. Without this
 	// the CLI falls back to 127.0.0.1:25678 — the sandbox container's own
@@ -484,6 +486,23 @@ func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) stri
 	return ""
 }
 
+// setXDGDirs keeps HOME private to the workspace while placing persistent XDG
+// state in the per-principal user-data root when it was mounted. Without that
+// mount, all XDG state falls back to the workspace. XDG_RUNTIME_DIR is not a
+// persistent directory and is intentionally not set.
+func setXDGDirs(env map[string]string, workspace, userData string) {
+	persistentRoot := userData
+	if persistentRoot == "" {
+		persistentRoot = workspace
+	}
+	env["HOME"] = workspace
+	env["XDG_CONFIG_HOME"] = filepath.Join(persistentRoot, ".config")
+	env["XDG_DATA_HOME"] = filepath.Join(persistentRoot, ".local", "share")
+	env["XDG_STATE_HOME"] = filepath.Join(persistentRoot, ".local", "state")
+	env["XDG_CACHE_HOME"] = filepath.Join(persistentRoot, ".cache")
+	delete(env, "XDG_RUNTIME_DIR")
+}
+
 func dockerMountProvidedByImage(m sandboxpkg.Mount) bool {
 	if !strings.HasPrefix(filepath.Clean(m.SandboxPath), stellaHomeMount+string(filepath.Separator)) {
 		return false
@@ -641,16 +660,14 @@ func mergeEnv(policyEnv, optsEnv map[string]string) map[string]string {
 
 // hostOnlyEnvKeys are variables that callers build from the stella process view
 // and would mislead or break tools inside the container. They are dropped
-// before exec so the image's baked values (ENV PATH, HOME, …) take effect.
+// before exec so the image's baked PATH takes effect. HOME is intentionally not
+// dropped: it is the mounted agent workspace and must translate to /workspace.
 //   - PATH: callers prepend stella-managed tool dirs (fd/rg/mise/tap shims) that
 //     live on the stella host filesystem. Those paths don't exist in the
 //     container, and passing them overrides the image's ENV PATH that points
 //     at /opt/stella/.mise-tools/shims et al.
-//   - HOME: the container's image-baked HOME (/home/stella) is the right value.
-//     The stella host HOME would point at a dir that isn't mounted.
 var hostOnlyEnvKeys = map[string]struct{}{
 	"PATH": {},
-	"HOME": {},
 }
 
 // translateEnvPaths rewrites env vars whose values are absolute host paths.

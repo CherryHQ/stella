@@ -151,9 +151,11 @@ Linux `local` 后端会把按 principal 划分的临时目录挂为沙箱内 `/t
 
 ### 主目录与共享数据
 
-在隔离型沙箱内，`$HOME` 即 `/workspace`——agent **自己的 per-agent** 目录。每个 agent 的凭证与状态目录（XDG 目录 `~/.config`、`~/.local/share`、`~/.local/state`，例如 `~/.config/gh`）都位于此处，仅属于该 agent。项目目录也在 `/workspace` 下，作为工作目录。
+在隔离型沙箱内，`$HOME` 即 `/workspace`——agent **自己的 per-agent** 目录与项目工作树。直接写入 `$HOME`（例如 `~/.tool`）的工具仍会把状态留在该 agent 内。
 
-需要在该用户所有 agent 间共享的数据位于 `/user`（共享用户数据根目录），通过 `$STELLA_USER_DIR` 暴露：包括缓存、用户级 skills，以及上传的资产（`/user/assets`）。在 Linux `local` 后端下，按用户划分的 mise 工具链也位于此处，即 `/user/.mise-tools`。请用 `$STELLA_USER_DIR/...` 引用该根，而非硬编码 `/user`——这样在 `none`/macOS 后端（解析为真实宿主机路径）下同样有效。
+持久化 XDG 目录属于用户级数据，并由该用户的所有 agent 共享：`XDG_CONFIG_HOME=/user/.config`、`XDG_DATA_HOME=/user/.local/share`、`XDG_STATE_HOME=/user/.local/state`、`XDG_CACHE_HOME=/user/.cache`。因此，遵循 XDG 的工具可以复用配置与登录状态，而 agent 的工作内容仍留在 `/workspace`。`XDG_RUNTIME_DIR` 不会持久化。没有用户数据根目录的会话则把这四个目录都放回自身 workspace。
+
+共享用户数据根目录也通过 `$STELLA_USER_DIR` 暴露，用于存放用户级 skills 与上传资产（`/user/assets`）。请用 `$STELLA_USER_DIR/...` 引用该根，而非硬编码 `/user`——这样在 `none`/macOS 后端（解析为真实宿主机路径）下同样有效。
 
 Docker 后端把 mise 工具链烤在绝对 `/opt/stella` 下——与 Linux `local` 后端把 `STELLA_HOME` 重映射到的路径一致——因此无论哪个隔离后端运行，agent 看到的 mise 路径都相同，切换后端不影响工具解析。`MISE_DATA_DIR` 等被钉死在该树上，所以把 `$HOME` 翻到 `/workspace` 不会隐藏内置工具。镜像通过与宿主相同的 `resources/tools.yaml` reconcile 安装内置工具，per-user 可写 mise 树挂载在 `/opt/stella/users/{id}/.mise-tools`，agent 可在共享基础上安装自己的工具。
 

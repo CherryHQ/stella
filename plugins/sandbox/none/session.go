@@ -66,28 +66,47 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 // adjustPolicy applies none-backend-specific policy adjustments.
 func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 	policy.Network.Mode = sandboxpkg.NetworkAllowAll
-	if f.cfg.StellaHome == "" {
-		return policy
-	}
 	env := maps.Clone(policy.Env)
 	if env == nil {
 		env = make(map[string]string)
 	}
-	// Recover the per-user mise home from the runtime env (MISE_DATA_DIR) to put
-	// its shims on PATH; no remap here since none shares the host filesystem.
-	userShims := ""
-	if dir := sandboxpkg.PerUserMiseDataDir(env, f.cfg.StellaHome); dir != "" {
-		userShims = sandboxpkg.MiseUserShimsDir(dir)
+
+	// The none backend has no path remapping: HOME and the persistent XDG dirs
+	// use their real host paths. A user-less session has no /user mount and falls
+	// back to its workspace. Runtime state must not persist in either location.
+	workspace := policy.WorkspaceRootOrDefault()
+	userData := hostPathForSandboxMount(policy.Filesystem.Mounts, sandboxpkg.MountUserData)
+	setXDGDirs(env, workspace, userData)
+	if userData != "" {
+		env["STELLA_USER_DIR"] = userData
+	} else {
+		delete(env, "STELLA_USER_DIR")
 	}
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims)
-	// Host execution shares the real filesystem, so the shared user-data root is
-	// exposed at its real path (no /user remap). Keeps STELLA_USER_DIR meaningful
-	// for skills/prompt that address it regardless of backend.
-	if ud := hostPathForSandboxMount(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ud != "" {
-		env["STELLA_USER_DIR"] = ud
+
+	if f.cfg.StellaHome != "" {
+		// Recover the per-user mise home from the runtime env (MISE_DATA_DIR) to put
+		// its shims on PATH; no remap here since none shares the host filesystem.
+		userShims := ""
+		if dir := sandboxpkg.PerUserMiseDataDir(env, f.cfg.StellaHome); dir != "" {
+			userShims = sandboxpkg.MiseUserShimsDir(dir)
+		}
+		env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims)
 	}
 	policy.Env = env
 	return policy
+}
+
+func setXDGDirs(env map[string]string, workspace, userData string) {
+	persistentRoot := userData
+	if persistentRoot == "" {
+		persistentRoot = workspace
+	}
+	env["HOME"] = workspace
+	env["XDG_CONFIG_HOME"] = filepath.Join(persistentRoot, ".config")
+	env["XDG_DATA_HOME"] = filepath.Join(persistentRoot, ".local", "share")
+	env["XDG_STATE_HOME"] = filepath.Join(persistentRoot, ".local", "state")
+	env["XDG_CACHE_HOME"] = filepath.Join(persistentRoot, ".cache")
+	delete(env, "XDG_RUNTIME_DIR")
 }
 
 func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) string {
