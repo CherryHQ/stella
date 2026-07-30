@@ -54,11 +54,19 @@ func TestSessionContract(t *testing.T) {
 
 func testSessionContract(t *testing.T, factory sandbox.Factory) {
 	ctx := context.Background()
-	tempDir := t.TempDir()
+	workspace, err := os.MkdirTemp(".", "docker-contract-workspace-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err = filepath.Abs(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(workspace) })
 
 	policy := sandbox.Policy{
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkingDir: tempDir,
+			WorkingDir: workspace,
 		},
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkDisabled,
@@ -159,8 +167,7 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		tempDir := session.Policy().Env[sandbox.EnvTempDir]
-		fromTool, err := session.ResolveWritePath(filepath.Join(tempDir, "from-tool.txt"))
+		fromTool, err := session.ResolveWritePath("/tmp/from-tool.txt")
 		if err != nil {
 			t.Fatalf("ResolveWritePath(tool file): %v", err)
 		}
@@ -176,7 +183,7 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		if err != nil || got.ExitCode != 0 {
 			t.Fatalf("exec write temp file = %+v, %v", got, err)
 		}
-		fromExec, err := session.ResolvePath(filepath.Join(tempDir, "from-exec.txt"))
+		fromExec, err := session.ResolvePath("/tmp/from-exec.txt")
 		if err != nil {
 			t.Fatalf("ResolvePath(exec file): %v", err)
 		}
@@ -189,7 +196,7 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 	t.Run("Exec", func(t *testing.T) {
 		session, err := factory.CreateSession(ctx, sandbox.Policy{
 			Filesystem: sandbox.FilesystemPolicy{
-				WorkingDir: tempDir,
+				WorkingDir: workspace,
 			},
 			Network: sandbox.NetworkPolicy{
 				Mode:    sandbox.NetworkAllowAll,
