@@ -44,23 +44,6 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 6. 选择这个机器人代表的 Agent。
 7. 展开手动字段，输入凭据并保存。
 
-## Lark 工作区自动化
-
-旧的内置 `feishu_*` 工具和 `/auth` 流程已移除。
-
-Stella 现在内置了生成好的 `lark` system skill，发布构建也会自动嵌入 `lark-cli`。如果你要操作日历、任务、文档、知识库、表格、云盘、联系人等工作区数据，直接启用内置 `lark` skill，并配合 [`lark-cli`](https://github.com/larksuite/cli) 使用即可。
-
-常见初始化流程：
-
-```bash
-command -v lark-cli || npm install -g @larksuite/cli
-lark-cli config init --new
-lark-cli auth login --recommend
-lark-cli auth status
-```
-
-内置 `lark` skill 可以覆盖原来的 `feishu_calendar`、`feishu_task`、`feishu_im`、`feishu_doc`、`feishu_wiki`、`feishu_sheets`、`feishu_drive`、`feishu_bitable`、`feishu_user` 和 `feishu_search` 等工作流。
-
 ## 自动注册用户
 
 用户通过飞书 OAuth 登录 Stella 时，Stella 会立即使用飞书 `union_id` 链接飞书频道身份，无需执行 `/link`。

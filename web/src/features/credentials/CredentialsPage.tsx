@@ -49,7 +49,6 @@ import type { RowAction } from "@/features/settings/SettingsCardGrid";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { KeyRound, Lock, Plug, Plus } from "lucide-react";
 import { siGithub, siX } from "simple-icons";
-import feishuIcon from "@/assets/auth/feishu.svg";
 
 // Brand marks carried by simple-icons, resolved by slug. Adding a simple-icons
 // brand is one named import + one entry here; unknown slugs fall through to the
@@ -59,25 +58,13 @@ const SIMPLE_ICONS: Record<string, { path: string }> = {
   x: siX,
 };
 
-// Brands simple-icons does not carry, rendered from bundled assets. Feishu and
-// its international brand Lark share one mark.
-const ASSET_ICONS: Record<string, string> = {
-  feishu: feishuIcon,
-  lark: feishuIcon,
-};
-
 type VaultScope = VaultEntry["scope"];
 type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
 
 // Reserved keys are written and rotated by stella itself. Surface them as
 // read-only so users don't delete a managed credential.
-const RESERVED_VAULT_KEYS = new Set([
-  "STELLA_TOKEN",
-  "GH_OAUTH",
-  "LARK_CLI_OAUTH",
-  "FEISHU_CLI_OAUTH",
-]);
+const RESERVED_VAULT_KEYS = new Set(["STELLA_TOKEN", "GH_OAUTH"]);
 const RESERVED_VAULT_PREFIXES = ["OAUTH_", "MCP_TOKEN_"];
 
 function isReservedVaultKey(name: string) {
@@ -142,18 +129,8 @@ const SCOPE_DESC_KEY: Record<VaultScope, MessageKey> = {
 };
 
 // ProviderIcon resolves a brand mark from the provider's icon string (set in
-// the provider YAML): `simpleicons:<slug>` for marks simple-icons carries,
-// `asset:<name>` for bundled brand SVGs it does not (Feishu/Lark). Falls back to
-// a bundled asset keyed by provider id, then to a generic plug glyph.
-function ProviderIcon({
-  provider,
-  icon,
-  label,
-}: {
-  provider: string;
-  icon?: string;
-  label: string;
-}) {
+// provider YAML) and falls back to a generic plug glyph.
+function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   const [family, name] = (icon ?? "").split(":");
   if (family === "simpleicons") {
     const brand = SIMPLE_ICONS[name?.toLowerCase()];
@@ -165,10 +142,6 @@ function ProviderIcon({
       );
     }
   }
-  const asset =
-    (family === "asset" ? ASSET_ICONS[name?.toLowerCase()] : undefined) ??
-    ASSET_ICONS[provider.toLowerCase()];
-  if (asset) return <img src={asset} alt="" className="size-4" />;
   return <Plug className="size-4" />;
 }
 
@@ -1135,7 +1108,7 @@ export function CredentialsPage() {
                 return (
                   <SettingsRow
                     key={p.provider}
-                    icon={<ProviderIcon provider={p.provider} icon={p.icon} label={p.provider} />}
+                    icon={<ProviderIcon icon={p.icon} label={p.provider} />}
                     title={p.provider}
                     subtitle={subtitle}
                     status={statusBadge(p)}

@@ -16,6 +16,15 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
+const (
+	// LarkCLIConfigDirEnv points lark-cli at the user's shared CLI state so one
+	// native setup is available from all of that user's Agent workspaces.
+	LarkCLIConfigDirEnv = "LARKSUITE_CLI_CONFIG_DIR"
+	// LarkCLIDataDirEnv keeps lark-cli's keychain and tokens beside its shared
+	// user configuration instead of splitting native auth by Agent workspace.
+	LarkCLIDataDirEnv = "LARKSUITE_CLI_DATA_DIR"
+)
+
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
 	principalDir, id := misePrincipal(cfg)
 	mounts := []pkgsandbox.Mount{
@@ -187,10 +196,8 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	}
 
 	// Defense in depth: the vault-side system-managed filter is authoritative,
-	// but these legacy OAuth bundle keys must still never reach the sandbox.
+	// but the OAuth bundle must still never reach the sandbox.
 	delete(env, oauth.VaultKeyGitHub)
-	delete(env, oauth.VaultKeyLark)
-	delete(env, oauth.VaultKeyFeishu)
 	if cfg.GroupID == "" {
 		if err := injectSessionEnv(ctx, cfg, env, vaultEnv, sessionSecretEnv); err != nil {
 			return nil, err
@@ -203,6 +210,14 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
+	// lark-cli is an ordinary user-managed CLI. Only redirect its persistent
+	// state into the shared personal directory because sandbox HOME remains the
+	// current Agent workspace. Group and user-less sessions must not inherit it.
+	if cfg.UserID != "" && cfg.GroupID == "" && paths.UserDataDir != "" {
+		larkCLIHome := filepath.Join(paths.UserDataDir, ".lark-cli")
+		env[LarkCLIConfigDirEnv] = larkCLIHome
+		env[LarkCLIDataDirEnv] = filepath.Join(larkCLIHome, "data")
+	}
 
 	// Every backend resolves tools through the same mise layout: the per-user
 	// writable tree ($STELLA_HOME/users/{id}/.mise-tools) over the shared system
@@ -346,8 +361,6 @@ func oauthBundleField(bundle *oauth.OAuthBundle, field string) (value string, kn
 		return bundle.AccessToken, true
 	case "client_id":
 		return bundle.ClientID, true
-	case "brand":
-		return bundle.Brand, true
 	case "refresh_token":
 		return bundle.RefreshToken, true
 	default:

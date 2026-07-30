@@ -54,7 +54,7 @@ Channel access is enforced by Stella's trusted Authority-based domain services; 
 
 **Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`
 
-Feishu is a chat channel only. Lark workspace operations no longer ship as built-in `feishu_*` tools; add a `lark-cli` skill yourself if you want that workflow.
+Feishu is a chat channel only.
 
 ## Login providers
 

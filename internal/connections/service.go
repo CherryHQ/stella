@@ -388,12 +388,6 @@ func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToke
 		RefreshExpiresAt: refreshExpiresAt,
 		GrantedScope:     grantedScope,
 	}
-	switch providerID {
-	case "lark":
-		bundle.Brand = "lark"
-	case "feishu":
-		bundle.Brand = "feishu"
-	}
 	return oauth.SaveOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey, bundle)
 }
 

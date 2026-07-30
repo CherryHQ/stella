@@ -683,6 +683,8 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 			"MISE_CACHE_DIR":            miseHome + "/cache",
 			"MISE_GLOBAL_CONFIG_FILE":   hostSH + "/.mise-tools/configs/_builtin.toml",
 			"MISE_TRUSTED_CONFIG_PATHS": hostSH + "/.mise-tools/configs/_builtin.toml:/workspace:" + agentDir,
+			"LARKSUITE_CLI_CONFIG_DIR":  userData + "/.lark-cli",
+			"LARKSUITE_CLI_DATA_DIR":    userData + "/.lark-cli/data",
 		},
 	}
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
@@ -698,6 +700,8 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 		{"MISE_CACHE_DIR", sandboxSH + "/users/u1/.mise-tools/cache"},
 		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
 		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/workspace"},
+		{"LARKSUITE_CLI_CONFIG_DIR", "/user/.lark-cli"},
+		{"LARKSUITE_CLI_DATA_DIR", "/user/.lark-cli/data"},
 	} {
 		if got := adjusted.Env[tc.key]; got != tc.want {
 			t.Errorf("env[%s] = %q, want %q", tc.key, got, tc.want)

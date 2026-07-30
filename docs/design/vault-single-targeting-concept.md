@@ -51,10 +51,9 @@ key leaks only that key. High-risk agents can still run with `network: disabled`
 **Delivery: fully derived, no user choice.**
 
 - **User secrets** → ambient in scope-matching sandbox sessions, keyed by name.
-- **System-managed secrets** (`OAUTH_*` prefix, GitHub/Lark/Feishu OAuth vault
-  keys — the current `isDeclarableName` exclusion set) → **never ambient**; read
-  directly by stella Go code via `Lookup`. This split is by name/origin, not a
-  user toggle.
+- **System-managed secrets** (`OAUTH_*` prefix and registered OAuth provider
+  vault keys) → **never ambient**; read directly by stella Go code via `Lookup`.
+  This split is by name/origin, not a user toggle.
 - **Group sessions** already skip vault entirely (`sandbox/env.go`) — unchanged.
 
 **Agent awareness (should-have):** replace the removed declarable prompt section

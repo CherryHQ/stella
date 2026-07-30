@@ -90,8 +90,8 @@ func TestGetProviderStatusesYAMLCredentials(t *testing.T) {
 	registry := oauth.NewProviderRegistry()
 	// github has YAML credentials — available without DB.
 	registry.Register(testProviderConfigWithCreds("github", oauth.VaultKeyGitHub, "client-id", ""))
-	// lark has no credentials — unavailable.
-	registry.Register(testProviderConfig("lark", oauth.VaultKeyLark))
+	// acme has no credentials — unavailable.
+	registry.Register(testProviderConfig("acme", "ACME_OAUTH"))
 	svc.SetRegistry(registry)
 
 	statuses := svc.GetProviderStatuses(context.Background(), "1")
@@ -107,15 +107,15 @@ func TestGetProviderStatusesYAMLCredentials(t *testing.T) {
 			if !ps.Configured {
 				t.Errorf("github should be configured when YAML has client_id: %+v", ps)
 			}
-		case "lark":
+		case "acme":
 			if ps.Available {
-				t.Errorf("lark should be unavailable when no credentials configured: %+v", ps)
+				t.Errorf("acme should be unavailable when no credentials configured: %+v", ps)
 			}
 			if ps.Configured {
-				t.Errorf("lark should not be configured when no client_id: %+v", ps)
+				t.Errorf("acme should not be configured when no client_id: %+v", ps)
 			}
 			if ps.Unavailable == "" {
-				t.Error("lark missing unavailable reason")
+				t.Error("acme missing unavailable reason")
 			}
 		}
 	}
@@ -262,7 +262,7 @@ func TestInvalidateUserCallsInvalidator(t *testing.T) {
 func TestSetOAuthProviderConfigNilDB(t *testing.T) {
 	svc := newService(t)
 	err := svc.SetOAuthProviderConfig(context.Background(), connections.OAuthProviderConfig{
-		ProviderID: "lark", ClientID: "cid", ClientSecret: "csecret",
+		ProviderID: "acme", ClientID: "cid", ClientSecret: "csecret",
 	})
 	if err == nil {
 		t.Error("expected error when DB is nil")

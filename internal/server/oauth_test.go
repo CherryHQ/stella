@@ -11,7 +11,7 @@ import (
 )
 
 func TestRequestOriginUsesOriginHeader(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "http://localhost:8080/api/users/me/oauth/feishu/start", nil)
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:8080/api/users/me/oauth/acme/start", nil)
 	req.Header.Set("Origin", "http://localhost:25678")
 
 	if got := requestOrigin(req); got != "http://localhost:25678" {
@@ -20,7 +20,7 @@ func TestRequestOriginUsesOriginHeader(t *testing.T) {
 }
 
 func TestRequestOriginFallsBackToRequestHost(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://localhost:25678/api/auth/oauth/feishu/callback", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:25678/api/auth/oauth/acme/callback", nil)
 
 	if got := requestOrigin(req); got != "http://localhost:25678" {
 		t.Fatalf("requestOrigin = %q, want http://localhost:25678", got)
@@ -28,7 +28,7 @@ func TestRequestOriginFallsBackToRequestHost(t *testing.T) {
 }
 
 func TestRequestOriginUsesForwardedHeaders(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/auth/oauth/feishu/callback", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/api/auth/oauth/acme/callback", nil)
 	req.Header.Set("X-Forwarded-Proto", "https")
 	req.Header.Set("X-Forwarded-Host", "stella.example.com")
 
@@ -46,15 +46,15 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 	host.RegisterManifestPlugins(&manifestplugins.Manifest{
 		Plugins: []manifestplugins.ManifestPlugin{
 			{
-				ID:            "tool/lark-cli",
+				ID:            "tool/acme-exporter",
 				Kind:          "tool",
-				Name:          "lark-cli",
-				DisplayName:   "Lark CLI",
+				Name:          "acme-exporter",
+				DisplayName:   "Acme Exporter",
 				Enabled:       true,
-				OAuthProvider: "feishu",
+				OAuthProvider: "acme",
 				SessionEnvs: []manifestplugins.ManifestSessionEnv{
-					{EnvVar: "LARKSUITE_CLI_USER_ACCESS_TOKEN", Source: "oauth.access_token"},
-					{EnvVar: "LARKSUITE_CLI_APP_ID", Source: "oauth.client_id"},
+					{EnvVar: "ACME_EXPORTER_TOKEN", Source: "oauth.access_token"},
+					{EnvVar: "ACME_EXPORTER_APP_ID", Source: "oauth.client_id"},
 				},
 			},
 			{
@@ -73,7 +73,7 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 				Kind:          "tool",
 				Name:          "disabled",
 				Enabled:       false,
-				OAuthProvider: "feishu",
+				OAuthProvider: "acme",
 				SessionEnvs: []manifestplugins.ManifestSessionEnv{
 					{EnvVar: "X", Source: "oauth.access_token"},
 				},
@@ -83,8 +83,8 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 
 	got := oauthProviderRequiredBy(host)
 
-	if want := []string{"Lark CLI"}; !reflect.DeepEqual(got["feishu"], want) {
-		t.Errorf("feishu RequiredBy = %v, want %v", got["feishu"], want)
+	if want := []string{"Acme Exporter"}; !reflect.DeepEqual(got["acme"], want) {
+		t.Errorf("acme RequiredBy = %v, want %v", got["acme"], want)
 	}
 	if want := []string{"GitHub CLI"}; !reflect.DeepEqual(got["github"], want) {
 		t.Errorf("github RequiredBy = %v, want %v", got["github"], want)

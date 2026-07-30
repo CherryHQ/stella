@@ -9,10 +9,7 @@ import (
 // Provider identifies an OAuth provider.
 type Provider string
 
-const (
-	ProviderGitHub Provider = "github"
-	ProviderLark   Provider = "lark"
-)
+const ProviderGitHub Provider = "github"
 
 // FlowState is the lifecycle state of a device-flow authorization.
 type FlowState string
@@ -50,7 +47,6 @@ type OAuthBundle struct {
 	RefreshToken     string    `json:"refresh_token,omitempty"`
 	AccessExpiresAt  time.Time `json:"access_expires_at"`
 	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitzero"`
-	Brand            string    `json:"brand,omitempty"` // e.g. "lark" or "feishu"
 	// GrantedScope is the raw space-separated scope string the provider returned
 	// with the token (oauth2.Token.Extra("scope")). Empty means "unknown" — a
 	// pre-D3 bundle or a provider that omitted the field — not "no scopes".
@@ -58,8 +54,4 @@ type OAuthBundle struct {
 }
 
 // Vault key names for the supported providers.
-const (
-	VaultKeyGitHub = "GH_OAUTH"
-	VaultKeyLark   = "LARK_CLI_OAUTH"
-	VaultKeyFeishu = "FEISHU_CLI_OAUTH"
-)
+const VaultKeyGitHub = "GH_OAUTH"

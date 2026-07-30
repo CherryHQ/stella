@@ -2,16 +2,16 @@
 title: OAuth Connections
 ---
 
-You can connect your GitHub and Feishu/Lark accounts so Stella can use those services on your behalf. Once connected, Stella runs `gh` and `lark-cli` commands directly -- no manual login needed in each session.
+Stella OAuth connections provide user tokens to tools that explicitly declare an `oauth_provider`. The built-in `gh` integration uses this path; manifest tools can declare other configured providers.
 
 ## What OAuth connections do
 
-When you connect a service, Stella securely stores an access token and injects it into every agent session. This means Stella can:
+When you connect a service, Stella securely stores its access token and injects it only into enabled tools that declare that provider. This means Stella can:
 
 - Create GitHub issues, open pull requests, and query repositories using `gh`
-- Send Feishu/Lark messages, query calendars, and manage documents using `lark-cli`
+- Authorize a custom manifest tool that explicitly declares an OAuth provider
 
-You authorize once, and it works from that point on.
+OAuth provider scope settings and token refresh apply only to those consumers.
 
 ## Connecting GitHub
 
@@ -34,36 +34,13 @@ GitHub works out of the box -- no admin setup needed.
 
 You can disconnect at any time by clicking **Disconnect** on the Credentials page.
 
-## Connecting Feishu / Lark
-
-Feishu and Lark require an admin to configure app credentials before users can connect.
-
-Logging in with Feishu only authenticates you -- it does not connect Feishu tools. After login, connect the tool credential once as below. You can check connection status on the **Credentials** page in the Web UI, where the Feishu provider shows a "connect to enable …" prompt naming the tools that depend on it.
-
-### Connecting
-
-To connect Feishu/Lark (or GitHub) tools:
-
-#### Admin setup (one-time)
-
-An admin must configure the Lark CLI plugin in the Web UI with:
-
-- **App ID** and **App Secret** from your Feishu/Lark app
-- **Brand** -- choose `feishu` for domestic Feishu or `lark` for international Lark
-
-Once configured, all users can connect their accounts.
-
-#### Connecting your account
-
-Follow the same steps as GitHub -- either ask Stella in chat or use the Credentials page in the Web UI. Stella walks you through the same device authorization flow.
-
 ## Admin: managing providers
 
 Admins manage each OAuth provider from the provider's detail panel on the **Credentials** page.
 
 ### App credentials
 
-Set the provider's **Client ID** and **Client Secret** (App ID / App Secret for Feishu/Lark). Saving new credentials marks already-connected users as needing to reconnect, because a token issued by the old app no longer matches.
+Set the provider's **Client ID** and **Client Secret**. Saving new credentials marks already-connected users as needing to reconnect, because a token issued by the old app no longer matches.
 
 ### Scopes
 
@@ -87,23 +64,18 @@ The user reconnects from the same panel; the token health block shows access- an
 
 ## Using connected services
 
-After connecting, `gh` and `lark-cli` commands just work in agent sessions. You can ask Stella things like:
+After connecting, tools that declare that OAuth provider work in agent sessions. For example:
 
 - "List open issues on my repo"
 - "Create a pull request with these changes"
-- "Send a message to the engineering channel on Feishu"
 
 Stella handles authentication automatically behind the scenes.
 
 ## Troubleshooting
 
-### Feishu/Lark token expired
-
-Feishu and Lark tokens expire after approximately 2 hours. Stella refreshes them automatically when they are close to expiring. If you get an authentication error mid-session, reconnect through the Credentials page or ask Stella to reconnect -- the next message will use the fresh token.
-
 ### Authorization interrupted by a restart
 
-If Stella restarts while you are in the middle of authorizing (you have the URL but have not completed the browser step), the flow is lost. Start the connection process again -- it only takes a moment.
+If Stella restarts during a provider authorization, start that connection again.
 
 ### GitHub commands not working
 

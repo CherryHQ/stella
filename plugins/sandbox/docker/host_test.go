@@ -211,13 +211,15 @@ func TestTranslateEnvPaths(t *testing.T) {
 	}
 
 	env := map[string]string{
-		"PATH":            "/host/tools/bin:/usr/bin", // host-only — should drop
-		"HOME":            "/host/workspace",          // host-only — should drop even if mounted
-		"STELLA_HOME":     "/host/.stella",            // envMap — should translate
-		"STELLA_USER_DIR": "/host/data",               // mounted at /user — should translate (Pi C2)
-		"WORKING_DIR":     "/host/workspace",          // mounted — should translate
-		"TERM":            "xterm-256color",           // non-path — pass through
-		"LANG":            "en_US.UTF-8",              // non-path — pass through
+		"PATH":                     "/host/tools/bin:/usr/bin", // host-only — should drop
+		"HOME":                     "/host/workspace",          // host-only — should drop even if mounted
+		"STELLA_HOME":              "/host/.stella",            // envMap — should translate
+		"STELLA_USER_DIR":          "/host/data",               // mounted at /user — should translate (Pi C2)
+		"WORKING_DIR":              "/host/workspace",          // mounted — should translate
+		"LARKSUITE_CLI_CONFIG_DIR": "/host/data/.lark-cli",
+		"LARKSUITE_CLI_DATA_DIR":   "/host/data/.lark-cli/data",
+		"TERM":                     "xterm-256color", // non-path — pass through
+		"LANG":                     "en_US.UTF-8",    // non-path — pass through
 	}
 
 	got := translateEnvPaths(env, mounts, envMaps)
@@ -236,6 +238,12 @@ func TestTranslateEnvPaths(t *testing.T) {
 	}
 	if got["WORKING_DIR"] != "/workspace" {
 		t.Errorf("WORKING_DIR: got %q, want /workspace", got["WORKING_DIR"])
+	}
+	if got["LARKSUITE_CLI_CONFIG_DIR"] != "/user/.lark-cli" {
+		t.Errorf("LARKSUITE_CLI_CONFIG_DIR: got %q, want /user/.lark-cli", got["LARKSUITE_CLI_CONFIG_DIR"])
+	}
+	if got["LARKSUITE_CLI_DATA_DIR"] != "/user/.lark-cli/data" {
+		t.Errorf("LARKSUITE_CLI_DATA_DIR: got %q, want /user/.lark-cli/data", got["LARKSUITE_CLI_DATA_DIR"])
 	}
 	if got["TERM"] != "xterm-256color" {
 		t.Errorf("TERM: got %q, want xterm-256color", got["TERM"])
