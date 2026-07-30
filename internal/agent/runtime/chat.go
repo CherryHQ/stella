@@ -117,10 +117,22 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		}
 		saveCtx := authz.WithUserID(ctx, info.UserID)
 		saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
-		if rec, err := updated.Record(); err != nil {
-			rt.log.Warn("skip saving invalid session info", "session_id", info.ID, "error", err)
-		} else if err := sm.SaveInfo(saveCtx, rec); err != nil {
-			rt.log.Warn("failed to save session info", "session_id", info.ID, "error", err)
+		switch {
+		case rt.sessionArchivedSince(saveCtx, sm, info.ID):
+			// A rotation (`/new`, or the session_control tool) can archive this
+			// session after the turn resolved it — auto-compaction above widens
+			// that window to minutes. SaveInfo writes `archived` verbatim, so
+			// replaying the turn-start snapshot here would un-archive a session
+			// the chat has already left. Only main sessions have a unique-active
+			// index to catch that; a resurrected kind=chat row would silently win
+			// its binding's newest-match lookup and pull the chat backwards.
+			rt.log.Info("session archived mid-turn; skipping session info save", "session_id", info.ID)
+		default:
+			if rec, err := updated.Record(); err != nil {
+				rt.log.Warn("skip saving invalid session info", "session_id", info.ID, "error", err)
+			} else if err := sm.SaveInfo(saveCtx, rec); err != nil {
+				rt.log.Warn("failed to save session info", "session_id", info.ID, "error", err)
+			}
 		}
 	}
 
@@ -204,6 +216,18 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 			}
 		}
 	}
+}
+
+// sessionArchivedSince reports whether the durable session row is archived
+// right now, as opposed to when the turn resolved it. A load failure answers
+// false: the save below is best-effort metadata and a transient read error must
+// not cost the session its title and last-active timestamp.
+func (rt *Runtime) sessionArchivedSince(ctx context.Context, sm memory.SessionManager, sessionID string) bool {
+	current, err := sm.LoadInfo(ctx, sessionID)
+	if err != nil {
+		return false
+	}
+	return current.Archived
 }
 
 func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (*cachedSession, Runner, error) {

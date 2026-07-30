@@ -715,7 +715,7 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 		if path, ok := args["path"].(string); ok {
 			return path
 		}
-	case "memory":
+	case "memory", "session_control":
 		action, _ := args["action"].(string)
 		return action
 	case "delegate":

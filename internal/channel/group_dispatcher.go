@@ -848,7 +848,10 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 			speaker.DisplayName = u.Name
 		}
 	}
-	events := rc.Service.Chat(ctx, agent.ChatRequest{
+	// The Web group turn does not go through ResolvedChat.Chat, so it attaches
+	// the same durable chat-binding marker here; without it the group turn would
+	// look like a Web send to tools that require a channel-backed chat.
+	events := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
 		SessionID:      info.ID,
 		UserID:         row.GroupID,
 		AgentID:        row.AgentID,

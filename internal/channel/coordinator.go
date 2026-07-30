@@ -342,7 +342,11 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		case IntentAbort:
 			return c.handleAbort(rc), true, nil, nil
 		case IntentNew:
-			return c.handleNewSessionCommand(ctx, rc), true, nil, nil
+			// Deliberately not executed here. Typing `/new` is consent; guessing
+			// "新会话" from a short phrase is not, and a wrong guess throws away the
+			// user's context. The message falls through to a normal turn, where the
+			// agent's session_control tool asks first and resets only after the user
+			// answers.
 		case IntentHelp, IntentCompact:
 			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
 				return resp, true, nil, nil

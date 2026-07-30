@@ -309,6 +309,34 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+
+	// A tool running inside a turn holds only the turn's reconstructed authority,
+	// never the human's. These two cases are the ones the session_control tool
+	// mints, and rotation is Delete+Create in one evaluation: if either shape
+	// stopped being allowed here, the tool would fail closed in production while
+	// its own tests (which drive the registry directly) still passed.
+	t.Run("durable agent rotates its owner's main session", func(t *testing.T) {
+		access, err := m.svc.Begin(ctx, worker(m.owner, m.agent))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := access.RotateMain(ctx, m.owner, m.agent, ""); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("exact group agent rotates its group chat binding", func(t *testing.T) {
+		access, err := m.svc.Begin(ctx, group(m.group, m.agent))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := access.RotateChannel(ctx, agentsession.ChannelRequest{
+			UserID: m.group, GroupID: m.group, AgentID: m.agent,
+			Channel: agentsession.Channel("group:" + m.group),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func newSessionMatrix(t *testing.T) sessionMatrix {

@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/agent/sessionctl"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/cli"
@@ -218,6 +219,14 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	builtinTools := []agent.BuiltinTool{
 		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites())},
+		// The pool does not exist yet, and the tool needs it to rotate a session,
+		// so it holds the same late-bound view of poolMgr the other post-pool
+		// consumers use. The tool itself refuses any turn that is not a chat
+		// channel, so registering it for every runner is safe.
+		{Tool: sessionctl.BuildTool(
+			&lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
+			sessionctl.NewSQLNonceStoreForPool(db),
+		)},
 	}
 	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})
