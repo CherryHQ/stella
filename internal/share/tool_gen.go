@@ -50,11 +50,12 @@ const InputSchemaJSON = `{
       "type": "string"
     },
     "path": {
+      "description": "Artifact path. Relative paths use scope; $HOME selects agent work files, $STELLA_ASSETS_DIR shared user assets, and $STELLA_USER_DIR shared user files for compatibility.",
       "type": "string"
     },
     "scope": {
       "default": "agent",
-      "description": "Which root to operate on: agent — the per-agent home (sandbox /workspace), private to this agent; user — the shared user-data root (sandbox /user), shared across all of the user's agents.",
+      "description": "Which root to operate on: agent — the agent work root ($HOME); user — shared user files ($STELLA_USER_DIR, including $STELLA_ASSETS_DIR for assets).",
       "enum": [
         "agent",
         "user"

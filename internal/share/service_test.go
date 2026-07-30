@@ -29,6 +29,12 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
+func TestErrInvalidArtifactPathIsInvalidInput(t *testing.T) {
+	if !errors.Is(sharepkg.ErrInvalidArtifactPath, sharepkg.ErrInvalidInput) {
+		t.Fatal("ErrInvalidArtifactPath must wrap ErrInvalidInput")
+	}
+}
+
 func TestAuthorizedMethodsEnforceShareOwnership(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
@@ -203,6 +209,72 @@ func TestShareArtifactRestoreMissLeavesNoAssetDir(t *testing.T) {
 	dir := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, userID)), "assets", "202607")
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("restore miss dir err=%v, want not exist", err)
+	}
+}
+
+func TestShareArtifactNormalizesSemanticRoots(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	mem := memorytest.New()
+	home := t.TempDir()
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test")
+	userID := uuid.NewString()
+	agentID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "session", UserID: userID, AgentID: agentID}); err != nil {
+		t.Fatal(err)
+	}
+	agentRoot := agent.UserAgentDir(home, userID, agentID)
+	userRoot := agent.UserDataDir(agent.UserHomeDir(home, userID))
+	for path, content := range map[string]string{
+		filepath.Join(agentRoot, "agent.html"):            "agent",
+		filepath.Join(userRoot, "assets", "durable.html"): "asset",
+		filepath.Join(userRoot, "shared.html"):            "shared",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acc := mustAccess(t, svc, agentAuthority(t, userID, agentID))
+	for _, tt := range []struct {
+		name, path, scope, want string
+	}{
+		{"home overrides user scope", "$HOME/agent.html", "user", "agent"},
+		{"braced home overrides user scope", "${HOME}/agent.html", "user", "agent"},
+		{"assets override agent scope", "$STELLA_ASSETS_DIR/durable.html", "agent", "asset"},
+		{"user compatibility overrides agent scope", "${STELLA_USER_DIR}/shared.html", "agent", "shared"},
+		{"workspace mount compatibility", "/workspace/agent.html", "user", "agent"},
+		{"user mount compatibility", "/user/assets/durable.html", "agent", "asset"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			created, err := acc.ShareArtifact(ctx, "session", tt.path, tt.scope, agentID, "7d")
+			if err != nil {
+				t.Fatalf("ShareArtifact(%q): %v", tt.path, err)
+			}
+			if got := string(created.Share.Content); got != tt.want {
+				t.Errorf("ShareArtifact(%q) content = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+	for _, path := range []string{
+		"$HOME/../escape.html",
+		"$STELLA_ASSETS_DIR/../shared.html",
+		"$TMPDIR/tmp.html",
+		"$UNKNOWN/file.html",
+		"${HOME",
+	} {
+		t.Run("reject "+path, func(t *testing.T) {
+			_, err := acc.ShareArtifact(ctx, "session", path, "agent", agentID, "7d")
+			if !errors.Is(err, sharepkg.ErrInvalidArtifactPath) {
+				t.Fatalf("ShareArtifact(%q) err = %v, want invalid artifact path", path, err)
+			}
+		})
 	}
 }
 

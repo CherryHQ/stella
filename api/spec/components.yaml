@@ -3750,7 +3750,7 @@ components:
       enum: [agent, user]
       default: agent
       description: >-
-        Which root to operate on: agent — the per-agent home (sandbox /workspace), private to this agent; user — the shared user-data root (sandbox /user), shared across all of the user's agents.
+        Which root to operate on: agent — the agent work root ($HOME); user — shared user files ($STELLA_USER_DIR, including $STELLA_ASSETS_DIR for assets).
     SessionWorkspace:
       type: object
       required: [root, paths, total_files, total_dirs, total_bytes]
@@ -4021,6 +4021,8 @@ components:
           type: string
         path:
           type: string
+          description: >-
+            Artifact path. Relative paths use scope; $HOME selects agent work files, $STELLA_ASSETS_DIR shared user assets, and $STELLA_USER_DIR shared user files for compatibility.
         scope:
           $ref: "#/components/schemas/WorkspaceScope"
         article_id:

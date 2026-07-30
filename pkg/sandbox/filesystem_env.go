@@ -73,7 +73,7 @@ func ApplyFilesystemEnv(env map[string]string, view FilesystemView) error {
 // the beginning of path. Values come exclusively from env, never the host
 // process environment. Other paths are returned unchanged.
 func ExpandPathVariables(path string, env map[string]string) (string, error) {
-	name, suffix, hasVariable, err := leadingPathVariable(path)
+	name, suffix, hasVariable, err := SplitLeadingPathVariable(path)
 	if err != nil {
 		return "", err
 	}
@@ -82,9 +82,6 @@ func ExpandPathVariables(path string, env map[string]string) (string, error) {
 	}
 	if !isAllowedPathEnv(name) {
 		return "", fmt.Errorf("sandbox: unsupported leading path variable; use %s", allowedPathEnvHint())
-	}
-	if suffix != "" && !os.IsPathSeparator(suffix[0]) {
-		return "", fmt.Errorf("sandbox: leading path variable must be the whole path or followed by a path separator")
 	}
 	value := env[name]
 	if value == "" {
@@ -135,7 +132,11 @@ func trimTrailingFilesystemSeparators(root, separator string) string {
 	return root
 }
 
-func leadingPathVariable(path string) (name, suffix string, hasVariable bool, err error) {
+// SplitLeadingPathVariable parses the restricted path-variable grammar shared
+// by agent-facing file paths. It accepts exactly one leading $NAME or ${NAME},
+// optionally followed by a path separator and suffix; it does not expand or
+// allowlist the variable.
+func SplitLeadingPathVariable(path string) (name, suffix string, hasVariable bool, err error) {
 	if !strings.HasPrefix(path, "$") {
 		return "", "", false, nil
 	}
@@ -160,6 +161,9 @@ func leadingPathVariable(path string) (name, suffix string, hasVariable bool, er
 	}
 	if name == "" || !isPathVariableName(name) {
 		return "", "", false, malformedPathVariableError()
+	}
+	if suffix != "" && !os.IsPathSeparator(suffix[0]) {
+		return "", "", false, fmt.Errorf("sandbox: leading path variable must be the whole path or followed by a path separator")
 	}
 	return name, suffix, true, nil
 }
