@@ -20,6 +20,64 @@ It is restricted to Release Tags. The tracked non-secret registry is
 mise run release:live:resources
 ```
 
+### CherryIN Provider and Embedding resources
+
+X12-S02 and X14-S02 share one secret and use two non-secret variables. The
+release owner supplies values; the runner owns these stable names and schemas.
+
+| Name                                | GitHub Environment entry | Meaning                                                                                                 |
+| ----------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `STELLA_LIVE_CHERRYIN_API_KEY`      | Secret                   | Dedicated low-quota CherryIN credential. It must reach every model selected by the two variables below. |
+| `STELLA_LIVE_PROVIDER_TARGETS_JSON` | Variable                 | The three Provider protocols, their model IDs, protocol-specific base URLs, and one total X12 timeout.  |
+| `STELLA_LIVE_EMBEDDING_TARGET_JSON` | Variable                 | The Embedding endpoint, model ID, optional dimensions, and X14 timeout.                                 |
+
+The following non-secret values are the configuration validated during local
+development. The mentor may replace model IDs, but all three Provider `type`
+values must remain present:
+
+```json
+{
+  "timeout_seconds": 420,
+  "targets": [
+    {
+      "id": "anthropic-qwen",
+      "type": "anthropic",
+      "model": "agent/qwen3.6-plus",
+      "base_url": "https://express-ent-admin.cherryin.ai"
+    },
+    {
+      "id": "openai-qwen",
+      "type": "openai",
+      "model": "agent/qwen3.6-plus",
+      "base_url": "https://express-ent-admin.cherryin.ai/v1"
+    },
+    {
+      "id": "responses-gpt",
+      "type": "openai-response",
+      "model": "openai/gpt-5-mini",
+      "base_url": "https://express-ent-admin.cherryin.ai/v1"
+    }
+  ]
+}
+```
+
+`id` is a stable result label, `type` selects the Stella Provider
+implementation, `model` is the CherryIN model ID, and `base_url` is the root
+expected by that Provider SDK. In particular, Anthropic appends `/v1/messages`
+itself, while the OpenAI clients append their endpoint below `/v1`.
+
+```json
+{
+  "base_url": "https://express-ent-admin.cherryin.ai/v1",
+  "model": "qwen/qwen3-embedding-0.6b",
+  "timeout_seconds": 180
+}
+```
+
+`dimensions` may be added only when the selected model requires an explicit
+dimension. Credentials are never allowed in either JSON variable; the strict
+parser rejects unknown credential fields.
+
 `release-approval` is the only Environment with a required reviewer. Configure
 the mentor as reviewer and set these non-secret variables for the current
 candidate before approving or rerunning the Manual job:

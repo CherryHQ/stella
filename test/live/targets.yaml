@@ -72,24 +72,32 @@ targets:
   - id: model-providers
     capability_id: X12
     scenario_id: X12-S02
-    adapter: pending
-    summary: The agreed advertised provider set streams text and completes a controlled tool call.
+    adapter: cherryin-providers
+    summary: CherryIN drives every advertised Stella Provider protocol through streamed text and a controlled tool call.
     resources:
-      - name: STELLA_LIVE_PROVIDER_TARGETS_JSON
+      - name: STELLA_LIVE_CHERRYIN_API_KEY
         secret: true
         required: true
-        description: Provider kinds, endpoints, models, company API keys, request budgets, and expected tool-call behavior.
+        description: Shared low-quota company credential accepted by the selected CherryIN Chat, Responses, Messages, and Embeddings targets.
+      - name: STELLA_LIVE_PROVIDER_TARGETS_JSON
+        secret: false
+        required: true
+        description: Non-secret JSON containing timeout_seconds plus exactly one id, type, model, and protocol-correct base_url for each anthropic, openai, and openai-response Stella Provider type.
 
   - id: embedding-provider
     capability_id: X14
     scenario_id: X14-S02
-    adapter: pending
-    summary: A company embedding target indexes a known corpus and returns the expected semantic result.
+    adapter: cherryin-embedding
+    summary: CherryIN embeds a fixed release corpus through Stella production code and ranks the expected semantic result first.
     resources:
-      - name: STELLA_LIVE_EMBEDDING_TARGET_JSON
+      - name: STELLA_LIVE_CHERRYIN_API_KEY
         secret: true
         required: true
-        description: Embedding endpoint, model, company API key, request budget, and expected fixture corpus result.
+        description: Shared low-quota company credential accepted by the selected CherryIN Chat, Responses, Messages, and Embeddings targets.
+      - name: STELLA_LIVE_EMBEDDING_TARGET_JSON
+        secret: false
+        required: true
+        description: Non-secret JSON containing the OpenAI-compatible base_url, embedding model, optional dimensions, and timeout_seconds.
 
   - id: remote-marketplace
     capability_id: X16

@@ -104,11 +104,13 @@ func runLive(ctx context.Context, root string, registry *livetest.Registry) erro
 	return nil
 }
 
-// registeredAdapters is intentionally empty until company-owned target
-// resources are selected. Adding one adapter is an explicit reviewed change;
-// an unknown or pending adapter emits Not Run instead of silently passing.
+// registeredAdapters contains only implemented real-target drivers. Unknown or
+// pending adapters still emit Not Run instead of silently passing.
 func registeredAdapters() map[string]livetest.Adapter {
-	return map[string]livetest.Adapter{}
+	return map[string]livetest.Adapter{
+		"cherryin-embedding": livetest.NewCherryINEmbeddingAdapter(),
+		"cherryin-providers": livetest.NewCherryINProviderAdapter(),
+	}
 }
 
 func writeExecution(

@@ -2031,11 +2031,25 @@ capabilities:
       - id: X12-S02
         name: provider-live-tool-call
         layer: live
-        status: missing
+        status: partial
         release_policy: blocking
         summary: Each advertised provider returns streamed text and completes a controlled tool call using a dedicated low-quota account.
-        evidence: []
-        gap: The Live runner and resource contract are registered, but the advertised Provider scope, company target bundle, and real Stella Session adapter remain unconfigured.
+        evidence:
+          - kind: system_test
+            path: test/live/cherryin_test.go
+            test: TestCherryINProviderAdapterRunsExactCandidateForAllAdapters
+            direct: true
+            proves: The Live adapter requires the exact candidate binary and drives every advertised Provider type with protocol-correct URLs, a shared secret, and Run-ID markers.
+          - kind: system_test
+            path: test/live/cherryin_test.go
+            test: TestStellaCandidateParsesControlledToolJourney
+            direct: true
+            proves: The candidate Session stream must expose the controlled bash call, its output, final marker, streamed text, and completion sentinel.
+          - kind: workflow
+            path: .github/workflows/release.yml
+            direct: false
+            proves: The Release Live job injects the dedicated CherryIN secret and non-secret Provider target bundle into the registered adapter.
+        gap: The adapter has passed a local real-target run across Anthropic Messages, OpenAI Chat Completions, and OpenAI Responses; the dedicated release-test credential and non-secret model variables still need provisioning before a Release Tag can produce retained evidence.
 
   - id: X13
     class: extension
@@ -2162,11 +2176,20 @@ capabilities:
       - id: X14-S02
         name: embedding-provider-live-query
         layer: live
-        status: missing
+        status: partial
         release_policy: blocking
         summary: A dedicated external embedding account indexes known content and returns the expected semantic result.
-        evidence: []
-        gap: The Live runner and resource contract are registered, but the company embedding target, fixture corpus, and adapter remain unconfigured.
+        evidence:
+          - kind: contract_test
+            path: test/live/cherryin_test.go
+            test: TestCherryINEmbeddingAdapterUsesProductionWireContractAndRanksFixture
+            direct: true
+            proves: The Live adapter uses Stella production embedding code, sends the fixed corpus through the OpenAI-compatible wire contract, and requires the expected semantic result to rank first.
+          - kind: workflow
+            path: .github/workflows/release.yml
+            direct: false
+            proves: The Release Live job injects the dedicated CherryIN secret and non-secret Embedding target into the registered adapter.
+        gap: The adapter has passed a local real-target embedding and ranking run; the dedicated release-test credential and non-secret model variable still need provisioning before a Release Tag can produce retained evidence.
 
   - id: X15
     class: extension

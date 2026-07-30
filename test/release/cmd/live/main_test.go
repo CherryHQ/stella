@@ -69,6 +69,18 @@ func TestRenderResourcesContainsNamesButNoValues(t *testing.T) {
 	}
 }
 
+func TestRegisteredAdaptersIncludesImplementedCherryINTargets(t *testing.T) {
+	adapters := registeredAdapters()
+	for _, name := range []string{"cherryin-embedding", "cherryin-providers"} {
+		if adapters[name] == nil {
+			t.Errorf("registeredAdapters[%q] is missing", name)
+		}
+	}
+	if len(adapters) != 2 {
+		t.Errorf("registered adapter count = %d, want 2", len(adapters))
+	}
+}
+
 func TestReleaseWorkflowWiresFullGateBeforePromotion(t *testing.T) {
 	root, err := filepath.Abs("../../../..")
 	if err != nil {
