@@ -242,17 +242,30 @@ func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandCla
 		}
 	})
 	if err != nil {
+		// A lost commit acknowledgement is not an outcome: the rotation may have
+		// landed. Ask the binding, which is the thing a rotation moves, before
+		// telling the user anything.
+		if started && errors.Is(err, session.ErrRotationOutcomeUnknown) {
+			switch session.VerifyRotation(ctx, current.ID, rc.ResolveSession) {
+			case session.RotationCommitted:
+				return pkgchannel.NewSessionStartedMessage
+			case session.RotationNotExecuted:
+				// Proof of rollback, so the claim has nothing to protect.
+				receipt.release(ctx)
+				return pkgchannel.NewSessionNotExecutedMessage
+			default:
+				return pkgchannel.NewSessionOutcomeUnknownMessage
+			}
+		}
 		// Release only when the reset provably did not happen: the queue never
-		// started it, or the rotation ran and definitely rolled back. Two error
-		// shapes cannot prove that and keep the claim: a context-flavoured error
-		// after the rotation started (the transaction may have committed in the
-		// same instant the caller gave up) and a lost commit acknowledgement
-		// (the server may have committed before the connection died). An
-		// ambiguous claim must stand: keeping it costs one manual retry,
-		// releasing it wrongly replays a destructive reset.
+		// started it, or the rotation ran and definitely rolled back. A
+		// context-flavoured error after the rotation started cannot prove that —
+		// the transaction may have committed in the same instant the caller gave
+		// up, and the caller's context is too dead to ask the binding — so the
+		// claim stands. An ambiguous claim kept costs one manual retry;
+		// released wrongly it replays a destructive reset.
 		ambiguous := started && (errors.Is(err, context.Canceled) ||
-			errors.Is(err, context.DeadlineExceeded) ||
-			errors.Is(err, session.ErrRotationOutcomeUnknown))
+			errors.Is(err, context.DeadlineExceeded))
 		if !ambiguous {
 			receipt.release(ctx)
 		}

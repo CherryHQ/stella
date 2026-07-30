@@ -215,30 +215,109 @@ func TestGroupNewReceiptKeptWhenRotationWasStale(t *testing.T) {
 // TestGroupNewReceiptKeptWhenCommitOutcomeUnknown covers the third ambiguous
 // shape: the rotation's COMMIT was sent but the acknowledgement was lost, so
 // the server may have committed. RotateInfo marks exactly that case with
-// ErrRotationOutcomeUnknown, and the claim must stand — it is the only error
-// after start that is not a definite rollback.
-func TestGroupNewReceiptKeptWhenCommitOutcomeUnknown(t *testing.T) {
+// ErrRotationOutcomeUnknown, and the error alone is not an outcome — the
+// session binding is, since a rotation moves it and it never moves back. Each
+// answer the binding can give leads to a different report AND a different
+// receipt decision.
+//
+// lostAckAccessSvc is the seam: the rotation may land before the
+// acknowledgement is lost, and the verification read may itself fail.
+type lostAckAccessSvc struct {
+	reg        *session.Registry
+	commit     bool
+	resolveErr error // injected into the verification read only, after rotating
+	rotated    *bool
+}
+
+func (s lostAckAccessSvc) Begin(context.Context, authz.Authority) (agent.SessionAccess, error) {
+	return lostAckAccess{compactSessionAccess{reg: s.reg}, s.commit, s.resolveErr, s.rotated}, nil
+}
+
+type lostAckAccess struct {
+	compactSessionAccess
+	commit     bool
+	resolveErr error
+	rotated    *bool
+}
+
+func (a lostAckAccess) RotateChannel(ctx context.Context, req session.ChannelRequest) (session.Info, error) {
+	*a.rotated = true
+	if a.commit {
+		if _, err := a.compactSessionAccess.RotateChannel(ctx, req); err != nil {
+			return session.Info{}, err
+		}
+	}
+	return session.Info{}, fmt.Errorf("connection reset before response: %w", session.ErrRotationOutcomeUnknown)
+}
+
+func (a lostAckAccess) ResolveChatChannel(ctx context.Context, req session.ChannelRequest) (session.Info, error) {
+	// The pre-rotation resolve must still work: only the verification read is
+	// under test here.
+	if a.resolveErr != nil && *a.rotated {
+		return session.Info{}, a.resolveErr
+	}
+	return a.compactSessionAccess.ResolveChatChannel(ctx, req)
+}
+
+func TestGroupNewVerifiesUnknownCommitOutcome(t *testing.T) {
 	const groupID = "11111111-1111-4111-8111-111111111111"
-	db, receiptGroupID := newReceiptTestGroup(t, "grp-commit-unknown")
-	d := &GroupDispatcher{q: sqlc.New(db)}
-	ctx := context.Background()
+	for _, tc := range []struct {
+		name         string
+		access       lostAckAccessSvc
+		wantReply    string
+		wantReceipts int
+	}{
+		{
+			// The binding moved: the transaction committed and only the
+			// acknowledgement was lost, so this is a success, and the claim must
+			// stand or a redelivery would rotate the fresh session away.
+			name:         "binding moved is a success",
+			access:       lostAckAccessSvc{commit: true},
+			wantReply:    pkgchannel.NewSessionStartedMessage,
+			wantReceipts: 1,
+		},
+		{
+			// The binding never moved, which proves the rollback. Nothing was
+			// reset, so the claim has nothing to protect and the same message
+			// must be allowed to try again.
+			name:         "binding unchanged was not executed",
+			access:       lostAckAccessSvc{commit: false},
+			wantReply:    pkgchannel.NewSessionNotExecutedMessage,
+			wantReceipts: 0,
+		},
+		{
+			// Nothing can answer: the reply must say so instead of inviting a
+			// retry, and the claim stays because the reset may have happened.
+			name:         "unreadable binding stays uncertain",
+			access:       lostAckAccessSvc{commit: true, resolveErr: errors.New("db unreachable")},
+			wantReply:    pkgchannel.NewSessionOutcomeUnknownMessage,
+			wantReceipts: 1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, receiptGroupID := newReceiptTestGroup(t, "grp-unknown-"+tc.name)
+			d := &GroupDispatcher{q: sqlc.New(db)}
+			ctx := context.Background()
 
-	rc := newCompactTestChat(t, groupID, auth.User{})
-	rc.Service.SessionAccess = rotateFailAccessSvc{
-		reg:       rc.Service.Sessions,
-		rotateErr: fmt.Errorf("connection reset before response: %w", session.ErrRotationOutcomeUnknown),
-	}
-	receipt := newCommandReceipt(sqlc.New(db), receiptGroupID, "telegram", "m-commit-unknown", newSessionCommand)
-	if reply := d.rotateGroupChat(ctx, rc, receipt); reply == pkgchannel.NewSessionStartedMessage {
-		t.Fatalf("reply = %q, want a failure", reply)
-	}
+			rc := newCompactTestChat(t, groupID, auth.User{})
+			rotated := false
+			tc.access.reg = rc.Service.Sessions
+			tc.access.rotated = &rotated
+			rc.Service.SessionAccess = tc.access
 
-	var count int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_group_command_receipt`).Scan(&count); err != nil {
-		t.Fatalf("count receipts: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("a lost commit acknowledgement kept %d claims, want 1: the rotation may have happened", count)
+			receipt := newCommandReceipt(sqlc.New(db), receiptGroupID, "telegram", "m-"+tc.name, newSessionCommand)
+			if reply := d.rotateGroupChat(ctx, rc, receipt); reply != tc.wantReply {
+				t.Fatalf("reply = %q, want %q", reply, tc.wantReply)
+			}
+
+			var count int
+			if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_group_command_receipt`).Scan(&count); err != nil {
+				t.Fatalf("count receipts: %v", err)
+			}
+			if count != tc.wantReceipts {
+				t.Fatalf("receipts = %d, want %d", count, tc.wantReceipts)
+			}
+		})
 	}
 }
 

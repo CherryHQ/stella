@@ -55,6 +55,19 @@ const NewSessionStartedMessage = "Started a fresh session. Previous history stay
 // another one already rotated the same chat, so it has nothing left to do.
 const SessionAlreadyResetMessage = "Session was already reset."
 
+// NewSessionNotExecutedMessage is the reply when a rotation's commit
+// acknowledgement was lost but re-reading the session binding proves it never
+// moved: the transaction rolled back, so nothing was reset and the command is
+// safe to send again.
+const NewSessionNotExecutedMessage = "⚠️ Starting a new session did not go through — nothing was reset. Send /new again to retry."
+
+// NewSessionOutcomeUnknownMessage is the reply when a rotation's commit
+// acknowledgement was lost AND the follow-up read of the session binding also
+// failed, so whether the reset happened is genuinely unknown. It must not invite
+// a retry: if the reset did land, a second `/new` would archive the fresh
+// context instead of the old one.
+const NewSessionOutcomeUnknownMessage = "⚠️ Could not confirm whether the new session started. Do not send /new again yet — check whether this chat still remembers the earlier conversation first."
+
 // NewSessionUnverifiableMessage is the reply when a `/new` arrives on a
 // delivery that carries no stable message id. Without an identity the receipt
 // cannot tell a redelivery from a new command, and `/new` is destructive, so
