@@ -6,18 +6,7 @@ import {
   useFileTreeSelection,
 } from "@pierre/trees/react";
 import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
-import {
-  FilePlus,
-  FolderPlus,
-  Trash2,
-  RefreshCw,
-  X,
-  Copy,
-  ChevronRight,
-  ChevronDown,
-  Eye,
-  EyeOff,
-} from "lucide-react";
+import { FilePlus, FolderPlus, Trash2, RefreshCw, X, Copy, Eye, EyeOff } from "lucide-react";
 import {
   createShare as sdkCreateShare,
   createWorkspaceFile,
@@ -85,18 +74,6 @@ interface Props {
 
 type ViewMode = "tree" | "viewer";
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1024;
-  let unit = units[0];
-  for (let i = 1; i < units.length && value >= 1024; i++) {
-    value /= 1024;
-    unit = units[i];
-  }
-  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)}${unit}`;
-}
-
 function isDirectoryPath(path: string): boolean {
   return path.endsWith("/");
 }
@@ -121,6 +98,17 @@ function isShareableArtifact(path: string): boolean {
 
 type Scope = "agent" | "user";
 
+// A scope rendered as one top-level folder of the unified tree. apiRoot is the
+// subdirectory of the scope the folder is rooted at: the project directory for
+// the agent scope, the assets area for the shared scope, so managed CLI state
+// under the principal root never becomes a file-manager target.
+interface TreeRoot {
+  scope: Scope;
+  label: string;
+  apiRoot: string;
+  workspace: Workspace | null;
+}
+
 interface ViewerState {
   path: string;
   scope: Scope;
@@ -141,10 +129,61 @@ export function WorkspacePanel({
   const { t } = useI18n();
   const [mode, setMode] = useState<ViewMode>("tree");
   const [viewer, setViewer] = useState<ViewerState | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
 
-  const agentReload = useCallback(() => {
+  // The shared scope is not tracked by the parent (it owns only the agent
+  // workspace and project-dir derivation), so it self-loads here.
+  const [sharedWorkspace, setSharedWorkspace] = useState<Workspace | null>(null);
+  const [sharedLoading, setSharedLoading] = useState(false);
+  // Monotonic token: only the most recent load may write state, so a slow
+  // response from a previous session can't clobber the current view.
+  const loadToken = useRef(0);
+  const loadShared = useCallback(async () => {
+    const token = ++loadToken.current;
+    setSharedLoading(true);
+    try {
+      const { data } = await getSessionWorkspace({
+        path: { agentId: agentID, sessionId: sessionID },
+        query: { show_hidden: true, depth: 2, scope: "user", path: "assets" },
+        throwOnError: true,
+      });
+      if (token === loadToken.current) setSharedWorkspace(data);
+    } catch {
+      // Also reached when no assets exist yet; the folder renders as empty.
+      if (token === loadToken.current) setSharedWorkspace(null);
+    } finally {
+      if (token === loadToken.current) setSharedLoading(false);
+    }
+  }, [agentID, sessionID]);
+  useEffect(() => {
+    if (!sessionID) return;
+    // Drop any stale tree before the new session's load lands.
+    setSharedWorkspace(null);
+    void loadShared();
+  }, [sessionID, loadShared]);
+
+  const reloadAll = useCallback(() => {
     onReload(sessionID, projectDir || undefined).catch(console.error);
-  }, [sessionID, onReload, projectDir]);
+    void loadShared();
+  }, [sessionID, onReload, projectDir, loadShared]);
+
+  const roots = useMemo<TreeRoot[]>(
+    () => [
+      {
+        scope: "agent",
+        label: t("sessions.workspace.agentHome"),
+        apiRoot: projectDir ?? "",
+        workspace,
+      },
+      {
+        scope: "user",
+        label: t("sessions.workspace.sharedData"),
+        apiRoot: "assets",
+        workspace: sharedWorkspace,
+      },
+    ],
+    [t, projectDir, workspace, sharedWorkspace],
+  );
 
   const openFile = useCallback(
     async (path: string, scope: Scope) => {
@@ -195,7 +234,7 @@ export function WorkspacePanel({
     [viewer, agentID, sessionID],
   );
 
-  // Close the viewer when the file it shows is deleted in a section.
+  // Close the viewer when the file it shows is deleted in the tree.
   const onDeleted = useCallback(
     (path: string, scope: Scope) => {
       if (viewer?.path === path && viewer.scope === scope) {
@@ -251,360 +290,22 @@ export function WorkspacePanel({
     );
   }
 
-  // Two stacked roots, matching what users actually consume: the agent's
-  // private workspace ($HOME) and the shared deliverables area
-  // ($STELLA_ASSETS_DIR). The shared section is rooted at assets/ rather than
-  // the whole managed principal root so CLI-managed state never becomes a
-  // file-manager target. The agent root is driven by the parent (it owns
-  // project-dir derivation); the shared root self-loads.
+  // One tree, two top-level folders: the agent's private workspace ($HOME) and
+  // the shared deliverables area ($STELLA_ASSETS_DIR). The scope split is a
+  // backend concept; users get a single file surface and operations route by
+  // the folder a node lives under.
   return (
-    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar/80">
-      <WorkspaceScopeSection
-        scope="agent"
-        label={t("sessions.workspace.agentHome")}
-        hint={t("sessions.workspace.agentHomeHint")}
-        agentID={agentID}
-        sessionID={sessionID}
-        workspace={workspace}
-        loading={workspaceLoading}
-        onReload={agentReload}
-        onOpenFile={openFile}
-        onDeleted={onDeleted}
-        rootDir={projectDir}
-      />
-      <WorkspaceScopeSection
-        scope="user"
-        label={t("sessions.workspace.sharedData")}
-        hint={t("sessions.workspace.sharedDataHint")}
-        agentID={agentID}
-        sessionID={sessionID}
-        selfLoad
-        rootDir="assets"
-        onOpenFile={openFile}
-        onDeleted={onDeleted}
-      />
-    </div>
-  );
-}
-
-interface WorkspaceScopeSectionProps {
-  scope: Scope;
-  label: string;
-  hint: string;
-  agentID: string;
-  sessionID: string;
-  workspace?: Workspace | null;
-  loading?: boolean;
-  onReload?: () => void;
-  // selfLoad: fetch this scope's tree internally instead of taking it from props
-  // (used for the shared user-data root the parent does not track).
-  selfLoad?: boolean;
-  onOpenFile: (path: string, scope: Scope) => void;
-  onDeleted: (path: string, scope: Scope) => void;
-  // rootDir roots the section at a subdirectory of the scope: the tree is
-  // fetched, displayed, and created relative to it, and paths outside it never
-  // appear. The agent section uses the project directory; the shared section
-  // uses the assets area.
-  rootDir?: string;
-}
-
-function WorkspaceScopeSection({
-  scope,
-  label,
-  hint,
-  agentID,
-  sessionID,
-  workspace: providedWorkspace,
-  loading: providedLoading,
-  onReload: providedReload,
-  selfLoad,
-  onOpenFile,
-  onDeleted,
-  rootDir,
-}: WorkspaceScopeSectionProps) {
-  const { t } = useI18n();
-  const [collapsed, setCollapsed] = useState(false);
-  const [showHidden, setShowHidden] = useState(false);
-  const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
-  const [newItemName, setNewItemName] = useState("");
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-
-  // Self-loaded scope state (only used when selfLoad).
-  const [selfWorkspace, setSelfWorkspace] = useState<Workspace | null>(null);
-  const [selfLoading, setSelfLoading] = useState(false);
-  // Monotonic token: only the most recent load may write state, so a slow
-  // response from a previous session/scope can't clobber the current view.
-  const loadToken = useRef(0);
-  const loadSelf = useCallback(async () => {
-    const token = ++loadToken.current;
-    setSelfLoading(true);
-    try {
-      const { data } = await getSessionWorkspace({
-        path: { agentId: agentID, sessionId: sessionID },
-        query: { show_hidden: true, depth: 2, scope, ...(rootDir ? { path: rootDir } : {}) },
-        throwOnError: true,
-      });
-      if (token === loadToken.current) setSelfWorkspace(data);
-    } catch {
-      // Also reached when rootDir does not exist yet (e.g. no assets have been
-      // produced); the section renders as empty rather than as an error.
-      if (token === loadToken.current) setSelfWorkspace(null);
-    } finally {
-      if (token === loadToken.current) setSelfLoading(false);
-    }
-  }, [agentID, sessionID, scope, rootDir]);
-  useEffect(() => {
-    if (!selfLoad) return;
-    // Drop any stale tree before the new session's load lands.
-    setSelfWorkspace(null);
-    void loadSelf();
-  }, [selfLoad, loadSelf]);
-
-  const workspace = selfLoad ? selfWorkspace : (providedWorkspace ?? null);
-  const loading = selfLoad ? selfLoading : Boolean(providedLoading);
-  const reload = useCallback(() => {
-    if (selfLoad) {
-      void loadSelf();
-    } else {
-      providedReload?.();
-    }
-    setSelectedPath(null);
-  }, [selfLoad, loadSelf, providedReload]);
-
-  const createItem = useCallback(async () => {
-    const name = newItemName.trim();
-    if (!name) return;
-    const fullPath = rootDir ? `${rootDir}/${name}` : name;
-    await createWorkspaceFile({
-      path: { agentId: agentID, sessionId: sessionID },
-      query: { scope },
-      body: { path: fullPath, is_dir: newItemType === "dir" },
-      throwOnError: true,
-    });
-    reload();
-    setNewItemType(null);
-    setNewItemName("");
-  }, [agentID, sessionID, scope, newItemName, newItemType, reload, rootDir]);
-
-  const deleteItem = useCallback(
-    async (path: string) => {
-      if (!confirm(`Delete "${path}"?`)) return;
-      await deleteWorkspaceFile({
-        path: { agentId: agentID, sessionId: sessionID },
-        query: { scope },
-        body: { path },
-        throwOnError: true,
-      });
-      reload();
-      if (selectedPath === path) setSelectedPath(null);
-      onDeleted(path, scope);
-    },
-    [agentID, sessionID, scope, selectedPath, reload, onDeleted],
-  );
-
-  // Reset transient state when the session changes.
-  useEffect(() => {
-    setNewItemType(null);
-    setNewItemName("");
-    setSelectedPath(null);
-  }, [sessionID]);
-
-  // Count what the tree will actually show: paths under rootDir, minus hidden
-  // entries unless the user opted in. Sizing and the empty state key off this,
-  // so a section whose only content is filtered-out dotfiles reads as empty.
-  const prefix = rootDir ? `${rootDir}/` : "";
-  const visibleCount = useMemo(
-    () =>
-      (workspace?.paths ?? []).filter((p) => {
-        const display = prefix ? (p.startsWith(prefix) ? p.slice(prefix.length) : "") : p;
-        return display !== "" && (showHidden || !isHiddenPath(display));
-      }).length,
-    [workspace?.paths, prefix, showHidden],
-  );
-  const fileCount = workspace?.total_files ?? 0;
-  const dirCount = workspace?.total_dirs ?? 0;
-  // Show the path the agent sees inside its sandbox (e.g. /workspace, /user),
-  // not the host disk path; fall back to the host root otherwise.
-  const scopeRoot = workspace?.sandbox_root || workspace?.root || "";
-  const displayRoot = scopeRoot && rootDir ? `${scopeRoot}/${rootDir}` : scopeRoot;
-  const stats = `${fileCount.toLocaleString()} files · ${dirCount.toLocaleString()} folders · ${formatBytes(workspace?.total_bytes ?? 0)}`;
-
-  // An empty section shrinks to its header strip so the section with content
-  // gets the panel height, instead of an even split around an "Empty" label.
-  const compact = collapsed || (!loading && visibleCount === 0 && newItemType === null);
-
-  return (
-    <section
-      className={cn(
-        "flex min-w-0 flex-col overflow-hidden border-b border-border/70",
-        compact ? "flex-none" : "min-h-0 flex-1",
-      )}
-    >
-      {/* Section header */}
-      <div className="flex min-h-9 flex-shrink-0 items-center justify-between gap-2 overflow-hidden px-2 py-1.5">
-        <button
-          type="button"
-          onClick={() => setCollapsed((c) => !c)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-          title={displayRoot || hint}
-        >
-          {collapsed ? (
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <span className="shrink-0 truncate text-xs font-semibold text-foreground">{label}</span>
-          <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted-foreground/70">
-            {displayRoot || hint}
-          </span>
-        </button>
-        <div className="flex shrink-0 items-center gap-0">
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => setShowHidden((v) => !v)}
-            title={t(
-              showHidden ? "sessions.workspace.hideHidden" : "sessions.workspace.showHidden",
-            )}
-            className="px-1 h-6"
-          >
-            {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => {
-              setCollapsed(false);
-              setNewItemType("file");
-            }}
-            title={t("sessions.workspace.newFile")}
-            className="px-1 h-6"
-          >
-            <FilePlus className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => {
-              setCollapsed(false);
-              setNewItemType("dir");
-            }}
-            title={t("sessions.workspace.newFolder")}
-            className="px-1 h-6"
-          >
-            <FolderPlus className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            disabled={!selectedPath}
-            onClick={() => selectedPath && deleteItem(selectedPath).catch(console.error)}
-            title={t("sessions.workspace.deleteSelected")}
-            className={cn(
-              "px-1 h-6",
-              selectedPath
-                ? "text-destructive hover:bg-destructive/10"
-                : "opacity-30 cursor-not-allowed",
-            )}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={reload}
-            disabled={loading}
-            title={t("sessions.workspace.refresh")}
-            className="px-1 h-6"
-          >
-            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
-          </Button>
-        </div>
-      </div>
-
-      {!collapsed && (
-        <>
-          {/* New item form */}
-          {newItemType !== null && (
-            <div className="min-w-0 flex-shrink-0 border-t border-border px-2 py-1.5">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  createItem().catch(console.error);
-                }}
-                className="flex min-w-0 items-center gap-1.5"
-              >
-                <span className="text-xs font-mono text-muted-foreground">
-                  {newItemType === "dir" ? "dir" : "file"}:
-                </span>
-                <input
-                  autoFocus
-                  value={newItemName}
-                  onChange={(e) => setNewItemName(e.target.value)}
-                  onKeyDown={(e) =>
-                    e.key === "Escape" && (setNewItemType(null), setNewItemName(""))
-                  }
-                  className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-xs focus:border-primary/60 focus:outline-none"
-                  placeholder="name..."
-                  autoComplete="off"
-                />
-                <Button type="submit" size="xs" className="h-6 min-h-0 text-xs">
-                  {t("common.add")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => {
-                    setNewItemType(null);
-                    setNewItemName("");
-                  }}
-                  className="text-muted-foreground"
-                >
-                  <X className="w-3 h-3" />
-                </Button>
-              </form>
-            </div>
-          )}
-
-          {/* Empty state (also covers a missing rootDir, e.g. no assets yet) */}
-          {!loading && visibleCount === 0 && !newItemType && (
-            <div className="px-4 py-2 text-center">
-              <p className="text-xs font-mono text-muted-foreground/40">
-                {t("sessions.workspace.empty")}
-              </p>
-            </div>
-          )}
-
-          {/* File tree */}
-          {!loading && workspace && visibleCount > 0 && (
-            <div className="min-w-0 flex-1 overflow-hidden" title={`${displayRoot}\n${stats}`}>
-              <TreeWithSearch
-                agentID={agentID}
-                sessionID={sessionID}
-                scope={scope}
-                workspace={workspace}
-                onReload={reload}
-                onOpenFile={(p) => onOpenFile(p, scope)}
-                onSelectedPath={setSelectedPath}
-                onDelete={deleteItem}
-                onNewFile={() => setNewItemType("file")}
-                onNewFolder={() => setNewItemType("dir")}
-                rootDir={rootDir}
-                showHidden={showHidden}
-              />
-            </div>
-          )}
-
-          {/* Loading state */}
-          {loading && !workspace && (
-            <div className="flex flex-1 items-center justify-center py-6">
-              <div className="w-4 h-4 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
-            </div>
-          )}
-        </>
-      )}
-    </section>
+    <UnifiedTree
+      agentID={agentID}
+      sessionID={sessionID}
+      roots={roots}
+      loading={workspaceLoading || sharedLoading}
+      showHidden={showHidden}
+      onToggleHidden={() => setShowHidden((v) => !v)}
+      onReload={reloadAll}
+      onOpenFile={openFile}
+      onDeleted={onDeleted}
+    />
   );
 }
 
@@ -759,19 +460,16 @@ function ArtifactShareDialog({
   );
 }
 
-interface TreeWithSearchProps {
+interface UnifiedTreeProps {
   agentID: string;
   sessionID: string;
-  scope: Scope;
-  workspace: Workspace;
-  onReload: () => void;
-  onOpenFile: (path: string) => void;
-  onSelectedPath: (path: string | null) => void;
-  onDelete: (path: string) => Promise<void>;
-  onNewFile: () => void;
-  onNewFolder: () => void;
-  rootDir?: string;
+  roots: TreeRoot[];
+  loading: boolean;
   showHidden: boolean;
+  onToggleHidden: () => void;
+  onReload: () => void;
+  onOpenFile: (path: string, scope: Scope) => void;
+  onDeleted: (path: string, scope: Scope) => void;
 }
 
 const ctxItemStyle: React.CSSProperties = {
@@ -790,47 +488,109 @@ const ctxItemStyle: React.CSSProperties = {
   borderRadius: 4,
 };
 
-function TreeWithSearch({
+function UnifiedTree({
   agentID,
   sessionID,
-  scope,
-  workspace,
+  roots,
+  loading,
+  showHidden,
+  onToggleHidden,
   onReload,
   onOpenFile,
-  onSelectedPath,
-  onDelete,
-  onNewFile,
-  onNewFolder,
-  rootDir,
-  showHidden,
-}: TreeWithSearchProps) {
+  onDeleted,
+}: UnifiedTreeProps) {
   const { t } = useI18n();
   const enc = encodeURIComponent(sessionID);
   const agentEnc = encodeURIComponent(agentID);
   const theme = useMemo(() => buildTheme(), []);
   const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
-  const [sharePath, setSharePath] = useState<string | null>(null);
+  const [sharePath, setSharePath] = useState<{ path: string; scope: Scope } | null>(null);
+  const [newItem, setNewItem] = useState<{ scope: Scope; type: "file" | "dir" } | null>(null);
+  const [newItemName, setNewItemName] = useState("");
 
-  // With a rootDir, paths outside it are dropped rather than shown raw: the
-  // section is rooted there and everything else is out of scope.
-  const prefix = rootDir ? rootDir + "/" : "";
-  const toDisplay = useCallback(
-    (p: string) => (prefix ? (p.startsWith(prefix) ? p.slice(prefix.length) : "") : p),
-    [prefix],
+  // ── Display-path ↔ (scope, API path) mapping ────────────────────────────
+  // A display path is "<root label>/<path relative to the root's apiRoot>".
+  // The API works in scope-root-relative paths, so the apiRoot prefix is
+  // re-attached on the way out and stripped on the way in.
+  const rootOf = useCallback(
+    (displayPath: string): { root: TreeRoot; rel: string } | null => {
+      const clean = displayPath.replace(/\/$/, "");
+      const [first, ...rest] = clean.split("/");
+      const root = roots.find((r) => r.label === first);
+      return root ? { root, rel: rest.join("/") } : null;
+    },
+    [roots],
   );
-  const toApi = useCallback((p: string) => (prefix ? prefix + p : p), [prefix]);
+  const toApi = useCallback((root: TreeRoot, rel: string): string => {
+    if (!rel) return root.apiRoot;
+    return root.apiRoot ? `${root.apiRoot}/${rel}` : rel;
+  }, []);
+  const toDisplay = useCallback((root: TreeRoot, apiPath: string): string => {
+    const prefix = root.apiRoot ? `${root.apiRoot}/` : "";
+    if (prefix && !apiPath.startsWith(prefix)) return "";
+    const rel = prefix ? apiPath.slice(prefix.length) : apiPath;
+    return rel ? `${root.label}/${rel}` : "";
+  }, []);
 
-  const displayPaths = useMemo(
-    () =>
-      (workspace.paths ?? [])
-        .map((p) => toDisplay(p))
-        .filter((p) => p && (showHidden || !isHiddenPath(p))),
-    [workspace.paths, toDisplay, showHidden],
-  );
+  const rootDirs = useMemo(() => roots.map((r) => `${r.label}/`), [roots]);
+  const displayPaths = useMemo(() => {
+    const paths = [...rootDirs];
+    for (const root of roots) {
+      for (const p of root.workspace?.paths ?? []) {
+        const display = toDisplay(root, p);
+        if (!display) continue;
+        if (!showHidden && isHiddenPath(display.slice(root.label.length + 1))) continue;
+        paths.push(display);
+      }
+    }
+    return paths;
+  }, [roots, rootDirs, toDisplay, showHidden]);
 
   const loadedPathSet = useRef(new Set(displayPaths));
-  const loadedDirSet = useRef(new Set([""]));
+  const loadedDirSet = useRef(new Set(rootDirs.map((d) => d.slice(0, -1))));
   const loadingDirSet = useRef(new Set<string>());
+
+  const createItem = useCallback(async () => {
+    const name = newItemName.trim();
+    if (!name || !newItem) return;
+    const root = roots.find((r) => r.scope === newItem.scope);
+    if (!root) return;
+    await createWorkspaceFile({
+      path: { agentId: agentID, sessionId: sessionID },
+      query: { scope: root.scope },
+      body: { path: toApi(root, name), is_dir: newItem.type === "dir" },
+      throwOnError: true,
+    });
+    onReload();
+    setNewItem(null);
+    setNewItemName("");
+  }, [agentID, sessionID, roots, newItem, newItemName, toApi, onReload]);
+
+  const deleteItem = useCallback(
+    async (displayPath: string) => {
+      const parsed = rootOf(displayPath);
+      if (!parsed || !parsed.rel) return;
+      const apiPath = toApi(parsed.root, parsed.rel);
+      if (!confirm(`Delete "${apiPath}"?`)) return;
+      await deleteWorkspaceFile({
+        path: { agentId: agentID, sessionId: sessionID },
+        query: { scope: parsed.root.scope },
+        body: { path: apiPath },
+        throwOnError: true,
+      });
+      onReload();
+      onDeleted(apiPath, parsed.root.scope);
+    },
+    [agentID, sessionID, rootOf, toApi, onReload, onDeleted],
+  );
+
+  // Reset transient state when the session changes.
+  useEffect(() => {
+    setNewItem(null);
+    setNewItemName("");
+    setSharePath(null);
+  }, [sessionID]);
+
   const { model } = useFileTree({
     paths: displayPaths,
     initialExpansion: "closed",
@@ -846,11 +606,18 @@ function TreeWithSearch({
     },
     renaming: {
       onRename: async ({ sourcePath, destinationPath }) => {
+        const src = rootOf(sourcePath);
+        const dst = rootOf(destinationPath);
+        // Root folders are fixed, and a rename may not cross scope roots.
+        if (!src || !dst || !src.rel || !dst.rel || src.root.scope !== dst.root.scope) {
+          model.move(destinationPath, sourcePath);
+          return;
+        }
         try {
           await moveWorkspaceFile({
             path: { agentId: agentID, sessionId: sessionID },
-            query: { scope },
-            body: { path: toApi(sourcePath), new_path: toApi(destinationPath) },
+            query: { scope: src.root.scope },
+            body: { path: toApi(src.root, src.rel), new_path: toApi(dst.root, dst.rel) },
             throwOnError: true,
           });
         } catch (e: unknown) {
@@ -864,14 +631,23 @@ function TreeWithSearch({
     dragAndDrop: {
       onDropComplete: async ({ draggedPaths, target }) => {
         try {
-          for (const src of draggedPaths) {
-            const filename = basename(src);
+          for (const srcDisplay of draggedPaths) {
+            const src = rootOf(srcDisplay);
+            if (!src || !src.rel) continue;
             const destDir = (target.directoryPath ?? "").replace(/\/$/, "");
-            const newPath = destDir ? `${destDir}/${filename}` : filename;
+            const dst = rootOf(destDir);
+            // Files cannot move between the private workspace and the shared
+            // area from here; that transition changes who can see them.
+            if (!dst || src.root.scope !== dst.root.scope) {
+              onReload();
+              continue;
+            }
+            const filename = basename(srcDisplay);
+            const newRel = dst.rel ? `${dst.rel}/${filename}` : filename;
             await moveWorkspaceFile({
               path: { agentId: agentID, sessionId: sessionID },
-              query: { scope },
-              body: { path: toApi(src), new_path: toApi(newPath) },
+              query: { scope: src.root.scope },
+              body: { path: toApi(src.root, src.rel), new_path: toApi(dst.root, newRel) },
               throwOnError: true,
             });
           }
@@ -887,30 +663,37 @@ function TreeWithSearch({
 
   useEffect(() => {
     loadedPathSet.current = new Set(displayPaths);
-    loadedDirSet.current = new Set([""]);
+    loadedDirSet.current = new Set(rootDirs.map((d) => d.slice(0, -1)));
     loadingDirSet.current = new Set();
-    model.resetPaths(displayPaths, { initialExpandedPaths: [] });
-  }, [model, displayPaths]);
+    model.resetPaths(displayPaths, { initialExpandedPaths: rootDirs });
+  }, [model, displayPaths, rootDirs]);
 
   const loadDirectory = useCallback(
-    async (path: string) => {
-      const dir = path.replace(/\/$/, "");
+    async (displayPath: string) => {
+      const dir = displayPath.replace(/\/$/, "");
       if (loadedDirSet.current.has(dir) || loadingDirSet.current.has(dir)) return;
+      const parsed = rootOf(dir);
+      if (!parsed) return;
       loadingDirSet.current.add(dir);
       try {
-        const apiDir = toApi(dir);
+        const apiDir = toApi(parsed.root, parsed.rel);
         const { data } = await getSessionWorkspace({
           path: { agentId: agentID, sessionId: sessionID },
-          query: { show_hidden: true, depth: 2, path: apiDir, scope },
+          query: {
+            show_hidden: true,
+            depth: 2,
+            scope: parsed.root.scope,
+            ...(apiDir ? { path: apiDir } : {}),
+          },
           throwOnError: true,
         });
         const added: string[] = [];
         for (const rawPath of data.paths ?? []) {
-          const displayPath = toDisplay(rawPath);
-          if (!displayPath || loadedPathSet.current.has(displayPath)) continue;
-          if (!showHidden && isHiddenPath(displayPath)) continue;
-          loadedPathSet.current.add(displayPath);
-          added.push(displayPath);
+          const display = toDisplay(parsed.root, rawPath);
+          if (!display || loadedPathSet.current.has(display)) continue;
+          if (!showHidden && isHiddenPath(display.slice(parsed.root.label.length + 1))) continue;
+          loadedPathSet.current.add(display);
+          added.push(display);
         }
         for (const nextPath of added) model.add(nextPath);
         loadedDirSet.current.add(dir);
@@ -920,26 +703,125 @@ function TreeWithSearch({
         loadingDirSet.current.delete(dir);
       }
     },
-    [agentID, sessionID, scope, model, toApi, toDisplay, showHidden],
+    [agentID, sessionID, rootOf, toApi, toDisplay, showHidden, model],
   );
 
   const selectedPaths = useFileTreeSelection(model);
-
   const firstSelected = selectedPaths[0] ?? null;
-  const firstSelectedApi = firstSelected ? toApi(firstSelected) : null;
-  useEffect(() => {
-    onSelectedPath(firstSelectedApi);
-  }, [firstSelectedApi, onSelectedPath]);
+  const selectedParsed = firstSelected ? rootOf(firstSelected) : null;
+  // New items land in the selected node's root, or the shared area by default —
+  // that is where user-added files (uploads, references) belong.
+  const newItemScope: Scope = selectedParsed?.root.scope ?? "user";
+  const deletableSelection = Boolean(selectedParsed?.rel);
 
   return (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden">
+    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar/80">
       <ArtifactShareDialog
-        path={sharePath}
+        path={sharePath?.path ?? null}
         agentID={agentID}
         sessionID={sessionID}
-        scope={scope}
+        scope={sharePath?.scope ?? "user"}
         onClose={() => setSharePath(null)}
       />
+
+      {/* Toolbar */}
+      <div className="flex min-h-9 flex-shrink-0 items-center justify-end gap-0 border-b border-border/70 px-2 py-1.5">
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={onToggleHidden}
+          title={t(showHidden ? "sessions.workspace.hideHidden" : "sessions.workspace.showHidden")}
+          className="px-1 h-6"
+        >
+          {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={() => setNewItem({ scope: newItemScope, type: "file" })}
+          title={t("sessions.workspace.newFile")}
+          className="px-1 h-6"
+        >
+          <FilePlus className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={() => setNewItem({ scope: newItemScope, type: "dir" })}
+          title={t("sessions.workspace.newFolder")}
+          className="px-1 h-6"
+        >
+          <FolderPlus className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={!deletableSelection}
+          onClick={() => firstSelected && deleteItem(firstSelected).catch(console.error)}
+          title={t("sessions.workspace.deleteSelected")}
+          className={cn(
+            "px-1 h-6",
+            deletableSelection
+              ? "text-destructive hover:bg-destructive/10"
+              : "opacity-30 cursor-not-allowed",
+          )}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={onReload}
+          disabled={loading}
+          title={t("sessions.workspace.refresh")}
+          className="px-1 h-6"
+        >
+          <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+        </Button>
+      </div>
+
+      {/* New item form */}
+      {newItem !== null && (
+        <div className="min-w-0 flex-shrink-0 border-b border-border px-2 py-1.5">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createItem().catch(console.error);
+            }}
+            className="flex min-w-0 items-center gap-1.5"
+          >
+            <span className="min-w-0 shrink-0 truncate text-xs font-mono text-muted-foreground">
+              {roots.find((r) => r.scope === newItem.scope)?.label}/
+            </span>
+            <input
+              autoFocus
+              value={newItemName}
+              onChange={(e) => setNewItemName(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && (setNewItem(null), setNewItemName(""))}
+              className="h-6 min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-xs focus:border-primary/60 focus:outline-none"
+              placeholder={newItem.type === "dir" ? "folder..." : "file..."}
+              autoComplete="off"
+            />
+            <Button type="submit" size="xs" className="h-6 min-h-0 text-xs">
+              {t("common.add")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => {
+                setNewItem(null);
+                setNewItemName("");
+              }}
+              className="text-muted-foreground"
+            >
+              <X className="w-3 h-3" />
+            </Button>
+          </form>
+        </div>
+      )}
+
+      {/* Tree */}
       <div className="min-w-0 flex-1 overflow-hidden">
         <FileTreeComponent
           model={model}
@@ -949,8 +831,12 @@ function TreeWithSearch({
             const MENU_W = 160;
             const MENU_H = 240;
             const { anchorRect } = context;
+            const parsed = rootOf(item.path);
+            if (!parsed) return null;
             const isDir = isDirectoryPath(item.path);
-            const apiPath = toApi(item.path);
+            const isRoot = parsed.rel === "";
+            const apiPath = toApi(parsed.root, parsed.rel);
+            const scope = parsed.root.scope;
             const canShare = !isDir && isShareableArtifact(apiPath);
             const left =
               anchorRect.right + MENU_W > window.innerWidth
@@ -960,6 +846,15 @@ function TreeWithSearch({
               anchorRect.top + MENU_H > window.innerHeight
                 ? Math.max(0, anchorRect.bottom - MENU_H)
                 : anchorRect.top;
+            const hoverable = (extra?: React.CSSProperties) => ({
+              style: { ...ctxItemStyle, ...extra },
+              onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
+                e.currentTarget.style.background = "var(--accent)";
+              },
+              onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
+                e.currentTarget.style.background = "none";
+              },
+            });
             return createPortal(
               <div
                 data-file-tree-context-menu-root="true"
@@ -977,151 +872,104 @@ function TreeWithSearch({
                   boxShadow: "var(--shadow-lg)",
                 }}
               >
-                <button
-                  type="button"
-                  style={ctxItemStyle}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "none";
-                  }}
-                  onClick={() => {
-                    context.close({ restoreFocus: false });
-                    if (!isDir) onOpenFile(apiPath);
-                  }}
-                >
-                  Open
-                </button>
-                <button
-                  type="button"
-                  style={ctxItemStyle}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "none";
-                  }}
-                  onClick={() => {
-                    context.close({ restoreFocus: false });
-                    if (isDir) return;
-                    const url = `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true&scope=${scope}`;
-                    fetchBlobUrl(url, mimeTypeForPath(apiPath))
-                      .then((blobUrl) => {
-                        window.open(blobUrl, "_blank");
-                        setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
-                      })
-                      .catch(() => window.open(url, "_blank"));
-                  }}
-                >
-                  Open in browser
-                </button>
-                <a
-                  href={
-                    isDir
-                      ? undefined
-                      : `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true&scope=${scope}`
-                  }
-                  download={basename(item.path)}
-                  style={ctxItemStyle}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = "none";
-                  }}
-                  onClick={() => context.close({ restoreFocus: false })}
-                >
-                  Download
-                </a>
-                {canShare && (
-                  <button
-                    type="button"
-                    style={ctxItemStyle}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "var(--accent)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "none";
-                    }}
-                    onClick={() => {
-                      context.close({ restoreFocus: false });
-                      setSharePath(apiPath);
-                    }}
-                  >
-                    Share
-                  </button>
+                {!isRoot && (
+                  <>
+                    <button
+                      type="button"
+                      {...hoverable()}
+                      onClick={() => {
+                        context.close({ restoreFocus: false });
+                        if (!isDir) onOpenFile(apiPath, scope);
+                      }}
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      {...hoverable()}
+                      onClick={() => {
+                        context.close({ restoreFocus: false });
+                        if (isDir) return;
+                        const url = `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true&scope=${scope}`;
+                        fetchBlobUrl(url, mimeTypeForPath(apiPath))
+                          .then((blobUrl) => {
+                            window.open(blobUrl, "_blank");
+                            setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
+                          })
+                          .catch(() => window.open(url, "_blank"));
+                      }}
+                    >
+                      Open in browser
+                    </button>
+                    <a
+                      href={
+                        isDir
+                          ? undefined
+                          : `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true&scope=${scope}`
+                      }
+                      download={basename(item.path)}
+                      {...hoverable()}
+                      onClick={() => context.close({ restoreFocus: false })}
+                    >
+                      Download
+                    </a>
+                    {canShare && (
+                      <button
+                        type="button"
+                        {...hoverable()}
+                        onClick={() => {
+                          context.close({ restoreFocus: false });
+                          setSharePath({ path: apiPath, scope });
+                        }}
+                      >
+                        Share
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      {...hoverable()}
+                      onClick={() => {
+                        context.close({ restoreFocus: false });
+                        model.startRenaming(item.path);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      {...hoverable({ color: "var(--destructive)" })}
+                      onClick={() => {
+                        context.close({ restoreFocus: false });
+                        deleteItem(item.path).catch(console.error);
+                      }}
+                    >
+                      {t("common.delete")}
+                    </button>
+                    <div
+                      style={{
+                        height: 1,
+                        background: "var(--border)",
+                        margin: "4px 8px",
+                      }}
+                    />
+                  </>
                 )}
                 <button
                   type="button"
-                  style={ctxItemStyle}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "none";
-                  }}
+                  {...hoverable()}
                   onClick={() => {
                     context.close({ restoreFocus: false });
-                    model.startRenaming(item.path);
-                  }}
-                >
-                  Rename
-                </button>
-                <button
-                  type="button"
-                  style={{
-                    ...ctxItemStyle,
-                    color: "var(--destructive)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "none";
-                  }}
-                  onClick={() => {
-                    context.close({ restoreFocus: false });
-                    onDelete(apiPath).catch(console.error);
-                  }}
-                >
-                  {t("common.delete")}
-                </button>
-                <div
-                  style={{
-                    height: 1,
-                    background: "var(--border)",
-                    margin: "4px 8px",
-                  }}
-                />
-                <button
-                  type="button"
-                  style={ctxItemStyle}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "none";
-                  }}
-                  onClick={() => {
-                    context.close({ restoreFocus: false });
-                    onNewFile();
+                    setNewItem({ scope, type: "file" });
                   }}
                 >
                   New file
                 </button>
                 <button
                   type="button"
-                  style={ctxItemStyle}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "var(--accent)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "none";
-                  }}
+                  {...hoverable()}
                   onClick={() => {
                     context.close({ restoreFocus: false });
-                    onNewFolder();
+                    setNewItem({ scope, type: "dir" });
                   }}
                 >
                   New folder
@@ -1143,7 +991,8 @@ function TreeWithSearch({
               return;
             }
             if (loadedPathSet.current.has(path)) {
-              onOpenFile(toApi(path));
+              const parsed = rootOf(path);
+              if (parsed) onOpenFile(toApi(parsed.root, parsed.rel), parsed.root.scope);
             }
           }}
         />
