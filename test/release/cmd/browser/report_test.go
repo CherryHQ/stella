@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -121,6 +123,184 @@ func TestFakeAnthropicGatesOneRealSSETurn(t *testing.T) {
 	}
 	if !strings.Contains(string(after), fakeSecondChunk) {
 		t.Fatalf("released suffix does not contain %q", fakeSecondChunk)
+	}
+}
+
+func TestFakeAnthropicFailsOneTurnAndRecovers(t *testing.T) {
+	fake, err := startFakeAnthropic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := fake.Close(); err != nil {
+			t.Errorf("close fake: %v", err)
+		}
+	})
+
+	errorResponse, err := http.Post(fake.URL()+"/control/error", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = errorResponse.Body.Close()
+	if errorResponse.StatusCode != http.StatusNoContent {
+		t.Fatalf("error control status = %d, want %d", errorResponse.StatusCode, http.StatusNoContent)
+	}
+
+	send := func(message string) (*http.Response, error) {
+		request, requestErr := http.NewRequest(
+			http.MethodPost,
+			fake.URL()+"/v1/messages",
+			strings.NewReader(`{"model":"claude-release-browser","messages":[{"role":"user","content":"`+message+`"}]}`),
+		)
+		if requestErr != nil {
+			return nil, requestErr
+		}
+		request.Header.Set("Content-Type", "application/json")
+		return http.DefaultClient.Do(request)
+	}
+
+	failed, err := send("failing turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedBody, err := io.ReadAll(failed.Body)
+	_ = failed.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.StatusCode != http.StatusInternalServerError || !strings.Contains(string(failedBody), fakeErrorMessage) {
+		t.Fatalf("failed response = status %d body %q", failed.StatusCode, failedBody)
+	}
+
+	// The same logical turn must keep failing across Provider SDK retries.
+	retried, err := send("failing turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retriedBody, err := io.ReadAll(retried.Body)
+	_ = retried.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.StatusCode != http.StatusInternalServerError || !strings.Contains(string(retriedBody), fakeErrorMessage) {
+		t.Fatalf("retried response = status %d body %q", retried.StatusCode, retriedBody)
+	}
+
+	recovered, err := send("recovery turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveredBody, err := io.ReadAll(recovered.Body)
+	_ = recovered.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.StatusCode != http.StatusOK || !strings.Contains(string(recoveredBody), fakeFullReply) {
+		t.Fatalf("recovery response = status %d body %q", recovered.StatusCode, recoveredBody)
+	}
+	if summary := fake.Summary(); summary.FailedCalls != 2 || summary.MessageCalls != 3 {
+		t.Fatalf("fake summary = %#v, want two failed attempts across three calls", summary)
+	}
+}
+
+func TestFakeAnthropicSelectsGoalControlFromToolSchema(t *testing.T) {
+	fake, err := startFakeAnthropic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := fake.Close(); err != nil {
+			t.Errorf("close fake: %v", err)
+		}
+	})
+
+	send := func(content string) string {
+		t.Helper()
+		body := `{
+			"model":"claude-release-browser",
+			"messages":[{"role":"user","content":` + content + `}],
+			"tools":[{
+				"name":"goal_control",
+				"input_schema":{"properties":{"action":{"enum":["decompose","fail"]}}}
+			}]
+		}`
+		request, requestErr := http.NewRequest(
+			http.MethodPost,
+			fake.URL()+"/v1/messages",
+			strings.NewReader(body),
+		)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		response, requestErr := http.DefaultClient.Do(request)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		defer func() { _ = response.Body.Close() }()
+		raw, readErr := io.ReadAll(response.Body)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("goal response status = %d body %q", response.StatusCode, raw)
+		}
+		return string(raw)
+	}
+
+	initial := send(`"plan the goal"`)
+	if !strings.Contains(initial, `"name":"goal_control"`) ||
+		!strings.Contains(initial, `\"action\":\"decompose\"`) {
+		t.Fatalf("initial goal response does not contain a decompose tool call: %q", initial)
+	}
+
+	followUp := send(`[{"type":"tool_result","tool_use_id":"toolu_test","content":"ok"}]`)
+	if strings.Contains(followUp, `"name":"goal_control"`) || !strings.Contains(followUp, fakeFullReply) {
+		t.Fatalf("tool-result follow-up must end with text, got %q", followUp)
+	}
+}
+
+func TestFakeAnthropicServesDeterministicRSSFixture(t *testing.T) {
+	fake, err := startFakeAnthropic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := fake.Close(); err != nil {
+			t.Errorf("close fake: %v", err)
+		}
+	})
+
+	response, err := http.Get(fake.URL() + "/fixtures/feed.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	raw, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK ||
+		!strings.Contains(string(raw), "Release Browser Feed Entry") ||
+		!strings.Contains(string(raw), fake.URL()+"/fixtures/article") {
+		t.Fatalf("feed response = status %d body %q", response.StatusCode, raw)
+	}
+}
+
+func TestScanBrowserArtifactsIncludesEphemeralProbe(t *testing.T) {
+	t.Setenv("STELLA_RELEASE_SECRET_ENVS", "")
+	root := t.TempDir()
+	probe := "release-browser-ephemeral-probe"
+	if err := os.WriteFile(filepath.Join(root, "network.json"), []byte("value="+probe), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := scanBrowserArtifacts(root, map[string]string{"STELLA_E2E_SECRET_PROBE": probe})
+	if err == nil || !strings.Contains(err.Error(), "STELLA_E2E_SECRET_PROBE") {
+		t.Fatalf("expected ephemeral probe detection, got %v", err)
+	}
+	if strings.Contains(err.Error(), probe) {
+		t.Fatalf("probe value leaked in error: %v", err)
 	}
 }
 

@@ -109,6 +109,7 @@ func TestBuiltinSystemSkillConformance(t *testing.T) {
 		prerequisite  string
 		observable    string
 		requiredFiles []string
+		forbidden     []string
 	}
 	contracts := []contract{
 		{
@@ -127,11 +128,14 @@ func TestBuiltinSystemSkillConformance(t *testing.T) {
 			id:           "lark-cli",
 			binary:       "lark-cli",
 			entrypoint:   "`lark-cli`",
-			prerequisite: "LARKSUITE_CLI_USER_ACCESS_TOKEN",
+			prerequisite: "lark-cli itself owns setup, authorization, and refresh",
 			observable:   "[event] ready",
 			requiredFiles: []string{
 				"references/lark-shared.md",
 				"references/lark-event.md",
+			},
+			forbidden: []string{
+				"LARKSUITE_CLI_USER_ACCESS_TOKEN",
 			},
 		},
 		{
@@ -262,6 +266,11 @@ func TestBuiltinSystemSkillConformance(t *testing.T) {
 				}
 				if !info.Mode().IsRegular() {
 					t.Errorf("required file %q is not regular", relative)
+				}
+			}
+			for _, marker := range item.forbidden {
+				if strings.Contains(allText, marker) {
+					t.Errorf("skill contract retains forbidden legacy marker %q", marker)
 				}
 			}
 		})

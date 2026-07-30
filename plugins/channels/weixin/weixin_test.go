@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -35,6 +37,37 @@ func (captureHandler) ListAgents(context.Context, channel.IncomingMessage) ([]ch
 	return nil, "", nil
 }
 func (captureHandler) SwitchAgent(context.Context, channel.IncomingMessage, string) error { return nil }
+
+type weixinSavedAsset struct {
+	assetsDir string
+	fileName  string
+	data      []byte
+}
+
+// assetCaptureHandler adds the optional user-root and asset-store capabilities
+// required by inbound Weixin media.
+type assetCaptureHandler struct {
+	captureHandler
+	userRoot  string
+	saveErr   error
+	saveCalls []weixinSavedAsset
+}
+
+func (h *assetCaptureHandler) ResolveUserRoot(context.Context, channel.IncomingMessage) (string, error) {
+	return h.userRoot, nil
+}
+
+func (h *assetCaptureHandler) SaveAsset(_ context.Context, assetsDir, fileName string, data []byte) (string, error) {
+	if h.saveErr != nil {
+		return "", h.saveErr
+	}
+	h.saveCalls = append(h.saveCalls, weixinSavedAsset{
+		assetsDir: assetsDir,
+		fileName:  fileName,
+		data:      append([]byte(nil), data...),
+	})
+	return filepath.Join(assetsDir, fileName), nil
+}
 
 func TestRandomWechatUIN(t *testing.T) {
 	t.Parallel()
@@ -686,6 +719,85 @@ func TestExtractMessageContent(t *testing.T) {
 				t.Errorf("images = %d, want %d", len(images), tt.wantImages)
 			}
 		})
+	}
+}
+
+func TestInboundMediaPersistsAndStorageFailureStillReachesAgent(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\nweixin image")
+	pdf := []byte("%PDF weixin document")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cdn/image":
+			_, _ = w.Write(png)
+		case "/cdn/file":
+			_, _ = w.Write(pdf)
+		case "/ilink/bot/sendmessage":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ret":0}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var incoming channel.IncomingMessage
+	handler := &assetCaptureHandler{
+		captureHandler: captureHandler{handleIncomingFn: func(
+			_ context.Context,
+			msg channel.IncomingMessage,
+			_, _ string,
+		) (string, bool, *channel.ChatStream, error) {
+			incoming = msg
+			return "ok", true, nil, nil
+		}},
+		userRoot: "/home/stella",
+	}
+	bot := &Bot{
+		client:  NewClient(server.URL, "", "release-token", ""),
+		handler: handler,
+		ctx:     context.Background(),
+	}
+	bot.contextTokens.Store("user-1", "context-token")
+	message := WeixinMessage{FromUserID: "user-1", MessageID: 17}
+
+	bot.handleImages(message, []*ImageItem{{
+		Media: &CDNMedia{
+			FullURL:           server.URL + "/cdn/image",
+			EncryptQueryParam: "image-reference",
+		},
+	}}, "caption")
+
+	if len(handler.saveCalls) != 1 {
+		t.Fatalf("image SaveAsset calls = %d, want 1", len(handler.saveCalls))
+	}
+	if string(handler.saveCalls[0].data) != string(png) {
+		t.Fatal("persisted Weixin image differs from the downloaded bytes")
+	}
+	if !strings.Contains(ai.FlattenText(incoming.Content), "saved to") {
+		t.Fatalf("image content = %#v, want a durable saved-path note", incoming.Content)
+	}
+	hasImage := false
+	for _, block := range incoming.Content {
+		if _, ok := block.(ai.ImageContent); ok {
+			hasImage = true
+		}
+	}
+	if !hasImage {
+		t.Fatalf("image content = %#v, want an inline image block", incoming.Content)
+	}
+
+	handler.saveErr = errors.New("storage unavailable")
+	incoming = channel.IncomingMessage{}
+	bot.handleFile(message, &FileItem{
+		FileName: "report.pdf",
+		Media: &CDNMedia{
+			FullURL:           server.URL + "/cdn/file",
+			EncryptQueryParam: "file-reference",
+		},
+	})
+	fileText := ai.FlattenText(incoming.Content)
+	if !strings.Contains(fileText, "report.pdf") || !strings.Contains(fileText, "could not be stored") {
+		t.Fatalf("file content = %q, want an explicit storage-failure placeholder", fileText)
 	}
 }
 

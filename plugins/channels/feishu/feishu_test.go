@@ -3,10 +3,14 @@ package feishu
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	lark "github.com/larksuite/oapi-sdk-go/v3"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
@@ -858,6 +862,72 @@ func TestBuildMessageContentUnsupportedType(t *testing.T) {
 	}
 }
 
+func TestBuildMessageContentPersistsDownloadedAttachmentsAndKeepsSaveFailures(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\nfeishu image")
+	pdf := []byte("%PDF feishu document")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/open-apis/auth/v3/tenant_access_token/internal":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"msg":"ok","tenant_access_token":"release-token","expire":7200}`))
+		case strings.HasPrefix(r.URL.Path, "/open-apis/im/v1/messages/message-1/resources/"):
+			if r.URL.Query().Get("type") == "image" {
+				_, _ = w.Write(png)
+				return
+			}
+			_, _ = w.Write(pdf)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	handler := &assetMockHandler{}
+	bot := &Bot{
+		client:  lark.NewClient("release-app", "release-secret", lark.WithOpenBaseUrl(server.URL)),
+		handler: handler,
+		ctx:     context.Background(),
+	}
+	assetsDir := "/home/stella/.stella/user-data/assets"
+
+	imageType := "image"
+	imageBody := `{"image_key":"image-1"}`
+	messageID := "message-1"
+	imageContent := bot.buildMessageContent(&larkim.EventMessage{
+		MessageType: &imageType,
+		Content:     &imageBody,
+		MessageId:   &messageID,
+	}, assetsDir)
+
+	if len(handler.saveCalls) != 1 {
+		t.Fatalf("image SaveAsset calls = %d, want 1", len(handler.saveCalls))
+	}
+	if string(handler.saveCalls[0].data) != string(png) {
+		t.Fatal("persisted Feishu image differs from the downloaded bytes")
+	}
+	if !strings.Contains(ai.FlattenText(imageContent), "saved to") {
+		t.Fatalf("image content = %#v, want a durable saved-path note", imageContent)
+	}
+	if _, ok := imageContent[len(imageContent)-1].(ai.ImageContent); !ok {
+		t.Fatalf("last image block = %T, want ai.ImageContent", imageContent[len(imageContent)-1])
+	}
+
+	// Once the resource has downloaded, an asset-store failure must not discard
+	// the turn. A non-image document degrades to an explicit placeholder.
+	handler.saveErr = fmt.Errorf("storage unavailable")
+	fileType := "file"
+	fileBody := `{"file_key":"file-1","file_name":"report.pdf"}`
+	fileContent := bot.buildMessageContent(&larkim.EventMessage{
+		MessageType: &fileType,
+		Content:     &fileBody,
+		MessageId:   &messageID,
+	}, assetsDir)
+	fileText := ai.FlattenText(fileContent)
+	if !strings.Contains(fileText, "report.pdf") || !strings.Contains(fileText, "could not be stored") {
+		t.Fatalf("file content = %q, want an explicit storage-failure placeholder", fileText)
+	}
+}
+
 // --- extractJSONField ---
 
 func TestExtractJSONFieldValid(t *testing.T) {
@@ -1224,6 +1294,32 @@ func (m *mockHandler) ListModels() []channel.ModelOption {
 
 func (m *mockHandler) SwitchModel(_, _ string) error {
 	return m.switchErr
+}
+
+type savedAsset struct {
+	assetsDir string
+	fileName  string
+	data      []byte
+}
+
+// assetMockHandler adds the host-owned persistence capability used by inbound
+// Feishu images and files.
+type assetMockHandler struct {
+	mockHandler
+	saveErr   error
+	saveCalls []savedAsset
+}
+
+func (m *assetMockHandler) SaveAsset(_ context.Context, assetsDir, fileName string, data []byte) (string, error) {
+	if m.saveErr != nil {
+		return "", m.saveErr
+	}
+	m.saveCalls = append(m.saveCalls, savedAsset{
+		assetsDir: assetsDir,
+		fileName:  fileName,
+		data:      append([]byte(nil), data...),
+	})
+	return filepath.Join(assetsDir, fileName), nil
 }
 
 // --- Card action tests ---

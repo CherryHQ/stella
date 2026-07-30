@@ -228,11 +228,22 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "title and agent_id are required")
 		return
 	}
-	// Every user-created goal is a planned composite: it must go through plan +
-	// decomposition into verifiable sub-tasks before any work runs. There is no
-	// top-level direct-leaf execution — leaves exist only as planner-produced
-	// children. The request's kind is ignored.
-	in := goal.CreateInput{UserID: info.UserID, AgentID: body.AgentId, Title: body.Title, Kind: goal.KindComposite}
+	kind := goal.KindLeaf
+	if body.Kind != nil {
+		kind = string(*body.Kind)
+	}
+	if !goal.ValidKind(kind) {
+		writeError(w, http.StatusBadRequest, "kind must be leaf or composite")
+		return
+	}
+	in := goal.CreateInput{
+		UserID:  info.UserID,
+		AgentID: body.AgentId,
+		Title:   body.Title,
+		Kind:    kind,
+		Activate: body.Activate != nil &&
+			*body.Activate,
+	}
 	if body.Intent != nil {
 		in.Intent = *body.Intent
 	}
@@ -259,9 +270,6 @@ func (s *Server) CreateGoal(w http.ResponseWriter, r *http.Request) {
 		goalError(w, err)
 		return
 	}
-	// No activation here: a review_policy=none composite is autonomously planned by
-	// the dispatcher (scanAndDecompose) once it lands in draft; a review_policy=human
-	// composite is planned interactively. The plan gate runs after decomposition.
 	writeData(w, http.StatusCreated, goalToAPI(created))
 }
 

@@ -135,18 +135,25 @@ func browserArtifactKind(path string) string {
 	}
 }
 
-func scanBrowserArtifacts(artifactRoot string) error {
+func scanBrowserArtifacts(artifactRoot string, probes map[string]string) error {
 	rawNames := strings.TrimSpace(releasecontract.SecretNamesFromEnv())
-	if rawNames == "" {
-		return nil
-	}
 	var names []string
 	for item := range strings.SplitSeq(rawNames, ",") {
-		names = append(names, strings.TrimSpace(item))
+		if name := strings.TrimSpace(item); name != "" {
+			names = append(names, name)
+		}
 	}
 	values, err := releasecontract.SecretValuesFromEnv(names)
 	if err != nil {
 		return fmt.Errorf("resolve release secrets for artifact scan: %w", err)
+	}
+	for name, value := range probes {
+		if value != "" {
+			values[name] = value
+		}
+	}
+	if len(values) == 0 {
+		return nil
 	}
 	if err := releasecontract.ScanForSecrets(artifactRoot, values); err != nil {
 		return fmt.Errorf("scan browser artifacts for release secrets: %w", err)

@@ -16,7 +16,8 @@ mise run browser-test
 
 The task downloads the fixed Stella PostgreSQL runtime, installs the locked web
 dependencies and Chromium, builds `dist/bin/stellad` when no candidate is
-provided, and runs all six blocking journeys.
+provided, and runs all 17 deterministic journeys. Their release policies remain
+defined per Scenario in `test/capabilities.yaml`.
 
 A release job must inject the exact extracted candidate instead of rebuilding:
 
@@ -34,10 +35,21 @@ allowlist.
 | Scenario | Browser behavior proved                                                                                   |
 | -------- | --------------------------------------------------------------------------------------------------------- |
 | C02-S02  | Registration validation, registration, failed and successful login, and logout                            |
+| C03-S02  | User promotion, demotion, activation, restoration, and fail-closed normal-user authorization              |
 | C05-S02  | Restricted agent creation/editing, user assignment, and role-limited actions                              |
 | C06-S02  | Provider creation, model-fetch errors/success, enable/save, UI password masking, and deletion             |
 | C07-S03  | New thread, real partial SSE rendering, completion, reload, and persisted history                         |
+| C10-S03  | Goal creation, inspection, cancellation, archive, and restore                                             |
+| C11-S02  | Accepted-goal workflow creation, inspection, instantiation, and recorded run                              |
+| C12-S03  | Schedule creation, immediate run, history, editing, disabling, and deletion                               |
+| C13-S03  | Soul, user-memory, and agent-memory editing with changelog inspection                                     |
+| C14-S02  | Skill archive upload, content editing, persistence, and removal                                           |
+| C16-S02  | Actionable human-review inbox item navigation and goal context                                            |
 | C17-S02  | Workspace share creation, cookie-free public rendering, revocation, and expired-link UI                   |
+| C18-S02  | Vault secret creation, masked editing, persistence, deletion, and diagnostic redaction                    |
+| X10-S02  | Built-in plugin discovery, inspection, enable/disable, and reload persistence                             |
+| X11-S02  | Loopback RSS polling plus Recally article, feed, tag, and digest surfaces                                 |
+| X13-S03  | OAuth provider credentials, scope removal/addition, reload persistence, and restore-default behavior      |
 | X02-S02  | Webhook creation/configuration, disable/enable behavior, authenticated ingress, persistence, and deletion |
 
 The provider journey proves only that the Web UI renders the API key in a
@@ -55,8 +67,14 @@ surfaces. It does not seed the database or call private test backdoors.
 
 Model discovery and chat use a loopback Anthropic-compatible fake. The chat
 journey deliberately gates the stream after the first text delta, waits for the
-browser to render that partial reply, and then releases the remainder. No real
-provider account, external network, or release secret is needed.
+browser to render that partial reply, then releases the remainder. It also
+injects one provider failure and proves that the inline error clears on the next
+successful turn. No real provider account, external network, or release secret
+is needed.
+
+The OAuth scope journey edits only a temporary Lark provider override in the
+fresh release database and removes it before finishing. It does not call an
+external identity provider; the separate Manual Scenario owns real login.
 
 Every invocation generates unique users and object IDs. The temporary Stella
 home and embedded database are removed after the candidate and its process

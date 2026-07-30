@@ -68,7 +68,20 @@ func (h goalHandler) begin(ctx context.Context) (*Access, error) {
 }
 
 func (h goalHandler) Create(ctx context.Context, in ToolCreateInput) (any, error) {
-	create := CreateInput{AgentID: h.agentID, Title: in.Title, Intent: in.Intent, Kind: KindComposite}
+	kind := in.Kind
+	if kind == "" {
+		kind = KindLeaf
+	}
+	if !ValidKind(kind) {
+		return nil, fmt.Errorf("kind must be leaf or composite")
+	}
+	create := CreateInput{
+		AgentID:  h.agentID,
+		Title:    in.Title,
+		Intent:   in.Intent,
+		Kind:     kind,
+		Activate: in.Activate != nil && *in.Activate,
+	}
 	if in.ProjectId != "" {
 		create.ProjectID = in.ProjectId
 	}

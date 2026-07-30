@@ -409,14 +409,22 @@ func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName st
 		return nil, false
 	}
 
+	return b.persistDocument(assetsDir, fileName, data), true
+}
+
+// persistDocument turns already-downloaded Telegram document bytes into the
+// unified attachment blocks. Keeping this boundary separate from the Bot API
+// download lets deterministic tests prove durable storage and the no-drop
+// fallback without a Telegram account.
+func (b *Bot) persistDocument(assetsDir, fileName string, data []byte) []ai.ContentBlock {
 	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 	if err != nil {
 		logger().Warn("save document failed", "error", err)
-		return channel.AttachmentSaveFailureContent(fileName, data), true
+		return channel.AttachmentSaveFailureContent(fileName, data)
 	}
 
 	logger().Debug("document received", "file_name", fileName, "size", len(data), "path", savedPath)
-	return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data), true
+	return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)
 }
 
 // handleStream renders a ChatStream to the Telegram chat.

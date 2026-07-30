@@ -176,7 +176,7 @@ func (a *Access) CreateGoal(ctx context.Context, in CreateInput) (Goal, error) {
 	}
 	if in.IdempotencyKey != "" {
 		if existing, err := replay(); err == nil {
-			return goalFromRow(existing), nil
+			return a.finishCreate(ctx, existing, in.Activate)
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return Goal{}, err
 		}
@@ -192,13 +192,23 @@ func (a *Access) CreateGoal(ctx context.Context, in CreateInput) (Goal, error) {
 		if err != nil {
 			return Goal{}, err
 		}
-		return goalFromRow(created), nil
+		return a.finishCreate(ctx, created, in.Activate)
 	}
 	replayed, err := replay()
 	if err != nil {
 		return Goal{}, err
 	}
-	return goalFromRow(replayed), nil
+	return a.finishCreate(ctx, replayed, in.Activate)
+}
+
+// finishCreate applies CreateGoal's public activate contract exactly once.
+// Replaying an idempotency key after the leaf left draft returns its current
+// state, while composites always remain behind their plan gate.
+func (a *Access) finishCreate(ctx context.Context, created sqlc.AgentGoal, activate bool) (Goal, error) {
+	if !activate || created.Kind != KindLeaf || created.Lifecycle != LifecycleDraft {
+		return goalFromRow(created), nil
+	}
+	return a.Activate(ctx, created.ID)
 }
 
 func isGoalIdempotencyConflict(err error) bool {

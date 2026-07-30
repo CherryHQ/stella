@@ -401,6 +401,7 @@ type CreateInput struct {
 	Context        json.RawMessage // empty ⇒ "{}"
 	DispatchHint   json.RawMessage // empty ⇒ "{}"
 	IdempotencyKey string
+	Activate       bool // activate a newly-created draft leaf; ignored for composites
 
 	WorkflowID      string
 	WorkflowVersion int32

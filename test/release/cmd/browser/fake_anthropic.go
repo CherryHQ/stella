@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -19,6 +20,7 @@ const (
 	fakeFirstChunk   = "release browser "
 	fakeSecondChunk  = "reply"
 	fakeFullReply    = fakeFirstChunk + fakeSecondChunk
+	fakeErrorMessage = "release browser provider failure"
 	fakeGateBackstop = 30 * time.Second
 )
 
@@ -29,9 +31,12 @@ type fakeAnthropic struct {
 
 	mu           sync.Mutex
 	gateNext     bool
+	failNextTurn bool
+	failedBody   string
 	activeGate   chan struct{}
 	modelCalls   int
 	messageCalls int
+	failedCalls  int
 	gateTimeouts int
 }
 
@@ -39,6 +44,7 @@ type fakeSummary struct {
 	SchemaVersion int `json:"schema_version"`
 	ModelCalls    int `json:"model_calls"`
 	MessageCalls  int `json:"message_calls"`
+	FailedCalls   int `json:"failed_calls"`
 	GateTimeouts  int `json:"gate_timeouts"`
 }
 
@@ -54,7 +60,10 @@ func startFakeAnthropic() (*fakeAnthropic, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", fake.handleModels)
 	mux.HandleFunc("POST /v1/messages", fake.handleMessages)
+	mux.HandleFunc("GET /fixtures/feed.xml", fake.handleFeed)
+	mux.HandleFunc("GET /fixtures/article", fake.handleArticle)
 	mux.HandleFunc("POST /control/gate", fake.handleGate)
+	mux.HandleFunc("POST /control/error", fake.handleError)
 	mux.HandleFunc("POST /control/release", fake.handleRelease)
 	fake.server = &http.Server{
 		Handler:           mux,
@@ -77,18 +86,21 @@ func (f *fakeAnthropic) Summary() fakeSummary {
 		SchemaVersion: 1,
 		ModelCalls:    f.modelCalls,
 		MessageCalls:  f.messageCalls,
+		FailedCalls:   f.failedCalls,
 		GateTimeouts:  f.gateTimeouts,
 	}
 }
 
 func (f *fakeAnthropic) Close() error {
 	f.mu.Lock()
-	pendingGate := f.gateNext || f.activeGate != nil
+	pendingControl := f.gateNext || f.failNextTurn || f.activeGate != nil
 	if f.activeGate != nil {
 		close(f.activeGate)
 		f.activeGate = nil
 	}
 	f.gateNext = false
+	f.failNextTurn = false
+	f.failedBody = ""
 	gateTimeouts := f.gateTimeouts
 	f.mu.Unlock()
 
@@ -100,8 +112,8 @@ func (f *fakeAnthropic) Close() error {
 		serveErr = nil
 	}
 	var validationErr error
-	if pendingGate {
-		validationErr = fmt.Errorf("fake Anthropic gate remained pending")
+	if pendingControl {
+		validationErr = fmt.Errorf("fake Anthropic control remained pending")
 	}
 	if gateTimeouts > 0 {
 		validationErr = errors.Join(validationErr, fmt.Errorf("fake Anthropic gate timed out %d time(s)", gateTimeouts))
@@ -127,11 +139,16 @@ func (f *fakeAnthropic) handleModels(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (f *fakeAnthropic) handleMessages(w http.ResponseWriter, r *http.Request) {
-	var request struct {
-		Model string `json:"model"`
+	body, err := io.ReadAll(io.LimitReader(r.Body, 2<<20))
+	if err != nil {
+		writeFakeJSON(w, http.StatusBadRequest, map[string]any{
+			"type":  "error",
+			"error": map[string]string{"type": "invalid_request_error", "message": "invalid request"},
+		})
+		return
 	}
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 2<<20))
-	if err := decoder.Decode(&request); err != nil || request.Model == "" {
+	var request fakeMessagesRequest
+	if err := json.Unmarshal(body, &request); err != nil || request.Model == "" {
 		writeFakeJSON(w, http.StatusBadRequest, map[string]any{
 			"type":  "error",
 			"error": map[string]string{"type": "invalid_request_error", "message": "invalid request"},
@@ -141,14 +158,41 @@ func (f *fakeAnthropic) handleMessages(w http.ResponseWriter, r *http.Request) {
 
 	f.mu.Lock()
 	f.messageCalls++
+	messageCall := f.messageCalls
 	gated := f.gateNext
 	f.gateNext = false
+	failed := false
+	if f.failNextTurn {
+		// Provider SDKs retry the same request after a 5xx response. Keep
+		// failing that logical turn, then recover when the request body changes.
+		if f.failedBody == "" {
+			f.failedBody = string(body)
+		}
+		if string(body) == f.failedBody {
+			failed = true
+			f.failedCalls++
+		} else {
+			f.failNextTurn = false
+			f.failedBody = ""
+		}
+	}
 	var gate chan struct{}
 	if gated {
 		gate = make(chan struct{})
 		f.activeGate = gate
 	}
 	f.mu.Unlock()
+
+	if failed {
+		writeFakeJSON(w, http.StatusInternalServerError, map[string]any{
+			"type": "error",
+			"error": map[string]string{
+				"type":    "api_error",
+				"message": fakeErrorMessage,
+			},
+		})
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -157,6 +201,15 @@ func (f *fakeAnthropic) handleMessages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "streaming unavailable", http.StatusInternalServerError)
 		return
 	}
+	action := request.goalControlAction()
+	if action != "" && !request.hasToolResult() {
+		for _, frame := range fakeGoalControlFrames(request.Model, action, messageCall) {
+			_, _ = io.WriteString(w, frame)
+		}
+		flusher.Flush()
+		return
+	}
+
 	before, after := fakeTextFrames(request.Model, gated)
 	for _, frame := range before {
 		_, _ = io.WriteString(w, frame)
@@ -183,14 +236,160 @@ func (f *fakeAnthropic) handleMessages(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 }
 
+// fakeMessagesRequest retains only structural protocol fields. Goal stages are
+// selected from the goal_control action enum, never from prompt wording.
+type fakeMessagesRequest struct {
+	Model    string `json:"model"`
+	Messages []struct {
+		Content json.RawMessage `json:"content"`
+	} `json:"messages"`
+	Tools []struct {
+		Name        string `json:"name"`
+		InputSchema struct {
+			Properties struct {
+				Action struct {
+					Enum []string `json:"enum"`
+				} `json:"action"`
+			} `json:"properties"`
+		} `json:"input_schema"`
+	} `json:"tools"`
+}
+
+func (r fakeMessagesRequest) goalControlAction() string {
+	for _, tool := range r.Tools {
+		if tool.Name != "goal_control" {
+			continue
+		}
+		for _, action := range tool.InputSchema.Properties.Action.Enum {
+			if action == "decompose" || action == "submit" {
+				return action
+			}
+		}
+	}
+	return ""
+}
+
+func (r fakeMessagesRequest) hasToolResult() bool {
+	for _, message := range r.Messages {
+		var blocks []struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(message.Content, &blocks); err == nil {
+			for _, block := range blocks {
+				if block.Type == "tool_result" {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func fakeGoalControlFrames(model, action string, call int) []string {
+	var args map[string]any
+	switch action {
+	case "decompose":
+		args = map[string]any{
+			"action":  "decompose",
+			"summary": "one deterministic release-browser child",
+			"decomposition": map[string]any{
+				"children": []map[string]any{{
+					"key":      "release-browser-child",
+					"title":    "Release browser child",
+					"intent":   "Produce deterministic workflow evidence.",
+					"kind":     "leaf",
+					"required": true,
+				}},
+			},
+		}
+	case "submit":
+		args = map[string]any{
+			"action":  "submit",
+			"summary": "deterministic release-browser result",
+			"output":  map[string]any{"result": "release-browser"},
+		}
+	default:
+		panic(fmt.Sprintf("unsupported fake goal_control action %q", action))
+	}
+	rawArgs, err := json.Marshal(args)
+	if err != nil {
+		panic(fmt.Sprintf("marshal fake goal_control %s arguments: %v", action, err))
+	}
+	toolID := fmt.Sprintf("toolu_release_browser_%s_%d", action, call)
+	return []string{
+		fakeSSE("message_start", map[string]any{
+			"type": "message_start",
+			"message": map[string]any{
+				"id": fmt.Sprintf("msg_release_browser_%d", call), "type": "message", "role": "assistant",
+				"model": model, "content": []any{}, "stop_reason": nil, "stop_sequence": nil,
+				"usage": map[string]any{"input_tokens": 1, "output_tokens": 1},
+			},
+		}),
+		fakeSSE("content_block_start", map[string]any{
+			"type": "content_block_start", "index": 0,
+			"content_block": map[string]any{
+				"type": "tool_use", "id": toolID, "name": "goal_control", "input": map[string]any{},
+			},
+		}),
+		fakeSSE("content_block_delta", map[string]any{
+			"type": "content_block_delta", "index": 0,
+			"delta": map[string]any{"type": "input_json_delta", "partial_json": string(rawArgs)},
+		}),
+		fakeSSE("content_block_stop", map[string]any{"type": "content_block_stop", "index": 0}),
+		fakeSSE("message_delta", map[string]any{
+			"type":  "message_delta",
+			"delta": map[string]any{"stop_reason": "tool_use", "stop_sequence": nil},
+			"usage": map[string]any{"output_tokens": 5},
+		}),
+		fakeSSE("message_stop", map[string]any{"type": "message_stop"}),
+	}
+}
+
+func (f *fakeAnthropic) handleFeed(w http.ResponseWriter, r *http.Request) {
+	articleURL := "http://" + r.Host + "/fixtures/article"
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Release Browser Feed</title>
+    <link>%s</link>
+    <description>Deterministic loopback RSS fixture.</description>
+    <item>
+      <guid>release-browser-entry</guid>
+      <title>Release Browser Feed Entry</title>
+      <link>%s</link>
+      <description>Deterministic entry for release testing.</description>
+    </item>
+  </channel>
+</rss>
+`, html.EscapeString(articleURL), html.EscapeString(articleURL))
+}
+
+func (f *fakeAnthropic) handleArticle(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.WriteString(w, "<!doctype html><title>Release Browser Article</title><p>Deterministic article body.</p>")
+}
+
 func (f *fakeAnthropic) handleGate(w http.ResponseWriter, _ *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.gateNext || f.activeGate != nil {
-		writeFakeJSON(w, http.StatusConflict, map[string]string{"error": "gate already pending"})
+	if f.gateNext || f.failNextTurn || f.activeGate != nil {
+		writeFakeJSON(w, http.StatusConflict, map[string]string{"error": "control already pending"})
 		return
 	}
 	f.gateNext = true
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (f *fakeAnthropic) handleError(w http.ResponseWriter, _ *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.gateNext || f.failNextTurn || f.activeGate != nil {
+		writeFakeJSON(w, http.StatusConflict, map[string]string{"error": "control already pending"})
+		return
+	}
+	f.failNextTurn = true
+	f.failedBody = ""
 	w.WriteHeader(http.StatusNoContent)
 }
 

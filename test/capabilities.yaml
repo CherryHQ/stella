@@ -4,8 +4,8 @@
 schema_version: 1
 
 baseline:
-  commit: 8e454a0112d51e0cde7e81ffd3ba2df0fb69672d
-  note: Initial phase-one inventory against upstream/main for issue 772.
+  commit: 76765b1d3171ce73084a31a85332ac52f5b7af34
+  note: Re-audited against upstream/main after the user-managed Lark CLI change for issue 772.
 
 surface_exemptions:
   openapi: []
@@ -153,8 +153,8 @@ test_assets:
       .github/workflows/release.yml,
       web/content/docs/development/rules/web-ui-test.md,
     ]
-    summary: Runs six deterministic Browser E2E journeys against the exact Linux amd64 candidate and emits Scenario Results, traces, screenshots, logs, and redacted network summaries.
-    limitations: Covers the six blocking release journeys recorded below; it does not replace finer-grained Integration or System evidence.
+    summary: Runs 17 deterministic Browser E2E journeys against the exact Linux amd64 candidate and emits 18 Scenario Results, traces, screenshots, logs, and redacted network summaries.
+    limitations: Covers the release Browser journeys recorded below according to each Scenario's release policy; it does not replace finer-grained Integration or System evidence.
 
   - id: A13
     category: exploratory
@@ -350,11 +350,16 @@ capabilities:
       - id: C03-S02
         name: browser-user-administration
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
         summary: An administrator manages a user while a normal user cannot see or invoke privileged controls.
-        evidence: []
-        gap: No automated browser journey covers the users and roles pages.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C03-S02] administer a user while privileged controls fail closed"
+            direct: true
+            proves: Playwright promotes, demotes, deactivates, and restores a user, then proves a normal user receives a fail-closed 403 and no privileged controls.
+        gap: ""
 
   - id: C04
     class: core
@@ -539,7 +544,7 @@ capabilities:
     class: core
     name: sessions-and-chat
     title: Sessions and chat
-    description: Manage sessions, message history, SSE chat and event streams, context, summaries, and system prompts.
+    description: Manage sessions, multimodal message history, SSE chat and event streams, visible run failures, context, summaries, and system prompts.
     surfaces:
       openapi: [
         listSessions,
@@ -617,13 +622,13 @@ capabilities:
         layer: browser
         status: covered
         release_policy: blocking
-        summary: A user creates a session, sends a message, sees streaming output, reloads, and sees persisted history.
+        summary: A user creates a session, sees streaming output and persisted history, sees a provider failure in the transcript, and recovers on the next turn.
         evidence:
           - kind: browser_test
             path: web/e2e/release.spec.ts
             test: "[C07-S03] stream and restore a chat session"
             direct: true
-            proves: Playwright creates a new thread, observes a deliberately gated partial SSE reply, completes it, reloads, and sees persisted user and assistant messages.
+            proves: Playwright creates a new thread, observes a deliberately gated partial SSE reply, reloads persisted messages, surfaces a controlled provider failure, and proves the next successful turn clears the error.
         gap: ""
 
   - id: C08
@@ -651,7 +656,7 @@ capabilities:
         layer: integration
         status: covered
         release_policy: blocking
-        summary: Workspace paths and file mutations stay within the authorized session and survive expected reads.
+        summary: Workspace paths, sandbox-view and host absolute paths, upload metadata, and file mutations stay within the authorized session and survive expected reads.
         evidence:
           - kind: go_test
             path: internal/server/sessions_api_test.go
@@ -664,8 +669,14 @@ capabilities:
             proves: Workspace setup, shared-user layout, and isolation rules.
           - kind: go_test
             path: internal/server/sessions_blob_test.go
+            test: TestUploadWorkspaceFileReturnsRelativePathAndScope
             direct: true
-            proves: Session blob and upload behavior through server handlers.
+            proves: Upload responses return the sandbox-view path, relative path, and scope needed to build a valid workspace read URL.
+          - kind: go_test
+            path: internal/server/sessions_blob_test.go
+            test: TestGetWorkspaceFileContentAbsoluteHostPathResolvesToUserRoot
+            direct: true
+            proves: Authorized host-absolute paths resolve to the physically containing workspace root while paths outside all roots are rejected by companion cases.
         gap: ""
 
   - id: C09
@@ -752,7 +763,6 @@ capabilities:
         - /agents/$agentId/goals/$goalId
         - /agents/$agentId/goals/all
         - /agents/$agentId/goals/new
-        - /agents/$agentId/goals/schedules/$scheduleId
       cli_commands: []
       plugins: []
       system_skills: []
@@ -762,7 +772,7 @@ capabilities:
         layer: integration
         status: covered
         release_policy: blocking
-        summary: Goal lifecycle, readiness, attempts, edges, plans, acceptance, and authorization preserve their database invariants.
+        summary: Goal creation, direct leaf activation, lifecycle, readiness, attempts, edges, plans, acceptance, idempotency, and authorization preserve their public and database invariants.
         evidence:
           - kind: go_test
             path: internal/goal/lifecycle_leaf_test.go
@@ -774,8 +784,14 @@ capabilities:
             proves: Dependency readiness and edge semantics.
           - kind: go_test
             path: internal/server/goals_test.go
+            test: TestGoals_CreateHonorsKindActivateAndIdempotency
             direct: true
-            proves: Goal HTTP behavior against the integrated service.
+            proves: The public CreateGoal contract creates and activates root leaves, keeps composites behind the plan gate, and replays activated idempotent creates safely.
+          - kind: go_test
+            path: internal/goal/tool_create_test.go
+            test: TestGoalToolCreateHonorsKindAndActivate
+            direct: true
+            proves: The generated goal tool honors the same root-leaf kind and direct activation contract as HTTP.
         gap: ""
       - id: C10-S02
         name: autonomous-goal-lifecycle
@@ -794,11 +810,16 @@ capabilities:
       - id: C10-S03
         name: browser-goal-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
         summary: A user creates, monitors, intervenes in, and reviews a goal through the Web UI.
-        evidence: []
-        gap: No automated browser goal journey exists.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C10-S03] create and intervene in a goal through the browser"
+            direct: true
+            proves: Playwright creates and inspects a draft goal, cancels it, archives it, and restores it through the candidate UI.
+        gap: ""
 
   - id: C11
     class: core
@@ -847,11 +868,16 @@ capabilities:
       - id: C11-S02
         name: browser-workflow-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
         summary: A user saves, inspects, instantiates, and observes a workflow run in the Web UI.
-        evidence: []
-        gap: No automated browser workflow journey exists.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C11-S02] save and run a workflow through the browser"
+            direct: true
+            proves: Playwright waits for a real accepted composite goal, saves its frozen plan, inspects the workflow, instantiates it, and observes the recorded run.
+        gap: ""
 
   - id: C12
     class: core
@@ -869,7 +895,7 @@ capabilities:
         triggerSchedulerJob,
         listSchedulerJobRuns,
       ]
-      web_routes: [/scheduler]
+      web_routes: [/scheduler, /agents/$agentId/goals/schedules/$scheduleId]
       cli_commands: []
       plugins: []
       system_skills: []
@@ -911,11 +937,16 @@ capabilities:
       - id: C12-S03
         name: browser-scheduler-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
         summary: A user creates, triggers, edits, disables, and inspects a scheduler job through the Web UI.
-        evidence: []
-        gap: No automated browser scheduler journey exists.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C12-S03] manage and trigger a schedule through the browser"
+            direct: true
+            proves: Playwright creates a recurring schedule, runs it through the real worker, inspects its completed run, pauses, resumes, edits, and deletes it.
+        gap: ""
 
   - id: C13
     class: core
@@ -1000,11 +1031,16 @@ capabilities:
       - id: C13-S03
         name: browser-memory-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
         summary: A user edits profile, soul, constraints, and knowledge and sees history in the Web UI.
-        evidence: []
-        gap: No automated browser memory journey exists.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C13-S03] edit memory surfaces and inspect their history"
+            direct: true
+            proves: Playwright writes soul, profile, Knowledge, and a constraint, then observes each scope in Recent Changes.
+        gap: ""
 
   - id: C14
     class: core
@@ -1072,17 +1108,22 @@ capabilities:
       - id: C14-S02
         name: browser-skill-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
-        summary: A user creates, uploads, edits, installs, and removes skills through agent and settings pages.
-        evidence: []
-        gap: No automated browser skill journey exists.
+        summary: A user uploads, inspects, edits, and removes a local skill through the agent Skills UI.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C14-S02] upload edit and remove a skill through the browser"
+            direct: true
+            proves: Playwright uploads a deterministic ZIP, opens and edits SKILL.md, and removes the installed agent-scoped skill.
+        gap: ""
 
   - id: C15
     class: core
     name: group-collaboration
     title: Group collaboration
-    description: Manage groups and agent members, retain group messages, stream group chat, and coordinate multi-agent turns.
+    description: Manage groups and agent members, retain structured text and image messages, stream group chat, and coordinate multi-agent turns.
     surfaces:
       openapi: [
         listGroups,
@@ -1106,7 +1147,7 @@ capabilities:
         layer: integration
         status: covered
         release_policy: blocking
-        summary: Group CRUD, member access, durable history, speaker routing, and SSE delivery preserve scope and ordering.
+        summary: Group CRUD, member access, durable structured history, speaker routing, and SSE delivery preserve scope, image blocks, and ordering.
         evidence:
           - kind: go_test
             path: internal/channel/group_service_test.go
@@ -1121,6 +1162,16 @@ capabilities:
             path: internal/agent/group_session_test.go
             direct: true
             proves: Group session and multi-agent runtime behavior.
+          - kind: go_test
+            path: internal/channel/group_dispatch_test.go
+            test: TestImageOnlyMessageProjectionAndRehydration
+            direct: true
+            proves: Image-only group input receives a stable text projection while its original image block rehydrates for the addressed agent.
+          - kind: go_test
+            path: internal/eventlog/eventlog_test.go
+            test: TestAppendPersistsContentBlocks
+            direct: true
+            proves: The event log durably persists structured content blocks instead of flattening image messages to text.
         gap: ""
 
   - id: C16
@@ -1153,13 +1204,18 @@ capabilities:
             proves: Notification routing, fallback, and partial-failure behavior.
         gap: ""
       - id: C16-S02
-        name: browser-inbox-and-live-notification
+        name: browser-inbox-actionability
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
-        summary: A user sees actionable inbox items and observes a notification delivered to the configured identity.
-        evidence: []
-        gap: No browser inbox journey or real notification target is automated.
+        summary: A user sees an actionable blocked-plan item and opens its approval surface through the Web UI.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C16-S02] open an actionable inbox item through the browser"
+            direct: true
+            proves: Playwright drives a real goal to plan approval, observes the resulting Review inbox item, and opens its approval surface.
+        gap: ""
 
   - id: C17
     class: core
@@ -1245,11 +1301,16 @@ capabilities:
       - id: C18-S02
         name: browser-secret-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
         summary: A user manages scoped secrets without values appearing in page, network, trace, or screenshot diagnostics.
-        evidence: []
-        gap: No automated browser secret-management and diagnostic-redaction journey exists.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[C18-S02] manage a secret without retaining its value in diagnostics"
+            direct: true
+            proves: Playwright creates, rotates, and deletes a scoped secret through password-only controls; the Browser runner scans every retained artifact for the exact secret probe.
+        gap: ""
 
   - id: C19
     class: core
@@ -1268,7 +1329,7 @@ capabilities:
         layer: integration
         status: covered
         release_policy: blocking
-        summary: Bundled resources are discoverable and the agent runtime exposes only authorized built-in tools with valid schemas.
+        summary: Bundled resources are discoverable and the agent runtime exposes only authorized built-in tools with provider-compatible, runtime-enforced schemas.
         evidence:
           - kind: go_test
             path: internal/server/builtin_test.go
@@ -1283,6 +1344,11 @@ capabilities:
             path: internal/agent/access/invocation_inventory_test.go
             direct: true
             proves: Tool invocation inventory remains aligned with access policy.
+          - kind: go_test
+            path: internal/cmd/toolgen/main_test.go
+            test: TestToolSchemaIsPlainObjectWithActionEnum
+            direct: true
+            proves: Generated multi-action tool schemas remain plain top-level objects accepted by OpenAI-compatible providers while per-action requirements stay visible and runtime-enforced.
         gap: ""
 
   - id: X01
@@ -1447,12 +1513,13 @@ capabilities:
         layer: contract
         status: covered
         release_policy: blocking
-        summary: Feishu registration, configuration, routing, references, threads, provisioning, and runtime behavior match recorded protocol fixtures.
+        summary: Feishu registration, configuration, routing, references, threads, provisioning, attachment persistence and fallback, and runtime behavior match recorded protocol fixtures.
         evidence:
           - kind: contract_test
             path: plugins/channels/feishu/feishu_test.go
+            test: TestBuildMessageContentPersistsDownloadedAttachmentsAndKeepsSaveFailures
             direct: true
-            proves: Feishu message conversion and client behavior.
+            proves: Downloaded images and files use the host asset store, images remain multimodal, and a storage failure does not discard the turn.
           - kind: contract_test
             path: plugins/channels/feishu/thread_routing_test.go
             direct: true
@@ -1488,12 +1555,18 @@ capabilities:
         layer: contract
         status: covered
         release_policy: blocking
-        summary: QQ message conversion, configuration, runtime creation, rendering, and publication follow stable fixtures.
+        summary: QQ message conversion, image persistence and fallback, configuration, runtime creation, rendering, and publication follow stable fixtures.
         evidence:
           - kind: contract_test
             path: plugins/channels/qq/qq_test.go
+            test: TestBuildMessageContentPersistsPureImage
             direct: true
-            proves: QQ inbound and outbound protocol behavior.
+            proves: Image-only QQ messages resolve user storage, persist downloaded bytes, and remain multimodal.
+          - kind: contract_test
+            path: plugins/channels/qq/qq_test.go
+            test: TestBuildMessageContentImageSaveFailureInlines
+            direct: true
+            proves: A QQ asset-store failure keeps a small image visible to the model as an inline fallback.
           - kind: contract_test
             path: plugins/channels/qq/runtime_test.go
             direct: true
@@ -1525,12 +1598,18 @@ capabilities:
         layer: contract
         status: covered
         release_policy: blocking
-        summary: Telegram plugin registration, configuration, inbound routing, publication, and runtime status follow deterministic fixtures.
+        summary: Telegram plugin registration, configuration, inbound image and document persistence, no-drop fallback, publication, and runtime status follow deterministic fixtures.
         evidence:
           - kind: contract_test
             path: plugins/channels/telegram/telegram_test.go
+            test: TestImageContentPersistsAndFallsBackInline
             direct: true
-            proves: Telegram inbound and outbound behavior.
+            proves: Telegram images persist through the host asset store and remain inline when durable storage fails.
+          - kind: contract_test
+            path: plugins/channels/telegram/telegram_test.go
+            test: TestPersistDocumentUsesSavedPathAndNoDropFallback
+            direct: true
+            proves: Telegram documents expose a saved-path extraction hint, while a storage failure still routes an explicit placeholder.
           - kind: contract_test
             path: plugins/channels/telegram/plugin_test.go
             direct: true
@@ -1567,12 +1646,13 @@ capabilities:
         layer: contract
         status: covered
         release_policy: blocking
-        summary: QR registration, pending and completed states, media, message guards, runtime routing, and publication follow fixtures.
+        summary: QR registration, pending and completed states, downloaded media persistence and fallback, message guards, runtime routing, and publication follow fixtures.
         evidence:
           - kind: contract_test
             path: plugins/channels/weixin/weixin_test.go
+            test: TestInboundMediaPersistsAndStorageFailureStillReachesAgent
             direct: true
-            proves: Weixin protocol and message conversion behavior.
+            proves: Downloaded Weixin images persist and remain multimodal, while a file storage failure still reaches the agent as an explicit placeholder.
           - kind: contract_test
             path: plugins/channels/weixin/guard_test.go
             direct: true
@@ -1803,11 +1883,16 @@ capabilities:
       - id: X10-S02
         name: plugin-browser-management
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
-        summary: An administrator configures, toggles, synchronizes, and diagnoses plugins in the Web UI.
-        evidence: []
-        gap: No automated browser plugin-management journey exists.
+        summary: An administrator discovers a built-in plugin, inspects its state, and persists an enable/disable cycle in the Web UI.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[X10-S02] inspect and toggle a built-in plugin through the browser"
+            direct: true
+            proves: Playwright opens tool/webfetch, toggles it, reloads to prove persistence, and restores its original state.
+        gap: ""
       - id: X10-S03
         name: external-cli-plugin-smoke
         layer: live
@@ -1871,11 +1956,16 @@ capabilities:
       - id: X11-S02
         name: recally-browser-journey
         layer: browser
-        status: missing
+        status: covered
         release_policy: nonblocking
         summary: A user adds a feed, polls it, reads and searches articles, and views a digest in the Web UI.
-        evidence: []
-        gap: No automated browser Recally journey exists.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[X11-S02] poll a fixture feed and use the Recally browser surfaces"
+            direct: true
+            proves: Playwright subscribes to and polls a deterministic loopback RSS feed, then searches and reads a persisted article and opens a stored digest.
+        gap: ""
       - id: X11-S03
         name: public-feed-live-smoke
         layer: live
@@ -1889,7 +1979,7 @@ capabilities:
     class: extension
     name: model-providers
     title: Model providers
-    description: Discover models and translate streaming text, thinking, tool calls, usage, stop reasons, and errors for Anthropic and OpenAI protocols.
+    description: Discover models and translate multimodal messages, streaming text, thinking, tool calls, usage, stop reasons, and errors for Anthropic and OpenAI protocols.
     surfaces:
       openapi: []
       web_routes: []
@@ -1902,7 +1992,7 @@ capabilities:
         layer: contract
         status: covered
         release_policy: blocking
-        summary: Anthropic, OpenAI Chat Completions, and OpenAI Responses convert messages and stream text, thinking, tools, usage, stops, and errors consistently.
+        summary: Anthropic, OpenAI Chat Completions, and OpenAI Responses convert text and image messages and stream text, thinking, tools, usage, stops, and errors consistently.
         evidence:
           - kind: contract_test
             path: plugins/providers/anthropic/stream_test.go
@@ -1922,6 +2012,21 @@ capabilities:
             subtest: chat_provider_error
             direct: true
             proves: Stable provider failure semantics through the real process.
+          - kind: contract_test
+            path: plugins/providers/anthropic/convert_messages_test.go
+            test: TestUserContentBlocksWithImage
+            direct: true
+            proves: Anthropic receives Stella image content blocks in its native multimodal request shape.
+          - kind: contract_test
+            path: plugins/providers/openai/convert_messages_test.go
+            test: TestUserMessageWithImage
+            direct: true
+            proves: OpenAI Chat Completions receives Stella image content blocks in its native multimodal request shape.
+          - kind: contract_test
+            path: plugins/providers/openai-response/convert_messages_test.go
+            test: TestUserMessageWithImage
+            direct: true
+            proves: OpenAI Responses receives Stella image content blocks in its native multimodal request shape.
         gap: ""
       - id: X12-S02
         name: provider-live-tool-call
@@ -1936,7 +2041,7 @@ capabilities:
     class: extension
     name: oauth-oidc-connections
     title: OAuth and OIDC connections
-    description: Configure identity providers, run device and callback flows, connect and disconnect identities, generate link codes, and support OIDC login.
+    description: Configure identity providers and requested scopes, report token health and reconnect requirements, run device and callback flows, connect and disconnect identities, generate link codes, and support OIDC login.
     surfaces:
       openapi:
         - listProfileIdentities
@@ -1962,7 +2067,7 @@ capabilities:
         layer: contract
         status: covered
         release_policy: blocking
-        summary: Provider configuration, state, device polling, callbacks, token refresh, vault storage, linking, disconnect, and OIDC login resist replay and cross-user access.
+        summary: Provider credentials and scope overrides, reconnect decisions, state, device polling, callbacks, token refresh, vault storage, linking, disconnect, and OIDC login resist replay and cross-user access.
         evidence:
           - kind: contract_test
             path: internal/connections/oauth/registry_test.go
@@ -1980,6 +2085,16 @@ capabilities:
             path: internal/server/oauth_test.go
             direct: true
             proves: OAuth management and callback HTTP behavior.
+          - kind: go_test
+            path: internal/server/oauth_admin_test.go
+            test: TestAdminOAuthProviderConfigScopeRoundTrip
+            direct: true
+            proves: Admin scope overrides round-trip through the public configuration API and preserve secret masking.
+          - kind: contract_test
+            path: internal/connections/scopes_internal_test.go
+            test: TestReconnectDecision
+            direct: true
+            proves: Credential rotation and missing grants produce explicit reconnect requirements without conflating an unknown historic grant.
         gap: ""
       - id: X13-S02
         name: identity-provider-live-login
@@ -1993,6 +2108,19 @@ capabilities:
             direct: false
             proves: Required setup, execution, pass criteria, and release evidence for the external identity-provider check.
         gap: No compliant, stable automated identity tenant and browser target is currently available; every release requires a recorded manual result or explicit waiver.
+      - id: X13-S03
+        name: browser-admin-scope-management
+        layer: browser
+        status: covered
+        release_policy: blocking
+        summary: An administrator edits, persists, reloads, and restores an OAuth provider scope set through the Web UI.
+        evidence:
+          - kind: browser_test
+            path: web/e2e/release.spec.ts
+            test: "[X13-S03] manage OAuth provider scopes through the browser"
+            direct: true
+            proves: Playwright configures a provider, removes a built-in scope, adds a custom scope, verifies the saved set after reload, restores defaults, and removes its fixture.
+        gap: ""
 
   - id: X14
     class: extension

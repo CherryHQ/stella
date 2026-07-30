@@ -25,10 +25,21 @@ type scenarioDefinition struct {
 
 var browserScenarios = []scenarioDefinition{
 	{CapabilityID: "C02", ScenarioID: "C02-S02", Title: "[C02-S02] authenticate through the browser"},
+	{CapabilityID: "C03", ScenarioID: "C03-S02", Title: "[C03-S02] administer a user while privileged controls fail closed"},
 	{CapabilityID: "C05", ScenarioID: "C05-S02", Title: "[C05-S02] manage an agent and its user permissions"},
 	{CapabilityID: "C06", ScenarioID: "C06-S02", Title: "[C06-S02] configure a provider and mask its secret"},
 	{CapabilityID: "C07", ScenarioID: "C07-S03", Title: "[C07-S03] stream and restore a chat session"},
+	{CapabilityID: "C10", ScenarioID: "C10-S03", Title: "[C10-S03] create and intervene in a goal through the browser"},
+	{CapabilityID: "C11", ScenarioID: "C11-S02", Title: "[C11-S02] save and run a workflow through the browser"},
+	{CapabilityID: "C12", ScenarioID: "C12-S03", Title: "[C12-S03] manage and trigger a schedule through the browser"},
+	{CapabilityID: "C13", ScenarioID: "C13-S03", Title: "[C13-S03] edit memory surfaces and inspect their history"},
+	{CapabilityID: "C14", ScenarioID: "C14-S02", Title: "[C14-S02] upload edit and remove a skill through the browser"},
+	{CapabilityID: "C16", ScenarioID: "C16-S02", Title: "[C16-S02] open an actionable inbox item through the browser"},
 	{CapabilityID: "C17", ScenarioID: "C17-S02", Title: "[C17-S02] share and revoke an artifact"},
+	{CapabilityID: "C18", ScenarioID: "C18-S02", Title: "[C18-S02] manage a secret without retaining its value in diagnostics"},
+	{CapabilityID: "X10", ScenarioID: "X10-S02", Title: "[X10-S02] inspect and toggle a built-in plugin through the browser"},
+	{CapabilityID: "X11", ScenarioID: "X11-S02", Title: "[X11-S02] poll a fixture feed and use the Recally browser surfaces"},
+	{CapabilityID: "X13", ScenarioID: "X13-S03", Title: "[X13-S03] manage OAuth provider scopes through the browser"},
 	{CapabilityID: "X02", ScenarioID: "X02-S02", Title: "[X02-S02] manage and invoke a webhook channel"},
 	// The same real-candidate journey also proves the Webhook-specific inbound
 	// lifecycle. X02 owns channel CRUD; X07 owns the inbound protocol behavior.

@@ -1,10 +1,16 @@
 package telegram
 
 import (
+	"context"
+	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	tele "gopkg.in/telebot.v4"
+
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
@@ -596,4 +602,88 @@ func TestWelcomeMessageContainsCommands(t *testing.T) {
 			t.Errorf("WelcomeMessage missing %q", cmd)
 		}
 	}
+}
+
+func TestImageContentPersistsAndFallsBackInline(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\ntelegram image")
+	messageContext := tele.NewContext(nil, tele.Update{Message: &tele.Message{
+		ID:     42,
+		Sender: &tele.User{ID: 7, FirstName: "Release"},
+		Chat:   &tele.Chat{ID: 9, Type: tele.ChatPrivate},
+	}})
+
+	t.Run("persists through the host asset store", func(t *testing.T) {
+		handler := &assetChannelHandler{userRoot: "/home/stella"}
+		bot := &Bot{handler: handler, ctx: context.Background()}
+
+		content := bot.imageContent(messageContext, "photo-1", "image/png", png)
+
+		if len(handler.saveCalls) != 1 {
+			t.Fatalf("SaveAsset calls = %d, want 1", len(handler.saveCalls))
+		}
+		call := handler.saveCalls[0]
+		if call.fileName != "photo-1.png" {
+			t.Fatalf("saved file name = %q, want photo-1.png", call.fileName)
+		}
+		if string(call.data) != string(png) {
+			t.Fatal("saved bytes differ from the Telegram image")
+		}
+		if !strings.Contains(ai.FlattenText(content), "saved to") {
+			t.Fatalf("content = %#v, want a durable saved-path note", content)
+		}
+		if _, ok := content[len(content)-1].(ai.ImageContent); !ok {
+			t.Fatalf("last content block = %T, want ai.ImageContent", content[len(content)-1])
+		}
+	})
+
+	t.Run("save failure keeps the image turn", func(t *testing.T) {
+		handler := &assetChannelHandler{
+			userRoot: "/home/stella",
+			saveErr:  errors.New("storage unavailable"),
+		}
+		bot := &Bot{handler: handler, ctx: context.Background()}
+
+		content := bot.imageContent(messageContext, "photo-2", "image/png", png)
+
+		if len(content) != 1 {
+			t.Fatalf("content blocks = %d, want one inline fallback", len(content))
+		}
+		if _, ok := content[0].(ai.ImageContent); !ok {
+			t.Fatalf("fallback block = %T, want ai.ImageContent", content[0])
+		}
+	})
+}
+
+func TestPersistDocumentUsesSavedPathAndNoDropFallback(t *testing.T) {
+	t.Run("saved document receives an extraction hint", func(t *testing.T) {
+		handler := &assetChannelHandler{userRoot: "/home/stella"}
+		bot := &Bot{handler: handler, ctx: context.Background()}
+		assetsDir := filepath.Join(handler.userRoot, ".stella", "user-data", "assets")
+
+		content := bot.persistDocument(assetsDir, "report.pdf", []byte("%PDF release"))
+
+		if len(handler.saveCalls) != 1 {
+			t.Fatalf("SaveAsset calls = %d, want 1", len(handler.saveCalls))
+		}
+		text := ai.FlattenText(content)
+		if !strings.Contains(text, "saved to") || !strings.Contains(text, "xberg extract") {
+			t.Fatalf("content = %q, want saved path and Xberg extraction hint", text)
+		}
+	})
+
+	t.Run("save failure still routes an explicit placeholder", func(t *testing.T) {
+		handler := &assetChannelHandler{saveErr: errors.New("storage unavailable")}
+		bot := &Bot{handler: handler, ctx: context.Background()}
+
+		content := bot.persistDocument(
+			"/home/stella/.stella/user-data/assets",
+			"report.pdf",
+			[]byte("%PDF release"),
+		)
+
+		text := ai.FlattenText(content)
+		if !strings.Contains(text, "could not be stored") || !strings.Contains(text, "report.pdf") {
+			t.Fatalf("content = %q, want explicit storage-failure placeholder", text)
+		}
+	})
 }

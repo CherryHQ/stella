@@ -70,7 +70,7 @@ func setupGoalEnvWithOptions(t *testing.T, opts ...goal.Option) *testEnv {
 	return env
 }
 
-// createGoal POSTs a leaf goal for the given bearer token and
+// createGoal POSTs the API-default leaf goal for the given bearer token and
 // returns its id, failing the test on a non-201.
 func createGoal(t *testing.T, env *testEnv, token, agentID, title string) string {
 	t.Helper()
@@ -212,8 +212,8 @@ func TestGoals_GetCrossTenant_404(t *testing.T) {
 	}
 }
 
-// TestGoals_CreateAndGet covers the happy path: POST creates a composite
-// (every goal is planned first) and GET returns it for the owner.
+// TestGoals_CreateAndGet covers the happy path: POST creates the documented
+// default leaf and GET returns it for the owner.
 
 func TestGoals_TimelinePaginationAndPost(t *testing.T) {
 	env := setupGoalEnv(t)
@@ -360,7 +360,63 @@ func TestGoals_CreateAndGet(t *testing.T) {
 	if d.Title != "my-goal" {
 		t.Fatalf("GET goal title = %q, want %q", d.Title, "my-goal")
 	}
-	if d.Kind != apitypes.GoalKindComposite {
-		t.Fatalf("GET goal kind = %q, want %q", d.Kind, apitypes.GoalKindComposite)
+	if d.Kind != apitypes.GoalKindLeaf {
+		t.Fatalf("GET goal kind = %q, want %q", d.Kind, apitypes.GoalKindLeaf)
+	}
+}
+
+func TestGoals_CreateHonorsKindActivateAndIdempotency(t *testing.T) {
+	env := setupGoalEnv(t)
+	agentID := findStellaID(t, env)
+	activate := true
+	key := "goal-create-contract-" + uuid.NewString()
+	leafKind := apitypes.CreateGoalRequestKindLeaf
+	compositeKind := apitypes.CreateGoalRequestKindComposite
+
+	create := func(body apitypes.CreateGoalRequest) apitypes.Goal {
+		t.Helper()
+		rr := doRequestWithSession(t, env.srv, env.bearerToken, http.MethodPost, "/api/goals", body)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("POST goal: status=%d want %d body=%s", rr.Code, http.StatusCreated, rr.Body.String())
+		}
+		var created apitypes.Goal
+		if err := json.Unmarshal(parseResponse(t, rr).Data, &created); err != nil {
+			t.Fatalf("unmarshal created goal: %v", err)
+		}
+		return created
+	}
+
+	leaf := create(apitypes.CreateGoalRequest{
+		AgentId:        agentID,
+		Title:          "direct leaf",
+		Kind:           &leafKind,
+		Activate:       &activate,
+		IdempotencyKey: &key,
+	})
+	if leaf.Kind != apitypes.GoalKindLeaf || leaf.Lifecycle != apitypes.GoalLifecyclePending {
+		t.Fatalf("activated leaf = %s/%s, want leaf/pending", leaf.Kind, leaf.Lifecycle)
+	}
+
+	// The same create can be retried safely after activation; it returns the
+	// existing pending leaf instead of trying the draft-only transition again.
+	replayed := create(apitypes.CreateGoalRequest{
+		AgentId:        agentID,
+		Title:          "ignored replay title",
+		Kind:           &leafKind,
+		Activate:       &activate,
+		IdempotencyKey: &key,
+	})
+	if replayed.Id != leaf.Id || replayed.Lifecycle != apitypes.GoalLifecyclePending {
+		t.Fatalf("idempotent replay = %s/%s, want %s/pending", replayed.Id, replayed.Lifecycle, leaf.Id)
+	}
+
+	composite := create(apitypes.CreateGoalRequest{
+		AgentId:  agentID,
+		Title:    "planned composite",
+		Kind:     &compositeKind,
+		Activate: &activate,
+	})
+	if composite.Kind != apitypes.GoalKindComposite || composite.Lifecycle != apitypes.GoalLifecycleDraft {
+		t.Fatalf("composite with activate = %s/%s, want composite/draft", composite.Kind, composite.Lifecycle)
 	}
 }

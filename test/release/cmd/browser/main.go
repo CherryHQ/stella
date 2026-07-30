@@ -43,6 +43,7 @@ type browserCredentials struct {
 	SignupEmail    string
 	SignupPassword string
 	FixturePrefix  string
+	SecretProbe    string
 }
 
 func main() {
@@ -85,6 +86,11 @@ func run() error {
 	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
 		return fmt.Errorf("create browser artifact directory: %w", err)
 	}
+	probeSuffix, err := randomHex(8)
+	if err != nil {
+		return fmt.Errorf("generate browser secret probe: %w", err)
+	}
+	secretProbe := "Release-Secret-Probe-" + probeSuffix + "-Z9!"
 
 	outcomes, executionErr := executeBrowser(
 		root,
@@ -93,8 +99,11 @@ func run() error {
 		binary,
 		runtimeRoot,
 		artifactRoot,
+		secretProbe,
 	)
-	if scanErr := scanBrowserArtifacts(artifactRoot); scanErr != nil {
+	if scanErr := scanBrowserArtifacts(artifactRoot, map[string]string{
+		"STELLA_E2E_SECRET_PROBE": secretProbe,
+	}); scanErr != nil {
 		redactionPath, replaceErr := replaceUnsafeArtifacts(runDir, artifactRoot, scanErr)
 		executionErr = errors.Join(executionErr, scanErr, replaceErr)
 		if replaceErr == nil {
@@ -126,6 +135,7 @@ func executeBrowser(
 	binary string,
 	runtimeRoot string,
 	artifactRoot string,
+	secretProbe string,
 ) ([]scenarioOutcome, error) {
 	startedAt := time.Now().UTC()
 	serverLog := filepath.Join(artifactRoot, fmt.Sprintf("stellad-a%03d.log", attempt))
@@ -159,7 +169,7 @@ func executeBrowser(
 		setupErr = verifyCandidateSPA(baseURL)
 	}
 	if startErr == nil && setupErr == nil {
-		credentials, setupErr = bootstrapBrowserUsers(baseURL)
+		credentials, setupErr = bootstrapBrowserUsers(baseURL, secretProbe)
 	}
 	var playwrightErr error
 	if startErr == nil && setupErr == nil {
@@ -189,7 +199,7 @@ func executeBrowser(
 	return outcomes, errors.Join(playwrightErr, harnessErr, structureErr)
 }
 
-func bootstrapBrowserUsers(baseURL string) (browserCredentials, error) {
+func bootstrapBrowserUsers(baseURL, secretProbe string) (browserCredentials, error) {
 	suffix, err := randomHex(6)
 	if err != nil {
 		return browserCredentials{}, err
@@ -202,6 +212,7 @@ func bootstrapBrowserUsers(baseURL string) (browserCredentials, error) {
 		SignupEmail:    "release-signup-" + suffix + "@example.invalid",
 		SignupPassword: "Release-Signup-" + suffix + "-A1!",
 		FixturePrefix:  "rb-" + suffix,
+		SecretProbe:    secretProbe,
 	}
 	adminClient, err := newCookieClient()
 	if err != nil {
@@ -327,6 +338,7 @@ func runPlaywright(
 		"STELLA_E2E_SIGNUP_PASSWORD="+credentials.SignupPassword,
 		"STELLA_E2E_FAKE_PROVIDER_URL="+fakeProviderURL,
 		"STELLA_E2E_FIXTURE_PREFIX="+credentials.FixturePrefix,
+		"STELLA_E2E_SECRET_PROBE="+credentials.SecretProbe,
 	)
 	if err := command.Run(); err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
