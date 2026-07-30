@@ -706,6 +706,57 @@ function UnifiedTree({
     [agentID, sessionID, rootOf, toApi, toDisplay, showHidden, model],
   );
 
+  // Fetch children the moment a not-yet-loaded directory is expanded, however
+  // the expansion happened (row click, chevron, keyboard, search auto-expand).
+  // The library has no expansion callback, so a generic change subscription
+  // scans the known directories; the sets keep each fetch one-shot.
+  useEffect(() => {
+    return model.subscribe(() => {
+      for (const path of loadedPathSet.current) {
+        if (!isDirectoryPath(path)) continue;
+        const dir = path.slice(0, -1);
+        if (loadedDirSet.current.has(dir) || loadingDirSet.current.has(dir)) continue;
+        const item = model.getItem(path);
+        if (item?.isDirectory() && (item as { isExpanded: () => boolean }).isExpanded())
+          void loadDirectory(path);
+      }
+    });
+  }, [model, loadDirectory]);
+
+  // Single click opens a file, like every native file explorer. The tree is a
+  // web component, so the row is recovered from the composed event path; clicks
+  // on its interactive descendants (context menu, rename input, search) and
+  // modified clicks (multi-select) are left to the tree itself. Directory
+  // clicks already expand/collapse natively.
+  const handleTreeClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+      let itemPath: string | null = null;
+      for (const entry of e.nativeEvent.composedPath()) {
+        if (!(entry instanceof HTMLElement)) continue;
+        const ds = entry.dataset;
+        if (
+          ds.itemActionAffordance !== undefined ||
+          ds.itemRenameInput !== undefined ||
+          ds.itemFlattenedRenameInput !== undefined ||
+          ds.fileTreeSearchContainer !== undefined ||
+          ds.fileTreeContextMenuRoot === "true" ||
+          ds.type === "context-menu-anchor" ||
+          ds.type === "context-menu-trigger"
+        ) {
+          return;
+        }
+        if (itemPath === null && ds.itemPath) itemPath = ds.itemPath;
+      }
+      if (!itemPath) return;
+      const item = model.getItem(itemPath);
+      if (!item || item.isDirectory()) return;
+      const parsed = rootOf(itemPath);
+      if (parsed?.rel) onOpenFile(toApi(parsed.root, parsed.rel), parsed.root.scope);
+    },
+    [model, rootOf, toApi, onOpenFile],
+  );
+
   const selectedPaths = useFileTreeSelection(model);
   const firstSelected = selectedPaths[0] ?? null;
   const selectedParsed = firstSelected ? rootOf(firstSelected) : null;
@@ -978,23 +1029,7 @@ function UnifiedTree({
               document.body,
             );
           }}
-          onDoubleClick={() => {
-            const path = model.getFocusedPath() ?? selectedPaths[0] ?? null;
-            if (!path) return;
-            if (isDirectoryPath(path)) {
-              loadDirectory(path)
-                .then(() => {
-                  const item = model.getItem(path);
-                  if (item?.isDirectory()) (item as { expand: () => void }).expand();
-                })
-                .catch(console.error);
-              return;
-            }
-            if (loadedPathSet.current.has(path)) {
-              const parsed = rootOf(path);
-              if (parsed) onOpenFile(toApi(parsed.root, parsed.rel), parsed.root.scope);
-            }
-          }}
+          onClick={handleTreeClick}
         />
       </div>
     </div>
