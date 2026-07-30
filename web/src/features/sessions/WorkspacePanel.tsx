@@ -6,7 +6,21 @@ import {
   useFileTreeSelection,
 } from "@pierre/trees/react";
 import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
-import { FilePlus, FolderPlus, Trash2, RefreshCw, X, Copy, Eye, EyeOff } from "lucide-react";
+import {
+  Copy,
+  Download,
+  Eye,
+  EyeOff,
+  FilePlus,
+  FileText,
+  FolderPlus,
+  Globe,
+  PenLine,
+  RefreshCw,
+  Share2,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   createShare as sdkCreateShare,
   createWorkspaceFile,
@@ -472,21 +486,49 @@ interface UnifiedTreeProps {
   onDeleted: (path: string, scope: Scope) => void;
 }
 
-const ctxItemStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  width: "100%",
-  padding: "5px 10px",
-  border: "none",
-  background: "none",
-  color: "inherit",
-  fontSize: 12,
-  fontFamily: "var(--font-mono, monospace)",
-  cursor: "pointer",
-  textAlign: "left",
-  borderRadius: 4,
-};
+interface CtxMenuItemProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  destructive?: boolean;
+  href?: string;
+  download?: string;
+  onSelect: () => void;
+}
+
+// A context-menu row. Rendered in a document-level portal (the tree lives in a
+// web component), so it uses theme tokens directly instead of CossUI Menu,
+// which needs an in-tree trigger to anchor to.
+function CtxMenuItem({
+  icon: Icon,
+  label,
+  destructive,
+  href,
+  download,
+  onSelect,
+}: CtxMenuItemProps) {
+  const className = cn(
+    "flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-mono text-xs",
+    "hover:bg-accent",
+    destructive && "text-destructive",
+  );
+  const icon = (
+    <Icon className={cn("size-3.5 shrink-0", destructive ? "" : "text-muted-foreground")} />
+  );
+  if (href !== undefined) {
+    return (
+      <a href={href} download={download} className={className} onClick={onSelect}>
+        {icon}
+        {label}
+      </a>
+    );
+  }
+  return (
+    <button type="button" className={className} onClick={onSelect}>
+      {icon}
+      {label}
+    </button>
+  );
+}
 
 function UnifiedTree({
   agentID,
@@ -505,7 +547,11 @@ function UnifiedTree({
   const theme = useMemo(() => buildTheme(), []);
   const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
   const [sharePath, setSharePath] = useState<{ path: string; scope: Scope } | null>(null);
-  const [newItem, setNewItem] = useState<{ scope: Scope; type: "file" | "dir" } | null>(null);
+  const [newItem, setNewItem] = useState<{
+    scope: Scope;
+    type: "file" | "dir";
+    baseRel: string;
+  } | null>(null);
   const [newItemName, setNewItemName] = useState("");
 
   // ── Display-path ↔ (scope, API path) mapping ────────────────────────────
@@ -555,10 +601,11 @@ function UnifiedTree({
     if (!name || !newItem) return;
     const root = roots.find((r) => r.scope === newItem.scope);
     if (!root) return;
+    const rel = newItem.baseRel ? `${newItem.baseRel}/${name}` : name;
     await createWorkspaceFile({
       path: { agentId: agentID, sessionId: sessionID },
       query: { scope: root.scope },
-      body: { path: toApi(root, name), is_dir: newItem.type === "dir" },
+      body: { path: toApi(root, rel), is_dir: newItem.type === "dir" },
       throwOnError: true,
     });
     onReload();
@@ -597,6 +644,7 @@ function UnifiedTree({
     search: true,
     icons: "standard",
     density: "compact",
+    stickyFolders: true,
     composition: {
       contextMenu: {
         enabled: true,
@@ -762,9 +810,15 @@ function UnifiedTree({
   const selectedPaths = useFileTreeSelection(model);
   const firstSelected = selectedPaths[0] ?? null;
   const selectedParsed = firstSelected ? rootOf(firstSelected) : null;
-  // New items land in the selected node's root, or the shared area by default —
-  // that is where user-added files (uploads, references) belong.
+  // New items land next to the selection (inside it when it is a directory),
+  // or in the shared area by default — that is where user-added files
+  // (uploads, references) belong.
   const newItemScope: Scope = selectedParsed?.root.scope ?? "user";
+  const newItemBaseRel = !selectedParsed
+    ? ""
+    : firstSelected && isDirectoryPath(firstSelected)
+      ? selectedParsed.rel
+      : selectedParsed.rel.split("/").slice(0, -1).join("/");
   const deletableSelection = Boolean(selectedParsed?.rel);
 
   return (
@@ -791,7 +845,7 @@ function UnifiedTree({
         <Button
           variant="ghost"
           size="xs"
-          onClick={() => setNewItem({ scope: newItemScope, type: "file" })}
+          onClick={() => setNewItem({ scope: newItemScope, type: "file", baseRel: newItemBaseRel })}
           title={t("sessions.workspace.newFile")}
           className="px-1 h-6"
         >
@@ -800,7 +854,7 @@ function UnifiedTree({
         <Button
           variant="ghost"
           size="xs"
-          onClick={() => setNewItem({ scope: newItemScope, type: "dir" })}
+          onClick={() => setNewItem({ scope: newItemScope, type: "dir", baseRel: newItemBaseRel })}
           title={t("sessions.workspace.newFolder")}
           className="px-1 h-6"
         >
@@ -845,6 +899,7 @@ function UnifiedTree({
           >
             <span className="min-w-0 shrink-0 truncate text-xs font-mono text-muted-foreground">
               {roots.find((r) => r.scope === newItem.scope)?.label}/
+              {newItem.baseRel ? `${newItem.baseRel}/` : ""}
             </span>
             <input
               autoFocus
@@ -881,16 +936,21 @@ function UnifiedTree({
           className="min-w-0 max-w-full overflow-hidden"
           style={{ ...themeStyles, width: "100%", height: "100%" }}
           renderContextMenu={(item, context) => {
-            const MENU_W = 160;
-            const MENU_H = 240;
+            const MENU_W = 176;
+            const MENU_H = 260;
             const { anchorRect } = context;
             const parsed = rootOf(item.path);
             if (!parsed) return null;
             const isDir = isDirectoryPath(item.path);
             const isRoot = parsed.rel === "";
+            const isFile = !isDir;
             const apiPath = toApi(parsed.root, parsed.rel);
             const scope = parsed.root.scope;
-            const canShare = !isDir && isShareableArtifact(apiPath);
+            // New entries land inside the clicked directory, or beside the
+            // clicked file — like every native file explorer.
+            const newBaseRel = isDir ? parsed.rel : parsed.rel.split("/").slice(0, -1).join("/");
+            const rawURL = `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true&scope=${scope}`;
+            const close = () => context.close({ restoreFocus: false });
             const left =
               anchorRect.right + MENU_W > window.innerWidth
                 ? Math.max(0, anchorRect.left - MENU_W)
@@ -899,134 +959,92 @@ function UnifiedTree({
               anchorRect.top + MENU_H > window.innerHeight
                 ? Math.max(0, anchorRect.bottom - MENU_H)
                 : anchorRect.top;
-            const hoverable = (extra?: React.CSSProperties) => ({
-              style: { ...ctxItemStyle, ...extra },
-              onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
-                e.currentTarget.style.background = "var(--accent)";
-              },
-              onMouseLeave: (e: React.MouseEvent<HTMLElement>) => {
-                e.currentTarget.style.background = "none";
-              },
-            });
             return createPortal(
               <div
                 data-file-tree-context-menu-root="true"
-                style={{
-                  position: "fixed",
-                  top,
-                  left,
-                  zIndex: 9999,
-                  borderRadius: 8,
-                  border: "1px solid var(--border)",
-                  background: "var(--popover)",
-                  color: "var(--popover-foreground)",
-                  padding: "4px 0",
-                  minWidth: MENU_W,
-                  boxShadow: "var(--shadow-lg)",
-                }}
+                className="min-w-44 rounded-lg border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+                style={{ position: "fixed", top, left, zIndex: 9999 }}
               >
-                {!isRoot && (
+                {isFile && (
                   <>
-                    <button
-                      type="button"
-                      {...hoverable()}
-                      onClick={() => {
-                        context.close({ restoreFocus: false });
-                        if (!isDir) onOpenFile(apiPath, scope);
+                    <CtxMenuItem
+                      icon={FileText}
+                      label={t("sessions.workspace.open")}
+                      onSelect={() => {
+                        close();
+                        onOpenFile(apiPath, scope);
                       }}
-                    >
-                      Open
-                    </button>
-                    <button
-                      type="button"
-                      {...hoverable()}
-                      onClick={() => {
-                        context.close({ restoreFocus: false });
-                        if (isDir) return;
-                        const url = `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true&scope=${scope}`;
-                        fetchBlobUrl(url, mimeTypeForPath(apiPath))
+                    />
+                    <CtxMenuItem
+                      icon={Globe}
+                      label={t("sessions.workspace.openInBrowser")}
+                      onSelect={() => {
+                        close();
+                        fetchBlobUrl(rawURL, mimeTypeForPath(apiPath))
                           .then((blobUrl) => {
                             window.open(blobUrl, "_blank");
                             setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000);
                           })
-                          .catch(() => window.open(url, "_blank"));
-                      }}
-                    >
-                      Open in browser
-                    </button>
-                    <a
-                      href={
-                        isDir
-                          ? undefined
-                          : `/api/agents/${agentEnc}/sessions/${enc}/workspace/file-content?path=${encodeURIComponent(apiPath)}&raw=true&scope=${scope}`
-                      }
-                      download={basename(item.path)}
-                      {...hoverable()}
-                      onClick={() => context.close({ restoreFocus: false })}
-                    >
-                      Download
-                    </a>
-                    {canShare && (
-                      <button
-                        type="button"
-                        {...hoverable()}
-                        onClick={() => {
-                          context.close({ restoreFocus: false });
-                          setSharePath({ path: apiPath, scope });
-                        }}
-                      >
-                        Share
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      {...hoverable()}
-                      onClick={() => {
-                        context.close({ restoreFocus: false });
-                        model.startRenaming(item.path);
-                      }}
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      {...hoverable({ color: "var(--destructive)" })}
-                      onClick={() => {
-                        context.close({ restoreFocus: false });
-                        deleteItem(item.path).catch(console.error);
-                      }}
-                    >
-                      {t("common.delete")}
-                    </button>
-                    <div
-                      style={{
-                        height: 1,
-                        background: "var(--border)",
-                        margin: "4px 8px",
+                          .catch(() => window.open(rawURL, "_blank"));
                       }}
                     />
+                    <CtxMenuItem
+                      icon={Download}
+                      label={t("sessions.workspace.download")}
+                      href={rawURL}
+                      download={basename(item.path)}
+                      onSelect={close}
+                    />
+                    {isShareableArtifact(apiPath) && (
+                      <CtxMenuItem
+                        icon={Share2}
+                        label={t("sessions.workspace.share")}
+                        onSelect={() => {
+                          close();
+                          setSharePath({ path: apiPath, scope });
+                        }}
+                      />
+                    )}
                   </>
                 )}
-                <button
-                  type="button"
-                  {...hoverable()}
-                  onClick={() => {
-                    context.close({ restoreFocus: false });
-                    setNewItem({ scope, type: "file" });
+                {!isRoot && (
+                  <>
+                    <CtxMenuItem
+                      icon={PenLine}
+                      label={t("sessions.workspace.rename")}
+                      onSelect={() => {
+                        close();
+                        model.startRenaming(item.path);
+                      }}
+                    />
+                    <CtxMenuItem
+                      icon={Trash2}
+                      label={t("common.delete")}
+                      destructive
+                      onSelect={() => {
+                        close();
+                        deleteItem(item.path).catch(console.error);
+                      }}
+                    />
+                    <div className="mx-2 my-1 h-px bg-border" />
+                  </>
+                )}
+                <CtxMenuItem
+                  icon={FilePlus}
+                  label={t("sessions.workspace.newFile")}
+                  onSelect={() => {
+                    close();
+                    setNewItem({ scope, type: "file", baseRel: newBaseRel });
                   }}
-                >
-                  New file
-                </button>
-                <button
-                  type="button"
-                  {...hoverable()}
-                  onClick={() => {
-                    context.close({ restoreFocus: false });
-                    setNewItem({ scope, type: "dir" });
+                />
+                <CtxMenuItem
+                  icon={FolderPlus}
+                  label={t("sessions.workspace.newFolder")}
+                  onSelect={() => {
+                    close();
+                    setNewItem({ scope, type: "dir", baseRel: newBaseRel });
                   }}
-                >
-                  New folder
-                </button>
+                />
               </div>,
               document.body,
             );
