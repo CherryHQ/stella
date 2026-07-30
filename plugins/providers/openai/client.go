@@ -108,6 +108,10 @@ func (s *sseCommentStripper) Read(p []byte) (int, error) {
 			default:
 				s.done = true
 			}
+			if s.done {
+				// Stop draining as soon as the first normal SSE payload byte is found.
+				break
+			}
 		}
 		if s.done {
 			break
