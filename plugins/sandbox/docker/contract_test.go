@@ -44,7 +44,20 @@ func TestSessionContract(t *testing.T) {
 			t.Skip("docker daemon not reachable; skipping DockerFactory contract test")
 		}
 		dockerPreflightForTest(t, ctx)
-		factory, err := dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage})
+		stellaHome, err := os.MkdirTemp(".", "docker-contract-stella-home-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		stellaHome, err = filepath.Abs(stellaHome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(stellaHome) })
+		factory, err := dockerplugin.NewFactory(dockerplugin.Config{
+			Image:       dockerContractImage,
+			StellaHome:  stellaHome,
+			RuntimeMode: dockerplugin.DockerSandboxModeHost,
+		})
 		if err != nil {
 			t.Fatalf("NewFactory: %v", err)
 		}
@@ -174,9 +187,13 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		if err := os.WriteFile(fromTool, []byte("from-tool"), 0o600); err != nil {
 			t.Fatalf("write tool file: %v", err)
 		}
-		got, err := session.Exec(ctx, `cat "$TMPDIR/from-tool.txt"`, sandbox.ExecOptions{})
+		got, err := session.Exec(ctx, `cat "$TMPDIR/from-tool.txt" && printf from-exec-overwrite > "$TMPDIR/from-tool.txt"`, sandbox.ExecOptions{})
 		if err != nil || got.ExitCode != 0 || got.Stdout != "from-tool" {
-			t.Fatalf("exec read tool file = %+v, %v", got, err)
+			t.Fatalf("exec read/write tool file = %+v, %v", got, err)
+		}
+		data, err := os.ReadFile(fromTool)
+		if err != nil || string(data) != "from-exec-overwrite" {
+			t.Fatalf("file tool read exec overwrite = %q, %v", data, err)
 		}
 
 		got, err = session.Exec(ctx, `printf from-exec > "$TMPDIR/from-exec.txt"`, sandbox.ExecOptions{})
@@ -187,9 +204,31 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		if err != nil {
 			t.Fatalf("ResolvePath(exec file): %v", err)
 		}
-		data, err := os.ReadFile(fromExec)
+		data, err = os.ReadFile(fromExec)
 		if err != nil || string(data) != "from-exec" {
 			t.Fatalf("file tool read exec file = %q, %v", data, err)
+		}
+		if fromExec == fromTool {
+			t.Fatalf("distinct sandbox paths resolved to the same host path %q", fromExec)
+		}
+		if err := os.WriteFile(fromExec, []byte("from-tool-overwrite"), 0o600); err != nil {
+			t.Fatalf("file tool overwrite exec file: %v", err)
+		}
+		data, err = os.ReadFile(fromExec)
+		if err != nil || string(data) != "from-tool-overwrite" {
+			t.Fatalf("host did not observe tool overwrite = %q, %v", data, err)
+		}
+		// Docker Desktop may need a brief propagation window for host overwrites.
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			got, err = session.Exec(ctx, `cat "$TMPDIR/from-exec.txt"`, sandbox.ExecOptions{})
+			if err == nil && got.ExitCode == 0 && got.Stdout == "from-tool-overwrite" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("exec read tool overwrite = %+v, %v", got, err)
+			}
+			time.Sleep(25 * time.Millisecond)
 		}
 	})
 

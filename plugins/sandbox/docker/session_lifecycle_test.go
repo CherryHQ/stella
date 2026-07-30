@@ -198,6 +198,9 @@ func TestCreateSessionStartFailureRemovesOwnedTemp(t *testing.T) {
 	if tempSource == "" {
 		t.Fatal("CreateSession did not configure a /tmp mount")
 	}
+	if got, want := api.createOpts.Config.User, dockerProcessUser(); got != want {
+		t.Errorf("container user = %q, want stellad process user %q", got, want)
+	}
 	if _, err := os.Stat(tempSource); !os.IsNotExist(err) {
 		t.Fatalf("owned fallback temp survives start failure: %v", err)
 	}
