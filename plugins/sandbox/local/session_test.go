@@ -53,6 +53,18 @@ func TestFactory_createSession(t *testing.T) {
 	}
 }
 
+func TestCleanupOwnedTmpMountsLeavesBorrowedMounts(t *testing.T) {
+	owned := t.TempDir()
+	borrowed := t.TempDir()
+	cleanupOwnedTmpMounts([]tmpMount{{realPath: owned, owned: true}, {realPath: borrowed}})
+	if _, err := os.Stat(owned); !os.IsNotExist(err) {
+		t.Fatalf("owned temp remains after cleanup: %v", err)
+	}
+	if _, err := os.Stat(borrowed); err != nil {
+		t.Fatalf("borrowed temp was removed: %v", err)
+	}
+}
+
 func TestLocalSession_closeAndAlive(t *testing.T) {
 	s, _ := newTestSession(t)
 	if !s.Alive() {

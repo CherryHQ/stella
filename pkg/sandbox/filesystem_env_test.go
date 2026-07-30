@@ -22,10 +22,9 @@ func TestApplyFilesystemEnv(t *testing.T) {
 				EnvXDGRuntimeDir: "/run/user/1",
 			},
 			view: FilesystemView{
-				Home:      "/workspace",
-				UserDir:   "/user",
-				AssetsDir: "/user/assets",
-				TempDir:   "/tmp",
+				Home:    "/workspace",
+				UserDir: "/user",
+				TempDir: "/tmp",
 			},
 			want: map[string]string{
 				"TOKEN":            "keep",
@@ -43,10 +42,9 @@ func TestApplyFilesystemEnv(t *testing.T) {
 			name: "group equivalent",
 			env:  map[string]string{},
 			view: FilesystemView{
-				Home:      "/work/group-agent",
-				UserDir:   "/data/group-team",
-				AssetsDir: "/data/group-team/assets",
-				TempDir:   "/scratch/group-agent",
+				Home:    "/work/group-agent",
+				UserDir: "/data/group-team",
+				TempDir: "/scratch/group-agent",
 			},
 			want: map[string]string{
 				EnvHome:            "/work/group-agent",
@@ -76,10 +74,9 @@ func TestApplyFilesystemEnv(t *testing.T) {
 			name: "Windows native view",
 			env:  map[string]string{},
 			view: FilesystemView{
-				Home:      `C:\Stella\agents\agent-1`,
-				UserDir:   `C:\Stella\users\user-1\`,
-				AssetsDir: `C:\Stella\users\user-1\assets`,
-				TempDir:   `C:\Stella\tmp\agent-1`,
+				Home:    `C:\Stella\agents\agent-1`,
+				UserDir: `C:\Stella\users\user-1\`,
+				TempDir: `C:\Stella\tmp\agent-1`,
 			},
 			want: map[string]string{
 				EnvHome:            `C:\Stella\agents\agent-1`,
@@ -96,10 +93,9 @@ func TestApplyFilesystemEnv(t *testing.T) {
 			name: "UNC native view",
 			env:  map[string]string{},
 			view: FilesystemView{
-				Home:      `\\server\share\agents\agent-1`,
-				UserDir:   `\\server\share\users\user-1\`,
-				AssetsDir: `\\server\share\users\user-1\assets`,
-				TempDir:   `\\server\share\tmp\agent-1`,
+				Home:    `\\server\share\agents\agent-1`,
+				UserDir: `\\server\share\users\user-1\`,
+				TempDir: `\\server\share\tmp\agent-1`,
 			},
 			want: map[string]string{
 				EnvHome:            `\\server\share\agents\agent-1`,
@@ -172,21 +168,6 @@ func TestApplyFilesystemEnvRequiresHomeAndTempDir(t *testing.T) {
 	}{
 		{name: "home", view: FilesystemView{TempDir: "/tmp"}, want: EnvHome},
 		{name: "temp", view: FilesystemView{Home: "/workspace"}, want: EnvTempDir},
-		{
-			name: "user root without assets root",
-			view: FilesystemView{Home: "/workspace", UserDir: "/user", TempDir: "/tmp"},
-			want: EnvStellaAssetsDir,
-		},
-		{
-			name: "assets root without user root",
-			view: FilesystemView{Home: "/workspace", AssetsDir: "/user/assets", TempDir: "/tmp"},
-			want: EnvStellaUserDir,
-		},
-		{
-			name: "assets root outside user root",
-			view: FilesystemView{Home: "/workspace", UserDir: "/user", AssetsDir: "/other/assets", TempDir: "/tmp"},
-			want: EnvStellaAssetsDir,
-		},
 	}
 
 	for _, tt := range tests {

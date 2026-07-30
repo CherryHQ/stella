@@ -150,6 +150,8 @@ bubblewrap 必须实际可用，仅安装不够。在未启用 `--privileged` �
 
 `XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_STATE_HOME` 和 `XDG_CACHE_HOME` 由同一用户或群组的 Agent 共享，并由命令行工具托管。它们不是通用的 Agent 存储位置。没有用户/群组根目录时，这四个目录都会回退到 `$HOME` 下。`XDG_RUNTIME_DIR` 未设置。
 
+这些 XDG 目录按 principal 共享，因此落盘的 CLI 登录或配置（其中可能包含凭据）会对该 principal 的所有 Agent 可见。需要按 Agent 隔离认证时，请将凭据存入 [Agent 专属的 Vault scope](/docs/guides/secrets-and-keys)，并使用 CLI 基于环境变量的认证方式，而不是持久化登录。
+
 mise、Lark 和系统目录由其工具托管，不是通用存储位置。
 
 ### 后端路径渲染
@@ -162,13 +164,13 @@ mise、Lark 和系统目录由其工具托管，不是通用存储位置。
 | macOS `local` 和 `none`   | 进程看到实际宿主机路径，而不是重映射后的沙箱路径。                                                                           |
 | Docker 缺少 `/user`       | `$STELLA_ASSETS_DIR` 和 `$STELLA_USER_DIR` 不存在，XDG 目录会回退到 `$HOME`/工作区下。                                       |
 
-Linux `local` 后端可以将按用户或群组划分的临时目录挂载到 `/tmp`。Docker `bind` 和 `host` 模式在该目录对 Docker daemon 可见时也可以这样做，而 `volume` 模式不会挂载该宿主机临时目录。因此，临时目录的生命周期和复用因后端而异；不要承诺其在各后端下具有统一的按用户或按会话持久性。
+Linux `local` 后端可以将按用户或群组划分的临时目录挂载到 `/tmp`。Docker 会在 `$STELLA_HOME/cache/sandbox-tmp/` 下为每个沙箱会话创建私有目录并挂载到 `/tmp`，因此 shell 命令和文件工具访问的是同一份内容。Stella 会在容器移除后删除该目录，并在启动时清理遗留目录。这是临时工作区，不承诺持久性。
 
 隔离型后端还会将系统安装树以只读方式渲染到 `/opt/stella`。其中只挂载 `bin`、`.mise-tools` 和 `.agents/skills` 子树；`STELLA_HOME` 下同级的 `users/` 和 `agents/` 树不会暴露。Docker 后端会将 mise 工具链置于该路径，Linux `local` 则在该路径渲染对应的系统树，因此工具解析在各隔离型后端之间保持一致。`MISE_DATA_DIR` 及相关变量固定指向这个由工具托管的目录树。
 
 ### 升级现有工作区
 
-升级不会移动、合并或删除既有的 Agent 本地 XDG 文件。升级后，遵循 XDG 的命令行工具可能需要为该用户或群组重新设置或登录一次。只有在理解该工具数据的情况下才进行特定工具的手动迁移；缓存可以自行重新生成。
+升级不会移动、合并或删除既有的 Agent 本地 XDG 文件。升级后新建的 CLI 状态按 principal 共享，不再归单个 Agent 私有，因此持久化 CLI 登录会对同一用户或群组的其他 Agent 可见。遵循 XDG 的命令行工具可能需要为该用户或群组重新设置或登录一次。只有在理解该工具数据的情况下才进行特定工具的手动迁移；缓存可以自行重新生成。
 
 ## None 后端
 

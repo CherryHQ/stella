@@ -150,6 +150,8 @@ Use these environment variables in Agent instructions. They are the filesystem A
 
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` are shared by the same user's or group's Agents and managed for command-line tools. They are not general Agent storage. If no user/group root is available, all four fall back under `$HOME`. `XDG_RUNTIME_DIR` is unset.
 
+Because these XDG directories are principal-shared, an on-disk CLI login or configuration — potentially including credentials — is visible to every Agent for that same principal. For per-Agent authentication, store the credential in an Agent-specific [Vault scope](/docs/guides/secrets-and-keys) and use the CLI's environment-based authentication instead of a persistent login.
+
 Mise, Lark, and system directories are tool-managed, not generic storage locations.
 
 ### Backend path rendering
@@ -162,13 +164,13 @@ The following literal paths describe a process view, not the Agent filesystem AP
 | macOS `local` and `none`   | The process sees the actual host paths rather than remapped sandbox paths.                                                                   |
 | Docker without `/user`     | `$STELLA_ASSETS_DIR` and `$STELLA_USER_DIR` are absent, and the XDG directories fall back under `$HOME`/the workspace.                       |
 
-The Linux `local` backend can mount a user/group-scoped temp directory at `/tmp`. Docker `bind` and `host` modes can do so when the directory is visible to the Docker daemon, while `volume` mode does not mount that host temp directory. Temp lifetime and reuse therefore differ by backend; do not promise uniform per-user or per-session persistence.
+The Linux `local` backend can mount a user/group-scoped temp directory at `/tmp`. Docker creates a private directory for every sandbox session under `$STELLA_HOME/cache/sandbox-tmp/` and mounts it at `/tmp`, so shell commands and file tools access the same content. Stella removes the directory after the container is removed and cleans stale directories during startup. This is scratch space, not a durability promise.
 
 Isolating backends also render the system install tree at `/opt/stella` as read-only. Only its `bin`, `.mise-tools`, and `.agents/skills` subtrees are mounted there; the sibling `users/` and `agents/` trees under `STELLA_HOME` are not exposed. The Docker backend bakes its mise toolchain at that path, and Linux `local` renders the matching system tree there, so tool resolution remains consistent across isolating backends. `MISE_DATA_DIR` and related variables stay pinned to that tool-managed tree.
 
 ### Upgrading existing workspaces
 
-Existing Agent-local XDG files are not moved, merged, or deleted during upgrade. XDG-aware command-line tools may need one setup or login for that user or group after upgrading. Perform a tool-specific manual migration only when you understand that tool's data; caches can repopulate.
+Existing Agent-local XDG files are not moved, merged, or deleted during upgrade. New CLI state is principal-shared rather than Agent-private, so persistent CLI logins created after upgrading are visible to the same user’s or group’s other Agents. XDG-aware command-line tools may need one setup or login for that user or group after upgrading. Perform a tool-specific manual migration only when you understand that tool's data; caches can repopulate.
 
 ## None Backend
 

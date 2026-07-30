@@ -2,6 +2,7 @@ package docker_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -148,6 +149,40 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		expected := filepath.Join(policy.Filesystem.WorkingDir, "test.txt")
 		if resolved != expected {
 			t.Errorf("ResolvePath(%q) = %q, want %q", "test.txt", resolved, expected)
+		}
+	})
+
+	t.Run("TempDirSharedByFileToolsAndExec", func(t *testing.T) {
+		session, err := factory.CreateSession(ctx, policy)
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		defer func() { _ = session.Close() }()
+
+		tempDir := session.Policy().Env[sandbox.EnvTempDir]
+		fromTool, err := session.ResolveWritePath(filepath.Join(tempDir, "from-tool.txt"))
+		if err != nil {
+			t.Fatalf("ResolveWritePath(tool file): %v", err)
+		}
+		if err := os.WriteFile(fromTool, []byte("from-tool"), 0o600); err != nil {
+			t.Fatalf("write tool file: %v", err)
+		}
+		got, err := session.Exec(ctx, `cat "$TMPDIR/from-tool.txt"`, sandbox.ExecOptions{})
+		if err != nil || got.ExitCode != 0 || got.Stdout != "from-tool" {
+			t.Fatalf("exec read tool file = %+v, %v", got, err)
+		}
+
+		got, err = session.Exec(ctx, `printf from-exec > "$TMPDIR/from-exec.txt"`, sandbox.ExecOptions{})
+		if err != nil || got.ExitCode != 0 {
+			t.Fatalf("exec write temp file = %+v, %v", got, err)
+		}
+		fromExec, err := session.ResolvePath(filepath.Join(tempDir, "from-exec.txt"))
+		if err != nil {
+			t.Fatalf("ResolvePath(exec file): %v", err)
+		}
+		data, err := os.ReadFile(fromExec)
+		if err != nil || string(data) != "from-exec" {
+			t.Fatalf("file tool read exec file = %q, %v", data, err)
 		}
 	})
 

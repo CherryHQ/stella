@@ -396,18 +396,14 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 // never treated as a human profile subject (D9); plugin/skill sections still use
 // the session's UserID (the group id) so they match the cached group runner.
 func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot, promptUserID, groupID string) {
-	if info.GroupID != "" {
-		if dir, err := SetupGroupWorkspace(config.StellaHome(), info.GroupID, agentID); err == nil {
-			userRoot = dir
-			pm.hydrateAssets(dir)
+	if info.GroupID != "" || info.UserID != "" {
+		if workspace, err := SetupPrincipalWorkspace(config.StellaHome(), info.UserID, info.GroupID, agentID); err == nil {
+			userRoot = workspace.HomeDir
+			pm.hydrateAssets(workspace.HomeDir)
 		}
-		return userRoot, "", info.GroupID
 	}
-	if info.UserID != "" {
-		if dir, err := SetupUserWorkspace(config.StellaHome(), info.UserID, agentID); err == nil {
-			userRoot = dir
-			pm.hydrateAssets(dir)
-		}
+	if info.GroupID != "" {
+		return userRoot, "", info.GroupID
 	}
 	return userRoot, info.UserID, ""
 }

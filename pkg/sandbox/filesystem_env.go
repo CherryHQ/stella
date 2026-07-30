@@ -22,14 +22,13 @@ const (
 
 // FilesystemView is the agent-visible filesystem path view a backend exposes.
 // Its roots are canonical backend views: POSIX sandbox paths or native host
-// paths. UserDir and AssetsDir are optional, but when present AssetsDir must
-// be the UserDir/assets subtree. Without UserDir, persistent XDG directories
-// live under Home. Home and TempDir are required.
+// paths. UserDir is optional; when present, STELLA_ASSETS_DIR is derived as
+// UserDir/assets. Without UserDir, persistent XDG directories live under Home.
+// Home and TempDir are required.
 type FilesystemView struct {
-	Home      string
-	UserDir   string
-	AssetsDir string
-	TempDir   string
+	Home    string
+	UserDir string
+	TempDir string
 }
 
 // ApplyFilesystemEnv applies the agent-facing filesystem contract to env.
@@ -45,17 +44,15 @@ func ApplyFilesystemEnv(env map[string]string, view FilesystemView) error {
 	if view.TempDir == "" {
 		return fmt.Errorf("sandbox: filesystem view requires %s", EnvTempDir)
 	}
-	if (view.UserDir == "") != (view.AssetsDir == "") {
-		return fmt.Errorf("sandbox: filesystem view requires %s and %s together", EnvStellaUserDir, EnvStellaAssetsDir)
-	}
-	if view.UserDir != "" && view.AssetsDir != joinFilesystemRoot(view.UserDir, "assets") {
-		return fmt.Errorf("sandbox: filesystem view requires %s to be the %s/assets subtree", EnvStellaAssetsDir, EnvStellaUserDir)
-	}
 
 	env[EnvHome] = view.Home
 	env[EnvTempDir] = view.TempDir
 	setOptionalEnv(env, EnvStellaUserDir, view.UserDir)
-	setOptionalEnv(env, EnvStellaAssetsDir, view.AssetsDir)
+	assetsDir := ""
+	if view.UserDir != "" {
+		assetsDir = joinFilesystemRoot(view.UserDir, "assets")
+	}
+	setOptionalEnv(env, EnvStellaAssetsDir, assetsDir)
 
 	persistentRoot := view.UserDir
 	if persistentRoot == "" {

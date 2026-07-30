@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"net"
 
 	mobyclient "github.com/moby/moby/client"
 )
@@ -64,7 +65,9 @@ func (noopAPI) ExecCreate(context.Context, string, mobyclient.ExecCreateOptions)
 }
 
 func (noopAPI) ExecAttach(context.Context, string, mobyclient.ExecAttachOptions) (mobyclient.ExecAttachResult, error) {
-	return mobyclient.ExecAttachResult{}, nil
+	clientConn, serverConn := net.Pipe()
+	_ = serverConn.Close()
+	return mobyclient.ExecAttachResult{HijackedResponse: mobyclient.NewHijackedResponse(clientConn, "application/vnd.docker.raw-stream")}, nil
 }
 
 func (noopAPI) ExecInspect(context.Context, string, mobyclient.ExecInspectOptions) (mobyclient.ExecInspectResult, error) {

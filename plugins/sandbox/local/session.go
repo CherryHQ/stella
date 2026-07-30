@@ -82,6 +82,12 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
 	}
+	transferredTmpOwnership := false
+	defer func() {
+		if !transferredTmpOwnership {
+			cleanupOwnedTmpMounts(tmpMounts)
+		}
+	}()
 	policy = f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
 	if err := applyFilesystemEnv(&policy, sandboxRoot, userDataSandbox, tmpMounts); err != nil {
 		return nil, fmt.Errorf("local: apply filesystem environment: %w", err)
@@ -98,6 +104,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		tmpMounts:         tmpMounts,
 		done:              make(chan struct{}),
 	}
+	transferredTmpOwnership = true
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
 }
@@ -190,9 +197,6 @@ func applyFilesystemEnv(policy *sandboxpkg.Policy, home, userDir string, tmpMoun
 		Home:    home,
 		UserDir: userDir,
 		TempDir: filesystemTempDir(tmpMounts),
-	}
-	if userDir != "" {
-		view.AssetsDir = filepath.Join(userDir, "assets")
 	}
 	return sandboxpkg.ApplyFilesystemEnv(policy.Env, view)
 }
@@ -318,12 +322,16 @@ func (s *localSession) Close() error {
 
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "local", "explicit_close")
-	for _, m := range s.tmpMounts {
-		if m.owned {
-			os.RemoveAll(m.realPath) //nolint:errcheck
+	cleanupOwnedTmpMounts(s.tmpMounts)
+	return nil
+}
+
+func cleanupOwnedTmpMounts(mounts []tmpMount) {
+	for _, mount := range mounts {
+		if mount.owned {
+			_ = os.RemoveAll(mount.realPath)
 		}
 	}
-	return nil
 }
 
 // deregisterProcess removes a process handle from the session's tracked list.
@@ -383,12 +391,6 @@ func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath stri
 	return resolved.HostPath, resolved.SandboxPath, nil
 }
 
-// matchingTmpMount returns the tmpMount with the longest sandboxPath that
-// contains sandboxPath, or nil if none match.
-
-// matchingExtraMount returns the longest extra read-only mount that contains
-// resolved, or "" if none match.
-
 func (s *localSession) pathResolver() *sandboxpkg.PathResolver {
 	mounts := append([]sandboxpkg.Mount(nil), s.policy.Filesystem.Mounts...)
 	if len(mounts) == 0 {
@@ -430,13 +432,6 @@ func (s *localSession) stellaHomeSubdirs() [][2]string {
 	}
 	return out
 }
-
-// pathWithinRoot reports whether path is the root itself or is contained under it.
-
-// rejectLocalSymlinkTraversal rejects any symlink component at or below the
-// workspace root. For non-existent targets, checking stops at the first missing
-// component so creating new files still works unless an existing parent is a
-// symlink.
 
 // toRealPath translates a sandbox-space absolute path to the real host path.
 // When sandboxRoot == realRoot (no remapping), it is a no-op.

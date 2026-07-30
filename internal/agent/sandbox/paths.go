@@ -13,16 +13,15 @@ type Paths struct {
 	StellaHome string
 	AgentRoot  string
 	UserRoot   string
-	// WorkspaceRoot is the agent's workspace root — the sandbox HOME and cwd in
-	// the two-root layout. During the migration it tracks UserRoot (the user home)
-	// and no consumer reads it yet; a later phase flips it to the per-agent dir.
+	// WorkspaceRoot is the agent's private workspace root — sandbox HOME and cwd
+	// in the two-root layout.
 	WorkspaceRoot string
-	// UserDataDir is the shared user-data root (mounted as /user). Filled from
-	// UserRoot/data; not yet consumed during the migration.
+	// UserDataDir is the shared principal data root, mounted as /user by
+	// isolating backends.
 	UserDataDir string
 	ProjectRoot string
-	// WorkDir is the initial working directory inside the sandbox.
-	// Set by ResolvePaths to the absolute form of UserRoot.
+	// WorkDir is the initial working directory: WorkspaceRoot, or ProjectRoot
+	// when that project is contained by the agent workspace.
 	WorkDir string
 }
 

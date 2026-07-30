@@ -40,7 +40,7 @@ type PromptProjectStore interface {
 }
 
 type PromptWorkspace interface {
-	SetupUserWorkspace(stellaHome, userID, agentID string) (string, error)
+	SetupPrincipalWorkspace(stellaHome, userID, groupID, agentID string) (homeDir, agentDir string, err error)
 }
 
 type PromptPlugins interface {
@@ -122,9 +122,11 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	}
 
 	userRoot := ""
-	if info.UserID != "" && info.AgentID != "" {
-		if root, err := b.deps.Workspace.SetupUserWorkspace(b.deps.StellaHome, info.UserID, info.AgentID); err == nil {
-			userRoot = root
+	workspaceRoot := agentCfg.Workspace
+	if (info.UserID != "" || info.GroupID != "") && info.AgentID != "" {
+		if homeDir, agentDir, err := b.deps.Workspace.SetupPrincipalWorkspace(b.deps.StellaHome, info.UserID, info.GroupID, info.AgentID); err == nil {
+			userRoot = homeDir
+			workspaceRoot = agentDir
 		}
 	}
 
@@ -140,10 +142,6 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	pluginView, err := b.deps.Plugins.SessionPluginView(ctx)
 	if err != nil {
 		return "", fmt.Errorf("%w: session plugin view: %w", ErrUnavailable, err)
-	}
-	workspaceRoot := agentCfg.Workspace
-	if userRoot != "" {
-		workspaceRoot = agent.AgentDirInHome(userRoot, info.AgentID)
 	}
 	promptBuild := pkgplugins.SystemPromptContext{
 		StellaHome:          b.deps.StellaHome,
@@ -168,11 +166,16 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		promptSections = append(promptSections, skillsSection)
 	}
 
+	promptUserID := info.UserID
+	if info.GroupID != "" {
+		promptUserID = ""
+	}
 	return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 		SystemPrompt: agentCfg.SystemPrompt,
 		Memory:       b.deps.Memory,
-		UserID:       info.UserID,
+		UserID:       promptUserID,
 		AgentID:      info.AgentID,
+		GroupID:      info.GroupID,
 		StellaHome:   b.deps.StellaHome,
 		AgentRoot:    agentCfg.Workspace,
 		UserRoot:     userRoot,
@@ -212,6 +215,7 @@ func (s *SQLPromptProjectStore) ProjectRoot(ctx context.Context, userID, project
 // AgentPromptWorkspace adapts the agent workspace materializer to the prompt port.
 type AgentPromptWorkspace struct{}
 
-func (AgentPromptWorkspace) SetupUserWorkspace(stellaHome, userID, agentID string) (string, error) {
-	return agent.SetupUserWorkspace(stellaHome, userID, agentID)
+func (AgentPromptWorkspace) SetupPrincipalWorkspace(stellaHome, userID, groupID, agentID string) (string, string, error) {
+	workspace, err := agent.SetupPrincipalWorkspace(stellaHome, userID, groupID, agentID)
+	return workspace.HomeDir, workspace.AgentDir, err
 }

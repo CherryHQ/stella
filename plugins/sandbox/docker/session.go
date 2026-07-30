@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -49,8 +50,16 @@ func logSessionClosed(sessionID, backend, reason string) {
 // dockerFactory creates docker-backed sandbox sessions.
 type dockerFactory struct {
 	cfg                Config
+	clientFn           func() (*dockerclient.Client, error)
 	cleanupOrphansOnce sync.Once
 	toolCacheGCOnce    sync.Once
+}
+
+func (f *dockerFactory) client() (*dockerclient.Client, error) {
+	if f.clientFn != nil {
+		return f.clientFn()
+	}
+	return getSharedClient()
 }
 
 // NewFactory returns a Factory backed by a Docker container-per-session strategy.
@@ -91,11 +100,21 @@ func (f *dockerFactory) Name() string { return "docker" }
 // runtime dependency — the moby SDK talks to the socket directly — so this
 // builds a client and pings ServerVersion with a short timeout.
 func (f *dockerFactory) Available() bool {
-	c, err := dockerclient.New()
+	var (
+		c   *dockerclient.Client
+		err error
+	)
+	if f.clientFn != nil {
+		c, err = f.clientFn()
+	} else {
+		c, err = dockerclient.New()
+		if err == nil {
+			defer func() { _ = c.Close() }()
+		}
+	}
 	if err != nil {
 		return false
 	}
-	defer func() { _ = c.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, err = c.Version(ctx)
@@ -126,14 +145,18 @@ func (f *dockerFactory) EnsureReady(ctx context.Context) error {
 		if scope == "" {
 			return
 		}
-		client, err := getSharedClient()
+		client, err := f.client()
 		if err != nil {
 			return
 		}
+		// Reap containers before their owned temp directories. A directory is
+		// deleted only after this pass confirms no scoped container still names
+		// its session, so startup never unmounts a live session's /tmp backing.
 		dockerclient.CleanupOrphanedContainers(ctx, client, scope)
+		cleanupStaleSessionTempDirs(ctx, client, scope, f.cfg.StellaHome)
 	})
 	f.toolCacheGCOnce.Do(func() {
-		client, err := getSharedClient()
+		client, err := f.client()
 		if err != nil {
 			return
 		}
@@ -159,11 +182,24 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	}
 
 	sessionID := nextSessionID()
+	policy.Filesystem.Mounts = normalizeDockerPolicyMounts(policy.Filesystem.Mounts)
 
 	workspaceHost, err := filepath.Abs(policy.WorkspaceRootOrDefault())
 	if err != nil {
 		return nil, fmt.Errorf("docker session: abs workspace root: %w", err)
 	}
+
+	tempDir, err := f.prepareSessionTempDir(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	transferredTempOwnership := false
+	defer func() {
+		if !transferredTempOwnership {
+			_ = os.RemoveAll(tempDir)
+		}
+	}()
+	policy.Filesystem.TempDirHost = tempDir
 
 	// Shared user-data root (mounted as /user). Empty for a user-less job, which
 	// has no principal home — then no /user mount and STELLA_USER_DIR stays unset.
@@ -182,15 +218,14 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	networkMode := mapNetworkMode(policy)
 
 	// Get the shared client.
-	client, err := getSharedClient()
+	client, err := f.client()
 	if err != nil {
 		recordError(span, err)
 		span.End()
 		return nil, fmt.Errorf("docker session: client: %w", err)
 	}
 
-	stellaHome := policy.Env["STELLA_HOME"]
-	cleanupScope := f.cfg.cleanupScope(stellaHome)
+	cleanupScope := f.cfg.cleanupScope(f.cfg.StellaHome)
 	opts := dockerclient.CreateOptions{
 		Image:          f.cfg.Image,
 		WorkspaceHost:  workspaceHost,
@@ -331,10 +366,12 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		mountTable:   mountTable,
 		envPathMaps:  envMaps,
 		toolBinPaths: toolBinPaths,
+		ownedTempDir: tempDir,
 		done:         make(chan struct{}),
 		traceSpan:    span,
 	}
 	session.host = &dockerHost{session: session}
+	transferredTempOwnership = true
 
 	logSessionCreated(sessionID, "docker", policy)
 	go session.watchContainer()
@@ -347,7 +384,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 // mounted user-data host ("" when /user could not be mounted, so callers don't
 // wire a /user that isn't really there).
 func (f *dockerFactory) configureSessionMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost, userDataHost string) ([]sandboxpkg.Mount, string, string, error) {
-	policy.Filesystem.Mounts = cleanPolicySandboxPaths(policy.Filesystem.Mounts)
 	if len(policy.Filesystem.Mounts) == 0 {
 		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: workspaceHost, SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite})
 	}
@@ -355,19 +391,19 @@ func (f *dockerFactory) configureSessionMounts(opts *dockerclient.CreateOptions,
 		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: userDataHost, SandboxPath: userDataMount, Access: sandboxpkg.MountReadWrite})
 	}
 	if f.cfg.RuntimeMode == DockerSandboxModeVolume {
-		mounted, mountedUserDataHost, err := f.configureVolumeMounts(opts, policy, workspaceHost, userDataHost)
-		return mounted, "", mountedUserDataHost, err
+		mounted, mountedTempDirHost, mountedUserDataHost, err := f.configureVolumeMounts(opts, policy, workspaceHost, userDataHost)
+		return mounted, mountedTempDirHost, mountedUserDataHost, err
 	}
 	return f.configureBindMounts(opts, policy, workspaceHost, userDataHost)
 }
 
-func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost, userDataHost string) ([]sandboxpkg.Mount, string, error) {
+func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost, userDataHost string) ([]sandboxpkg.Mount, string, string, error) {
 	workspaceSubpath, ok := relativePathWithin(f.cfg.StellaHome, workspaceHost)
 	if !ok {
-		return nil, "", fmt.Errorf("docker session: workspace %q is not inside STELLA_HOME %q; cannot use volume mode", workspaceHost, f.cfg.StellaHome)
+		return nil, "", "", fmt.Errorf("docker session: workspace %q is not inside STELLA_HOME %q; cannot use volume mode", workspaceHost, f.cfg.StellaHome)
 	}
 	if workspaceSubpath == "." {
-		return nil, "", fmt.Errorf("docker session: workspace must be a subdirectory of STELLA_HOME, not STELLA_HOME itself")
+		return nil, "", "", fmt.Errorf("docker session: workspace must be a subdirectory of STELLA_HOME, not STELLA_HOME itself")
 	}
 	opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
 		HostPath:      f.cfg.StellaHomeVolume,
@@ -402,8 +438,22 @@ func (f *dockerFactory) configureVolumeMounts(opts *dockerclient.CreateOptions, 
 			appendWorkspaceRelativeReadOnlyMount(opts, f.cfg.StellaHomeVolume, m.HostPath, workspaceHost, subpath, dockerclient.MountTypeVolume)
 		}
 	}
+	mountedTempDirHost := ""
+	if policy.Filesystem.TempDirHost != "" {
+		tmpSubpath, ok := relativePathWithin(f.cfg.StellaHome, policy.Filesystem.TempDirHost)
+		if !ok || tmpSubpath == "." {
+			return nil, "", "", fmt.Errorf("docker session: temp directory %q is not a STELLA_HOME subdirectory in volume mode", policy.Filesystem.TempDirHost)
+		}
+		opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
+			HostPath:      f.cfg.StellaHomeVolume,
+			ContainerPath: "/tmp",
+			Type:          dockerclient.MountTypeVolume,
+			VolumeSubpath: filepath.ToSlash(tmpSubpath),
+		})
+		mountedTempDirHost = policy.Filesystem.TempDirHost
+	}
 	opts.WorkspaceHost = ""
-	return mounted, mountedUserDataHost, nil
+	return mounted, mountedTempDirHost, mountedUserDataHost, nil
 }
 
 func (f *dockerFactory) configureBindMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost, userDataHost string) ([]sandboxpkg.Mount, string, string, error) {
@@ -475,12 +525,15 @@ func relativePathWithin(root, path string) (string, bool) {
 	return rel, true
 }
 
-// cleanContainerPath canonicalizes a path consumed by the Linux container.
+// cleanContainerPath canonicalizes a value at a Linux-container path boundary.
 func cleanContainerPath(containerPath string) string {
 	return path.Clean(strings.ReplaceAll(containerPath, "\\", "/"))
 }
 
-func cleanPolicySandboxPaths(mounts []sandboxpkg.Mount) []sandboxpkg.Mount {
+// normalizeDockerPolicyMounts canonicalizes the container-space half of the
+// policy exactly once at CreateSession's boundary. Host paths retain native
+// semantics and must not be normalized as POSIX paths.
+func normalizeDockerPolicyMounts(mounts []sandboxpkg.Mount) []sandboxpkg.Mount {
 	out := append([]sandboxpkg.Mount(nil), mounts...)
 	for i := range out {
 		out[i].SandboxPath = cleanContainerPath(out[i].SandboxPath)
@@ -488,60 +541,102 @@ func cleanPolicySandboxPaths(mounts []sandboxpkg.Mount) []sandboxpkg.Mount {
 	return out
 }
 
-// containerPathRel returns the cleaned relative path when target is within root.
-// The path package has no Rel equivalent, so compare normalized Linux paths.
-func containerPathRel(root, target string) (string, bool) {
-	root = cleanContainerPath(root)
-	target = cleanContainerPath(target)
-	if target == root {
-		return ".", true
-	}
-	if root == "/" {
-		if after, ok := strings.CutPrefix(target, "/"); ok {
-			return after, true
+// Docker sessions always own a private temp directory. The parent is private to
+// stellad, while the mounted directory uses normal /tmp permissions because the
+// sandbox image UID need not match the host stellad UID.
+func (f *dockerFactory) prepareSessionTempDir(sessionID string) (string, error) {
+	var dir string
+	if f.cfg.StellaHome != "" {
+		root := filepath.Join(f.cfg.StellaHome, "cache", "sandbox-tmp")
+		if err := sandboxpkg.EnsurePrivateDir(root); err != nil {
+			return "", fmt.Errorf("docker session: create temp root: %w", err)
 		}
-		return "", false
+		dir = filepath.Join(root, sessionID)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			return "", fmt.Errorf("docker session: create temp directory: %w", err)
+		}
+	} else {
+		var err error
+		dir, err = os.MkdirTemp("", "stella-sandbox-tmp-"+sessionID+"-")
+		if err != nil {
+			return "", fmt.Errorf("docker session: create temp directory: %w", err)
+		}
 	}
-	if after, ok := strings.CutPrefix(target, root+"/"); ok {
-		return after, true
+	if err := os.Chmod(dir, os.ModeSticky|0o777); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("docker session: set temp permissions: %w", err)
 	}
-	return "", false
+	return dir, nil
+}
+
+const staleSessionTempMinimumAge = time.Hour
+
+// cleanupStaleSessionTempDirs removes only old owned fallback directories that
+// are not referenced by any scoped Docker container. The age gate closes the
+// race with a concurrently starting peer that has made its directory but has
+// not yet created its container.
+func cleanupStaleSessionTempDirs(ctx context.Context, client *dockerclient.Client, scope, stellaHome string) {
+	if stellaHome == "" {
+		return
+	}
+	active, err := client.SessionIDsWithContainers(ctx, scope)
+	if err != nil {
+		slog.Warn("docker session: skip stale temp cleanup", "error", err)
+		return
+	}
+	root := filepath.Join(stellaHome, "cache", "sandbox-tmp")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("docker session: read stale temp directory", "path", root, "error", err)
+		}
+		return
+	}
+	cutoff := time.Now().Add(-staleSessionTempMinimumAge)
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "sandbox-") {
+			continue
+		}
+		if _, live := active[entry.Name()]; live {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		stalePath := filepath.Join(root, entry.Name())
+		if err := os.RemoveAll(stalePath); err != nil {
+			slog.Warn("docker session: remove stale temp directory", "path", stalePath, "error", err)
+		}
+	}
 }
 
 func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) string {
-	clean := cleanContainerPath(sandboxPath)
 	for _, m := range mounts {
-		if cleanContainerPath(m.SandboxPath) == clean {
+		if m.SandboxPath == sandboxPath {
 			return m.HostPath
 		}
 	}
 	return ""
 }
 
-// applyDockerFilesystemEnv renders the host-side roots which translate to the
-// container view. When no host temp mount is available, /tmp is container-local
-// scratch and translateEnvPaths preserves that exact fallback.
+// applyDockerFilesystemEnv renders process-view roots that translate through
+// the actual mount table. tempDirHost is required: Docker never publishes an
+// unmounted /tmp because host-side file tools must resolve the same bytes.
 func applyDockerFilesystemEnv(env map[string]string, workspaceHost, userDataHost, tempDirHost string) error {
-	view := sandboxpkg.FilesystemView{
+	return sandboxpkg.ApplyFilesystemEnv(env, sandboxpkg.FilesystemView{
 		Home:    workspaceHost,
 		UserDir: userDataHost,
 		TempDir: tempDirHost,
-	}
-	if userDataHost != "" {
-		view.AssetsDir = filepath.Join(userDataHost, "assets")
-	}
-	if view.TempDir == "" {
-		view.TempDir = "/tmp"
-	}
-	return sandboxpkg.ApplyFilesystemEnv(env, view)
+	})
 }
 
 func dockerMountProvidedByImage(m sandboxpkg.Mount) bool {
-	containerPath := cleanContainerPath(m.SandboxPath)
+	containerPath := m.SandboxPath
 	if !strings.HasPrefix(containerPath, stellaHomeMount+"/") {
 		return false
 	}
-	rel, ok := containerPathRel(stellaHomeMount, containerPath)
+	rel, ok := sandboxpkg.POSIXPathRelative(stellaHomeMount, containerPath)
 	if !ok {
 		return false
 	}
@@ -552,7 +647,6 @@ func dockerMountProvidedByImage(m sandboxpkg.Mount) bool {
 func nonWorkspacePolicyMounts(mounts []sandboxpkg.Mount) []sandboxpkg.Mount {
 	out := make([]sandboxpkg.Mount, 0, len(mounts))
 	for _, m := range mounts {
-		m.SandboxPath = cleanContainerPath(m.SandboxPath)
 		if m.SandboxPath == workspaceMount || dockerMountProvidedByImage(m) {
 			continue
 		}
@@ -592,37 +686,9 @@ type writableMount struct {
 	Container string
 }
 
-// mountPerUserToolTrees mounts each policy writable mount (the per-user mise
-// tree) into the container at its /opt/stella-remapped path, RW, and returns the
-// mounted pairs. Mode-aware: a volume subpath in volume mode, a daemon bind
-// otherwise. Mounts outside STELLA_HOME are skipped (the remap can't place them).
-func (f *dockerFactory) mountPerUserToolTrees(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy) []writableMount {
-	var mounted []writableMount
-	for _, m := range cleanPolicySandboxPaths(policy.Filesystem.Mounts) {
-		if m.Access != sandboxpkg.MountReadWrite || m.SandboxPath == workspaceMount || m.SandboxPath == userDataMount {
-			continue
-		}
-		sub, ok := relativePathWithin(f.cfg.StellaHome, m.HostPath)
-		if !ok || sub == "." {
-			logSkippedSandboxMount(f.cfg.RuntimeMode, m.HostPath, "writable mount is outside STELLA_HOME and cannot be remapped")
-			continue
-		}
-		if f.cfg.RuntimeMode == DockerSandboxModeVolume {
-			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{HostPath: f.cfg.StellaHomeVolume, ContainerPath: m.SandboxPath, Type: dockerclient.MountTypeVolume, VolumeSubpath: filepath.ToSlash(sub)})
-		} else if daemonPath, ok := f.cfg.daemonPath(m.HostPath); ok {
-			opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{HostPath: daemonPath, ContainerPath: m.SandboxPath})
-		} else {
-			logSkippedSandboxMount(f.cfg.RuntimeMode, m.HostPath, "writable mount is not visible to the Docker daemon")
-			continue
-		}
-		mounted = append(mounted, writableMount{Host: m.HostPath, Container: m.SandboxPath})
-	}
-	return mounted
-}
-
 func writableToolTrees(mounts []sandboxpkg.Mount) []writableMount {
 	out := []writableMount{}
-	for _, m := range cleanPolicySandboxPaths(mounts) {
+	for _, m := range mounts {
 		if m.Access == sandboxpkg.MountReadWrite && m.SandboxPath != workspaceMount && m.SandboxPath != userDataMount {
 			out = append(out, writableMount{Host: m.HostPath, Container: m.SandboxPath})
 		}
@@ -655,7 +721,7 @@ func buildMountTable(opts mountTableOptions) []dockerclient.Mount {
 	if len(opts.Mounts) == 0 {
 		mounts = append(mounts, dockerclient.Mount{HostPath: opts.WorkspaceHost, ContainerPath: cleanContainerPath(opts.WorkspaceMount)})
 	} else {
-		for _, m := range cleanPolicySandboxPaths(opts.Mounts) {
+		for _, m := range opts.Mounts {
 			mounts = append(mounts, dockerclient.Mount{
 				HostPath:      m.HostPath,
 				ContainerPath: m.SandboxPath,
@@ -669,8 +735,6 @@ func buildMountTable(opts mountTableOptions) []dockerclient.Mount {
 	return mounts
 }
 
-// mergeEnv merges policy environment and per-call overrides into a map.
-// NEVER inherits host environment — that is a host-process concept, not a container concept.
 // withServerURL returns env with STELLA_SERVER_URL set to url, cloning so the
 // caller's map is untouched. A blank url returns env unchanged (local/host
 // backends keep the 127.0.0.1 default).
@@ -721,13 +785,6 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount, e
 		if _, drop := hostOnlyEnvKeys[k]; drop {
 			continue
 		}
-		// A container always provides /tmp. Preserve only this explicit TMPDIR
-		// fallback when no host temp mount exists; other unmounted absolute paths
-		// still fail closed below.
-		if k == sandboxpkg.EnvTempDir && v == "/tmp" {
-			out[k] = v
-			continue
-		}
 		// MISE_TRUSTED_CONFIG_PATHS is a path-list, not a scalar path; translate
 		// each element and keep the ones that map (a host path with no container
 		// view, like a backend-irrelevant entry, is dropped). Mirrors the local
@@ -767,12 +824,12 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount, e
 }
 
 // translateEnvPath rewrites a single absolute host path to its container view via
-// the mount table, then the env prefix maps. A non-absolute value passes through
-// unchanged. A value that is already a container path (e.g. the literal
-// "/workspace" mise trusts) passes through too. An absolute host path with no
-// container view is reported as not ok so the caller drops it.
+// the mount table, then the env prefix maps. A non-path value passes through
+// unchanged. Leading-slash values are path-like on every host because the target
+// container is always Linux. A value already under a mounted container path
+// passes through; any other absolute path is dropped.
 func translateEnvPath(v string, mountTable []dockerclient.Mount, envMaps []envPathMap) (string, bool) {
-	if !filepath.IsAbs(v) {
+	if !filepath.IsAbs(v) && !strings.HasPrefix(v, "/") {
 		return v, true
 	}
 	if container, err := toContainerPath(mountTable, v); err == nil {
@@ -860,6 +917,7 @@ type dockerSession struct {
 	mountTable   []dockerclient.Mount
 	envPathMaps  []envPathMap
 	toolBinPaths []string
+	ownedTempDir string
 	host         *dockerHost
 	done         chan struct{}
 	doneOnce     sync.Once
@@ -951,24 +1009,75 @@ func (s *dockerSession) watchContainer() {
 	}
 }
 
-func (s *dockerSession) closeFromWatcher(reason string, err error) {
+func (s *dockerSession) closeFromWatcher(reason string, livenessErr error) {
 	if !s.markClosed() {
 		return
 	}
 
-	s.mu.Lock()
-	s.closeErr = nil
-	s.mu.Unlock()
-
-	s.endTrace(reason, err)
-	logSessionClosed(s.id, "docker", reason)
-	s.closeDone()
-
+	s.clearContainerTemp()
 	reapCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if stopErr := s.client.Stop(reapCtx, s.containerID); stopErr != nil {
-		slog.Warn("docker session: failed to reap exited container", "session_id", s.id, "container_id", s.containerID, "error", stopErr)
+	closeErr := s.client.Stop(reapCtx, s.containerID)
+	if closeErr != nil {
+		slog.Warn("docker session: failed to reap exited container", "session_id", s.id, "container_id", s.containerID, "error", closeErr)
+	} else if err := s.cleanupOwnedTempDir(); err != nil {
+		closeErr = err
 	}
+	s.finishClose(reason, closeErr, errors.Join(livenessErr, closeErr))
+}
+
+// clearContainerTemp lets the image user open and remove trees it owns. Making
+// those trees traversable also lets host cleanup reach nested host-tool-owned
+// entries after Stop. Clearing nested sticky bits is essential: otherwise host
+// cleanup could traverse a container-owned tree but still be unable to unlink a
+// container-owned child. The two ownership passes work without container caps.
+func (s *dockerSession) clearContainerTemp() {
+	if s.ownedTempDir == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := s.client.Exec(ctx, dockerclient.ExecOptions{
+		ContainerID: s.containerID,
+		Command: []string{
+			"/bin/sh", "-c",
+			`chmod -R a+rwx,a-t -- /tmp/* /tmp/.[!.]* /tmp/..?* 2>/dev/null || true; rm -rf -- /tmp/* /tmp/.[!.]* /tmp/..?*`,
+		},
+		Cwd: "/",
+	})
+	exitCode := -1
+	if result != nil {
+		exitCode = result.ExitCode
+	}
+	if err != nil || exitCode != 0 {
+		slog.Warn("docker session: container temp pre-clean failed",
+			"session_id", s.id,
+			"container_id", s.containerID,
+			"exit_code", exitCode,
+			"error", err,
+		)
+	}
+}
+
+func (s *dockerSession) cleanupOwnedTempDir() error {
+	if s.ownedTempDir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(s.ownedTempDir); err != nil {
+		return fmt.Errorf("docker session: remove owned temp directory %q: %w", s.ownedTempDir, err)
+	}
+	return nil
+}
+
+// finishClose publishes the final cleanup result before Done closes. Losers of
+// markClosed wait on Done, so this assignment establishes their result boundary.
+func (s *dockerSession) finishClose(reason string, closeErr, traceErr error) {
+	s.mu.Lock()
+	s.closeErr = closeErr
+	s.mu.Unlock()
+	s.endTrace(reason, traceErr)
+	logSessionClosed(s.id, "docker", reason)
+	s.closeDone()
 }
 
 // Close stops the container and marks the session closed.
@@ -983,17 +1092,14 @@ func (s *dockerSession) Close() error {
 		return closeErr
 	}
 
+	s.clearContainerTemp()
 	stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	closeErr := s.client.Stop(stopCtx, s.containerID)
-
-	s.mu.Lock()
-	s.closeErr = closeErr
-	s.mu.Unlock()
-
-	s.closeDone()
-	s.endTrace("explicit_close", closeErr)
-	logSessionClosed(s.id, "docker", "explicit_close")
+	if closeErr == nil {
+		closeErr = s.cleanupOwnedTempDir()
+	}
+	s.finishClose("explicit_close", closeErr, closeErr)
 	return closeErr
 }
 
@@ -1073,11 +1179,11 @@ func toHostPath(mounts []dockerclient.Mount, containerPath string) (string, bool
 	bestMount := dockerclient.Mount{}
 	found := false
 	for _, m := range mounts {
-		rel, ok := containerPathRel(m.ContainerPath, containerPath)
+		rel, ok := sandboxpkg.POSIXPathRelative(m.ContainerPath, containerPath)
 		if !ok {
 			continue
 		}
-		if !found || len(cleanContainerPath(m.ContainerPath)) > len(cleanContainerPath(bestMount.ContainerPath)) {
+		if !found || len(m.ContainerPath) > len(bestMount.ContainerPath) {
 			bestRel = rel
 			bestMount = m
 			found = true
@@ -1091,20 +1197,6 @@ func toHostPath(mounts []dockerclient.Mount, containerPath string) (string, bool
 	}
 	return filepath.Join(bestMount.HostPath, bestRel), true
 }
-
-// rejectSymlinkTraversal errors if any component of `path` at or below its
-// matching mount root is a symlink. Ancestors above the mount root are
-// host infrastructure (e.g. macOS `/tmp → /private/tmp`) and not
-// agent-controllable, so they are not checked. Components at or below the
-// mount root are agent-writable and any symlink there is either
-// agent-planted or unexpected — both are rejected.
-
-// deepestMountRoot returns the longest-prefix mount HostPath that contains
-// `path`, or "" if no mount covers it. Mirrors the selection rule in
-// toContainerPath so both agree on which mount owns a given path.
-
-// deepestMount returns the mount with the longest HostPath prefix containing
-// path, or nil if no mount covers it.
 
 // ResolveWritePath is like ResolvePath but additionally rejects paths that
 // fall within a read-only mount.

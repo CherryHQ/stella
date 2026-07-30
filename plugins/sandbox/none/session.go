@@ -85,9 +85,6 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) (sandboxpkg.Policy, err
 		tmpDir = os.TempDir()
 	}
 	view := sandboxpkg.FilesystemView{Home: workspace, UserDir: userData, TempDir: tmpDir}
-	if userData != "" {
-		view.AssetsDir = filepath.Join(userData, "assets")
-	}
 	if err := sandboxpkg.ApplyFilesystemEnv(env, view); err != nil {
 		return sandboxpkg.Policy{}, err
 	}

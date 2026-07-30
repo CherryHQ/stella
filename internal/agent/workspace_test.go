@@ -105,6 +105,45 @@ func TestSetupAgentWorkspaceEmptyID(t *testing.T) {
 	}
 }
 
+func TestSetupPrincipalWorkspaceSelectsGroupBeforeUser(t *testing.T) {
+	base := t.TempDir()
+	for _, tt := range []struct {
+		name            string
+		userID, groupID string
+		wantHome        string
+		wantErr         bool
+	}{
+		{name: "personal", userID: "u1", wantHome: UserHomeDir(base, "u1")},
+		{name: "group", userID: "u1", groupID: "g1", wantHome: GroupHomeDir(base, "g1")},
+		{name: "user-less", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			workspace, err := SetupPrincipalWorkspace(base, tt.userID, tt.groupID, "a1")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("SetupPrincipalWorkspace succeeded without a principal")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if workspace.HomeDir != tt.wantHome {
+				t.Errorf("HomeDir = %q, want %q", workspace.HomeDir, tt.wantHome)
+			}
+			if want := filepath.Join(tt.wantHome, "data"); workspace.DataDir != want {
+				t.Errorf("DataDir = %q, want %q", workspace.DataDir, want)
+			}
+			if want := filepath.Join(tt.wantHome, "agents", "a1"); workspace.AgentDir != want {
+				t.Errorf("AgentDir = %q, want %q", workspace.AgentDir, want)
+			}
+			if _, err := os.Stat(workspace.AgentDir); err != nil {
+				t.Fatalf("agent directory not materialized: %v", err)
+			}
+		})
+	}
+}
+
 func TestSetupUserWorkspace(t *testing.T) {
 	base := t.TempDir()
 	userDir, err := SetupUserWorkspace(base, "42", "agent-1")

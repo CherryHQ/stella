@@ -63,34 +63,10 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 }
 
 func remapStellaHomePolicyPath(hostPath, stellaHome string) string {
-	hostPathForCompare := path.Clean(strings.ReplaceAll(hostPath, "\\", "/"))
-	stellaHomeForCompare := path.Clean(strings.ReplaceAll(stellaHome, "\\", "/"))
-	if hostPathForCompare == stellaHomeForCompare {
-		return pkgsandbox.MountStellaHome
-	}
-	if rel, ok := posixPathRel(stellaHomeForCompare, hostPathForCompare); ok {
+	if rel, ok := pkgsandbox.POSIXPathRelative(stellaHome, hostPath); ok {
 		return path.Join(pkgsandbox.MountStellaHome, rel)
 	}
 	return hostPath
-}
-
-// posixPathRel returns the cleaned relative path when target is within root.
-// path has no Rel equivalent, so containment must be checked after normalizing
-// both Windows-style and POSIX separators.
-func posixPathRel(root, target string) (string, bool) {
-	if target == root {
-		return ".", true
-	}
-	if root == "/" {
-		if after, ok := strings.CutPrefix(target, "/"); ok {
-			return after, true
-		}
-		return "", false
-	}
-	if after, ok := strings.CutPrefix(target, root+"/"); ok {
-		return after, true
-	}
-	return "", false
 }
 
 // systemDBSkillsDirHost returns the host path of the DB-installed system-scope

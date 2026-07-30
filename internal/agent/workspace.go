@@ -76,6 +76,38 @@ func SetupAgentWorkspace(base, agentID string) (string, error) {
 	return dir, nil
 }
 
+// PrincipalWorkspace is the materialized on-disk layout for one user or group.
+// GroupID takes precedence because group sessions also carry UserID == GroupID.
+type PrincipalWorkspace struct {
+	HomeDir  string
+	DataDir  string
+	AgentDir string
+}
+
+// SetupPrincipalWorkspace selects the session principal, materializes its home,
+// and returns its shared and per-agent roots. A group is always selected before
+// a user so a group ID can never resolve to the same home as a user ID.
+func SetupPrincipalWorkspace(base, userID, groupID, agentID string) (PrincipalWorkspace, error) {
+	var home string
+	switch {
+	case groupID != "":
+		home = GroupHomeDir(base, groupID)
+	case userID != "":
+		home = UserHomeDir(base, userID)
+	default:
+		return PrincipalWorkspace{}, fmt.Errorf("principal ID must not be empty")
+	}
+	workspace := PrincipalWorkspace{
+		HomeDir:  home,
+		DataDir:  UserDataDir(home),
+		AgentDir: AgentDirInHome(home, agentID),
+	}
+	if _, err := setupHome(workspace.HomeDir, workspace.AgentDir, agentID); err != nil {
+		return PrincipalWorkspace{}, err
+	}
+	return workspace, nil
+}
+
 // SetupUserWorkspace ensures a user home and the per-(user, agent) area exist.
 // Creates the shared data subtree (including .agents/skills and assets) and the
 // agent's private subdir (where its projects live). Returns the user home
@@ -85,7 +117,8 @@ func SetupUserWorkspace(base, userID, agentID string) (string, error) {
 	if userID == "" {
 		return "", fmt.Errorf("user ID must not be empty")
 	}
-	return setupHome(UserHomeDir(base, userID), UserAgentDir(base, userID, agentID), agentID)
+	workspace, err := SetupPrincipalWorkspace(base, userID, "", agentID)
+	return workspace.HomeDir, err
 }
 
 // SetupGroupWorkspace mirrors SetupUserWorkspace for a group account.
@@ -93,7 +126,8 @@ func SetupGroupWorkspace(base, groupID, agentID string) (string, error) {
 	if groupID == "" {
 		return "", fmt.Errorf("group ID must not be empty")
 	}
-	return setupHome(GroupHomeDir(base, groupID), GroupAgentDir(base, groupID, agentID), agentID)
+	workspace, err := SetupPrincipalWorkspace(base, "", groupID, agentID)
+	return workspace.HomeDir, err
 }
 
 // setupHome creates the shared home directories and, when agentDir is non-empty,
