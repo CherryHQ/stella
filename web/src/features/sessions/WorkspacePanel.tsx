@@ -695,7 +695,9 @@ function UnifiedTree({
           loadedPathSet.current.add(display);
           added.push(display);
         }
-        for (const nextPath of added) model.add(nextPath);
+        // One batch → one model notification, so the expansion-scan
+        // subscription runs once per fetch instead of once per added path.
+        if (added.length > 0) model.batch(added.map((path) => ({ type: "add" as const, path })));
         loadedDirSet.current.add(dir);
       } catch (e) {
         console.error(e);
