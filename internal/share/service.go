@@ -30,12 +30,13 @@ import (
 const MaxShareSize = 25 * 1024 * 1024
 
 var (
-	ErrPathEscapes     = errors.New("path escapes workspace root")
-	ErrTooLarge        = errors.New("file is too large to share")
-	ErrUnsupportedType = errors.New("unsupported artifact type")
-	ErrDirectory       = errors.New("path is a directory")
-	ErrNoContent       = errors.New("article has no content")
-	ErrInvalidInput    = errors.New("invalid input")
+	ErrPathEscapes         = errors.New("path escapes workspace root")
+	ErrTooLarge            = errors.New("file is too large to share")
+	ErrUnsupportedType     = errors.New("unsupported artifact type")
+	ErrDirectory           = errors.New("path is a directory")
+	ErrNoContent           = errors.New("article has no content")
+	ErrInvalidInput        = errors.New("invalid input")
+	ErrInvalidArtifactPath = fmt.Errorf("invalid artifact path: %w", ErrInvalidInput)
 )
 
 type Service struct {

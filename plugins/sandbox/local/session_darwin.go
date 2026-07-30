@@ -14,6 +14,7 @@ package local
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -60,29 +61,34 @@ func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string
 	return "", ""
 }
 
-// createSessionTmpMounts returns tmpMount pairs for macOS temp paths.
-// On macOS, /tmp and /var/tmp are symlinks into /private; sandbox-exec cannot
-// bind-mount, so this maps file-tool access to the policy temp dir while shell
-// commands still run on the host filesystem.
-//
-// To add support for a new sandbox temp path:
-//  1. Resolve its symlink target and append a tmpMount{sandboxPath, realPath, owned}.
-//  2. Add a corresponding allow rule in buildSeatbeltProfile if writes are needed.
-func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
-	resolve := func(p, fallback string) string {
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			return r
-		}
-		return fallback
+// createSessionTmpMounts returns session-private host directories for the macOS
+// temporary roots. Seatbelt has no bind mounts, so TMPDIR names the real backing
+// directory and the profile grants access to that exact path.
+func createSessionTmpMounts() ([]tmpMount, error) {
+	tmp, err := os.MkdirTemp("", "stella-session-tmp-*")
+	if err != nil {
+		return nil, err
 	}
-	tmp := policy.Filesystem.TempDirHost
-	if tmp == "" {
-		tmp = resolve("/tmp", "/private/tmp")
+	varTmp, err := os.MkdirTemp("", "stella-session-vartmp-*")
+	if err != nil {
+		os.RemoveAll(tmp) //nolint:errcheck
+		return nil, err
 	}
 	return []tmpMount{
-		{sandboxPath: "/tmp", realPath: tmp},
-		{sandboxPath: "/var/tmp", realPath: resolve("/var/tmp", "/private/var/tmp")},
+		{sandboxPath: "/tmp", realPath: tmp, owned: true},
+		{sandboxPath: "/var/tmp", realPath: varTmp, owned: true},
 	}, nil
+}
+
+// filesystemTempDir returns the macOS process view: Seatbelt has no path
+// remapping, so TMPDIR must name the real directory backing /tmp.
+func filesystemTempDir(mounts []tmpMount) string {
+	for _, mount := range mounts {
+		if mount.sandboxPath == "/tmp" && mount.realPath != "" {
+			return mount.realPath
+		}
+	}
+	return os.TempDir()
 }
 
 // adjustStellaHome returns the sandbox-view STELLA_HOME directory.

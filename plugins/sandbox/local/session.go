@@ -63,10 +63,9 @@ type tmpMount struct {
 	owned       bool   // true when the session created this directory and should remove it on close
 }
 
-// CreateSession creates a new localSession.
-// If a StellaHome was provided via Config, the factory adjusts the policy env
-// with a sandboxed PATH, HOME, and an allowlist of host variables so callers
-// don't need to know about host-execution specifics.
+// CreateSession creates a new localSession. The factory always sets HOME and
+// XDG roots for the local filesystem view; when Config provides StellaHome, it
+// also builds a sandboxed PATH and copies the host-variable allowlist.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	sessionID := sandboxpkg.NewSessionID()
 	if err := checkSandboxRequirements(); err != nil {
@@ -74,16 +73,24 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	}
 
 	hostStellaHome := f.cfg.StellaHome
-	// Resolve the sandbox-space root first: adjustPolicy needs it to point HOME
-	// and the XDG dirs at the user home as the agent sees it. resolveSandboxRoot
-	// reads only WorkspaceRoot, which adjustPolicy leaves untouched.
+	// Resolve the backend's filesystem roots first. The temporary mounts must be
+	// created before applying the filesystem environment because macOS exposes
+	// their real host path as TMPDIR.
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
-	policy = f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
-
-	tmpMounts, err := createSessionTmpMounts(policy)
+	tmpMounts, err := createSessionTmpMounts()
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
+	}
+	transferredTmpOwnership := false
+	defer func() {
+		if !transferredTmpOwnership {
+			cleanupOwnedTmpMounts(tmpMounts)
+		}
+	}()
+	policy = f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
+	if err := applyFilesystemEnv(&policy, sandboxRoot, userDataSandbox, tmpMounts); err != nil {
+		return nil, fmt.Errorf("local: apply filesystem environment: %w", err)
 	}
 	s := &localSession{
 		id:                sessionID,
@@ -97,6 +104,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		tmpMounts:         tmpMounts,
 		done:              make(chan struct{}),
 	}
+	transferredTmpOwnership = true
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
 }
@@ -104,15 +112,16 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 // adjustPolicy applies local-backend-specific environment adjustments.
 // sandboxRoot/realRoot are the sandbox-space and host views of the agent
 // workspace; userDataSandbox/userDataReal are the same for the shared user-data
-// root (empty when none). HOME and the XDG dirs are anchored to the sandbox-space
-// views so the agent sees a clean /workspace + /user pair.
+// root (empty when none). Filesystem roots are applied afterwards, once the
+// temporary mounts establish the process TMPDIR view.
 func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, userDataSandbox, userDataReal string) sandboxpkg.Policy {
-	if f.cfg.StellaHome == "" {
-		return policy
-	}
 	env := maps.Clone(policy.Env)
 	if env == nil {
 		env = make(map[string]string)
+	}
+	if f.cfg.StellaHome == "" {
+		policy.Env = env
+		return policy
 	}
 	sandboxSH := adjustStellaHome(f.cfg.StellaHome)
 	hostSH := f.cfg.StellaHome
@@ -136,16 +145,6 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 		userShims = sandboxpkg.MiseUserShimsDir(remapMise(dir))
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
-	// HOME is the agent workspace (/workspace), so XDG config/data/state default
-	// under it and stay private to this agent; only the cache is shared, pointed at
-	// the user-data root (/user). The project dir stays the cwd; only HOME differs.
-	env["HOME"] = sandboxRoot
-	setXDGDirs(env, sandboxRoot, userDataSandbox)
-	if userDataSandbox != "" {
-		// The shared user-data root, exposed so the agent (and skills/uploads) can
-		// address it without learning the host users/{id} layout.
-		env["STELLA_USER_DIR"] = userDataSandbox
-	}
 	env["STELLA_HOME"] = sandboxSH
 	// lark-cli's native config and token store live under the user's shared data
 	// root. Rewrite their host paths to the /user sandbox view.
@@ -191,27 +190,15 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	return policy
 }
 
-// setXDGDirs points the agent's XDG config/data/state under its $HOME (the agent
-// workspace), so each agent's credentials and state (e.g. ~/.config/gh) stay
-// private to it — the workspace is per-agent and siblings are never mounted. The
-// cache is pointed at the shared user-data root (userData, the sandbox-space
-// /user) so toolchain/download caches are reused across the user's agents. When
-// userData is "" (a user-less session with no shared root) the cache falls back
-// to $HOME so nothing is shared.
-//
-// NOTE: /user is a shared writable trust domain for all of one user's agents, not
-// an isolation boundary — a tool that writes credentials into its cache would
-// expose them to the user's other agents. Credentials belong under the private
-// XDG config/data/state (HOME), which is why only the cache is shared here.
-func setXDGDirs(env map[string]string, home, userData string) {
-	cacheHome := home
-	if userData != "" {
-		cacheHome = userData
+// applyFilesystemEnv renders the filesystem contract in the local process
+// view after temporary mounts have been created.
+func applyFilesystemEnv(policy *sandboxpkg.Policy, home, sharedDataDir string, tmpMounts []tmpMount) error {
+	view := sandboxpkg.FilesystemView{
+		Home:          home,
+		SharedDataDir: sharedDataDir,
+		TempDir:       filesystemTempDir(tmpMounts),
 	}
-	env["XDG_CACHE_HOME"] = filepath.Join(cacheHome, ".cache")
-	env["XDG_CONFIG_HOME"] = filepath.Join(home, ".config")
-	env["XDG_DATA_HOME"] = filepath.Join(home, ".local", "share")
-	env["XDG_STATE_HOME"] = filepath.Join(home, ".local", "state")
+	return sandboxpkg.ApplyFilesystemEnv(policy.Env, view)
 }
 
 // remapToSandboxRoot rewrites a host path under realRoot to its sandbox-space
@@ -333,14 +320,18 @@ func (s *localSession) Close() error {
 		p.Close() //nolint:errcheck
 	}
 
+	cleanupOwnedTmpMounts(s.tmpMounts)
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "local", "explicit_close")
-	for _, m := range s.tmpMounts {
-		if m.owned {
-			os.RemoveAll(m.realPath) //nolint:errcheck
+	return nil
+}
+
+func cleanupOwnedTmpMounts(mounts []tmpMount) {
+	for _, mount := range mounts {
+		if mount.owned {
+			_ = os.RemoveAll(mount.realPath)
 		}
 	}
-	return nil
 }
 
 // deregisterProcess removes a process handle from the session's tracked list.
@@ -400,12 +391,6 @@ func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath stri
 	return resolved.HostPath, resolved.SandboxPath, nil
 }
 
-// matchingTmpMount returns the tmpMount with the longest sandboxPath that
-// contains sandboxPath, or nil if none match.
-
-// matchingExtraMount returns the longest extra read-only mount that contains
-// resolved, or "" if none match.
-
 func (s *localSession) pathResolver() *sandboxpkg.PathResolver {
 	mounts := append([]sandboxpkg.Mount(nil), s.policy.Filesystem.Mounts...)
 	if len(mounts) == 0 {
@@ -447,13 +432,6 @@ func (s *localSession) stellaHomeSubdirs() [][2]string {
 	}
 	return out
 }
-
-// pathWithinRoot reports whether path is the root itself or is contained under it.
-
-// rejectLocalSymlinkTraversal rejects any symlink component at or below the
-// workspace root. For non-existent targets, checking stops at the first missing
-// component so creating new files still works unless an existing parent is a
-// symlink.
 
 // toRealPath translates a sandbox-space absolute path to the real host path.
 // When sandboxRoot == realRoot (no remapping), it is a no-op.
@@ -698,6 +676,7 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 
 	maps.Copy(merged, policy.Env)
 	maps.Copy(merged, overrides)
+	delete(merged, "STELLA_USER_DIR")
 
 	env := make([]string, 0, len(merged))
 	for k, v := range merged {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -11,8 +12,11 @@ import (
 
 type stubHost struct {
 	pkgsandbox.Session
+	policy      pkgsandbox.Policy
 	resolvePath func(path string) (string, error)
 }
+
+func (s *stubHost) Policy() pkgsandbox.Policy { return s.policy }
 
 func (s *stubHost) ResolvePath(path string) (string, error) {
 	if s.resolvePath != nil {
@@ -23,6 +27,26 @@ func (s *stubHost) ResolvePath(path string) (string, error) {
 
 func (s *stubHost) ResolveWritePath(path string) (string, error) {
 	return s.ResolvePath(path)
+}
+
+type policylessHost struct{ pkgsandbox.Session }
+
+func (s *policylessHost) ResolvePath(path string) (string, error)      { return path, nil }
+func (s *policylessHost) ResolveWritePath(path string) (string, error) { return path, nil }
+
+func TestLiteralToolPathsDoNotRequireSessionPolicy(t *testing.T) {
+	host := &policylessHost{}
+	for _, path := range []string{filepath.Join(t.TempDir(), "literal.txt"), "relative.txt"} {
+		for _, resolve := range []func(pkgsandbox.Host, string, string) (string, error){resolveToolPath, resolveWritableToolPath} {
+			got, err := resolve(host, "", path)
+			if err != nil {
+				t.Fatalf("resolve literal path: %v", err)
+			}
+			if got != path {
+				t.Errorf("resolved literal path = %q, want %q", got, path)
+			}
+		}
+	}
 }
 
 func TestToolIntArg(t *testing.T) {
@@ -128,6 +152,135 @@ func TestWriteTool_CreatesFile(t *testing.T) {
 	}
 	if string(got) != "data" {
 		t.Errorf("file content = %q, want %q", string(got), "data")
+	}
+}
+
+type resolverHost struct {
+	pkgsandbox.Session
+	policy   pkgsandbox.Policy
+	resolver *pkgsandbox.PathResolver
+}
+
+func (s *resolverHost) Policy() pkgsandbox.Policy { return s.policy }
+
+func (s *resolverHost) ResolvePath(path string) (string, error) {
+	resolved, err := s.resolver.ResolvePath(path)
+	return resolved.HostPath, err
+}
+
+func (s *resolverHost) ResolveWritePath(path string) (string, error) {
+	resolved, err := s.resolver.ResolveWritePath(path)
+	return resolved.HostPath, err
+}
+
+func TestFileToolPathDescriptionsUseSemanticRoots(t *testing.T) {
+	for _, definition := range ToolDefinitions() {
+		if definition.Name != "read" && definition.Name != "write" && definition.Name != "edit" {
+			continue
+		}
+		properties := definition.InputSchema["properties"].(map[string]any)
+		path := properties["path"].(map[string]any)
+		description := path["description"].(string)
+		for _, want := range []string{"Relative paths are working/project files", "$HOME", "$STELLA_ASSETS_DIR", "$TMPDIR"} {
+			if !strings.Contains(description, want) {
+				t.Errorf("%s path description = %q, missing %q", definition.Name, description, want)
+			}
+		}
+		for _, want := range []string{"Default work to $HOME", "final user deliverables in $STELLA_ASSETS_DIR when available"} {
+			if !strings.Contains(description, want) {
+				t.Errorf("%s path description = %q, missing %q", definition.Name, description, want)
+			}
+		}
+	}
+}
+
+func TestToolPathsExpandSandboxViewAndRemainConfined(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	userData := filepath.Join(t.TempDir(), "user")
+	tmp := filepath.Join(t.TempDir(), "tmp")
+	for _, dir := range []string{workspace, filepath.Join(userData, "assets"), tmp} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(userData, "assets", "upload.txt"), []byte("uploaded"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "edit.txt"), []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	host := &resolverHost{
+		policy: pkgsandbox.Policy{Env: map[string]string{
+			pkgsandbox.EnvHome:            "/workspace",
+			pkgsandbox.EnvStellaAssetsDir: "/user/assets",
+			pkgsandbox.EnvTempDir:         "/tmp",
+		}},
+		resolver: pkgsandbox.NewPathResolver(pkgsandbox.PathResolverConfig{
+			WorkspaceRoot: workspace,
+			WorkingDir:    workspace,
+			Mounts: []pkgsandbox.Mount{
+				{HostPath: workspace, SandboxPath: "/workspace", Access: pkgsandbox.MountReadWrite},
+				{HostPath: userData, SandboxPath: "/user", Access: pkgsandbox.MountReadWrite},
+				{HostPath: tmp, SandboxPath: "/tmp", Access: pkgsandbox.MountReadWrite},
+			},
+		}),
+	}
+
+	read, err := newReadTool(host, "").Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
+	if err != nil || read != "uploaded" {
+		t.Fatalf("read assets = %q, %v; want uploaded", read, err)
+	}
+	if _, err := newWriteTool(host, "").Execute(context.Background(), map[string]any{"path": "$HOME/output.txt", "content": "written"}); err != nil {
+		t.Fatalf("write HOME: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(workspace, "output.txt")); err != nil || string(got) != "written" {
+		t.Fatalf("HOME output = %q, %v", got, err)
+	}
+	if _, err := newEditTool(host, "").Execute(context.Background(), map[string]any{"path": "$TMPDIR/edit.txt", "old_string": "before", "new_string": "after"}); err != nil {
+		t.Fatalf("edit TMPDIR: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(tmp, "edit.txt")); err != nil || string(got) != "after" {
+		t.Fatalf("TMPDIR edit = %q, %v", got, err)
+	}
+	if _, err := newWriteTool(host, "").Execute(context.Background(), map[string]any{"path": "$HOME/../escape.txt", "content": "nope"}); err == nil {
+		t.Fatal("write accepted traversal outside the sandbox workspace")
+	}
+}
+
+func TestToolPathsExpandHostViewBeforeProjectResolution(t *testing.T) {
+	workspace := t.TempDir()
+	project := filepath.Join(workspace, "project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	host := &stubHost{policy: pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvHome: workspace}}}
+	if _, err := newWriteTool(host, project).Execute(context.Background(), map[string]any{"path": "$HOME/output.txt", "content": "written"}); err != nil {
+		t.Fatalf("write HOME: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(workspace, "output.txt")); err != nil || string(got) != "written" {
+		t.Fatalf("HOME output = %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(project, "$HOME")); !os.IsNotExist(err) {
+		t.Fatalf("project has literal $HOME directory: %v", err)
+	}
+}
+
+func TestToolPathsRejectInvalidLeadingVariablesBeforeWriting(t *testing.T) {
+	root := t.TempDir()
+	host := &stubHost{policy: pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvHome: root}}}
+	for _, path := range []string{"$UNKNOWN/file.txt", "$STELLA_ASSETS_DIR/file.txt", "${HOME"} {
+		t.Run(path, func(t *testing.T) {
+			if _, err := newWriteTool(host, "").Execute(context.Background(), map[string]any{"path": path, "content": "nope"}); err == nil {
+				t.Fatalf("write %q succeeded", path)
+			}
+		})
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("invalid paths created files: %v", entries)
 	}
 }
 

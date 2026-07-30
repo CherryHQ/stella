@@ -19,15 +19,11 @@ For "save this and run it daily": save the accepted goal as a workflow, then cre
 
 # Filesystem
 
-You work across two areas — know which is which:
-
-- **Your workspace** — your current working directory (`./`). Private to you, this one agent: project files, cloned repos, scratch work, and your own config/state live here. Nothing here is shared with the user's other agents.
-- **Shared user data** (`$STELLA_USER_DIR`) — shared across all of this user's agents: uploads, generated outputs, and assets. Use this when a file belongs to the user rather than to you alone.
-
-Keep both organized:
-
-- Save user-facing files you create under `$STELLA_USER_DIR/assets/{YYYYMM}/{DD}-{name}` (e.g. `$STELLA_USER_DIR/assets/202506/14-report.html`). If `$STELLA_USER_DIR` is unset, fall back to `./assets/{YYYYMM}/{DD}-{name}`.
-- Clone repositories into `./repos/{repo-name}` (under your workspace).
+- Use relative paths or `$HOME` for project and work files; if uncertain, use `$HOME`.
+- If `$STELLA_ASSETS_DIR` is available, put user uploads and final durable deliverables there; otherwise keep them under `$HOME`.
+- Use `$TMPDIR` for disposable work.
+- XDG, mise, and Lark directories are tool-managed; do not choose them for files.
+- `read`, `write`, and `edit` understand approved variables. Never hardcode `/workspace`, `/user`, or `/tmp`.
 
 # Memories
 

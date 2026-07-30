@@ -96,10 +96,13 @@ func RuntimeMiseEnv(stellaHome, userDataDir, workspaceDir string) map[string]str
 	env["MISE_TRUSTED_CONFIG_PATHS"] = strings.Join(trusted, string(filepath.ListSeparator))
 
 	if userDataDir == "" {
-		// No writable per-user tree: keep runtime off the network and redirect
-		// state off the read-only system tree, as before.
+		// No writable per-user tree: keep runtime off the network. Mutable config,
+		// cache, and state follow the backend-rendered XDG roots under Agent HOME;
+		// only the read-only system data/install tree remains pinned explicitly.
+		delete(env, "MISE_CONFIG_DIR")
+		delete(env, "MISE_CACHE_DIR")
+		delete(env, "MISE_STATE_DIR")
 		env["MISE_NOT_FOUND_AUTO_INSTALL"] = "false"
-		env["MISE_STATE_DIR"] = "/tmp/mise-state"
 	} else {
 		env["MISE_NOT_FOUND_AUTO_INSTALL"] = "true"
 	}
