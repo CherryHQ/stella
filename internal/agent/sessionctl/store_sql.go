@@ -36,10 +36,12 @@ func (s sqlNonceStore) Create(ctx context.Context, n Nonce) error {
 	if n.ID == "" {
 		n.ID = uuid.Must(uuid.NewV7()).String()
 	}
-	// Spent and expired rows for this chat are dead weight; dropping them as the
-	// next one is written keeps the table bounded without a background sweeper.
-	// The scope is one binding, so the delete stays small and indexed.
-	if err := s.q.DeleteExpiredSessionRotationNonceForBinding(ctx, n.BindingKey); err != nil {
+	// Every nonce leaves the table one of two ways: Claim deletes it, or it
+	// expires and this sweep collects it. Sweeping globally rather than per
+	// binding is what actually bounds the table — a binding that asks once and
+	// never returns would otherwise keep its expired row forever — and
+	// idx_agent_session_rotation_nonce_expires_at serves the predicate.
+	if err := s.q.DeleteExpiredSessionRotationNonce(ctx); err != nil {
 		s.log.WarnContext(ctx, "failed to prune spent session rotation nonces", "error", err)
 	}
 	if _, err := s.q.CreateSessionRotationNonce(ctx, sqlc.CreateSessionRotationNonceParams{
@@ -72,6 +74,9 @@ func (s sqlNonceStore) Get(ctx context.Context, id string) (Nonce, error) {
 	return nonceFromRow(row), nil
 }
 
+// Claim spends a nonce. The claim query deletes the row and returns it, so the
+// single-use gate and the cleanup are the same statement: whoever gets the row
+// back is the only caller that may rotate, and no spent row is left behind.
 func (s sqlNonceStore) Claim(ctx context.Context, id string) (Nonce, error) {
 	if s.q == nil {
 		return Nonce{}, fmt.Errorf("sessionctl: sql queries are required")

@@ -73,6 +73,10 @@ and one shared database serve them all in sequence:
   on the send stream, then finish and [DONE] — the turn never hangs.
 - `goal_lifecycle` — a Goal driven from creation to autonomous acceptance by the
   dispatcher's async workers.
+- `group_new_session` — a Web group's session reset: a typed `/new` rotates the
+  group session without entering the event log, the ingest watermark survives so
+  the successor starts clean, and the `session_control` tool's two-phase
+  confirmation (request in one turn, confirm in the next) rotates again.
 - `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
   from ready, an attach subscription is drain-cancelled, the pinned turn still
   completes on its stream (full text, finish, [DONE]), and the process exits 0.
@@ -104,8 +108,10 @@ The fake **never branches on prompt prose** — only stable request fields (mode
 tool names, the `goal_control` action enum) select a response, so ordinary prompt
 edits can never turn into a system-test failure. It has two scripting modes:
 
-- **FIFO text** (`enqueueText`) — an ordered queue of plain-text turns replayed in
-  arrival order; used by `chat_sse`. An unscripted request fails the test.
+- **FIFO turns** (`enqueueText`, `enqueueTool`) — an ordered queue replayed in
+  arrival order; used by `chat_sse` and `group_new_session`. A turn that calls a
+  tool is two entries: the tool call, then the text that ends the turn after the
+  tool result. An unscripted request fails the test.
 - **goal_control variant match** (`enqueueGoalControl`) — responses keyed by the
   `goal_control` action the server advertises in the request's tool schema
   (`decompose`, `submit`), matched on that stable field rather than arrival order;

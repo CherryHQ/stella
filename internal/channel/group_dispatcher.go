@@ -586,6 +586,13 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		agentName = a.Name
 	}
 	stream, err := d.chat(ownedCtx, claimed, message, state)
+	if errors.Is(err, errGroupTurnSuperseded) {
+		// The trigger was consumed by a session boundary while this row waited
+		// (restart after `/new`, or a redundant re-execution). Running it now
+		// would leak a pre-reset message into the successor session; there is
+		// nothing left to do but retire the row.
+		return d.completeDispatch(ctx, claimed)
+	}
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
@@ -775,14 +782,36 @@ func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDis
 	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, nil
 }
 
+// errGroupTurnSuperseded reports that a dispatch row's trigger message sits at
+// or below the agent's ingest cursor: a session rotation (or a completed later
+// turn) already consumed it. The row is finished work, not a failure.
+var errGroupTurnSuperseded = errors.New("group turn superseded by the agent's ingest cursor")
+
 func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 	if d.coord == nil {
 		return nil, errors.New("coordinator not configured")
 	}
+	// This runs inside the per-(agent,group) queue — the same queue that
+	// serializes `/new` — so the cursor read cannot interleave with a rotation:
+	// either the rotation committed first and its boundary is visible here, or
+	// this turn runs first and the rotation waits. Checking outside the queue
+	// would reopen exactly the race this closes: a dispatch row restarted after
+	// a rotation would run a pre-reset trigger against the successor session.
+	cursor, err := d.q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
+		GroupID:  row.GroupID,
+		Pipeline: memory.GroupIngestPipeline(row.AgentID),
+	})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// No cursor yet: nothing has been consumed, the turn runs.
+	case err != nil:
+		return nil, fmt.Errorf("read group ingest cursor: %w", err)
+	case message.Seq <= cursor.LastSeq:
+		return nil, errGroupTurnSuperseded
+	}
 	ctx = memory.WithGroupSeq(ctx, message.Seq)
 	content := groupMessageContentBlocks(message)
 	var stream *pkgchannel.ChatStream
-	var err error
 	if state.Platform == "web" {
 		stream, err = d.chatWeb(ctx, row, message)
 	} else {

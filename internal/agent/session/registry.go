@@ -30,6 +30,11 @@ var ErrArchived = errors.New("session is archived")
 // rotation with one errors.Is check regardless of which layer detected it.
 var ErrStaleRotation = memory.ErrStaleRotation
 
+// ErrRotationOutcomeUnknown is returned when a rotation failed at commit
+// acknowledgement and may or may not have been persisted. See
+// memory.ErrRotationOutcomeUnknown.
+var ErrRotationOutcomeUnknown = memory.ErrRotationOutcomeUnknown
+
 // Registry is the sole owner of agent-session lifecycle.
 // It creates, resumes, lists, and archives sessions; it also converts validated
 // session records into memory operation scopes.
@@ -372,6 +377,15 @@ func (r *Registry) currentChannelLocked(ctx context.Context, req ChannelRequest)
 		bound, err := r.bindChannelInfo(matches[0], req)
 		if err != nil {
 			return Info{}, false, err
+		}
+		// bindChannelInfo backfills a legacy row's binding fields in memory only.
+		// Persist them here, exactly as the legacy fallback below does: every later
+		// resolve reads the durable row, so an adoption that stays in memory is
+		// re-done on every turn and the row's group ownership never becomes real.
+		if bound.Channel != matches[0].Channel || bound.GroupID != matches[0].GroupID {
+			if err := r.store.save(ctx, bound); err != nil {
+				return Info{}, false, fmt.Errorf("persist adopted chat channel binding: %w", err)
+			}
 		}
 		return bound, true, nil
 	}

@@ -78,13 +78,19 @@ Read the relevant reference file for detailed guidance:
 
 Available in CLI, Telegram, QQ, Feishu, and WeChat:
 
-| Command    | Description                  |
-| ---------- | ---------------------------- |
-| `/new`     | Compact conversation context |
-| `/compact` | Compact conversation context |
-| `/model`   | Switch model interactively   |
-| `/agent`   | List or switch agents        |
-| `/whoami`  | Show your user/chat ID       |
+| Command    | Description                                                              |
+| ---------- | ------------------------------------------------------------------------ |
+| `/new`     | Start a fresh session; the previous one is archived and stays searchable |
+| `/compact` | Compress the current session in place (same session, shorter context)    |
+| `/model`   | Switch model interactively                                               |
+| `/agent`   | List or switch agents                                                    |
+| `/whoami`  | Show your user/chat ID                                                   |
+
+In a group, each agent keeps its own session: `/new` resets the only agent
+present, and a group with several agents needs `/new @agent`. `/compact` does not
+apply in groups. The `/new` command never enters the group's shared history, and
+the reset is also a message boundary: anything the group said before it is
+never carried into the fresh session, even if that agent had not read it yet.
 
 ## Stella tools
 
@@ -99,6 +105,7 @@ recally tool                    # agent reading, feed, and entry actions
 scheduler tool                  # agent schedule management
 goal tool                       # agent async goal management
 workflow tool                   # agent workflow save/list/get/run
+session_control tool            # chat channels only: request_new/confirm_new (user must agree in a later message), compact
 ```
 
 Humans start and update Stella with `stellad server` and `stellad upgrade`, then manage runtime state in the Web UI.
@@ -144,13 +151,13 @@ Memory, scheduler, goals, vault, OAuth connections, Recally, email, and sharing 
 - **Session snapshots**: Active sessions use a frozen memory version for identity/constraints/facts. Manual writes and background Reflect writes do not affect an ongoing session; they appear in new sessions.
 - **Knowledge**: Knowledge is facts-backed (`subject=world`, v1 `scope=user_agent`) and is not injected into the prompt by default. Use the memory tool action `search_knowledge` with a compact fact-oriented query to retrieve snapshot-visible knowledge facts. Skills do not store fact/context knowledge and must not use `metadata.knowledge_type`. Background Structured Reflect may generate and reconcile durable `subject=world` facts; normal session tools must not write facts or use skills as a substitute knowledge write path.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
-- **Memory retrieval**: The `memory` tool provides `search` (searches all of this user+agent's past sessions — keyword matching, blended with semantic similarity when embedding is enabled; each hit carries its origin session and content timestamp), `search_knowledge` (searches snapshot-visible `subject=world` facts), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
+- **Memory retrieval**: The `memory` tool provides `search` (searches all past sessions of this conversation's owner+agent — the user in a direct chat, the group in a group chat — keyword matching, blended with semantic similarity when embedding is enabled; each hit carries its origin session and content timestamp), `search_knowledge` (searches snapshot-visible `subject=world` facts), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
 - **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract and a human-readable timeline (author with the `goal` tool when available; you may also be dispatched as a worker), **workflows** to reuse an accepted composite goal's frozen plan as fresh goal runs, and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks. Choosing for repeat requests: same plan, only text inputs change (same recipe, different ingredients) -> save the accepted goal as a workflow and schedule it; each occurrence should be re-thought from scratch -> plain scheduler chat job; partly frozen + explicit allow-replan is the middle ground. Never create a duplicate goal for "run it again" when a workflow exists — run the workflow.
 - **Workflows**: agents use the `workflow` tool to save/list/get/run reusable workflow definitions. For "save this goal and run it every morning", save the accepted goal first, then schedule the workflow; users can inspect workflow-backed runs in the Web UI.
 - **Scheduler**: agents use the `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs, including workflow jobs when exposed. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Goals tab/Tasks tab schedule surfaces), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Vault/OAuth/Recally/Email/Share**: agents use built-in tools. OAuth connect returns a verification URI and user code; give those to the user, wait for authorization, then poll status with the returned flow id. Recally save requires the agent to fetch article content first. Email send requires explicit user confirmation and an idempotency key. Share creates public links only when the user asks.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
-- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
+- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact` (or the `session_control` action `compact`). Configurable in settings. Compaction keeps the same session; `/new` instead rotates the chat onto a fresh session and archives the old one, which stays searchable through memory.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.
 - **Vault secrets**: scope-matching vault secrets are already available as sandbox environment variables by name. Never print secret values; use the `vault` tool or Web UI to inspect secret metadata.
 - **GitHub CLI authorization**: `gh` uses Stella's GitHub OAuth connection and receives a refreshed runtime token.

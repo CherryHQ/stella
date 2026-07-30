@@ -833,3 +833,63 @@ func (q *Queries) UpdateConversationTitleBySessionID(ctx context.Context, arg Up
 	)
 	return err
 }
+
+const updateConversationTurnMetaBySessionID = `-- name: UpdateConversationTurnMetaBySessionID :execrows
+UPDATE ctx_conversation
+SET
+  title = CASE
+    WHEN (title IS NULL OR title = '') AND $1::text IS NOT NULL THEN $1
+    ELSE title
+  END,
+  channel = CASE
+    WHEN channel = '' AND $2::text IS NOT NULL THEN $2
+    ELSE channel
+  END,
+  group_id = CASE
+    WHEN group_id IS NULL AND $3::uuid IS NOT NULL THEN $3
+    ELSE group_id
+  END,
+  last_active = now(),
+  updated_at = now()
+WHERE session_id = $4
+  AND user_id = $5
+  AND agent_id IS NOT DISTINCT FROM $6
+  AND archived = false
+`
+
+type UpdateConversationTurnMetaBySessionIDParams struct {
+	Title     pgtype.Text `json:"title"`
+	Channel   pgtype.Text `json:"channel"`
+	GroupID   pgtype.Text `json:"group_id"`
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
+}
+
+// The turn path's only write to a conversation row, guarded on that row still
+// being active. A rotation (`/new`, or the session_control tool) can archive the
+// session after a turn resolved it — auto-compaction widens that window to
+// minutes — and UpdateConversationInfoBySessionID would replay the turn-start
+// snapshot's `archived = false` over it. A resurrected kind=chat row then wins
+// its binding's newest-match lookup and drags the chat back into a conversation
+// the user already left. So this statement never mentions `archived`, `kind`, or
+// `project_id`, and `archived = false` in the predicate makes the check and the
+// write one atomic step: zero rows means the chat has moved on.
+//
+// Title, channel, and group_id are adopted only into a blank stored value, so a
+// rename or a rebind that landed mid-turn is never clobbered by the turn's stale
+// snapshot either.
+func (q *Queries) UpdateConversationTurnMetaBySessionID(ctx context.Context, arg UpdateConversationTurnMetaBySessionIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateConversationTurnMetaBySessionID,
+		arg.Title,
+		arg.Channel,
+		arg.GroupID,
+		arg.SessionID,
+		arg.UserID,
+		arg.AgentID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

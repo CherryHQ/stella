@@ -23,8 +23,9 @@ For those shortcuts, keep them short and command-like.
 
 Session control
   /new       Start a fresh session (previous history stays searchable)
-             When enabled, short phrases like: "new session", "start over", "新会话", "重新开始"
-  /compact   Compact conversation context
+             In a group with several agents: /new @agent
+             Ask in words too ("new session", "新会话") — I check with you before resetting
+  /compact   Compress the current session in place (same session, shorter context)
              When enabled, short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
   /abort     Cancel the in-progress reply
              When enabled, short phrases like: "abort", "cancel", "取消", "停止回复"
@@ -53,6 +54,25 @@ const NewSessionStartedMessage = "Started a fresh session. Previous history stay
 // SessionAlreadyResetMessage is the shared reply when a `/new` arrives after
 // another one already rotated the same chat, so it has nothing left to do.
 const SessionAlreadyResetMessage = "Session was already reset."
+
+// NewSessionNotExecutedMessage is the reply when a rotation's commit
+// acknowledgement was lost but re-reading the session binding proves it never
+// moved: the transaction rolled back, so nothing was reset and the command is
+// safe to send again.
+const NewSessionNotExecutedMessage = "⚠️ Starting a new session did not go through — nothing was reset. Send /new again to retry."
+
+// NewSessionOutcomeUnknownMessage is the reply when a rotation's commit
+// acknowledgement was lost AND the follow-up read of the session binding also
+// failed, so whether the reset happened is genuinely unknown. It must not invite
+// a retry: if the reset did land, a second `/new` would archive the fresh
+// context instead of the old one.
+const NewSessionOutcomeUnknownMessage = "⚠️ Could not confirm whether the new session started. Do not send /new again yet — check whether this chat still remembers the earlier conversation first."
+
+// NewSessionUnverifiableMessage is the reply when a `/new` arrives on a
+// delivery that carries no stable message id. Without an identity the receipt
+// cannot tell a redelivery from a new command, and `/new` is destructive, so
+// it fails closed instead of running unguarded.
+const NewSessionUnverifiableMessage = "⚠️ Cannot start a new session: this delivery has no message id, so a duplicate could not be detected. The session was not reset."
 
 // GroupNewSessionUnavailableMessage is the reply when a group `/new` arrives at
 // a deployment whose group plumbing (group identity resolution or the member

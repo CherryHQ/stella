@@ -53,9 +53,25 @@ func (m *rotatingMemory) SaveInfo(_ context.Context, info memory.SessionInfo) er
 	defer m.mu.Unlock()
 	m.saves = append(m.saves, info)
 	// The production UPDATE writes `archived` verbatim; mirror that so the test
-	// fails loudly if the turn ever replays a stale false.
+	// fails loudly if the turn ever reaches this path with a stale false.
 	m.info = info
 	return nil
+}
+
+// TouchActiveInfo mirrors the guarded UPDATE: matching an active row and writing
+// it are one step, so nothing an archive committed in between can be replayed.
+func (m *rotatingMemory) TouchActiveInfo(_ context.Context, info memory.SessionInfo) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.info.Archived {
+		return false, nil
+	}
+	m.saves = append(m.saves, info)
+	if m.info.Title == "" {
+		m.info.Title = info.Title
+	}
+	m.info.LastActive = info.LastActive
+	return true, nil
 }
 
 func (m *rotatingMemory) LoadInfo(_ context.Context, _ string) (memory.SessionInfo, error) {

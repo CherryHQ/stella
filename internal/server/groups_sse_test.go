@@ -42,7 +42,7 @@ func (f *fakeGroupRunner) DispatchSync(_ context.Context, _ sqlc.CtxGroupOutbox,
 	return nil
 }
 
-func (f *fakeGroupRunner) RotateGroupSession(_ context.Context, _, agentID string) (string, error) {
+func (f *fakeGroupRunner) RotateGroupSession(_ context.Context, _, agentID, _ string) (string, error) {
 	if f.roterErr != nil {
 		return "", f.roterErr
 	}

@@ -20,7 +20,10 @@ import (
 // nullAgent builds a pgtype.Text for an agent_id value.
 func requireSessionScope(ctx context.Context, userID, agentID string) (string, string, error) {
 	if userID == "" {
-		userID = authz.UserIDFromContext(ctx)
+		// Conversation scope, not identity: a group turn has no user on the
+		// context (D9) and its rows are owned by the group id, so that is the key
+		// to read them back with. Per-user stores resolve elsewhere.
+		userID = memory.ScopeUserIDFromContext(ctx)
 	}
 	if agentID == "" {
 		agentID = authz.AgentIDFromContext(ctx)
@@ -109,6 +112,28 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	return nil
 }
 
+// TouchActiveInfo implements memory.SessionManager. The guard lives in the
+// UPDATE's own predicate, so an archive that commits between a turn's start and
+// this call simply matches nothing.
+func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
+	userID, agentID, err := requireSessionScope(ctx, info.UserID, info.AgentID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.UpdateConversationTurnMetaBySessionID(ctx, sqlc.UpdateConversationTurnMetaBySessionIDParams{
+		Title:     pgnull.Text(info.Title),
+		Channel:   pgnull.Text(info.Channel),
+		GroupID:   pgnull.Text(info.GroupID),
+		SessionID: info.ID,
+		UserID:    pgtype.Text{String: userID, Valid: true},
+		AgentID:   pgnull.Text(agentID),
+	})
+	if err != nil {
+		return false, fmt.Errorf("touch conversation: %w", err)
+	}
+	return rows > 0, nil
+}
+
 // RotateInfo implements memory.SessionManager.
 //
 // Order inside the transaction matters: idx_one_agent_main admits a single
@@ -169,7 +194,28 @@ func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, suc
 		return fmt.Errorf("create successor conversation: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	// A group rotation is also a message boundary: fast-forwarding this agent's
+	// ingest cursor to the group's newest seq marks every pre-reset message as
+	// consumed, in the same transaction as the reset itself. Without it the old
+	// watermark would inject unconsumed pre-reset messages into the successor's
+	// first assembly, and a restarted dispatch row for a pre-reset trigger would
+	// run a turn against the successor.
+	if successor.GroupID != "" && agentID != "" {
+		if err := qtx.AdvanceIngestCursorToLatest(ctx, sqlc.AdvanceIngestCursorToLatestParams{
+			GroupID:  successor.GroupID,
+			Pipeline: groupCursorPipeline(agentID),
+		}); err != nil {
+			return fmt.Errorf("advance group ingest cursor: %w", err)
+		}
+	}
+
+	// Everything above fails as a definite rollback. A commit failure does not:
+	// the server may have committed before the acknowledgement was lost, so it
+	// carries the one sentinel callers must not compensate against.
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("%w: %w", memory.ErrRotationOutcomeUnknown, err)
+	}
+	return nil
 }
 
 // LoadInfo implements memory.SessionManager.

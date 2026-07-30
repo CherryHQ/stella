@@ -8,6 +8,7 @@ type (
 	excludedToolsKey  struct{}
 	chatBindingKey    struct{}
 	turnKey           struct{}
+	turnMessageKey    struct{}
 )
 
 // ChatBinding describes the durable channel binding a chat turn entered
@@ -38,6 +39,30 @@ func WithChatBinding(ctx context.Context, binding ChatBinding) context.Context {
 	return context.WithValue(ctx, chatBindingKey{}, binding)
 }
 
+// clearedChatBinding shadows an inherited ChatBinding. The key must stay
+// occupied — deleting a context value is impossible — so it holds a value of a
+// type no reader can assert to, which makes ChatBindingFromContext answer false
+// exactly as it does for a context that never carried a binding.
+type clearedChatBinding struct{}
+
+// WithoutChatBinding returns a child context with no chat binding, whatever the
+// parent carried.
+//
+// A delegate (or any other nested run) inherits its parent's context, and the
+// parent may be a Telegram or group turn. The binding is the authority to rotate
+// and compact THAT chat's session, so inheriting it would let a delegate — whose
+// own turn nobody is watching and whose task text can come from a tool result —
+// reset the conversation that spawned it.
+func WithoutChatBinding(ctx context.Context) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	if _, ok := ChatBindingFromContext(ctx); !ok {
+		return ctx
+	}
+	return context.WithValue(ctx, chatBindingKey{}, clearedChatBinding{})
+}
+
 // ChatBindingFromContext returns the durable chat binding of the current turn.
 // The bool is false for any turn that did not enter through a chat channel.
 func ChatBindingFromContext(ctx context.Context) (ChatBinding, bool) {
@@ -65,6 +90,30 @@ func TurnIDFromContext(ctx context.Context) string {
 	}
 	turnID, _ := ctx.Value(turnKey{}).(string)
 	return turnID
+}
+
+// WithTurnMessageID returns a child context carrying the stable physical
+// identity of the inbound platform message that triggered this chat turn
+// (channel instance + chat + platform message id). Unlike the runtime turn id,
+// it survives a platform redelivery: the same user message re-delivered starts
+// a new runtime turn but keeps this identity, so consumers that must prove "a
+// NEW user message arrived" (session_control's confirmation) compare this
+// first. Adapters that deliver no message id leave it unset.
+func WithTurnMessageID(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, turnMessageKey{}, id)
+}
+
+// TurnMessageIDFromContext returns the stable identity of the message that
+// triggered this turn, or "" when the delivery had none.
+func TurnMessageIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(turnMessageKey{}).(string)
+	return id
 }
 
 // WithSystemOverride returns a child context that carries a per-run system prompt override.

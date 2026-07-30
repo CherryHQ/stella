@@ -35,11 +35,12 @@ func (noAssignStore) ListUserAgentIDs(context.Context, string) ([]string, error)
 // fakeDispatchRunner records the outbox handed to DispatchSync so a test can
 // prove the send boundary claims the right row without running a real agent turn.
 type fakeDispatchRunner struct {
-	called    bool
-	outboxID  string
-	err       error
-	rotated   []string
-	rotateErr error
+	called     bool
+	outboxID   string
+	err        error
+	rotated    []string
+	rotateMsgs []string
+	rotateErr  error
 }
 
 func (f *fakeDispatchRunner) DispatchSync(_ context.Context, outbox sqlc.CtxGroupOutbox, _ GroupPublisher) error {
@@ -48,11 +49,12 @@ func (f *fakeDispatchRunner) DispatchSync(_ context.Context, outbox sqlc.CtxGrou
 	return f.err
 }
 
-func (f *fakeDispatchRunner) RotateGroupSession(_ context.Context, _, agentID string) (string, error) {
+func (f *fakeDispatchRunner) RotateGroupSession(_ context.Context, _, agentID, clientMessageID string) (string, error) {
 	if f.rotateErr != nil {
 		return "", f.rotateErr
 	}
 	f.rotated = append(f.rotated, agentID)
+	f.rotateMsgs = append(f.rotateMsgs, clientMessageID)
 	return pkgchannel.NewSessionStartedMessage, nil
 }
 

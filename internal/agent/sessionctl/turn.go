@@ -100,10 +100,16 @@ var errUnidentifiedGroupSender = errors.New(
 //
 // Group turns use the event-log seq of the message that triggered them. It is
 // the only marker that survives the durable dispatcher retrying a message: a
-// retry is the same user message and must not count as an answer. Everything
-// else uses the runtime's per-turn id, which is unique per Chat call; DM turns
-// have no retry path, and their per-session serialization means a different turn
-// is always a different user message.
+// retry is the same user message and must not count as an answer. DM turns use
+// the inbound message's physical identity for the same reason — a platform
+// redelivery starts a new runtime turn for the SAME user message, and a marker
+// that changes with it would let a replayed request turn stand in for the
+// user's answer.
+//
+// The runtime's per-turn id is the fallback for adapters that deliver no
+// message id. It is unique per Chat call, so it still catches a confirm in the
+// requesting turn, but not a redelivered one — a known ceiling for id-less
+// adapters; the actor and single-use nonce checks still apply there.
 //
 // Message counts were the obvious alternative and are wrong: the runtime
 // persists assistant and tool messages as the turn runs, so a count taken at
@@ -111,6 +117,9 @@ var errUnidentifiedGroupSender = errors.New(
 func turnMarker(ctx context.Context) (string, error) {
 	if seq := memory.GroupSeqFromContext(ctx); seq > 0 {
 		return "gseq:" + strconv.FormatInt(seq, 10), nil
+	}
+	if id := agentctx.TurnMessageIDFromContext(ctx); id != "" {
+		return "msg:" + id, nil
 	}
 	if id := agentctx.TurnIDFromContext(ctx); id != "" {
 		return "turn:" + id, nil

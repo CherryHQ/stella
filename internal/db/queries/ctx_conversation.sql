@@ -93,6 +93,41 @@ WHERE session_id = sqlc.arg(session_id)
   AND user_id = sqlc.arg(user_id)
   AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
 
+-- name: UpdateConversationTurnMetaBySessionID :execrows
+-- The turn path's only write to a conversation row, guarded on that row still
+-- being active. A rotation (`/new`, or the session_control tool) can archive the
+-- session after a turn resolved it — auto-compaction widens that window to
+-- minutes — and UpdateConversationInfoBySessionID would replay the turn-start
+-- snapshot's `archived = false` over it. A resurrected kind=chat row then wins
+-- its binding's newest-match lookup and drags the chat back into a conversation
+-- the user already left. So this statement never mentions `archived`, `kind`, or
+-- `project_id`, and `archived = false` in the predicate makes the check and the
+-- write one atomic step: zero rows means the chat has moved on.
+--
+-- Title, channel, and group_id are adopted only into a blank stored value, so a
+-- rename or a rebind that landed mid-turn is never clobbered by the turn's stale
+-- snapshot either.
+UPDATE ctx_conversation
+SET
+  title = CASE
+    WHEN (title IS NULL OR title = '') AND sqlc.narg(title)::text IS NOT NULL THEN sqlc.narg(title)
+    ELSE title
+  END,
+  channel = CASE
+    WHEN channel = '' AND sqlc.narg(channel)::text IS NOT NULL THEN sqlc.narg(channel)
+    ELSE channel
+  END,
+  group_id = CASE
+    WHEN group_id IS NULL AND sqlc.narg(group_id)::uuid IS NOT NULL THEN sqlc.narg(group_id)
+    ELSE group_id
+  END,
+  last_active = now(),
+  updated_at = now()
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
+  AND archived = false;
+
 -- name: ListConversations :many
 SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)

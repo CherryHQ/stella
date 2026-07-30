@@ -170,13 +170,38 @@ func (t *sessionTool) execConfirmNew(ctx context.Context, turn chatTurn, nonceID
 	}
 	switch _, err := t.rotate(ctx, turn); {
 	case err == nil:
-		return "Started a fresh session. This turn still belongs to the previous one — tell the user their NEXT message begins the new session. Everything from before stays searchable through your memory.", nil
+		return rotationDoneMessage, nil
 	case errors.Is(err, session.ErrStaleRotation):
 		return "", errStaleNonce
+	case errors.Is(err, session.ErrRotationOutcomeUnknown):
+		// The commit acknowledgement was lost, so the error says nothing about
+		// what happened. The session binding does: a rotation moves it, and it
+		// never moves back.
+		switch session.VerifyRotation(ctx, turn.sessionID, func(c context.Context) (session.Info, error) {
+			return t.resolveCurrentSession(c, turn)
+		}) {
+		case session.RotationCommitted:
+			return rotationDoneMessage, nil
+		case session.RotationNotExecuted:
+			return "", errRotationNotExecuted
+		default:
+			return "", errRotationUncertain
+		}
 	default:
 		return "", fmt.Errorf("starting a new session failed: %w", err)
 	}
 }
+
+const rotationDoneMessage = "Started a fresh session. This turn still belongs to the previous one — tell the user their NEXT message begins the new session. Everything from before stays searchable through your memory."
+
+var errRotationNotExecuted = errors.New(
+	"starting a new session did not go through — the chat is still on the same session and nothing was reset. " +
+		"Tell the user, and call request_new again if they still want a fresh session")
+
+var errRotationUncertain = errors.New(
+	"starting a new session may or may not have gone through — the outcome could not be confirmed. " +
+		"Do NOT retry: if the reset did happen, another one would throw away the fresh context. " +
+		"Tell the user the outcome is unclear and ask them to check whether you still remember the earlier conversation")
 
 var errStaleNonce = errors.New(
 	"that confirmation is no longer valid — it expired, was already used, or this chat has since moved to a different session. " +
@@ -225,6 +250,24 @@ func (t *sessionTool) rotate(ctx context.Context, turn chatTurn) (session.Info, 
 		return svc.RotateMainSession(ctx, authority, turn.userID, turn.agentID, turn.sessionID)
 	}
 	return svc.RotateChatChannelSession(ctx, turn.chatChannelRequest(authority), turn.sessionID)
+}
+
+// resolveCurrentSession reads the session this chat's binding points at now. It
+// mirrors rotate's branching so the read and the write speak about the same
+// binding — that is what makes it evidence about the rotation.
+func (t *sessionTool) resolveCurrentSession(ctx context.Context, turn chatTurn) (session.Info, error) {
+	svc, err := t.serviceFor(turn.agentID)
+	if err != nil {
+		return session.Info{}, err
+	}
+	authority, err := turn.authority()
+	if err != nil {
+		return session.Info{}, err
+	}
+	if turn.groupID == "" && turn.binding.Main {
+		return svc.ResolveMainSession(ctx, authority, turn.userID, turn.agentID)
+	}
+	return svc.ResolveChatChannelSession(ctx, turn.chatChannelRequest(authority))
 }
 
 // execCompact compresses the current session in place. It needs no confirmation

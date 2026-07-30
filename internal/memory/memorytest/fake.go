@@ -450,6 +450,30 @@ func (f *Fake) SaveInfo(_ context.Context, info memory.SessionInfo) error {
 	return nil
 }
 
+// TouchActiveInfo implements memory.SessionManager. The mutex stands in for the
+// real provider's single guarded UPDATE: an archived (or missing) row is never
+// written and never resurrected.
+func (f *Fake) TouchActiveInfo(_ context.Context, info memory.SessionInfo) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	si, ok := f.sessionInfos[info.ID]
+	if !ok || si.info.Archived {
+		return false, nil
+	}
+	if si.info.Title == "" {
+		si.info.Title = info.Title
+	}
+	if si.info.Channel == "" {
+		si.info.Channel = info.Channel
+	}
+	if si.info.GroupID == "" {
+		si.info.GroupID = info.GroupID
+	}
+	si.info.LastActive = time.Now().UTC()
+	f.sessionInfos[info.ID] = si
+	return true, nil
+}
+
 // RotateInfo implements memory.SessionManager. The mutex stands in for the real
 // provider's transaction: the archive and the successor become visible together.
 func (f *Fake) RotateInfo(_ context.Context, expectedSessionID string, successor memory.SessionInfo) error {

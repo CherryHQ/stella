@@ -9,6 +9,23 @@ ON CONFLICT(group_id, pipeline) DO UPDATE SET
     last_seq = excluded.last_seq,
     updated_at = now();
 
+-- name: AdvanceIngestCursorToLatest :exec
+-- Fast-forwards one pipeline's cursor to the group's newest event-log seq,
+-- never moving it backwards. Session rotation uses this as its persistent
+-- boundary: everything at or before the reset is marked consumed, so a
+-- successor session can never inherit pre-reset messages through watermark
+-- injection or a restarted dispatch row.
+INSERT INTO ctx_group_ingest_cursor (group_id, pipeline, last_seq, updated_at)
+VALUES (
+    sqlc.arg(group_id),
+    sqlc.arg(pipeline),
+    (SELECT COALESCE(MAX(seq), 0) FROM ctx_group_message WHERE group_id = sqlc.arg(group_id)),
+    now()
+)
+ON CONFLICT(group_id, pipeline) DO UPDATE SET
+    last_seq = GREATEST(ctx_group_ingest_cursor.last_seq, excluded.last_seq),
+    updated_at = now();
+
 -- name: CreateIngestError :exec
 INSERT INTO ctx_group_ingest_error (id, group_id, pipeline, seq, reason)
 VALUES ($1, $2, $3, $4, $5)
