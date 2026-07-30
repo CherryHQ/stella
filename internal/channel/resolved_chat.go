@@ -54,29 +54,40 @@ func (rc *ResolvedChat) usesMainSession() bool {
 	return rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:")
 }
 
+// chatChannelRequest describes this chat's durable session binding. It is used
+// by every chat that is not pinned to the user's singleton main session: group
+// chats and private channel chats resolve (and rotate) by binding rather than by
+// their derived session key.
+func (rc *ResolvedChat) chatChannelRequest() agent.ChatChannelRequest {
+	return agent.ChatChannelRequest{
+		Authority:  rc.Authority,
+		UserID:     rc.sessionUserID(),
+		GroupID:    rc.GroupID,
+		AgentID:    rc.AgentID,
+		Channel:    rc.Channel,
+		SessionKey: rc.SessionKey,
+	}
+}
+
 func (rc *ResolvedChat) ResolveSession(ctx context.Context) (session.Info, error) {
 	if rc.usesMainSession() {
 		return rc.Service.ResolveMainSession(ctx, rc.Authority, rc.User.ID, rc.AgentID)
 	}
-	if rc.GroupID != "" {
-		return rc.Service.ResolveGroupChannelSession(ctx, rc.Authority, rc.SessionKey, rc.GroupID, rc.AgentID, rc.Channel)
+	return rc.Service.ResolveChatChannelSession(ctx, rc.chatChannelRequest())
+}
+
+// resolveSessionForUse resolves the chat's current session and takes the fresh
+// execute decision on it, which every mutating command (`/compact`, `/new`) runs
+// before touching the session.
+func (rc *ResolvedChat) resolveSessionForUse(ctx context.Context) (session.Info, error) {
+	if rc.usesMainSession() {
+		return rc.Service.ResolveMainSessionForUse(ctx, rc.Authority, rc.User.ID, rc.AgentID)
 	}
-	return rc.Service.ResolvePrivateChannelSession(ctx, rc.Authority, rc.SessionKey, rc.sessionUserID(), rc.AgentID, rc.Channel)
+	return rc.Service.ResolveChatChannelSessionForUse(ctx, rc.chatChannelRequest())
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
-	var (
-		info session.Info
-		err  error
-	)
-	switch {
-	case rc.usesMainSession():
-		info, err = rc.Service.ResolveMainSessionForUse(ctx, rc.Authority, rc.User.ID, rc.AgentID)
-	case rc.GroupID != "":
-		info, err = rc.Service.ResolveGroupChannelSessionForUse(ctx, rc.Authority, rc.SessionKey, rc.GroupID, rc.AgentID, rc.Channel)
-	default:
-		info, err = rc.Service.ResolvePrivateChannelSessionForUse(ctx, rc.Authority, rc.SessionKey, rc.sessionUserID(), rc.AgentID, rc.Channel)
-	}
+	info, err := rc.resolveSessionForUse(ctx)
 	if err != nil {
 		return "", fmt.Errorf("resolve session for compaction: %w", err)
 	}
@@ -88,20 +99,17 @@ func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
 // the session the user actually saw; a duplicate `/new` behind it then resolves
 // as stale instead of resetting a second time.
 func (rc *ResolvedChat) CurrentSessionForRotation(ctx context.Context) (session.Info, error) {
-	if !rc.usesMainSession() {
-		return session.Info{}, ErrRotationUnsupported
-	}
-	return rc.Service.ResolveMainSessionForUse(ctx, rc.Authority, rc.User.ID, rc.AgentID)
+	return rc.resolveSessionForUse(ctx)
 }
 
 // RotateSession archives the chat's current session and returns its empty
-// successor. Only the DM main session rotates today; group and unlinked
-// private-channel chats are still pinned to a key-derived session ID.
+// successor. A DM rotates the user's main session; every other chat rotates the
+// session its durable channel binding points at.
 func (rc *ResolvedChat) RotateSession(ctx context.Context, expectedSessionID string) (session.Info, error) {
-	if !rc.usesMainSession() {
-		return session.Info{}, ErrRotationUnsupported
+	if rc.usesMainSession() {
+		return rc.Service.RotateMainSession(ctx, rc.Authority, rc.User.ID, rc.AgentID, expectedSessionID)
 	}
-	return rc.Service.RotateMainSession(ctx, rc.Authority, rc.User.ID, rc.AgentID, expectedSessionID)
+	return rc.Service.RotateChatChannelSession(ctx, rc.chatChannelRequest(), expectedSessionID)
 }
 
 // AuthorizeUse performs the fresh execution decision at dequeue time. The

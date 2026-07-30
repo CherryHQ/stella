@@ -38,6 +38,8 @@ type SessionAccess interface {
 	Create(context.Context, string, string, string, session.Kind, session.Channel) (session.Info, error)
 	ResolveMain(context.Context, string, string) (session.Info, error)
 	RotateMain(context.Context, string, string, string) (session.Info, error)
+	ResolveChatChannel(context.Context, session.ChannelRequest) (session.Info, error)
+	RotateChannel(context.Context, session.ChannelRequest) (session.Info, error)
 	Use(context.Context, string, string) (session.Info, error)
 	EnsureRead(context.Context, session.Request) (session.Info, error)
 	EnsureUse(context.Context, session.Request) (session.Info, error)
@@ -184,12 +186,13 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 		return errorEvents(fmt.Errorf("begin scheduler session access: %w", err))
 	}
 	info, err := access.EnsureUse(ctx, session.Request{
-		ID:                 req.SessionID,
-		UserID:             req.UserID,
-		AgentID:            req.AgentID,
-		Kind:               session.KindScheduler,
-		Channel:            session.ChannelScheduler,
-		CreateIfMissing:    true,
+		ID:              req.SessionID,
+		UserID:          req.UserID,
+		AgentID:         req.AgentID,
+		Kind:            session.KindScheduler,
+		Channel:         session.ChannelScheduler,
+		CreateIfMissing: true,
+		// Scheduler-owned id, not a chat: no `/new`, so no channel binding.
 		AllowExactIDCreate: true,
 		RequireKind:        session.KindScheduler,
 	})
@@ -223,13 +226,14 @@ type TaskChatRequest struct {
 // tools never leak into later turns on the same session.
 func (s *Service) ChatForTask(ctx context.Context, req TaskChatRequest) <-chan Event {
 	return s.chatOnSession(ctx, session.Request{
-		ID:                 req.SessionID,
-		UserID:             req.UserID,
-		AgentID:            req.AgentID,
-		ProjectID:          req.ProjectID,
-		Kind:               session.KindTask,
-		Channel:            session.ChannelTask,
-		CreateIfMissing:    true,
+		ID:              req.SessionID,
+		UserID:          req.UserID,
+		AgentID:         req.AgentID,
+		ProjectID:       req.ProjectID,
+		Kind:            session.KindTask,
+		Channel:         session.ChannelTask,
+		CreateIfMissing: true,
+		// Task-owned id, not a chat: no `/new`, so no channel binding.
 		AllowExactIDCreate: true,
 		RequireKind:        session.KindTask,
 	}, req)
@@ -293,70 +297,106 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 	return out
 }
 
-// ResolvePrivateChannelSession resolves or creates a private channel chat session
-// using a trusted system-derived session key. It returns the Info without
-// executing a chat turn. Private callers do not know about groups.
+// ResolvePrivateChannelSession resolves or creates a chat session whose id IS
+// the caller's trusted system-derived key.
+//
+// Webhook ingress is the only remaining caller: a persistent webhook addresses
+// exactly one durable session per webhook id, has no `/new`, and its channel
+// (ChannelWebhook) is deliberately not its key — so it cannot use the
+// chat-channel binding, which would either miss it or merge every webhook of a
+// user into one session. Chat adapters use ResolveChatChannelSession instead.
 func (s *Service) ResolvePrivateChannelSession(ctx context.Context, authority authz.Authority, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
-	return s.resolvePrivateChannelSession(ctx, authority, sessionKey, userID, agentID, channel, false)
-}
-
-func (s *Service) ResolvePrivateChannelSessionForUse(ctx context.Context, authority authz.Authority, sessionKey, userID, agentID string, channel session.Channel) (session.Info, error) {
-	return s.resolvePrivateChannelSession(ctx, authority, sessionKey, userID, agentID, channel, true)
-}
-
-func (s *Service) resolvePrivateChannelSession(ctx context.Context, authority authz.Authority, sessionKey, userID, agentID string, channel session.Channel, use bool) (session.Info, error) {
 	access, err := s.beginSessionAccess(ctx, authority)
 	if err != nil {
 		return session.Info{}, err
 	}
-	req := session.Request{
-		ID:                 sessionKey,
-		UserID:             userID,
-		AgentID:            agentID,
-		Kind:               session.KindChat,
-		Channel:            channel,
+	return access.EnsureRead(ctx, session.Request{
+		ID:      sessionKey,
+		UserID:  userID,
+		AgentID: agentID,
+		Kind:    session.KindChat,
+		Channel: channel,
+		// Webhook-only: the webhook system owns the key derivation, so the key may
+		// become the session id. No chat adapter reaches this path.
 		CreateIfMissing:    true,
 		AllowExactIDCreate: true,
 		RequireKind:        session.KindChat,
+	})
+}
+
+// ChatChannelRequest identifies the durable binding of a channel chat: the chat
+// itself rather than one of the sessions it has run through. A group binds on
+// its owning group, a private chat channel on user + channel; either way the
+// binding survives `/new` rotating the chat onto a fresh session.
+type ChatChannelRequest struct {
+	Authority authz.Authority
+	// UserID owns the session. For a group chat the caller may leave it empty:
+	// the group-ownership invariant (UserID == GroupID) is established here.
+	UserID  string
+	GroupID string
+	AgentID string
+	Channel session.Channel
+	// SessionKey is the chat's derived key. Sessions are no longer created under
+	// it; it is kept as the legacy lookup for chats pinned to it before the
+	// binding existed.
+	SessionKey string
+}
+
+func (r ChatChannelRequest) binding() session.ChannelRequest {
+	userID := r.UserID
+	if r.GroupID != "" {
+		userID = r.GroupID
 	}
-	if use {
-		return access.EnsureUse(ctx, req)
+	return session.ChannelRequest{
+		UserID:   userID,
+		AgentID:  r.AgentID,
+		GroupID:  r.GroupID,
+		Channel:  r.Channel,
+		LegacyID: r.SessionKey,
 	}
-	return access.EnsureRead(ctx, req)
 }
 
-// ResolveGroupChannelSession resolves or creates a group chat session owned by
-// the group. The caller passes the canonical group id once; the group-ownership
-// invariant (a group session is owned by its group, so UserID == GroupID) is
-// established here in one place rather than by callers repeating the id.
-func (s *Service) ResolveGroupChannelSession(ctx context.Context, authority authz.Authority, sessionKey, groupID, agentID string, channel session.Channel) (session.Info, error) {
-	return s.resolveGroupChannelSession(ctx, authority, sessionKey, groupID, agentID, channel, false)
-}
-
-func (s *Service) ResolveGroupChannelSessionForUse(ctx context.Context, authority authz.Authority, sessionKey, groupID, agentID string, channel session.Channel) (session.Info, error) {
-	return s.resolveGroupChannelSession(ctx, authority, sessionKey, groupID, agentID, channel, true)
-}
-
-func (s *Service) resolveGroupChannelSession(ctx context.Context, authority authz.Authority, sessionKey, groupID, agentID string, channel session.Channel, use bool) (session.Info, error) {
-	access, err := s.beginSessionAccess(ctx, authority)
+// ResolveChatChannelSession resolves the session a channel chat is currently
+// bound to, creating one when the chat is new. It returns the Info without
+// executing a chat turn.
+func (s *Service) ResolveChatChannelSession(ctx context.Context, req ChatChannelRequest) (session.Info, error) {
+	access, err := s.beginSessionAccess(ctx, req.Authority)
 	if err != nil {
 		return session.Info{}, err
 	}
-	req := session.Request{
-		ID:                 sessionKey,
-		UserID:             groupID,
-		AgentID:            agentID,
-		GroupID:            groupID,
-		Kind:               session.KindChat,
-		Channel:            channel,
-		CreateIfMissing:    true,
-		AllowExactIDCreate: true,
-		RequireKind:        session.KindChat,
+	return access.ResolveChatChannel(ctx, req.binding())
+}
+
+// ResolveChatChannelSessionForUse is ResolveChatChannelSession plus the fresh
+// execute decision a turn (or a compaction) needs on the exact durable session.
+func (s *Service) ResolveChatChannelSessionForUse(ctx context.Context, req ChatChannelRequest) (session.Info, error) {
+	access, err := s.beginSessionAccess(ctx, req.Authority)
+	if err != nil {
+		return session.Info{}, err
 	}
-	if use {
-		return access.EnsureUse(ctx, req)
+	info, err := access.ResolveChatChannel(ctx, req.binding())
+	if err != nil {
+		return session.Info{}, err
 	}
-	return access.EnsureRead(ctx, req)
+	return access.Use(ctx, info.AgentID, info.ID)
+}
+
+// RotateChatChannelSession archives the chat's current session and returns the
+// successor, which starts empty. It is the `/new` counterpart to
+// ResolveChatChannelSessionForUse: rotation is one authorized compare-and-rotate
+// use case, so a command that raced another rotation cannot archive the
+// successor that one just created.
+//
+// expectedSessionID is the session the caller observed; an empty value rotates
+// whatever is current. A mismatch reports session.ErrStaleRotation.
+func (s *Service) RotateChatChannelSession(ctx context.Context, req ChatChannelRequest, expectedSessionID string) (session.Info, error) {
+	access, err := s.beginSessionAccess(ctx, req.Authority)
+	if err != nil {
+		return session.Info{}, err
+	}
+	binding := req.binding()
+	binding.ExpectedSessionID = expectedSessionID
+	return access.RotateChannel(ctx, binding)
 }
 
 // NewSession creates a new session with a generated ID. Used by the HTTP API

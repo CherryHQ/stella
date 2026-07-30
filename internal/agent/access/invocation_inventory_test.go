@@ -22,11 +22,14 @@ var invocationInventory = map[string]map[string]int{
 	"cmd/stellad/setup_pool.go":            {"GetService": 1}, // lazy composition adapter; no turn
 	"internal/channel/coordinator.go":      {"Chat": 1},
 	"internal/channel/group_dispatch.go":   {"GetService": 1},
-	"internal/channel/group_dispatcher.go": {"GetService": 1, "Chat": 1},
-	"internal/channel/resolved_chat.go":    {"GetService": 1, "Chat": 1},
-	"internal/goal/session.go":             {"GetService": 1}, // session creation; execution is guarded in workerExecutor
-	"internal/reflect/loop.go":             {"GetService": 1}, // session listing only; no turn
-	"internal/server/webhook_ingress.go":   {"GetService": 1, "Chat": 1},
+	"internal/channel/group_dispatcher.go": {"Chat": 1},
+	// Sole Web-group service selection: resolveWebGroupChat mints and re-checks the
+	// group authority for both the Web group turn and the Web group `/new`.
+	"internal/channel/group_new_session.go": {"GetService": 1},
+	"internal/channel/resolved_chat.go":     {"GetService": 1, "Chat": 1},
+	"internal/goal/session.go":              {"GetService": 1}, // session creation; execution is guarded in workerExecutor
+	"internal/reflect/loop.go":              {"GetService": 1}, // session listing only; no turn
+	"internal/server/webhook_ingress.go":    {"GetService": 1, "Chat": 1},
 }
 
 func TestAgentInvocationInventoryIsExact(t *testing.T) {

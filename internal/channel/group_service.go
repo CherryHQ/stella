@@ -43,6 +43,11 @@ type GroupService struct {
 // whole coordinator from the group service.
 type GroupDispatchRunner interface {
 	DispatchSync(ctx context.Context, outbox sqlc.CtxGroupOutbox, publisher GroupPublisher) error
+	// RotateGroupSession starts a fresh session for one agent in the group and
+	// returns the user-facing reply. It belongs on this port because rotation must
+	// run in the same per-(agent,group) order as that agent's turns, which only
+	// the dispatcher owns.
+	RotateGroupSession(ctx context.Context, groupID, agentID string) (string, error)
 }
 
 // groupOutboxLeaseDuration bounds both the outbox lease written at ingest and
@@ -421,7 +426,7 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 		return PreparedSend{}, fmt.Errorf("list group members: %w", err)
 	}
 
-	if reply, handled := groupCommandReply(content); handled {
+	if reply, handled := a.groupCommandReply(ctx, groupID, content, members); handled {
 		return PreparedSend{Command: true, Reply: reply}, nil
 	}
 
@@ -543,10 +548,12 @@ func (a *GroupAccess) memberDetail(ctx context.Context, m sqlc.ChannelGroupMembe
 // binding a Web group member replies through.
 func webChannelID(agentID string) string { return "web:" + agentID }
 
-// groupCommandReply intercepts group slash commands that cannot run in a group
-// context, returning the plain reply and true. Any other input (including other
-// slash commands) falls through as a normal message.
-func groupCommandReply(content string) (string, bool) {
+// groupCommandReply intercepts group slash commands before the event-log append,
+// returning the plain reply and true. Any other input (including other slash
+// commands) falls through as a normal message. Interception happens here rather
+// than after the append so a command never becomes part of group context —
+// which matters most for `/new`, whose whole purpose is to clear that context.
+func (a *GroupAccess) groupCommandReply(ctx context.Context, groupID, content string, members []sqlc.ChannelGroupMember) (string, bool) {
 	fields := strings.Fields(content)
 	if len(fields) == 0 {
 		return "", false
@@ -559,9 +566,29 @@ func groupCommandReply(content string) (string, bool) {
 		// Group history is assembled from the group event log, not per-agent LCM
 		// conversations, so compaction does not apply here.
 		return pkgchannel.GroupCompactUnsupportedMessage, true
+	case "/new":
+		return a.newGroupSessionReply(ctx, groupID, strings.Join(fields[1:], " "), members), true
 	default:
 		return "", false
 	}
+}
+
+// newGroupSessionReply rotates the targeted agent's group session. Each agent
+// keeps its own session, so a multi-agent group needs `/new @agent`.
+func (a *GroupAccess) newGroupSessionReply(ctx context.Context, groupID, args string, members []sqlc.ChannelGroupMember) string {
+	agentIDs := make([]string, 0, len(members))
+	for _, m := range members {
+		agentIDs = append(agentIDs, m.AgentID)
+	}
+	target, usage := groupNewTarget("", args, agentIDs)
+	if target == "" {
+		return usage
+	}
+	reply, err := a.svc.dispatcher.RotateGroupSession(ctx, groupID, target)
+	if err != nil {
+		return fmt.Sprintf("Starting a new session failed: %v", err)
+	}
+	return reply
 }
 
 // parseWebMentions extracts @AgentID patterns from message text against the

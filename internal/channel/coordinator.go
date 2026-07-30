@@ -397,9 +397,6 @@ func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedC
 	// second reset.
 	current, err := rc.CurrentSessionForRotation(ctx)
 	if err != nil {
-		if errors.Is(err, ErrRotationUnsupported) {
-			return pkgchannel.NewSessionUnsupportedMessage
-		}
 		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
 	var reply string

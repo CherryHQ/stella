@@ -123,6 +123,17 @@ func (a compactSessionAccess) RotateMain(ctx context.Context, userID, agentID, e
 	return a.reg.RotateMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID, ExpectedSessionID: expectedSessionID})
 }
 
+func (a compactSessionAccess) ResolveChatChannel(ctx context.Context, req session.ChannelRequest) (session.Info, error) {
+	return a.reg.ResolveChatChannel(ctx, req)
+}
+
+func (a compactSessionAccess) RotateChannel(ctx context.Context, req session.ChannelRequest) (session.Info, error) {
+	if a.useErr != nil {
+		return session.Info{}, a.useErr
+	}
+	return a.reg.RotateChannel(ctx, req)
+}
+
 func (a compactSessionAccess) Use(ctx context.Context, agentID, sessionID string) (session.Info, error) {
 	if a.useErr != nil {
 		return session.Info{}, a.useErr

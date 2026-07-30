@@ -71,6 +71,9 @@ func (f *fakeStore) list(_ context.Context, userID, agentID string, opts memory.
 		if opts.Kind != "" && info.Kind != opts.Kind {
 			continue
 		}
+		if opts.Channel != "" && info.Channel != opts.Channel {
+			continue
+		}
 		if opts.ProjectIDIsNull && info.ProjectID != "" {
 			continue
 		}

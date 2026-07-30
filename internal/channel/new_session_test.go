@@ -76,14 +76,63 @@ func TestNewSessionReplyDuplicateIsNoOp(t *testing.T) {
 	}
 }
 
-// TestNewSessionReplyUnsupportedForGroup keeps group chats on the existing
-// not-yet-supported reply: their session is still pinned to its session key.
-func TestNewSessionReplyUnsupportedForGroup(t *testing.T) {
+// TestNewSessionReplyRotatesGroupSession proves a group chat rotates like a DM
+// now that its session is resolved by binding rather than pinned to its key.
+func TestNewSessionReplyRotatesGroupSession(t *testing.T) {
 	const groupID = "11111111-1111-4111-8111-111111111111"
+	ctx := context.Background()
 	rc := newCompactTestChat(t, groupID, auth.User{})
 
-	if reply := NewSessionReply(context.Background(), rc, ""); reply != pkgchannel.NewSessionUnsupportedMessage {
-		t.Fatalf("group reply = %q, want %q", reply, pkgchannel.NewSessionUnsupportedMessage)
+	before, err := rc.CurrentSessionForRotation(ctx)
+	if err != nil {
+		t.Fatalf("CurrentSessionForRotation: %v", err)
+	}
+	if before.GroupID != groupID {
+		t.Fatalf("resolved session GroupID = %q, want the group", before.GroupID)
+	}
+	if reply := NewSessionReply(ctx, rc, before.ID); reply != pkgchannel.NewSessionStartedMessage {
+		t.Fatalf("group reply = %q, want %q", reply, pkgchannel.NewSessionStartedMessage)
+	}
+
+	after, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+	if after.ID == before.ID {
+		t.Fatal("group /new must move the chat onto a new session")
+	}
+	if after.GroupID != groupID || after.Archived {
+		t.Fatalf("successor = %+v, want an active session owned by the group", after)
+	}
+
+	// A duplicate /new names a session that is already archived.
+	if reply := NewSessionReply(ctx, rc, before.ID); reply != pkgchannel.SessionAlreadyResetMessage {
+		t.Fatalf("duplicate group reply = %q, want %q", reply, pkgchannel.SessionAlreadyResetMessage)
+	}
+}
+
+// TestNewSessionReplyRotatesPrivateChannelSession covers the non-main private
+// chat channel (a chat whose key is not a linked user's private channel).
+func TestNewSessionReplyRotatesPrivateChannelSession(t *testing.T) {
+	ctx := context.Background()
+	rc := newCompactTestChat(t, "", auth.User{ID: "user-1", Role: auth.RoleUser})
+
+	before, err := rc.CurrentSessionForRotation(ctx)
+	if err != nil {
+		t.Fatalf("CurrentSessionForRotation: %v", err)
+	}
+	if reply := NewSessionReply(ctx, rc, before.ID); reply != pkgchannel.NewSessionStartedMessage {
+		t.Fatalf("reply = %q, want %q", reply, pkgchannel.NewSessionStartedMessage)
+	}
+	after, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+	if after.ID == before.ID {
+		t.Fatal("/new must move the private channel chat onto a new session")
+	}
+	if after.Channel != string(rc.Channel) {
+		t.Fatalf("successor channel = %q, want the chat binding %q", after.Channel, rc.Channel)
 	}
 }
 
