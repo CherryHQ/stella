@@ -152,13 +152,24 @@ export function WorkspacePanel({
   // Monotonic token: only the most recent load may write state, so a slow
   // response from a previous session can't clobber the current view.
   const loadToken = useRef(0);
+  // The shared root normally shows only the assets area; the hidden-files
+  // toggle widens it to the whole user data root, where the dot-prefixed
+  // CLI-managed state (XDG directories, tool logins) actually lives. Without
+  // that widening the toggle would have nothing to reveal — assets holds no
+  // hidden entries.
+  const sharedApiRoot = showHidden ? "" : "assets";
   const loadShared = useCallback(async () => {
     const token = ++loadToken.current;
     setSharedLoading(true);
     try {
       const { data } = await getSessionWorkspace({
         path: { agentId: agentID, sessionId: sessionID },
-        query: { show_hidden: true, depth: 2, scope: "user", path: "assets" },
+        query: {
+          show_hidden: true,
+          depth: 2,
+          scope: "user",
+          ...(sharedApiRoot ? { path: sharedApiRoot } : {}),
+        },
         throwOnError: true,
       });
       if (token === loadToken.current) setSharedWorkspace(data);
@@ -168,7 +179,7 @@ export function WorkspacePanel({
     } finally {
       if (token === loadToken.current) setSharedLoading(false);
     }
-  }, [agentID, sessionID]);
+  }, [agentID, sessionID, sharedApiRoot]);
   useEffect(() => {
     if (!sessionID) return;
     // Drop any stale tree before the new session's load lands.
@@ -192,11 +203,11 @@ export function WorkspacePanel({
       {
         scope: "user",
         label: t("sessions.workspace.sharedData"),
-        apiRoot: "assets",
+        apiRoot: sharedApiRoot,
         workspace: sharedWorkspace,
       },
     ],
-    [t, projectDir, workspace, sharedWorkspace],
+    [t, projectDir, workspace, sharedWorkspace, sharedApiRoot],
   );
 
   const openFile = useCallback(
