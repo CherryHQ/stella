@@ -15,6 +15,8 @@ import {
   Copy,
   ChevronRight,
   ChevronDown,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   createShare as sdkCreateShare,
@@ -102,6 +104,15 @@ function isDirectoryPath(path: string): boolean {
 function basename(path: string): string {
   const trimmed = isDirectoryPath(path) ? path.slice(0, -1) : path;
   return trimmed.split("/").pop() ?? trimmed;
+}
+
+// Hidden entries are dot-prefixed at any level. In the shared scope these are
+// CLI-managed state (XDG directories, tool logins) that every agent of the user
+// depends on; keep them out of casual reach of the panel's rename/delete
+// actions unless the user explicitly opts in.
+function isHiddenPath(path: string): boolean {
+  const trimmed = isDirectoryPath(path) ? path.slice(0, -1) : path;
+  return trimmed.split("/").some((segment) => segment.startsWith("."));
 }
 
 function isShareableArtifact(path: string): boolean {
@@ -240,9 +251,12 @@ export function WorkspacePanel({
     );
   }
 
-  // Two stacked roots the agent can see: its own private workspace (/workspace)
-  // and the shared user-data root (/user). The agent root is driven by the
-  // parent (it owns project-dir derivation); the user root self-loads.
+  // Two stacked roots, matching what users actually consume: the agent's
+  // private workspace ($HOME) and the shared deliverables area
+  // ($STELLA_ASSETS_DIR). The shared section is rooted at assets/ rather than
+  // the whole managed principal root so CLI-managed state never becomes a
+  // file-manager target. The agent root is driven by the parent (it owns
+  // project-dir derivation); the shared root self-loads.
   return (
     <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar/80">
       <WorkspaceScopeSection
@@ -256,7 +270,7 @@ export function WorkspacePanel({
         onReload={agentReload}
         onOpenFile={openFile}
         onDeleted={onDeleted}
-        projectDir={projectDir}
+        rootDir={projectDir}
       />
       <WorkspaceScopeSection
         scope="user"
@@ -265,6 +279,7 @@ export function WorkspacePanel({
         agentID={agentID}
         sessionID={sessionID}
         selfLoad
+        rootDir="assets"
         onOpenFile={openFile}
         onDeleted={onDeleted}
       />
@@ -286,7 +301,11 @@ interface WorkspaceScopeSectionProps {
   selfLoad?: boolean;
   onOpenFile: (path: string, scope: Scope) => void;
   onDeleted: (path: string, scope: Scope) => void;
-  projectDir?: string;
+  // rootDir roots the section at a subdirectory of the scope: the tree is
+  // fetched, displayed, and created relative to it, and paths outside it never
+  // appear. The agent section uses the project directory; the shared section
+  // uses the assets area.
+  rootDir?: string;
 }
 
 function WorkspaceScopeSection({
@@ -301,10 +320,11 @@ function WorkspaceScopeSection({
   selfLoad,
   onOpenFile,
   onDeleted,
-  projectDir,
+  rootDir,
 }: WorkspaceScopeSectionProps) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const [newItemType, setNewItemType] = useState<"file" | "dir" | null>(null);
   const [newItemName, setNewItemName] = useState("");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -321,16 +341,18 @@ function WorkspaceScopeSection({
     try {
       const { data } = await getSessionWorkspace({
         path: { agentId: agentID, sessionId: sessionID },
-        query: { show_hidden: true, depth: 2, scope },
+        query: { show_hidden: true, depth: 2, scope, ...(rootDir ? { path: rootDir } : {}) },
         throwOnError: true,
       });
       if (token === loadToken.current) setSelfWorkspace(data);
     } catch {
+      // Also reached when rootDir does not exist yet (e.g. no assets have been
+      // produced); the section renders as empty rather than as an error.
       if (token === loadToken.current) setSelfWorkspace(null);
     } finally {
       if (token === loadToken.current) setSelfLoading(false);
     }
-  }, [agentID, sessionID, scope]);
+  }, [agentID, sessionID, scope, rootDir]);
   useEffect(() => {
     if (!selfLoad) return;
     // Drop any stale tree before the new session's load lands.
@@ -352,7 +374,7 @@ function WorkspaceScopeSection({
   const createItem = useCallback(async () => {
     const name = newItemName.trim();
     if (!name) return;
-    const fullPath = projectDir ? `${projectDir}/${name}` : name;
+    const fullPath = rootDir ? `${rootDir}/${name}` : name;
     await createWorkspaceFile({
       path: { agentId: agentID, sessionId: sessionID },
       query: { scope },
@@ -362,7 +384,7 @@ function WorkspaceScopeSection({
     reload();
     setNewItemType(null);
     setNewItemName("");
-  }, [agentID, sessionID, scope, newItemName, newItemType, reload, projectDir]);
+  }, [agentID, sessionID, scope, newItemName, newItemType, reload, rootDir]);
 
   const deleteItem = useCallback(
     async (path: string) => {
@@ -387,19 +409,35 @@ function WorkspaceScopeSection({
     setSelectedPath(null);
   }, [sessionID]);
 
-  const entryCount = workspace?.paths?.length ?? 0;
+  // Count what the tree will actually show: paths under rootDir, minus hidden
+  // entries unless the user opted in. Sizing and the empty state key off this,
+  // so a section whose only content is filtered-out dotfiles reads as empty.
+  const prefix = rootDir ? `${rootDir}/` : "";
+  const visibleCount = useMemo(
+    () =>
+      (workspace?.paths ?? []).filter((p) => {
+        const display = prefix ? (p.startsWith(prefix) ? p.slice(prefix.length) : "") : p;
+        return display !== "" && (showHidden || !isHiddenPath(display));
+      }).length,
+    [workspace?.paths, prefix, showHidden],
+  );
   const fileCount = workspace?.total_files ?? 0;
   const dirCount = workspace?.total_dirs ?? 0;
   // Show the path the agent sees inside its sandbox (e.g. /workspace, /user),
   // not the host disk path; fall back to the host root otherwise.
-  const displayRoot = workspace?.sandbox_root || workspace?.root || "";
+  const scopeRoot = workspace?.sandbox_root || workspace?.root || "";
+  const displayRoot = scopeRoot && rootDir ? `${scopeRoot}/${rootDir}` : scopeRoot;
   const stats = `${fileCount.toLocaleString()} files · ${dirCount.toLocaleString()} folders · ${formatBytes(workspace?.total_bytes ?? 0)}`;
+
+  // An empty section shrinks to its header strip so the section with content
+  // gets the panel height, instead of an even split around an "Empty" label.
+  const compact = collapsed || (!loading && visibleCount === 0 && newItemType === null);
 
   return (
     <section
       className={cn(
         "flex min-w-0 flex-col overflow-hidden border-b border-border/70",
-        collapsed ? "flex-none" : "min-h-0 flex-1",
+        compact ? "flex-none" : "min-h-0 flex-1",
       )}
     >
       {/* Section header */}
@@ -421,6 +459,17 @@ function WorkspaceScopeSection({
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-0">
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setShowHidden((v) => !v)}
+            title={t(
+              showHidden ? "sessions.workspace.hideHidden" : "sessions.workspace.showHidden",
+            )}
+            className="px-1 h-6"
+          >
+            {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </Button>
           <Button
             variant="ghost"
             size="xs"
@@ -518,15 +567,17 @@ function WorkspaceScopeSection({
             </div>
           )}
 
-          {/* Empty state */}
-          {!loading && workspace && entryCount === 0 && !newItemType && (
-            <div className="px-4 py-6 text-center">
-              <p className="text-xs font-mono text-muted-foreground/40">Empty</p>
+          {/* Empty state (also covers a missing rootDir, e.g. no assets yet) */}
+          {!loading && visibleCount === 0 && !newItemType && (
+            <div className="px-4 py-2 text-center">
+              <p className="text-xs font-mono text-muted-foreground/40">
+                {t("sessions.workspace.empty")}
+              </p>
             </div>
           )}
 
           {/* File tree */}
-          {!loading && workspace && entryCount > 0 && (
+          {!loading && workspace && visibleCount > 0 && (
             <div className="min-w-0 flex-1 overflow-hidden" title={`${displayRoot}\n${stats}`}>
               <TreeWithSearch
                 agentID={agentID}
@@ -539,7 +590,8 @@ function WorkspaceScopeSection({
                 onDelete={deleteItem}
                 onNewFile={() => setNewItemType("file")}
                 onNewFolder={() => setNewItemType("dir")}
-                projectDir={projectDir}
+                rootDir={rootDir}
+                showHidden={showHidden}
               />
             </div>
           )}
@@ -718,7 +770,8 @@ interface TreeWithSearchProps {
   onDelete: (path: string) => Promise<void>;
   onNewFile: () => void;
   onNewFolder: () => void;
-  projectDir?: string;
+  rootDir?: string;
+  showHidden: boolean;
 }
 
 const ctxItemStyle: React.CSSProperties = {
@@ -748,7 +801,8 @@ function TreeWithSearch({
   onDelete,
   onNewFile,
   onNewFolder,
-  projectDir,
+  rootDir,
+  showHidden,
 }: TreeWithSearchProps) {
   const { t } = useI18n();
   const enc = encodeURIComponent(sessionID);
@@ -757,16 +811,21 @@ function TreeWithSearch({
   const themeStyles = useMemo(() => themeToTreeStyles(theme), [theme]);
   const [sharePath, setSharePath] = useState<string | null>(null);
 
-  const prefix = projectDir ? projectDir + "/" : "";
+  // With a rootDir, paths outside it are dropped rather than shown raw: the
+  // section is rooted there and everything else is out of scope.
+  const prefix = rootDir ? rootDir + "/" : "";
   const toDisplay = useCallback(
-    (p: string) => (prefix && p.startsWith(prefix) ? p.slice(prefix.length) : p),
+    (p: string) => (prefix ? (p.startsWith(prefix) ? p.slice(prefix.length) : "") : p),
     [prefix],
   );
   const toApi = useCallback((p: string) => (prefix ? prefix + p : p), [prefix]);
 
   const displayPaths = useMemo(
-    () => (workspace.paths ?? []).map((p) => toDisplay(p)).filter(Boolean),
-    [workspace.paths, toDisplay],
+    () =>
+      (workspace.paths ?? [])
+        .map((p) => toDisplay(p))
+        .filter((p) => p && (showHidden || !isHiddenPath(p))),
+    [workspace.paths, toDisplay, showHidden],
   );
 
   const loadedPathSet = useRef(new Set(displayPaths));
@@ -849,6 +908,7 @@ function TreeWithSearch({
         for (const rawPath of data.paths ?? []) {
           const displayPath = toDisplay(rawPath);
           if (!displayPath || loadedPathSet.current.has(displayPath)) continue;
+          if (!showHidden && isHiddenPath(displayPath)) continue;
           loadedPathSet.current.add(displayPath);
           added.push(displayPath);
         }
@@ -860,7 +920,7 @@ function TreeWithSearch({
         loadingDirSet.current.delete(dir);
       }
     },
-    [agentID, sessionID, scope, model, toApi, toDisplay],
+    [agentID, sessionID, scope, model, toApi, toDisplay, showHidden],
   );
 
   const selectedPaths = useFileTreeSelection(model);
