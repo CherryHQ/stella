@@ -128,8 +128,6 @@ func normalizeArtifactPath(path, scope string) (string, string, error) {
 			return "agent", rel, nil
 		case pkgsandbox.EnvStellaAssetsDir:
 			return "user", filepath.Join("assets", rel), nil
-		case pkgsandbox.EnvStellaUserDir:
-			return "user", rel, nil
 		default:
 			return "", "", fmt.Errorf("artifact path variable %q is unsupported: %w", "$"+name, ErrInvalidArtifactPath)
 		}

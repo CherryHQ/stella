@@ -20,7 +20,6 @@ type PathResolverConfig struct {
 	WorkspaceRoot string
 	WorkingDir    string
 	Mounts        []Mount
-	TempDirHost   string
 }
 
 // ResolvedPath is a path resolved through a mount.
@@ -40,9 +39,6 @@ func NewPathResolver(cfg PathResolverConfig) *PathResolver {
 	}
 	if workspace != "" && !hasSandboxMount(mounts, MountWorkspace) && !hasHostMount(mounts, workspace) {
 		mounts = append(mounts, Mount{HostPath: workspace, SandboxPath: workspace, Access: MountReadWrite})
-	}
-	if cfg.TempDirHost != "" && !hasSandboxMount(mounts, "/tmp") {
-		mounts = append(mounts, Mount{HostPath: cfg.TempDirHost, SandboxPath: "/tmp", Access: MountReadWrite})
 	}
 	return &PathResolver{workingDir: cfg.WorkingDir, mounts: mounts}
 }

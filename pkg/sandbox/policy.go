@@ -90,12 +90,6 @@ type FilesystemPolicy struct {
 
 	// Mounts is the complete host→sandbox mount plan for isolating backends.
 	Mounts []Mount
-
-	// TempDirHost is the caller-provided host directory requested at /tmp. It is
-	// not a durability contract: a backend may use a private fallback when this
-	// path is unavailable in its execution namespace. Callers retain ownership
-	// of a non-empty path; backend-created fallbacks are session-owned.
-	TempDirHost string
 }
 
 // NetworkPolicy defines network constraints for a sandbox session.

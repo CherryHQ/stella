@@ -24,15 +24,15 @@ func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string
 	return "", ""
 }
 
-// createSessionTmpMounts returns the identity mount for the host temporary
+// createSessionTmpMounts returns an identity mount for a session-private host
 // directory. Non-isolating platforms do not remap paths, but the path resolver
 // still needs the published TMPDIR as a writable process-view mount.
-func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
-	tmpDir := policy.Filesystem.TempDirHost
-	if tmpDir == "" {
-		tmpDir = os.TempDir()
+func createSessionTmpMounts() ([]tmpMount, error) {
+	tmpDir, err := os.MkdirTemp("", "stella-session-tmp-*")
+	if err != nil {
+		return nil, err
 	}
-	return []tmpMount{{sandboxPath: tmpDir, realPath: tmpDir}}, nil
+	return []tmpMount{{sandboxPath: tmpDir, realPath: tmpDir, owned: true}}, nil
 }
 
 // filesystemTempDir returns the real temporary directory from the identity

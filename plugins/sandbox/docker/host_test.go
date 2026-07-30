@@ -212,16 +212,18 @@ func TestTranslateEnvPaths(t *testing.T) {
 
 	env := map[string]string{
 		"PATH":                     "/host/tools/bin:/usr/bin", // host-only — should drop
+		"STELLA_USER_DIR":          "/host/data",               // removed — always drop
 		"HOME":                     "/host/workspace",          // mounted — should translate
 		"XDG_CONFIG_HOME":          "/host/data/.config",
 		"XDG_DATA_HOME":            "/host/data/.local/share",
 		"XDG_STATE_HOME":           "/host/data/.local/state",
 		"XDG_CACHE_HOME":           "/host/data/.cache",
 		"STELLA_HOME":              "/host/.stella",     // envMap — should translate
-		"STELLA_USER_DIR":          "/host/data",        // mounted at /user — should translate (Pi C2)
 		"STELLA_ASSETS_DIR":        "/host/data/assets", // mounted at /user — should translate
 		"TMPDIR":                   "/host/tmp",         // mounted at /tmp — should translate
-		"WORKING_DIR":              "/host/workspace",   // mounted — should translate
+		"WORKING_DIR":              "/host/workspace",   // unknown key — absolute-looking literal
+		"ABSOLUTE_SECRET":          "/host/secret",      // unknown key — must remain literal
+		"MISE_CACHE_DIR":           "/outside/cache",    // declared path — unmapped, so drop
 		"LARKSUITE_CLI_CONFIG_DIR": "/host/data/.lark-cli",
 		"LARKSUITE_CLI_DATA_DIR":   "/host/data/.lark-cli/data",
 		"TERM":                     "xterm-256color", // non-path — pass through
@@ -231,7 +233,6 @@ func TestTranslateEnvPaths(t *testing.T) {
 	got := translateEnvPaths(env, mounts, envMaps)
 
 	for key, want := range map[string]string{
-		"STELLA_USER_DIR":   "/user",
 		"STELLA_ASSETS_DIR": "/user/assets",
 		"TMPDIR":            "/tmp",
 	} {
@@ -240,8 +241,10 @@ func TestTranslateEnvPaths(t *testing.T) {
 		}
 	}
 
-	if v, ok := got["PATH"]; ok {
-		t.Errorf("PATH should be dropped, got %q", v)
+	for _, key := range []string{"PATH", "STELLA_USER_DIR"} {
+		if value, ok := got[key]; ok {
+			t.Errorf("%s should be dropped, got %q", key, value)
+		}
 	}
 	for key, want := range map[string]string{
 		"HOME":            "/workspace",
@@ -257,8 +260,11 @@ func TestTranslateEnvPaths(t *testing.T) {
 	if got["STELLA_HOME"] != "/home/stella/.stella" {
 		t.Errorf("STELLA_HOME: got %q, want /home/stella/.stella", got["STELLA_HOME"])
 	}
-	if got["WORKING_DIR"] != "/workspace" {
-		t.Errorf("WORKING_DIR: got %q, want /workspace", got["WORKING_DIR"])
+	if got["WORKING_DIR"] != "/host/workspace" || got["ABSOLUTE_SECRET"] != "/host/secret" {
+		t.Errorf("unknown absolute-looking literals changed: WORKING_DIR=%q ABSOLUTE_SECRET=%q", got["WORKING_DIR"], got["ABSOLUTE_SECRET"])
+	}
+	if _, ok := got["MISE_CACHE_DIR"]; ok {
+		t.Errorf("unmapped declared host path must be dropped, got %q", got["MISE_CACHE_DIR"])
 	}
 	if got["LARKSUITE_CLI_CONFIG_DIR"] != "/user/.lark-cli" {
 		t.Errorf("LARKSUITE_CLI_CONFIG_DIR: got %q, want /user/.lark-cli", got["LARKSUITE_CLI_CONFIG_DIR"])

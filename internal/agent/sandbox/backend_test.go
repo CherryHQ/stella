@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -187,28 +186,10 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 // TestBuildSandboxEnv_vaultSecretsInjected verifies that vault secrets appear
 // in the sandbox env and that runner-set vars (STELLA_HOME) take precedence over
 // any same-named vault entry.
-func TestRunnerFilesystemPolicyUsesUserScopedTmp(t *testing.T) {
-	paths := Paths{UserRoot: "/workspace/users/42", WorkDir: "/workspace/users/42"}
-	policy := runnerFilesystemPolicy(paths, Config{UserID: "42"})
-	base := os.TempDir()
-	if resolved, err := filepath.EvalSymlinks(base); err == nil {
-		base = resolved
-	}
-	want := filepath.Join(base, "users", "42")
-	if policy.TempDirHost != want {
-		t.Fatalf("TempDirHost = %q, want %q", policy.TempDirHost, want)
-	}
-	for _, unsafeID := range []string{"../42", ".", "..", "a/b", `a\\b`} {
-		if got := runnerFilesystemPolicy(paths, Config{UserID: unsafeID}).TempDirHost; got != "" {
-			t.Fatalf("unsafe user id %q should not produce temp dir, got %q", unsafeID, got)
-		}
-	}
-}
-
 // A group session carries both a GroupID and a synthetic UserID equal to it. It
 // must key off the group under the "group-" prefix in the users tree, so a real
-// user whose ID equals the group ID can never share the group's writable
-// mise/temp trees (#442).
+// user whose ID equals the group ID can never share the group's writable mise
+// tree (#442). Temporary storage is backend-owned and session-private.
 func TestRunnerFilesystemPolicyGroupUsesGroupSubtree(t *testing.T) {
 	userData := filepath.Join("/stella", "users", "group-g7", "data")
 	paths := Paths{
@@ -226,13 +207,6 @@ func TestRunnerFilesystemPolicyGroupUsesGroupSubtree(t *testing.T) {
 	// user with the same raw ID can't share it).
 	if want := filepath.Join("/stella", "users", "group-g7", ".mise-tools"); miseUserDirHost(paths, cfg) != want {
 		t.Fatalf("miseUserDirHost = %q, want %q", miseUserDirHost(paths, cfg), want)
-	}
-	base := os.TempDir()
-	if resolved, err := filepath.EvalSymlinks(base); err == nil {
-		base = resolved
-	}
-	if want := filepath.Join(base, "users", "group-g7"); runnerFilesystemPolicy(paths, cfg).TempDirHost != want {
-		t.Fatalf("TempDirHost = %q, want %q", runnerFilesystemPolicy(paths, cfg).TempDirHost, want)
 	}
 }
 

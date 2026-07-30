@@ -45,7 +45,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrPathEscapes), errors.Is(err, ErrInvalidArtifactPath):
-			return "", fmt.Errorf("artifact path must be relative or start with $HOME, $STELLA_ASSETS_DIR, or $STELLA_USER_DIR")
+			return "", fmt.Errorf("artifact path must be relative or start with $HOME or $STELLA_ASSETS_DIR")
 		case errors.Is(err, ErrTooLarge):
 			return "", fmt.Errorf("file is too large to share — create a smaller export and retry")
 		case errors.Is(err, ErrUnsupportedType):

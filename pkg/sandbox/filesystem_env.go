@@ -10,7 +10,6 @@ import (
 // own path view for these variables, while their ownership stays invariant.
 const (
 	EnvHome            = "HOME"
-	EnvStellaUserDir   = "STELLA_USER_DIR"
 	EnvStellaAssetsDir = "STELLA_ASSETS_DIR"
 	EnvTempDir         = "TMPDIR"
 	EnvXDGConfigHome   = "XDG_CONFIG_HOME"
@@ -22,13 +21,13 @@ const (
 
 // FilesystemView is the agent-visible filesystem path view a backend exposes.
 // Its roots are canonical backend views: POSIX sandbox paths or native host
-// paths. UserDir is optional; when present, STELLA_ASSETS_DIR is derived as
-// UserDir/assets. Without UserDir, persistent XDG directories live under Home.
-// Home and TempDir are required.
+// paths. SharedDataDir is optional; when present, STELLA_ASSETS_DIR is derived
+// beneath it and persistent XDG directories live there. Without SharedDataDir,
+// persistent XDG directories live under Home. Home and TempDir are required.
 type FilesystemView struct {
-	Home    string
-	UserDir string
-	TempDir string
+	Home          string
+	SharedDataDir string
+	TempDir       string
 }
 
 // ApplyFilesystemEnv applies the agent-facing filesystem contract to env.
@@ -45,16 +44,16 @@ func ApplyFilesystemEnv(env map[string]string, view FilesystemView) error {
 		return fmt.Errorf("sandbox: filesystem view requires %s", EnvTempDir)
 	}
 
+	delete(env, "STELLA_USER_DIR")
 	env[EnvHome] = view.Home
 	env[EnvTempDir] = view.TempDir
-	setOptionalEnv(env, EnvStellaUserDir, view.UserDir)
 	assetsDir := ""
-	if view.UserDir != "" {
-		assetsDir = joinFilesystemRoot(view.UserDir, "assets")
+	if view.SharedDataDir != "" {
+		assetsDir = joinFilesystemRoot(view.SharedDataDir, "assets")
 	}
 	setOptionalEnv(env, EnvStellaAssetsDir, assetsDir)
 
-	persistentRoot := view.UserDir
+	persistentRoot := view.SharedDataDir
 	if persistentRoot == "" {
 		persistentRoot = view.Home
 	}
@@ -184,7 +183,7 @@ func malformedPathVariableError() error {
 
 func isAllowedPathEnv(name string) bool {
 	switch name {
-	case EnvHome, EnvStellaUserDir, EnvStellaAssetsDir, EnvTempDir:
+	case EnvHome, EnvStellaAssetsDir, EnvTempDir:
 		return true
 	default:
 		return false
@@ -192,5 +191,5 @@ func isAllowedPathEnv(name string) bool {
 }
 
 func allowedPathEnvHint() string {
-	return "$HOME, $STELLA_USER_DIR, $STELLA_ASSETS_DIR, or $TMPDIR"
+	return "$HOME, $STELLA_ASSETS_DIR, or $TMPDIR"
 }

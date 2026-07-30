@@ -22,14 +22,13 @@ func TestApplyFilesystemEnv(t *testing.T) {
 				EnvXDGRuntimeDir: "/run/user/1",
 			},
 			view: FilesystemView{
-				Home:    "/workspace",
-				UserDir: "/user",
-				TempDir: "/tmp",
+				Home:          "/workspace",
+				SharedDataDir: "/user",
+				TempDir:       "/tmp",
 			},
 			want: map[string]string{
 				"TOKEN":            "keep",
 				EnvHome:            "/workspace",
-				EnvStellaUserDir:   "/user",
 				EnvStellaAssetsDir: "/user/assets",
 				EnvTempDir:         "/tmp",
 				EnvXDGConfigHome:   "/user/.config",
@@ -42,13 +41,12 @@ func TestApplyFilesystemEnv(t *testing.T) {
 			name: "group equivalent",
 			env:  map[string]string{},
 			view: FilesystemView{
-				Home:    "/work/group-agent",
-				UserDir: "/data/group-team",
-				TempDir: "/scratch/group-agent",
+				Home:          "/work/group-agent",
+				SharedDataDir: "/data/group-team",
+				TempDir:       "/scratch/group-agent",
 			},
 			want: map[string]string{
 				EnvHome:            "/work/group-agent",
-				EnvStellaUserDir:   "/data/group-team",
 				EnvStellaAssetsDir: "/data/group-team/assets",
 				EnvTempDir:         "/scratch/group-agent",
 				EnvXDGConfigHome:   "/data/group-team/.config",
@@ -74,13 +72,12 @@ func TestApplyFilesystemEnv(t *testing.T) {
 			name: "Windows native view",
 			env:  map[string]string{},
 			view: FilesystemView{
-				Home:    `C:\Stella\agents\agent-1`,
-				UserDir: `C:\Stella\users\user-1\`,
-				TempDir: `C:\Stella\tmp\agent-1`,
+				Home:          `C:\Stella\agents\agent-1`,
+				SharedDataDir: `C:\Stella\users\user-1\`,
+				TempDir:       `C:\Stella\tmp\agent-1`,
 			},
 			want: map[string]string{
 				EnvHome:            `C:\Stella\agents\agent-1`,
-				EnvStellaUserDir:   `C:\Stella\users\user-1\`,
 				EnvStellaAssetsDir: `C:\Stella\users\user-1\assets`,
 				EnvTempDir:         `C:\Stella\tmp\agent-1`,
 				EnvXDGConfigHome:   `C:\Stella\users\user-1\.config`,
@@ -93,13 +90,12 @@ func TestApplyFilesystemEnv(t *testing.T) {
 			name: "UNC native view",
 			env:  map[string]string{},
 			view: FilesystemView{
-				Home:    `\\server\share\agents\agent-1`,
-				UserDir: `\\server\share\users\user-1\`,
-				TempDir: `\\server\share\tmp\agent-1`,
+				Home:          `\\server\share\agents\agent-1`,
+				SharedDataDir: `\\server\share\users\user-1\`,
+				TempDir:       `\\server\share\tmp\agent-1`,
 			},
 			want: map[string]string{
 				EnvHome:            `\\server\share\agents\agent-1`,
-				EnvStellaUserDir:   `\\server\share\users\user-1\`,
 				EnvStellaAssetsDir: `\\server\share\users\user-1\assets`,
 				EnvTempDir:         `\\server\share\tmp\agent-1`,
 				EnvXDGConfigHome:   `\\server\share\users\user-1\.config`,
@@ -109,9 +105,9 @@ func TestApplyFilesystemEnv(t *testing.T) {
 			},
 		},
 		{
-			name: "missing user mount clears stale roots",
+			name: "missing shared mount clears stale roots",
 			env: map[string]string{
-				EnvStellaUserDir:   "/stale/user",
+				"STELLA_USER_DIR":  "/stale/user",
 				EnvStellaAssetsDir: "/stale/user/assets",
 				EnvXDGRuntimeDir:   "/run/user/1",
 			},
@@ -175,7 +171,6 @@ func TestApplyFilesystemEnvRequiresHomeAndTempDir(t *testing.T) {
 			env := map[string]string{
 				"UNCHANGED":        "yes",
 				EnvHome:            "/old/home",
-				EnvStellaUserDir:   "/old/user",
 				EnvStellaAssetsDir: "/old/user/assets",
 				EnvXDGRuntimeDir:   "/old/runtime",
 				EnvXDGConfigHome:   "/old/user/.config",
@@ -198,7 +193,6 @@ func TestApplyFilesystemEnvRequiresHomeAndTempDir(t *testing.T) {
 func TestExpandPathVariables(t *testing.T) {
 	env := map[string]string{
 		EnvHome:            "/policy/workspace",
-		EnvStellaUserDir:   "/policy/user",
 		EnvStellaAssetsDir: "/policy/user/assets",
 		EnvTempDir:         "/policy/tmp",
 		"TOKEN":            "top-secret-value",
@@ -213,10 +207,6 @@ func TestExpandPathVariables(t *testing.T) {
 		{"${HOME}", "/policy/workspace"},
 		{"$HOME/a", "/policy/workspace/a"},
 		{"${HOME}/a", "/policy/workspace/a"},
-		{"$STELLA_USER_DIR", "/policy/user"},
-		{"${STELLA_USER_DIR}", "/policy/user"},
-		{"$STELLA_USER_DIR/a", "/policy/user/a"},
-		{"${STELLA_USER_DIR}/a", "/policy/user/a"},
 		{"$STELLA_ASSETS_DIR", "/policy/user/assets"},
 		{"${STELLA_ASSETS_DIR}", "/policy/user/assets"},
 		{"$STELLA_ASSETS_DIR/a", "/policy/user/assets/a"},
@@ -259,22 +249,6 @@ func TestExpandPathVariables(t *testing.T) {
 	})
 }
 
-func TestExpandPathVariablesDoesNotUseHostEnvironmentForUnavailableVariable(t *testing.T) {
-	const hostSentinel = "/host-only/user-dir"
-	t.Setenv(EnvStellaUserDir, hostSentinel)
-
-	got, err := ExpandPathVariables("${STELLA_USER_DIR}/a", map[string]string{})
-	if err == nil {
-		t.Fatalf("ExpandPathVariables = %q, want error", got)
-	}
-	if got != "" {
-		t.Errorf("ExpandPathVariables = %q, want empty path on error", got)
-	}
-	if strings.Contains(err.Error(), hostSentinel) {
-		t.Errorf("error exposed host environment value %q", hostSentinel)
-	}
-}
-
 func TestExpandPathVariablesRejectsUnsupportedUnavailableAndMalformedExpressions(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -293,10 +267,11 @@ func TestExpandPathVariablesRejectsUnsupportedUnavailableAndMalformedExpressions
 			forbidden:   "TOKEN",
 		},
 		{
-			name:        "unavailable allowed variable",
+			name:        "removed user dir variable",
 			path:        "${STELLA_USER_DIR}/a",
-			env:         map[string]string{},
-			wantMessage: "unavailable",
+			env:         map[string]string{"STELLA_USER_DIR": "/policy/user"},
+			wantMessage: "unsupported leading path variable",
+			forbidden:   "STELLA_USER_DIR",
 		},
 		{
 			name:        "unbraced root suffix without separator",

@@ -17,7 +17,7 @@ func editDefinition() pkgtools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path":       map[string]any{"type": "string", "description": "Relative paths are working/project files. Supported roots: $HOME, $STELLA_ASSETS_DIR, and $TMPDIR ($STELLA_USER_DIR is supported for compatibility). Default work to $HOME; save final user deliverables in $STELLA_ASSETS_DIR when available."},
+				"path":       map[string]any{"type": "string", "description": "Relative paths are working/project files. Supported roots: $HOME, $STELLA_ASSETS_DIR, and $TMPDIR. Default work to $HOME; save final user deliverables in $STELLA_ASSETS_DIR when available."},
 				"old_string": map[string]any{"type": "string", "description": "The exact text to find and replace. Must match the file content exactly."},
 				"new_string": map[string]any{"type": "string", "description": "The replacement text."},
 			},

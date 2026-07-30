@@ -99,7 +99,7 @@ components:
       default: agent
       description: >-
         Which root to operate on: agent — the agent work root ($HOME); user —
-        shared user files ($STELLA_USER_DIR, including $STELLA_ASSETS_DIR for assets).
+        shared user files, including $STELLA_ASSETS_DIR for assets.
 
     SessionWorkspace:
       type: object

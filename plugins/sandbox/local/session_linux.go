@@ -105,35 +105,25 @@ func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string
 	return "", ""
 }
 
-// createSessionTmpMounts returns host directories for each sandbox temp path.
-// /tmp uses the policy's user-scoped host directory when present; /var/tmp stays
-// session-local. Owned directories are removed when the session closes.
+// createSessionTmpMounts returns session-private host directories for each
+// sandbox temp path. Owned directories are removed when the session closes.
 //
 // To add support for a new sandbox temp path (e.g. /run/user/1000):
 //  1. Create or resolve the host dir and append a tmpMount{sandboxPath, realPath, owned}.
 //  2. Add a corresponding "--bind realPath sandboxPath" entry in wrapCommand below.
 //  3. Add the sandbox path to the platform profile in session_darwin.go if needed.
-func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
-	tmp := policy.Filesystem.TempDirHost
-	tmpOwned := false
-	if tmp == "" {
-		var err error
-		tmp, err = os.MkdirTemp("", "stella-session-tmp-*")
-		if err != nil {
-			return nil, err
-		}
-		tmpOwned = true
+func createSessionTmpMounts() ([]tmpMount, error) {
+	tmp, err := os.MkdirTemp("", "stella-session-tmp-*")
+	if err != nil {
+		return nil, err
 	}
-
 	varTmp, err := os.MkdirTemp("", "stella-session-vartmp-*")
 	if err != nil {
-		if tmpOwned {
-			os.RemoveAll(tmp) //nolint:errcheck
-		}
+		os.RemoveAll(tmp) //nolint:errcheck
 		return nil, err
 	}
 	return []tmpMount{
-		{sandboxPath: "/tmp", realPath: tmp, owned: tmpOwned},
+		{sandboxPath: "/tmp", realPath: tmp, owned: true},
 		{sandboxPath: "/var/tmp", realPath: varTmp, owned: true},
 	}, nil
 }

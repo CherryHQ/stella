@@ -41,7 +41,7 @@ func TestAgentDirInHome(t *testing.T) {
 
 // Uploads and user skills must live under the shared user-data root (data/,
 // mounted as /user), not at the user-home root — that is what makes them
-// reachable in-sandbox at $STELLA_USER_DIR and shared across the user's agents.
+// mounted internally at /user and shared across the user's agents.
 func TestUserDataDirHoldsAssetsAndSkills(t *testing.T) {
 	home := filepath.Join("/srv", "users", "u1")
 	data := UserDataDir(home)

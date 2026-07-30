@@ -78,7 +78,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	// their real host path as TMPDIR.
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
-	tmpMounts, err := createSessionTmpMounts(policy)
+	tmpMounts, err := createSessionTmpMounts()
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
 	}
@@ -192,11 +192,11 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 
 // applyFilesystemEnv renders the filesystem contract in the local process
 // view after temporary mounts have been created.
-func applyFilesystemEnv(policy *sandboxpkg.Policy, home, userDir string, tmpMounts []tmpMount) error {
+func applyFilesystemEnv(policy *sandboxpkg.Policy, home, sharedDataDir string, tmpMounts []tmpMount) error {
 	view := sandboxpkg.FilesystemView{
-		Home:    home,
-		UserDir: userDir,
-		TempDir: filesystemTempDir(tmpMounts),
+		Home:          home,
+		SharedDataDir: sharedDataDir,
+		TempDir:       filesystemTempDir(tmpMounts),
 	}
 	return sandboxpkg.ApplyFilesystemEnv(policy.Env, view)
 }
@@ -320,9 +320,9 @@ func (s *localSession) Close() error {
 		p.Close() //nolint:errcheck
 	}
 
+	cleanupOwnedTmpMounts(s.tmpMounts)
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "local", "explicit_close")
-	cleanupOwnedTmpMounts(s.tmpMounts)
 	return nil
 }
 
@@ -676,6 +676,7 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 
 	maps.Copy(merged, policy.Env)
 	maps.Copy(merged, overrides)
+	delete(merged, "STELLA_USER_DIR")
 
 	env := make([]string, 0, len(merged))
 	for k, v := range merged {

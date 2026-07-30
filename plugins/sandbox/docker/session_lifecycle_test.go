@@ -142,7 +142,6 @@ func TestCleanupStaleSessionTempDirsKeepsYoungDirectoryAndFailsClosed(t *testing
 func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) {
 	api := &stopCountingAPI{}
 	workspace := t.TempDir()
-	requestedTmp := t.TempDir()
 	factory := &dockerFactory{
 		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
 		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
@@ -152,7 +151,6 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 			WorkspaceRoot: workspace,
 			WorkingDir:    workspace,
 			Mounts:        []sandboxpkg.Mount{{HostPath: workspace, SandboxPath: `\workspace\`, Access: sandboxpkg.MountReadWrite}},
-			TempDirHost:   requestedTmp,
 		},
 	})
 	if err != nil {
@@ -164,8 +162,8 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 		t.Errorf("normalized SandboxPath = %q, want %q", got, workspaceMount)
 	}
 	tempDir := policy.Env[sandboxpkg.EnvTempDir]
-	if tempDir == "" || tempDir == requestedTmp {
-		t.Fatalf("policy TMPDIR = %q, want a private session directory", tempDir)
+	if tempDir == "" {
+		t.Fatal("policy TMPDIR is empty, want a private session directory")
 	}
 	if got, err := session.ResolveWritePath("/tmp/file"); err != nil || got != filepath.Join(tempDir, "file") {
 		t.Errorf("ResolveWritePath(/tmp/file) = %q, %v; want %q, nil", got, err, filepath.Join(tempDir, "file"))

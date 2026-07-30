@@ -137,14 +137,13 @@ bubblewrap must be functional, not just installed. Inside Docker containers with
 
 ### Agent filesystem contract
 
-Use these environment variables in Agent instructions. They are the filesystem API for Agent work; literal sandbox paths are only backend rendering, compatibility, or command-output details. The `read`, `write`, and `edit` tools understand all four roots. `share` accepts `$HOME`, `$STELLA_ASSETS_DIR`, and compatibility `$STELLA_USER_DIR`, but not `$TMPDIR`. Never hardcode `/workspace`, `/user`, or `/tmp` in Agent instructions.
+Use these environment variables in Agent instructions. They are the filesystem API for Agent work; literal sandbox paths are only backend rendering, compatibility, or command-output details. The `read`, `write`, and `edit` tools understand all three roots. `share` accepts `$HOME` and `$STELLA_ASSETS_DIR`, but not `$TMPDIR`. Never hardcode `/workspace`, `/user`, or `/tmp` in Agent instructions.
 
-| Root                 | Use                                                                                     | Rules                                                                                           |
-| -------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `$HOME`              | Durable, private per-Agent workspace for project and default work                       | Relative paths resolve in the current project/work directory.                                   |
-| `$STELLA_ASSETS_DIR` | Durable uploads and final deliverables shared by the same user or group, when available | This is the normal direct-write exception under the managed user/group root.                    |
-| `$TMPDIR`            | Disposable scratch space                                                                | Retention and reuse depend on the backend. Never put final output here or rely on it surviving. |
-| `$STELLA_USER_DIR`   | Compatibility and advanced access to the managed user/group root                        | Do not write outside `$STELLA_ASSETS_DIR` directly.                                             |
+| Root                 | Use                                                                                     | Rules                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `$HOME`              | Durable, private per-Agent workspace for project and default work                       | Relative paths resolve in the current project/work directory.                 |
+| `$STELLA_ASSETS_DIR` | Durable uploads and final deliverables shared by the same user or group, when available | This is the managed shared location for direct Agent writes.                  |
+| `$TMPDIR`            | Session-private disposable scratch space                                                | Never put final output here or rely on it surviving after the session closes. |
 
 ### Managed user and group roots
 
@@ -158,19 +157,21 @@ Mise, Lark, and system directories are tool-managed, not generic storage locatio
 
 The following literal paths describe a process view, not the Agent filesystem API:
 
-| Backend or condition       | Process view                                                                                                                                 |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Linux `local` and `docker` | Normally `$HOME=/workspace`, `$STELLA_ASSETS_DIR=/user/assets`, and `$TMPDIR=/tmp`; `$STELLA_USER_DIR=/user` is the managed user/group root. |
-| macOS `local` and `none`   | The process sees the actual host paths rather than remapped sandbox paths.                                                                   |
-| Docker without `/user`     | `$STELLA_ASSETS_DIR` and `$STELLA_USER_DIR` are absent, and the XDG directories fall back under `$HOME`/the workspace.                       |
+| Backend or condition       | Process view                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| Linux `local` and `docker` | Normally `$HOME=/workspace`, `$STELLA_ASSETS_DIR=/user/assets`, and `$TMPDIR=/tmp`.            |
+| macOS `local` and `none`   | The process sees the actual host paths rather than remapped sandbox paths.                     |
+| Docker without `/user`     | `$STELLA_ASSETS_DIR` is absent, and the XDG directories fall back under `$HOME`/the workspace. |
 
-The Linux `local` backend can mount a user/group-scoped temp directory at `/tmp`. Docker creates a private directory for every sandbox session under `$STELLA_HOME/cache/sandbox-tmp/` and mounts it at `/tmp`, so shell commands and file tools access the same content. Stella removes the directory after the container is removed and cleans stale directories during startup. This is scratch space, not a durability promise.
+Every backend creates a private temporary directory for each sandbox session and removes it when the session closes. Docker stores its backing directory under `$STELLA_HOME/cache/sandbox-tmp/` and mounts it at `/tmp`, so shell commands and file tools access the same content; startup cleanup removes stale Docker directories. This is scratch space, not a durability promise.
 
 Isolating backends also render the system install tree at `/opt/stella` as read-only. Only its `bin`, `.mise-tools`, and `.agents/skills` subtrees are mounted there; the sibling `users/` and `agents/` trees under `STELLA_HOME` are not exposed. The Docker backend bakes its mise toolchain at that path, and Linux `local` renders the matching system tree there, so tool resolution remains consistent across isolating backends. `MISE_DATA_DIR` and related variables stay pinned to that tool-managed tree.
 
 ### Upgrading existing workspaces
 
 Existing Agent-local XDG files are not moved, merged, or deleted during upgrade. New CLI state is principal-shared rather than Agent-private, so persistent CLI logins created after upgrading are visible to the same user’s or group’s other Agents. XDG-aware command-line tools may need one setup or login for that user or group after upgrading. Perform a tool-specific manual migration only when you understand that tool's data; caches can repopulate.
+
+`STELLA_USER_DIR` is removed rather than retained as a compatibility path. Replace Agent instructions and share expressions that used it with `$STELLA_ASSETS_DIR` for shared deliverables or `$HOME` for private Agent work.
 
 ## None Backend
 

@@ -10,58 +10,38 @@ import (
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-func TestOtherPlatformTmpMountsExposeConfiguredAndFallbackViews(t *testing.T) {
+func TestOtherPlatformTmpMountsAreSessionOwnedIdentityViews(t *testing.T) {
 	workspace := t.TempDir()
-	configuredTemp := t.TempDir()
+	mounts, err := createSessionTmpMounts()
+	if err != nil {
+		t.Fatalf("createSessionTmpMounts: %v", err)
+	}
+	if len(mounts) != 1 {
+		t.Fatalf("tmp mounts = %#v, want one identity mount", mounts)
+	}
+	mount := mounts[0]
+	if mount.sandboxPath == "" || mount.sandboxPath != mount.realPath || !mount.owned {
+		t.Fatalf("tmp mount = %#v, want owned identity mount", mount)
+	}
+	if got := filesystemTempDir(mounts); got != mount.realPath {
+		t.Errorf("filesystemTempDir = %q, want %q", got, mount.realPath)
+	}
 
-	for _, tc := range []struct {
-		name   string
-		policy sandboxpkg.Policy
-		want   string
-	}{
-		{
-			name: "configured",
-			policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
-				WorkspaceRoot: workspace,
-				WorkingDir:    workspace,
-				TempDirHost:   configuredTemp,
-			}},
-			want: configuredTemp,
-		},
-		{
-			name: "fallback",
-			policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
-				WorkspaceRoot: workspace,
-				WorkingDir:    workspace,
-			}},
-			want: os.TempDir(),
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			mounts, err := createSessionTmpMounts(tc.policy)
-			if err != nil {
-				t.Fatalf("createSessionTmpMounts: %v", err)
-			}
-			if len(mounts) != 1 {
-				t.Fatalf("tmp mounts = %#v, want one identity mount", mounts)
-			}
-			if got := mounts[0]; got.sandboxPath != tc.want || got.realPath != tc.want || got.owned {
-				t.Errorf("tmp mount = %#v, want identity mount for %q", got, tc.want)
-			}
-			if got := filesystemTempDir(mounts); got != tc.want {
-				t.Errorf("filesystemTempDir = %q, want %q", got, tc.want)
-			}
-
-			session := &localSession{
-				realRoot:    workspace,
-				sandboxRoot: workspace,
-				tmpMounts:   mounts,
-				policy:      tc.policy,
-			}
-			wantPath := filepath.Join(tc.want, "tmp-file")
-			if got, err := session.ResolveWritePath(wantPath); err != nil || got != wantPath {
-				t.Errorf("ResolveWritePath(%q) = %q, %v; want %q, nil", wantPath, got, err, wantPath)
-			}
-		})
+	session := &localSession{
+		realRoot:    workspace,
+		sandboxRoot: workspace,
+		tmpMounts:   mounts,
+		policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: workspace,
+			WorkingDir:    workspace,
+		}},
+	}
+	wantPath := filepath.Join(mount.realPath, "tmp-file")
+	if got, err := session.ResolveWritePath(wantPath); err != nil || got != wantPath {
+		t.Errorf("ResolveWritePath(%q) = %q, %v; want %q, nil", wantPath, got, err, wantPath)
+	}
+	cleanupOwnedTmpMounts(mounts)
+	if _, err := os.Stat(mount.realPath); !os.IsNotExist(err) {
+		t.Errorf("owned temp survives cleanup: %v", err)
 	}
 }

@@ -248,7 +248,6 @@ func TestShareArtifactNormalizesSemanticRoots(t *testing.T) {
 		{"home overrides user scope", "$HOME/agent.html", "user", "agent"},
 		{"braced home overrides user scope", "${HOME}/agent.html", "user", "agent"},
 		{"assets override agent scope", "$STELLA_ASSETS_DIR/durable.html", "agent", "asset"},
-		{"user compatibility overrides agent scope", "${STELLA_USER_DIR}/shared.html", "agent", "shared"},
 		{"workspace mount compatibility", "/workspace/agent.html", "user", "agent"},
 		{"user mount compatibility", "/user/assets/durable.html", "agent", "asset"},
 	} {
@@ -266,6 +265,7 @@ func TestShareArtifactNormalizesSemanticRoots(t *testing.T) {
 		"$HOME/../escape.html",
 		"$STELLA_ASSETS_DIR/../shared.html",
 		"$TMPDIR/tmp.html",
+		"$STELLA_USER_DIR/shared.html",
 		"$UNKNOWN/file.html",
 		"${HOME",
 	} {

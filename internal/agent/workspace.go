@@ -169,8 +169,8 @@ func UserDataDir(userHome string) string {
 
 // UserAssetsDir returns the per-user assets directory within a user home.
 // Uploaded files from all channels are stored here, shared across the user's
-// agents, under the user-data root mounted as /user (reachable in-sandbox at
-// $STELLA_USER_DIR/assets).
+// agents, under the user-data root mounted internally at /user (Agent-facing
+// access uses $STELLA_ASSETS_DIR).
 func UserAssetsDir(userHome string) string {
 	return filepath.Join(UserDataDir(userHome), "assets")
 }
