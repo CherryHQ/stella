@@ -20,7 +20,10 @@ import (
 // nullAgent builds a pgtype.Text for an agent_id value.
 func requireSessionScope(ctx context.Context, userID, agentID string) (string, string, error) {
 	if userID == "" {
-		userID = authz.UserIDFromContext(ctx)
+		// Conversation scope, not identity: a group turn has no user on the
+		// context (D9) and its rows are owned by the group id, so that is the key
+		// to read them back with. Per-user stores resolve elsewhere.
+		userID = memory.ScopeUserIDFromContext(ctx)
 	}
 	if agentID == "" {
 		agentID = authz.AgentIDFromContext(ctx)

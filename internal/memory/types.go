@@ -5,8 +5,25 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
+
+// ScopeUserIDFromContext returns the user_id this turn's conversation rows are
+// keyed by. A group turn carries no user identity — runtime identity stays the
+// group (D9) — and its conversations persist under user_id = group_id (the
+// ctx_conversation_group_owner_check invariant), so the group id is its scope
+// key. Use this for conversation-scoped reads and writes (session info,
+// messages, summaries) only. Per-user data — soul, profile, constraints,
+// knowledge facts — must keep resolving strictly against
+// authz.UserIDFromContext so a group turn fails closed instead of reading a
+// person's private rows.
+func ScopeUserIDFromContext(ctx context.Context) string {
+	if userID := authz.UserIDFromContext(ctx); userID != "" {
+		return userID
+	}
+	return authz.GroupIDFromContext(ctx)
+}
 
 type contextKey string
 
