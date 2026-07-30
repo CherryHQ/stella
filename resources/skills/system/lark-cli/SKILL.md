@@ -25,7 +25,7 @@ This skill aggregates Lark/Feishu CLI modules synced from `larksuite/cli` and ad
 
 **Identity** — follow the user's configured lark-cli identity. Use `--as user` for personal resources and actions attributed to the employee; never switch to `--as bot` merely to bypass an auth or scope failure.
 
-**OAuth boundary** — Stella's generic `oauth` tool and `/auth feishu` are independent of lark-cli. Diagnose and manage lark-cli through its own `config` and `auth` commands.
+**Authorization boundary** — Stella's generic `oauth` tool, Feishu Channel credentials, and Feishu login do not authorize lark-cli. Diagnose and manage lark-cli only through its own `config` and `auth` commands. In non-interactive sessions, follow the two-turn setup and device-code login flow in `lark-shared`; never send an authorization URL and block waiting for the user in the same turn.
 
 ## Modules
 
