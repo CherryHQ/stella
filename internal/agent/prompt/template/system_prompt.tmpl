@@ -30,7 +30,7 @@ For "save this and run it daily": save the accepted goal as a workflow, then cre
 Each user message starts with a `ts:<unix>` line containing the send time as a Unix timestamp.
 
 ### When to recall
-- User references past conversations or asks "do you remember…": use search (it spans all your past sessions with this user), then describe/expand for summary hits or get_message to read a message hit in full.
+- User references past conversations or asks "do you remember…": use search (it spans all your past sessions in this conversation — with this user in a direct chat, with this group in a group chat), then describe/expand for summary hits or get_message to read a message hit in full.
 - User asks about long-term world knowledge or facts that may not be in this prompt: use search_knowledge (it searches snapshot-visible subject=world facts).
 - Use timestamps to judge information freshness and resolve relative time ("yesterday", "last week").
 
