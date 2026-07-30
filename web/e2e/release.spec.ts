@@ -660,6 +660,7 @@ test("[C16-S02] open an actionable inbox item through the browser", async ({ pag
     title,
     intent: "Produce a deterministic plan that requires human approval.",
     agent_id: agentID,
+    kind: "composite",
     review_policy: "human",
   });
   await expect
@@ -906,13 +907,15 @@ test("[X11-S02] poll a fixture feed and use the Recally browser surfaces", async
 test("[X13-S03] manage OAuth provider scopes through the browser", async ({ page }) => {
   await login(page, env.adminEmail, env.adminPassword);
   await page.goto("/settings/credentials");
+  const providerID = "github";
+  const defaultScopeName = "workflow";
 
   const configLoaded = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/admin/oauth-providers/lark/config") &&
+      response.url().endsWith(`/api/admin/oauth-providers/${providerID}/config`) &&
       response.request().method() === "GET",
   );
-  await page.getByText("lark", { exact: true }).first().click();
+  await page.getByText(providerID, { exact: true }).first().click();
   expect((await configLoaded).ok()).toBeTruthy();
 
   const clientID = `${env.fixturePrefix}-oauth-client`;
@@ -921,9 +924,9 @@ test("[X13-S03] manage OAuth provider scopes through the browser", async ({ page
   await inputNearLabel(page, "Client Secret").fill(clientSecret);
 
   const scopeSearch = page.getByPlaceholder("Search scopes");
-  await scopeSearch.fill("offline_access");
+  await scopeSearch.fill(defaultScopeName);
   const defaultScope = page.getByRole("checkbox", {
-    name: "offline_access",
+    name: defaultScopeName,
     exact: true,
   });
   await expect(defaultScope).toBeChecked();
@@ -938,7 +941,7 @@ test("[X13-S03] manage OAuth provider scopes through the browser", async ({ page
 
   const saved = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/admin/oauth-providers/lark/config") &&
+      response.url().endsWith(`/api/admin/oauth-providers/${providerID}/config`) &&
       response.request().method() === "PUT",
   );
   await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -948,16 +951,16 @@ test("[X13-S03] manage OAuth provider scopes through the browser", async ({ page
     scopes: string[];
   };
   expect(savedRequest.scopes).toContain(customScope);
-  expect(savedRequest.scopes).not.toContain("offline_access");
-  await expect(page.getByText("lark credentials saved", { exact: true })).toBeVisible();
+  expect(savedRequest.scopes).not.toContain(defaultScopeName);
+  await expect(page.getByText(`${providerID} credentials saved`, { exact: true })).toBeVisible();
 
   await page.reload();
   const reloadedConfig = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/admin/oauth-providers/lark/config") &&
+      response.url().endsWith(`/api/admin/oauth-providers/${providerID}/config`) &&
       response.request().method() === "GET",
   );
-  await page.getByText("lark", { exact: true }).first().click();
+  await page.getByText(providerID, { exact: true }).first().click();
   expect((await reloadedConfig).ok()).toBeTruthy();
   await page.getByPlaceholder("Search scopes").fill(customScope);
   await expect(page.getByRole("checkbox", { name: customScope, exact: true })).toBeChecked();
@@ -965,7 +968,7 @@ test("[X13-S03] manage OAuth provider scopes through the browser", async ({ page
 
   const defaultsSaved = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/admin/oauth-providers/lark/config") &&
+      response.url().endsWith(`/api/admin/oauth-providers/${providerID}/config`) &&
       response.request().method() === "PUT",
   );
   await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -978,7 +981,7 @@ test("[X13-S03] manage OAuth provider scopes through the browser", async ({ page
 
   // The suite owns this temporary provider override, so remove it before the
   // later journeys reuse the same candidate database.
-  await requestJSON(page, "DELETE", "/api/admin/oauth-providers/lark/config");
+  await requestJSON(page, "DELETE", `/api/admin/oauth-providers/${providerID}/config`);
 });
 
 test("[X02-S02] manage and invoke a webhook channel", async ({ page }) => {
