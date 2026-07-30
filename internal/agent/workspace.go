@@ -47,15 +47,20 @@ func GroupHomeDir(base, groupID string) string {
 	return filepath.Join(base, "users", "group-"+groupID)
 }
 
-// UserAgentDir returns the per-(user, agent) private area under a user home.
+// AgentDirInHome returns the per-agent private area under a principal home.
 // Projects owned by the agent live under this directory.
+func AgentDirInHome(home, agentID string) string {
+	return filepath.Join(home, "agents", agentID)
+}
+
+// UserAgentDir returns the per-(user, agent) private area under a user home.
 func UserAgentDir(base, userID, agentID string) string {
-	return filepath.Join(UserHomeDir(base, userID), "agents", agentID)
+	return AgentDirInHome(UserHomeDir(base, userID), agentID)
 }
 
 // GroupAgentDir returns the per-(group, agent) private area under a group home.
 func GroupAgentDir(base, groupID, agentID string) string {
-	return filepath.Join(GroupHomeDir(base, groupID), "agents", agentID)
+	return AgentDirInHome(GroupHomeDir(base, groupID), agentID)
 }
 
 // SetupAgentWorkspace ensures the user-independent agent directory exists.
@@ -72,9 +77,10 @@ func SetupAgentWorkspace(base, agentID string) (string, error) {
 }
 
 // SetupUserWorkspace ensures a user home and the per-(user, agent) area exist.
-// Creates the user home (.agents/skills, data, assets — shared by all the user's
-// agents) and the agent's private subdir (where its projects live). Returns the
-// user home directory, which is the sandbox workspace root and HOME.
+// Creates the shared data subtree (including .agents/skills and assets) and the
+// agent's private subdir (where its projects live). Returns the user home
+// directory, which is the shared principal root; the sandbox workspace root and
+// HOME are its per-agent subdirectory.
 func SetupUserWorkspace(base, userID, agentID string) (string, error) {
 	if userID == "" {
 		return "", fmt.Errorf("user ID must not be empty")

@@ -141,6 +141,10 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	if err != nil {
 		return "", fmt.Errorf("%w: session plugin view: %w", ErrUnavailable, err)
 	}
+	workspaceRoot := agentCfg.Workspace
+	if userRoot != "" {
+		workspaceRoot = agent.AgentDirInHome(userRoot, info.AgentID)
+	}
 	promptBuild := pkgplugins.SystemPromptContext{
 		StellaHome:          b.deps.StellaHome,
 		HomeDir:             b.deps.HomeDir,
@@ -149,7 +153,7 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		UserID:              info.UserID,
 		AgentID:             info.AgentID,
 		UserRoot:            userRoot,
-		WorkspaceRoot:       userRoot,
+		WorkspaceRoot:       workspaceRoot,
 		SkillStore:          b.deps.SkillStore,
 		RegisteredPluginIDs: pluginView.RegisteredPluginIDs,
 		EnabledPluginIDs:    pluginView.EnabledPluginIDs,

@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -47,8 +48,13 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
+	var promptBuild plugins.SystemPromptContext
 	build := newRunnerFunc(runnerBuilderConfig{
 		Snap: snap,
+		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+			promptBuild = build
+			return nil, nil
+		},
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
@@ -73,6 +79,12 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 
 	if got := r.SystemPrompt(); !strings.Contains(got, "project instructions from runner builder") {
 		t.Fatalf("expected system prompt to include project AGENTS.md content, got:\n%s", got)
+	}
+	if got, want := promptBuild.WorkspaceRoot, userAgentDir; got != want {
+		t.Errorf("prompt WorkspaceRoot = %q, want per-agent workspace %q", got, want)
+	}
+	if got, want := promptBuild.UserRoot, filepath.Dir(filepath.Dir(userAgentDir)); got != want {
+		t.Errorf("prompt UserRoot = %q, want shared user home %q", got, want)
 	}
 }
 

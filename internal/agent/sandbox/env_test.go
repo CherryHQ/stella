@@ -46,6 +46,40 @@ func requireSessionSecretValues(t *testing.T, values []string, present []string,
 	}
 }
 
+func TestRemapStellaHomePolicyPathUsesPOSIXContainerPaths(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		hostPath   string
+		stellaHome string
+		want       string
+	}{
+		{
+			name:       "POSIX host root",
+			hostPath:   "/srv/stella/users/u1/.mise-tools",
+			stellaHome: "/srv/stella",
+			want:       "/opt/stella/users/u1/.mise-tools",
+		},
+		{
+			name:       "Windows host root",
+			hostPath:   `C:\stella\users\u1\.mise-tools`,
+			stellaHome: `C:\stella`,
+			want:       "/opt/stella/users/u1/.mise-tools",
+		},
+		{
+			name:       "outside stella home remains host path",
+			hostPath:   `C:\outside\tools`,
+			stellaHome: `C:\stella`,
+			want:       `C:\outside\tools`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := remapStellaHomePolicyPath(tt.hostPath, tt.stellaHome); got != tt.want {
+				t.Errorf("remapStellaHomePolicyPath(%q, %q) = %q, want %q", tt.hostPath, tt.stellaHome, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildSandboxEnvDropsVaultStellaToken(t *testing.T) {
 	env, err := buildSandboxEnv(context.Background(), Config{
 		UserID:         "user-1",

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -272,8 +273,8 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	// mount contributing a bogus PATH dir.
 	var toolBinPaths []string
 	for _, tree := range perUserTrees {
-		if filepath.Base(tree.Container) == ".mise-tools" {
-			toolBinPaths = append(toolBinPaths, filepath.Join(tree.Container, "shims"))
+		if path.Base(tree.Container) == ".mise-tools" {
+			toolBinPaths = append(toolBinPaths, path.Join(tree.Container, "shims"))
 		}
 	}
 	toolCache, err := ensureUserToolCache(ctx, client, f.cfg)
@@ -346,6 +347,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 // mounted user-data host ("" when /user could not be mounted, so callers don't
 // wire a /user that isn't really there).
 func (f *dockerFactory) configureSessionMounts(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy, workspaceHost, userDataHost string) ([]sandboxpkg.Mount, string, string, error) {
+	policy.Filesystem.Mounts = cleanPolicySandboxPaths(policy.Filesystem.Mounts)
 	if len(policy.Filesystem.Mounts) == 0 {
 		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: workspaceHost, SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite})
 	}
@@ -473,10 +475,43 @@ func relativePathWithin(root, path string) (string, bool) {
 	return rel, true
 }
 
+// cleanContainerPath canonicalizes a path consumed by the Linux container.
+func cleanContainerPath(containerPath string) string {
+	return path.Clean(strings.ReplaceAll(containerPath, "\\", "/"))
+}
+
+func cleanPolicySandboxPaths(mounts []sandboxpkg.Mount) []sandboxpkg.Mount {
+	out := append([]sandboxpkg.Mount(nil), mounts...)
+	for i := range out {
+		out[i].SandboxPath = cleanContainerPath(out[i].SandboxPath)
+	}
+	return out
+}
+
+// containerPathRel returns the cleaned relative path when target is within root.
+// The path package has no Rel equivalent, so compare normalized Linux paths.
+func containerPathRel(root, target string) (string, bool) {
+	root = cleanContainerPath(root)
+	target = cleanContainerPath(target)
+	if target == root {
+		return ".", true
+	}
+	if root == "/" {
+		if after, ok := strings.CutPrefix(target, "/"); ok {
+			return after, true
+		}
+		return "", false
+	}
+	if after, ok := strings.CutPrefix(target, root+"/"); ok {
+		return after, true
+	}
+	return "", false
+}
+
 func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) string {
-	clean := filepath.Clean(sandboxPath)
+	clean := cleanContainerPath(sandboxPath)
 	for _, m := range mounts {
-		if filepath.Clean(m.SandboxPath) == clean {
+		if cleanContainerPath(m.SandboxPath) == clean {
 			return m.HostPath
 		}
 	}
@@ -502,21 +537,23 @@ func applyDockerFilesystemEnv(env map[string]string, workspaceHost, userDataHost
 }
 
 func dockerMountProvidedByImage(m sandboxpkg.Mount) bool {
-	if !strings.HasPrefix(filepath.Clean(m.SandboxPath), stellaHomeMount+string(filepath.Separator)) {
+	containerPath := cleanContainerPath(m.SandboxPath)
+	if !strings.HasPrefix(containerPath, stellaHomeMount+"/") {
 		return false
 	}
-	rel, err := filepath.Rel(stellaHomeMount, m.SandboxPath)
-	if err != nil {
+	rel, ok := containerPathRel(stellaHomeMount, containerPath)
+	if !ok {
 		return false
 	}
-	_, ok := dockerImageProvidedStellaDirs[rel]
+	_, ok = dockerImageProvidedStellaDirs[rel]
 	return ok
 }
 
 func nonWorkspacePolicyMounts(mounts []sandboxpkg.Mount) []sandboxpkg.Mount {
 	out := make([]sandboxpkg.Mount, 0, len(mounts))
 	for _, m := range mounts {
-		if filepath.Clean(m.SandboxPath) == workspaceMount || dockerMountProvidedByImage(m) {
+		m.SandboxPath = cleanContainerPath(m.SandboxPath)
+		if m.SandboxPath == workspaceMount || dockerMountProvidedByImage(m) {
 			continue
 		}
 		out = append(out, m)
@@ -531,7 +568,7 @@ func appendWorkspaceRelativeReadOnlyMount(opts *dockerclient.CreateOptions, sour
 	}
 	opts.ExtraMounts = append(opts.ExtraMounts, dockerclient.Mount{
 		HostPath:      source,
-		ContainerPath: filepath.Join(workspaceMount, rel),
+		ContainerPath: path.Join(workspaceMount, strings.ReplaceAll(rel, "\\", "/")),
 		ReadOnly:      true,
 		Type:          mountType,
 		VolumeSubpath: filepath.ToSlash(volumeSubpath),
@@ -561,7 +598,7 @@ type writableMount struct {
 // otherwise. Mounts outside STELLA_HOME are skipped (the remap can't place them).
 func (f *dockerFactory) mountPerUserToolTrees(opts *dockerclient.CreateOptions, policy sandboxpkg.Policy) []writableMount {
 	var mounted []writableMount
-	for _, m := range policy.Filesystem.Mounts {
+	for _, m := range cleanPolicySandboxPaths(policy.Filesystem.Mounts) {
 		if m.Access != sandboxpkg.MountReadWrite || m.SandboxPath == workspaceMount || m.SandboxPath == userDataMount {
 			continue
 		}
@@ -585,7 +622,7 @@ func (f *dockerFactory) mountPerUserToolTrees(opts *dockerclient.CreateOptions, 
 
 func writableToolTrees(mounts []sandboxpkg.Mount) []writableMount {
 	out := []writableMount{}
-	for _, m := range mounts {
+	for _, m := range cleanPolicySandboxPaths(mounts) {
 		if m.Access == sandboxpkg.MountReadWrite && m.SandboxPath != workspaceMount && m.SandboxPath != userDataMount {
 			out = append(out, writableMount{Host: m.HostPath, Container: m.SandboxPath})
 		}
@@ -616,9 +653,9 @@ type mountTableOptions struct {
 func buildMountTable(opts mountTableOptions) []dockerclient.Mount {
 	mounts := make([]dockerclient.Mount, 0, len(opts.Mounts)+1)
 	if len(opts.Mounts) == 0 {
-		mounts = append(mounts, dockerclient.Mount{HostPath: opts.WorkspaceHost, ContainerPath: opts.WorkspaceMount})
+		mounts = append(mounts, dockerclient.Mount{HostPath: opts.WorkspaceHost, ContainerPath: cleanContainerPath(opts.WorkspaceMount)})
 	} else {
-		for _, m := range opts.Mounts {
+		for _, m := range cleanPolicySandboxPaths(opts.Mounts) {
 			mounts = append(mounts, dockerclient.Mount{
 				HostPath:      m.HostPath,
 				ContainerPath: m.SandboxPath,
@@ -753,11 +790,13 @@ func translateEnvPath(v string, mountTable []dockerclient.Mount, envMaps []envPa
 // isContainerPath reports whether v already names a path inside the container
 // (equal to or under a mount's container path), so it needs no translation.
 func isContainerPath(mountTable []dockerclient.Mount, v string) bool {
+	v = cleanContainerPath(v)
 	for _, m := range mountTable {
-		if m.ContainerPath == "" {
+		containerPath := cleanContainerPath(m.ContainerPath)
+		if containerPath == "." {
 			continue
 		}
-		if v == m.ContainerPath || strings.HasPrefix(v, m.ContainerPath+"/") {
+		if v == containerPath || strings.HasPrefix(v, containerPath+"/") {
 			return true
 		}
 	}
@@ -766,12 +805,14 @@ func isContainerPath(mountTable []dockerclient.Mount, v string) bool {
 
 func applyEnvPathMaps(maps []envPathMap, hostPath string) (string, bool) {
 	for _, m := range maps {
-		if hostPath == m.HostPrefix {
-			return m.ContainerPrefix, true
+		rel, err := filepath.Rel(m.HostPrefix, hostPath)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
 		}
-		if strings.HasPrefix(hostPath, m.HostPrefix+string(filepath.Separator)) {
-			return m.ContainerPrefix + hostPath[len(m.HostPrefix):], true
+		if rel == "." {
+			return cleanContainerPath(m.ContainerPrefix), true
 		}
+		return path.Join(cleanContainerPath(m.ContainerPrefix), strings.ReplaceAll(rel, "\\", "/")), true
 	}
 	return "", false
 }
@@ -985,14 +1026,14 @@ func toContainerPath(mounts []dockerclient.Mount, hostPath string) (string, erro
 		return "", fmt.Errorf("docker: host path %q is not covered by any container mount", hostPath)
 	}
 
+	containerRoot := cleanContainerPath(bestMount.ContainerPath)
 	// Exact match on the mount root — return the container path directly.
 	if bestRel == "." {
-		return bestMount.ContainerPath, nil
+		return containerRoot, nil
 	}
 
-	// Normalize to Linux path separators (containers are always Linux).
-	linuxRel := strings.ReplaceAll(bestRel, "\\", "/")
-	return bestMount.ContainerPath + "/" + linuxRel, nil
+	// The host relative path may use backslashes; containers are always Linux.
+	return path.Join(containerRoot, strings.ReplaceAll(bestRel, "\\", "/")), nil
 }
 
 // ─────────────────────────── dockerHost ──────────────────────────────
@@ -1027,15 +1068,16 @@ func (h *dockerHost) ResolvePath(path string) (string, error) {
 // toHostPath maps a container absolute path to its equivalent host path when
 // the path is covered by a mount's container path.
 func toHostPath(mounts []dockerclient.Mount, containerPath string) (string, bool) {
+	containerPath = cleanContainerPath(containerPath)
 	bestRel := ""
 	bestMount := dockerclient.Mount{}
 	found := false
 	for _, m := range mounts {
-		rel, err := filepath.Rel(m.ContainerPath, containerPath)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		rel, ok := containerPathRel(m.ContainerPath, containerPath)
+		if !ok {
 			continue
 		}
-		if !found || len(m.ContainerPath) > len(bestMount.ContainerPath) {
+		if !found || len(cleanContainerPath(m.ContainerPath)) > len(cleanContainerPath(bestMount.ContainerPath)) {
 			bestRel = rel
 			bestMount = m
 			found = true

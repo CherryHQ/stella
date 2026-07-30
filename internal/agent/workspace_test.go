@@ -6,6 +6,39 @@ import (
 	"testing"
 )
 
+func TestAgentDirInHome(t *testing.T) {
+	base := filepath.Join("/srv", "stella")
+	cases := []struct {
+		name string
+		home string
+		got  string
+		want string
+	}{
+		{
+			name: "user",
+			home: UserHomeDir(base, "u1"),
+			got:  UserAgentDir(base, "u1", "a1"),
+			want: filepath.Join(base, "users", "u1", "agents", "a1"),
+		},
+		{
+			name: "group",
+			home: GroupHomeDir(base, "g1"),
+			got:  GroupAgentDir(base, "g1", "a1"),
+			want: filepath.Join(base, "users", "group-g1", "agents", "a1"),
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := AgentDirInHome(tt.home, "a1"); got != tt.want {
+				t.Errorf("AgentDirInHome = %q, want %q", got, tt.want)
+			}
+			if tt.got != tt.want {
+				t.Errorf("specialized helper = %q, want %q", tt.got, tt.want)
+			}
+		})
+	}
+}
+
 // Uploads and user skills must live under the shared user-data root (data/,
 // mounted as /user), not at the user-home root — that is what makes them
 // reachable in-sandbox at $STELLA_USER_DIR and shared across the user's agents.

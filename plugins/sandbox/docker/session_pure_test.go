@@ -2,6 +2,7 @@ package docker
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -88,6 +89,44 @@ func TestBuildMountTable(t *testing.T) {
 	}
 	if table[3].HostPath != "/tmp/user-1" || table[3].ContainerPath != "/tmp" || table[3].ReadOnly {
 		t.Fatalf("unexpected tmp mount: %+v", table[3])
+	}
+}
+
+func TestContainerPathNormalizationWithWindowsStylePolicyPaths(t *testing.T) {
+	if got, want := cleanContainerPath(`\opt\stella\users\u1\.mise-tools`), "/opt/stella/users/u1/.mise-tools"; got != want {
+		t.Fatalf("cleanContainerPath = %q, want %q", got, want)
+	}
+
+	table := buildMountTable(mountTableOptions{Mounts: []sandboxpkg.Mount{
+		{HostPath: `C:\stella\users\u1`, SandboxPath: `\workspace\`, Access: sandboxpkg.MountReadWrite},
+		{HostPath: `C:\stella\users\u1\.mise-tools`, SandboxPath: `\opt\stella\users\u1\.mise-tools`, Access: sandboxpkg.MountReadWrite},
+	}})
+	if got, want := table[0].ContainerPath, "/workspace"; got != want {
+		t.Errorf("workspace ContainerPath = %q, want %q", got, want)
+	}
+	if got, want := table[1].ContainerPath, "/opt/stella/users/u1/.mise-tools"; got != want {
+		t.Errorf("mise ContainerPath = %q, want %q", got, want)
+	}
+
+	mounts := nonWorkspacePolicyMounts([]sandboxpkg.Mount{
+		{HostPath: `C:\workspace`, SandboxPath: `\workspace`, Access: sandboxpkg.MountReadWrite},
+		{HostPath: `C:\stella\bin`, SandboxPath: `\opt\stella\bin`, Access: sandboxpkg.MountReadOnly},
+		{HostPath: `C:\user`, SandboxPath: `\user`, Access: sandboxpkg.MountReadWrite},
+	})
+	if len(mounts) != 1 || mounts[0].SandboxPath != "/user" {
+		t.Fatalf("nonWorkspacePolicyMounts = %+v, want only /user", mounts)
+	}
+
+	tools := writableToolTrees([]sandboxpkg.Mount{{
+		HostPath:    `C:\stella\users\u1\.mise-tools`,
+		SandboxPath: `\opt\stella\users\u1\.mise-tools`,
+		Access:      sandboxpkg.MountReadWrite,
+	}})
+	if len(tools) != 1 || tools[0].Container != "/opt/stella/users/u1/.mise-tools" {
+		t.Fatalf("writableToolTrees = %+v, want normalized mise tree", tools)
+	}
+	if got, want := path.Base(tools[0].Container), ".mise-tools"; got != want {
+		t.Errorf("container base = %q, want %q", got, want)
 	}
 }
 

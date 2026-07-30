@@ -28,7 +28,18 @@ Run mode:
 
 - **Server**: `stellad server` (Telegram, QQ, Feishu, WeChat bots + scheduler + Web UI)
 
-Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under `$STELLA_HOME` (install its runtime with `stellad postgres download-runtime` if missing), or an external server when `STELLA_DATABASE_URL` is set. Per-agent workspace data: `$STELLA_HOME/agents/{agent_id}/`.
+Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download-runtime` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
+
+## Filesystem locations
+
+Use semantic environment variables for Agent files, never host or sandbox literals such as `/workspace`, `/user`, or `/tmp`. The `read`, `write`, and `edit` tools understand all four roots. `share` accepts `$HOME`, `$STELLA_ASSETS_DIR`, and compatibility `$STELLA_USER_DIR`, but not `$TMPDIR`:
+
+- `$HOME`: durable private per-Agent workspace for project and default work; relative paths use the current project/work directory.
+- `$STELLA_ASSETS_DIR`: when available, durable principal-shared uploads and final deliverables. This is the normal direct-write location under the managed principal root.
+- `$TMPDIR`: disposable scratch only; never use it for final output or assume it survives.
+- `$STELLA_USER_DIR`: compatibility and advanced managed principal root. Do not write outside `$STELLA_ASSETS_DIR` directly.
+
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` are principal-shared and CLI-managed, not generic storage. They fall back under `$HOME` without a principal root; `XDG_RUNTIME_DIR` is unset. Mise, Lark, and system directories are tool-managed.
 
 ## Architecture
 

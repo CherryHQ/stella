@@ -436,6 +436,10 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 	if pm.sessionPluginViewBuilder != nil {
 		pluginView, _ = pm.sessionPluginViewBuilder(ctx)
 	}
+	workspaceRoot := snap.Workspace
+	if userRoot != "" {
+		workspaceRoot = AgentDirInHome(userRoot, info.AgentID)
+	}
 	promptBuild := pkgplugins.SystemPromptContext{
 		StellaHome:          config.StellaHome(),
 		HomeDir:             homeDir,
@@ -443,7 +447,7 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 		UserID:              info.UserID,
 		AgentID:             info.AgentID,
 		UserRoot:            userRoot,
-		WorkspaceRoot:       userRoot,
+		WorkspaceRoot:       workspaceRoot,
 		SkillStore:          pm.skillStore,
 		RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 		EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
