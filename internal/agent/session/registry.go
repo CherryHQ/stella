@@ -25,6 +25,11 @@ var ErrWrongKind = errors.New("session kind mismatch")
 // ErrArchived is returned when an attempt is made to write to an archived session.
 var ErrArchived = errors.New("session is archived")
 
+// ErrStaleRotation is returned when a rotation's expected session is no longer
+// the active one. It is the store-level sentinel so callers can match a stale
+// rotation with one errors.Is check regardless of which layer detected it.
+var ErrStaleRotation = memory.ErrStaleRotation
+
 // Registry is the sole owner of agent-session lifecycle.
 // It creates, resumes, lists, and archives sessions; it also converts validated
 // session records into memory operation scopes.
@@ -161,22 +166,81 @@ func (r *Registry) ResolveMain(ctx context.Context, req MainRequest) (Info, erro
 	unlock := r.mainMu.lock(agentID + "\x00" + req.UserID)
 	defer unlock()
 
-	// Look for an existing main-kind session.
-	mains, err := r.store.list(ctx, req.UserID, agentID, memory.ListOptions{
+	current, found, err := r.currentMainLocked(ctx, req.UserID, agentID)
+	if err != nil {
+		return Info{}, err
+	}
+	if found {
+		return current, nil
+	}
+
+	info := newMainInfo(agentID, req.UserID)
+	if err := r.store.save(ctx, info); err != nil {
+		return Info{}, fmt.Errorf("create main session: %w", err)
+	}
+	return info, nil
+}
+
+// RotateMain archives the user's current main session and returns its
+// successor, so the next turn starts with an empty context while the old
+// session stays searchable. The archive and the create are one store-level
+// transaction: the binding is never left without an active main.
+//
+// When req.ExpectedSessionID is set it must still be the current main;
+// otherwise the rotation is stale (another /new already ran) and reports
+// ErrStaleRotation without changing anything. Rotating when no main exists is
+// just a create.
+func (r *Registry) RotateMain(ctx context.Context, req MainRequest) (Info, error) {
+	if req.UserID == "" || req.AgentID == "" {
+		return Info{}, fmt.Errorf("RotateMain requires UserID and AgentID")
+	}
+	agentID := r.resolveAgentID(req.AgentID)
+	unlock := r.mainMu.lock(agentID + "\x00" + req.UserID)
+	defer unlock()
+
+	current, found, err := r.currentMainLocked(ctx, req.UserID, agentID)
+	if err != nil {
+		return Info{}, err
+	}
+	successor := newMainInfo(agentID, req.UserID)
+
+	if !found {
+		if req.ExpectedSessionID != "" {
+			return Info{}, fmt.Errorf("%w: %s is no longer the main session", ErrStaleRotation, req.ExpectedSessionID)
+		}
+		if err := r.store.save(ctx, successor); err != nil {
+			return Info{}, fmt.Errorf("create main session: %w", err)
+		}
+		return successor, nil
+	}
+	if req.ExpectedSessionID != "" && req.ExpectedSessionID != current.ID {
+		return Info{}, fmt.Errorf("%w: %s is no longer the main session", ErrStaleRotation, req.ExpectedSessionID)
+	}
+	if err := r.store.rotate(ctx, current.ID, successor); err != nil {
+		return Info{}, fmt.Errorf("rotate main session: %w", err)
+	}
+	return successor, nil
+}
+
+// currentMainLocked resolves the session ResolveMain would hand back when one
+// already exists: an active main-kind session, or the most recent promotable
+// chat candidate. Callers must hold the per-(agent,user) main lock.
+func (r *Registry) currentMainLocked(ctx context.Context, userID, agentID string) (Info, bool, error) {
+	mains, err := r.store.list(ctx, userID, agentID, memory.ListOptions{
 		Kind:            string(KindMain),
-		UserID:          req.UserID,
+		UserID:          userID,
 		AgentID:         agentID,
 		ProjectIDIsNull: true,
 	})
 	if err == nil {
 		for _, info := range mains {
-			return info, nil
+			return info, true, nil
 		}
 	}
 
 	// No main session: look for the most recent chat candidate.
-	candidates, err := r.store.list(ctx, req.UserID, agentID, memory.ListOptions{
-		UserID:  req.UserID,
+	candidates, err := r.store.list(ctx, userID, agentID, memory.ListOptions{
+		UserID:  userID,
 		AgentID: agentID,
 	})
 	if err != nil {
@@ -186,32 +250,31 @@ func (r *Registry) ResolveMain(ctx context.Context, req MainRequest) (Info, erro
 	var best *Info
 	for i := range candidates {
 		c := &candidates[i]
-		if !isMainCandidate(*c, req.UserID) {
+		if !isMainCandidate(*c, userID) {
 			continue
 		}
 		if best == nil || c.LastActive.After(best.LastActive) {
 			best = c
 		}
 	}
-
-	if best != nil {
-		best.Kind = string(KindMain)
-		if err := r.store.save(ctx, *best); err != nil {
-			return Info{}, fmt.Errorf("promote session to main: %w", err)
-		}
-		return *best, nil
+	if best == nil {
+		return Info{}, false, nil
 	}
 
-	// Create a fresh main session.
+	best.Kind = string(KindMain)
+	if err := r.store.save(ctx, *best); err != nil {
+		return Info{}, false, fmt.Errorf("promote session to main: %w", err)
+	}
+	return *best, true, nil
+}
+
+// newMainInfo builds a fresh main session. Main sessions use a private user
+// channel by convention; isMainCandidate keys promotion off that shape.
+func newMainInfo(agentID, userID string) Info {
 	now := time.Now().UTC()
 	id := uuid.Must(uuid.NewV7()).String()
-	// Main sessions use a private user channel by convention.
-	channel := agentID + ":user:" + req.UserID + ":private"
-	info := NewInfo(id, agentID, req.UserID, channel, KindMain, "", now)
-	if err := r.store.save(ctx, info); err != nil {
-		return Info{}, fmt.Errorf("create main session: %w", err)
-	}
-	return info, nil
+	channel := agentID + ":user:" + userID + ":private"
+	return NewInfo(id, agentID, userID, channel, KindMain, "", now)
 }
 
 // ListForReview returns sessions that are candidates for reflect review.
@@ -226,8 +289,12 @@ func (r *Registry) ListForReview(ctx context.Context, req ReviewRequest) ([]Info
 		policy = DefaultReviewPolicy()
 	}
 
+	// Archived sessions stay candidates: rotation (/new) archives a session the
+	// instant the user starts a fresh one, and its final messages still have to
+	// reach reflect. The caller drops them once their watermarks catch up.
 	all, err := r.store.listForReview(ctx, agentID, memory.ListOptions{
-		AgentID: agentID,
+		AgentID:         agentID,
+		IncludeArchived: true,
 	})
 	if err != nil {
 		return nil, err
@@ -235,9 +302,6 @@ func (r *Registry) ListForReview(ctx context.Context, req ReviewRequest) ([]Info
 
 	out := all[:0]
 	for _, info := range all {
-		if info.Archived {
-			continue
-		}
 		if !policy.Includes(Kind(info.Kind)) {
 			continue
 		}

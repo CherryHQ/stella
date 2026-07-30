@@ -53,10 +53,15 @@ type ListOptions struct {
 	Offset    int
 }
 
-// MainRequest describes a main-session resolution request.
+// MainRequest describes a main-session resolution or rotation request.
 type MainRequest struct {
 	UserID  string
 	AgentID string
+	// ExpectedSessionID makes a rotation a compare-and-rotate: the current main
+	// must still be this session, otherwise RotateMain reports ErrStaleRotation
+	// and changes nothing. Empty means "rotate whatever is current"; it is
+	// ignored by ResolveMain.
+	ExpectedSessionID string
 }
 
 // ReviewRequest describes which sessions are candidates for reflect review.

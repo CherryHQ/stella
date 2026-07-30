@@ -108,6 +108,69 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 	return nil
 }
 
+// RotateInfo implements memory.SessionManager.
+//
+// Order inside the transaction matters: idx_one_agent_main admits a single
+// active main per (agent, user), so the predecessor must be archived before the
+// successor row is inserted. Both statements commit together, so a failed insert
+// leaves the predecessor active and resolvable.
+func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, successor memory.SessionInfo) error {
+	if expectedSessionID == "" {
+		return fmt.Errorf("rotate session: expected session id is required")
+	}
+	userID, agentID, err := requireSessionScope(ctx, successor.UserID, successor.AgentID)
+	if err != nil {
+		return err
+	}
+	successor.UserID = userID
+	successor.AgentID = agentID
+	if successor.Kind == "" {
+		successor.Kind = "chat"
+	}
+	if successor.LastActive.IsZero() {
+		successor.LastActive = time.Now().UTC()
+	}
+
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := p.q.WithTx(tx)
+
+	archived, err := qtx.ArchiveActiveConversationBySessionID(ctx, sqlc.ArchiveActiveConversationBySessionIDParams{
+		SessionID: expectedSessionID,
+		UserID:    pgtype.Text{String: userID, Valid: true},
+		AgentID:   pgnull.Text(agentID),
+		Kind:      successor.Kind,
+		ProjectID: pgnull.Text(successor.ProjectID),
+	})
+	if err != nil {
+		return fmt.Errorf("archive rotated conversation: %w", err)
+	}
+	if archived == 0 {
+		return fmt.Errorf("%w: %s", memory.ErrStaleRotation, expectedSessionID)
+	}
+
+	if _, err := qtx.CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID:         uuid.Must(uuid.NewV7()).String(),
+		SessionID:  successor.ID,
+		Title:      pgtype.Text{String: successor.Title, Valid: successor.Title != ""},
+		Channel:    successor.Channel,
+		Kind:       successor.Kind,
+		ProjectID:  pgnull.Text(successor.ProjectID),
+		Archived:   successor.Archived,
+		LastActive: successor.LastActive.UTC(),
+		AgentID:    pgnull.Text(successor.AgentID),
+		UserID:     pgtype.Text{String: successor.UserID, Valid: true},
+		GroupID:    pgnull.Text(successor.GroupID),
+	}); err != nil {
+		return fmt.Errorf("create successor conversation: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
 // LoadInfo implements memory.SessionManager.
 func (p *Provider) LoadInfo(ctx context.Context, sessionID string) (memory.SessionInfo, error) {
 	userID, agentID, err := requireSessionScope(ctx, "", "")
@@ -155,6 +218,7 @@ func (p *Provider) ListInfoForReview(ctx context.Context, opts memory.ListOption
 	}
 	convs, err := p.q.ListConversationsForReviewFiltered(ctx, sqlc.ListConversationsForReviewFilteredParams{
 		AgentID:         pgnull.Text(opts.AgentID),
+		IncludeArchived: boolToInt(opts.IncludeArchived),
 		Kind:            pgnull.Text(opts.Kind),
 		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
 		ProjectID:       pgnull.Text(opts.ProjectID),

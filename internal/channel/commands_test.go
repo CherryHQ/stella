@@ -116,6 +116,13 @@ func (a compactSessionAccess) ResolveMain(ctx context.Context, userID, agentID s
 	return a.reg.ResolveMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID})
 }
 
+func (a compactSessionAccess) RotateMain(ctx context.Context, userID, agentID, expectedSessionID string) (session.Info, error) {
+	if a.useErr != nil {
+		return session.Info{}, a.useErr
+	}
+	return a.reg.RotateMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID, ExpectedSessionID: expectedSessionID})
+}
+
 func (a compactSessionAccess) Use(ctx context.Context, agentID, sessionID string) (session.Info, error) {
 	if a.useErr != nil {
 		return session.Info{}, a.useErr

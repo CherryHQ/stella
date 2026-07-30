@@ -246,6 +246,30 @@ func (a *Access) ResolveMain(ctx context.Context, userID, agentID string) (agent
 	return a.svc.registry.ResolveMain(ctx, agentsession.MainRequest{UserID: userID, AgentID: agentID})
 }
 
+// RotateMain archives the caller's current main session and returns its
+// successor. Both halves are decided here under one evaluation — Delete on the
+// session being retired and Create on the one replacing it — because the
+// successor does not exist yet and the predecessor is chosen by the registry:
+// no caller can pre-authorize an Info and hand it to the lifecycle layer.
+// expectedSessionID, when set, makes this a compare-and-rotate.
+func (a *Access) RotateMain(ctx context.Context, userID, agentID, expectedSessionID string) (agentsession.Info, error) {
+	if userID == "" || agentID == "" || string(a.authority.UserID()) != userID {
+		return agentsession.Info{}, ErrForbidden
+	}
+	if err := a.authorizeAgent(ctx, agentID, authz.ActionRead); err != nil {
+		return agentsession.Info{}, err
+	}
+	actor := a.authority
+	facts := sessionFacts{
+		isOwner:    true,
+		isExecutor: string(actor.AgentID()) != "" && string(actor.AgentID()) == agentID,
+	}
+	if !a.allowSession(authz.ActionDelete, facts) || !a.allowSession(authz.ActionCreate, facts) {
+		return agentsession.Info{}, ErrNotFound
+	}
+	return a.svc.registry.RotateMain(ctx, agentsession.MainRequest{UserID: userID, AgentID: agentID, ExpectedSessionID: expectedSessionID})
+}
+
 // List lists the actor's sessions and filters every row through the same
 // evaluation. Collection visibility and individual visibility therefore cannot
 // drift apart.

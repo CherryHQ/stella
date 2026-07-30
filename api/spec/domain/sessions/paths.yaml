@@ -198,6 +198,7 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/agents/{agentId}/sessions/{sessionId}/events:
     parameters:

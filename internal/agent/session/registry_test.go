@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,12 @@ import (
 // fakeStore is an in-memory store for tests.
 type fakeStore struct {
 	sessions map[string]Info
+	// rotateErr, when set, fails rotate so callers can prove a failed rotation
+	// leaves the predecessor active (the store's transaction rolled back).
+	rotateErr error
+	// beforeRotate runs inside rotate, standing in for a concurrent writer that
+	// commits between the caller's resolve and the compare-and-rotate.
+	beforeRotate func()
 }
 
 func newFakeStore() *fakeStore {
@@ -21,6 +28,23 @@ func newFakeStore() *fakeStore {
 
 func (f *fakeStore) save(_ context.Context, info Info) error {
 	f.sessions[info.ID] = info
+	return nil
+}
+
+func (f *fakeStore) rotate(_ context.Context, expectedSessionID string, successor Info) error {
+	if f.beforeRotate != nil {
+		f.beforeRotate()
+	}
+	if f.rotateErr != nil {
+		return f.rotateErr
+	}
+	expected, ok := f.sessions[expectedSessionID]
+	if !ok || expected.Archived {
+		return fmt.Errorf("%w: %s", ErrStaleRotation, expectedSessionID)
+	}
+	expected.Archived = true
+	f.sessions[expectedSessionID] = expected
+	f.sessions[successor.ID] = successor
 	return nil
 }
 
@@ -267,7 +291,9 @@ func TestReviewPolicy_ExcludesDelegate(t *testing.T) {
 	}
 }
 
-// TestListForReview excludes delegate and archived sessions.
+// TestListForReview excludes delegate sessions but keeps archived ones: a
+// rotated-away session is archived immediately and its final messages still have
+// to be distilled. Watermark comparison, not archival, ends review candidacy.
 func TestListForReview(t *testing.T) {
 	r, s := newTestRegistry(t)
 	now := time.Now().UTC()
@@ -281,16 +307,15 @@ func TestListForReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListForReview: %v", err)
 	}
+	got := make(map[string]bool, len(infos))
 	for _, i := range infos {
 		if Kind(i.Kind) == KindDelegate {
 			t.Errorf("delegate session %q should be excluded", i.ID)
 		}
-		if i.Archived {
-			t.Errorf("archived session %q should be excluded", i.ID)
-		}
+		got[i.ID] = true
 	}
-	if len(infos) != 1 || infos[0].ID != "chat-1" {
-		t.Errorf("expected [chat-1], got %v", infos)
+	if !got["chat-1"] || !got["arch-1"] || len(infos) != 2 {
+		t.Errorf("expected [chat-1 arch-1], got %v", infos)
 	}
 }
 
@@ -451,4 +476,141 @@ func TestEnsure_ResumeGroupReconciliation(t *testing.T) {
 			t.Fatalf("err = %v, want ErrForbidden", err)
 		}
 	})
+}
+
+// --- RotateMain -------------------------------------------------------------
+
+// TestRotateMain_ArchivesOldMain proves /new hands back a fresh, empty main and
+// leaves the previous one archived but intact.
+func TestRotateMain_ArchivesOldMain(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["main-1"] = NewInfo("main-1", "agent1", "u1", "agent1:user:u1:private", KindMain, "", now)
+
+	successor, err := r.RotateMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1"})
+	if err != nil {
+		t.Fatalf("RotateMain: %v", err)
+	}
+	if successor.ID == "main-1" {
+		t.Fatal("RotateMain must return a new session, not the rotated one")
+	}
+	if successor.Kind != string(KindMain) || successor.Archived {
+		t.Fatalf("successor = %+v, want an active main", successor)
+	}
+	if !strings.Contains(successor.Channel, ":user:u1:") {
+		t.Errorf("successor channel = %q, want a private user channel", successor.Channel)
+	}
+	if !s.sessions["main-1"].Archived {
+		t.Error("the rotated main must be archived, not deleted")
+	}
+
+	resolved, err := r.ResolveMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1"})
+	if err != nil {
+		t.Fatalf("ResolveMain after rotation: %v", err)
+	}
+	if resolved.ID != successor.ID {
+		t.Errorf("ResolveMain = %q, want the successor %q", resolved.ID, successor.ID)
+	}
+}
+
+// TestRotateMain_CreatesWhenNoMainExists treats rotation from nothing as a
+// plain create rather than an error.
+func TestRotateMain_CreatesWhenNoMainExists(t *testing.T) {
+	r, _ := newTestRegistry(t)
+
+	info, err := r.RotateMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1"})
+	if err != nil {
+		t.Fatalf("RotateMain: %v", err)
+	}
+	if info.Kind != string(KindMain) {
+		t.Errorf("kind = %q, want %q", info.Kind, KindMain)
+	}
+}
+
+// TestRotateMain_StaleExpectedSession is the duplicate-/new case: the second
+// rotation names a session that is no longer the main, so it must not rotate
+// the successor the first one just created.
+func TestRotateMain_StaleExpectedSession(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["main-1"] = NewInfo("main-1", "agent1", "u1", "agent1:user:u1:private", KindMain, "", now)
+
+	successor, err := r.RotateMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1", ExpectedSessionID: "main-1"})
+	if err != nil {
+		t.Fatalf("RotateMain: %v", err)
+	}
+
+	_, err = r.RotateMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1", ExpectedSessionID: "main-1"})
+	if !errors.Is(err, ErrStaleRotation) {
+		t.Fatalf("second RotateMain = %v, want ErrStaleRotation", err)
+	}
+	if s.sessions[successor.ID].Archived {
+		t.Error("a stale rotation must leave the current main active")
+	}
+}
+
+// TestRotateMain_StoreFailureKeepsOldMain proves a failed rotation is a no-op:
+// the store transaction rolls back, so the old main is still resolvable.
+func TestRotateMain_StoreFailureKeepsOldMain(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["main-1"] = NewInfo("main-1", "agent1", "u1", "agent1:user:u1:private", KindMain, "", now)
+	s.rotateErr = errors.New("create successor failed")
+
+	if _, err := r.RotateMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1"}); err == nil {
+		t.Fatal("RotateMain must report the store failure")
+	}
+	if s.sessions["main-1"].Archived {
+		t.Fatal("a failed rotation must not archive the old main")
+	}
+	resolved, err := r.ResolveMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1"})
+	if err != nil {
+		t.Fatalf("ResolveMain after failed rotation: %v", err)
+	}
+	if resolved.ID != "main-1" {
+		t.Errorf("ResolveMain = %q, want main-1", resolved.ID)
+	}
+}
+
+// TestRotateMain_ConcurrentResolveNeverPromotesStale proves the keyed main lock
+// covers the whole rotation: a ResolveMain racing it sees either the old main or
+// the successor, never a promoted third session.
+func TestRotateMain_ConcurrentResolveNeverPromotesStale(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["main-1"] = NewInfo("main-1", "agent1", "u1", "agent1:user:u1:private", KindMain, "", now)
+	// A promotable chat candidate on the same private channel. If ResolveMain ran
+	// while the rotation had archived main-1 but not yet created its successor,
+	// this is the session it would wrongly promote.
+	s.sessions["chat-1"] = NewInfo("chat-1", "agent1", "u1", "agent1:user:u1:private", KindChat, "", now.Add(-time.Hour))
+
+	resolved := make(chan Info, 1)
+	s.beforeRotate = func() {
+		go func() {
+			info, err := r.ResolveMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1"})
+			if err != nil {
+				t.Errorf("concurrent ResolveMain: %v", err)
+			}
+			resolved <- info
+		}()
+		// Give the racing resolve a chance to reach the lock before the rotation
+		// finishes; it must block there rather than observe the gap.
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	successor, err := r.RotateMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1"})
+	if err != nil {
+		t.Fatalf("RotateMain: %v", err)
+	}
+	select {
+	case info := <-resolved:
+		if info.ID != successor.ID && info.ID != "main-1" {
+			t.Fatalf("concurrent ResolveMain promoted %q; want the old main or the successor", info.ID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("concurrent ResolveMain did not complete")
+	}
+	if s.sessions["chat-1"].Kind == string(KindMain) {
+		t.Error("a stale chat session must never be promoted during rotation")
+	}
 }

@@ -335,3 +335,45 @@ func TestSessionQueue_RecreatesSlotAfterIdleCleanup(t *testing.T) {
 		t.Fatalf("second enqueue: %v", err)
 	}
 }
+
+// TestSessionQueue_ControlOpReleasesSlotWhenCallerGivesUp covers the abandoned
+// control operation: it produces no stream, so the queue must still close its
+// done channel or the session slot stays blocked forever.
+func TestSessionQueue_ControlOpReleasesSlotWhenCallerGivesUp(t *testing.T) {
+	q := newSessionQueue()
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	go func() {
+		<-started
+		cancel()
+	}()
+
+	err := q.EnqueueControl(ctx, "sess-ctl", func(opCtx context.Context) error {
+		close(started)
+		<-opCtx.Done()
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("EnqueueControl error = %v, want context.Canceled", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		stream, doneC, err := q.Enqueue(context.Background(), "sess-ctl", func(context.Context) (*pkgchannel.ChatStream, error) {
+			return makeStream(pkgchannel.Event{Text: "next"}), nil
+		})
+		if err != nil {
+			t.Errorf("follow-up enqueue: %v", err)
+			return
+		}
+		for range stream.Events {
+		}
+		close(doneC)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("session slot stayed blocked after an abandoned control operation")
+	}
+}

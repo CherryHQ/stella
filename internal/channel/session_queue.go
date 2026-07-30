@@ -144,6 +144,8 @@ func (q *sessionQueue) Enqueue(
 	case <-ctx.Done():
 		// Wait for the queue worker in the background to send the result.
 		// If it produced a stream, we must clean it up to prevent a slot leak.
+		// doneC is closed whether or not a stream came back: the worker blocks on
+		// it, so a stream-less operation would otherwise wedge the session.
 		go func() {
 			res := <-resultC
 			if res.stream != nil {
@@ -151,13 +153,30 @@ func (q *sessionQueue) Enqueue(
 					for range res.stream.Events {
 					}
 				}()
-				if res.doneC != nil {
-					close(res.doneC)
-				}
+			}
+			if res.doneC != nil {
+				close(res.doneC)
 			}
 		}()
 		return nil, nil, ctx.Err()
 	}
+}
+
+// EnqueueControl runs a non-streaming session operation (e.g. /new) in the same
+// per-session FIFO order as chat turns and waits for it to finish. Rotating a
+// session ahead of an in-flight turn would strand that turn's reply in a session
+// the user has already left, so control operations wait their turn instead.
+func (q *sessionQueue) EnqueueControl(ctx context.Context, sessionKey string, fn func(context.Context) error) error {
+	var opErr error
+	_, doneC, err := q.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+		opErr = fn(qctx)
+		return nil, nil
+	})
+	if err != nil {
+		return err
+	}
+	close(doneC)
+	return opErr
 }
 
 // Abort cancels the currently-running request for sessionKey.
