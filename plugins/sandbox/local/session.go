@@ -73,16 +73,18 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	}
 
 	hostStellaHome := f.cfg.StellaHome
-	// Resolve the sandbox-space root first: adjustPolicy needs it to point HOME
-	// and the XDG dirs at the user home as the agent sees it. resolveSandboxRoot
-	// reads only WorkspaceRoot, which adjustPolicy leaves untouched.
+	// Resolve the backend's filesystem roots first. The temporary mounts must be
+	// created before applying the filesystem environment because macOS exposes
+	// their real host path as TMPDIR.
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
-	policy = f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
-
 	tmpMounts, err := createSessionTmpMounts(policy)
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
+	}
+	policy = f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
+	if err := applyFilesystemEnv(&policy, sandboxRoot, userDataSandbox, tmpMounts); err != nil {
+		return nil, fmt.Errorf("local: apply filesystem environment: %w", err)
 	}
 	s := &localSession{
 		id:                sessionID,
@@ -103,21 +105,12 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 // adjustPolicy applies local-backend-specific environment adjustments.
 // sandboxRoot/realRoot are the sandbox-space and host views of the agent
 // workspace; userDataSandbox/userDataReal are the same for the shared user-data
-// root (empty when none). HOME remains the workspace; all persistent XDG dirs
-// use /user when present, otherwise the workspace.
+// root (empty when none). Filesystem roots are applied afterwards, once the
+// temporary mounts establish the process TMPDIR view.
 func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, userDataSandbox, userDataReal string) sandboxpkg.Policy {
 	env := maps.Clone(policy.Env)
 	if env == nil {
 		env = make(map[string]string)
-	}
-	env["HOME"] = sandboxRoot
-	setXDGDirs(env, sandboxRoot, userDataSandbox)
-	if userDataSandbox != "" {
-		// The shared user-data root, exposed so the agent (and skills/uploads) can
-		// address it without learning the host users/{id} layout.
-		env["STELLA_USER_DIR"] = userDataSandbox
-	} else {
-		delete(env, "STELLA_USER_DIR")
 	}
 	if f.cfg.StellaHome == "" {
 		policy.Env = env
@@ -190,20 +183,18 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	return policy
 }
 
-// setXDGDirs points persistent XDG config, data, state, and cache at the
-// shared per-principal user-data root. A user-less session has no such root, so
-// all four stay under its workspace. XDG_RUNTIME_DIR is deliberately not set:
-// runtime files are session-scoped rather than persistent user data.
-func setXDGDirs(env map[string]string, home, userData string) {
-	persistentRoot := userData
-	if persistentRoot == "" {
-		persistentRoot = home
+// applyFilesystemEnv renders the filesystem contract in the local process
+// view after temporary mounts have been created.
+func applyFilesystemEnv(policy *sandboxpkg.Policy, home, userDir string, tmpMounts []tmpMount) error {
+	view := sandboxpkg.FilesystemView{
+		Home:    home,
+		UserDir: userDir,
+		TempDir: filesystemTempDir(tmpMounts),
 	}
-	env["XDG_CACHE_HOME"] = filepath.Join(persistentRoot, ".cache")
-	env["XDG_CONFIG_HOME"] = filepath.Join(persistentRoot, ".config")
-	env["XDG_DATA_HOME"] = filepath.Join(persistentRoot, ".local", "share")
-	env["XDG_STATE_HOME"] = filepath.Join(persistentRoot, ".local", "state")
-	delete(env, "XDG_RUNTIME_DIR")
+	if userDir != "" {
+		view.AssetsDir = filepath.Join(userDir, "assets")
+	}
+	return sandboxpkg.ApplyFilesystemEnv(policy.Env, view)
 }
 
 // remapToSandboxRoot rewrites a host path under realRoot to its sandbox-space

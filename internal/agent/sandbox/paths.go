@@ -101,23 +101,11 @@ func workspaceRoot(userRoot string, cfg Config) string {
 	return filepath.Join(userRoot, "agents", cfg.AgentID)
 }
 
-// ProcessEnv builds the baseline process environment injected into every
-// sandbox backend. HOME remains private to the Agent workspace. Persistent XDG
-// state belongs to the mounted per-principal user-data root; user-less sessions
-// have no such mount and keep it in their workspace. XDG_RUNTIME_DIR is
-// intentionally absent: it is session runtime state, not persistent user data.
-func ProcessEnv(paths Paths, userDataRoot string) map[string]string {
-	persistentRoot := userDataRoot
-	if persistentRoot == "" {
-		persistentRoot = paths.WorkspaceRoot
-	}
-	env := map[string]string{
-		"HOME":            paths.WorkspaceRoot,
-		"XDG_CONFIG_HOME": filepath.Join(persistentRoot, ".config"),
-		"XDG_DATA_HOME":   filepath.Join(persistentRoot, ".local", "share"),
-		"XDG_STATE_HOME":  filepath.Join(persistentRoot, ".local", "state"),
-		"XDG_CACHE_HOME":  filepath.Join(persistentRoot, ".cache"),
-	}
+// ProcessEnv builds runner-owned process environment injected into every
+// sandbox backend. Filesystem roots belong to the backend because each backend
+// presents a different filesystem view.
+func ProcessEnv(paths Paths) map[string]string {
+	env := make(map[string]string, 1)
 	if paths.StellaHome != "" {
 		env["STELLA_HOME"] = paths.StellaHome
 	}

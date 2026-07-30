@@ -383,33 +383,164 @@ func TestTranslateEnvPaths_Mise(t *testing.T) {
 	}
 }
 
-func TestSetXDGDirsUsesMountedUserDataOrWorkspace(t *testing.T) {
+func TestApplyFilesystemEnvUsesMountedUserDataOrWorkspace(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		userData string
 		root     string
+		tmpDir   string
 	}{
-		{name: "mounted user data", userData: "/host/data", root: "/host/data"},
-		{name: "no user-data mount", root: "/host/workspace"},
+		{name: "mounted principal data", userData: "/host/data", root: "/host/data", tmpDir: "/host/tmp/principal"},
+		{name: "mounted group data", userData: "/host/data/group-g1", root: "/host/data/group-g1", tmpDir: "/host/tmp/group-g1"},
+		{name: "no user-data mount", root: "/host/workspace", tmpDir: "/tmp"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env := map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"}
-			setXDGDirs(env, "/host/workspace", tc.userData)
+			env := map[string]string{sandboxpkg.EnvXDGRuntimeDir: "/run/user/1000"}
+			view := sandboxpkg.FilesystemView{Home: "/host/workspace", UserDir: tc.userData, TempDir: tc.tmpDir}
+			if tc.userData != "" {
+				view.AssetsDir = filepath.Join(tc.userData, "assets")
+			}
+			if err := sandboxpkg.ApplyFilesystemEnv(env, view); err != nil {
+				t.Fatalf("ApplyFilesystemEnv: %v", err)
+			}
 			for key, want := range map[string]string{
-				"HOME":            "/host/workspace",
-				"XDG_CONFIG_HOME": filepath.Join(tc.root, ".config"),
-				"XDG_DATA_HOME":   filepath.Join(tc.root, ".local", "share"),
-				"XDG_STATE_HOME":  filepath.Join(tc.root, ".local", "state"),
-				"XDG_CACHE_HOME":  filepath.Join(tc.root, ".cache"),
+				sandboxpkg.EnvHome:          "/host/workspace",
+				sandboxpkg.EnvTempDir:       tc.tmpDir,
+				sandboxpkg.EnvXDGConfigHome: filepath.Join(tc.root, ".config"),
+				sandboxpkg.EnvXDGDataHome:   filepath.Join(tc.root, ".local", "share"),
+				sandboxpkg.EnvXDGStateHome:  filepath.Join(tc.root, ".local", "state"),
+				sandboxpkg.EnvXDGCacheHome:  filepath.Join(tc.root, ".cache"),
 			} {
 				if got := env[key]; got != want {
 					t.Errorf("%s = %q, want %q", key, got, want)
 				}
 			}
-			if _, ok := env["XDG_RUNTIME_DIR"]; ok {
+			if tc.userData == "" {
+				for _, key := range []string{sandboxpkg.EnvStellaUserDir, sandboxpkg.EnvStellaAssetsDir} {
+					if _, ok := env[key]; ok {
+						t.Errorf("%s must not be set", key)
+					}
+				}
+			} else if got, want := env[sandboxpkg.EnvStellaAssetsDir], filepath.Join(tc.userData, "assets"); got != want {
+				t.Errorf("STELLA_ASSETS_DIR = %q, want %q", got, want)
+			}
+			if _, ok := env[sandboxpkg.EnvXDGRuntimeDir]; ok {
 				t.Error("XDG_RUNTIME_DIR must not be set")
 			}
 		})
+	}
+}
+
+func TestApplyDockerFilesystemEnvFailedUserAndTempMounts(t *testing.T) {
+	env := map[string]string{
+		sandboxpkg.EnvStellaUserDir:   "/stale/user",
+		sandboxpkg.EnvStellaAssetsDir: "/stale/user/assets",
+	}
+	if err := applyDockerFilesystemEnv(env, "/host/workspace", "", ""); err != nil {
+		t.Fatalf("applyDockerFilesystemEnv: %v", err)
+	}
+	for key, want := range map[string]string{
+		sandboxpkg.EnvHome:          "/host/workspace",
+		sandboxpkg.EnvTempDir:       "/tmp",
+		sandboxpkg.EnvXDGConfigHome: "/host/workspace/.config",
+		sandboxpkg.EnvXDGDataHome:   "/host/workspace/.local/share",
+		sandboxpkg.EnvXDGStateHome:  "/host/workspace/.local/state",
+		sandboxpkg.EnvXDGCacheHome:  "/host/workspace/.cache",
+	} {
+		if got := env[key]; got != want {
+			t.Errorf("host env %s = %q, want %q", key, got, want)
+		}
+	}
+	for _, key := range []string{sandboxpkg.EnvStellaUserDir, sandboxpkg.EnvStellaAssetsDir} {
+		if _, ok := env[key]; ok {
+			t.Errorf("failed user mount must clear %s", key)
+		}
+	}
+
+	containerEnv := translateEnvPaths(env, []dockerclient.Mount{{HostPath: "/host/workspace", ContainerPath: workspaceMount}}, nil)
+	for key, want := range map[string]string{
+		sandboxpkg.EnvHome:          workspaceMount,
+		sandboxpkg.EnvTempDir:       "/tmp",
+		sandboxpkg.EnvXDGConfigHome: workspaceMount + "/.config",
+		sandboxpkg.EnvXDGDataHome:   workspaceMount + "/.local/share",
+		sandboxpkg.EnvXDGStateHome:  workspaceMount + "/.local/state",
+		sandboxpkg.EnvXDGCacheHome:  workspaceMount + "/.cache",
+	} {
+		if got := containerEnv[key]; got != want {
+			t.Errorf("container env %s = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestDockerFilesystemEnvCreateAndExecTranslationMatch(t *testing.T) {
+	policyEnv := map[string]string{"PERSISTENT_VALUE": "policy"}
+	if err := applyDockerFilesystemEnv(policyEnv, "/host/workspace", "/host/user", "/host/tmp"); err != nil {
+		t.Fatalf("applyDockerFilesystemEnv: %v", err)
+	}
+	mounts := []dockerclient.Mount{
+		{HostPath: "/host/workspace", ContainerPath: workspaceMount},
+		{HostPath: "/host/user", ContainerPath: userDataMount},
+		{HostPath: "/host/tmp", ContainerPath: "/tmp"},
+	}
+
+	// Container creation has no per-call overrides or injected tool path.
+	createEnv := translateEnvPaths(mergeEnv(policyEnv, nil), mounts, nil)
+
+	// Exec independently merges request-scoped env before translating, then adds
+	// its container-native tool path. This must not alter filesystem semantics.
+	execEnv := injectToolPaths(
+		translateEnvPaths(mergeEnv(policyEnv, map[string]string{"REQUEST_VALUE": "exec"}), mounts, nil),
+		[]string{"/tools/request/bin"},
+	)
+
+	for _, key := range []string{
+		sandboxpkg.EnvHome,
+		sandboxpkg.EnvStellaUserDir,
+		sandboxpkg.EnvStellaAssetsDir,
+		sandboxpkg.EnvTempDir,
+		sandboxpkg.EnvXDGConfigHome,
+		sandboxpkg.EnvXDGDataHome,
+		sandboxpkg.EnvXDGStateHome,
+		sandboxpkg.EnvXDGCacheHome,
+	} {
+		if got, want := execEnv[key], createEnv[key]; got != want {
+			t.Errorf("%s differs between create and exec: got %q, want %q", key, got, want)
+		}
+	}
+	if _, ok := createEnv[sandboxpkg.EnvXDGRuntimeDir]; ok {
+		t.Error("create environment must not set XDG_RUNTIME_DIR")
+	}
+	if _, ok := execEnv[sandboxpkg.EnvXDGRuntimeDir]; ok {
+		t.Error("exec environment must not set XDG_RUNTIME_DIR")
+	}
+	for key, want := range map[string]string{
+		sandboxpkg.EnvHome:            workspaceMount,
+		sandboxpkg.EnvStellaUserDir:   userDataMount,
+		sandboxpkg.EnvStellaAssetsDir: userDataMount + "/assets",
+		sandboxpkg.EnvTempDir:         "/tmp",
+		sandboxpkg.EnvXDGConfigHome:   userDataMount + "/.config",
+		sandboxpkg.EnvXDGDataHome:     userDataMount + "/.local/share",
+		sandboxpkg.EnvXDGStateHome:    userDataMount + "/.local/state",
+		sandboxpkg.EnvXDGCacheHome:    userDataMount + "/.cache",
+	} {
+		if got := createEnv[key]; got != want {
+			t.Errorf("create %s = %q, want %q", key, got, want)
+		}
+	}
+	if got := createEnv["PERSISTENT_VALUE"]; got != "policy" {
+		t.Errorf("create PERSISTENT_VALUE = %q, want policy", got)
+	}
+	if _, ok := createEnv["REQUEST_VALUE"]; ok {
+		t.Error("create environment must not include request override")
+	}
+	if got := execEnv["REQUEST_VALUE"]; got != "exec" {
+		t.Errorf("exec REQUEST_VALUE = %q, want exec", got)
+	}
+	if got, want := execEnv["PATH"], "/tools/request/bin:"+containerDefaultPATH; got != want {
+		t.Errorf("exec PATH = %q, want %q", got, want)
+	}
+	if _, ok := createEnv["PATH"]; ok {
+		t.Error("create environment must not inject exec tool PATH")
 	}
 }
 

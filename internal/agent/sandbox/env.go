@@ -209,7 +209,7 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	delete(env, "STELLA_TOKEN")
 
 	// Runner-set vars overlay vault entries so they always take precedence.
-	maps.Copy(env, ProcessEnv(paths, userDataDirHost(paths, cfg)))
+	maps.Copy(env, ProcessEnv(paths))
 	// Runtime files are session-scoped and must never be redirected into the
 	// persistent principal root (or accepted from a vault/session env entry).
 	delete(env, "XDG_RUNTIME_DIR")

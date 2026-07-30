@@ -202,6 +202,7 @@ func TestTranslateEnvPaths(t *testing.T) {
 	mounts := []dockerclient.Mount{
 		{HostPath: "/host/workspace", ContainerPath: "/workspace"},
 		{HostPath: "/host/data", ContainerPath: "/user"},
+		{HostPath: "/host/tmp", ContainerPath: "/tmp"},
 		{HostPath: "/host/.stella/bin", ContainerPath: "/home/stella/.stella/bin", ReadOnly: true},
 		{HostPath: "/host/.stella/skills", ContainerPath: "/home/stella/.stella/skills", ReadOnly: true},
 	}
@@ -216,9 +217,11 @@ func TestTranslateEnvPaths(t *testing.T) {
 		"XDG_DATA_HOME":            "/host/data/.local/share",
 		"XDG_STATE_HOME":           "/host/data/.local/state",
 		"XDG_CACHE_HOME":           "/host/data/.cache",
-		"STELLA_HOME":              "/host/.stella",   // envMap — should translate
-		"STELLA_USER_DIR":          "/host/data",      // mounted at /user — should translate (Pi C2)
-		"WORKING_DIR":              "/host/workspace", // mounted — should translate
+		"STELLA_HOME":              "/host/.stella",     // envMap — should translate
+		"STELLA_USER_DIR":          "/host/data",        // mounted at /user — should translate (Pi C2)
+		"STELLA_ASSETS_DIR":        "/host/data/assets", // mounted at /user — should translate
+		"TMPDIR":                   "/host/tmp",         // mounted at /tmp — should translate
+		"WORKING_DIR":              "/host/workspace",   // mounted — should translate
 		"LARKSUITE_CLI_CONFIG_DIR": "/host/data/.lark-cli",
 		"LARKSUITE_CLI_DATA_DIR":   "/host/data/.lark-cli/data",
 		"TERM":                     "xterm-256color", // non-path — pass through
@@ -227,8 +230,14 @@ func TestTranslateEnvPaths(t *testing.T) {
 
 	got := translateEnvPaths(env, mounts, envMaps)
 
-	if got["STELLA_USER_DIR"] != "/user" {
-		t.Errorf("STELLA_USER_DIR: got %q, want /user", got["STELLA_USER_DIR"])
+	for key, want := range map[string]string{
+		"STELLA_USER_DIR":   "/user",
+		"STELLA_ASSETS_DIR": "/user/assets",
+		"TMPDIR":            "/tmp",
+	} {
+		if got[key] != want {
+			t.Errorf("%s: got %q, want %q", key, got[key], want)
+		}
 	}
 
 	if v, ok := got["PATH"]; ok {

@@ -71,12 +71,14 @@ func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
 
 	env := sess.Policy().Env
 	for key, want := range map[string]string{
-		"HOME":            workspace,
-		"STELLA_USER_DIR": userData,
-		"XDG_CONFIG_HOME": filepath.Join(userData, ".config"),
-		"XDG_DATA_HOME":   filepath.Join(userData, ".local", "share"),
-		"XDG_STATE_HOME":  filepath.Join(userData, ".local", "state"),
-		"XDG_CACHE_HOME":  filepath.Join(userData, ".cache"),
+		"HOME":              workspace,
+		"STELLA_USER_DIR":   userData,
+		"STELLA_ASSETS_DIR": filepath.Join(userData, "assets"),
+		"TMPDIR":            os.TempDir(),
+		"XDG_CONFIG_HOME":   filepath.Join(userData, ".config"),
+		"XDG_DATA_HOME":     filepath.Join(userData, ".local", "share"),
+		"XDG_STATE_HOME":    filepath.Join(userData, ".local", "state"),
+		"XDG_CACHE_HOME":    filepath.Join(userData, ".cache"),
 	} {
 		if got := env[key]; got != want {
 			t.Errorf("%s = %q, want real host path %q", key, got, want)
@@ -100,6 +102,7 @@ func TestFactoryCreateSession_withoutUserDataFallsBackToWorkspace(t *testing.T) 
 	env := sess.Policy().Env
 	for key, want := range map[string]string{
 		"HOME":            workspace,
+		"TMPDIR":          os.TempDir(),
 		"XDG_CONFIG_HOME": filepath.Join(workspace, ".config"),
 		"XDG_DATA_HOME":   filepath.Join(workspace, ".local", "share"),
 		"XDG_STATE_HOME":  filepath.Join(workspace, ".local", "state"),
@@ -109,8 +112,25 @@ func TestFactoryCreateSession_withoutUserDataFallsBackToWorkspace(t *testing.T) 
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}
 	}
-	if _, ok := env["STELLA_USER_DIR"]; ok {
-		t.Error("STELLA_USER_DIR must not be set")
+	for _, key := range []string{"STELLA_USER_DIR", "STELLA_ASSETS_DIR"} {
+		if _, ok := env[key]; ok {
+			t.Errorf("%s must not be set", key)
+		}
+	}
+}
+
+func TestFactoryCreateSession_usesConfiguredHostTempDir(t *testing.T) {
+	workspace := t.TempDir()
+	tmpDir := t.TempDir()
+	sess, err := NewFactory().CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace, TempDirHost: tmpDir},
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+	if got := sess.Policy().Env[sandboxpkg.EnvTempDir]; got != tmpDir {
+		t.Errorf("TMPDIR = %q, want configured host path %q", got, tmpDir)
 	}
 }
 

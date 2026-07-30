@@ -109,19 +109,12 @@ func TestBuildSandboxEnvDoesNotExposePersonalLarkCLIStateToGroups(t *testing.T) 
 	if _, ok := env[LarkCLIDataDirEnv]; ok {
 		t.Fatalf("%s must not be set for a group session", LarkCLIDataDirEnv)
 	}
-	for key, want := range map[string]string{
-		"HOME":            "/stella/users/group-group-1/agents/agent-1",
-		"XDG_CONFIG_HOME": "/stella/users/group-group-1/data/.config",
-		"XDG_DATA_HOME":   "/stella/users/group-group-1/data/.local/share",
-		"XDG_STATE_HOME":  "/stella/users/group-group-1/data/.local/state",
-		"XDG_CACHE_HOME":  "/stella/users/group-group-1/data/.cache",
-	} {
-		if got := env[key]; got != want {
-			t.Errorf("group %s = %q, want %q", key, got, want)
+	// Filesystem roots are rendered only by the selected backend after it knows
+	// its actual mounts; the runner baseline must not guess the group view.
+	for _, key := range []string{"HOME", "STELLA_USER_DIR", "STELLA_ASSETS_DIR", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"} {
+		if got, ok := env[key]; ok {
+			t.Errorf("group runner env must not set %s=%q", key, got)
 		}
-	}
-	if _, ok := env["XDG_RUNTIME_DIR"]; ok {
-		t.Error("XDG_RUNTIME_DIR must not be set")
 	}
 }
 

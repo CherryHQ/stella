@@ -138,6 +138,10 @@ func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
 	}, nil
 }
 
+// filesystemTempDir returns the Linux bwrap process view. /tmp is always bind
+// mounted, regardless of the backing host directory.
+func filesystemTempDir(_ []tmpMount) string { return "/tmp" }
+
 var (
 	bwrapOnce      sync.Once
 	bwrapPath      string

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"os"
@@ -52,7 +53,11 @@ func (f *Factory) Supported(_ sandboxpkg.Policy) error { return nil }
 // with a sandboxed PATH. Network mode is always overridden to AllowAll since
 // the none backend cannot enforce network restrictions.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
-	policy = f.adjustPolicy(policy)
+	var err error
+	policy, err = f.adjustPolicy(policy)
+	if err != nil {
+		return nil, fmt.Errorf("none: apply filesystem environment: %w", err)
+	}
 	id := sandboxpkg.NewSessionID()
 	s := &noneSession{
 		id:     id,
@@ -64,23 +69,27 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 }
 
 // adjustPolicy applies none-backend-specific policy adjustments.
-func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
+func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) (sandboxpkg.Policy, error) {
 	policy.Network.Mode = sandboxpkg.NetworkAllowAll
 	env := maps.Clone(policy.Env)
 	if env == nil {
 		env = make(map[string]string)
 	}
 
-	// The none backend has no path remapping: HOME and the persistent XDG dirs
-	// use their real host paths. A user-less session has no /user mount and falls
-	// back to its workspace. Runtime state must not persist in either location.
+	// The none backend has no path remapping or confinement: all filesystem
+	// roots are real host paths. A user-less session falls back to its workspace.
 	workspace := policy.WorkspaceRootOrDefault()
 	userData := hostPathForSandboxMount(policy.Filesystem.Mounts, sandboxpkg.MountUserData)
-	setXDGDirs(env, workspace, userData)
+	tmpDir := policy.Filesystem.TempDirHost
+	if tmpDir == "" {
+		tmpDir = os.TempDir()
+	}
+	view := sandboxpkg.FilesystemView{Home: workspace, UserDir: userData, TempDir: tmpDir}
 	if userData != "" {
-		env["STELLA_USER_DIR"] = userData
-	} else {
-		delete(env, "STELLA_USER_DIR")
+		view.AssetsDir = filepath.Join(userData, "assets")
+	}
+	if err := sandboxpkg.ApplyFilesystemEnv(env, view); err != nil {
+		return sandboxpkg.Policy{}, err
 	}
 
 	if f.cfg.StellaHome != "" {
@@ -93,20 +102,7 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
 		env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims)
 	}
 	policy.Env = env
-	return policy
-}
-
-func setXDGDirs(env map[string]string, workspace, userData string) {
-	persistentRoot := userData
-	if persistentRoot == "" {
-		persistentRoot = workspace
-	}
-	env["HOME"] = workspace
-	env["XDG_CONFIG_HOME"] = filepath.Join(persistentRoot, ".config")
-	env["XDG_DATA_HOME"] = filepath.Join(persistentRoot, ".local", "share")
-	env["XDG_STATE_HOME"] = filepath.Join(persistentRoot, ".local", "state")
-	env["XDG_CACHE_HOME"] = filepath.Join(persistentRoot, ".cache")
-	delete(env, "XDG_RUNTIME_DIR")
+	return policy, nil
 }
 
 func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) string {

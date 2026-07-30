@@ -731,11 +731,17 @@ func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
-	env := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal).Env
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
+	if err := applyFilesystemEnv(&adjusted, sandboxRoot, userDataSandbox, nil); err != nil {
+		t.Fatalf("applyFilesystemEnv: %v", err)
+	}
+	env := adjusted.Env
 
 	for _, tc := range []struct{ key, want string }{
 		{"HOME", sandboxRoot},
 		{"STELLA_USER_DIR", userDataSandbox},
+		{"STELLA_ASSETS_DIR", filepath.Join(userDataSandbox, "assets")},
+		{"TMPDIR", filesystemTempDir(nil)},
 		{"XDG_CACHE_HOME", filepath.Join(userDataSandbox, ".cache")},
 		{"XDG_CONFIG_HOME", filepath.Join(userDataSandbox, ".config")},
 		{"XDG_DATA_HOME", filepath.Join(userDataSandbox, ".local", "share")},
@@ -761,9 +767,15 @@ func TestAdjustPolicy_noUserDataFallsBackToWorkspace(t *testing.T) {
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
-	env := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal).Env
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
+	if err := applyFilesystemEnv(&adjusted, sandboxRoot, userDataSandbox, nil); err != nil {
+		t.Fatalf("applyFilesystemEnv: %v", err)
+	}
+	env := adjusted.Env
 
 	for _, tc := range []struct{ key, want string }{
+		{"HOME", sandboxRoot},
+		{"TMPDIR", filesystemTempDir(nil)},
 		{"XDG_CACHE_HOME", filepath.Join(sandboxRoot, ".cache")},
 		{"XDG_CONFIG_HOME", filepath.Join(sandboxRoot, ".config")},
 		{"XDG_DATA_HOME", filepath.Join(sandboxRoot, ".local", "share")},

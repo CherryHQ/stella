@@ -85,51 +85,22 @@ func TestResolveSessionRequiresUserRoot(t *testing.T) {
 	}
 }
 
-func TestSandboxProcessEnvUsesPrincipalDataForPersistentXDG(t *testing.T) {
-	cfg := Config{
-		AgentID: "a1",
-		UserID:  "u1",
-		Paths: Paths{
-			StellaHome: "/stella",
-			AgentRoot:  "/workspace/agent",
-			UserRoot:   "/workspace/agent/users/1",
-		},
+func TestSandboxProcessEnvIsRunnerOnly(t *testing.T) {
+	paths := Paths{StellaHome: "/stella", WorkspaceRoot: "/workspace/job", UserDataDir: "/user/data"}
+	env := ProcessEnv(paths)
+	if got, want := env["STELLA_HOME"], paths.StellaHome; got != want {
+		t.Errorf("STELLA_HOME = %q, want %q", got, want)
 	}
-
-	paths, err := ResolvePaths(cfg)
-	if err != nil {
-		t.Fatalf("ResolvePaths: %v", err)
-	}
-	env := ProcessEnv(paths, paths.UserDataDir)
-	for key, want := range map[string]string{
-		"HOME":            paths.WorkspaceRoot,
-		"XDG_CONFIG_HOME": filepath.Join(paths.UserDataDir, ".config"),
-		"XDG_DATA_HOME":   filepath.Join(paths.UserDataDir, ".local", "share"),
-		"XDG_STATE_HOME":  filepath.Join(paths.UserDataDir, ".local", "state"),
-		"XDG_CACHE_HOME":  filepath.Join(paths.UserDataDir, ".cache"),
-		"STELLA_HOME":     cfg.Paths.StellaHome,
-	} {
-		if got := env[key]; got != want {
-			t.Errorf("%s = %q, want %q", key, got, want)
+	for _, key := range []string{"HOME", "STELLA_USER_DIR", "STELLA_ASSETS_DIR", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		if got, ok := env[key]; ok {
+			t.Errorf("ProcessEnv must not set backend filesystem root %s=%q", key, got)
 		}
-	}
-	if _, ok := env["XDG_RUNTIME_DIR"]; ok {
-		t.Fatal("XDG_RUNTIME_DIR must not be set")
 	}
 }
 
-func TestSandboxProcessEnvFallsBackToWorkspaceWithoutUserData(t *testing.T) {
-	paths := Paths{WorkspaceRoot: "/workspace/job"}
-	env := ProcessEnv(paths, "")
-	for key, suffix := range map[string]string{
-		"XDG_CONFIG_HOME": ".config",
-		"XDG_DATA_HOME":   ".local/share",
-		"XDG_STATE_HOME":  ".local/state",
-		"XDG_CACHE_HOME":  ".cache",
-	} {
-		if want := filepath.Join(paths.WorkspaceRoot, suffix); env[key] != want {
-			t.Errorf("%s = %q, want %q", key, env[key], want)
-		}
+func TestSandboxProcessEnvWithoutStellaHomeIsEmpty(t *testing.T) {
+	if env := ProcessEnv(Paths{}); len(env) != 0 {
+		t.Errorf("ProcessEnv = %#v, want no runner environment", env)
 	}
 }
 

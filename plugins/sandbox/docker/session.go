@@ -196,7 +196,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		WorkspaceMount: workspaceMount,
 		NetworkMode:    networkMode,
 		Network:        f.cfg.SandboxNetwork,
-		Env:            mergeEnv(policy.Env, nil),
 		Labels: map[string]string{
 			dockerclient.LabelSessionID:  sessionID,
 			dockerclient.LabelStellaHome: cleanupScope,
@@ -217,19 +216,17 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	// so PATH can point at their shims.
 	perUserTrees := writableToolTrees(mountedPolicyMounts)
 
-	// Use the root that was actually mounted, not merely requested: an unavailable
-	// /user mount must leave every XDG directory in the workspace. Values remain
-	// host paths here; translateEnvPaths maps them to /workspace or /user for both
-	// the container's create-time environment and later execs.
+	// Render only roots that actually have a container view. An unavailable
+	// /user mount falls persistent XDG state back to the workspace. Values stay
+	// host-side until translateEnvPaths maps them for container creation and exec.
 	env := maps.Clone(policy.Env)
 	if env == nil {
 		env = make(map[string]string)
 	}
-	setXDGDirs(env, workspaceHost, mountedUserDataHost)
-	if mountedUserDataHost != "" {
-		env["STELLA_USER_DIR"] = mountedUserDataHost
-	} else {
-		delete(env, "STELLA_USER_DIR")
+	if err := applyDockerFilesystemEnv(env, workspaceHost, mountedUserDataHost, mountedTempDirHost); err != nil {
+		recordError(span, err)
+		span.End()
+		return nil, fmt.Errorf("docker session: apply filesystem environment: %w", err)
 	}
 	policy.Env = env
 
@@ -486,21 +483,22 @@ func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) stri
 	return ""
 }
 
-// setXDGDirs keeps HOME private to the workspace while placing persistent XDG
-// state in the per-principal user-data root when it was mounted. Without that
-// mount, all XDG state falls back to the workspace. XDG_RUNTIME_DIR is not a
-// persistent directory and is intentionally not set.
-func setXDGDirs(env map[string]string, workspace, userData string) {
-	persistentRoot := userData
-	if persistentRoot == "" {
-		persistentRoot = workspace
+// applyDockerFilesystemEnv renders the host-side roots which translate to the
+// container view. When no host temp mount is available, /tmp is container-local
+// scratch and translateEnvPaths preserves that exact fallback.
+func applyDockerFilesystemEnv(env map[string]string, workspaceHost, userDataHost, tempDirHost string) error {
+	view := sandboxpkg.FilesystemView{
+		Home:    workspaceHost,
+		UserDir: userDataHost,
+		TempDir: tempDirHost,
 	}
-	env["HOME"] = workspace
-	env["XDG_CONFIG_HOME"] = filepath.Join(persistentRoot, ".config")
-	env["XDG_DATA_HOME"] = filepath.Join(persistentRoot, ".local", "share")
-	env["XDG_STATE_HOME"] = filepath.Join(persistentRoot, ".local", "state")
-	env["XDG_CACHE_HOME"] = filepath.Join(persistentRoot, ".cache")
-	delete(env, "XDG_RUNTIME_DIR")
+	if userDataHost != "" {
+		view.AssetsDir = filepath.Join(userDataHost, "assets")
+	}
+	if view.TempDir == "" {
+		view.TempDir = "/tmp"
+	}
+	return sandboxpkg.ApplyFilesystemEnv(env, view)
 }
 
 func dockerMountProvidedByImage(m sandboxpkg.Mount) bool {
@@ -684,6 +682,13 @@ func translateEnvPaths(env map[string]string, mountTable []dockerclient.Mount, e
 	out := make(map[string]string, len(env))
 	for k, v := range env {
 		if _, drop := hostOnlyEnvKeys[k]; drop {
+			continue
+		}
+		// A container always provides /tmp. Preserve only this explicit TMPDIR
+		// fallback when no host temp mount exists; other unmounted absolute paths
+		// still fail closed below.
+		if k == sandboxpkg.EnvTempDir && v == "/tmp" {
+			out[k] = v
 			continue
 		}
 		// MISE_TRUSTED_CONFIG_PATHS is a path-list, not a scalar path; translate

@@ -14,6 +14,7 @@ package local
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -83,6 +84,17 @@ func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
 		{sandboxPath: "/tmp", realPath: tmp},
 		{sandboxPath: "/var/tmp", realPath: resolve("/var/tmp", "/private/var/tmp")},
 	}, nil
+}
+
+// filesystemTempDir returns the macOS process view: Seatbelt has no path
+// remapping, so TMPDIR must name the real directory backing /tmp.
+func filesystemTempDir(mounts []tmpMount) string {
+	for _, mount := range mounts {
+		if mount.sandboxPath == "/tmp" && mount.realPath != "" {
+			return mount.realPath
+		}
+	}
+	return os.TempDir()
 }
 
 // adjustStellaHome returns the sandbox-view STELLA_HOME directory.

@@ -3,6 +3,8 @@
 package local
 
 import (
+	"os"
+
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -22,8 +24,27 @@ func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string
 	return "", ""
 }
 
-// createSessionTmpMounts returns no temp mounts on platforms other than Linux and macOS.
-func createSessionTmpMounts(sandboxpkg.Policy) ([]tmpMount, error) { return nil, nil }
+// createSessionTmpMounts returns the identity mount for the host temporary
+// directory. Non-isolating platforms do not remap paths, but the path resolver
+// still needs the published TMPDIR as a writable process-view mount.
+func createSessionTmpMounts(policy sandboxpkg.Policy) ([]tmpMount, error) {
+	tmpDir := policy.Filesystem.TempDirHost
+	if tmpDir == "" {
+		tmpDir = os.TempDir()
+	}
+	return []tmpMount{{sandboxPath: tmpDir, realPath: tmpDir}}, nil
+}
+
+// filesystemTempDir returns the real temporary directory from the identity
+// process-view mount, falling back to the host temporary directory safely.
+func filesystemTempDir(mounts []tmpMount) string {
+	for _, mount := range mounts {
+		if mount.sandboxPath == mount.realPath && mount.realPath != "" {
+			return mount.realPath
+		}
+	}
+	return os.TempDir()
+}
 
 // adjustStellaHome returns the sandbox-view STELLA_HOME. No remapping on this platform.
 func adjustStellaHome(stellaHome string) string { return stellaHome }
