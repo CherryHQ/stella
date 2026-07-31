@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
 import { Link } from "@tanstack/react-router";
 import {
   AlertCircle,
@@ -240,7 +241,27 @@ export function SessionDetail({
     });
   }, [historyMessages, setChatMessages]);
 
-  const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
+  // Convert UIMessage -> Message with a per-object cache so unchanged messages
+  // keep their output identity across stream updates — that identity is what
+  // lets the memoized transcript rows below skip re-rendering. The entry
+  // revalidates on parts count + tail text length in case the SDK ever grows a
+  // message in place instead of replacing it.
+  const uiToMsgCache = useRef(
+    new WeakMap<UIMessage, { partsLen: number; tailLen: number; out: Message }>(),
+  );
+  const messages = useMemo(
+    () =>
+      chatMessages.map((m) => {
+        const tail = m.parts[m.parts.length - 1] as { text?: string } | undefined;
+        const tailLen = tail?.text?.length ?? 0;
+        const hit = uiToMsgCache.current.get(m);
+        if (hit && hit.partsLen === m.parts.length && hit.tailLen === tailLen) return hit.out;
+        const out = uiMessageToMessage(m);
+        uiToMsgCache.current.set(m, { partsLen: m.parts.length, tailLen, out });
+        return out;
+      }),
+    [chatMessages],
+  );
 
   useEffect(() => {
     if (!session) {
