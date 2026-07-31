@@ -45,6 +45,23 @@ type CandidateGateResult struct {
 	Rejected []CandidateGateDecision
 }
 
+// factCandidateDecision keeps every accepted Fact candidate tied to the exact
+// evaluator and deterministic gate result used by later reconciliation.
+type factCandidateDecision struct {
+	Candidate  factCandidate
+	Evaluation factEvaluation
+	Gate       CandidateGateDecision
+}
+
+// skillCandidateDecision is the Skill-line equivalent of
+// factCandidateDecision. Rejected candidates intentionally do not enter this
+// success-only handoff.
+type skillCandidateDecision struct {
+	Candidate  skillCandidate
+	Evaluation skillEvaluation
+	Gate       CandidateGateDecision
+}
+
 func candidateRef(prefix string, index int) CandidateRef {
 	return CandidateRef(fmt.Sprintf("%s-%04d", prefix, index+1))
 }

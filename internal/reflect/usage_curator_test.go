@@ -711,10 +711,10 @@ func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeCandidates(t *testing.
 	}
 	factMetadata := json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`)
 	if _, err := memorywrite.ApplyFactBatch(ctx, db, q, userID, agentID, []memorywrite.FactBatchOperation{{
-		Action:        memorywrite.FactBatchDeprecateMany,
-		Subject:       memory.FactSubjectWorld,
-		TargetFactIDs: []string{fact.ID},
-		Metadata:      factMetadata,
+		Action:            memorywrite.FactBatchDeprecateMany,
+		Subject:           memory.FactSubjectWorld,
+		TargetFactIDs:     []string{fact.ID},
+		ChangelogMetadata: factMetadata,
 	}}); err != nil {
 		t.Fatalf("deprecate reflect fact: %v", err)
 	}
@@ -760,10 +760,10 @@ func TestSQLForgottenRestoreServiceRestoresKnowledge(t *testing.T) {
 		t.Fatalf("create reflect fact: %v", err)
 	}
 	if _, err := memorywrite.ApplyFactBatch(ctx, db, q, userID, agentID, []memorywrite.FactBatchOperation{{
-		Action:        memorywrite.FactBatchDeprecateMany,
-		Subject:       memory.FactSubjectWorld,
-		TargetFactIDs: []string{fact.ID},
-		Metadata:      json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`),
+		Action:            memorywrite.FactBatchDeprecateMany,
+		Subject:           memory.FactSubjectWorld,
+		TargetFactIDs:     []string{fact.ID},
+		ChangelogMetadata: json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`),
 	}}); err != nil {
 		t.Fatalf("deprecate reflect fact: %v", err)
 	}

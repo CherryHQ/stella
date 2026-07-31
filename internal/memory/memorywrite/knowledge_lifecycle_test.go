@@ -352,7 +352,7 @@ func TestKnowledgeLifecycleFiltersRemovedAndRejectsExpiredOrDuplicateRestore(t *
 	}
 	if _, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
 		Action: FactBatchDeprecateMany, Subject: memory.FactSubjectWorld, TargetFactIDs: []string{curator.ID},
-		Metadata: json.RawMessage(`{"curator":"usage"}`),
+		ChangelogMetadata: json.RawMessage(`{"curator":"usage"}`),
 	}}); err != nil {
 		t.Fatalf("ApplyFactBatch curator deprecate: %v", err)
 	}

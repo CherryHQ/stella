@@ -7,7 +7,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
-func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarget, _ ReviewUnit, candidates []factCandidate, runner candidateLineReviewer) (reconciliationWriteStats, error) {
+func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarget, unit ReviewUnit, decisions []factCandidateDecision, runner candidateLineReviewer) (reconciliationWriteStats, error) {
 	facts, ok := s.memory.(memory.FactStore)
 	if !ok {
 		return reconciliationWriteStats{}, fmt.Errorf("fact reconciliation: memory provider does not support fact reads")
@@ -25,6 +25,7 @@ func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarg
 
 	userID := target.session.UserID
 	agentID := target.session.AgentID
+	candidates := factCandidatesFromDecisions(decisions)
 	bundle, err := buildFactRelatedBundle(ctx, facts, constraints, userID, agentID, candidates)
 	if err != nil {
 		return reconciliationWriteStats{}, err
@@ -42,8 +43,15 @@ func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarg
 	if err != nil {
 		return reconciliationWriteStats{}, err
 	}
-	writes := len(factBatchOperationsFromPlan(plan))
-	_, err = executeFactReconciliationPlan(ctx, writer, userID, agentID, bundle, plan)
+	writes := factReconciliationWriteCount(plan)
+	provenance := factProvenanceInput{Decisions: decisions}
+	if writes > 0 {
+		provenance.Context, err = newReflectProvenanceContext(target.session.ID, runner.Model.ID, unit)
+		if err != nil {
+			return reconciliationWriteStats{}, err
+		}
+	}
+	_, err = executeFactReconciliationPlan(ctx, writer, userID, agentID, bundle, plan, provenance)
 	stats := reconciliationWriteStats{Noops: factReconciliationNoopCount(bundle, plan)}
 	if err == nil {
 		stats.Writes = writes
@@ -51,7 +59,7 @@ func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarg
 	return stats, err
 }
 
-func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTarget, _ ReviewUnit, candidates []skillCandidate, runner candidateLineReviewer) (reconciliationWriteStats, error) {
+func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTarget, unit ReviewUnit, decisions []skillCandidateDecision, runner candidateLineReviewer) (reconciliationWriteStats, error) {
 	bundleStore, ok := s.skillStore.(skillRelatedBundleStore)
 	if !ok {
 		return reconciliationWriteStats{}, fmt.Errorf("skill reconciliation: skill store does not support related bundle reads")
@@ -63,6 +71,7 @@ func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTar
 
 	userID := target.session.UserID
 	agentID := target.session.AgentID
+	candidates := skillCandidatesFromDecisions(decisions)
 	catalog, err := buildSkillRelatedCatalog(ctx, bundleStore, userID, agentID)
 	if err != nil {
 		return reconciliationWriteStats{}, err
@@ -79,7 +88,18 @@ func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTar
 	if err != nil {
 		return reconciliationWriteStats{}, err
 	}
-	written, err := executeSkillReconciliationPlan(ctx, writer, s.skillAuthorizer, userID, agentID, bundle, plan)
+	provenance := skillProvenanceInput{Decisions: decisions}
+	for _, operation := range plan.Operations {
+		if operation.Operation == skillOperationNoop {
+			continue
+		}
+		provenance.Context, err = newReflectProvenanceContext(target.session.ID, runner.Model.ID, unit)
+		if err != nil {
+			return reconciliationWriteStats{}, err
+		}
+		break
+	}
+	written, err := executeSkillReconciliationPlan(ctx, writer, s.skillAuthorizer, userID, agentID, bundle, plan, provenance)
 	return reconciliationWriteStats{Writes: len(written), Noops: skillReconciliationNoopCount(plan)}, err
 }
 

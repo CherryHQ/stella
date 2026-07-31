@@ -8,8 +8,10 @@ import (
 )
 
 type (
-	factReconciler  func(context.Context, reviewTarget, ReviewUnit, []factCandidate) (reconciliationWriteStats, error)
-	skillReconciler func(context.Context, reviewTarget, ReviewUnit, []skillCandidate) (reconciliationWriteStats, error)
+	factCandidateDecisionLineRunner  func(context.Context, ReviewUnit) ([]factCandidateDecision, error)
+	skillCandidateDecisionLineRunner func(context.Context, ReviewUnit) ([]skillCandidateDecision, error)
+	factReconciler                   func(context.Context, reviewTarget, ReviewUnit, []factCandidateDecision) (reconciliationWriteStats, error)
+	skillReconciler                  func(context.Context, reviewTarget, ReviewUnit, []skillCandidateDecision) (reconciliationWriteStats, error)
 )
 
 type reconciliationWriteStats struct {
@@ -18,8 +20,8 @@ type reconciliationWriteStats struct {
 }
 
 type reconciliationPipelineOptions struct {
-	FactLine        factCandidateLineRunner
-	SkillLine       skillCandidateLineRunner
+	FactLine        factCandidateDecisionLineRunner
+	SkillLine       skillCandidateDecisionLineRunner
 	FactReconciler  factReconciler
 	SkillReconciler skillReconciler
 	ReviewBudget    int
@@ -89,16 +91,16 @@ func (s *Service) runFactReconciliationLine(ctx context.Context, target reviewTa
 	if opts.FactLine == nil {
 		return fmt.Errorf("fact candidate line is not configured")
 	}
-	accepted, err := opts.FactLine(ctx, unit)
+	decisions, err := opts.FactLine(ctx, unit)
 	if err != nil {
 		return err
 	}
-	result.FactAccepted = append(result.FactAccepted, accepted...)
-	if len(accepted) > 0 {
+	result.FactAccepted = append(result.FactAccepted, factCandidatesFromDecisions(decisions)...)
+	if len(decisions) > 0 {
 		if opts.FactReconciler == nil {
 			return fmt.Errorf("fact reconciler is not configured")
 		}
-		stats, err := opts.FactReconciler(ctx, target, unit, accepted)
+		stats, err := opts.FactReconciler(ctx, target, unit, decisions)
 		result.FactStats.Writes = stats.Writes
 		result.FactStats.Noops = stats.Noops
 		if err != nil {
@@ -116,16 +118,16 @@ func (s *Service) runSkillReconciliationLine(ctx context.Context, target reviewT
 	if opts.SkillLine == nil {
 		return fmt.Errorf("skill candidate line is not configured")
 	}
-	accepted, err := opts.SkillLine(ctx, unit)
+	decisions, err := opts.SkillLine(ctx, unit)
 	if err != nil {
 		return err
 	}
-	result.SkillAccepted = append(result.SkillAccepted, accepted...)
-	if len(accepted) > 0 {
+	result.SkillAccepted = append(result.SkillAccepted, skillCandidatesFromDecisions(decisions)...)
+	if len(decisions) > 0 {
 		if opts.SkillReconciler == nil {
 			return fmt.Errorf("skill reconciler is not configured")
 		}
-		stats, err := opts.SkillReconciler(ctx, target, unit, accepted)
+		stats, err := opts.SkillReconciler(ctx, target, unit, decisions)
 		result.SkillStats.Writes = stats.Writes
 		result.SkillStats.Noops = stats.Noops
 		if err != nil {

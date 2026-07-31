@@ -305,9 +305,10 @@ func RestoreCuratorDeprecatedKnowledgeFact(ctx context.Context, db *pgxpool.Pool
 }
 
 type factWritePlan struct {
-	action    string
-	oldFactID string
-	write     memory.FactWrite
+	action            string
+	oldFactID         string
+	write             memory.FactWrite
+	changelogMetadata json.RawMessage
 }
 
 type FactBatchAction string
@@ -323,11 +324,15 @@ const (
 // uses this helper so profile/soul/knowledge writes can fail closed as one fact
 // line instead of committing partial writes.
 type FactBatchOperation struct {
-	Action        FactBatchAction
-	Subject       memory.FactSubject
-	Content       string
-	Metadata      json.RawMessage
-	TargetFactIDs []string
+	Action  FactBatchAction
+	Subject memory.FactSubject
+	Content string
+	// Metadata is persisted on a newly created fact entity.
+	Metadata json.RawMessage
+	// ChangelogMetadata records audit context for every changelog row produced
+	// by this operation without changing the fact entity metadata.
+	ChangelogMetadata json.RawMessage
+	TargetFactIDs     []string
 	// TargetUsageLastUsedAt optionally makes deprecate_many skip targets whose
 	// Reflect knowledge usage changed since candidate selection. Curator uses
 	// this to avoid retiring facts that were used while an armed run was pending.
@@ -344,6 +349,11 @@ type FactBatchOperation struct {
 func ApplyFactBatch(ctx context.Context, db *pgxpool.Pool, q *sqlc.Queries, userID string, agentID string, ops []FactBatchOperation) ([]memory.Fact, error) {
 	if len(ops) == 0 {
 		return nil, nil
+	}
+	for index, op := range ops {
+		if err := validateChangelogMetadata(op.ChangelogMetadata); err != nil {
+			return nil, fmt.Errorf("fact batch operation %d: %w", index+1, err)
+		}
 	}
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -397,26 +407,39 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 			return nil, fmt.Errorf("fact batch: list singleton fact: %w", err)
 		}
 		if len(active) == 0 {
-			fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{action: "create", write: write})
+			fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{
+				action:            "create",
+				write:             write,
+				changelogMetadata: op.ChangelogMetadata,
+			})
 			return singleFactResult(fact, err)
 		}
 		if active[0].Content == op.Content {
 			return []memory.Fact{factFromRow(active[0])}, nil
 		}
-		fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{action: "replace", oldFactID: active[0].ID, write: write})
+		fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{
+			action:            "replace",
+			oldFactID:         active[0].ID,
+			write:             write,
+			changelogMetadata: op.ChangelogMetadata,
+		})
 		return singleFactResult(fact, err)
 	case FactBatchCreate:
 		if op.Content == "" {
 			return nil, fmt.Errorf("fact batch: create content is required")
 		}
-		fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{action: "create", write: write})
+		fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{
+			action:            "create",
+			write:             write,
+			changelogMetadata: op.ChangelogMetadata,
+		})
 		return singleFactResult(fact, err)
 	case FactBatchReplaceMany:
 		if len(op.TargetFactIDs) == 0 || op.Content == "" {
 			return nil, fmt.Errorf("fact batch: replace_many requires targets and content")
 		}
 		for _, id := range op.TargetFactIDs {
-			if _, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id, nil); err != nil {
+			if _, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id, op.ChangelogMetadata); err != nil {
 				return nil, err
 			}
 		}
@@ -424,7 +447,11 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 		// and keep the complete target set in metadata for later audit/reconcile.
 		write.Supersedes = op.TargetFactIDs[0]
 		write.Metadata = metadataWithReplacedFactIDs(op.Metadata, op.TargetFactIDs)
-		fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{action: "replace", write: write})
+		fact, err := applyFactWriteLocked(ctx, qtx, factWritePlan{
+			action:            "replace",
+			write:             write,
+			changelogMetadata: op.ChangelogMetadata,
+		})
 		return singleFactResult(fact, err)
 	case FactBatchDeprecateMany:
 		if len(op.TargetFactIDs) == 0 || op.Content != "" {
@@ -439,7 +466,7 @@ func applyFactBatchOperationLocked(ctx context.Context, qtx *sqlc.Queries, userI
 			if !shouldDeprecate {
 				continue
 			}
-			fact, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id, op.Metadata)
+			fact, err := applyDeprecateFactLocked(ctx, qtx, userID, agentID, op.Subject, id, op.ChangelogMetadata)
 			if err != nil {
 				return nil, err
 			}
@@ -592,11 +619,11 @@ func applyFactWriteLocked(ctx context.Context, qtx *sqlc.Queries, plan factWrite
 	changelogAction := plan.action
 	if deprecatedOld != nil {
 		changelogAction = "replace"
-		if _, err := writeFactChangelog(ctx, qtx, plan.write.UserID, plan.write.AgentID, "deprecate", source, beforeVersion, memoryRow.Version, oldBefore, *deprecatedOld); err != nil {
+		if _, err := writeFactChangelogWithMetadata(ctx, qtx, plan.write.UserID, plan.write.AgentID, "deprecate", source, beforeVersion, memoryRow.Version, oldBefore, *deprecatedOld, plan.changelogMetadata); err != nil {
 			return memory.Fact{}, err
 		}
 	}
-	if _, err := writeFactChangelog(ctx, qtx, plan.write.UserID, plan.write.AgentID, changelogAction, source, beforeVersion, memoryRow.Version, memory.Fact{}, fact); err != nil {
+	if _, err := writeFactChangelogWithMetadata(ctx, qtx, plan.write.UserID, plan.write.AgentID, changelogAction, source, beforeVersion, memoryRow.Version, memory.Fact{}, fact, plan.changelogMetadata); err != nil {
 		return memory.Fact{}, err
 	}
 
@@ -770,6 +797,17 @@ func writeFactChangelogWithMetadata(ctx context.Context, q *sqlc.Queries, userID
 		return "", fmt.Errorf("write fact changelog: %w", err)
 	}
 	return id, nil
+}
+
+func validateChangelogMetadata(metadata json.RawMessage) error {
+	if len(metadata) == 0 {
+		return nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(metadata, &object); err != nil || object == nil {
+		return fmt.Errorf("changelog metadata must be a JSON object")
+	}
+	return nil
 }
 
 func factSourceFromContext(ctx context.Context) memory.ChangeSource {

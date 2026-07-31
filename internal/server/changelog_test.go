@@ -57,7 +57,7 @@ func TestProfileChangelogProjectsLogicalKnowledgeActions(t *testing.T) {
 	}
 	if _, err := memorywrite.ApplyFactBatch(context.Background(), env.db, sqlc.New(env.db), env.adminUser.ID, agentID, []memorywrite.FactBatchOperation{{
 		Action: memorywrite.FactBatchDeprecateMany, Subject: memory.FactSubjectWorld, TargetFactIDs: []string{curator.ID},
-		Metadata: json.RawMessage(`{"curator":"usage"}`),
+		ChangelogMetadata: json.RawMessage(`{"curator":"usage"}`),
 	}}); err != nil {
 		t.Fatalf("curator deprecate knowledge: %v", err)
 	}

@@ -1,6 +1,9 @@
 package reflect
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCandidateRefStableAssignment(t *testing.T) {
 	refs := assignCandidateRefs("fact", 3)
@@ -102,6 +105,71 @@ func TestGateRejectsSecretLikeContent(t *testing.T) {
 	}
 	if len(result.Rejected) != 1 || result.Rejected[0].Reason != rejectSecretDetected {
 		t.Fatalf("expected secret rejection, got %#v", result.Rejected)
+	}
+}
+
+func TestSanitizeSecretLikeContent(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		secret string
+	}{
+		{
+			name:   "URI userinfo",
+			input:  "connect to postgres://app:correct-horse-battery-staple@db.internal/app",
+			secret: "correct-horse-battery-staple",
+		},
+		{
+			name:   "bearer",
+			input:  "Authorization: Bearer fake-access-token-12345",
+			secret: "fake-access-token-12345",
+		},
+		{
+			name:   "basic",
+			input:  "Authorization: Basic dXNlcjpwYXNz",
+			secret: "dXNlcjpwYXNz",
+		},
+		{
+			name:   "JWT",
+			input:  "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.fakeSignature123",
+			secret: "eyJhbGciOiJIUzI1NiJ9",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, detected := sanitizeSecretLikeContent(test.input)
+			if !detected {
+				t.Fatalf("expected secret detection for %q", test.input)
+			}
+			if strings.Contains(got, test.secret) {
+				t.Fatalf("sanitized content still contains %q: %q", test.secret, got)
+			}
+			if !strings.Contains(got, reflectSecretRedaction) {
+				t.Fatalf("sanitized content is missing redaction marker: %q", got)
+			}
+		})
+	}
+}
+
+func TestSanitizeSecretLikeContentDoesNotMatchAuthSchemeProse(t *testing.T) {
+	tests := []string{
+		"Basic authentication is required",
+		"basic validation rules",
+		"bearer instrument",
+		"Authorization: Basic authentication",
+	}
+
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			got, detected := sanitizeSecretLikeContent(input)
+			if detected {
+				t.Fatalf("unexpected secret detection for %q: %q", input, got)
+			}
+			if got != input {
+				t.Fatalf("sanitizer changed benign input: got %q, want %q", got, input)
+			}
+		})
 	}
 }
 
