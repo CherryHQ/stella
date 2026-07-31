@@ -118,6 +118,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
     delete:
       tags: [webhooks]
       summary: Delete one of the authenticated user's webhooks

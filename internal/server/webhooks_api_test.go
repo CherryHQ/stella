@@ -187,11 +187,11 @@ func TestWebhookAPIAuthAndOwnerIsolation(t *testing.T) {
 		t.Fatalf("malformed agent=%d %s", rr.Code, rr.Body.String())
 	}
 	rr = doRequestWithSession(t, env.srv, ownerToken, http.MethodPost, "/api/webhooks", map[string]any{"name": "denied", "agent_id": "missing-agent", "provider": "generic"})
-	if rr.Code != http.StatusForbidden {
+	if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "webhook:") {
 		t.Fatalf("inaccessible agent=%d %s", rr.Code, rr.Body.String())
 	}
 	rr = doRequestWithSession(t, env.srv, ownerToken, http.MethodPatch, "/api/webhooks/"+created.Id.String(), map[string]any{"agent_id": "missing-agent"})
-	if rr.Code != http.StatusForbidden {
+	if rr.Code != http.StatusForbidden || strings.Contains(rr.Body.String(), "webhook:") {
 		t.Fatalf("inaccessible patch agent=%d %s", rr.Code, rr.Body.String())
 	}
 	_ = owner

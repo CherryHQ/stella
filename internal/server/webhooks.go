@@ -180,12 +180,26 @@ func (s *Server) writeWebhookError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, webhook.ErrNotFound):
 		writeError(w, http.StatusNotFound, "webhook not found")
-	case errors.Is(err, webhook.ErrStaleETag):
+	case errors.Is(err, webhook.ErrStaleETag), errors.Is(err, webhook.ErrBindingChanged):
 		writeError(w, http.StatusConflict, "webhook changed since it was read; refresh and retry")
-	case errors.Is(err, webhook.ErrUserInactive), errors.Is(err, webhook.ErrUserAgentForbidden):
-		writeError(w, http.StatusForbidden, err.Error())
-	case errors.Is(err, webhook.ErrInvalidID), errors.Is(err, webhook.ErrInvalidUserID), errors.Is(err, webhook.ErrInvalidName), errors.Is(err, webhook.ErrInvalidAgentID), errors.Is(err, webhook.ErrInvalidProvider), errors.Is(err, webhook.ErrInvalidTimeout), errors.Is(err, webhook.ErrInvalidETag), errors.Is(err, webhook.ErrBindingChanged):
-		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, webhook.ErrUserInactive):
+		writeError(w, http.StatusForbidden, "user is inactive")
+	case errors.Is(err, webhook.ErrUserAgentForbidden):
+		writeError(w, http.StatusForbidden, "you cannot use the selected agent")
+	case errors.Is(err, webhook.ErrInvalidID):
+		writeError(w, http.StatusBadRequest, "invalid webhook id")
+	case errors.Is(err, webhook.ErrInvalidUserID):
+		writeError(w, http.StatusBadRequest, "invalid user identity")
+	case errors.Is(err, webhook.ErrInvalidName):
+		writeError(w, http.StatusBadRequest, "name is required")
+	case errors.Is(err, webhook.ErrInvalidAgentID):
+		writeError(w, http.StatusBadRequest, "agent_id is required")
+	case errors.Is(err, webhook.ErrInvalidProvider):
+		writeError(w, http.StatusBadRequest, "invalid provider")
+	case errors.Is(err, webhook.ErrInvalidTimeout):
+		writeError(w, http.StatusBadRequest, "timeout is outside the allowed range")
+	case errors.Is(err, webhook.ErrInvalidETag):
+		writeError(w, http.StatusBadRequest, "etag is required")
 	default:
 		s.log.Error("webhook handler error", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal error")

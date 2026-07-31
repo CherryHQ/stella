@@ -354,7 +354,7 @@ function ChannelDetail({
         <div className="space-y-4">
           <FormSectionTitle>Configuration</FormSectionTitle>
           <InstanceFields ch={channel} onChange={(key, value) => updateField(key, value)} />
-          {channel.type !== "webhook" && hasConfig(channel.type, channel) && (
+          {hasConfig(channel.type, channel) && (
             <p className="text-xs text-muted-foreground">
               This page stores the channel config only. Agent selection belongs on the agent page.
             </p>
@@ -363,79 +363,77 @@ function ChannelDetail({
       )}
 
       {/* Identity / account section. */}
-      {
-        <div className="space-y-3">
-          <FormSectionTitle>My account</FormSectionTitle>
-          {identity ? (
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">Linked identity</p>
-              <p className="font-mono text-sm">
-                {identity.name ? identity.name + " · " : ""}
-                {identity.external_id}
-              </p>
+      <div className="space-y-3">
+        <FormSectionTitle>My account</FormSectionTitle>
+        {identity ? (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">Linked identity</p>
+            <p className="font-mono text-sm">
+              {identity.name ? identity.name + " · " : ""}
+              {identity.external_id}
+            </p>
+            <Button
+              onClick={() => onUnlink(identity.id)}
+              variant="ghost"
+              size="sm"
+              className="text-destructive-foreground"
+            >
+              Unlink
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">No account linked yet.</p>
+            {channel.type !== "weixin" && (
               <Button
-                onClick={() => onUnlink(identity.id)}
-                variant="ghost"
+                onClick={() => onGenerateCode(channel.type)}
+                disabled={generating}
+                loading={generating && linkPlatform === channel.type}
                 size="sm"
-                className="text-destructive-foreground"
               >
-                Unlink
+                Link {platformLabel}
+              </Button>
+            )}
+            {channel.type === "weixin" && (
+              <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
+                Link Weixin
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Link code */}
+        {linkCode && linkPlatform === channel.type && (
+          <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+            <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
+                /link {linkCode}
+              </code>
+              <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
+                copy
               </Button>
             </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">No account linked yet.</p>
-              {channel.type !== "weixin" && (
-                <Button
-                  onClick={() => onGenerateCode(channel.type)}
-                  disabled={generating}
-                  loading={generating && linkPlatform === channel.type}
-                  size="sm"
-                >
-                  Link {platformLabel}
-                </Button>
-              )}
-              {channel.type === "weixin" && (
-                <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
-                  Link Weixin
-                </Button>
-              )}
-            </div>
-          )}
+            <p className="text-xs text-muted-foreground">Expires in 5 minutes.</p>
+          </div>
+        )}
 
-          {/* Link code */}
-          {linkCode && linkPlatform === channel.type && (
-            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-              <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
-              <div className="flex items-center gap-2 flex-wrap">
-                <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
-                  /link {linkCode}
-                </code>
-                <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
-                  copy
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">Expires in 5 minutes.</p>
-            </div>
-          )}
-
-          {/* Weixin QR */}
-          {wxQrUrl && channel.type === "weixin" && (
-            <div className="rounded-xl border border-border bg-muted p-6 flex flex-col items-center">
-              <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
-              <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
-              <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
-                {wxQrStatus}
-              </Badge>
-              {wxQrStatus === "expired" && (
-                <Button onClick={onRefreshWxQr} variant="outline" size="xs" className="mt-1">
-                  Refresh
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      }
+        {/* Weixin QR */}
+        {wxQrUrl && channel.type === "weixin" && (
+          <div className="rounded-xl border border-border bg-muted p-6 flex flex-col items-center">
+            <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
+            <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
+            <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
+              {wxQrStatus}
+            </Badge>
+            {wxQrStatus === "expired" && (
+              <Button onClick={onRefreshWxQr} variant="outline" size="xs" className="mt-1">
+                Refresh
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
 
       <ConfirmDialog
         open={confirmDeleteOpen}
