@@ -58,8 +58,16 @@ const MessageRow = memo(function MessageRow({
   fileSessionId?: string;
   agentNames?: Map<string, string>;
 }) {
+  // content-visibility lets the browser skip layout/paint for rows far outside
+  // the viewport; contain-intrinsic-size keeps scrollHeight (and thus scroll
+  // restoration when paging in older history) stable while they're skipped.
   return (
-    <div className={cn("min-w-0", sameRoleAsPrev ? "-mt-3" : "")}>
+    <div
+      className={cn(
+        "min-w-0 [content-visibility:auto] [contain-intrinsic-size:auto_80px]",
+        sameRoleAsPrev ? "-mt-3" : "",
+      )}
+    >
       {msg.role === "user" ? (
         <UserMessage
           msg={{ content: msg.content, timestamp: msg.timestamp }}

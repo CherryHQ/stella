@@ -121,7 +121,9 @@
     },
 
     streamDone(sentinel) {
-      return document.body.innerText.includes(sentinel);
+      // textContent, not innerText: content-visibility:auto rows are excluded
+      // from innerText while off-screen.
+      return document.body.textContent.includes(sentinel);
     },
 
     // Finds the transcript's scroll container (largest scrollable div that
@@ -131,7 +133,8 @@
     scrollTopOnce() {
       if (!this._scrollEl || !this._scrollEl.isConnected) {
         const els = [...document.querySelectorAll("div")].filter(
-          (d) => d.scrollHeight > d.clientHeight + 200 && d.innerText.includes("cache key derived"),
+          (d) =>
+            d.scrollHeight > d.clientHeight + 200 && d.textContent.includes("cache key derived"),
         );
         els.sort((a, b) => b.scrollHeight - a.scrollHeight);
         this._scrollEl = els[0] || null;

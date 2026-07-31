@@ -173,7 +173,9 @@ open_session() {
   tap browser open "$URL/agents/$agent_id/sessions/$session_id" >/dev/null
   # Wait until the transcript has content (seeded replies mention "cache").
   for _ in $(seq 1 60); do
-    if ev "document.body.innerText.includes('cache key derived')" | grep -q true; then return; fi
+    # textContent, not innerText: rows use content-visibility:auto, and Chrome
+    # excludes skipped (off-screen) content from innerText.
+    if ev "document.body.textContent.includes('cache key derived')" | grep -q true; then return; fi
     sleep 0.5
   done
   die "session transcript did not render"
@@ -188,7 +190,10 @@ load_full_history() {
   for _ in $(seq 1 80); do
     ev "window.__perf.scrollTopOnce()" >/dev/null
     sleep 0.5
-    if ev "/seed turn 1(\\n|\$)/.test(document.body.innerText)" | grep -q true; then
+    # Count turns instead of matching "seed turn 1": textContent has no element
+    # separators, so adjacent digit-leading text (timestamps) merges into the
+    # turn number and any single-turn regex is ambiguous.
+    if ev "(document.body.textContent.match(/seed turn /g)||[]).length >= $SEED_TURNS" | grep -q true; then
       done=1; break
     fi
   done

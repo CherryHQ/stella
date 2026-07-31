@@ -45,6 +45,12 @@ import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
 
+const PAGE_SIZE = 50;
+// Auto-fill (below) pulls older pages until the transcript overflows; cap how
+// many it may pull so a pathological history can't trigger an unbounded fetch
+// loop on mount. Scroll-up paging remains unlimited.
+const MAX_AUTO_FILL_PAGES = 3;
+
 const inboxKindLabels = {
   blocked: "inbox.kind.blocked",
   review: "inbox.kind.review",
@@ -78,6 +84,7 @@ export function SessionDetail({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
+  const autoFillPagesRef = useRef(0);
   const shouldAutoScrollRef = useRef(true);
 
   const sessionId = session?.id ?? "";
@@ -178,13 +185,15 @@ export function SessionDetail({
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
         path: { agentId: agentId, sessionId: sessionId },
-        query: { limit: 20, skip: pageParam },
+        query: { limit: PAGE_SIZE, skip: pageParam },
         throwOnError: true,
       });
       return (data?.messages as unknown as Message[] | undefined) ?? [];
     },
     getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
+      lastPage.length === PAGE_SIZE
+        ? allPages.reduce((sum, page) => sum + page.length, 0)
+        : undefined,
   });
 
   // In a compacted session the live tail is the message-type context items;
@@ -273,6 +282,7 @@ export function SessionDetail({
     initialScrollSessionRef.current = null;
     shouldAutoScrollRef.current = true;
     historicalIDsRef.current = new Set();
+    autoFillPagesRef.current = 0;
   }, [session?.id]);
 
   const historyReady = hasContextSummaries
@@ -302,6 +312,8 @@ export function SessionDetail({
     if (!messagesQuery.isSuccess || messagesQuery.isFetchingNextPage || !messagesQuery.hasNextPage)
       return;
     if (el.scrollHeight > el.clientHeight) return;
+    if (autoFillPagesRef.current >= MAX_AUTO_FILL_PAGES) return;
+    autoFillPagesRef.current += 1;
     void messagesQuery.fetchNextPage().then(() => {
       requestAnimationFrame(() => {
         if (transcriptRef.current)
