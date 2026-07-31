@@ -239,8 +239,8 @@ func normalizeIntent(raw string) (Intent, error) {
 
 // IntentToCommand maps an intent onto the slash command that implements it. The
 // coordinator routes only the confirmation-free intents through it: an inferred
-// "start over" is answered by the agent's session_control tool, which asks
-// before resetting, so IntentNew never reaches a command here.
+// "start over" is never executed as a reset — only a typed `/new` is consent —
+// so IntentNew never reaches a command here.
 func IntentToCommand(intent Intent) string {
 	switch intent {
 	case IntentHelp:

@@ -24,7 +24,6 @@ For those shortcuts, keep them short and command-like.
 Session control
   /new       Start a fresh session (previous history stays searchable)
              In a group with several agents: /new @agent
-             Ask in words too ("new session", "新会话") — I check with you before resetting
   /compact   Compress the current session in place (same session, shorter context)
              When enabled, short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
   /abort     Cancel the in-progress reply

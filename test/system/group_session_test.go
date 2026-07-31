@@ -25,11 +25,7 @@ import (
 //     event log is written, and the rotation it triggers is committed by the
 //     server process, not a fake dispatch runner;
 //   - the ingest watermark surviving rotation across requests, so the successor
-//     session starts clean instead of replaying the group's whole event log;
-//   - the `session_control` two-phase confirmation, which only exists because
-//     cmd/stellad registers the builtin tool — request and confirmation live in
-//     two separate HTTP turns, exactly the structure the tool's server-side gate
-//     is built to enforce.
+//     session starts clean instead of replaying the group's whole event log.
 //
 // Every model reply is scripted, and the group is single-member with explicit
 // @mentions, so routing takes the deterministic rule path and never asks a
@@ -82,28 +78,6 @@ func (h *harness) testGroupNewSession(t *testing.T) {
 	if containsSubstring(contents, "seed "+h.runID) {
 		t.Fatalf("successor session %s replayed pre-rotation group history; messages: %q", secondSession, contents)
 	}
-
-	// 4. Agent-driven reset: request in one turn, confirm in the next. The nonce
-	//    is read from the database rather than the prompt, so the fake never has
-	//    to branch on prose.
-	askText := "确认要开一个新会话吗？"
-	fake.enqueueTool("session_control", `{"action":"request_new"}`)
-	fake.enqueueText(askText)
-	if got := h.sendGroupMessage(t, ctx, groupID, "@"+agentID+" 开个新会话"); got != askText {
-		t.Fatalf("request_new turn text = %q, want scripted %q\n%s", got, askText, h.proc.logTail(40))
-	}
-	if got := h.activeGroupSession(t, ctx, groupID, agentID); got != secondSession {
-		t.Fatalf("request_new rotated the session to %s; it must only record a pending confirmation", got)
-	}
-	nonce := h.awaitRotationNonce(t, ctx, secondSession)
-
-	doneText := "已经开始新会话了。"
-	fake.enqueueTool("session_control", fmt.Sprintf(`{"action":"confirm_new","nonce":%q}`, nonce))
-	fake.enqueueText(doneText)
-	if got := h.sendGroupMessage(t, ctx, groupID, "@"+agentID+" 确认"); got != doneText {
-		t.Fatalf("confirm_new turn text = %q, want scripted %q\n%s", got, doneText, h.proc.logTail(40))
-	}
-	h.assertRotated(t, ctx, groupID, agentID, secondSession)
 }
 
 // createGroupProvider registers the run-scoped provider for this journey. Its id
@@ -370,32 +344,6 @@ func (h *harness) sessionMessageContents(t *testing.T, ctx context.Context, sess
 		t.Fatalf("read messages for session %s: %v", sessionID, err)
 	}
 	return out
-}
-
-// awaitRotationNonce returns the pending, unused rotation nonce the tool
-// recorded for the session. Reading it from the database keeps the fake free of
-// prompt parsing: the confirmation turn is scripted with the real nonce the
-// server issued.
-func (h *harness) awaitRotationNonce(t *testing.T, ctx context.Context, sessionID string) string {
-	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	for {
-		var id string
-		err := h.db.QueryRow(ctx,
-			`SELECT id::text FROM agent_session_rotation_nonce
-			  WHERE session_id = $1 AND used_at IS NULL
-			  ORDER BY created_at DESC LIMIT 1`, sessionID).Scan(&id)
-		switch {
-		case err == nil:
-			return id
-		case !errors.Is(err, pgx.ErrNoRows):
-			t.Fatalf("query rotation nonce for session %s: %v", sessionID, err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("no pending rotation nonce for session %s; request_new never recorded one\n%s", sessionID, h.proc.logTail(40))
-		}
-		time.Sleep(150 * time.Millisecond)
-	}
 }
 
 func containsSubstring(values []string, want string) bool {

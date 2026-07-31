@@ -117,8 +117,8 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		}
 		saveCtx := authz.WithUserID(ctx, info.UserID)
 		saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
-		// TouchActiveInfo, not SaveInfo: a rotation (`/new`, or the session_control
-		// tool) can archive this session after the turn resolved it, and
+		// TouchActiveInfo, not SaveInfo: a `/new` rotation can archive this
+		// session after the turn resolved it, and
 		// auto-compaction above widens that window to minutes. SaveInfo would
 		// replay the turn-start snapshot's `archived = false` and un-archive a
 		// session the chat has already left; only main sessions have a

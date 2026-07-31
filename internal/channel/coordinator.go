@@ -13,7 +13,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -346,8 +345,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			// Deliberately not executed here. Typing `/new` is consent; guessing
 			// "新会话" from a short phrase is not, and a wrong guess throws away the
 			// user's context. The message falls through to a normal turn, where the
-			// agent's session_control tool asks first and resets only after the user
-			// answers.
+			// agent answers in words and points the user at the explicit command.
 		case IntentHelp, IntentCompact:
 			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
 				return resp, true, nil, nil
@@ -356,10 +354,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 	}
 
 	// Not a command or recognized intent — enqueue a chat response for this session.
-	// The message's physical identity rides along so session_control can tell a
-	// platform redelivery (same message, new runtime turn) from a genuinely new
-	// user message when it validates a rotation confirmation.
-	stream, err := c.queuedChat(agentctx.WithTurnMessageID(ctx, messagePhysicalKey(msg)), rc, msg.Content)
+	stream, err := c.queuedChat(ctx, rc, msg.Content)
 	if err != nil {
 		return "", false, nil, err
 	}

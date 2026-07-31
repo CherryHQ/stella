@@ -54,8 +54,8 @@ func chatReceiptForMessage(q *sqlc.Queries, rc *ResolvedChat, msg pkgchannel.Inc
 // messageDeliveryCoordinates names the physical chat a message arrived in: the
 // configured channel instance (falling back to the platform name) and the
 // platform chat id (falling back to the sender's platform id — DMs on most
-// platforms leave ChatID empty). Both the command receipt and the turn's
-// message marker derive from these, so a message keeps one identity everywhere.
+// platforms leave ChatID empty). The command receipt's identity derives from
+// these, so a redelivered message keeps the same coordinates.
 func messageDeliveryCoordinates(msg pkgchannel.IncomingMessage) (channelID, chatKey string) {
 	channelID = msg.ChannelID
 	if channelID == "" {
@@ -66,19 +66,6 @@ func messageDeliveryCoordinates(msg pkgchannel.IncomingMessage) (channelID, chat
 		chatKey = msg.SenderID
 	}
 	return channelID, chatKey
-}
-
-// messagePhysicalKey flattens a message's delivery coordinates and message id
-// into the one-string identity a turn carries (agentctx.WithTurnMessageID).
-// Empty when the delivery has no stable id: a marker that collapses every
-// id-less message onto one value would make every such turn look like the same
-// turn.
-func messagePhysicalKey(msg pkgchannel.IncomingMessage) string {
-	channelID, chatKey := messageDeliveryCoordinates(msg)
-	if channelID == "" || chatKey == "" || msg.MessageID == "" {
-		return ""
-	}
-	return channelID + ":" + chatKey + ":" + msg.MessageID
 }
 
 func (r chatCommandReceipt) inert() bool {

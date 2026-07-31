@@ -38,10 +38,10 @@ func registryWith(names ...string) *tools.Registry {
 
 // TestDelegateRunDropsParentChatBinding covers the chat -> delegate boundary. A
 // delegate inherits the parent turn's context, and when the parent is a Telegram
-// or group turn that context proves a durable chat binding — the exact authority
-// session_control needs to archive that chat's session. A delegate's task text
-// can come from a tool result, so inheriting it would let untrusted content wipe
-// the conversation that spawned the run.
+// or group turn that context proves a durable chat binding — the authority that
+// addresses that chat's live session. A delegate's task text can come from a
+// tool result, so inheriting it would let untrusted content act on the
+// conversation that spawned the run.
 func TestDelegateRunDropsParentChatBinding(t *testing.T) {
 	runner := &capturingRunner{}
 	tool := NewDelegateTool(DelegateConfig{SessionRunner: runner, Registry: registryWith("read_file")})
@@ -65,12 +65,11 @@ func TestDelegateRunDropsParentChatBinding(t *testing.T) {
 	}
 }
 
-// TestDelegateAlwaysExcludesSessionControl is the second lock on the same door:
-// even if a binding did reach a delegate, the tool that could spend it is not on
-// the table. A preset whitelist only hides more tools, so naming session_control
-// in one must not re-admit it.
-func TestDelegateAlwaysExcludesSessionControl(t *testing.T) {
-	reg := registryWith("read_file", sessionControlToolName, delegateToolName)
+// TestDelegateAlwaysExcludesDelegate pins the recursion guard: a delegate can
+// never spawn another delegate. A preset whitelist only hides more tools, so
+// naming "delegate" in one must not re-admit it.
+func TestDelegateAlwaysExcludesDelegate(t *testing.T) {
+	reg := registryWith("read_file", delegateToolName)
 	tool := NewDelegateTool(DelegateConfig{SessionRunner: &capturingRunner{}, Registry: reg})
 
 	for _, tc := range []struct {
@@ -80,14 +79,12 @@ func TestDelegateAlwaysExcludesSessionControl(t *testing.T) {
 	}{
 		{name: "no whitelist"},
 		{name: "whitelist of other tools", whitelist: []string{"read_file"}, hasWhitelist: true},
-		{name: "whitelist naming the blocked tools", whitelist: []string{sessionControlToolName, delegateToolName}, hasWhitelist: true},
+		{name: "whitelist naming the blocked tool", whitelist: []string{delegateToolName}, hasWhitelist: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			excluded := tool.excludedTools(tc.whitelist, tc.hasWhitelist)
-			for _, name := range []string{sessionControlToolName, delegateToolName} {
-				if !slices.Contains(excluded, name) {
-					t.Fatalf("excluded = %v, want it to contain %q", excluded, name)
-				}
+			if !slices.Contains(excluded, delegateToolName) {
+				t.Fatalf("excluded = %v, want it to contain %q", excluded, delegateToolName)
 			}
 		})
 	}

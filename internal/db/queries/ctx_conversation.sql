@@ -95,7 +95,7 @@ WHERE session_id = sqlc.arg(session_id)
 
 -- name: UpdateConversationTurnMetaBySessionID :execrows
 -- The turn path's only write to a conversation row, guarded on that row still
--- being active. A rotation (`/new`, or the session_control tool) can archive the
+-- being active. A `/new` rotation can archive the
 -- session after a turn resolved it — auto-compaction widens that window to
 -- minutes — and UpdateConversationInfoBySessionID would replay the turn-start
 -- snapshot's `archived = false` over it. A resurrected kind=chat row then wins
