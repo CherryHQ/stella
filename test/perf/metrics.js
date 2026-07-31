@@ -132,10 +132,15 @@
     // until it stops growing.
     scrollTopOnce() {
       if (!this._scrollEl || !this._scrollEl.isConnected) {
-        const els = [...document.querySelectorAll("div")].filter(
-          (d) =>
-            d.scrollHeight > d.clientHeight + 200 && d.textContent.includes("cache key derived"),
+        const named = [...document.querySelectorAll(".stella-transcript-scroll")].filter(
+          (d) => d.scrollHeight > d.clientHeight,
         );
+        const els = named.length
+          ? named
+          : [...document.querySelectorAll("div")].filter(
+              (d) =>
+                d.scrollHeight > d.clientHeight + 200 && d.textContent.includes("cache key derived"),
+            );
         els.sort((a, b) => b.scrollHeight - a.scrollHeight);
         this._scrollEl = els[0] || null;
       }
@@ -148,6 +153,41 @@
       if (!this._scrollEl) return "no-el";
       this._scrollEl.scrollTop = this._scrollEl.scrollHeight;
       return "bottom";
+    },
+
+    // Navigation + paint timings for the current page load, plus aggregates
+    // over resource-timing entries whose URL contains `pattern` (e.g. the
+    // paged /messages fetches or file-content image reads). All values are ms
+    // since navigation start, read passively after the page settles.
+    navStats(pattern) {
+      const nav = performance.getEntriesByType("navigation")[0];
+      const fcp = performance
+        .getEntriesByType("paint")
+        .find((p) => p.name === "first-contentful-paint");
+      const res = performance
+        .getEntriesByType("resource")
+        .filter((r) => r.name.includes(pattern));
+      const ends = res.map((r) => r.responseEnd);
+      const durs = res.map((r) => r.duration);
+      return {
+        fcpMs: fcp ? +fcp.startTime.toFixed(0) : null,
+        dclMs: nav ? +nav.domContentLoadedEventEnd.toFixed(0) : null,
+        resCount: res.length,
+        resTotalKB: +(res.reduce((s, r) => s + (r.transferSize || 0), 0) / 1024).toFixed(0),
+        resLastEndMs: ends.length ? +Math.max(...ends).toFixed(0) : null,
+        resAvgMs: durs.length ? +(durs.reduce((a, b) => a + b, 0) / durs.length).toFixed(0) : null,
+        resMaxMs: durs.length ? +Math.max(...durs).toFixed(0) : null,
+      };
+    },
+
+    // Lazy-image progress: how many transcript file-content images have
+    // finished decoding vs how many are mounted.
+    imgProgress() {
+      const imgs = [...document.images].filter((i) => i.src.includes("file-content"));
+      return {
+        total: imgs.length,
+        loaded: imgs.filter((i) => i.complete && i.naturalWidth > 0).length,
+      };
     },
   };
 

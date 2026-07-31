@@ -14,6 +14,19 @@ instance.
 | streaming    | One streamed reply (default 1500 chunks × 10 ms) into that history   | `avgFrameMs`, `p95FrameMs`, `longTaskTotalMs` |
 | typing       | 120 synthetic keystrokes into the composer with full history mounted | `avgKeyMs`, `p95KeyMs`, `maxKeyMs`            |
 
+`measure-load <label>` runs two additional load-focused scenarios (3 reps by
+default, results in `results/load-<label>.json`):
+
+| Scenario   | What happens                                                                                | Key metrics                                        |
+| ---------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| huge-load  | Open a `HUGE_TURNS` (default 500-turn / 1000-message) session, then scroll-mount everything | `fcpMs`, `resLastEndMs`, `fullMountMs`, `domNodes` |
+| files-load | Open a session whose history embeds `IMG_COUNT` ~1.9 MB images + `PDF_COUNT` PDF chips      | `resTotalKB`, `resLastEndMs`, `loaded`/`total`     |
+
+The huge and files fixtures are seeded once and **reused across labels** (the
+load scenarios never mutate them), so before/after runs see identical data.
+Note the browser cache also persists across labels: `files-load` rep 1 after a
+server restart is a cold view; later reps measure the repeat-view path.
+
 Determinism: message history is seeded through the real API against the fake
 provider (fixed markdown reply per turn), the streamed reply is fixed content at
 a fixed cadence, and each `measure` run seeds a **fresh session** so every label
@@ -34,6 +47,7 @@ cd web && vp build && cd .. && go build -o dist/bin/stellad ./cmd/stellad
 ```
 
 Env knobs: `REPS` (default 5), `SEED_TURNS` (default 100 → 200 messages),
+`HUGE_TURNS` (500), `IMG_COUNT` (10), `PDF_COUNT` (3), `REPS_LOAD` (3),
 `PERF_STREAM_CHUNKS` / `PERF_STREAM_INTERVAL_MS` (fakeprovider pacing),
 `PERF_HOME`, `FAKE_PORT`, `SRV_PORT`.
 

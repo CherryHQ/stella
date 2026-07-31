@@ -876,7 +876,11 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": result.RawName}))
 		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		http.ServeContent(w, r, result.RawName, time.Time{}, bytes.NewReader(result.RawContent))
+		// private: session-scoped authorization; no-cache: store but revalidate,
+		// so a reloaded transcript turns repeat image bodies into 304s while a
+		// rewritten workspace file is still picked up immediately.
+		w.Header().Set("Cache-Control", "private, no-cache")
+		http.ServeContent(w, r, result.RawName, result.RawModTime, bytes.NewReader(result.RawContent))
 		return
 	}
 	writeData(w, http.StatusOK, result)
