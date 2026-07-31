@@ -58,7 +58,7 @@ plugins:
     binaries:
       - name: lark-cli
         tool: github:larksuite/cli
-        version: "1.0.79"
+        version: "1.0.80"
 
   - id: tool/fd
     kind: tool
