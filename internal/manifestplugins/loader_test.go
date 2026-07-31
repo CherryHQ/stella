@@ -72,8 +72,8 @@ func TestLoadBuiltinLarkCLIIsStandaloneTool(t *testing.T) {
 		if len(p.SessionEnvs) != 0 {
 			t.Fatalf("SessionEnvs = %#v, want no Stella OAuth injection", p.SessionEnvs)
 		}
-		if len(p.Binaries) != 1 || p.Binaries[0].Version != "1.0.79" {
-			t.Fatalf("Binaries = %#v, want pinned lark-cli 1.0.79", p.Binaries)
+		if len(p.Binaries) != 1 || p.Binaries[0].Version != "1.0.80" {
+			t.Fatalf("Binaries = %#v, want pinned lark-cli 1.0.80", p.Binaries)
 		}
 		return
 	}
