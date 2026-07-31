@@ -1,6 +1,8 @@
 package reflect
 
 import (
+	"bytes"
+	"encoding/base64"
 	"regexp"
 	"sort"
 	"strings"
@@ -10,13 +12,14 @@ import (
 const maxScoreValue = 4
 
 var (
-	secretPrivateKeyPattern  = regexp.MustCompile(`(?i)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)
-	secretTokenPrefixPattern = regexp.MustCompile(`(?i)\b(?:ghp_[a-z0-9_]{16,}|github_pat_[a-z0-9_]{16,}|sk-[a-z0-9_-]{16,})\b`)
-	secretAssignmentPattern  = regexp.MustCompile(`(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*["']?[^\s"']{8,}`)
-	secretURLUserinfoPattern = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://)[^\s/@]+@`)
-	secretAuthSchemePattern  = regexp.MustCompile(`(?i)\b(bearer|basic)\s+[^\s"'<>]+`)
-	secretJWTTokenPattern    = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b`)
-	longTokenPattern         = regexp.MustCompile(`[A-Za-z0-9+/=_-]{48,}`)
+	secretPrivateKeyPattern          = regexp.MustCompile(`(?i)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)
+	secretTokenPrefixPattern         = regexp.MustCompile(`(?i)\b(?:ghp_[a-z0-9_]{16,}|github_pat_[a-z0-9_]{16,}|sk-[a-z0-9_-]{16,})\b`)
+	secretAssignmentPattern          = regexp.MustCompile(`(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*["']?[^\s"']{8,}`)
+	secretURLUserinfoPattern         = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://)[^\s/@]+@`)
+	secretAuthorizationHeaderPattern = regexp.MustCompile(`(?i)(\bauthorization\s*:\s*)(bearer|basic)(\s+)([^\s"'<>]+)`)
+	secretToken68Pattern             = regexp.MustCompile(`^[A-Za-z0-9\-._~+/]+={0,}$`)
+	secretJWTTokenPattern            = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b`)
+	longTokenPattern                 = regexp.MustCompile(`[A-Za-z0-9+/=_-]{48,}`)
 )
 
 const reflectSecretRedaction = "[redacted_secret]"
@@ -161,7 +164,19 @@ func sanitizeSecretLikeContent(content string) (string, bool) {
 	}
 
 	replace(secretURLUserinfoPattern, "$1"+reflectSecretRedaction+"@")
-	replace(secretAuthSchemePattern, "$1 "+reflectSecretRedaction)
+	// Scheme words are common prose, so only explicit Authorization headers
+	// qualify. Basic credentials additionally need to decode as user:password.
+	sanitized = secretAuthorizationHeaderPattern.ReplaceAllStringFunc(sanitized, func(header string) string {
+		parts := secretAuthorizationHeaderPattern.FindStringSubmatch(header)
+		if len(parts) != 5 || !secretToken68Pattern.MatchString(parts[4]) {
+			return header
+		}
+		if strings.EqualFold(parts[2], "basic") && !looksLikeBasicAuthorizationCredential(parts[4]) {
+			return header
+		}
+		detected = true
+		return parts[1] + parts[2] + parts[3] + reflectSecretRedaction
+	})
 	replace(secretJWTTokenPattern, reflectSecretRedaction)
 	replace(secretPrivateKeyPattern, reflectSecretRedaction)
 	replace(secretTokenPrefixPattern, reflectSecretRedaction)
@@ -174,6 +189,14 @@ func sanitizeSecretLikeContent(content string) (string, bool) {
 		return reflectSecretRedaction
 	})
 	return sanitized, detected
+}
+
+func looksLikeBasicAuthorizationCredential(token string) bool {
+	decoded, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		decoded, err = base64.RawStdEncoding.DecodeString(token)
+	}
+	return err == nil && bytes.Contains(decoded, []byte(":"))
 }
 
 func looksHighEntropyToken(token string) bool {

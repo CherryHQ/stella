@@ -125,6 +125,11 @@ func TestSanitizeSecretLikeContent(t *testing.T) {
 			secret: "fake-access-token-12345",
 		},
 		{
+			name:   "basic",
+			input:  "Authorization: Basic dXNlcjpwYXNz",
+			secret: "dXNlcjpwYXNz",
+		},
+		{
 			name:   "JWT",
 			input:  "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.fakeSignature123",
 			secret: "eyJhbGciOiJIUzI1NiJ9",
@@ -142,6 +147,27 @@ func TestSanitizeSecretLikeContent(t *testing.T) {
 			}
 			if !strings.Contains(got, reflectSecretRedaction) {
 				t.Fatalf("sanitized content is missing redaction marker: %q", got)
+			}
+		})
+	}
+}
+
+func TestSanitizeSecretLikeContentDoesNotMatchAuthSchemeProse(t *testing.T) {
+	tests := []string{
+		"Basic authentication is required",
+		"basic validation rules",
+		"bearer instrument",
+		"Authorization: Basic authentication",
+	}
+
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			got, detected := sanitizeSecretLikeContent(input)
+			if detected {
+				t.Fatalf("unexpected secret detection for %q: %q", input, got)
+			}
+			if got != input {
+				t.Fatalf("sanitizer changed benign input: got %q, want %q", got, input)
 			}
 		})
 	}

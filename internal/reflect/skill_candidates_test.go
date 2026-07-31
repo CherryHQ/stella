@@ -45,6 +45,74 @@ func TestSkillSessionSkillContextRequiresChange(t *testing.T) {
 	assertSingleReject(t, result, "skill-0001", rejectSchemaMissingField)
 }
 
+func TestSkillGateRejectsSecretAcrossPersistedCandidateFieldsWithoutBlockingSafeCandidate(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*skillCandidate)
+	}{
+		{
+			name: "procedure prerequisites",
+			mutate: func(candidate *skillCandidate) {
+				candidate.Procedure.Prerequisites = []string{"Use postgres://app:correct-horse-battery-staple@db.internal/app"}
+			},
+		},
+		{
+			name: "procedure decision points",
+			mutate: func(candidate *skillCandidate) {
+				candidate.Procedure.DecisionPoints = []string{"Use postgres://app:correct-horse-battery-staple@db.internal/app"}
+			},
+		},
+		{
+			name: "procedure pitfalls",
+			mutate: func(candidate *skillCandidate) {
+				candidate.Procedure.Pitfalls = []string{"Do not log postgres://app:correct-horse-battery-staple@db.internal/app"}
+			},
+		},
+		{
+			name: "session used skill refs",
+			mutate: func(candidate *skillCandidate) {
+				candidate.SessionSkillContext = &sessionSkillContext{
+					UsedSkillRefs:            []string{"postgres://app:correct-horse-battery-staple@db.internal/app"},
+					ChangeAgainstLoadedSkill: "Add a safe verification step.",
+				}
+			},
+		},
+		{
+			name: "session change",
+			mutate: func(candidate *skillCandidate) {
+				candidate.SessionSkillContext = &sessionSkillContext{
+					UsedSkillRefs:            []string{"loaded-skill"},
+					ChangeAgainstLoadedSkill: "Use postgres://app:correct-horse-battery-staple@db.internal/app",
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			unsafe := validSkillCandidate("skill-0001")
+			test.mutate(&unsafe)
+			safe := validSkillCandidate("skill-0002")
+			result := gateSkillCandidates(
+				[]skillCandidate{unsafe, safe},
+				[]skillEvaluation{
+					{Ref: unsafe.Ref, Scores: skillScores(4, 4, 4, 4, 4, 4)},
+					{Ref: safe.Ref, Scores: skillScores(4, 4, 4, 4, 4, 4)},
+				},
+			)
+
+			if !equalRefs(gotRefs(result.Accepted), []CandidateRef{safe.Ref}) {
+				t.Fatalf("expected only safe candidate accepted, got %#v", result.Accepted)
+			}
+			if len(result.Rejected) != 1 ||
+				result.Rejected[0].Ref != unsafe.Ref ||
+				result.Rejected[0].Reason != rejectSecretDetected {
+				t.Fatalf("expected unsafe candidate rejected for secret, got %#v", result.Rejected)
+			}
+		})
+	}
+}
+
 func TestSkillProcedureActionabilityFloor(t *testing.T) {
 	result := gateSkillCandidates([]skillCandidate{
 		validSkillCandidate("skill-0001"),
