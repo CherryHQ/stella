@@ -23,27 +23,42 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/webhook"
 )
 
 // Service owns the control-plane resources: the persistence and runtime handles a
 // control-plane mutation needs to apply and hot-reload changes. Authorization is
 // the admin gate in Begin (see access.go); a nil receiver fails closed.
 type Service struct {
-	store   config.Store
-	plugins *pluginhost.Host
-	pools   *agent.PoolManager
-	conns   *connections.Service
-	log     *slog.Logger
+	store    config.Store
+	plugins  *pluginhost.Host
+	pools    *agent.PoolManager
+	conns    *connections.Service
+	log      *slog.Logger
+	webhooks *webhook.Service
+}
+
+// Option customizes an optional control-plane dependency.
+type Option func(*Service)
+
+// WithWebhookEndpoints injects the capability-endpoint domain built by the
+// composition root. The control plane exposes it only through admin Access.
+func WithWebhookEndpoints(endpoints *webhook.Service) Option {
+	return func(s *Service) { s.webhooks = endpoints }
 }
 
 // NewService builds the control-plane service from its fully-wired dependencies.
 // The composition root constructs it once and shares the same instance behind the
 // HTTP endpoints. log defaults to slog.Default() when nil.
-func NewService(store config.Store, plugins *pluginhost.Host, pools *agent.PoolManager, conns *connections.Service, log *slog.Logger) *Service {
+func NewService(store config.Store, plugins *pluginhost.Host, pools *agent.PoolManager, conns *connections.Service, log *slog.Logger, opts ...Option) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{store: store, plugins: plugins, pools: pools, conns: conns, log: log}
+	svc := &Service{store: store, plugins: plugins, pools: pools, conns: conns, log: log}
+	for _, opt := range opts {
+		opt(svc)
+	}
+	return svc
 }
 
 // ---- typed errors ---------------------------------------------------------
@@ -93,9 +108,17 @@ func (e *UpstreamError) Error() string {
 
 func (e *UpstreamError) Unwrap() error { return e.Err }
 
+// UnavailableError reports a required but unconfigured control-plane capability,
+// such as the webhook endpoint domain, mapped to a fail-closed 503.
+type UnavailableError struct{ Msg string }
+
+func (e *UnavailableError) Error() string { return e.Msg }
+
 func notFound(msg string) error { return &NotFoundError{Msg: msg} }
 
 func invalid(msg string) error { return &ValidationError{Msg: msg} }
+
+func unavailable(msg string) error { return &UnavailableError{Msg: msg} }
 
 // ErrUnavailable is returned when the service itself is not configured (a nil
 // receiver); the transport maps it to a fail-closed 503.

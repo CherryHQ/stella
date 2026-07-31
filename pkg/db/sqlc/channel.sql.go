@@ -11,6 +11,44 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createChannel = `-- name: CreateChannel :one
+INSERT INTO channel (id, name, type, agent_id, enabled, config)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at
+`
+
+type CreateChannelParams struct {
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Type    string      `json:"type"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Enabled bool        `json:"enabled"`
+	Config  string      `json:"config"`
+}
+
+func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, createChannel,
+		arg.ID,
+		arg.Name,
+		arg.Type,
+		arg.AgentID,
+		arg.Enabled,
+		arg.Config,
+	)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.AgentID,
+		&i.Enabled,
+		&i.Config,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createWebChannelIfNotExists = `-- name: CreateWebChannelIfNotExists :exec
 INSERT INTO channel (id, name, type, agent_id)
 VALUES ($1, 'Web', 'web', $2)
@@ -52,6 +90,45 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
 		&i.Config,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getChannelBindingForUpdate = `-- name: GetChannelBindingForUpdate :one
+SELECT
+    channel.id,
+    channel.type,
+    channel.agent_id,
+    COALESCE(agent.enabled, false) AS agent_enabled,
+    channel.config
+FROM channel
+LEFT JOIN agent ON agent.id = channel.agent_id
+WHERE channel.id = $1
+FOR UPDATE OF channel
+`
+
+type GetChannelBindingForUpdateRow struct {
+	ID           string      `json:"id"`
+	Type         string      `json:"type"`
+	AgentID      pgtype.Text `json:"agent_id"`
+	AgentEnabled bool        `json:"agent_enabled"`
+	Config       string      `json:"config"`
+}
+
+// GetChannelBindingForUpdate locks the channel row (and only the channel row)
+// so endpoint issuance and channel binding mutation serialize against each
+// other. The agent join is a read for the caller's binding checks; only the
+// channel row is locked (FOR UPDATE OF channel), so no unrelated row lock is
+// held across the transaction.
+func (q *Queries) GetChannelBindingForUpdate(ctx context.Context, id string) (GetChannelBindingForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getChannelBindingForUpdate, id)
+	var i GetChannelBindingForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.AgentID,
+		&i.AgentEnabled,
+		&i.Config,
 	)
 	return i, err
 }

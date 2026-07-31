@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/webhook"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -106,12 +109,24 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 		return config.Channel{}, invalid("invalid config JSON")
 	}
 	ch.Config = string(cfgJSON)
-	if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
-		var conflict *config.ChannelBindingConflictError
-		if errors.As(err, &conflict) {
-			return config.Channel{}, invalid(conflict.Error())
+	if create {
+		if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
+			return config.Channel{}, channelSaveError(err)
 		}
-		return config.Channel{}, err
+	} else {
+		// UpdateChannel takes the exact channel row lock endpoint issuance holds.
+		// It permits behavior changes but rejects a binding change against an
+		// active endpoint. A PATCH to an absent channel retains the historical
+		// create-if-missing behavior.
+		if err := a.svc.store.UpdateChannel(ctx, ch); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
+					return config.Channel{}, channelSaveError(err)
+				}
+			} else {
+				return config.Channel{}, channelSaveError(err)
+			}
+		}
 	}
 	if err := a.svc.ensureChannelPluginEnabled(ctx, ch.Type, cfgMap); err != nil {
 		return config.Channel{}, err
@@ -126,17 +141,44 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 	return saved, nil
 }
 
-// DeleteChannel stops a channel's runtime and removes it.
+// DeleteChannel stops a channel's runtime and removes it. A webhook channel with
+// an active capability endpoint is rejected before any side effect: the endpoint
+// must be revoked first. The store's RESTRICT foreign key is the race-safe
+// backstop should an endpoint be issued between this check and the delete.
 func (a *Access) DeleteChannel(ctx context.Context, id string) error {
 	ch, err := a.svc.store.GetChannel(ctx, id)
 	if err != nil {
 		return notFound("channel not found")
 	}
+	if effectiveChannelType(ch) == pkgchannel.PlatformWebhook && a.svc.webhooks != nil {
+		if _, err := a.svc.webhooks.GetByChannel(ctx, id); err == nil {
+			return &ConflictError{Msg: "webhook endpoint is active; revoke it before deleting the channel"}
+		} else if !errors.Is(err, webhook.ErrNotFound) {
+			return err
+		}
+	}
 	ch.Enabled = false
 	if err := a.svc.plugins.ApplyChannel(ctx, ch); err != nil {
 		a.svc.log.Error("failed to stop channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
 	}
-	return a.svc.store.DeleteChannel(ctx, id)
+	if err := a.svc.store.DeleteChannel(ctx, id); err != nil {
+		if errors.Is(err, config.ErrChannelEndpointActive) {
+			return &ConflictError{Msg: "webhook endpoint is active; revoke it before deleting the channel"}
+		}
+		return err
+	}
+	return nil
+}
+
+func channelSaveError(err error) error {
+	var conflict *config.ChannelBindingConflictError
+	switch {
+	case errors.Is(err, config.ErrChannelEndpointActive):
+		return &ConflictError{Msg: "webhook endpoint is active; revoke it before changing the channel binding"}
+	case errors.As(err, &conflict):
+		return invalid(conflict.Error())
+	}
+	return err
 }
 
 // channelAgentPlatformBindingConflict enforces one bidirectional-channel binding

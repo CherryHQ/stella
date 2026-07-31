@@ -60,6 +60,67 @@ components:
           description: "JSON string of the channel config",
         }
 
+    WebhookEndpoint:
+      type: object
+      description: >-
+        The singleton capability endpoint of a webhook channel. Every method
+        that returns an endpoint uses this schema. Create and Rotate additionally
+        populate the one-time `url`; stable Get omits it.
+      required:
+        [
+          channel_id,
+          owner_user_id,
+          provider,
+          token_last4,
+          etag,
+          created_at,
+          updated_at,
+        ]
+      properties:
+        channel_id: { type: string }
+        owner_user_id: { type: string }
+        provider:
+          type: string
+          enum: [generic]
+        token_last4:
+          type: string
+          description: Last four characters of the capability, for display only.
+        etag:
+          type: string
+          description: >-
+            Opaque optimistic-concurrency token. Echo it unchanged in a rotate
+            request; never parse or derive meaning from it.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        rotated_at:
+          type: string
+          format: date-time
+          nullable: true
+        url:
+          type: string
+          description: >-
+            One-time capability URL. Present only in Create and Rotate responses
+            and never re-derivable; omitted from stable Get responses.
+
+    CreateWebhookEndpointRequest:
+      type: object
+      required: [owner_user_id, provider]
+      properties:
+        owner_user_id:
+          type: string
+          description: The user whose Agent-use permission the endpoint runs as.
+        provider:
+          type: string
+          enum: [generic]
+
+    RotateWebhookEndpointRequest:
+      type: object
+      required: [etag]
+      properties:
+        etag:
+          type: string
+          description: The endpoint's last observed opaque etag.
+
     FeishuRegistrationInitRequest:
       type: object
       properties:

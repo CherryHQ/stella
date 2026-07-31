@@ -1,6 +1,14 @@
 package config
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrChannelEndpointActive reports an attempted change to a channel's binding,
+// or a hard-delete of the channel, while its webhook capability endpoint is
+// still active. The endpoint must be revoked first.
+var ErrChannelEndpointActive = errors.New("channel webhook endpoint is active")
 
 // ChannelBindingConflictError reports an attempted second bidirectional channel
 // for one (agent_id, type) binding. Webhooks and unbound channels are exempt.

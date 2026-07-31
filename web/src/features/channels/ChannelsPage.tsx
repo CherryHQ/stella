@@ -51,6 +51,7 @@ import {
   SettingsGridPage,
 } from "@/features/settings/SettingsCardGrid";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
+import { WebhookEndpointPanel } from "@/features/channels/WebhookEndpointPanel";
 import { MessageCircle, Plus } from "lucide-react";
 import { siQq, siTelegram, siWechat } from "simple-icons";
 
@@ -392,6 +393,9 @@ function ChannelDetail({
 
       {/* Webhook ingress URL (inbound-only channel, no bot runtime). */}
       {channel.type === "webhook" && <WebhookIngress channelId={channel.id} />}
+
+      {/* Capability endpoint lifecycle (owner→agent identity, one-time URL). */}
+      {channel.type === "webhook" && <WebhookEndpointPanel channelId={channel.id} />}
 
       {/* Config section */}
       {Object.keys(platformConfigDefaults(channel.type)).length > 0 && (

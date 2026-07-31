@@ -33,6 +33,10 @@ type Store interface {
 	ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error)
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	UpsertChannel(ctx context.Context, ch Channel) error
+	// UpdateChannel atomically writes an existing channel under the shared
+	// channel-row lock. It rejects a type or Agent rebinding while a webhook
+	// endpoint is active (ErrChannelEndpointActive); behavior-only writes pass.
+	UpdateChannel(ctx context.Context, ch Channel) error
 	DeleteChannel(ctx context.Context, id string) error
 
 	// Manifest plugin overrides — tunables for manifest-declared plugins.

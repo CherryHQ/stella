@@ -1879,6 +1879,40 @@ const en = {
     "POST your payload here with a Bearer PAT (agent:write scope); the agent runs as the PAT's user.",
   "channels.copy": "copy",
   "channels.copied": "Copied",
+  // Webhook capability endpoint
+  "channels.endpointTitle": "Capability endpoint",
+  "channels.endpointInactiveDesc":
+    "No capability endpoint yet. Activate one to issue a fixed owner→agent URL that turns an inbound request into an agent run.",
+  "channels.endpointActivate": "Activate endpoint",
+  "channels.endpointActivateDesc":
+    "Bind an owner to this channel's agent and mint a one-time capability URL.",
+  "channels.endpointOwner": "Owner",
+  "channels.endpointOwnerDesc":
+    "The endpoint runs with this user's current permission to use the channel's agent.",
+  "channels.endpointSelectOwner": "Select an owner",
+  "channels.endpointProvider": "Provider",
+  "channels.endpointProviderGeneric": "Generic",
+  "channels.endpointTokenLast4": "Capability",
+  "channels.endpointCreated": "Created",
+  "channels.endpointRotatedAt": "Rotated",
+  "channels.endpointRebindLocked":
+    "Provider and owner are fixed while the endpoint is active. To change them, revoke and activate a new one.",
+  "channels.endpointRotate": "Rotate",
+  "channels.endpointRotateDesc":
+    "The current URL stops working immediately and you receive a new one-time URL.",
+  "channels.endpointRevoke": "Revoke",
+  "channels.endpointRevokeDesc":
+    "The capability stops working immediately and the endpoint is removed.",
+  "channels.endpointUrlTitle": "Copy the capability URL now",
+  "channels.endpointUrlDesc":
+    "This URL is shown once and cannot be recovered. Anyone with it can trigger the agent.",
+  "channels.endpointActivated": "Endpoint activated",
+  "channels.endpointRotated": "Capability rotated",
+  "channels.endpointRevoked": "Endpoint revoked",
+  "channels.endpointActivateFailed": "Failed to activate endpoint",
+  "channels.endpointRotateFailed": "Failed to rotate endpoint",
+  "channels.endpointRevokeFailed": "Failed to revoke endpoint",
+  "channels.endpointLoadUsersFailed": "Failed to load users",
 
   // Automations schedule detail
   "automations.scheduleField": "Schedule",
@@ -3807,6 +3841,35 @@ const zh: Record<MessageKey, string> = {
     "用具备 agent:write 权限的 Bearer PAT 向此地址 POST 负载，Agent 以该 PAT 所属用户的身份运行。",
   "channels.copy": "复制",
   "channels.copied": "已复制",
+  // Webhook 能力端点
+  "channels.endpointTitle": "能力端点",
+  "channels.endpointInactiveDesc":
+    "尚未创建能力端点。激活后将签发一个固定的 所有者→Agent URL，把入站请求转化为一次 Agent 运行。",
+  "channels.endpointActivate": "激活端点",
+  "channels.endpointActivateDesc": "将一位所有者绑定到该频道的 Agent，并生成一次性能力 URL。",
+  "channels.endpointOwner": "所有者",
+  "channels.endpointOwnerDesc": "端点以该用户当前使用此频道 Agent 的权限运行。",
+  "channels.endpointSelectOwner": "选择所有者",
+  "channels.endpointProvider": "提供方",
+  "channels.endpointProviderGeneric": "通用",
+  "channels.endpointTokenLast4": "能力凭证",
+  "channels.endpointCreated": "创建于",
+  "channels.endpointRotatedAt": "轮换于",
+  "channels.endpointRebindLocked":
+    "端点激活期间提供方与所有者不可更改。如需更改，请撤销后重新激活。",
+  "channels.endpointRotate": "轮换",
+  "channels.endpointRotateDesc": "当前 URL 立即失效，并生成一个新的一次性 URL。",
+  "channels.endpointRevoke": "撤销",
+  "channels.endpointRevokeDesc": "能力凭证立即失效，端点将被移除。",
+  "channels.endpointUrlTitle": "立即复制能力 URL",
+  "channels.endpointUrlDesc": "该 URL 仅显示一次且无法恢复。任何持有者都能触发该 Agent。",
+  "channels.endpointActivated": "端点已激活",
+  "channels.endpointRotated": "能力已轮换",
+  "channels.endpointRevoked": "端点已撤销",
+  "channels.endpointActivateFailed": "激活端点失败",
+  "channels.endpointRotateFailed": "轮换端点失败",
+  "channels.endpointRevokeFailed": "撤销端点失败",
+  "channels.endpointLoadUsersFailed": "加载用户失败",
 
   // Automations schedule detail
   "automations.scheduleField": "计划",

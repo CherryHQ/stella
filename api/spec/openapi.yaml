@@ -171,6 +171,10 @@ paths:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels"
   /api/channels/{id}:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}"
+  /api/channels/{channelId}/webhook-endpoint:
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{channelId}~1webhook-endpoint"
+  /api/channels/{channelId}/webhook-endpoint/rotate:
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{channelId}~1webhook-endpoint~1rotate"
   /api/channels/feishu/register/init:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1feishu~1register~1init"
   /api/channels/feishu/register/begin:

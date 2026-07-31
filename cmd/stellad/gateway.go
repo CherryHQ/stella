@@ -592,7 +592,11 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	rootMux := http.NewServeMux()
 	rootMux.Handle("POST /webhooks/{id}", observability.Handler(adminSrv.WebhookIngressHandler()))
 	rootMux.Handle("/", adminSrv.Handler())
-	httpSrv := &http.Server{Handler: rootMux}
+	// Reserve the /webhooks/<capability> namespace ahead of all instrumentation:
+	// a disclosed stella_whk_ capability must never reach the legacy PAT ingress
+	// or the instrumented admin chain, where it would land in access logs / OTel.
+	// It returns an opaque 404 for now; Phase 2 deepens this into real ingress.
+	httpSrv := &http.Server{Handler: server.WebhookCapabilityReservation(rootMux)}
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })

@@ -313,6 +313,19 @@ type ChannelIdentity struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type ChannelWebhookEndpoint struct {
+	ChannelID     string             `json:"channel_id"`
+	OwnerUserID   string             `json:"owner_user_id"`
+	Provider      string             `json:"provider"`
+	TokenPublicID string             `json:"token_public_id"`
+	TokenHash     string             `json:"token_hash"`
+	TokenLast4    string             `json:"token_last4"`
+	Revision      int64              `json:"revision"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	RotatedAt     pgtype.Timestamptz `json:"rotated_at"`
+}
+
 type CtxAgentMemory struct {
 	UserID         string          `json:"user_id"`
 	AgentID        string          `json:"agent_id"`
