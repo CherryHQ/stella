@@ -11,8 +11,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"strconv"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/authz"
 )
 
 const (
@@ -117,6 +120,50 @@ type endpointRecord struct {
 	TokenHash string
 }
 
+// Candidate is the opaque, non-loggable outcome of the first admission stage. It
+// carries the verifier secret privately so a server caller can hold it across a
+// body read without ever logging or inspecting it. Only EndpointID (the channel
+// id) is exported, and only for keying a pre-read resource limiter.
+type Candidate struct {
+	// EndpointID is the channel id, safe to log and to key a pre-read limiter.
+	EndpointID string
+	publicID   string
+	secret     string
+}
+
+// String and LogValue redact the verifier so a Candidate cannot leak via %v,
+// %+v, %s, or structured logging.
+func (c Candidate) String() string { return "webhook.Candidate{endpoint:" + c.EndpointID + "}" }
+
+func (c Candidate) LogValue() slog.Value { return slog.StringValue(c.String()) }
+
+// AdmittedInvocation is the fixed, trusted runtime identity handed to the
+// admission callback. It is reconstructed only after final revalidation passes;
+// it carries no secret and the caller cannot influence its authority.
+type AdmittedInvocation struct {
+	ChannelID   string
+	OwnerUserID string
+	AgentID     string
+	Provider    Provider
+	Authority   authz.Authority
+}
+
+// AdmitCallback runs the caller's admission work (session creation + synchronous
+// ChatAdmitted) while the lifecycle read lock is held. Returning nil means the
+// turn was admitted; any error aborts admission. It must return at admission,
+// not at Agent completion.
+type AdmitCallback func(context.Context, AdmittedInvocation) error
+
+// resolvedRecord is the deep admission read: the endpoint verifier plus the
+// durable active state of the channel, owner, and Agent.
+type resolvedRecord struct {
+	endpointRecord
+	AgentID        string
+	ChannelEnabled bool
+	OwnerActive    bool
+	AgentEnabled   bool
+}
+
 // Store is the webhook domain's persistence port.
 type Store interface {
 	// BindEndpoint locks the channel row, hands its current binding to build,
@@ -124,8 +171,14 @@ type Store interface {
 	// mutation takes this exact lock before checking endpoint absence; neither
 	// path may acquire another row lock first.
 	BindEndpoint(context.Context, string, func(context.Context, ChannelBinding) (endpointRecord, error)) (endpointRecord, error)
+	// ObserveBinding reads the current channel binding without a lock, for the
+	// pre-transaction observe step of issuance.
+	ObserveBinding(context.Context, string) (ChannelBinding, error)
 	GetEndpointByChannel(context.Context, string) (endpointRecord, error)
 	ResolveByPublicID(context.Context, string) (endpointRecord, error)
+	// ResolveEndpoint is the deep admission read: it returns the endpoint only
+	// while its channel, owner, and Agent are all active (ErrNotFound otherwise).
+	ResolveEndpoint(context.Context, string) (resolvedRecord, error)
 	// RotateEndpoint replaces the verifier only if the current row's opaque etag
 	// still equals expectedETag (bound to token_public_id + revision), returning
 	// ErrStaleETag otherwise. The comparison happens under the row lock.

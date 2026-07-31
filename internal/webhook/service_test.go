@@ -3,6 +3,7 @@ package webhook
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -80,16 +81,16 @@ func TestRotateRejectsEmptyETag(t *testing.T) {
 	}
 }
 
-func TestResolveRejectsForeignAndMalformedTokens(t *testing.T) {
+func TestResolveCandidateRejectsForeignAndMalformedTokens(t *testing.T) {
 	svc := newTestService(t, &memStore{})
 	for _, raw := range []string{"", "stella_pat_abc", TokenPrefix + "garbage"} {
-		if _, err := svc.Resolve(context.Background(), raw); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("Resolve(%q) error = %v, want ErrNotFound", raw, err)
+		if _, err := svc.ResolveCandidate(context.Background(), raw); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("ResolveCandidate(%q) error = %v, want ErrNotFound", raw, err)
 		}
 	}
 }
 
-func TestResolveRejectsWrongSecret(t *testing.T) {
+func TestResolveCandidateRejectsWrongSecretAndRedacts(t *testing.T) {
 	store := &memStore{binding: ChannelBinding{Type: "webhook", AgentID: "a", AgentEnabled: true}}
 	svc := newTestService(t, store)
 	owner := uuid.Must(uuid.NewV7()).String()
@@ -97,14 +98,25 @@ func TestResolveRejectsWrongSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
-	// The real capability resolves; a token sharing the public id but a different
-	// secret must not (constant-time hash mismatch collapses to ErrNotFound).
-	if _, err := svc.Resolve(context.Background(), issued.Capability); err != nil {
-		t.Fatalf("Resolve(issued): %v", err)
+	// The real capability resolves to a candidate; a token sharing the public id
+	// but a different secret must not (constant-time mismatch → ErrNotFound).
+	cand, err := svc.ResolveCandidate(context.Background(), issued.Capability)
+	if err != nil {
+		t.Fatalf("ResolveCandidate(issued): %v", err)
+	}
+	if cand.EndpointID != "c" {
+		t.Fatalf("candidate endpoint = %q, want c", cand.EndpointID)
+	}
+	// The candidate must not leak the secret via formatting or logging.
+	if s := cand.String(); strings.Contains(s, cand.secret) || strings.Contains(s, cand.publicID) {
+		t.Fatalf("candidate String leaks verifier material: %q", s)
+	}
+	if s := fmt.Sprintf("%+v", cand); strings.Contains(s, cand.secret) {
+		t.Fatalf("candidate %%+v leaks secret: %q", s)
 	}
 	tampered := issued.Capability[:len(issued.Capability)-4] + "0000"
-	if _, err := svc.Resolve(context.Background(), tampered); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Resolve(tampered) error = %v, want ErrNotFound", err)
+	if _, err := svc.ResolveCandidate(context.Background(), tampered); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("ResolveCandidate(tampered) error = %v, want ErrNotFound", err)
 	}
 	if strings.Contains(issued.Capability, store.rec.TokenHash) {
 		t.Fatal("capability plaintext leaked into stored hash")
@@ -112,10 +124,12 @@ func TestResolveRejectsWrongSecret(t *testing.T) {
 }
 
 // memStore is an in-memory Store for unit tests. It preserves the compare-and-set
-// revision semantics the Postgres store enforces with a row lock.
+// revision semantics the Postgres store enforces with a row lock. active toggles
+// whether ResolveEndpoint (the deep admission read) returns the endpoint.
 type memStore struct {
 	binding ChannelBinding
 	rec     *endpointRecord
+	active  bool
 }
 
 func (m *memStore) BindEndpoint(ctx context.Context, channelID string, build func(context.Context, ChannelBinding) (endpointRecord, error)) (endpointRecord, error) {
@@ -132,6 +146,25 @@ func (m *memStore) BindEndpoint(ctx context.Context, channelID string, build fun
 	rec.Revision = 1
 	m.rec = &rec
 	return rec, nil
+}
+
+func (m *memStore) ObserveBinding(_ context.Context, channelID string) (ChannelBinding, error) {
+	b := m.binding
+	b.ChannelID = channelID
+	return b, nil
+}
+
+func (m *memStore) ResolveEndpoint(_ context.Context, publicID string) (resolvedRecord, error) {
+	if m.rec == nil || m.rec.TokenPublicID != publicID {
+		return resolvedRecord{}, ErrNotFound
+	}
+	return resolvedRecord{
+		endpointRecord: *m.rec,
+		AgentID:        m.binding.AgentID,
+		ChannelEnabled: m.active,
+		OwnerActive:    m.active,
+		AgentEnabled:   m.active,
+	}, nil
 }
 
 func (m *memStore) GetEndpointByChannel(context.Context, string) (endpointRecord, error) {

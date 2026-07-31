@@ -6,6 +6,20 @@ INSERT INTO channel (id, name, type, agent_id, enabled, config)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
+-- GetChannelBinding reads the current channel binding without a lock. Endpoint
+-- issuance observes it here (outside any transaction) to run owner/access
+-- prechecks before taking the short channel-row lock for the final insert.
+-- name: GetChannelBinding :one
+SELECT
+    channel.id,
+    channel.type,
+    channel.agent_id,
+    COALESCE(agent.enabled, false) AS agent_enabled,
+    channel.config
+FROM channel
+LEFT JOIN agent ON agent.id = channel.agent_id
+WHERE channel.id = $1;
+
 -- GetChannelBindingForUpdate locks the channel row (and only the channel row)
 -- so endpoint issuance and channel binding mutation serialize against each
 -- other. The agent join is a read for the caller's binding checks; only the

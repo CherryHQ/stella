@@ -35,6 +35,7 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 )
 
@@ -97,6 +98,11 @@ type Server struct {
 	runtimeCtx context.Context
 	// webhookLimiter throttles accepted webhook ingress calls per instance.
 	webhookLimiter *webhookLimiter
+	// webhookIngress is the deep capability-admission surface: candidate
+	// resolution before body read, then lifecycle-revalidating admission.
+	webhookIngress webhookIngressPort
+	// webhookRun is the narrow agent-execution surface the ingress callback uses.
+	webhookRun webhookRunPort
 	// readiness backs the /healthz and /readyz infrastructure probes and carries
 	// the graceful-drain signal streaming handlers watch.
 	readiness *readiness
@@ -174,8 +180,12 @@ type Deps struct {
 	// Shared domain services — single, fully-wired instances built by the
 	// composition root. The same instances back both the agent tools and the
 	// HTTP endpoints, so there is one source of truth per capability.
-	Credentials         *connections.Service
-	ControlPlane        *controlplane.Service
+	Credentials  *connections.Service
+	ControlPlane *controlplane.Service
+	// WebhookEndpoints is the capability-endpoint domain. The control plane uses
+	// it for admin lifecycle; the server uses it directly for capability ingress
+	// (candidate resolution + admission), which is not admin-gated.
+	WebhookEndpoints    *webhook.Service
 	Email               *email.Service
 	Share               *sharepkg.Service
 	Recally             *recally.Service
@@ -320,6 +330,13 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		startedAt:       time.Now(),
 		runtimeCtx:      ctx,
 	}
+	// Assign the ingress port only when configured, so a nil *webhook.Service
+	// never becomes a non-nil interface whose methods would panic. Handlers treat
+	// a nil port as "capability ingress unavailable".
+	if deps.WebhookEndpoints != nil {
+		s.webhookIngress = deps.WebhookEndpoints
+	}
+	s.webhookRun = poolWebhookRunPort{pool: deps.PoolManager}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
 	// streaming handlers. The narrow DBPinger answers the /readyz liveness ping.
 	s.readiness = newReadiness(ctx, s.pinger)

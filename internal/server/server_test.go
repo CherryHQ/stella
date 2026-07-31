@@ -281,6 +281,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
 		ControlPlane:        controlplane.NewService(store, phost, poolManager, credSvc, slog.With("component", "controlplane-test"), controlplane.WithWebhookEndpoints(webhookSvc)),
+		WebhookEndpoints:    webhookSvc,
 		Email:               email.NewService(nil, sqlc.New(db)),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Assets:              assetStore,

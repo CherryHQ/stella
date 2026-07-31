@@ -94,6 +94,42 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
 	return i, err
 }
 
+const getChannelBinding = `-- name: GetChannelBinding :one
+SELECT
+    channel.id,
+    channel.type,
+    channel.agent_id,
+    COALESCE(agent.enabled, false) AS agent_enabled,
+    channel.config
+FROM channel
+LEFT JOIN agent ON agent.id = channel.agent_id
+WHERE channel.id = $1
+`
+
+type GetChannelBindingRow struct {
+	ID           string      `json:"id"`
+	Type         string      `json:"type"`
+	AgentID      pgtype.Text `json:"agent_id"`
+	AgentEnabled bool        `json:"agent_enabled"`
+	Config       string      `json:"config"`
+}
+
+// GetChannelBinding reads the current channel binding without a lock. Endpoint
+// issuance observes it here (outside any transaction) to run owner/access
+// prechecks before taking the short channel-row lock for the final insert.
+func (q *Queries) GetChannelBinding(ctx context.Context, id string) (GetChannelBindingRow, error) {
+	row := q.db.QueryRow(ctx, getChannelBinding, id)
+	var i GetChannelBindingRow
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.AgentID,
+		&i.AgentEnabled,
+		&i.Config,
+	)
+	return i, err
+}
+
 const getChannelBindingForUpdate = `-- name: GetChannelBindingForUpdate :one
 SELECT
     channel.id,

@@ -435,6 +435,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		BaseURL:             baseURL,
 		Credentials:         s.credSvc,
 		ControlPlane:        s.controlPlane,
+		WebhookEndpoints:    s.webhookEndpoints,
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,
@@ -584,19 +585,13 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	addr := ln.Addr().String()
 	slog.Info("starting Web UI", "addr", addr)
 	fmt.Printf("Web UI running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
-	// Root mux: the inbound webhook ingress (POST /webhooks/{id}) is mounted here,
-	// ahead of the admin handler, so it bypasses the admin middleware chain (it
-	// authenticates itself via the caller's PAT). It is wrapped in the same OTel
-	// instrumentation the admin handler uses so the webhook request still produces
-	// a server span. Everything else falls through to the admin handler.
-	rootMux := http.NewServeMux()
-	rootMux.Handle("POST /webhooks/{id}", observability.Handler(adminSrv.WebhookIngressHandler()))
-	rootMux.Handle("/", adminSrv.Handler())
-	// Reserve the /webhooks/<capability> namespace ahead of all instrumentation:
-	// a disclosed stella_whk_ capability must never reach the legacy PAT ingress
-	// or the instrumented admin chain, where it would land in access logs / OTel.
-	// It returns an opaque 404 for now; Phase 2 deepens this into real ingress.
-	httpSrv := &http.Server{Handler: server.WebhookCapabilityReservation(rootMux)}
+	// The capability reservation owns the entire /webhooks/ namespace ahead of
+	// all instrumentation. It sanitizes a disclosed capability into private
+	// context and dispatches only canonical POSTs to the ingress handler (itself
+	// OTel-wrapped with a sanitized URL); every other /webhooks/ shape gets an
+	// opaque 404. Everything else falls through to the admin handler.
+	capabilityIngress := observability.Handler(adminSrv.WebhookIngressHandler())
+	httpSrv := &http.Server{Handler: server.WebhookCapabilityReservation(capabilityIngress, adminSrv.Handler())}
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })

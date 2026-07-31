@@ -6,18 +6,32 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/credential"
 )
 
 // Service is the authoritative webhook endpoint domain. It owns credential
-// minting, issuance validation, CAS rotation, and capability resolution.
+// minting, issuance validation, CAS rotation, capability resolution, and the
+// admission seam.
+//
+// lifecycle is a single process-global RW mutex sufficient for the supported
+// single-replica topology. Issue/Rotate/Delete take the write lock through their
+// database mutation; final Admit takes the read lock through final revalidation
+// and the ChatAdmitted callback only, so a mutation that wins first invalidates
+// every later admission and an admission that wins first blocks the mutation
+// only until the turn is admitted (not completed).
+//
+//	// Global lifecycle lock is sufficient for the supported single-replica topology.
+//	// Replace with per-endpoint fencing if measured contention or multi-replica support arrives.
 type Service struct {
-	store  Store
-	users  UserState
-	access OwnerAgentAccess
+	store     Store
+	users     UserState
+	access    OwnerAgentAccess
+	lifecycle sync.RWMutex
 }
 
 type Config struct {
@@ -34,10 +48,13 @@ func NewService(cfg Config) (*Service, error) {
 }
 
 // Issue binds an owner to the channel's current Agent and mints a capability.
-// The channel row is locked before the binding is re-verified and the endpoint
-// inserted, so a concurrent rebind cannot slip between the observed and
-// persisted facts. Provider and owner are immutable once issued; changing
-// either requires revoke then re-issue.
+// It observes the binding, runs owner active-state and Agent-use prechecks
+// entirely outside any transaction, then takes the short channel-row lock only
+// to re-verify the exact observed binding and insert — so no user/access lookup
+// ever runs while the row lock (or the lifecycle write lock) is held. A binding
+// that changed between observe and lock returns a retryable conflict. Provider
+// and owner are immutable once issued; changing either requires revoke then
+// re-issue.
 func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, error) {
 	if req.ChannelID == "" {
 		return IssueResult{}, ErrInvalidChannelID
@@ -49,30 +66,47 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 		return IssueResult{}, ErrInvalidProvider
 	}
 
+	// 1. Observe the current binding without a transaction.
+	observed, err := s.store.ObserveBinding(ctx, req.ChannelID)
+	if err != nil {
+		return IssueResult{}, err
+	}
+	if observed.Type != "webhook" {
+		return IssueResult{}, ErrChannelNotWebhook
+	}
+	if observed.AgentID == "" {
+		return IssueResult{}, ErrNotFound
+	}
+	if !observed.AgentEnabled {
+		return IssueResult{}, ErrAgentDisabled
+	}
+
+	// 2. Owner active-state and Agent-use prechecks, outside any transaction.
+	active, err := s.users.IsActive(ctx, req.OwnerUserID)
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("webhook: get owner state: %w", err)
+	}
+	if !active {
+		return IssueResult{}, ErrOwnerInactive
+	}
+	allowed, err := s.access.CanUseOwner(ctx, req.OwnerUserID, observed.AgentID)
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("webhook: authorize endpoint owner: %w", err)
+	}
+	if !allowed {
+		return IssueResult{}, ErrOwnerAgentForbidden
+	}
+
+	// 3. Under the lifecycle write lock, take the short channel-row lock, re-verify
+	// the exact observed binding, and insert. The locked callback performs no
+	// external or authorization lookup.
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+
 	var capability string
-	rec, err := s.store.BindEndpoint(ctx, req.ChannelID, func(ctx context.Context, binding ChannelBinding) (endpointRecord, error) {
-		if binding.Type != "webhook" {
-			return endpointRecord{}, ErrChannelNotWebhook
-		}
-		if binding.AgentID == "" {
-			return endpointRecord{}, ErrNotFound
-		}
-		if !binding.AgentEnabled {
-			return endpointRecord{}, ErrAgentDisabled
-		}
-		active, err := s.users.IsActive(ctx, req.OwnerUserID)
-		if err != nil {
-			return endpointRecord{}, fmt.Errorf("webhook: get owner state: %w", err)
-		}
-		if !active {
-			return endpointRecord{}, ErrOwnerInactive
-		}
-		allowed, err := s.access.CanUseOwner(ctx, req.OwnerUserID, binding.AgentID)
-		if err != nil {
-			return endpointRecord{}, fmt.Errorf("webhook: authorize endpoint owner: %w", err)
-		}
-		if !allowed {
-			return endpointRecord{}, ErrOwnerAgentForbidden
+	rec, err := s.store.BindEndpoint(ctx, req.ChannelID, func(_ context.Context, binding ChannelBinding) (endpointRecord, error) {
+		if binding.Type != "webhook" || binding.AgentID != observed.AgentID || !binding.AgentEnabled {
+			return endpointRecord{}, ErrChannelBindingChanged
 		}
 		rec, token, err := s.newCredential()
 		if err != nil {
@@ -115,7 +149,9 @@ func (s *Service) Rotate(ctx context.Context, channelID string, expectedETag str
 	if err != nil {
 		return RotationResult{}, err
 	}
+	s.lifecycle.Lock()
 	updated, err := s.store.RotateEndpoint(ctx, channelID, expectedETag, next)
+	s.lifecycle.Unlock()
 	if err != nil {
 		return RotationResult{}, err
 	}
@@ -125,33 +161,91 @@ func (s *Service) Rotate(ctx context.Context, channelID string, expectedETag str
 // Delete revokes the endpoint. It reports whether a row was removed so callers
 // can distinguish an already-absent endpoint.
 func (s *Service) Delete(ctx context.Context, channelID string) (bool, error) {
+	s.lifecycle.Lock()
 	n, err := s.store.DeleteEndpoint(ctx, channelID)
+	s.lifecycle.Unlock()
 	return n == 1, err
 }
 
-// Resolve maps a presented capability token to its endpoint. It performs one
-// indexed lookup then a constant-time verifier comparison; every malformed,
-// mismatched, or missing case collapses to ErrNotFound. Runtime admission
-// (owner/channel/Agent revalidation) is layered on top of this in a later phase.
-func (s *Service) Resolve(ctx context.Context, raw string) (Endpoint, error) {
+// ResolveCandidate is the first admission stage: it parses and verifies the
+// opaque capability, returning a non-loggable Candidate plus the safe endpoint
+// id for pre-read limiting. It holds no lifecycle lock, so the caller may read a
+// request body between this and Admit. Every malformed/mismatched/missing case
+// collapses to ErrNotFound.
+func (s *Service) ResolveCandidate(ctx context.Context, raw string) (Candidate, error) {
 	if !strings.HasPrefix(raw, TokenPrefix) {
-		return Endpoint{}, ErrNotFound
+		return Candidate{}, ErrNotFound
 	}
 	publicID, secret, err := credential.ParseOpaqueToken(TokenPrefix, raw)
 	if err != nil {
-		return Endpoint{}, ErrNotFound
+		return Candidate{}, ErrNotFound
 	}
 	rec, err := s.store.ResolveByPublicID(ctx, publicID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return Endpoint{}, ErrNotFound
+			return Candidate{}, ErrNotFound
 		}
-		return Endpoint{}, fmt.Errorf("webhook: resolve endpoint: %w", err)
+		return Candidate{}, fmt.Errorf("webhook: resolve candidate: %w", err)
 	}
 	if !matchesTokenHash(secret, rec.TokenHash) {
-		return Endpoint{}, ErrNotFound
+		return Candidate{}, ErrNotFound
 	}
-	return rec.Endpoint, nil
+	return Candidate{EndpointID: rec.ChannelID, publicID: publicID, secret: secret}, nil
+}
+
+// Admit is the second admission stage. Under the lifecycle read lock it
+// re-resolves the current endpoint by the candidate's credential, revalidates
+// the constant-time verifier, the durable active state of owner/channel/Agent,
+// and the owner's current Agent-use permission through the PEP, then reconstructs
+// the fixed worker authority and invokes callback. The read lock is held only
+// through this revalidation and the callback's synchronous admission (the
+// callback returns at admission, not completion) and released immediately after.
+//
+// A rotate or revoke that committed after ResolveCandidate makes the credential
+// unresolvable here, so callback is never invoked. The re-resolve is a single
+// query whose connection is released before callback runs, so no database
+// transaction or row lock spans callback.
+func (s *Service) Admit(ctx context.Context, cand Candidate, callback AdmitCallback) error {
+	if callback == nil {
+		return errors.New("webhook: admit callback is required")
+	}
+	s.lifecycle.RLock()
+	defer s.lifecycle.RUnlock()
+
+	rec, err := s.store.ResolveEndpoint(ctx, cand.publicID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("webhook: admit resolve: %w", err)
+	}
+	if !rec.Provider.Valid() || rec.AgentID == "" || !rec.ChannelEnabled || !rec.OwnerActive || !rec.AgentEnabled {
+		return ErrNotFound
+	}
+	if !matchesTokenHash(cand.secret, rec.TokenHash) {
+		return ErrNotFound
+	}
+	// The endpoint fixes identity; it does not freeze permission. Recheck the
+	// owner's current Agent-use permission through the existing PEP so a withdrawn
+	// assignment fails closed on the next admission.
+	allowed, err := s.access.CanUseOwner(ctx, rec.OwnerUserID, rec.AgentID)
+	if err != nil {
+		return fmt.Errorf("webhook: admit authorize: %w", err)
+	}
+	if !allowed {
+		return ErrOwnerAgentForbidden
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(rec.OwnerUserID, rec.AgentID)
+	if err != nil {
+		return ErrNotFound
+	}
+	return callback(ctx, AdmittedInvocation{
+		ChannelID:   rec.ChannelID,
+		OwnerUserID: rec.OwnerUserID,
+		AgentID:     rec.AgentID,
+		Provider:    rec.Provider,
+		Authority:   authority,
+	})
 }
 
 func (s *Service) newCredential() (endpointRecord, string, error) {

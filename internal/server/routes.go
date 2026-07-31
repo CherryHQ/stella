@@ -43,10 +43,11 @@ func (s *Server) registerStaticRoutes() {
 	s.mux.HandleFunc("GET /oauth/authorize", s.handleOAuthAuthorize)
 	s.mux.HandleFunc("POST /oauth/authorize", s.handleOAuthAuthorize)
 	s.mux.HandleFunc("POST /oauth/token", s.handleOAuthToken)
-	// The inbound webhook channel ingress (POST /webhooks/{id}) is NOT registered
-	// here: it is a PAT-authenticated trigger that authenticates itself and must
-	// bypass the admin middleware chain, so the composition root mounts
-	// s.WebhookIngressHandler() on the HTTP root ahead of the admin mux.
+	// The inbound webhook capability ingress is NOT registered here: it is a
+	// capability-authenticated trigger whose opaque URL capability is the sole
+	// credential (Authorization is ignored) and must bypass the admin middleware
+	// chain, so the composition root mounts it behind the capability reservation
+	// on the HTTP root ahead of the admin mux.
 }
 
 func (s *Server) registerPageRoutes() {

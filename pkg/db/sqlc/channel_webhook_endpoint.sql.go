@@ -7,6 +7,9 @@ package sqlc
 
 import (
 	"context"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createChannelWebhookEndpoint = `-- name: CreateChannelWebhookEndpoint :one
@@ -134,6 +137,74 @@ func (q *Queries) GetChannelWebhookEndpointByPublicID(ctx context.Context, token
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.RotatedAt,
+	)
+	return i, err
+}
+
+const resolveChannelWebhookEndpointByPublicID = `-- name: ResolveChannelWebhookEndpointByPublicID :one
+SELECT
+    endpoint.channel_id,
+    endpoint.owner_user_id,
+    endpoint.provider,
+    endpoint.token_hash,
+    endpoint.token_last4,
+    endpoint.revision,
+    endpoint.created_at,
+    endpoint.updated_at,
+    endpoint.rotated_at,
+    channel.agent_id,
+    channel.enabled AS channel_enabled,
+    auth_user.is_active AS owner_active,
+    agent.enabled AS agent_enabled
+FROM channel_webhook_endpoint AS endpoint
+JOIN channel ON channel.id = endpoint.channel_id
+JOIN auth_user ON auth_user.id = endpoint.owner_user_id
+JOIN agent ON agent.id = channel.agent_id
+WHERE endpoint.token_public_id = $1
+  AND channel.type = 'webhook'
+  AND channel.enabled = true
+  AND auth_user.is_active = true
+  AND agent.enabled = true
+`
+
+type ResolveChannelWebhookEndpointByPublicIDRow struct {
+	ChannelID      string             `json:"channel_id"`
+	OwnerUserID    string             `json:"owner_user_id"`
+	Provider       string             `json:"provider"`
+	TokenHash      string             `json:"token_hash"`
+	TokenLast4     string             `json:"token_last4"`
+	Revision       int64              `json:"revision"`
+	CreatedAt      time.Time          `json:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+	RotatedAt      pgtype.Timestamptz `json:"rotated_at"`
+	AgentID        pgtype.Text        `json:"agent_id"`
+	ChannelEnabled bool               `json:"channel_enabled"`
+	OwnerActive    bool               `json:"owner_active"`
+	AgentEnabled   bool               `json:"agent_enabled"`
+}
+
+// ResolveChannelWebhookEndpointByPublicID is the deep admission read: it joins
+// the channel, owner, and Agent and returns a row only while all three are
+// active. Any disabled/inactive party (or a rotated/revoked credential) yields no
+// row, so admission fails closed. The owner→Agent permission (PEP) is checked
+// separately in Go; this only confirms durable active state.
+func (q *Queries) ResolveChannelWebhookEndpointByPublicID(ctx context.Context, tokenPublicID string) (ResolveChannelWebhookEndpointByPublicIDRow, error) {
+	row := q.db.QueryRow(ctx, resolveChannelWebhookEndpointByPublicID, tokenPublicID)
+	var i ResolveChannelWebhookEndpointByPublicIDRow
+	err := row.Scan(
+		&i.ChannelID,
+		&i.OwnerUserID,
+		&i.Provider,
+		&i.TokenHash,
+		&i.TokenLast4,
+		&i.Revision,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RotatedAt,
+		&i.AgentID,
+		&i.ChannelEnabled,
+		&i.OwnerActive,
+		&i.AgentEnabled,
 	)
 	return i, err
 }

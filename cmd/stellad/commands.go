@@ -103,6 +103,7 @@ type setupResult struct {
 	vaultSvc                 *vault.Service
 	mcpSvc                   *mcp.Service
 	controlPlane             *controlplane.Service
+	webhookEndpoints         *webhook.Service
 	credSvc                  *connections.Service
 	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
@@ -519,6 +520,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		vaultSvc:                 vaultSvc,
 		mcpSvc:                   mcpSvc,
 		controlPlane:             controlPlaneSvc,
+		webhookEndpoints:         webhookSvc,
 		credSvc:                  credSvc,
 		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,

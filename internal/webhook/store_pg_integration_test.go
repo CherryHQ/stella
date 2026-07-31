@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,7 +68,7 @@ func TestServiceIssueDisclosesOnceAndPersistsVerifierOnly(t *testing.T) {
 	if endpoint.OwnerUserID != ownerID || endpoint.Provider != ProviderGeneric {
 		t.Fatalf("stable endpoint = %+v", endpoint)
 	}
-	if _, err := svc.Resolve(ctx, issued.Capability); err != nil {
+	if _, err := svc.ResolveCandidate(ctx, issued.Capability); err != nil {
 		t.Fatalf("Resolve(issued): %v", err)
 	}
 }
@@ -89,10 +90,10 @@ func TestServiceRotateInvalidatesOldTokenUnderCAS(t *testing.T) {
 	if rotated.Endpoint.Revision != issued.Endpoint.Revision+1 {
 		t.Fatalf("rotated revision = %d, want %d", rotated.Endpoint.Revision, issued.Endpoint.Revision+1)
 	}
-	if _, err := svc.Resolve(ctx, issued.Capability); !errors.Is(err, ErrNotFound) {
+	if _, err := svc.ResolveCandidate(ctx, issued.Capability); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("old token error = %v, want ErrNotFound", err)
 	}
-	if _, err := svc.Resolve(ctx, rotated.Capability); err != nil {
+	if _, err := svc.ResolveCandidate(ctx, rotated.Capability); err != nil {
 		t.Fatalf("Resolve(rotated): %v", err)
 	}
 	// A stale precondition (the pre-rotation etag) is rejected.
@@ -189,7 +190,7 @@ func TestServiceConcurrentSameETagRotateOneWinner(t *testing.T) {
 		t.Fatalf("loser error = %v, want ErrStaleETag", err)
 	}
 	winner := <-results
-	if _, err := svc.Resolve(ctx, winner.Capability); err != nil {
+	if _, err := svc.ResolveCandidate(ctx, winner.Capability); err != nil {
 		t.Fatalf("winning capability does not resolve: %v", err)
 	}
 }
@@ -208,7 +209,7 @@ func TestServiceRevokeInvalidatesToken(t *testing.T) {
 	if err != nil || !deleted {
 		t.Fatalf("Delete = %v, %v; want true, nil", deleted, err)
 	}
-	if _, err := svc.Resolve(ctx, issued.Capability); !errors.Is(err, ErrNotFound) {
+	if _, err := svc.ResolveCandidate(ctx, issued.Capability); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("revoked token error = %v, want ErrNotFound", err)
 	}
 	if again, err := svc.Delete(ctx, channelID); err != nil || again {
@@ -227,6 +228,59 @@ func TestServiceIssueRejectsConcurrentEndpoint(t *testing.T) {
 	}
 	if _, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric}); !errors.Is(err, ErrEndpointExists) {
 		t.Fatalf("second Issue error = %v, want ErrEndpointExists", err)
+	}
+}
+
+// TestAdmitHoldsNoConnectionAcrossCallback proves no database transaction or row
+// lock spans the admission callback: with the webhook store on a MaxConns=1 pool,
+// a bounded query on that same pool completes while the callback is blocked.
+func TestAdmitHoldsNoConnectionAcrossCallback(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	channelID, ownerID := seedWebhookChannel(t, db, "agent")
+
+	cfg := db.Config().Copy()
+	cfg.MaxConns = 1
+	one, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("build MaxConns=1 pool: %v", err)
+	}
+	defer one.Close()
+
+	svc, err := NewService(Config{Store: NewPostgresStore(one), Users: testUsers{true}, Access: testAccess{true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric})
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
+	}
+	cand, err := svc.ResolveCandidate(ctx, issued.Capability)
+	if err != nil {
+		t.Fatalf("ResolveCandidate: %v", err)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	admitDone := make(chan error, 1)
+	go func() {
+		admitDone <- svc.Admit(ctx, cand, func(context.Context, AdmittedInvocation) error {
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+
+	qctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var got int
+	if err := one.QueryRow(qctx, "SELECT 1").Scan(&got); err != nil {
+		t.Fatalf("same-pool query blocked while callback ran — a transaction/conn spans the callback: %v", err)
+	}
+	close(release)
+	if err := <-admitDone; err != nil {
+		t.Fatalf("Admit: %v", err)
 	}
 }
 

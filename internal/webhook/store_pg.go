@@ -63,9 +63,51 @@ func (s *PostgresStore) BindEndpoint(ctx context.Context, channelID string, buil
 	return endpointFromRow(row), nil
 }
 
+func (s *PostgresStore) ObserveBinding(ctx context.Context, channelID string) (ChannelBinding, error) {
+	row, err := s.q.GetChannelBinding(ctx, channelID)
+	if err != nil {
+		return ChannelBinding{}, mapNotFound(err)
+	}
+	return ChannelBinding{
+		ChannelID:    row.ID,
+		Type:         row.Type,
+		AgentID:      row.AgentID.String,
+		AgentEnabled: row.AgentEnabled,
+		Config:       row.Config,
+	}, nil
+}
+
 func (s *PostgresStore) GetEndpointByChannel(ctx context.Context, channelID string) (endpointRecord, error) {
 	row, err := s.q.GetChannelWebhookEndpointByChannelID(ctx, channelID)
 	return endpointFromRow(row), mapNotFound(err)
+}
+
+func (s *PostgresStore) ResolveEndpoint(ctx context.Context, publicID string) (resolvedRecord, error) {
+	row, err := s.q.ResolveChannelWebhookEndpointByPublicID(ctx, publicID)
+	if err != nil {
+		return resolvedRecord{}, mapNotFound(err)
+	}
+	endpoint := Endpoint{
+		ChannelID:     row.ChannelID,
+		OwnerUserID:   row.OwnerUserID,
+		Provider:      Provider(row.Provider),
+		TokenPublicID: publicID,
+		TokenLast4:    row.TokenLast4,
+		Revision:      row.Revision,
+		CreatedAt:     row.CreatedAt.UTC(),
+		UpdatedAt:     row.UpdatedAt.UTC(),
+	}
+	if row.RotatedAt.Valid {
+		rotated := row.RotatedAt.Time.UTC()
+		endpoint.RotatedAt = &rotated
+	}
+	return resolvedRecord{
+		endpointRecord: endpointRecord{Endpoint: endpoint, TokenHash: row.TokenHash},
+		AgentID:        row.AgentID.String,
+		ChannelEnabled: row.ChannelEnabled,
+		OwnerActive:    row.OwnerActive,
+		AgentEnabled:   row.AgentEnabled,
+	}, nil
 }
 
 func (s *PostgresStore) ResolveByPublicID(ctx context.Context, publicID string) (endpointRecord, error) {
