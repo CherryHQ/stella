@@ -9,9 +9,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
@@ -20,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/observability"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/webhook"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -123,11 +126,16 @@ func newIngressServerConfig(t *testing.T, ingress webhookIngressPort, run *fakeA
 
 func capabilityRequest(t *testing.T, wait *bool) *http.Request {
 	t.Helper()
+	return capabilityRequestBody(t, wait, strings.NewReader("hello world"))
+}
+
+func capabilityRequestBody(t *testing.T, wait *bool, body io.Reader) *http.Request {
+	t.Helper()
 	ctx := context.WithValue(context.Background(), webhookCapabilityCtxKey{}, "stella_whk_capability")
 	if wait != nil {
 		ctx = context.WithValue(ctx, webhookWaitCtxKey{}, *wait)
 	}
-	req := httptest.NewRequest(http.MethodPost, sanitizedWebhookPath, strings.NewReader("hello world")).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodPost, sanitizedWebhookPath, body).WithContext(ctx)
 	// A caller-supplied Authorization header must be ignored: identity comes only
 	// from the capability.
 	req.Header.Set("Authorization", "Bearer stella_pat_should_be_ignored")
@@ -416,6 +424,328 @@ func TestWebhookIngressArchiveFailureIsLoggedNotMasked(t *testing.T) {
 	// The capability plaintext must not appear in the cleanup log.
 	if strings.Contains(buf.String(), "stella_whk_") {
 		t.Fatalf("capability leaked into cleanup log: %q", buf.String())
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+// TestWebhookReadDeadlineEnforcedByRealServer drives the exact production
+// readWebhookBody through the production observability + access-log chain on a
+// real connection, with a short timeout: a stalled body must time out and be
+// classified by isWebhookReadTimeout. It calls the production function (no
+// algorithm duplicated in the test) to avoid false confidence.
+func TestWebhookReadDeadlineEnforcedByRealServer(t *testing.T) {
+	s := &Server{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	resCh := make(chan error, 1)
+	h := observability.Handler(s.accessLogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := s.readWebhookBody(w, r, 150*time.Millisecond)
+		resCh <- err
+		w.WriteHeader(http.StatusOK)
+	})))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	pr, pw := io.Pipe()
+	defer func() { _ = pw.Close() }()
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/webhooks/x", pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.ContentLength = 1024 // promise bytes the pipe never delivers → the server read stalls
+	go func() {
+		if resp, derr := http.DefaultClient.Do(req); derr == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+
+	select {
+	case err := <-resCh:
+		if !isWebhookReadTimeout(err) {
+			t.Fatalf("production readWebhookBody through the real chain did not time out: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("readWebhookBody never observed the read-deadline timeout")
+	}
+}
+
+// deadlineRecorderWriter is a ResponseWriter whose ResponseController supports
+// SetReadDeadline (like a real connection) and records every deadline set, so a
+// test can assert readWebhookBody sets a bounded deadline then clears it.
+type deadlineRecorderWriter struct {
+	http.ResponseWriter
+	deadlines []time.Time
+}
+
+func (w *deadlineRecorderWriter) SetReadDeadline(t time.Time) error {
+	w.deadlines = append(w.deadlines, t)
+	return nil
+}
+
+// TestReadWebhookBodySetsThenClearsDeadline proves the production readWebhookBody
+// sets a nonzero read deadline before the read and clears it to zero afterward,
+// via a supported ResponseController fake.
+func TestReadWebhookBodySetsThenClearsDeadline(t *testing.T) {
+	s := &Server{}
+	fw := &deadlineRecorderWriter{ResponseWriter: httptest.NewRecorder()}
+	req := httptest.NewRequest(http.MethodPost, sanitizedWebhookPath, strings.NewReader("hello"))
+
+	body, err := s.readWebhookBody(fw, req, 7*time.Second)
+	if err != nil {
+		t.Fatalf("readWebhookBody: %v", err)
+	}
+	if string(body) != "hello" {
+		t.Fatalf("body = %q, want hello", string(body))
+	}
+	if len(fw.deadlines) != 2 {
+		t.Fatalf("expected set-then-clear (2 deadline calls), got %d", len(fw.deadlines))
+	}
+	if fw.deadlines[0].IsZero() {
+		t.Fatal("first deadline must be nonzero (a bounded read deadline)")
+	}
+	if !fw.deadlines[1].IsZero() {
+		t.Fatal("second deadline must be zero (cleared immediately after the read)")
+	}
+}
+
+// admitAll is a fakeIngress whose Admit always invokes the callback with a fixed
+// invocation, counting how many times it did so.
+func admitAll(t *testing.T, calls *atomic.Int32) *fakeIngress {
+	t.Helper()
+	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
+	return &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+		if calls != nil {
+			calls.Add(1)
+		}
+		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+	}}
+}
+
+// limiterCount reads a limiter counter under its mutex, safe to poll while a
+// request goroutine mutates it.
+func limiterCount(l *webhookLimiter, which, key string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if which == "ingress" {
+		return l.ingress[key]
+	}
+	return l.inflight[key]
+}
+
+func waitForCond(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("condition not met within deadline")
+}
+
+// TestWebhookIngressReleasesSlotBeforeSyncWait proves the ingress slot covers
+// only body/admission: while a first sync (wait=true) request is still
+// waiting on its admitted run's reply, its ingress slot is already released, so a
+// second request acquires ingress capacity — while the first request's run slot
+// remains held (run accounting stays active).
+func TestWebhookIngressReleasesSlotBeforeSyncWait(t *testing.T) {
+	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
+	stream := make(chan agent.Event) // open and never yields → request 1 blocks in the sync wait
+	run := &fakeAgentRun{stream: stream}
+	ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+	}}
+	s := newIngressServer(t, ingress, run)
+	s.webhookLimiter.maxIngress = 1 // only one ingress slot at a time
+
+	// Request 1 is synchronous: it admits (run slot held), releases ingress, then
+	// blocks waiting for the reply.
+	rr1 := httptest.NewRecorder()
+	done1 := make(chan struct{})
+	go func() {
+		s.handleWebhookIngress(rr1, capabilityRequest(t, boolPtr(true)))
+		close(done1)
+	}()
+
+	// Once request 1 has admitted and entered its wait, its run slot is held and
+	// its ingress slot is free again.
+	waitForCond(t, func() bool {
+		return limiterCount(s.webhookLimiter, "inflight", "c") == 1 &&
+			limiterCount(s.webhookLimiter, "ingress", "c") == 0
+	})
+
+	// Request 2 can acquire the single ingress slot even though run 1 is still
+	// waiting — proving the slot did not cover the sync wait.
+	rr2 := httptest.NewRecorder()
+	s.handleWebhookIngress(rr2, capabilityRequest(t, boolPtr(false)))
+	if rr2.Code != http.StatusAccepted {
+		t.Fatalf("second request = %d, want 202 (ingress capacity must be free during a sync wait)", rr2.Code)
+	}
+	// Run-slot accounting stayed active: run 1 still held, plus run 2.
+	if got := limiterCount(s.webhookLimiter, "inflight", "c"); got != 2 {
+		t.Fatalf("inflight run slots = %d, want 2 (run 1 held through its wait, run 2 admitted)", got)
+	}
+
+	close(stream) // let both runs drain
+	<-done1
+}
+
+// TestWebhookIngressSlotGatesBeforeBodyAndRecovers proves the per-endpoint
+// ingress slot gates before any body read and admission: an at-capacity request
+// fails promptly without consuming an acceptance token, run slot, session, or
+// admission, and the slot recovers once released.
+func TestWebhookIngressSlotGatesBeforeBodyAndRecovers(t *testing.T) {
+	var admitCalls atomic.Int32
+	run := &fakeAgentRun{stream: closedStream()}
+	s := newIngressServer(t, admitAll(t, &admitCalls), run)
+	s.webhookLimiter.maxIngress = 1
+
+	// Saturate the single ingress slot, then a fresh request hits the ceiling.
+	if !s.webhookLimiter.acquireIngress("c") {
+		t.Fatal("setup: first ingress slot should be free")
+	}
+	rr := httptest.NewRecorder()
+	s.handleWebhookIngress(rr, capabilityRequest(t, nil))
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if run.sessionCalls.Load() != 0 || run.chatCalls.Load() != 0 || admitCalls.Load() != 0 {
+		t.Fatal("no body/admit/session work may happen once the ingress slot is exhausted")
+	}
+	if s.webhookLimiter.buckets["c"] != nil {
+		t.Fatal("an ingress-gated request must not consume an acceptance token")
+	}
+	if s.webhookLimiter.inflight["c"] != 0 {
+		t.Fatal("an ingress-gated request must not consume a run slot")
+	}
+
+	// Release the held slot; the next request now admits.
+	s.webhookLimiter.releaseIngress("c")
+	rr2 := httptest.NewRecorder()
+	s.handleWebhookIngress(rr2, capabilityRequest(t, boolPtr(false)))
+	if rr2.Code != http.StatusAccepted {
+		t.Fatalf("recovered status = %d, want 202 (body: %s)", rr2.Code, rr2.Body.String())
+	}
+	if s.webhookLimiter.ingress["c"] != 0 {
+		t.Fatalf("ingress slot leaked after completion: %d", s.webhookLimiter.ingress["c"])
+	}
+}
+
+// signalBody blocks the first Read until released, modeling a slow client body
+// that holds the ingress slot.
+type signalBody struct {
+	firstRead chan struct{}
+	release   chan struct{}
+	sent      bool
+}
+
+func (b *signalBody) Read(p []byte) (int, error) {
+	if !b.sent {
+		close(b.firstRead)
+		<-b.release
+		b.sent = true
+		return copy(p, "trigger"), nil
+	}
+	return 0, io.EOF
+}
+
+func (b *signalBody) Close() error { return nil }
+
+// TestWebhookIngressSlowBodyHoldsSlotThenRecovers proves a slow body holds the
+// ingress slot for its whole read: a concurrent request to the same endpoint is
+// rejected promptly, and the slot recovers on normal completion.
+func TestWebhookIngressSlowBodyHoldsSlotThenRecovers(t *testing.T) {
+	var admitCalls atomic.Int32
+	run := &fakeAgentRun{stream: closedStream()}
+	s := newIngressServer(t, admitAll(t, &admitCalls), run)
+	s.webhookLimiter.maxIngress = 1
+
+	sb := &signalBody{firstRead: make(chan struct{}), release: make(chan struct{})}
+	rr1 := httptest.NewRecorder()
+	done1 := make(chan struct{})
+	go func() {
+		s.handleWebhookIngress(rr1, capabilityRequestBody(t, boolPtr(false), sb))
+		close(done1)
+	}()
+	<-sb.firstRead // request 1 is now inside the body read, holding the slot.
+
+	// A second request to the same endpoint is rejected while the slot is held.
+	rr2 := httptest.NewRecorder()
+	s.handleWebhookIngress(rr2, capabilityRequest(t, nil))
+	if rr2.Code != http.StatusTooManyRequests {
+		t.Fatalf("concurrent status = %d, want 429", rr2.Code)
+	}
+	if admitCalls.Load() != 0 {
+		t.Fatal("the slow-body request must not have admitted yet")
+	}
+
+	// Release the slow body; request 1 completes and the slot recovers.
+	close(sb.release)
+	<-done1
+	if rr1.Code != http.StatusAccepted {
+		t.Fatalf("slow-body status = %d, want 202 (body: %s)", rr1.Code, rr1.Body.String())
+	}
+	if s.webhookLimiter.ingress["c"] != 0 {
+		t.Fatalf("ingress slot not recovered after completion: %d", s.webhookLimiter.ingress["c"])
+	}
+}
+
+// TestWebhookIngressOversizedBodyIs413 proves a body over 256 KiB is rejected
+// with 413 before any acceptance token, session, or run, and never leaks the
+// capability.
+func TestWebhookIngressOversizedBodyIs413(t *testing.T) {
+	var admitCalls atomic.Int32
+	run := &fakeAgentRun{stream: closedStream()}
+	s := newIngressServer(t, admitAll(t, &admitCalls), run)
+
+	big := bytes.NewReader(bytes.Repeat([]byte("a"), maxWebhookBody+1))
+	rr := httptest.NewRecorder()
+	s.handleWebhookIngress(rr, capabilityRequestBody(t, nil, big))
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if admitCalls.Load() != 0 || run.sessionCalls.Load() != 0 || run.chatCalls.Load() != 0 {
+		t.Fatal("oversized body must not start admission/session/run")
+	}
+	if s.webhookLimiter.buckets["c"] != nil {
+		t.Fatal("oversized body must not consume an acceptance token")
+	}
+	if strings.Contains(rr.Body.String(), "stella_whk_") {
+		t.Fatalf("capability leaked in 413 response: %s", rr.Body.String())
+	}
+	if s.webhookLimiter.ingress["c"] != 0 {
+		t.Fatal("ingress slot leaked on the 413 path")
+	}
+}
+
+type deadlineBody struct{}
+
+func (deadlineBody) Read([]byte) (int, error) { return 0, os.ErrDeadlineExceeded }
+func (deadlineBody) Close() error             { return nil }
+
+// TestWebhookIngressStalledReadTimesOut proves a stalled read returns a bounded
+// client error (408) with no admission/session/run and no capability leak.
+func TestWebhookIngressStalledReadTimesOut(t *testing.T) {
+	var admitCalls atomic.Int32
+	run := &fakeAgentRun{stream: closedStream()}
+	s := newIngressServer(t, admitAll(t, &admitCalls), run)
+
+	rr := httptest.NewRecorder()
+	s.handleWebhookIngress(rr, capabilityRequestBody(t, nil, deadlineBody{}))
+	if rr.Code != http.StatusRequestTimeout {
+		t.Fatalf("status = %d, want 408 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if admitCalls.Load() != 0 || run.sessionCalls.Load() != 0 || run.chatCalls.Load() != 0 {
+		t.Fatal("a stalled read must not start admission/session/run")
+	}
+	if s.webhookLimiter.buckets["c"] != nil {
+		t.Fatal("a stalled read must not consume an acceptance token")
+	}
+	if strings.Contains(rr.Body.String(), "stella_whk_") {
+		t.Fatalf("capability leaked in 408 response: %s", rr.Body.String())
+	}
+	if s.webhookLimiter.ingress["c"] != 0 {
+		t.Fatal("ingress slot leaked on the timeout path")
 	}
 }
 

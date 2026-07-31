@@ -1874,9 +1874,6 @@ const en = {
   "channels.webhookSessionMode": "Session mode",
   "channels.webhookSessionEphemeral": "Ephemeral — fresh session per request",
   "channels.webhookSessionPersistent": "Persistent — each caller keeps a long-lived session",
-  "channels.webhookUrl": "Ingress URL",
-  "channels.webhookUrlDesc":
-    "POST your payload here with a Bearer PAT (agent:write scope); the agent runs as the PAT's user.",
   "channels.copy": "copy",
   "channels.copied": "Copied",
   // Webhook capability endpoint
@@ -3836,9 +3833,6 @@ const zh: Record<MessageKey, string> = {
   "channels.webhookSessionMode": "会话模式",
   "channels.webhookSessionEphemeral": "临时 — 每次请求新建会话",
   "channels.webhookSessionPersistent": "持久 — 每个调用者保留一个长期会话",
-  "channels.webhookUrl": "接入 URL",
-  "channels.webhookUrlDesc":
-    "用具备 agent:write 权限的 Bearer PAT 向此地址 POST 负载，Agent 以该 PAT 所属用户的身份运行。",
   "channels.copy": "复制",
   "channels.copied": "已复制",
   // Webhook 能力端点

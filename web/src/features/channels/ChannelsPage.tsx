@@ -391,10 +391,8 @@ function ChannelDetail({
         />
       </div>
 
-      {/* Webhook ingress URL (inbound-only channel, no bot runtime). */}
-      {channel.type === "webhook" && <WebhookIngress channelId={channel.id} />}
-
-      {/* Capability endpoint lifecycle (owner→agent identity, one-time URL). */}
+      {/* Capability endpoint lifecycle: activation discloses the one-time
+          /webhooks/<capability> URL (inbound-only channel, no bot runtime). */}
       {channel.type === "webhook" && <WebhookEndpointPanel channelId={channel.id} />}
 
       {/* Config section */}
@@ -494,36 +492,6 @@ function ChannelDetail({
         onConfirm={() => onDelete(channel.id)}
       />
     </DetailPanel>
-  );
-}
-
-// WebhookIngress shows the read-only POST URL callers hit to trigger this
-// channel. It's derived from the current origin + channel id, so it stays
-// correct behind any reverse proxy the browser reached.
-function WebhookIngress({ channelId }: { channelId: string }) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const url = `${origin}/webhooks/${channelId}`;
-  const copy = () => {
-    void navigator.clipboard?.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
-  return (
-    <div className="space-y-2">
-      <FormSectionTitle>{t("channels.webhookUrl")}</FormSectionTitle>
-      <div className="flex items-center gap-2 flex-wrap">
-        <code className="font-mono text-sm bg-muted text-foreground px-3 py-1 rounded select-all break-all">
-          {url}
-        </code>
-        <Button onClick={copy} variant="ghost" size="xs">
-          {copied ? t("channels.copied") : t("channels.copy")}
-        </Button>
-      </div>
-      <p className="text-xs text-muted-foreground">{t("channels.webhookUrlDesc")}</p>
-    </div>
   );
 }
 

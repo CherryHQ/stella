@@ -8,22 +8,36 @@ import (
 
 // defaultWebhookMaxInflight caps concurrent runs per webhook. A run can
 // outlive its request by minutes (up to max_run_timeout), so an acceptance
-// rate alone would let a leaked PAT stack up hundreds of background runs.
+// rate alone would let a leaked capability stack up hundreds of background runs.
 // Ceiling: raise (or make configurable) if a legit fan-out workload appears.
 const defaultWebhookMaxInflight = 10
 
-// webhookLimiter throttles webhook ingress per instance on two axes: a token
-// bucket caps the acceptance rate, and an in-flight counter caps concurrent
-// runs. Unlike the login RateLimiter (which counts *failed* attempts to slow
-// brute force), this throttles *accepted* webhook calls. It is in-memory and
-// per-process: with multiple replicas each pod enforces its own budget
-// (documented limitation, acceptable for a rate cap).
+// defaultWebhookMaxIngress caps concurrent in-flight *pre-admission* requests
+// per endpoint after candidate resolution: the window that reads the bounded
+// body and admits. It is distinct from both the acceptance token bucket (a rate) and
+// the run slot (a whole run's lifetime); a slow or oversized body holds only an
+// ingress slot, never an acceptance token or a run slot. The slot is short-lived
+// (bounded by the body-read deadline plus synchronous admission), so a small
+// ceiling suffices. Upgrade trigger: raise it (or make it per-endpoint
+// configurable) only if a legitimate burst of concurrent slow-body deliveries to
+// one endpoint is observed being rejected.
+const defaultWebhookMaxIngress = 10
+
+// webhookLimiter throttles webhook ingress per instance on three independent
+// axes: a token bucket caps the acceptance rate, an ingress counter caps
+// concurrent pre-admission (body+admit) requests, and an in-flight
+// counter caps concurrent runs. Unlike the login RateLimiter (which counts
+// *failed* attempts to slow brute force), this throttles *accepted* webhook
+// calls. It is in-memory and per-process: with multiple replicas each pod
+// enforces its own budget (documented limitation, acceptable for a rate cap).
 type webhookLimiter struct {
 	mu          sync.Mutex
 	buckets     map[string]*tokenBucket
+	ingress     map[string]int
 	inflight    map[string]int
 	rate        float64 // tokens refilled per second
 	burst       float64 // bucket capacity
+	maxIngress  int
 	maxInflight int
 	now         func() time.Time
 }
@@ -36,9 +50,11 @@ type tokenBucket struct {
 func newWebhookLimiter(ratePerSec, burst float64) *webhookLimiter {
 	return &webhookLimiter{
 		buckets:     make(map[string]*tokenBucket),
+		ingress:     make(map[string]int),
 		inflight:    make(map[string]int),
 		rate:        ratePerSec,
 		burst:       burst,
+		maxIngress:  defaultWebhookMaxIngress,
 		maxInflight: defaultWebhookMaxInflight,
 		now:         time.Now,
 	}
@@ -65,6 +81,31 @@ func (l *webhookLimiter) allow(key string) bool {
 	}
 	b.tokens--
 	return true
+}
+
+// acquireIngress reserves a pre-admission ingress slot for key. A successful
+// reservation must be paired with exactly one releaseIngress once the
+// body/admit window completes (success, error, timeout, or cancel).
+// It consumes neither an acceptance token nor a run slot.
+func (l *webhookLimiter) acquireIngress(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ingress[key] >= l.maxIngress {
+		return false
+	}
+	l.ingress[key]++
+	return true
+}
+
+// releaseIngress releases a pre-admission ingress slot for key.
+func (l *webhookLimiter) releaseIngress(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ingress[key] > 1 {
+		l.ingress[key]--
+		return
+	}
+	delete(l.ingress, key)
 }
 
 // beginRun reserves an in-flight run slot for key. The caller must pair a

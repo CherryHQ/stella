@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -16,9 +18,14 @@ import (
 
 const (
 	// maxWebhookBody caps the request body (and therefore the agent prompt) an
-	// inbound webhook may carry. The dedicated ingress slot, read deadline, and
-	// MaxBytesReader refinement are reserved for a later phase.
+	// inbound webhook may carry. It is enforced with http.MaxBytesReader under the
+	// per-endpoint ingress slot and the body-read deadline below.
 	maxWebhookBody = 256 << 10 // 256 KiB
+	// webhookBodyReadTimeout bounds how long the bounded body read may occupy an
+	// ingress slot waiting on a slow client. It is a fixed ceiling; raise only if
+	// legitimate clients streaming a near-256 KiB body over slow links are seen
+	// timing out. The real server enforces it via the connection read deadline.
+	webhookBodyReadTimeout = 30 * time.Second
 	// webhookSessionCleanupTimeout bounds the cancellation-detached archive of an
 	// ephemeral session orphaned by a post-create admission failure. It is a small
 	// fixed ceiling; raise only if session archival legitimately needs longer.
@@ -67,10 +74,28 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Acceptance limiter keyed on the safe endpoint id, before the body read.
-	if s.webhookLimiter != nil && !s.webhookLimiter.allow(cand.EndpointID) {
-		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
-		return
+	// Ingress resource gate: a bounded pre-admission slot per endpoint, acquired
+	// after candidate resolution and before any body read. It covers only the
+	// bounded body read and synchronous admission — NOT the subsequent sync reply wait, so
+	// waiting on a reply never holds ingress capacity (the run slot bounds the
+	// run). It is distinct from the acceptance token bucket and the run slot.
+	// Ownership is exactly-once: released explicitly right after Admit returns
+	// (below), with a guarded defer covering panics and the early error returns
+	// between acquisition and Admit.
+	ingressHeld := false
+	releaseIngress := func() {
+		if ingressHeld {
+			ingressHeld = false
+			s.webhookLimiter.releaseIngress(cand.EndpointID)
+		}
+	}
+	if s.webhookLimiter != nil {
+		if !s.webhookLimiter.acquireIngress(cand.EndpointID) {
+			writeError(w, http.StatusTooManyRequests, "webhook ingress capacity exceeded")
+			return
+		}
+		ingressHeld = true
+		defer releaseIngress()
 	}
 
 	// Channel run behavior only (session/reply/timeouts); identity is on the
@@ -92,18 +117,32 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBody+1))
+	// Bounded body read under the ingress slot: cap at 256 KiB via MaxBytesReader
+	// and bound the read with a connection deadline, so a slow or oversized body
+	// occupies only the ingress slot and never reaches the acceptance limiter, a
+	// session, or a run.
+	body, err := s.readWebhookBody(w, r, webhookBodyReadTimeout)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "failed to read request body")
-		return
-	}
-	if len(body) > maxWebhookBody {
-		writeError(w, http.StatusRequestEntityTooLarge, "payload too large")
+		var maxErr *http.MaxBytesError
+		switch {
+		case errors.As(err, &maxErr):
+			writeError(w, http.StatusRequestEntityTooLarge, "payload too large")
+		case isWebhookReadTimeout(err):
+			writeError(w, http.StatusRequestTimeout, "request body read timed out")
+		default:
+			writeError(w, http.StatusBadRequest, "failed to read request body")
+		}
 		return
 	}
 	message := strings.TrimSpace(string(body))
 	if message == "" {
 		writeError(w, http.StatusBadRequest, "empty request body")
+		return
+	}
+
+	// Acceptance limiter: only a validly-shaped, bounded body consumes a token.
+	if s.webhookLimiter != nil && !s.webhookLimiter.allow(cand.EndpointID) {
+		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
 	}
 
@@ -189,6 +228,13 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
+	// The ingress slot covered candidate resolution, the body read, and
+	// synchronous admission only. Release it now — before compensation, response
+	// mapping, and any sync reply wait — so a long wait never holds ingress
+	// capacity. The run slot (reserved in the callback, released by done) still
+	// bounds the admitted run.
+	releaseIngress()
+
 	// Pre-admission compensation: if this callback created a fresh ephemeral
 	// session but admission then failed (any post-create error, including a busy
 	// runtime), archive that exact session so no active empty session is left
@@ -246,6 +292,32 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		s.finishWebhookRun(cand.EndpointID, invoked.OwnerUserID, invoked.AgentID, mode, info.ID, start, resCh, done)
 		writeErrorDetails(w, http.StatusGatewayTimeout, "timed out waiting for agent reply", map[string]any{"session_id": info.ID})
 	}
+}
+
+// readWebhookBody reads the request body under the 256 KiB MaxBytesReader cap and
+// a bounded connection read deadline of timeout, clearing the deadline
+// immediately after the read. The real *http.Server enforces the deadline; an
+// httptest recorder reports http.ErrNotSupported, in which case the read proceeds
+// without one. timeout is a parameter (the handler passes webhookBodyReadTimeout)
+// so tests can drive this exact production path with a short deadline instead of
+// reimplementing the algorithm.
+func (s *Server) readWebhookBody(w http.ResponseWriter, r *http.Request, timeout time.Duration) ([]byte, error) {
+	rc := http.NewResponseController(w)
+	if err := rc.SetReadDeadline(time.Now().Add(timeout)); err == nil {
+		defer func() { _ = rc.SetReadDeadline(time.Time{}) }()
+	} else if !errors.Is(err, http.ErrNotSupported) {
+		return nil, err
+	}
+	return io.ReadAll(http.MaxBytesReader(w, r.Body, maxWebhookBody))
+}
+
+// isWebhookReadTimeout reports whether err is a body-read deadline expiry.
+func isWebhookReadTimeout(err error) bool {
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // archiveOrphanedWebhookSession archives an ephemeral session created by a failed

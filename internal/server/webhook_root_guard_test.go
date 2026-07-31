@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -50,6 +51,58 @@ func (h *guardHarness) serve(method, target string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	h.handler.ServeHTTP(rec, httptest.NewRequest(method, target, strings.NewReader("body")))
 	return rec
+}
+
+func (h *guardHarness) serveBody(method, target string, body io.Reader) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	h.handler.ServeHTTP(rec, httptest.NewRequest(method, target, body))
+	return rec
+}
+
+// guardFailReader fails the test if the guard ever reads the request body: the
+// reservation's decision must be body-independent.
+type guardFailReader struct{ t *testing.T }
+
+func (r guardFailReader) Read([]byte) (int, error) {
+	r.t.Fatal("reservation must decide without reading the request body")
+	return 0, io.EOF
+}
+
+// TestReservationRedactionUnderHostileBodies proves the redaction/404 matrix is
+// unaffected by slow/oversized/malformed bodies: malformed capability-bearing
+// paths still get an opaque 404 without the guard reading the body or leaking the
+// capability, and a canonical dispatch sanitizes regardless of body.
+func TestReservationRedactionUnderHostileBodies(t *testing.T) {
+	minted, _ := credential.MintOpaqueWithPrefix(webhook.TokenPrefix)
+	cap := minted.Plaintext
+	oversized := strings.NewReader(strings.Repeat("a", (256<<10)+1))
+
+	cases := []struct {
+		name   string
+		method string
+		target string
+		body   io.Reader
+	}{
+		{"wrong-method-huge-body", http.MethodGet, "/webhooks/" + cap, strings.NewReader(strings.Repeat("b", 1<<20))},
+		{"double-slash-stalling-body", http.MethodPost, "//webhooks/" + cap, guardFailReader{t}},
+		{"extra-segments-oversized", http.MethodPost, "/webhooks/" + cap + "/x", oversized},
+		{"encoded-prefix-stalling", http.MethodPost, "/%77ebhooks/" + cap, guardFailReader{t}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newGuardHarness(t)
+			rec := h.serveBody(tc.method, tc.target, tc.body)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("code = %d, want 404", rec.Code)
+			}
+			if h.ingressHit || h.nextHit {
+				t.Fatalf("malformed request reached a downstream handler: ingress=%v next=%v", h.ingressHit, h.nextHit)
+			}
+			if out := h.log.String(); strings.Contains(out, cap) {
+				t.Fatalf("capability leaked into access log: %q", out)
+			}
+		})
+	}
 }
 
 func TestReservationDispatchesCanonicalPostSanitized(t *testing.T) {
