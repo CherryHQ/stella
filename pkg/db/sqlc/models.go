@@ -144,18 +144,6 @@ type AgentGoalEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
-type AgentSessionRotationNonce struct {
-	ID         string             `json:"id"`
-	SessionID  string             `json:"session_id"`
-	BindingKey string             `json:"binding_key"`
-	ActorID    string             `json:"actor_id"`
-	TurnMarker string             `json:"turn_marker"`
-	ExpiresAt  time.Time          `json:"expires_at"`
-	UsedAt     pgtype.Timestamptz `json:"used_at"`
-	CreatedAt  time.Time          `json:"created_at"`
-	UpdatedAt  time.Time          `json:"updated_at"`
-}
-
 type AgentWorkflow struct {
 	ID                 string          `json:"id"`
 	OwnerKind          string          `json:"owner_kind"`
@@ -303,16 +291,6 @@ type ChannelChatCommandReceipt struct {
 	MessageID string    `json:"message_id"`
 	Command   string    `json:"command"`
 	Binding   string    `json:"binding"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type ChannelGroupCommandReceipt struct {
-	ID        string    `json:"id"`
-	GroupID   string    `json:"group_id"`
-	Platform  string    `json:"platform"`
-	MessageID string    `json:"message_id"`
-	Command   string    `json:"command"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
