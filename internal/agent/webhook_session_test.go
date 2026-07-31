@@ -61,6 +61,32 @@ func TestResolvePrivateChannelSessionKeepsExactIDSemantics(t *testing.T) {
 	}
 }
 
+// TestWebhookSessionCanUseKnowledgeSearch pins the authorization contract:
+// a webhook authorized to represent its trusted user and Agent receives the
+// same knowledge tools as other authorized user-representing private runs.
+func TestWebhookSessionCanUseKnowledgeSearch(t *testing.T) {
+	svc, _ := newTestService(t, nil)
+	ctx := context.Background()
+	authority := webhookAuthority(t, "u1")
+	key := agent.BuildUserSessionKey("agent1", "u1", "webhook:hook-knowledge")
+
+	info, err := svc.ResolvePrivateChannelSession(ctx, authority, key, "u1", "agent1", session.ChannelWebhook)
+	if err != nil {
+		t.Fatalf("ResolvePrivateChannelSession: %v", err)
+	}
+	if info.Channel != string(session.ChannelWebhook) {
+		t.Fatalf("channel = %q, want %q", info.Channel, session.ChannelWebhook)
+	}
+	if !agent.KnowledgeToolAvailable(ctx, agent.RunnerParams{
+		UserID:      info.UserID,
+		GroupID:     info.GroupID,
+		AgentID:     info.AgentID,
+		SessionKind: info.Kind,
+	}) {
+		t.Fatal("authorized webhook session must receive knowledge_search")
+	}
+}
+
 // TestChatChannelBindingDoesNotCaptureWebhookSessions proves the new chat
 // binding cannot adopt a webhook session: their channels differ, and a chat
 // rotating a webhook's session out from under it would break the webhook.

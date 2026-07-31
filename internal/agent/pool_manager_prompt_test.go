@@ -34,7 +34,7 @@ func TestPoolSnapshotPromptUsesPrincipalWorkspace(t *testing.T) {
 				got = build
 				return nil, nil
 			}}
-			pm.buildSnapshotPromptFunc(snap)(context.Background(), tt.info, memory.SessionSnapshot{}, false)
+			pm.buildSnapshotPromptFunc(snap)(context.Background(), tt.info, memory.SessionSnapshot{})
 			if got.WorkspaceRoot != tt.want {
 				t.Errorf("WorkspaceRoot = %q, want %q", got.WorkspaceRoot, tt.want)
 			}
@@ -42,22 +42,26 @@ func TestPoolSnapshotPromptUsesPrincipalWorkspace(t *testing.T) {
 	}
 }
 
-func TestPoolSnapshotPromptUsesCurrentTurnKnowledgeCapability(t *testing.T) {
+func TestPoolSnapshotPromptMatchesKnowledgeToolAvailability(t *testing.T) {
 	snap := &config.Snapshot{AgentID: "a1", Workspace: t.TempDir()}
 	pm := &PoolManager{}
 	build := pm.buildSnapshotPromptFunc(snap)
-	info := session.Info{
+	webhookInfo := session.Info{
 		UserID:  "u1",
 		AgentID: "a1",
 		Kind:    string(session.KindChat),
+		Channel: string(session.ChannelWebhook),
 	}
 
-	humanPrompt := build(context.Background(), info, memory.SessionSnapshot{}, true)
-	if !strings.Contains(humanPrompt, "# Knowledge Base") {
-		t.Fatalf("private human snapshot prompt omitted Knowledge Base guidance:\n%s", humanPrompt)
+	webhookPrompt := build(context.Background(), webhookInfo, memory.SessionSnapshot{})
+	if !strings.Contains(webhookPrompt, "# Knowledge Base") {
+		t.Fatalf("authorized webhook snapshot prompt omitted Knowledge Base guidance:\n%s", webhookPrompt)
 	}
-	webhookPrompt := build(context.Background(), info, memory.SessionSnapshot{}, false)
-	if strings.Contains(webhookPrompt, "# Knowledge Base") {
-		t.Fatalf("non-human snapshot prompt exposed Knowledge Base guidance:\n%s", webhookPrompt)
+
+	taskInfo := webhookInfo
+	taskInfo.Kind = string(session.KindTask)
+	taskPrompt := build(context.Background(), taskInfo, memory.SessionSnapshot{})
+	if strings.Contains(taskPrompt, "# Knowledge Base") {
+		t.Fatalf("task snapshot prompt exposed Knowledge Base guidance:\n%s", taskPrompt)
 	}
 }

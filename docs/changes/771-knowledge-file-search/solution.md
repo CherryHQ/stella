@@ -123,9 +123,10 @@ system
 安全边界：
 
 - user_id 和 agent_id 只能来自可信 session，工具参数不能接受或覆盖它们。
+- 只要授权入口构造的是带可信 user_id、agent_id 的私有 `main/chat` session，Knowledge 能力就不再按 channel 区分；Web UI、PAT/OAuth API、可信聊天适配器和 `agent:write` Webhook 使用同一检索合同。
 - 当前说话人没有关联 Stella 用户时，不加载任何 Knowledge，包括 system 和 system_agent。
 - 群聊仅能执行 Agent 不代表获得 Knowledge 读取能力；没有可信用户身份的群聊检索结果为空。
-- 无真人发起者的后台任务同样不能读取 Knowledge。先前“后台任务可读企业两层”的假设已经废弃。
+- `task`、`scheduler`、`delegate` 等后台 session kind 同样不能读取 Knowledge。该边界由 session scope/kind 决定，不以请求是否由真人即时发起作为授权依据。
 
 对数字分身的含义：
 
@@ -406,7 +407,7 @@ V1 直接返回全局 BM25 Top K：
 
 ### 11. 触发方式
 
-**knowledge.search** 作为只读工具始终提供给 Agent，由系统提示词指导模型自行判断是否调用。
+在满足上述运行时身份边界的 Agent run 中，**knowledge.search** 作为只读工具提供给 Agent，由系统提示词指导模型自行判断是否调用。
 
 提示词要求模型在以下情况检索：
 
@@ -752,7 +753,7 @@ Knowledge 的管理能力只存在于第 14 节定义的 Agent 顶部页签和�
 - system_agent / user_agent 的管理请求必须通过现有 Agent access gate，不能操作当前用户无权访问的 Agent。
 - 未授权上传在读取请求体之前被拒绝。
 - user U 使用 Agent A 时只检索四层并集，不能读取其他用户或其他 Agent 的限定文件。
-- 没有关联 Stella 用户的会话、群聊和后台任务均不能获得任何 Knowledge 结果。
+- 没有可信 user_id 的会话、所有群聊，以及 `task`、`scheduler`、`delegate` 后台 session 均不能获得任何 Knowledge 结果；授权 Webhook 不属于该禁用集合。
 - 工具参数不能伪造 scope、user_id 或 agent_id。
 
 ### 上传、解析和删除

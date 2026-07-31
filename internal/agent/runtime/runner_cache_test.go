@@ -97,39 +97,6 @@ func TestRunnerCache_Reuse(t *testing.T) {
 	}
 }
 
-func TestRunnerCache_RebuildsWhenPrivateHumanCapabilityChanges(t *testing.T) {
-	var (
-		created []*fakeRunner
-		params  []RunnerParams
-	)
-	factory := func(_ context.Context, p RunnerParams) (Runner, error) {
-		runner := newFakeRunner()
-		created = append(created, runner)
-		params = append(params, p)
-		return runner, nil
-	}
-	cache := newRunnerCache(factory, fakeMemory{}, 10*time.Minute, slog.Default())
-	info := validInfo("shared-session")
-
-	humanCtx := withPrivateHumanTurn(context.Background())
-	if _, _, err := cache.getOrCreate(humanCtx, info, "", ""); err != nil {
-		t.Fatalf("create private-human runner: %v", err)
-	}
-	if _, _, err := cache.getOrCreate(context.Background(), info, "", ""); err != nil {
-		t.Fatalf("create non-human runner: %v", err)
-	}
-
-	if len(params) != 2 {
-		t.Fatalf("runner builds = %d, want 2", len(params))
-	}
-	if !params[0].PrivateHuman || params[1].PrivateHuman {
-		t.Fatalf("PrivateHuman sequence = [%v %v], want [true false]", params[0].PrivateHuman, params[1].PrivateHuman)
-	}
-	if !created[0].closed {
-		t.Fatal("private-human runner was reused after the capability disappeared")
-	}
-}
-
 // TestRunnerCache_Close shuts down the runner.
 func TestRunnerCache_Close(t *testing.T) {
 	cache, created := testCache(nil)

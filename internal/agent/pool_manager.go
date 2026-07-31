@@ -459,7 +459,7 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 }
 
 func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentruntime.SnapshotPromptFunc {
-	return func(ctx context.Context, info session.Info, ss memory.SessionSnapshot, privateHuman bool) string {
+	return func(ctx context.Context, info session.Info, ss memory.SessionSnapshot) string {
 		// Keep an addressable copy so version zero remains an explicit snapshot.
 		version := ss.Version
 		userRoot, promptUserID, groupID := pm.promptScope(snap.AgentID, info)
@@ -478,12 +478,10 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 			Sections:        sections,
 			SnapshotVersion: &version,
 			KnowledgeAvailable: KnowledgeToolAvailable(ctx, RunnerParams{
-				UserID:         info.UserID,
-				GroupID:        info.GroupID,
-				AgentID:        info.AgentID,
-				SessionKind:    info.Kind,
-				SessionChannel: info.Channel,
-				PrivateHuman:   privateHuman,
+				UserID:      info.UserID,
+				GroupID:     info.GroupID,
+				AgentID:     info.AgentID,
+				SessionKind: info.Kind,
 			}),
 		})
 	}

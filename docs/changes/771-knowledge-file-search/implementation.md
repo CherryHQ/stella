@@ -249,7 +249,7 @@
 
 **预期结果**
 
-有可信 `user_id` 和当前 `agent_id` 的 Agent 可以自行调用单个只读工具，从四级并集内获得全局 BM25 Top K；没有可信用户的群聊或后台任务得不到 Knowledge。
+带可信 `user_id`、当前 `agent_id` 且属于私有 `main/chat` session 的 Agent 可以自行调用单个只读工具，从四级并集内获得全局 BM25 Top K；该合同不按 Web、PAT/OAuth、聊天适配器或 Webhook channel 区分。群聊及 `task`、`scheduler`、`delegate` 后台 session 得不到 Knowledge。
 
 **修改范围**
 
@@ -269,7 +269,7 @@
 
    - 将 Knowledge search 注册到现有 built-in tool 组合根。
    - 工具从可信 runtime/session context 读取 user 和 agent 身份，不在 schema 中暴露身份或过滤参数。
-   - `BuiltinToolAvailable` 只在 user 和 agent 同时存在时提供工具；无用户群聊和后台任务不注册或返回空。
+   - `KnowledgeToolAvailable` 只在可信 user 和 agent 同时存在、group 为空且 session kind 为 `main/chat` 时提供工具；授权 Webhook 必须通过，群聊及其他 session kind 不注册或返回空。
    - 输出仅包含完整 chunk `content`、`file_name` 和清理后的用户可见 locator。
    - 空命中成功返回 `results: []`；数据库故障返回工具错误，不能伪装成空结果。
    - 同一条用户消息触发的 Agent 执行中最多实际调用两次；第一次可使用初始 query，只有结果不足时才改写后再调用一次，第三次尝试由运行时拒绝，下一条用户消息重新计数。
@@ -301,7 +301,7 @@
 - processing、failed、已删除文件永不命中。
 - limit、空 query、超长 query、空结果和数据库错误语义正确。
 - 同一条用户消息第三次调用被拒绝，下一条用户消息重新获得两次调用额度。
-- Agent 运行测试覆盖正常一对一会话、无用户群聊、无真人后台任务及参数伪造。
+- Agent 运行测试覆盖正常一对一会话、授权 Webhook、无用户群聊、`task`/`scheduler`/`delegate` 后台 session 及参数伪造。
 - 输出快照不包含 scope、user_id、agent_id、file_id、chunk_id、score、raw content 或 byte offsets。
 - 提示词测试覆盖需要检索、不应检索、二次改写、真实引用和文档提示注入样本。
 
@@ -431,8 +431,9 @@
 2. 同一用户换到其他 Agent 时不能读取上述 user_agent 文件。
 3. 普通用户在设置页上传 user 文件，能够在其有可信身份的所有 Agent 中检索。
 4. 管理员上传 system 文件后，所有有可信用户会话的 Agent 可检索；上传 system_agent 后仅目标 Agent 可检索。
-5. 无可信 Stella 用户的群聊和后台任务无法获得四级 scope 中的任何内容。
-6. 删除文件后，管理列表、配额和检索结果立即一致地移除。
+5. 使用 `agent:write` PAT 调用 Webhook 时，Agent 能按调用者的可信 user_id 和当前 agent_id 检索四级并集。
+6. 没有可信 Stella 用户的会话、群聊和 `task`、`scheduler`、`delegate` 后台 session 无法获得四级 scope 中的任何内容。
+7. 删除文件后，管理列表、配额和检索结果立即一致地移除。
 
 ### 安全与一致性
 

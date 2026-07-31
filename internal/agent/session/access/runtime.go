@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 )
@@ -87,9 +86,6 @@ type SendInput struct {
 	AgentID   string
 	SessionID string
 	Message   agent.MessageContent
-	// PrivateHuman is minted by the cookie-authenticated Web handler. Bearer
-	// API callers must leave it false even though they can invoke this use case.
-	PrivateHuman bool
 }
 
 type SendResult struct {
@@ -125,22 +121,14 @@ func (s *Service) Send(ctx context.Context, in SendInput) (SendResult, error) {
 	if info.Archived {
 		return SendResult{}, fmt.Errorf("%w: %s", agentsession.ErrArchived, in.SessionID)
 	}
-	var runtimeOpts []agentruntime.Option
-	if in.PrivateHuman && info.GroupID == "" {
-		// This service is reached only after the authenticated Web send has
-		// passed Session access. Forward the handler-minted capability rather
-		// than trusting the session's persisted channel.
-		runtimeOpts = append(runtimeOpts, agentruntime.WithPrivateHumanTurn())
-	}
 	ch := runtime.Chat(ctx, agent.ChatRequest{
-		SessionID:   in.SessionID,
-		UserID:      info.UserID,
-		AgentID:     info.AgentID,
-		Kind:        agentsession.Kind(info.Kind),
-		Channel:     agentsession.Channel(info.Channel),
-		Message:     in.Message,
-		Authority:   in.Authority,
-		RuntimeOpts: runtimeOpts,
+		SessionID: in.SessionID,
+		UserID:    info.UserID,
+		AgentID:   info.AgentID,
+		Kind:      agentsession.Kind(info.Kind),
+		Channel:   agentsession.Channel(info.Channel),
+		Message:   in.Message,
+		Authority: in.Authority,
 	})
 	return SendResult{Events: ch}, nil
 }

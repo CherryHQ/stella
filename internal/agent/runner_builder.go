@@ -38,17 +38,12 @@ func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
 	return params.UserID != "" && params.AgentID != ""
 }
 
-// KnowledgeToolAvailable limits file knowledge retrieval to private,
-// human-initiated chat sessions. Durable workers and group sessions must not
-// inherit a user's knowledge merely because they carry user and agent IDs.
+// KnowledgeToolAvailable limits file knowledge retrieval to authorized,
+// user-representing private Agent runs. Authentication and Agent access are
+// enforced before RunnerParams is built; group and durable worker sessions
+// remain excluded by their scope and kind.
 func KnowledgeToolAvailable(_ context.Context, params RunnerParams) bool {
-	if !params.PrivateHuman || params.UserID == "" || params.AgentID == "" || params.GroupID != "" {
-		return false
-	}
-	// Session channel is deny-only: the per-turn capability above remains the
-	// positive authorization signal, while Webhook is rejected even if a caller
-	// accidentally mints that capability.
-	if session.Channel(params.SessionChannel) == session.ChannelWebhook {
+	if params.UserID == "" || params.AgentID == "" || params.GroupID != "" {
 		return false
 	}
 	switch session.Kind(params.SessionKind) {

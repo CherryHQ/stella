@@ -90,7 +90,7 @@ type DBPromptParams struct {
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
 	// KnowledgeAvailable is true only when knowledge_search is registered for
-	// this private, human-initiated session.
+	// this authorized, user-representing private Agent run.
 	KnowledgeAvailable bool
 
 	// CurrentSpeaker is retained for compatibility with callers/tests that still

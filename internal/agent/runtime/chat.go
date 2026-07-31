@@ -31,15 +31,10 @@ const autoCompactionTimeout = 2 * time.Minute
 type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (systemOut string, err error)
 
 // SnapshotPromptFunc builds a system prompt from the session's snapshot version.
-// privateHuman carries the current turn capability rather than persisted
-// session metadata, which may be shared by Web and channel entry points.
-type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot, privateHuman bool) string
+type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) string
 
 // chat is the goroutine body for Runtime.Chat.
 func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
-	if co.privateHuman {
-		ctx = withPrivateHumanTurn(ctx)
-	}
 	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
@@ -169,7 +164,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 				if err != nil {
 					rt.log.Warn("snapshot lookup failed, using base system", "session_id", info.ID, "error", err)
 				} else {
-					baseSystem = rt.snapshotPrompt(ctx, info, snap, co.privateHuman)
+					baseSystem = rt.snapshotPrompt(ctx, info, snap)
 				}
 			}
 		}

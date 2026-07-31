@@ -35,45 +35,15 @@ type fakeRuntimeService struct {
 	subscribeCalls int
 	live           bool
 	events         chan agent.Event
-	lastChat       agent.ChatRequest
 }
 
-func (s *fakeRuntimeService) Chat(_ context.Context, req agent.ChatRequest) <-chan agent.Event {
+func (s *fakeRuntimeService) Chat(context.Context, agent.ChatRequest) <-chan agent.Event {
 	s.chatCalls++
-	s.lastChat = req
 	ch := make(chan agent.Event, 2)
 	ch <- agent.Event{Text: "hello"}
 	ch <- agent.Event{Text: " world"}
 	close(ch)
 	return ch
-}
-
-func TestSendForwardsOnlyExplicitPrivateHumanCapability(t *testing.T) {
-	svc, rt, _, authority := newRuntimeTestService(t)
-	if _, err := svc.Send(context.Background(), SendInput{
-		Authority:    authority,
-		AgentID:      "a1",
-		SessionID:    "s1",
-		Message:      "hello",
-		PrivateHuman: true,
-	}); err != nil {
-		t.Fatalf("Send private human: %v", err)
-	}
-	if len(rt.lastChat.RuntimeOpts) != 1 {
-		t.Fatalf("private-human runtime options = %d, want 1", len(rt.lastChat.RuntimeOpts))
-	}
-
-	if _, err := svc.Send(context.Background(), SendInput{
-		Authority: authority,
-		AgentID:   "a1",
-		SessionID: "s1",
-		Message:   "automation",
-	}); err != nil {
-		t.Fatalf("Send automation: %v", err)
-	}
-	if len(rt.lastChat.RuntimeOpts) != 0 {
-		t.Fatalf("automation runtime options = %d, want 0", len(rt.lastChat.RuntimeOpts))
-	}
 }
 
 func (s *fakeRuntimeService) SubscribeSession(string) (<-chan agent.Event, func()) {

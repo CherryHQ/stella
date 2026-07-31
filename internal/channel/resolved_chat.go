@@ -8,7 +8,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
-	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -174,12 +173,6 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve session: %w", err)
 	}
-	var runtimeOpts []agentruntime.Option
-	if rc.GroupID == "" {
-		// Resolve established a persisted human identity for this private
-		// channel turn, so it may mint the private-human retrieval capability.
-		runtimeOpts = append(runtimeOpts, agentruntime.WithPrivateHumanTurn())
-	}
 	stream := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
 		SessionID:      info.ID,
 		UserID:         rc.sessionUserID(),
@@ -190,7 +183,6 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		Message:        message,
 		CurrentSpeaker: rc.CurrentSpeaker,
 		Authority:      rc.Authority,
-		RuntimeOpts:    runtimeOpts,
 	})
 	return stream, info.ID, nil
 }

@@ -23,9 +23,6 @@ type cachedSession struct {
 	r        Runner
 	model    string
 	thinking ai.ThinkingLevel
-	// privateHuman is part of the runner cache identity because it controls the
-	// registered tools and the base system prompt.
-	privateHuman bool
 }
 
 // runnerCache manages active runners keyed by session ID.
@@ -71,8 +68,6 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		return nil, nil, fmt.Errorf("session scope: %w", err)
 	}
 
-	privateHuman := privateHumanTurnFromContext(ctx)
-
 	c.mu.Lock()
 	cs, ok := c.sessions[info.ID]
 	if !ok {
@@ -96,11 +91,6 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 			cs.r = nil
 		case thinking != "" && cs.thinking != thinking:
 			c.log.Info("switching thinking level", "session_id", info.ID, "from", cs.thinking, "to", thinking)
-			stale = cs.r
-			cs.r = nil
-		case cs.privateHuman != privateHuman:
-			// A durable session can be entered from different surfaces. Rebuild
-			// so a runner created for a human turn is never reused by a webhook.
 			stale = cs.r
 			cs.r = nil
 		default:
@@ -148,8 +138,6 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		AgentID:        info.AgentID,
 		ProjectID:      info.ProjectID,
 		SessionKind:    info.Kind,
-		SessionChannel: info.Channel,
-		PrivateHuman:   privateHuman,
 		HooksFn:        hooksFn,
 		ExtraTools:     extraTools,
 		DelegateRunner: delegateRunner,
@@ -174,7 +162,6 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 	cs.r = r
 	cs.model = effectiveModel
 	cs.thinking = effectiveThinking
-	cs.privateHuman = privateHuman
 	c.mu.Unlock()
 
 	// Bootstrap memory for this session using the scope derived up front.
