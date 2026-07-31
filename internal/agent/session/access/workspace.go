@@ -85,13 +85,14 @@ type WorkspaceReadInput struct {
 }
 
 type WorkspaceReadResult struct {
-	Path         string `json:"path"`
-	Content      string `json:"content,omitempty"`
-	Language     string `json:"language,omitempty"`
-	Raw          bool   `json:"-"`
-	RawName      string `json:"-"`
-	RawMediaType string `json:"-"`
-	RawContent   []byte `json:"-"`
+	Path         string    `json:"path"`
+	Content      string    `json:"content,omitempty"`
+	Language     string    `json:"language,omitempty"`
+	Raw          bool      `json:"-"`
+	RawName      string    `json:"-"`
+	RawMediaType string    `json:"-"`
+	RawContent   []byte    `json:"-"`
+	RawModTime   time.Time `json:"-"`
 }
 
 type WorkspaceWriteInput struct {
@@ -252,7 +253,7 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		}
 		return WorkspaceReadResult{
 			Path: path, Raw: true, RawName: filepath.Base(path),
-			RawMediaType: mediaType, RawContent: data,
+			RawMediaType: mediaType, RawContent: data, RawModTime: info.ModTime(),
 		}, nil
 	}
 	probe := data
