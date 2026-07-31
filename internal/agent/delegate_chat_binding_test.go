@@ -36,8 +36,8 @@ func (r *ctxCapturingRunner) Close() error            { return nil }
 // chat -> delegate boundary. The delegate tool clears the binding when it builds
 // the child context, but Delegate is the chokepoint every delegate turn passes,
 // including ones a future caller wires up differently. A delegate runs in its
-// own session, so carrying the parent chat's binding into it would hand
-// session_control permission to reset a conversation the delegate is not part of.
+// own session, so carrying the parent chat's binding into it would let a
+// nested run act on a conversation the delegate is not part of.
 func TestService_DelegateDropsParentChatBinding(t *testing.T) {
 	runner := &ctxCapturingRunner{}
 	mem := memorytest.New()

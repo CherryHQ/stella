@@ -86,9 +86,9 @@ func (rc *ResolvedChat) chatChannelRequest() agent.ChatChannelRequest {
 }
 
 // withChatBinding marks a turn's context as backed by this durable chat
-// binding. It is the sole entry gate for tools that may only run inside a chat
-// a user can keep talking in (`session_control`): a Web/API send, a webhook, or
-// a scheduler run never passes through here, so it never carries the marker.
+// binding. It is the sole entry gate for work that may only run inside a chat
+// a user can keep talking in: a Web/API send, a webhook, or a scheduler run
+// never passes through here, so it never carries the marker.
 //
 // A session row cannot stand in for this — the Web UI can open the same main
 // session a DM is pinned to — so the adapter that knows has to say so.

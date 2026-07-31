@@ -23,8 +23,8 @@ func newRotateTestChat(t *testing.T, user auth.User) *ResolvedChat {
 }
 
 // inertClaim is the no-guard receipt for tests that exercise rotation itself;
-// a zero-value group receipt is inert by construction.
-func inertClaim() commandClaim { return commandReceipt{} }
+// a zero-value chat receipt is inert by construction.
+func inertClaim() commandClaim { return chatCommandReceipt{} }
 
 func TestRotateChatSessionRotatesMainSession(t *testing.T) {
 	ctx := context.Background()
@@ -80,41 +80,6 @@ func TestRotateSessionDuplicateIsStale(t *testing.T) {
 	}
 	if second.ID != first.ID {
 		t.Fatal("a duplicate /new must not rotate the session a second time")
-	}
-}
-
-// TestRotateChatSessionRotatesGroupSession proves a group chat rotates like a
-// DM now that its session is resolved by binding rather than pinned to its key.
-func TestRotateChatSessionRotatesGroupSession(t *testing.T) {
-	const groupID = "11111111-1111-4111-8111-111111111111"
-	ctx := context.Background()
-	rc := newCompactTestChat(t, groupID, auth.User{})
-
-	before, err := rc.CurrentSessionForRotation(ctx)
-	if err != nil {
-		t.Fatalf("CurrentSessionForRotation: %v", err)
-	}
-	if before.GroupID != groupID {
-		t.Fatalf("resolved session GroupID = %q, want the group", before.GroupID)
-	}
-	if reply := rotateChatSession(ctx, rc, inertClaim(), nil); reply != pkgchannel.NewSessionStartedMessage {
-		t.Fatalf("group reply = %q, want %q", reply, pkgchannel.NewSessionStartedMessage)
-	}
-
-	after, err := rc.ResolveSession(ctx)
-	if err != nil {
-		t.Fatalf("ResolveSession: %v", err)
-	}
-	if after.ID == before.ID {
-		t.Fatal("group /new must move the chat onto a new session")
-	}
-	if after.GroupID != groupID || after.Archived {
-		t.Fatalf("successor = %+v, want an active session owned by the group", after)
-	}
-
-	// A duplicate /new names a session that is already archived.
-	if _, err := rc.RotateSession(ctx, before.ID); !errors.Is(err, session.ErrStaleRotation) {
-		t.Fatalf("duplicate group rotation error = %v, want ErrStaleRotation", err)
 	}
 }
 

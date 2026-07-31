@@ -167,20 +167,6 @@ func (f *fakeAnthropic) enqueueText(text string) {
 	f.scripts = append(f.scripts, fakeResponse{text: text})
 }
 
-// enqueueTool scripts the next FIFO turn as a single tool call. The tool loop
-// answers a tool_use with a tool_result and calls the model again, so a turn
-// that uses a tool is scripted as two entries: this one, then the text reply
-// that ends the turn.
-func (f *fakeAnthropic) enqueueTool(name, args string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.scripts = append(f.scripts, fakeResponse{
-		toolID:   fmt.Sprintf("toolu_%s_%d", name, len(f.scripts)),
-		toolName: name,
-		toolArgs: args,
-	})
-}
-
 // enqueueGoalControl scripts the tool_use reply for one goal_control stage,
 // matched by the action enum the server advertises in the request's goal_control
 // tool schema — not by prompt text or arrival order. args is the full

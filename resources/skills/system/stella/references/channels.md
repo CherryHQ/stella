@@ -19,13 +19,11 @@ Commands available in all channels:
 - `/model` -- Switch model interactively
 - `/whoami` -- Show your user/chat ID
 
-In a group each agent has its own session, so `/new` resets the single agent
-present and `/new @agent` is required when the group has several. The reset is
-a message boundary: pre-reset group messages are never carried into the fresh
-session, including ones that agent had not read yet. `/compact` is not
-available in groups. A user can also just ask ("new session", "新会话"); the
-agent then asks for confirmation before resetting anything, while a compaction
-request needs no confirmation.
+`/new` works in direct messages only. A group's context is shared by every
+member, so a group `/new` is refused and resets nothing; `/compact` is not
+available in groups either. Neither command enters the group's shared history.
+If a user asks in words for a fresh session, point them at `/new` in a direct
+message rather than claiming to have reset anything.
 
 ## Telegram bot
 

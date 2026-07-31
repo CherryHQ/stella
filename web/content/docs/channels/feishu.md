@@ -198,7 +198,7 @@ Feishu supports the standard chat commands:
 | `/agent`   | List or switch agents                                     |
 | `/whoami`  | Show your platform identity                               |
 
-Each agent in a group keeps its own session, so `/new` in a group with several agents needs a target: `/new @agent`. The command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.
+`/new` works in a direct message only. A group's context is shared by everyone in it, so `/new` in a group replies that the shared session cannot be reset and changes nothing; the command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.
 
 ## Config Reference
 

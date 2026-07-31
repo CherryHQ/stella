@@ -86,11 +86,9 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 | `/agent`   | List or switch agents                                                    |
 | `/whoami`  | Show your user/chat ID                                                   |
 
-In a group, each agent keeps its own session: `/new` resets the only agent
-present, and a group with several agents needs `/new @agent`. `/compact` does not
-apply in groups. The `/new` command never enters the group's shared history, and
-the reset is also a message boundary: anything the group said before it is
-never carried into the fresh session, even if that agent had not read it yet.
+`/new` works in direct messages only. A group's context is shared by every
+member, so a group `/new` is refused and resets nothing; `/compact` does not
+apply in groups either. Neither command enters the group's shared history.
 
 ## Stella tools
 
@@ -105,7 +103,6 @@ recally tool                    # agent reading, feed, and entry actions
 scheduler tool                  # agent schedule management
 goal tool                       # agent async goal management
 workflow tool                   # agent workflow save/list/get/run
-session_control tool            # chat channels only: request_new/confirm_new (user must agree in a later message), compact
 ```
 
 Humans start and update Stella with `stellad server` and `stellad upgrade`, then manage runtime state in the Web UI.
@@ -157,7 +154,7 @@ Memory, scheduler, goals, vault, OAuth connections, Recally, email, and sharing 
 - **Scheduler**: agents use the `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs, including workflow jobs when exposed. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Goals tab/Tasks tab schedule surfaces), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Vault/OAuth/Recally/Email/Share**: agents use built-in tools. OAuth connect returns a verification URI and user code; give those to the user, wait for authorization, then poll status with the returned flow id. Recally save requires the agent to fetch article content first. Email send requires explicit user confirmation and an idempotency key. Share creates public links only when the user asks.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
-- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact` (or the `session_control` action `compact`). Configurable in settings. Compaction keeps the same session; `/new` instead rotates the chat onto a fresh session and archives the old one, which stays searchable through memory.
+- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings. Compaction keeps the same session; `/new` instead rotates the chat onto a fresh session and archives the old one, which stays searchable through memory.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.
 - **Vault secrets**: scope-matching vault secrets are already available as sandbox environment variables by name. Never print secret values; use the `vault` tool or Web UI to inspect secret metadata.
 - **GitHub CLI authorization**: `gh` uses Stella's GitHub OAuth connection and receives a refreshed runtime token.

@@ -38,10 +38,12 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 	if strings.EqualFold(command, "/config") {
 		return "⚠️ /config is not available in group chats. Please use it in a direct message.", true, nil, nil
 	}
-	// `/new` resets an agent's group context, so the command itself must not
-	// become part of that context: intercept it before the event-log append.
+	// A group's context is shared by every member, so `/new` cannot reset it.
+	// Answer before the event-log append so the refused command does not become
+	// group context either — it is an instruction to Stella, not something the
+	// group said.
 	if strings.EqualFold(command, "/new") {
-		return c.handleGroupNewSessionCommand(ctx, msg, args), true, nil, nil
+		return pkgchannel.GroupNewSessionUnsupportedMessage, true, nil, nil
 	}
 
 	result, err := c.appendGroupMessage(ctx, msg)

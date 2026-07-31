@@ -24,17 +24,17 @@ func (h *capturingHandler) HandleIncoming(_ context.Context, _ pkgchannel.Incomi
 }
 
 // TestSharedCommandForwardsPayload proves a slash command's argument survives
-// the Telegram adapter. In a multi-agent group `/new @agent-b` names the agent
-// whose session to reset; forwarding an empty argument made that command
-// ambiguous, so it could never reach the target the user typed.
+// the Telegram adapter and reaches the coordinator verbatim. Telegram delivers
+// the argument as a separate payload field, so an adapter that forwards only
+// the command silently strips every argument the user typed.
 func TestSharedCommandForwardsPayload(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		text string
 		want string
 	}{
-		{name: "targeted", text: "/new @agent-b", want: "@agent-b"},
-		{name: "padded", text: "/new    @agent-b   ", want: "@agent-b"},
+		{name: "with argument", text: "/new extra", want: "extra"},
+		{name: "padded", text: "/new    extra   ", want: "extra"},
 		{name: "bare", text: "/new", want: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

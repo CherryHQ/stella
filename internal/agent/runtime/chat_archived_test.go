@@ -12,8 +12,8 @@ import (
 )
 
 // rotatingMemory is a session store whose row can be archived by something else
-// while a turn is running — a `/new` from another surface, or the session_control
-// tool confirming a reset. It records what the turn tried to write back so a test
+// while a turn is running — a `/new` from another surface. It records what
+// the turn tried to write back so a test
 // can prove the turn never resurrects a session the chat has left.
 type rotatingMemory struct {
 	*recordingMemory

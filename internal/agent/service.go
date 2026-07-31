@@ -432,8 +432,8 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 		return DelegateResult{SessionID: req.SessionID}, agentaccess.ErrForbidden
 	}
 	// A delegate turn runs in its own session, never in the chat that spawned it,
-	// so it must not inherit that chat's binding — which is what session_control
-	// treats as permission to rotate or compact. The delegate tool clears this at
+	// so it must not inherit that chat's binding — the authority that addresses
+	// that chat's live session. The delegate tool clears this at
 	// its own boundary too; this is the chokepoint every delegate turn passes.
 	ctx = agentctx.WithoutChatBinding(ctx)
 	authority := req.Authority

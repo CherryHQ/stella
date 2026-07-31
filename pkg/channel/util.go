@@ -23,8 +23,7 @@ For those shortcuts, keep them short and command-like.
 
 Session control
   /new       Start a fresh session (previous history stays searchable)
-             In a group with several agents: /new @agent
-             Ask in words too ("new session", "新会话") — I check with you before resetting
+             Direct messages only — a group's shared session cannot be reset
   /compact   Compress the current session in place (same session, shorter context)
              When enabled, short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
   /abort     Cancel the in-progress reply
@@ -74,28 +73,12 @@ const NewSessionOutcomeUnknownMessage = "⚠️ Could not confirm whether the ne
 // it fails closed instead of running unguarded.
 const NewSessionUnverifiableMessage = "⚠️ Cannot start a new session: this delivery has no message id, so a duplicate could not be detected. The session was not reset."
 
-// GroupNewSessionUnavailableMessage is the reply when a group `/new` arrives at
-// a deployment whose group plumbing (group identity resolution or the member
-// roster) is not wired, so there is no roster to rotate against.
-const GroupNewSessionUnavailableMessage = "⚠️ Starting a fresh session is not available in this group."
-
-// GroupNewSessionNoAgentsMessage is the reply for a `/new` in a group that has
-// no agent members, so there is no session to reset.
-const GroupNewSessionNoAgentsMessage = "⚠️ This group has no agents, so there is no session to reset."
-
-// GroupNewSessionUsageMessage is the reply for an ambiguous group `/new`. Each
-// agent in a group keeps its own session, so a multi-agent group requires an
-// explicit target: resetting every agent's context on an unclear command would
-// be destructive by default.
-func GroupNewSessionUsageMessage(agentIDs []string) string {
-	var b strings.Builder
-	b.WriteString("⚠️ This group has more than one agent, so `/new` needs a target.\nUse `/new @agent`:")
-	for _, id := range agentIDs {
-		b.WriteString("\n  @")
-		b.WriteString(id)
-	}
-	return b.String()
-}
+// GroupNewSessionUnsupportedMessage is the reply when `/new` arrives in a group
+// chat. A group's context is shared by every member, so one member's chat
+// command must not clear it for everyone. The refusal is explicit rather than
+// silent: a `/new` that looked accepted but reset nothing would leave the group
+// believing the context was cleared.
+const GroupNewSessionUnsupportedMessage = "⚠️ Group sessions are shared, so `/new` cannot reset them. Use `/new` in a direct message to reset your own session."
 
 // SplitMessage splits text into chunks that fit within maxLen.
 // It tries to split at newline boundaries and avoids cutting multi-byte

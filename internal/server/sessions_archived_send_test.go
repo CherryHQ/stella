@@ -44,8 +44,8 @@ func (m recordingRuntimeManager) GetService(string) sessionaccess.RuntimeService
 func (m recordingRuntimeManager) Default() sessionaccess.RuntimeService          { return m.rt }
 
 // TestSendToArchivedSessionConflicts covers the archived-send answer at the
-// transport, which is where the distinction actually matters. `/new` and the
-// session_control tool archive a session out from under whatever is already
+// transport, which is where the distinction actually matters. `/new` archives
+// a session out from under whatever is already
 // holding it — a browser tab, a mobile client — and that client needs to learn
 // it must move to the successor. 404 would read as a broken link and 500 as a
 // server fault; only 409 says "your session is gone, get the new one".

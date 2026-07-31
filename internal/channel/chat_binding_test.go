@@ -76,8 +76,8 @@ func runProbeTurn(t *testing.T, rc *ResolvedChat) {
 }
 
 // TestChatTurnCarriesDurableChatBinding proves the marker that gates
-// session_control actually reaches a running turn. Without it the tool would
-// refuse every real chat; with it attached anywhere else, a Web tab could reset
+// chat-only session work actually reaches a running turn. Without it a real
+// chat would fail closed; with it attached anywhere else, a Web tab could reset
 // a session out from under itself.
 func TestChatTurnCarriesDurableChatBinding(t *testing.T) {
 	t.Run("dm binds to the main session", func(t *testing.T) {

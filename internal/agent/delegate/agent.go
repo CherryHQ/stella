@@ -21,11 +21,6 @@ import (
 const (
 	delegateToolName = "delegate"
 
-	// sessionControlToolName is sessionctl.ToolName, duplicated because
-	// internal/agent/sessionctl imports internal/agent, which imports this
-	// package. Keep the two in sync.
-	sessionControlToolName = "session_control"
-
 	// defaultTimeout is the wall-clock deadline applied to every delegate run.
 	// Overridable globally via DelegateConfig.DefaultTimeout (runner.delegate_timeout
 	// in admin settings) or per-preset via the timeout front-matter field.
@@ -324,16 +319,14 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 }
 
 // excludedTools returns tools hidden for this delegate run. It always excludes
-// "delegate" to prevent recursion and "session_control" because a delegate has
-// no chat of its own: the only session it could reach is the parent chat's, and
-// resetting or compacting that from inside a nested run is never what the user
-// asked for. A preset whitelist cannot re-admit either; it only hides more.
+// "delegate" to prevent recursion. A preset whitelist cannot re-admit it; it
+// only hides more.
 func (t *DelegateTool) excludedTools(whitelist []string, hasWhitelist bool) []string {
-	blocked := map[string]struct{}{delegateToolName: {}, sessionControlToolName: {}}
+	blocked := map[string]struct{}{delegateToolName: {}}
 	if hasWhitelist {
 		allowed := make(map[string]struct{}, len(whitelist))
 		for _, name := range whitelist {
-			if name != "" && name != delegateToolName && name != sessionControlToolName {
+			if name != "" && name != delegateToolName {
 				allowed[name] = struct{}{}
 			}
 		}
