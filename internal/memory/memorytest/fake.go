@@ -64,6 +64,8 @@ type Fake struct {
 	changelog []memory.ChangeEntry
 	// snapshots maps "sessionID:userID:agentID" -> SessionSnapshot.
 	snapshots map[string]memory.SessionSnapshot
+	// rotateErr, when set, fails every RotateInfo (see FailRotation).
+	rotateErr error
 	// mu protects all maps.
 	mu sync.Mutex
 }
@@ -103,6 +105,8 @@ var (
 	_ memory.ProfileEntryStore        = (*Fake)(nil)
 	_ memory.ChangelogPageReader      = (*Fake)(nil)
 	_ memory.GroupMemoryStore         = (*Fake)(nil)
+	_ memory.GroupEventIngestor       = (*Fake)(nil)
+	_ memory.GroupCursorCommitter     = (*Fake)(nil)
 	_ memory.FactStore                = (*Fake)(nil)
 	_ memory.VersionedFactStore       = (*Fake)(nil)
 )
@@ -132,6 +136,35 @@ func (f *Fake) Append(_ context.Context, session memory.Session, msgs ...ai.Mess
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sessions[session.ID] = append(f.sessions[session.ID], msgs...)
+	return nil
+}
+
+// SyncGroupEventsBefore implements GroupEventIngestor. The in-memory fake has no
+// public event log, so tests provide any prior group context directly.
+func (f *Fake) SyncGroupEventsBefore(context.Context, memory.Session, int64) error {
+	return nil
+}
+
+// AppendGroupTurn implements GroupEventIngestor by persisting the supplied
+// trigger and continuation in the same order as a real per-Agent group LCM.
+func (f *Fake) AppendGroupTurn(
+	ctx context.Context,
+	session memory.Session,
+	_ string,
+	trigger ai.Message,
+	continuation ...ai.Message,
+) error {
+	messages := make([]ai.Message, 0, len(continuation)+1)
+	if trigger != nil {
+		messages = append(messages, trigger)
+	}
+	messages = append(messages, continuation...)
+	return f.Append(ctx, session, messages...)
+}
+
+// CommitGroupCursor implements GroupCursorCommitter. The fake has no event log
+// cursor, so committing a successful group turn is intentionally a no-op.
+func (f *Fake) CommitGroupCursor(context.Context, memory.Session, int64) error {
 	return nil
 }
 
@@ -448,6 +481,58 @@ func (f *Fake) SaveInfo(_ context.Context, info memory.SessionInfo) error {
 	return nil
 }
 
+// TouchActiveInfo implements memory.SessionManager. The mutex stands in for the
+// real provider's single guarded UPDATE: an archived (or missing) row is never
+// written and never resurrected.
+func (f *Fake) TouchActiveInfo(_ context.Context, info memory.SessionInfo) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	si, ok := f.sessionInfos[info.ID]
+	if !ok || si.info.Archived {
+		return false, nil
+	}
+	if si.info.Title == "" {
+		si.info.Title = info.Title
+	}
+	if si.info.Channel == "" {
+		si.info.Channel = info.Channel
+	}
+	if si.info.GroupID == "" {
+		si.info.GroupID = info.GroupID
+	}
+	si.info.LastActive = time.Now().UTC()
+	f.sessionInfos[info.ID] = si
+	return true, nil
+}
+
+// RotateInfo implements memory.SessionManager. The mutex stands in for the real
+// provider's transaction: the archive and the successor become visible together.
+func (f *Fake) RotateInfo(_ context.Context, expectedSessionID string, successor memory.SessionInfo) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.rotateErr != nil {
+		return f.rotateErr
+	}
+	expected, ok := f.sessionInfos[expectedSessionID]
+	if !ok || expected.info.Archived || expected.info.Kind != successor.Kind ||
+		expected.info.UserID != successor.UserID || expected.info.AgentID != successor.AgentID ||
+		expected.info.ProjectID != successor.ProjectID {
+		return fmt.Errorf("%w: %s", memory.ErrStaleRotation, expectedSessionID)
+	}
+	expected.info.Archived = true
+	f.sessionInfos[expectedSessionID] = expected
+	f.sessionInfos[successor.ID] = fakeSessionInfo{info: successor}
+	return nil
+}
+
+// FailRotation makes the next RotateInfo calls fail with err, so callers can
+// prove a rotation failure leaves the predecessor untouched.
+func (f *Fake) FailRotation(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rotateErr = err
+}
+
 // LoadInfo implements memory.SessionManager.
 func (f *Fake) LoadInfo(_ context.Context, sessionID string) (memory.SessionInfo, error) {
 	f.mu.Lock()
@@ -473,6 +558,9 @@ func (f *Fake) ListInfo(_ context.Context, opts memory.ListOptions) ([]memory.Se
 			continue
 		}
 		if opts.Kind != "" && si.info.Kind != opts.Kind {
+			continue
+		}
+		if opts.Channel != "" && si.info.Channel != opts.Channel {
 			continue
 		}
 		if opts.ExcludeInternal && (si.info.Kind == "task" || si.info.Kind == "delegate") {

@@ -948,20 +948,15 @@ func (t *memoryTool) advanceSnapshot(ctx context.Context, userID string) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// sessionFromContext builds a Session from context values.
+// sessionFromContext builds a Session from context values. The scope key is the
+// conversation owner, so a group turn — which deliberately carries no user
+// identity (D9) — scopes to its group id, the same value its rows persist under.
 func sessionFromContext(ctx context.Context) Session {
 	groupID := authz.GroupIDFromContext(ctx)
-	userID := authz.UserIDFromContext(ctx)
-	if userID == "" && groupID != "" {
-		// Group LCM rows use the group UUID as their durable owner key. This is
-		// storage scoping only: the runtime context remains a group identity and
-		// never receives a synthetic authenticated user.
-		userID = groupID
-	}
 	return Session{
 		ID:      SessionIDFromContext(ctx),
 		AgentID: authz.AgentIDFromContext(ctx),
-		UserID:  userID,
+		UserID:  ScopeUserIDFromContext(ctx),
 		GroupID: groupID,
 	}
 }

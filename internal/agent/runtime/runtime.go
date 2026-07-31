@@ -7,6 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -288,6 +291,11 @@ func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageConte
 		o(&co)
 	}
 	ctx = memory.WithSessionID(ctx, info.ID)
+	// One identifier per turn. Tools that must know whether a second, real user
+	// message arrived since something happened compare turn ids; the runtime
+	// admits one turn per session at a time, so "different id" means "different
+	// user message" for every turn a user drives.
+	ctx = agentctx.WithTurnID(ctx, uuid.Must(uuid.NewV7()).String())
 
 	// Tee: chat writes to inner; the forwarder fans every event out to the hub
 	// (read-only subscribers — SSE watchers of scheduler/task/delegate turns, or

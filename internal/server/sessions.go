@@ -98,6 +98,13 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 
 	result, err := s.sessionAccess.Send(r.Context(), sessionaccess.SendInput{Authority: authority, AgentID: agentID, SessionID: sessionID, Message: partsToMessageContent(body.Parts)})
 	if err != nil {
+		// An archived session is a state conflict, not a missing one: the client
+		// holds a session that was rotated away and needs to move to the new one
+		// rather than treat its own link as broken.
+		if errors.Is(err, session.ErrArchived) {
+			writeError(w, http.StatusConflict, "session is archived; start a new session")
+			return
+		}
 		s.writeSessionAccessError(w, err)
 		return
 	}

@@ -56,7 +56,7 @@ FROM debian:13-slim
 # reconcile-builtins` below installs them from resources/tools.yaml, exposing
 # them via mise shims exactly as the host does. Only non-mise base runtime deps
 # are installed via apt.
-COPY --from=jdxcode/mise:2026.4.25 /usr/local/bin/mise /opt/stella/bin/mise
+COPY --from=jdxcode/mise:2026.7.18 /usr/local/bin/mise /opt/stella/bin/mise
 COPY --from=libheif-builder /usr/local/lib/libheif.so.1.23.0 /usr/local/lib/
 
 RUN apt-get update && \

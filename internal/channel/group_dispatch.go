@@ -32,12 +32,18 @@ type GroupMemberLister interface {
 
 // handleGroupIncoming ingests a group message and wakes the durable dispatcher.
 func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
-	_ = args
 	log := slog.With("component", "group_dispatch", "platform", msg.Platform, "chat_id", msg.ChatID)
 
 	// CR-007: /config may contain secrets — block it in groups before event log write.
 	if strings.EqualFold(command, "/config") {
 		return "⚠️ /config is not available in group chats. Please use it in a direct message.", true, nil, nil
+	}
+	// A group's context is shared by every member, so `/new` cannot reset it.
+	// Answer before the event-log append so the refused command does not become
+	// group context either — it is an instruction to Stella, not something the
+	// group said.
+	if strings.EqualFold(command, "/new") {
+		return pkgchannel.GroupNewSessionUnsupportedMessage, true, nil, nil
 	}
 
 	result, err := c.appendGroupMessage(ctx, msg)

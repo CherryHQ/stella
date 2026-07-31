@@ -160,10 +160,20 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 			saveCtx = authz.WithUserID(saveCtx, info.UserID)
 		}
 		saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
+		// TouchActiveInfo, not SaveInfo: a `/new` rotation can archive this
+		// session after the turn resolved it, and
+		// auto-compaction above widens that window to minutes. SaveInfo would
+		// replay the turn-start snapshot's `archived = false` and un-archive a
+		// session the chat has already left; only main sessions have a
+		// unique-active index to catch that, so a resurrected kind=chat row would
+		// silently win its binding's newest-match lookup and pull the chat
+		// backwards. TouchActiveInfo makes the check and the write one statement.
 		if rec, err := updated.Record(); err != nil {
 			rt.log.Warn("skip saving invalid session info", "session_id", info.ID, "error", err)
-		} else if err := sm.SaveInfo(saveCtx, rec); err != nil {
+		} else if applied, err := sm.TouchActiveInfo(saveCtx, rec); err != nil {
 			rt.log.Warn("failed to save session info", "session_id", info.ID, "error", err)
+		} else if !applied {
+			rt.log.Info("session archived mid-turn; skipping session info save", "session_id", info.ID)
 		}
 	}
 

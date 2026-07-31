@@ -33,7 +33,7 @@ type groupHistoryMessage struct {
 	ContentBlocks    []byte
 }
 
-func groupCursorPipeline(agentID string) string { return "lcm:" + agentID }
+func groupCursorPipeline(agentID string) string { return memory.GroupIngestPipeline(agentID) }
 
 // assembleGroup reads the already-synchronized per-agent LCM. The runtime calls
 // SyncGroupEventsBefore before compaction so pending public events participate

@@ -853,6 +853,103 @@ func countOriginMessages(t *testing.T, p *Provider, convID string, items []sqlc.
 	return count
 }
 
+// TestGroupRotationResetsLCMButKeepsWatermark pins both halves of group `/new`:
+// the successor receives a fresh per-Agent LCM, while the group-level ingest
+// cursor survives so public messages consumed by the predecessor are not replayed.
+func TestGroupRotationResetsLCMButKeepsWatermark(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	first, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "group-rotation", ActorType: eventlog.ActorHuman,
+		ActorID: "user-1", Content: "old-a", PlatformMessageID: "rotation-1",
+	})
+	if err != nil {
+		t.Fatalf("append first event: %v", err)
+	}
+	second, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "group-rotation", ActorType: eventlog.ActorHuman,
+		ActorID: "user-2", Content: "old-b", PlatformMessageID: "rotation-2",
+	})
+	if err != nil {
+		t.Fatalf("append second event: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	before := memory.Session{
+		ID: uuid.Must(uuid.NewV7()).String(), AgentID: "agent-a",
+		UserID: first.GroupID, GroupID: first.GroupID,
+	}
+	if err := p.SyncGroupEventsBefore(ctx, before, second.Seq); err != nil {
+		t.Fatalf("sync predecessor events: %v", err)
+	}
+	if err := p.AppendGroupTurn(
+		ctx,
+		before,
+		second.Message.ID,
+		ai.UserMessage{Content: "old-b"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "old-reply"}}},
+	); err != nil {
+		t.Fatalf("append predecessor turn: %v", err)
+	}
+	if err := p.CommitGroupCursor(ctx, before, second.Seq); err != nil {
+		t.Fatalf("commit predecessor cursor: %v", err)
+	}
+	watermark := mustGroupCursor(t, p, first.GroupID, groupCursorPipeline("agent-a"))
+	if watermark != second.Seq {
+		t.Fatalf("predecessor watermark = %d, want %d", watermark, second.Seq)
+	}
+
+	after := memory.Session{
+		ID: uuid.Must(uuid.NewV7()).String(), AgentID: "agent-a",
+		UserID: first.GroupID, GroupID: first.GroupID,
+	}
+	rotateCtx := authz.WithAgentID(authz.WithGroupID(ctx, first.GroupID), "agent-a")
+	if err := p.RotateInfo(rotateCtx, before.ID, memory.SessionInfo{
+		ID: after.ID, AgentID: after.AgentID, UserID: after.UserID,
+		GroupID: after.GroupID, Kind: "chat",
+	}); err != nil {
+		t.Fatalf("rotate group session: %v", err)
+	}
+	if got := mustGroupCursor(t, p, first.GroupID, groupCursorPipeline("agent-a")); got != watermark {
+		t.Fatalf("rotation changed watermark to %d, want %d", got, watermark)
+	}
+
+	if _, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "group-rotation", ActorType: eventlog.ActorHuman,
+		ActorID: "user-1", Content: "new-a", PlatformMessageID: "rotation-3",
+	}); err != nil {
+		t.Fatalf("append third event: %v", err)
+	}
+	trigger, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "group-rotation", ActorType: eventlog.ActorHuman,
+		ActorID: "user-2", Content: "new-b", PlatformMessageID: "rotation-4",
+	})
+	if err != nil {
+		t.Fatalf("append trigger event: %v", err)
+	}
+	if err := p.SyncGroupEventsBefore(ctx, after, trigger.Seq); err != nil {
+		t.Fatalf("sync successor events: %v", err)
+	}
+	messages, err := p.Assemble(ctx, after, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble successor: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("successor messages = %d, want one post-rotation event", len(messages))
+	}
+	if got := flattenUserMessage(messages[0].(ai.UserMessage)); got != fmt.Sprintf("[seq:%d user-1]: new-a", trigger.Seq-1) {
+		t.Fatalf("successor message = %q, want only the post-rotation event", got)
+	}
+	if mustConversationID(t, p, before) == mustConversationID(t, p, after) {
+		t.Fatal("rotation reused the predecessor conversation")
+	}
+}
+
 func mustConversationID(t *testing.T, p *Provider, session memory.Session) string {
 	t.Helper()
 	convID, err := p.getOrCreateConversation(context.Background(), session)

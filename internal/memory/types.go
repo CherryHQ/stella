@@ -5,8 +5,25 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
+
+// ScopeUserIDFromContext returns the user_id this turn's conversation rows are
+// keyed by. A group turn carries no user identity — runtime identity stays the
+// group (D9) — and its conversations persist under user_id = group_id (the
+// ctx_conversation_group_owner_check invariant), so the group id is its scope
+// key. Use this for conversation-scoped reads and writes (session info,
+// messages, summaries) only. Per-user data — soul, profile, constraints,
+// knowledge facts — must keep resolving strictly against
+// authz.UserIDFromContext so a group turn fails closed instead of reading a
+// person's private rows.
+func ScopeUserIDFromContext(ctx context.Context) string {
+	if userID := authz.UserIDFromContext(ctx); userID != "" {
+		return userID
+	}
+	return authz.GroupIDFromContext(ctx)
+}
 
 type contextKey string
 
@@ -100,6 +117,13 @@ type Session struct {
 	GroupID string // non-empty for group sessions; assembles history from event log instead of ctx_message
 }
 
+// GroupIngestPipeline names the ctx_group_ingest_cursor pipeline that tracks
+// one agent's consumption of a group's event log. The LCM assembler owns the
+// cursor's movement, but the name is shared: session rotation fast-forwards it
+// as a message boundary, and the group dispatcher reads it to drop restarted
+// dispatch rows whose trigger that boundary already consumed.
+func GroupIngestPipeline(agentID string) string { return "lcm:" + agentID }
+
 // GroupCursorCommitter advances group event-log ingestion only after a chat turn
 // has completed successfully. Assemble may prepare between-turn rows, but commit
 // owns durable cursor movement.
@@ -139,6 +163,7 @@ type ListOptions struct {
 	AgentID         string // filter by agent (empty = all)
 	UserID          string // filter by user (empty = all)
 	Kind            string // filter by kind (empty = all)
+	Channel         string // filter by durable channel binding (empty = all)
 	ProjectID       string // filter by project (empty = all)
 	ProjectIDIsNull bool   // when true, require project_id IS NULL
 	IncludeArchived bool

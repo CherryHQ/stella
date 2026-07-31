@@ -18,11 +18,13 @@ import (
 // be routed through an existing Agent access-authorized adapter first, then added
 // here with its adapter rationale; deleting an entry is also reviewed.
 var invocationInventory = map[string]map[string]int{
-	"cmd/stellad/commands.go":              {"GetService": 2}, // goal worker + scheduler durable adapters
-	"cmd/stellad/setup_pool.go":            {"GetService": 1}, // lazy composition adapter; no turn
-	"internal/channel/coordinator.go":      {"Chat": 1},
-	"internal/channel/group_dispatch.go":   {"GetService": 1},
-	"internal/channel/group_dispatcher.go": {"GetService": 1, "Chat": 1},
+	"cmd/stellad/commands.go":            {"GetService": 2}, // goal worker + scheduler durable adapters
+	"cmd/stellad/setup_pool.go":          {"GetService": 1}, // lazy composition adapter; no turn
+	"internal/channel/coordinator.go":    {"Chat": 1},
+	"internal/channel/group_dispatch.go": {"GetService": 1},
+	// Sole Web-group service selection: resolveWebGroupChat mints and re-checks
+	// the group authority for the Web group turn.
+	"internal/channel/group_dispatcher.go": {"Chat": 1, "GetService": 1},
 	"internal/channel/resolved_chat.go":    {"GetService": 1, "Chat": 1},
 	"internal/goal/session.go":             {"GetService": 1}, // session creation; execution is guarded in workerExecutor
 	"internal/reflect/loop.go":             {"GetService": 1}, // session listing only; no turn

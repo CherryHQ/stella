@@ -13,16 +13,15 @@ type Paths struct {
 	StellaHome string
 	AgentRoot  string
 	UserRoot   string
-	// WorkspaceRoot is the agent's workspace root — the sandbox HOME and cwd in
-	// the two-root layout. During the migration it tracks UserRoot (the user home)
-	// and no consumer reads it yet; a later phase flips it to the per-agent dir.
+	// WorkspaceRoot is the agent's private workspace root — sandbox HOME and cwd
+	// in the two-root layout.
 	WorkspaceRoot string
-	// UserDataDir is the shared user-data root (mounted as /user). Filled from
-	// UserRoot/data; not yet consumed during the migration.
+	// UserDataDir is the shared principal data root, mounted as /user by
+	// isolating backends.
 	UserDataDir string
 	ProjectRoot string
-	// WorkDir is the initial working directory inside the sandbox.
-	// Set by ResolvePaths to the absolute form of UserRoot.
+	// WorkDir is the initial working directory: WorkspaceRoot, or ProjectRoot
+	// when that project is contained by the agent workspace.
 	WorkDir string
 }
 
@@ -101,14 +100,11 @@ func workspaceRoot(userRoot string, cfg Config) string {
 	return filepath.Join(userRoot, "agents", cfg.AgentID)
 }
 
-// ProcessEnv builds the baseline process environment injected into
-// sandboxed docker commands. The docker container already provides its own
-// rootfs and image-baked HOME, so we leave HOME alone and let the image's user
-// home stand — that's what lets tools installed in the image (mise tree, shell
-// rc files, shims) remain reachable at runtime regardless of the workspace
-// bind-mount path.
+// ProcessEnv builds runner-owned process environment injected into every
+// sandbox backend. Filesystem roots belong to the backend because each backend
+// presents a different filesystem view.
 func ProcessEnv(paths Paths) map[string]string {
-	env := map[string]string{}
+	env := make(map[string]string, 1)
 	if paths.StellaHome != "" {
 		env["STELLA_HOME"] = paths.StellaHome
 	}

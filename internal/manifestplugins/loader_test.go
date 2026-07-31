@@ -31,8 +31,8 @@ func TestLoadBuiltinXberg(t *testing.T) {
 			t.Fatalf("len(Binaries) = %d, want 1", len(p.Binaries))
 		}
 		b := p.Binaries[0]
-		if b.Name != "xberg" || b.Tool != "github:xberg-io/xberg" || b.Version != "1.0.0-rc.29" {
-			t.Fatalf("binary = %+v, want Xberg v1.0.0-rc.29", b)
+		if b.Name != "xberg" || b.Tool != "github:xberg-io/xberg" || b.Version != "1.0.4" {
+			t.Fatalf("binary = %+v, want Xberg v1.0.4", b)
 		}
 		platforms, ok := b.Options["platforms"].(map[string]any)
 		if !ok {
@@ -57,7 +57,7 @@ func TestLoadBuiltinXberg(t *testing.T) {
 	t.Fatal("Xberg plugin not found")
 }
 
-func TestLoadBuiltinLarkCLIOAuthProvider(t *testing.T) {
+func TestLoadBuiltinLarkCLIIsStandaloneTool(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {
 		t.Fatalf("LoadBuiltin() error: %v", err)
@@ -66,13 +66,14 @@ func TestLoadBuiltinLarkCLIOAuthProvider(t *testing.T) {
 		if p.ID != "tool/lark-cli" {
 			continue
 		}
-		if p.OAuthProvider != "feishu" {
-			t.Fatalf("OAuthProvider = %q, want feishu", p.OAuthProvider)
+		if p.OAuthProvider != "" {
+			t.Fatalf("OAuthProvider = %q, want standalone CLI", p.OAuthProvider)
 		}
-		for _, se := range p.SessionEnvs {
-			if se.EnvVar == "LARKSUITE_CLI_BRAND" && se.Source != "oauth.brand" {
-				t.Fatalf("LARKSUITE_CLI_BRAND source = %q, want oauth.brand", se.Source)
-			}
+		if len(p.SessionEnvs) != 0 {
+			t.Fatalf("SessionEnvs = %#v, want no Stella OAuth injection", p.SessionEnvs)
+		}
+		if len(p.Binaries) != 1 || p.Binaries[0].Version != "1.0.80" {
+			t.Fatalf("Binaries = %#v, want pinned lark-cli 1.0.80", p.Binaries)
 		}
 		return
 	}

@@ -64,12 +64,18 @@ const INITIAL_FORM: EmailFormValues = {
 
 export function EmailAccountsPanel({
   showToast,
+  hasStoredConfig,
+  vaultLoaded,
+  onConfigChanged,
 }: {
   showToast: (msg: string, type?: "error") => void;
+  hasStoredConfig: boolean;
+  vaultLoaded: boolean;
+  onConfigChanged: () => Promise<void>;
 }) {
   const { t } = useI18n();
   const [config, setConfig] = useState<EmailConfig>({ default: "", accounts: {} });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
@@ -78,24 +84,39 @@ export function EmailAccountsPanel({
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!vaultLoaded) return;
+    if (!hasStoredConfig) {
+      setConfig({ default: "", accounts: {} });
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const { data } = await getScopedVaultEntry({
+      const { data, error, response } = await getScopedVaultEntry({
         path: { name: "EMAIL_CONFIG" },
         query: { scope: "user" },
-        throwOnError: true,
       });
-      if (data && data.value) {
+      if (response?.status === 404) {
+        setConfig({ default: "", accounts: {} });
+        await onConfigChanged();
+        return;
+      }
+      if (error) throw error;
+      if (data?.value) {
         const parsed = JSON.parse(data.value) as EmailConfig;
         if (!parsed.accounts) parsed.accounts = {};
         setConfig(parsed);
       }
-    } catch {
-      setConfig({ default: "", accounts: {} });
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : t("credentials.email.loadFailed"),
+        "error",
+      );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [hasStoredConfig, onConfigChanged, showToast, t, vaultLoaded]);
 
   useEffect(() => {
     void load();
@@ -107,7 +128,8 @@ export function EmailAccountsPanel({
       body: { value: JSON.stringify(cfg), scope: "user" },
       throwOnError: true,
     });
-    await load();
+    setConfig(cfg);
+    await onConfigChanged();
   };
 
   const handleSetDefault = async (name: string) => {
@@ -141,6 +163,7 @@ export function EmailAccountsPanel({
           throwOnError: true,
         });
         setConfig({ default: "", accounts: {} });
+        await onConfigChanged();
       } else {
         await saveConfig({ default: nextDefault, accounts: updatedAccounts });
       }

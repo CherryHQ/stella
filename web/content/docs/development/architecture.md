@@ -216,7 +216,7 @@ type Channel interface {
 }
 ```
 
-Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards; QQ, Feishu, and WeChat use text lists). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
+Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/new` rotates the chat onto a fresh session — the previous one is archived, never deleted — and runs as a control operation on the same per-session queue as chat turns, so it never races an in-flight turn. `/new` applies to direct messages only: a group's context is shared, so a group `/new` is refused before the shared event log is written, which keeps the refused command out of every agent's context. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards; QQ, Feishu, and WeChat use text lists). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
 
 ### Channel ingress ownership
 

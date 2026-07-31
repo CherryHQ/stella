@@ -3,9 +3,11 @@ package channel
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -250,6 +252,73 @@ func TestCoordinatorHandleResolvedIncomingAbortIntent(t *testing.T) {
 	}
 	if resp != "Aborted." {
 		t.Fatalf("resp = %q, want %q", resp, "Aborted.")
+	}
+}
+
+// TestCoordinatorNewIntentFallsThroughToAgentTurn pins the split between typed
+// commands and guessed intent: `/new` is consent, a short phrase is not. A
+// classified "new" must reach the agent, which asks before resetting anything.
+func TestCoordinatorNewIntentFallsThroughToAgentTurn(t *testing.T) {
+	ctx := context.Background()
+	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
+	before, err := rc.CurrentSessionForRotation(ctx)
+	if err != nil {
+		t.Fatalf("CurrentSessionForRotation: %v", err)
+	}
+
+	coordinator := &Coordinator{queue: newSessionQueue(), intentClassifier: stubIntentClassifier(IntentNew)}
+	resp, handled, _, _ := coordinator.handleResolvedIncoming(ctx, rc, incomingText("新会话"), "", "")
+	if handled || resp != "" {
+		t.Fatalf("a classified new intent must not be answered by the coordinator: resp=%q handled=%v", resp, handled)
+	}
+
+	after, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+	if after.ID != before.ID {
+		t.Fatal("a classified new intent must not rotate the session on its own")
+	}
+}
+
+// TestCoordinatorCompactIntentStillFastPaths: compaction is non-destructive, so
+// guessing it wrong costs nothing and it keeps its shortcut.
+func TestCoordinatorCompactIntentStillFastPaths(t *testing.T) {
+	ctx := context.Background()
+	rc := newCompactTestChat(t, "", auth.User{ID: "user-1", Role: auth.RoleUser})
+	before, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+
+	coordinator := &Coordinator{queue: newSessionQueue(), intentClassifier: stubIntentClassifier(IntentCompact)}
+	resp, handled, stream, err := coordinator.handleResolvedIncoming(ctx, rc, incomingText("压缩会话"), "", "")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if !handled || stream != nil || resp != "Session compacted." {
+		t.Fatalf("compact intent should still fast-path: resp=%q handled=%v stream=%#v", resp, handled, stream)
+	}
+
+	after, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession after compact: %v", err)
+	}
+	if after.ID != before.ID {
+		t.Fatal("compaction must keep the same session")
+	}
+}
+
+// TestIntentPromptKeepsNewAndCompactDistinct guards the classifier prompt against
+// drifting back to "new: same as compact", which is what made `/new` a lie.
+func TestIntentPromptKeepsNewAndCompactDistinct(t *testing.T) {
+	if strings.Contains(intentClassifierPrompt, "same as") {
+		t.Fatal("the prompt must not equate new and compact")
+	}
+	for _, phrase := range []string{`"新会话" -> {"action":"new"}`, `"压缩会话" -> {"action":"compact"}`, `"start over" -> {"action":"new"}`} {
+		if !strings.Contains(intentClassifierPrompt, phrase) {
+			t.Fatalf("the prompt lost its bilingual example %q", phrase)
+		}
 	}
 }
 

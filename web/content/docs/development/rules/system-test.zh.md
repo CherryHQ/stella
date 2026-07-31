@@ -88,8 +88,8 @@ journey 依赖另一个 journey 的业务数据 —— 唯一的复用是共享�
 fake **绝不根据 prompt 文案分支** —— 只有稳定的请求字段（model、tool 名、`goal_control` 的
 action 枚举）才选择响应，所以普通的 prompt 改动永远不会变成系统测试失败。它有两种脚本模式：
 
-- **FIFO 文本**（`enqueueText`）—— 一个按到达顺序回放的纯文本轮次有序队列；由 `chat_sse`
-  使用。未脚本化的请求会让测试失败。
+- **FIFO 轮次**（`enqueueText`）—— 一个按到达顺序回放的有序队列；由 `chat_sse` 使用。
+  未脚本化的请求会让测试失败。
 - **goal_control 变体匹配**（`enqueueGoalControl`）—— 响应按服务器在请求 tool schema 中广告
   的 `goal_control` action（`decompose`、`submit`）作键，按该稳定字段而非到达顺序匹配；由
   `goal_lifecycle` 使用。

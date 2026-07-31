@@ -20,13 +20,10 @@ import (
 // nullAgent builds a pgtype.Text for an agent_id value.
 func requireSessionScope(ctx context.Context, userID, agentID string) (string, string, error) {
 	if userID == "" {
-		userID = authz.UserIDFromContext(ctx)
-		if userID == "" {
-			// Group conversations are persisted in the same owner column using
-			// their canonical group UUID. Read it directly from the trusted group
-			// identity instead of minting a synthetic authenticated user.
-			userID = authz.GroupIDFromContext(ctx)
-		}
+		// Conversation scope, not identity: a group turn has no user on the
+		// context (D9) and its rows are owned by the group id, so that is the key
+		// to read them back with. Per-user stores resolve elsewhere.
+		userID = memory.ScopeUserIDFromContext(ctx)
 	}
 	if agentID == "" {
 		agentID = authz.AgentIDFromContext(ctx)
@@ -103,6 +100,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		Title:     pgnull.Text(info.Title),
 		Archived:  info.Archived,
 		Kind:      pgnull.Text(info.Kind),
+		Channel:   pgnull.Text(info.Channel),
 		ProjectID: pgnull.Text(info.ProjectID),
 		GroupID:   pgnull.Text(info.GroupID),
 		SessionID: info.ID,
@@ -110,6 +108,97 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		AgentID:   pgnull.Text(info.AgentID),
 	}); err != nil {
 		return fmt.Errorf("update conversation info: %w", err)
+	}
+	return nil
+}
+
+// TouchActiveInfo implements memory.SessionManager. The guard lives in the
+// UPDATE's own predicate, so an archive that commits between a turn's start and
+// this call simply matches nothing.
+func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
+	userID, agentID, err := requireSessionScope(ctx, info.UserID, info.AgentID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.UpdateConversationTurnMetaBySessionID(ctx, sqlc.UpdateConversationTurnMetaBySessionIDParams{
+		Title:     pgnull.Text(info.Title),
+		Channel:   pgnull.Text(info.Channel),
+		GroupID:   pgnull.Text(info.GroupID),
+		SessionID: info.ID,
+		UserID:    pgtype.Text{String: userID, Valid: true},
+		AgentID:   pgnull.Text(agentID),
+	})
+	if err != nil {
+		return false, fmt.Errorf("touch conversation: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// RotateInfo implements memory.SessionManager.
+//
+// Order inside the transaction matters: idx_one_agent_main admits a single
+// active main per (agent, user), so the predecessor must be archived before the
+// successor row is inserted. Both statements commit together, so a failed insert
+// leaves the predecessor active and resolvable.
+func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, successor memory.SessionInfo) error {
+	if expectedSessionID == "" {
+		return fmt.Errorf("rotate session: expected session id is required")
+	}
+	userID, agentID, err := requireSessionScope(ctx, successor.UserID, successor.AgentID)
+	if err != nil {
+		return err
+	}
+	successor.UserID = userID
+	successor.AgentID = agentID
+	if successor.Kind == "" {
+		successor.Kind = "chat"
+	}
+	if successor.LastActive.IsZero() {
+		successor.LastActive = time.Now().UTC()
+	}
+
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := p.q.WithTx(tx)
+
+	archived, err := qtx.ArchiveActiveConversationBySessionID(ctx, sqlc.ArchiveActiveConversationBySessionIDParams{
+		SessionID: expectedSessionID,
+		UserID:    pgtype.Text{String: userID, Valid: true},
+		AgentID:   pgnull.Text(agentID),
+		Kind:      successor.Kind,
+		ProjectID: pgnull.Text(successor.ProjectID),
+	})
+	if err != nil {
+		return fmt.Errorf("archive rotated conversation: %w", err)
+	}
+	if archived == 0 {
+		return fmt.Errorf("%w: %s", memory.ErrStaleRotation, expectedSessionID)
+	}
+
+	if _, err := qtx.CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID:         uuid.Must(uuid.NewV7()).String(),
+		SessionID:  successor.ID,
+		Title:      pgtype.Text{String: successor.Title, Valid: successor.Title != ""},
+		Channel:    successor.Channel,
+		Kind:       successor.Kind,
+		ProjectID:  pgnull.Text(successor.ProjectID),
+		Archived:   successor.Archived,
+		LastActive: successor.LastActive.UTC(),
+		AgentID:    pgnull.Text(successor.AgentID),
+		UserID:     pgtype.Text{String: successor.UserID, Valid: true},
+		GroupID:    pgnull.Text(successor.GroupID),
+	}); err != nil {
+		return fmt.Errorf("create successor conversation: %w", err)
+	}
+
+	// Everything above fails as a definite rollback. A commit failure does not:
+	// the server may have committed before the acknowledgement was lost, so it
+	// carries the one sentinel callers must not compensate against.
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("%w: %w", memory.ErrRotationOutcomeUnknown, err)
 	}
 	return nil
 }
@@ -143,6 +232,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 		IncludeArchived: boolToInt(opts.IncludeArchived),
 		ExcludeInternal: opts.ExcludeInternal,
 		Kind:            pgnull.Text(opts.Kind),
+		Channel:         pgnull.Text(opts.Channel),
 		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
 		ProjectID:       pgnull.Text(opts.ProjectID),
 		Offset:          nonNegativeOffset(opts.Offset),
@@ -161,6 +251,7 @@ func (p *Provider) ListInfoForReview(ctx context.Context, opts memory.ListOption
 	}
 	convs, err := p.q.ListConversationsForReviewFiltered(ctx, sqlc.ListConversationsForReviewFilteredParams{
 		AgentID:         pgnull.Text(opts.AgentID),
+		IncludeArchived: boolToInt(opts.IncludeArchived),
 		Kind:            pgnull.Text(opts.Kind),
 		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
 		ProjectID:       pgnull.Text(opts.ProjectID),

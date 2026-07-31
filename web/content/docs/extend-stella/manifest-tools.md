@@ -176,14 +176,13 @@ Platform-specific asset patterns (`platforms:` map) are not supported in the man
 
 ### Env sources
 
-| Source               | Description                                                 |
-| -------------------- | ----------------------------------------------------------- |
-| `static`             | Uses the literal `value` from the manifest                  |
-| `oauth.access_token` | Injects the connected provider's OAuth access token         |
-| `oauth.client_id`    | Injects the connected provider bundle's client/app ID       |
-| `oauth.brand`        | Injects the connected provider bundle's brand, when present |
+| Source               | Description                                           |
+| -------------------- | ----------------------------------------------------- |
+| `static`             | Uses the literal `value` from the manifest            |
+| `oauth.access_token` | Injects the connected provider's OAuth access token   |
+| `oauth.client_id`    | Injects the connected provider bundle's client/app ID |
 
-`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Feishu/Lark sources require the Lark CLI plugin credentials to be configured in the Web UI.
+`oauth.*` sources resolve through the plugin's `oauth_provider`. GitHub uses Stella's built-in GitHub CLI device-flow app and needs no admin-side plugin configuration. Other providers must be declared and configured separately.
 
 ## State and caching
 
@@ -213,19 +212,6 @@ plugins:
 
 Built-in plugin overrides are full-entry replacements. If you override a built-in
 plugin to change one field, include the rest of the fields you still need.
-
-### Switching `lark-cli` between Feishu and Lark
-
-The built-in `tool/lark-cli` manifest uses `oauth_provider: lark` by default.
-To switch to Feishu, override the provider in `plugins.yaml`:
-
-```yaml
-plugins:
-  - id: tool/lark-cli
-    oauth_provider: feishu
-```
-
-A manifest override is only needed when changing the binary or env declarations themselves.
 
 ## Admin UI
 

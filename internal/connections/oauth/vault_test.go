@@ -58,7 +58,6 @@ func TestSaveLoadOAuthBundle_RoundTrip(t *testing.T) {
 		RefreshToken:     "test_refresh_token",
 		AccessExpiresAt:  now.Add(2 * time.Hour),
 		RefreshExpiresAt: now.Add(30 * 24 * time.Hour),
-		Brand:            "lark",
 	}
 
 	if err := SaveOAuthBundle(ctx, vs, userID, VaultKeyGitHub, bundle); err != nil {

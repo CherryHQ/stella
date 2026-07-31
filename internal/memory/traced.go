@@ -30,9 +30,9 @@ func Unwrap(p Provider) Provider {
 // WithTracing wraps a Provider to emit PostMemoryCall hooks after each operation.
 // hooksFn is called on each operation to get the current HookSet; it may return nil.
 // The returned Provider implements all optional capability interfaces, including
-// group event ingestion, cursor commits, and Group Fact reads. Methods for
-// capabilities not supported by the inner provider return sensible zero values
-// or errors.
+// compaction, search, profile/session/review operations, group event ingestion,
+// cursor commits, and Group Fact reads. Methods for
+// capabilities not supported by the inner provider return sensible zero values or errors.
 // Use [Unwrap] to check the inner provider's actual capabilities.
 //
 // The Detail field is always populated with content previews. The trace hook
@@ -519,6 +519,34 @@ func (t *tracedProvider) SaveInfo(ctx context.Context, info SessionInfo) error {
 	err := sm.SaveInfo(ctx, info)
 	hctx.Error = err
 	hctx.Detail = fmt.Sprintf("title=%q archived=%v channel=%s", info.Title, info.Archived, info.Channel)
+	t.finish(ctx, start, hctx)
+	return err
+}
+
+func (t *tracedProvider) TouchActiveInfo(ctx context.Context, info SessionInfo) (bool, error) {
+	sm, ok := t.inner.(SessionManager)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionManager")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID}, Op: hooks.MemoryOpTouchActiveInfo, SessionID: info.ID}
+	ctx, start := t.begin(ctx, hctx)
+	applied, err := sm.TouchActiveInfo(ctx, info)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("applied=%v title=%q channel=%s", applied, info.Title, info.Channel)
+	t.finish(ctx, start, hctx)
+	return applied, err
+}
+
+func (t *tracedProvider) RotateInfo(ctx context.Context, expectedSessionID string, successor SessionInfo) error {
+	sm, ok := t.inner.(SessionManager)
+	if !ok {
+		return errCapabilityNotSupported("SessionManager")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: successor.ID, UserID: successor.UserID, AgentID: successor.AgentID}, Op: hooks.MemoryOpRotateInfo, SessionID: successor.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := sm.RotateInfo(ctx, expectedSessionID, successor)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("expected=%s successor=%s kind=%s", expectedSessionID, successor.ID, successor.Kind)
 	t.finish(ctx, start, hctx)
 	return err
 }

@@ -232,10 +232,6 @@ function InstanceFields({
 
       {type === "feishu" && (
         <div className="space-y-4">
-          <p className="text-xs text-muted-foreground">
-            Feishu is chat-only. Add a <code>lark-cli</code> skill yourself if you want Lark
-            workspace automation.
-          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
             {field("app_id", "App ID")}
             {field("app_secret", "App Secret", "password")}

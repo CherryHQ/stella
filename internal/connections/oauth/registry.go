@@ -238,8 +238,8 @@ func (r *ProviderRegistry) reloadUsable(ctx context.Context, vs VaultStore, cfg 
 //
 // Note: concurrent session starts for the same user may both attempt a refresh
 // with the same refresh token. Providers that rotate refresh tokens on use
-// (e.g. Feishu) will reject the second call; the caller falls back to the
-// stale bundle in that case. singleflight would collapse concurrent calls if
+// will reject the second call; the caller falls back to the stale bundle in
+// that case. singleflight would collapse concurrent calls if
 // this becomes a problem in practice.
 func (r *ProviderRegistry) tryRefresh(ctx context.Context, vs VaultStore, cfg ProviderConfig, userID string, bundle *OAuthBundle) (*OAuthBundle, error) {
 	var tokenURL string

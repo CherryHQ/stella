@@ -9,12 +9,10 @@ import (
 )
 
 // ToolPaths is the tool-facing session path surface.
-// UserRoot is the writable execution root and process HOME. (Two-root migration:
-// WorkspaceRoot is being introduced as the agent HOME/cwd and UserRoot will
-// narrow to the shared user-data root; during the migration both carry the user
-// home and WorkspaceRoot has no dedicated consumer yet.)
-// ProjectRoot is the tool-facing current-project directory; relative paths in project-aware tools
-// resolve against it. StellaHome and AgentRoot are discovery roots.
+// UserRoot is the shared principal home. WorkspaceRoot is the per-agent execution
+// root and process HOME/cwd. ProjectRoot is the tool-facing current-project
+// directory; relative paths in project-aware tools resolve against it. StellaHome
+// and AgentRoot are discovery roots.
 type ToolPaths struct {
 	UserRoot      string
 	WorkspaceRoot string
@@ -77,7 +75,8 @@ type PromptInventoryContext struct {
 }
 
 // SystemPromptContext is the shared build context for prompt contributions.
-// HomeDir is host-scoped discovery context; UserRoot is the runtime writable root.
+// HomeDir is host-scoped discovery context; UserRoot is the shared principal home,
+// and WorkspaceRoot is the per-agent runtime workspace.
 type SystemPromptContext struct {
 	Platform      Platform
 	State         PluginState

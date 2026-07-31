@@ -626,6 +626,72 @@ func TestLCMProvider_ListInfoFiltersInSQL(t *testing.T) {
 	}
 }
 
+// TestLCMProvider_ListInfoFiltersByChannel covers the durable channel binding:
+// chat-channel sessions are found by their channel rather than by a key-derived
+// id, and a row written before the binding existed adopts one on first save
+// without ever overwriting a channel that is already set.
+func TestLCMProvider_ListInfoFiltersByChannel(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { db.Close() }()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), testUserID), "test")
+	base := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	fixtures := []memory.SessionInfo{
+		{ID: "chan-1", AgentID: "test", UserID: testUserID, Channel: "tg:private:1", Kind: "chat", LastActive: base.Add(1 * time.Minute)},
+		{ID: "chan-2", AgentID: "test", UserID: testUserID, Channel: "tg:private:2", Kind: "chat", LastActive: base.Add(2 * time.Minute)},
+		{ID: "chan-3", AgentID: "test", UserID: testUserID, Channel: "tg:private:1", Kind: "chat", LastActive: base.Add(3 * time.Minute)},
+		{ID: "chan-legacy", AgentID: "test", UserID: testUserID, Kind: "chat", LastActive: base.Add(4 * time.Minute)},
+	}
+	for _, info := range fixtures {
+		if err := p.SaveInfo(ctx, info); err != nil {
+			t.Fatalf("SaveInfo %s: %v", info.ID, err)
+		}
+	}
+
+	infos, err := p.ListInfo(ctx, memory.ListOptions{Kind: "chat", Channel: "tg:private:1"})
+	if err != nil {
+		t.Fatalf("ListInfo by channel: %v", err)
+	}
+	if got, want := sessionIDs(infos), []string{"chan-3", "chan-1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("channel-filtered IDs = %v, want %v", got, want)
+	}
+
+	// A blank stored channel adopts the supplied one exactly once.
+	legacy := fixtures[3]
+	legacy.Channel = "tg:private:9"
+	legacy.LastActive = base.Add(5 * time.Minute)
+	if err := p.SaveInfo(ctx, legacy); err != nil {
+		t.Fatalf("SaveInfo adopting a channel: %v", err)
+	}
+	infos, err = p.ListInfo(ctx, memory.ListOptions{Kind: "chat", Channel: "tg:private:9"})
+	if err != nil {
+		t.Fatalf("ListInfo after adoption: %v", err)
+	}
+	if got, want := sessionIDs(infos), []string{"chan-legacy"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("adopted IDs = %v, want %v", got, want)
+	}
+
+	// A set channel is never overwritten: the binding a session was resolved by
+	// must not move under a later save.
+	legacy.Channel = "tg:private:other"
+	if err := p.SaveInfo(ctx, legacy); err != nil {
+		t.Fatalf("SaveInfo rebinding attempt: %v", err)
+	}
+	infos, err = p.ListInfo(ctx, memory.ListOptions{Kind: "chat", Channel: "tg:private:9"})
+	if err != nil {
+		t.Fatalf("ListInfo after rebinding attempt: %v", err)
+	}
+	if got, want := sessionIDs(infos), []string{"chan-legacy"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("channel changed under an existing binding: %v, want %v", got, want)
+	}
+}
+
 func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer func() { db.Close() }()

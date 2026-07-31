@@ -412,18 +412,14 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 // profile rendering. Group sessions blank the prompt UserID so the group id is
 // never treated as a human Profile or Skill owner (D9).
 func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot, promptUserID, groupID string) {
-	if info.GroupID != "" {
-		if dir, err := SetupGroupWorkspace(config.StellaHome(), info.GroupID, agentID); err == nil {
-			userRoot = dir
-			pm.hydrateAssets(dir)
+	if info.GroupID != "" || info.UserID != "" {
+		if workspace, err := SetupPrincipalWorkspace(config.StellaHome(), info.UserID, info.GroupID, agentID); err == nil {
+			userRoot = workspace.HomeDir
+			pm.hydrateAssets(workspace.HomeDir)
 		}
-		return userRoot, "", info.GroupID
 	}
-	if info.UserID != "" {
-		if dir, err := SetupUserWorkspace(config.StellaHome(), info.UserID, agentID); err == nil {
-			userRoot = dir
-			pm.hydrateAssets(dir)
-		}
+	if info.GroupID != "" {
+		return userRoot, "", info.GroupID
 	}
 	return userRoot, info.UserID, ""
 }
@@ -458,6 +454,10 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 		// the synthetic group UserID as a real user principal.
 		promptUserID = ""
 	}
+	workspaceRoot := snap.Workspace
+	if userRoot != "" {
+		workspaceRoot = AgentDirInHome(userRoot, info.AgentID)
+	}
 	promptBuild := pkgplugins.SystemPromptContext{
 		StellaHome:          config.StellaHome(),
 		HomeDir:             homeDir,
@@ -465,7 +465,7 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 		UserID:              promptUserID,
 		AgentID:             info.AgentID,
 		UserRoot:            userRoot,
-		WorkspaceRoot:       userRoot,
+		WorkspaceRoot:       workspaceRoot,
 		SkillStore:          pm.skillStore,
 		RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 		EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),

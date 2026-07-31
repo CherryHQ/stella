@@ -24,7 +24,9 @@ import (
 // It supports two scripting modes, one per journey:
 //
 //   - Chat (Phase 1): an ordered FIFO script of text/tool responses, replayed in
-//     arrival order, failing on any unscripted request. See enqueueText.
+//     arrival order, failing on any unscripted request. See enqueueText and
+//     enqueueTool (a tool-using turn is scripted as the call plus the text that
+//     ends the turn once the tool result comes back).
 //   - Goal (Phase 2): responses keyed by the goal_control action the server
 //     advertises in the request's tool schema (decompose/submit), matched on
 //     that stable structural field rather than arrival order — because a Goal
