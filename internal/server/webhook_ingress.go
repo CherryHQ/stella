@@ -30,6 +30,10 @@ const (
 	// ephemeral session orphaned by a post-create admission failure. It is a small
 	// fixed ceiling; raise only if session archival legitimately needs longer.
 	webhookSessionCleanupTimeout = 5 * time.Second
+	// maxWebhookOutput bounds text retained for a synchronous HTTP response. The
+	// stream is always fully drained; async calls retain no text at all. Raise only
+	// if clients demonstrate a legitimate need for responses larger than 1 MiB.
+	maxWebhookOutput = 1 << 20 // 1 MiB
 )
 
 // errWebhookAgentUnavailable and errWebhookTooManyRuns are internal admission
@@ -37,6 +41,7 @@ const (
 var (
 	errWebhookAgentUnavailable = errors.New("webhook: agent unavailable")
 	errWebhookTooManyRuns      = errors.New("webhook: too many concurrent runs")
+	errWebhookOutputTooLarge   = errors.New("webhook: agent output exceeds response limit")
 )
 
 // handleWebhookIngress serves the sanitized capability request the reservation
@@ -74,7 +79,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ingress resource gate: a bounded pre-admission slot per endpoint, acquired
+	// Ingress resource gate: a bounded pre-admission slot per webhook, acquired
 	// after candidate resolution and before any body read. It covers only the
 	// bounded body read and synchronous admission — NOT the subsequent sync reply wait, so
 	// waiting on a reply never holds ingress capacity (the run slot bounds the
@@ -86,35 +91,16 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	releaseIngress := func() {
 		if ingressHeld {
 			ingressHeld = false
-			s.webhookLimiter.releaseIngress(cand.EndpointID)
+			s.webhookLimiter.releaseIngress(cand.WebhookID)
 		}
 	}
 	if s.webhookLimiter != nil {
-		if !s.webhookLimiter.acquireIngress(cand.EndpointID) {
+		if !s.webhookLimiter.acquireIngress(cand.WebhookID) {
 			writeError(w, http.StatusTooManyRequests, "webhook ingress capacity exceeded")
 			return
 		}
 		ingressHeld = true
 		defer releaseIngress()
-	}
-
-	// Channel run behavior only (session/reply/timeouts); identity is on the
-	// endpoint and revalidated inside Admit.
-	ch, err := s.channelResolver.Channel(ctx, cand.EndpointID)
-	if err != nil {
-		s.log.ErrorContext(ctx, "load webhook channel", "endpoint_id", cand.EndpointID, "error", err)
-		writeError(w, http.StatusInternalServerError, "invalid webhook config")
-		return
-	}
-	cfgMap, err := parseChannelConfig(ch.Config)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid webhook config")
-		return
-	}
-	cfg, err := s.pluginHost.DecodeWebhookRunConfig(cfgMap)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid webhook config")
-		return
 	}
 
 	// Bounded body read under the ingress slot: cap at 256 KiB via MaxBytesReader
@@ -141,7 +127,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Acceptance limiter: only a validly-shaped, bounded body consumes a token.
-	if s.webhookLimiter != nil && !s.webhookLimiter.allow(cand.EndpointID) {
+	if s.webhookLimiter != nil && !s.webhookLimiter.allow(cand.WebhookID) {
 		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
 	}
@@ -177,22 +163,22 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		// at-capacity rejection creates/resolves no session. Every pre-admission
 		// failure below releases it exactly once; on success `done` takes
 		// ownership of the single release.
-		if s.webhookLimiter != nil && !s.webhookLimiter.beginRun(inv.ChannelID) {
+		if s.webhookLimiter != nil && !s.webhookLimiter.beginRun(inv.WebhookID) {
 			return errWebhookTooManyRuns
 		}
 		releaseSlot := func() {
 			if s.webhookLimiter != nil {
-				s.webhookLimiter.endRun(inv.ChannelID)
+				s.webhookLimiter.endRun(inv.WebhookID)
 			}
 		}
 		var serr error
 		if persistent {
 			// A persistent session pre-exists this request; it must never be
 			// archived on failure.
-			key := agent.BuildUserSessionKey(inv.AgentID, inv.OwnerUserID, "webhook:"+inv.ChannelID)
-			info, serr = run.ResolvePrivateChannelSession(admitCtx, inv.Authority, key, inv.OwnerUserID, inv.AgentID, session.ChannelWebhook)
+			key := agent.BuildUserSessionKey(inv.AgentID, inv.UserID, "webhook:"+inv.WebhookID)
+			info, serr = run.ResolvePrivateChannelSession(admitCtx, inv.Authority, key, inv.UserID, inv.AgentID, session.ChannelWebhook)
 		} else {
-			info, serr = run.NewSession(admitCtx, inv.Authority, inv.OwnerUserID, inv.AgentID, "", session.KindChat, session.ChannelWebhook)
+			info, serr = run.NewSession(admitCtx, inv.Authority, inv.UserID, inv.AgentID, "", session.KindChat, session.ChannelWebhook)
 			if serr == nil {
 				// This callback created a fresh ephemeral session; a later failure
 				// must compensate it.
@@ -205,10 +191,10 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		}
 		// Detached, bounded run context (never the request ctx): the run may
 		// outlive this request and must survive graceful-drain cancellation.
-		runCtx, cancel := context.WithTimeout(context.WithoutCancel(s.runtimeCtx), time.Duration(cfg.MaxRunTimeoutSeconds)*time.Second)
+		runCtx, cancel := context.WithTimeout(context.WithoutCancel(s.runtimeCtx), time.Duration(inv.MaxRunTimeoutSeconds)*time.Second)
 		st, aerr := run.ChatAdmitted(runCtx, agent.ChatRequest{
 			SessionID: info.ID,
-			UserID:    inv.OwnerUserID,
+			UserID:    inv.UserID,
 			AgentID:   inv.AgentID,
 			Kind:      session.KindChat,
 			Channel:   session.ChannelWebhook,
@@ -247,13 +233,13 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case admitErr == nil:
 		// Admitted; fall through to the response.
-	case errors.Is(admitErr, webhook.ErrNotFound), errors.Is(admitErr, webhook.ErrOwnerAgentForbidden):
+	case errors.Is(admitErr, webhook.ErrNotFound), errors.Is(admitErr, webhook.ErrUserAgentForbidden):
 		// Rotated/revoked/inactive during body read, or the owner's permission
 		// was withdrawn: fail closed and opaque.
 		writeError(w, http.StatusNotFound, "webhook not found")
 		return
 	case errors.Is(admitErr, agenterr.ErrSessionBusy):
-		s.logWebhook(cand.EndpointID, invoked.OwnerUserID, invoked.AgentID, mode, info.ID, "busy", time.Now(), admitErr)
+		s.logWebhook(cand.WebhookID, invoked.UserID, invoked.AgentID, mode, info.ID, "busy", time.Now(), admitErr)
 		writeWebhookBusy(w, info.ID)
 		return
 	case errors.Is(admitErr, errWebhookTooManyRuns):
@@ -263,34 +249,42 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "agent is not available")
 		return
 	default:
-		s.log.ErrorContext(ctx, "admit webhook", "endpoint_id", cand.EndpointID, "error", admitErr)
+		s.log.ErrorContext(ctx, "admit webhook", "webhook_id", cand.WebhookID, "error", admitErr)
 		writeError(w, http.StatusInternalServerError, "failed to admit webhook")
 		return
 	}
 
 	// A single drainer owns the admitted stream for its whole life.
-	resCh := drainWebhookStream(stream)
+	resCh := drainWebhookStream(stream, wait)
 
 	if !wait {
-		s.logWebhook(cand.EndpointID, invoked.OwnerUserID, invoked.AgentID, mode, info.ID, "accepted", start, nil)
-		s.finishWebhookRun(cand.EndpointID, invoked.OwnerUserID, invoked.AgentID, mode, info.ID, start, resCh, done)
+		s.logWebhook(cand.WebhookID, invoked.UserID, invoked.AgentID, mode, info.ID, "accepted", start, nil)
+		s.finishWebhookRun(cand.WebhookID, invoked.UserID, invoked.AgentID, mode, info.ID, start, resCh, done)
 		writeData(w, http.StatusAccepted, map[string]any{"session_id": info.ID})
 		return
 	}
 
+	timer := time.NewTimer(time.Duration(invoked.WaitTimeoutSeconds) * time.Second)
+	defer timer.Stop()
 	select {
 	case res := <-resCh:
 		done()
 		if res.err != nil {
-			s.logWebhook(cand.EndpointID, invoked.OwnerUserID, invoked.AgentID, mode, info.ID, "error", start, res.err)
+			s.logWebhook(cand.WebhookID, invoked.UserID, invoked.AgentID, mode, info.ID, "error", start, res.err)
 			writeErrorDetails(w, http.StatusBadGateway, "agent run failed", map[string]any{"session_id": info.ID})
 			return
 		}
-		s.logWebhook(cand.EndpointID, invoked.OwnerUserID, invoked.AgentID, mode, info.ID, "ok", start, nil)
+		s.logWebhook(cand.WebhookID, invoked.UserID, invoked.AgentID, mode, info.ID, "ok", start, nil)
 		writeData(w, http.StatusOK, map[string]any{"session_id": info.ID, "output": res.output})
-	case <-time.After(time.Duration(cfg.WaitTimeoutSeconds) * time.Second):
-		s.logWebhook(cand.EndpointID, invoked.OwnerUserID, invoked.AgentID, mode, info.ID, "timeout", start, nil)
-		s.finishWebhookRun(cand.EndpointID, invoked.OwnerUserID, invoked.AgentID, mode, info.ID, start, resCh, done)
+	case <-ctx.Done():
+		// The admitted run deliberately outlives the caller. Stop occupying this
+		// handler when a synchronous client disconnects and let the single drainer
+		// release the run slot and emit the terminal audit record in the background.
+		s.finishWebhookRun(cand.WebhookID, invoked.UserID, invoked.AgentID, mode, info.ID, start, resCh, done)
+		return
+	case <-timer.C:
+		s.logWebhook(cand.WebhookID, invoked.UserID, invoked.AgentID, mode, info.ID, "timeout", start, nil)
+		s.finishWebhookRun(cand.WebhookID, invoked.UserID, invoked.AgentID, mode, info.ID, start, resCh, done)
 		writeErrorDetails(w, http.StatusGatewayTimeout, "timed out waiting for agent reply", map[string]any{"session_id": info.ID})
 	}
 }
@@ -336,8 +330,8 @@ func (s *Server) archiveOrphanedWebhookSession(inv webhook.AdmittedInvocation, s
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.runtimeCtx), webhookSessionCleanupTimeout)
 	defer cancel()
-	if err := run.ArchiveSession(ctx, inv.Authority, inv.OwnerUserID, inv.AgentID, sessionID); err != nil {
-		s.log.Error("archive orphaned webhook session", "endpoint_id", inv.ChannelID, "session_id", sessionID, "error", err)
+	if err := run.ArchiveSession(ctx, inv.Authority, inv.UserID, inv.AgentID, sessionID); err != nil {
+		s.log.Error("archive orphaned webhook session", "webhook_id", inv.WebhookID, "session_id", sessionID, "error", err)
 	}
 }
 
@@ -376,18 +370,26 @@ type webhookResult struct {
 // drainWebhookStream consumes the whole agent event stream, accumulating text.
 // The returned channel is buffered(1) so the goroutine can always deliver its
 // result even if nobody is waiting (e.g. after a 504).
-func drainWebhookStream(stream <-chan agent.Event) <-chan webhookResult {
+func drainWebhookStream(stream <-chan agent.Event, captureOutput bool) <-chan webhookResult {
 	res := make(chan webhookResult, 1)
 	go func() {
 		var b strings.Builder
 		var runErr error
+		outputTooLarge := false
 		for ev := range stream {
-			if ev.Text != "" {
-				b.WriteString(ev.Text)
+			if captureOutput && !outputTooLarge && ev.Text != "" {
+				if b.Len()+len(ev.Text) <= maxWebhookOutput {
+					b.WriteString(ev.Text)
+				} else {
+					outputTooLarge = true
+				}
 			}
 			if ev.Err != nil {
 				runErr = ev.Err
 			}
+		}
+		if outputTooLarge {
+			runErr = errors.Join(runErr, errWebhookOutputTooLarge)
 		}
 		res <- webhookResult{output: b.String(), err: runErr}
 	}()

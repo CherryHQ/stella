@@ -417,7 +417,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	adminSrv, err := server.New(gctx, server.Deps{
 		Pinger:              s.db,
-		ChannelResolver:     channel.NewRuntimeResolver(s.store),
 		Account:             accountSvc,
 		Profile:             profileSvc,
 		ProjectStore:        s.projectStore,
@@ -435,7 +434,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		BaseURL:             baseURL,
 		Credentials:         s.credSvc,
 		ControlPlane:        s.controlPlane,
-		WebhookEndpoints:    s.webhookEndpoints,
+		Webhooks:            s.webhooks,
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,

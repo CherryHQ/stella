@@ -103,7 +103,7 @@ type setupResult struct {
 	vaultSvc                 *vault.Service
 	mcpSvc                   *mcp.Service
 	controlPlane             *controlplane.Service
-	webhookEndpoints         *webhook.Service
+	webhooks                 *webhook.Service
 	credSvc                  *connections.Service
 	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
@@ -459,23 +459,22 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
 
-	// Webhook capability-endpoint domain. It owns the owner→Agent identity
-	// binding, opaque capability verifier, and lifecycle for webhook channels.
-	// The control plane exposes it only through the admin gate.
+	// Webhook resource domain. It owns the user→Agent binding, opaque capability
+	// verifier, and lifecycle independently from deployment channel management.
 	webhookSvc, err := webhook.NewService(webhook.Config{
 		Store:  webhook.NewPostgresStore(db),
 		Users:  webhook.NewUserState(credential.NewPostgresStore(db)),
-		Access: webhook.NewOwnerAgentAccess(agentAccess),
+		Access: webhook.NewUserAgentAccess(agentAccess),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("build webhook endpoint service: %w", err)
+		return nil, fmt.Errorf("build webhook service: %w", err)
 	}
 
 	// Control-plane domain for the admin-only deployment resources
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
 	// pool and shared connections service are fully wired.
-	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"), controlplane.WithWebhookEndpoints(webhookSvc))
+	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
@@ -520,7 +519,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		vaultSvc:                 vaultSvc,
 		mcpSvc:                   mcpSvc,
 		controlPlane:             controlPlaneSvc,
-		webhookEndpoints:         webhookSvc,
+		webhooks:                 webhookSvc,
 		credSvc:                  credSvc,
 		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,

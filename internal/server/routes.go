@@ -16,7 +16,12 @@ func (s *Server) registerRoutes() {
 // registerAPIRoutes mounts all REST API routes onto the admin mux.
 // Auth is enforced by the global authMiddleware (Bearer + session).
 func (s *Server) registerAPIRoutes() {
-	apiserver.HandlerFromMux(s, s.mux)
+	apiserver.HandlerWithOptions(s, apiserver.StdHTTPServerOptions{
+		BaseRouter: s.mux,
+		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, _ error) {
+			writeError(w, http.StatusBadRequest, "invalid request parameters")
+		},
+	})
 	s.mux.HandleFunc("GET /api/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "api route not found")
 	})

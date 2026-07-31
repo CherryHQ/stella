@@ -20,12 +20,8 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/channel"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/observability"
-	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/webhook"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 // --- fakes for the deep capability-admission interface -----------------------
@@ -96,31 +92,19 @@ func (f *fakeAgentRun) ChatAdmitted(_ context.Context, req agent.ChatRequest) (<
 	return f.stream, nil
 }
 
-// webhookFakeStore serves a fixed webhook channel config to the channel resolver.
-type webhookFakeStore struct {
-	config.Store
-	channel config.Channel
-}
-
-func (f webhookFakeStore) GetChannel(context.Context, string) (config.Channel, error) {
-	return f.channel, nil
-}
-
 func newIngressServer(t *testing.T, ingress webhookIngressPort, run *fakeAgentRun) *Server {
 	t.Helper()
-	return newIngressServerConfig(t, ingress, run, "{}")
+	return newIngressServerConfig(t, ingress, run)
 }
 
-func newIngressServerConfig(t *testing.T, ingress webhookIngressPort, run *fakeAgentRun, cfgJSON string) *Server {
+func newIngressServerConfig(t *testing.T, ingress webhookIngressPort, run *fakeAgentRun) *Server {
 	t.Helper()
 	return &Server{
-		log:             slog.New(slog.NewTextHandler(io.Discard, nil)),
-		webhookLimiter:  newWebhookLimiter(100, 100),
-		webhookIngress:  ingress,
-		webhookRun:      fakeRunPort{run: run},
-		channelResolver: channel.NewRuntimeResolver(webhookFakeStore{channel: config.Channel{ID: "c", Type: pkgchannel.PlatformWebhook, Enabled: true, AgentID: "agentA", Config: cfgJSON}}),
-		pluginHost:      &pluginhost.Host{},
-		runtimeCtx:      context.Background(),
+		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		webhookLimiter: newWebhookLimiter(100, 100),
+		webhookIngress: ingress,
+		webhookRun:     fakeRunPort{run: run},
+		runtimeCtx:     context.Background(),
 	}
 }
 
@@ -168,9 +152,9 @@ func TestWebhookIngressAdmitsFixedOwnerOnce(t *testing.T) {
 	}
 	run := &fakeAgentRun{stream: closedStream(agent.Event{Text: "ok"})}
 	ingress := &fakeIngress{
-		cand: webhook.Candidate{EndpointID: "c"},
+		cand: webhook.Candidate{WebhookID: "c"},
 		admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
-			return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Provider: webhook.ProviderGeneric, Authority: authority})
+			return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Provider: webhook.ProviderGeneric, Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 		},
 	}
 	s := newIngressServer(t, ingress, run)
@@ -195,8 +179,8 @@ func TestWebhookIngressAdmitsFixedOwnerOnce(t *testing.T) {
 func TestWebhookIngressWaitTrueReturnsOutput(t *testing.T) {
 	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
 	run := &fakeAgentRun{stream: closedStream(agent.Event{Text: "hello reply"})}
-	ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
-		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+	ingress := &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+		return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 	}}
 	s := newIngressServer(t, ingress, run)
 
@@ -209,6 +193,56 @@ func TestWebhookIngressWaitTrueReturnsOutput(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "hello reply") {
 		t.Fatalf("body = %s, want the agent output", rr.Body.String())
 	}
+}
+
+func TestWebhookIngressWaitDisconnectReturnsAndFinishesRunInBackground(t *testing.T) {
+	authority, err := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := make(chan agent.Event)
+	run := &fakeAgentRun{stream: stream}
+	ingress := &fakeIngress{
+		cand: webhook.Candidate{WebhookID: "disconnect"},
+		admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+			return cb(ctx, webhook.AdmittedInvocation{WebhookID: "disconnect", UserID: "owner-1", AgentID: "agentA", Provider: webhook.ProviderGeneric, Authority: authority, WaitTimeoutSeconds: 600, MaxRunTimeoutSeconds: 300})
+		},
+	}
+	s := newIngressServer(t, ingress, run)
+	wait := true
+	req := capabilityRequest(t, &wait)
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
+	done := make(chan struct{})
+	go func() {
+		s.handleWebhookIngress(httptest.NewRecorder(), req)
+		close(done)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for run.chatCalls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if run.chatCalls.Load() != 1 {
+		t.Fatal("run was not admitted")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handler remained blocked after client disconnect")
+	}
+	close(stream)
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.webhookLimiter.mu.Lock()
+		inflight := s.webhookLimiter.inflight["disconnect"]
+		s.webhookLimiter.mu.Unlock()
+		if inflight == 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("background drainer did not release run slot")
 }
 
 func TestWebhookIngressUnknownCapabilityIs404(t *testing.T) {
@@ -232,10 +266,10 @@ func TestWebhookIngressUnknownCapabilityIs404(t *testing.T) {
 // stops resolving during admission (rotate/revoke) and a withdrawn owner
 // permission both fail closed with an opaque 404 and never start a run.
 func TestWebhookIngressAdmitFailuresAreOpaque404(t *testing.T) {
-	for _, admitErr := range []error{webhook.ErrNotFound, webhook.ErrOwnerAgentForbidden} {
+	for _, admitErr := range []error{webhook.ErrNotFound, webhook.ErrUserAgentForbidden} {
 		t.Run(admitErr.Error(), func(t *testing.T) {
 			run := &fakeAgentRun{}
-			ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(context.Context, webhook.Candidate, webhook.AdmitCallback) error {
+			ingress := &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(context.Context, webhook.Candidate, webhook.AdmitCallback) error {
 				return admitErr
 			}}
 			s := newIngressServer(t, ingress, run)
@@ -254,8 +288,8 @@ func TestWebhookIngressAdmitFailuresAreOpaque404(t *testing.T) {
 func TestWebhookIngressBusyIs429(t *testing.T) {
 	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
 	run := &fakeAgentRun{chatErr: fmt.Errorf("%w: session s1", agenterr.ErrSessionBusy)}
-	ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
-		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+	ingress := &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+		return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 	}}
 	s := newIngressServer(t, ingress, run)
 	rr := httptest.NewRecorder()
@@ -280,8 +314,8 @@ func TestWebhookIngressUnavailableWhenPortNil(t *testing.T) {
 func TestWebhookIngressInflightCapReservesBeforeSession(t *testing.T) {
 	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
 	run := &fakeAgentRun{}
-	ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
-		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+	ingress := &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+		return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 	}}
 	s := newIngressServer(t, ingress, run)
 
@@ -327,8 +361,8 @@ func TestWebhookIngressBusyAuditModeMatchesRequest(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			run := &fakeAgentRun{chatErr: fmt.Errorf("%w: session s1", agenterr.ErrSessionBusy)}
-			ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
-				return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+			ingress := &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+				return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 			}}
 			s := newIngressServer(t, ingress, run)
 			s.log = slog.New(slog.NewTextHandler(&buf, nil))
@@ -354,8 +388,8 @@ func TestWebhookIngressBusyAuditModeMatchesRequest(t *testing.T) {
 func TestWebhookIngressArchivesEphemeralSessionOnAdmitFailure(t *testing.T) {
 	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
 	run := &fakeAgentRun{chatErr: errors.New("runtime unavailable")}
-	ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
-		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+	ingress := &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+		return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 	}}
 	s := newIngressServer(t, ingress, run) // ephemeral (default session mode)
 
@@ -385,8 +419,8 @@ func TestWebhookIngressArchivesEphemeralSessionOnAdmitFailure(t *testing.T) {
 func TestWebhookIngressDoesNotArchivePersistentSession(t *testing.T) {
 	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
 	run := &fakeAgentRun{chatErr: fmt.Errorf("%w: session s1", agenterr.ErrSessionBusy)}
-	ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
-		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+	ingress := &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+		return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 	}}
 	s := newIngressServer(t, ingress, run)
 
@@ -409,8 +443,8 @@ func TestWebhookIngressDoesNotArchivePersistentSession(t *testing.T) {
 func TestWebhookIngressArchiveFailureIsLoggedNotMasked(t *testing.T) {
 	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
 	run := &fakeAgentRun{chatErr: errors.New("runtime unavailable"), archiveErr: errors.New("archive boom")}
-	ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
-		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+	ingress := &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+		return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 	}}
 	var buf bytes.Buffer
 	s := newIngressServer(t, ingress, run)
@@ -519,11 +553,11 @@ func TestReadWebhookBodySetsThenClearsDeadline(t *testing.T) {
 func admitAll(t *testing.T, calls *atomic.Int32) *fakeIngress {
 	t.Helper()
 	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
-	return &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+	return &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
 		if calls != nil {
 			calls.Add(1)
 		}
-		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+		return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 	}}
 }
 
@@ -559,8 +593,8 @@ func TestWebhookIngressReleasesSlotBeforeSyncWait(t *testing.T) {
 	authority, _ := agentaccess.WorkerAgentAuthority("owner-1", "agentA")
 	stream := make(chan agent.Event) // open and never yields → request 1 blocks in the sync wait
 	run := &fakeAgentRun{stream: stream}
-	ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
-		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
+	ingress := &fakeIngress{cand: webhook.Candidate{WebhookID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
+		return cb(ctx, webhook.AdmittedInvocation{WebhookID: "c", UserID: "owner-1", AgentID: "agentA", Authority: authority, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 	}}
 	s := newIngressServer(t, ingress, run)
 	s.webhookLimiter.maxIngress = 1 // only one ingress slot at a time
@@ -757,7 +791,7 @@ func TestWebhookIngressStalledReadTimesOut(t *testing.T) {
 }
 
 func TestDrainWebhookStream(t *testing.T) {
-	res := <-drainWebhookStream(closedStream(agent.Event{Text: "Hello, "}, agent.Event{Text: "world"}, agent.Event{Reasoning: "ignored"}))
+	res := <-drainWebhookStream(closedStream(agent.Event{Text: "Hello, "}, agent.Event{Text: "world"}, agent.Event{Reasoning: "ignored"}), true)
 	if res.err != nil {
 		t.Fatalf("unexpected err: %v", res.err)
 	}
@@ -768,8 +802,20 @@ func TestDrainWebhookStream(t *testing.T) {
 
 // TestDrainWebhookStreamPreservesBusy pins the error identity the busy branch
 // depends on: a wrapped ErrSessionBusy must survive the drain.
+func TestDrainWebhookStreamBoundsOrDiscardsOutput(t *testing.T) {
+	large := strings.Repeat("x", maxWebhookOutput+1)
+	async := <-drainWebhookStream(closedStream(agent.Event{Text: large}), false)
+	if async.output != "" || async.err != nil {
+		t.Fatalf("async drain retained output or failed: len=%d err=%v", len(async.output), async.err)
+	}
+	sync := <-drainWebhookStream(closedStream(agent.Event{Text: large}), true)
+	if !errors.Is(sync.err, errWebhookOutputTooLarge) || len(sync.output) > maxWebhookOutput {
+		t.Fatalf("sync drain = len %d err %v", len(sync.output), sync.err)
+	}
+}
+
 func TestDrainWebhookStreamPreservesBusy(t *testing.T) {
-	res := <-drainWebhookStream(closedStream(agent.Event{Err: fmt.Errorf("%w: session s1", agenterr.ErrSessionBusy)}))
+	res := <-drainWebhookStream(closedStream(agent.Event{Err: fmt.Errorf("%w: session s1", agenterr.ErrSessionBusy)}), true)
 	if !errors.Is(res.err, agenterr.ErrSessionBusy) {
 		t.Fatalf("busy identity lost through drain: %v", res.err)
 	}

@@ -26,6 +26,7 @@ import { Route as AppAgentsRouteImport } from './routes/_app/agents'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
+import { Route as AppSettingsWebhooksRouteImport } from './routes/_app/settings/webhooks'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppSettingsSkillsRouteImport } from './routes/_app/settings/skills'
 import { Route as AppSettingsSandboxRouteImport } from './routes/_app/settings/sandbox'
@@ -153,6 +154,13 @@ const AppTasksTaskIdRoute = AppTasksTaskIdRouteImport.update({
   path: '/$taskId',
   getParentRoute: () => AppTasksRoute,
 } as any)
+const AppSettingsWebhooksRoute = AppSettingsWebhooksRouteImport.update({
+  id: '/webhooks',
+  path: '/webhooks',
+  getParentRoute: () => AppSettingsRoute,
+} as any).lazy(() =>
+  import('./routes/_app/settings/webhooks.lazy').then((d) => d.Route),
+)
 const AppSettingsUsersRoute = AppSettingsUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -522,6 +530,7 @@ export interface FileRoutesByFullPath {
   '/settings/sandbox': typeof AppSettingsSandboxRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
   '/settings/users': typeof AppSettingsUsersRouteWithChildren
+  '/settings/webhooks': typeof AppSettingsWebhooksRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
@@ -579,6 +588,7 @@ export interface FileRoutesByTo {
   '/settings/sandbox': typeof AppSettingsSandboxRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
   '/settings/users': typeof AppSettingsUsersRouteWithChildren
+  '/settings/webhooks': typeof AppSettingsWebhooksRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/agents': typeof AppAgentsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
@@ -641,6 +651,7 @@ export interface FileRoutesById {
   '/_app/settings/sandbox': typeof AppSettingsSandboxRoute
   '/_app/settings/skills': typeof AppSettingsSkillsRoute
   '/_app/settings/users': typeof AppSettingsUsersRouteWithChildren
+  '/_app/settings/webhooks': typeof AppSettingsWebhooksRoute
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
@@ -703,6 +714,7 @@ export interface FileRouteTypes {
     | '/settings/sandbox'
     | '/settings/skills'
     | '/settings/users'
+    | '/settings/webhooks'
     | '/tasks/$taskId'
     | '/agents/'
     | '/settings/'
@@ -760,6 +772,7 @@ export interface FileRouteTypes {
     | '/settings/sandbox'
     | '/settings/skills'
     | '/settings/users'
+    | '/settings/webhooks'
     | '/tasks/$taskId'
     | '/agents'
     | '/settings'
@@ -821,6 +834,7 @@ export interface FileRouteTypes {
     | '/_app/settings/sandbox'
     | '/_app/settings/skills'
     | '/_app/settings/users'
+    | '/_app/settings/webhooks'
     | '/_app/tasks/$taskId'
     | '/_app/agents/'
     | '/_app/settings/'
@@ -984,6 +998,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/tasks/$taskId'
       preLoaderRoute: typeof AppTasksTaskIdRouteImport
       parentRoute: typeof AppTasksRoute
+    }
+    '/_app/settings/webhooks': {
+      id: '/_app/settings/webhooks'
+      path: '/webhooks'
+      fullPath: '/settings/webhooks'
+      preLoaderRoute: typeof AppSettingsWebhooksRouteImport
+      parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/users': {
       id: '/_app/settings/users'
@@ -1475,6 +1496,7 @@ interface AppSettingsRouteChildren {
   AppSettingsSandboxRoute: typeof AppSettingsSandboxRoute
   AppSettingsSkillsRoute: typeof AppSettingsSkillsRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRouteWithChildren
+  AppSettingsWebhooksRoute: typeof AppSettingsWebhooksRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
 }
 
@@ -1490,6 +1512,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsSandboxRoute: AppSettingsSandboxRoute,
   AppSettingsSkillsRoute: AppSettingsSkillsRoute,
   AppSettingsUsersRoute: AppSettingsUsersRouteWithChildren,
+  AppSettingsWebhooksRoute: AppSettingsWebhooksRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
 }
 

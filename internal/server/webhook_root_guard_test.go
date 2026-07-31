@@ -212,6 +212,9 @@ func TestReservationInvalidWaitIs400BeforeIngress(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("code = %d, want 400", rec.Code)
 	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" || !strings.Contains(rec.Body.String(), `"status":"INVALID_ARGUMENT"`) {
+		t.Fatalf("error contract = content-type %q body %q", got, rec.Body.String())
+	}
 	if h.ingressHit {
 		t.Fatal("invalid wait must be rejected before ingress admission")
 	}

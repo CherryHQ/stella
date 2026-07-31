@@ -249,21 +249,16 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
-	webhookSvc, err := webhook.NewService(webhook.Config{
-		Store:  webhook.NewPostgresStore(db),
-		Users:  webhook.NewUserState(credPATStore),
-		Access: webhook.NewOwnerAgentAccess(agentAccess),
-	})
-	if err != nil {
-		t.Fatalf("webhook.NewService: %v", err)
-	}
 	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	memoryManagement := memorywrite.NewManagementService(db, mem)
 	profileSvc := memprofile.NewService(db, mem, mem, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
+	webhookSvc, err := webhook.NewService(webhook.Config{Store: webhook.NewPostgresStore(db), Users: webhook.NewUserState(credPATStore), Access: webhook.NewUserAgentAccess(agentAccess)})
+	if err != nil {
+		t.Fatalf("webhook.NewService: %v", err)
+	}
 	deps := server.Deps{
 		Pinger:              db,
-		ChannelResolver:     channel.NewRuntimeResolver(store),
 		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
 		Account:             accountSvc,
 		Profile:             profileSvc,
@@ -280,8 +275,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		WeixinRegistrar:     server.NewTestWeixinRegistrar(),
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
-		ControlPlane:        controlplane.NewService(store, phost, poolManager, credSvc, slog.With("component", "controlplane-test"), controlplane.WithWebhookEndpoints(webhookSvc)),
-		WebhookEndpoints:    webhookSvc,
+		ControlPlane:        controlplane.NewService(store, phost, poolManager, credSvc, slog.With("component", "controlplane-test")),
+		Webhooks:            webhookSvc,
 		Email:               email.NewService(nil, sqlc.New(db)),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Assets:              assetStore,
@@ -364,7 +359,7 @@ func TestNewErrorsWithoutRequiredDeps(t *testing.T) {
 	if srv != nil {
 		t.Fatal("expected nil server on validation failure")
 	}
-	for _, want := range []string{"PluginHost", "ChannelResolver", "BaseURL"} {
+	for _, want := range []string{"PluginHost", "BaseURL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention missing dep %q", err, want)
 		}
@@ -700,6 +695,26 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 	})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("PUT status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
+func TestChannelCreateIsInsertOnlyAndPatchIsUpdateOnly(t *testing.T) {
+	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
+	body := map[string]any{
+		"id": "telegram-method-contract", "type": "telegram", "enabled": false,
+		"config": `{"token":"tg-token"}`,
+	}
+	if rr := doRequest(t, env, http.MethodPost, "/api/channels", body); rr.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPost, "/api/channels", body); rr.Code != http.StatusConflict {
+		t.Fatalf("duplicate create = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPatch, "/api/channels/missing-channel", map[string]any{
+		"type": "telegram", "enabled": false, "config": `{"token":"tg-token"}`,
+	}); rr.Code != http.StatusNotFound {
+		t.Fatalf("missing patch = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
 }
 

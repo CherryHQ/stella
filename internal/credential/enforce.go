@@ -136,7 +136,7 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 		return agentRouteScope(method, rest[1:])
 	case "users":
 		return usersRouteScope(method, rest[1:])
-	case "goals", "workflows", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
+	case "goals", "workflows", "webhooks", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
 		return scopeForMethod(resource, method), true
 	}
 

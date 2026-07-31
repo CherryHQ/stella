@@ -5,202 +5,230 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
 )
 
-// testUsers and testAccess are the issuance-validation ports as simple decisions
-// so unit tests exercise the service without a database or the agent PEP.
-type testUsers struct{ active bool }
-
-func (u testUsers) IsActive(context.Context, string) (bool, error) { return u.active, nil }
-
-type testAccess struct{ allowed bool }
-
-func (a testAccess) CanUseOwner(context.Context, string, string) (bool, error) {
-	return a.allowed, nil
+type memoryStore struct {
+	mu   sync.Mutex
+	rows map[string]credentialRecord
 }
 
-func newTestService(t *testing.T, store Store) *Service {
+func (s *memoryStore) Create(_ context.Context, row credentialRecord) (credentialRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rows[row.ID] = row
+	return row, nil
+}
+
+func (s *memoryStore) Get(_ context.Context, id, user string) (credentialRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	row, ok := s.rows[id]
+	if !ok || row.UserID != user {
+		return credentialRecord{}, ErrNotFound
+	}
+	return row, nil
+}
+
+func (s *memoryStore) List(_ context.Context, user string, _, _ int32) ([]credentialRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []credentialRecord
+	for _, row := range s.rows {
+		if row.UserID == user {
+			out = append(out, row)
+		}
+	}
+	return out, nil
+}
+
+func (s *memoryStore) Update(_ context.Context, req UpdateRequest, expectedAgent string) (credentialRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.rows[req.ID]
+	if !ok || current.UserID != req.UserID {
+		return credentialRecord{}, ErrNotFound
+	}
+	if current.AgentID != expectedAgent {
+		return credentialRecord{}, ErrBindingChanged
+	}
+	current.Webhook = applyUpdate(current.Webhook, req)
+	s.rows[req.ID] = current
+	return current, nil
+}
+
+func (s *memoryStore) Rotate(_ context.Context, id, user, etag string, next credentialRecord) (credentialRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.rows[id]
+	if !ok || current.UserID != user {
+		return credentialRecord{}, ErrNotFound
+	}
+	if current.ETag() != etag {
+		return credentialRecord{}, ErrStaleETag
+	}
+	current.TokenPublicID, current.TokenHash, current.TokenLast4, current.Revision = next.TokenPublicID, next.TokenHash, next.TokenLast4, current.Revision+1
+	s.rows[id] = current
+	return current, nil
+}
+
+func (s *memoryStore) Delete(_ context.Context, id, user string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	row, ok := s.rows[id]
+	if !ok || row.UserID != user {
+		return 0, nil
+	}
+	delete(s.rows, id)
+	return 1, nil
+}
+
+func (s *memoryStore) ResolveByPublicID(_ context.Context, public string) (credentialRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, row := range s.rows {
+		if row.TokenPublicID == public {
+			return row, nil
+		}
+	}
+	return credentialRecord{}, ErrNotFound
+}
+
+func (s *memoryStore) ResolveAdmitted(ctx context.Context, public string) (credentialRecord, error) {
+	row, err := s.ResolveByPublicID(ctx, public)
+	if err != nil || !row.IsEnabled {
+		return credentialRecord{}, ErrNotFound
+	}
+	return row, nil
+}
+
+type activeUsers struct{}
+
+func (activeUsers) IsActive(context.Context, string) (bool, error) { return true, nil }
+
+type allowedAccess struct{}
+
+func (allowedAccess) CanUseUser(context.Context, string, string) (bool, error) { return true, nil }
+
+func newMemoryService(t *testing.T) *Service {
 	t.Helper()
-	svc, err := NewService(Config{Store: store, Users: testUsers{true}, Access: testAccess{true}})
+	svc, err := NewService(Config{Store: &memoryStore{rows: map[string]credentialRecord{}}, Users: activeUsers{}, Access: allowedAccess{}})
 	if err != nil {
-		t.Fatalf("NewService: %v", err)
+		t.Fatal(err)
 	}
 	return svc
 }
 
-func TestEncodeETagBindsPublicIDAndRevision(t *testing.T) {
+func TestEncodeETagBindsCredentialAndRevision(t *testing.T) {
 	base := EncodeETag("pub-a", 1)
-	if base == "" {
-		t.Fatal("EncodeETag returned empty")
+	if base == "" || base != EncodeETag("pub-a", 1) {
+		t.Fatal("etag must be non-empty and deterministic")
 	}
-	if base != EncodeETag("pub-a", 1) {
-		t.Fatal("EncodeETag must be deterministic for the same inputs")
+	if base == EncodeETag("pub-a", 2) || base == EncodeETag("pub-b", 1) {
+		t.Fatal("etag must bind both credential and revision")
 	}
-	// A different revision or a different credential id yields a different etag,
-	// so a stale etag cannot match after rotate or revoke+recreate.
-	if base == EncodeETag("pub-a", 2) {
-		t.Fatal("etag must change with revision")
-	}
-	if base == EncodeETag("pub-b", 1) {
-		t.Fatal("etag must change with token_public_id (ABA / cross-channel guard)")
-	}
-	// The opaque etag must not embed the raw public id.
 	if strings.Contains(base, "pub-a") {
-		t.Fatalf("etag leaks token_public_id: %q", base)
+		t.Fatalf("etag leaks public id: %q", base)
 	}
 }
 
-func TestIssueValidatesInput(t *testing.T) {
-	svc := newTestService(t, &memStore{})
-	valid := uuid.Must(uuid.NewV7()).String()
-	cases := []struct {
+func TestCreateValidatesResource(t *testing.T) {
+	valid := CreateRequest{UserID: uuid.NewString(), Name: "deploy", AgentID: "agent", Provider: ProviderGeneric, IsEnabled: true, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300}
+	tests := []struct {
 		name string
-		req  IssueRequest
+		edit func(*CreateRequest)
 		want error
 	}{
-		{"empty channel", IssueRequest{CallerUserID: valid, Provider: ProviderGeneric}, ErrInvalidChannelID},
-		{"bad owner", IssueRequest{ChannelID: "c", CallerUserID: "nope", Provider: ProviderGeneric}, ErrInvalidOwnerUserID},
-		{"bad provider", IssueRequest{ChannelID: "c", CallerUserID: valid, Provider: Provider("github")}, ErrInvalidProvider},
+		{"user", func(r *CreateRequest) { r.UserID = "invalid" }, ErrInvalidUserID},
+		{"name", func(r *CreateRequest) { r.Name = "  " }, ErrInvalidName},
+		{"agent", func(r *CreateRequest) { r.AgentID = "" }, ErrInvalidAgentID},
+		{"provider", func(r *CreateRequest) { r.Provider = Provider("github") }, ErrInvalidProvider},
+		{"wait timeout", func(r *CreateRequest) { r.WaitTimeoutSeconds = 0 }, ErrInvalidTimeout},
+		{"run timeout", func(r *CreateRequest) { r.MaxRunTimeoutSeconds = RunTimeoutCeilingSeconds + 1 }, ErrInvalidTimeout},
 	}
-	for _, tc := range cases {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := svc.Issue(context.Background(), tc.req); !errors.Is(err, tc.want) {
-				t.Fatalf("Issue error = %v, want %v", err, tc.want)
+			req := valid
+			tc.edit(&req)
+			if _, err := newMemoryService(t).Create(context.Background(), req); !errors.Is(err, tc.want) {
+				t.Fatalf("Create error = %v, want %v", err, tc.want)
 			}
 		})
 	}
 }
 
 func TestRotateRejectsEmptyETag(t *testing.T) {
-	svc := newTestService(t, &memStore{})
-	if _, err := svc.Rotate(context.Background(), "c", uuid.Must(uuid.NewV7()).String(), ""); !errors.Is(err, ErrInvalidETag) {
-		t.Fatalf("Rotate(\"\") error = %v, want ErrInvalidETag", err)
+	if _, err := newMemoryService(t).Rotate(context.Background(), uuid.NewString(), uuid.NewString(), ""); !errors.Is(err, ErrInvalidETag) {
+		t.Fatalf("Rotate error = %v, want ErrInvalidETag", err)
 	}
 }
 
-func TestResolveCandidateRejectsForeignAndMalformedTokens(t *testing.T) {
-	svc := newTestService(t, &memStore{})
+func TestResolveCandidateRejectsMalformedTamperedAndRedacts(t *testing.T) {
+	svc := newMemoryService(t)
 	for _, raw := range []string{"", "stella_pat_abc", TokenPrefix + "garbage"} {
 		if _, err := svc.ResolveCandidate(context.Background(), raw); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("ResolveCandidate(%q) error = %v, want ErrNotFound", raw, err)
+			t.Fatalf("ResolveCandidate(%q) = %v, want ErrNotFound", raw, err)
 		}
 	}
-}
-
-func TestResolveCandidateRejectsWrongSecretAndRedacts(t *testing.T) {
-	owner := uuid.Must(uuid.NewV7()).String()
-	store := &memStore{binding: ChannelBinding{Type: "webhook", OwnerUserID: owner, AgentID: "a", AgentEnabled: true}}
-	svc := newTestService(t, store)
-	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "c", CallerUserID: owner, Provider: ProviderGeneric})
+	created, err := svc.Create(context.Background(), CreateRequest{UserID: uuid.NewString(), Name: "deploy", AgentID: "agent", Provider: ProviderGeneric, IsEnabled: true, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
 	if err != nil {
-		t.Fatalf("Issue: %v", err)
+		t.Fatal(err)
 	}
-	// The real capability resolves to a candidate; a token sharing the public id
-	// but a different secret must not (constant-time mismatch → ErrNotFound).
-	cand, err := svc.ResolveCandidate(context.Background(), issued.Capability)
+	cand, err := svc.ResolveCandidate(context.Background(), created.Capability)
 	if err != nil {
-		t.Fatalf("ResolveCandidate(issued): %v", err)
+		t.Fatal(err)
 	}
-	if cand.EndpointID != "c" {
-		t.Fatalf("candidate endpoint = %q, want c", cand.EndpointID)
+	if cand.WebhookID != created.Webhook.ID {
+		t.Fatalf("candidate webhook = %q, want %q", cand.WebhookID, created.Webhook.ID)
 	}
-	// The candidate must not leak the secret via formatting or logging.
-	if s := cand.String(); strings.Contains(s, cand.secret) || strings.Contains(s, cand.publicID) {
-		t.Fatalf("candidate String leaks verifier material: %q", s)
+	for _, rendered := range []string{cand.String(), fmt.Sprintf("%+v", cand)} {
+		if strings.Contains(rendered, cand.secret) || strings.Contains(rendered, cand.publicID) {
+			t.Fatalf("candidate formatting leaks verifier: %q", rendered)
+		}
 	}
-	if s := fmt.Sprintf("%+v", cand); strings.Contains(s, cand.secret) {
-		t.Fatalf("candidate %%+v leaks secret: %q", s)
+	replacement := byte('A')
+	if created.Capability[len(created.Capability)-1] == replacement {
+		replacement = 'B'
 	}
-	tampered := issued.Capability[:len(issued.Capability)-4] + "0000"
+	tampered := created.Capability[:len(created.Capability)-1] + string(replacement)
 	if _, err := svc.ResolveCandidate(context.Background(), tampered); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("ResolveCandidate(tampered) error = %v, want ErrNotFound", err)
-	}
-	if strings.Contains(issued.Capability, store.rec.TokenHash) {
-		t.Fatal("capability plaintext leaked into stored hash")
+		t.Fatalf("tampered capability = %v, want ErrNotFound", err)
 	}
 }
 
-// memStore is an in-memory Store for unit tests. It preserves the compare-and-set
-// revision semantics the Postgres store enforces with a row lock. active toggles
-// whether ResolveEndpoint (the deep admission read) returns the endpoint.
-type memStore struct {
-	binding ChannelBinding
-	rec     *endpointRecord
-	active  bool
-}
-
-func (m *memStore) BindEndpoint(ctx context.Context, channelID string, build func(context.Context, ChannelBinding) (endpointRecord, error)) (endpointRecord, error) {
-	if m.rec != nil {
-		return endpointRecord{}, ErrEndpointExists
-	}
-	binding := m.binding
-	binding.ChannelID = channelID
-	rec, err := build(ctx, binding)
+func TestResourceLifecycleIsOwnerScopedAndRotatesCAS(t *testing.T) {
+	userA, userB := uuid.NewString(), uuid.NewString()
+	svc, err := NewService(Config{Store: &memoryStore{rows: map[string]credentialRecord{}}, Users: activeUsers{}, Access: allowedAccess{}})
 	if err != nil {
-		return endpointRecord{}, err
+		t.Fatal(err)
 	}
-	rec.ChannelID = channelID
-	rec.Revision = 1
-	m.rec = &rec
-	return rec, nil
-}
-
-func (m *memStore) ObserveBinding(_ context.Context, channelID string) (ChannelBinding, error) {
-	b := m.binding
-	b.ChannelID = channelID
-	return b, nil
-}
-
-func (m *memStore) ResolveEndpoint(_ context.Context, publicID string) (resolvedRecord, error) {
-	if m.rec == nil || m.rec.TokenPublicID != publicID {
-		return resolvedRecord{}, ErrNotFound
+	created, err := svc.Create(context.Background(), CreateRequest{UserID: userA, Name: "deploy", AgentID: "agent", Provider: ProviderGeneric, IsEnabled: true, WaitTimeoutSeconds: 60, MaxRunTimeoutSeconds: 300})
+	if err != nil {
+		t.Fatal(err)
 	}
-	return resolvedRecord{
-		endpointRecord: *m.rec,
-		AgentID:        m.binding.AgentID,
-		ChannelEnabled: m.active,
-		OwnerActive:    m.active,
-		AgentEnabled:   m.active,
-	}, nil
-}
-
-func (m *memStore) GetEndpointByChannel(context.Context, string, string) (endpointRecord, error) {
-	if m.rec == nil {
-		return endpointRecord{}, ErrNotFound
+	if created.Webhook.ID == "" || created.Capability == "" {
+		t.Fatal("create did not mint id and capability")
 	}
-	return *m.rec, nil
-}
-
-func (m *memStore) ResolveByPublicID(_ context.Context, publicID string) (endpointRecord, error) {
-	if m.rec == nil || m.rec.TokenPublicID != publicID {
-		return endpointRecord{}, ErrNotFound
+	if _, err := svc.Get(context.Background(), userB, created.Webhook.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("foreign Get = %v, want opaque not found", err)
 	}
-	return *m.rec, nil
-}
-
-func (m *memStore) RotateEndpoint(_ context.Context, channelID, _ string, expectedETag string, next endpointRecord) (endpointRecord, error) {
-	if m.rec == nil {
-		return endpointRecord{}, ErrNotFound
+	if deleted, err := svc.Delete(context.Background(), userB, created.Webhook.ID); err != nil || deleted {
+		t.Fatalf("foreign Delete = (%v, %v), want (false, nil)", deleted, err)
 	}
-	if EncodeETag(m.rec.TokenPublicID, m.rec.Revision) != expectedETag {
-		return endpointRecord{}, ErrStaleETag
+	rotated, err := svc.Rotate(context.Background(), userA, created.Webhook.ID, created.Webhook.ETag())
+	if err != nil {
+		t.Fatal(err)
 	}
-	updated := *m.rec
-	updated.TokenPublicID = next.TokenPublicID
-	updated.TokenHash = next.TokenHash
-	updated.TokenLast4 = next.TokenLast4
-	updated.Revision++
-	m.rec = &updated
-	return updated, nil
-}
-
-func (m *memStore) DeleteEndpoint(context.Context, string, string) (int64, error) {
-	if m.rec == nil {
-		return 0, nil
+	if rotated.Capability == created.Capability || rotated.Webhook.ETag() == created.Webhook.ETag() {
+		t.Fatal("rotate did not replace credential")
 	}
-	m.rec = nil
-	return 1, nil
+	if _, err := svc.Rotate(context.Background(), userA, created.Webhook.ID, created.Webhook.ETag()); !errors.Is(err, ErrStaleETag) {
+		t.Fatalf("stale rotate = %v, want ErrStaleETag", err)
+	}
+	if deleted, err := svc.Delete(context.Background(), userA, created.Webhook.ID); err != nil || !deleted {
+		t.Fatalf("Delete = (%v, %v)", deleted, err)
+	}
 }

@@ -14,7 +14,7 @@ import (
 const createChannel = `-- name: CreateChannel :one
 INSERT INTO channel (id, name, type, agent_id, enabled, config)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at, owner_user_id
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at
 `
 
 type CreateChannelParams struct {
@@ -45,7 +45,6 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (C
 		&i.Config,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.OwnerUserID,
 	)
 	return i, err
 }
@@ -76,7 +75,7 @@ func (q *Queries) DeleteChannel(ctx context.Context, id string) error {
 }
 
 const getChannel = `-- name: GetChannel :one
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, owner_user_id FROM channel WHERE id = $1
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel WHERE id = $1
 `
 
 func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
@@ -91,124 +90,12 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
 		&i.Config,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.OwnerUserID,
-	)
-	return i, err
-}
-
-const getChannelBinding = `-- name: GetChannelBinding :one
-SELECT
-    channel.id,
-    channel.type,
-    channel.owner_user_id,
-    channel.agent_id,
-    COALESCE(agent.enabled, false) AS agent_enabled,
-    channel.config
-FROM channel
-LEFT JOIN agent ON agent.id = channel.agent_id
-WHERE channel.id = $1
-`
-
-type GetChannelBindingRow struct {
-	ID           string      `json:"id"`
-	Type         string      `json:"type"`
-	OwnerUserID  pgtype.Text `json:"owner_user_id"`
-	AgentID      pgtype.Text `json:"agent_id"`
-	AgentEnabled bool        `json:"agent_enabled"`
-	Config       string      `json:"config"`
-}
-
-// GetChannelBinding reads the current channel binding without a lock. Endpoint
-// issuance observes it here (outside any transaction) to run owner/access
-// prechecks before taking the short channel-row lock for the final insert.
-func (q *Queries) GetChannelBinding(ctx context.Context, id string) (GetChannelBindingRow, error) {
-	row := q.db.QueryRow(ctx, getChannelBinding, id)
-	var i GetChannelBindingRow
-	err := row.Scan(
-		&i.ID,
-		&i.Type,
-		&i.OwnerUserID,
-		&i.AgentID,
-		&i.AgentEnabled,
-		&i.Config,
-	)
-	return i, err
-}
-
-const getChannelBindingForUpdate = `-- name: GetChannelBindingForUpdate :one
-SELECT
-    channel.id,
-    channel.type,
-    channel.owner_user_id,
-    channel.agent_id,
-    COALESCE(agent.enabled, false) AS agent_enabled,
-    channel.config
-FROM channel
-LEFT JOIN agent ON agent.id = channel.agent_id
-WHERE channel.id = $1
-FOR UPDATE OF channel
-`
-
-type GetChannelBindingForUpdateRow struct {
-	ID           string      `json:"id"`
-	Type         string      `json:"type"`
-	OwnerUserID  pgtype.Text `json:"owner_user_id"`
-	AgentID      pgtype.Text `json:"agent_id"`
-	AgentEnabled bool        `json:"agent_enabled"`
-	Config       string      `json:"config"`
-}
-
-// GetChannelBindingForUpdate locks the channel row (and only the channel row)
-// so endpoint issuance and channel binding mutation serialize against each
-// other. The agent join is a read for the caller's binding checks; only the
-// channel row is locked (FOR UPDATE OF channel), so no unrelated row lock is
-// held across the transaction.
-func (q *Queries) GetChannelBindingForUpdate(ctx context.Context, id string) (GetChannelBindingForUpdateRow, error) {
-	row := q.db.QueryRow(ctx, getChannelBindingForUpdate, id)
-	var i GetChannelBindingForUpdateRow
-	err := row.Scan(
-		&i.ID,
-		&i.Type,
-		&i.OwnerUserID,
-		&i.AgentID,
-		&i.AgentEnabled,
-		&i.Config,
-	)
-	return i, err
-}
-
-const getPersonalWebhookChannelForUpdate = `-- name: GetPersonalWebhookChannelForUpdate :one
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, owner_user_id FROM channel
-WHERE id = $1 AND type = 'webhook' AND owner_user_id = $2
-FOR UPDATE
-`
-
-type GetPersonalWebhookChannelForUpdateParams struct {
-	ID          string      `json:"id"`
-	OwnerUserID pgtype.Text `json:"owner_user_id"`
-}
-
-// GetPersonalWebhookChannelForUpdate serializes an owner-scoped mutation with
-// capability lifecycle issuance through the channel-row lock.
-func (q *Queries) GetPersonalWebhookChannelForUpdate(ctx context.Context, arg GetPersonalWebhookChannelForUpdateParams) (Channel, error) {
-	row := q.db.QueryRow(ctx, getPersonalWebhookChannelForUpdate, arg.ID, arg.OwnerUserID)
-	var i Channel
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Type,
-		&i.AgentID,
-		&i.Enabled,
-		&i.Config,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.OwnerUserID,
 	)
 	return i, err
 }
 
 const listChannels = `-- name: ListChannels :many
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, owner_user_id FROM channel ORDER BY type, id
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel ORDER BY type, id
 `
 
 func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
@@ -229,7 +116,6 @@ func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 			&i.Config,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.OwnerUserID,
 		); err != nil {
 			return nil, err
 		}
@@ -242,7 +128,7 @@ func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 }
 
 const listChannelsByType = `-- name: ListChannelsByType :many
-SELECT id, name, type, agent_id, enabled, config, created_at, updated_at, owner_user_id FROM channel WHERE type = $1 ORDER BY id
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel WHERE type = $1 ORDER BY id
 `
 
 func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Channel, error) {
@@ -263,7 +149,6 @@ func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Chann
 			&i.Config,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.OwnerUserID,
 		); err != nil {
 			return nil, err
 		}
@@ -275,9 +160,53 @@ func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Chann
 	return items, nil
 }
 
+const updateChannel = `-- name: UpdateChannel :one
+UPDATE channel
+SET name = $2,
+    type = $3,
+    agent_id = $4,
+    enabled = $5,
+    config = $6,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at
+`
+
+type UpdateChannelParams struct {
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Type    string      `json:"type"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Enabled bool        `json:"enabled"`
+	Config  string      `json:"config"`
+}
+
+func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, updateChannel,
+		arg.ID,
+		arg.Name,
+		arg.Type,
+		arg.AgentID,
+		arg.Enabled,
+		arg.Config,
+	)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.AgentID,
+		&i.Enabled,
+		&i.Config,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const upsertChannel = `-- name: UpsertChannel :exec
-INSERT INTO channel (id, name, type, agent_id, enabled, config, owner_user_id, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, now())
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     type = excluded.type,
@@ -288,13 +217,12 @@ ON CONFLICT(id) DO UPDATE SET
 `
 
 type UpsertChannelParams struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`
-	Type        string      `json:"type"`
-	AgentID     pgtype.Text `json:"agent_id"`
-	Enabled     bool        `json:"enabled"`
-	Config      string      `json:"config"`
-	OwnerUserID pgtype.Text `json:"owner_user_id"`
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Type    string      `json:"type"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Enabled bool        `json:"enabled"`
+	Config  string      `json:"config"`
 }
 
 func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) error {
@@ -305,7 +233,6 @@ func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) er
 		arg.AgentID,
 		arg.Enabled,
 		arg.Config,
-		arg.OwnerUserID,
 	)
 	return err
 }

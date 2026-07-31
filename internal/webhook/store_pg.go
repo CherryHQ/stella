@@ -6,14 +6,13 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// PostgresStore confines sqlc and transaction mechanics to the webhook domain.
+// PostgresStore confines sqlc and short credential-rotation transactions to the
+// webhook domain. Every resource operation scopes by (id, user_id) in SQL.
 type PostgresStore struct {
 	db *pgxpool.Pool
 	q  *sqlc.Queries
@@ -23,199 +22,116 @@ func NewPostgresStore(db *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{db: db, q: sqlc.New(db)}
 }
 
-func (s *PostgresStore) BindEndpoint(ctx context.Context, channelID string, build func(context.Context, ChannelBinding) (endpointRecord, error)) (endpointRecord, error) {
+func (s *PostgresStore) Create(ctx context.Context, rec credentialRecord) (credentialRecord, error) {
+	row, err := s.q.CreateWebhook(ctx, sqlc.CreateWebhookParams{ID: rec.ID, UserID: rec.UserID, AgentID: rec.AgentID, Name: rec.Name, Provider: string(rec.Provider), IsEnabled: rec.IsEnabled, WaitTimeoutSeconds: rec.WaitTimeoutSeconds, MaxRunTimeoutSeconds: rec.MaxRunTimeoutSeconds, TokenPublicID: rec.TokenPublicID, TokenHash: rec.TokenHash, TokenLast4: rec.TokenLast4})
+	if err != nil {
+		return credentialRecord{}, fmt.Errorf("webhook: create: %w", err)
+	}
+	return recordFromRow(row), nil
+}
+
+func (s *PostgresStore) Get(ctx context.Context, id, userID string) (credentialRecord, error) {
+	row, err := s.q.GetWebhookForUser(ctx, sqlc.GetWebhookForUserParams{ID: id, UserID: userID})
+	if err != nil {
+		return credentialRecord{}, mapNotFound(err)
+	}
+	return recordFromRow(row), nil
+}
+
+func (s *PostgresStore) List(ctx context.Context, userID string, limit, offset int32) ([]credentialRecord, error) {
+	rows, err := s.q.ListWebhookForUser(ctx, sqlc.ListWebhookForUserParams{UserID: userID, Limit: limit, Offset: offset})
+	if err != nil {
+		return nil, fmt.Errorf("webhook: list: %w", err)
+	}
+	out := make([]credentialRecord, len(rows))
+	for i := range rows {
+		out[i] = recordFromRow(rows[i])
+	}
+	return out, nil
+}
+
+func (s *PostgresStore) Update(ctx context.Context, req UpdateRequest, expectedAgent string) (credentialRecord, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return endpointRecord{}, fmt.Errorf("webhook: begin endpoint bind: %w", err)
+		return credentialRecord{}, fmt.Errorf("webhook: begin update: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	binding, err := qtx.GetChannelBindingForUpdate(ctx, channelID)
+	current, err := qtx.GetWebhookForUserForUpdate(ctx, sqlc.GetWebhookForUserForUpdateParams{ID: req.ID, UserID: req.UserID})
 	if err != nil {
-		return endpointRecord{}, mapNotFound(err)
+		return credentialRecord{}, mapNotFound(err)
 	}
-	rec, err := build(ctx, ChannelBinding{
-		ChannelID:    binding.ID,
-		OwnerUserID:  binding.OwnerUserID.String,
-		Type:         binding.Type,
-		AgentID:      binding.AgentID.String,
-		AgentEnabled: binding.AgentEnabled,
-		Config:       binding.Config,
-	})
-	if err != nil {
-		return endpointRecord{}, err
+	locked := recordFromRow(current)
+	if locked.AgentID != expectedAgent {
+		return credentialRecord{}, ErrBindingChanged
 	}
-	// BindEndpoint, not its callback, owns the channel relation. This prevents a
-	// callback from inserting against a different, unlocked channel row.
-	rec.ChannelID = channelID
-	row, err := qtx.CreateChannelWebhookEndpoint(ctx, sqlc.CreateChannelWebhookEndpointParams{
-		ChannelID:     rec.ChannelID,
-		Provider:      string(rec.Provider),
-		TokenPublicID: rec.TokenPublicID,
-		TokenHash:     rec.TokenHash,
-		TokenLast4:    rec.TokenLast4,
-	})
+	next := applyUpdate(locked.Webhook, req)
+	row, err := qtx.UpdateWebhookForUser(ctx, sqlc.UpdateWebhookForUserParams{ID: next.ID, UserID: next.UserID, Name: next.Name, AgentID: next.AgentID, IsEnabled: next.IsEnabled, WaitTimeoutSeconds: next.WaitTimeoutSeconds, MaxRunTimeoutSeconds: next.MaxRunTimeoutSeconds})
 	if err != nil {
-		return endpointRecord{}, mapEndpointConflict(err)
+		return credentialRecord{}, mapNotFound(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return endpointRecord{}, fmt.Errorf("webhook: commit endpoint bind: %w", err)
+		return credentialRecord{}, fmt.Errorf("webhook: commit update: %w", err)
 	}
-	stored := endpointFromRow(row)
-	stored.OwnerUserID = rec.OwnerUserID
-	return stored, nil
+	return recordFromRow(row), nil
 }
 
-func (s *PostgresStore) ObserveBinding(ctx context.Context, channelID string) (ChannelBinding, error) {
-	row, err := s.q.GetChannelBinding(ctx, channelID)
+func (s *PostgresStore) ResolveByPublicID(ctx context.Context, publicID string) (credentialRecord, error) {
+	row, err := s.q.GetWebhookByPublicID(ctx, publicID)
 	if err != nil {
-		return ChannelBinding{}, mapNotFound(err)
+		return credentialRecord{}, mapNotFound(err)
 	}
-	return ChannelBinding{
-		ChannelID:    row.ID,
-		OwnerUserID:  row.OwnerUserID.String,
-		Type:         row.Type,
-		AgentID:      row.AgentID.String,
-		AgentEnabled: row.AgentEnabled,
-		Config:       row.Config,
-	}, nil
+	return recordFromRow(row), nil
 }
 
-func (s *PostgresStore) GetEndpointByChannel(ctx context.Context, channelID, ownerID string) (endpointRecord, error) {
-	row, err := s.q.GetChannelWebhookEndpointByChannelIDForOwner(ctx, sqlc.GetChannelWebhookEndpointByChannelIDForOwnerParams{
-		ChannelID:   channelID,
-		OwnerUserID: ownerParam(ownerID),
-	})
+func (s *PostgresStore) ResolveAdmitted(ctx context.Context, publicID string) (credentialRecord, error) {
+	row, err := s.q.ResolveWebhookByPublicID(ctx, publicID)
 	if err != nil {
-		return endpointRecord{}, mapNotFound(err)
+		return credentialRecord{}, mapNotFound(err)
 	}
-	return endpointFromOwnedRow(row), nil
+	return recordFromRow(row), nil
 }
 
-func (s *PostgresStore) ResolveEndpoint(ctx context.Context, publicID string) (resolvedRecord, error) {
-	row, err := s.q.ResolveChannelWebhookEndpointByPublicID(ctx, publicID)
-	if err != nil {
-		return resolvedRecord{}, mapNotFound(err)
-	}
-	endpoint := Endpoint{
-		ChannelID:     row.ChannelID,
-		OwnerUserID:   row.OwnerUserID.String,
-		Provider:      Provider(row.Provider),
-		TokenPublicID: publicID,
-		TokenLast4:    row.TokenLast4,
-		Revision:      row.Revision,
-		CreatedAt:     row.CreatedAt.UTC(),
-		UpdatedAt:     row.UpdatedAt.UTC(),
-	}
-	if row.RotatedAt.Valid {
-		rotated := row.RotatedAt.Time.UTC()
-		endpoint.RotatedAt = &rotated
-	}
-	return resolvedRecord{
-		endpointRecord: endpointRecord{Endpoint: endpoint, TokenHash: row.TokenHash},
-		AgentID:        row.AgentID.String,
-		ChannelEnabled: row.ChannelEnabled,
-		OwnerActive:    row.OwnerActive,
-		AgentEnabled:   row.AgentEnabled,
-	}, nil
-}
-
-func (s *PostgresStore) ResolveByPublicID(ctx context.Context, publicID string) (endpointRecord, error) {
-	row, err := s.q.GetChannelWebhookEndpointByPublicID(ctx, publicID)
-	return endpointFromRow(row), mapNotFound(err)
-}
-
-func (s *PostgresStore) RotateEndpoint(ctx context.Context, channelID, ownerID string, expectedETag string, next endpointRecord) (endpointRecord, error) {
+func (s *PostgresStore) Rotate(ctx context.Context, id, userID, etag string, next credentialRecord) (credentialRecord, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return endpointRecord{}, fmt.Errorf("webhook: begin endpoint rotate: %w", err)
+		return credentialRecord{}, fmt.Errorf("webhook: begin rotate: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	// Lock the endpoint row after SQL has confirmed channel ownership, so a
-	// cross-owner request is indistinguishable from an absent endpoint.
-	current, err := qtx.GetChannelWebhookEndpointByChannelIDForOwnerForUpdate(ctx, sqlc.GetChannelWebhookEndpointByChannelIDForOwnerForUpdateParams{
-		ChannelID:   channelID,
-		OwnerUserID: ownerParam(ownerID),
-	})
+	current, err := qtx.GetWebhookForUserForUpdate(ctx, sqlc.GetWebhookForUserForUpdateParams{ID: id, UserID: userID})
 	if err != nil {
-		return endpointRecord{}, mapNotFound(err)
+		return credentialRecord{}, mapNotFound(err)
 	}
-	if EncodeETag(current.TokenPublicID, current.Revision) != expectedETag {
-		return endpointRecord{}, ErrStaleETag
+	if EncodeETag(current.TokenPublicID, current.Revision) != etag {
+		return credentialRecord{}, ErrStaleETag
 	}
-	row, err := qtx.RotateChannelWebhookEndpoint(ctx, sqlc.RotateChannelWebhookEndpointParams{
-		ChannelID:     channelID,
-		TokenPublicID: next.TokenPublicID,
-		TokenHash:     next.TokenHash,
-		TokenLast4:    next.TokenLast4,
-	})
+	row, err := qtx.RotateWebhook(ctx, sqlc.RotateWebhookParams{ID: id, UserID: userID, TokenPublicID: next.TokenPublicID, TokenHash: next.TokenHash, TokenLast4: next.TokenLast4})
 	if err != nil {
-		return endpointRecord{}, fmt.Errorf("webhook: rotate endpoint: %w", err)
+		return credentialRecord{}, fmt.Errorf("webhook: rotate: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return endpointRecord{}, fmt.Errorf("webhook: commit endpoint rotate: %w", err)
+		return credentialRecord{}, fmt.Errorf("webhook: commit rotate: %w", err)
 	}
-	stored := endpointFromRow(row)
-	stored.OwnerUserID = current.OwnerUserID.String
-	return stored, nil
+	return recordFromRow(row), nil
 }
 
-func (s *PostgresStore) DeleteEndpoint(ctx context.Context, channelID, ownerID string) (int64, error) {
-	return s.q.DeleteChannelWebhookEndpointForOwner(ctx, sqlc.DeleteChannelWebhookEndpointForOwnerParams{
-		ChannelID:   channelID,
-		OwnerUserID: ownerParam(ownerID),
-	})
+func (s *PostgresStore) Delete(ctx context.Context, id, userID string) (int64, error) {
+	return s.q.DeleteWebhookForUser(ctx, sqlc.DeleteWebhookForUserParams{ID: id, UserID: userID})
 }
 
-func endpointFromRow(row sqlc.ChannelWebhookEndpoint) endpointRecord {
-	endpoint := Endpoint{
-		ChannelID:     row.ChannelID,
-		Provider:      Provider(row.Provider),
-		TokenPublicID: row.TokenPublicID,
-		TokenLast4:    row.TokenLast4,
-		Revision:      row.Revision,
-		CreatedAt:     row.CreatedAt.UTC(),
-		UpdatedAt:     row.UpdatedAt.UTC(),
-	}
+func recordFromRow(row sqlc.Webhook) credentialRecord {
+	out := credentialRecord{Webhook: Webhook{ID: row.ID, UserID: row.UserID, AgentID: row.AgentID, Name: row.Name, Provider: Provider(row.Provider), IsEnabled: row.IsEnabled, WaitTimeoutSeconds: row.WaitTimeoutSeconds, MaxRunTimeoutSeconds: row.MaxRunTimeoutSeconds, TokenPublicID: row.TokenPublicID, TokenLast4: row.TokenLast4, Revision: row.Revision, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC()}, TokenHash: row.TokenHash}
 	if row.RotatedAt.Valid {
-		rotated := row.RotatedAt.Time.UTC()
-		endpoint.RotatedAt = &rotated
+		t := row.RotatedAt.Time.UTC()
+		out.RotatedAt = &t
 	}
-	return endpointRecord{Endpoint: endpoint, TokenHash: row.TokenHash}
+	return out
 }
-
-func endpointFromOwnedRow(row sqlc.GetChannelWebhookEndpointByChannelIDForOwnerRow) endpointRecord {
-	endpoint := Endpoint{
-		ChannelID:     row.ChannelID,
-		OwnerUserID:   row.OwnerUserID.String,
-		Provider:      Provider(row.Provider),
-		TokenPublicID: row.TokenPublicID,
-		TokenLast4:    row.TokenLast4,
-		Revision:      row.Revision,
-		CreatedAt:     row.CreatedAt.UTC(),
-		UpdatedAt:     row.UpdatedAt.UTC(),
-	}
-	if row.RotatedAt.Valid {
-		rotated := row.RotatedAt.Time.UTC()
-		endpoint.RotatedAt = &rotated
-	}
-	return endpointRecord{Endpoint: endpoint, TokenHash: row.TokenHash}
-}
-
-func ownerParam(id string) pgtype.Text { return pgtype.Text{String: id, Valid: id != ""} }
 
 func mapNotFound(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
-	}
-	return err
-}
-
-func mapEndpointConflict(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "channel_webhook_endpoint_pkey" {
-		return ErrEndpointExists
 	}
 	return err
 }

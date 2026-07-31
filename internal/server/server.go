@@ -41,7 +41,6 @@ import (
 
 // Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
-	channelResolver *channel.RuntimeResolver
 	account         *account.Service
 	profileSvc      *memprofile.Service
 	projectStore    *agent.ProjectStore
@@ -101,6 +100,7 @@ type Server struct {
 	// webhookIngress is the deep capability-admission surface: candidate
 	// resolution before body read, then lifecycle-revalidating admission.
 	webhookIngress webhookIngressPort
+	webhooks       *webhook.Service
 	// webhookRun is the narrow agent-execution surface the ingress callback uses.
 	webhookRun webhookRunPort
 	// readiness backs the /healthz and /readyz infrastructure probes and carries
@@ -122,11 +122,6 @@ type Deps struct {
 	// narrow port so the transport can never reach an application query — every
 	// data access is routed through a domain service below.
 	Pinger DBPinger
-
-	// ChannelResolver is the narrow runtime read port for webhook/channel and
-	// agent-name lookups, replacing the aggregate config.Store on the transport.
-	ChannelResolver *channel.RuntimeResolver
-
 	// Account owns the user-account application boundary: admin/self user
 	// reads/mutations, login/channel identities, sessions, password credential,
 	// and agent assignments, with the role/deactivation revocation invariants.
@@ -182,10 +177,9 @@ type Deps struct {
 	// HTTP endpoints, so there is one source of truth per capability.
 	Credentials  *connections.Service
 	ControlPlane *controlplane.Service
-	// WebhookEndpoints is the capability-endpoint domain. The control plane uses
-	// it for admin lifecycle; the server uses it directly for capability ingress
-	// (candidate resolution + admission), which is not admin-gated.
-	WebhookEndpoints    *webhook.Service
+	// Webhooks is the personal invocation-capability domain used by both the
+	// authenticated resource API and unauthenticated capability ingress.
+	Webhooks            *webhook.Service
 	Email               *email.Service
 	Share               *sharepkg.Service
 	Recally             *recally.Service
@@ -241,7 +235,6 @@ func (d Deps) validate() error {
 		}
 	}
 	req(d.Pinger != nil, "Pinger")
-	req(d.ChannelResolver != nil, "ChannelResolver")
 	req(d.Group != nil, "Group")
 	req(d.Account != nil, "Account")
 	req(d.Profile != nil, "Profile")
@@ -285,7 +278,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 
 	log := slog.With("component", "admin")
 	s := &Server{
-		channelResolver: deps.ChannelResolver,
 		account:         deps.Account,
 		profileSvc:      deps.Profile,
 		projectStore:    deps.ProjectStore,
@@ -333,8 +325,9 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 	// Assign the ingress port only when configured, so a nil *webhook.Service
 	// never becomes a non-nil interface whose methods would panic. Handlers treat
 	// a nil port as "capability ingress unavailable".
-	if deps.WebhookEndpoints != nil {
-		s.webhookIngress = deps.WebhookEndpoints
+	s.webhooks = deps.Webhooks
+	if deps.Webhooks != nil {
+		s.webhookIngress = deps.Webhooks
 	}
 	s.webhookRun = poolWebhookRunPort{pool: deps.PoolManager}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases

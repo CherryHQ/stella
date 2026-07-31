@@ -66,6 +66,23 @@ func TestWebhookLimiterInflight(t *testing.T) {
 	}
 }
 
+func TestWebhookLimiterRemoveClearsDeletedResourceState(t *testing.T) {
+	l := newWebhookLimiter(1, 1)
+	if !l.allow("deleted") || !l.acquireIngress("deleted") || !l.beginRun("deleted") {
+		t.Fatal("failed to seed limiter state")
+	}
+	l.remove("deleted")
+	if len(l.buckets) != 0 || len(l.ingress) != 0 || len(l.inflight) != 0 {
+		t.Fatalf("remove left state: buckets=%d ingress=%d inflight=%d", len(l.buckets), len(l.ingress), len(l.inflight))
+	}
+	// Late releases from work admitted before deletion are harmless.
+	l.releaseIngress("deleted")
+	l.endRun("deleted")
+	if !l.allow("deleted") {
+		t.Fatal("a fresh bucket for a non-reused key should start full")
+	}
+}
+
 func TestWebhookLimiterIngressSlot(t *testing.T) {
 	l := newWebhookLimiter(1, 1)
 	l.maxIngress = 2

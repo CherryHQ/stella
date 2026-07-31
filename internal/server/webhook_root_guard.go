@@ -96,7 +96,7 @@ func WebhookCapabilityReservation(ingress, next http.Handler) http.Handler {
 		if !ok {
 			// Invalid invocation options are rejected before admission; raw query
 			// text is never forwarded or echoed.
-			http.Error(w, "invalid webhook invocation options", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid webhook invocation options")
 			return
 		}
 

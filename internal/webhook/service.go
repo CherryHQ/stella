@@ -14,185 +14,164 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 )
 
-// Service is the authoritative webhook endpoint domain. It owns credential
-// minting, issuance validation, CAS rotation, capability resolution, and the
-// admission seam.
-//
-// lifecycle is a single process-global RW mutex sufficient for the supported
-// single-replica topology. Issue/Rotate/Delete take the write lock through their
-// database mutation; final Admit takes the read lock through final revalidation
-// and the ChatAdmitted callback only, so a mutation that wins first invalidates
-// every later admission and an admission that wins first blocks the mutation
-// only until the turn is admitted (not completed).
-//
-//	// Global lifecycle lock is sufficient for the supported single-replica topology.
-//	// Replace with per-endpoint fencing if measured contention or multi-replica support arrives.
+// Service is the deep webhook resource boundary. A single lifecycle fence is
+// sufficient for Stella's supported single-replica deployment. Upgrade to a
+// distributed/per-webhook fence when multi-replica ingress is supported.
 type Service struct {
 	store     Store
 	users     UserState
-	access    OwnerAgentAccess
+	access    UserAgentAccess
 	lifecycle sync.RWMutex
 }
 
 type Config struct {
 	Store  Store
 	Users  UserState
-	Access OwnerAgentAccess
+	Access UserAgentAccess
 }
 
 func NewService(cfg Config) (*Service, error) {
 	if cfg.Store == nil || cfg.Users == nil || cfg.Access == nil {
-		return nil, errors.New("webhook: store, user state, and owner-agent access are required")
+		return nil, errors.New("webhook: store, user state, and user-agent access are required")
 	}
 	return &Service{store: cfg.Store, users: cfg.Users, access: cfg.Access}, nil
 }
 
-// Issue binds an owner to the channel's current Agent and mints a capability.
-// It observes the binding, runs owner active-state and Agent-use prechecks
-// entirely outside any transaction, then takes the short channel-row lock only
-// to re-verify the exact observed binding and insert — so no user/access lookup
-// ever runs while the row lock (or the lifecycle write lock) is held. A binding
-// that changed between observe and lock returns a retryable conflict. Provider
-// and owner are immutable once issued; changing either requires revoke then
-// re-issue.
-func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, error) {
-	if req.ChannelID == "" {
-		return IssueResult{}, ErrInvalidChannelID
+func (s *Service) Create(ctx context.Context, req CreateRequest) (IssueResult, error) {
+	if err := validateCreate(req); err != nil {
+		return IssueResult{}, err
 	}
-	if uuid.Validate(req.CallerUserID) != nil {
-		return IssueResult{}, ErrInvalidOwnerUserID
+	if err := s.ValidateUserAgent(ctx, req.UserID, req.AgentID); err != nil {
+		return IssueResult{}, err
 	}
-	if !req.Provider.Valid() {
-		return IssueResult{}, ErrInvalidProvider
+	id, err := uuid.NewV7()
+	if err != nil {
+		return IssueResult{}, fmt.Errorf("webhook: mint id: %w", err)
 	}
-
-	// 1. Observe the current binding without a transaction.
-	observed, err := s.store.ObserveBinding(ctx, req.ChannelID)
+	rec, capability, err := newCredential()
 	if err != nil {
 		return IssueResult{}, err
 	}
-	if observed.Type != "webhook" {
-		return IssueResult{}, ErrChannelNotWebhook
-	}
-	// The channel is the one source of truth for ownership. The caller cannot
-	// choose an owner and a foreign or legacy-unowned channel is opaque.
-	if observed.OwnerUserID == "" || observed.OwnerUserID != req.CallerUserID {
-		return IssueResult{}, ErrNotFound
-	}
-	if observed.AgentID == "" {
-		return IssueResult{}, ErrNotFound
-	}
-	if !observed.AgentEnabled {
-		return IssueResult{}, ErrAgentDisabled
-	}
-
-	// 2. Owner active-state and Agent-use prechecks, outside any transaction.
-	if err := s.ValidateOwnerAgent(ctx, observed.OwnerUserID, observed.AgentID); err != nil {
-		return IssueResult{}, err
-	}
-
-	// 3. Under the lifecycle write lock, take the short channel-row lock, re-verify
-	// the exact observed binding, and insert. The locked callback performs no
-	// external or authorization lookup.
+	rec.ID, rec.UserID, rec.Name, rec.AgentID = id.String(), req.UserID, strings.TrimSpace(req.Name), req.AgentID
+	rec.Provider, rec.IsEnabled = req.Provider, req.IsEnabled
+	rec.WaitTimeoutSeconds, rec.MaxRunTimeoutSeconds = req.WaitTimeoutSeconds, req.MaxRunTimeoutSeconds
 	s.lifecycle.Lock()
-	defer s.lifecycle.Unlock()
-
-	var capability string
-	rec, err := s.store.BindEndpoint(ctx, req.ChannelID, func(_ context.Context, binding ChannelBinding) (endpointRecord, error) {
-		if binding.Type != "webhook" || binding.OwnerUserID == "" || binding.OwnerUserID != req.CallerUserID || binding.AgentID != observed.AgentID || !binding.AgentEnabled {
-			return endpointRecord{}, ErrChannelBindingChanged
-		}
-		rec, token, err := s.newCredential()
-		if err != nil {
-			return endpointRecord{}, err
-		}
-		rec.OwnerUserID = binding.OwnerUserID
-		rec.Provider = req.Provider
-		capability = token
-		return rec, nil
-	})
-	if err != nil {
-		return IssueResult{}, err
-	}
-	return IssueResult{Endpoint: rec.Endpoint, Capability: capability}, nil
-}
-
-// ValidateOwnerAgent checks the personal webhook binding as an ordinary user,
-// even when the owner has an admin account. Creation and Agent rebinding call
-// this before persistence; admission repeats the same current-permission check.
-func (s *Service) ValidateOwnerAgent(ctx context.Context, ownerID, agentID string) error {
-	if uuid.Validate(ownerID) != nil {
-		return ErrInvalidOwnerUserID
-	}
-	if agentID == "" {
-		return ErrNotFound
-	}
-	active, err := s.users.IsActive(ctx, ownerID)
-	if err != nil {
-		return fmt.Errorf("webhook: get owner state: %w", err)
-	}
-	if !active {
-		return ErrOwnerInactive
-	}
-	allowed, err := s.access.CanUseOwner(ctx, ownerID, agentID)
-	if err != nil {
-		return fmt.Errorf("webhook: authorize endpoint owner: %w", err)
-	}
-	if !allowed {
-		return ErrOwnerAgentForbidden
-	}
-	return nil
-}
-
-// GetByChannel returns secret-safe endpoint metadata for a channel.
-func (s *Service) GetByChannel(ctx context.Context, channelID, ownerID string) (Endpoint, error) {
-	rec, err := s.store.GetEndpointByChannel(ctx, channelID, ownerID)
-	if err != nil {
-		return Endpoint{}, err
-	}
-	return rec.Endpoint, nil
-}
-
-// Rotate replaces the endpoint's capability if expectedETag still matches the
-// current row's opaque etag (bound to token_public_id + revision). Two clients
-// rotating the same observed endpoint cannot both succeed: the loser sees
-// ErrStaleETag. A stale etag from a revoked+recreated endpoint or a different
-// channel cannot match either, because token_public_id is unique per credential.
-// Provider and owner are unchanged.
-func (s *Service) Rotate(ctx context.Context, channelID, ownerID, expectedETag string) (RotationResult, error) {
-	if channelID == "" {
-		return RotationResult{}, ErrInvalidChannelID
-	}
-	if expectedETag == "" {
-		return RotationResult{}, ErrInvalidETag
-	}
-	next, capability, err := s.newCredential()
-	if err != nil {
-		return RotationResult{}, err
-	}
-	s.lifecycle.Lock()
-	updated, err := s.store.RotateEndpoint(ctx, channelID, ownerID, expectedETag, next)
+	stored, err := s.store.Create(ctx, rec)
 	s.lifecycle.Unlock()
 	if err != nil {
-		return RotationResult{}, err
+		return IssueResult{}, err
 	}
-	return RotationResult{Endpoint: updated.Endpoint, Capability: capability}, nil
+	return IssueResult{Webhook: stored.Webhook, Capability: capability}, nil
 }
 
-// Delete revokes the endpoint. It reports whether a row was removed so callers
-// can distinguish an already-absent endpoint.
-func (s *Service) Delete(ctx context.Context, channelID, ownerID string) (bool, error) {
+func (s *Service) Get(ctx context.Context, userID, id string) (Webhook, error) {
+	if uuid.Validate(userID) != nil || uuid.Validate(id) != nil {
+		return Webhook{}, ErrNotFound
+	}
+	rec, err := s.store.Get(ctx, id, userID)
+	return rec.Webhook, err
+}
+
+func (s *Service) List(ctx context.Context, userID string, limit, offset int32) ([]Webhook, error) {
+	if uuid.Validate(userID) != nil {
+		return nil, ErrNotFound
+	}
+	records, err := s.store.List(ctx, userID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Webhook, len(records))
+	for i := range records {
+		out[i] = records[i].Webhook
+	}
+	return out, nil
+}
+
+func (s *Service) Update(ctx context.Context, req UpdateRequest) (Webhook, error) {
+	if uuid.Validate(req.UserID) != nil {
+		return Webhook{}, ErrInvalidUserID
+	}
+	if uuid.Validate(req.ID) != nil {
+		return Webhook{}, ErrInvalidID
+	}
+	observed, err := s.store.Get(ctx, req.ID, req.UserID)
+	if err != nil {
+		return Webhook{}, err
+	}
+	if err := validateUpdate(req); err != nil {
+		return Webhook{}, err
+	}
+	if req.AgentID != nil {
+		if err := s.ValidateUserAgent(ctx, req.UserID, *req.AgentID); err != nil {
+			return Webhook{}, err
+		}
+	}
 	s.lifecycle.Lock()
-	n, err := s.store.DeleteEndpoint(ctx, channelID, ownerID)
+	defer s.lifecycle.Unlock()
+	// The PEP check intentionally happens before the lifecycle fence. The store
+	// then locks, re-observes, and patches the durable row in one transaction so
+	// no stale full-record write can erase a concurrent field update.
+	stored, err := s.store.Update(ctx, req, observed.AgentID)
+	if err != nil {
+		return Webhook{}, err
+	}
+	return stored.Webhook, nil
+}
+
+func (s *Service) Rotate(ctx context.Context, userID, id, etag string) (IssueResult, error) {
+	if uuid.Validate(userID) != nil || uuid.Validate(id) != nil {
+		return IssueResult{}, ErrNotFound
+	}
+	if etag == "" {
+		return IssueResult{}, ErrInvalidETag
+	}
+	next, capability, err := newCredential()
+	if err != nil {
+		return IssueResult{}, err
+	}
+	s.lifecycle.Lock()
+	stored, err := s.store.Rotate(ctx, id, userID, etag, next)
+	s.lifecycle.Unlock()
+	if err != nil {
+		return IssueResult{}, err
+	}
+	return IssueResult{Webhook: stored.Webhook, Capability: capability}, nil
+}
+
+func (s *Service) Delete(ctx context.Context, userID, id string) (bool, error) {
+	if uuid.Validate(userID) != nil || uuid.Validate(id) != nil {
+		return false, ErrNotFound
+	}
+	s.lifecycle.Lock()
+	n, err := s.store.Delete(ctx, id, userID)
 	s.lifecycle.Unlock()
 	return n == 1, err
 }
 
-// ResolveCandidate is the first admission stage: it parses and verifies the
-// opaque capability, returning a non-loggable Candidate plus the safe endpoint
-// id for pre-read limiting. It holds no lifecycle lock, so the caller may read a
-// request body between this and Admit. Every malformed/mismatched/missing case
-// collapses to ErrNotFound.
+func (s *Service) ValidateUserAgent(ctx context.Context, userID, agentID string) error {
+	if uuid.Validate(userID) != nil {
+		return ErrInvalidUserID
+	}
+	if strings.TrimSpace(agentID) == "" {
+		return ErrInvalidAgentID
+	}
+	active, err := s.users.IsActive(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("webhook: get user state: %w", err)
+	}
+	if !active {
+		return ErrUserInactive
+	}
+	allowed, err := s.access.CanUseUser(ctx, userID, agentID)
+	if err != nil {
+		return fmt.Errorf("webhook: authorize user agent: %w", err)
+	}
+	if !allowed {
+		return ErrUserAgentForbidden
+	}
+	return nil
+}
+
 func (s *Service) ResolveCandidate(ctx context.Context, raw string) (Candidate, error) {
 	if !strings.HasPrefix(raw, TokenPrefix) {
 		return Candidate{}, ErrNotFound
@@ -203,96 +182,118 @@ func (s *Service) ResolveCandidate(ctx context.Context, raw string) (Candidate, 
 	}
 	rec, err := s.store.ResolveByPublicID(ctx, publicID)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return Candidate{}, ErrNotFound
-		}
-		return Candidate{}, fmt.Errorf("webhook: resolve candidate: %w", err)
+		return Candidate{}, hideNotFound(err)
 	}
 	if !matchesTokenHash(secret, rec.TokenHash) {
 		return Candidate{}, ErrNotFound
 	}
-	return Candidate{EndpointID: rec.ChannelID, publicID: publicID, secret: secret}, nil
+	return Candidate{WebhookID: rec.ID, publicID: publicID, secret: secret}, nil
 }
 
-// Admit is the second admission stage. Under the lifecycle read lock it
-// re-resolves the current endpoint by the candidate's credential, revalidates
-// the constant-time verifier, the durable active state of owner/channel/Agent,
-// and the owner's current Agent-use permission through the PEP, then reconstructs
-// the fixed worker authority and invokes callback. The read lock is held only
-// through this revalidation and the callback's synchronous admission (the
-// callback returns at admission, not completion) and released immediately after.
-//
-// A rotate or revoke that committed after ResolveCandidate makes the credential
-// unresolvable here, so callback is never invoked. The re-resolve is a single
-// query whose connection is released before callback runs, so no database
-// transaction or row lock spans callback.
 func (s *Service) Admit(ctx context.Context, cand Candidate, callback AdmitCallback) error {
 	if callback == nil {
 		return errors.New("webhook: admit callback is required")
 	}
 	s.lifecycle.RLock()
 	defer s.lifecycle.RUnlock()
-
-	rec, err := s.store.ResolveEndpoint(ctx, cand.publicID)
+	// User/Agent active state and user→Agent permission are point-in-time checks.
+	// Their independent management paths do not share this webhook lifecycle
+	// fence: an admission whose checks began before a concurrent withdrawal may
+	// finish, while every request whose checks begin afterward fails closed.
+	rec, err := s.store.ResolveAdmitted(ctx, cand.publicID)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return ErrNotFound
-		}
-		return fmt.Errorf("webhook: admit resolve: %w", err)
+		return hideNotFound(err)
 	}
-	if !rec.Provider.Valid() || rec.AgentID == "" || !rec.ChannelEnabled || !rec.OwnerActive || !rec.AgentEnabled {
+	if !rec.Provider.Valid() || !matchesTokenHash(cand.secret, rec.TokenHash) {
 		return ErrNotFound
 	}
-	if !matchesTokenHash(cand.secret, rec.TokenHash) {
-		return ErrNotFound
-	}
-	// The endpoint fixes identity; it does not freeze permission. Recheck the
-	// owner's current Agent-use permission through the existing PEP so a withdrawn
-	// assignment fails closed on the next admission. This is point-in-time auth:
-	// unrelated user/Agent/assignment mutations do not share the endpoint lifecycle
-	// fence, so a request authorized immediately before a withdrawal may complete
-	// admission; every request whose check begins afterward observes the withdrawal.
-	allowed, err := s.access.CanUseOwner(ctx, rec.OwnerUserID, rec.AgentID)
+	allowed, err := s.access.CanUseUser(ctx, rec.UserID, rec.AgentID)
 	if err != nil {
 		return fmt.Errorf("webhook: admit authorize: %w", err)
 	}
 	if !allowed {
-		return ErrOwnerAgentForbidden
+		return ErrUserAgentForbidden
 	}
-	authority, err := agentaccess.WorkerAgentAuthority(rec.OwnerUserID, rec.AgentID)
+	authority, err := agentaccess.WorkerAgentAuthority(rec.UserID, rec.AgentID)
 	if err != nil {
 		return ErrNotFound
 	}
-	return callback(ctx, AdmittedInvocation{
-		ChannelID:   rec.ChannelID,
-		OwnerUserID: rec.OwnerUserID,
-		AgentID:     rec.AgentID,
-		Provider:    rec.Provider,
-		Authority:   authority,
-	})
+	return callback(ctx, AdmittedInvocation{WebhookID: rec.ID, UserID: rec.UserID, AgentID: rec.AgentID, Provider: rec.Provider, WaitTimeoutSeconds: rec.WaitTimeoutSeconds, MaxRunTimeoutSeconds: rec.MaxRunTimeoutSeconds, Authority: authority})
 }
 
-// MutateChannel runs the durable part of a personal webhook channel mutation
-// under the same lifecycle fence as issue, rotate, revoke, and final Admit.
-// Plugin reloads intentionally happen outside this callback; they do not alter
-// the capability's fixed identity or binding.
-func (s *Service) MutateChannel(fn func() error) error {
-	s.lifecycle.Lock()
-	defer s.lifecycle.Unlock()
-	return fn()
+func validateCreate(req CreateRequest) error {
+	if uuid.Validate(req.UserID) != nil {
+		return ErrInvalidUserID
+	}
+	return validateWebhook(Webhook{Name: req.Name, AgentID: req.AgentID, Provider: req.Provider, WaitTimeoutSeconds: req.WaitTimeoutSeconds, MaxRunTimeoutSeconds: req.MaxRunTimeoutSeconds})
 }
 
-func (s *Service) newCredential() (endpointRecord, string, error) {
+func validateUpdate(req UpdateRequest) error {
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		return ErrInvalidName
+	}
+	if req.AgentID != nil && strings.TrimSpace(*req.AgentID) == "" {
+		return ErrInvalidAgentID
+	}
+	if req.WaitTimeoutSeconds != nil && (*req.WaitTimeoutSeconds < 1 || *req.WaitTimeoutSeconds > WaitTimeoutCeilingSeconds) {
+		return ErrInvalidTimeout
+	}
+	if req.MaxRunTimeoutSeconds != nil && (*req.MaxRunTimeoutSeconds < 1 || *req.MaxRunTimeoutSeconds > RunTimeoutCeilingSeconds) {
+		return ErrInvalidTimeout
+	}
+	return nil
+}
+
+func validateWebhook(w Webhook) error {
+	if strings.TrimSpace(w.Name) == "" {
+		return ErrInvalidName
+	}
+	if strings.TrimSpace(w.AgentID) == "" {
+		return ErrInvalidAgentID
+	}
+	if !w.Provider.Valid() {
+		return ErrInvalidProvider
+	}
+	if w.WaitTimeoutSeconds < 1 || w.WaitTimeoutSeconds > WaitTimeoutCeilingSeconds || w.MaxRunTimeoutSeconds < 1 || w.MaxRunTimeoutSeconds > RunTimeoutCeilingSeconds {
+		return ErrInvalidTimeout
+	}
+	return nil
+}
+
+func applyUpdate(w Webhook, req UpdateRequest) Webhook {
+	if req.Name != nil {
+		w.Name = *req.Name
+	}
+	if req.AgentID != nil {
+		w.AgentID = *req.AgentID
+	}
+	if req.IsEnabled != nil {
+		w.IsEnabled = *req.IsEnabled
+	}
+	if req.WaitTimeoutSeconds != nil {
+		w.WaitTimeoutSeconds = *req.WaitTimeoutSeconds
+	}
+	if req.MaxRunTimeoutSeconds != nil {
+		w.MaxRunTimeoutSeconds = *req.MaxRunTimeoutSeconds
+	}
+	return w
+}
+
+func newCredential() (credentialRecord, string, error) {
 	minted, err := credential.MintOpaqueWithPrefix(TokenPrefix)
 	if err != nil {
-		return endpointRecord{}, "", fmt.Errorf("webhook: mint capability: %w", err)
+		return credentialRecord{}, "", fmt.Errorf("webhook: mint capability: %w", err)
 	}
-	return endpointRecord{
-		Endpoint:  Endpoint{TokenPublicID: minted.PublicID, TokenLast4: minted.Last4},
-		TokenHash: minted.TokenHash,
-	}, minted.Plaintext, nil
+	return credentialRecord{Webhook: Webhook{TokenPublicID: minted.PublicID, TokenLast4: minted.Last4}, TokenHash: minted.TokenHash}, minted.Plaintext, nil
 }
 
-func matchesTokenHash(secret, tokenHash string) bool {
-	return subtle.ConstantTimeCompare([]byte(credential.HashSecret(secret)), []byte(tokenHash)) == 1
+func matchesTokenHash(secret, hash string) bool {
+	return subtle.ConstantTimeCompare([]byte(credential.HashSecret(secret)), []byte(hash)) == 1
+}
+
+func hideNotFound(err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return ErrNotFound
+	}
+	return err
 }

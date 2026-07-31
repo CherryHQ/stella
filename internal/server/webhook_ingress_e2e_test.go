@@ -26,16 +26,6 @@ func postWebhook(t *testing.T, h http.Handler, capability string) int {
 	return rr.Code
 }
 
-func createWebhookChannel(t *testing.T, env *testEnv, token, id, agentID string) {
-	t.Helper()
-	rr := doRequestWithSession(t, env.srv, token, "POST", "/api/channels", map[string]any{
-		"id": id, "type": "webhook", "agent_id": agentID, "enabled": true, "config": `{}`,
-	})
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("create channel %s: status=%d (body: %s)", id, rr.Code, rr.Body.String())
-	}
-}
-
 func createAgentWithScope(t *testing.T, env *testEnv, name, scope string) string {
 	t.Helper()
 	rr := doRequestWithSession(t, env.srv, env.bearerToken, "POST", "/api/agents", config.Agent{
@@ -51,26 +41,24 @@ func createAgentWithScope(t *testing.T, env *testEnv, name, scope string) string
 	return created.ID
 }
 
-func createEndpointCapability(t *testing.T, env *testEnv, token, channelID string) string {
+func createWebhookCapability(t *testing.T, env *testEnv, token, agentID string) string {
 	t.Helper()
-	rr := doRequestWithSession(t, env.srv, token, "POST", "/api/channels/"+channelID+"/webhook-endpoint", map[string]any{
-		"provider": "generic",
-	})
+	rr := doRequestWithSession(t, env.srv, token, "POST", "/api/webhooks", map[string]any{"name": "e2e", "agent_id": agentID, "provider": "generic"})
 	if rr.Code != http.StatusCreated {
-		t.Fatalf("create endpoint: status=%d (body: %s)", rr.Code, rr.Body.String())
+		t.Fatalf("create webhook: status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	var ep apitypes.WebhookEndpoint
-	if err := json.Unmarshal(rr.Body.Bytes(), &ep); err != nil {
-		t.Fatalf("unmarshal endpoint: %v", err)
+	var item apitypes.Webhook
+	if err := json.Unmarshal(rr.Body.Bytes(), &item); err != nil {
+		t.Fatalf("unmarshal webhook: %v", err)
 	}
-	if ep.Url == nil {
-		t.Fatal("create endpoint did not disclose a url")
+	if item.Url == nil {
+		t.Fatal("create did not disclose a url")
 	}
-	idx := strings.LastIndex(*ep.Url, "/webhooks/")
+	idx := strings.LastIndex(*item.Url, "/webhooks/")
 	if idx < 0 {
-		t.Fatalf("url has no /webhooks/ segment: %q", *ep.Url)
+		t.Fatalf("url has no /webhooks/ segment: %q", *item.Url)
 	}
-	return (*ep.Url)[idx+len("/webhooks/"):]
+	return (*item.Url)[idx+len("/webhooks/"):]
 }
 
 func setUserAgents(t *testing.T, env *testEnv, userID string, agentIDs []string) {
@@ -95,13 +83,11 @@ func TestWebhookIngressCapabilityReplacesPAT(t *testing.T) {
 	// A restricted agent the owner can use only while assigned.
 	restrictedAgent := createAgentWithScope(t, env, "restricted-wh", config.AgentScopeRestricted)
 	setUserAgents(t, env, owner.ID, []string{restrictedAgent})
-	createWebhookChannel(t, env, ownerToken, "wh-restricted", restrictedAgent)
-	restrictedCap := createEndpointCapability(t, env, ownerToken, "wh-restricted")
+	restrictedCap := createWebhookCapability(t, env, ownerToken, restrictedAgent)
 
 	// A system agent every user may execute without assignment.
 	systemAgent := createAgentWithScope(t, env, "system-wh", config.AgentScopeSystem)
-	createWebhookChannel(t, env, ownerToken, "wh-system", systemAgent)
-	systemCap := createEndpointCapability(t, env, ownerToken, "wh-system")
+	systemCap := createWebhookCapability(t, env, ownerToken, systemAgent)
 
 	// Old channel-ID / PAT-style ids are opaque 404s: they are not capabilities.
 	if code := postWebhook(t, guard, "wh-restricted"); code != http.StatusNotFound {

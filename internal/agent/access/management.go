@@ -84,6 +84,8 @@ var (
 	ErrInvalidScope = errors.New("agent scope must be 'system' or 'restricted'")
 	// ErrUserNotFound reports an assignment target that does not exist.
 	ErrUserNotFound = errors.New("assignment target user not found")
+	// ErrInUse reports that a durable resource still references the Agent.
+	ErrInUse = errors.New("agent is still in use")
 )
 
 // NewManagement builds the Agent management service over the Agent PEP and its
@@ -200,6 +202,9 @@ func (m *Management) Delete(ctx context.Context, authority authz.Authority, agen
 		return err
 	}
 	if err := m.agents.DeleteAgent(ctx, agentID); err != nil {
+		if errors.Is(err, config.ErrAgentInUse) {
+			return ErrInUse
+		}
 		return fmt.Errorf("%w: delete agent: %w", ErrUnavailable, err)
 	}
 	m.reload(ctx, agentID)

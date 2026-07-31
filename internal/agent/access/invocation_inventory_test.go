@@ -28,11 +28,8 @@ var invocationInventory = map[string]map[string]int{
 	"internal/channel/resolved_chat.go":    {"GetService": 1, "Chat": 1},
 	"internal/goal/session.go":             {"GetService": 1}, // session creation; execution is guarded in workerExecutor
 	"internal/reflect/loop.go":             {"GetService": 1}, // session listing only; no turn
-	// Capability ingress: the turn enters via ChatAdmitted only after
-	// webhook.Service.Admit revalidates the endpoint and rechecks the owner's
-	// Agent-use permission through the PEP, minting the fixed worker authority.
-	"internal/server/webhook_ingress.go": {"ChatAdmitted": 1},
-	// Pool selection adapter for the ingress callback; no turn is entered here.
+	// Webhook admission completes user→Agent PEP checks before the transport
+	// resolves the runtime; ChatAdmitted preserves that trusted authority.
 	"internal/server/webhook_runtime.go": {"GetService": 1},
 }
 
@@ -81,7 +78,7 @@ func TestAgentInvocationInventoryIsExact(t *testing.T) {
 				return true
 			}
 			switch sel.Sel.Name {
-			case "GetService", "Chat", "ChatAdmitted", "Delegate":
+			case "GetService", "Chat", "Delegate":
 				if got[rel] == nil {
 					got[rel] = map[string]int{}
 				}

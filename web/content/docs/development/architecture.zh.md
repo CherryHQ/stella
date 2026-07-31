@@ -63,7 +63,7 @@ pkg/
 plugins/
   tools/               插件工具注册表 + 插件工具（webfetch）
   hooks/               插件钩子注册表 + 插件钩子（rtk）
-  channels/            通道插件（telegram、qq、feishu、weixin、webhook）
+  channels/            通道插件（telegram、qq、feishu、weixin）
   providers/           供应商插件注册表 + LLM 适配器（anthropic、openai、openai-response）
   sandbox/             沙箱后端插件
 ```

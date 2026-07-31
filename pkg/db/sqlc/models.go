@@ -265,15 +265,14 @@ type AuthUserToken struct {
 }
 
 type Channel struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`
-	Type        string      `json:"type"`
-	AgentID     pgtype.Text `json:"agent_id"`
-	Enabled     bool        `json:"enabled"`
-	Config      string      `json:"config"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
-	OwnerUserID pgtype.Text `json:"owner_user_id"`
+	ID        string      `json:"id"`
+	Name      string      `json:"name"`
+	Type      string      `json:"type"`
+	AgentID   pgtype.Text `json:"agent_id"`
+	Enabled   bool        `json:"enabled"`
+	Config    string      `json:"config"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
 }
 
 type ChannelAgent struct {
@@ -312,18 +311,6 @@ type ChannelIdentity struct {
 	Name       string    `json:"name"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
-}
-
-type ChannelWebhookEndpoint struct {
-	ChannelID     string             `json:"channel_id"`
-	Provider      string             `json:"provider"`
-	TokenPublicID string             `json:"token_public_id"`
-	TokenHash     string             `json:"token_hash"`
-	TokenLast4    string             `json:"token_last4"`
-	Revision      int64              `json:"revision"`
-	CreatedAt     time.Time          `json:"created_at"`
-	UpdatedAt     time.Time          `json:"updated_at"`
-	RotatedAt     pgtype.Timestamptz `json:"rotated_at"`
 }
 
 type CtxAgentMemory struct {
@@ -952,4 +939,22 @@ type VaultEntry struct {
 	CreatedAt   time.Time   `json:"created_at"`
 	UpdatedAt   time.Time   `json:"updated_at"`
 	Description pgtype.Text `json:"description"`
+}
+
+type Webhook struct {
+	ID                   string             `json:"id"`
+	UserID               string             `json:"user_id"`
+	AgentID              string             `json:"agent_id"`
+	Name                 string             `json:"name"`
+	Provider             string             `json:"provider"`
+	IsEnabled            bool               `json:"is_enabled"`
+	WaitTimeoutSeconds   int32              `json:"wait_timeout_seconds"`
+	MaxRunTimeoutSeconds int32              `json:"max_run_timeout_seconds"`
+	TokenPublicID        string             `json:"token_public_id"`
+	TokenHash            string             `json:"token_hash"`
+	TokenLast4           string             `json:"token_last4"`
+	Revision             int64              `json:"revision"`
+	CreatedAt            time.Time          `json:"created_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
+	RotatedAt            pgtype.Timestamptz `json:"rotated_at"`
 }

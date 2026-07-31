@@ -11,8 +11,8 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-// channelView is the JSON shape the Channels UI expects. Collection access is
-// resource-sensitive: personal webhooks for every user, deployment channels for admins.
+// channelView is the JSON shape the admin frontend expects for channel objects.
+// Config is serialized as a JSON string for the admin frontend.
 type channelView struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -123,14 +123,6 @@ func buildPublicChannelViews(channels []controlplane.PublicChannel, enabledTypes
 		if !ch.Enabled || !enabledTypes[channelType] {
 			continue
 		}
-		// Webhooks are inbound triggers with no linkable identity; they never
-		// belong in the user-facing channel list (the link-code flow rejects
-		// them, and the list keys by type so duplicates would collide).
-		// Upgrade to a plugin capability flag when the next runtime-less
-		// channel type lands.
-		if channelType == pkgchannel.PlatformWebhook {
-			continue
-		}
 		agentName := ""
 		if ch.AgentID != "" {
 			var ok bool
@@ -186,7 +178,7 @@ func sortPublicChannels(channels []publicChannelView) {
 }
 
 func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
-	access, ok := s.beginChannels(w, r)
+	access, ok := s.beginControlPlane(w, r)
 	if !ok {
 		return
 	}
@@ -203,7 +195,7 @@ func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
-	access, ok := s.beginChannels(w, r)
+	access, ok := s.beginControlPlane(w, r)
 	if !ok {
 		return
 	}
@@ -216,7 +208,7 @@ func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string) {
-	access, ok := s.beginChannels(w, r)
+	access, ok := s.beginControlPlane(w, r)
 	if !ok {
 		return
 	}
@@ -228,9 +220,10 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	req.ID = id
 
 	ctx := r.Context()
-	// Load the current visible row only to merge unspecified write fields. The
-	// resource-sensitive Access hides foreign personal webhooks before transport
-	// code can observe or mutate them.
+	// Load the current row only to merge unspecified write fields (a PUT is a
+	// partial update). The read goes through the authorized Access — beginControlPlane
+	// already 403'd a non-admin before any state is observed — so the transport never
+	// holds the aggregate config store.
 	existing, existingErr := access.GetChannel(ctx, id)
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
@@ -248,7 +241,7 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	access, ok := s.beginChannels(w, r)
+	access, ok := s.beginControlPlane(w, r)
 	if !ok {
 		return
 	}
@@ -280,9 +273,7 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		Name:    req.Name,
 		Type:    channelType,
 		AgentID: requestAgentID(req),
-		// Bot channels start disabled until their runtime is configured/scanned;
-		// a webhook has no runtime, so it goes live the moment it's created.
-		Enabled: channelType == pkgchannel.PlatformWebhook,
+		Enabled: false,
 	}
 	// create=true enforces the POST create-only contract inside the PEP (after
 	// authorization): a re-POST to an existing id is a 409, never a silent upsert.
@@ -332,10 +323,6 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 		enabled = *req.Enabled
 	case hasExisting:
 		enabled = existing.Enabled
-	case channelType == pkgchannel.PlatformWebhook:
-		// PUT-created webhooks match POST semantics: no runtime to configure,
-		// so they go live on creation unless explicitly disabled.
-		enabled = true
 	}
 
 	return config.Channel{
@@ -361,7 +348,7 @@ func parseChannelConfig(raw string) (map[string]any, error) {
 }
 
 func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string) {
-	access, ok := s.beginChannels(w, r)
+	access, ok := s.beginControlPlane(w, r)
 	if !ok {
 		return
 	}

@@ -20,13 +20,12 @@ import (
 
 // DBStore implements config.Store using sqlc queries backed by PostgreSQL.
 type DBStore struct {
-	db *pgxpool.Pool
-	q  *sqlc.Queries
+	q *sqlc.Queries
 }
 
 // NewDBStore creates a new DBStore wrapping the given database connection.
 func NewDBStore(db *pgxpool.Pool) *DBStore {
-	return &DBStore{db: db, q: sqlc.New(db)}
+	return &DBStore{q: sqlc.New(db)}
 }
 
 // --- Providers (backed by provider) ---
@@ -266,7 +265,12 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 }
 
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
-	return s.q.DeleteAgent(ctx, id)
+	err := s.q.DeleteAgent(ctx, id)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") && pgErr.ConstraintName == "webhook_agent_id_fkey" {
+		return config.ErrAgentInUse
+	}
+	return err
 }
 
 // --- Channels ---
@@ -307,116 +311,76 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 	if ch.ID == "" {
 		ch.ID = uuid.Must(uuid.NewV7()).String()
 	}
-	channelType := ch.Type
-	if channelType == "" {
-		channelType = ch.ID
-	}
+	channelType := effectiveStoredChannelType(ch)
 	err := s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
-		ID:          ch.ID,
-		Name:        ch.Name,
-		Type:        channelType,
-		AgentID:     pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
-		Enabled:     ch.Enabled,
-		Config:      ch.Config,
-		OwnerUserID: pgtype.Text{String: ch.OwnerUserID, Valid: ch.OwnerUserID != ""},
+		ID:      ch.ID,
+		Name:    ch.Name,
+		Type:    channelType,
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: ch.Enabled,
+		Config:  ch.Config,
 	})
+	return s.channelWriteError(ctx, ch, channelType, err)
+}
+
+func (s *DBStore) CreateChannel(ctx context.Context, ch config.Channel) error {
+	if ch.ID == "" {
+		ch.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	channelType := effectiveStoredChannelType(ch)
+	_, err := s.q.CreateChannel(ctx, sqlc.CreateChannelParams{
+		ID:      ch.ID,
+		Name:    ch.Name,
+		Type:    channelType,
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: ch.Enabled,
+		Config:  ch.Config,
+	})
+	return s.channelWriteError(ctx, ch, channelType, err)
+}
+
+func (s *DBStore) UpdateChannel(ctx context.Context, ch config.Channel) error {
+	channelType := effectiveStoredChannelType(ch)
+	_, err := s.q.UpdateChannel(ctx, sqlc.UpdateChannelParams{
+		ID:      ch.ID,
+		Name:    ch.Name,
+		Type:    channelType,
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: ch.Enabled,
+		Config:  ch.Config,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return config.ErrChannelNotFound
+	}
+	return s.channelWriteError(ctx, ch, channelType, err)
+}
+
+func effectiveStoredChannelType(ch config.Channel) string {
+	if ch.Type != "" {
+		return ch.Type
+	}
+	return ch.ID
+}
+
+func (s *DBStore) channelWriteError(ctx context.Context, ch config.Channel, channelType string, err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "channel_pkey" {
+		return config.ErrChannelExists
+	}
 	if !isChannelBindingViolation(err) {
 		return err
 	}
-	return s.channelBindingConflict(ctx, ch.ID, ch.AgentID, channelType, err)
-}
-
-// UpdateChannel takes the channel row lock shared with webhook endpoint
-// issuance. While an endpoint is active the channel's fixed type and Agent
-// binding cannot change; behavior-only writes (name, enabled, config) remain
-// safe. A change against an active endpoint returns config.ErrChannelEndpointActive.
-func (s *DBStore) UpdateChannel(ctx context.Context, ch config.Channel) error {
-	channelType := ch.Type
-	if channelType == "" {
-		channelType = ch.ID
-	}
-
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin channel update: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
-
-	var locked sqlc.GetChannelBindingForUpdateRow
-	if ch.OwnerUserID != "" {
-		owned, err := qtx.GetPersonalWebhookChannelForUpdate(ctx, sqlc.GetPersonalWebhookChannelForUpdateParams{
-			ID:          ch.ID,
-			OwnerUserID: pgtype.Text{String: ch.OwnerUserID, Valid: true},
-		})
-		if err != nil {
-			return err
-		}
-		locked.ID = owned.ID
-		locked.Type = owned.Type
-		locked.OwnerUserID = owned.OwnerUserID
-		locked.AgentID = owned.AgentID
-		locked.Config = owned.Config
-	} else {
-		locked, err = qtx.GetChannelBindingForUpdate(ctx, ch.ID)
-		if err != nil {
-			return err
-		}
-	}
-	currentType := locked.Type
-	if currentType == "" {
-		currentType = locked.ID
-	}
-	_, endpointErr := qtx.GetChannelWebhookEndpointByChannelID(ctx, locked.ID)
-	switch {
-	case endpointErr == nil:
-		if currentType != channelType || locked.AgentID.String != ch.AgentID {
-			return config.ErrChannelEndpointActive
-		}
-	case errors.Is(endpointErr, pgx.ErrNoRows):
-		// No active endpoint: rebinding is unrestricted.
-	default:
-		return fmt.Errorf("read channel endpoint before update: %w", endpointErr)
-	}
-
-	if err := qtx.UpsertChannel(ctx, sqlc.UpsertChannelParams{
-		ID:          locked.ID,
-		Name:        ch.Name,
-		Type:        channelType,
-		AgentID:     pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
-		Enabled:     ch.Enabled,
-		Config:      ch.Config,
-		OwnerUserID: locked.OwnerUserID,
-	}); err != nil {
-		if isChannelBindingViolation(err) {
-			// The failed transaction cannot run the diagnostic list. Release its
-			// row lock first, then restore the typed conflict.
-			_ = tx.Rollback(ctx)
-			return s.channelBindingConflict(ctx, locked.ID, ch.AgentID, channelType, err)
-		}
-		return fmt.Errorf("update channel %q: %w", locked.ID, err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit channel update: %w", err)
-	}
-	return nil
-}
-
-// channelBindingConflict re-reads channels to name the row already holding a
-// (agent_id, type) binding, returning the typed conflict; on any read failure it
-// preserves the original database error.
-func (s *DBStore) channelBindingConflict(ctx context.Context, channelID, agentID, channelType string, original error) error {
-	rows, err := s.q.ListChannels(ctx)
-	if err != nil {
-		return original
+	rows, listErr := s.q.ListChannels(ctx)
+	if listErr != nil {
+		return err
 	}
 	for _, row := range rows {
 		existing := channelFromDB(row)
-		if existing.ID != channelID && existing.AgentID == agentID && existing.Type == channelType {
-			return &config.ChannelBindingConflictError{AgentID: agentID, Type: channelType, ChannelID: existing.ID}
+		if existing.ID != ch.ID && existing.AgentID == ch.AgentID && existing.Type == channelType {
+			return &config.ChannelBindingConflictError{AgentID: ch.AgentID, Type: channelType, ChannelID: existing.ID}
 		}
 	}
-	return original
+	return err
 }
 
 func isChannelBindingViolation(err error) bool {
@@ -424,23 +388,8 @@ func isChannelBindingViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "idx_channel_agent_id_type"
 }
 
-// isChannelEndpointReference reports a foreign-key violation from the
-// channel_webhook_endpoint table: an active capability blocks hard-deleting the
-// channel. An ON DELETE RESTRICT constraint raises restrict_violation (23001);
-// 23503 is accepted too for robustness. It backstops the control plane's
-// pre-delete endpoint check against a race with concurrent issuance.
-func isChannelEndpointReference(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") &&
-		pgErr.ConstraintName == "channel_webhook_endpoint_channel_id_fkey"
-}
-
 func (s *DBStore) DeleteChannel(ctx context.Context, id string) error {
-	err := s.q.DeleteChannel(ctx, id)
-	if isChannelEndpointReference(err) {
-		return config.ErrChannelEndpointActive
-	}
-	return err
+	return s.q.DeleteChannel(ctx, id)
 }
 
 // --- Plugins ---
@@ -1044,12 +993,11 @@ func channelFromDB(r sqlc.Channel) config.Channel {
 		channelType = r.ID
 	}
 	return config.Channel{
-		ID:          r.ID,
-		Name:        r.Name,
-		Type:        channelType,
-		AgentID:     agentID,
-		Enabled:     r.Enabled,
-		Config:      r.Config,
-		OwnerUserID: r.OwnerUserID.String,
+		ID:      r.ID,
+		Name:    r.Name,
+		Type:    channelType,
+		AgentID: agentID,
+		Enabled: r.Enabled,
+		Config:  r.Config,
 	}
 }

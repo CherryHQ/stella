@@ -61,7 +61,7 @@ func newWebhookLimiter(ratePerSec, burst float64) *webhookLimiter {
 }
 
 // allow consumes one token for key, returning false when the bucket is empty.
-// The webhook set is small and admin-created, so buckets are never evicted.
+// Delete calls remove so user-created webhook churn cannot grow this map forever.
 func (l *webhookLimiter) allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -128,5 +128,16 @@ func (l *webhookLimiter) endRun(key string) {
 		l.inflight[key]--
 		return
 	}
+	delete(l.inflight, key)
+}
+
+// remove forgets all process-local limits for a deleted, non-reusable webhook
+// UUID. Releases from requests or runs that were already in flight become safe
+// no-ops; the deleted UUID can never identify a new resource.
+func (l *webhookLimiter) remove(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.buckets, key)
+	delete(l.ingress, key)
 	delete(l.inflight, key)
 }

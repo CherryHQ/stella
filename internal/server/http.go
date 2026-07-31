@@ -25,7 +25,7 @@ func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
 // ingress handler. The composition root mounts it behind the capability
 // reservation at the HTTP root, in front of the admin middleware chain, because
 // the opaque URL capability (not a session or Authorization header) is the sole
-// credential: the webhook module resolves and revalidates the endpoint's fixed
+// credential: the webhook module resolves and revalidates the resource's fixed
 // owner→Agent authority, so any Authorization header is ignored and the handler
 // must never be wrapped by the session authMiddleware. It stays in
 // internal/server, with its Server-field dependencies, because it is transport

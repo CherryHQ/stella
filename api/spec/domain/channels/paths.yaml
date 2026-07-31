@@ -19,7 +19,7 @@ paths:
   /api/channels:
     get:
       tags: [channels]
-      summary: List visible channels (personal webhooks for all users; deployment channels for admins)
+      summary: List deployment channels (admin only)
       operationId: listChannels
       responses:
         "200":
@@ -35,7 +35,7 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     post:
       tags: [channels]
-      summary: Create a personal webhook or an admin-managed deployment channel
+      summary: Create a deployment channel (admin only)
       operationId: createChannel
       requestBody:
         required: true
@@ -66,7 +66,7 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [channels]
-      summary: Get an owned webhook or an admin-managed deployment channel
+      summary: Get a deployment channel (admin only)
       operationId: getChannel
       responses:
         "200":
@@ -83,7 +83,7 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     patch:
       tags: [channels]
-      summary: Update an owned webhook or an admin-managed deployment channel
+      summary: Update a deployment channel (admin only)
       operationId: updateChannel
       requestBody:
         required: true
@@ -110,104 +110,11 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
       tags: [channels]
-      summary: Delete an owned webhook or an admin-managed deployment channel
+      summary: Delete a deployment channel (admin only)
       operationId: deleteChannel
       responses:
         "204":
           description: deleted
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
-
-  /api/channels/{channelId}/webhook-endpoint:
-    parameters:
-      - { name: channelId, in: path, required: true, schema: { type: string } }
-    get:
-      tags: [channels]
-      summary: Get the caller-owned channel's webhook capability endpoint
-      operationId: getWebhookEndpoint
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/WebhookEndpoint",
-              }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-    post:
-      tags: [channels]
-      summary: Activate the caller-owned channel's webhook capability endpoint
-      operationId: createWebhookEndpoint
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/CreateWebhookEndpointRequest",
-            }
-      responses:
-        "201":
-          description: created; the response includes the one-time url
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/WebhookEndpoint",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
-    delete:
-      tags: [channels]
-      summary: Revoke the caller-owned channel's webhook capability endpoint
-      operationId: deleteWebhookEndpoint
-      responses:
-        "204":
-          description: revoked
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }
-        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
-        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-
-  /api/channels/{channelId}/webhook-endpoint/rotate:
-    parameters:
-      - { name: channelId, in: path, required: true, schema: { type: string } }
-    post:
-      tags: [channels]
-      summary: Rotate the caller-owned channel's webhook capability
-      operationId: rotateWebhookEndpoint
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {
-              $ref: "../../components.yaml#/components/schemas/RotateWebhookEndpointRequest",
-            }
-      responses:
-        "200":
-          description: rotated; the response includes the new one-time url
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/WebhookEndpoint",
-              }
-        "400": {
-          $ref: "../../components.yaml#/components/responses/BadRequest",
-        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

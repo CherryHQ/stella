@@ -5,13 +5,13 @@ import (
 	"fmt"
 )
 
-// ErrChannelEndpointActive reports an attempted change to a channel's binding,
-// or a hard-delete of the channel, while its webhook capability endpoint is
-// still active. The endpoint must be revoked first.
-var ErrChannelEndpointActive = errors.New("channel webhook endpoint is active")
+var (
+	ErrChannelExists   = errors.New("channel already exists")
+	ErrChannelNotFound = errors.New("channel not found")
+)
 
 // ChannelBindingConflictError reports an attempted second bidirectional channel
-// for one (agent_id, type) binding. Webhooks and unbound channels are exempt.
+// for one (agent_id, type) binding. Unbound channels are exempt.
 type ChannelBindingConflictError struct {
 	AgentID   string
 	Type      string
@@ -30,7 +30,4 @@ type Channel struct {
 	AgentID string `json:"agent_id,omitempty"`
 	Enabled bool   `json:"enabled"`
 	Config  string `json:"config"`
-	// OwnerUserID is internal ownership metadata for personal webhook channels.
-	// It is never request-bound or serialized by the channel API.
-	OwnerUserID string `json:"-"`
 }

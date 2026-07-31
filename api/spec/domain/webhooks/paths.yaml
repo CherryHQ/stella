@@ -1,0 +1,174 @@
+paths:
+  /api/webhooks:
+    get:
+      tags: [webhooks]
+      summary: List the authenticated user's webhooks
+      operationId: listWebhooks
+      parameters:
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 20 }
+        - { name: page_token, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: ok
+          content: {
+            application/json: {
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/WebhookList",
+              },
+            },
+          }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+    post:
+      tags: [webhooks]
+      summary: Create a personal webhook
+      operationId: createWebhook
+      requestBody:
+        required: true
+        content: {
+          application/json: {
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateWebhookRequest",
+            },
+          },
+        }
+      responses:
+        "201":
+          description: created; response includes the one-time URL
+          content: {
+            application/json: {
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Webhook",
+              },
+            },
+          }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/webhooks/{id}:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    get:
+      tags: [webhooks]
+      summary: Get one of the authenticated user's webhooks
+      operationId: getWebhook
+      responses:
+        "200": {
+          description: ok,
+          content: {
+            application/json: {
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Webhook",
+              },
+            },
+          },
+        }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    patch:
+      tags: [webhooks]
+      summary: Update one of the authenticated user's webhooks
+      operationId: updateWebhook
+      requestBody:
+        required: true
+        content: {
+          application/json: {
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateWebhookRequest",
+            },
+          },
+        }
+      responses:
+        "200": {
+          description: ok,
+          content: {
+            application/json: {
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Webhook",
+              },
+            },
+          },
+        }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+    delete:
+      tags: [webhooks]
+      summary: Delete one of the authenticated user's webhooks
+      operationId: deleteWebhook
+      responses:
+        "204": { description: deleted }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/webhooks/{id}/rotate:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    post:
+      tags: [webhooks]
+      summary: Rotate a webhook capability
+      operationId: rotateWebhook
+      requestBody:
+        required: true
+        content: {
+          application/json: {
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/RotateWebhookRequest",
+            },
+          },
+        }
+      responses:
+        "200": {
+          description: rotated; response includes the one-time URL,
+          content: {
+            application/json: {
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Webhook",
+              },
+            },
+          },
+        }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }

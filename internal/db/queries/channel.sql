@@ -6,42 +6,20 @@ INSERT INTO channel (id, name, type, agent_id, enabled, config)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
--- GetChannelBinding reads the current channel binding without a lock. Endpoint
--- issuance observes it here (outside any transaction) to run owner/access
--- prechecks before taking the short channel-row lock for the final insert.
--- name: GetChannelBinding :one
-SELECT
-    channel.id,
-    channel.type,
-    channel.owner_user_id,
-    channel.agent_id,
-    COALESCE(agent.enabled, false) AS agent_enabled,
-    channel.config
-FROM channel
-LEFT JOIN agent ON agent.id = channel.agent_id
-WHERE channel.id = $1;
-
--- GetChannelBindingForUpdate locks the channel row (and only the channel row)
--- so endpoint issuance and channel binding mutation serialize against each
--- other. The agent join is a read for the caller's binding checks; only the
--- channel row is locked (FOR UPDATE OF channel), so no unrelated row lock is
--- held across the transaction.
--- name: GetChannelBindingForUpdate :one
-SELECT
-    channel.id,
-    channel.type,
-    channel.owner_user_id,
-    channel.agent_id,
-    COALESCE(agent.enabled, false) AS agent_enabled,
-    channel.config
-FROM channel
-LEFT JOIN agent ON agent.id = channel.agent_id
-WHERE channel.id = $1
-FOR UPDATE OF channel;
+-- name: UpdateChannel :one
+UPDATE channel
+SET name = $2,
+    type = $3,
+    agent_id = $4,
+    enabled = $5,
+    config = $6,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
 
 -- name: UpsertChannel :exec
-INSERT INTO channel (id, name, type, agent_id, enabled, config, owner_user_id, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, now())
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     type = excluded.type,
@@ -60,13 +38,6 @@ SELECT * FROM channel ORDER BY type, id;
 
 -- name: ListChannelsByType :many
 SELECT * FROM channel WHERE type = $1 ORDER BY id;
-
--- GetPersonalWebhookChannelForUpdate serializes an owner-scoped mutation with
--- capability lifecycle issuance through the channel-row lock.
--- name: GetPersonalWebhookChannelForUpdate :one
-SELECT * FROM channel
-WHERE id = $1 AND type = 'webhook' AND owner_user_id = $2
-FOR UPDATE;
 
 -- name: DeleteChannel :exec
 DELETE FROM channel WHERE id = $1;

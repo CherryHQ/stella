@@ -51,7 +51,6 @@ import {
   SettingsGridPage,
 } from "@/features/settings/SettingsCardGrid";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { WebhookEndpointPanel } from "@/features/channels/WebhookEndpointPanel";
 import { MessageCircle, Plus } from "lucide-react";
 import { siQq, siTelegram, siWechat } from "simple-icons";
 
@@ -82,12 +81,6 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
   weixin: {
     label: "Weixin",
     defaults: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
-  },
-  webhook: {
-    label: "Webhook",
-    // Invocation behavior comes from each capability request. The persisted
-    // config intentionally contains only server-side timeout ceilings.
-    defaults: {},
   },
 };
 
@@ -356,10 +349,6 @@ function ChannelDetail({
         />
       </div>
 
-      {/* Capability endpoint lifecycle: activation discloses the one-time
-          /webhooks/<capability> URL (inbound-only channel, no bot runtime). */}
-      {channel.type === "webhook" && <WebhookEndpointPanel channelId={channel.id} />}
-
       {/* Config section */}
       {Object.keys(platformConfigDefaults(channel.type)).length > 0 && (
         <div className="space-y-4">
@@ -373,9 +362,8 @@ function ChannelDetail({
         </div>
       )}
 
-      {/* Identity / account section — bot channels only; webhook has no linked
-          account (it authenticates via the caller's PAT). */}
-      {channel.type !== "webhook" && (
+      {/* Identity / account section. */}
+      {
         <div className="space-y-3">
           <FormSectionTitle>My account</FormSectionTitle>
           {identity ? (
@@ -447,7 +435,7 @@ function ChannelDetail({
             </div>
           )}
         </div>
-      )}
+      }
 
       <ConfirmDialog
         open={confirmDeleteOpen}
@@ -681,16 +669,12 @@ function NewChannelForm({
     await beginWeixinScanPolling();
   };
 
-  const isWebhook = draft.type === "webhook";
-  const requiresBoundAgent = draft.type === "feishu" || draft.type === "weixin" || isWebhook;
+  const requiresBoundAgent = draft.type === "feishu" || draft.type === "weixin";
 
   const availableAgents = agents.filter(
     (agent) =>
       agent.enabled !== false &&
-      // Bot channels are one-agent-per-platform; webhooks can reuse an agent
-      // across many trigger endpoints, so skip the already-bound exclusion.
-      (isWebhook ||
-        !channels.some((channel) => channel.type === draft.type && channel.agent_id === agent.id)),
+      !channels.some((channel) => channel.type === draft.type && channel.agent_id === agent.id),
   );
 
   const canStartRegistrationScan = Boolean(
@@ -728,7 +712,7 @@ function NewChannelForm({
               {t("channels.selectPlatform")}
             </option>
             {channelTypes
-              .filter((ct) => isAdmin || ct.id === "webhook")
+              .filter(() => isAdmin)
               .map((ct) => (
                 <option key={ct.id} value={ct.id}>
                   {ct.label}
@@ -1292,10 +1276,7 @@ export function ChannelsPage() {
       showToast("Dedicated instance ID must not match the platform ID", "error");
       return;
     }
-    if (
-      (draft.type === "feishu" || draft.type === "weixin" || draft.type === "webhook") &&
-      !draft.agent_id
-    ) {
+    if ((draft.type === "feishu" || draft.type === "weixin") && !draft.agent_id) {
       showToast(t("channels.scanNeedsAgent"), "error");
       return;
     }
@@ -1345,7 +1326,7 @@ export function ChannelsPage() {
   if (isCreating) {
     detail = (
       <NewChannelForm
-        fallbackChannelType={isAdmin ? defaultChannelType : "webhook"}
+        fallbackChannelType={defaultChannelType}
         isAdmin={isAdmin}
         agents={agents}
         channels={instances}
