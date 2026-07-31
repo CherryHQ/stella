@@ -11,8 +11,8 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-// channelView is the JSON shape the admin frontend expects for channel objects.
-// Config is serialized as a JSON string for the admin frontend.
+// channelView is the JSON shape the Channels UI expects. Collection access is
+// resource-sensitive: personal webhooks for every user, deployment channels for admins.
 type channelView struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -186,7 +186,7 @@ func sortPublicChannels(channels []publicChannelView) {
 }
 
 func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannels(w, r)
 	if !ok {
 		return
 	}
@@ -203,7 +203,7 @@ func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannels(w, r)
 	if !ok {
 		return
 	}
@@ -216,7 +216,7 @@ func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannels(w, r)
 	if !ok {
 		return
 	}
@@ -228,10 +228,9 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	req.ID = id
 
 	ctx := r.Context()
-	// Load the current row only to merge unspecified write fields (a PUT is a
-	// partial update). The read goes through the authorized Access — beginControlPlane
-	// already 403'd a non-admin before any state is observed — so the transport never
-	// holds the aggregate config store.
+	// Load the current visible row only to merge unspecified write fields. The
+	// resource-sensitive Access hides foreign personal webhooks before transport
+	// code can observe or mutate them.
 	existing, existingErr := access.GetChannel(ctx, id)
 	cfgMap, err := parseChannelConfig(req.Config)
 	if err != nil {
@@ -249,7 +248,7 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannels(w, r)
 	if !ok {
 		return
 	}
@@ -362,7 +361,7 @@ func parseChannelConfig(raw string) (map[string]any, error) {
 }
 
 func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannels(w, r)
 	if !ok {
 		return
 	}

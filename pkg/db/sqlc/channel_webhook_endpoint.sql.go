@@ -15,18 +15,16 @@ import (
 const createChannelWebhookEndpoint = `-- name: CreateChannelWebhookEndpoint :one
 INSERT INTO channel_webhook_endpoint (
     channel_id,
-    owner_user_id,
     provider,
     token_public_id,
     token_hash,
     token_last4
-) VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING channel_id, owner_user_id, provider, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at
+) VALUES ($1, $2, $3, $4, $5)
+RETURNING channel_id, provider, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at
 `
 
 type CreateChannelWebhookEndpointParams struct {
 	ChannelID     string `json:"channel_id"`
-	OwnerUserID   string `json:"owner_user_id"`
 	Provider      string `json:"provider"`
 	TokenPublicID string `json:"token_public_id"`
 	TokenHash     string `json:"token_hash"`
@@ -36,7 +34,6 @@ type CreateChannelWebhookEndpointParams struct {
 func (q *Queries) CreateChannelWebhookEndpoint(ctx context.Context, arg CreateChannelWebhookEndpointParams) (ChannelWebhookEndpoint, error) {
 	row := q.db.QueryRow(ctx, createChannelWebhookEndpoint,
 		arg.ChannelID,
-		arg.OwnerUserID,
 		arg.Provider,
 		arg.TokenPublicID,
 		arg.TokenHash,
@@ -45,7 +42,6 @@ func (q *Queries) CreateChannelWebhookEndpoint(ctx context.Context, arg CreateCh
 	var i ChannelWebhookEndpoint
 	err := row.Scan(
 		&i.ChannelID,
-		&i.OwnerUserID,
 		&i.Provider,
 		&i.TokenPublicID,
 		&i.TokenHash,
@@ -58,13 +54,22 @@ func (q *Queries) CreateChannelWebhookEndpoint(ctx context.Context, arg CreateCh
 	return i, err
 }
 
-const deleteChannelWebhookEndpoint = `-- name: DeleteChannelWebhookEndpoint :execrows
-DELETE FROM channel_webhook_endpoint
-WHERE channel_id = $1
+const deleteChannelWebhookEndpointForOwner = `-- name: DeleteChannelWebhookEndpointForOwner :execrows
+DELETE FROM channel_webhook_endpoint AS endpoint
+USING channel
+WHERE endpoint.channel_id = channel.id
+  AND endpoint.channel_id = $1
+  AND channel.type = 'webhook'
+  AND channel.owner_user_id = $2
 `
 
-func (q *Queries) DeleteChannelWebhookEndpoint(ctx context.Context, channelID string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteChannelWebhookEndpoint, channelID)
+type DeleteChannelWebhookEndpointForOwnerParams struct {
+	ChannelID   string      `json:"channel_id"`
+	OwnerUserID pgtype.Text `json:"owner_user_id"`
+}
+
+func (q *Queries) DeleteChannelWebhookEndpointForOwner(ctx context.Context, arg DeleteChannelWebhookEndpointForOwnerParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteChannelWebhookEndpointForOwner, arg.ChannelID, arg.OwnerUserID)
 	if err != nil {
 		return 0, err
 	}
@@ -72,13 +77,69 @@ func (q *Queries) DeleteChannelWebhookEndpoint(ctx context.Context, channelID st
 }
 
 const getChannelWebhookEndpointByChannelID = `-- name: GetChannelWebhookEndpointByChannelID :one
-SELECT channel_id, owner_user_id, provider, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at FROM channel_webhook_endpoint
+SELECT channel_id, provider, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at FROM channel_webhook_endpoint
 WHERE channel_id = $1
 `
 
 func (q *Queries) GetChannelWebhookEndpointByChannelID(ctx context.Context, channelID string) (ChannelWebhookEndpoint, error) {
 	row := q.db.QueryRow(ctx, getChannelWebhookEndpointByChannelID, channelID)
 	var i ChannelWebhookEndpoint
+	err := row.Scan(
+		&i.ChannelID,
+		&i.Provider,
+		&i.TokenPublicID,
+		&i.TokenHash,
+		&i.TokenLast4,
+		&i.Revision,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RotatedAt,
+	)
+	return i, err
+}
+
+const getChannelWebhookEndpointByChannelIDForOwner = `-- name: GetChannelWebhookEndpointByChannelIDForOwner :one
+SELECT
+    endpoint.channel_id,
+    channel.owner_user_id,
+    endpoint.provider,
+    endpoint.token_public_id,
+    endpoint.token_hash,
+    endpoint.token_last4,
+    endpoint.revision,
+    endpoint.created_at,
+    endpoint.updated_at,
+    endpoint.rotated_at
+FROM channel_webhook_endpoint AS endpoint
+JOIN channel ON channel.id = endpoint.channel_id
+WHERE endpoint.channel_id = $1
+  AND channel.type = 'webhook'
+  AND channel.owner_user_id = $2
+`
+
+type GetChannelWebhookEndpointByChannelIDForOwnerParams struct {
+	ChannelID   string      `json:"channel_id"`
+	OwnerUserID pgtype.Text `json:"owner_user_id"`
+}
+
+type GetChannelWebhookEndpointByChannelIDForOwnerRow struct {
+	ChannelID     string             `json:"channel_id"`
+	OwnerUserID   pgtype.Text        `json:"owner_user_id"`
+	Provider      string             `json:"provider"`
+	TokenPublicID string             `json:"token_public_id"`
+	TokenHash     string             `json:"token_hash"`
+	TokenLast4    string             `json:"token_last4"`
+	Revision      int64              `json:"revision"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	RotatedAt     pgtype.Timestamptz `json:"rotated_at"`
+}
+
+// Endpoint metadata always derives ownership from its channel. The endpoint
+// table intentionally has no second owner column.
+func (q *Queries) GetChannelWebhookEndpointByChannelIDForOwner(ctx context.Context, arg GetChannelWebhookEndpointByChannelIDForOwnerParams) (GetChannelWebhookEndpointByChannelIDForOwnerRow, error) {
+	row := q.db.QueryRow(ctx, getChannelWebhookEndpointByChannelIDForOwner, arg.ChannelID, arg.OwnerUserID)
+	var i GetChannelWebhookEndpointByChannelIDForOwnerRow
 	err := row.Scan(
 		&i.ChannelID,
 		&i.OwnerUserID,
@@ -94,15 +155,47 @@ func (q *Queries) GetChannelWebhookEndpointByChannelID(ctx context.Context, chan
 	return i, err
 }
 
-const getChannelWebhookEndpointByChannelIDForUpdate = `-- name: GetChannelWebhookEndpointByChannelIDForUpdate :one
-SELECT channel_id, owner_user_id, provider, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at FROM channel_webhook_endpoint
-WHERE channel_id = $1
-FOR UPDATE
+const getChannelWebhookEndpointByChannelIDForOwnerForUpdate = `-- name: GetChannelWebhookEndpointByChannelIDForOwnerForUpdate :one
+SELECT
+    endpoint.channel_id,
+    channel.owner_user_id,
+    endpoint.provider,
+    endpoint.token_public_id,
+    endpoint.token_hash,
+    endpoint.token_last4,
+    endpoint.revision,
+    endpoint.created_at,
+    endpoint.updated_at,
+    endpoint.rotated_at
+FROM channel_webhook_endpoint AS endpoint
+JOIN channel ON channel.id = endpoint.channel_id
+WHERE endpoint.channel_id = $1
+  AND channel.type = 'webhook'
+  AND channel.owner_user_id = $2
+FOR UPDATE OF endpoint
 `
 
-func (q *Queries) GetChannelWebhookEndpointByChannelIDForUpdate(ctx context.Context, channelID string) (ChannelWebhookEndpoint, error) {
-	row := q.db.QueryRow(ctx, getChannelWebhookEndpointByChannelIDForUpdate, channelID)
-	var i ChannelWebhookEndpoint
+type GetChannelWebhookEndpointByChannelIDForOwnerForUpdateParams struct {
+	ChannelID   string      `json:"channel_id"`
+	OwnerUserID pgtype.Text `json:"owner_user_id"`
+}
+
+type GetChannelWebhookEndpointByChannelIDForOwnerForUpdateRow struct {
+	ChannelID     string             `json:"channel_id"`
+	OwnerUserID   pgtype.Text        `json:"owner_user_id"`
+	Provider      string             `json:"provider"`
+	TokenPublicID string             `json:"token_public_id"`
+	TokenHash     string             `json:"token_hash"`
+	TokenLast4    string             `json:"token_last4"`
+	Revision      int64              `json:"revision"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	RotatedAt     pgtype.Timestamptz `json:"rotated_at"`
+}
+
+func (q *Queries) GetChannelWebhookEndpointByChannelIDForOwnerForUpdate(ctx context.Context, arg GetChannelWebhookEndpointByChannelIDForOwnerForUpdateParams) (GetChannelWebhookEndpointByChannelIDForOwnerForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getChannelWebhookEndpointByChannelIDForOwnerForUpdate, arg.ChannelID, arg.OwnerUserID)
+	var i GetChannelWebhookEndpointByChannelIDForOwnerForUpdateRow
 	err := row.Scan(
 		&i.ChannelID,
 		&i.OwnerUserID,
@@ -119,7 +212,7 @@ func (q *Queries) GetChannelWebhookEndpointByChannelIDForUpdate(ctx context.Cont
 }
 
 const getChannelWebhookEndpointByPublicID = `-- name: GetChannelWebhookEndpointByPublicID :one
-SELECT channel_id, owner_user_id, provider, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at FROM channel_webhook_endpoint
+SELECT channel_id, provider, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at FROM channel_webhook_endpoint
 WHERE token_public_id = $1
 `
 
@@ -128,7 +221,6 @@ func (q *Queries) GetChannelWebhookEndpointByPublicID(ctx context.Context, token
 	var i ChannelWebhookEndpoint
 	err := row.Scan(
 		&i.ChannelID,
-		&i.OwnerUserID,
 		&i.Provider,
 		&i.TokenPublicID,
 		&i.TokenHash,
@@ -144,7 +236,7 @@ func (q *Queries) GetChannelWebhookEndpointByPublicID(ctx context.Context, token
 const resolveChannelWebhookEndpointByPublicID = `-- name: ResolveChannelWebhookEndpointByPublicID :one
 SELECT
     endpoint.channel_id,
-    endpoint.owner_user_id,
+    channel.owner_user_id,
     endpoint.provider,
     endpoint.token_hash,
     endpoint.token_last4,
@@ -158,7 +250,7 @@ SELECT
     agent.enabled AS agent_enabled
 FROM channel_webhook_endpoint AS endpoint
 JOIN channel ON channel.id = endpoint.channel_id
-JOIN auth_user ON auth_user.id = endpoint.owner_user_id
+JOIN auth_user ON auth_user.id = channel.owner_user_id
 JOIN agent ON agent.id = channel.agent_id
 WHERE endpoint.token_public_id = $1
   AND channel.type = 'webhook'
@@ -169,7 +261,7 @@ WHERE endpoint.token_public_id = $1
 
 type ResolveChannelWebhookEndpointByPublicIDRow struct {
 	ChannelID      string             `json:"channel_id"`
-	OwnerUserID    string             `json:"owner_user_id"`
+	OwnerUserID    pgtype.Text        `json:"owner_user_id"`
 	Provider       string             `json:"provider"`
 	TokenHash      string             `json:"token_hash"`
 	TokenLast4     string             `json:"token_last4"`
@@ -184,9 +276,9 @@ type ResolveChannelWebhookEndpointByPublicIDRow struct {
 }
 
 // ResolveChannelWebhookEndpointByPublicID is the deep admission read: it joins
-// the channel, owner, and Agent and returns a row only while all three are
-// active. Any disabled/inactive party (or a rotated/revoked credential) yields no
-// row, so admission fails closed. The owner→Agent permission (PEP) is checked
+// the channel owner and Agent and returns a row only while all three are active.
+// Any disabled/inactive party (or a rotated/revoked credential) yields no row,
+// so admission fails closed. The owner→Agent permission (PEP) is checked
 // separately in Go; this only confirms durable active state.
 func (q *Queries) ResolveChannelWebhookEndpointByPublicID(ctx context.Context, tokenPublicID string) (ResolveChannelWebhookEndpointByPublicIDRow, error) {
 	row := q.db.QueryRow(ctx, resolveChannelWebhookEndpointByPublicID, tokenPublicID)
@@ -218,7 +310,7 @@ SET token_public_id = $2,
     rotated_at = now(),
     updated_at = now()
 WHERE channel_id = $1
-RETURNING channel_id, owner_user_id, provider, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at
+RETURNING channel_id, provider, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at
 `
 
 type RotateChannelWebhookEndpointParams struct {
@@ -238,7 +330,6 @@ func (q *Queries) RotateChannelWebhookEndpoint(ctx context.Context, arg RotateCh
 	var i ChannelWebhookEndpoint
 	err := row.Scan(
 		&i.ChannelID,
-		&i.OwnerUserID,
 		&i.Provider,
 		&i.TokenPublicID,
 		&i.TokenHash,

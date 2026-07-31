@@ -17,7 +17,12 @@ const sanitizedWebhookPath = "/webhooks/"
 
 type webhookCapabilityCtxKey struct{}
 
-type webhookWaitCtxKey struct{}
+type webhookInvocationCtxKey struct{}
+
+type webhookInvocationOptions struct {
+	wait        bool
+	sessionMode string
+}
 
 // webhookCapabilityFromContext returns the canonical single-segment capability
 // the reservation parsed from the path, if this request came through it.
@@ -26,10 +31,10 @@ func webhookCapabilityFromContext(ctx context.Context) (string, bool) {
 	return v, ok
 }
 
-// webhookWaitFromContext returns the typed wait override the reservation parsed
-// from the query, if the caller supplied wait=true|false.
-func webhookWaitFromContext(ctx context.Context) (bool, bool) {
-	v, ok := ctx.Value(webhookWaitCtxKey{}).(bool)
+// webhookInvocationFromContext returns the typed invocation options parsed by
+// the reservation. Absent options use the safe async/ephemeral defaults.
+func webhookInvocationFromContext(ctx context.Context) (webhookInvocationOptions, bool) {
+	v, ok := ctx.Value(webhookInvocationCtxKey{}).(webhookInvocationOptions)
 	return v, ok
 }
 
@@ -45,13 +50,13 @@ const capabilityScanRounds = 3
 //   - A canonical POST /webhooks/<single-segment> — where the request path
 //     *literally* begins with "/webhooks/" (not after decoding, case-folding,
 //     slash-collapsing, or dot-segment resolution) — is admitted inward: the
-//     capability and an optional typed wait override move into private context,
+//     capability and typed wait/session options move into private context,
 //     every URL-bearing field is sanitized so the raw capability and query never
 //     reach the instrumented chain, and the request is dispatched to ingress.
 //   - Any other method, an empty or multi-segment suffix, gets an opaque 404
 //     without touching ingress, access logging, or OTel.
-//   - An invalid wait value is a 400 before any admission work; the raw query is
-//     never forwarded.
+//   - Invalid or duplicate wait/session_mode values are a 400 before admission;
+//     the raw query is never forwarded.
 //   - A request that is NOT the literal canonical prefix but still carries a
 //     capability token anywhere in its path/raw-path/request-target (a
 //     prefix-equivalent malformed path: //webhooks/…, /Webhooks/…, dot-segment
@@ -87,18 +92,16 @@ func WebhookCapabilityReservation(ingress, next http.Handler) http.Handler {
 		}
 		capability := rest
 
-		waitOverride, hasWait, ok := parseWaitOverride(r.URL.RawQuery)
+		options, ok := parseWebhookInvocationOptions(r.URL.RawQuery)
 		if !ok {
-			// Invalid wait is rejected before any admission; no capability or raw
-			// query is echoed.
-			http.Error(w, "invalid wait parameter: use true or false", http.StatusBadRequest)
+			// Invalid invocation options are rejected before admission; raw query
+			// text is never forwarded or echoed.
+			http.Error(w, "invalid webhook invocation options", http.StatusBadRequest)
 			return
 		}
 
 		ctx := context.WithValue(r.Context(), webhookCapabilityCtxKey{}, capability)
-		if hasWait {
-			ctx = context.WithValue(ctx, webhookWaitCtxKey{}, waitOverride)
-		}
+		ctx = context.WithValue(ctx, webhookInvocationCtxKey{}, options)
 		r2 := r.Clone(ctx)
 		// Sanitize every URL-bearing field before the instrumented chain sees it.
 		r2.URL.Path = sanitizedWebhookPath
@@ -139,23 +142,32 @@ func containsCapabilityToken(s string) bool {
 	return false
 }
 
-// parseWaitOverride reads an optional wait=true|false from raw query text without
-// exposing the rest of the query. It returns (value, present, valid).
-func parseWaitOverride(rawQuery string) (value bool, present bool, valid bool) {
+// parseWebhookInvocationOptions validates both public invocation knobs before
+// telemetry. It intentionally returns only typed values, never raw query text.
+func parseWebhookInvocationOptions(rawQuery string) (webhookInvocationOptions, bool) {
+	options := webhookInvocationOptions{wait: false, sessionMode: "ephemeral"}
 	if rawQuery == "" {
-		return false, false, true
+		return options, true
 	}
 	q, err := url.ParseQuery(rawQuery)
-	if err != nil {
-		return false, false, false
+	if err != nil || len(q["wait"]) > 1 || len(q["session_mode"]) > 1 {
+		return webhookInvocationOptions{}, false
 	}
-	raw := q.Get("wait")
-	if raw == "" {
-		return false, false, true
+	if raw, present := q["wait"]; present {
+		if len(raw) != 1 {
+			return webhookInvocationOptions{}, false
+		}
+		value, err := strconv.ParseBool(raw[0])
+		if err != nil {
+			return webhookInvocationOptions{}, false
+		}
+		options.wait = value
 	}
-	v, err := strconv.ParseBool(raw)
-	if err != nil {
-		return false, false, false
+	if raw, present := q["session_mode"]; present {
+		if len(raw) != 1 || (raw[0] != "ephemeral" && raw[0] != "persistent") {
+			return webhookInvocationOptions{}, false
+		}
+		options.sessionMode = raw[0]
 	}
-	return v, true, true
+	return options, true
 }

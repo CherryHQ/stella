@@ -145,6 +145,7 @@ func (s *Server) PollWeixinRegistration(w http.ResponseWriter, r *http.Request) 
 // identity-link path passes false to leave the existing state untouched).
 func (s *Server) saveWeixinSingletonChannel(ctx context.Context, operation *controlplane.ChannelManagement, name, agentID string, enable bool, cfgPatch map[string]any, status WeixinQRCodeStatus) (config.Channel, error) {
 	ch, err := operation.Channel(ctx, pkgchannel.PlatformWeixin)
+	create := err != nil
 	cfg := map[string]any{}
 	if err != nil {
 		ch = config.Channel{ID: pkgchannel.PlatformWeixin, Type: pkgchannel.PlatformWeixin, Enabled: true}
@@ -182,5 +183,5 @@ func (s *Server) saveWeixinSingletonChannel(ctx context.Context, operation *cont
 			return config.Channel{}, fmt.Errorf("%w: %w", errWeixinConfigInvalid, err)
 		}
 	}
-	return operation.Save(ctx, ch, cfg, false)
+	return operation.Save(ctx, ch, cfg, create)
 }

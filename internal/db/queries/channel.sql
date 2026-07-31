@@ -13,6 +13,7 @@ RETURNING *;
 SELECT
     channel.id,
     channel.type,
+    channel.owner_user_id,
     channel.agent_id,
     COALESCE(agent.enabled, false) AS agent_enabled,
     channel.config
@@ -29,6 +30,7 @@ WHERE channel.id = $1;
 SELECT
     channel.id,
     channel.type,
+    channel.owner_user_id,
     channel.agent_id,
     COALESCE(agent.enabled, false) AS agent_enabled,
     channel.config
@@ -38,8 +40,8 @@ WHERE channel.id = $1
 FOR UPDATE OF channel;
 
 -- name: UpsertChannel :exec
-INSERT INTO channel (id, name, type, agent_id, enabled, config, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, now())
+INSERT INTO channel (id, name, type, agent_id, enabled, config, owner_user_id, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 ON CONFLICT(id) DO UPDATE SET
     name = excluded.name,
     type = excluded.type,
@@ -58,6 +60,13 @@ SELECT * FROM channel ORDER BY type, id;
 
 -- name: ListChannelsByType :many
 SELECT * FROM channel WHERE type = $1 ORDER BY id;
+
+-- GetPersonalWebhookChannelForUpdate serializes an owner-scoped mutation with
+-- capability lifecycle issuance through the channel-row lock.
+-- name: GetPersonalWebhookChannelForUpdate :one
+SELECT * FROM channel
+WHERE id = $1 AND type = 'webhook' AND owner_user_id = $2
+FOR UPDATE;
 
 -- name: DeleteChannel :exec
 DELETE FROM channel WHERE id = $1;

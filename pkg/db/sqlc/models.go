@@ -265,14 +265,15 @@ type AuthUserToken struct {
 }
 
 type Channel struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
-	Type      string      `json:"type"`
-	AgentID   pgtype.Text `json:"agent_id"`
-	Enabled   bool        `json:"enabled"`
-	Config    string      `json:"config"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Type        string      `json:"type"`
+	AgentID     pgtype.Text `json:"agent_id"`
+	Enabled     bool        `json:"enabled"`
+	Config      string      `json:"config"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+	OwnerUserID pgtype.Text `json:"owner_user_id"`
 }
 
 type ChannelAgent struct {
@@ -315,7 +316,6 @@ type ChannelIdentity struct {
 
 type ChannelWebhookEndpoint struct {
 	ChannelID     string             `json:"channel_id"`
-	OwnerUserID   string             `json:"owner_user_id"`
 	Provider      string             `json:"provider"`
 	TokenPublicID string             `json:"token_public_id"`
 	TokenHash     string             `json:"token_hash"`

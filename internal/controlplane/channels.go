@@ -5,8 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/jackc/pgx/v5"
-
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/webhook"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -42,7 +41,17 @@ func (m *ChannelManagement) ValidateBinding(ctx context.Context, ch config.Chann
 }
 
 func (a *Access) ListChannels(ctx context.Context) ([]config.Channel, error) {
-	return a.svc.store.ListChannels(ctx)
+	channels, err := a.svc.store.ListChannels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	visible := make([]config.Channel, 0, len(channels))
+	for _, ch := range channels {
+		if a.canReadChannel(ch) {
+			visible = append(visible, ch)
+		}
+	}
+	return visible, nil
 }
 
 // LookupAgent reads an agent for a channel-binding precondition: a registration
@@ -56,21 +65,124 @@ func (a *Access) LookupAgent(ctx context.Context, id string) (config.Agent, erro
 // GetChannel returns one channel by id (opaque 404 when missing).
 func (a *Access) GetChannel(ctx context.Context, id string) (config.Channel, error) {
 	ch, err := a.svc.store.GetChannel(ctx, id)
-	if err != nil {
+	if err != nil || !a.canReadChannel(ch) {
 		return config.Channel{}, notFound("channel not found")
 	}
 	return ch, nil
+}
+
+func (a *Access) canReadChannel(ch config.Channel) bool {
+	if effectiveChannelType(ch) == pkgchannel.PlatformWebhook {
+		return ch.OwnerUserID == string(a.authority.UserID()) || (a.authority.IsAdmin() && ch.OwnerUserID == "")
+	}
+	return a.authority.IsAdmin()
+}
+
+func (a *Access) requireChannelWrite(ch config.Channel) error {
+	if effectiveChannelType(ch) == pkgchannel.PlatformWebhook {
+		if ch.OwnerUserID != string(a.authority.UserID()) {
+			return notFound("channel not found")
+		}
+		return nil
+	}
+	if !a.authority.IsAdmin() {
+		return authz.ErrForbidden
+	}
+	return nil
 }
 
 // SaveChannel validates and persists a channel, ensures its plugin is enabled,
 // and applies its runtime. create=true rejects an id that already exists (the
 // create-only POST contract). It returns the reloaded channel.
 func (a *Access) SaveChannel(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error) {
+	ownerID := string(a.authority.UserID())
+	channelType := effectiveChannelType(ch)
+
+	if !create {
+		if channelType != pkgchannel.PlatformWebhook && !a.authority.IsAdmin() {
+			return config.Channel{}, authz.ErrForbidden
+		}
+		existing, err := a.svc.store.GetChannel(ctx, ch.ID)
+		if err != nil {
+			// PATCH is update-only. Besides matching the API contract, refusing
+			// create-on-miss prevents a concurrent personal webhook with the same ID
+			// from being overwritten by an admin deployment-channel upsert.
+			return config.Channel{}, notFound("channel not found")
+		}
+		if !a.canReadChannel(existing) {
+			return config.Channel{}, notFound("channel not found")
+		}
+		currentType := effectiveChannelType(existing)
+		if channelType != currentType {
+			// Personal webhooks and deployment channels have different ownership
+			// models. Converting between them would silently change authority.
+			return config.Channel{}, invalid("channel type cannot be changed")
+		}
+		ch.OwnerUserID = existing.OwnerUserID
+		if currentType == pkgchannel.PlatformWebhook {
+			if err := a.requireChannelWrite(existing); err != nil {
+				return config.Channel{}, err
+			}
+			if existing.AgentID != ch.AgentID {
+				if err := a.requirePersonalWebhookAgent(ctx, ownerID, ch.AgentID); err != nil {
+					return config.Channel{}, err
+				}
+			}
+			return a.savePersonalWebhook(ctx, ch, cfgMap, false)
+		}
+		if !a.authority.IsAdmin() {
+			return config.Channel{}, authz.ErrForbidden
+		}
+		operation, err := a.ManageChannel(ch.ID)
+		if err != nil {
+			return config.Channel{}, err
+		}
+		return operation.Save(ctx, ch, cfgMap, false)
+	}
+
+	if channelType == pkgchannel.PlatformWebhook {
+		ch.OwnerUserID = ownerID
+		if err := a.requirePersonalWebhookAgent(ctx, ownerID, ch.AgentID); err != nil {
+			return config.Channel{}, err
+		}
+		return a.savePersonalWebhook(ctx, ch, cfgMap, true)
+	}
+	if !a.authority.IsAdmin() {
+		return config.Channel{}, authz.ErrForbidden
+	}
 	operation, err := a.ManageChannel(ch.ID)
 	if err != nil {
 		return config.Channel{}, err
 	}
-	return operation.Save(ctx, ch, cfgMap, create)
+	return operation.Save(ctx, ch, cfgMap, true)
+}
+
+func (a *Access) requirePersonalWebhookAgent(ctx context.Context, ownerID, agentID string) error {
+	if agentID == "" {
+		return invalid("webhook channel requires a bound agent")
+	}
+	if a.svc.webhooks == nil {
+		return unavailable("webhook endpoint service unavailable")
+	}
+	return endpointError(a.svc.webhooks.ValidateOwnerAgent(ctx, ownerID, agentID))
+}
+
+func (a *Access) savePersonalWebhook(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error) {
+	if a.svc.webhooks == nil {
+		return config.Channel{}, unavailable("webhook endpoint service unavailable")
+	}
+	operation, err := a.ManageChannel(ch.ID)
+	if err != nil {
+		return config.Channel{}, err
+	}
+	// Store mutation shares the capability lifecycle fence. In particular, an
+	// Admit that passed final validation cannot race a disable/rebind/delete.
+	var saved config.Channel
+	err = a.svc.webhooks.MutateChannel(func() error {
+		saved, err = operation.Save(ctx, ch, cfgMap, create)
+		return err
+	})
+	return saved, err
 }
 
 // Channel reads the current row for this operation's channel so a caller can
@@ -92,8 +204,8 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 			return config.Channel{}, &ConflictError{Msg: "channel already exists"}
 		}
 	}
-	// A webhook is a runtime-less trigger: it must name the agent it runs, but its
-	// caller is resolved dynamically from the PAT (not bound to one user).
+	// A webhook is a runtime-less personal trigger and must name its Agent. Its
+	// owner is persisted on the channel and never accepted from request input.
 	if ch.Type == pkgchannel.PlatformWebhook && ch.AgentID == "" {
 		return config.Channel{}, invalid("webhook channel requires a bound agent")
 	}
@@ -116,16 +228,9 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 	} else {
 		// UpdateChannel takes the exact channel row lock endpoint issuance holds.
 		// It permits behavior changes but rejects a binding change against an
-		// active endpoint. A PATCH to an absent channel retains the historical
-		// create-if-missing behavior.
+		// active endpoint. PATCH never creates an absent resource.
 		if err := a.svc.store.UpdateChannel(ctx, ch); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				if err := a.svc.store.UpsertChannel(ctx, ch); err != nil {
-					return config.Channel{}, channelSaveError(err)
-				}
-			} else {
-				return config.Channel{}, channelSaveError(err)
-			}
+			return config.Channel{}, channelSaveError(err)
 		}
 	}
 	if err := a.svc.ensureChannelPluginEnabled(ctx, ch.Type, cfgMap); err != nil {
@@ -150,24 +255,39 @@ func (a *Access) DeleteChannel(ctx context.Context, id string) error {
 	if err != nil {
 		return notFound("channel not found")
 	}
-	if effectiveChannelType(ch) == pkgchannel.PlatformWebhook && a.svc.webhooks != nil {
-		if _, err := a.svc.webhooks.GetByChannel(ctx, id); err == nil {
-			return &ConflictError{Msg: "webhook endpoint is active; revoke it before deleting the channel"}
-		} else if !errors.Is(err, webhook.ErrNotFound) {
+	legacyWebhookCleanup := effectiveChannelType(ch) == pkgchannel.PlatformWebhook && ch.OwnerUserID == "" && a.authority.IsAdmin()
+	if !legacyWebhookCleanup {
+		if err := a.requireChannelWrite(ch); err != nil {
 			return err
 		}
 	}
-	ch.Enabled = false
-	if err := a.svc.plugins.ApplyChannel(ctx, ch); err != nil {
-		a.svc.log.Error("failed to stop channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
+	if effectiveChannelType(ch) == pkgchannel.PlatformWebhook && a.svc.webhooks == nil {
+		return unavailable("webhook endpoint service unavailable")
 	}
-	if err := a.svc.store.DeleteChannel(ctx, id); err != nil {
-		if errors.Is(err, config.ErrChannelEndpointActive) {
-			return &ConflictError{Msg: "webhook endpoint is active; revoke it before deleting the channel"}
+	deleteFn := func() error {
+		if effectiveChannelType(ch) == pkgchannel.PlatformWebhook && a.svc.webhooks != nil {
+			if _, err := a.svc.webhooks.GetByChannel(ctx, id, ch.OwnerUserID); err == nil {
+				return &ConflictError{Msg: "webhook endpoint is active; revoke it before deleting the channel"}
+			} else if !errors.Is(err, webhook.ErrNotFound) {
+				return err
+			}
 		}
-		return err
+		ch.Enabled = false
+		if err := a.svc.plugins.ApplyChannel(ctx, ch); err != nil {
+			a.svc.log.Error("failed to stop channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
+		}
+		if err := a.svc.store.DeleteChannel(ctx, id); err != nil {
+			if errors.Is(err, config.ErrChannelEndpointActive) {
+				return &ConflictError{Msg: "webhook endpoint is active; revoke it before deleting the channel"}
+			}
+			return err
+		}
+		return nil
 	}
-	return nil
+	if effectiveChannelType(ch) == pkgchannel.PlatformWebhook {
+		return a.svc.webhooks.MutateChannel(deleteFn)
+	}
+	return deleteFn()
 }
 
 func channelSaveError(err error) error {

@@ -3,8 +3,8 @@
 // Unlike the bot channels (telegram/feishu/…), the webhook channel has no
 // long-running runtime: it is a plain channel type whose ingress is an HTTP
 // endpoint (POST /webhooks/{id}) served by internal/server. This plugin exists
-// only to provide the admin config schema + validation and to make "webhook" a
-// selectable channel type; it registers no runtime, so ApplyChannel is a no-op
+// only to provide the server-ceiling config schema + validation and to make
+// "webhook" a selectable channel type; it registers no runtime, so ApplyChannel is a no-op
 // for webhook instances.
 package webhook
 
@@ -52,10 +52,6 @@ func configSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"default_wait": map[string]any{
-				"type":        "boolean",
-				"description": "Wait for the agent reply by default (synchronous). Overridable per request with ?wait=true|false.",
-			},
 			"wait_timeout_seconds": map[string]any{
 				"type":        "integer",
 				"minimum":     0,
@@ -67,11 +63,6 @@ func configSchema() map[string]any {
 				"minimum":     0,
 				"maximum":     pkgchannel.WebhookRunTimeoutCeilingSeconds,
 				"description": "Hard ceiling on the agent run. Default 300.",
-			},
-			"session_mode": map[string]any{
-				"type":        "string",
-				"enum":        []any{pkgchannel.WebhookSessionEphemeral, pkgchannel.WebhookSessionPersistent},
-				"description": "ephemeral: fresh session per trigger (default). persistent: one stable session per caller per webhook.",
 			},
 		},
 	}

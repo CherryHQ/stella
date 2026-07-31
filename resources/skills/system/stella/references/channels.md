@@ -164,8 +164,8 @@ Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 
 Not a chat bot: an inbound-only HTTP endpoint that runs the bound agent. There is no outbound messaging and no in-chat commands. Access is a **capability** — a one-time URL that carries an opaque secret and fixes which user the agent runs as. There is no caller token and no `Authorization` header.
 
-1. Open the Web UI and add a channel of type Webhook with a channel ID (e.g. `deploy-notify`), then bind an agent (required)
-2. In the channel's **Capability endpoint** panel, click **Activate endpoint** and choose the **owner** — the user the agent runs as on every trigger. The owner must currently be allowed to run the bound agent
+1. Every authenticated user can add their own Webhook channel with a channel ID (e.g. `deploy-notify`) and bind an agent they can use. Other channel types remain admin-managed deployment resources.
+2. In the channel's **Capability endpoint** panel, click **Activate endpoint**. It always runs as the current channel owner; there is no owner picker and administrators cannot manage another user's webhook.
 3. Copy the **one-time URL** (`https://your-host/webhooks/<capability>`) shown once on activation; it cannot be recovered afterward
 4. Callers `POST` to that URL; the request body becomes the agent's message. Any headers sent are ignored — the URL itself is the credential
 
@@ -178,14 +178,11 @@ Webhook channel config (JSON):
 
 ```json
 {
-  "default_wait": false,
   "wait_timeout_seconds": 60,
-  "max_run_timeout_seconds": 300,
-  "session_mode": "ephemeral"
+  "max_run_timeout_seconds": 300
 }
 ```
 
-- `?wait=true|false` on the request overrides `default_wait`: sync (200 with the reply, up to `wait_timeout_seconds`, then 504) vs fire-and-forget (202 with `session_id`). Any other `?wait=` value returns 400
-- `session_mode`: `ephemeral` = fresh session per trigger; `persistent` = one long-lived session per owner per webhook (busy session → 429, retry later)
+- Every request chooses `?wait=true|false&session_mode=ephemeral|persistent`. Omitted options default to async (`wait=false`) and an ephemeral session. Invalid values return 400; persistent mode keeps one session per owner/webhook (busy session → 429).
 - Limits: 256 KiB body (413 when exceeded), a per-endpoint read deadline (408 if the body stalls), and a per-endpoint rate/ingress limit plus max 10 in-flight runs (429 when exceeded)
 - **Cutover:** the old `POST /webhooks/<channel-id>` route with a Bearer personal access token no longer works; activate a capability endpoint and re-point callers at the one-time URL. Full guide: [Webhook channel docs](/docs/channels/webhook)

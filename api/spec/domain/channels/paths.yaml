@@ -19,7 +19,7 @@ paths:
   /api/channels:
     get:
       tags: [channels]
-      summary: List all channels (admin only)
+      summary: List visible channels (personal webhooks for all users; deployment channels for admins)
       operationId: listChannels
       responses:
         "200":
@@ -35,7 +35,7 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     post:
       tags: [channels]
-      summary: Create a channel (admin only)
+      summary: Create a personal webhook or an admin-managed deployment channel
       operationId: createChannel
       requestBody:
         required: true
@@ -66,7 +66,7 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [channels]
-      summary: Get a channel (admin only)
+      summary: Get an owned webhook or an admin-managed deployment channel
       operationId: getChannel
       responses:
         "200":
@@ -83,7 +83,7 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     patch:
       tags: [channels]
-      summary: Update a channel (admin only)
+      summary: Update an owned webhook or an admin-managed deployment channel
       operationId: updateChannel
       requestBody:
         required: true
@@ -110,7 +110,7 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
       tags: [channels]
-      summary: Delete a channel (admin only)
+      summary: Delete an owned webhook or an admin-managed deployment channel
       operationId: deleteChannel
       responses:
         "204":
@@ -127,7 +127,7 @@ paths:
       - { name: channelId, in: path, required: true, schema: { type: string } }
     get:
       tags: [channels]
-      summary: Get the channel's webhook capability endpoint (admin only)
+      summary: Get the caller-owned channel's webhook capability endpoint
       operationId: getWebhookEndpoint
       responses:
         "200":
@@ -144,7 +144,7 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     post:
       tags: [channels]
-      summary: Create the channel's webhook capability endpoint (admin only)
+      summary: Activate the caller-owned channel's webhook capability endpoint
       operationId: createWebhookEndpoint
       requestBody:
         required: true
@@ -172,7 +172,7 @@ paths:
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
     delete:
       tags: [channels]
-      summary: Revoke the channel's webhook capability endpoint (admin only)
+      summary: Revoke the caller-owned channel's webhook capability endpoint
       operationId: deleteWebhookEndpoint
       responses:
         "204":
@@ -188,7 +188,7 @@ paths:
       - { name: channelId, in: path, required: true, schema: { type: string } }
     post:
       tags: [channels]
-      summary: Rotate the channel's webhook capability (admin only)
+      summary: Rotate the caller-owned channel's webhook capability
       operationId: rotateWebhookEndpoint
       requestBody:
         required: true

@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Server) GetWebhookEndpoint(w http.ResponseWriter, r *http.Request, channelID string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannels(w, r)
 	if !ok {
 		return
 	}
@@ -22,7 +22,7 @@ func (s *Server) GetWebhookEndpoint(w http.ResponseWriter, r *http.Request, chan
 }
 
 func (s *Server) CreateWebhookEndpoint(w http.ResponseWriter, r *http.Request, channelID string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannels(w, r)
 	if !ok {
 		return
 	}
@@ -31,7 +31,7 @@ func (s *Server) CreateWebhookEndpoint(w http.ResponseWriter, r *http.Request, c
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	result, err := access.CreateWebhookEndpoint(r.Context(), channelID, req.OwnerUserId, webhook.Provider(req.Provider))
+	result, err := access.CreateWebhookEndpoint(r.Context(), channelID, webhook.Provider(req.Provider))
 	if err != nil {
 		s.writeControlPlaneError(w, err)
 		return
@@ -40,7 +40,7 @@ func (s *Server) CreateWebhookEndpoint(w http.ResponseWriter, r *http.Request, c
 }
 
 func (s *Server) RotateWebhookEndpoint(w http.ResponseWriter, r *http.Request, channelID string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannels(w, r)
 	if !ok {
 		return
 	}
@@ -58,7 +58,7 @@ func (s *Server) RotateWebhookEndpoint(w http.ResponseWriter, r *http.Request, c
 }
 
 func (s *Server) DeleteWebhookEndpoint(w http.ResponseWriter, r *http.Request, channelID string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannels(w, r)
 	if !ok {
 		return
 	}

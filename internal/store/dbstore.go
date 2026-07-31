@@ -312,12 +312,13 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 		channelType = ch.ID
 	}
 	err := s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
-		ID:      ch.ID,
-		Name:    ch.Name,
-		Type:    channelType,
-		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
-		Enabled: ch.Enabled,
-		Config:  ch.Config,
+		ID:          ch.ID,
+		Name:        ch.Name,
+		Type:        channelType,
+		AgentID:     pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled:     ch.Enabled,
+		Config:      ch.Config,
+		OwnerUserID: pgtype.Text{String: ch.OwnerUserID, Valid: ch.OwnerUserID != ""},
 	})
 	if !isChannelBindingViolation(err) {
 		return err
@@ -342,9 +343,25 @@ func (s *DBStore) UpdateChannel(ctx context.Context, ch config.Channel) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
 
-	locked, err := qtx.GetChannelBindingForUpdate(ctx, ch.ID)
-	if err != nil {
-		return err
+	var locked sqlc.GetChannelBindingForUpdateRow
+	if ch.OwnerUserID != "" {
+		owned, err := qtx.GetPersonalWebhookChannelForUpdate(ctx, sqlc.GetPersonalWebhookChannelForUpdateParams{
+			ID:          ch.ID,
+			OwnerUserID: pgtype.Text{String: ch.OwnerUserID, Valid: true},
+		})
+		if err != nil {
+			return err
+		}
+		locked.ID = owned.ID
+		locked.Type = owned.Type
+		locked.OwnerUserID = owned.OwnerUserID
+		locked.AgentID = owned.AgentID
+		locked.Config = owned.Config
+	} else {
+		locked, err = qtx.GetChannelBindingForUpdate(ctx, ch.ID)
+		if err != nil {
+			return err
+		}
 	}
 	currentType := locked.Type
 	if currentType == "" {
@@ -363,12 +380,13 @@ func (s *DBStore) UpdateChannel(ctx context.Context, ch config.Channel) error {
 	}
 
 	if err := qtx.UpsertChannel(ctx, sqlc.UpsertChannelParams{
-		ID:      locked.ID,
-		Name:    ch.Name,
-		Type:    channelType,
-		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
-		Enabled: ch.Enabled,
-		Config:  ch.Config,
+		ID:          locked.ID,
+		Name:        ch.Name,
+		Type:        channelType,
+		AgentID:     pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled:     ch.Enabled,
+		Config:      ch.Config,
+		OwnerUserID: locked.OwnerUserID,
 	}); err != nil {
 		if isChannelBindingViolation(err) {
 			// The failed transaction cannot run the diagnostic list. Release its
@@ -1026,11 +1044,12 @@ func channelFromDB(r sqlc.Channel) config.Channel {
 		channelType = r.ID
 	}
 	return config.Channel{
-		ID:      r.ID,
-		Name:    r.Name,
-		Type:    channelType,
-		AgentID: agentID,
-		Enabled: r.Enabled,
-		Config:  r.Config,
+		ID:          r.ID,
+		Name:        r.Name,
+		Type:        channelType,
+		AgentID:     agentID,
+		Enabled:     r.Enabled,
+		Config:      r.Config,
+		OwnerUserID: r.OwnerUserID.String,
 	}
 }

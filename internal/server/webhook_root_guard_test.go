@@ -24,8 +24,8 @@ type guardHarness struct {
 	nextHit      bool
 	capability   string
 	capabilityOK bool
-	wait         bool
-	waitOK       bool
+	options      webhookInvocationOptions
+	optionsOK    bool
 }
 
 func newGuardHarness(t *testing.T) *guardHarness {
@@ -36,7 +36,7 @@ func newGuardHarness(t *testing.T) *guardHarness {
 		h.ingressHit = true
 		h.ingressReq = r
 		h.capability, h.capabilityOK = webhookCapabilityFromContext(r.Context())
-		h.wait, h.waitOK = webhookWaitFromContext(r.Context())
+		h.options, h.optionsOK = webhookInvocationFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	})
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,8 +121,8 @@ func TestReservationDispatchesCanonicalPostSanitized(t *testing.T) {
 	if !h.capabilityOK || h.capability != cap {
 		t.Fatalf("capability context = %q (%v), want %q", h.capability, h.capabilityOK, cap)
 	}
-	if !h.waitOK || h.wait != true {
-		t.Fatalf("wait context = %v (%v), want true", h.wait, h.waitOK)
+	if !h.optionsOK || !h.options.wait || h.options.sessionMode != "ephemeral" {
+		t.Fatalf("invocation context = %+v (%v), want wait=true/session_mode=ephemeral", h.options, h.optionsOK)
 	}
 	// Every URL-bearing field the instrumented chain saw is sanitized.
 	if h.ingressReq.URL.Path != sanitizedWebhookPath || h.ingressReq.URL.RawQuery != "" || h.ingressReq.URL.RawPath != "" || h.ingressReq.RequestURI != sanitizedWebhookPath {
@@ -184,6 +184,27 @@ func TestReservationRedactionMatrix(t *testing.T) {
 	}
 }
 
+func TestReservationParsesInvocationOptions(t *testing.T) {
+	minted, _ := credential.MintOpaqueWithPrefix(webhook.TokenPrefix)
+	cases := []struct {
+		name, query, wantMode string
+		wantWait              bool
+	}{
+		{"defaults", "", "ephemeral", false},
+		{"persistent-sync", "?wait=true&session_mode=persistent", "persistent", true},
+		{"ephemeral-async", "?wait=false&session_mode=ephemeral", "ephemeral", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newGuardHarness(t)
+			rec := h.serve(http.MethodPost, "/webhooks/"+minted.Plaintext+tc.query)
+			if rec.Code != http.StatusOK || !h.optionsOK || h.options.wait != tc.wantWait || h.options.sessionMode != tc.wantMode {
+				t.Fatalf("options = %+v, code=%d", h.options, rec.Code)
+			}
+		})
+	}
+}
+
 func TestReservationInvalidWaitIs400BeforeIngress(t *testing.T) {
 	minted, _ := credential.MintOpaqueWithPrefix(webhook.TokenPrefix)
 	h := newGuardHarness(t)
@@ -193,6 +214,17 @@ func TestReservationInvalidWaitIs400BeforeIngress(t *testing.T) {
 	}
 	if h.ingressHit {
 		t.Fatal("invalid wait must be rejected before ingress admission")
+	}
+}
+
+func TestReservationInvalidSessionModeIs400BeforeIngress(t *testing.T) {
+	minted, _ := credential.MintOpaqueWithPrefix(webhook.TokenPrefix)
+	for _, query := range []string{"?session_mode=invalid", "?session_mode=", "?session_mode=persistent&session_mode=ephemeral", "?wait=maybe&session_mode=persistent"} {
+		h := newGuardHarness(t)
+		rec := h.serve(http.MethodPost, "/webhooks/"+minted.Plaintext+query)
+		if rec.Code != http.StatusBadRequest || h.ingressHit {
+			t.Fatalf("query %q: code=%d ingress=%v", query, rec.Code, h.ingressHit)
+		}
 	}
 }
 

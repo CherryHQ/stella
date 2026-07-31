@@ -32,6 +32,27 @@ func (s *Server) beginControlPlane(w http.ResponseWriter, r *http.Request) (*con
 	return acc, true
 }
 
+// beginChannels mints resource-sensitive access for any authenticated user.
+// Non-webhook channel decisions remain admin-gated inside the channel service.
+func (s *Server) beginChannels(w http.ResponseWriter, r *http.Request) (*controlplane.Access, bool) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	acc, err := s.controlPlane.BeginChannels(r.Context(), authority)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return nil, false
+	}
+	return acc, true
+}
+
 // controlPlaneError maps a control-plane PEP error to an HTTP status and client
 // message, preserving the historical per-resource bodies. A ForbiddenError (a
 // non-policy precondition, e.g. an env-locked sandbox backend) is a 403 with its

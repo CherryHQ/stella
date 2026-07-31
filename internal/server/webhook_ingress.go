@@ -146,13 +146,14 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reply mode: the reservation already validated and typed any wait override.
-	// Compute it once so every audit record (including a busy rejection) reports
-	// the mode the caller actually requested.
-	wait := cfg.DefaultWait
-	if override, ok := webhookWaitFromContext(ctx); ok {
-		wait = override
+	// Invocation behavior is parsed and redacted by the outer reservation. Direct
+	// handler tests use the same safe defaults if they omit that private context.
+	options := webhookInvocationOptions{wait: false, sessionMode: "ephemeral"}
+	if parsed, ok := webhookInvocationFromContext(ctx); ok {
+		options = parsed
 	}
+	wait := options.wait
+	persistent := options.sessionMode == "persistent"
 	mode := "async"
 	if wait {
 		mode = "sync"
@@ -185,7 +186,7 @@ func (s *Server) handleWebhookIngress(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		var serr error
-		if cfg.Persistent {
+		if persistent {
 			// A persistent session pre-exists this request; it must never be
 			// archived on failure.
 			key := agent.BuildUserSessionKey(inv.AgentID, inv.OwnerUserID, "webhook:"+inv.ChannelID)

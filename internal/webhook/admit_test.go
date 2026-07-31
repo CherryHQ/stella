@@ -6,17 +6,17 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
 )
+
+const admitTestOwner = "00000000-0000-4000-8000-000000000001"
 
 func issueForAdmit(t *testing.T, svc *Service) (*memStore, Candidate) {
 	t.Helper()
 	store := svc.store.(*memStore)
-	store.binding = ChannelBinding{Type: "webhook", AgentID: "a", AgentEnabled: true}
+	store.binding = ChannelBinding{Type: "webhook", OwnerUserID: admitTestOwner, AgentID: "a", AgentEnabled: true}
 	store.active = true
-	owner := uuid.Must(uuid.NewV7()).String()
-	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "c", OwnerUserID: owner, Provider: ProviderGeneric})
+	owner := admitTestOwner
+	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "c", CallerUserID: owner, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -35,8 +35,8 @@ func TestAdmitAfterRotateInvokesNoCallback(t *testing.T) {
 	_, cand := issueForAdmit(t, svc)
 
 	// Rotate (a lifecycle mutation) completes while the candidate is held.
-	current, _ := svc.GetByChannel(context.Background(), "c")
-	if _, err := svc.Rotate(context.Background(), "c", current.ETag()); err != nil {
+	current, _ := svc.GetByChannel(context.Background(), "c", admitTestOwner)
+	if _, err := svc.Rotate(context.Background(), "c", admitTestOwner, current.ETag()); err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
 
@@ -54,7 +54,7 @@ func TestAdmitAfterRevokeInvokesNoCallback(t *testing.T) {
 	svc := newTestService(t, &memStore{})
 	_, cand := issueForAdmit(t, svc)
 
-	if _, err := svc.Delete(context.Background(), "c"); err != nil {
+	if _, err := svc.Delete(context.Background(), "c", admitTestOwner); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -129,7 +129,7 @@ func TestAdmitParallelUnderRLockAndMutationWaitsThroughCallback(t *testing.T) {
 	// A lifecycle mutation must wait while admissions hold the read lock.
 	deleteDone := make(chan struct{})
 	go func() {
-		_, _ = svc.Delete(context.Background(), "c")
+		_, _ = svc.Delete(context.Background(), "c", admitTestOwner)
 		close(deleteDone)
 	}()
 	select {

@@ -3,6 +3,7 @@ package server_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -32,10 +33,7 @@ func TestWebhookEndpointLifecycleAPI(t *testing.T) {
 	base := "/api/channels/" + channelID + "/webhook-endpoint"
 
 	// Create discloses a one-time url and the safe metadata.
-	rr = doRequest(t, env, "POST", base, map[string]any{
-		"owner_user_id": env.adminUser.ID,
-		"provider":      "generic",
-	})
+	rr = doRequest(t, env, "POST", base, map[string]any{"provider": "generic"})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create endpoint status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -99,6 +97,98 @@ func TestWebhookEndpointLifecycleAPI(t *testing.T) {
 	rr = doRequest(t, env, "DELETE", "/api/channels/"+channelID, nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete channel after revoke status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// TestPersonalWebhookOwnership proves webhook channels and endpoint lifecycle are
+// self-scoped for every account. Admin status grants no access to another
+// owner's webhook, while non-webhook deployment channels remain admin-only.
+func TestPersonalWebhookOwnership(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "personal-webhook-agent")
+	owner, ownerToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "webhook-owner", "user")
+	other, otherToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "webhook-other", "user")
+
+	const channelID = "personal-webhook"
+	create := func(token, channelType, id string) *httptest.ResponseRecorder {
+		return doRequestWithSession(t, env.srv, token, "POST", "/api/channels", map[string]any{
+			"id": id, "type": channelType, "agent_id": agentID, "config": `{}`,
+		})
+	}
+	if rr := create(ownerToken, "webhook", channelID); rr.Code != http.StatusCreated {
+		t.Fatalf("owner create webhook status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := create(otherToken, "telegram", "not-allowed"); rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin create deployment channel status=%d, want 403 body=%s", rr.Code, rr.Body.String())
+	}
+
+	channelPath := "/api/channels/" + channelID
+	if rr := doRequestWithSession(t, env.srv, ownerToken, "PATCH", channelPath, map[string]any{
+		"type": "telegram", "agent_id": agentID, "config": `{}`,
+	}); rr.Code != http.StatusForbidden {
+		t.Fatalf("personal webhook type conversion status=%d, want 403 body=%s", rr.Code, rr.Body.String())
+	}
+	endpointPath := channelPath + "/webhook-endpoint"
+	for name, token := range map[string]string{"other user": otherToken, "admin": env.bearerToken} {
+		t.Run(name+" cannot read channel", func(t *testing.T) {
+			rr := doRequestWithSession(t, env.srv, token, "GET", channelPath, nil)
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("status=%d, want 404 body=%s", rr.Code, rr.Body.String())
+			}
+		})
+		t.Run(name+" cannot update channel", func(t *testing.T) {
+			rr := doRequestWithSession(t, env.srv, token, "PATCH", channelPath, map[string]any{
+				"name": "stolen", "type": "webhook", "agent_id": agentID, "config": `{}`,
+			})
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("status=%d, want 404 body=%s", rr.Code, rr.Body.String())
+			}
+		})
+		t.Run(name+" cannot activate endpoint", func(t *testing.T) {
+			rr := doRequestWithSession(t, env.srv, token, "POST", endpointPath, map[string]any{"provider": "generic"})
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("status=%d, want 404 body=%s", rr.Code, rr.Body.String())
+			}
+		})
+	}
+
+	// A spoofed owner field is not part of the contract and cannot alter the
+	// trusted caller-derived owner.
+	rr := doRequestWithSession(t, env.srv, ownerToken, "POST", endpointPath, map[string]any{
+		"provider": "generic", "owner_user_id": other.ID,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("owner activate status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	endpoint := decodeEndpoint(t, rr.Body.Bytes())
+	if endpoint.OwnerUserId != owner.ID {
+		t.Fatalf("endpoint owner=%q, want authenticated owner %q", endpoint.OwnerUserId, owner.ID)
+	}
+
+	for name, token := range map[string]string{"other user": otherToken, "admin": env.bearerToken} {
+		t.Run(name+" cannot rotate", func(t *testing.T) {
+			rr := doRequestWithSession(t, env.srv, token, "POST", endpointPath+"/rotate", map[string]any{"etag": endpoint.Etag})
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("status=%d, want 404 body=%s", rr.Code, rr.Body.String())
+			}
+		})
+		t.Run(name+" cannot revoke", func(t *testing.T) {
+			rr := doRequestWithSession(t, env.srv, token, "DELETE", endpointPath, nil)
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("status=%d, want 404 body=%s", rr.Code, rr.Body.String())
+			}
+		})
+		t.Run(name+" cannot delete channel", func(t *testing.T) {
+			rr := doRequestWithSession(t, env.srv, token, "DELETE", channelPath, nil)
+			if rr.Code != http.StatusNotFound {
+				t.Fatalf("status=%d, want 404 body=%s", rr.Code, rr.Body.String())
+			}
+		})
+	}
+
+	// Admins use the same personal path for their own webhooks.
+	if rr := create(env.bearerToken, "webhook", "admin-personal-webhook"); rr.Code != http.StatusCreated {
+		t.Fatalf("admin create own webhook status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 

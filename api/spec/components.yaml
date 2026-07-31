@@ -604,11 +604,10 @@ components:
             One-time capability URL. Present only in Create and Rotate responses and never re-derivable; omitted from stable Get responses.
     CreateWebhookEndpointRequest:
       type: object
-      required: [owner_user_id, provider]
+      required: [provider]
+      description: >-
+        Activates the endpoint as the authenticated owner of the webhook channel. Owner identity is never accepted from request input.
       properties:
-        owner_user_id:
-          type: string
-          description: The user whose Agent-use permission the endpoint runs as.
         provider:
           type: string
           enum: [generic]

@@ -1868,32 +1868,25 @@ const en = {
   "channels.scanExpired": "QR code expired. Try again.",
   "channels.waiting": "Waiting",
   // Webhook channel
-  "channels.webhookDefaultWait": "Wait for reply by default",
-  "channels.webhookDefaultWaitDesc":
-    "When on, callers get the agent reply synchronously unless they pass ?wait=false. Off means fire-and-forget (202).",
-  "channels.webhookSessionMode": "Session mode",
-  "channels.webhookSessionEphemeral": "Ephemeral — fresh session per request",
-  "channels.webhookSessionPersistent": "Persistent — each caller keeps a long-lived session",
   "channels.copy": "copy",
   "channels.copied": "Copied",
   // Webhook capability endpoint
   "channels.endpointTitle": "Capability endpoint",
   "channels.endpointInactiveDesc":
-    "No capability endpoint yet. Activate one to issue a fixed owner→agent URL that turns an inbound request into an agent run.",
+    "No capability endpoint yet. Activate one to issue a URL that always runs as you with the channel's agent.",
   "channels.endpointActivate": "Activate endpoint",
   "channels.endpointActivateDesc":
-    "Bind an owner to this channel's agent and mint a one-time capability URL.",
+    "Mint a one-time capability URL for your personal webhook channel.",
   "channels.endpointOwner": "Owner",
   "channels.endpointOwnerDesc":
-    "The endpoint runs with this user's current permission to use the channel's agent.",
-  "channels.endpointSelectOwner": "Select an owner",
+    "This endpoint always runs as your account. Administrators cannot select another owner.",
   "channels.endpointProvider": "Provider",
   "channels.endpointProviderGeneric": "Generic",
   "channels.endpointTokenLast4": "Capability",
   "channels.endpointCreated": "Created",
   "channels.endpointRotatedAt": "Rotated",
   "channels.endpointRebindLocked":
-    "Provider and owner are fixed while the endpoint is active. To change them, revoke and activate a new one.",
+    "The owner is fixed to the channel creator. Revoke the endpoint before changing its Agent binding.",
   "channels.endpointRotate": "Rotate",
   "channels.endpointRotateDesc":
     "The current URL stops working immediately and you receive a new one-time URL.",
@@ -1909,7 +1902,6 @@ const en = {
   "channels.endpointActivateFailed": "Failed to activate endpoint",
   "channels.endpointRotateFailed": "Failed to rotate endpoint",
   "channels.endpointRevokeFailed": "Failed to revoke endpoint",
-  "channels.endpointLoadUsersFailed": "Failed to load users",
 
   // Automations schedule detail
   "automations.scheduleField": "Schedule",
@@ -3827,30 +3819,22 @@ const zh: Record<MessageKey, string> = {
   "channels.scanExpired": "二维码已过期，请重试。",
   "channels.waiting": "等待中",
   // Webhook channel
-  "channels.webhookDefaultWait": "默认等待回复",
-  "channels.webhookDefaultWaitDesc":
-    "开启后，除非调用方传入 ?wait=false，否则同步返回 Agent 回复；关闭则为异步触发（202）。",
-  "channels.webhookSessionMode": "会话模式",
-  "channels.webhookSessionEphemeral": "临时 — 每次请求新建会话",
-  "channels.webhookSessionPersistent": "持久 — 每个调用者保留一个长期会话",
   "channels.copy": "复制",
   "channels.copied": "已复制",
   // Webhook 能力端点
   "channels.endpointTitle": "能力端点",
   "channels.endpointInactiveDesc":
-    "尚未创建能力端点。激活后将签发一个固定的 所有者→Agent URL，把入站请求转化为一次 Agent 运行。",
+    "尚未创建能力端点。激活后将签发一个始终以你本人身份运行该频道 Agent 的 URL。",
   "channels.endpointActivate": "激活端点",
-  "channels.endpointActivateDesc": "将一位所有者绑定到该频道的 Agent，并生成一次性能力 URL。",
+  "channels.endpointActivateDesc": "为你的个人 Webhook 频道生成一次性能力 URL。",
   "channels.endpointOwner": "所有者",
-  "channels.endpointOwnerDesc": "端点以该用户当前使用此频道 Agent 的权限运行。",
-  "channels.endpointSelectOwner": "选择所有者",
+  "channels.endpointOwnerDesc": "该端点始终以你的账号运行；管理员也不能代选其他所有者。",
   "channels.endpointProvider": "提供方",
   "channels.endpointProviderGeneric": "通用",
   "channels.endpointTokenLast4": "能力凭证",
   "channels.endpointCreated": "创建于",
   "channels.endpointRotatedAt": "轮换于",
-  "channels.endpointRebindLocked":
-    "端点激活期间提供方与所有者不可更改。如需更改，请撤销后重新激活。",
+  "channels.endpointRebindLocked": "所有者固定为频道创建者；更改绑定 Agent 前必须先撤销端点。",
   "channels.endpointRotate": "轮换",
   "channels.endpointRotateDesc": "当前 URL 立即失效，并生成一个新的一次性 URL。",
   "channels.endpointRevoke": "撤销",
@@ -3863,7 +3847,6 @@ const zh: Record<MessageKey, string> = {
   "channels.endpointActivateFailed": "激活端点失败",
   "channels.endpointRotateFailed": "轮换端点失败",
   "channels.endpointRevokeFailed": "撤销端点失败",
-  "channels.endpointLoadUsersFailed": "加载用户失败",
 
   // Automations schedule detail
   "automations.scheduleField": "计划",

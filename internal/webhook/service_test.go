@@ -61,9 +61,9 @@ func TestIssueValidatesInput(t *testing.T) {
 		req  IssueRequest
 		want error
 	}{
-		{"empty channel", IssueRequest{OwnerUserID: valid, Provider: ProviderGeneric}, ErrInvalidChannelID},
-		{"bad owner", IssueRequest{ChannelID: "c", OwnerUserID: "nope", Provider: ProviderGeneric}, ErrInvalidOwnerUserID},
-		{"bad provider", IssueRequest{ChannelID: "c", OwnerUserID: valid, Provider: Provider("github")}, ErrInvalidProvider},
+		{"empty channel", IssueRequest{CallerUserID: valid, Provider: ProviderGeneric}, ErrInvalidChannelID},
+		{"bad owner", IssueRequest{ChannelID: "c", CallerUserID: "nope", Provider: ProviderGeneric}, ErrInvalidOwnerUserID},
+		{"bad provider", IssueRequest{ChannelID: "c", CallerUserID: valid, Provider: Provider("github")}, ErrInvalidProvider},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -76,7 +76,7 @@ func TestIssueValidatesInput(t *testing.T) {
 
 func TestRotateRejectsEmptyETag(t *testing.T) {
 	svc := newTestService(t, &memStore{})
-	if _, err := svc.Rotate(context.Background(), "c", ""); !errors.Is(err, ErrInvalidETag) {
+	if _, err := svc.Rotate(context.Background(), "c", uuid.Must(uuid.NewV7()).String(), ""); !errors.Is(err, ErrInvalidETag) {
 		t.Fatalf("Rotate(\"\") error = %v, want ErrInvalidETag", err)
 	}
 }
@@ -91,10 +91,10 @@ func TestResolveCandidateRejectsForeignAndMalformedTokens(t *testing.T) {
 }
 
 func TestResolveCandidateRejectsWrongSecretAndRedacts(t *testing.T) {
-	store := &memStore{binding: ChannelBinding{Type: "webhook", AgentID: "a", AgentEnabled: true}}
-	svc := newTestService(t, store)
 	owner := uuid.Must(uuid.NewV7()).String()
-	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "c", OwnerUserID: owner, Provider: ProviderGeneric})
+	store := &memStore{binding: ChannelBinding{Type: "webhook", OwnerUserID: owner, AgentID: "a", AgentEnabled: true}}
+	svc := newTestService(t, store)
+	issued, err := svc.Issue(context.Background(), IssueRequest{ChannelID: "c", CallerUserID: owner, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -167,7 +167,7 @@ func (m *memStore) ResolveEndpoint(_ context.Context, publicID string) (resolved
 	}, nil
 }
 
-func (m *memStore) GetEndpointByChannel(context.Context, string) (endpointRecord, error) {
+func (m *memStore) GetEndpointByChannel(context.Context, string, string) (endpointRecord, error) {
 	if m.rec == nil {
 		return endpointRecord{}, ErrNotFound
 	}
@@ -181,7 +181,7 @@ func (m *memStore) ResolveByPublicID(_ context.Context, publicID string) (endpoi
 	return *m.rec, nil
 }
 
-func (m *memStore) RotateEndpoint(_ context.Context, channelID string, expectedETag string, next endpointRecord) (endpointRecord, error) {
+func (m *memStore) RotateEndpoint(_ context.Context, channelID, _ string, expectedETag string, next endpointRecord) (endpointRecord, error) {
 	if m.rec == nil {
 		return endpointRecord{}, ErrNotFound
 	}
@@ -197,7 +197,7 @@ func (m *memStore) RotateEndpoint(_ context.Context, channelID string, expectedE
 	return updated, nil
 }
 
-func (m *memStore) DeleteEndpoint(context.Context, string) (int64, error) {
+func (m *memStore) DeleteEndpoint(context.Context, string, string) (int64, error) {
 	if m.rec == nil {
 		return 0, nil
 	}

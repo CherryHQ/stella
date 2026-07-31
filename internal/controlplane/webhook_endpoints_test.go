@@ -37,7 +37,7 @@ func seedWebhookChannel(t *testing.T, db *pgxpool.Pool) (channelID, ownerID stri
 	if _, err := db.Exec(ctx, "INSERT INTO agent (id, name, workspace, enabled) VALUES ($1, 'a', '/tmp', true)", agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
-	if _, err := db.Exec(ctx, "INSERT INTO channel (id, type, agent_id, enabled) VALUES ($1, 'webhook', $2, true)", channelID, agentID); err != nil {
+	if _, err := db.Exec(ctx, "INSERT INTO channel (id, type, agent_id, enabled, owner_user_id) VALUES ($1, 'webhook', $2, true, $3)", channelID, agentID, ownerID); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 	return channelID, ownerID
@@ -63,7 +63,7 @@ func TestWebhookEndpointLifecycleAndConflicts(t *testing.T) {
 	}
 	svc := controlplane.NewService(store.NewDBStore(db), nil, nil, nil, nil, controlplane.WithWebhookEndpoints(whSvc))
 
-	admin, err := authz.NewUserAuthority(authz.UserID("admin"), true)
+	admin, err := authz.NewUserAuthority(authz.UserID(ownerID), true)
 	if err != nil {
 		t.Fatalf("NewUserAuthority: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestWebhookEndpointLifecycleAndConflicts(t *testing.T) {
 	}
 
 	// Create discloses a one-time url capability and starts at revision 1.
-	created, err := access.CreateWebhookEndpoint(ctx, channelID, ownerID, webhook.ProviderGeneric)
+	created, err := access.CreateWebhookEndpoint(ctx, channelID, webhook.ProviderGeneric)
 	if err != nil {
 		t.Fatalf("CreateWebhookEndpoint: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestWebhookEndpointLifecycleAndConflicts(t *testing.T) {
 	}
 
 	// A second create against an active endpoint is a 409 conflict.
-	if _, err := access.CreateWebhookEndpoint(ctx, channelID, ownerID, webhook.ProviderGeneric); !isConflict(err) {
+	if _, err := access.CreateWebhookEndpoint(ctx, channelID, webhook.ProviderGeneric); !isConflict(err) {
 		t.Fatalf("duplicate create = %v, want ConflictError", err)
 	}
 

@@ -59,7 +59,7 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 	if req.ChannelID == "" {
 		return IssueResult{}, ErrInvalidChannelID
 	}
-	if uuid.Validate(req.OwnerUserID) != nil {
+	if uuid.Validate(req.CallerUserID) != nil {
 		return IssueResult{}, ErrInvalidOwnerUserID
 	}
 	if !req.Provider.Valid() {
@@ -74,6 +74,11 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 	if observed.Type != "webhook" {
 		return IssueResult{}, ErrChannelNotWebhook
 	}
+	// The channel is the one source of truth for ownership. The caller cannot
+	// choose an owner and a foreign or legacy-unowned channel is opaque.
+	if observed.OwnerUserID == "" || observed.OwnerUserID != req.CallerUserID {
+		return IssueResult{}, ErrNotFound
+	}
 	if observed.AgentID == "" {
 		return IssueResult{}, ErrNotFound
 	}
@@ -82,19 +87,8 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 	}
 
 	// 2. Owner active-state and Agent-use prechecks, outside any transaction.
-	active, err := s.users.IsActive(ctx, req.OwnerUserID)
-	if err != nil {
-		return IssueResult{}, fmt.Errorf("webhook: get owner state: %w", err)
-	}
-	if !active {
-		return IssueResult{}, ErrOwnerInactive
-	}
-	allowed, err := s.access.CanUseOwner(ctx, req.OwnerUserID, observed.AgentID)
-	if err != nil {
-		return IssueResult{}, fmt.Errorf("webhook: authorize endpoint owner: %w", err)
-	}
-	if !allowed {
-		return IssueResult{}, ErrOwnerAgentForbidden
+	if err := s.ValidateOwnerAgent(ctx, observed.OwnerUserID, observed.AgentID); err != nil {
+		return IssueResult{}, err
 	}
 
 	// 3. Under the lifecycle write lock, take the short channel-row lock, re-verify
@@ -105,14 +99,14 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 
 	var capability string
 	rec, err := s.store.BindEndpoint(ctx, req.ChannelID, func(_ context.Context, binding ChannelBinding) (endpointRecord, error) {
-		if binding.Type != "webhook" || binding.AgentID != observed.AgentID || !binding.AgentEnabled {
+		if binding.Type != "webhook" || binding.OwnerUserID == "" || binding.OwnerUserID != req.CallerUserID || binding.AgentID != observed.AgentID || !binding.AgentEnabled {
 			return endpointRecord{}, ErrChannelBindingChanged
 		}
 		rec, token, err := s.newCredential()
 		if err != nil {
 			return endpointRecord{}, err
 		}
-		rec.OwnerUserID = req.OwnerUserID
+		rec.OwnerUserID = binding.OwnerUserID
 		rec.Provider = req.Provider
 		capability = token
 		return rec, nil
@@ -123,9 +117,36 @@ func (s *Service) Issue(ctx context.Context, req IssueRequest) (IssueResult, err
 	return IssueResult{Endpoint: rec.Endpoint, Capability: capability}, nil
 }
 
+// ValidateOwnerAgent checks the personal webhook binding as an ordinary user,
+// even when the owner has an admin account. Creation and Agent rebinding call
+// this before persistence; admission repeats the same current-permission check.
+func (s *Service) ValidateOwnerAgent(ctx context.Context, ownerID, agentID string) error {
+	if uuid.Validate(ownerID) != nil {
+		return ErrInvalidOwnerUserID
+	}
+	if agentID == "" {
+		return ErrNotFound
+	}
+	active, err := s.users.IsActive(ctx, ownerID)
+	if err != nil {
+		return fmt.Errorf("webhook: get owner state: %w", err)
+	}
+	if !active {
+		return ErrOwnerInactive
+	}
+	allowed, err := s.access.CanUseOwner(ctx, ownerID, agentID)
+	if err != nil {
+		return fmt.Errorf("webhook: authorize endpoint owner: %w", err)
+	}
+	if !allowed {
+		return ErrOwnerAgentForbidden
+	}
+	return nil
+}
+
 // GetByChannel returns secret-safe endpoint metadata for a channel.
-func (s *Service) GetByChannel(ctx context.Context, channelID string) (Endpoint, error) {
-	rec, err := s.store.GetEndpointByChannel(ctx, channelID)
+func (s *Service) GetByChannel(ctx context.Context, channelID, ownerID string) (Endpoint, error) {
+	rec, err := s.store.GetEndpointByChannel(ctx, channelID, ownerID)
 	if err != nil {
 		return Endpoint{}, err
 	}
@@ -138,7 +159,7 @@ func (s *Service) GetByChannel(ctx context.Context, channelID string) (Endpoint,
 // ErrStaleETag. A stale etag from a revoked+recreated endpoint or a different
 // channel cannot match either, because token_public_id is unique per credential.
 // Provider and owner are unchanged.
-func (s *Service) Rotate(ctx context.Context, channelID string, expectedETag string) (RotationResult, error) {
+func (s *Service) Rotate(ctx context.Context, channelID, ownerID, expectedETag string) (RotationResult, error) {
 	if channelID == "" {
 		return RotationResult{}, ErrInvalidChannelID
 	}
@@ -150,7 +171,7 @@ func (s *Service) Rotate(ctx context.Context, channelID string, expectedETag str
 		return RotationResult{}, err
 	}
 	s.lifecycle.Lock()
-	updated, err := s.store.RotateEndpoint(ctx, channelID, expectedETag, next)
+	updated, err := s.store.RotateEndpoint(ctx, channelID, ownerID, expectedETag, next)
 	s.lifecycle.Unlock()
 	if err != nil {
 		return RotationResult{}, err
@@ -160,9 +181,9 @@ func (s *Service) Rotate(ctx context.Context, channelID string, expectedETag str
 
 // Delete revokes the endpoint. It reports whether a row was removed so callers
 // can distinguish an already-absent endpoint.
-func (s *Service) Delete(ctx context.Context, channelID string) (bool, error) {
+func (s *Service) Delete(ctx context.Context, channelID, ownerID string) (bool, error) {
 	s.lifecycle.Lock()
-	n, err := s.store.DeleteEndpoint(ctx, channelID)
+	n, err := s.store.DeleteEndpoint(ctx, channelID, ownerID)
 	s.lifecycle.Unlock()
 	return n == 1, err
 }
@@ -227,7 +248,10 @@ func (s *Service) Admit(ctx context.Context, cand Candidate, callback AdmitCallb
 	}
 	// The endpoint fixes identity; it does not freeze permission. Recheck the
 	// owner's current Agent-use permission through the existing PEP so a withdrawn
-	// assignment fails closed on the next admission.
+	// assignment fails closed on the next admission. This is point-in-time auth:
+	// unrelated user/Agent/assignment mutations do not share the endpoint lifecycle
+	// fence, so a request authorized immediately before a withdrawal may complete
+	// admission; every request whose check begins afterward observes the withdrawal.
 	allowed, err := s.access.CanUseOwner(ctx, rec.OwnerUserID, rec.AgentID)
 	if err != nil {
 		return fmt.Errorf("webhook: admit authorize: %w", err)
@@ -246,6 +270,16 @@ func (s *Service) Admit(ctx context.Context, cand Candidate, callback AdmitCallb
 		Provider:    rec.Provider,
 		Authority:   authority,
 	})
+}
+
+// MutateChannel runs the durable part of a personal webhook channel mutation
+// under the same lifecycle fence as issue, rotate, revoke, and final Admit.
+// Plugin reloads intentionally happen outside this callback; they do not alter
+// the capability's fixed identity or binding.
+func (s *Service) MutateChannel(fn func() error) error {
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	return fn()
 }
 
 func (s *Service) newCredential() (endpointRecord, string, error) {

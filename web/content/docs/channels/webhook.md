@@ -4,7 +4,7 @@ title: Webhook
 
 The webhook channel turns an agent into an HTTP endpoint you can trigger from any script, cron job, or third-party service. It is **inbound-only**: callers POST a payload, the bound agent runs, and you get either a fire-and-forget acknowledgement or the agent's reply in the HTTP response. There is no bot, no chat window, and no way for the agent to message you back out of band -- it is built for automation, not conversation.
 
-Access is a **capability**: an admin activates a single endpoint for the channel, and Stella discloses a one-time URL that contains an opaque secret. Holding that URL is the entire credential -- there is no separate token or `Authorization` header, and the URL fixes exactly which user the agent runs as.
+Access is a **capability**: every user owns their personal webhook channels and activates their own endpoint. Stella discloses a one-time URL that contains an opaque secret. Holding that URL is the entire credential -- there is no separate token or `Authorization` header, and the URL fixes the channel owner's identity.
 
 ## Prerequisites
 
@@ -16,12 +16,12 @@ Before you start, make sure you have:
 
 ## How it works
 
-1. An admin creates a webhook channel in the Web UI and binds it to **an agent**.
-2. The admin **activates a capability endpoint** for the channel, choosing the **owner** -- the user the agent runs as on every trigger.
+1. A user creates their personal webhook channel in the Web UI and binds it to an agent they can use.
+2. That user activates the channel's capability endpoint; it always runs as the channel owner. There is no owner picker.
 3. Stella discloses a one-time URL, `https://your-host/webhooks/<capability>`, exactly once. Copy it then; it is never shown again.
 4. A caller sends `POST` to that URL. The URL is the credential -- no `Authorization` header is used, and any header sent is ignored.
 5. The request body becomes the agent's message. The agent always runs **as the endpoint's fixed owner**, with that owner's tools, memory, and permissions, re-checked at every trigger.
-6. Depending on the reply mode, the caller gets an immediate `202 Accepted` or waits for the agent's reply.
+6. Each invocation chooses reply and session mode with `?wait=true|false&session_mode=ephemeral|persistent`; omitted options safely default to asynchronous and ephemeral.
 
 The owner's permission to run the bound agent is re-verified on every request. If the owner loses access (assignment removed, account deactivated, agent or channel disabled), later triggers fail closed with an opaque `404` -- the capability keeps working only while the fixed identity remains valid.
 
@@ -29,20 +29,20 @@ The owner's permission to run the bound agent is re-verified on every request. I
 
 ### 1. Create the webhook channel
 
-Creating channels is an admin action.
+Webhook channels are personal: every authenticated user can create and manage only their own webhook channels. Other channel types remain admin-managed deployment resources.
 
 1. Go to the **Channels** page and add a new channel.
 2. Choose **Webhook** as the platform and give it a channel ID (for example `deploy-notify`).
 3. Pick the **bound agent** -- the agent that runs on every trigger.
-4. Choose a **session mode** and whether to **wait for the reply by default** (see below), then save.
+4. Save. Reply and session mode are selected by each caller when triggering the capability.
 
 ### 2. Activate the capability endpoint
 
 1. Open the channel and find the **Capability endpoint** panel.
-2. Click **Activate endpoint** and choose the **owner** -- the user the agent runs as. The owner must currently be allowed to run the bound agent.
+2. Click **Activate endpoint**. It runs as your current account, which must currently be allowed to run the bound agent.
 3. Copy the **one-time URL** shown in the confirmation. It is displayed **once** and cannot be recovered; if you lose it, rotate the endpoint for a new one.
 
-The endpoint's owner is fixed once activated. To change the owner, revoke the endpoint and activate a new one.
+The channel owner is fixed at creation and cannot be changed. Administrators have no override for another user's personal webhook.
 
 ### 3. Trigger it
 
@@ -61,7 +61,7 @@ The whole request body is passed to the agent as its message. Send plain text, J
 
 ## Reply modes
 
-Each trigger is either asynchronous (fire-and-forget) or synchronous (wait for the reply). The channel's **Wait for reply by default** setting decides the default; a caller can override it per request with the `?wait=` query parameter.
+Each trigger is either asynchronous (fire-and-forget) or synchronous (wait for the reply). The caller selects it per request with `?wait=true|false`; omitted `wait` is `false`.
 
 | Mode         | How to select                 | Response                                                   |
 | ------------ | ----------------------------- | ---------------------------------------------------------- |

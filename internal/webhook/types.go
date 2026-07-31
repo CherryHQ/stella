@@ -84,12 +84,13 @@ func EncodeETag(tokenPublicID string, revision int64) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// IssueRequest carries all endpoint identity input. Provider policy and secrets
-// are not part of the generic core contract.
+// IssueRequest carries trusted caller identity and endpoint policy input.
+// OwnerUserID is deliberately absent: Issue derives the fixed owner from the
+// owned channel row and verifies it matches CallerUserID.
 type IssueRequest struct {
-	ChannelID   string
-	OwnerUserID string
-	Provider    Provider
+	ChannelID    string
+	CallerUserID string
+	Provider     Provider
 }
 
 // IssueResult returns the persisted endpoint plus the one-time capability. The
@@ -107,6 +108,7 @@ type RotationResult = IssueResult
 // endpoint issuance and channel agent/type mutation.
 type ChannelBinding struct {
 	ChannelID    string
+	OwnerUserID  string
 	Type         string
 	AgentID      string
 	AgentEnabled bool
@@ -174,7 +176,9 @@ type Store interface {
 	// ObserveBinding reads the current channel binding without a lock, for the
 	// pre-transaction observe step of issuance.
 	ObserveBinding(context.Context, string) (ChannelBinding, error)
-	GetEndpointByChannel(context.Context, string) (endpointRecord, error)
+	// Endpoint lifecycle reads and writes are owner-scoped in SQL, making a
+	// cross-owner probe indistinguishable from a missing endpoint.
+	GetEndpointByChannel(context.Context, string, string) (endpointRecord, error)
 	ResolveByPublicID(context.Context, string) (endpointRecord, error)
 	// ResolveEndpoint is the deep admission read: it returns the endpoint only
 	// while its channel, owner, and Agent are all active (ErrNotFound otherwise).
@@ -182,8 +186,8 @@ type Store interface {
 	// RotateEndpoint replaces the verifier only if the current row's opaque etag
 	// still equals expectedETag (bound to token_public_id + revision), returning
 	// ErrStaleETag otherwise. The comparison happens under the row lock.
-	RotateEndpoint(ctx context.Context, channelID string, expectedETag string, next endpointRecord) (endpointRecord, error)
-	DeleteEndpoint(context.Context, string) (int64, error)
+	RotateEndpoint(ctx context.Context, channelID, ownerID string, expectedETag string, next endpointRecord) (endpointRecord, error)
+	DeleteEndpoint(context.Context, string, string) (int64, error)
 }
 
 // UserState and OwnerAgentAccess keep issuance validation independent of both

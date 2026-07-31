@@ -28,13 +28,13 @@ func seedWebhookChannelWithEndpoint(t *testing.T, db *pgxpool.Pool) (channelID, 
 	if _, err := db.Exec(ctx, "INSERT INTO agent (id, name, workspace, enabled) VALUES ($1, 'a', '/tmp', true)", agentID); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
-	if _, err := db.Exec(ctx, "INSERT INTO channel (id, type, agent_id, enabled) VALUES ($1, 'webhook', $2, true)", channelID, agentID); err != nil {
+	if _, err := db.Exec(ctx, "INSERT INTO channel (id, type, agent_id, enabled, owner_user_id) VALUES ($1, 'webhook', $2, true, $3)", channelID, agentID, ownerID); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 	if _, err := db.Exec(ctx,
-		`INSERT INTO channel_webhook_endpoint (channel_id, owner_user_id, provider, token_public_id, token_hash, token_last4)
-		 VALUES ($1, $2, 'generic', $3, 'hash', 'aaaa')`,
-		channelID, ownerID, "pub-"+channelID,
+		`INSERT INTO channel_webhook_endpoint (channel_id, provider, token_public_id, token_hash, token_last4)
+		 VALUES ($1, 'generic', $2, 'hash', 'aaaa')`,
+		channelID, "pub-"+channelID,
 	); err != nil {
 		t.Fatalf("seed endpoint: %v", err)
 	}
@@ -97,6 +97,9 @@ func TestOwnerDeleteRestrictedWhileEndpointActive(t *testing.T) {
 	}
 	if _, err := db.Exec(ctx, "DELETE FROM channel_webhook_endpoint WHERE channel_id = $1", channelID); err != nil {
 		t.Fatalf("revoke endpoint: %v", err)
+	}
+	if _, err := db.Exec(ctx, "DELETE FROM channel WHERE id = $1", channelID); err != nil {
+		t.Fatalf("delete owned channel: %v", err)
 	}
 	if _, err := db.Exec(ctx, "DELETE FROM auth_user WHERE id = $1", ownerID); err != nil {
 		t.Fatalf("owner delete after revoke: %v", err)

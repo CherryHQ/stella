@@ -20,14 +20,13 @@ func (a *Access) GetWebhookEndpoint(ctx context.Context, channelID string) (webh
 	if err != nil {
 		return webhook.Endpoint{}, err
 	}
-	endpoint, err := svc.GetByChannel(ctx, channelID)
+	endpoint, err := svc.GetByChannel(ctx, channelID, string(a.authority.UserID()))
 	return endpoint, endpointError(err)
 }
 
-// CreateWebhookEndpoint binds an owner to the channel's current Agent and mints
-// a one-time capability. The endpoint fixes the identity scenario; the request
-// carries the entire endpoint policy input.
-func (a *Access) CreateWebhookEndpoint(ctx context.Context, channelID, ownerID string, provider webhook.Provider) (webhook.IssueResult, error) {
+// CreateWebhookEndpoint derives the owner from the caller-owned channel and
+// mints a one-time capability. No request can select another user.
+func (a *Access) CreateWebhookEndpoint(ctx context.Context, channelID string, provider webhook.Provider) (webhook.IssueResult, error) {
 	if _, err := a.webhookChannel(ctx, channelID); err != nil {
 		return webhook.IssueResult{}, err
 	}
@@ -36,9 +35,9 @@ func (a *Access) CreateWebhookEndpoint(ctx context.Context, channelID, ownerID s
 		return webhook.IssueResult{}, err
 	}
 	result, err := svc.Issue(ctx, webhook.IssueRequest{
-		ChannelID:   channelID,
-		OwnerUserID: ownerID,
-		Provider:    provider,
+		ChannelID:    channelID,
+		CallerUserID: string(a.authority.UserID()),
+		Provider:     provider,
 	})
 	return result, endpointError(err)
 }
@@ -53,7 +52,7 @@ func (a *Access) RotateWebhookEndpoint(ctx context.Context, channelID string, ex
 	if err != nil {
 		return webhook.RotationResult{}, err
 	}
-	result, err := svc.Rotate(ctx, channelID, expectedETag)
+	result, err := svc.Rotate(ctx, channelID, string(a.authority.UserID()), expectedETag)
 	return result, endpointError(err)
 }
 
@@ -66,7 +65,7 @@ func (a *Access) DeleteWebhookEndpoint(ctx context.Context, channelID string) er
 	if err != nil {
 		return err
 	}
-	deleted, err := svc.Delete(ctx, channelID)
+	deleted, err := svc.Delete(ctx, channelID, string(a.authority.UserID()))
 	if err != nil {
 		return endpointError(err)
 	}

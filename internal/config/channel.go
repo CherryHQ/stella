@@ -30,4 +30,7 @@ type Channel struct {
 	AgentID string `json:"agent_id,omitempty"`
 	Enabled bool   `json:"enabled"`
 	Config  string `json:"config"`
+	// OwnerUserID is internal ownership metadata for personal webhook channels.
+	// It is never request-bound or serialized by the channel API.
+	OwnerUserID string `json:"-"`
 }

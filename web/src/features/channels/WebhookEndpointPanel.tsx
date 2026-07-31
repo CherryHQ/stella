@@ -8,8 +8,6 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import type { WebhookEndpoint } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
-import { fetchAllAuthUsers } from "@/lib/auth-users";
-import type { User } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,29 +27,20 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { FieldError } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import { FormSectionTitle } from "@/features/settings/SettingsDetailPanel";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 
-function userName(user: User): string {
-  return user.name || user.email || user.id;
-}
-
 function endpointQueryOptions(channelId: string) {
   return {
     queryKey: ["webhook-endpoint", channelId] as const,
     queryFn: async (): Promise<WebhookEndpoint | null> => {
-      const { data, response } = await getWebhookEndpoint({ path: { channelId } });
+      const { data, response } = await getWebhookEndpoint({
+        path: { channelId },
+      });
       if (response?.status === 404) return null;
       if (!data) throw new Error("Unable to load webhook endpoint");
       return data;
@@ -75,42 +64,28 @@ export function WebhookEndpointPanel({ channelId }: { channelId: string }) {
   const [activateOpen, setActivateOpen] = useState(false);
   const [rotateOpen, setRotateOpen] = useState(false);
   const [revokeOpen, setRevokeOpen] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
-  const [usersLoading, setUsersLoading] = useState(false);
-  const [ownerUserID, setOwnerUserID] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [oneTimeURL, setOneTimeURL] = useState("");
   const [urlCopied, setUrlCopied] = useState(false);
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ["webhook-endpoint", channelId] });
+    queryClient.invalidateQueries({
+      queryKey: ["webhook-endpoint", channelId],
+    });
 
-  const openActivate = async () => {
+  const openActivate = () => {
     setActionError("");
-    setOwnerUserID("");
     setActivateOpen(true);
-    setUsersLoading(true);
-    try {
-      setUsers(await fetchAllAuthUsers());
-    } catch (err) {
-      setActionError(apiErrorMessage(err, t("channels.endpointLoadUsersFailed")));
-    } finally {
-      setUsersLoading(false);
-    }
   };
 
   const activate = async () => {
-    if (!ownerUserID) {
-      setActionError(t("channels.endpointSelectOwner"));
-      return;
-    }
     setBusy(true);
     setActionError("");
     try {
       const { data } = await createWebhookEndpoint({
         path: { channelId },
-        body: { owner_user_id: ownerUserID, provider: "generic" },
+        body: { provider: "generic" },
         throwOnError: true,
       });
       setActivateOpen(false);
@@ -217,7 +192,7 @@ export function WebhookEndpointPanel({ channelId }: { channelId: string }) {
       ) : (
         <>
           <p className="text-sm text-muted-foreground">{t("channels.endpointInactiveDesc")}</p>
-          <Button size="sm" onClick={() => void openActivate()}>
+          <Button size="sm" onClick={openActivate}>
             {t("channels.endpointActivate")}
           </Button>
         </>
@@ -231,34 +206,7 @@ export function WebhookEndpointPanel({ channelId }: { channelId: string }) {
           </DialogHeader>
           <DialogPanel>
             <div className="flex flex-col gap-4">
-              <Field>
-                <FieldLabel>{t("channels.endpointOwner")}</FieldLabel>
-                <Select
-                  value={ownerUserID || null}
-                  disabled={usersLoading || users.length === 0}
-                  onValueChange={(value) => setOwnerUserID((value as string | null) ?? "")}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t("channels.endpointSelectOwner")}>
-                      {(value) =>
-                        value
-                          ? userName(
-                              users.find((user) => user.id === value) ?? ({ id: value } as User),
-                            )
-                          : null
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    {users.map((user) => (
-                      <SelectItem key={user.id} value={user.id}>
-                        {userName(user)}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-                <FieldDescription>{t("channels.endpointOwnerDesc")}</FieldDescription>
-              </Field>
+              <p className="text-sm text-muted-foreground">{t("channels.endpointOwnerDesc")}</p>
               {actionError && <FieldError>{actionError}</FieldError>}
             </div>
           </DialogPanel>

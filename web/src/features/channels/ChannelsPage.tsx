@@ -85,10 +85,9 @@ const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; 
   },
   webhook: {
     label: "Webhook",
-    // Only behavioural knobs the UI can safely round-trip as string/bool. The
-    // int timeout fields (wait/max) stay at backend defaults; the config decoder
-    // is strict JSON, so a stringified number would fail to unmarshal.
-    defaults: { default_wait: false, session_mode: "ephemeral" },
+    // Invocation behavior comes from each capability request. The persisted
+    // config intentionally contains only server-side timeout ceilings.
+    defaults: {},
   },
 };
 
@@ -177,7 +176,11 @@ function normalizeChannel(ch: Channel): NormalizedChannel {
 }
 
 function newInstanceDraft(type = defaultChannelType, id = ""): Record<string, unknown> {
-  return { id: type === "weixin" ? "weixin" : id, type, ...platformConfigDefaults(type) };
+  return {
+    id: type === "weixin" ? "weixin" : id,
+    type,
+    ...platformConfigDefaults(type),
+  };
 }
 
 function channelConfig(ch: Record<string, unknown>): string {
@@ -258,44 +261,6 @@ function InstanceFields({
           {field("user_id", "User ID", "text", "optional")}
         </div>
       )}
-
-      {type === "webhook" && <WebhookConfigFields ch={ch} onChange={onChange} />}
-    </div>
-  );
-}
-
-// WebhookConfigFields renders the two round-trippable webhook knobs. Timeouts
-// are intentionally omitted (see platformMeta.webhook) — the strict JSON decoder
-// rejects stringified ints, so they stay at backend defaults.
-function WebhookConfigFields({
-  ch,
-  onChange,
-}: {
-  ch: Record<string, unknown>;
-  onChange: (key: string, value: unknown) => void;
-}) {
-  const { t } = useI18n();
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Switch
-          checked={Boolean(ch.default_wait)}
-          onCheckedChange={(v) => onChange("default_wait", v)}
-        />
-        <span className="text-sm">{t("channels.webhookDefaultWait")}</span>
-      </div>
-      <p className="text-xs text-muted-foreground">{t("channels.webhookDefaultWaitDesc")}</p>
-      <div className="w-full space-y-1.5">
-        <label className="text-sm font-medium">{t("channels.webhookSessionMode")}</label>
-        <select
-          value={(ch.session_mode as string) || "ephemeral"}
-          onChange={(e) => onChange("session_mode", e.target.value)}
-          className={selectClassName}
-        >
-          <option value="ephemeral">{t("channels.webhookSessionEphemeral")}</option>
-          <option value="persistent">{t("channels.webhookSessionPersistent")}</option>
-        </select>
-      </div>
     </div>
   );
 }
@@ -499,6 +464,7 @@ function ChannelDetail({
 
 interface NewChannelFormProps {
   fallbackChannelType: string;
+  isAdmin: boolean;
   agents: Agent[];
   channels: NormalizedChannel[];
   onAdd: (channel: Record<string, unknown>) => Promise<void>;
@@ -509,6 +475,7 @@ interface NewChannelFormProps {
 
 function NewChannelForm({
   fallbackChannelType,
+  isAdmin,
   agents,
   channels,
   onAdd,
@@ -633,7 +600,9 @@ function NewChannelForm({
     stopScanPolling();
     setScanning(true);
     try {
-      const { data: result } = await beginWeixinRegistration({ throwOnError: true });
+      const { data: result } = await beginWeixinRegistration({
+        throwOnError: true,
+      });
       setScanQrUrl(await QRCode.toDataURL(result.qr_image_url, { width: 256, margin: 2 }));
       const intervalSeconds = result.poll_interval || 2;
       scanIntervalRef.current = setInterval(
@@ -758,11 +727,13 @@ function NewChannelForm({
             <option value="" disabled>
               {t("channels.selectPlatform")}
             </option>
-            {channelTypes.map((ct) => (
-              <option key={ct.id} value={ct.id}>
-                {ct.label}
-              </option>
-            ))}
+            {channelTypes
+              .filter((ct) => isAdmin || ct.id === "webhook")
+              .map((ct) => (
+                <option key={ct.id} value={ct.id}>
+                  {ct.label}
+                </option>
+              ))}
           </select>
         </div>
 
@@ -1071,14 +1042,12 @@ export function ChannelsPage() {
 
   // ── derived state ──
 
-  const isCreating = isAdmin && channelId === "new";
+  const isCreating = channelId === "new";
 
   const selectedChannel = useMemo(
     () =>
-      isAdmin && channelId && channelId !== "new"
-        ? instances.find((ch) => ch.id === channelId)
-        : undefined,
-    [isAdmin, channelId, instances],
+      channelId && channelId !== "new" ? instances.find((ch) => ch.id === channelId) : undefined,
+    [channelId, instances],
   );
 
   const selectedPublicChannel = useMemo(
@@ -1151,11 +1120,7 @@ export function ChannelsPage() {
   // ── init ──
 
   useEffect(() => {
-    if (isAdmin) {
-      void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(), loadAgents()]);
-    } else {
-      void Promise.all([loadPublicChannels(), loadIdentities()]);
-    }
+    void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(), loadAgents()]);
     return () => {
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
@@ -1371,49 +1336,48 @@ export function ChannelsPage() {
     return "secondary";
   };
 
-  const isLoading = isAdmin && loadingInstances;
+  const isLoading = loadingInstances;
 
   // ── build detail pane ──
 
   let detail: React.ReactNode = undefined;
 
-  if (isAdmin) {
-    if (isCreating) {
-      detail = (
-        <NewChannelForm
-          fallbackChannelType={defaultChannelType}
-          agents={agents}
-          channels={instances}
-          onAdd={createNewChannel}
-          onRegistered={finishRegisteredChannel}
-          onCancel={() => void navigate({ to: "/settings/channels" })}
-          creating={creatingInstance}
-        />
-      );
-    } else if (selectedChannel) {
-      detail = (
-        <ChannelDetail
-          key={selectedChannel.id}
-          channel={selectedChannel}
-          identity={identityFor(selectedChannel.type)}
-          generating={generating}
-          linkPlatform={linkPlatform}
-          linkCode={linkCode}
-          wxQrUrl={wxQrUrl}
-          wxQrStatus={wxQrStatus}
-          wxQrPolling={wxQrPolling}
-          onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
-          onSave={saveInstance}
-          onDelete={doDeleteChannel}
-          onGenerateCode={generateCode}
-          onStartWeixinQR={startWeixinQR}
-          onUnlink={unlinkIdentity}
-          onCopyLinkCode={copyLinkCode}
-          wxQrStatusVariant={wxQrStatusVariant}
-          onRefreshWxQr={startWeixinQR}
-        />
-      );
-    }
+  if (isCreating) {
+    detail = (
+      <NewChannelForm
+        fallbackChannelType={isAdmin ? defaultChannelType : "webhook"}
+        isAdmin={isAdmin}
+        agents={agents}
+        channels={instances}
+        onAdd={createNewChannel}
+        onRegistered={finishRegisteredChannel}
+        onCancel={() => void navigate({ to: "/settings/channels" })}
+        creating={creatingInstance}
+      />
+    );
+  } else if (selectedChannel) {
+    detail = (
+      <ChannelDetail
+        key={selectedChannel.id}
+        channel={selectedChannel}
+        identity={identityFor(selectedChannel.type)}
+        generating={generating}
+        linkPlatform={linkPlatform}
+        linkCode={linkCode}
+        wxQrUrl={wxQrUrl}
+        wxQrStatus={wxQrStatus}
+        wxQrPolling={wxQrPolling}
+        onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
+        onSave={saveInstance}
+        onDelete={doDeleteChannel}
+        onGenerateCode={generateCode}
+        onStartWeixinQR={startWeixinQR}
+        onUnlink={unlinkIdentity}
+        onCopyLinkCode={copyLinkCode}
+        wxQrStatusVariant={wxQrStatusVariant}
+        onRefreshWxQr={startWeixinQR}
+      />
+    );
   } else if (selectedPublicChannel) {
     detail = (
       <PublicChannelDetail
@@ -1463,25 +1427,23 @@ export function ChannelsPage() {
       <SettingsGridPage
         title={t("channels.title")}
         action={
-          isAdmin ? (
-            <Button
-              render={<Link to="/settings/channels/$channelId" params={{ channelId: "new" }} />}
-              variant="outline"
-              size="sm"
-            >
-              <Plus className="size-4" />
-              {t("channels.addChannel")}
-            </Button>
-          ) : undefined
+          <Button
+            render={<Link to="/settings/channels/$channelId" params={{ channelId: "new" }} />}
+            variant="outline"
+            size="sm"
+          >
+            <Plus className="size-4" />
+            {t("channels.addChannel")}
+          </Button>
         }
       >
-        {isAdmin ? (
-          isLoading ? (
-            <div className="flex justify-center py-8">
-              <Spinner className="size-4" />
-            </div>
-          ) : (
-            adminGroups.map((group) => (
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Spinner className="size-4" />
+          </div>
+        ) : (
+          <>
+            {adminGroups.map((group) => (
               <SettingsCardSection
                 key={group.type}
                 icon={<PlatformIcon type={group.type} />}
@@ -1520,30 +1482,31 @@ export function ChannelsPage() {
                   );
                 })}
               </SettingsCardSection>
-            ))
-          )
-        ) : (
-          <SettingsCardSection title={t("channels.title")} count={publicChannels.length}>
-            {publicChannels.map((ch) => {
-              const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
-              const linked = isLinked(ch.type);
-              return (
-                <SettingsCard
-                  key={ch.type}
-                  icon={<PlatformIcon type={ch.type} />}
-                  title={platformLabel}
-                  active={channelId === ch.type}
-                  to="/settings/channels/$channelId"
-                  params={{ channelId: ch.type }}
-                  footer={
-                    <Badge size="sm" variant={linked ? "success" : "secondary"}>
-                      {linked ? "linked" : "not linked"}
-                    </Badge>
-                  }
-                />
-              );
-            })}
-          </SettingsCardSection>
+            ))}
+            {!isAdmin && (
+              <SettingsCardSection title={t("channels.title")} count={publicChannels.length}>
+                {publicChannels.map((ch) => {
+                  const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
+                  const linked = isLinked(ch.type);
+                  return (
+                    <SettingsCard
+                      key={ch.type}
+                      icon={<PlatformIcon type={ch.type} />}
+                      title={platformLabel}
+                      active={channelId === ch.type}
+                      to="/settings/channels/$channelId"
+                      params={{ channelId: ch.type }}
+                      footer={
+                        <Badge size="sm" variant={linked ? "success" : "secondary"}>
+                          {linked ? "linked" : "not linked"}
+                        </Badge>
+                      }
+                    />
+                  );
+                })}
+              </SettingsCardSection>
+            )}
+          </>
         )}
       </SettingsGridPage>
 

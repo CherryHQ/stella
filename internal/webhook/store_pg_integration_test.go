@@ -30,7 +30,7 @@ func TestServiceIssueDisclosesOnceAndPersistsVerifierOnly(t *testing.T) {
 	channelID, ownerID := seedWebhookChannel(t, db, "agent")
 	svc := newDBService(t, db)
 
-	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric})
+	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, CallerUserID: ownerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestServiceIssueDisclosesOnceAndPersistsVerifierOnly(t *testing.T) {
 	// row, and the stored hash is not the disclosed plaintext.
 	var provider, owner, hash, last4 string
 	if err := db.QueryRow(ctx,
-		"SELECT provider, owner_user_id, token_hash, token_last4 FROM channel_webhook_endpoint WHERE channel_id = $1", channelID,
+		"SELECT endpoint.provider, channel.owner_user_id, endpoint.token_hash, endpoint.token_last4 FROM channel_webhook_endpoint AS endpoint JOIN channel ON channel.id = endpoint.channel_id WHERE channel_id = $1", channelID,
 	).Scan(&provider, &owner, &hash, &last4); err != nil {
 		t.Fatalf("scan endpoint row: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestServiceIssueDisclosesOnceAndPersistsVerifierOnly(t *testing.T) {
 
 	// Stable read is redacted by construction: the Endpoint type carries no
 	// capability field, only display-safe metadata.
-	endpoint, err := svc.GetByChannel(ctx, channelID)
+	endpoint, err := svc.GetByChannel(ctx, channelID, ownerID)
 	if err != nil {
 		t.Fatalf("GetByChannel: %v", err)
 	}
@@ -79,11 +79,11 @@ func TestServiceRotateInvalidatesOldTokenUnderCAS(t *testing.T) {
 	channelID, ownerID := seedWebhookChannel(t, db, "agent")
 	svc := newDBService(t, db)
 
-	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric})
+	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, CallerUserID: ownerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
-	rotated, err := svc.Rotate(ctx, channelID, issued.Endpoint.ETag())
+	rotated, err := svc.Rotate(ctx, channelID, ownerID, issued.Endpoint.ETag())
 	if err != nil {
 		t.Fatalf("Rotate: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestServiceRotateInvalidatesOldTokenUnderCAS(t *testing.T) {
 		t.Fatalf("Resolve(rotated): %v", err)
 	}
 	// A stale precondition (the pre-rotation etag) is rejected.
-	if _, err := svc.Rotate(ctx, channelID, issued.Endpoint.ETag()); !errors.Is(err, ErrStaleETag) {
+	if _, err := svc.Rotate(ctx, channelID, ownerID, issued.Endpoint.ETag()); !errors.Is(err, ErrStaleETag) {
 		t.Fatalf("stale rotate error = %v, want ErrStaleETag", err)
 	}
 }
@@ -108,29 +108,29 @@ func TestServiceRotateRejectsStaleETagAfterRevokeRecreate(t *testing.T) {
 	channelID, ownerID := seedWebhookChannel(t, db, "agent")
 	svc := newDBService(t, db)
 
-	first, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric})
+	first, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, CallerUserID: ownerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("first Issue: %v", err)
 	}
 	staleETag := first.Endpoint.ETag()
 
-	if _, err := svc.Delete(ctx, channelID); err != nil {
+	if _, err := svc.Delete(ctx, channelID, ownerID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	// Recreated endpoint restarts at revision 1 but with a fresh token_public_id,
 	// so the pre-revoke etag (also revision 1) must not match: no ABA reuse.
-	second, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric})
+	second, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, CallerUserID: ownerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("second Issue: %v", err)
 	}
 	if second.Endpoint.Revision != 1 {
 		t.Fatalf("recreated revision = %d, want 1", second.Endpoint.Revision)
 	}
-	if _, err := svc.Rotate(ctx, channelID, staleETag); !errors.Is(err, ErrStaleETag) {
+	if _, err := svc.Rotate(ctx, channelID, ownerID, staleETag); !errors.Is(err, ErrStaleETag) {
 		t.Fatalf("stale-after-recreate rotate error = %v, want ErrStaleETag", err)
 	}
 	// The fresh etag still works.
-	if _, err := svc.Rotate(ctx, channelID, second.Endpoint.ETag()); err != nil {
+	if _, err := svc.Rotate(ctx, channelID, ownerID, second.Endpoint.ETag()); err != nil {
 		t.Fatalf("fresh rotate: %v", err)
 	}
 }
@@ -140,17 +140,20 @@ func TestServiceRotateRejectsCrossChannelETag(t *testing.T) {
 	ctx := context.Background()
 	channelA, ownerID := seedWebhookChannel(t, db, "agent-a")
 	channelB, _ := seedWebhookChannel(t, db, "agent-b")
+	if _, err := db.Exec(ctx, "UPDATE channel SET owner_user_id = $1 WHERE id = $2", ownerID, channelB); err != nil {
+		t.Fatalf("align channel owner: %v", err)
+	}
 	svc := newDBService(t, db)
 
-	issuedA, err := svc.Issue(ctx, IssueRequest{ChannelID: channelA, OwnerUserID: ownerID, Provider: ProviderGeneric})
+	issuedA, err := svc.Issue(ctx, IssueRequest{ChannelID: channelA, CallerUserID: ownerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("Issue A: %v", err)
 	}
-	if _, err := svc.Issue(ctx, IssueRequest{ChannelID: channelB, OwnerUserID: ownerID, Provider: ProviderGeneric}); err != nil {
+	if _, err := svc.Issue(ctx, IssueRequest{ChannelID: channelB, CallerUserID: ownerID, Provider: ProviderGeneric}); err != nil {
 		t.Fatalf("Issue B: %v", err)
 	}
 	// Channel A's etag (same revision 1 as B) must not authorize rotating B.
-	if _, err := svc.Rotate(ctx, channelB, issuedA.Endpoint.ETag()); !errors.Is(err, ErrStaleETag) {
+	if _, err := svc.Rotate(ctx, channelB, ownerID, issuedA.Endpoint.ETag()); !errors.Is(err, ErrStaleETag) {
 		t.Fatalf("cross-channel rotate error = %v, want ErrStaleETag", err)
 	}
 }
@@ -161,7 +164,7 @@ func TestServiceConcurrentSameETagRotateOneWinner(t *testing.T) {
 	channelID, ownerID := seedWebhookChannel(t, db, "agent")
 	svc := newDBService(t, db)
 
-	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric})
+	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, CallerUserID: ownerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -171,7 +174,7 @@ func TestServiceConcurrentSameETagRotateOneWinner(t *testing.T) {
 	errs := make(chan error, 2)
 	for range 2 {
 		wg.Go(func() {
-			res, err := svc.Rotate(ctx, channelID, issued.Endpoint.ETag())
+			res, err := svc.Rotate(ctx, channelID, ownerID, issued.Endpoint.ETag())
 			if err != nil {
 				errs <- err
 				return
@@ -201,18 +204,18 @@ func TestServiceRevokeInvalidatesToken(t *testing.T) {
 	channelID, ownerID := seedWebhookChannel(t, db, "agent")
 	svc := newDBService(t, db)
 
-	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric})
+	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, CallerUserID: ownerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
-	deleted, err := svc.Delete(ctx, channelID)
+	deleted, err := svc.Delete(ctx, channelID, ownerID)
 	if err != nil || !deleted {
 		t.Fatalf("Delete = %v, %v; want true, nil", deleted, err)
 	}
 	if _, err := svc.ResolveCandidate(ctx, issued.Capability); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("revoked token error = %v, want ErrNotFound", err)
 	}
-	if again, err := svc.Delete(ctx, channelID); err != nil || again {
+	if again, err := svc.Delete(ctx, channelID, ownerID); err != nil || again {
 		t.Fatalf("second Delete = %v, %v; want false, nil", again, err)
 	}
 }
@@ -223,10 +226,10 @@ func TestServiceIssueRejectsConcurrentEndpoint(t *testing.T) {
 	channelID, ownerID := seedWebhookChannel(t, db, "agent")
 	svc := newDBService(t, db)
 
-	if _, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric}); err != nil {
+	if _, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, CallerUserID: ownerID, Provider: ProviderGeneric}); err != nil {
 		t.Fatalf("first Issue: %v", err)
 	}
-	if _, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric}); !errors.Is(err, ErrEndpointExists) {
+	if _, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, CallerUserID: ownerID, Provider: ProviderGeneric}); !errors.Is(err, ErrEndpointExists) {
 		t.Fatalf("second Issue error = %v, want ErrEndpointExists", err)
 	}
 }
@@ -251,7 +254,7 @@ func TestAdmitHoldsNoConnectionAcrossCallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, OwnerUserID: ownerID, Provider: ProviderGeneric})
+	issued, err := svc.Issue(ctx, IssueRequest{ChannelID: channelID, CallerUserID: ownerID, Provider: ProviderGeneric})
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -298,7 +301,7 @@ func seedWebhookChannel(t *testing.T, db *pgxpool.Pool, agentName string) (strin
 	if _, err := db.Exec(ctx, "INSERT INTO agent (id, name, workspace, enabled) VALUES ($1, $2, $3, true)", agentID, agentName, "/tmp"); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
-	if _, err := db.Exec(ctx, "INSERT INTO channel (id, type, agent_id, enabled) VALUES ($1, 'webhook', $2, true)", channelID, agentID); err != nil {
+	if _, err := db.Exec(ctx, "INSERT INTO channel (id, type, agent_id, enabled, owner_user_id) VALUES ($1, 'webhook', $2, true, $3)", channelID, agentID, ownerID); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 	return channelID, ownerID

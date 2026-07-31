@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -35,6 +36,7 @@ func (s *PostgresStore) BindEndpoint(ctx context.Context, channelID string, buil
 	}
 	rec, err := build(ctx, ChannelBinding{
 		ChannelID:    binding.ID,
+		OwnerUserID:  binding.OwnerUserID.String,
 		Type:         binding.Type,
 		AgentID:      binding.AgentID.String,
 		AgentEnabled: binding.AgentEnabled,
@@ -48,7 +50,6 @@ func (s *PostgresStore) BindEndpoint(ctx context.Context, channelID string, buil
 	rec.ChannelID = channelID
 	row, err := qtx.CreateChannelWebhookEndpoint(ctx, sqlc.CreateChannelWebhookEndpointParams{
 		ChannelID:     rec.ChannelID,
-		OwnerUserID:   rec.OwnerUserID,
 		Provider:      string(rec.Provider),
 		TokenPublicID: rec.TokenPublicID,
 		TokenHash:     rec.TokenHash,
@@ -60,7 +61,9 @@ func (s *PostgresStore) BindEndpoint(ctx context.Context, channelID string, buil
 	if err := tx.Commit(ctx); err != nil {
 		return endpointRecord{}, fmt.Errorf("webhook: commit endpoint bind: %w", err)
 	}
-	return endpointFromRow(row), nil
+	stored := endpointFromRow(row)
+	stored.OwnerUserID = rec.OwnerUserID
+	return stored, nil
 }
 
 func (s *PostgresStore) ObserveBinding(ctx context.Context, channelID string) (ChannelBinding, error) {
@@ -70,6 +73,7 @@ func (s *PostgresStore) ObserveBinding(ctx context.Context, channelID string) (C
 	}
 	return ChannelBinding{
 		ChannelID:    row.ID,
+		OwnerUserID:  row.OwnerUserID.String,
 		Type:         row.Type,
 		AgentID:      row.AgentID.String,
 		AgentEnabled: row.AgentEnabled,
@@ -77,9 +81,15 @@ func (s *PostgresStore) ObserveBinding(ctx context.Context, channelID string) (C
 	}, nil
 }
 
-func (s *PostgresStore) GetEndpointByChannel(ctx context.Context, channelID string) (endpointRecord, error) {
-	row, err := s.q.GetChannelWebhookEndpointByChannelID(ctx, channelID)
-	return endpointFromRow(row), mapNotFound(err)
+func (s *PostgresStore) GetEndpointByChannel(ctx context.Context, channelID, ownerID string) (endpointRecord, error) {
+	row, err := s.q.GetChannelWebhookEndpointByChannelIDForOwner(ctx, sqlc.GetChannelWebhookEndpointByChannelIDForOwnerParams{
+		ChannelID:   channelID,
+		OwnerUserID: ownerParam(ownerID),
+	})
+	if err != nil {
+		return endpointRecord{}, mapNotFound(err)
+	}
+	return endpointFromOwnedRow(row), nil
 }
 
 func (s *PostgresStore) ResolveEndpoint(ctx context.Context, publicID string) (resolvedRecord, error) {
@@ -89,7 +99,7 @@ func (s *PostgresStore) ResolveEndpoint(ctx context.Context, publicID string) (r
 	}
 	endpoint := Endpoint{
 		ChannelID:     row.ChannelID,
-		OwnerUserID:   row.OwnerUserID,
+		OwnerUserID:   row.OwnerUserID.String,
 		Provider:      Provider(row.Provider),
 		TokenPublicID: publicID,
 		TokenLast4:    row.TokenLast4,
@@ -115,18 +125,19 @@ func (s *PostgresStore) ResolveByPublicID(ctx context.Context, publicID string) 
 	return endpointFromRow(row), mapNotFound(err)
 }
 
-func (s *PostgresStore) RotateEndpoint(ctx context.Context, channelID string, expectedETag string, next endpointRecord) (endpointRecord, error) {
+func (s *PostgresStore) RotateEndpoint(ctx context.Context, channelID, ownerID string, expectedETag string, next endpointRecord) (endpointRecord, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return endpointRecord{}, fmt.Errorf("webhook: begin endpoint rotate: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := s.q.WithTx(tx)
-	// Lock the row so concurrent rotations serialize: the second waiter observes
-	// the winner's rotated credential/revision and fails the compare-and-set
-	// precondition. The etag binds token_public_id + revision, so a stale etag
-	// from a revoked+recreated endpoint (or another channel) cannot match.
-	current, err := qtx.GetChannelWebhookEndpointByChannelIDForUpdate(ctx, channelID)
+	// Lock the endpoint row after SQL has confirmed channel ownership, so a
+	// cross-owner request is indistinguishable from an absent endpoint.
+	current, err := qtx.GetChannelWebhookEndpointByChannelIDForOwnerForUpdate(ctx, sqlc.GetChannelWebhookEndpointByChannelIDForOwnerForUpdateParams{
+		ChannelID:   channelID,
+		OwnerUserID: ownerParam(ownerID),
+	})
 	if err != nil {
 		return endpointRecord{}, mapNotFound(err)
 	}
@@ -145,17 +156,21 @@ func (s *PostgresStore) RotateEndpoint(ctx context.Context, channelID string, ex
 	if err := tx.Commit(ctx); err != nil {
 		return endpointRecord{}, fmt.Errorf("webhook: commit endpoint rotate: %w", err)
 	}
-	return endpointFromRow(row), nil
+	stored := endpointFromRow(row)
+	stored.OwnerUserID = current.OwnerUserID.String
+	return stored, nil
 }
 
-func (s *PostgresStore) DeleteEndpoint(ctx context.Context, channelID string) (int64, error) {
-	return s.q.DeleteChannelWebhookEndpoint(ctx, channelID)
+func (s *PostgresStore) DeleteEndpoint(ctx context.Context, channelID, ownerID string) (int64, error) {
+	return s.q.DeleteChannelWebhookEndpointForOwner(ctx, sqlc.DeleteChannelWebhookEndpointForOwnerParams{
+		ChannelID:   channelID,
+		OwnerUserID: ownerParam(ownerID),
+	})
 }
 
 func endpointFromRow(row sqlc.ChannelWebhookEndpoint) endpointRecord {
 	endpoint := Endpoint{
 		ChannelID:     row.ChannelID,
-		OwnerUserID:   row.OwnerUserID,
 		Provider:      Provider(row.Provider),
 		TokenPublicID: row.TokenPublicID,
 		TokenLast4:    row.TokenLast4,
@@ -169,6 +184,26 @@ func endpointFromRow(row sqlc.ChannelWebhookEndpoint) endpointRecord {
 	}
 	return endpointRecord{Endpoint: endpoint, TokenHash: row.TokenHash}
 }
+
+func endpointFromOwnedRow(row sqlc.GetChannelWebhookEndpointByChannelIDForOwnerRow) endpointRecord {
+	endpoint := Endpoint{
+		ChannelID:     row.ChannelID,
+		OwnerUserID:   row.OwnerUserID.String,
+		Provider:      Provider(row.Provider),
+		TokenPublicID: row.TokenPublicID,
+		TokenLast4:    row.TokenLast4,
+		Revision:      row.Revision,
+		CreatedAt:     row.CreatedAt.UTC(),
+		UpdatedAt:     row.UpdatedAt.UTC(),
+	}
+	if row.RotatedAt.Valid {
+		rotated := row.RotatedAt.Time.UTC()
+		endpoint.RotatedAt = &rotated
+	}
+	return endpointRecord{Endpoint: endpoint, TokenHash: row.TokenHash}
+}
+
+func ownerParam(id string) pgtype.Text { return pgtype.Text{String: id, Valid: id != ""} }
 
 func mapNotFound(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -126,15 +126,22 @@ func newIngressServerConfig(t *testing.T, ingress webhookIngressPort, run *fakeA
 
 func capabilityRequest(t *testing.T, wait *bool) *http.Request {
 	t.Helper()
-	return capabilityRequestBody(t, wait, strings.NewReader("hello world"))
+	return capabilityRequestWithMode(t, wait, "ephemeral", strings.NewReader("hello world"))
 }
 
 func capabilityRequestBody(t *testing.T, wait *bool, body io.Reader) *http.Request {
 	t.Helper()
-	ctx := context.WithValue(context.Background(), webhookCapabilityCtxKey{}, "stella_whk_capability")
+	return capabilityRequestWithMode(t, wait, "ephemeral", body)
+}
+
+func capabilityRequestWithMode(t *testing.T, wait *bool, sessionMode string, body io.Reader) *http.Request {
+	t.Helper()
+	options := webhookInvocationOptions{wait: false, sessionMode: sessionMode}
 	if wait != nil {
-		ctx = context.WithValue(ctx, webhookWaitCtxKey{}, *wait)
+		options.wait = *wait
 	}
+	ctx := context.WithValue(context.Background(), webhookCapabilityCtxKey{}, "stella_whk_capability")
+	ctx = context.WithValue(ctx, webhookInvocationCtxKey{}, options)
 	req := httptest.NewRequest(http.MethodPost, sanitizedWebhookPath, body).WithContext(ctx)
 	// A caller-supplied Authorization header must be ignored: identity comes only
 	// from the capability.
@@ -381,10 +388,10 @@ func TestWebhookIngressDoesNotArchivePersistentSession(t *testing.T) {
 	ingress := &fakeIngress{cand: webhook.Candidate{EndpointID: "c"}, admit: func(ctx context.Context, _ webhook.Candidate, cb webhook.AdmitCallback) error {
 		return cb(ctx, webhook.AdmittedInvocation{ChannelID: "c", OwnerUserID: "owner-1", AgentID: "agentA", Authority: authority})
 	}}
-	s := newIngressServerConfig(t, ingress, run, `{"session_mode":"persistent"}`)
+	s := newIngressServer(t, ingress, run)
 
 	rr := httptest.NewRecorder()
-	s.handleWebhookIngress(rr, capabilityRequest(t, nil))
+	s.handleWebhookIngress(rr, capabilityRequestWithMode(t, nil, "persistent", strings.NewReader("hello world")))
 
 	if run.sessionCalls.Load() != 1 {
 		t.Fatalf("sessionCalls = %d, want 1 (persistent resolve)", run.sessionCalls.Load())

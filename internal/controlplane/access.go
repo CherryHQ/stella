@@ -6,13 +6,12 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 )
 
-// Access is one authorized control-plane use case. Every control-plane resource
-// (providers, settings, plugins, channels) is admin-only, so authorization is a
-// single gate at Begin: an Access exists only for an admin authority. Each method
-// then performs the durable write and hot-reload the legacy handler did, with no
-// further per-method authorization.
+// Access is one authorized configuration use case. Begin mints admin-only
+// access for deployment resources; BeginChannels also admits authenticated users
+// and leaves personal-webhook ownership decisions to the channel methods.
 type Access struct {
-	svc *Service
+	svc       *Service
+	authority authz.Authority
 }
 
 // Begin authorizes one control-plane use case. The control plane is administered,
@@ -27,5 +26,19 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 	if !authority.Valid() || !authority.IsAdmin() {
 		return nil, authz.ErrForbidden
 	}
-	return &Access{svc: s}, nil
+	return &Access{svc: s, authority: authority}, nil
+}
+
+// BeginChannels authorizes the resource-sensitive channels collection. Unlike
+// deployment channels, webhook channels are personal resources, so every valid
+// authenticated authority receives an access handle; each channel operation
+// enforces its own webhook-owner/admin decision.
+func (s *Service) BeginChannels(_ context.Context, authority authz.Authority) (*Access, error) {
+	if s == nil {
+		return nil, ErrUnavailable
+	}
+	if !authority.Valid() {
+		return nil, authz.ErrUnauthenticated
+	}
+	return &Access{svc: s, authority: authority}, nil
 }

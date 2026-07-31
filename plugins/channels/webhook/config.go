@@ -13,11 +13,6 @@ func DecodeConfig(raw map[string]any) (pkgchannel.WebhookConfig, error) {
 
 // validateConfig returns a non-empty reason when the config is invalid.
 func validateConfig(cfg pkgchannel.WebhookConfig) string {
-	switch cfg.SessionMode {
-	case "", pkgchannel.WebhookSessionEphemeral, pkgchannel.WebhookSessionPersistent:
-	default:
-		return fmt.Sprintf("webhook: invalid session_mode %q (want ephemeral or persistent)", cfg.SessionMode)
-	}
 	if cfg.WaitTimeoutSeconds < 0 || cfg.WaitTimeoutSeconds > pkgchannel.WebhookWaitTimeoutCeilingSeconds {
 		return fmt.Sprintf("webhook: wait_timeout_seconds must be between 0 and %d", pkgchannel.WebhookWaitTimeoutCeilingSeconds)
 	}

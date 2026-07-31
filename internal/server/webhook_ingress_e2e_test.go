@@ -26,9 +26,9 @@ func postWebhook(t *testing.T, h http.Handler, capability string) int {
 	return rr.Code
 }
 
-func createWebhookChannel(t *testing.T, env *testEnv, id, agentID string) {
+func createWebhookChannel(t *testing.T, env *testEnv, token, id, agentID string) {
 	t.Helper()
-	rr := doRequest(t, env, "POST", "/api/channels", map[string]any{
+	rr := doRequestWithSession(t, env.srv, token, "POST", "/api/channels", map[string]any{
 		"id": id, "type": "webhook", "agent_id": agentID, "enabled": true, "config": `{}`,
 	})
 	if rr.Code != http.StatusCreated {
@@ -51,10 +51,10 @@ func createAgentWithScope(t *testing.T, env *testEnv, name, scope string) string
 	return created.ID
 }
 
-func createEndpointCapability(t *testing.T, env *testEnv, channelID, ownerID string) string {
+func createEndpointCapability(t *testing.T, env *testEnv, token, channelID string) string {
 	t.Helper()
-	rr := doRequest(t, env, "POST", "/api/channels/"+channelID+"/webhook-endpoint", map[string]any{
-		"owner_user_id": ownerID, "provider": "generic",
+	rr := doRequestWithSession(t, env.srv, token, "POST", "/api/channels/"+channelID+"/webhook-endpoint", map[string]any{
+		"provider": "generic",
 	})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create endpoint: status=%d (body: %s)", rr.Code, rr.Body.String())
@@ -90,18 +90,18 @@ func TestWebhookIngressCapabilityReplacesPAT(t *testing.T) {
 	env := setupAdmin(t)
 	guard := webhookGuardHandler(env)
 
-	owner, _ := createTestUserWithToken(t, env.authStore, env.oidcStore, "wh-owner", auth.RoleUser)
+	owner, ownerToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "wh-owner", auth.RoleUser)
 
 	// A restricted agent the owner can use only while assigned.
 	restrictedAgent := createAgentWithScope(t, env, "restricted-wh", config.AgentScopeRestricted)
-	createWebhookChannel(t, env, "wh-restricted", restrictedAgent)
 	setUserAgents(t, env, owner.ID, []string{restrictedAgent})
-	restrictedCap := createEndpointCapability(t, env, "wh-restricted", owner.ID)
+	createWebhookChannel(t, env, ownerToken, "wh-restricted", restrictedAgent)
+	restrictedCap := createEndpointCapability(t, env, ownerToken, "wh-restricted")
 
 	// A system agent every user may execute without assignment.
 	systemAgent := createAgentWithScope(t, env, "system-wh", config.AgentScopeSystem)
-	createWebhookChannel(t, env, "wh-system", systemAgent)
-	systemCap := createEndpointCapability(t, env, "wh-system", owner.ID)
+	createWebhookChannel(t, env, ownerToken, "wh-system", systemAgent)
+	systemCap := createEndpointCapability(t, env, ownerToken, "wh-system")
 
 	// Old channel-ID / PAT-style ids are opaque 404s: they are not capabilities.
 	if code := postWebhook(t, guard, "wh-restricted"); code != http.StatusNotFound {
