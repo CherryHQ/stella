@@ -44,8 +44,8 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	out, err := Dispatch(ctx, shareHandler{svc: t.svc, authority: authority}, action, args)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrPathEscapes):
-			return "", fmt.Errorf("path is outside the workspace — choose a file under /workspace or /user and retry")
+		case errors.Is(err, ErrPathEscapes), errors.Is(err, ErrInvalidArtifactPath):
+			return "", fmt.Errorf("artifact path must be relative or start with $HOME or $STELLA_ASSETS_DIR")
 		case errors.Is(err, ErrTooLarge):
 			return "", fmt.Errorf("file is too large to share — create a smaller export and retry")
 		case errors.Is(err, ErrUnsupportedType):

@@ -25,7 +25,11 @@ components:
           enum: [artifact, article]
         agent_id: { type: string }
         session_id: { type: string }
-        path: { type: string }
+        path:
+          type: string
+          description: >-
+            Artifact path. Relative paths use scope; $HOME selects agent work
+            files and $STELLA_ASSETS_DIR selects shared user assets.
         scope:
           $ref: "#/components/schemas/WorkspaceScope"
         article_id: { type: string }

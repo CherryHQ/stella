@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -267,6 +268,36 @@ func TestGroupPrepareSendCommand(t *testing.T) {
 	}
 	if len(msgs) != 0 {
 		t.Fatalf("command wrote %d messages, want 0", len(msgs))
+	}
+}
+
+// TestGroupPrepareSendNewIsRefused proves a Web group `/new` is refused
+// explicitly — a group's context is shared, so no member's chat command may
+// clear it — and that the refusal never reaches the event log, so the command
+// does not become part of the group's context either.
+func TestGroupPrepareSendNewIsRefused(t *testing.T) {
+	fx := setupGroupFixture(t)
+	ctx := fx.ts.ctx()
+	user := createTestUser(t, fx.ts.oidcStore, "user@example.com")
+	acc := fx.begin(t, user.ID, false)
+	g, err := acc.Create(ctx, "team", []string{fx.stella})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	prep, err := acc.PrepareSend(ctx, g.ID, "/new", "")
+	if err != nil {
+		t.Fatalf("PrepareSend /new: %v", err)
+	}
+	if !prep.Command || prep.Reply != pkgchannel.GroupNewSessionUnsupportedMessage {
+		t.Fatalf("/new = %+v, want an intercepted command refusing the reset", prep)
+	}
+	msgs, err := acc.Messages(ctx, g.ID, 0, 50)
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("/new wrote %d messages to the event log, want 0", len(msgs))
 	}
 }
 

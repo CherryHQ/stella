@@ -23,7 +23,7 @@ import (
 	"strings"
 )
 
-const miseVersion = "2026.4.25"
+const miseVersion = "2026.7.18"
 
 type miseAsset struct {
 	file   string // filename template with {ver} placeholder
@@ -67,8 +67,8 @@ func main() {
 		outName = "mise.exe.gz"
 	}
 	outPath := filepath.Join(outDir, outName)
-	if _, err := os.Stat(outPath); err == nil {
-		fmt.Printf("skipping %s (already exists)\n", outPath)
+	if cachedVersion(outPath) == miseVersion {
+		fmt.Printf("skipping %s (already at %s)\n", outPath, miseVersion)
 		return
 	}
 
@@ -110,7 +110,7 @@ func main() {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		fatalf("create output dir: %v", err)
 	}
-	if err := gzipFile(binaryPath, outPath); err != nil {
+	if err := gzipFile(binaryPath, outPath, miseVersion); err != nil {
 		fatalf("gzip binary: %v", err)
 	}
 	fmt.Printf("wrote %s\n", outPath)
@@ -252,7 +252,26 @@ func findFile(root, name string) (string, error) {
 	return match, nil
 }
 
-func gzipFile(src, dst string) error {
+// cachedVersion reports the mise version stamped into an already-generated
+// archive, or "" when the archive is missing or unstamped. The version lives in
+// the gzip header comment so it travels with the artifact itself and cannot go
+// stale independently of it — a bumped miseVersion therefore always forces a
+// re-download instead of silently reusing the previous binary.
+func cachedVersion(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = gz.Close() }()
+	return gz.Header.Comment
+}
+
+func gzipFile(src, dst, version string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -269,6 +288,7 @@ func gzipFile(src, dst string) error {
 		_ = tmp.Close()
 		return err
 	}
+	gz.Header.Comment = version
 	if _, err := io.Copy(gz, in); err != nil {
 		_ = gz.Close()
 		_ = tmp.Close()

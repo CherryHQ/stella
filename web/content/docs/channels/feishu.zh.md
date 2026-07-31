@@ -44,23 +44,6 @@ Stella 内置了通过 WebSocket 连接的飞书（Lark）机器人，因此不�
 6. 选择这个机器人代表的 Agent。
 7. 展开手动字段，输入凭据并保存。
 
-## Lark 工作区自动化
-
-旧的内置 `feishu_*` 工具和 `/auth` 流程已移除。
-
-Stella 现在内置了生成好的 `lark` system skill，发布构建也会自动嵌入 `lark-cli`。如果你要操作日历、任务、文档、知识库、表格、云盘、联系人等工作区数据，直接启用内置 `lark` skill，并配合 [`lark-cli`](https://github.com/larksuite/cli) 使用即可。
-
-常见初始化流程：
-
-```bash
-command -v lark-cli || npm install -g @larksuite/cli
-lark-cli config init --new
-lark-cli auth login --recommend
-lark-cli auth status
-```
-
-内置 `lark` skill 可以覆盖原来的 `feishu_calendar`、`feishu_task`、`feishu_im`、`feishu_doc`、`feishu_wiki`、`feishu_sheets`、`feishu_drive`、`feishu_bitable`、`feishu_user` 和 `feishu_search` 等工作流。
-
 ## 自动注册用户
 
 用户通过飞书 OAuth 登录 Stella 时，Stella 会立即使用飞书 `union_id` 链接飞书频道身份，无需执行 `/link`。
@@ -204,14 +187,16 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 
 飞书支持标准聊天命令：
 
-| 命令       | 说明               |
-| ---------- | ------------------ |
-| `/new`     | 压缩会话上下文     |
-| `/compact` | 压缩会话上下文     |
-| `/abort`   | 取消正在进行的响应 |
-| `/model`   | 列出或切换模型     |
-| `/agent`   | 列出或切换 agent   |
-| `/whoami`  | 显示你的平台身份   |
+| 命令       | 说明                                     |
+| ---------- | ---------------------------------------- |
+| `/new`     | 开始新会话（此前的历史仍可搜索）         |
+| `/compact` | 就地压缩当前会话（同一会话，上下文更短） |
+| `/abort`   | 取消正在进行的响应                       |
+| `/model`   | 列出或切换模型                           |
+| `/agent`   | 列出或切换 agent                         |
+| `/whoami`  | 显示你的平台身份                         |
+
+`/new` 仅在私聊中生效。群聊的上下文由所有成员共享，因此在群里输入 `/new` 只会回复共享会话无法重置，不会改变任何内容；该命令本身也不会进入群聊历史。新会话保留哪些内容，见[记忆](/docs/guides/memory)。
 
 ## 配置参考
 

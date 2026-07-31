@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -267,6 +268,10 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 	}
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
+	// The parent may be a channel chat turn. A delegate is not that chat, so it
+	// must not inherit the binding that proves one — the tool exclusion above is
+	// the second lock on the same door.
+	ctx = agentctx.WithoutChatBinding(ctx)
 
 	excludedTools := t.excludedTools(tc.Tools, tc.HasTools)
 
@@ -314,8 +319,8 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 }
 
 // excludedTools returns tools hidden for this delegate run. It always excludes
-// "delegate" to prevent recursion; preset whitelists hide everything else not
-// explicitly allowed.
+// "delegate" to prevent recursion. A preset whitelist cannot re-admit it; it
+// only hides more.
 func (t *DelegateTool) excludedTools(whitelist []string, hasWhitelist bool) []string {
 	blocked := map[string]struct{}{delegateToolName: {}}
 	if hasWhitelist {

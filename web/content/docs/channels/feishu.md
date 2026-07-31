@@ -44,23 +44,6 @@ If you already have a Feishu app, you can still enter credentials manually:
 6. Select the agent this bot should represent.
 7. Expand the manual fields, enter your credentials, and save.
 
-## Lark Workspace Automation
-
-The old built-in `feishu_*` tools and `/auth` flow were removed.
-
-Stella now ships a generated builtin `lark` system skill, and release builds embed `lark-cli` automatically. For calendar, tasks, docs, wiki, sheets, drive, contacts, and other workspace operations, enable the builtin `lark` skill and use it with [`lark-cli`](https://github.com/larksuite/cli).
-
-Typical setup:
-
-```bash
-command -v lark-cli || npm install -g @larksuite/cli
-lark-cli config init --new
-lark-cli auth login --recommend
-lark-cli auth status
-```
-
-The builtin `lark` skill maps the retired `feishu_calendar`, `feishu_task`, `feishu_im`, `feishu_doc`, `feishu_wiki`, `feishu_sheets`, `feishu_drive`, `feishu_bitable`, `feishu_user`, and `feishu_search` workflows to `lark-cli` services.
-
 ## Auto-Provisioning
 
 When a user signs in to Stella with Feishu OAuth, Stella links the Feishu channel identity immediately using the Feishu `union_id`. No `/link` command is needed.
@@ -206,14 +189,16 @@ You can also set per-group overrides with the `groups` map in channel config.
 
 Feishu supports the standard chat commands:
 
-| Command    | Description                     |
-| ---------- | ------------------------------- |
-| `/new`     | Compact conversation context    |
-| `/compact` | Compact conversation context    |
-| `/abort`   | Cancel the in-progress response |
-| `/model`   | List or switch models           |
-| `/agent`   | List or switch agents           |
-| `/whoami`  | Show your platform identity     |
+| Command    | Description                                               |
+| ---------- | --------------------------------------------------------- |
+| `/new`     | Start a fresh session (previous history stays searchable) |
+| `/compact` | Compress the current session in place                     |
+| `/abort`   | Cancel the in-progress response                           |
+| `/model`   | List or switch models                                     |
+| `/agent`   | List or switch agents                                     |
+| `/whoami`  | Show your platform identity                               |
+
+`/new` works in a direct message only. A group's context is shared by everyone in it, so `/new` in a group replies that the shared session cannot be reset and changes nothing; the command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.
 
 ## Config Reference
 

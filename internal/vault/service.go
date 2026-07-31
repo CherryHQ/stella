@@ -559,7 +559,7 @@ func validateScope(scope string, userID string, agentID string) error {
 
 func defaultSystemManagedNames() map[string]struct{} {
 	names := map[string]struct{}{}
-	for _, name := range []string{"STELLA_TOKEN", oauth.VaultKeyGitHub, oauth.VaultKeyLark, oauth.VaultKeyFeishu} {
+	for _, name := range []string{"STELLA_TOKEN", oauth.VaultKeyGitHub} {
 		names[name] = struct{}{}
 	}
 	return names

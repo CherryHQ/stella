@@ -36,7 +36,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
-import { ScopeEditor } from "@/features/credentials/ScopeEditor";
+import { buildOAuthScopeDraft, ScopeEditor } from "@/features/credentials/ScopeEditor";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import {
   SettingsDetailSheet,
@@ -49,7 +49,6 @@ import type { RowAction } from "@/features/settings/SettingsCardGrid";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { KeyRound, Lock, Plug, Plus } from "lucide-react";
 import { siGithub, siX } from "simple-icons";
-import feishuIcon from "@/assets/auth/feishu.svg";
 
 // Brand marks carried by simple-icons, resolved by slug. Adding a simple-icons
 // brand is one named import + one entry here; unknown slugs fall through to the
@@ -59,25 +58,13 @@ const SIMPLE_ICONS: Record<string, { path: string }> = {
   x: siX,
 };
 
-// Brands simple-icons does not carry, rendered from bundled assets. Feishu and
-// its international brand Lark share one mark.
-const ASSET_ICONS: Record<string, string> = {
-  feishu: feishuIcon,
-  lark: feishuIcon,
-};
-
 type VaultScope = VaultEntry["scope"];
 type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
 
 // Reserved keys are written and rotated by stella itself. Surface them as
 // read-only so users don't delete a managed credential.
-const RESERVED_VAULT_KEYS = new Set([
-  "STELLA_TOKEN",
-  "GH_OAUTH",
-  "LARK_CLI_OAUTH",
-  "FEISHU_CLI_OAUTH",
-]);
+const RESERVED_VAULT_KEYS = new Set(["STELLA_TOKEN", "GH_OAUTH"]);
 const RESERVED_VAULT_PREFIXES = ["OAUTH_", "MCP_TOKEN_"];
 
 function isReservedVaultKey(name: string) {
@@ -94,6 +81,12 @@ function isAgentVaultScope(scope: VaultScope) {
 function toVaultScope(owner: ScopeOwner, range: ScopeRange): VaultScope {
   if (range === "specific") return owner === "global" ? "system_agent" : "user_agent";
   return owner === "global" ? "system" : "user";
+}
+
+function sameScopeSet(a: string[], b: string[]) {
+  const left = new Set(a);
+  const right = new Set(b);
+  return left.size === right.size && [...left].every((scope) => right.has(scope));
 }
 
 // One hue per scope, drawn from the chart palette tokens. Reused by the list
@@ -136,18 +129,8 @@ const SCOPE_DESC_KEY: Record<VaultScope, MessageKey> = {
 };
 
 // ProviderIcon resolves a brand mark from the provider's icon string (set in
-// the provider YAML): `simpleicons:<slug>` for marks simple-icons carries,
-// `asset:<name>` for bundled brand SVGs it does not (Feishu/Lark). Falls back to
-// a bundled asset keyed by provider id, then to a generic plug glyph.
-function ProviderIcon({
-  provider,
-  icon,
-  label,
-}: {
-  provider: string;
-  icon?: string;
-  label: string;
-}) {
+// provider YAML) and falls back to a generic plug glyph.
+function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   const [family, name] = (icon ?? "").split(":");
   if (family === "simpleicons") {
     const brand = SIMPLE_ICONS[name?.toLowerCase()];
@@ -159,10 +142,6 @@ function ProviderIcon({
       );
     }
   }
-  const asset =
-    (family === "asset" ? ASSET_ICONS[name?.toLowerCase()] : undefined) ??
-    ASSET_ICONS[provider.toLowerCase()];
-  if (asset) return <img src={asset} alt="" className="size-4" />;
   return <Plug className="size-4" />;
 }
 
@@ -173,6 +152,7 @@ export function CredentialsPage() {
 
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
+  const [vaultLoaded, setVaultLoaded] = useState(false);
   const [vaultSaving, setVaultSaving] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [editingEntry, setEditingEntry] = useState<VaultEntry | null>(null);
@@ -219,9 +199,8 @@ export function CredentialsPage() {
   >({});
   const [configSaving, setConfigSaving] = useState<Record<string, boolean>>({});
   const [hasExistingSecret, setHasExistingSecret] = useState<Record<string, boolean>>({});
-  // Scope override editing is a separate model from the credential inputs: the
-  // ScopeEditor mutates the working list frequently, and we keep the saved and
-  // default baselines to drive the diff bar and reset without a second fetch.
+  // Scope editing stays separate from credential inputs. The saved and default
+  // lists seed one checklist without another config fetch.
   const [scopeDraft, setScopeDraft] = useState<Record<string, string[]>>({});
   const [scopeMeta, setScopeMeta] = useState<
     Record<string, { saved: string[]; defaults: string[] }>
@@ -266,6 +245,7 @@ export function CredentialsPage() {
         setVaultEntries(results.flat());
       } finally {
         setVaultLoading(false);
+        setVaultLoaded(true);
       }
     },
     [isAdmin],
@@ -290,6 +270,7 @@ export function CredentialsPage() {
       ...fetched,
     ]);
   }, []);
+  const reloadEmailConfigMetadata = useCallback(() => reloadScope("user"), [reloadScope]);
 
   const loadAgents = useCallback(async () => {
     try {
@@ -335,7 +316,9 @@ export function CredentialsPage() {
     }));
     const saved = providerConfig.scopes ?? [];
     const defaults = providerConfig.default_scopes ?? [];
-    setScopeDraft((prev) => ({ ...prev, [provider]: saved }));
+    // Show every built-in scope, using the saved override as the checked state.
+    // Without an override, the built-in defaults start selected.
+    setScopeDraft((prev) => ({ ...prev, [provider]: buildOAuthScopeDraft(saved, defaults) }));
     setScopeMeta((prev) => ({ ...prev, [provider]: { saved, defaults } }));
   }, [sheetProvider, providerConfig]);
 
@@ -561,6 +544,16 @@ export function CredentialsPage() {
         showToast(t("credentials.oauth.clientIdRequired"), "error");
         return;
       }
+      const saved = scopeMeta[provider]?.saved ?? [];
+      const defaults = scopeMeta[provider]?.defaults ?? [];
+      const draft = scopeDraft[provider] ?? buildOAuthScopeDraft(saved, defaults);
+      if (draft.length === 0 && defaults.length > 0) {
+        showToast(t("credentials.oauth.scopes.emptyOverride"), "error");
+        return;
+      }
+      // The database uses an empty override to mean "all built-in defaults".
+      const scopes = sameScopeSet(draft, defaults) ? [] : draft;
+
       setConfigSaving((prev) => ({ ...prev, [provider]: true }));
       try {
         await setOAuthProviderConfig({
@@ -569,7 +562,7 @@ export function CredentialsPage() {
             client_id: vals.clientId,
             client_secret: vals.clientSecret,
             redirect_url: vals.redirectUrl || undefined,
-            scopes: scopeDraft[provider] ?? [],
+            scopes,
           },
           throwOnError: true,
         });
@@ -584,7 +577,15 @@ export function CredentialsPage() {
         setConfigSaving((prev) => ({ ...prev, [provider]: false }));
       }
     },
-    [configValues, scopeDraft, showToast, invalidateProviders, invalidateProviderConfig, t],
+    [
+      configValues,
+      scopeDraft,
+      scopeMeta,
+      showToast,
+      invalidateProviders,
+      invalidateProviderConfig,
+      t,
+    ],
   );
 
   const deleteProviderConfig = useCallback(
@@ -638,6 +639,9 @@ export function CredentialsPage() {
     [deleteProviderConfig, t],
   );
 
+  const hasStoredEmailConfig = vaultEntries.some(
+    (entry) => entry.scope === "user" && entry.name === "EMAIL_CONFIG",
+  );
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
   const agentName = (id?: string | null) =>
     (id && agents.find((a) => a.id === id)?.name) || id || "";
@@ -1015,8 +1019,10 @@ export function CredentialsPage() {
           </Field>
           <Field className="min-h-0 flex-1">
             <ScopeEditor
-              value={scopeDraft[sp.provider] ?? []}
-              saved={spMeta?.saved ?? []}
+              value={
+                scopeDraft[sp.provider] ??
+                buildOAuthScopeDraft(spMeta?.saved ?? [], spMeta?.defaults ?? [])
+              }
               defaults={spMeta?.defaults ?? []}
               onChange={(next) => setScopeDraft((prev) => ({ ...prev, [sp.provider]: next }))}
             />
@@ -1102,7 +1108,7 @@ export function CredentialsPage() {
                 return (
                   <SettingsRow
                     key={p.provider}
-                    icon={<ProviderIcon provider={p.provider} icon={p.icon} label={p.provider} />}
+                    icon={<ProviderIcon icon={p.icon} label={p.provider} />}
                     title={p.provider}
                     subtitle={subtitle}
                     status={statusBadge(p)}
@@ -1116,7 +1122,12 @@ export function CredentialsPage() {
           )}
         </SettingsSection>
 
-        <EmailAccountsPanel showToast={showToast} />
+        <EmailAccountsPanel
+          showToast={showToast}
+          hasStoredConfig={hasStoredEmailConfig}
+          vaultLoaded={vaultLoaded}
+          onConfigChanged={reloadEmailConfigMetadata}
+        />
 
         <SettingsSection
           icon={<KeyRound className="size-4" />}

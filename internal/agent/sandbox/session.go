@@ -124,11 +124,6 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 	}
 
 	fs := runnerFilesystemPolicy(paths, cfg)
-	if fs.TempDirHost != "" {
-		if err := pkgsandbox.EnsurePrivateDir(fs.TempDirHost); err != nil {
-			return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure user temp dir: %w", err)
-		}
-	}
 	// Mise tree prep, uniform across backends. EnsureMiseShims relinks the shared
 	// system-tree shims to relative targets so they resolve after STELLA_HOME is
 	// remapped (bwrap's /opt/stella) — otherwise a session started before the next

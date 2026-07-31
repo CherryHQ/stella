@@ -8,13 +8,14 @@ React SPA embedded by Go. TanStack Router owns client-side routing.
 
 Detailed conventions live in `content/docs/development/rules/`. Read the relevant rule before designing or changing anything in that domain:
 
-| Domain            | Rule file        | Read before                                                           |
-| ----------------- | ---------------- | --------------------------------------------------------------------- |
-| UI engineering    | `web-ui.md`      | Building or reviewing any UI (tokens, CossUI, overlays, forms, icons) |
-| Current theme     | `web-design.md`  | Any visual/design decision                                            |
-| Theming / restyle | `web-theming.md` | Changing the visual style or editing `src/tokens.css`                 |
-| Web UI testing    | `web-ui-test.md` | Verifying the UI with browser automation                              |
-| Marketing copy    | `marketing.md`   | Building a landing page, hero, or any marketing-facing surface        |
+| Domain            | Rule file          | Read before                                                           |
+| ----------------- | ------------------ | --------------------------------------------------------------------- |
+| UI engineering    | `web-ui.md`        | Building or reviewing any UI (tokens, CossUI, overlays, forms, icons) |
+| Current theme     | `web-design.md`    | Any visual/design decision                                            |
+| Theming / restyle | `web-theming.md`   | Changing the visual style or editing `src/tokens.css`                 |
+| Web UI testing    | `web-ui-test.md`   | Verifying the UI with browser automation                              |
+| Web perf testing  | `web-perf-test.md` | Measuring or optimizing web UI performance                            |
+| Marketing copy    | `marketing.md`     | Building a landing page, hero, or any marketing-facing surface        |
 
 Also: `.agents/skills/coss/SKILL.md` for CossUI imports, composition rules, and particle examples.
 

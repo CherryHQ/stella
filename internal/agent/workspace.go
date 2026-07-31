@@ -47,15 +47,20 @@ func GroupHomeDir(base, groupID string) string {
 	return filepath.Join(base, "users", "group-"+groupID)
 }
 
-// UserAgentDir returns the per-(user, agent) private area under a user home.
+// AgentDirInHome returns the per-agent private area under a principal home.
 // Projects owned by the agent live under this directory.
+func AgentDirInHome(home, agentID string) string {
+	return filepath.Join(home, "agents", agentID)
+}
+
+// UserAgentDir returns the per-(user, agent) private area under a user home.
 func UserAgentDir(base, userID, agentID string) string {
-	return filepath.Join(UserHomeDir(base, userID), "agents", agentID)
+	return AgentDirInHome(UserHomeDir(base, userID), agentID)
 }
 
 // GroupAgentDir returns the per-(group, agent) private area under a group home.
 func GroupAgentDir(base, groupID, agentID string) string {
-	return filepath.Join(GroupHomeDir(base, groupID), "agents", agentID)
+	return AgentDirInHome(GroupHomeDir(base, groupID), agentID)
 }
 
 // SetupAgentWorkspace ensures the user-independent agent directory exists.
@@ -71,15 +76,49 @@ func SetupAgentWorkspace(base, agentID string) (string, error) {
 	return dir, nil
 }
 
+// PrincipalWorkspace is the materialized on-disk layout for one user or group.
+// GroupID takes precedence because group sessions also carry UserID == GroupID.
+type PrincipalWorkspace struct {
+	HomeDir  string
+	DataDir  string
+	AgentDir string
+}
+
+// SetupPrincipalWorkspace selects the session principal, materializes its home,
+// and returns its shared and per-agent roots. A group is always selected before
+// a user so a group ID can never resolve to the same home as a user ID.
+func SetupPrincipalWorkspace(base, userID, groupID, agentID string) (PrincipalWorkspace, error) {
+	var home string
+	switch {
+	case groupID != "":
+		home = GroupHomeDir(base, groupID)
+	case userID != "":
+		home = UserHomeDir(base, userID)
+	default:
+		return PrincipalWorkspace{}, fmt.Errorf("principal ID must not be empty")
+	}
+	workspace := PrincipalWorkspace{
+		HomeDir:  home,
+		DataDir:  UserDataDir(home),
+		AgentDir: AgentDirInHome(home, agentID),
+	}
+	if _, err := setupHome(workspace.HomeDir, workspace.AgentDir, agentID); err != nil {
+		return PrincipalWorkspace{}, err
+	}
+	return workspace, nil
+}
+
 // SetupUserWorkspace ensures a user home and the per-(user, agent) area exist.
-// Creates the user home (.agents/skills, data, assets — shared by all the user's
-// agents) and the agent's private subdir (where its projects live). Returns the
-// user home directory, which is the sandbox workspace root and HOME.
+// Creates the shared data subtree (including .agents/skills and assets) and the
+// agent's private subdir (where its projects live). Returns the user home
+// directory, which is the shared principal root; the sandbox workspace root and
+// HOME are its per-agent subdirectory.
 func SetupUserWorkspace(base, userID, agentID string) (string, error) {
 	if userID == "" {
 		return "", fmt.Errorf("user ID must not be empty")
 	}
-	return setupHome(UserHomeDir(base, userID), UserAgentDir(base, userID, agentID), agentID)
+	workspace, err := SetupPrincipalWorkspace(base, userID, "", agentID)
+	return workspace.HomeDir, err
 }
 
 // SetupGroupWorkspace mirrors SetupUserWorkspace for a group account.
@@ -87,7 +126,8 @@ func SetupGroupWorkspace(base, groupID, agentID string) (string, error) {
 	if groupID == "" {
 		return "", fmt.Errorf("group ID must not be empty")
 	}
-	return setupHome(GroupHomeDir(base, groupID), GroupAgentDir(base, groupID, agentID), agentID)
+	workspace, err := SetupPrincipalWorkspace(base, "", groupID, agentID)
+	return workspace.HomeDir, err
 }
 
 // setupHome creates the shared home directories and, when agentDir is non-empty,
@@ -129,8 +169,8 @@ func UserDataDir(userHome string) string {
 
 // UserAssetsDir returns the per-user assets directory within a user home.
 // Uploaded files from all channels are stored here, shared across the user's
-// agents, under the user-data root mounted as /user (reachable in-sandbox at
-// $STELLA_USER_DIR/assets).
+// agents, under the user-data root mounted internally at /user (Agent-facing
+// access uses $STELLA_ASSETS_DIR).
 func UserAssetsDir(userHome string) string {
 	return filepath.Join(UserDataDir(userHome), "assets")
 }

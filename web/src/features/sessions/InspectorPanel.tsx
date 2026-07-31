@@ -55,7 +55,7 @@ export function InspectorPanel({
       <div className="flex h-12 shrink-0 items-end border-b border-border px-4">
         <div className="flex w-full min-w-0 gap-4 overflow-hidden text-xs">
           <InspectorTabButton active={tab === "files"} onClick={() => selectTab("files")}>
-            {t("sessions.inspector.workspace")}
+            {t("sessions.inspector.files")}
           </InspectorTabButton>
           <InspectorTabButton active={tab === "context"} onClick={() => selectTab("context")}>
             {t("sessions.inspector.context")}

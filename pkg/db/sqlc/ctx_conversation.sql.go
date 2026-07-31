@@ -12,6 +12,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const archiveActiveConversationBySessionID = `-- name: ArchiveActiveConversationBySessionID :execrows
+UPDATE ctx_conversation SET archived = true, updated_at = now()
+WHERE session_id = $1
+  AND user_id = $2
+  AND agent_id IS NOT DISTINCT FROM $3
+  AND kind = $4
+  AND project_id IS NOT DISTINCT FROM $5
+  AND archived = false
+`
+
+type ArchiveActiveConversationBySessionIDParams struct {
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
+	Kind      string      `json:"kind"`
+	ProjectID pgtype.Text `json:"project_id"`
+}
+
+// Compare-and-rotate half of a session rotation: the row is archived only while
+// it is still active and still matches the caller's expected binding, so a
+// rotation that lost a race reports zero rows instead of archiving the successor
+// another rotation just created. The UPDATE also holds the row lock for the rest
+// of the enclosing transaction, serializing concurrent rotations of one session.
+func (q *Queries) ArchiveActiveConversationBySessionID(ctx context.Context, arg ArchiveActiveConversationBySessionIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, archiveActiveConversationBySessionID,
+		arg.SessionID,
+		arg.UserID,
+		arg.AgentID,
+		arg.Kind,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, group_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
@@ -400,10 +437,14 @@ WHERE user_id = $1
   AND ($3 != 0 OR archived = false)
   AND ($4::boolean = false OR kind NOT IN ('task', 'delegate'))
   AND ($5::text IS NULL OR kind = $5)
-  AND ($6 = 0 OR project_id IS NULL)
-  AND ($7::text IS NULL OR project_id = $7)
+  -- Durable channel binding: chat-channel sessions are resolved by their channel
+  -- rather than by a key-derived session id, so a channel can rotate onto a fresh
+  -- session while its binding stays stable.
+  AND ($6::text IS NULL OR channel = $6)
+  AND ($7 = 0 OR project_id IS NULL)
+  AND ($8::text IS NULL OR project_id = $8)
 ORDER BY last_active DESC, session_id DESC
-LIMIT NULLIF($9, -1) OFFSET $8
+LIMIT NULLIF($10, -1) OFFSET $9
 `
 
 type ListConversationsFilteredParams struct {
@@ -412,6 +453,7 @@ type ListConversationsFilteredParams struct {
 	IncludeArchived interface{} `json:"include_archived"`
 	ExcludeInternal bool        `json:"exclude_internal"`
 	Kind            pgtype.Text `json:"kind"`
+	Channel         pgtype.Text `json:"channel"`
 	ProjectIDIsNull interface{} `json:"project_id_is_null"`
 	ProjectID       pgtype.Text `json:"project_id"`
 	Offset          int32       `json:"offset"`
@@ -425,6 +467,7 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 		arg.IncludeArchived,
 		arg.ExcludeInternal,
 		arg.Kind,
+		arg.Channel,
 		arg.ProjectIDIsNull,
 		arg.ProjectID,
 		arg.Offset,
@@ -518,17 +561,18 @@ SELECT
   ), 0)::bigint AS latest_seq
 FROM ctx_conversation c
 WHERE c.agent_id = $1
-  AND c.archived = false
+  AND ($2 != 0 OR c.archived = false)
   AND c.user_id IS NOT NULL AND c.user_id <> ''
-  AND ($2::text IS NULL OR c.kind = $2)
-  AND ($3 = 0 OR c.project_id IS NULL)
-  AND ($4::text IS NULL OR c.project_id = $4)
+  AND ($3::text IS NULL OR c.kind = $3)
+  AND ($4 = 0 OR c.project_id IS NULL)
+  AND ($5::text IS NULL OR c.project_id = $5)
 ORDER BY c.last_active DESC, c.session_id DESC
-LIMIT NULLIF($6, -1) OFFSET $5
+LIMIT NULLIF($7, -1) OFFSET $6
 `
 
 type ListConversationsForReviewFilteredParams struct {
 	AgentID         pgtype.Text `json:"agent_id"`
+	IncludeArchived interface{} `json:"include_archived"`
 	Kind            pgtype.Text `json:"kind"`
 	ProjectIDIsNull interface{} `json:"project_id_is_null"`
 	ProjectID       pgtype.Text `json:"project_id"`
@@ -543,9 +587,14 @@ type ListConversationsForReviewFilteredRow struct {
 
 // Ownerless legacy rows (NULL/empty user_id) are excluded: review is user-scoped
 // and such rows were never review candidates.
+// An archived session is still a candidate when include_archived is set: rotation
+// (/new) archives a session the moment the user starts a fresh one, and its last
+// messages would otherwise never be distilled. The caller drops archived rows
+// once their review watermarks reach latest_seq.
 func (q *Queries) ListConversationsForReviewFiltered(ctx context.Context, arg ListConversationsForReviewFilteredParams) ([]ListConversationsForReviewFilteredRow, error) {
 	rows, err := q.db.Query(ctx, listConversationsForReviewFiltered,
 		arg.AgentID,
+		arg.IncludeArchived,
 		arg.Kind,
 		arg.ProjectIDIsNull,
 		arg.ProjectID,
@@ -653,17 +702,25 @@ SET
     WHEN $4::text IS NOT NULL AND (project_id IS NULL OR project_id != $4) THEN $4
     ELSE project_id
   END,
+  -- Make a legacy row's durable channel binding stick: adopt the supplied channel
+  -- only when the stored one is blank (the column defaults to ''). Chat-channel
+  -- sessions are resolved by this binding, so a row written before the binding
+  -- existed has to acquire it once. Never overwrite an existing channel.
+  channel = CASE
+    WHEN channel = '' AND $5::text IS NOT NULL THEN $5
+    ELSE channel
+  END,
   -- Make a legacy canonical group row durable: adopt the supplied group_id only
   -- when the stored value is NULL. Never overwrite or clear an existing group_id.
   group_id = CASE
-    WHEN group_id IS NULL AND $5::uuid IS NOT NULL THEN $5
+    WHEN group_id IS NULL AND $6::uuid IS NOT NULL THEN $6
     ELSE group_id
   END,
   last_active = now(),
   updated_at = now()
-WHERE session_id = $6
-  AND user_id = $7
-  AND agent_id IS NOT DISTINCT FROM $8
+WHERE session_id = $7
+  AND user_id = $8
+  AND agent_id IS NOT DISTINCT FROM $9
 `
 
 type UpdateConversationInfoBySessionIDParams struct {
@@ -671,6 +728,7 @@ type UpdateConversationInfoBySessionIDParams struct {
 	Archived  bool        `json:"archived"`
 	Kind      pgtype.Text `json:"kind"`
 	ProjectID pgtype.Text `json:"project_id"`
+	Channel   pgtype.Text `json:"channel"`
 	GroupID   pgtype.Text `json:"group_id"`
 	SessionID string      `json:"session_id"`
 	UserID    pgtype.Text `json:"user_id"`
@@ -683,6 +741,7 @@ func (q *Queries) UpdateConversationInfoBySessionID(ctx context.Context, arg Upd
 		arg.Archived,
 		arg.Kind,
 		arg.ProjectID,
+		arg.Channel,
 		arg.GroupID,
 		arg.SessionID,
 		arg.UserID,
@@ -773,4 +832,64 @@ func (q *Queries) UpdateConversationTitleBySessionID(ctx context.Context, arg Up
 		arg.AgentID,
 	)
 	return err
+}
+
+const updateConversationTurnMetaBySessionID = `-- name: UpdateConversationTurnMetaBySessionID :execrows
+UPDATE ctx_conversation
+SET
+  title = CASE
+    WHEN (title IS NULL OR title = '') AND $1::text IS NOT NULL THEN $1
+    ELSE title
+  END,
+  channel = CASE
+    WHEN channel = '' AND $2::text IS NOT NULL THEN $2
+    ELSE channel
+  END,
+  group_id = CASE
+    WHEN group_id IS NULL AND $3::uuid IS NOT NULL THEN $3
+    ELSE group_id
+  END,
+  last_active = now(),
+  updated_at = now()
+WHERE session_id = $4
+  AND user_id = $5
+  AND agent_id IS NOT DISTINCT FROM $6
+  AND archived = false
+`
+
+type UpdateConversationTurnMetaBySessionIDParams struct {
+	Title     pgtype.Text `json:"title"`
+	Channel   pgtype.Text `json:"channel"`
+	GroupID   pgtype.Text `json:"group_id"`
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
+}
+
+// The turn path's only write to a conversation row, guarded on that row still
+// being active. A `/new` rotation can archive the
+// session after a turn resolved it — auto-compaction widens that window to
+// minutes — and UpdateConversationInfoBySessionID would replay the turn-start
+// snapshot's `archived = false` over it. A resurrected kind=chat row then wins
+// its binding's newest-match lookup and drags the chat back into a conversation
+// the user already left. So this statement never mentions `archived`, `kind`, or
+// `project_id`, and `archived = false` in the predicate makes the check and the
+// write one atomic step: zero rows means the chat has moved on.
+//
+// Title, channel, and group_id are adopted only into a blank stored value, so a
+// rename or a rebind that landed mid-turn is never clobbered by the turn's stale
+// snapshot either.
+func (q *Queries) UpdateConversationTurnMetaBySessionID(ctx context.Context, arg UpdateConversationTurnMetaBySessionIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateConversationTurnMetaBySessionID,
+		arg.Title,
+		arg.Channel,
+		arg.GroupID,
+		arg.SessionID,
+		arg.UserID,
+		arg.AgentID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

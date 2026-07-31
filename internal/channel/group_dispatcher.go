@@ -587,6 +587,13 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		agentName = a.Name
 	}
 	stream, err := d.chat(ownedCtx, claimed, message, state)
+	if errors.Is(err, errGroupTurnSuperseded) {
+		// The trigger was consumed by a session boundary while this row waited
+		// (restart after `/new`, or a redundant re-execution). Running it now
+		// would leak a pre-reset message into the successor session; there is
+		// nothing left to do but retire the row.
+		return d.completeDispatch(ctx, claimed)
+	}
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
@@ -776,14 +783,36 @@ func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDis
 	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, nil
 }
 
+// errGroupTurnSuperseded reports that a dispatch row's trigger message sits at
+// or below the agent's ingest cursor: a session rotation (or a completed later
+// turn) already consumed it. The row is finished work, not a failure.
+var errGroupTurnSuperseded = errors.New("group turn superseded by the agent's ingest cursor")
+
 func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 	if d.coord == nil {
 		return nil, errors.New("coordinator not configured")
 	}
+	// This runs inside the per-(agent,group) queue — the same queue that
+	// serializes `/new` — so the cursor read cannot interleave with a rotation:
+	// either the rotation committed first and its boundary is visible here, or
+	// this turn runs first and the rotation waits. Checking outside the queue
+	// would reopen exactly the race this closes: a dispatch row restarted after
+	// a rotation would run a pre-reset trigger against the successor session.
+	cursor, err := d.q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
+		GroupID:  row.GroupID,
+		Pipeline: memory.GroupIngestPipeline(row.AgentID),
+	})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// No cursor yet: nothing has been consumed, the turn runs.
+	case err != nil:
+		return nil, fmt.Errorf("read group ingest cursor: %w", err)
+	case message.Seq <= cursor.LastSeq:
+		return nil, errGroupTurnSuperseded
+	}
 	ctx = memory.WithGroupSeq(ctx, message.Seq)
 	content := groupMessageContentBlocks(message)
 	var stream *pkgchannel.ChatStream
-	var err error
 	if state.Platform == "web" {
 		stream, err = d.chatWeb(ctx, row, message)
 	} else {
@@ -828,28 +857,46 @@ func groupMessageChatContent(message sqlc.CtxGroupMessage) agent.MessageContent 
 	return message.Content
 }
 
+// resolveWebGroupChat builds the group chat binding for an agent in a Web group.
+// A persisted membership is not a standing execute grant: the authority is
+// minted fresh for this exact group/member and re-authorized here, so service
+// selection and the group authority live in exactly one place.
+func (d *GroupDispatcher) resolveWebGroupChat(ctx context.Context, groupID, agentID string) (*ResolvedChat, error) {
+	if d == nil || d.coord == nil || d.coord.agentAccess == nil {
+		return nil, ErrAgentAccessDenied
+	}
+	authority, err := agentaccess.GroupAgentAuthority(groupID, agentID)
+	if err != nil {
+		return nil, ErrAgentAccessDenied
+	}
+	if _, err := d.coord.agentAccess.Use(ctx, authority, agentID); err != nil {
+		return nil, ErrAgentAccessDenied
+	}
+	svc := d.coord.serviceManager.GetService(agentID)
+	if svc == nil {
+		return nil, fmt.Errorf("agent service %q not found", agentID)
+	}
+	return &ResolvedChat{
+		Service:    svc,
+		AgentID:    agentID,
+		SessionKey: agent.BuildGroupSessionKey(agentID, groupID),
+		Channel:    session.Channel("group:" + groupID),
+		GroupID:    groupID,
+		Authority:  authority,
+	}, nil
+}
+
 func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage) (*pkgchannel.ChatStream, error) {
 	speaker := webGroupSpeaker(message)
 	// A persisted group membership is not an execute grant forever. The human
 	// speaker is audit/personalization only; never borrow their private user
-	// authority to execute a group turn.
-	if d.coord == nil || d.coord.agentAccess == nil {
-		return nil, ErrAgentAccessDenied
-	}
-	authority, err := agentaccess.GroupAgentAuthority(row.GroupID, row.AgentID)
+	// authority to execute a group turn. resolveWebGroupChat mints and re-checks
+	// the group authority.
+	rc, err := d.resolveWebGroupChat(ctx, row.GroupID, row.AgentID)
 	if err != nil {
-		return nil, ErrAgentAccessDenied
+		return nil, err
 	}
-	if _, err := d.coord.agentAccess.Use(ctx, authority, row.AgentID); err != nil {
-		return nil, ErrAgentAccessDenied
-	}
-	svc := d.coord.serviceManager.GetService(row.AgentID)
-	if svc == nil {
-		return nil, fmt.Errorf("agent service %q not found", row.AgentID)
-	}
-	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
-	channelStr := "group:" + row.GroupID
-	info, err := svc.ResolveGroupChannelSession(ctx, authority, sessionKey, row.GroupID, row.AgentID, session.Channel(channelStr))
+	info, err := rc.Service.ResolveChatChannelSession(ctx, rc.chatChannelRequest())
 	if err != nil {
 		return nil, fmt.Errorf("resolve session: %w", err)
 	}
@@ -860,16 +907,19 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 			speaker.DisplayName = u.Name
 		}
 	}
-	events := svc.Chat(ctx, agent.ChatRequest{
+	// The Web group turn does not go through ResolvedChat.Chat, so it attaches
+	// the same durable chat-binding marker here; without it the group turn would
+	// look like a Web send to tools that require a channel-backed chat.
+	events := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
 		SessionID:      info.ID,
 		UserID:         row.GroupID,
 		AgentID:        row.AgentID,
 		Kind:           session.KindChat,
 		GroupID:        row.GroupID,
-		Channel:        session.Channel(channelStr),
+		Channel:        rc.Channel,
 		Message:        groupMessageChatContent(message),
 		CurrentSpeaker: speaker,
-		Authority:      authority,
+		Authority:      rc.Authority,
 	})
 	out := make(chan pkgchannel.Event, 100)
 	go func() {

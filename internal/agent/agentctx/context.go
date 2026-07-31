@@ -6,7 +6,90 @@ type (
 	systemOverrideKey struct{}
 	channelKey        struct{}
 	excludedToolsKey  struct{}
+	chatBindingKey    struct{}
+	turnKey           struct{}
 )
+
+// ChatBinding describes the durable channel binding a chat turn entered
+// through. Only the chat channel adapters attach it, so its absence is the
+// signal that a turn is not channel-backed: Web/API sends, webhooks, and
+// scheduler/task/delegate runs all leave it unset and therefore fail closed in
+// consumers that require a durable chat.
+//
+// It exists because a session row cannot answer the question. The Web UI can
+// open the very same main session a DM is pinned to (`POST /sessions` with
+// kind=main), and `ctx_conversation.channel` records whichever surface created
+// the row first, so neither the session id nor its channel distinguishes a
+// Telegram turn from a browser tab on the same session. The entry adapter does
+// know, and this is how it says so.
+type ChatBinding struct {
+	// Main marks a DM pinned to its user's singleton main session. Every other
+	// chat (group, private channel) resolves through the channel binding below.
+	Main bool
+	// Channel is the durable session channel of a non-main chat binding.
+	Channel string
+	// SessionKey is the chat's derived key, kept for legacy key-as-id lookups.
+	SessionKey string
+}
+
+// WithChatBinding returns a child context carrying the durable chat binding
+// this turn entered through.
+func WithChatBinding(ctx context.Context, binding ChatBinding) context.Context {
+	return context.WithValue(ctx, chatBindingKey{}, binding)
+}
+
+// clearedChatBinding shadows an inherited ChatBinding. The key must stay
+// occupied — deleting a context value is impossible — so it holds a value of a
+// type no reader can assert to, which makes ChatBindingFromContext answer false
+// exactly as it does for a context that never carried a binding.
+type clearedChatBinding struct{}
+
+// WithoutChatBinding returns a child context with no chat binding, whatever the
+// parent carried.
+//
+// A delegate (or any other nested run) inherits its parent's context, and the
+// parent may be a Telegram or group turn. The binding is the authority to rotate
+// and compact THAT chat's session, so inheriting it would let a delegate — whose
+// own turn nobody is watching and whose task text can come from a tool result —
+// reset the conversation that spawned it.
+func WithoutChatBinding(ctx context.Context) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	if _, ok := ChatBindingFromContext(ctx); !ok {
+		return ctx
+	}
+	return context.WithValue(ctx, chatBindingKey{}, clearedChatBinding{})
+}
+
+// ChatBindingFromContext returns the durable chat binding of the current turn.
+// The bool is false for any turn that did not enter through a chat channel.
+func ChatBindingFromContext(ctx context.Context) (ChatBinding, bool) {
+	if ctx == nil {
+		return ChatBinding{}, false
+	}
+	binding, ok := ctx.Value(chatBindingKey{}).(ChatBinding)
+	return binding, ok
+}
+
+// WithTurnID returns a child context carrying an identifier unique to one chat
+// turn. The runtime mints it once per Chat call; consumers use it only to tell
+// two turns apart, never to order them.
+func WithTurnID(ctx context.Context, turnID string) context.Context {
+	if turnID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, turnKey{}, turnID)
+}
+
+// TurnIDFromContext returns the current turn's identifier, or "" outside a turn.
+func TurnIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	turnID, _ := ctx.Value(turnKey{}).(string)
+	return turnID
+}
 
 // WithSystemOverride returns a child context that carries a per-run system prompt override.
 func WithSystemOverride(ctx context.Context, system string) context.Context {

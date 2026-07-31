@@ -2,6 +2,7 @@ package docker_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -43,7 +44,20 @@ func TestSessionContract(t *testing.T) {
 			t.Skip("docker daemon not reachable; skipping DockerFactory contract test")
 		}
 		dockerPreflightForTest(t, ctx)
-		factory, err := dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage})
+		stellaHome, err := os.MkdirTemp(".", "docker-contract-stella-home-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		stellaHome, err = filepath.Abs(stellaHome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(stellaHome) })
+		factory, err := dockerplugin.NewFactory(dockerplugin.Config{
+			Image:       dockerContractImage,
+			StellaHome:  stellaHome,
+			RuntimeMode: dockerplugin.DockerSandboxModeHost,
+		})
 		if err != nil {
 			t.Fatalf("NewFactory: %v", err)
 		}
@@ -53,11 +67,19 @@ func TestSessionContract(t *testing.T) {
 
 func testSessionContract(t *testing.T, factory sandbox.Factory) {
 	ctx := context.Background()
-	tempDir := t.TempDir()
+	workspace, err := os.MkdirTemp(".", "docker-contract-workspace-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err = filepath.Abs(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(workspace) })
 
 	policy := sandbox.Policy{
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkingDir: tempDir,
+			WorkingDir: workspace,
 		},
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkDisabled,
@@ -151,10 +173,69 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		}
 	})
 
+	t.Run("TempDirSharedByFileToolsAndExec", func(t *testing.T) {
+		session, err := factory.CreateSession(ctx, policy)
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		defer func() { _ = session.Close() }()
+
+		fromTool, err := session.ResolveWritePath("/tmp/from-tool.txt")
+		if err != nil {
+			t.Fatalf("ResolveWritePath(tool file): %v", err)
+		}
+		if err := os.WriteFile(fromTool, []byte("from-tool"), 0o600); err != nil {
+			t.Fatalf("write tool file: %v", err)
+		}
+		got, err := session.Exec(ctx, `cat "$TMPDIR/from-tool.txt" && printf from-exec-overwrite > "$TMPDIR/from-tool.txt"`, sandbox.ExecOptions{})
+		if err != nil || got.ExitCode != 0 || got.Stdout != "from-tool" {
+			t.Fatalf("exec read/write tool file = %+v, %v", got, err)
+		}
+		data, err := os.ReadFile(fromTool)
+		if err != nil || string(data) != "from-exec-overwrite" {
+			t.Fatalf("file tool read exec overwrite = %q, %v", data, err)
+		}
+
+		got, err = session.Exec(ctx, `printf from-exec > "$TMPDIR/from-exec.txt"`, sandbox.ExecOptions{})
+		if err != nil || got.ExitCode != 0 {
+			t.Fatalf("exec write temp file = %+v, %v", got, err)
+		}
+		fromExec, err := session.ResolvePath("/tmp/from-exec.txt")
+		if err != nil {
+			t.Fatalf("ResolvePath(exec file): %v", err)
+		}
+		data, err = os.ReadFile(fromExec)
+		if err != nil || string(data) != "from-exec" {
+			t.Fatalf("file tool read exec file = %q, %v", data, err)
+		}
+		if fromExec == fromTool {
+			t.Fatalf("distinct sandbox paths resolved to the same host path %q", fromExec)
+		}
+		if err := os.WriteFile(fromExec, []byte("from-tool-overwrite"), 0o600); err != nil {
+			t.Fatalf("file tool overwrite exec file: %v", err)
+		}
+		data, err = os.ReadFile(fromExec)
+		if err != nil || string(data) != "from-tool-overwrite" {
+			t.Fatalf("host did not observe tool overwrite = %q, %v", data, err)
+		}
+		// Docker Desktop may need a brief propagation window for host overwrites.
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			got, err = session.Exec(ctx, `cat "$TMPDIR/from-exec.txt"`, sandbox.ExecOptions{})
+			if err == nil && got.ExitCode == 0 && got.Stdout == "from-tool-overwrite" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("exec read tool overwrite = %+v, %v", got, err)
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	})
+
 	t.Run("Exec", func(t *testing.T) {
 		session, err := factory.CreateSession(ctx, sandbox.Policy{
 			Filesystem: sandbox.FilesystemPolicy{
-				WorkingDir: tempDir,
+				WorkingDir: workspace,
 			},
 			Network: sandbox.NetworkPolicy{
 				Mode:    sandbox.NetworkAllowAll,

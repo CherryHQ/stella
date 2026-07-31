@@ -85,13 +85,14 @@ type WorkspaceReadInput struct {
 }
 
 type WorkspaceReadResult struct {
-	Path         string `json:"path"`
-	Content      string `json:"content,omitempty"`
-	Language     string `json:"language,omitempty"`
-	Raw          bool   `json:"-"`
-	RawName      string `json:"-"`
-	RawMediaType string `json:"-"`
-	RawContent   []byte `json:"-"`
+	Path         string    `json:"path"`
+	Content      string    `json:"content,omitempty"`
+	Language     string    `json:"language,omitempty"`
+	Raw          bool      `json:"-"`
+	RawName      string    `json:"-"`
+	RawMediaType string    `json:"-"`
+	RawContent   []byte    `json:"-"`
+	RawModTime   time.Time `json:"-"`
 }
 
 type WorkspaceWriteInput struct {
@@ -252,7 +253,7 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		}
 		return WorkspaceReadResult{
 			Path: path, Raw: true, RawName: filepath.Base(path),
-			RawMediaType: mediaType, RawContent: data,
+			RawMediaType: mediaType, RawContent: data, RawModTime: info.ModTime(),
 		}, nil
 	}
 	probe := data
@@ -470,6 +471,11 @@ func collectWorkspaceInfo(root string, showHidden bool, listPath string, depth i
 	}
 	defer func() { _ = rootFS.Close() }()
 	if stat, statErr := rootFS.Stat(listName); statErr != nil {
+		// A listed subdirectory can vanish between renders (deleted by the
+		// agent or a peer session); that is a 404, not a server fault.
+		if os.IsNotExist(statErr) {
+			return WorkspaceInfo{}, ErrNotFound
+		}
 		return WorkspaceInfo{}, statErr
 	} else if !stat.IsDir() {
 		return WorkspaceInfo{}, ErrInvalid
