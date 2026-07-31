@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import type { ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
@@ -323,22 +323,32 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
   }
   if (cmdPreview.length > 200) cmdPreview = cmdPreview.slice(0, 200) + "…";
 
-  const inputText = toolArgText(args.command ?? args.input ?? args.path ?? args.file_path ?? args);
-
-  // The runner appends a trailing "[exit:N | Xms]" line; lift it into the
-  // status footer instead of leaving it in the output body.
-  let outputText = block.result?.content ?? "";
-  let duration = "";
-  let exitOk = !block.result?.is_error;
-  const exitMatch = outputText.match(/\n?\[exit:(\d+) \| (\d+ms)\]\s*$/);
-  if (exitMatch) {
-    outputText = outputText.slice(0, exitMatch.index).replace(/\s+$/, "");
-    duration = exitMatch[2];
-    exitOk = exitMatch[1] === "0" && !block.result?.is_error;
-  }
+  // Input/output derivation (JSON.stringify of args, regex over the full tool
+  // output) is only needed once the row is expanded; collapsed rows on the
+  // streaming path must stay free of per-render serialization work.
+  const details = useMemo(() => {
+    if (!open) return null;
+    const inputText = toolArgText(
+      args.command ?? args.input ?? args.path ?? args.file_path ?? args,
+    );
+    // The runner appends a trailing "[exit:N | Xms]" line; lift it into the
+    // status footer instead of leaving it in the output body.
+    let outputText = block.result?.content ?? "";
+    let duration = "";
+    let exitOk = !block.result?.is_error;
+    const exitMatch = outputText.match(/\n?\[exit:(\d+) \| (\d+ms)\]\s*$/);
+    if (exitMatch) {
+      outputText = outputText.slice(0, exitMatch.index).replace(/\s+$/, "");
+      duration = exitMatch[2];
+      exitOk = exitMatch[1] === "0" && !block.result?.is_error;
+    }
+    return { inputText, outputText, duration, exitOk };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- args derives from block
+  }, [open, block]);
 
   const onCopy = () => {
-    void navigator.clipboard?.writeText(inputText);
+    if (!details) return;
+    void navigator.clipboard?.writeText(details.inputText);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
@@ -374,16 +384,16 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
             </button>
           </div>
           <pre className="whitespace-pre-wrap break-all leading-relaxed text-foreground/90">
-            {isBash ? `$ ${inputText}` : inputText}
+            {isBash ? `$ ${details!.inputText}` : details!.inputText}
           </pre>
-          {block.result && outputText && (
+          {block.result && details!.outputText && (
             <pre
               className={cn(
                 "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
                 block.result.is_error ? "text-destructive/80" : "text-muted-foreground/80",
               )}
             >
-              {outputText}
+              {details!.outputText}
             </pre>
           )}
           {block.result && (
@@ -393,8 +403,8 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
                 block.result.is_error && "text-destructive/70",
               )}
             >
-              {exitOk ? "✓ Success" : "✕ Failed"}
-              {duration && ` · ${duration}`}
+              {details!.exitOk ? "✓ Success" : "✕ Failed"}
+              {details!.duration && ` · ${details!.duration}`}
             </div>
           )}
         </div>

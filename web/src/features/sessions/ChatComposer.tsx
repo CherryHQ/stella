@@ -21,9 +21,15 @@ export const BUILTIN_COMMANDS: ComposerSkill[] = [
 ];
 
 interface Props {
-  value: string;
-  onChange: (value: string) => void;
-  onSend: (overrideText?: string) => void;
+  /**
+   * Controlled mode: pass value + onChange when the parent must observe or
+   * rewrite the draft (e.g. GroupChat's @-mention insertion). Omit both for
+   * uncontrolled mode, where the draft lives here — keystrokes then re-render
+   * only the composer, not the parent page and its transcript.
+   */
+  value?: string;
+  onChange?: (value: string) => void;
+  onSend: (text: string) => void;
   onStop?: () => void;
   isStreaming: boolean;
   disabled?: boolean;
@@ -37,7 +43,7 @@ interface Props {
 }
 
 export function ChatComposer({
-  value,
+  value: valueProp,
   onChange,
   onSend,
   onStop,
@@ -58,6 +64,16 @@ export function ChatComposer({
 
   const [selectedSkills, setSelectedSkills] = useState<ComposerSkill[]>([]);
 
+  const [draft, setDraft] = useState("");
+  const value = valueProp ?? draft;
+  const setValue = useCallback(
+    (v: string) => {
+      if (valueProp === undefined) setDraft(v);
+      onChange?.(v);
+    },
+    [valueProp, onChange],
+  );
+
   const hasAttachments = attachments && attachments.length > 0;
   const canSend =
     (value.trim() ||
@@ -66,16 +82,16 @@ export function ChatComposer({
     !attachments?.some((a) => a.uploading);
 
   const handleSend = useCallback(() => {
+    if (isStreaming || disabled || !canSend) return;
+    let full = value;
     if (selectedSkills.length > 0) {
       const prefix = selectedSkills.map((s) => `/${s.name}`).join(" ");
-      const full = value.trim() ? `${prefix} ${value}` : prefix;
+      full = value.trim() ? `${prefix} ${value}` : prefix;
       setSelectedSkills([]);
-      onChange("");
-      onSend(full);
-    } else {
-      onSend();
     }
-  }, [selectedSkills, value, onChange, onSend]);
+    setValue("");
+    onSend(full);
+  }, [isStreaming, disabled, canSend, selectedSkills, value, setValue, onSend]);
 
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
@@ -98,10 +114,10 @@ export function ChatComposer({
 
   const handleChange = useCallback(
     (val: string) => {
-      onChange(val);
+      setValue(val);
       detectSlash(val);
     },
-    [onChange, detectSlash],
+    [setValue, detectSlash],
   );
 
   const slashCandidates = useMemo(() => {
@@ -133,12 +149,12 @@ export function ChatComposer({
       if (slashIdx < 0) return;
 
       const newVal = (before.slice(0, slashIdx) + after).trim();
-      onChange(newVal);
+      setValue(newVal);
       setSelectedSkills((prev) => [...prev, skill]);
       setSlashQuery(null);
       textarea.focus();
     },
-    [value, onChange, taRef],
+    [value, setValue, taRef],
   );
 
   const removeSkill = useCallback((name: string) => {

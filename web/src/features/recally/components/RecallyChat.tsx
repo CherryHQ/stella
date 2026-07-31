@@ -128,6 +128,8 @@ export function RecallyChat({ articleId, onClose }: Props) {
   } = useChat({
     id: activeSessionId ?? "recally-chat-empty",
     transport,
+    // Batch SSE deltas: without this every token re-renders the transcript.
+    experimental_throttle: 50,
     onError: (err) => console.error("[recally chat]", err),
   });
 

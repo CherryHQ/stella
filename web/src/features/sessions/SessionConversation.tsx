@@ -59,6 +59,8 @@ export function SessionConversation({
   } = useChat({
     id: `conv-${sessionId}`,
     transport,
+    // Batch SSE deltas: without this every token re-renders the transcript.
+    experimental_throttle: 50,
     onError: (err) => console.error("[session conversation chat]", err),
   });
 

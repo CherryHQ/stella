@@ -48,6 +48,9 @@ export function replaceUUIDMentions(text: string, agentNames?: Map<string, strin
 
 export function extractUserText(msg: { content?: string }): string {
   const raw = msg.content ?? "";
+  // Fast path: plain text (the common case). Without this, every render of
+  // every user bubble throws and catches a JSON.parse error.
+  if (!raw.startsWith("[")) return raw;
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (Array.isArray(parsed)) {

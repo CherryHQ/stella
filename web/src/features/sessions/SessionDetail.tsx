@@ -69,7 +69,6 @@ export function SessionDetail({
   contextTitle,
 }: Props) {
   const { t } = useI18n();
-  const [userInput, setUserInput] = useState("");
   const { toasts, showToast } = useToast();
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -127,6 +126,8 @@ export function SessionDetail({
   } = useChat({
     id: session?.id ?? "empty",
     transport,
+    // Batch SSE deltas: without this every token re-renders the transcript.
+    experimental_throttle: 50,
     onError: (err) => console.error("[session chat]", err),
   });
 
@@ -295,7 +296,24 @@ export function SessionDetail({
     messagesQuery.fetchNextPage,
   ]);
 
-  // Auto-scroll to bottom as new messages stream in (if the user is already near the bottom)
+  // Auto-scroll to bottom as new messages stream in (if the user is already
+  // near the bottom). Keyed on length + tail content size rather than the
+  // array identity: the messages array is rebuilt on every stream update, and
+  // reading scrollHeight forces a reflow of the whole transcript.
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageSize = lastMessage
+    ? (lastMessage.content?.length ?? 0) +
+      (lastMessage.blocks?.reduce(
+        (sum, b) =>
+          sum +
+          (b.type === "text"
+            ? b.text.length
+            : b.type === "thinking"
+              ? (b.thinking?.length ?? 0)
+              : 1),
+        0,
+      ) ?? 0)
+    : 0;
   useEffect(() => {
     if (!transcriptRef.current) return;
     const el = transcriptRef.current;
@@ -304,7 +322,7 @@ export function SessionDetail({
         el.scrollTop = el.scrollHeight;
       });
     }
-  }, [messages]);
+  }, [messages.length, lastMessageSize]);
 
   const loadOlderMessages = useCallback(async () => {
     // Compacted sessions have no older pages to load: everything before the
@@ -336,13 +354,11 @@ export function SessionDetail({
   }, [loadOlderMessages]);
 
   const sendMessage = useCallback(
-    async (overrideText?: string) => {
-      const input = overrideText ?? userInput;
+    async (input: string) => {
       if ((!input.trim() && attachments.length === 0) || isStreaming || !session) return;
       if (attachments.some((a) => a.uploading)) return;
 
       const text = buildMessageText(input);
-      setUserInput("");
       clearAttachments();
       shouldAutoScrollRef.current = true;
       setTimeout(() => {
@@ -352,15 +368,7 @@ export function SessionDetail({
 
       void chatSendMessage({ text });
     },
-    [
-      userInput,
-      isStreaming,
-      session,
-      attachments,
-      buildMessageText,
-      clearAttachments,
-      chatSendMessage,
-    ],
+    [isStreaming, session, attachments, buildMessageText, clearAttachments, chatSendMessage],
   );
 
   const exportSessionAs = useCallback(
@@ -566,8 +574,6 @@ export function SessionDetail({
         composer={
           session.user_id === currentUserID ? (
             <ChatComposer
-              value={userInput}
-              onChange={setUserInput}
               onSend={(text) => void sendMessage(text)}
               onStop={() => chatStop()}
               isStreaming={isStreaming}
