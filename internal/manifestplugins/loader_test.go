@@ -31,8 +31,8 @@ func TestLoadBuiltinXberg(t *testing.T) {
 			t.Fatalf("len(Binaries) = %d, want 1", len(p.Binaries))
 		}
 		b := p.Binaries[0]
-		if b.Name != "xberg" || b.Tool != "github:xberg-io/xberg" || b.Version != "1.0.0-rc.29" {
-			t.Fatalf("binary = %+v, want Xberg v1.0.0-rc.29", b)
+		if b.Name != "xberg" || b.Tool != "github:xberg-io/xberg" || b.Version != "1.0.4" {
+			t.Fatalf("binary = %+v, want Xberg v1.0.4", b)
 		}
 		platforms, ok := b.Options["platforms"].(map[string]any)
 		if !ok {
