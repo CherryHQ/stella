@@ -64,7 +64,9 @@ func TestRuntimeMiseEnv_FallbackWhenNoUser(t *testing.T) {
 	if env["MISE_NOT_FOUND_AUTO_INSTALL"] != "false" {
 		t.Fatalf("auto-install must stay off without a writable tree, got %q", env["MISE_NOT_FOUND_AUTO_INSTALL"])
 	}
-	if env["MISE_STATE_DIR"] != "/tmp/mise-state" {
-		t.Fatalf("state should redirect to /tmp without a writable tree, got %q", env["MISE_STATE_DIR"])
+	for _, key := range []string{"MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_STATE_DIR"} {
+		if value, ok := env[key]; ok {
+			t.Fatalf("%s should follow sandbox XDG roots without a writable tree, got %q", key, value)
+		}
 	}
 }

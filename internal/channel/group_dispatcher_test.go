@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/memory"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -613,6 +614,47 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 1 {
 		t.Fatalf("agent messages = %d, want one successful retry append", got)
+	}
+}
+
+// TestGroupDispatcherSupersededTriggerCompletesWithoutChat pins the restart
+// half of the group `/new` boundary: a dispatch row whose trigger seq sits at
+// or below the agent's ingest cursor — a rotation consumed it while the row
+// waited — retires as completed instead of running a pre-reset turn against
+// the successor session.
+func TestGroupDispatcherSupersededTriggerCompletesWithoutChat(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.chat = fx.d.chatDispatch // the cursor guard lives on the real chat path
+	publisher := &recordingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", publisher)
+	if err := fx.q.UpsertIngestCursor(context.Background(), sqlc.UpsertIngestCursorParams{
+		GroupID:  "11111111-1111-1111-1111-111111111111",
+		Pipeline: memory.GroupIngestPipeline("agent-1"),
+		LastSeq:  fx.message.Seq,
+	}); err != nil {
+		t.Fatalf("seed rotation boundary: %v", err)
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000001",
+		"agent-1", "11111111-1111-1111-1111-111111111111", "pending", pgtype.Timestamptz{})
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
+		t.Fatalf("ExecuteDispatch: %v", err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get dispatch after execute: %v", err)
+	}
+	if dispatch.Status != "completed" {
+		t.Fatalf("dispatch status = %q, want completed retirement", dispatch.Status)
+	}
+	if publisher.calls != 0 {
+		t.Fatalf("publisher calls = %d, want the superseded turn never published", publisher.calls)
+	}
+	if got := countAgentGroupMessages(t, fx.db); got != 0 {
+		t.Fatalf("agent messages = %d, want the superseded turn never ran", got)
 	}
 }
 

@@ -44,7 +44,7 @@ internal/server/
 ├── plugins.go          # Plugin management API
 ├── users.go            # User management API
 ├── auth.go             # Login/logout/registration + GetMe
-├── oauth.go            # OAuth flow (GitHub, Lark, etc.)
+├── oauth.go            # OAuth flow for manifest providers
 ├── vault.go            # Per-user encrypted secrets API
 └── server_test.go      # API + page route tests
 ```

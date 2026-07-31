@@ -17,7 +17,7 @@ func writeDefinition() pkgtools.Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path":    map[string]any{"type": "string", "description": "Path to the file to create or overwrite."},
+				"path":    map[string]any{"type": "string", "description": "Relative paths are working/project files. Supported roots: $HOME, $STELLA_ASSETS_DIR, and $TMPDIR. Default work to $HOME; save final user deliverables in $STELLA_ASSETS_DIR when available."},
 				"content": map[string]any{"type": "string", "description": "The full content to write to the file."},
 			},
 			"required": []string{"path", "content"},

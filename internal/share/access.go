@@ -69,11 +69,9 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 		return Created{}, fmt.Errorf("path is required for artifact shares: %w", ErrInvalidInput)
 	}
 
-	rel := path
-	if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountUserData+"/"); ok {
-		scope, rel = "user", stripped
-	} else if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountWorkspace+"/"); ok {
-		scope, rel = "agent", stripped
+	scope, rel, err := normalizeArtifactPath(path, scope)
+	if err != nil {
+		return Created{}, err
 	}
 	ident := authz.Identity{UserID: a.userID, AgentID: requestedAgentID, AgentScoped: a.agentScoped}
 	root, err := a.svc.sessionWorkspaceRoot(ctx, ident, sessionID, scope)
@@ -101,7 +99,7 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 	if fi.Size() > MaxShareSize {
 		return Created{}, ErrTooLarge
 	}
-	mt := ArtifactMediaType(path)
+	mt := ArtifactMediaType(rel)
 	if mt == "" {
 		return Created{}, ErrUnsupportedType
 	}
@@ -109,7 +107,39 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 	if err != nil {
 		return Created{}, err
 	}
-	return a.svc.create(ctx, a.userID, filepath.Base(path), mt, data, expiresIn)
+	return a.svc.create(ctx, a.userID, filepath.Base(rel), mt, data, expiresIn)
+}
+
+// normalizeArtifactPath maps model-facing semantic roots to the durable share
+// scopes before os.Root confinement. Backend mount literals remain accepted for
+// compatibility, but are never suggested to models.
+func normalizeArtifactPath(path, scope string) (string, string, error) {
+	name, suffix, hasVariable, err := pkgsandbox.SplitLeadingPathVariable(path)
+	if err != nil {
+		return "", "", fmt.Errorf("artifact path variable is malformed: %w", ErrInvalidArtifactPath)
+	}
+	if hasVariable {
+		rel, err := safePathName(strings.TrimPrefix(filepath.FromSlash(suffix), string(filepath.Separator)))
+		if err != nil {
+			return "", "", fmt.Errorf("artifact path escapes its semantic root: %w", ErrInvalidArtifactPath)
+		}
+		switch name {
+		case pkgsandbox.EnvHome:
+			return "agent", rel, nil
+		case pkgsandbox.EnvStellaAssetsDir:
+			return "user", filepath.Join("assets", rel), nil
+		default:
+			return "", "", fmt.Errorf("artifact path variable %q is unsupported: %w", "$"+name, ErrInvalidArtifactPath)
+		}
+	}
+
+	if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountUserData+"/"); ok {
+		return "user", stripped, nil
+	}
+	if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountWorkspace+"/"); ok {
+		return "agent", stripped, nil
+	}
+	return scope, path, nil
 }
 
 // ShareArticle publishes a rendered Recally article owned by the acting user.

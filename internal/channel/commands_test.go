@@ -74,12 +74,15 @@ func TestHandleCommandModel(t *testing.T) {
 }
 
 func TestWelcomeMessageIncludesNaturalLanguagePhrases(t *testing.T) {
-	// Verify the WelcomeMessage explains natural-language shortcuts
-	if !strings.Contains(pkgchannel.WelcomeMessage, "new session") {
-		t.Error("WelcomeMessage should mention 'new session' as natural-language phrase")
+	// Verify the WelcomeMessage explains natural-language shortcuts. `/new` is
+	// deliberately absent from them: an inferred "new session" is never executed
+	// as a reset, so advertising it as a shortcut would promise a reset that
+	// never happens.
+	if strings.Contains(pkgchannel.WelcomeMessage, "新会话") {
+		t.Error("WelcomeMessage must not advertise a natural-language reset; only a typed /new resets")
 	}
-	if !strings.Contains(pkgchannel.WelcomeMessage, "新会话") {
-		t.Error("WelcomeMessage should mention Chinese examples like '新会话'")
+	if !strings.Contains(pkgchannel.WelcomeMessage, "压缩会话") {
+		t.Error("WelcomeMessage should mention Chinese compact examples like '压缩会话'")
 	}
 	if !strings.Contains(pkgchannel.WelcomeMessage, "取消") {
 		t.Error("WelcomeMessage should mention Chinese abort examples like '取消'")
@@ -114,6 +117,24 @@ func (a compactSessionAccess) Create(ctx context.Context, userID, agentID, proje
 
 func (a compactSessionAccess) ResolveMain(ctx context.Context, userID, agentID string) (session.Info, error) {
 	return a.reg.ResolveMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID})
+}
+
+func (a compactSessionAccess) RotateMain(ctx context.Context, userID, agentID, expectedSessionID string) (session.Info, error) {
+	if a.useErr != nil {
+		return session.Info{}, a.useErr
+	}
+	return a.reg.RotateMain(ctx, session.MainRequest{UserID: userID, AgentID: agentID, ExpectedSessionID: expectedSessionID})
+}
+
+func (a compactSessionAccess) ResolveChatChannel(ctx context.Context, req session.ChannelRequest) (session.Info, error) {
+	return a.reg.ResolveChatChannel(ctx, req)
+}
+
+func (a compactSessionAccess) RotateChannel(ctx context.Context, req session.ChannelRequest) (session.Info, error) {
+	if a.useErr != nil {
+		return session.Info{}, a.useErr
+	}
+	return a.reg.RotateChannel(ctx, req)
 }
 
 func (a compactSessionAccess) Use(ctx context.Context, agentID, sessionID string) (session.Info, error) {

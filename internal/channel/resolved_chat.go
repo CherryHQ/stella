@@ -7,6 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -47,33 +48,99 @@ func (rc *ResolvedChat) sessionUserID() string {
 	return rc.User.ID
 }
 
+// usesMainSession reports whether this chat is pinned to the user's singleton
+// main session — a linked user talking on their private channel. Every other
+// chat (group, unlinked private channel) is pinned to a key-derived session ID.
+func (rc *ResolvedChat) usesMainSession() bool {
+	return rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:")
+}
+
+// queueKey is the per-session FIFO boundary for turns, `/new` and `/abort`.
+// It must match the session the chat resolves to, not the channel instance the
+// message arrived on: a linked user's channels all share one main session
+// (ResolveMain ignores the channel context baked into SessionKey), so they
+// must share one queue slot too — otherwise a `/new` on one channel skips past
+// a turn still running on another and rotates the session underneath it.
+// Group and unlinked private chats keep SessionKey, which for them IS the
+// session binding.
+func (rc *ResolvedChat) queueKey() string {
+	if rc.usesMainSession() {
+		return rc.AgentID + ":user:" + rc.User.ID
+	}
+	return rc.SessionKey
+}
+
+// chatChannelRequest describes this chat's durable session binding. It is used
+// by every chat that is not pinned to the user's singleton main session: group
+// chats and private channel chats resolve (and rotate) by binding rather than by
+// their derived session key.
+func (rc *ResolvedChat) chatChannelRequest() agent.ChatChannelRequest {
+	return agent.ChatChannelRequest{
+		Authority:  rc.Authority,
+		UserID:     rc.sessionUserID(),
+		GroupID:    rc.GroupID,
+		AgentID:    rc.AgentID,
+		Channel:    rc.Channel,
+		SessionKey: rc.SessionKey,
+	}
+}
+
+// withChatBinding marks a turn's context as backed by this durable chat
+// binding. It is the sole entry gate for work that may only run inside a chat
+// a user can keep talking in: a Web/API send, a webhook, or a scheduler run
+// never passes through here, so it never carries the marker.
+//
+// A session row cannot stand in for this — the Web UI can open the same main
+// session a DM is pinned to — so the adapter that knows has to say so.
+func (rc *ResolvedChat) withChatBinding(ctx context.Context) context.Context {
+	return agentctx.WithChatBinding(ctx, agentctx.ChatBinding{
+		Main:       rc.usesMainSession(),
+		Channel:    string(rc.Channel),
+		SessionKey: rc.SessionKey,
+	})
+}
+
 func (rc *ResolvedChat) ResolveSession(ctx context.Context) (session.Info, error) {
-	if rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:") {
+	if rc.usesMainSession() {
 		return rc.Service.ResolveMainSession(ctx, rc.Authority, rc.User.ID, rc.AgentID)
 	}
-	if rc.GroupID != "" {
-		return rc.Service.ResolveGroupChannelSession(ctx, rc.Authority, rc.SessionKey, rc.GroupID, rc.AgentID, rc.Channel)
+	return rc.Service.ResolveChatChannelSession(ctx, rc.chatChannelRequest())
+}
+
+// resolveSessionForUse resolves the chat's current session and takes the fresh
+// execute decision on it, which every mutating command (`/compact`, `/new`) runs
+// before touching the session.
+func (rc *ResolvedChat) resolveSessionForUse(ctx context.Context) (session.Info, error) {
+	if rc.usesMainSession() {
+		return rc.Service.ResolveMainSessionForUse(ctx, rc.Authority, rc.User.ID, rc.AgentID)
 	}
-	return rc.Service.ResolvePrivateChannelSession(ctx, rc.Authority, rc.SessionKey, rc.sessionUserID(), rc.AgentID, rc.Channel)
+	return rc.Service.ResolveChatChannelSessionForUse(ctx, rc.chatChannelRequest())
 }
 
 func (rc *ResolvedChat) CompactSession(ctx context.Context) (string, error) {
-	var (
-		info session.Info
-		err  error
-	)
-	switch {
-	case rc.User.ID != "" && strings.Contains(string(rc.Channel), ":user:"):
-		info, err = rc.Service.ResolveMainSessionForUse(ctx, rc.Authority, rc.User.ID, rc.AgentID)
-	case rc.GroupID != "":
-		info, err = rc.Service.ResolveGroupChannelSessionForUse(ctx, rc.Authority, rc.SessionKey, rc.GroupID, rc.AgentID, rc.Channel)
-	default:
-		info, err = rc.Service.ResolvePrivateChannelSessionForUse(ctx, rc.Authority, rc.SessionKey, rc.sessionUserID(), rc.AgentID, rc.Channel)
-	}
+	info, err := rc.resolveSessionForUse(ctx)
 	if err != nil {
 		return "", fmt.Errorf("resolve session for compaction: %w", err)
 	}
 	return rc.Service.CompactAuthorizedSession(ctx, info)
+}
+
+// CurrentSessionForRotation resolves and authorizes the session a `/new` would
+// replace. It runs before the rotation is queued so the queued operation carries
+// the session the user actually saw; a duplicate `/new` behind it then resolves
+// as stale instead of resetting a second time.
+func (rc *ResolvedChat) CurrentSessionForRotation(ctx context.Context) (session.Info, error) {
+	return rc.resolveSessionForUse(ctx)
+}
+
+// RotateSession archives the chat's current session and returns its empty
+// successor. A DM rotates the user's main session; every other chat rotates the
+// session its durable channel binding points at.
+func (rc *ResolvedChat) RotateSession(ctx context.Context, expectedSessionID string) (session.Info, error) {
+	if rc.usesMainSession() {
+		return rc.Service.RotateMainSession(ctx, rc.Authority, rc.User.ID, rc.AgentID, expectedSessionID)
+	}
+	return rc.Service.RotateChatChannelSession(ctx, rc.chatChannelRequest(), expectedSessionID)
 }
 
 // AuthorizeUse performs the fresh execution decision at dequeue time. The
@@ -106,7 +173,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve session: %w", err)
 	}
-	stream := rc.Service.Chat(ctx, agent.ChatRequest{
+	stream := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
 		SessionID:      info.ID,
 		UserID:         rc.sessionUserID(),
 		AgentID:        rc.AgentID,

@@ -129,13 +129,11 @@ AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS=your_tenant_key
 
 Stella 默认请求 `contact:user.email:readonly`，用于从飞书获取用户邮箱。飞书用户邮箱字段是通讯录数据，不等同于实时邮箱验证，因此必须设置 `AUTH_OAUTH_FEISHU_ALLOWED_TENANT_KEYS`。如果飞书没有返回邮箱，Stella 会用类似 `union_id@tenant_key.feishu.local` 的稳定内部邮箱创建账号。邮箱域名 allowlist 适合作为额外过滤；一旦启用，飞书就必须返回匹配的邮箱。
 
-#### 连接飞书工具
+#### 飞书工作区工具
 
 登录只申请身份权限范围（`contact:user.email:readonly`），所以登录 URL 很短、认证只需一次快速授权确认。它**不会**授予飞书工具的访问权限。
 
-要使用飞书工具（文档、日历、邮件等），请在**凭据页面**单独连接工具凭据——飞书 provider 会显示"连接后启用 …"的提示，列出依赖它的工具——或在聊天中让 Stella 操作。详见 [OAuth 连接](./oauth-connections)指南。
-
-> 早期版本会在登录应用和工具应用共享 App ID 时，把工具权限范围合并进登录请求。这会把 140 多个飞书 scope 塞进一个 URL，触发浏览器请求头长度上限（HTTP 431）。因此工具权限范围现在一律通过独立的连接流程授予。
+工作区工具的认证与登录相互独立，并按各自集成方式完成认证。详见 [OAuth 连接](./oauth-connections)。
 
 ### 自定义 OAuth 提供商
 

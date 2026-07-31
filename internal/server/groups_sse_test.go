@@ -29,7 +29,9 @@ import (
 
 // fakeGroupRunner counts synchronous dispatches so the SSE tests can prove the
 // handler routes only the fresh-message outcome into the dispatch turn.
-type fakeGroupRunner struct{ calls int }
+type fakeGroupRunner struct {
+	calls int
+}
 
 func (f *fakeGroupRunner) DispatchSync(_ context.Context, _ sqlc.CtxGroupOutbox, _ channel.GroupPublisher) error {
 	f.calls++

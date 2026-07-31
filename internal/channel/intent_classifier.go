@@ -37,10 +37,14 @@ If the message could reasonably be a normal chat request, return {"action":"none
 
 Action meanings:
 - help: user wants help, available commands, or usage instructions
-- new: user wants to clear context, start over, compact, or compress conversation history
+- new: user wants a CLEAN SLATE — start a new session, start over, forget/clear the current context
 - abort: user wants to cancel/stop the in-progress response
-- compact: same as new — user wants to compact/compress/summarize conversation history
+- compact: user wants to KEEP this conversation but SHORTEN it — compact, compress, or summarize the history
 - none: anything else
+
+new and compact are different requests. "new" throws the current context away;
+"compact" keeps the same conversation and only condenses it. Never map one to the
+other.
 
 Examples:
 "help" -> {"action":"help"}
@@ -48,17 +52,21 @@ Examples:
 "new session" -> {"action":"new"}
 "start over" -> {"action":"new"}
 "clear context" -> {"action":"new"}
+"forget everything" -> {"action":"new"}
 "cancel" -> {"action":"abort"}
 "abort" -> {"action":"abort"}
 "compact chat" -> {"action":"compact"}
+"compress this chat" -> {"action":"compact"}
 "summarize history" -> {"action":"compact"}
 "帮助" -> {"action":"help"}
 "新会话" -> {"action":"new"}
+"开个新会话" -> {"action":"new"}
 "重新开始" -> {"action":"new"}
 "清除上下文" -> {"action":"new"}
 "取消" -> {"action":"abort"}
 "停止回复" -> {"action":"abort"}
 "压缩会话" -> {"action":"compact"}
+"压缩一下上下文" -> {"action":"compact"}
 "总结历史" -> {"action":"compact"}
 "请帮我重新开始设计数据库" -> {"action":"none"}
 "how do I cancel a job?" -> {"action":"none"}`
@@ -229,6 +237,10 @@ func normalizeIntent(raw string) (Intent, error) {
 	}
 }
 
+// IntentToCommand maps an intent onto the slash command that implements it. The
+// coordinator routes only the confirmation-free intents through it: an inferred
+// "start over" is never executed as a reset — only a typed `/new` is consent —
+// so IntentNew never reaches a command here.
 func IntentToCommand(intent Intent) string {
 	switch intent {
 	case IntentHelp:

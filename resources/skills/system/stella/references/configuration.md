@@ -33,8 +33,11 @@ Each agent has:
 
 - A provider + model configuration
 - A system prompt (personality/identity)
-- An isolated workspace at `$STELLA_HOME/agents/{agent_id}/`
-- Its own skills directory
+- A user-independent definition and administrator-managed skills area
+- A separate sandbox workspace for each user or channel group
+
+Inside a sandbox, `$HOME` is that principal's per-agent workspace, not the
+operator's `$STELLA_HOME/agents/{agent_id}` directory.
 
 Create agents via the Web UI or directly in the database.
 
@@ -54,7 +57,7 @@ Channel access is enforced by Stella's trusted Authority-based domain services; 
 
 **Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`
 
-Feishu is a chat channel only. Lark workspace operations no longer ship as built-in `feishu_*` tools; add a `lark-cli` skill yourself if you want that workflow.
+Feishu is a chat channel only.
 
 ## Login providers
 
@@ -89,14 +92,24 @@ Global settings are stored in the `settings` table as JSON values:
 
 All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 
-| Path                                | Purpose                                                                                                         |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `postgres/`                         | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
-| `pg-runtime/`                       | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download-runtime`                       |
-| `cache/models.json`                 | Cached model list (safe to delete)                                                                              |
-| `agents/{agent_id}/`                | Per-agent workspace                                                                                             |
-| `agents/{agent_id}/.agents/skills/` | Per-agent installed skills                                                                                      |
-| `agents/{agent_id}/stella.log`      | Per-agent log                                                                                                   |
+| Operator path                               | Purpose                                                                                                         |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `postgres/`                                 | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
+| `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download-runtime`                       |
+| `cache/models.json`                         | Cached model list (safe to delete)                                                                              |
+| `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed area                                                |
+| `agents/{agent_id}/.agents/skills/`         | Administrator-managed, agent-bound skills                                                                       |
+| `users/{user_id}/agents/{agent_id}/`        | This user's sandbox workspace for this agent; sandbox `$HOME` and initial working directory                     |
+| `users/group-{group_id}/agents/{agent_id}/` | This channel group's sandbox workspace for this agent; sandbox `$HOME` and initial working directory            |
+| `users/{principal}/data/`                   | Shared principal data and uploads; persistent user data lives here                                              |
+| `users/{principal}/data/assets/`            | Uploaded assets; inside the sandbox, use `$STELLA_ASSETS_DIR` rather than an operator path                      |
+| `users/{principal}/.mise-tools/`            | Managed per-user or per-group toolchain; shared by that principal's agents                                      |
+
+`{principal}` is a user ID or `group-{group_id}`. These are operator filesystem
+paths. Agents should use their sandbox variables and ordinary relative paths:
+`$HOME` for their workspace and `$STELLA_ASSETS_DIR` for uploaded assets. Persistent
+XDG state is stored under the principal's `data/` tree; it is not an agent
+workspace.
 
 ## Environment variables
 

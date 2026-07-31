@@ -1,68 +1,104 @@
 ---
 name: lark-shared
-version: 1.0.0
-description: "飞书/Lark CLI 共享基础（Stella 适配版）：说明 Stella 会话中的 `/bin` + 环境变量认证模型、`--as user` / `--as bot` 选择、scope / Permission denied 处理，以及何时才需要回退到上游 `config init` / `auth login` 流程。"
+version: 2.0.0
+description: "飞书/Lark CLI 共享基础（Stella 适配版）：说明用户级原生配置、身份选择、scope 与权限错误处理。"
 ---
 
 # lark-cli 共享规则
 
-本技能指导你如何通过lark-cli操作飞书资源, 以及有哪些注意事项。
+本技能指导你在 Stella 中通过 lark-cli 操作飞书/Lark 资源。
 
-## Stella 会话中的运行方式（优先遵循本节）
+## Stella 与 lark-cli 的边界
 
-在 Stella 的沙盒会话里，
-`lark-cli` 走的是 **`$STELLA_HOME/bin` + 环境变量注入** 模式，不是上游文档默认假设的“先 `config init`，再 `auth login`”本地配置模式。
+- Stella 只负责安装 lark-cli，并把它的原生配置和数据目录指向当前用户的共享沙盒目录。
+- Stella 不注入 lark-cli 凭据，不初始化应用，不绑定 Channel 应用，也不替用户选择认证方式。
+- 用户在一个私聊 Agent 工作区完成的 lark-cli 配置和登录，可在该用户的其他 Agent 工作区复用。
+- Stella 的通用 `oauth` tool、飞书 Channel 凭据和飞书登录都不能授权 lark-cli。
+- 群聊会话不加载任何用户的个人 lark-cli 状态。需要个人身份时，请用户转到私聊。
 
-- 直接运行 `lark-cli ...` 即可。Stella 会把 `$STELLA_HOME/bin` 放到会话 `PATH` 前面，让 `lark-cli` 直接解析到 Stella 管理的二进制。
-- Stella 会在会话启动时注入 `LARKSUITE_CLI_USER_ACCESS_TOKEN`、`LARKSUITE_CLI_APP_ID`、`LARKSUITE_CLI_BRAND`。因此 **在 Stella 会话里默认不要先执行 `lark-cli config init` 或 `lark-cli auth login`**。
-- 把后续文档里所有“先 `auth login --domain` / `auth login --scope`”的要求，映射为：**用 `oauth` 工具确认 Lark 已连接（oauth status 指令），所需 scope 已在 Lark 应用侧开通，然后开启一个新的 Stella 会话重试**。
-- 如果用户只是想在自己机器上单独配置一个**脱离 Stella** 的 `lark-cli`，那才回退到上游原生的 `config init` / `auth login` 流程。
+配置、登录、登出和 profile 管理都使用 lark-cli 自己的命令，并遵循用户当前选择：
 
-## Stella 中的身份选择
+```bash
+lark-cli config --help
+lark-cli auth --help
+lark-cli profile --help
+```
 
-| 身份          | 在 Stella 中如何获得                                                                                                   | 适用场景                                         |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| user 用户身份 | Stella 注入运行时用户令牌；优先使用 `--as user`（或命令默认身份）                                                      | 访问用户自己的日历、云文档、任务、邮箱等个人资源 |
-| bot 应用身份  | 需要用户在 Stella 之外显式准备 app 配置 / tenant token；Stella 当前**不自动注入** bot 所需的 app secret 或 config 文件 | 仅在用户明确说明已完成这套手动配置时使用         |
+不要替用户猜测 App ID、App Secret、brand、profile 或授权 scope。
 
-### 身份选择原则
+## 非交互授权流程
 
-- **默认优先 user**：大多数日历、云空间、文档、任务、邮箱等工作区请求，本质上都是“代表当前用户操作自己的资源”。
-- **不要擅自假设 bot 可用**：如果文档或任务要求 `--as bot`、`tenant_access_token`、appSecret 或本地 config 文件，而当前会话只有 Stella 注入的 user 运行时环境，就应先停下来说明这是**Stella 当前未自动接线**的手动配置路径。
-- **Bot 看不到用户私有资源**：即便用户自己在 Stella 外部完成了 bot 配置，`--as bot` 也仍然看不到用户的私有日历、个人云文档、邮箱等资源。
+授权分为“配置应用”和“登录用户”两步。每个会阻塞等待用户的步骤都必须拆成两轮：先拿到验证链接并发给用户，立即结束当前回复；用户确认完成后，再继续收尾。禁止在同一轮里发出链接后继续阻塞等待。
 
-## Stella 中的认证与提权处理
+### 1. 配置应用
 
-### 未连接、过期或认证失败
+当 `lark-cli config show` 表明尚无可用配置时：
 
-- 如果 `lark-cli` 提示未登录、缺少 access token、401/expired，先用 `oauth` 工具检查 Lark 连接状态（oauth status 指令）；如需重新连接，执行 oauth connect（provider=lark），或引导用户前往 Credentials → OAuth CLI Credentials 重新授权。
-- Lark user access token 约 2 小时过期；Stella 只在**会话启动时**刷新。已连接但中途过期时，直接开启一个新的 Stella 会话。
-- 重新开启会话后仍失败，说明 refresh token 也可能失效或授权被撤销；此时应让用户从 Credentials → OAuth CLI Credentials 断开并重新连接 Lark，而不是在会话里继续尝试 `auth login`。
+```bash
+lark-cli config init --new --force-init > /tmp/lark-init-url.txt 2>&1 &
+```
 
-### 权限不足 / scope 不足
+只等到 `/tmp/lark-init-url.txt` 出现验证链接，读取并发给用户，然后结束当前回复，不等待授权完成。用户回来确认后，运行：
 
-- 先查看错误里的 `permission_violations`、`console_url`、`hint`。
-- 如果缺的是**应用 scope**，把 `console_url` 提供给用户或管理员，让他们去 Lark 开发者后台开通对应权限。
-- 应用 scope 开通后，在 Stella 会话里**不要**继续执行 `lark-cli auth login --scope ...`；应让用户按需重新连接 Lark，并开启一个新的 Stella 会话后再重试。
-- 只有当用户明确要求“配置一套独立于 Stella 的本地 `lark-cli` 环境”时，才执行上游文档里的 `config init` / `auth login` 指令。
+```bash
+lark-cli config show
+```
+
+### 2. 登录用户
+
+先用非阻塞模式获取验证链接和 `device_code`：
+
+```bash
+lark-cli auth login --no-wait --json --recommend | python3 -c '
+import sys, json
+data = json.load(sys.stdin)
+print(data["verification_url"])
+print("device_code:", data["device_code"])
+'
+```
+
+保留返回的 `device_code`，只把 `verification_url` 发给用户，然后结束当前回复。用户确认授权后，运行：
+
+```bash
+lark-cli auth login --device-code "<device_code>"
+```
+
+`device_code` 有效期为 10 分钟；过期后重新发起登录。`--recommend` 用于请求推荐权限，避免不必要的逐项审批。
+
+## 身份选择
+
+| 身份          | 使用方式    | 适用场景                                              |
+| ------------- | ----------- | ----------------------------------------------------- |
+| user 用户身份 | `--as user` | 员工个人资源、需要员工本人作为发起人/操作者的业务流程 |
+| bot 应用身份  | `--as bot`  | 用户已明确配置应用身份，且操作不依赖个人私有资源      |
+
+- 尊重用户当前配置的默认身份。
+- 审批创建、个人云盘上传、邮箱、个人日历和“以我名义”操作必须使用 user。
+- 不得因 user 未登录、token 过期或 scope 不足而切换 bot。
+- Bot 不能代表员工成为审批发起人，也通常看不到员工私有资源。
+
+## 权限错误处理
+
+保留并检查接口、错误码、`message`、`permission_violations`、`console_url` 和 `hint`：
+
+- **应用 scope 未开通**：停止调用，把缺少的 scope 与 `console_url` 原样交给用户或应用管理员。
+- **用户 token 未授权该 scope**：说明缺少的 scope，由用户决定是否通过 lark-cli 原生授权补充。
+- **token 过期或撤销**：先让 lark-cli 自行刷新；失败后说明状态，由用户决定是否重新登录。
+- **身份不支持**：停止并说明接口支持的身份，不切换身份绕过。
+
+任何 API 失败后都不得悄悄更换身份、直接调用飞书 API、改用 curl/Python 绕过，或用新的幂等键重试写操作。`--dry-run` 只验证请求构造，不代表真实权限可用。
 
 ## 更新检查
 
-lark-cli 命令执行后，如果检测到新版本，JSON 输出中会包含 `_notice.update` 字段（含 `message`、`command` 等）。
+lark-cli 命令执行后，如果 JSON 输出包含 `_notice.update`：
 
-**当你在输出中看到 `_notice.update` 时，完成用户当前请求后，主动提议帮用户更新**：
-
-1. 告知用户当前版本和最新版本号
-2. 提议执行更新（CLI 和 Skills 需要同时更新）：
-   ```bash
-   npm update -g @larksuite/cli && npx skills add larksuite/cli -g -y
-   ```
-3. 更新完成后提醒用户：**退出并重新打开 AI Agent**以加载最新 Skills
-
-**规则**：不要静默忽略更新提示。即使当前任务与更新无关，也应在完成用户请求后补充告知。
+1. 完成当前请求后告知用户当前版本和最新版本。
+2. Stella 固定并分发 lark-cli 与内置 skills 版本；不要在沙盒里自行运行 npm/npx 更新。
+3. 把升级请求交给 Stella 管理员统一验证和发布。
 
 ## 安全规则
 
-- **禁止输出密钥**（appSecret、accessToken）到终端明文。
-- **写入/删除操作前必须确认用户意图**。
+- 禁止输出 App Secret、access token、refresh token 等密钥。
+- 写入或删除操作前确认用户意图。
 - 用 `--dry-run` 预览危险请求。
+- 同一业务写操作使用稳定的幂等键；失败后不得换键重试。

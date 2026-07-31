@@ -331,6 +331,52 @@ func TestResolveMentionAgents(t *testing.T) {
 	})
 }
 
+// TestGroupIncomingNewIsRefusedBeforeEventLog proves a platform group `/new` is
+// refused explicitly — a group's context is shared, so no member's chat command
+// may clear it — and that the refusal is answered before the event-log append,
+// so the command never becomes part of the group's context either.
+func TestGroupIncomingNewIsRefusedBeforeEventLog(t *testing.T) {
+	db := dbtest.New(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	coord := &Coordinator{
+		eventLog:      el,
+		groupResolver: el,
+		memberLister: FuncGroupMemberLister(func(context.Context, string) ([]GroupMember, error) {
+			return []GroupMember{{AgentID: "a1"}, {AgentID: "a2"}}, nil
+		}),
+	}
+	msg := pkgchannel.IncomingMessage{
+		Platform: "telegram", ChatID: "chat-new", SenderID: "alice",
+		MessageID: "m-new", IsGroup: true,
+		Content: []ai.ContentBlock{ai.TextContent{Text: "/new"}},
+	}
+
+	reply, handled, stream, err := coord.handleGroupIncoming(ctx, msg, "/new", "")
+	if err != nil {
+		t.Fatalf("handleGroupIncoming: %v", err)
+	}
+	if !handled || stream != nil {
+		t.Fatalf("handled=%v stream=%v, want an immediate plain reply", handled, stream)
+	}
+	if reply != pkgchannel.GroupNewSessionUnsupportedMessage {
+		t.Fatalf("reply = %q, want %q", reply, pkgchannel.GroupNewSessionUnsupportedMessage)
+	}
+
+	groupID, err := el.ResolveGroupID(ctx, "telegram", "chat-new", "")
+	if err != nil {
+		t.Fatalf("ResolveGroupID: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id = $1`, groupID).Scan(&count); err != nil {
+		t.Fatalf("count group messages: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("/new appended %d group messages, want 0", count)
+	}
+}
+
 func TestFuncGroupMemberLister(t *testing.T) {
 	lister := FuncGroupMemberLister(func(_ context.Context, groupID string) ([]GroupMember, error) {
 		if groupID == "g1" {

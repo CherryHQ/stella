@@ -575,7 +575,7 @@ func TestNotifyOpenIDRequiresResolvableUnionID(t *testing.T) {
 	if !strings.Contains(err.Error(), "pass a union_id") {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "lark-cli api GET /open-apis/contact/v3/users/ou_xxx --as bot") {
+	if !strings.Contains(err.Error(), "same app's directory") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

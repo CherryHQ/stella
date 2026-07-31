@@ -42,8 +42,8 @@ func NewDeviceCodeBroker(cfg *oauth2.Config, store *FlowStore, onAuthorized func
 // token endpoint until the user authorizes or the flow expires.
 func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, userID string) (FlowStatus, error) {
 	// RFC 8628 public-client device auth omits client_secret, but some providers
-	// (e.g. Feishu/Lark) require it. Inject it when present so the device auth
-	// request is accepted without changing the token exchange path.
+	// require it. Inject it when present so the device auth request is accepted
+	// without changing the token exchange path.
 	var extraOpts []oauth2.AuthCodeOption
 	if b.cfg.ClientSecret != "" {
 		extraOpts = append(extraOpts, oauth2.SetAuthURLParam("client_secret", b.cfg.ClientSecret))

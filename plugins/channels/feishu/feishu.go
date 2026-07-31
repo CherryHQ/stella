@@ -240,7 +240,7 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 			logger().Debug("notify: promoted open_id to union_id", "open_id", chatID, "union_id", unionID)
 			chatID = unionID
 		} else {
-			return fmt.Errorf("feishu: notify: failed to resolve union_id for open_id %q; pass a union_id (on_...) instead because open_id is app-scoped; get the unique union_id with: lark-cli api GET /open-apis/contact/v3/users/ou_xxx --as bot --params '{\"user_id_type\":\"open_id\"}' --format json", chatID)
+			return fmt.Errorf("feishu: notify: failed to resolve union_id for open_id %q; pass a union_id (on_...) resolved through the same app's directory because open_id is app-scoped", chatID)
 		}
 	}
 

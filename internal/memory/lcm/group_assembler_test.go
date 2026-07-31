@@ -666,6 +666,107 @@ func TestGroupAssemble_TriggerSeqZero(t *testing.T) {
 	}
 }
 
+// TestGroupAssemble_RotationResetsContextButKeepsWatermark pins the two halves
+// of a group `/new`: the successor session starts with an empty context, and the
+// ingest cursor — keyed by (group, pipeline) rather than by session — survives
+// the rotation, so the messages the old session already consumed are not
+// re-injected into the fresh one.
+func TestGroupAssemble_RotationResetsContextButKeepsWatermark(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	res1, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "grot", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "old-a", PlatformMessageID: "r1",
+	})
+	if err != nil {
+		t.Fatalf("seed r1: %v", err)
+	}
+	gid := res1.GroupID
+	res2, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "grot", ActorType: eventlog.ActorHuman,
+		ActorID: "user2", Content: "old-b", PlatformMessageID: "r2",
+	})
+	if err != nil {
+		t.Fatalf("seed r2: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	// Turn 1 on the pre-rotation session.
+	before := memory.Session{ID: uuid.Must(uuid.NewV7()).String(), AgentID: "agent-a", UserID: gid, GroupID: gid}
+	if _, err := p.Assemble(groupCtx(res2.Seq), before, 100_000, 20); err != nil {
+		t.Fatalf("assemble before rotation: %v", err)
+	}
+	if err := p.Append(groupCtx(res2.Seq), before,
+		ai.UserMessage{Content: "old-b"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "old-reply"}}},
+	); err != nil {
+		t.Fatalf("append before rotation: %v", err)
+	}
+	if err := p.CommitGroupCursor(context.Background(), before, res2.Seq); err != nil {
+		t.Fatalf("commit cursor: %v", err)
+	}
+	watermark := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a"))
+	if watermark != res2.Seq {
+		t.Fatalf("watermark before rotation = %d, want %d", watermark, res2.Seq)
+	}
+
+	// `/new`: the binding moves onto a fresh session id, and the predecessor is
+	// archived in the same step. Both halves are required —
+	// idx_one_agent_group_chat admits exactly one active kind=chat row per
+	// (agent, group), so a successor cannot simply appear beside its predecessor.
+	after := memory.Session{ID: uuid.Must(uuid.NewV7()).String(), AgentID: "agent-a", UserID: gid, GroupID: gid}
+	rotateCtx := authz.WithAgentID(authz.WithUserID(context.Background(), gid), "agent-a")
+	if err := p.RotateInfo(rotateCtx, before.ID, memory.SessionInfo{
+		ID: after.ID, AgentID: "agent-a", UserID: gid, GroupID: gid, Kind: "chat",
+	}); err != nil {
+		t.Fatalf("rotate group session: %v", err)
+	}
+	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != watermark {
+		t.Fatalf("rotation moved the watermark: got %d, want %d", got, watermark)
+	}
+
+	// New traffic: seq3 lands between turns, seq4 triggers the next turn.
+	if _, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "grot", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "new-a", PlatformMessageID: "r3",
+	}); err != nil {
+		t.Fatalf("seed r3: %v", err)
+	}
+	res4, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "grot", ActorType: eventlog.ActorHuman,
+		ActorID: "user2", Content: "new-b", PlatformMessageID: "r4",
+	})
+	if err != nil {
+		t.Fatalf("seed r4: %v", err)
+	}
+
+	msgs, err := p.Assemble(groupCtx(res4.Seq), after, 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble after rotation: %v", err)
+	}
+	// Only seq3 is injected: the pre-rotation history is gone with the old
+	// session, and seq1/seq2 stay below the preserved watermark.
+	if len(msgs) != 1 {
+		t.Fatalf("after rotation: expected 1 injected message, got %d", len(msgs))
+	}
+	text := flattenUserMessage(msgs[0].(ai.UserMessage))
+	if text != fmt.Sprintf("[seq:%d user1]: new-a", res4.Seq-1) {
+		t.Fatalf("injected text = %q, want the between-turn message only", text)
+	}
+
+	// The predecessor's conversation is untouched, so the reset is a rebind and
+	// not a delete.
+	if mustConversationID(t, p, before) == mustConversationID(t, p, after) {
+		t.Fatal("rotation must not reuse the predecessor's conversation")
+	}
+}
+
 func mustConversationID(t *testing.T, p *Provider, session memory.Session) string {
 	t.Helper()
 	convID, err := p.getOrCreateConversation(context.Background(), session)

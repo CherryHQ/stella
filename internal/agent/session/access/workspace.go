@@ -470,6 +470,11 @@ func collectWorkspaceInfo(root string, showHidden bool, listPath string, depth i
 	}
 	defer func() { _ = rootFS.Close() }()
 	if stat, statErr := rootFS.Stat(listName); statErr != nil {
+		// A listed subdirectory can vanish between renders (deleted by the
+		// agent or a peer session); that is a 404, not a server fault.
+		if os.IsNotExist(statErr) {
+			return WorkspaceInfo{}, ErrNotFound
+		}
 		return WorkspaceInfo{}, statErr
 	} else if !stat.IsDir() {
 		return WorkspaceInfo{}, ErrInvalid

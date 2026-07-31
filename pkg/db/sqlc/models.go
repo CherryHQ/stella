@@ -284,6 +284,17 @@ type ChannelAgent struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type ChannelChatCommandReceipt struct {
+	ID        string    `json:"id"`
+	ChannelID string    `json:"channel_id"`
+	ChatKey   string    `json:"chat_key"`
+	MessageID string    `json:"message_id"`
+	Command   string    `json:"command"`
+	Binding   string    `json:"binding"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type ChannelGroupMember struct {
 	GroupID        string    `json:"group_id"`
 	AgentID        string    `json:"agent_id"`
