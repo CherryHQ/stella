@@ -41,6 +41,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | Current web theme | `web-design.md`      | Styling against the current theme or consulting the visual direction        |
 | Documentation     | `doc-style.md`       | Writing or editing user/developer docs                                      |
 | Web UI testing    | `web-ui-test.md`     | Testing the web UI with browser automation                                  |
+| Web perf testing  | `web-perf-test.md`   | Measuring or optimizing web UI performance                                  |
 | Backend API test  | `api-test.md`        | Testing the backend via live HTTP API + DB assertions (no browser)          |
 | System test       | `system-test.md`     | Adding or running the subprocess system suite; choosing a test layer        |
 | Project tracking  | `project-tracker.md` | Managing GitHub issues and project board                                    |
