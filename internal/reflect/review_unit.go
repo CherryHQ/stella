@@ -3,7 +3,6 @@ package reflect
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -70,25 +69,21 @@ const (
 	skillUsageClose        = "</session_skill_usage>\n"
 )
 
-var (
-	tokenLikePattern        = regexp.MustCompile(`(?i)\b(?:ghp_[a-z0-9_]{16,}|github_pat_[a-z0-9_]{16,}|sk-[a-z0-9_-]{16,})\b`)
-	assignmentSecretPattern = regexp.MustCompile(`(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*["']?[^\s"']{8,}`)
-	reviewProtocolReplacer  = strings.NewReplacer(
-		"<prior_context>", "&lt;prior_context&gt;",
-		"</prior_context>", "&lt;/prior_context&gt;",
-		"<fresh_conversation>", "&lt;fresh_conversation&gt;",
-		"</fresh_conversation>", "&lt;/fresh_conversation&gt;",
-		"<session_skill_usage>", "&lt;session_skill_usage&gt;",
-		"</session_skill_usage>", "&lt;/session_skill_usage&gt;",
-		"<candidates_json>", "&lt;candidates_json&gt;",
-		"</candidates_json>", "&lt;/candidates_json&gt;",
-		"[tool_result_summary]", "&#91;tool_result_summary&#93;",
-		"[assistant_tool_call]", "&#91;assistant_tool_call&#93;",
-		"[user]", "&#91;user&#93;",
-		"[assistant]", "&#91;assistant&#93;",
-		"[tool]", "&#91;tool&#93;",
-		"[system]", "&#91;system&#93;",
-	)
+var reviewProtocolReplacer = strings.NewReplacer(
+	"<prior_context>", "&lt;prior_context&gt;",
+	"</prior_context>", "&lt;/prior_context&gt;",
+	"<fresh_conversation>", "&lt;fresh_conversation&gt;",
+	"</fresh_conversation>", "&lt;/fresh_conversation&gt;",
+	"<session_skill_usage>", "&lt;session_skill_usage&gt;",
+	"</session_skill_usage>", "&lt;/session_skill_usage&gt;",
+	"<candidates_json>", "&lt;candidates_json&gt;",
+	"</candidates_json>", "&lt;/candidates_json&gt;",
+	"[tool_result_summary]", "&#91;tool_result_summary&#93;",
+	"[assistant_tool_call]", "&#91;assistant_tool_call&#93;",
+	"[user]", "&#91;user&#93;",
+	"[assistant]", "&#91;assistant&#93;",
+	"[tool]", "&#91;tool&#93;",
+	"[system]", "&#91;system&#93;",
 )
 
 func (s *Service) buildReviewUnit(ctx context.Context, target reviewTarget, mark reviewWatermark, budget int) (ReviewUnit, error) {
@@ -587,8 +582,7 @@ func summarizeToolResult(text string) string {
 }
 
 func redactReviewText(text string) string {
-	text = tokenLikePattern.ReplaceAllString(text, "[redacted_secret]")
-	text = assignmentSecretPattern.ReplaceAllString(text, "[redacted_secret]")
+	text, _ = sanitizeSecretLikeContent(text)
 	// User-visible text shares a prompt with host protocol markers; neutralize
 	// marker lookalikes before composing the bounded review unit.
 	return reviewProtocolReplacer.Replace(text)

@@ -2,7 +2,6 @@ package reflect
 
 import (
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -14,8 +13,13 @@ var (
 	secretPrivateKeyPattern  = regexp.MustCompile(`(?i)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`)
 	secretTokenPrefixPattern = regexp.MustCompile(`(?i)\b(?:ghp_[a-z0-9_]{16,}|github_pat_[a-z0-9_]{16,}|sk-[a-z0-9_-]{16,})\b`)
 	secretAssignmentPattern  = regexp.MustCompile(`(?i)\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*["']?[^\s"']{8,}`)
+	secretURLUserinfoPattern = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://)[^\s/@]+@`)
+	secretAuthSchemePattern  = regexp.MustCompile(`(?i)\b(bearer|basic)\s+[^\s"'<>]+`)
+	secretJWTTokenPattern    = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b`)
 	longTokenPattern         = regexp.MustCompile(`[A-Za-z0-9+/=_-]{48,}`)
 )
+
+const reflectSecretRedaction = "[redacted_secret]"
 
 func gateCandidates(inputs []CandidateGateInput, cfg CandidateGateConfig) CandidateGateResult {
 	var result CandidateGateResult
@@ -134,15 +138,41 @@ func sortGateDecisions(decisions []CandidateGateDecision, tieBreakFields []strin
 }
 
 func containsSecretLikeContent(content string) bool {
+	_, detected := sanitizeSecretLikeContent(content)
+	return detected
+}
+
+// sanitizeSecretLikeContent is shared by review-context redaction and the
+// fail-closed candidate/provenance gates so their credential rules cannot drift.
+func sanitizeSecretLikeContent(content string) (string, bool) {
 	if content == "" {
-		return false
+		return "", false
 	}
-	if secretPrivateKeyPattern.MatchString(content) ||
-		secretTokenPrefixPattern.MatchString(content) ||
-		secretAssignmentPattern.MatchString(content) {
-		return true
+
+	sanitized := content
+	detected := false
+	replace := func(pattern *regexp.Regexp, replacement string) {
+		if !pattern.MatchString(sanitized) {
+			return
+		}
+		detected = true
+		sanitized = pattern.ReplaceAllString(sanitized, replacement)
 	}
-	return slices.ContainsFunc(longTokenPattern.FindAllString(content, -1), looksHighEntropyToken)
+
+	replace(secretURLUserinfoPattern, "$1"+reflectSecretRedaction+"@")
+	replace(secretAuthSchemePattern, "$1 "+reflectSecretRedaction)
+	replace(secretJWTTokenPattern, reflectSecretRedaction)
+	replace(secretPrivateKeyPattern, reflectSecretRedaction)
+	replace(secretTokenPrefixPattern, reflectSecretRedaction)
+	replace(secretAssignmentPattern, reflectSecretRedaction)
+	sanitized = longTokenPattern.ReplaceAllStringFunc(sanitized, func(token string) string {
+		if !looksHighEntropyToken(token) {
+			return token
+		}
+		detected = true
+		return reflectSecretRedaction
+	})
+	return sanitized, detected
 }
 
 func looksHighEntropyToken(token string) bool {

@@ -225,6 +225,12 @@ func TestBuildSkillPlanProvenanceRejectsSecretsInPersistedModelFields(t *testing
 			},
 		},
 		{
+			name: "evidence source URI credentials",
+			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, _ *skillRelatedBundle) {
+				decision.Candidate.Evidence[0].Source = "postgres://app:correct-horse-battery-staple@db.internal/app"
+			},
+		},
+		{
 			name: "procedure decision points",
 			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, _ *skillRelatedBundle) {
 				decision.Candidate.Procedure.DecisionPoints = []string{fakeSecret}

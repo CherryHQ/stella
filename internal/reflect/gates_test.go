@@ -1,6 +1,9 @@
 package reflect
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCandidateRefStableAssignment(t *testing.T) {
 	refs := assignCandidateRefs("fact", 3)
@@ -102,6 +105,45 @@ func TestGateRejectsSecretLikeContent(t *testing.T) {
 	}
 	if len(result.Rejected) != 1 || result.Rejected[0].Reason != rejectSecretDetected {
 		t.Fatalf("expected secret rejection, got %#v", result.Rejected)
+	}
+}
+
+func TestSanitizeSecretLikeContent(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		secret string
+	}{
+		{
+			name:   "URI userinfo",
+			input:  "connect to postgres://app:correct-horse-battery-staple@db.internal/app",
+			secret: "correct-horse-battery-staple",
+		},
+		{
+			name:   "bearer",
+			input:  "Authorization: Bearer fake-access-token-12345",
+			secret: "fake-access-token-12345",
+		},
+		{
+			name:   "JWT",
+			input:  "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.fakeSignature123",
+			secret: "eyJhbGciOiJIUzI1NiJ9",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, detected := sanitizeSecretLikeContent(test.input)
+			if !detected {
+				t.Fatalf("expected secret detection for %q", test.input)
+			}
+			if strings.Contains(got, test.secret) {
+				t.Fatalf("sanitized content still contains %q: %q", test.secret, got)
+			}
+			if !strings.Contains(got, reflectSecretRedaction) {
+				t.Fatalf("sanitized content is missing redaction marker: %q", got)
+			}
+		})
 	}
 }
 

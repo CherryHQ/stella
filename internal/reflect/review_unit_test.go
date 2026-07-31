@@ -446,11 +446,14 @@ func TestBuildReviewUnitRedactsUserAndAssistantText(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := fake.Append(ctx, sess,
-		ai.UserMessage{Content: "token ghp_abcdefghijklmnopqrstuvwxyz123456", Timestamp: at},
+		ai.UserMessage{
+			Content:   "token ghp_abcdefghijklmnopqrstuvwxyz123456 and postgres://app:correct-horse-battery-staple@db.internal/app",
+			Timestamp: at,
+		},
 		ai.AssistantMessage{
 			Timestamp: at.Add(time.Second),
 			Content: []ai.ContentBlock{
-				ai.TextContent{Text: "password=supersecretvalue"},
+				ai.TextContent{Text: "password=supersecretvalue Authorization: Bearer fake-access-token-12345"},
 			},
 		},
 	); err != nil {
@@ -464,7 +467,10 @@ func TestBuildReviewUnitRedactsUserAndAssistantText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(unit.Text, "ghp_") || strings.Contains(unit.Text, "supersecretvalue") {
+	if strings.Contains(unit.Text, "ghp_") ||
+		strings.Contains(unit.Text, "supersecretvalue") ||
+		strings.Contains(unit.Text, "correct-horse-battery-staple") ||
+		strings.Contains(unit.Text, "fake-access-token-12345") {
 		t.Fatalf("expected user and assistant text to be redacted, got %q", unit.Text)
 	}
 	if !strings.Contains(unit.Text, "[redacted_secret]") {
