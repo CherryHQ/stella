@@ -42,7 +42,13 @@ func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
 // human-initiated chat sessions. Durable workers and group sessions must not
 // inherit a user's knowledge merely because they carry user and agent IDs.
 func KnowledgeToolAvailable(_ context.Context, params RunnerParams) bool {
-	if params.UserID == "" || params.AgentID == "" || params.GroupID != "" {
+	if !params.PrivateHuman || params.UserID == "" || params.AgentID == "" || params.GroupID != "" {
+		return false
+	}
+	// Session channel is deny-only: the per-turn capability above remains the
+	// positive authorization signal, while Webhook is rejected even if a caller
+	// accidentally mints that capability.
+	if session.Channel(params.SessionChannel) == session.ChannelWebhook {
 		return false
 	}
 	switch session.Kind(params.SessionKind) {

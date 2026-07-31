@@ -82,6 +82,20 @@ func (s *Service) processParseJob(ctx context.Context, job *river.Job[parseArgs]
 		return fmt.Errorf("touch processing knowledge file: %w", err)
 	}
 
+	// Delete may race with the initial raw-content read. Re-check immediately
+	// before starting the external parser; a concurrent delete also cancels the
+	// River job context so an already-running Xberg process is interrupted.
+	current, err := s.q.GetKnowledgeFile(ctx, row.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("recheck knowledge file before parse: %w", err)
+	}
+	if FileStatus(current.Status) != FileStatusProcessing {
+		return nil
+	}
+
 	chunks, parseErr := s.parseRawContent(ctx, row.ID, row.MediaType, row.RawContent)
 	if parseErr != nil {
 		if isDeterministicParseError(parseErr) || job.Attempt >= job.MaxAttempts {
@@ -361,6 +375,26 @@ func (s *Service) latestParseJobState(
 		return "", false, nil
 	}
 	return result.Jobs[0].State, true, nil
+}
+
+func (s *Service) activeParseJobIDs(ctx context.Context, fileID string) ([]int64, error) {
+	result, err := s.river.JobList(
+		ctx,
+		river.NewJobListParams().
+			Kinds(parseArgs{}.Kind()).
+			States(activeKnowledgeJobStates...).
+			Where("args ->> 'file_id' = @file_id", river.NamedArgs{"file_id": fileID}).
+			OrderBy(river.JobListOrderByID, river.SortOrderDesc).
+			First(100),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list active River jobs for knowledge file %s: %w", fileID, err)
+	}
+	jobIDs := make([]int64, 0, len(result.Jobs))
+	for _, job := range result.Jobs {
+		jobIDs = append(jobIDs, job.ID)
+	}
+	return jobIDs, nil
 }
 
 func isActiveKnowledgeJobState(state rivertype.JobState) bool {

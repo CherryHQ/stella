@@ -36,7 +36,7 @@ Knowledge Base 只负责为 Agent 提供 RAG，不承载 Agent 的全部上下�
 - 第一批格式：文本型 PDF、DOCX、Markdown 和纯文本。
 - 单文件 25 MiB 硬限制。
 - PostgreSQL 保存原文件和解析后的 chunks。
-- shared River 异步调用受管的 **Xberg v1.0.0-rc.35** 完成抽取和切块。
+- shared River 异步调用受管的 **Xberg v1.0.4** 完成抽取和切块。
 - 使用现有 **pg_search BM25** 完成中文和中英文混合检索。
 - 一个只读 Agent 工具：**knowledge.search(query, limit)**。
 - 模型根据提示词自行决定是否检索，并在使用知识时给出文件名和页码或标题引用。
@@ -80,7 +80,7 @@ Stella 当前已有：
 - shared River 后台任务客户端；
 - 来源已迁移到 `xberg-io/xberg`、但本地注册名和调用方仍使用旧 `kreuzberg` 名称的受管文档解析工具。
 
-Knowledge V1 复用这些能力，但实施前必须把受管二进制统一修正为 **xberg v1.0.0-rc.35**，并为解析任务增加独立队列、并发和超时边界。现有 Agent 临时读文件的文本接口不是完整的 Knowledge 入库适配器，不能直接复用其返回值作为最终数据协议。
+Knowledge V1 复用这些能力，并将受管二进制统一固定为 **xberg v1.0.4**，同时为解析任务设置独立队列、并发和超时边界。现有 Agent 临时读文件的文本接口不是完整的 Knowledge 入库适配器，不能直接复用其返回值作为最终数据协议。
 
 ## 最终方案
 
@@ -268,7 +268,7 @@ V1 支持：
 
 ### 6. 解析与切块
 
-Knowledge Worker 将原始 BYTEA 写入受控临时文件后，调用受管的 **xberg v1.0.0-rc.35**。实施不能沿用旧 `kreuzberg` 命令，也不能在尚未验证时把旧 CLI 参数直接改名后使用。
+Knowledge Worker 将原始 BYTEA 写入受控临时文件后，调用受管的 **xberg v1.0.4**。实施不能沿用旧 `kreuzberg` 命令，也不能在尚未验证时把旧 CLI 参数直接改名后使用。
 
 Linux GNU 资产由 Xberg 官方在可执行文件旁提供非系统动态库，并通过 `$ORIGIN` 解析。Stella 的 mise 安装必须保留整个官方压缩包，不得只复制 `xberg` 单文件；Stella 不再自带 `libheif`，也不注入私有 `LD_LIBRARY_PATH`。发行包只声明上游仍要求的系统 `libstdc++` 依赖。
 
@@ -294,7 +294,7 @@ Stella 负责：
 - **overlap = 200**；
 - 优先尊重标题、段落和句子边界。
 
-参数的实际单位、边界行为和 locator 保留效果以 v1.0.0-rc.35 fixture 测试为准，不能仅根据旧 Kreuzberg 文档推断。
+参数的实际单位、边界行为和 locator 保留效果以 v1.0.4 fixture 测试为准，不能仅根据旧 Kreuzberg 文档推断。
 
 如果未来修改切块参数，必须从 raw_content 重建整份文件的 chunks，不能让同一索引长期混用不同参数。
 
@@ -770,7 +770,7 @@ Knowledge 的管理能力只存在于第 14 节定义的 Agent 顶部页签和�
 - 内容变更时，新文件 processing 或 failed 不影响旧文件继续保持 ready；只有用户主动删除旧文件后，旧内容才停止检索。
 - 新文件 ready、旧文件尚未删除时，两份文件都可以被检索并同时计入配额；删除旧文件后立即释放其额度。
 - 新文件的 Worker 只处理自身 file_id，不删除或修改旧文件，也不执行隐式替换。
-- xberg v1.0.0-rc.35 的 PDF、DOCX、Markdown、TXT fixtures 能产出有序 chunks 和可用 locator，且切块参数被显式传递。
+- xberg v1.0.4 的 PDF、DOCX、Markdown、TXT fixtures 能产出有序 chunks 和可用 locator，且切块参数被显式传递。
 - 扫描或无文字 PDF 进入 failed，不会错误变为 ready。
 - chunks、processing → ready/failed 和 River job completed 通过 JobCompleteTx 原子提交；处理中和 failed 文件不可检索。
 - Worker 重复执行、文件已经终态或文件已删除时成功 no-op。

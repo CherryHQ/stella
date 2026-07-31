@@ -23,7 +23,7 @@ import (
 const (
 	// XbergVersion is the parser version whose CLI and JSON contract are covered
 	// by the adapter tests.
-	XbergVersion = "1.0.0-rc.35"
+	XbergVersion = "1.0.4"
 
 	DefaultChunkSize       = 1000
 	DefaultChunkOverlap    = 200

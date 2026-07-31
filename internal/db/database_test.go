@@ -23,7 +23,7 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
-func TestKnowledgeFilesMigrationDownUp(t *testing.T) {
+func TestKnowledgeFilesMigrationUpgradesDatabaseAtPreviousLatest(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
@@ -38,15 +38,16 @@ func TestKnowledgeFilesMigrationDownUp(t *testing.T) {
 		t.Fatalf("create migration provider: %v", err)
 	}
 
-	// The Knowledge migration is currently the latest migration, so rolling
-	// back to its immediate predecessor isolates its Down path.
-	if _, err := provider.DownTo(ctx, 20260720091113); err != nil {
+	// Simulate an existing Stella database that has already applied every
+	// migration from main. The unpublished Knowledge migration must sort after
+	// that version so a normal ordered Up can apply it during an upgrade.
+	if _, err := provider.DownTo(ctx, 20260731014023); err != nil {
 		t.Fatalf("goose down knowledge migration: %v", err)
 	}
 	if tableExists(t, db, "knowledge_file") || tableExists(t, db, "knowledge_chunk") {
 		t.Fatal("knowledge tables should not exist after down")
 	}
-	if _, err := provider.UpTo(ctx, 20260723064256); err != nil {
+	if _, err := provider.Up(ctx); err != nil {
 		t.Fatalf("goose up knowledge migration: %v", err)
 	}
 	if !tableExists(t, db, "knowledge_file") || !tableExists(t, db, "knowledge_chunk") {

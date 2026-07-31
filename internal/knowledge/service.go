@@ -175,16 +175,37 @@ func (s *Service) Get(ctx context.Context, id string) (File, error) {
 }
 
 // Delete removes an immutable file and its chunks through the database cascade.
+// Any queued or running parse job is cancelled in the same transaction so
+// deleting an upload also releases parser capacity.
 func (s *Service) Delete(ctx context.Context, id string) (File, error) {
-	if s == nil || s.q == nil {
+	if s == nil || s.db == nil || s.q == nil || s.river == nil {
 		return File{}, ErrServiceUnavailable
 	}
-	row, err := s.q.DeleteKnowledgeFile(ctx, id)
+	jobIDs, err := s.activeParseJobIDs(ctx, id)
+	if err != nil {
+		return File{}, err
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return File{}, fmt.Errorf("begin knowledge file deletion: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	row, err := s.q.WithTx(tx).DeleteKnowledgeFile(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return File{}, ErrNotFound
 	}
 	if err != nil {
 		return File{}, fmt.Errorf("delete knowledge file: %w", err)
+	}
+	for _, jobID := range jobIDs {
+		if _, err := s.river.JobCancelTx(ctx, tx, jobID); err != nil && !errors.Is(err, river.ErrNotFound) {
+			return File{}, fmt.Errorf("cancel knowledge parse job %d: %w", jobID, err)
+		}
+	}
+	if err := commitKnowledgeTransaction(ctx, tx); err != nil {
+		return File{}, err
 	}
 	return fileFromDeleteRow(row), nil
 }

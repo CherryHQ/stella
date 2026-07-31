@@ -103,10 +103,13 @@ func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return chatFakeRunner{system: "live base prompt", events: []Event{{Text: "ok"}}}, nil
 		},
-		SnapshotPrompt: func(_ context.Context, _ session.Info, snap memory.SessionSnapshot) string {
+		SnapshotPrompt: func(_ context.Context, _ session.Info, snap memory.SessionSnapshot, privateHuman bool) string {
 			promptCalls++
 			if snap.Version != 0 {
 				t.Fatalf("snapshot version = %d, want 0", snap.Version)
+			}
+			if !privateHuman {
+				t.Fatal("snapshot prompt did not receive the private-human capability")
 			}
 			return "frozen snapshot prompt"
 		},
@@ -119,7 +122,12 @@ func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 		t.Fatalf("new runtime: %v", err)
 	}
 
-	out := rt.Chat(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, "hello")
+	out := rt.Chat(
+		context.Background(),
+		session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"},
+		"hello",
+		WithPrivateHumanTurn(),
+	)
 	for evt := range out {
 		if evt.Err != nil {
 			t.Fatalf("chat: %v", evt.Err)

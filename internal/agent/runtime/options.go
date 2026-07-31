@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"context"
+
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -15,6 +17,30 @@ type chatOptions struct {
 	extraTools     []tools.Tool
 	currentSpeaker memory.CurrentSpeaker
 	hasSpeaker     bool
+	privateHuman   bool
+}
+
+type privateHumanTurnKey struct{}
+
+// WithPrivateHumanTurn marks a Chat call as a private turn initiated by a
+// human. Only trusted Web and channel entry adapters may set this option;
+// webhook, scheduler, task, and delegate paths must leave it unset.
+func WithPrivateHumanTurn() Option {
+	return func(o *chatOptions) {
+		o.privateHuman = true
+	}
+}
+
+func withPrivateHumanTurn(ctx context.Context) context.Context {
+	return context.WithValue(ctx, privateHumanTurnKey{}, true)
+}
+
+func privateHumanTurnFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	allowed, _ := ctx.Value(privateHumanTurnKey{}).(bool)
+	return allowed
 }
 
 // WithCurrentSpeaker attaches the per-turn group speaker for this Chat call.

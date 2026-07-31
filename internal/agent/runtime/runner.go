@@ -64,15 +64,23 @@ type MessageContent = any
 
 // RunnerParams holds dependencies for creating a new Runner.
 type RunnerParams struct {
-	Model          string
-	Thinking       ai.ThinkingLevel
-	Memory         any // memory.Provider — typed as any to avoid circular imports
-	UserID         string
-	GroupID        string // non-empty for group sessions; runtime uses this to isolate identity surfaces
-	SessionID      string
-	AgentID        string
-	ProjectID      string
-	SessionKind    string
+	Model       string
+	Thinking    ai.ThinkingLevel
+	Memory      any // memory.Provider — typed as any to avoid circular imports
+	UserID      string
+	GroupID     string // non-empty for group sessions; runtime uses this to isolate identity surfaces
+	SessionID   string
+	AgentID     string
+	ProjectID   string
+	SessionKind string
+	// SessionChannel is a deny-only defense for automated session types. It
+	// must never be used to grant PrivateHuman because one durable session can
+	// be opened from more than one surface.
+	SessionChannel string
+	// PrivateHuman is a server-minted, per-turn capability. It is true only for
+	// a private chat initiated by a human through the Web UI or a trusted chat
+	// adapter; webhook and background callers leave it false.
+	PrivateHuman   bool
 	HooksFn        func() []hooks.HookPlugin
 	ExtraTools     []tools.Tool
 	DelegateRunner delegatetool.SessionRunner

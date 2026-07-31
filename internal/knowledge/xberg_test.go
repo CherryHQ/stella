@@ -13,6 +13,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 )
 
 func TestXbergParserParse(t *testing.T) {
@@ -121,6 +123,42 @@ func TestXbergParserAvailability(t *testing.T) {
 	}
 	if err := parser.Available(); err != nil {
 		t.Fatalf("Available() error = %v", err)
+	}
+}
+
+func TestXbergParserAvailabilityMatchesManagedManifest(t *testing.T) {
+	t.Parallel()
+
+	manifest, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		t.Fatalf("load builtin manifest: %v", err)
+	}
+	var managedVersion string
+	for _, plugin := range manifest.Plugins {
+		for _, binary := range plugin.Binaries {
+			if binary.Name == "xberg" {
+				managedVersion = binary.Version
+				break
+			}
+		}
+	}
+	if managedVersion == "" {
+		t.Fatal("managed Xberg binary is missing from the builtin manifest")
+	}
+
+	binary := filepath.Join(t.TempDir(), "xberg")
+	if err := os.WriteFile(binary, []byte("managed"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	parser, err := newXbergParserWithRunner(
+		DefaultXbergParserConfig(binary),
+		&recordingXbergRunner{probeStdout: []byte("xberg " + managedVersion + "\n")},
+	)
+	if err != nil {
+		t.Fatalf("new parser: %v", err)
+	}
+	if err := parser.Available(); err != nil {
+		t.Fatalf("managed manifest version %q must satisfy Available(): %v", managedVersion, err)
 	}
 }
 

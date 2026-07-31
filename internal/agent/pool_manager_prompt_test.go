@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -33,10 +34,30 @@ func TestPoolSnapshotPromptUsesPrincipalWorkspace(t *testing.T) {
 				got = build
 				return nil, nil
 			}}
-			pm.buildSnapshotPromptFunc(snap)(context.Background(), tt.info, memory.SessionSnapshot{})
+			pm.buildSnapshotPromptFunc(snap)(context.Background(), tt.info, memory.SessionSnapshot{}, false)
 			if got.WorkspaceRoot != tt.want {
 				t.Errorf("WorkspaceRoot = %q, want %q", got.WorkspaceRoot, tt.want)
 			}
 		})
+	}
+}
+
+func TestPoolSnapshotPromptUsesCurrentTurnKnowledgeCapability(t *testing.T) {
+	snap := &config.Snapshot{AgentID: "a1", Workspace: t.TempDir()}
+	pm := &PoolManager{}
+	build := pm.buildSnapshotPromptFunc(snap)
+	info := session.Info{
+		UserID:  "u1",
+		AgentID: "a1",
+		Kind:    string(session.KindChat),
+	}
+
+	humanPrompt := build(context.Background(), info, memory.SessionSnapshot{}, true)
+	if !strings.Contains(humanPrompt, "# Knowledge Base") {
+		t.Fatalf("private human snapshot prompt omitted Knowledge Base guidance:\n%s", humanPrompt)
+	}
+	webhookPrompt := build(context.Background(), info, memory.SessionSnapshot{}, false)
+	if strings.Contains(webhookPrompt, "# Knowledge Base") {
+		t.Fatalf("non-human snapshot prompt exposed Knowledge Base guidance:\n%s", webhookPrompt)
 	}
 }

@@ -47,7 +47,7 @@
 | `knowledge.search` 的 query 最大字符数                 | 开始步骤 4 前              | 产品确认后同时固化到工具 schema、服务端校验和测试                   |
 | River 专用队列名、退避参数和基础监控项                 | 开始步骤 2 的 River 接线前 | 按现有运维命名规范确认，不额外建设监控系统                          |
 | 逻辑名 `knowledge.search` 到模型提供商合法函数名的映射 | 步骤 1 结束前              | 用当前 Agent 工具注册链路做最小验证，外部契约仍保持一个 search 工具 |
-| Xberg v1.0.0-rc.35 的真实二进制名、参数和 JSON schema  | 步骤 1 结束前              | 必须运行四类 fixture 实测，不能从旧 Kreuzberg CLI 猜测              |
+| Xberg v1.0.4 的真实二进制名、参数和 JSON schema        | 步骤 1 结束前              | 必须运行四类 fixture 实测，不能从旧 Kreuzberg CLI 猜测              |
 | 面向用户的完整错误文案和日志保留周期                   | 步骤 5、6 前               | API reason 先按 solution 固定；展示文案和保留周期单独确认           |
 | 真实文件问答集及验收指标                               | 步骤 6 前                  | 没有基准数据时不能以主观体验决定增加向量检索等复杂度                |
 
@@ -61,7 +61,7 @@
 
 在业务表和 API 接入前，先消除两个高风险假设：
 
-- Stella 能稳定安装并调用固定版本 Xberg v1.0.0-rc.35；
+- Stella 能稳定安装并调用固定版本 Xberg v1.0.4；
 - mise 保留官方 Linux GNU 压缩包中的可执行文件、相邻动态库和许可证文件，不做单文件复制；
 - PDF、DOCX、Markdown、TXT fixture 能得到有序 chunk 和可规范化 locator；
 - `chunk_size = 1000`、`overlap = 200`、关闭 OCR、关闭缓存等参数确实由 Stella 显式控制；

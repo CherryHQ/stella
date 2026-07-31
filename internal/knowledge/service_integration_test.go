@@ -44,6 +44,18 @@ func (unavailableParser) Available() error {
 	return errors.New("managed parser is not installed")
 }
 
+type cancelAwareParser struct {
+	started  chan struct{}
+	canceled chan struct{}
+}
+
+func (p *cancelAwareParser) Parse(ctx context.Context, _, _ string) ([]ParsedChunk, error) {
+	close(p.started)
+	<-ctx.Done()
+	close(p.canceled)
+	return nil, ctx.Err()
+}
+
 func TestKnowledgeOwnerConstraint(t *testing.T) {
 	db := dbtest.New(t)
 	seedKnowledgePrincipals(t, db)
@@ -140,6 +152,59 @@ func TestKnowledgeServiceRiverReadySearchAndDelete(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Fatalf("Search after delete = %+v, want empty", results)
+	}
+}
+
+func TestKnowledgeDeleteCancelsQueuedParseJob(t *testing.T) {
+	db := dbtest.New(t)
+	service := newInsertOnlyKnowledgeService(t, db)
+
+	file, err := service.Create(t.Context(), Owner{Scope: ScopeSystem}, "queued.txt", []byte("source"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := service.Delete(t.Context(), file.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	state, found, err := service.latestParseJobState(t.Context(), file.ID)
+	if err != nil {
+		t.Fatalf("latest parse job: %v", err)
+	}
+	if !found || state != "cancelled" {
+		t.Fatalf("parse job state = %q found=%v, want cancelled", state, found)
+	}
+}
+
+func TestKnowledgeDeleteCancelsRunningParserAfterRead(t *testing.T) {
+	db := dbtest.New(t)
+	parser := &cancelAwareParser{
+		started:  make(chan struct{}),
+		canceled: make(chan struct{}),
+	}
+	service, client := newWorkingKnowledgeService(t, db, parser)
+	startRiverClient(t, client)
+
+	file, err := service.Create(t.Context(), Owner{Scope: ScopeSystem}, "running.txt", []byte("source"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	select {
+	case <-parser.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("parser did not start")
+	}
+
+	if _, err := service.Delete(t.Context(), file.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	select {
+	case <-parser.canceled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("running parser context was not cancelled after delete")
+	}
+	if _, err := service.Get(t.Context(), file.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get after delete error = %v, want not found", err)
 	}
 }
 
