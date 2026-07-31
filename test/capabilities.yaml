@@ -622,13 +622,13 @@ capabilities:
         layer: browser
         status: covered
         release_policy: blocking
-        summary: A user creates a session, sees streaming output and persisted history, sees a provider failure in the transcript, and recovers on the next turn.
+        summary: A user restores paginated history, sees a large streaming reply without duplicate or missing chunks, reloads persisted output, sees a provider failure, and recovers on the next turn.
         evidence:
           - kind: browser_test
             path: web/e2e/release.spec.ts
             test: "[C07-S03] stream and restore a chat session"
             direct: true
-            proves: Playwright creates a new thread, observes a deliberately gated partial SSE reply, reloads persisted messages, surfaces a controlled provider failure, and proves the next successful turn clears the error.
+            proves: Playwright seeds 120 messages across pagination, loads the oldest turn, observes a deliberately gated 256-chunk SSE reply, compares persisted text exactly, reloads it, surfaces a controlled provider failure, and proves the next successful turn clears the error.
         gap: ""
 
   - id: C08
@@ -656,7 +656,7 @@ capabilities:
         layer: integration
         status: covered
         release_policy: blocking
-        summary: Workspace paths, sandbox-view and host absolute paths, upload metadata, and file mutations stay within the authorized session and survive expected reads.
+        summary: Workspace paths, sandbox-view and host absolute paths, upload metadata, file mutations, and private cache revalidation stay within the authorized session and return current content.
         evidence:
           - kind: go_test
             path: internal/server/sessions_api_test.go
@@ -677,6 +677,11 @@ capabilities:
             test: TestGetWorkspaceFileContentAbsoluteHostPathResolvesToUserRoot
             direct: true
             proves: Authorized host-absolute paths resolve to the physically containing workspace root while paths outside all roots are rejected by companion cases.
+          - kind: go_test
+            path: internal/server/sessions_blob_test.go
+            test: TestGetWorkspaceRawContentRevalidatesSameSecondRewrite
+            direct: true
+            proves: Authorized raw reads use private revalidation, return 304 without a body when unchanged, distinguish same-second rewrites with a content ETag, retain security headers, and reject unauthenticated requests before exposing validators.
         gap: ""
 
   - id: C09
@@ -2003,9 +2008,29 @@ capabilities:
             direct: true
             proves: OpenAI Chat Completions streaming conversion.
           - kind: contract_test
+            path: plugins/providers/openai/client_contract_test.go
+            test: TestProviderStreamHTTPContract
+            direct: true
+            proves: A keyless local HTTP/SSE target validates the Chat Completions endpoint, dummy authorization, messages, tools and options, then proves text, tool arguments, usage and stop events.
+          - kind: contract_test
+            path: plugins/providers/openai/client_contract_test.go
+            test: TestProviderStreamReportsHTTPError
+            direct: true
+            proves: An upstream Chat Completions HTTP failure becomes a normalized EventError and terminates the stream.
+          - kind: contract_test
             path: plugins/providers/openai-response/stream_test.go
             direct: true
             proves: OpenAI Responses streaming conversion.
+          - kind: contract_test
+            path: plugins/providers/openai-response/client_contract_test.go
+            test: TestProviderStreamHTTPContract
+            direct: true
+            proves: A keyless local HTTP/SSE target validates the Responses endpoint, dummy authorization, input, tools and options, then proves text, tool arguments, usage and stop events.
+          - kind: contract_test
+            path: plugins/providers/openai-response/client_contract_test.go
+            test: TestProviderStreamReportsHTTPError
+            direct: true
+            proves: An upstream Responses HTTP failure becomes a normalized EventError and terminates the stream.
           - kind: system_test
             path: test/system/system_test.go
             test: TestSystem
@@ -2171,7 +2196,7 @@ capabilities:
             path: internal/embedding/lifecycle_contract_test.go
             test: TestEmbeddingSettingsBackfillRestartAndSemanticQuery
             direct: true
-            proves: Persisted settings drive an OpenAI-compatible fake through worker backfill, service restart, and a scoped non-lexical semantic query.
+            proves: Persisted settings drive a package-local in-process OpenAI-compatible httptest target through worker backfill, service restart, and a scoped non-lexical semantic query; no standalone fake service or real key is required at this layer.
         gap: ""
       - id: X14-S02
         name: embedding-provider-live-query

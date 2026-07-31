@@ -293,6 +293,10 @@ test("[C06-S02] configure a provider and mask its secret", async ({ page }) => {
 });
 
 test("[C07-S03] stream and restore a chat session", async ({ page }) => {
+  test.setTimeout(180_000);
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
   await login(page, env.adminEmail, env.adminPassword);
   const { agentID } = await createModelFixture(page, "chat");
 
@@ -305,27 +309,73 @@ test("[C07-S03] stream and restore a chat session", async ({ page }) => {
       response.request().method() === "POST",
   );
   await page.getByTitle("New thread").click();
-  expect((await sessionCreated).status()).toBe(201);
+  const sessionResponse = await sessionCreated;
+  expect(sessionResponse.status()).toBe(201);
+  const session = await jsonFrom<{ id: string }>(sessionResponse);
   await expect(page).not.toHaveURL(originalURL);
 
-  const firstChunk = "release browser ";
-  const fullReply = `${firstChunk}reply`;
-  const userMessage = `${env.fixturePrefix} streaming message`;
-  const gate = await page.request.post(`${env.fakeProviderURL}/control/gate`);
-  expect(gate.ok()).toBeTruthy();
+  // Sixty synchronous turns produce 120 logical messages, crossing the Web
+  // history page boundary while keeping the release fixture bounded.
+  const history = await seedChatHistory(page, agentID, session.id, 60);
+  await page.reload();
+  await expect(page.getByText(history.newest, { exact: true })).toBeVisible();
+  await expect(page.getByText(history.oldest, { exact: true })).toHaveCount(0);
 
+  const transcript = page.locator(".stella-transcript-scroll");
+  await expect(transcript).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        await transcript.evaluate((element) => {
+          element.scrollTop = 0;
+        });
+        return page.getByText(history.oldest, { exact: true }).count();
+      },
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+  await expect(page.getByText(history.oldest, { exact: true })).toBeVisible();
+
+  const longControlResponse = await page.request.post(
+    `${env.fakeProviderURL}/control/long-stream`,
+    {
+      data: { chunks: 256, gate_after: 8, interval_ms: 0 },
+    },
+  );
+  const longControl = await jsonFrom<{
+    chunks: number;
+    first_marker: string;
+    final_marker: string;
+    expected_text: string;
+  }>(longControlResponse);
+  expect(longControl.chunks).toBe(256);
+
+  const userMessage = `${env.fixturePrefix} long streaming message`;
   await page.getByPlaceholder("Message…").fill(userMessage);
   await page.getByTitle("Send message").click();
-  await expect(page.getByText(firstChunk, { exact: false })).toBeVisible();
-  await expect(page.getByText(fullReply, { exact: false })).toHaveCount(0);
+  await expect(page.getByText(longControl.first_marker, { exact: false })).toBeVisible();
+  await expect(page.getByText(longControl.final_marker, { exact: false })).toHaveCount(0);
 
   const release = await page.request.post(`${env.fakeProviderURL}/control/release`);
   expect(release.ok()).toBeTruthy();
-  await expect(page.getByText(fullReply, { exact: false })).toBeVisible();
+  await expect(page.getByText(longControl.final_marker, { exact: false })).toBeVisible();
+
+  const persisted = await requestJSON<{
+    messages: Array<{
+      role?: string;
+      content?: string;
+      blocks?: Array<{ type?: string; text?: string }>;
+    }>;
+  }>(page, "GET", `/api/agents/${agentID}/sessions/${session.id}/messages?limit=200`);
+  const persistedLongReply = persisted.messages
+    .filter((message) => message.role === "assistant")
+    .map(sessionMessageText)
+    .find((text) => text.includes(longControl.first_marker));
+  expect(persistedLongReply).toBe(longControl.expected_text);
 
   await page.reload();
   await expect(page.getByText(userMessage, { exact: false })).toBeVisible();
-  await expect(page.getByText(fullReply, { exact: false })).toBeVisible();
+  await expect(page.getByText(longControl.final_marker, { exact: false })).toBeVisible();
 
   // A provider failure must be visible in the transcript, and the next turn
   // must clear that run-level error instead of leaving the chat stuck.
@@ -338,7 +388,8 @@ test("[C07-S03] stream and restore a chat session", async ({ page }) => {
   await page.getByPlaceholder("Message…").fill(`${env.fixturePrefix} recovery message`);
   await page.getByTitle("Send message").click();
   await expect(page.getByText("Response failed", { exact: true })).toHaveCount(0);
-  await expect(page.getByText(fullReply, { exact: false }).last()).toBeVisible();
+  await expect(page.getByText("release browser reply", { exact: false }).last()).toBeVisible();
+  expect(pageErrors).toEqual([]);
 });
 
 test("[C10-S03] create and intervene in a goal through the browser", async ({ page }) => {
@@ -1202,6 +1253,42 @@ async function createModelFixture(
     enabled: true,
   });
   return { providerID, agentID: agent.id };
+}
+
+async function seedChatHistory(
+  page: Page,
+  agentID: string,
+  sessionID: string,
+  turns: number,
+): Promise<{ oldest: string; newest: string }> {
+  const marker = (turn: number) =>
+    `${env.fixturePrefix} history turn ${String(turn).padStart(3, "0")}`;
+  for (let turn = 1; turn <= turns; turn += 1) {
+    // APIRequestContext waits for the complete SSE body, so turns remain
+    // sequential and cannot race the session writer.
+    const response = await page.request.post(
+      `/api/agents/${agentID}/sessions/${sessionID}/messages`,
+      {
+        data: { parts: [{ type: "text", text: marker(turn) }] },
+      },
+    );
+    expect(response.ok(), `seed chat history turn ${turn}`).toBeTruthy();
+    await response.body();
+  }
+  return { oldest: marker(1), newest: marker(turns) };
+}
+
+function sessionMessageText(message: {
+  content?: string;
+  blocks?: Array<{ type?: string; text?: string }>;
+}): string {
+  if (typeof message.content === "string") {
+    return message.content;
+  }
+  return (message.blocks ?? [])
+    .filter((block) => block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("");
 }
 
 async function requestJSON<T = unknown>(

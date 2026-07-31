@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -124,6 +125,121 @@ func TestFakeAnthropicGatesOneRealSSETurn(t *testing.T) {
 	if !strings.Contains(string(after), fakeSecondChunk) {
 		t.Fatalf("released suffix does not contain %q", fakeSecondChunk)
 	}
+}
+
+func TestFakeAnthropicStreamsConfiguredLongReply(t *testing.T) {
+	fake, err := startFakeAnthropic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := fake.Close(); err != nil {
+			t.Errorf("close fake: %v", err)
+		}
+	})
+
+	const chunkCount = 64
+	controlResponse, err := http.Post(
+		fake.URL()+"/control/long-stream",
+		"application/json",
+		strings.NewReader(`{"chunks":64,"gate_after":4,"interval_ms":0}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if controlResponse.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(controlResponse.Body)
+		_ = controlResponse.Body.Close()
+		t.Fatalf("long-stream control status = %d body = %q", controlResponse.StatusCode, body)
+	}
+	var control fakeLongStreamResponse
+	if err := json.NewDecoder(controlResponse.Body).Decode(&control); err != nil {
+		_ = controlResponse.Body.Close()
+		t.Fatal(err)
+	}
+	_ = controlResponse.Body.Close()
+	if control.Chunks != chunkCount || control.GateAfter != 4 {
+		t.Fatalf("long-stream control = %#v", control)
+	}
+
+	request, err := http.NewRequest(
+		http.MethodPost,
+		fake.URL()+"/v1/messages",
+		strings.NewReader(`{"model":"claude-release-browser"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	reader := bufio.NewReader(response.Body)
+	var prefix strings.Builder
+	for !strings.Contains(prefix.String(), control.FirstMarker) {
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			t.Fatalf("read long-stream prefix: %v", readErr)
+		}
+		prefix.WriteString(line)
+	}
+	if strings.Contains(prefix.String(), control.FinalMarker) {
+		t.Fatal("gated long-stream prefix already contains the final marker")
+	}
+
+	releaseResponse, err := http.Post(fake.URL()+"/control/release", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = releaseResponse.Body.Close()
+	if releaseResponse.StatusCode != http.StatusNoContent {
+		t.Fatalf("release status = %d", releaseResponse.StatusCode)
+	}
+	suffix, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := prefix.String() + string(suffix)
+	if count := strings.Count(stream, `"type":"text_delta"`); count != chunkCount {
+		t.Fatalf("text delta count = %d, want %d", count, chunkCount)
+	}
+	if text := fakeSSEText(t, stream); text != control.ExpectedText {
+		t.Fatalf("assembled text mismatch: got %d bytes, want %d", len(text), len(control.ExpectedText))
+	}
+	if summary := fake.Summary(); summary.LongCalls != 1 || summary.LongChunkCount != chunkCount {
+		t.Fatalf("fake summary = %#v", summary)
+	}
+}
+
+func fakeSSEText(t *testing.T, stream string) string {
+	t.Helper()
+	var text strings.Builder
+	scanner := bufio.NewScanner(strings.NewReader(stream))
+	for scanner.Scan() {
+		data, ok := strings.CutPrefix(scanner.Text(), "data: ")
+		if !ok {
+			continue
+		}
+		var event struct {
+			Type  string `json:"type"`
+			Delta struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			t.Fatalf("decode SSE data %q: %v", data, err)
+		}
+		if event.Type == "content_block_delta" && event.Delta.Type == "text_delta" {
+			text.WriteString(event.Delta.Text)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return text.String()
 }
 
 func TestFakeAnthropicFailsOneTurnAndRecovers(t *testing.T) {

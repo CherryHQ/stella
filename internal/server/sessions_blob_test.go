@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -378,6 +379,107 @@ func TestGetWorkspaceRawContentUsesConstrainedInlineResponse(t *testing.T) {
 	}
 	if got := rr.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline") {
 		t.Fatalf("Content-Disposition=%q", got)
+	}
+}
+
+func TestGetWorkspaceRawContentRevalidatesSameSecondRewrite(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "cache.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const oldContent = "old workspace bytes"
+	const newContent = "new workspace bytes written immediately"
+	if err := os.WriteFile(local, []byte(oldContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// HTTP dates have one-second precision. Pin both versions to the same second
+	// so this test cannot accidentally pass because the filesystem clock ticked.
+	sameSecond := time.Date(2026, time.July, 31, 1, 2, 3, 456_000_000, time.UTC)
+	if err := os.Chtimes(local, sameSecond, sameSecond); err != nil {
+		t.Fatal(err)
+	}
+
+	s := assetServer(t, home, nil, mem)
+	scope := apitypes.WorkspaceScopeUser
+	raw := true
+	read := func(etag, modifiedSince string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/", nil).
+			WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+		if etag != "" {
+			req.Header.Set("If-None-Match", etag)
+		}
+		if modifiedSince != "" {
+			req.Header.Set("If-Modified-Since", modifiedSince)
+		}
+		rr := httptest.NewRecorder()
+		s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{
+			Path: "cache.txt", Scope: &scope, Raw: &raw,
+		})
+		return rr
+	}
+
+	first := read("", "")
+	if first.Code != http.StatusOK || first.Body.String() != oldContent {
+		t.Fatalf("first read status=%d body=%q", first.Code, first.Body.String())
+	}
+	if got := first.Header().Get("Cache-Control"); got != "private, no-cache" {
+		t.Fatalf("Cache-Control=%q", got)
+	}
+	if got := first.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options=%q", got)
+	}
+	if got := first.Header().Get("Content-Security-Policy"); !strings.Contains(got, "sandbox") {
+		t.Fatalf("Content-Security-Policy=%q", got)
+	}
+	oldETag := first.Header().Get("ETag")
+	oldLastModified := first.Header().Get("Last-Modified")
+	if oldETag == "" || oldLastModified == "" {
+		t.Fatalf("validators ETag=%q Last-Modified=%q", oldETag, oldLastModified)
+	}
+
+	notModified := read(oldETag, oldLastModified)
+	if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 {
+		t.Fatalf("unchanged read status=%d body=%q", notModified.Code, notModified.Body.String())
+	}
+
+	if err := os.WriteFile(local, []byte(newContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(local, sameSecond, sameSecond); err != nil {
+		t.Fatal(err)
+	}
+	updated := read(oldETag, oldLastModified)
+	if updated.Code != http.StatusOK || updated.Body.String() != newContent {
+		t.Fatalf("same-second updated read status=%d body=%q", updated.Code, updated.Body.String())
+	}
+	if got := updated.Header().Get("Last-Modified"); got != oldLastModified {
+		t.Fatalf("Last-Modified=%q, want same-second value %q", got, oldLastModified)
+	}
+	if newETag := updated.Header().Get("ETag"); newETag == "" || newETag == oldETag {
+		t.Fatalf("updated ETag=%q, old ETag=%q", newETag, oldETag)
+	}
+
+	unauthorized := httptest.NewRecorder()
+	unauthorizedRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	unauthorizedRequest.Header.Set("If-None-Match", oldETag)
+	s.GetWorkspaceFileContent(
+		unauthorized,
+		unauthorizedRequest,
+		"a1",
+		"s1",
+		apiserver.GetWorkspaceFileContentParams{Path: "cache.txt", Scope: &scope, Raw: &raw},
+	)
+	if unauthorized.Code != http.StatusUnauthorized || unauthorized.Header().Get("ETag") != "" {
+		t.Fatalf("unauthorized status=%d ETag=%q", unauthorized.Code, unauthorized.Header().Get("ETag"))
 	}
 }
 

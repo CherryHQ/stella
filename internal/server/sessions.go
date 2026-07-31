@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -880,6 +881,10 @@ func (s *Server) GetWorkspaceFileContent(w http.ResponseWriter, r *http.Request,
 		// so a reloaded transcript turns repeat image bodies into 304s while a
 		// rewritten workspace file is still picked up immediately.
 		w.Header().Set("Cache-Control", "private, no-cache")
+		// Last-Modified has only one-second precision. A strong content ETag keeps
+		// immediate same-path rewrites from being mistaken for an unchanged file.
+		digest := sha256.Sum256(result.RawContent)
+		w.Header().Set("ETag", fmt.Sprintf(`"sha256-%x"`, digest))
 		http.ServeContent(w, r, result.RawName, result.RawModTime, bytes.NewReader(result.RawContent))
 		return
 	}
