@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"os"
@@ -52,42 +53,60 @@ func (f *Factory) Supported(_ sandboxpkg.Policy) error { return nil }
 // with a sandboxed PATH. Network mode is always overridden to AllowAll since
 // the none backend cannot enforce network restrictions.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
-	policy = f.adjustPolicy(policy)
+	tmpDir, err := os.MkdirTemp("", "stella-none-session-tmp-*")
+	if err != nil {
+		return nil, fmt.Errorf("none: create session temp: %w", err)
+	}
+	transferredTempOwnership := false
+	defer func() {
+		if !transferredTempOwnership {
+			_ = os.RemoveAll(tmpDir)
+		}
+	}()
+	policy, err = f.adjustPolicy(policy, tmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("none: apply filesystem environment: %w", err)
+	}
 	id := sandboxpkg.NewSessionID()
 	s := &noneSession{
-		id:     id,
-		policy: policy,
-		done:   make(chan struct{}),
+		id:           id,
+		policy:       policy,
+		ownedTempDir: tmpDir,
+		done:         make(chan struct{}),
 	}
+	transferredTempOwnership = true
 	sandboxpkg.LogSessionCreated(id, "none", policy)
 	return s, nil
 }
 
 // adjustPolicy applies none-backend-specific policy adjustments.
-func (f *Factory) adjustPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
+func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, tmpDir string) (sandboxpkg.Policy, error) {
 	policy.Network.Mode = sandboxpkg.NetworkAllowAll
-	if f.cfg.StellaHome == "" {
-		return policy
-	}
 	env := maps.Clone(policy.Env)
 	if env == nil {
 		env = make(map[string]string)
 	}
-	// Recover the per-user mise home from the runtime env (MISE_DATA_DIR) to put
-	// its shims on PATH; no remap here since none shares the host filesystem.
-	userShims := ""
-	if dir := sandboxpkg.PerUserMiseDataDir(env, f.cfg.StellaHome); dir != "" {
-		userShims = sandboxpkg.MiseUserShimsDir(dir)
+
+	// The none backend has no path remapping or confinement: all filesystem
+	// roots are real host paths. A user-less session falls back to its workspace.
+	workspace := policy.WorkspaceRootOrDefault()
+	userData := hostPathForSandboxMount(policy.Filesystem.Mounts, sandboxpkg.MountUserData)
+	view := sandboxpkg.FilesystemView{Home: workspace, SharedDataDir: userData, TempDir: tmpDir}
+	if err := sandboxpkg.ApplyFilesystemEnv(env, view); err != nil {
+		return sandboxpkg.Policy{}, err
 	}
-	env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims)
-	// Host execution shares the real filesystem, so the shared user-data root is
-	// exposed at its real path (no /user remap). Keeps STELLA_USER_DIR meaningful
-	// for skills/prompt that address it regardless of backend.
-	if ud := hostPathForSandboxMount(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ud != "" {
-		env["STELLA_USER_DIR"] = ud
+
+	if f.cfg.StellaHome != "" {
+		// Recover the per-user mise home from the runtime env (MISE_DATA_DIR) to put
+		// its shims on PATH; no remap here since none shares the host filesystem.
+		userShims := ""
+		if dir := sandboxpkg.PerUserMiseDataDir(env, f.cfg.StellaHome); dir != "" {
+			userShims = sandboxpkg.MiseUserShimsDir(dir)
+		}
+		env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims)
 	}
 	policy.Env = env
-	return policy
+	return policy, nil
 }
 
 func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) string {
@@ -102,13 +121,15 @@ func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) stri
 
 // noneSession implements sandboxpkg.Session with zero isolation.
 type noneSession struct {
-	id       string
-	policy   sandboxpkg.Policy
-	done     chan struct{}
-	doneOnce sync.Once
-	mu       sync.RWMutex
-	closed   bool
-	procs    []*noneProcess
+	id           string
+	policy       sandboxpkg.Policy
+	done         chan struct{}
+	doneOnce     sync.Once
+	mu           sync.RWMutex
+	closed       bool
+	closeErr     error
+	procs        []*noneProcess
+	ownedTempDir string
 }
 
 func (s *noneSession) Policy() sandboxpkg.Policy {
@@ -137,7 +158,7 @@ func (s *noneSession) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return nil
+		return s.closeErr
 	}
 	s.closed = true
 	procs := s.procs
@@ -145,9 +166,12 @@ func (s *noneSession) Close() error {
 	for _, p := range procs {
 		p.Close() //nolint:errcheck
 	}
+	if s.ownedTempDir != "" {
+		s.closeErr = os.RemoveAll(s.ownedTempDir)
+	}
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "none", "explicit_close")
-	return nil
+	return s.closeErr
 }
 
 // ResolvePath resolves a relative path against the working directory.
@@ -341,6 +365,7 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 	}
 	maps.Copy(merged, policy.Env)
 	maps.Copy(merged, overrides)
+	delete(merged, "STELLA_USER_DIR")
 	env := make([]string, 0, len(merged))
 	for k, v := range merged {
 		env = append(env, k+"="+v)

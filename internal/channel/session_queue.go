@@ -144,6 +144,8 @@ func (q *sessionQueue) Enqueue(
 	case <-ctx.Done():
 		// Wait for the queue worker in the background to send the result.
 		// If it produced a stream, we must clean it up to prevent a slot leak.
+		// doneC is closed whether or not a stream came back: the worker blocks on
+		// it, so a stream-less operation would otherwise wedge the session.
 		go func() {
 			res := <-resultC
 			if res.stream != nil {
@@ -151,13 +153,71 @@ func (q *sessionQueue) Enqueue(
 					for range res.stream.Events {
 					}
 				}()
-				if res.doneC != nil {
-					close(res.doneC)
-				}
+			}
+			if res.doneC != nil {
+				close(res.doneC)
 			}
 		}()
 		return nil, nil, ctx.Err()
 	}
+}
+
+// EnqueueControl runs a non-streaming session operation (e.g. /new) in the same
+// per-session FIFO order as chat turns and waits for it to finish. Rotating a
+// session ahead of an in-flight turn would strand that turn's reply in a session
+// the user has already left, so control operations wait their turn instead.
+//
+// started answers what a bare error cannot: whether fn began executing. A
+// cancelled wait alone proves nothing — the worker may have completed fn just
+// as the caller gave up (Go's select chooses arbitrarily when both channels are
+// ready), or may not have reached the request yet. Destructive callers key
+// their compensation on it, so the contract is strict in one direction:
+// `started == false` with a non-nil error means fn never ran and never will.
+// The worker skips requests whose caller has gone away, and the wrapper below
+// refuses to start once its context is dead; a request that slips past that
+// guard in the same instant the caller cancels still runs fn with an
+// already-dead context, which a context-respecting operation fails without
+// side effects.
+func (q *sessionQueue) EnqueueControl(ctx context.Context, sessionKey string, fn func(context.Context) error) (started bool, err error) {
+	var mu sync.Mutex
+	begun := false
+	var opErr error
+	_, doneC, qerr := q.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
+		// The caller reclaims "never ran" the moment it observes a dead context
+		// and begun == false; honor that by not starting afterwards. The check
+		// and the flag share one critical section with the caller's read, so the
+		// two can only serialize as: caller reads false → this check must then
+		// observe the same cancellation and refuse, or this check passes → the
+		// caller can only read true.
+		//
+		// The check must be against ctx — the same object whose cancellation the
+		// caller acted on. Its derived qctx is NOT equivalent: a parent's Done
+		// closes before cancellation propagates to children, so a child check
+		// could still pass after the caller has already returned started=false.
+		// qctx is checked too, but only to cover an /abort landing between the
+		// worker's own skip check and this call: the caller then gets an error
+		// with started == false, which is exactly what happened.
+		mu.Lock()
+		if err := ctx.Err(); err != nil {
+			mu.Unlock()
+			return nil, err
+		}
+		if err := qctx.Err(); err != nil {
+			mu.Unlock()
+			return nil, err
+		}
+		begun = true
+		mu.Unlock()
+		opErr = fn(qctx)
+		return nil, nil
+	})
+	if qerr != nil {
+		mu.Lock()
+		defer mu.Unlock()
+		return begun, qerr
+	}
+	close(doneC)
+	return true, opErr
 }
 
 // Abort cancels the currently-running request for sessionKey.

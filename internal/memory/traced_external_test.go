@@ -517,6 +517,48 @@ func TestTracedProvider_LoadHistory(t *testing.T) {
 	}
 }
 
+// groupCursorProvider records the last committed group ingest watermark.
+type groupCursorProvider struct {
+	memory.Provider
+	committed int64
+}
+
+func (p *groupCursorProvider) CommitGroupCursor(_ context.Context, _ memory.Session, triggerSeq int64) error {
+	p.committed = triggerSeq
+	return nil
+}
+
+// TestTracedProvider_CommitGroupCursor pins the capability the group runtime
+// reaches by type assertion: wrapping must not hide it, or every group's ingest
+// watermark stays at 0 and each turn re-reads the whole event log — including
+// into the fresh session a `/new` just created.
+func TestTracedProvider_CommitGroupCursor(t *testing.T) {
+	inner := &groupCursorProvider{Provider: memorytest.New()}
+	traced, _ := newTracedWithCollector(inner)
+
+	committer, ok := traced.(memory.GroupCursorCommitter)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupCursorCommitter")
+	}
+	if err := committer.CommitGroupCursor(context.Background(), memory.Session{ID: "sess-1", AgentID: "agent-1", GroupID: "group-1"}, 7); err != nil {
+		t.Fatalf("CommitGroupCursor: %v", err)
+	}
+	if inner.committed != 7 {
+		t.Fatalf("inner committed seq = %d, want 7", inner.committed)
+	}
+
+	// A provider without the capability has no cursor to move: the call must be a
+	// harmless no-op, not an error the runtime would log on every group turn.
+	plain, _ := newTracedWithCollector(memorytest.New())
+	plainCommitter, ok := plain.(memory.GroupCursorCommitter)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupCursorCommitter for a plain inner provider")
+	}
+	if err := plainCommitter.CommitGroupCursor(context.Background(), memory.Session{ID: "sess-1"}, 7); err != nil {
+		t.Fatalf("CommitGroupCursor on a provider without the capability = %v, want nil", err)
+	}
+}
+
 func TestTracedProvider_LoadReviewHistory(t *testing.T) {
 	inner := &reviewHistoryProvider{
 		Provider: memorytest.New(),

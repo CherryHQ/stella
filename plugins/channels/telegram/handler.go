@@ -27,8 +27,8 @@ func atoiOr(s string, fallback int) int {
 func botCommands() []tele.Command {
 	return []tele.Command{
 		{Text: "start", Description: "Welcome & help"},
-		{Text: "new", Description: "Compact conversation context"},
-		{Text: "compact", Description: "Compact conversation context"},
+		{Text: "new", Description: "Start a fresh session"},
+		{Text: "compact", Description: "Compress the current session in place"},
 		{Text: "abort", Description: "Cancel the in-progress response"},
 		{Text: "model", Description: "List or switch models"},
 		{Text: "agent", Description: "List or switch agents"},
@@ -150,10 +150,14 @@ func (b *Bot) registerHandlers() {
 	})
 }
 
-// handleSharedCommand forwards a shared slash command to the coordinator.
+// handleSharedCommand forwards a shared slash command to the coordinator,
+// including its argument. Telegram splits a message into command and payload,
+// so dropping the payload would make every argument-taking shared command
+// arrive bare and unaddressable.
 func (b *Bot) handleSharedCommand(c tele.Context, cmd string) error {
 	msg := b.incomingMsg(c, nil)
-	resp, handled, _, err := b.handler.HandleIncoming(b.ctx, msg, cmd, "")
+	args := strings.TrimSpace(c.Message().Payload)
+	resp, handled, _, err := b.handler.HandleIncoming(b.ctx, msg, cmd, args)
 	if err != nil {
 		return c.Send(fmt.Sprintf("Error: %v", err))
 	}

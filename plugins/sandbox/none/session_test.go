@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -46,6 +47,145 @@ func TestFactory_createSession(t *testing.T) {
 	}
 	if !sess.Alive() {
 		t.Error("expected Alive=true before close")
+	}
+}
+
+func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
+	workspace := t.TempDir()
+	userData := t.TempDir()
+	policy := sandboxpkg.Policy{
+		Env: map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"},
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: workspace,
+			WorkingDir:    workspace,
+			Mounts: []sandboxpkg.Mount{
+				{HostPath: workspace, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite},
+				{HostPath: userData, SandboxPath: sandboxpkg.MountUserData, Access: sandboxpkg.MountReadWrite},
+			},
+		},
+	}
+	sess, err := NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	env := sess.Policy().Env
+	for key, want := range map[string]string{
+		"HOME":              workspace,
+		"STELLA_ASSETS_DIR": filepath.Join(userData, "assets"),
+		"XDG_CONFIG_HOME":   filepath.Join(userData, ".config"),
+		"XDG_DATA_HOME":     filepath.Join(userData, ".local", "share"),
+		"XDG_STATE_HOME":    filepath.Join(userData, ".local", "state"),
+		"XDG_CACHE_HOME":    filepath.Join(userData, ".cache"),
+	} {
+		if got := env[key]; got != want {
+			t.Errorf("%s = %q, want real host path %q", key, got, want)
+		}
+	}
+	if _, ok := env["XDG_RUNTIME_DIR"]; ok {
+		t.Error("XDG_RUNTIME_DIR must not be set")
+	}
+	if tmpDir := env[sandboxpkg.EnvTempDir]; tmpDir == "" {
+		t.Error("TMPDIR must be set")
+	} else if _, err := os.Stat(tmpDir); err != nil {
+		t.Errorf("TMPDIR %q is unavailable: %v", tmpDir, err)
+	}
+}
+
+func TestFactoryCreateSession_withoutUserDataFallsBackToWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	sess, err := NewFactory().CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close() //nolint:errcheck
+
+	env := sess.Policy().Env
+	for key, want := range map[string]string{
+		"HOME":            workspace,
+		"XDG_CONFIG_HOME": filepath.Join(workspace, ".config"),
+		"XDG_DATA_HOME":   filepath.Join(workspace, ".local", "share"),
+		"XDG_STATE_HOME":  filepath.Join(workspace, ".local", "state"),
+		"XDG_CACHE_HOME":  filepath.Join(workspace, ".cache"),
+	} {
+		if got := env[key]; got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+	if _, ok := env["STELLA_ASSETS_DIR"]; ok {
+		t.Error("STELLA_ASSETS_DIR must not be set")
+	}
+}
+
+func TestFactoryCreateSession_errorRemovesOwnedTempDir(t *testing.T) {
+	before, err := filepath.Glob(filepath.Join(os.TempDir(), "stella-none-session-tmp-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := make(map[string]struct{}, len(before))
+	for _, path := range before {
+		known[path] = struct{}{}
+	}
+	if _, err := NewFactory().CreateSession(context.Background(), sandboxpkg.Policy{}); err == nil {
+		t.Fatal("CreateSession accepted policy without a workspace")
+	}
+	after, err := filepath.Glob(filepath.Join(os.TempDir(), "stella-none-session-tmp-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range after {
+		if _, existed := known[path]; !existed {
+			t.Errorf("CreateSession error leaked owned temp directory %q", path)
+			_ = os.RemoveAll(path)
+		}
+	}
+}
+
+func TestFactoryCreateSession_ownsDistinctTempDirs(t *testing.T) {
+	workspace := t.TempDir()
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace}}
+	first, err := NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession(first): %v", err)
+	}
+	second, err := NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		first.Close() //nolint:errcheck
+		t.Fatalf("CreateSession(second): %v", err)
+	}
+	firstTmp := first.Policy().Env[sandboxpkg.EnvTempDir]
+	secondTmp := second.Policy().Env[sandboxpkg.EnvTempDir]
+	if firstTmp == "" || secondTmp == "" || firstTmp == secondTmp {
+		t.Fatalf("session temp dirs = %q and %q, want distinct non-empty paths", firstTmp, secondTmp)
+	}
+	toolPath := filepath.Join(firstTmp, "from-tool")
+	if err := os.WriteFile(toolPath, []byte("tool"), 0o600); err != nil {
+		t.Fatalf("write temp through file-tool path: %v", err)
+	}
+	result, err := first.Exec(context.Background(), `cat "$TMPDIR/from-tool"; printf exec > "$TMPDIR/from-exec"`, sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 || result.Stdout != "tool" {
+		t.Fatalf("temp exec round trip = %+v, %v", result, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(firstTmp, "from-exec")); err != nil || string(data) != "exec" {
+		t.Fatalf("read exec temp through file-tool path = %q, %v", data, err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close(first): %v", err)
+	}
+	if _, err := os.Stat(firstTmp); !os.IsNotExist(err) {
+		t.Errorf("first TMPDIR survives close: %v", err)
+	}
+	if _, err := os.Stat(secondTmp); err != nil {
+		t.Errorf("closing first session affected second TMPDIR: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("Close(second): %v", err)
+	}
+	if _, err := os.Stat(secondTmp); !os.IsNotExist(err) {
+		t.Errorf("second TMPDIR survives close: %v", err)
 	}
 }
 
@@ -266,20 +406,24 @@ func TestStartProcess_closedSession(t *testing.T) {
 }
 
 func TestBuildEnv(t *testing.T) {
-	// Set a test env var
+	// Set test env vars.
 	t.Setenv("TEST_HOST_VAR", "host_value")
+	t.Setenv("STELLA_USER_DIR", "/host/stale-user")
 
 	policy := sandboxpkg.Policy{
 		Env:        map[string]string{"POLICY_VAR": "policy_value"},
 		InheritEnv: true,
 	}
-	overrides := map[string]string{"OVERRIDE_VAR": "override_value"}
+	overrides := map[string]string{"OVERRIDE_VAR": "override_value", "STELLA_USER_DIR": "/override/stale-user"}
 
 	env := buildEnv(policy, overrides)
 
 	// Check that all expected vars are present
 	var hasHost, hasPolicy, hasOverride bool
 	for _, kv := range env {
+		if strings.HasPrefix(kv, "STELLA_USER_DIR=") {
+			t.Fatalf("removed STELLA_USER_DIR must not be present: %q", kv)
+		}
 		switch kv {
 		case "TEST_HOST_VAR=host_value":
 			hasHost = true

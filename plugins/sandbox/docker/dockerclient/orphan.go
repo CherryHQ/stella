@@ -2,6 +2,7 @@ package dockerclient
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"runtime"
@@ -38,6 +39,24 @@ func CleanupOrphanedContainers(ctx context.Context, c *Client, stellaHome string
 	for _, cs := range list.Items {
 		cleanupContainer(ctx, c, cs.ID)
 	}
+}
+
+// SessionIDsWithContainers returns session IDs still represented by any scoped
+// container, including stopped containers whose removal failed. Callers use it
+// after CleanupOrphanedContainers before deleting session-owned host resources.
+func (c *Client) SessionIDsWithContainers(ctx context.Context, stellaHome string) (map[string]struct{}, error) {
+	filters := mobyclient.Filters{}.Add("label", LabelStellaHome+"="+stellaHome)
+	list, err := c.api.ContainerList(ctx, mobyclient.ContainerListOptions{All: true, Filters: filters})
+	if err != nil {
+		return nil, fmt.Errorf("dockerclient: list session containers: %w", err)
+	}
+	ids := make(map[string]struct{}, len(list.Items))
+	for _, container := range list.Items {
+		if id := container.Labels[LabelSessionID]; id != "" {
+			ids[id] = struct{}{}
+		}
+	}
+	return ids, nil
 }
 
 func cleanupContainer(ctx context.Context, c *Client, id string) {

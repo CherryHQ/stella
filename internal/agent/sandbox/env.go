@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"os"
+	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -26,7 +25,6 @@ const (
 )
 
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
-	principalDir, id := misePrincipal(cfg)
 	mounts := []pkgsandbox.Mount{
 		{HostPath: paths.WorkspaceRoot, SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite},
 	}
@@ -36,7 +34,7 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 	for _, name := range pkgsandbox.StellaHomeSandboxDirs() {
 		mounts = append(mounts, pkgsandbox.Mount{
 			HostPath:    filepath.Join(paths.StellaHome, name),
-			SandboxPath: filepath.Join(pkgsandbox.MountStellaHome, name),
+			SandboxPath: path.Join(pkgsandbox.MountStellaHome, strings.ReplaceAll(name, "\\", "/")),
 			Access:      pkgsandbox.MountReadOnly,
 		})
 	}
@@ -57,16 +55,12 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 		WorkspaceRoot: paths.WorkspaceRoot,
 		WorkingDir:    paths.WorkDir,
 		Mounts:        mounts,
-		TempDirHost:   userTempDir(principalDir, id),
 	}
 }
 
 func remapStellaHomePolicyPath(hostPath, stellaHome string) string {
-	if hostPath == stellaHome {
-		return pkgsandbox.MountStellaHome
-	}
-	if strings.HasPrefix(hostPath, stellaHome+string(filepath.Separator)) {
-		return pkgsandbox.MountStellaHome + hostPath[len(stellaHome):]
+	if rel, ok := pkgsandbox.POSIXPathRelative(stellaHome, hostPath); ok {
+		return path.Join(pkgsandbox.MountStellaHome, rel)
 	}
 	return hostPath
 }
@@ -151,24 +145,6 @@ func misePrincipal(cfg Config) (principalDir, id string) {
 	return "users", cfg.UserID
 }
 
-var validUserTempDirID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
-// userTempDir returns the per-principal scratch dir mounted as /tmp. principalDir
-// is always "users"; a channel group's "group-" ID prefix keeps user and group
-// scratch dirs from colliding. Empty for an empty or unsafe id.
-func userTempDir(principalDir, id string) string {
-	if principalDir == "" || !validUserTempDirID.MatchString(id) {
-		return ""
-	}
-	// Resolve symlinks in the base temp dir so that pathWithinRoot checks
-	// work after filepath.EvalSymlinks (macOS: /var → /private/var).
-	base := os.TempDir()
-	if resolved, err := filepath.EvalSymlinks(base); err == nil {
-		base = resolved
-	}
-	return filepath.Join(base, principalDir, id)
-}
-
 // buildSandboxEnv constructs the Policy.Env map for a sandbox session.
 // Vault secrets (if any) are used as the base so that runner-set variables
 // (e.g. STELLA_HOME) always take precedence over user-defined secrets.
@@ -210,6 +186,9 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 
 	// Runner-set vars overlay vault entries so they always take precedence.
 	maps.Copy(env, ProcessEnv(paths))
+	// Runtime files are session-scoped and must never be redirected into the
+	// persistent principal root (or accepted from a vault/session env entry).
+	delete(env, "XDG_RUNTIME_DIR")
 	// lark-cli is an ordinary user-managed CLI. Only redirect its persistent
 	// state into the shared personal directory because sandbox HOME remains the
 	// current Agent workspace. Group and user-less sessions must not inherit it.

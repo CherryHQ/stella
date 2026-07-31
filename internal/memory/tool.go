@@ -948,12 +948,14 @@ func (t *memoryTool) advanceSnapshot(ctx context.Context, userID string) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// sessionFromContext builds a Session from context values.
+// sessionFromContext builds a Session from context values. The scope key is the
+// conversation owner, so a group turn — which deliberately carries no user
+// identity (D9) — scopes to its group id, the same value its rows persist under.
 func sessionFromContext(ctx context.Context) Session {
 	return Session{
 		ID:      SessionIDFromContext(ctx),
 		AgentID: authz.AgentIDFromContext(ctx),
-		UserID:  authz.UserIDFromContext(ctx),
+		UserID:  ScopeUserIDFromContext(ctx),
 	}
 }
 

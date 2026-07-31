@@ -28,7 +28,17 @@ Run mode:
 
 - **Server**: `stellad server` (Telegram, QQ, Feishu, WeChat bots + scheduler + Web UI)
 
-Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under `$STELLA_HOME` (install its runtime with `stellad postgres download-runtime` if missing), or an external server when `STELLA_DATABASE_URL` is set. Per-agent workspace data: `$STELLA_HOME/agents/{agent_id}/`.
+Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download-runtime` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
+
+## Filesystem locations
+
+Use semantic environment variables for Agent files, never host or sandbox literals such as `/workspace`, `/user`, or `/tmp`. The `read`, `write`, and `edit` tools understand all three roots. `share` accepts `$HOME` and `$STELLA_ASSETS_DIR`, but not `$TMPDIR`:
+
+- `$HOME`: durable private per-Agent workspace for project and default work; relative paths use the current project/work directory.
+- `$STELLA_ASSETS_DIR`: when available, durable principal-shared uploads and final deliverables. This is the normal direct-write location under the managed principal root.
+- `$TMPDIR`: session-private disposable scratch only; never use it for final output or assume it survives.
+
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` are principal-shared and CLI-managed, not generic storage. They fall back under `$HOME` without a principal root; `XDG_RUNTIME_DIR` is unset. Mise, Lark, and system directories are tool-managed.
 
 ## Architecture
 
@@ -68,13 +78,17 @@ Read the relevant reference file for detailed guidance:
 
 Available in CLI, Telegram, QQ, Feishu, and WeChat:
 
-| Command    | Description                  |
-| ---------- | ---------------------------- |
-| `/new`     | Compact conversation context |
-| `/compact` | Compact conversation context |
-| `/model`   | Switch model interactively   |
-| `/agent`   | List or switch agents        |
-| `/whoami`  | Show your user/chat ID       |
+| Command    | Description                                                              |
+| ---------- | ------------------------------------------------------------------------ |
+| `/new`     | Start a fresh session; the previous one is archived and stays searchable |
+| `/compact` | Compress the current session in place (same session, shorter context)    |
+| `/model`   | Switch model interactively                                               |
+| `/agent`   | List or switch agents                                                    |
+| `/whoami`  | Show your user/chat ID                                                   |
+
+`/new` works in direct messages only. A group's context is shared by every
+member, so a group `/new` is refused and resets nothing; `/compact` does not
+apply in groups either. Neither command enters the group's shared history.
 
 ## Stella tools
 
@@ -134,13 +148,13 @@ Memory, scheduler, goals, vault, OAuth connections, Recally, email, and sharing 
 - **Session snapshots**: Active sessions use a frozen memory version for identity/constraints/facts. Manual writes and background Reflect writes do not affect an ongoing session; they appear in new sessions.
 - **Knowledge**: Knowledge is facts-backed (`subject=world`, v1 `scope=user_agent`) and is not injected into the prompt by default. Use the memory tool action `search_knowledge` with a compact fact-oriented query to retrieve snapshot-visible knowledge facts. Skills do not store fact/context knowledge and must not use `metadata.knowledge_type`. Background Structured Reflect may generate and reconcile durable `subject=world` facts; normal session tools must not write facts or use skills as a substitute knowledge write path.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
-- **Memory retrieval**: The `memory` tool provides `search` (searches all of this user+agent's past sessions — keyword matching, blended with semantic similarity when embedding is enabled; each hit carries its origin session and content timestamp), `search_knowledge` (searches snapshot-visible `subject=world` facts), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
+- **Memory retrieval**: The `memory` tool provides `search` (searches all past sessions of this conversation's owner+agent — the user in a direct chat, the group in a group chat — keyword matching, blended with semantic similarity when embedding is enabled; each hit carries its origin session and content timestamp), `search_knowledge` (searches snapshot-visible `subject=world` facts), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
 - **Execution modes**: use `delegate` for synchronous focused subtasks with persistent/resumable child sessions, **goals** for async persistent work that converges through an acceptance contract and a human-readable timeline (author with the `goal` tool when available; you may also be dispatched as a worker), **workflows** to reuse an accepted composite goal's frozen plan as fresh goal runs, and `scheduler` for one-time or recurring time triggers. A dispatched worker can use `delegate` for short focused subtasks. Choosing for repeat requests: same plan, only text inputs change (same recipe, different ingredients) -> save the accepted goal as a workflow and schedule it; each occurrence should be re-thought from scratch -> plain scheduler chat job; partly frozen + explicit allow-replan is the middle ground. Never create a duplicate goal for "run it again" when a workflow exists — run the workflow.
 - **Workflows**: agents use the `workflow` tool to save/list/get/run reusable workflow definitions. For "save this goal and run it every morning", save the accepted goal first, then schedule the workflow; users can inspect workflow-backed runs in the Web UI.
 - **Scheduler**: agents use the `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs, including workflow jobs when exposed. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Goals tab/Tasks tab schedule surfaces), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Vault/OAuth/Recally/Email/Share**: agents use built-in tools. OAuth connect returns a verification URI and user code; give those to the user, wait for authorization, then poll status with the returned flow id. Recally save requires the agent to fetch article content first. Email send requires explicit user confirmation and an idempotency key. Share creates public links only when the user asks.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
-- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings.
+- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings. Compaction keeps the same session; `/new` instead rotates the chat onto a fresh session and archives the old one, which stays searchable through memory.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.
 - **Vault secrets**: scope-matching vault secrets are already available as sandbox environment variables by name. Never print secret values; use the `vault` tool or Web UI to inspect secret metadata.
 - **GitHub CLI authorization**: `gh` uses Stella's GitHub OAuth connection and receives a refreshed runtime token.

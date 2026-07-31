@@ -53,6 +53,71 @@ func TestFactory_createSession(t *testing.T) {
 	}
 }
 
+func TestFactory_sessionsOwnDistinctTempDirs(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+	root := t.TempDir()
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}}
+	firstSession, err := NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession(first): %v", err)
+	}
+	secondSession, err := NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		firstSession.Close() //nolint:errcheck
+		t.Fatalf("CreateSession(second): %v", err)
+	}
+	firstTmp := firstSession.(*localSession).tmpMounts[0].realPath
+	secondTmp := secondSession.(*localSession).tmpMounts[0].realPath
+	if firstTmp == "" || secondTmp == "" || firstTmp == secondTmp {
+		t.Fatalf("session temp backings = %q and %q, want distinct non-empty paths", firstTmp, secondTmp)
+	}
+	toolPath, err := firstSession.ResolveWritePath(filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-tool"))
+	if err != nil {
+		t.Fatalf("ResolveWritePath(TMPDIR): %v", err)
+	}
+	if err := os.WriteFile(toolPath, []byte("tool"), 0o600); err != nil {
+		t.Fatalf("write temp through file-tool path: %v", err)
+	}
+	result, err := firstSession.Exec(context.Background(), `cat "$TMPDIR/from-tool"; printf exec > "$TMPDIR/from-exec"`, sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 || result.Stdout != "tool" {
+		t.Fatalf("temp exec round trip = %+v, %v", result, err)
+	}
+	execPath, err := firstSession.ResolvePath(filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-exec"))
+	if err != nil {
+		t.Fatalf("ResolvePath(TMPDIR): %v", err)
+	}
+	if data, err := os.ReadFile(execPath); err != nil || string(data) != "exec" {
+		t.Fatalf("read exec temp through file-tool path = %q, %v", data, err)
+	}
+	if err := firstSession.Close(); err != nil {
+		t.Fatalf("Close(first): %v", err)
+	}
+	if _, err := os.Stat(firstTmp); !os.IsNotExist(err) {
+		t.Errorf("first TMPDIR survives close: %v", err)
+	}
+	if _, err := os.Stat(secondTmp); err != nil {
+		t.Errorf("closing first session affected second TMPDIR: %v", err)
+	}
+	if err := secondSession.Close(); err != nil {
+		t.Fatalf("Close(second): %v", err)
+	}
+	if _, err := os.Stat(secondTmp); !os.IsNotExist(err) {
+		t.Errorf("second TMPDIR survives close: %v", err)
+	}
+}
+
+func TestCleanupOwnedTmpMountsLeavesBorrowedMounts(t *testing.T) {
+	owned := t.TempDir()
+	borrowed := t.TempDir()
+	cleanupOwnedTmpMounts([]tmpMount{{realPath: owned, owned: true}, {realPath: borrowed}})
+	if _, err := os.Stat(owned); !os.IsNotExist(err) {
+		t.Fatalf("owned temp remains after cleanup: %v", err)
+	}
+	if _, err := os.Stat(borrowed); err != nil {
+		t.Fatalf("borrowed temp was removed: %v", err)
+	}
+}
+
 func TestLocalSession_closeAndAlive(t *testing.T) {
 	s, _ := newTestSession(t)
 	if !s.Alive() {
@@ -717,11 +782,8 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 	}
 }
 
-// TestAdjustPolicy_homeAndXDG verifies HOME is the agent workspace (/workspace)
-// and the XDG dirs split shared-vs-private: config/data/state stay private under
-// HOME while the cache is pointed at the shared user-data root (/user). HOME and
-// the workspace are the same per-agent dir, so the privacy comes from the
-// workspace itself, not a sub-redirect. STELLA_USER_DIR exposes /user.
+// TestAdjustPolicy_homeAndXDG verifies HOME remains the agent workspace while
+// every persistent XDG directory uses the shared per-principal /user root.
 func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 	root := t.TempDir()
 	userData := filepath.Join(root, "data")
@@ -735,26 +797,34 @@ func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
-	env := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal).Env
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
+	if err := applyFilesystemEnv(&adjusted, sandboxRoot, userDataSandbox, nil); err != nil {
+		t.Fatalf("applyFilesystemEnv: %v", err)
+	}
+	env := adjusted.Env
 
 	for _, tc := range []struct{ key, want string }{
 		{"HOME", sandboxRoot},
-		{"STELLA_USER_DIR", userDataSandbox},
+		{"STELLA_ASSETS_DIR", filepath.Join(userDataSandbox, "assets")},
+		{"TMPDIR", filesystemTempDir(nil)},
 		{"XDG_CACHE_HOME", filepath.Join(userDataSandbox, ".cache")},
-		{"XDG_CONFIG_HOME", filepath.Join(sandboxRoot, ".config")},
-		{"XDG_DATA_HOME", filepath.Join(sandboxRoot, ".local", "share")},
-		{"XDG_STATE_HOME", filepath.Join(sandboxRoot, ".local", "state")},
+		{"XDG_CONFIG_HOME", filepath.Join(userDataSandbox, ".config")},
+		{"XDG_DATA_HOME", filepath.Join(userDataSandbox, ".local", "share")},
+		{"XDG_STATE_HOME", filepath.Join(userDataSandbox, ".local", "state")},
 	} {
 		if env[tc.key] != tc.want {
 			t.Errorf("env[%s] = %q, want %q", tc.key, env[tc.key], tc.want)
 		}
 	}
+	if _, ok := env["XDG_RUNTIME_DIR"]; ok {
+		t.Error("XDG_RUNTIME_DIR must not be set")
+	}
 }
 
-// TestAdjustPolicy_noUserData_cacheUnderHome verifies a user-less session (no
-// shared user-data root) keeps the cache under HOME and sets no STELLA_USER_DIR,
-// so nothing is shared with other agents.
-func TestAdjustPolicy_noUserData_cacheUnderHome(t *testing.T) {
+// TestAdjustPolicy_noUserDataFallsBackToWorkspace verifies a user-less session
+// (no shared user-data root) keeps every XDG directory under HOME, so nothing is
+// shared with other agents.
+func TestAdjustPolicy_noUserDataFallsBackToWorkspace(t *testing.T) {
 	root := t.TempDir()
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
@@ -762,9 +832,15 @@ func TestAdjustPolicy_noUserData_cacheUnderHome(t *testing.T) {
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
 	sandboxRoot, realRoot := resolveSandboxRoot(policy)
 	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
-	env := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal).Env
+	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
+	if err := applyFilesystemEnv(&adjusted, sandboxRoot, userDataSandbox, nil); err != nil {
+		t.Fatalf("applyFilesystemEnv: %v", err)
+	}
+	env := adjusted.Env
 
 	for _, tc := range []struct{ key, want string }{
+		{"HOME", sandboxRoot},
+		{"TMPDIR", filesystemTempDir(nil)},
 		{"XDG_CACHE_HOME", filepath.Join(sandboxRoot, ".cache")},
 		{"XDG_CONFIG_HOME", filepath.Join(sandboxRoot, ".config")},
 		{"XDG_DATA_HOME", filepath.Join(sandboxRoot, ".local", "share")},
@@ -773,9 +849,6 @@ func TestAdjustPolicy_noUserData_cacheUnderHome(t *testing.T) {
 		if env[tc.key] != tc.want {
 			t.Errorf("env[%s] = %q, want %q", tc.key, env[tc.key], tc.want)
 		}
-	}
-	if v, ok := env["STELLA_USER_DIR"]; ok {
-		t.Errorf("STELLA_USER_DIR should be unset for a user-less session, got %q", v)
 	}
 }
 
@@ -831,6 +904,7 @@ func TestResolvePath_twoRoots(t *testing.T) {
 // is true, while other env vars (e.g. PATH) remain present.
 func TestBuildEnv_denyListFiltersVaultKey(t *testing.T) {
 	t.Setenv("STELLA_VAULT_KEY", "age-secret-key-1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	t.Setenv("STELLA_USER_DIR", "/host/stale-user")
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
@@ -845,8 +919,8 @@ func TestBuildEnv_denyListFiltersVaultKey(t *testing.T) {
 	// STELLA_VAULT_KEY must not appear in the sandbox env.
 	for _, kv := range env {
 		key, _, _ := strings.Cut(kv, "=")
-		if key == "STELLA_VAULT_KEY" {
-			t.Fatalf("STELLA_VAULT_KEY must not be present in sandbox env, but got: %q", kv)
+		if key == "STELLA_VAULT_KEY" || key == "STELLA_USER_DIR" {
+			t.Fatalf("removed or denied variable %s must not be present in sandbox env, but got: %q", key, kv)
 		}
 	}
 

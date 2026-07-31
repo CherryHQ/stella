@@ -7,6 +7,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -328,10 +329,41 @@ type ConstraintStore interface {
 // Capability: SessionManager
 // ---------------------------------------------------------------------------
 
+// ErrStaleRotation reports that the session a rotation expected to replace is no
+// longer the active one — a concurrent rotation already won. Rotation is a
+// compare-and-rotate, so a stale caller changed nothing and must not retry.
+var ErrStaleRotation = errors.New("session rotation is stale")
+
+// ErrRotationOutcomeUnknown reports that a rotation failed at the commit
+// acknowledgement: the server may or may not have committed (e.g. the
+// connection to an external PostgreSQL dropped after COMMIT was sent). Every
+// other rotation failure is a definite rollback; this one is not, so a caller
+// compensating for "rotation never happened" — releasing a dedup claim,
+// auto-retrying — must treat it as possibly-happened instead.
+var ErrRotationOutcomeUnknown = errors.New("session rotation outcome unknown")
+
 // SessionManager is implemented by providers that support session lifecycle management.
 type SessionManager interface {
 	// SaveInfo persists or updates session metadata.
 	SaveInfo(ctx context.Context, info SessionInfo) error
+
+	// RotateInfo archives expectedSessionID and creates successor as one atomic
+	// unit, so a durable binding is never left without an active session and a
+	// one-active-session-per-binding index is never violated mid-rotation.
+	// It returns ErrStaleRotation, with nothing persisted, when expectedSessionID
+	// is no longer active or no longer matches successor's binding.
+	RotateInfo(ctx context.Context, expectedSessionID string, successor SessionInfo) error
+
+	// TouchActiveInfo records a running turn's metadata — its last-active
+	// timestamp, and a title for a session that has none — against a session that
+	// is still active, and reports false without writing when it is not.
+	//
+	// It exists because SaveInfo cannot serve the turn path: a turn holds the
+	// snapshot it resolved at the start, a rotation can archive that session
+	// while the turn runs, and replaying the snapshot would un-archive a session
+	// the chat has already left. Checking first and then saving only narrows the
+	// race; this is the guard and the write in one statement.
+	TouchActiveInfo(ctx context.Context, info SessionInfo) (bool, error)
 
 	// LoadInfo retrieves metadata for a single session.
 	LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error)

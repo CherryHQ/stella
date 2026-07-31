@@ -46,6 +46,40 @@ func requireSessionSecretValues(t *testing.T, values []string, present []string,
 	}
 }
 
+func TestRemapStellaHomePolicyPathUsesPOSIXContainerPaths(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		hostPath   string
+		stellaHome string
+		want       string
+	}{
+		{
+			name:       "POSIX host root",
+			hostPath:   "/srv/stella/users/u1/.mise-tools",
+			stellaHome: "/srv/stella",
+			want:       "/opt/stella/users/u1/.mise-tools",
+		},
+		{
+			name:       "Windows host root",
+			hostPath:   `C:\stella\users\u1\.mise-tools`,
+			stellaHome: `C:\stella`,
+			want:       "/opt/stella/users/u1/.mise-tools",
+		},
+		{
+			name:       "outside stella home remains host path",
+			hostPath:   `C:\outside\tools`,
+			stellaHome: `C:\stella`,
+			want:       `C:\outside\tools`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := remapStellaHomePolicyPath(tt.hostPath, tt.stellaHome); got != tt.want {
+				t.Errorf("remapStellaHomePolicyPath(%q, %q) = %q, want %q", tt.hostPath, tt.stellaHome, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildSandboxEnvDropsVaultStellaToken(t *testing.T) {
 	env, err := buildSandboxEnv(context.Background(), Config{
 		UserID:         "user-1",
@@ -108,6 +142,13 @@ func TestBuildSandboxEnvDoesNotExposePersonalLarkCLIStateToGroups(t *testing.T) 
 	}
 	if _, ok := env[LarkCLIDataDirEnv]; ok {
 		t.Fatalf("%s must not be set for a group session", LarkCLIDataDirEnv)
+	}
+	// Filesystem roots are rendered only by the selected backend after it knows
+	// its actual mounts; the runner baseline must not guess the group view.
+	for _, key := range []string{"HOME", "STELLA_USER_DIR", "STELLA_ASSETS_DIR", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"} {
+		if got, ok := env[key]; ok {
+			t.Errorf("group runner env must not set %s=%q", key, got)
+		}
 	}
 }
 

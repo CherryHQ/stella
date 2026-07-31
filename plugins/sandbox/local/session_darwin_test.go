@@ -11,6 +11,15 @@ import (
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
+func TestFilesystemTempDirDarwinUsesRealTmpMount(t *testing.T) {
+	if got, want := filesystemTempDir([]tmpMount{{sandboxPath: "/tmp", realPath: "/private/var/folders/principal-tmp"}}), "/private/var/folders/principal-tmp"; got != want {
+		t.Errorf("filesystemTempDir = %q, want %q", got, want)
+	}
+	if got, want := filesystemTempDir(nil), os.TempDir(); got != want {
+		t.Errorf("filesystemTempDir fallback = %q, want %q", got, want)
+	}
+}
+
 func makePolicy(root string, net sandboxpkg.NetworkMode) sandboxpkg.Policy {
 	return sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{

@@ -12,6 +12,12 @@ import (
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
+func TestFilesystemTempDirLinuxUsesSandboxPath(t *testing.T) {
+	if got := filesystemTempDir([]tmpMount{{sandboxPath: "/tmp", realPath: "/host/principal-tmp"}}); got != "/tmp" {
+		t.Errorf("filesystemTempDir = %q, want /tmp", got)
+	}
+}
+
 // TestWrapCommand_linux_networkDisabled verifies that wrapCommand on Linux
 // uses bwrap with --unshare-net when network is disabled, or returns an error
 // when bwrap is not functional (no fallback to unshare).

@@ -110,8 +110,8 @@ The fake **never branches on prompt prose** — only stable request fields (mode
 tool names, the `goal_control` action enum) select a response, so ordinary prompt
 edits can never turn into a system-test failure. It has two scripting modes:
 
-- **FIFO text** (`enqueueText`) — an ordered queue of plain-text turns replayed in
-  arrival order; used by `chat_sse`. An unscripted request fails the test.
+- **FIFO turns** (`enqueueText`) — an ordered queue replayed in arrival order;
+  used by `chat_sse`. An unscripted request fails the test.
 - **goal_control variant match** (`enqueueGoalControl`) — responses keyed by the
   `goal_control` action the server advertises in the request's tool schema
   (`decompose`, `submit`), matched on that stable field rather than arrival order;

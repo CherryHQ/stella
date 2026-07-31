@@ -22,9 +22,9 @@ Some agents/channels also support a few short natural-language controls.
 For those shortcuts, keep them short and command-like.
 
 Session control
-  /new       Compact conversation context (same as /compact)
-             When enabled, short phrases like: "new session", "start over", "新会话", "重新开始"
-  /compact   Compact conversation context
+  /new       Start a fresh session (previous history stays searchable)
+             Direct messages only — a group's shared session cannot be reset
+  /compact   Compress the current session in place (same session, shorter context)
              When enabled, short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
   /abort     Cancel the in-progress reply
              When enabled, short phrases like: "abort", "cancel", "取消", "停止回复"
@@ -44,6 +44,41 @@ Just send a message to get started.`
 // per-agent LCM conversation, so manual compaction does not apply. Both the web
 // group endpoint and the shared channel command handler use this text.
 const GroupCompactUnsupportedMessage = "⚠️ Group memory is managed automatically from the shared event log, so manual compaction is not available in group chats."
+
+// NewSessionStartedMessage is the shared reply after `/new` rotated the chat
+// onto a fresh session. The previous session is archived, not deleted, so it
+// stays reachable through cross-session memory search.
+const NewSessionStartedMessage = "Started a fresh session. Previous history stays searchable via memory."
+
+// SessionAlreadyResetMessage is the shared reply when a `/new` arrives after
+// another one already rotated the same chat, so it has nothing left to do.
+const SessionAlreadyResetMessage = "Session was already reset."
+
+// NewSessionNotExecutedMessage is the reply when a rotation's commit
+// acknowledgement was lost but re-reading the session binding proves it never
+// moved: the transaction rolled back, so nothing was reset and the command is
+// safe to send again.
+const NewSessionNotExecutedMessage = "⚠️ Starting a new session did not go through — nothing was reset. Send /new again to retry."
+
+// NewSessionOutcomeUnknownMessage is the reply when a rotation's commit
+// acknowledgement was lost AND the follow-up read of the session binding also
+// failed, so whether the reset happened is genuinely unknown. It must not invite
+// a retry: if the reset did land, a second `/new` would archive the fresh
+// context instead of the old one.
+const NewSessionOutcomeUnknownMessage = "⚠️ Could not confirm whether the new session started. Do not send /new again yet — check whether this chat still remembers the earlier conversation first."
+
+// NewSessionUnverifiableMessage is the reply when a `/new` arrives on a
+// delivery that carries no stable message id. Without an identity the receipt
+// cannot tell a redelivery from a new command, and `/new` is destructive, so
+// it fails closed instead of running unguarded.
+const NewSessionUnverifiableMessage = "⚠️ Cannot start a new session: this delivery has no message id, so a duplicate could not be detected. The session was not reset."
+
+// GroupNewSessionUnsupportedMessage is the reply when `/new` arrives in a group
+// chat. A group's context is shared by every member, so one member's chat
+// command must not clear it for everyone. The refusal is explicit rather than
+// silent: a `/new` that looked accepted but reset nothing would leave the group
+// believing the context was cleared.
+const GroupNewSessionUnsupportedMessage = "⚠️ Group sessions are shared, so `/new` cannot reset them. Use `/new` in a direct message to reset your own session."
 
 // SplitMessage splits text into chunks that fit within maxLen.
 // It tries to split at newline boundaries and avoids cutting multi-byte

@@ -114,6 +114,13 @@ func (s *Service) Send(ctx context.Context, in SendInput) (SendResult, error) {
 			return SendResult{PlainReply: reply}, nil
 		}
 	}
+	// Rotation can archive the session a client is holding (a `/new` from another
+	// surface). The turn would fail deep inside the runtime and reach the client as
+	// free text in the event stream, so reject it here while the caller can still be
+	// told what happened.
+	if info.Archived {
+		return SendResult{}, fmt.Errorf("%w: %s", agentsession.ErrArchived, in.SessionID)
+	}
 	ch := runtime.Chat(ctx, agent.ChatRequest{
 		SessionID: in.SessionID,
 		UserID:    info.UserID,

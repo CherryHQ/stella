@@ -45,6 +45,11 @@ type GroupDispatchRunner interface {
 	DispatchSync(ctx context.Context, outbox sqlc.CtxGroupOutbox, publisher GroupPublisher) error
 }
 
+// webGroupPlatform is the platform value the Web group surface writes: it names
+// the origin of a message id, so a browser's client_message_id can never be
+// mistaken for a platform message id in the same group.
+const webGroupPlatform = "web"
+
 // groupOutboxLeaseDuration bounds both the outbox lease written at ingest and
 // the synchronous dispatch turn, so a single Web send cannot hold the outbox
 // past the window a competing poller would reclaim it.
@@ -229,7 +234,7 @@ func (a *GroupAccess) Create(ctx context.Context, name string, agentIDs []string
 	groupID := uuid.Must(uuid.NewV7()).String()
 	g, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
 		ID:               groupID,
-		Platform:         "web",
+		Platform:         webGroupPlatform,
 		PlatformGroupID:  groupID,
 		PlatformThreadID: "",
 		GroupName:        name,
@@ -421,7 +426,7 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 		return PreparedSend{}, fmt.Errorf("list group members: %w", err)
 	}
 
-	if reply, handled := groupCommandReply(content); handled {
+	if reply, handled := a.groupCommandReply(ctx, groupID, content, clientMessageID, members); handled {
 		return PreparedSend{Command: true, Reply: reply}, nil
 	}
 
@@ -429,7 +434,7 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 	// client_message_id disables tier-1 dedup (no fake UUID). The outbox is created
 	// inside the same transaction so a fresh message always has a claimable row.
 	appendResult, err := a.svc.eventLog.AppendGroupMessage(ctx, eventlog.Message{
-		Platform:          "web",
+		Platform:          webGroupPlatform,
 		PlatformGroupID:   groupID,
 		PlatformThreadID:  "",
 		ActorType:         eventlog.ActorHuman,
@@ -543,10 +548,16 @@ func (a *GroupAccess) memberDetail(ctx context.Context, m sqlc.ChannelGroupMembe
 // binding a Web group member replies through.
 func webChannelID(agentID string) string { return "web:" + agentID }
 
-// groupCommandReply intercepts group slash commands that cannot run in a group
-// context, returning the plain reply and true. Any other input (including other
-// slash commands) falls through as a normal message.
-func groupCommandReply(content string) (string, bool) {
+// groupCommandReply intercepts group slash commands before the event-log append,
+// returning the plain reply and true. Any other input (including other slash
+// commands) falls through as a normal message. Interception happens here rather
+// than after the append so a command never becomes part of group context —
+// which matters most for `/new`, whose whole purpose is to clear that context.
+// clientMessageID is the browser's idempotency token for this send. Only `/new`
+// needs it — the other commands change nothing, so answering a retry twice costs
+// nothing — but it has to reach here because the append that would normally
+// dedup the message is exactly what interception skips.
+func (a *GroupAccess) groupCommandReply(ctx context.Context, groupID, content, clientMessageID string, members []sqlc.ChannelGroupMember) (string, bool) {
 	fields := strings.Fields(content)
 	if len(fields) == 0 {
 		return "", false
@@ -559,6 +570,10 @@ func groupCommandReply(content string) (string, bool) {
 		// Group history is assembled from the group event log, not per-agent LCM
 		// conversations, so compaction does not apply here.
 		return pkgchannel.GroupCompactUnsupportedMessage, true
+	case "/new":
+		// A group's context is shared by every member, so no member's chat
+		// command may clear it. Refuse explicitly rather than silently.
+		return pkgchannel.GroupNewSessionUnsupportedMessage, true
 	default:
 		return "", false
 	}

@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"strings"
+
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -30,25 +32,36 @@ func ToolDefinitions() []pkgtools.Definition {
 }
 
 func resolveToolPath(host pkgsandbox.Host, projectRoot, path string) (string, error) {
-	if projectRoot != "" {
-		resolved, err := pkgtools.ResolveProjectPath(projectRoot, path)
-		if err != nil {
-			return "", err
-		}
-		return host.ResolvePath(resolved)
+	resolved, err := resolveToolExpression(host, projectRoot, path)
+	if err != nil {
+		return "", err
 	}
-	return host.ResolvePath(path)
+	return host.ResolvePath(resolved)
 }
 
 func resolveWritableToolPath(host pkgsandbox.Host, projectRoot, path string) (string, error) {
-	if projectRoot != "" {
-		resolved, err := pkgtools.ResolveProjectPath(projectRoot, path)
+	resolved, err := resolveToolExpression(host, projectRoot, path)
+	if err != nil {
+		return "", err
+	}
+	return host.ResolveWritePath(resolved)
+}
+
+// resolveToolExpression expands only the model-authored leading filesystem
+// variable before project resolution; session path resolvers stay literal.
+func resolveToolExpression(host pkgsandbox.Host, projectRoot, path string) (string, error) {
+	expanded := path
+	if strings.HasPrefix(path, "$") {
+		var err error
+		expanded, err = pkgsandbox.ExpandPathVariables(path, host.Policy().Env)
 		if err != nil {
 			return "", err
 		}
-		return host.ResolveWritePath(resolved)
 	}
-	return host.ResolveWritePath(path)
+	if projectRoot == "" {
+		return expanded, nil
+	}
+	return pkgtools.ResolveProjectPath(projectRoot, expanded)
 }
 
 func toolIntArg(args map[string]any, key string, defaultVal int) int {

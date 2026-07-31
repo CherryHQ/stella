@@ -22,6 +22,17 @@ The key thing to know: **nothing is lost.** Summaries preserve the important det
 
 If you start a new session, Stella carries forward your profile and constraints automatically. Past conversation content is available through search.
 
+## Starting a Fresh Session
+
+Sometimes you do not want a shorter conversation, you want a clean one. Two commands cover the difference:
+
+- **`/new`** starts a fresh session. The previous one is archived, not deleted — it stays searchable, and your profile and constraints carry over.
+- **`/compact`** keeps the session you are in and compresses its history, so the context gets shorter without losing the thread.
+
+`/new` only works in a direct message. A group's context is shared by everyone in it, so no single member's command may clear it for the rest — `/new` in a group replies saying so and resets nothing. `/compact` does not apply to group chats either.
+
+In the Web UI you start a new session from the sidebar rather than with a command, because an open chat window stays on the session it was opened with.
+
 ## Managing Your Profile
 
 Stella learns about you naturally through conversation. If you say "I'm in the Pacific timezone" or "I prefer TypeScript over JavaScript," she remembers.

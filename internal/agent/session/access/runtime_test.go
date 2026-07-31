@@ -127,6 +127,30 @@ func TestAttachGuardDeniesAfterDurableAgentRevocation(t *testing.T) {
 	}
 }
 
+// TestSendRejectsArchivedSessionDistinguishably covers a client that kept sending
+// to a session `/new` rotated away: the refusal must carry ErrArchived so the
+// transport can tell "rotated away" apart from "gone", and no turn may start.
+func TestSendRejectsArchivedSessionDistinguishably(t *testing.T) {
+	ctx := context.Background()
+	svc, rt, _, authority := newRuntimeTestService(t)
+	info, err := svc.memory.LoadInfo(ctx, "s1")
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	info.Archived = true
+	if err := svc.memory.SaveInfo(ctx, info); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+
+	_, err = svc.Send(ctx, SendInput{Authority: authority, AgentID: "a1", SessionID: "s1", Message: "hello"})
+	if !errors.Is(err, agentsession.ErrArchived) {
+		t.Fatalf("Send = %v, want ErrArchived", err)
+	}
+	if rt.chatCalls != 0 {
+		t.Fatalf("chat=%d, want no turn started on an archived session", rt.chatCalls)
+	}
+}
+
 func newRuntimeTestService(t *testing.T) (*Service, *fakeRuntimeService, config.Store, authz.Authority) {
 	t.Helper()
 	ctx := context.Background()
