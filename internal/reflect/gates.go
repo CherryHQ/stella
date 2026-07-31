@@ -142,8 +142,9 @@ func containsSecretLikeContent(content string) bool {
 	return detected
 }
 
-// sanitizeSecretLikeContent is shared by review-context redaction and the
-// fail-closed candidate/provenance gates so their credential rules cannot drift.
+// sanitizeSecretLikeContent provides best-effort defense in depth for common
+// credential shapes. Sharing it across review redaction and fail-closed gates
+// prevents rule drift, but a clean result is not proof that free text is secret-free.
 func sanitizeSecretLikeContent(content string) (string, bool) {
 	if content == "" {
 		return "", false
