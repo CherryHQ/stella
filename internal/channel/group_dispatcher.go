@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
@@ -856,12 +857,41 @@ func groupMessageChatContent(message sqlc.CtxGroupMessage) agent.MessageContent 
 	return message.Content
 }
 
+// resolveWebGroupChat builds the group chat binding for an agent in a Web group.
+// A persisted membership is not a standing execute grant: the authority is
+// minted fresh for this exact group/member and re-authorized here, so service
+// selection and the group authority live in exactly one place.
+func (d *GroupDispatcher) resolveWebGroupChat(ctx context.Context, groupID, agentID string) (*ResolvedChat, error) {
+	if d == nil || d.coord == nil || d.coord.agentAccess == nil {
+		return nil, ErrAgentAccessDenied
+	}
+	authority, err := agentaccess.GroupAgentAuthority(groupID, agentID)
+	if err != nil {
+		return nil, ErrAgentAccessDenied
+	}
+	if _, err := d.coord.agentAccess.Use(ctx, authority, agentID); err != nil {
+		return nil, ErrAgentAccessDenied
+	}
+	svc := d.coord.serviceManager.GetService(agentID)
+	if svc == nil {
+		return nil, fmt.Errorf("agent service %q not found", agentID)
+	}
+	return &ResolvedChat{
+		Service:    svc,
+		AgentID:    agentID,
+		SessionKey: agent.BuildGroupSessionKey(agentID, groupID),
+		Channel:    session.Channel("group:" + groupID),
+		GroupID:    groupID,
+		Authority:  authority,
+	}, nil
+}
+
 func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage) (*pkgchannel.ChatStream, error) {
 	speaker := webGroupSpeaker(message)
 	// A persisted group membership is not an execute grant forever. The human
 	// speaker is audit/personalization only; never borrow their private user
 	// authority to execute a group turn. resolveWebGroupChat mints and re-checks
-	// the group authority; `/new` enters through the same door.
+	// the group authority.
 	rc, err := d.resolveWebGroupChat(ctx, row.GroupID, row.AgentID)
 	if err != nil {
 		return nil, err

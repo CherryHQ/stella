@@ -86,11 +86,9 @@ Available in CLI, Telegram, QQ, Feishu, and WeChat:
 | `/agent`   | List or switch agents                                                    |
 | `/whoami`  | Show your user/chat ID                                                   |
 
-In a group, each agent keeps its own session: `/new` resets the only agent
-present, and a group with several agents needs `/new @agent`. `/compact` does not
-apply in groups. The `/new` command never enters the group's shared history, and
-the reset is also a message boundary: anything the group said before it is
-never carried into the fresh session, even if that agent had not read it yet.
+`/new` works in direct messages only. A group's context is shared by every
+member, so a group `/new` is refused and resets nothing; `/compact` does not
+apply in groups either. Neither command enters the group's shared history.
 
 ## Stella tools
 

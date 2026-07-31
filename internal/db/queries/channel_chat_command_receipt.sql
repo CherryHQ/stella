@@ -8,7 +8,8 @@ ON CONFLICT (channel_id, chat_key, message_id) DO NOTHING;
 
 -- name: DeleteChatCommandReceipt :exec
 -- Releases a claim whose command did not run, so the next redelivery may retry.
--- This is the ONLY delete; a consumed receipt is permanent for the same reason
--- the group receipt's is (see channel_group_command_receipt.sql).
+-- This is the ONLY delete; a consumed receipt is permanent, because the Web API
+-- promises message-id idempotency with no time window and a TTL here would
+-- quietly reopen the destructive replay this receipt exists to prevent.
 DELETE FROM channel_chat_command_receipt
 WHERE channel_id = $1 AND chat_key = $2 AND message_id = $3;

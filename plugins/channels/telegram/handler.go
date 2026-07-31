@@ -151,8 +151,9 @@ func (b *Bot) registerHandlers() {
 }
 
 // handleSharedCommand forwards a shared slash command to the coordinator,
-// including its argument: `/new @agent` in a multi-agent group names the agent
-// to reset, and dropping the payload made that command unaddressable.
+// including its argument. Telegram splits a message into command and payload,
+// so dropping the payload would make every argument-taking shared command
+// arrive bare and unaddressable.
 func (b *Bot) handleSharedCommand(c tele.Context, cmd string) error {
 	msg := b.incomingMsg(c, nil)
 	args := strings.TrimSpace(c.Message().Payload)

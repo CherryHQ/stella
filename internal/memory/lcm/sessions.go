@@ -194,21 +194,6 @@ func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, suc
 		return fmt.Errorf("create successor conversation: %w", err)
 	}
 
-	// A group rotation is also a message boundary: fast-forwarding this agent's
-	// ingest cursor to the group's newest seq marks every pre-reset message as
-	// consumed, in the same transaction as the reset itself. Without it the old
-	// watermark would inject unconsumed pre-reset messages into the successor's
-	// first assembly, and a restarted dispatch row for a pre-reset trigger would
-	// run a turn against the successor.
-	if successor.GroupID != "" && agentID != "" {
-		if err := qtx.AdvanceIngestCursorToLatest(ctx, sqlc.AdvanceIngestCursorToLatestParams{
-			GroupID:  successor.GroupID,
-			Pipeline: groupCursorPipeline(agentID),
-		}); err != nil {
-			return fmt.Errorf("advance group ingest cursor: %w", err)
-		}
-	}
-
 	// Everything above fails as a definite rollback. A commit failure does not:
 	// the server may have committed before the acknowledgement was lost, so it
 	// carries the one sentinel callers must not compensate against.

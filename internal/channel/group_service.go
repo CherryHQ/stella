@@ -43,12 +43,6 @@ type GroupService struct {
 // whole coordinator from the group service.
 type GroupDispatchRunner interface {
 	DispatchSync(ctx context.Context, outbox sqlc.CtxGroupOutbox, publisher GroupPublisher) error
-	// RotateGroupSession starts a fresh session for one agent in the group and
-	// returns the user-facing reply. It belongs on this port because rotation must
-	// run in the same per-(agent,group) order as that agent's turns, which only
-	// the dispatcher owns. clientMessageID is the send's idempotency token, so a
-	// retried `/new` reports the reset rather than performing a second one.
-	RotateGroupSession(ctx context.Context, groupID, agentID, clientMessageID string) (string, error)
 }
 
 // webGroupPlatform is the platform value the Web group surface writes: it names
@@ -577,28 +571,12 @@ func (a *GroupAccess) groupCommandReply(ctx context.Context, groupID, content, c
 		// conversations, so compaction does not apply here.
 		return pkgchannel.GroupCompactUnsupportedMessage, true
 	case "/new":
-		return a.newGroupSessionReply(ctx, groupID, strings.Join(fields[1:], " "), clientMessageID, members), true
+		// A group's context is shared by every member, so no member's chat
+		// command may clear it. Refuse explicitly rather than silently.
+		return pkgchannel.GroupNewSessionUnsupportedMessage, true
 	default:
 		return "", false
 	}
-}
-
-// newGroupSessionReply rotates the targeted agent's group session. Each agent
-// keeps its own session, so a multi-agent group needs `/new @agent`.
-func (a *GroupAccess) newGroupSessionReply(ctx context.Context, groupID, args, clientMessageID string, members []sqlc.ChannelGroupMember) string {
-	agentIDs := make([]string, 0, len(members))
-	for _, m := range members {
-		agentIDs = append(agentIDs, m.AgentID)
-	}
-	target, usage := groupNewTarget("", args, agentIDs)
-	if target == "" {
-		return usage
-	}
-	reply, err := a.svc.dispatcher.RotateGroupSession(ctx, groupID, target, clientMessageID)
-	if err != nil {
-		return fmt.Sprintf("Starting a new session failed: %v", err)
-	}
-	return reply
 }
 
 // parseWebMentions extracts @AgentID patterns from message text against the

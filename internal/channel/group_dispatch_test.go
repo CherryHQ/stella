@@ -331,11 +331,11 @@ func TestResolveMentionAgents(t *testing.T) {
 	})
 }
 
-// TestGroupIncomingNewIsInterceptedBeforeEventLog proves the platform group
-// `/new` is answered before the event-log append: the command never becomes part
-// of the group context it exists to clear, and a multi-agent group gets a usage
-// reply instead of an implicit reset of every agent.
-func TestGroupIncomingNewIsInterceptedBeforeEventLog(t *testing.T) {
+// TestGroupIncomingNewIsRefusedBeforeEventLog proves a platform group `/new` is
+// refused explicitly — a group's context is shared, so no member's chat command
+// may clear it — and that the refusal is answered before the event-log append,
+// so the command never becomes part of the group's context either.
+func TestGroupIncomingNewIsRefusedBeforeEventLog(t *testing.T) {
 	db := dbtest.New(t)
 	el := eventlog.NewStore(db)
 	ctx := context.Background()
@@ -360,8 +360,8 @@ func TestGroupIncomingNewIsInterceptedBeforeEventLog(t *testing.T) {
 	if !handled || stream != nil {
 		t.Fatalf("handled=%v stream=%v, want an immediate plain reply", handled, stream)
 	}
-	if reply != pkgchannel.GroupNewSessionUsageMessage([]string{"a1", "a2"}) {
-		t.Fatalf("reply = %q, want the multi-agent usage message", reply)
+	if reply != pkgchannel.GroupNewSessionUnsupportedMessage {
+		t.Fatalf("reply = %q, want %q", reply, pkgchannel.GroupNewSessionUnsupportedMessage)
 	}
 
 	groupID, err := el.ResolveGroupID(ctx, "telegram", "chat-new", "")
@@ -374,41 +374,6 @@ func TestGroupIncomingNewIsInterceptedBeforeEventLog(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("/new appended %d group messages, want 0", count)
-	}
-}
-
-// TestGroupNewTarget covers the per-agent rotation rules: no roster, the
-// single-agent shortcut, an explicit mention, an `@name` argument, an unknown
-// target, and the ambiguous multi-agent case.
-func TestGroupNewTarget(t *testing.T) {
-	tests := []struct {
-		name      string
-		mentioned string
-		args      string
-		agentIDs  []string
-		target    string
-		usage     string
-	}{
-		{name: "no agents", usage: pkgchannel.GroupNewSessionNoAgentsMessage},
-		{name: "single agent needs no target", agentIDs: []string{"a1"}, target: "a1"},
-		{name: "resolved mention wins", mentioned: "a2", agentIDs: []string{"a1", "a2"}, target: "a2"},
-		{name: "named arg selects", args: "@a2", agentIDs: []string{"a1", "a2"}, target: "a2"},
-		{
-			name: "unknown target never falls back", args: "@ghost", agentIDs: []string{"a1"},
-			usage: pkgchannel.GroupNewSessionUsageMessage([]string{"a1"}),
-		},
-		{
-			name: "ambiguous multi-agent", agentIDs: []string{"a1", "a2"},
-			usage: pkgchannel.GroupNewSessionUsageMessage([]string{"a1", "a2"}),
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			target, usage := groupNewTarget(tc.mentioned, tc.args, tc.agentIDs)
-			if target != tc.target || usage != tc.usage {
-				t.Fatalf("groupNewTarget = (%q, %q), want (%q, %q)", target, usage, tc.target, tc.usage)
-			}
-		})
 	}
 }
 
