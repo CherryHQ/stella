@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> **Breaking:** Webhook channels now authenticate with a capability endpoint instead of a personal access token. An admin activates one endpoint per webhook channel, and Stella discloses a one-time URL that both carries the opaque secret and fixes which user the agent runs as — callers no longer send an `Authorization` header. The previous `POST /webhooks/<channel-id>` route with a Bearer token stops working; activate an endpoint for each webhook channel and re-point callers at the new URL. ([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+
+### ♻️ Refactoring
+
+- Webhook: replace the token-authenticated route with an owner-bound capability endpoint whose one-time URL is the sole credential, rotatable and revocable from the Web UI. ([#825](https://github.com/CherryHQ/stella/pull/825))
+
 ## [0.60.4] - 2026-07-28
 
 ### 🐛 Bug Fixes

@@ -11,6 +11,12 @@ icon: History
 
 ## [Unreleased]
 
+> **重大变更：** Webhook 频道现在通过能力端点（capability endpoint）认证，不再使用个人访问令牌。管理员为每个 Webhook 频道激活一个端点，Stella 一次性披露一个 URL——它既携带不透明密钥，又固定 Agent 以哪个用户的身份运行，调用方不再发送 `Authorization` 头。原有的 `POST /webhooks/<channel-id>` + Bearer 令牌路由不再可用；请为每个 Webhook 频道激活端点，并将调用方指向新的 URL。([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+
+### ♻️ 重构
+
+- Webhook：以绑定所有者的能力端点替换令牌认证路由，其一次性 URL 是唯一凭证，可在 Web UI 中轮换与撤销。([#825](https://github.com/CherryHQ/stella/pull/825))
+
 ## [0.60.4] - 2026-07-28
 
 ### 🐛 修复

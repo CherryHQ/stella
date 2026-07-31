@@ -162,13 +162,17 @@ Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 
 ## Webhook (inbound trigger)
 
-Not a chat bot: an inbound-only HTTP endpoint that runs the bound agent. There is no outbound messaging and no in-chat commands.
+Not a chat bot: an inbound-only HTTP endpoint that runs the bound agent. There is no outbound messaging and no in-chat commands. Access is a **capability** — a one-time URL that carries an opaque secret and fixes which user the agent runs as. There is no caller token and no `Authorization` header.
 
-1. Open the Web UI and add a channel of type Webhook with a channel ID (e.g. `deploy-notify`)
-2. Bind an agent (required). The channel is enabled the moment it's created
-3. Callers POST to `https://your-host/webhooks/<channel-id>` with a Bearer personal access token carrying the `agent:write` scope; the request body becomes the agent's message
+1. Open the Web UI and add a channel of type Webhook with a channel ID (e.g. `deploy-notify`), then bind an agent (required)
+2. In the channel's **Capability endpoint** panel, click **Activate endpoint** and choose the **owner** — the user the agent runs as on every trigger. The owner must currently be allowed to run the bound agent
+3. Copy the **one-time URL** (`https://your-host/webhooks/<capability>`) shown once on activation; it cannot be recovered afterward
+4. Callers `POST` to that URL; the request body becomes the agent's message. Any headers sent are ignored — the URL itself is the credential
 
-The agent runs **as the calling PAT's user** (that user must be allowed to run the bound agent); there is no user binding on the channel.
+The agent always runs **as the endpoint's fixed owner**, with that owner's tools, memory, and permissions re-checked on every request. If the owner loses access (assignment removed, account deactivated, agent or channel disabled), later triggers fail closed with an opaque `404`.
+
+- **Rotate** issues a fresh one-time URL and immediately invalidates the previous one (use it if a URL may have leaked, or to recover one you did not copy).
+- **Revoke** deletes the endpoint; every URL for it stops working at once. The channel remains, and you can activate a new endpoint later.
 
 Webhook channel config (JSON):
 
@@ -181,6 +185,7 @@ Webhook channel config (JSON):
 }
 ```
 
-- `?wait=true|false` on the request overrides `default_wait`: sync (200 with the reply, up to `wait_timeout_seconds`, then 504) vs fire-and-forget (202 with `session_id`)
-- `session_mode`: `ephemeral` = fresh session per trigger; `persistent` = one long-lived session per caller per webhook (busy session → 429, retry later)
-- Limits: 256 KiB body, per-webhook rate limit and max 10 in-flight runs (429 when exceeded)
+- `?wait=true|false` on the request overrides `default_wait`: sync (200 with the reply, up to `wait_timeout_seconds`, then 504) vs fire-and-forget (202 with `session_id`). Any other `?wait=` value returns 400
+- `session_mode`: `ephemeral` = fresh session per trigger; `persistent` = one long-lived session per owner per webhook (busy session → 429, retry later)
+- Limits: 256 KiB body (413 when exceeded), a per-endpoint read deadline (408 if the body stalls), and a per-endpoint rate/ingress limit plus max 10 in-flight runs (429 when exceeded)
+- **Cutover:** the old `POST /webhooks/<channel-id>` route with a Bearer personal access token no longer works; activate a capability endpoint and re-point callers at the one-time URL. Full guide: [Webhook channel docs](/docs/channels/webhook)

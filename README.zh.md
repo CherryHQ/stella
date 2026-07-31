@@ -50,14 +50,14 @@ stellad server
 
 所有渠道共享同一套记忆。你可以从一个渠道开始，再切换到另一个渠道，Stella 会接上之前的上下文。
 
-| 渠道     | 连接方式               | 流式响应支持         |
-| -------- | ---------------------- | -------------------- |
-| Terminal | 内置 TUI               | Token-by-token       |
-| Telegram | 长轮询，无需公网 IP    | 支持                 |
-| QQ       | WebSocket              | 支持                 |
-| 飞书     | WebSocket，无需公网 IP | Edit-in-place        |
-| 微信     | 长轮询（iLink Bot）    | 不支持               |
-| Webhook  | 入站 HTTP POST + PAT   | 不支持（同步或 202） |
+| 渠道     | 连接方式                  | 流式响应支持         |
+| -------- | ------------------------- | -------------------- |
+| Terminal | 内置 TUI                  | Token-by-token       |
+| Telegram | 长轮询，无需公网 IP       | 支持                 |
+| QQ       | WebSocket                 | 支持                 |
+| 飞书     | WebSocket，无需公网 IP    | Edit-in-place        |
+| 微信     | 长轮询（iLink Bot）       | 不支持               |
+| Webhook  | 入站 HTTP POST 到能力 URL | 不支持（同步或 202） |
 
 你可以把某个渠道绑定到特定 agent，也可以让用户通过 Telegram 的 `/agent` 切换 agent。
 
