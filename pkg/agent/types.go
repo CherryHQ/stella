@@ -13,33 +13,38 @@ import (
 // (text and/or images).
 type ToolFunc func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error)
 
-// ToolResultTransform canonicalizes a final tool result after lifecycle
-// mutations and before it is observed, appended to the loop, or persisted.
-type ToolResultTransform func(context.Context, ai.ToolResultMessage) (ai.ToolResultMessage, error)
+// ToolImageCanonicalizer converts final tool images into durable references
+// after lifecycle mutations and before the result enters the loop or history.
+type ToolImageCanonicalizer func(context.Context, ai.ToolResultMessage) (ai.ToolResultMessage, error)
+
+// CanonicalImageConfig is the complete ordinary-session image policy. Keeping
+// hydration and tool canonicalization together prevents invalid partial modes.
+type CanonicalImageConfig struct {
+	Load                   MediaLoader
+	CanonicalizeToolResult ToolImageCanonicalizer
+}
 
 // ToolSet maps tool names to handlers.
 type ToolSet map[string]ToolFunc
 
 // loopConfig configures the agent loop behavior.
 type loopConfig struct {
-	Stream              providers.StreamFunc
-	Model               ai.Model
-	StreamOptions       ai.StreamOptions
-	Tools               ToolSet
-	ToolDefinitions     []ai.ToolDefinition
-	System              string
-	Interrupt           <-chan struct{}
-	Hooks               *hooks.HookSet
-	HookMeta            hooks.HookMeta
-	ToolLifecycle       *ToolLifecycle
-	ToolTransform       ToolResultTransform
-	CanonicalToolImages bool
+	Stream          providers.StreamFunc
+	Model           ai.Model
+	StreamOptions   ai.StreamOptions
+	Tools           ToolSet
+	ToolDefinitions []ai.ToolDefinition
+	System          string
+	Interrupt       <-chan struct{}
+	Hooks           *hooks.HookSet
+	HookMeta        hooks.HookMeta
+	ToolLifecycle   *ToolLifecycle
+	CanonicalImages *CanonicalImageConfig
 	// LegacyImageText renders inline images from old rows. New canonical
-	// references use MediaLoader and their stored baseline instead.
+	// references use CanonicalImages and their stored baseline instead.
 	LegacyImageText    ImageTextFunc
-	MediaLoader        MediaLoader
 	ProjectionObserver ProjectionObserver
-	ImageProjection    bool
+	LegacyImages       bool
 	// TurnNotify is called at the start of each turn. If it returns a non-nil
 	// string, that text is injected as a UserMessage before the model call.
 	// Intended for progress nudges at milestone turns (e.g. 50, 80, 100).

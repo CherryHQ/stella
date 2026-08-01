@@ -29,23 +29,14 @@ func Unwrap(p Provider) Provider {
 
 // WithTracing wraps a Provider to emit PostMemoryCall hooks after each operation.
 // hooksFn is called on each operation to get the current HookSet; it may return nil.
-// The returned Provider implements the optional capability interfaces listed
-// below. Most unsupported capabilities return sensible zero values or errors.
-// CanonicalAppender is different because callers use its presence to choose a
-// lossless persistence path: the wrapper advertises it only when the inner
-// provider does. Use [Unwrap] to check the inner provider directly.
+// The returned Provider implements optional capability interfaces. Unsupported
+// capabilities return sensible zero values or errors. Use [Unwrap] to check the
+// inner provider directly.
 //
 // The Detail field is always populated with content previews. The trace hook
 // decides whether to emit it based on log level (see [LevelTrace]).
 func WithTracing(provider Provider, hooksFn func() *hooks.HookSet) Provider {
-	traced := &tracedProvider{
-		inner:   provider,
-		hooksFn: hooksFn,
-	}
-	if _, ok := provider.(CanonicalAppender); ok {
-		return &tracedCanonicalProvider{tracedProvider: traced}
-	}
-	return traced
+	return &tracedProvider{inner: provider, hooksFn: hooksFn}
 }
 
 // tracedProvider wraps a Provider and emits PostMemoryCall hooks.
@@ -118,32 +109,12 @@ func (t *tracedProvider) Bootstrap(ctx context.Context, session Session) error {
 }
 
 func (t *tracedProvider) Append(ctx context.Context, session Session, msgs ...ai.Message) error {
-	return t.traceAppend(ctx, session, "appended", func(ctx context.Context) error {
-		return t.inner.Append(ctx, session, msgs...)
-	}, msgs...)
-}
-
-// tracedCanonicalProvider exists only when the wrapped provider supports
-// CanonicalAppender. That preserves capability detection while keeping tracing
-// on the lossless message-part write path.
-type tracedCanonicalProvider struct {
-	*tracedProvider
-}
-
-func (t *tracedCanonicalProvider) AppendCanonical(ctx context.Context, session Session, msgs ...ai.Message) error {
-	canonical := t.inner.(CanonicalAppender) // established by WithTracing
-	return t.traceAppend(ctx, session, "canonically appended", func(ctx context.Context) error {
-		return canonical.AppendCanonical(ctx, session, msgs...)
-	}, msgs...)
-}
-
-func (t *tracedProvider) traceAppend(ctx context.Context, session Session, detailVerb string, appendFn func(context.Context) error, msgs ...ai.Message) error {
 	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
 	ctx, start := t.begin(ctx, hctx)
-	err := appendFn(ctx)
+	err := t.inner.Append(ctx, session, msgs...)
 	hctx.Error = err
 	hctx.MessageCount = len(msgs)
-	hctx.Detail = formatMessages(detailVerb, msgs)
+	hctx.Detail = formatMessages("appended", msgs)
 	t.finish(ctx, start, hctx)
 	return err
 }

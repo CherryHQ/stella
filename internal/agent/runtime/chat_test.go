@@ -28,20 +28,6 @@ type snapshotRecordingMemory struct {
 	snapshot memory.SessionSnapshot
 }
 
-type canonicalRecordingMemory struct {
-	*recordingMemory
-	canonicalCalls int
-	canonicalErr   error
-}
-
-func (m *canonicalRecordingMemory) AppendCanonical(ctx context.Context, sess memory.Session, msgs ...ai.Message) error {
-	m.canonicalCalls++
-	if m.canonicalErr != nil {
-		return m.canonicalErr
-	}
-	return m.Append(ctx, sess, msgs...)
-}
-
 func (m *snapshotRecordingMemory) GetOrCreateSessionSnapshot(context.Context, string, string, string) (memory.SessionSnapshot, error) {
 	return m.snapshot, nil
 }
@@ -149,9 +135,9 @@ func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 }
 
 func TestRuntimeChatEnrichesAndCanonicallyAppendsOrdinaryImages(t *testing.T) {
-	mem := &canonicalRecordingMemory{recordingMemory: &recordingMemory{}}
+	mem := &recordingMemory{}
 	var received []MessageContent
-	ref := ai.ImageRefContent{MediaID: "media-1", MimeType: "image/png", Baseline: ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}}
+	ref := ai.ImageRefContent{MediaID: "media-1"}
 	rt, err := New(Config{
 		Memory: mem,
 		EnrichContent: func(_ context.Context, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
@@ -179,14 +165,14 @@ func TestRuntimeChatEnrichesAndCanonicallyAppendsOrdinaryImages(t *testing.T) {
 			receivedCanonical = containsRuntimeRef(receivedMsg)
 		}
 	}
-	if mem.canonicalCalls != 1 || len(mem.messages) != 1 || !containsRuntimeRef(mem.messages[0]) || !receivedCanonical {
-		t.Fatalf("canonical persistence = calls:%d messages:%#v received:%#v", mem.canonicalCalls, mem.messages, received)
+	if len(mem.messages) != 1 || !containsRuntimeRef(mem.messages[0]) || !receivedCanonical {
+		t.Fatalf("canonical persistence = messages:%#v received:%#v", mem.messages, received)
 	}
 }
 
 func TestRuntimeChatEnrichesSingularImageBeforeCanonicalAppend(t *testing.T) {
-	mem := &canonicalRecordingMemory{recordingMemory: &recordingMemory{}}
-	ref := ai.ImageRefContent{MediaID: "media-1", MimeType: "image/png", Baseline: ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}}
+	mem := &recordingMemory{}
+	ref := ai.ImageRefContent{MediaID: "media-1"}
 	enrichCalls := 0
 	rt, err := New(Config{
 		Memory: mem,
@@ -210,14 +196,14 @@ func TestRuntimeChatEnrichesSingularImageBeforeCanonicalAppend(t *testing.T) {
 			t.Fatalf("chat: %v", evt.Err)
 		}
 	}
-	if enrichCalls != 1 || mem.canonicalCalls != 1 || len(mem.messages) != 1 || !containsRuntimeRef(mem.messages[0]) {
-		t.Fatalf("singular image bypassed canonical pipeline: enrich=%d canonical=%d messages=%#v", enrichCalls, mem.canonicalCalls, mem.messages)
+	if enrichCalls != 1 || len(mem.messages) != 1 || !containsRuntimeRef(mem.messages[0]) {
+		t.Fatalf("singular image bypassed canonical pipeline: enrich=%d messages=%#v", enrichCalls, mem.messages)
 	}
 }
 
 func TestRuntimeChatPassesCanonicalImageRefWithoutEnrichment(t *testing.T) {
-	mem := &canonicalRecordingMemory{recordingMemory: &recordingMemory{}}
-	ref := ai.ImageRefContent{MediaID: "media-1", MimeType: "image/png", Baseline: ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}}
+	mem := &recordingMemory{}
+	ref := ai.ImageRefContent{MediaID: "media-1"}
 	rt, err := New(Config{
 		Memory: mem,
 		EnrichContent: func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
@@ -234,13 +220,13 @@ func TestRuntimeChatPassesCanonicalImageRefWithoutEnrichment(t *testing.T) {
 			t.Fatalf("chat: %v", evt.Err)
 		}
 	}
-	if mem.canonicalCalls != 1 || len(mem.messages) != 1 || !containsRuntimeRef(mem.messages[0]) {
+	if len(mem.messages) != 1 || !containsRuntimeRef(mem.messages[0]) {
 		t.Fatalf("canonical ImageRef did not persist safely: %#v", mem.messages)
 	}
 }
 
 func TestRuntimeGroupImageKeepsLegacyAppend(t *testing.T) {
-	mem := &canonicalRecordingMemory{recordingMemory: &recordingMemory{}}
+	mem := &recordingMemory{}
 	rt, err := New(Config{
 		Memory: mem,
 		EnrichContent: func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
@@ -258,17 +244,17 @@ func TestRuntimeGroupImageKeepsLegacyAppend(t *testing.T) {
 			t.Fatalf("chat: %v", evt.Err)
 		}
 	}
-	if mem.canonicalCalls != 0 || len(mem.messages) != 1 || !ai.HasImage(runtimeMessageBlocks(mem.messages[0])) {
-		t.Fatalf("group path changed: canonical=%d messages=%#v", mem.canonicalCalls, mem.messages)
+	if len(mem.messages) != 1 || !ai.HasImage(runtimeTestMessageBlocks(mem.messages[0])) {
+		t.Fatalf("group path changed: messages=%#v", mem.messages)
 	}
 }
 
-func TestRuntimeChatFailsClosedWithoutCanonicalAppenderForImageRef(t *testing.T) {
-	mem := &recordingMemory{}
+func TestRuntimeChatFailsClosedWhenCanonicalImageAppendFails(t *testing.T) {
+	mem := &recordingMemory{appendError: errors.New("write failed")}
 	rt, err := New(Config{
 		Memory: mem,
 		EnrichContent: func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
-			return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media-1", MimeType: "image/png", Baseline: ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}}}, nil
+			return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media-1"}}, nil
 		},
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return chatFakeRunner{}, nil },
 	})
@@ -288,12 +274,26 @@ func TestRuntimeChatFailsClosedWithoutCanonicalAppenderForImageRef(t *testing.T)
 }
 
 func containsRuntimeRef(msg ai.Message) bool {
-	for _, block := range runtimeMessageBlocks(msg) {
+	for _, block := range runtimeTestMessageBlocks(msg) {
 		if _, ok := block.(ai.ImageRefContent); ok {
 			return true
 		}
 	}
 	return false
+}
+
+func runtimeTestMessageBlocks(msg ai.Message) []ai.ContentBlock {
+	switch msg := msg.(type) {
+	case ai.UserMessage:
+		blocks, _ := msg.Content.([]ai.ContentBlock)
+		return blocks
+	case ai.AssistantMessage:
+		return msg.Content
+	case ai.ToolResultMessage:
+		return msg.Content
+	default:
+		return nil
+	}
 }
 
 func TestRuntimeChatCommitsGroupCursorAfterSuccessfulGroupTurn(t *testing.T) {

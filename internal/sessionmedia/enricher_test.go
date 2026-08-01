@@ -20,7 +20,6 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
@@ -33,7 +32,7 @@ type fakePersister struct {
 	max     atomic.Int64
 }
 
-func (p *fakePersister) Persist(ctx context.Context, in Input) (sqlc.CtxMedium, error) {
+func (p *fakePersister) Persist(ctx context.Context, in Input) (string, error) {
 	active := p.active.Add(1)
 	for {
 		max := p.max.Load()
@@ -49,17 +48,17 @@ func (p *fakePersister) Persist(ctx context.Context, in Input) (sqlc.CtxMedium, 
 		select {
 		case <-p.release:
 		case <-ctx.Done():
-			return sqlc.CtxMedium{}, ctx.Err()
+			return "", ctx.Err()
 		}
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.inputs = append(p.inputs, in)
-	return sqlc.CtxMedium{ID: fmt.Sprintf("media-%d", len(p.inputs)), MimeType: in.MimeType}, nil
+	return fmt.Sprintf("media-%d", len(p.inputs)), nil
 }
 
 type fakeBaselineRenderer struct {
-	baseline vision.BaselineResult
+	baseline ai.ImageBaseline
 	err      error
 	started  chan struct{}
 	release  <-chan struct{}
@@ -67,7 +66,7 @@ type fakeBaselineRenderer struct {
 	max      atomic.Int64
 }
 
-func (r *fakeBaselineRenderer) Baseline(ctx context.Context, _ vision.Request) (vision.BaselineResult, error) {
+func (r *fakeBaselineRenderer) Baseline(ctx context.Context, _ vision.Request) (ai.ImageBaseline, error) {
 	active := r.active.Add(1)
 	for {
 		max := r.max.Load()
@@ -83,7 +82,7 @@ func (r *fakeBaselineRenderer) Baseline(ctx context.Context, _ vision.Request) (
 		select {
 		case <-r.release:
 		case <-ctx.Done():
-			return vision.BaselineResult{}, ctx.Err()
+			return ai.ImageBaseline{}, ctx.Err()
 		}
 	}
 	return r.baseline, r.err
@@ -96,7 +95,7 @@ type uncooperativeRenderer struct {
 	max     atomic.Int64
 }
 
-func (r *uncooperativeRenderer) Baseline(context.Context, vision.Request) (vision.BaselineResult, error) {
+func (r *uncooperativeRenderer) Baseline(context.Context, vision.Request) (ai.ImageBaseline, error) {
 	active := r.active.Add(1)
 	for {
 		max := r.max.Load()
@@ -114,10 +113,10 @@ func newFakeEnricher(t testing.TB, renderer vision.BaselineRenderer, opts Enrich
 	t.Helper()
 	media := &fakePersister{}
 	var resolves atomic.Int64
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) (vision.BaselineRenderer, error) {
+	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
 		resolves.Add(1)
-		return renderer, nil
-	}), renderer, opts)
+		return renderer
+	}), opts)
 	if err != nil {
 		t.Fatalf("NewEnricher: %v", err)
 	}
@@ -135,18 +134,19 @@ func imageBlock(t testing.TB, n byte) ai.ImageContent {
 	return ai.ImageContent{Data: base64.StdEncoding.EncodeToString(buf.Bytes()), MimeType: "image/png"}
 }
 
-func validBaseline() vision.BaselineResult {
-	return vision.BaselineResult{Text: "## Text\nhello\n\n## Scene\na small image", Renderer: "test/vlm", Contract: ai.ImageBaselineContractV1}
+func validBaseline() ai.ImageBaseline {
+	return ai.ImageBaseline{Text: "## Text\nhello\n\n## Scene\na small image"}
 }
 
 type fakeSnapshotLoader struct {
 	calls atomic.Int64
 	snap  *config.Snapshot
+	err   error
 }
 
 func (l *fakeSnapshotLoader) Snapshot(context.Context, string) (*config.Snapshot, error) {
 	l.calls.Add(1)
-	return l.snap, nil
+	return l.snap, l.err
 }
 
 func TestSnapshotVisionFactoryReloadsForEachMessage(t *testing.T) {
@@ -161,20 +161,18 @@ func TestSnapshotVisionFactoryReloadsForEachMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSnapshotVisionFactory: %v", err)
 	}
-	first, err := factory.ForMessage(context.Background(), "agent")
-	if err != nil {
-		t.Fatalf("first resolve: %v", err)
-	}
+	first := factory.ForMessage(context.Background(), "agent")
 	if first.(*vision.Service).ModelConfigured() {
 		t.Fatal("empty first snapshot unexpectedly configured a VLM")
 	}
 	loader.snap = &config.Snapshot{ModelVision: "openai/vlm", Provider: "openai", Providers: map[string]config.ProviderCreds{"openai": {Type: "openai-completions", APIKey: "key"}}}
-	second, err := factory.ForMessage(context.Background(), "agent")
-	if err != nil {
-		t.Fatalf("second resolve: %v", err)
-	}
+	second := factory.ForMessage(context.Background(), "agent")
 	if !second.(*vision.Service).ModelConfigured() || builds.Load() != 1 || loader.calls.Load() != 2 {
 		t.Fatalf("reload result = configured:%t builds:%d loads:%d", second.(*vision.Service).ModelConfigured(), builds.Load(), loader.calls.Load())
+	}
+	loader.err = errors.New("settings unavailable")
+	if fallback := factory.ForMessage(context.Background(), "agent"); fallback.(*vision.Service).ModelConfigured() {
+		t.Fatal("snapshot failure did not fall back to local extraction")
 	}
 }
 
@@ -198,8 +196,8 @@ func TestEnricherCanonicalizesUserAndToolBlocks(t *testing.T) {
 				t.Fatalf("enriched blocks retained raw base64: %#v", block)
 			}
 		}
-		if _, err := ai.MarshalCanonicalContentBlocks(blocks); err != nil {
-			t.Fatalf("canonical codec: %v", err)
+		if err := ai.ValidateCanonicalContentBlocks(blocks); err != nil {
+			t.Fatalf("canonical blocks: %v", err)
 		}
 	}
 	if userOut[0] != user[0] || toolOut[1] != tool[1] {
@@ -214,16 +212,16 @@ func TestEnricherPersistsAllMediaBeforeVisionResolution(t *testing.T) {
 	media := &fakePersister{}
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
 	var resolved atomic.Bool
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) (vision.BaselineRenderer, error) {
+	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
 		media.mu.Lock()
 		persisted := len(media.inputs)
 		media.mu.Unlock()
 		if persisted != 3 {
-			return nil, fmt.Errorf("factory ran after %d persists, want all 3", persisted)
+			t.Errorf("factory ran after %d persists, want all 3", persisted)
 		}
 		resolved.Store(true)
-		return renderer, nil
-	}), renderer, EnricherOptions{})
+		return renderer
+	}), EnricherOptions{})
 	if err != nil {
 		t.Fatalf("NewEnricher: %v", err)
 	}
@@ -240,9 +238,9 @@ func TestEnricherLimitsPersistenceConcurrencyToTwo(t *testing.T) {
 	release := make(chan struct{})
 	media := &fakePersister{started: make(chan struct{}, 3), release: release}
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) (vision.BaselineRenderer, error) {
-		return renderer, nil
-	}), renderer, EnricherOptions{})
+	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+		return renderer
+	}), EnricherOptions{})
 	if err != nil {
 		t.Fatalf("NewEnricher: %v", err)
 	}
@@ -262,54 +260,11 @@ func TestEnricherLimitsPersistenceConcurrencyToTwo(t *testing.T) {
 	}
 }
 
-func TestEnricherFactoryFailureUsesPersistedFallbackBaseline(t *testing.T) {
+func TestEnricherNilFactoryRendererIsStableUnavailable(t *testing.T) {
 	media := &fakePersister{}
-	fallback := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) (vision.BaselineRenderer, error) {
-		return nil, errors.New("settings backend failed")
-	}), fallback, EnricherOptions{})
-	if err != nil {
-		t.Fatalf("NewEnricher: %v", err)
-	}
-	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2)})
-	if err != nil {
-		t.Fatalf("Enrich: %v", err)
-	}
-	if len(media.inputs) != 2 || fallback.max.Load() == 0 {
-		t.Fatalf("factory fallback persisted/rendered = %d/%d, want 2/>0", len(media.inputs), fallback.max.Load())
-	}
-	for _, block := range out {
-		ref := block.(ai.ImageRefContent)
-		if ref.MediaID == "" || ref.Baseline.Status != ai.ImageBaselineReady {
-			t.Fatalf("factory fallback ref = %+v, want persisted ready ref", ref)
-		}
-	}
-}
-
-func TestEnricherNilFactoryRendererUsesFallback(t *testing.T) {
-	media := &fakePersister{}
-	fallback := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) (vision.BaselineRenderer, error) {
-		return nil, nil
-	}), fallback, EnricherOptions{})
-	if err != nil {
-		t.Fatalf("NewEnricher: %v", err)
-	}
-	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
-	if err != nil {
-		t.Fatalf("Enrich: %v", err)
-	}
-	if got := out[0].(ai.ImageRefContent).Baseline.Status; got != ai.ImageBaselineReady {
-		t.Fatalf("nil factory renderer baseline = %q, want ready fallback", got)
-	}
-}
-
-func TestEnricherFactoryAndFallbackFailureIsStableUnavailable(t *testing.T) {
-	media := &fakePersister{}
-	fallback := &fakeBaselineRenderer{err: errors.New("xberg unavailable")}
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) (vision.BaselineRenderer, error) {
-		return nil, errors.New("settings backend failed")
-	}), fallback, EnricherOptions{})
+	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+		return nil
+	}), EnricherOptions{})
 	if err != nil {
 		t.Fatalf("NewEnricher: %v", err)
 	}
@@ -318,8 +273,8 @@ func TestEnricherFactoryAndFallbackFailureIsStableUnavailable(t *testing.T) {
 		t.Fatalf("Enrich: %v", err)
 	}
 	ref := out[0].(ai.ImageRefContent)
-	if ref.MediaID == "" || ref.Baseline != (ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}) {
-		t.Fatalf("both failures ref = %+v, want persisted stable unavailable", ref)
+	if ref.MediaID == "" || ref.Baseline != (ai.ImageBaseline{}) {
+		t.Fatalf("nil renderer ref = %+v, want persisted stable unavailable", ref)
 	}
 }
 
@@ -342,13 +297,13 @@ func TestEnricherDeduplicatesBaselineWithinMessage(t *testing.T) {
 }
 
 func TestEnricherRejectsMalformedRendererOutput(t *testing.T) {
-	renderer := &fakeBaselineRenderer{baseline: vision.BaselineResult{Text: "not the baseline contract", Renderer: "test/vlm", Contract: ai.ImageBaselineContractV1}}
+	renderer := &fakeBaselineRenderer{baseline: ai.ImageBaseline{Text: "not the baseline contract"}}
 	enricher, _, _ := newFakeEnricher(t, renderer, EnricherOptions{})
 	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
 	if err != nil {
 		t.Fatalf("Enrich: %v", err)
 	}
-	if got := out[0].(ai.ImageRefContent).Baseline; got != (ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}) {
+	if got := out[0].(ai.ImageRefContent).Baseline; got != (ai.ImageBaseline{}) {
 		t.Fatalf("malformed renderer baseline = %+v, want stable unavailable", got)
 	}
 }
@@ -367,12 +322,12 @@ func TestEnricherUnavailableIsStableAndDoesNotStoreBackendError(t *testing.T) {
 	}
 	firstRef := first[0].(ai.ImageRefContent)
 	secondRef := second[0].(ai.ImageRefContent)
-	if firstRef.Baseline != (ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}) || secondRef.Baseline != firstRef.Baseline {
+	if firstRef.Baseline != (ai.ImageBaseline{}) || secondRef.Baseline != firstRef.Baseline {
 		t.Fatalf("unavailable baseline is not byte-stable: %+v / %+v", firstRef.Baseline, secondRef.Baseline)
 	}
-	encoded, _ := ai.MarshalCanonicalContentBlocks(first)
-	if strings.Contains(string(encoded), "provider secret") {
-		t.Fatalf("canonical output leaked backend error: %s", encoded)
+	projection := ai.FlattenCanonicalText(first)
+	if strings.Contains(projection, "provider secret") {
+		t.Fatalf("canonical output leaked backend error: %s", projection)
 	}
 }
 
@@ -441,7 +396,7 @@ func TestEnricherDeadlineDoesNotWaitForUncooperativeRenderer(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > 300*time.Millisecond {
 		t.Fatalf("Enrich waited for uncooperative renderer: %s", elapsed)
 	}
-	if baseline := got.blocks[0].(ai.ImageRefContent).Baseline; baseline != (ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}) {
+	if baseline := got.blocks[0].(ai.ImageRefContent).Baseline; baseline != (ai.ImageBaseline{}) {
 		t.Fatalf("deadline baseline = %+v, want unavailable", baseline)
 	}
 }
@@ -477,8 +432,8 @@ func TestEnricherUsesOneTotalDeadline(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > 300*time.Millisecond {
 		t.Fatalf("Enrich exceeded shared deadline: %s", elapsed)
 	}
-	if got := out[0].(ai.ImageRefContent).Baseline.Status; got != ai.ImageBaselineUnavailable {
-		t.Fatalf("deadline baseline status = %q", got)
+	if got := out[0].(ai.ImageRefContent).Baseline; got != (ai.ImageBaseline{}) {
+		t.Fatalf("deadline baseline = %#v, want unavailable", got)
 	}
 }
 
@@ -500,9 +455,9 @@ type benchmarkPersister struct {
 	bytes atomic.Int64
 }
 
-func (p *benchmarkPersister) Persist(_ context.Context, in Input) (sqlc.CtxMedium, error) {
+func (p *benchmarkPersister) Persist(_ context.Context, in Input) (string, error) {
 	p.bytes.Add(int64(len(in.Data)))
-	return sqlc.CtxMedium{ID: "benchmark-media", MimeType: in.MimeType}, nil
+	return "benchmark-media", nil
 }
 
 // BenchmarkEnricherBaseline records the deterministic in-process cost of one
@@ -511,9 +466,9 @@ func (p *benchmarkPersister) Persist(_ context.Context, in Input) (sqlc.CtxMediu
 func BenchmarkEnricherBaseline(b *testing.B) {
 	persister := &benchmarkPersister{}
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, err := NewEnricher(persister, VisionFactoryFunc(func(context.Context, string) (vision.BaselineRenderer, error) {
-		return renderer, nil
-	}), renderer, EnricherOptions{})
+	enricher, err := NewEnricher(persister, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+		return renderer
+	}), EnricherOptions{})
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -39,6 +39,8 @@ type Provider interface {
 	Bootstrap(ctx context.Context, session Session) error
 
 	// Append persists one or more messages to the session's event log.
+	// Ordinary sessions receive canonical image references and must reject raw
+	// provider image bytes. Group sessions may retain their legacy inline codec.
 	// Messages must be appended in the order they arrive.
 	// Callers pass all messages from a single turn together so implementations
 	// can store them in a single atomic transaction if they choose.
@@ -65,17 +67,6 @@ type Provider interface {
 	// Close releases any resources held by the provider (DB connections, caches, etc.).
 	// Called on shutdown. Must be safe to call multiple times.
 	Close() error
-}
-
-// ---------------------------------------------------------------------------
-// Capability: CanonicalAppender
-// ---------------------------------------------------------------------------
-
-// CanonicalAppender persists messages whose image blocks have already been
-// converted to immutable references. It is deliberately optional while the
-// runtime still sends legacy provider-ready image blocks through Append.
-type CanonicalAppender interface {
-	AppendCanonical(ctx context.Context, session Session, msgs ...ai.Message) error
 }
 
 // ---------------------------------------------------------------------------

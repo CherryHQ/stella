@@ -18,7 +18,7 @@ import (
 
 const encodedPixels = "QklOQVJZX1BJWEVMU19NVVNUX05PVF9CRV9TVE9SRUQ="
 
-func TestAppendCanonicalStoresBaselineProjectionAndParts(t *testing.T) {
+func TestAppendStoresBaselineProjectionAndParts(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()
 	p, err := lcm.New(db, nil, nil)
@@ -31,11 +31,11 @@ func TestAppendCanonicalStoresBaselineProjectionAndParts(t *testing.T) {
 	sess := memory.Session{ID: "canonical-storage", UserID: testUserID, AgentID: "test", Channel: "test"}
 	mediaID := insertCanonicalTestMedia(t, db, testUserID, "image/png")
 	baseline := testBaseline("baseline-only-searchable-word")
-	ref := canonicalTestRef(mediaID, "image/png", baseline)
-	if err := p.AppendCanonical(ctx, sess, ai.UserMessage{Content: []ai.ContentBlock{
+	ref := canonicalTestRef(mediaID, baseline)
+	if err := p.Append(ctx, sess, ai.UserMessage{Content: []ai.ContentBlock{
 		ai.TextContent{Text: "please inspect"}, ref,
 	}}); err != nil {
-		t.Fatalf("AppendCanonical: %v", err)
+		t.Fatalf("Append: %v", err)
 	}
 
 	var eventType, content string
@@ -58,19 +58,17 @@ func TestAppendCanonicalStoresBaselineProjectionAndParts(t *testing.T) {
 	}
 
 	var partText strings.Builder
-	var statuses []string
-	rows, err := db.Query(ctx, `SELECT COALESCE(text_content, ''), baseline_status FROM ctx_message_part ORDER BY ordinal`)
+	rows, err := db.Query(ctx, `SELECT COALESCE(text_content, '') FROM ctx_message_part ORDER BY ordinal`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var text, status string
-		if err := rows.Scan(&text, &status); err != nil {
+		var text string
+		if err := rows.Scan(&text); err != nil {
 			t.Fatal(err)
 		}
 		partText.WriteString(text)
-		statuses = append(statuses, status)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
@@ -78,8 +76,8 @@ func TestAppendCanonicalStoresBaselineProjectionAndParts(t *testing.T) {
 	if strings.Contains(partText.String(), encodedPixels) {
 		t.Fatal("base64 entered ctx_message_part")
 	}
-	if got, want := statuses, []string{"", "ready"}; len(got) != len(want) || got[1] != want[1] {
-		t.Fatalf("part baseline statuses = %v, want %v", got, want)
+	if !strings.Contains(partText.String(), baseline) {
+		t.Fatalf("image part lost exact baseline projection: %q", partText.String())
 	}
 
 	// An old reader that ignores child rows still receives readable parent text.
@@ -116,31 +114,7 @@ func TestAppendCanonicalStoresBaselineProjectionAndParts(t *testing.T) {
 	}
 }
 
-func TestAppendKeepsLegacyInlineImageStorage(t *testing.T) {
-	db := newLCMTestDB(t)
-	defer db.Close()
-	p, err := lcm.New(db, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = p.Close() }()
-
-	sess := memory.Session{ID: "legacy-image-append", UserID: testUserID, AgentID: "test", Channel: "test"}
-	if err := p.Append(context.Background(), sess, ai.UserMessage{Content: []ai.ContentBlock{
-		ai.ImageContent{Data: encodedPixels, MimeType: "image/png"},
-	}}); err != nil {
-		t.Fatalf("legacy Append: %v", err)
-	}
-	var content string
-	if err := db.QueryRow(context.Background(), `SELECT content FROM ctx_message`).Scan(&content); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(content, encodedPixels) {
-		t.Fatalf("legacy Append stopped preserving inline image content: %q", content)
-	}
-}
-
-func TestAppendCanonicalTextOnlyWritesNoPartsAndRoundTrips(t *testing.T) {
+func TestAppendTextOnlyWritesNoPartsAndRoundTrips(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()
 	p, err := lcm.New(db, nil, nil)
@@ -151,12 +125,12 @@ func TestAppendCanonicalTextOnlyWritesNoPartsAndRoundTrips(t *testing.T) {
 
 	ctx := context.Background()
 	sess := memory.Session{ID: "canonical-text-only", UserID: testUserID, AgentID: "test", Channel: "test"}
-	if err := p.AppendCanonical(ctx, sess,
+	if err := p.Append(ctx, sess,
 		ai.UserMessage{Content: "plain user"},
 		ai.AssistantMessage{Content: []ai.ContentBlock{ai.ToolCall{ID: "plain-call", Name: "echo"}}},
 		ai.ToolResultMessage{ToolCallID: "plain-call", ToolName: "echo", Content: []ai.ContentBlock{ai.TextContent{Text: "plain tool"}}},
 	); err != nil {
-		t.Fatalf("AppendCanonical: %v", err)
+		t.Fatalf("Append: %v", err)
 	}
 	var parts int
 	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM ctx_message_part`).Scan(&parts); err != nil {
@@ -188,7 +162,7 @@ func TestAppendCanonicalTextOnlyWritesNoPartsAndRoundTrips(t *testing.T) {
 		t.Fatalf("tool round-trip = %#v", history[2])
 	}
 
-	if err := p.AppendCanonical(ctx, sess, ai.UserMessage{Content: ""}); err != nil {
+	if err := p.Append(ctx, sess, ai.UserMessage{Content: ""}); err != nil {
 		t.Fatalf("empty canonical user append: %v", err)
 	}
 	var messages int
@@ -200,7 +174,7 @@ func TestAppendCanonicalTextOnlyWritesNoPartsAndRoundTrips(t *testing.T) {
 	}
 }
 
-func TestAppendCanonicalEmptyToolErrorRoundTrips(t *testing.T) {
+func TestAppendEmptyToolErrorRoundTrips(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()
 	p, err := lcm.New(db, nil, nil)
@@ -211,8 +185,8 @@ func TestAppendCanonicalEmptyToolErrorRoundTrips(t *testing.T) {
 
 	ctx := context.Background()
 	sess := memory.Session{ID: "canonical-empty-tool-error", UserID: testUserID, AgentID: "test", Channel: "test"}
-	if err := p.AppendCanonical(ctx, sess, ai.ToolResultMessage{ToolCallID: "empty-error", ToolName: "bash", IsError: true}); err != nil {
-		t.Fatalf("AppendCanonical: %v", err)
+	if err := p.Append(ctx, sess, ai.ToolResultMessage{ToolCallID: "empty-error", ToolName: "bash", IsError: true}); err != nil {
+		t.Fatalf("Append: %v", err)
 	}
 	readCtx := authz.WithAgentID(authz.WithUserID(ctx, testUserID), "test")
 	history, err := p.LoadHistory(readCtx, sess.ID)
@@ -228,7 +202,7 @@ func TestAppendCanonicalEmptyToolErrorRoundTrips(t *testing.T) {
 	}
 }
 
-func TestAppendCanonicalRejectsRawImageWithoutWriting(t *testing.T) {
+func TestAppendRejectsRawImageWithoutWriting(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()
 	p, err := lcm.New(db, nil, nil)
@@ -238,11 +212,11 @@ func TestAppendCanonicalRejectsRawImageWithoutWriting(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	sess := memory.Session{ID: "canonical-reject", UserID: testUserID, AgentID: "test", Channel: "test"}
-	err = p.AppendCanonical(context.Background(), sess, ai.UserMessage{Content: []ai.ContentBlock{
+	err = p.Append(context.Background(), sess, ai.UserMessage{Content: []ai.ContentBlock{
 		ai.ImageContent{Data: encodedPixels, MimeType: "image/png"},
 	}})
 	if !errors.Is(err, ai.ErrRawImageContent) {
-		t.Fatalf("AppendCanonical error = %v, want raw-image rejection", err)
+		t.Fatalf("Append error = %v, want raw-image rejection", err)
 	}
 	var count int
 	if err := db.QueryRow(context.Background(), `SELECT COUNT(*) FROM ctx_message`).Scan(&count); err != nil {
@@ -253,7 +227,7 @@ func TestAppendCanonicalRejectsRawImageWithoutWriting(t *testing.T) {
 	}
 }
 
-func TestAppendCanonicalRejectsForeignMediaAndMIMEMismatch(t *testing.T) {
+func TestAppendRejectsForeignMedia(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()
 	p, err := lcm.New(db, nil, nil)
@@ -265,31 +239,20 @@ func TestAppendCanonicalRejectsForeignMediaAndMIMEMismatch(t *testing.T) {
 	ctx := context.Background()
 	sess := memory.Session{ID: "canonical-media-scope", UserID: testUserID, AgentID: "test", Channel: "test"}
 	foreignMedia := insertCanonicalTestMedia(t, db, testOtherUserID, "image/png")
-	ownedMedia := insertCanonicalTestMedia(t, db, testUserID, "image/png")
-	for _, tc := range []struct {
-		name string
-		ref  ai.ImageRefContent
-	}{
-		{name: "foreign", ref: canonicalTestRef(foreignMedia, "image/png", testBaseline("foreign"))},
-		{name: "mime mismatch", ref: canonicalTestRef(ownedMedia, "image/jpeg", testBaseline("mismatch"))},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			err := p.AppendCanonical(ctx, sess, ai.UserMessage{Content: []ai.ContentBlock{tc.ref}})
-			if err == nil || err.Error() != "canonical media unavailable" {
-				t.Fatalf("AppendCanonical error = %v, want opaque media failure", err)
-			}
-			var count int
-			if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM ctx_message`).Scan(&count); err != nil {
-				t.Fatal(err)
-			}
-			if count != 0 {
-				t.Fatalf("rejected media wrote %d messages", count)
-			}
-		})
+	err = p.Append(ctx, sess, ai.UserMessage{Content: []ai.ContentBlock{canonicalTestRef(foreignMedia, testBaseline("foreign"))}})
+	if err == nil || err.Error() != "canonical media unavailable" {
+		t.Fatalf("Append error = %v, want opaque media failure", err)
+	}
+	var count int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM ctx_message`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("rejected media wrote %d messages", count)
 	}
 }
 
-func TestAppendCanonicalInvalidMediaRollsBackMultipleRows(t *testing.T) {
+func TestAppendInvalidMediaRollsBackMultipleRows(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()
 	p, err := lcm.New(db, nil, nil)
@@ -302,12 +265,12 @@ func TestAppendCanonicalInvalidMediaRollsBackMultipleRows(t *testing.T) {
 	sess := memory.Session{ID: "canonical-atomic", UserID: testUserID, AgentID: "test", Channel: "test"}
 	validMedia := insertCanonicalTestMedia(t, db, testUserID, "image/png")
 	foreignMedia := insertCanonicalTestMedia(t, db, testOtherUserID, "image/png")
-	err = p.AppendCanonical(ctx, sess,
-		ai.UserMessage{Content: []ai.ContentBlock{canonicalTestRef(validMedia, "image/png", testBaseline("first row"))}},
-		ai.UserMessage{Content: []ai.ContentBlock{canonicalTestRef(foreignMedia, "image/png", testBaseline("second row"))}},
+	err = p.Append(ctx, sess,
+		ai.UserMessage{Content: []ai.ContentBlock{canonicalTestRef(validMedia, testBaseline("first row"))}},
+		ai.UserMessage{Content: []ai.ContentBlock{canonicalTestRef(foreignMedia, testBaseline("second row"))}},
 	)
 	if err == nil || err.Error() != "canonical media unavailable" {
-		t.Fatalf("AppendCanonical error = %v, want opaque media failure", err)
+		t.Fatalf("Append error = %v, want opaque media failure", err)
 	}
 	for _, table := range []string{"ctx_message", "ctx_message_part"} {
 		var count int
@@ -320,7 +283,7 @@ func TestAppendCanonicalInvalidMediaRollsBackMultipleRows(t *testing.T) {
 	}
 }
 
-func TestAppendCanonicalRejectsAssistantImages(t *testing.T) {
+func TestAppendRejectsAssistantImages(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()
 	p, err := lcm.New(db, nil, nil)
@@ -337,12 +300,12 @@ func TestAppendCanonicalRejectsAssistantImages(t *testing.T) {
 		want  error
 	}{
 		{name: "raw", block: ai.ImageContent{Data: encodedPixels, MimeType: "image/png"}, want: ai.ErrRawImageContent},
-		{name: "reference", block: canonicalTestRef(mediaID, "image/png", testBaseline("assistant ref")), want: ai.ErrUnsupportedCanonicalBlock},
+		{name: "reference", block: canonicalTestRef(mediaID, testBaseline("assistant ref")), want: ai.ErrUnsupportedCanonicalBlock},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := p.AppendCanonical(context.Background(), sess, ai.AssistantMessage{Content: []ai.ContentBlock{tc.block}})
+			err := p.Append(context.Background(), sess, ai.AssistantMessage{Content: []ai.ContentBlock{tc.block}})
 			if !errors.Is(err, tc.want) {
-				t.Fatalf("AppendCanonical error = %v, want %v", err, tc.want)
+				t.Fatalf("Append error = %v, want %v", err, tc.want)
 			}
 		})
 	}
@@ -377,15 +340,15 @@ func TestCanonicalCompactionUsesUserAndToolBaselinesOnly(t *testing.T) {
 	sess := memory.Session{ID: "canonical-compaction", UserID: testUserID, AgentID: "test", Channel: "test"}
 	userMedia := insertCanonicalTestMedia(t, db, testUserID, "image/png")
 	toolMedia := insertCanonicalTestMedia(t, db, testUserID, "image/jpeg")
-	if err := p.AppendCanonical(ctx, sess,
-		ai.UserMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "user text"}, canonicalTestRef(userMedia, "image/png", testBaseline("USER_BASELINE_ONLY"))}},
+	if err := p.Append(ctx, sess,
+		ai.UserMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "user text"}, canonicalTestRef(userMedia, testBaseline("USER_BASELINE_ONLY"))}},
 		ai.AssistantMessage{Content: []ai.ContentBlock{ai.ToolCall{ID: "call", Name: "read"}}},
-		ai.ToolResultMessage{ToolCallID: "call", ToolName: "read", Content: []ai.ContentBlock{ai.TextContent{Text: "tool text"}, canonicalTestRef(toolMedia, "image/jpeg", testBaseline("TOOL_BASELINE_ONLY"))}},
+		ai.ToolResultMessage{ToolCallID: "call", ToolName: "read", Content: []ai.ContentBlock{ai.TextContent{Text: "tool text"}, canonicalTestRef(toolMedia, testBaseline("TOOL_BASELINE_ONLY"))}},
 	); err != nil {
 		t.Fatalf("append canonical image turn: %v", err)
 	}
 	for i := range 8 {
-		if err := p.AppendCanonical(ctx, sess, ai.UserMessage{Content: "filler"}); err != nil {
+		if err := p.Append(ctx, sess, ai.UserMessage{Content: "filler"}); err != nil {
 			t.Fatalf("append filler %d: %v", i, err)
 		}
 	}
@@ -417,11 +380,10 @@ func testBaseline(word string) string {
 	return "## Text\n" + word + "\n\n## Scene\na test scene"
 }
 
-func canonicalTestRef(mediaID, mimeType, baseline string) ai.ImageRefContent {
+func canonicalTestRef(mediaID, baseline string) ai.ImageRefContent {
 	return ai.ImageRefContent{
 		MediaID:  mediaID,
-		MimeType: mimeType,
-		Baseline: ai.ImageBaseline{Status: ai.ImageBaselineReady, Text: baseline, Renderer: "test/model", Contract: ai.ImageBaselineContractV1},
+		Baseline: ai.ImageBaseline{Text: baseline},
 	}
 }
 
@@ -431,8 +393,8 @@ func insertCanonicalTestMedia(t *testing.T, db *pgxpool.Pool, userID, mimeType s
 	hash := make([]byte, 32)
 	copy(hash, id)
 	if _, err := db.Exec(context.Background(), `
-		INSERT INTO ctx_media (id, user_id, sha256, mime_type, size_bytes, width_px, height_px)
-		VALUES ($1, $2, $3, $4, 1, 1, 1)
+		INSERT INTO ctx_media (id, user_id, sha256, mime_type, size_bytes)
+		VALUES ($1, $2, $3, $4, 1)
 	`, id, userID, hash, mimeType); err != nil {
 		t.Fatalf("insert media: %v", err)
 	}

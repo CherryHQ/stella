@@ -295,9 +295,6 @@ func TestBaselineUsesValidatedModelContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Baseline: %v", err)
 	}
-	if result.Renderer != "openai/vlm-1" || result.Contract != ai.ImageBaselineContractV1 {
-		t.Errorf("provenance = %+v", result)
-	}
 	if err := ai.ValidateImageBaselineText(result.Text); err != nil {
 		t.Errorf("model baseline contract: %v", err)
 	}
@@ -351,7 +348,7 @@ func TestBaselineFallsBackForMalformedOrTruncatedModelOutput(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Baseline: %v", err)
 			}
-			if result.Renderer != BaselineRendererXberg || !strings.Contains(result.Text, want) {
+			if !strings.Contains(result.Text, want) {
 				t.Fatalf("fallback result = %+v, want normalized Xberg text %q", result, want)
 			}
 			if err := ai.ValidateImageBaselineText(result.Text); err != nil {
@@ -377,7 +374,7 @@ func TestBaselineWithoutModelUsesXberg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Baseline: %v", err)
 	}
-	if result.Renderer != BaselineRendererXberg || !strings.Contains(result.Text, want) {
+	if !strings.Contains(result.Text, want) {
 		t.Errorf("baseline = %+v", result)
 	}
 }

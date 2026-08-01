@@ -1,8 +1,8 @@
 -- name: CreateMediaIfAbsent :one
 -- A conflict returns no rows. Callers must issue GetMediaByUserAndSHA256 in a
 -- separate statement, then verify immutable metadata before reusing the row.
-INSERT INTO ctx_media (user_id, sha256, mime_type, size_bytes, width_px, height_px)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO ctx_media (user_id, sha256, mime_type, size_bytes)
+VALUES ($1, $2, $3, $4)
 ON CONFLICT (user_id, sha256) DO NOTHING
 RETURNING *;
 

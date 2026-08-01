@@ -56,65 +56,61 @@ type ImageContent struct {
 
 func (ImageContent) contentBlockKind() string { return "image" }
 
-// ImageBaselineStatus is the durable outcome of one image rendering attempt.
-type ImageBaselineStatus string
-
-const (
-	ImageBaselineReady       ImageBaselineStatus = "ready"
-	ImageBaselineUnavailable ImageBaselineStatus = "unavailable"
-)
-
 // UnavailableImageProjection is deliberately independent of a renderer,
 // timestamp, and error body. It is the only durable text for an image whose
 // original bytes persisted but whose baseline could not be produced.
 const UnavailableImageProjection = "[Image baseline unavailable.]"
 
-// ImageBaseline is immutable text and provenance for canonical session history.
+// ImageBaseline is the immutable provider projection for one session image.
+// The zero value is the stable unavailable marker; ready values use the sole
+// V1 text contract validated by Validate.
 type ImageBaseline struct {
-	Status   ImageBaselineStatus `json:"status"`
-	Text     string              `json:"text,omitempty"`
-	Renderer string              `json:"renderer,omitempty"`
-	Contract int                 `json:"contract"`
+	Text string
+}
+
+func (b ImageBaseline) Validate() error {
+	if b.Text == "" {
+		return nil
+	}
+	return ValidateImageBaselineText(b.Text)
 }
 
 // Projection returns the bounded stable text used by durable history.
 func (b ImageBaseline) Projection() string {
-	if b.Status == ImageBaselineReady {
-		return b.Text
+	if b.Text == "" {
+		return UnavailableImageProjection
 	}
-	return UnavailableImageProjection
+	return b.Text
 }
 
-// ImageRefContent is a canonical reference to immutable session media. It has
-// no path or provider representation; pixels are hydrated only at a later,
-// authorized projection boundary.
+// ParseImageBaseline reconstructs a baseline from its exact durable projection.
+func ParseImageBaseline(projection string) (ImageBaseline, error) {
+	if projection == UnavailableImageProjection {
+		return ImageBaseline{}, nil
+	}
+	baseline := ImageBaseline{Text: projection}
+	if err := baseline.Validate(); err != nil {
+		return ImageBaseline{}, err
+	}
+	return baseline, nil
+}
+
+// ImageRefContent is a canonical reference to immutable session media. MIME is
+// owned by the media row and resolved only during authorized hydration.
 type ImageRefContent struct {
-	MediaID  string        `json:"media_id"`
-	MimeType string        `json:"mime_type"`
-	Baseline ImageBaseline `json:"baseline"`
+	MediaID  string
+	Baseline ImageBaseline
 }
 
 func (ImageRefContent) contentBlockKind() string { return "image_ref" }
 
 // Validate checks the storage invariants for a canonical image reference.
 func (r ImageRefContent) Validate() error {
-	if strings.TrimSpace(r.MediaID) == "" || strings.TrimSpace(r.MimeType) == "" {
-		return fmt.Errorf("image ref requires media ID and MIME type")
+	if strings.TrimSpace(r.MediaID) == "" {
+		return fmt.Errorf("image ref requires media ID")
 	}
-	switch r.Baseline.Status {
-	case ImageBaselineReady:
-		if strings.TrimSpace(r.Baseline.Renderer) == "" || r.Baseline.Contract != ImageBaselineContractV1 {
-			return fmt.Errorf("ready image baseline requires renderer and contract V%d", ImageBaselineContractV1)
-		}
-		if err := ValidateImageBaselineText(r.Baseline.Text); err != nil {
-			return fmt.Errorf("ready image baseline: %w", err)
-		}
-	case ImageBaselineUnavailable:
-		if r.Baseline.Text != "" || r.Baseline.Renderer != "" || r.Baseline.Contract != 0 {
-			return fmt.Errorf("unavailable image baseline must not retain renderer output")
-		}
-	default:
-		return fmt.Errorf("invalid image baseline status %q", r.Baseline.Status)
+	if err := r.Baseline.Validate(); err != nil {
+		return fmt.Errorf("image ref baseline: %w", err)
 	}
 	return nil
 }
@@ -206,6 +202,16 @@ func (ToolResultMessage) messageRole() string { return "tool" }
 func HasImage(blocks []ContentBlock) bool {
 	for _, b := range blocks {
 		if _, ok := b.(ImageContent); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// HasImageRef reports whether content contains durable session media.
+func HasImageRef(blocks []ContentBlock) bool {
+	for _, block := range blocks {
+		if _, ok := block.(ImageRefContent); ok {
 			return true
 		}
 	}

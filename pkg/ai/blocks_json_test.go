@@ -2,8 +2,6 @@ package ai
 
 import (
 	"errors"
-	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -44,54 +42,32 @@ func TestUnmarshalContentBlocksEmptyFallsBack(t *testing.T) {
 	}
 }
 
-func TestCanonicalContentBlocksRejectRawImageAndRoundTripRef(t *testing.T) {
-	_, err := MarshalCanonicalContentBlocks([]ContentBlock{ImageContent{Data: "aGVsbG8=", MimeType: "image/png"}})
+func TestCanonicalContentBlocksRejectRawImageAndAcceptRef(t *testing.T) {
+	err := ValidateCanonicalContentBlocks([]ContentBlock{ImageContent{Data: "aGVsbG8=", MimeType: "image/png"}})
 	if !errors.Is(err, ErrRawImageContent) {
-		t.Fatalf("MarshalCanonicalContentBlocks raw image error = %v, want ErrRawImageContent", err)
+		t.Fatalf("raw image error = %v, want ErrRawImageContent", err)
 	}
-
-	in := []ContentBlock{TextContent{Text: "look"}, ImageRefContent{
+	blocks := []ContentBlock{TextContent{Text: "look"}, ImageRefContent{
 		MediaID:  "018fbc12-e8dc-7502-916d-46c695202d62",
-		MimeType: "image/png",
-		Baseline: ImageBaseline{Status: ImageBaselineReady, Text: "## Text\nhello\n\n## Scene\na chart", Renderer: "openai/gpt-4o", Contract: 1},
+		Baseline: ImageBaseline{Text: "## Text\nhello\n\n## Scene\na chart"},
 	}}
-	data, err := MarshalCanonicalContentBlocks(in)
-	if err != nil {
-		t.Fatalf("MarshalCanonicalContentBlocks: %v", err)
-	}
-	if strings.Contains(string(data), "aGVsbG8=") {
-		t.Fatalf("canonical data retained raw bytes: %s", data)
-	}
-	out, err := UnmarshalContentBlocks(data)
-	if err != nil {
-		t.Fatalf("UnmarshalContentBlocks: %v", err)
-	}
-	if !reflect.DeepEqual(in, out) {
-		t.Fatalf("round trip = %#v, want %#v", out, in)
+	if err := ValidateCanonicalContentBlocks(blocks); err != nil {
+		t.Fatalf("ValidateCanonicalContentBlocks: %v", err)
 	}
 }
 
-func TestImageRefRejectsInvalidBaselineContracts(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		contract int
-		text     string
-	}{
-		{name: "unknown contract", contract: 999, text: "## Text\nhello\n\n## Scene\na chart"},
-		{name: "garbage text", contract: ImageBaselineContractV1, text: "not a baseline"},
-		{name: "extra scene section", contract: ImageBaselineContractV1, text: "## Text\nhello\n\n## Scene\na chart\n\n## Details\nmore"},
+func TestImageRefRejectsInvalidBaseline(t *testing.T) {
+	for _, text := range []string{
+		"not a baseline",
+		"## Text\nhello\n\n## Scene\na chart\n\n## Details\nmore",
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			ref := ImageRefContent{MediaID: "media", MimeType: "image/png", Baseline: ImageBaseline{
-				Status: ImageBaselineReady, Text: tt.text, Renderer: "test/vlm", Contract: tt.contract,
-			}}
-			if err := ref.Validate(); err == nil {
-				t.Fatal("ImageRefContent.Validate unexpectedly accepted invalid baseline")
-			}
-			if _, err := MarshalCanonicalContentBlocks([]ContentBlock{ref}); err == nil {
-				t.Fatal("MarshalCanonicalContentBlocks unexpectedly accepted invalid baseline")
-			}
-		})
+		ref := ImageRefContent{MediaID: "media", Baseline: ImageBaseline{Text: text}}
+		if err := ref.Validate(); err == nil {
+			t.Fatal("ImageRefContent.Validate unexpectedly accepted invalid baseline")
+		}
+		if err := ValidateCanonicalContentBlocks([]ContentBlock{ref}); err == nil {
+			t.Fatal("ValidateCanonicalContentBlocks unexpectedly accepted invalid baseline")
+		}
 	}
 }
 
@@ -107,17 +83,15 @@ func TestCanonicalContentBlocksRejectUnsupportedBlocks(t *testing.T) {
 		ThinkingContent{Thinking: "private reasoning"},
 		ToolCall{ID: "call-1", Name: "example"},
 	} {
-		_, err := MarshalCanonicalContentBlocks([]ContentBlock{block})
+		err := ValidateCanonicalContentBlocks([]ContentBlock{block})
 		if !errors.Is(err, ErrUnsupportedCanonicalBlock) {
-			t.Errorf("MarshalCanonicalContentBlocks(%T) error = %v, want ErrUnsupportedCanonicalBlock", block, err)
+			t.Errorf("ValidateCanonicalContentBlocks(%T) error = %v, want ErrUnsupportedCanonicalBlock", block, err)
 		}
 	}
 }
 
 func TestFlattenCanonicalTextUsesStableUnavailableProjection(t *testing.T) {
-	blocks := []ContentBlock{TextContent{Text: "before"}, ImageRefContent{
-		MediaID: "id", MimeType: "image/png", Baseline: ImageBaseline{Status: ImageBaselineUnavailable},
-	}}
+	blocks := []ContentBlock{TextContent{Text: "before"}, ImageRefContent{MediaID: "id"}}
 	want := "before [Image baseline unavailable.]"
 	if got := FlattenCanonicalText(blocks); got != want {
 		t.Errorf("FlattenCanonicalText = %q, want %q", got, want)
@@ -130,6 +104,7 @@ func TestFlattenCanonicalTextUsesStableUnavailableProjection(t *testing.T) {
 func TestMarshalContentBlocksSkipsInternalKinds(t *testing.T) {
 	data, err := MarshalContentBlocks([]ContentBlock{
 		ThinkingContent{Thinking: "secret"},
+		ImageRefContent{MediaID: "internal"},
 		TextContent{Text: "visible"},
 	})
 	if err != nil {

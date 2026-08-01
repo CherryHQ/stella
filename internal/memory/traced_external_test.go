@@ -56,16 +56,6 @@ type reviewHistoryProvider struct {
 	messages []memory.ReviewMessage
 }
 
-type canonicalProvider struct {
-	memory.Provider
-	canonicalCalls int
-}
-
-func (p *canonicalProvider) AppendCanonical(_ context.Context, _ memory.Session, _ ...ai.Message) error {
-	p.canonicalCalls++
-	return nil
-}
-
 func (p *reviewHistoryProvider) LoadReviewHistory(context.Context, string) ([]memory.ReviewMessage, error) {
 	return append([]memory.ReviewMessage(nil), p.messages...), nil
 }
@@ -153,32 +143,6 @@ func TestTracedProvider_Append(t *testing.T) {
 	}
 	if col.events[0].MessageCount != 1 {
 		t.Errorf("expected MessageCount=1, got %d", col.events[0].MessageCount)
-	}
-}
-
-func TestTracedProvider_PreservesCanonicalAppenderCapability(t *testing.T) {
-	inner := &canonicalProvider{Provider: memorytest.New()}
-	traced, col := newTracedWithCollector(inner)
-	canonical, ok := traced.(memory.CanonicalAppender)
-	if !ok {
-		t.Fatal("traced canonical provider lost CanonicalAppender capability")
-	}
-	msg := ai.UserMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "canonical"}}}
-	if err := canonical.AppendCanonical(context.Background(), testSession, msg); err != nil {
-		t.Fatal(err)
-	}
-	if inner.canonicalCalls != 1 {
-		t.Fatalf("canonical calls = %d, want 1", inner.canonicalCalls)
-	}
-	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpAppend || col.events[0].MessageCount != 1 {
-		t.Fatalf("trace events = %+v, want one append event", col.events)
-	}
-}
-
-func TestTracedProvider_DoesNotInventCanonicalAppenderCapability(t *testing.T) {
-	traced := memory.WithTracing(memorytest.New(), nil)
-	if _, ok := traced.(memory.CanonicalAppender); ok {
-		t.Fatal("traced non-canonical provider unexpectedly advertises CanonicalAppender")
 	}
 }
 

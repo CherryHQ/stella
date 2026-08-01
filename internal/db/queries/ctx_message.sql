@@ -73,10 +73,9 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS BIGINT) FROM ctx_message WHERE conversation
 -- name: CreateMessagePart :one
 INSERT INTO ctx_message_part (
     id, message_id, part_type, ordinal, media_id, text_content,
-    baseline_status, baseline_renderer, baseline_contract,
     tool_call_id, tool_name, tool_input, tool_output, metadata
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING *;
 
 -- name: ListMessagesByIDs :many

@@ -117,7 +117,7 @@ func TestSessionMediaAuthorizationCachingAndTypedHistory(t *testing.T) {
 		t.Fatalf("tool message=%+v, want error-preserving image blocks", tool)
 	}
 	body := history.Body.String()
-	for _, forbidden := range []string{wantDigest, "session-media", "baseline_renderer", "private-renderer", "host/path", "base64"} {
+	for _, forbidden := range []string{wantDigest, "session-media", "host/path", "base64"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("history leaked %q: %s", forbidden, body)
 		}
@@ -146,7 +146,7 @@ func seedSessionImage(t *testing.T, env *testEnv, agentID string) (mediaID, sess
 	if err := env.deps.Assets.SessionMedia().PutSessionMedia(ctx, userID, digest, data); err != nil {
 		t.Fatal(err)
 	}
-	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: userID.String(), Sha256: digest[:], MimeType: "image/png", SizeBytes: int64(len(data)), WidthPx: 1, HeightPx: 1})
+	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: userID.String(), Sha256: digest[:], MimeType: "image/png", SizeBytes: int64(len(data))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func seedSessionImage(t *testing.T, env *testEnv, agentID string) (mediaID, sess
 				t.Fatal(err)
 			}
 		}
-		if _, err := q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{ID: uuid.NewString(), MessageID: messageID, PartType: "image", Ordinal: 2, MediaID: pgtype.Text{String: mediaID, Valid: true}, TextContent: pgtype.Text{String: "stored baseline", Valid: true}, BaselineStatus: "ready", BaselineRenderer: "private-renderer", BaselineContract: 1}); err != nil {
+		if _, err := q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{ID: uuid.NewString(), MessageID: messageID, PartType: "image", Ordinal: 2, MediaID: pgtype.Text{String: mediaID, Valid: true}, TextContent: pgtype.Text{String: "stored baseline", Valid: true}}); err != nil {
 			t.Fatal(err)
 		}
 	}

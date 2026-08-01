@@ -56,28 +56,24 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (C
 const createMessagePart = `-- name: CreateMessagePart :one
 INSERT INTO ctx_message_part (
     id, message_id, part_type, ordinal, media_id, text_content,
-    baseline_status, baseline_renderer, baseline_contract,
     tool_call_id, tool_name, tool_input, tool_output, metadata
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-RETURNING id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata, media_id, baseline_status, baseline_renderer, baseline_contract, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata, media_id, created_at, updated_at
 `
 
 type CreateMessagePartParams struct {
-	ID               string      `json:"id"`
-	MessageID        string      `json:"message_id"`
-	PartType         string      `json:"part_type"`
-	Ordinal          int64       `json:"ordinal"`
-	MediaID          pgtype.Text `json:"media_id"`
-	TextContent      pgtype.Text `json:"text_content"`
-	BaselineStatus   string      `json:"baseline_status"`
-	BaselineRenderer string      `json:"baseline_renderer"`
-	BaselineContract int32       `json:"baseline_contract"`
-	ToolCallID       pgtype.Text `json:"tool_call_id"`
-	ToolName         pgtype.Text `json:"tool_name"`
-	ToolInput        pgtype.Text `json:"tool_input"`
-	ToolOutput       pgtype.Text `json:"tool_output"`
-	Metadata         pgtype.Text `json:"metadata"`
+	ID          string      `json:"id"`
+	MessageID   string      `json:"message_id"`
+	PartType    string      `json:"part_type"`
+	Ordinal     int64       `json:"ordinal"`
+	MediaID     pgtype.Text `json:"media_id"`
+	TextContent pgtype.Text `json:"text_content"`
+	ToolCallID  pgtype.Text `json:"tool_call_id"`
+	ToolName    pgtype.Text `json:"tool_name"`
+	ToolInput   pgtype.Text `json:"tool_input"`
+	ToolOutput  pgtype.Text `json:"tool_output"`
+	Metadata    pgtype.Text `json:"metadata"`
 }
 
 func (q *Queries) CreateMessagePart(ctx context.Context, arg CreateMessagePartParams) (CtxMessagePart, error) {
@@ -88,9 +84,6 @@ func (q *Queries) CreateMessagePart(ctx context.Context, arg CreateMessagePartPa
 		arg.Ordinal,
 		arg.MediaID,
 		arg.TextContent,
-		arg.BaselineStatus,
-		arg.BaselineRenderer,
-		arg.BaselineContract,
 		arg.ToolCallID,
 		arg.ToolName,
 		arg.ToolInput,
@@ -110,9 +103,6 @@ func (q *Queries) CreateMessagePart(ctx context.Context, arg CreateMessagePartPa
 		&i.ToolOutput,
 		&i.Metadata,
 		&i.MediaID,
-		&i.BaselineStatus,
-		&i.BaselineRenderer,
-		&i.BaselineContract,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -185,7 +175,7 @@ func (q *Queries) GetMessageCount(ctx context.Context, conversationID string) (i
 }
 
 const getMessageParts = `-- name: GetMessageParts :many
-SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata, media_id, baseline_status, baseline_renderer, baseline_contract, created_at, updated_at FROM ctx_message_part WHERE message_id = $1 ORDER BY ordinal ASC
+SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata, media_id, created_at, updated_at FROM ctx_message_part WHERE message_id = $1 ORDER BY ordinal ASC
 `
 
 func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxMessagePart, error) {
@@ -209,9 +199,6 @@ func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxM
 			&i.ToolOutput,
 			&i.Metadata,
 			&i.MediaID,
-			&i.BaselineStatus,
-			&i.BaselineRenderer,
-			&i.BaselineContract,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -226,7 +213,7 @@ func (q *Queries) GetMessageParts(ctx context.Context, messageID string) ([]CtxM
 }
 
 const getMessagePartsByMessages = `-- name: GetMessagePartsByMessages :many
-SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata, media_id, baseline_status, baseline_renderer, baseline_contract, created_at, updated_at FROM ctx_message_part WHERE message_id = ANY($1::uuid[]) ORDER BY message_id, ordinal ASC
+SELECT id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata, media_id, created_at, updated_at FROM ctx_message_part WHERE message_id = ANY($1::uuid[]) ORDER BY message_id, ordinal ASC
 `
 
 func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []string) ([]CtxMessagePart, error) {
@@ -250,9 +237,6 @@ func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []st
 			&i.ToolOutput,
 			&i.Metadata,
 			&i.MediaID,
-			&i.BaselineStatus,
-			&i.BaselineRenderer,
-			&i.BaselineContract,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -467,7 +451,7 @@ func (q *Queries) ListExistingUserMessageContent(ctx context.Context, arg ListEx
 }
 
 const listMessagePartsWithMediaByMessages = `-- name: ListMessagePartsWithMediaByMessages :many
-SELECT p.id, p.message_id, p.part_type, p.ordinal, p.text_content, p.tool_call_id, p.tool_name, p.tool_input, p.tool_output, p.metadata, p.media_id, p.baseline_status, p.baseline_renderer, p.baseline_contract, p.created_at, p.updated_at, m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.width_px, m.height_px, m.created_at, m.updated_at
+SELECT p.id, p.message_id, p.part_type, p.ordinal, p.text_content, p.tool_call_id, p.tool_name, p.tool_input, p.tool_output, p.metadata, p.media_id, p.created_at, p.updated_at, m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at
 FROM ctx_message_part p
 JOIN ctx_media m ON m.id = p.media_id
 WHERE p.message_id = ANY($1::uuid[])
@@ -503,9 +487,6 @@ func (q *Queries) ListMessagePartsWithMediaByMessages(ctx context.Context, messa
 			&i.CtxMessagePart.ToolOutput,
 			&i.CtxMessagePart.Metadata,
 			&i.CtxMessagePart.MediaID,
-			&i.CtxMessagePart.BaselineStatus,
-			&i.CtxMessagePart.BaselineRenderer,
-			&i.CtxMessagePart.BaselineContract,
 			&i.CtxMessagePart.CreatedAt,
 			&i.CtxMessagePart.UpdatedAt,
 			&i.CtxMedium.ID,
@@ -513,8 +494,6 @@ func (q *Queries) ListMessagePartsWithMediaByMessages(ctx context.Context, messa
 			&i.CtxMedium.Sha256,
 			&i.CtxMedium.MimeType,
 			&i.CtxMedium.SizeBytes,
-			&i.CtxMedium.WidthPx,
-			&i.CtxMedium.HeightPx,
 			&i.CtxMedium.CreatedAt,
 			&i.CtxMedium.UpdatedAt,
 		); err != nil {

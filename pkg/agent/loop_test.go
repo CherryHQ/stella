@@ -200,20 +200,16 @@ func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
 	}
 }
 
-func TestCanonicalToolImagesIsExplicit(t *testing.T) {
+func TestCanonicalImagePolicyIsExplicit(t *testing.T) {
 	for _, tt := range []struct {
 		name string
 		opts []Option
 		want bool
 	}{
-		{
-			name: "custom transform remains non-canonical",
-			opts: []Option{WithToolResultTransform(func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
-				return result, nil
-			})},
-			want: false,
-		},
-		{name: "explicit canonical option", opts: []Option{WithCanonicalToolImages()}, want: true},
+		{name: "default remains non-canonical", want: false},
+		{name: "complete canonical policy", opts: []Option{withTestCanonicalImages(func(context.Context, string) (ai.ImageContent, error) {
+			return ai.ImageContent{Data: "pixels", MimeType: "image/png"}, nil
+		})}, want: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			calls := 0

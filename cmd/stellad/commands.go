@@ -246,7 +246,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, err
 	}
-	sessionMediaSvc, err := sessionmedia.NewForPool(assetStore.SessionMedia(), db)
+	sessionMediaSvc, err := sessionmedia.New(assetStore.SessionMedia(), db)
 	if err != nil {
 		return nil, fmt.Errorf("build session media service: %w", err)
 	}
@@ -254,7 +254,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session image vision factory: %w", err)
 	}
-	imageEnricher, err := sessionmedia.NewEnricher(sessionMediaSvc, visionFactory, vision.New(vision.Options{}), sessionmedia.EnricherOptions{})
+	imageEnricher, err := sessionmedia.NewEnricher(sessionMediaSvc, visionFactory, sessionmedia.EnricherOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("build session image enricher: %w", err)
 	}

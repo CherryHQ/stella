@@ -5,10 +5,6 @@ import (
 	"strings"
 )
 
-// ImageBaselineContractV1 is the only baseline text contract that canonical
-// session image storage currently accepts.
-const ImageBaselineContractV1 = 1
-
 // ValidateImageBaselineText validates the stable OCR-and-scene storage shape.
 // OCR text may contain headings; only the exact blank-line Scene delimiter is
 // structural. Once Scene starts, another markdown section would make the

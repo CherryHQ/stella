@@ -12,10 +12,10 @@ import (
 )
 
 const createMediaIfAbsent = `-- name: CreateMediaIfAbsent :one
-INSERT INTO ctx_media (user_id, sha256, mime_type, size_bytes, width_px, height_px)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO ctx_media (user_id, sha256, mime_type, size_bytes)
+VALUES ($1, $2, $3, $4)
 ON CONFLICT (user_id, sha256) DO NOTHING
-RETURNING id, user_id, sha256, mime_type, size_bytes, width_px, height_px, created_at, updated_at
+RETURNING id, user_id, sha256, mime_type, size_bytes, created_at, updated_at
 `
 
 type CreateMediaIfAbsentParams struct {
@@ -23,8 +23,6 @@ type CreateMediaIfAbsentParams struct {
 	Sha256    []byte `json:"sha256"`
 	MimeType  string `json:"mime_type"`
 	SizeBytes int64  `json:"size_bytes"`
-	WidthPx   int32  `json:"width_px"`
-	HeightPx  int32  `json:"height_px"`
 }
 
 // A conflict returns no rows. Callers must issue GetMediaByUserAndSHA256 in a
@@ -35,8 +33,6 @@ func (q *Queries) CreateMediaIfAbsent(ctx context.Context, arg CreateMediaIfAbse
 		arg.Sha256,
 		arg.MimeType,
 		arg.SizeBytes,
-		arg.WidthPx,
-		arg.HeightPx,
 	)
 	var i CtxMedium
 	err := row.Scan(
@@ -45,8 +41,6 @@ func (q *Queries) CreateMediaIfAbsent(ctx context.Context, arg CreateMediaIfAbse
 		&i.Sha256,
 		&i.MimeType,
 		&i.SizeBytes,
-		&i.WidthPx,
-		&i.HeightPx,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -54,7 +48,7 @@ func (q *Queries) CreateMediaIfAbsent(ctx context.Context, arg CreateMediaIfAbse
 }
 
 const getMediaByUserAndSHA256 = `-- name: GetMediaByUserAndSHA256 :one
-SELECT id, user_id, sha256, mime_type, size_bytes, width_px, height_px, created_at, updated_at FROM ctx_media
+SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at FROM ctx_media
 WHERE user_id = $1 AND sha256 = $2
 `
 
@@ -72,8 +66,6 @@ func (q *Queries) GetMediaByUserAndSHA256(ctx context.Context, arg GetMediaByUse
 		&i.Sha256,
 		&i.MimeType,
 		&i.SizeBytes,
-		&i.WidthPx,
-		&i.HeightPx,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -81,7 +73,7 @@ func (q *Queries) GetMediaByUserAndSHA256(ctx context.Context, arg GetMediaByUse
 }
 
 const getMediaForSession = `-- name: GetMediaForSession :one
-SELECT m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.width_px, m.height_px, m.created_at, m.updated_at
+SELECT m.id, m.user_id, m.sha256, m.mime_type, m.size_bytes, m.created_at, m.updated_at
 FROM ctx_media m
 WHERE m.id = $1
   AND m.user_id = $2
@@ -121,8 +113,6 @@ func (q *Queries) GetMediaForSession(ctx context.Context, arg GetMediaForSession
 		&i.Sha256,
 		&i.MimeType,
 		&i.SizeBytes,
-		&i.WidthPx,
-		&i.HeightPx,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -130,7 +120,7 @@ func (q *Queries) GetMediaForSession(ctx context.Context, arg GetMediaForSession
 }
 
 const listMediaByIDsForUser = `-- name: ListMediaByIDsForUser :many
-SELECT id, user_id, sha256, mime_type, size_bytes, width_px, height_px, created_at, updated_at FROM ctx_media
+SELECT id, user_id, sha256, mime_type, size_bytes, created_at, updated_at FROM ctx_media
 WHERE user_id = $1
   AND id = ANY($2::uuid[])
 ORDER BY id ASC
@@ -158,8 +148,6 @@ func (q *Queries) ListMediaByIDsForUser(ctx context.Context, arg ListMediaByIDsF
 			&i.Sha256,
 			&i.MimeType,
 			&i.SizeBytes,
-			&i.WidthPx,
-			&i.HeightPx,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

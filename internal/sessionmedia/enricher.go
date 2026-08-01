@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 const (
@@ -27,20 +25,20 @@ const (
 
 // Persister is the narrow immutable-media boundary used by enrichment.
 type Persister interface {
-	Persist(context.Context, Input) (sqlc.CtxMedium, error)
+	Persist(context.Context, Input) (string, error)
 }
 
 // VisionFactory resolves the deployment's current vision setting once per
 // message. It is intentionally independent of runner construction so a setting
 // update affects the next image-bearing message without runner eviction.
 type VisionFactory interface {
-	ForMessage(context.Context, string) (vision.BaselineRenderer, error)
+	ForMessage(context.Context, string) vision.BaselineRenderer
 }
 
 // VisionFactoryFunc adapts a function to VisionFactory.
-type VisionFactoryFunc func(context.Context, string) (vision.BaselineRenderer, error)
+type VisionFactoryFunc func(context.Context, string) vision.BaselineRenderer
 
-func (f VisionFactoryFunc) ForMessage(ctx context.Context, agentID string) (vision.BaselineRenderer, error) {
+func (f VisionFactoryFunc) ForMessage(ctx context.Context, agentID string) vision.BaselineRenderer {
 	return f(ctx, agentID)
 }
 
@@ -52,21 +50,19 @@ type EnricherOptions struct {
 }
 
 // Enricher changes ephemeral provider/tool images into canonical references.
-// It does not write messages or parts; Phase 3 will call it before an atomic
-// parent-and-parts append.
+// It persists immutable originals but leaves atomic message/part append to the
+// memory module.
 type Enricher struct {
-	media    Persister
-	vision   VisionFactory
-	fallback vision.BaselineRenderer
-	timeout  time.Duration
-	workers  int
+	media   Persister
+	vision  VisionFactory
+	timeout time.Duration
+	workers int
 }
 
-// NewEnricher requires an Xberg-capable fallback. The message-scoped factory
-// supplies the current deployment VLM ladder; when settings cannot resolve,
-// the fallback preserves the accepted VLM → Xberg → unavailable behavior.
-func NewEnricher(media Persister, factory VisionFactory, fallback vision.BaselineRenderer, opts EnricherOptions) (*Enricher, error) {
-	if media == nil || factory == nil || fallback == nil {
+// NewEnricher receives a message-scoped factory that owns the complete
+// VLM → Xberg fallback ladder.
+func NewEnricher(media Persister, factory VisionFactory, opts EnricherOptions) (*Enricher, error) {
+	if media == nil || factory == nil {
 		return nil, fmt.Errorf("session media enricher: %w", ErrInvalidInput)
 	}
 	if opts.MessageTimeout == 0 {
@@ -78,7 +74,7 @@ func NewEnricher(media Persister, factory VisionFactory, fallback vision.Baselin
 	if opts.MessageTimeout <= 0 || opts.MaxConcurrent <= 0 || opts.MaxConcurrent > MaxConcurrentEnrichments {
 		return nil, fmt.Errorf("session media enricher: %w", ErrInvalidInput)
 	}
-	return &Enricher{media: media, vision: factory, fallback: fallback, timeout: opts.MessageTimeout, workers: opts.MaxConcurrent}, nil
+	return &Enricher{media: media, vision: factory, timeout: opts.MessageTimeout, workers: opts.MaxConcurrent}, nil
 }
 
 // Enrich runs one bounded, ordered pipeline: validate and deduplicate all raw
@@ -110,19 +106,17 @@ func (e *Enricher) Enrich(ctx context.Context, userID uuid.UUID, agentID string,
 		return nil, err
 	}
 	if messageCtx.Err() != nil {
-		markUnavailable(tasks)
 		return e.assemble(ctx, out, tasks)
 	}
 
-	renderer, err := e.vision.ForMessage(messageCtx, agentID)
-	if err != nil || renderer == nil {
-		renderer = e.fallback
+	renderer := e.vision.ForMessage(messageCtx, agentID)
+	if renderer == nil {
+		return e.assemble(ctx, out, tasks)
 	}
 
 	e.runTasks(messageCtx, tasks, func(ctx context.Context, task *enrichmentTask) {
 		e.renderOne(ctx, renderer, task)
 	})
-	markUnavailable(tasks)
 	return e.assemble(ctx, out, tasks)
 }
 
@@ -169,7 +163,7 @@ type enrichmentTask struct {
 }
 
 func prepareTasks(blocks []ai.ContentBlock, userID uuid.UUID) ([]*enrichmentTask, error) {
-	byDigest := make(map[string]*enrichmentTask)
+	byDigest := make(map[[sha256.Size]byte]*enrichmentTask)
 	tasks := make([]*enrichmentTask, 0)
 	imageCount := 0
 	aggregateBytes := 0
@@ -201,39 +195,37 @@ func prepareTasks(blocks []ai.ContentBlock, userID uuid.UUID) ([]*enrichmentTask
 		if err != nil {
 			return nil, fmt.Errorf("session media image %d: decode base64: %w", index, err)
 		}
-		cfg, mime, err := vision.ValidateImage(data, imageBlock.MimeType)
+		_, mime, err := vision.ValidateImage(data, imageBlock.MimeType)
 		if err != nil {
 			return nil, fmt.Errorf("session media image %d: %w", index, err)
 		}
 		digest := sha256.Sum256(data)
-		key := mime + ":" + string(digest[:])
-		if task := byDigest[key]; task != nil {
+		if task := byDigest[digest]; task != nil {
 			task.indexes = append(task.indexes, index)
 			continue
 		}
 		task := &enrichmentTask{
 			indexes: []int{index},
-			input:   Input{UserID: userID, Data: data, MimeType: mime, WidthPX: int32(cfg.Width), HeightPX: int32(cfg.Height)},
+			input:   Input{UserID: userID, Data: data, MimeType: mime},
 			req:     vision.Request{Data: data, MimeType: mime},
 		}
-		byDigest[key] = task
+		byDigest[digest] = task
 		tasks = append(tasks, task)
 	}
 	return tasks, nil
 }
 
 func (e *Enricher) persistOne(ctx context.Context, task *enrichmentTask) {
-	media, err := e.media.Persist(ctx, task.input)
+	mediaID, err := e.media.Persist(ctx, task.input)
 	if err != nil {
 		task.err = fmt.Errorf("persist canonical session media: %w", err)
 		return
 	}
-	if media.ID == "" || strings.TrimSpace(media.MimeType) == "" {
+	if mediaID == "" {
 		task.err = fmt.Errorf("persist canonical session media: invalid media result")
 		return
 	}
-	task.ref.MediaID = media.ID
-	task.ref.MimeType = media.MimeType
+	task.ref.MediaID = mediaID
 }
 
 func persistedTasksError(tasks []*enrichmentTask) error {
@@ -250,7 +242,7 @@ func persistedTasksError(tasks []*enrichmentTask) error {
 
 func (e *Enricher) renderOne(ctx context.Context, renderer vision.BaselineRenderer, task *enrichmentTask) {
 	type result struct {
-		baseline vision.BaselineResult
+		baseline ai.ImageBaseline
 		err      error
 	}
 	// The channel is buffered so a renderer that outlives ctx never blocks or
@@ -264,25 +256,11 @@ func (e *Enricher) renderOne(ctx context.Context, renderer vision.BaselineRender
 	select {
 	case outcome := <-results:
 		if outcome.err != nil || ctx.Err() != nil || !validBaselineResult(outcome.baseline) {
-			task.ref.Baseline = ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}
 			return
 		}
-		task.ref.Baseline = ai.ImageBaseline{
-			Status:   ai.ImageBaselineReady,
-			Text:     outcome.baseline.Text,
-			Renderer: outcome.baseline.Renderer,
-			Contract: outcome.baseline.Contract,
-		}
+		task.ref.Baseline = outcome.baseline
 	case <-ctx.Done():
-		task.ref.Baseline = ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}
-	}
-}
-
-func markUnavailable(tasks []*enrichmentTask) {
-	for _, task := range tasks {
-		if task.ref.Baseline.Status == "" {
-			task.ref.Baseline = ai.ImageBaseline{Status: ai.ImageBaselineUnavailable}
-		}
+		return
 	}
 }
 
@@ -298,8 +276,6 @@ func (e *Enricher) assemble(ctx context.Context, out []ai.ContentBlock, tasks []
 	return out, nil
 }
 
-func validBaselineResult(result vision.BaselineResult) bool {
-	return result.Contract == ai.ImageBaselineContractV1 &&
-		strings.TrimSpace(result.Renderer) != "" &&
-		ai.ValidateImageBaselineText(result.Text) == nil
+func validBaselineResult(result ai.ImageBaseline) bool {
+	return result.Text != "" && result.Validate() == nil
 }

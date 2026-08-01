@@ -21,7 +21,6 @@ import (
 // Compile-time interface checks.
 var (
 	_ memory.Provider              = (*Provider)(nil)
-	_ memory.CanonicalAppender     = (*Provider)(nil)
 	_ memory.Compactor             = (*Provider)(nil)
 	_ memory.Searcher              = (*Provider)(nil)
 	_ memory.Explorer              = (*Provider)(nil)
@@ -108,39 +107,29 @@ func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error 
 	return err
 }
 
-// Append implements memory.Provider. It intentionally preserves the legacy
-// inline-image codec until runtime ingress switches atomically in Phase 4.
+// Append implements the sole durable-write contract. Ordinary sessions accept
+// only canonical references; deferred groups retain the legacy inline codec.
 func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
 	rows := make([]storageRow, 0, len(msgs))
 	for _, msg := range msgs {
-		rows = append(rows, messageToRows(msg)...)
+		if session.GroupID != "" {
+			rows = append(rows, messageToRows(msg)...)
+			continue
+		}
+		canonical, err := canonicalMessageToRows(msg)
+		if err != nil {
+			return fmt.Errorf("canonical message: %w", err)
+		}
+		rows = append(rows, canonical...)
 	}
 	if len(rows) == 0 {
 		return p.withSessionLock(session.ID, func() error {
 			_, err := p.getOrCreateConversation(ctx, session)
 			return err
 		})
-	}
-	return p.appendRows(ctx, session, rows)
-}
-
-// AppendCanonical is the dormant durable path for text and ImageRefContent.
-// Callers must enrich raw images before this call; the current runtime continues
-// to use Append until it can project refs for existing provider adapters.
-func (p *Provider) AppendCanonical(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
-	if len(msgs) == 0 {
-		return nil
-	}
-	rows := make([]storageRow, 0, len(msgs))
-	for _, msg := range msgs {
-		canonical, err := canonicalMessageToRows(msg)
-		if err != nil {
-			return fmt.Errorf("canonical message: %w", err)
-		}
-		rows = append(rows, canonical...)
 	}
 	return p.appendRows(ctx, session, rows)
 }
@@ -172,17 +161,16 @@ func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, userID string,
 	if err != nil {
 		return fmt.Errorf("validate canonical media: %w", err)
 	}
-	byID := make(map[string]sqlc.CtxMedium, len(media))
+	owned := make(map[string]struct{}, len(media))
 	for _, item := range media {
-		byID[item.ID] = item
+		owned[item.ID] = struct{}{}
 	}
 	for _, row := range rows {
 		for _, part := range row.parts {
 			if part.partType != "image" {
 				continue
 			}
-			item, ok := byID[part.mediaID]
-			if !ok || item.MimeType != part.mimeType {
+			if _, ok := owned[part.mediaID]; !ok {
 				return errCanonicalMediaUnavailable
 			}
 		}
@@ -202,10 +190,7 @@ func createMessagePart(ctx context.Context, q *sqlc.Queries, messageID string, o
 		params.TextContent = pgtype.Text{String: part.text, Valid: true}
 	case "image":
 		params.MediaID = pgtype.Text{String: part.mediaID, Valid: true}
-		params.TextContent = pgtype.Text{String: part.text, Valid: part.text != ""}
-		params.BaselineStatus = string(part.baseline.Status)
-		params.BaselineRenderer = part.baseline.Renderer
-		params.BaselineContract = int32(part.baseline.Contract)
+		params.TextContent = pgtype.Text{String: part.text, Valid: true}
 	default:
 		return fmt.Errorf("create message part: unsupported type %q", part.partType)
 	}

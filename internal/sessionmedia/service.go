@@ -27,15 +27,11 @@ var (
 	ErrNotFound         = errors.New("session media not found")
 )
 
-// Input contains immutable facts already established by the image-ingestion
-// boundary. Phase 1 deliberately does not decode or enrich images; later phases
-// validate MIME and dimensions before calling Persist.
+// Input contains immutable facts already validated by image ingestion.
 type Input struct {
 	UserID   uuid.UUID
 	Data     []byte
 	MimeType string
-	WidthPX  int32
-	HeightPX int32
 }
 
 // Service stores one content-addressed object before creating or reusing its
@@ -46,30 +42,22 @@ type Service struct {
 	q     *sqlc.Queries
 }
 
-func New(media asset.SessionMediaStore, q *sqlc.Queries) (*Service, error) {
-	if media == nil || q == nil {
+func New(media asset.SessionMediaStore, db *pgxpool.Pool) (*Service, error) {
+	if media == nil || db == nil {
 		return nil, fmt.Errorf("session media service: %w", ErrInvalidInput)
 	}
-	return &Service{media: media, q: q}, nil
-}
-
-// NewForPool owns the sqlc construction boundary for application composition.
-func NewForPool(media asset.SessionMediaStore, db *pgxpool.Pool) (*Service, error) {
-	if db == nil {
-		return nil, fmt.Errorf("session media service: %w", ErrInvalidInput)
-	}
-	return New(media, sqlc.New(db))
+	return &Service{media: media, q: sqlc.New(db)}, nil
 }
 
 // Persist writes the verified content-addressed object before inserting metadata.
 // Existing rows may only be reused when every immutable metadata field matches.
-func (s *Service) Persist(ctx context.Context, in Input) (sqlc.CtxMedium, error) {
+func (s *Service) Persist(ctx context.Context, in Input) (string, error) {
 	if err := validateInput(in); err != nil {
-		return sqlc.CtxMedium{}, err
+		return "", err
 	}
 	digest := sha256.Sum256(in.Data)
 	if err := s.media.PutSessionMedia(ctx, in.UserID, digest, in.Data); err != nil {
-		return sqlc.CtxMedium{}, fmt.Errorf("persist session media blob: %w", err)
+		return "", fmt.Errorf("persist session media blob: %w", err)
 	}
 
 	created, err := s.q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{
@@ -77,14 +65,12 @@ func (s *Service) Persist(ctx context.Context, in Input) (sqlc.CtxMedium, error)
 		Sha256:    digest[:],
 		MimeType:  in.MimeType,
 		SizeBytes: int64(len(in.Data)),
-		WidthPx:   in.WidthPX,
-		HeightPx:  in.HeightPX,
 	})
 	if err == nil {
-		return created, nil
+		return created.ID, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return sqlc.CtxMedium{}, fmt.Errorf("create session media metadata: %w", err)
+		return "", fmt.Errorf("create session media metadata: %w", err)
 	}
 
 	existing, err := s.q.GetMediaByUserAndSHA256(ctx, sqlc.GetMediaByUserAndSHA256Params{
@@ -92,15 +78,12 @@ func (s *Service) Persist(ctx context.Context, in Input) (sqlc.CtxMedium, error)
 		Sha256: digest[:],
 	})
 	if err != nil {
-		return sqlc.CtxMedium{}, fmt.Errorf("get existing session media metadata: %w", err)
+		return "", fmt.Errorf("get existing session media metadata: %w", err)
 	}
-	if existing.MimeType != in.MimeType ||
-		existing.SizeBytes != int64(len(in.Data)) ||
-		existing.WidthPx != in.WidthPX ||
-		existing.HeightPx != in.HeightPX {
-		return sqlc.CtxMedium{}, fmt.Errorf("%w for sha256 %x", ErrMetadataMismatch, digest)
+	if existing.MimeType != in.MimeType || existing.SizeBytes != int64(len(in.Data)) {
+		return "", fmt.Errorf("%w for sha256 %x", ErrMetadataMismatch, digest)
 	}
-	return existing, nil
+	return existing.ID, nil
 }
 
 // Load verifies that mediaID belongs to userID, then opens its immutable blob.
@@ -139,7 +122,7 @@ func (s *Service) Load(ctx context.Context, userID uuid.UUID, mediaID string) (a
 }
 
 func validateInput(in Input) error {
-	if in.UserID == uuid.Nil || len(in.Data) == 0 || strings.TrimSpace(in.MimeType) == "" || in.WidthPX <= 0 || in.HeightPX <= 0 {
+	if in.UserID == uuid.Nil || len(in.Data) == 0 || strings.TrimSpace(in.MimeType) == "" {
 		return fmt.Errorf("session media: %w", ErrInvalidInput)
 	}
 	return nil

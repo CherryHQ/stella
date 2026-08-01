@@ -12,24 +12,27 @@ import (
 )
 
 func canonicalRef(id string) ai.ImageRefContent {
-	return ai.ImageRefContent{
-		MediaID:  id,
-		MimeType: "image/png",
-		Baseline: ai.ImageBaseline{Status: ai.ImageBaselineUnavailable},
-	}
+	return ai.ImageRefContent{MediaID: id}
 }
 
 func canonicalReadyRef(id string) ai.ImageRefContent {
 	return ai.ImageRefContent{
 		MediaID:  id,
-		MimeType: "image/png",
-		Baseline: ai.ImageBaseline{
-			Status:   ai.ImageBaselineReady,
-			Text:     "## Text\ninvoice total: $42\n\n## Scene\nA scanned invoice.",
-			Renderer: "test/vlm",
-			Contract: ai.ImageBaselineContractV1,
+		Baseline: ai.ImageBaseline{Text: "## Text\ninvoice total: $42\n\n## Scene\nA scanned invoice."},
+	}
+}
+
+func testCanonicalConfig(loader MediaLoader) *CanonicalImageConfig {
+	return &CanonicalImageConfig{
+		Load: loader,
+		CanonicalizeToolResult: func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+			return result, nil
 		},
 	}
+}
+
+func withTestCanonicalImages(loader MediaLoader) Option {
+	return WithCanonicalImages(*testCanonicalConfig(loader))
 }
 
 func TestProjectImagesMatrix(t *testing.T) {
@@ -37,15 +40,14 @@ func TestProjectImagesMatrix(t *testing.T) {
 		t.Run(fmt.Sprintf("%v", model.ImageCapability()), func(t *testing.T) {
 			loads := 0
 			cfg := loopConfig{
-				Model:           model,
-				ImageProjection: true,
+				Model: model,
 				LegacyImageText: func(_ context.Context, index int, _ ai.ImageContent) string {
 					return fmt.Sprintf("legacy-%d", index)
 				},
-				MediaLoader: func(_ context.Context, id string) (ai.ImageContent, error) {
+				CanonicalImages: testCanonicalConfig(func(_ context.Context, id string) (ai.ImageContent, error) {
 					loads++
 					return ai.ImageContent{Data: "pixels-" + id, MimeType: "image/png"}, nil
-				},
+				}),
 			}
 			messages := []ai.Message{
 				ai.UserMessage{Content: []ai.ContentBlock{canonicalRef("historical-user")}},
@@ -89,7 +91,7 @@ func TestProjectImagesMatrix(t *testing.T) {
 }
 
 func TestProjectImagesRejectsAssistantImageAndProviderLeaks(t *testing.T) {
-	cfg := loopConfig{Model: supportedModel(), ImageProjection: true}
+	cfg := loopConfig{Model: supportedModel()}
 	_, _, err := projectImages(context.Background(), cfg, []ai.Message{
 		ai.AssistantMessage{Content: []ai.ContentBlock{canonicalRef("bad")}},
 	}, 0, nil)
@@ -106,9 +108,9 @@ func TestProjectImagesRejectsAssistantImageAndProviderLeaks(t *testing.T) {
 
 func TestActiveHydrationFailureUsesStoredBaseline(t *testing.T) {
 	ref := canonicalReadyRef("missing")
-	out, stats, err := projectImages(context.Background(), loopConfig{Model: supportedModel(), ImageProjection: true, MediaLoader: func(context.Context, string) (ai.ImageContent, error) {
+	out, stats, err := projectImages(context.Background(), loopConfig{Model: supportedModel(), CanonicalImages: testCanonicalConfig(func(context.Context, string) (ai.ImageContent, error) {
 		return ai.ImageContent{}, errors.New("missing")
-	}}, []ai.Message{ai.UserMessage{Content: []ai.ContentBlock{ref}}}, 0, map[string]ai.ImageContent{})
+	})}, []ai.Message{ai.UserMessage{Content: []ai.ContentBlock{ref}}}, 0, map[string]ai.ImageContent{})
 	if err != nil || ai.HasImage(messageBlocks(out[0])) || stats.Hydrations != 0 || stats.BaselineProjections != 1 {
 		t.Fatalf("fallback = %#v stats=%+v err=%v", out, stats, err)
 	}
@@ -118,9 +120,9 @@ func TestNextTurnProjectsPriorImageAsStableBaseline(t *testing.T) {
 	ref := canonicalReadyRef("prior-image")
 	prefix := ai.UserMessage{Content: "unchanged prefix"}
 	current := ai.UserMessage{Content: []ai.ContentBlock{ref}}
-	cfg := loopConfig{Model: supportedModel(), ImageProjection: true, MediaLoader: func(context.Context, string) (ai.ImageContent, error) {
+	cfg := loopConfig{Model: supportedModel(), CanonicalImages: testCanonicalConfig(func(context.Context, string) (ai.ImageContent, error) {
 		return ai.ImageContent{Data: "pixels", MimeType: "image/png"}, nil
-	}}
+	})}
 	first, _, err := projectImages(context.Background(), cfg, []ai.Message{prefix, current}, 1, map[string]ai.ImageContent{})
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +157,7 @@ func TestContinueProjectsOnlyTailImageAsActive(t *testing.T) {
 			out.Finish(nil)
 		}()
 		return out, nil
-	}, Model: supportedModel()}, WithMediaLoader(func(_ context.Context, id string) (ai.ImageContent, error) {
+	}, Model: supportedModel()}, withTestCanonicalImages(func(_ context.Context, id string) (ai.ImageContent, error) {
 		return ai.ImageContent{Data: "pixels-" + id, MimeType: "image/png"}, nil
 	}))
 	if err != nil {
@@ -202,7 +204,7 @@ func TestRunWithActiveStartReusesHydrationAcrossToolLoop(t *testing.T) {
 		Tools: ToolSet{"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{canonicalRef("same")}, nil
 		}},
-	}, WithMediaLoader(func(_ context.Context, id string) (ai.ImageContent, error) {
+	}, withTestCanonicalImages(func(_ context.Context, id string) (ai.ImageContent, error) {
 		loads++
 		return ai.ImageContent{Data: "identical-pixels", MimeType: "image/png"}, nil
 	}), WithProjectionObserver(func(stats ProjectionStats) {
@@ -261,7 +263,7 @@ func TestProgressNudgesDoNotDemoteActiveImage(t *testing.T) {
 		"again": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 		},
-	}}, WithMediaLoader(func(context.Context, string) (ai.ImageContent, error) {
+	}}, withTestCanonicalImages(func(context.Context, string) (ai.ImageContent, error) {
 		return ai.ImageContent{Data: "pixels", MimeType: "image/png"}, nil
 	}), WithTurnNotify(func(turn int, _ time.Duration) *string {
 		switch turn {

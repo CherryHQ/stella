@@ -113,7 +113,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		}
 		// Normalize only provider-ready content.
 		normalized := ai.TransformMessages(projected)
-		if turnCfg.ImageProjection {
+		if !turnCfg.LegacyImages {
 			if err := validateProviderImages(turnCfg.Model, normalized); err != nil {
 				return history, err
 			}
@@ -186,7 +186,11 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		// Rendering costs image detail; a wasted turn costs more, and declaring
 		// "text, image" on the provider's model restores full fidelity.
 		toolExecCtx := tools.WithVision(ctx, effectiveModel.ImageCapability() == ai.ImageSupported)
-		toolExecCtx = tools.WithCanonicalImages(toolExecCtx, cfg.CanonicalToolImages)
+		toolExecCtx = tools.WithCanonicalImages(toolExecCtx, cfg.CanonicalImages != nil)
+		var canonicalizer ToolImageCanonicalizer
+		if cfg.CanonicalImages != nil {
+			canonicalizer = cfg.CanonicalImages.CanonicalizeToolResult
+		}
 		results, err := executeToolCalls(toolExecCtx, calls, cfg.Tools, toolCallbacks{
 			onStart: func(call ai.ToolCall) {
 				if emit != nil {
@@ -198,7 +202,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 					emit(ToolFinished{Result: result})
 				}
 			},
-		}, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, cfg.ToolTransform)
+		}, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
 		if err != nil {
 			return history, err
 		}

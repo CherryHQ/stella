@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -47,7 +48,7 @@ func TestLoadMessagePartsUsesOneBatchQueryPerPartAndMedia(t *testing.T) {
 	q := &countingPartsQuerier{
 		parts: []sqlc.CtxMessagePart{
 			{ID: "p1", MessageID: "m1", PartType: "text", Ordinal: 0, TextContent: pgtype.Text{String: "first", Valid: true}},
-			{ID: "p2", MessageID: "m2", PartType: "image", Ordinal: 0, MediaID: pgtype.Text{String: "media-2", Valid: true}, BaselineStatus: "unavailable"},
+			{ID: "p2", MessageID: "m2", PartType: "image", Ordinal: 0, MediaID: pgtype.Text{String: "media-2", Valid: true}, TextContent: pgtype.Text{String: ai.UnavailableImageProjection, Valid: true}},
 		},
 		media: []sqlc.ListMessagePartsWithMediaByMessagesRow{{
 			CtxMessagePart: sqlc.CtxMessagePart{ID: "p2"},

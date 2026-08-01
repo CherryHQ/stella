@@ -30,13 +30,12 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	q := sqlc.New(db)
 	home := t.TempDir()
 	assets, err := asset.NewStore(home, nil, nil)
 	if err != nil {
 		t.Fatalf("new asset store: %v", err)
 	}
-	svc, err := New(assets.SessionMedia(), q)
+	svc, err := New(assets.SessionMedia(), db)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -47,8 +46,6 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 		UserID:   userA,
 		Data:     []byte("same immutable image bytes"),
 		MimeType: "image/png",
-		WidthPX:  64,
-		HeightPX: 32,
 	}
 	first, err := svc.Persist(ctx, in)
 	if err != nil {
@@ -58,12 +55,12 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Persist: %v", err)
 	}
-	if first.ID != second.ID {
-		t.Fatalf("same-user duplicate IDs = %q, %q; want one row", first.ID, second.ID)
+	if first != second {
+		t.Fatalf("same-user duplicate IDs = %q, %q; want one row", first, second)
 	}
-	mediaID, err := uuid.Parse(first.ID)
+	mediaID, err := uuid.Parse(first)
 	if err != nil || mediaID.Version() != 7 {
-		t.Fatalf("database-generated media ID = %q (version %d), parse error = %v; want UUIDv7", first.ID, mediaID.Version(), err)
+		t.Fatalf("database-generated media ID = %q (version %d), parse error = %v; want UUIDv7", first, mediaID.Version(), err)
 	}
 
 	in.UserID = userB
@@ -71,7 +68,7 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cross-user Persist: %v", err)
 	}
-	if otherUser.ID == first.ID || otherUser.UserID == first.UserID {
+	if otherUser == first {
 		t.Fatalf("cross-user media reused metadata: first=%+v other=%+v", first, otherUser)
 	}
 
@@ -104,7 +101,7 @@ func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := NewForPool(assets.SessionMedia(), db)
+	svc, err := New(assets.SessionMedia(), db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,15 +112,15 @@ func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, err := svc.Persist(ctx, Input{UserID: owner, Data: data, MimeType: "image/png", WidthPX: 8, HeightPX: 8})
+	stored, err := svc.Persist(ctx, Input{UserID: owner, Data: data, MimeType: "image/png"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := svc.Load(ctx, owner, stored.ID)
+	loaded, err := svc.Load(ctx, owner, stored)
 	if err != nil || loaded.MimeType != "image/png" || loaded.Data == "" {
 		t.Fatalf("load = %#v, %v", loaded, err)
 	}
-	if _, err := svc.Load(ctx, other, stored.ID); !errors.Is(err, ErrNotFound) {
+	if _, err := svc.Load(ctx, other, stored); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign load = %v, want opaque ErrNotFound", err)
 	}
 	if _, err := svc.Load(ctx, owner, "not-a-media-id"); !errors.Is(err, ErrNotFound) {
@@ -138,7 +135,7 @@ func TestLoadPreparesProviderPayloadWithoutMutatingStoredOriginal(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := NewForPool(assets.SessionMedia(), db)
+	svc, err := New(assets.SessionMedia(), db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,12 +145,9 @@ func TestLoadPreparesProviderPayloadWithoutMutatingStoredOriginal(t *testing.T) 
 		t.Fatalf("fixture = %d bytes, want more than provider payload ceiling", len(data))
 	}
 	owner := seedUser(t, db)
-	stored, err := svc.Persist(ctx, Input{UserID: owner, Data: data, MimeType: "image/png", WidthPX: 1400, HeightPX: 1400})
+	stored, err := svc.Persist(ctx, Input{UserID: owner, Data: data, MimeType: "image/png"})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if stored.SizeBytes != int64(len(data)) {
-		t.Fatalf("stored size = %d, want %d", stored.SizeBytes, len(data))
 	}
 	digest := sha256.Sum256(data)
 	persisted, err := assets.SessionMedia().OpenSessionMedia(ctx, owner, digest, int64(len(data)))
@@ -164,7 +158,7 @@ func TestLoadPreparesProviderPayloadWithoutMutatingStoredOriginal(t *testing.T) 
 		t.Fatal("immutable asset bytes changed before history/provider projection")
 	}
 
-	loaded, err := svc.Load(ctx, owner, stored.ID)
+	loaded, err := svc.Load(ctx, owner, stored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +203,7 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new asset store: %v", err)
 	}
-	svc, err := New(assets.SessionMedia(), q)
+	svc, err := New(assets.SessionMedia(), db)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -220,7 +214,7 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 		t.Fatalf("seed agent: %v", err)
 	}
 	media, err := svc.Persist(ctx, Input{
-		UserID: user, Data: []byte("media bytes"), MimeType: "image/png", WidthPX: 8, HeightPX: 4,
+		UserID: user, Data: []byte("media bytes"), MimeType: "image/png",
 	})
 	if err != nil {
 		t.Fatalf("persist media: %v", err)
@@ -239,27 +233,25 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 		t.Fatalf("seed message: %v", err)
 	}
 	if _, err := q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{
-		ID:               uuid.NewString(),
-		MessageID:        messageID,
-		PartType:         "image",
-		Ordinal:          0,
-		MediaID:          pgtype.Text{String: media.ID, Valid: true},
-		BaselineStatus:   "ready",
-		BaselineRenderer: "test",
-		BaselineContract: 1,
+		ID:          uuid.NewString(),
+		MessageID:   messageID,
+		PartType:    "image",
+		Ordinal:     0,
+		MediaID:     pgtype.Text{String: media, Valid: true},
+		TextContent: pgtype.Text{String: "stored baseline", Valid: true},
 	}); err != nil {
 		t.Fatalf("create image part: %v", err)
 	}
 
 	parts, err := q.ListMessagePartsWithMediaByMessages(ctx, []string{messageID})
-	if err != nil || len(parts) != 1 || parts[0].CtxMessagePart.Ordinal != 0 || parts[0].CtxMedium.ID != media.ID {
+	if err != nil || len(parts) != 1 || parts[0].CtxMessagePart.Ordinal != 0 || parts[0].CtxMedium.ID != media {
 		t.Fatalf("batch part/media = %+v, %v", parts, err)
 	}
 	access := sqlc.GetMediaForSessionParams{
-		MediaID: media.ID, UserID: user.String(), SessionID: sessionID,
+		MediaID: media, UserID: user.String(), SessionID: sessionID,
 		AgentID: pgtype.Text{String: agentID, Valid: true},
 	}
-	if got, err := q.GetMediaForSession(ctx, access); err != nil || got.ID != media.ID {
+	if got, err := q.GetMediaForSession(ctx, access); err != nil || got.ID != media {
 		t.Fatalf("scoped media = %+v, %v", got, err)
 	}
 	access.AgentID = pgtype.Text{String: "other-agent", Valid: true}
@@ -267,11 +259,11 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 		t.Fatalf("foreign agent media lookup error = %v, want ErrNoRows", err)
 	}
 
-	if _, err := db.Exec(ctx, `DELETE FROM ctx_media WHERE id = $1`, media.ID); err != nil {
+	if _, err := db.Exec(ctx, `DELETE FROM ctx_media WHERE id = $1`, media); err != nil {
 		t.Fatalf("delete media: %v", err)
 	}
 	part, err := q.GetMessageParts(ctx, messageID)
-	if err != nil || len(part) != 1 || part[0].MediaID.Valid || part[0].BaselineStatus != "ready" {
+	if err != nil || len(part) != 1 || part[0].MediaID.Valid || part[0].TextContent.String != "stored baseline" {
 		t.Fatalf("part after media delete = %+v, %v; want baseline preserved and media unset", part, err)
 	}
 }

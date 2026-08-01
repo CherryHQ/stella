@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -420,10 +419,10 @@ func (a *Access) loadTranscriptParts(ctx context.Context, rows []sqlc.CtxMessage
 		case "text":
 			result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "text", Text: part.TextContent.String})
 		case "image":
-			baseline := ai.ImageBaseline{Status: ai.ImageBaselineStatus(part.BaselineStatus), Text: part.TextContent.String}
+			projection := part.TextContent.String
 			media, ok := mediaByPartID[part.ID]
 			if !ok || !part.MediaID.Valid || media.ID != part.MediaID.String || strings.TrimSpace(media.MimeType) == "" {
-				result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "text", Text: baseline.Projection()})
+				result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "text", Text: projection})
 				continue
 			}
 			result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "image", MediaID: media.ID, MimeType: media.MimeType})

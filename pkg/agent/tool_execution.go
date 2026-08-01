@@ -17,16 +17,12 @@ type toolCallbacks struct {
 }
 
 // executeToolCalls runs each tool call in order and returns result messages.
-func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, transforms ...ToolResultTransform) ([]ai.ToolResultMessage, error) {
+func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ([]ai.ToolResultMessage, error) {
 	results := make([]ai.ToolResultMessage, 0, len(calls))
-	var transform ToolResultTransform
-	if len(transforms) > 0 {
-		transform = transforms[0]
-	}
 	appendFinal := func(result ai.ToolResultMessage) error {
-		if transform != nil {
+		if canonicalize != nil {
 			var err error
-			result, err = transform(ctx, result)
+			result, err = canonicalize(ctx, result)
 			if err != nil {
 				return err
 			}

@@ -18,7 +18,7 @@ func TestToolExecution(t *testing.T) {
 		},
 	}
 
-	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil)
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestToolExecutionToolError(t *testing.T) {
 		},
 	}
 
-	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil)
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestToolExecutionPreservesContentOnError(t *testing.T) {
 		},
 	}
 
-	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil)
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestToolExecutionEmptyContentOnError(t *testing.T) {
 		},
 	}
 
-	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil)
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestToolExecutionAppliesLifecycleMutations(t *testing.T) {
 	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{
 		SessionID: "session-1",
 		Channel:   "cli",
-	}, lifecycle)
+	}, lifecycle, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestToolExecutionLifecycleTextMutationPreservesImages(t *testing.T) {
 		return ToolResultMutation{Result: &text}, nil
 	}}
 
-	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, lifecycle)
+	results, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, nil, hooks.HookMeta{}, lifecycle, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestToolExecutionOrdersLifecycleBeforeAndAfterHooks(t *testing.T) {
 		},
 	}})
 
-	_, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, hs, hooks.HookMeta{}, lifecycle)
+	_, err := executeToolCalls(context.Background(), calls, tools, toolCallbacks{}, hs, hooks.HookMeta{}, lifecycle, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestToolExecutionRunsPostHookWhenPreHookBlocks(t *testing.T) {
 	results, err := executeToolCalls(context.Background(), calls, ToolSet{"bash": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 		t.Fatal("blocked tool should not execute")
 		return nil, nil
-	}}, toolCallbacks{}, hs, hooks.HookMeta{}, nil)
+	}}, toolCallbacks{}, hs, hooks.HookMeta{}, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestToolExecutionRunsPostHookWhenLifecycleAfterFails(t *testing.T) {
 
 	_, err := executeToolCalls(context.Background(), calls, ToolSet{"echo": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 		return []ai.ContentBlock{ai.TextContent{Text: "raw"}}, nil
-	}}, toolCallbacks{}, hs, hooks.HookMeta{}, lifecycle)
+	}}, toolCallbacks{}, hs, hooks.HookMeta{}, lifecycle, nil)
 	if err == nil {
 		t.Fatal("expected lifecycle error")
 	}

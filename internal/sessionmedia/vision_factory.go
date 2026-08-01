@@ -29,10 +29,10 @@ func NewSnapshotVisionFactory(loader SnapshotLoader, build vision.StreamBuilder)
 	return snapshotVisionFactory{loader: loader, build: build}, nil
 }
 
-func (f snapshotVisionFactory) ForMessage(ctx context.Context, agentID string) (vision.BaselineRenderer, error) {
+func (f snapshotVisionFactory) ForMessage(ctx context.Context, agentID string) vision.BaselineRenderer {
 	snapshot, err := f.loader.Snapshot(ctx, agentID)
 	if err != nil {
-		return nil, fmt.Errorf("load current vision settings: %w", err)
+		return vision.New(vision.Options{})
 	}
-	return vision.NewFromSnapshot(snapshot, f.build), nil
+	return vision.NewFromSnapshot(snapshot, f.build)
 }

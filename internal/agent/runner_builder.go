@@ -235,20 +235,16 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		// deployment-wide setting during ingestion instead of using this snapshot.
 		visionSvc := vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder))
 
-		var toolTransform coreagent.ToolResultTransform
-		var mediaLoader coreagent.MediaLoader
+		var canonicalImages *coreagent.CanonicalImageConfig
 		if params.GroupID == "" {
-			if cfg.ImageEnricher == nil {
-				// A miswired ordinary deployment must never send a raw tool image
-				// while silently falling back to the legacy persistence codec.
-				toolTransform = func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
-					if ai.HasImage(result.Content) {
-						return ai.ToolResultMessage{}, fmt.Errorf("session image enrichment is not configured")
-					}
-					return result, nil
+			canonicalize := coreagent.ToolImageCanonicalizer(func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+				if ai.HasImage(result.Content) {
+					return ai.ToolResultMessage{}, fmt.Errorf("session image enrichment is not configured")
 				}
-			} else {
-				toolTransform = func(ctx context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+				return result, nil
+			})
+			if cfg.ImageEnricher != nil {
+				canonicalize = func(ctx context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
 					if !ai.HasImage(result.Content) {
 						return result, nil
 					}
@@ -260,11 +256,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 					return result, nil
 				}
 			}
+			load := coreagent.MediaLoader(func(context.Context, string) (ai.ImageContent, error) {
+				return ai.ImageContent{}, fmt.Errorf("session image loader is not configured")
+			})
 			if cfg.ImageLoader != nil {
-				mediaLoader = func(ctx context.Context, mediaID string) (ai.ImageContent, error) {
+				load = func(ctx context.Context, mediaID string) (ai.ImageContent, error) {
 					return cfg.ImageLoader(ctx, params.UserID, mediaID)
 				}
 			}
+			canonicalImages = &coreagent.CanonicalImageConfig{Load: load, CanonicalizeToolResult: canonicalize}
 		}
 
 		return newRunner(ctx, runnerConfig{
@@ -294,12 +294,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DelegateRunner:      params.DelegateRunner,
 			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
 			Vision:              visionSvc,
-			MediaLoader:         mediaLoader,
-			ToolTransform:       toolTransform,
-			// Only ordinary session runners canonicalize tool-image results.
-			// Deferred group history remains on its compatibility projection.
-			CanonicalToolImages:   params.GroupID == "",
-			LegacyImageProjection: params.GroupID != "",
+			CanonicalImages:     canonicalImages,
+			LegacyImages:        params.GroupID != "",
 		})
 	}
 }

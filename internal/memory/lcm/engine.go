@@ -157,8 +157,6 @@ type messagePartRow struct {
 	partType string
 	text     string
 	mediaID  string
-	mimeType string
-	baseline ai.ImageBaseline
 }
 
 type loadedMessagePart struct {
@@ -224,8 +222,7 @@ func assistantMessageToRows(m ai.AssistantMessage) []storageRow {
 }
 
 // canonicalMessageToRows creates storage rows whose image content is already an
-// immutable reference. It validates through ai.MarshalCanonicalContentBlocks so
-// raw provider bytes cannot cross this durable-write boundary.
+// immutable reference. Raw provider bytes cannot cross this durable-write seam.
 func canonicalMessageToRows(msg ai.Message) ([]storageRow, error) {
 	switch m := msg.(type) {
 	case ai.UserMessage:
@@ -297,7 +294,7 @@ func canonicalUserBlocks(content any) ([]ai.ContentBlock, error) {
 func canonicalParts(blocks []ai.ContentBlock) ([]messagePartRow, string, error) {
 	// Validate the whole sequence before deciding whether it warrants parts: a
 	// text-only parent must never become a way to smuggle an invalid later block.
-	if _, err := ai.MarshalCanonicalContentBlocks(blocks); err != nil {
+	if err := ai.ValidateCanonicalContentBlocks(blocks); err != nil {
 		return nil, "", err
 	}
 	projection := ai.FlattenCanonicalText(blocks)
@@ -312,10 +309,8 @@ func canonicalParts(blocks []ai.ContentBlock) ([]messagePartRow, string, error) 
 		case ai.ImageRefContent:
 			parts = append(parts, messagePartRow{
 				partType: "image",
-				text:     b.Baseline.Text,
+				text:     b.Baseline.Projection(),
 				mediaID:  b.MediaID,
-				mimeType: b.MimeType,
-				baseline: b.Baseline,
 			})
 		}
 	}
@@ -496,19 +491,15 @@ func contentBlocksFromParts(parts []loadedMessagePart) []ai.ContentBlock {
 		case "text":
 			blocks = append(blocks, ai.TextContent{Text: part.TextContent.String})
 		case "image":
-			baseline := ai.ImageBaseline{
-				Status:   ai.ImageBaselineStatus(part.BaselineStatus),
-				Text:     part.TextContent.String,
-				Renderer: part.BaselineRenderer,
-				Contract: int(part.BaselineContract),
-			}
-			if loaded.media == nil || !part.MediaID.Valid {
-				blocks = append(blocks, ai.TextContent{Text: baseline.Projection()})
+			projection := part.TextContent.String
+			baseline, err := ai.ParseImageBaseline(projection)
+			if err != nil || loaded.media == nil || !part.MediaID.Valid {
+				blocks = append(blocks, ai.TextContent{Text: projection})
 				continue
 			}
-			ref := ai.ImageRefContent{MediaID: part.MediaID.String, MimeType: loaded.media.MimeType, Baseline: baseline}
+			ref := ai.ImageRefContent{MediaID: part.MediaID.String, Baseline: baseline}
 			if err := ref.Validate(); err != nil {
-				blocks = append(blocks, ai.TextContent{Text: baseline.Projection()})
+				blocks = append(blocks, ai.TextContent{Text: projection})
 				continue
 			}
 			blocks = append(blocks, ref)

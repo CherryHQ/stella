@@ -46,7 +46,7 @@ var (
 // activeStart is an index into the original transcript and remains constant for
 // the whole Run, including progress nudges and tool-loop results.
 func projectImages(ctx context.Context, cfg loopConfig, messages []ai.Message, activeStart int, memo map[string]ai.ImageContent) ([]ai.Message, ProjectionStats, error) {
-	if !cfg.ImageProjection {
+	if cfg.LegacyImages {
 		return projectLegacyInlineHistory(ctx, cfg, messages), ProjectionStats{Capability: cfg.Model.ImageCapability()}, nil
 	}
 	if activeStart < 0 || activeStart > len(messages) {
@@ -110,10 +110,10 @@ func projectBlocks(ctx context.Context, cfg loopConfig, blocks []ai.ContentBlock
 			if active && cfg.Model.ImageCapability() == ai.ImageSupported {
 				image, ok := memo[b.MediaID]
 				if !ok {
-					if cfg.MediaLoader == nil {
+					if cfg.CanonicalImages == nil {
 						return nil, projectionError("no media loader for active image")
 					}
-					loaded, err := cfg.MediaLoader(ctx, b.MediaID)
+					loaded, err := cfg.CanonicalImages.Load(ctx, b.MediaID)
 					if err != nil {
 						out[i] = ai.TextContent{Text: b.Baseline.Projection()}
 						stats.BaselineProjections++

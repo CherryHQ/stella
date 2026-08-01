@@ -11,7 +11,7 @@ import (
 
 // TestActiveTurnProjectionMeasurement records the provider-visible request
 // shape. Canonical persistence is asserted separately by
-// lcm.TestAppendCanonicalStoresBaselineProjectionAndParts.
+// lcm.TestAppendStoresBaselineProjectionAndParts.
 func TestActiveTurnProjectionMeasurement(t *testing.T) {
 	var contexts []ai.Context
 	var stats []ProjectionStats
@@ -26,7 +26,7 @@ func TestActiveTurnProjectionMeasurement(t *testing.T) {
 			}()
 			return out, nil
 		},
-	}, WithMediaLoader(func(_ context.Context, id string) (ai.ImageContent, error) {
+	}, withTestCanonicalImages(func(_ context.Context, id string) (ai.ImageContent, error) {
 		return ai.ImageContent{Data: "pixels-" + id, MimeType: "image/png"}, nil
 	}), WithProjectionObserver(func(observation ProjectionStats) {
 		stats = append(stats, observation)

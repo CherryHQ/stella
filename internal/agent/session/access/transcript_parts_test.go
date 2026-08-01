@@ -70,7 +70,7 @@ func TestListMessagesLoadsPartsInTwoBatchesAndFallsBackToBaseline(t *testing.T) 
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256([]byte("image bytes"))
-	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: userID.String(), Sha256: digest[:], MimeType: "image/png", SizeBytes: 11, WidthPx: 1, HeightPx: 1})
+	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: userID.String(), Sha256: digest[:], MimeType: "image/png", SizeBytes: 11})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestListMessagesLoadsPartsInTwoBatchesAndFallsBackToBaseline(t *testing.T) 
 	}
 	for _, part := range []sqlc.CreateMessagePartParams{
 		{ID: uuid.NewString(), MessageID: userMessage.ID, PartType: "text", Ordinal: 0, TextContent: pgtype.Text{String: "before", Valid: true}},
-		{ID: uuid.NewString(), MessageID: userMessage.ID, PartType: "image", Ordinal: 1, MediaID: pgtype.Text{String: media.ID, Valid: true}, TextContent: pgtype.Text{String: "stored baseline", Valid: true}, BaselineStatus: "ready", BaselineRenderer: "test", BaselineContract: 1},
+		{ID: uuid.NewString(), MessageID: userMessage.ID, PartType: "image", Ordinal: 1, MediaID: pgtype.Text{String: media.ID, Valid: true}, TextContent: pgtype.Text{String: "stored baseline", Valid: true}},
 		{ID: uuid.NewString(), MessageID: userMessage.ID, PartType: "text", Ordinal: 2, TextContent: pgtype.Text{String: "after", Valid: true}},
 	} {
 		if _, err := q.CreateMessagePart(ctx, part); err != nil {

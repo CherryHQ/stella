@@ -19,8 +19,6 @@ import (
 )
 
 const (
-	// BaselineRendererXberg identifies the local extractor implementation.
-	BaselineRendererXberg = "xberg/extract-v1"
 	// BaselineVLMTimeout leaves five seconds of Enricher's 15 second message
 	// budget for Xberg after a slow model attempt.
 	BaselineVLMTimeout = 10 * time.Second
@@ -56,19 +54,12 @@ type Result struct {
 	Source Source
 }
 
-// BaselineResult is one valid, durable generic image baseline.
-type BaselineResult struct {
-	Text     string
-	Renderer string
-	Contract int
-}
-
 // BaselineRenderer is the narrow contract session-media enrichment needs.
 // Implementations must honor ctx promptly. Enricher protects its message
 // deadline from non-cooperative renderers, but at most two abandoned calls may
 // continue in the background until their implementation returns.
 type BaselineRenderer interface {
-	Baseline(context.Context, Request) (BaselineResult, error)
+	Baseline(context.Context, Request) (ai.ImageBaseline, error)
 }
 
 // StreamBuilder constructs a provider stream for one API/credential pair.
@@ -126,9 +117,8 @@ func NewFromSnapshot(snap *config.Snapshot, build StreamBuilder) *Service {
 
 func (s *Service) ModelConfigured() bool { return s != nil && s.stream != nil }
 
-// Understand is the old read-tool compatibility operation. It deliberately
-// keeps its memo and old text shape until the request-time path is retired in a
-// later phase; canonical history must call Baseline instead.
+// Understand is the deferred-group and legacy-row compatibility operation.
+// Canonical ordinary-session history calls Baseline instead.
 func (s *Service) Understand(ctx context.Context, req Request) (Result, error) {
 	if len(req.Data) == 0 {
 		return Result{}, errors.New("vision: empty image")
@@ -159,16 +149,16 @@ func (s *Service) Understand(ctx context.Context, req Request) (Result, error) {
 // Baseline produces the sole canonical generic OCR + scene representation. A
 // ready result is returned only after an explicit clean stop and exact contract
 // validation. Model failures fall back to Xberg using the verified same bytes.
-func (s *Service) Baseline(ctx context.Context, req Request) (BaselineResult, error) {
+func (s *Service) Baseline(ctx context.Context, req Request) (ai.ImageBaseline, error) {
 	if err := ctx.Err(); err != nil {
-		return BaselineResult{}, err
+		return ai.ImageBaseline{}, err
 	}
 	cfg, detectedMIME, err := ValidateImage(req.Data, req.MimeType)
 	if err == nil && ctx.Err() != nil {
-		return BaselineResult{}, ctx.Err()
+		return ai.ImageBaseline{}, ctx.Err()
 	}
 	if err != nil {
-		return BaselineResult{}, fmt.Errorf("vision baseline: %w", err)
+		return ai.ImageBaseline{}, fmt.Errorf("vision baseline: %w", err)
 	}
 	req.MimeType = detectedMIME
 	req.Path = "" // canonical media has no trusted path
@@ -178,23 +168,19 @@ func (s *Service) Baseline(ctx context.Context, req Request) (BaselineResult, er
 		text, err := describeBaselineWithModel(modelCtx, s.stream, s.model, req, cfg)
 		cancel()
 		if err == nil {
-			return BaselineResult{Text: text, Renderer: modelRenderer(s.model), Contract: ai.ImageBaselineContractV1}, nil
+			return ai.ImageBaseline{Text: text}, nil
 		}
 	}
 
 	text, err := extractText(ctx, req)
 	if err != nil {
-		return BaselineResult{}, fmt.Errorf("vision baseline unavailable: %w", err)
+		return ai.ImageBaseline{}, fmt.Errorf("vision baseline unavailable: %w", err)
 	}
 	normalized := NormalizeXbergBaseline(text)
 	if err := ai.ValidateImageBaselineText(normalized); err != nil {
-		return BaselineResult{}, fmt.Errorf("normalize Xberg baseline: %w", err)
+		return ai.ImageBaseline{}, fmt.Errorf("normalize Xberg baseline: %w", err)
 	}
-	return BaselineResult{
-		Text:     normalized,
-		Renderer: BaselineRendererXberg,
-		Contract: ai.ImageBaselineContractV1,
-	}, nil
+	return ai.ImageBaseline{Text: normalized}, nil
 }
 
 func understandUncached(ctx context.Context, stream providers.StreamFunc, model ai.Model, req Request) (Result, error) {
@@ -303,14 +289,6 @@ func truncateBaselineText(text string) string {
 	runes := []rune(text)
 	suffix := "\n[truncated]"
 	return strings.TrimSpace(string(runes[:baselineMaxChars-utf8.RuneCountInString(suffix)])) + suffix
-}
-
-func modelRenderer(model ai.Model) string {
-	provider := strings.TrimSpace(model.Provider)
-	if provider == "" {
-		provider = strings.TrimSpace(model.API)
-	}
-	return provider + "/" + model.ID
 }
 
 // describeWithModel retains the looser legacy read-tool behavior.

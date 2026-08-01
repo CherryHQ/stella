@@ -204,9 +204,9 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		storePrefix = []ai.Message{userMsg}
 	} else {
 		// Direct internal callers may supply either one image block or the usual
-		// ordered block list. Normalize canonical refs too, so they take the same
-		// CanonicalAppender path without being re-enriched.
+		// ordered block list. Existing canonical refs are not re-enriched.
 		var blocks []ai.ContentBlock
+		hasCanonicalImage := false
 		switch content := userMsg.Content.(type) {
 		case ai.ImageContent:
 			blocks = []ai.ContentBlock{content}
@@ -230,11 +230,12 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 				}
 				blocks = enriched
 			}
+			hasCanonicalImage = ai.HasImageRef(blocks)
 			userMsg.Content = blocks
 			modelMsg = userMsg
 		}
-		if err := appendOrdinary(ctx, rt.mem, memSess, userMsg); err != nil {
-			if containsImageRef(userMsg) {
+		if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
+			if hasCanonicalImage {
 				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
 				close(out)
 				return
@@ -367,7 +368,7 @@ func (rt *Runtime) streamEvents(
 		if isGroup {
 			return rt.mem.Append(persistCtx, memSess, storeMessages...)
 		}
-		return appendOrdinary(persistCtx, rt.mem, memSess, storeMessages...)
+		return rt.mem.Append(persistCtx, memSess, storeMessages...)
 	}
 	storeCurrent := func(msgs ...ai.Message) error {
 		if isGroup {
@@ -393,7 +394,7 @@ func (rt *Runtime) streamEvents(
 			chatErr = evt.Err
 			if !isGroup && (textBuf.Len() > 0 || reasoningBuf.Len() > 0) {
 				flush := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
-				if err := appendOrdinary(persistCtx, rt.mem, memSess, flush); err != nil {
+				if err := rt.mem.Append(persistCtx, memSess, flush); err != nil {
 					rt.log.Warn("memory append error-flush failed", "session_id", sessionID, "error", err)
 				}
 				textBuf.Reset()
@@ -403,7 +404,7 @@ func (rt *Runtime) streamEvents(
 				notice := "I've been working on this for a while and have reached the time limit. Here's where things stand — feel free to send a message to continue or change direction."
 				if !isGroup {
 					noticeMsg := ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: notice}}}
-					if err := appendOrdinary(persistCtx, rt.mem, memSess, noticeMsg); err != nil {
+					if err := rt.mem.Append(persistCtx, memSess, noticeMsg); err != nil {
 						rt.log.Warn("memory append timeout notice failed", "session_id", sessionID, "error", err)
 					}
 				}
@@ -475,44 +476,6 @@ func (rt *Runtime) streamEvents(
 		}
 	}
 	return nil
-}
-
-// appendOrdinary selects canonical persistence whenever supported. A reference
-// cannot fall back to Provider.Append: that would either lose the immutable
-// relationship or reintroduce a legacy codec.
-func appendOrdinary(ctx context.Context, mem memory.Provider, sess memory.Session, msgs ...ai.Message) error {
-	if canonical, ok := mem.(memory.CanonicalAppender); ok {
-		return canonical.AppendCanonical(ctx, sess, msgs...)
-	}
-	if containsImageRef(msgs...) {
-		return errors.New("memory provider does not support canonical image references")
-	}
-	return mem.Append(ctx, sess, msgs...)
-}
-
-func containsImageRef(msgs ...ai.Message) bool {
-	for _, msg := range msgs {
-		for _, block := range runtimeMessageBlocks(msg) {
-			if _, ok := block.(ai.ImageRefContent); ok {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func runtimeMessageBlocks(msg ai.Message) []ai.ContentBlock {
-	switch m := msg.(type) {
-	case ai.UserMessage:
-		blocks, _ := m.Content.([]ai.ContentBlock)
-		return blocks
-	case ai.AssistantMessage:
-		return m.Content
-	case ai.ToolResultMessage:
-		return m.Content
-	default:
-		return nil
-	}
 }
 
 func bufferedAssistantMessage(text, reasoning string) ai.AssistantMessage {

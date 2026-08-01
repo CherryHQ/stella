@@ -12,17 +12,13 @@ var (
 	ErrUnsupportedCanonicalBlock = errors.New("content block cannot be stored canonically")
 )
 
-// ContentBlockJSON is the compatibility serialization for user-visible content
-// blocks. It deliberately retains inline images because group history still
-// owns that legacy codec. Ordinary session history must use
-// MarshalCanonicalContentBlocks instead.
+// ContentBlockJSON is the compatibility serialization for deferred group
+// history. Canonical ordinary-session references live only in message parts.
 type ContentBlockJSON struct {
-	Kind     string         `json:"kind"`
-	Text     string         `json:"text,omitempty"`
-	Data     string         `json:"data,omitempty"`
-	MimeType string         `json:"mime_type,omitempty"`
-	MediaID  string         `json:"media_id,omitempty"`
-	Baseline *ImageBaseline `json:"baseline,omitempty"`
+	Kind     string `json:"kind"`
+	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
 }
 
 // MarshalContentBlocks serializes text and legacy inline image blocks. It
@@ -36,9 +32,6 @@ func MarshalContentBlocks(blocks []ContentBlock) ([]byte, error) {
 			out = append(out, ContentBlockJSON{Kind: "text", Text: b.Text})
 		case ImageContent:
 			out = append(out, ContentBlockJSON{Kind: "image", Data: b.Data, MimeType: b.MimeType})
-		case ImageRefContent:
-			baseline := b.Baseline
-			out = append(out, ContentBlockJSON{Kind: "image_ref", MediaID: b.MediaID, MimeType: b.MimeType, Baseline: &baseline})
 		}
 	}
 	data, err := json.Marshal(out)
@@ -48,32 +41,23 @@ func MarshalContentBlocks(blocks []ContentBlock) ([]byte, error) {
 	return data, nil
 }
 
-// MarshalCanonicalContentBlocks serializes only durable text and immutable
-// image references. It rejects provider-ready ImageContent so a new ordinary
-// session write cannot accidentally retain base64.
-func MarshalCanonicalContentBlocks(blocks []ContentBlock) ([]byte, error) {
-	out := make([]ContentBlockJSON, 0, len(blocks))
-	for _, b := range blocks {
-		switch b := b.(type) {
+// ValidateCanonicalContentBlocks rejects provider-ready bytes and block kinds
+// that cannot be represented by durable message parts.
+func ValidateCanonicalContentBlocks(blocks []ContentBlock) error {
+	for _, block := range blocks {
+		switch block := block.(type) {
 		case TextContent:
-			out = append(out, ContentBlockJSON{Kind: "text", Text: b.Text})
 		case ImageRefContent:
-			if err := b.Validate(); err != nil {
-				return nil, err
+			if err := block.Validate(); err != nil {
+				return err
 			}
-			baseline := b.Baseline
-			out = append(out, ContentBlockJSON{Kind: "image_ref", MediaID: b.MediaID, MimeType: b.MimeType, Baseline: &baseline})
 		case ImageContent:
-			return nil, ErrRawImageContent
+			return ErrRawImageContent
 		default:
-			return nil, fmt.Errorf("%w: %T", ErrUnsupportedCanonicalBlock, b)
+			return fmt.Errorf("%w: %T", ErrUnsupportedCanonicalBlock, block)
 		}
 	}
-	data, err := json.Marshal(out)
-	if err != nil {
-		return nil, fmt.Errorf("marshal canonical content blocks: %w", err)
-	}
-	return data, nil
+	return nil
 }
 
 // UnmarshalContentBlocks is the compatibility decoder. Legacy inline images
@@ -97,15 +81,6 @@ func UnmarshalContentBlocks(data []byte) ([]ContentBlock, error) {
 			blocks = append(blocks, TextContent{Text: b.Text})
 		case "image":
 			blocks = append(blocks, ImageContent{Data: b.Data, MimeType: b.MimeType})
-		case "image_ref":
-			if b.Baseline == nil {
-				return nil, fmt.Errorf("unmarshal image ref: missing baseline")
-			}
-			ref := ImageRefContent{MediaID: b.MediaID, MimeType: b.MimeType, Baseline: *b.Baseline}
-			if err := ref.Validate(); err != nil {
-				return nil, fmt.Errorf("unmarshal image ref: %w", err)
-			}
-			blocks = append(blocks, ref)
 		}
 	}
 	if len(blocks) == 0 {
