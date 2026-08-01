@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -43,15 +44,18 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -242,6 +246,32 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, err
 	}
+	sessionMediaSvc, err := sessionmedia.NewForPool(assetStore.SessionMedia(), db)
+	if err != nil {
+		return nil, fmt.Errorf("build session media service: %w", err)
+	}
+	visionFactory, err := sessionmedia.NewSnapshotVisionFactory(store, vision.StreamBuilder(providerStreamBuilder))
+	if err != nil {
+		return nil, fmt.Errorf("build session image vision factory: %w", err)
+	}
+	imageEnricher, err := sessionmedia.NewEnricher(sessionMediaSvc, visionFactory, vision.New(vision.Options{}), sessionmedia.EnricherOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("build session image enricher: %w", err)
+	}
+	imageEnrich := func(ctx context.Context, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+		principal, err := uuid.Parse(userID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid session image user")
+		}
+		return imageEnricher.Enrich(ctx, principal, agentID, blocks)
+	}
+	imageLoad := func(ctx context.Context, userID, mediaID string) (ai.ImageContent, error) {
+		principal, err := uuid.Parse(userID)
+		if err != nil {
+			return ai.ImageContent{}, sessionmedia.ErrNotFound
+		}
+		return sessionMediaSvc.Load(ctx, principal, mediaID)
+	}
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		StellaHome: config.StellaHome(),
@@ -408,6 +438,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithAssetStorePM(assetStore),
+		agent.WithSessionImagePipeline(imageEnrich, imageLoad),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),

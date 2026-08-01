@@ -161,6 +161,42 @@ func TestToolExecutionLifecycleTextMutationPreservesImages(t *testing.T) {
 	}
 }
 
+func TestToolExecutionTransformsFinalResultBeforeCallback(t *testing.T) {
+	calls := []ai.ToolCall{{ID: "1", Name: "image"}}
+	lifecycle := &ToolLifecycle{AfterCall: func(context.Context, ToolResultContext) (ToolResultMutation, error) {
+		text := "after lifecycle"
+		return ToolResultMutation{Result: &text}, nil
+	}}
+	var finished ai.ToolResultMessage
+	results, err := executeToolCalls(context.Background(), calls, ToolSet{
+		"image": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}}, nil
+		},
+	}, toolCallbacks{onFinish: func(result ai.ToolResultMessage) { finished = result }}, nil, hooks.HookMeta{}, lifecycle,
+		func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+			if got := ai.FlattenText(result.Content); got != "after lifecycle" {
+				t.Fatalf("transform ran before lifecycle: %q", got)
+			}
+			result.Content = []ai.ContentBlock{canonicalRef("media-1")}
+			return result, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || !containsRef(results[0].Content) || !containsRef(finished.Content) {
+		t.Fatalf("final transform missing: results=%#v callback=%#v", results, finished)
+	}
+}
+
+func containsRef(blocks []ai.ContentBlock) bool {
+	for _, block := range blocks {
+		if _, ok := block.(ai.ImageRefContent); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func TestToolExecutionOrdersLifecycleBeforeAndAfterHooks(t *testing.T) {
 	var order []string
 	calls := []ai.ToolCall{{ID: "1", Name: "echo", Arguments: map[string]any{"q": "original"}}}

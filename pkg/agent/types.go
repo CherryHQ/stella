@@ -13,6 +13,10 @@ import (
 // (text and/or images).
 type ToolFunc func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error)
 
+// ToolResultTransform canonicalizes a final tool result after lifecycle
+// mutations and before it is observed, appended to the loop, or persisted.
+type ToolResultTransform func(context.Context, ai.ToolResultMessage) (ai.ToolResultMessage, error)
+
 // ToolSet maps tool names to handlers.
 type ToolSet map[string]ToolFunc
 
@@ -28,9 +32,13 @@ type loopConfig struct {
 	Hooks           *hooks.HookSet
 	HookMeta        hooks.HookMeta
 	ToolLifecycle   *ToolLifecycle
-	// ImageText renders inline images as text just before a request goes to a
-	// model that cannot accept images. Nil leaves images untouched.
-	ImageText ImageTextFunc
+	ToolTransform   ToolResultTransform
+	// ImageText renders legacy inline images as text. New canonical references
+	// use MediaLoader and their stored baseline instead.
+	ImageText          ImageTextFunc
+	MediaLoader        MediaLoader
+	ProjectionObserver ProjectionObserver
+	ImageProjection    bool
 	// TurnNotify is called at the start of each turn. If it returns a non-nil
 	// string, that text is injected as a UserMessage before the model call.
 	// Intended for progress nudges at milestone turns (e.g. 50, 80, 100).

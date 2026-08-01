@@ -21,6 +21,10 @@ import (
 // Runtime executes agent conversations in already-resolved sessions.
 // It owns the runner cache, runner factory, and event streaming.
 // It does NOT own session creation, kind validation, or list/archive APIs.
+// ContentEnricher converts raw image blocks into canonical references at an
+// ordinary-session write chokepoint. Group calls intentionally never invoke it.
+type ContentEnricher func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
+
 type Runtime struct {
 	cache          *runnerCache
 	mem            memory.Provider
@@ -28,6 +32,7 @@ type Runtime struct {
 	compact        CompactionConfig
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
+	enrichContent  ContentEnricher
 	active         sync.Map // session ID → struct{}, tracks in-flight turns
 	turns          turnTracker
 	hub            *SessionHub
@@ -124,6 +129,7 @@ type Config struct {
 	HooksFn         func() []hooks.HookPlugin
 	BeforeRun       BeforeRunFunc
 	SnapshotPrompt  SnapshotPromptFunc
+	EnrichContent   ContentEnricher
 }
 
 // New creates a Runtime from the given config.
@@ -150,6 +156,7 @@ func New(cfg Config) (*Runtime, error) {
 		compact:        cfg.Compaction.WithDefaults(),
 		beforeRun:      cfg.BeforeRun,
 		snapshotPrompt: cfg.SnapshotPrompt,
+		enrichContent:  cfg.EnrichContent,
 		hub:            NewSessionHub(),
 	}, nil
 }

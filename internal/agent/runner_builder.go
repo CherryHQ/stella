@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -33,6 +34,12 @@ type BuiltinTool struct {
 	Tool      tools.Tool
 	Available func(context.Context, RunnerParams) bool
 }
+
+// SessionImageEnricher is the narrow ordinary-session raw→canonical boundary.
+type SessionImageEnricher func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
+
+// SessionImageLoader opens verified immutable image bytes for one user.
+type SessionImageLoader func(context.Context, string, string) (ai.ImageContent, error)
 
 func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
 	return params.UserID != "" && params.AgentID != ""
@@ -55,6 +62,8 @@ type runnerBuilderConfig struct {
 	VaultEnvLoader           sandbox.VaultEnvLoader
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
+	ImageEnricher            SessionImageEnricher
+	ImageLoader              SessionImageLoader
 }
 
 // newRunnerFunc assembles a NewRunnerFunc for a given config snapshot.
@@ -226,6 +235,38 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		// every turn. Agents with no vision tier get an Xberg-only service.
 		visionSvc := vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder))
 
+		var toolTransform coreagent.ToolResultTransform
+		var mediaLoader coreagent.MediaLoader
+		if params.GroupID == "" {
+			if cfg.ImageEnricher == nil {
+				// A miswired ordinary deployment must never send a raw tool image
+				// while silently falling back to the legacy persistence codec.
+				toolTransform = func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+					if ai.HasImage(result.Content) {
+						return ai.ToolResultMessage{}, fmt.Errorf("session image enrichment is not configured")
+					}
+					return result, nil
+				}
+			} else {
+				toolTransform = func(ctx context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+					if !ai.HasImage(result.Content) {
+						return result, nil
+					}
+					blocks, err := cfg.ImageEnricher(ctx, params.UserID, params.AgentID, result.Content)
+					if err != nil {
+						return ai.ToolResultMessage{}, err
+					}
+					result.Content = blocks
+					return result, nil
+				}
+			}
+			if cfg.ImageLoader != nil {
+				mediaLoader = func(ctx context.Context, mediaID string) (ai.ImageContent, error) {
+					return cfg.ImageLoader(ctx, params.UserID, mediaID)
+				}
+			}
+		}
+
 		return newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
 				API:     apiName,
@@ -235,24 +276,27 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				BaseURL: creds.BaseURL,
 				Builder: cfg.ProviderStreamBuilder,
 			},
-			Thinking:            params.Thinking,
-			Sandbox:             sandboxCfg,
-			System:              system,
-			Sections:            sections,
-			BuiltinTools:        builtinTools,
-			BuiltinParams:       params,
-			PerRunTools:         perRunTools,
-			SkillStore:          cfg.SkillStore,
-			SkillReadAuthorizer: cfg.SkillReadAuthorizer,
-			PluginView:          pluginView,
-			MCPToolProvider:     cfg.MCPToolProvider,
-			ToolOverrideFetcher: cfg.ToolOverrideFetcher,
-			PluginTools:         cfg.PluginToolsBuilder,
-			HookPlugins:         hookPlugins,
-			ToolLifecycle:       cfg.ToolLifecycle,
-			DelegateRunner:      params.DelegateRunner,
-			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
-			Vision:              visionSvc,
+			Thinking:              params.Thinking,
+			Sandbox:               sandboxCfg,
+			System:                system,
+			Sections:              sections,
+			BuiltinTools:          builtinTools,
+			BuiltinParams:         params,
+			PerRunTools:           perRunTools,
+			SkillStore:            cfg.SkillStore,
+			SkillReadAuthorizer:   cfg.SkillReadAuthorizer,
+			PluginView:            pluginView,
+			MCPToolProvider:       cfg.MCPToolProvider,
+			ToolOverrideFetcher:   cfg.ToolOverrideFetcher,
+			PluginTools:           cfg.PluginToolsBuilder,
+			HookPlugins:           hookPlugins,
+			ToolLifecycle:         cfg.ToolLifecycle,
+			DelegateRunner:        params.DelegateRunner,
+			DelegateTimeout:       cfg.Snap.Runner.DelegateTimeoutDuration(),
+			Vision:                visionSvc,
+			MediaLoader:           mediaLoader,
+			ToolTransform:         toolTransform,
+			LegacyImageProjection: params.GroupID != "",
 		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -140,6 +141,62 @@ func TestRunStreamingDeltasCarryPartial(t *testing.T) {
 	}
 	if deltaCount < 2 {
 		t.Fatalf("expected at least 2 text deltas, got %d", deltaCount)
+	}
+}
+
+type modelOverrideHook struct{ model string }
+
+func (h modelOverrideHook) Name() string { return "model-override" }
+func (modelOverrideHook) Priority() int  { return 0 }
+func (h modelOverrideHook) OnPreLLMCall(context.Context, *hooks.PreLLMCallContext) (hooks.PreLLMCallResult, error) {
+	return hooks.PreLLMCallResult{Model: &h.model}, nil
+}
+
+func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
+	var providerContexts []ai.Context
+	providerCalls := 0
+	toolSawVision := true
+	stream := func(_ context.Context, model ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		if model.Name != "unknown-target" || model.ImageCapability() != ai.ImageUnknown {
+			t.Fatalf("effective model = %#v, want unknown override", model)
+		}
+		providerContexts = append(providerContexts, aiCtx)
+		providerCalls++
+		out := providers.NewChannelEventStream(4)
+		go func() {
+			if providerCalls == 1 {
+				out.Emit(ai.EventToolCallDelta{ID: "tool", Name: "check"})
+			} else {
+				out.Emit(ai.EventTextDelta{Text: "done"})
+			}
+			out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	runner, err := NewRunner(RunnerConfig{
+		Stream: stream,
+		Model:  supportedModel(),
+		Tools: ToolSet{"check": func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+			toolSawVision = tools.VisionFromContext(ctx)
+			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+		}},
+	}, WithImageText(func(context.Context, int, ai.ImageContent) string { return "legacy image text" }), WithHooks(hooks.NewHookSet([]hooks.HookPlugin{modelOverrideHook{model: "unknown-target"}}), hooks.HookMeta{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(context.Background(), []ai.Message{ai.UserMessage{Content: []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if toolSawVision {
+		t.Fatal("tool inherited vision from the configured model after override")
+	}
+	for call, aiCtx := range providerContexts {
+		for _, msg := range aiCtx.Messages {
+			if ai.HasImage(messageBlocks(msg)) {
+				t.Fatalf("provider call %d received ImageContent after model override", call+1)
+			}
+		}
 	}
 }
 

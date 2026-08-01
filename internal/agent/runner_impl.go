@@ -59,25 +59,30 @@ type runnerConfig struct {
 	DelegateRunner      delegatetool.SessionRunner
 	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
-	// Vision renders images as text for the read tool and for inline images in
-	// the transcript. Nil degrades both to local Xberg extraction.
-	Vision *vision.Service
+	// Vision remains the legacy request-only renderer for raw historical rows.
+	Vision                *vision.Service
+	MediaLoader           coreagent.MediaLoader
+	ToolTransform         coreagent.ToolResultTransform
+	LegacyImageProjection bool
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
 type runner struct {
-	runner        *coreagent.Runner
-	stream        providers.StreamFunc
-	tools         *tools.Registry
-	model         ai.Model
-	streamOptions ai.StreamOptions
-	system        string
-	hookSet       *hooks.HookSet
-	toolLifecycle *coreagent.ToolLifecycle
-	imageText     coreagent.ImageTextFunc
-	chatTimeout   time.Duration
-	session       pkgsandbox.Session // runner-owned sandbox session lifecycle
-	sandboxCfg    sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
+	runner                *coreagent.Runner
+	stream                providers.StreamFunc
+	tools                 *tools.Registry
+	model                 ai.Model
+	streamOptions         ai.StreamOptions
+	system                string
+	hookSet               *hooks.HookSet
+	toolLifecycle         *coreagent.ToolLifecycle
+	imageText             coreagent.ImageTextFunc
+	mediaLoader           coreagent.MediaLoader
+	toolTransform         coreagent.ToolResultTransform
+	legacyImageProjection bool
+	chatTimeout           time.Duration
+	session               pkgsandbox.Session // runner-owned sandbox session lifecycle
+	sandboxCfg            sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -131,7 +136,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
 	imageText := imageTextFunc(cfg.Vision)
-	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, imageText)
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, imageText, cfg.MediaLoader, cfg.ToolTransform, cfg.LegacyImageProjection)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -140,42 +145,54 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	return &runner{
-		runner:        coreRunner,
-		stream:        stream,
-		tools:         toolReg,
-		model:         model,
-		streamOptions: streamOptions,
-		system:        systemPrompt,
-		hookSet:       hookSet,
-		toolLifecycle: cfg.ToolLifecycle,
-		imageText:     imageText,
-		chatTimeout:   cfg.ChatTimeout,
-		session:       session,
-		sandboxCfg:    cfg.Sandbox,
-		lastActivity:  time.Now(),
-		log:           slog.With("component", "go_runner"),
+		runner:                coreRunner,
+		stream:                stream,
+		tools:                 toolReg,
+		model:                 model,
+		streamOptions:         streamOptions,
+		system:                systemPrompt,
+		hookSet:               hookSet,
+		toolLifecycle:         cfg.ToolLifecycle,
+		imageText:             imageText,
+		mediaLoader:           cfg.MediaLoader,
+		toolTransform:         cfg.ToolTransform,
+		legacyImageProjection: cfg.LegacyImageProjection,
+		chatTimeout:           cfg.ChatTimeout,
+		session:               session,
+		sandboxCfg:            cfg.Sandbox,
+		lastActivity:          time.Now(),
+		log:                   slog.With("component", "go_runner"),
 	}, nil
 }
 
-func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, imageText coreagent.ImageTextFunc) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, imageText coreagent.ImageTextFunc, mediaLoader coreagent.MediaLoader, toolTransform coreagent.ToolResultTransform, legacyImageProjection bool) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, imageText, toolSet, toolDefs)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, imageText, mediaLoader, toolTransform, legacyImageProjection, toolSet, toolDefs)
 }
 
-func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, imageText coreagent.ImageTextFunc, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
-	return coreagent.NewRunner(coreagent.RunnerConfig{
-		Stream:          stream,
-		Model:           model,
-		Tools:           toolSet,
-		ToolDefinitions: toolDefs,
-	},
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, imageText coreagent.ImageTextFunc, mediaLoader coreagent.MediaLoader, toolTransform coreagent.ToolResultTransform, legacyImageProjection bool, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+	opts := []coreagent.Option{
 		coreagent.WithStreamOptions(streamOptions),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
 		coreagent.WithImageText(imageText),
-	)
+		coreagent.WithMediaLoader(mediaLoader),
+		coreagent.WithToolResultTransform(toolTransform),
+		coreagent.WithProjectionObserver(func(stats coreagent.ProjectionStats) {
+			slog.Debug("session image projection", "capability", stats.Capability, "active_pixels", stats.ActivePixels, "active_pixel_bytes", stats.ActivePixelBytes, "baseline_projections", stats.BaselineProjections, "legacy_rendered", stats.LegacyRendered, "hydrations", stats.Hydrations)
+		}),
+	}
+	if legacyImageProjection {
+		opts = append(opts, coreagent.WithLegacyImageProjection())
+	}
+	return coreagent.NewRunner(coreagent.RunnerConfig{
+		Stream:          stream,
+		Model:           model,
+		Tools:           toolSet,
+		ToolDefinitions: toolDefs,
+	}, opts...)
 }
 
 // buildStreamFunc creates the stream function for the configured API.
@@ -431,7 +448,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.imageText, toolSet, toolDefs)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.imageText, r.mediaLoader, r.toolTransform, r.legacyImageProjection, toolSet, toolDefs)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return
@@ -486,7 +503,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			messages = append(messages, ai.UserMessage{Content: message, Timestamp: time.Now()})
 		}
 
-		if _, err := loopRunner.Run(ctx, messages, func(e coreagent.LoopEvent) {
+		if _, err := loopRunner.RunWithActiveStart(ctx, messages, len(history), func(e coreagent.LoopEvent) {
 			for _, evt := range convertLoopEvent(e) {
 				if !sendEvent(ctx, out, evt) {
 					return

@@ -91,6 +91,35 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	}
 }
 
+func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := NewForPool(assets.SessionMedia(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := seedUser(t, db)
+	other := seedUser(t, db)
+	stored, err := svc.Persist(ctx, Input{UserID: owner, Data: []byte("verified bytes"), MimeType: "image/png", WidthPX: 3, HeightPX: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := svc.Load(ctx, owner, stored.ID)
+	if err != nil || loaded.MimeType != "image/png" || loaded.Data == "" {
+		t.Fatalf("load = %#v, %v", loaded, err)
+	}
+	if _, err := svc.Load(ctx, other, stored.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("foreign load = %v, want opaque ErrNotFound", err)
+	}
+	if _, err := svc.Load(ctx, owner, "not-a-media-id"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("malformed load = %v, want opaque ErrNotFound", err)
+	}
+}
+
 func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
