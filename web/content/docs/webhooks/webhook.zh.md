@@ -39,7 +39,7 @@ GitHub 只是同一个通用 Webhook 能力的调用方，不需要 GitHub 集�
 
 Stella 仅凭不可猜测的 capability URL 授权请求；它不会认证请求来源是否确为 GitHub，也不校验 `X-Hub-Signature-256`。因此不要为此端点配置 GitHub secret。默认调用为异步且使用临时会话：GitHub 收到 `202` 时 Agent 仍在运行，回复不会回传给 GitHub。
 
-GitHub 可能重投事件。Stella 不会对投递去重，包括不会按 `X-GitHub-Delivery` 去重；会产生副作用的 Agent 必须做到幂等。
+GitHub 初次创建时发送的 `ping` 和之后每个选定事件都会调用 Agent。GitHub 也可能重投事件。Stella 不会对投递去重，包括不会按 `X-GitHub-Delivery` 去重；会产生副作用的 Agent 必须做到幂等。
 
 ## 管理能力
 

@@ -39,7 +39,7 @@ GitHub is a caller of the same generic Webhook capability; no GitHub integration
 
 Stella authorizes the request solely by possession of the unguessable capability URL; it does not authenticate GitHub as the source or verify `X-Hub-Signature-256`. Do not configure a GitHub secret for this endpoint. The default invocation is asynchronous and uses an ephemeral session: GitHub receives `202` while the Agent runs, and the reply is not sent back to GitHub.
 
-GitHub can redeliver an event. Stella does not deduplicate deliveries, including by `X-GitHub-Delivery`; make Agents that cause side effects idempotent.
+GitHub's initial `ping` and every selected event invoke the Agent. GitHub can also redeliver an event. Stella does not deduplicate deliveries, including by `X-GitHub-Delivery`; make Agents that cause side effects idempotent.
 
 ## Manage the capability
 
