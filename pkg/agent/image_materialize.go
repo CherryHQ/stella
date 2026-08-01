@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -41,8 +40,6 @@ var (
 	ErrImageRefUnresolved  = projectionError("image reference reached provider boundary")
 	ErrUnsupportedImage    = projectionError("unsupported model received image content")
 )
-
-const imageProjectionInstruction = "This session image is historical or unavailable as pixels. Use inspect_image(image_id, question) for exact visual details."
 
 // projectImages converts canonical references and legacy inline images into a
 // provider-safe request before TransformMessages can insert synthetic blocks.
@@ -129,7 +126,7 @@ func projectBlocks(ctx context.Context, cfg loopConfig, blocks []ai.ContentBlock
 				stats.ActivePixelBytes += len(image.Data)
 				continue
 			}
-			out[i] = ai.TextContent{Text: imageRefProjection(b)}
+			out[i] = ai.TextContent{Text: b.Baseline.Projection()}
 			stats.BaselineProjections++
 		case ai.ImageContent:
 			if active && cfg.Model.ImageCapability() == ai.ImageSupported {
@@ -173,10 +170,6 @@ func legacyMaterializeImages(ctx context.Context, cfg loopConfig, messages []ai.
 		out[i] = projected
 	}
 	return out
-}
-
-func imageRefProjection(ref ai.ImageRefContent) string {
-	return fmt.Sprintf("[Session image id: %s]\n%s\n\n%s", ref.MediaID, imageProjectionInstruction, ref.Baseline.Projection())
 }
 
 // validateProviderImages is deliberately immediately before Stream: no

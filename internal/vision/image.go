@@ -101,7 +101,7 @@ func PrepareInline(data []byte, cfg image.Config, mime string) ([]byte, string, 
 }
 
 // PrepareBaseline keeps the compatibility API for callers without a request
-// context. Baseline and Targeted use PrepareBaselineContext instead.
+// context. Baseline uses PrepareBaselineContext instead.
 func PrepareBaseline(data []byte, cfg image.Config, mime string) ([]byte, string, error) {
 	return PrepareBaselineContext(context.Background(), data, cfg, mime)
 }

@@ -19,6 +19,19 @@ func canonicalRef(id string) ai.ImageRefContent {
 	}
 }
 
+func canonicalReadyRef(id string) ai.ImageRefContent {
+	return ai.ImageRefContent{
+		MediaID:  id,
+		MimeType: "image/png",
+		Baseline: ai.ImageBaseline{
+			Status:   ai.ImageBaselineReady,
+			Text:     "## Text\ninvoice total: $42\n\n## Scene\nA scanned invoice.",
+			Renderer: "test/vlm",
+			Contract: ai.ImageBaselineContractV1,
+		},
+	}
+}
+
 func TestProjectImagesMatrix(t *testing.T) {
 	for _, model := range []ai.Model{supportedModel(), unsupportedModel(), unknownModel()} {
 		t.Run(fmt.Sprintf("%v", model.ImageCapability()), func(t *testing.T) {
@@ -92,7 +105,7 @@ func TestProjectImagesRejectsAssistantImageAndProviderLeaks(t *testing.T) {
 }
 
 func TestNextTurnProjectsPriorImageAsStableBaseline(t *testing.T) {
-	ref := canonicalRef("prior-image")
+	ref := canonicalReadyRef("prior-image")
 	prefix := ai.UserMessage{Content: "unchanged prefix"}
 	current := ai.UserMessage{Content: []ai.ContentBlock{ref}}
 	cfg := loopConfig{Model: supportedModel(), ImageProjection: true, MediaLoader: func(context.Context, string) (ai.ImageContent, error) {
@@ -106,15 +119,19 @@ func TestNextTurnProjectsPriorImageAsStableBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprintf("%#v", first[0]) != fmt.Sprintf("%#v", next[0]) {
-		t.Fatal("prefix before prior image changed across turns")
+	if got := first[0].(ai.UserMessage).Content; got != "unchanged prefix" {
+		t.Fatalf("first prefix = %#v, want unchanged prefix", got)
+	}
+	if got := next[0].(ai.UserMessage).Content; got != "unchanged prefix" {
+		t.Fatalf("next prefix = %#v, want unchanged prefix", got)
 	}
 	blocks := messageBlocks(next[1])
 	if len(blocks) != 1 || ai.HasImage(blocks) {
 		t.Fatalf("prior image was not reduced to baseline: %#v", blocks)
 	}
-	if got := blocks[0].(ai.TextContent).Text; got != imageRefProjection(ref) {
-		t.Fatalf("baseline wrapper = %q, want %q", got, imageRefProjection(ref))
+	wantBaseline := "## Text\ninvoice total: $42\n\n## Scene\nA scanned invoice."
+	if got := blocks[0].(ai.TextContent).Text; got != wantBaseline {
+		t.Fatalf("baseline projection = %q, want stored baseline %q", got, wantBaseline)
 	}
 }
 

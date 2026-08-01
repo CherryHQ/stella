@@ -57,7 +57,7 @@ const (
 // UnavailableImageProjection is deliberately independent of a renderer,
 // timestamp, and error body. It is the only durable text for an image whose
 // original bytes persisted but whose baseline could not be produced.
-const UnavailableImageProjection = "[Image baseline unavailable. Use inspect_image for exact details.]"
+const UnavailableImageProjection = "[Image baseline unavailable.]"
 
 // ImageBaseline is immutable text and provenance for canonical session history.
 type ImageBaseline struct {

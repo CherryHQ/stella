@@ -118,7 +118,7 @@ func TestFlattenCanonicalTextUsesStableUnavailableProjection(t *testing.T) {
 	blocks := []ContentBlock{TextContent{Text: "before"}, ImageRefContent{
 		MediaID: "id", MimeType: "image/png", Baseline: ImageBaseline{Status: ImageBaselineUnavailable},
 	}}
-	want := "before " + UnavailableImageProjection
+	want := "before [Image baseline unavailable.]"
 	if got := FlattenCanonicalText(blocks); got != want {
 		t.Errorf("FlattenCanonicalText = %q, want %q", got, want)
 	}
