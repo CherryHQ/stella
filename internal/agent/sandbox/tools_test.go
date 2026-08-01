@@ -226,7 +226,7 @@ func TestToolPathsExpandSandboxViewAndRemainConfined(t *testing.T) {
 		}),
 	}
 
-	read, err := newReadTool(host, "").Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
+	read, err := newReadTool(host, "", nil).Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
 	if err != nil || read != "uploaded" {
 		t.Fatalf("read assets = %q, %v; want uploaded", read, err)
 	}
