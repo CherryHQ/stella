@@ -104,20 +104,13 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 
 		// Project before normalization so synthetic inserts cannot shift the
 		// active boundary. The hydration memo is local to this Run.
-		projected, projectionStats, err := projectImages(streamCtx, turnCfg, history, activeStart, hydrationMemo)
+		projected, err := projectImages(streamCtx, turnCfg, history, activeStart, hydrationMemo)
 		if err != nil {
 			return history, err
 		}
-		if cfg.ProjectionObserver != nil {
-			cfg.ProjectionObserver(projectionStats)
-		}
 		// Normalize only provider-ready content.
 		normalized := ai.TransformMessages(projected)
-		if !turnCfg.LegacyImages {
-			if err := validateProviderImages(turnCfg.Model, normalized); err != nil {
-				return history, err
-			}
-		} else if err := validateNoImageRefs(normalized); err != nil {
+		if err := validateProviderImages(turnCfg.Model, normalized); err != nil {
 			return history, err
 		}
 
@@ -177,16 +170,11 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			}
 		}
 
-		// Only an explicit "image" declaration earns the image itself. Anything
-		// else — declared text-only, or never declared — goes through the text
-		// rendering ladder instead. Undeclared is treated as "cannot see" on
-		// purpose: providers do not report modalities, so most models arrive
-		// undeclared, and handing an image to one that cannot read it produces
-		// a silent placeholder the model then burns a turn working around.
-		// Rendering costs image detail; a wasted turn costs more, and declaring
-		// "text, image" on the provider's model restores full fidelity.
-		toolExecCtx := tools.WithVision(ctx, effectiveModel.ImageCapability() == ai.ImageSupported)
-		toolExecCtx = tools.WithCanonicalImages(toolExecCtx, cfg.CanonicalImages != nil)
+		imageMode := tools.ImageResultLegacy
+		if cfg.CanonicalImages != nil {
+			imageMode = tools.ImageResultCanonical
+		}
+		toolExecCtx := tools.WithImageResultMode(ctx, imageMode)
 		var canonicalizer ToolImageCanonicalizer
 		if cfg.CanonicalImages != nil {
 			canonicalizer = cfg.CanonicalImages.CanonicalizeToolResult

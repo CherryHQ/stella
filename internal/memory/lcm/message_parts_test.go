@@ -12,24 +12,15 @@ import (
 )
 
 type countingPartsQuerier struct {
-	partCalls  int
-	mediaCalls int
-	partIDs    []string
-	mediaIDs   []string
-	parts      []sqlc.CtxMessagePart
-	media      []sqlc.ListMessagePartsWithMediaByMessagesRow
+	calls int
+	ids   []string
+	parts []sqlc.CtxMessagePart
 }
 
 func (q *countingPartsQuerier) GetMessagePartsByMessages(_ context.Context, ids []string) ([]sqlc.CtxMessagePart, error) {
-	q.partCalls++
-	q.partIDs = append([]string(nil), ids...)
+	q.calls++
+	q.ids = append([]string(nil), ids...)
 	return q.parts, nil
-}
-
-func (q *countingPartsQuerier) ListMessagePartsWithMediaByMessages(_ context.Context, ids []string) ([]sqlc.ListMessagePartsWithMediaByMessagesRow, error) {
-	q.mediaCalls++
-	q.mediaIDs = append([]string(nil), ids...)
-	return q.media, nil
 }
 
 func TestMessageIDsThatCanHavePartsSkipsPlainParents(t *testing.T) {
@@ -44,32 +35,23 @@ func TestMessageIDsThatCanHavePartsSkipsPlainParents(t *testing.T) {
 	}
 }
 
-func TestLoadMessagePartsUsesOneBatchQueryPerPartAndMedia(t *testing.T) {
-	q := &countingPartsQuerier{
-		parts: []sqlc.CtxMessagePart{
-			{ID: "p1", MessageID: "m1", PartType: "text", Ordinal: 0, TextContent: pgtype.Text{String: "first", Valid: true}},
-			{ID: "p2", MessageID: "m2", PartType: "image", Ordinal: 0, MediaID: pgtype.Text{String: "media-2", Valid: true}, TextContent: pgtype.Text{String: ai.UnavailableImageProjection, Valid: true}},
-		},
-		media: []sqlc.ListMessagePartsWithMediaByMessagesRow{{
-			CtxMessagePart: sqlc.CtxMessagePart{ID: "p2"},
-			CtxMedium:      sqlc.CtxMedium{ID: "media-2", MimeType: "image/png"},
-		}},
-	}
+func TestLoadMessagePartsUsesOneBatchQuery(t *testing.T) {
+	q := &countingPartsQuerier{parts: []sqlc.CtxMessagePart{
+		{ID: "p1", MessageID: "m1", PartType: "text", Ordinal: 0, TextContent: pgtype.Text{String: "first", Valid: true}},
+		{ID: "p2", MessageID: "m2", PartType: "image", Ordinal: 0, MediaID: pgtype.Text{String: "media-2", Valid: true}, TextContent: pgtype.Text{String: ai.UnavailableImageProjection, Valid: true}},
+	}}
 
 	got, err := loadMessageParts(context.Background(), q, []string{"m1", "m2"})
 	if err != nil {
 		t.Fatalf("loadMessageParts: %v", err)
 	}
-	if q.partCalls != 1 || q.mediaCalls != 1 {
-		t.Fatalf("part/media query calls = %d/%d, want 1/1", q.partCalls, q.mediaCalls)
+	if q.calls != 1 {
+		t.Fatalf("part query calls = %d, want 1", q.calls)
 	}
-	if want := []string{"m1", "m2"}; !reflect.DeepEqual(q.partIDs, want) || !reflect.DeepEqual(q.mediaIDs, want) {
-		t.Fatalf("batch ids = parts:%v media:%v, want %v", q.partIDs, q.mediaIDs, want)
+	if want := []string{"m1", "m2"}; !reflect.DeepEqual(q.ids, want) {
+		t.Fatalf("batch ids = %v, want %v", q.ids, want)
 	}
-	if len(got["m1"]) != 1 || len(got["m2"]) != 1 {
+	if len(got["m1"]) != 1 || len(got["m2"]) != 1 || got["m2"][0].MediaID.String != "media-2" {
 		t.Fatalf("loaded parts = %#v", got)
-	}
-	if got["m2"][0].media == nil || got["m2"][0].media.MimeType != "image/png" {
-		t.Fatalf("media metadata missing: %#v", got["m2"])
 	}
 }

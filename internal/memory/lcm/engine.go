@@ -159,10 +159,7 @@ type messagePartRow struct {
 	mediaID  string
 }
 
-type loadedMessagePart struct {
-	part  sqlc.CtxMessagePart
-	media *sqlc.CtxMedium
-}
+type loadedMessagePart = sqlc.CtxMessagePart
 
 func messageToRows(msg ai.Message) []storageRow {
 	switch m := msg.(type) {
@@ -447,12 +444,11 @@ func messageIDsThatCanHaveParts(msgs []sqlc.CtxMessage) []string {
 
 type messagePartsQuerier interface {
 	GetMessagePartsByMessages(context.Context, []string) ([]sqlc.CtxMessagePart, error)
-	ListMessagePartsWithMediaByMessages(context.Context, []string) ([]sqlc.ListMessagePartsWithMediaByMessagesRow, error)
 }
 
-// loadMessageParts reads every part and its media metadata in two batch queries.
-// The full-parts query keeps text and deleted-media rows; the joined query only
-// supplies MIME metadata for live image references.
+// loadMessageParts reads every part in one batch query. media_id is protected by
+// a foreign key and becomes NULL when media is deleted, so LCM needs no media
+// join to decide whether a canonical reference is live.
 func loadMessageParts(ctx context.Context, q messagePartsQuerier, messageIDs []string) (map[string][]loadedMessagePart, error) {
 	result := make(map[string][]loadedMessagePart)
 	if len(messageIDs) == 0 {
@@ -462,20 +458,8 @@ func loadMessageParts(ctx context.Context, q messagePartsQuerier, messageIDs []s
 	if err != nil {
 		return nil, fmt.Errorf("get message parts: %w", err)
 	}
-	mediaRows, err := q.ListMessagePartsWithMediaByMessages(ctx, messageIDs)
-	if err != nil {
-		return nil, fmt.Errorf("get message parts with media: %w", err)
-	}
-	mediaByPartID := make(map[string]*sqlc.CtxMedium, len(mediaRows))
-	for _, row := range mediaRows {
-		media := row.CtxMedium
-		mediaByPartID[row.CtxMessagePart.ID] = &media
-	}
 	for _, part := range parts {
-		result[part.MessageID] = append(result[part.MessageID], loadedMessagePart{
-			part:  part,
-			media: mediaByPartID[part.ID],
-		})
+		result[part.MessageID] = append(result[part.MessageID], part)
 	}
 	return result, nil
 }
@@ -485,15 +469,14 @@ func contentBlocksFromParts(parts []loadedMessagePart) []ai.ContentBlock {
 		return nil
 	}
 	blocks := make([]ai.ContentBlock, 0, len(parts))
-	for _, loaded := range parts {
-		part := loaded.part
+	for _, part := range parts {
 		switch part.PartType {
 		case "text":
 			blocks = append(blocks, ai.TextContent{Text: part.TextContent.String})
 		case "image":
 			projection := part.TextContent.String
 			baseline, err := ai.ParseImageBaseline(projection)
-			if err != nil || loaded.media == nil || !part.MediaID.Valid {
+			if err != nil || !part.MediaID.Valid {
 				blocks = append(blocks, ai.TextContent{Text: projection})
 				continue
 			}

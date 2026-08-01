@@ -103,9 +103,9 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 		t.Fatalf("assemble: %v", err)
 	}
 	// Only the final tool result is a parts candidate. Plain user and assistant
-	// rows are excluded; the candidate still uses one batch part/media query pair.
-	if counting.queries != 4 {
-		t.Fatalf("assemble issued %d queries, want 4", counting.queries)
+	// rows are excluded; the candidate uses one batch part query.
+	if counting.queries != 3 {
+		t.Fatalf("assemble issued %d queries, want 3", counting.queries)
 	}
 	if len(got) != 108 {
 		t.Fatalf("assembled messages = %d, want 108", len(got))

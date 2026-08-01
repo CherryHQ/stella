@@ -162,7 +162,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		}
 	}
 
-	content := b.buildMessageContent(msg, assetsDir, chatType == "group")
+	content := b.buildMessageContent(msg, assetsDir)
 	if content == nil {
 		return nil
 	}
@@ -239,7 +239,7 @@ func prependSystemPrompt(content []ai.ContentBlock, prompt string) []ai.ContentB
 // assets dir (or when saving fails) the image degrades to inline-only. The
 // bool is false when the download fails (already logged), letting callers
 // decide whether to drop the message or emit a text fallback.
-func (b *Bot) imageContentBlocks(messageID, imageKey, assetsDir string, deferredGroup bool) ([]ai.ContentBlock, bool) {
+func (b *Bot) imageContentBlocks(messageID, imageKey, assetsDir string) ([]ai.ContentBlock, bool) {
 	data, mime, err := b.downloadImage(messageID, imageKey)
 	if err != nil {
 		logger().Error("download image failed", "image_key", imageKey, "error", err)
@@ -250,19 +250,19 @@ func (b *Bot) imageContentBlocks(messageID, imageKey, assetsDir string, deferred
 	if assetsDir != "" {
 		savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
 		if saveErr == nil {
-			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data, deferredGroup), true
+			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data), true
 		}
 		logger().Warn("save inbound image failed", "error", saveErr)
 	}
 	// Persistence unavailable — degrade to inline within the ceiling; images past
 	// the inline limit become an explicit text note instead.
-	return channel.InlineImageFallback(fileName, mime, data, deferredGroup), true
+	return channel.InlineImageFallback(fileName, mime, data), true
 }
 
 // buildMessageContent constructs the message content from a Feishu message.
 // assetsDir is the resolved per-user assets directory; pass "" to fall back to
 // the filename-only placeholder when the path is not yet known.
-func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string, deferredGroup bool) []ai.ContentBlock {
+func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []ai.ContentBlock {
 	msgType := derefStr(msg.MessageType)
 	rawContent := derefStr(msg.Content)
 	messageID := derefStr(msg.MessageId)
@@ -295,7 +295,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string, de
 			blocks = append(blocks, ai.TextContent{Text: text})
 		}
 		for _, imgKey := range imageKeys {
-			imgBlocks, ok := b.imageContentBlocks(messageID, imgKey, assetsDir, deferredGroup)
+			imgBlocks, ok := b.imageContentBlocks(messageID, imgKey, assetsDir)
 			if !ok {
 				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[Failed to download image: %s]", imgKey)})
 				continue
@@ -313,7 +313,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string, de
 			logger().Warn("image message missing image_key")
 			return nil
 		}
-		blocks, ok := b.imageContentBlocks(messageID, imageKey, assetsDir, deferredGroup)
+		blocks, ok := b.imageContentBlocks(messageID, imageKey, assetsDir)
 		if !ok {
 			return channel.TextContent("[Failed to download image]")
 		}
@@ -342,9 +342,9 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string, de
 				// Persistence failed after a successful download — route a fallback
 				// to the agent rather than discarding the bytes.
 				logger().Warn("save inbound file failed", "error", saveErr)
-				return channel.AttachmentSaveFailureContent(fileName, data, deferredGroup)
+				return channel.AttachmentSaveFailureContent(fileName, data)
 			}
-			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data, deferredGroup)
+			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)
 		}
 		return channel.TextContent(parseFileContent(rawContent))
 

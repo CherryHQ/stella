@@ -3,21 +3,18 @@ package sandbox
 import (
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/vision"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // NewTools returns the four standard sandbox-backed tools (bash, read, write, edit).
-// visionSvc renders images as text for the read tool when the running model
-// cannot see; nil is allowed and degrades to local Xberg extraction.
-func NewTools(host pkgsandbox.Host, toolsBinDir, projectRoot string, sessionSecretValues *SessionSecretValues, visionSvc *vision.Service) []pkgtools.Tool {
+func NewTools(host pkgsandbox.Host, toolsBinDir, projectRoot string, sessionSecretValues *SessionSecretValues) []pkgtools.Tool {
 	if host == nil {
 		return nil
 	}
 	return []pkgtools.Tool{
 		newBashTool(host, toolsBinDir, projectRoot, sessionSecretValues),
-		newReadTool(host, projectRoot, visionSvc),
+		newReadTool(host, projectRoot),
 		newWriteTool(host, projectRoot),
 		newEditTool(host, projectRoot),
 	}

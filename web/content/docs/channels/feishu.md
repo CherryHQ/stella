@@ -268,7 +268,7 @@ Semantic routing may keep chatter silent, so users should @mention the bot for r
 
 **Images or files not being analyzed?**
 
-- Configure image understanding under **Settings -> Vision**. Set a model's **Input** to `text, image` only when it should receive image pixels during the active turn; otherwise Stella uses the text baseline.
+- Configure **Settings -> Vision** for ordinary-session baselines. A model declaring `text, image` receives active-turn pixels; group history without a stored baseline uses the unavailable marker.
 - For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**

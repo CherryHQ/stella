@@ -2,10 +2,13 @@ package channel
 
 import (
 	"context"
+	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -72,6 +75,20 @@ func TestContentBlocksToText(t *testing.T) {
 				t.Errorf("contentBlocksToText() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLegacyGroupContentEnforcesInlineLimitAtStorageBoundary(t *testing.T) {
+	oversized := base64.StdEncoding.EncodeToString(make([]byte, vision.MaxRendererPayloadBytes+1))
+	blocks := legacyGroupContent([]ai.ContentBlock{
+		ai.TextContent{Text: "saved path remains visible"},
+		ai.ImageContent{Data: oversized, MimeType: "image/png"},
+	})
+	if len(blocks) != 2 || ai.HasImage(blocks) {
+		t.Fatalf("legacy group blocks = %#v, want text-only degradation", blocks)
+	}
+	if got := ai.FlattenText(blocks); !strings.Contains(got, ai.UnavailableImageProjection) {
+		t.Fatalf("legacy group projection = %q, want unavailable marker", got)
 	}
 }
 

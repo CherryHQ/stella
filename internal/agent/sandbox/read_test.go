@@ -100,7 +100,7 @@ func TestReadImageCanonicalResultKeepsOriginalForTransform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocks, err := newTestReadTool(dir).ExecuteContent(pkgtools.WithCanonicalImages(pkgtools.WithVision(context.Background(), false), true), map[string]any{"path": "pic.png"})
+	blocks, err := newTestReadTool(dir).ExecuteContent(pkgtools.WithImageResultMode(context.Background(), pkgtools.ImageResultCanonical), map[string]any{"path": "pic.png"})
 	if err != nil || !ai.HasImage(blocks) {
 		t.Fatalf("canonical read = %#v, %v", blocks, err)
 	}
@@ -111,24 +111,6 @@ func TestReadImageCanonicalResultKeepsOriginalForTransform(t *testing.T) {
 				t.Fatal("canonical read changed original bytes")
 			}
 		}
-	}
-}
-
-func TestReadImageNonVisionFallsBackToText(t *testing.T) {
-	dir := t.TempDir()
-	writePNG(t, filepath.Join(dir, "pic.png"), 10, 10)
-	tool := newTestReadTool(dir)
-
-	ctx := pkgtools.WithVision(context.Background(), false)
-	blocks, err := tool.ExecuteContent(ctx, map[string]any{"path": "pic.png"})
-	if err != nil {
-		t.Fatalf("ExecuteContent: %v", err)
-	}
-	if ai.HasImage(blocks) {
-		t.Fatal("non-vision model must not receive an image block")
-	}
-	if !strings.Contains(ai.FlattenText(blocks), "not configured to receive images") {
-		t.Errorf("expected non-vision note, got %q", ai.FlattenText(blocks))
 	}
 }
 
@@ -179,7 +161,7 @@ func TestReadToolProjectRootAbsolutePathUsesHostBoundary(t *testing.T) {
 	}
 	defer session.Close() //nolint:errcheck
 
-	tool := newReadTool(session, workspace, nil)
+	tool := newReadTool(session, workspace)
 	out, err := tool.Execute(context.Background(), map[string]any{"path": inside})
 	if err != nil {
 		t.Fatalf("read inside workspace: %v", err)

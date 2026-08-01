@@ -14,21 +14,18 @@ import (
 // Runner is a configured agent loop executor. It is safe for concurrent use.
 // All configuration is set at construction time via RunnerConfig + options.
 type Runner struct {
-	stream             providers.StreamFunc
-	model              ai.Model
-	streamOptions      ai.StreamOptions
-	tools              ToolSet
-	toolDefs           []ai.ToolDefinition
-	system             string
-	interrupt          <-chan struct{}
-	hooks              *hooks.HookSet
-	hookMeta           hooks.HookMeta
-	toolLifecycle      *ToolLifecycle
-	legacyImageText    ImageTextFunc
-	canonicalImages    *CanonicalImageConfig
-	projectionObserver ProjectionObserver
-	legacyImages       bool
-	turnNotify         func(turn int, elapsed time.Duration) *string
+	stream          providers.StreamFunc
+	model           ai.Model
+	streamOptions   ai.StreamOptions
+	tools           ToolSet
+	toolDefs        []ai.ToolDefinition
+	system          string
+	interrupt       <-chan struct{}
+	hooks           *hooks.HookSet
+	hookMeta        hooks.HookMeta
+	toolLifecycle   *ToolLifecycle
+	canonicalImages *CanonicalImageConfig
+	turnNotify      func(turn int, elapsed time.Duration) *string
 }
 
 // RunnerConfig holds the required fields for constructing a Runner.
@@ -72,30 +69,11 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 	}
 }
 
-// WithImageText sets the compatibility renderer for legacy inline images.
-// Canonical references always use their stored baseline or canonical loader. In
-// ordinary projection, an unsupported legacy image without this renderer fails
-// closed; deferred group history preserves its legacy pass-through behavior.
-func WithImageText(fn ImageTextFunc) Option {
-	return func(r *Runner) { r.legacyImageText = fn }
-}
-
 // WithCanonicalImages enables the complete durable ordinary-session image
 // policy. Both callbacks are required so hydration and tool canonicalization
 // cannot be configured independently.
 func WithCanonicalImages(cfg CanonicalImageConfig) Option {
 	return func(r *Runner) { r.canonicalImages = &cfg }
-}
-
-// WithProjectionObserver observes aggregate image projection metrics.
-func WithProjectionObserver(observer ProjectionObserver) Option {
-	return func(r *Runner) { r.projectionObserver = observer }
-}
-
-// WithLegacyImages preserves the pre-canonical request adapter for
-// deferred group history. Ordinary sessions must not use it.
-func WithLegacyImages() Option {
-	return func(r *Runner) { r.legacyImages = true }
 }
 
 // WithTurnNotify sets a callback invoked at the start of each turn.
@@ -129,9 +107,6 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 		if r.canonicalImages.Load == nil || r.canonicalImages.CanonicalizeToolResult == nil {
 			return nil, errors.New("agent: canonical image loader and tool canonicalizer are required together")
 		}
-		if r.legacyImages {
-			return nil, errors.New("agent: canonical and legacy image policies are mutually exclusive")
-		}
 	}
 	return r, nil
 }
@@ -146,12 +121,6 @@ func (r *Runner) SetHookMeta(meta hooks.HookMeta) {
 // Safe to call between Run invocations; not safe during a Run.
 func (r *Runner) SetTurnNotify(fn func(turn int, elapsed time.Duration) *string) {
 	r.turnNotify = fn
-}
-
-// Run executes the agent loop from scratch. Its backward-compatible boundary
-// treats every supplied message as active.
-func (r *Runner) Run(ctx context.Context, messages []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
-	return r.RunWithActiveStart(ctx, messages, 0, emit)
 }
 
 // RunWithActiveStart executes a loop with an explicit boundary between
@@ -176,20 +145,17 @@ func (r *Runner) Continue(ctx context.Context, messages []ai.Message, emit func(
 
 func (r *Runner) loopConfig() loopConfig {
 	return loopConfig{
-		Stream:             r.stream,
-		Model:              r.model,
-		StreamOptions:      r.streamOptions,
-		Tools:              r.tools,
-		ToolDefinitions:    r.toolDefs,
-		System:             r.system,
-		Interrupt:          r.interrupt,
-		Hooks:              r.hooks,
-		HookMeta:           r.hookMeta,
-		ToolLifecycle:      r.toolLifecycle,
-		CanonicalImages:    r.canonicalImages,
-		LegacyImageText:    r.legacyImageText,
-		ProjectionObserver: r.projectionObserver,
-		LegacyImages:       r.legacyImages,
-		TurnNotify:         r.turnNotify,
+		Stream:          r.stream,
+		Model:           r.model,
+		StreamOptions:   r.streamOptions,
+		Tools:           r.tools,
+		ToolDefinitions: r.toolDefs,
+		System:          r.system,
+		Interrupt:       r.interrupt,
+		Hooks:           r.hooks,
+		HookMeta:        r.hookMeta,
+		ToolLifecycle:   r.toolLifecycle,
+		CanonicalImages: r.canonicalImages,
+		TurnNotify:      r.turnNotify,
 	}
 }

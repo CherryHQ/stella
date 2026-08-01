@@ -16,7 +16,6 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
-	"github.com/CherryHQ/stella/internal/vision"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -59,11 +58,7 @@ type runnerConfig struct {
 	DelegateRunner      delegatetool.SessionRunner
 	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
-	// Vision is runner-local for sandbox read and legacy inline compatibility.
-	// Canonical image baselines resolve the deployment setting at ingestion.
-	Vision          *vision.Service
-	CanonicalImages *coreagent.CanonicalImageConfig
-	LegacyImages    bool
+	CanonicalImages     *coreagent.CanonicalImageConfig
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -76,9 +71,7 @@ type runner struct {
 	system          string
 	hookSet         *hooks.HookSet
 	toolLifecycle   *coreagent.ToolLifecycle
-	legacyImageText coreagent.ImageTextFunc
 	canonicalImages *coreagent.CanonicalImageConfig
-	legacyImages    bool
 	chatTimeout     time.Duration
 	session         pkgsandbox.Session // runner-owned sandbox session lifecycle
 	sandboxCfg      sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
@@ -134,8 +127,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
-	legacyImageText := legacyImageTextFunc(cfg.Vision)
-	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, legacyImageText, cfg.CanonicalImages, cfg.LegacyImages)
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -152,9 +144,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		system:          systemPrompt,
 		hookSet:         hookSet,
 		toolLifecycle:   cfg.ToolLifecycle,
-		legacyImageText: legacyImageText,
 		canonicalImages: cfg.CanonicalImages,
-		legacyImages:    cfg.LegacyImages,
 		chatTimeout:     cfg.ChatTimeout,
 		session:         session,
 		sandboxCfg:      cfg.Sandbox,
@@ -163,28 +153,21 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}, nil
 }
 
-func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, legacyImageText coreagent.ImageTextFunc, canonicalImages *coreagent.CanonicalImageConfig, legacyImages bool) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, legacyImageText, canonicalImages, legacyImages, toolSet, toolDefs)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, canonicalImages, toolSet, toolDefs)
 }
 
-func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, legacyImageText coreagent.ImageTextFunc, canonicalImages *coreagent.CanonicalImageConfig, legacyImages bool, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
 	opts := []coreagent.Option{
 		coreagent.WithStreamOptions(streamOptions),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
-		coreagent.WithImageText(legacyImageText),
-		coreagent.WithProjectionObserver(func(stats coreagent.ProjectionStats) {
-			slog.Debug("session image projection", "capability", stats.Capability, "active_pixels", stats.ActivePixels, "active_pixel_bytes", stats.ActivePixelBytes, "baseline_projections", stats.BaselineProjections, "legacy_rendered", stats.LegacyRendered, "hydrations", stats.Hydrations)
-		}),
 	}
 	if canonicalImages != nil {
 		opts = append(opts, coreagent.WithCanonicalImages(*canonicalImages))
-	}
-	if legacyImages {
-		opts = append(opts, coreagent.WithLegacyImages())
 	}
 	return coreagent.NewRunner(coreagent.RunnerConfig{
 		Stream:          stream,
@@ -238,7 +221,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		Runtime: session,
 	}
 
-	coreTools := buildSandboxCoreTools(session, bc, cfg.Sandbox.SessionSecretValues, cfg.Vision)
+	coreTools := buildSandboxCoreTools(session, bc, cfg.Sandbox.SessionSecretValues)
 	if len(coreTools) == 0 {
 		return nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
@@ -447,7 +430,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.legacyImageText, r.canonicalImages, r.legacyImages, toolSet, toolDefs)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return

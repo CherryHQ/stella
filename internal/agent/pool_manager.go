@@ -135,11 +135,8 @@ func WithAssetStorePM(a *asset.Store) PoolManagerOption {
 
 // WithSessionImagePipeline wires the ordinary-session canonical image boundary.
 // Groups deliberately bypass it until their separate ownership model exists.
-func WithSessionImagePipeline(enrich SessionImageEnricher, load SessionImageLoader) PoolManagerOption {
-	return func(pm *PoolManager) {
-		pm.imageEnricher = enrich
-		pm.imageLoader = load
-	}
+func WithSessionImagePipeline(images SessionImagePipeline) PoolManagerOption {
+	return func(pm *PoolManager) { pm.sessionImages = images }
 }
 
 // PoolManager manages one Service per enabled agent. It reads enabled agents
@@ -176,8 +173,7 @@ type PoolManager struct {
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	assets                   *asset.Store
-	imageEnricher            SessionImageEnricher
-	imageLoader              SessionImageLoader
+	sessionImages            SessionImagePipeline
 	sessionAccess            SessionAccessService
 	log                      *slog.Logger
 }
@@ -380,7 +376,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		HooksFn:         pm.HookPlugins,
 		BeforeRun:       pm.runtimeBeforeRunFunc(snap),
 		SnapshotPrompt:  pm.buildSnapshotPromptFunc(snap),
-		EnrichContent:   agentruntime.ContentEnricher(pm.imageEnricher),
+		SessionImages:   pm.sessionImages,
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -700,8 +696,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		VaultEnvLoader:           pm.vaultEnvLoader,
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
-		ImageEnricher:            pm.imageEnricher,
-		ImageLoader:              pm.imageLoader,
+		SessionImages:            pm.sessionImages,
 	})
 }
 

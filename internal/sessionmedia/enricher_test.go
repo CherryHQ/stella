@@ -109,16 +109,16 @@ func (r *uncooperativeRenderer) Baseline(context.Context, vision.Request) (ai.Im
 	return validBaseline(), nil
 }
 
-func newFakeEnricher(t testing.TB, renderer vision.BaselineRenderer, opts EnricherOptions) (*Enricher, *fakePersister, *atomic.Int64) {
+func newFakeEnricher(t testing.TB, renderer vision.BaselineRenderer, opts PipelineOptions) (*enricher, *fakePersister, *atomic.Int64) {
 	t.Helper()
 	media := &fakePersister{}
 	var resolves atomic.Int64
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
 		resolves.Add(1)
 		return renderer
 	}), opts)
 	if err != nil {
-		t.Fatalf("NewEnricher: %v", err)
+		t.Fatalf("newEnricher: %v", err)
 	}
 	return enricher, media, &resolves
 }
@@ -152,14 +152,14 @@ func (l *fakeSnapshotLoader) Snapshot(context.Context, string) (*config.Snapshot
 func TestSnapshotVisionFactoryReloadsForEachMessage(t *testing.T) {
 	loader := &fakeSnapshotLoader{snap: &config.Snapshot{}}
 	var builds atomic.Int64
-	factory, err := NewSnapshotVisionFactory(loader, func(_, _, _ string) (providers.StreamFunc, error) {
+	factory, err := newSnapshotVisionFactory(loader, func(_, _, _ string) (providers.StreamFunc, error) {
 		builds.Add(1)
 		return func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 			return nil, errors.New("not called by factory test")
 		}, nil
 	})
 	if err != nil {
-		t.Fatalf("NewSnapshotVisionFactory: %v", err)
+		t.Fatalf("newSnapshotVisionFactory: %v", err)
 	}
 	first := factory.ForMessage(context.Background(), "agent")
 	if first.(*vision.Service).ModelConfigured() {
@@ -178,7 +178,7 @@ func TestSnapshotVisionFactoryReloadsForEachMessage(t *testing.T) {
 
 func TestEnricherCanonicalizesUserAndToolBlocks(t *testing.T) {
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, media, resolves := newFakeEnricher(t, renderer, EnricherOptions{})
+	enricher, media, resolves := newFakeEnricher(t, renderer, PipelineOptions{})
 	user := []ai.ContentBlock{ai.TextContent{Text: "user text"}, imageBlock(t, 1)}
 	tool := []ai.ContentBlock{imageBlock(t, 2), ai.TextContent{Text: "tool text"}}
 
@@ -212,7 +212,7 @@ func TestEnricherPersistsAllMediaBeforeVisionResolution(t *testing.T) {
 	media := &fakePersister{}
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
 	var resolved atomic.Bool
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
 		media.mu.Lock()
 		persisted := len(media.inputs)
 		media.mu.Unlock()
@@ -221,9 +221,9 @@ func TestEnricherPersistsAllMediaBeforeVisionResolution(t *testing.T) {
 		}
 		resolved.Store(true)
 		return renderer
-	}), EnricherOptions{})
+	}), PipelineOptions{})
 	if err != nil {
-		t.Fatalf("NewEnricher: %v", err)
+		t.Fatalf("newEnricher: %v", err)
 	}
 	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
 	if err != nil {
@@ -238,11 +238,11 @@ func TestEnricherLimitsPersistenceConcurrencyToTwo(t *testing.T) {
 	release := make(chan struct{})
 	media := &fakePersister{started: make(chan struct{}, 3), release: release}
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
 		return renderer
-	}), EnricherOptions{})
+	}), PipelineOptions{})
 	if err != nil {
-		t.Fatalf("NewEnricher: %v", err)
+		t.Fatalf("newEnricher: %v", err)
 	}
 	result := make(chan error, 1)
 	go func() {
@@ -262,11 +262,11 @@ func TestEnricherLimitsPersistenceConcurrencyToTwo(t *testing.T) {
 
 func TestEnricherNilFactoryRendererIsStableUnavailable(t *testing.T) {
 	media := &fakePersister{}
-	enricher, err := NewEnricher(media, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(media, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
 		return nil
-	}), EnricherOptions{})
+	}), PipelineOptions{})
 	if err != nil {
-		t.Fatalf("NewEnricher: %v", err)
+		t.Fatalf("newEnricher: %v", err)
 	}
 	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
 	if err != nil {
@@ -280,7 +280,7 @@ func TestEnricherNilFactoryRendererIsStableUnavailable(t *testing.T) {
 
 func TestEnricherDeduplicatesBaselineWithinMessage(t *testing.T) {
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, media, _ := newFakeEnricher(t, renderer, EnricherOptions{})
+	enricher, media, _ := newFakeEnricher(t, renderer, PipelineOptions{})
 	image := imageBlock(t, 1)
 	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{image, ai.TextContent{Text: "between"}, image})
 	if err != nil {
@@ -298,7 +298,7 @@ func TestEnricherDeduplicatesBaselineWithinMessage(t *testing.T) {
 
 func TestEnricherRejectsMalformedRendererOutput(t *testing.T) {
 	renderer := &fakeBaselineRenderer{baseline: ai.ImageBaseline{Text: "not the baseline contract"}}
-	enricher, _, _ := newFakeEnricher(t, renderer, EnricherOptions{})
+	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{})
 	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
 	if err != nil {
 		t.Fatalf("Enrich: %v", err)
@@ -310,7 +310,7 @@ func TestEnricherRejectsMalformedRendererOutput(t *testing.T) {
 
 func TestEnricherUnavailableIsStableAndDoesNotStoreBackendError(t *testing.T) {
 	renderer := &fakeBaselineRenderer{err: errors.New("provider secret backend error")}
-	enricher, _, _ := newFakeEnricher(t, renderer, EnricherOptions{})
+	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{})
 	input := []ai.ContentBlock{imageBlock(t, 1)}
 	first, err := enricher.Enrich(context.Background(), uuid.New(), "agent", input)
 	if err != nil {
@@ -334,7 +334,7 @@ func TestEnricherUnavailableIsStableAndDoesNotStoreBackendError(t *testing.T) {
 func TestEnricherHonorsCancellation(t *testing.T) {
 	release := make(chan struct{})
 	renderer := &fakeBaselineRenderer{baseline: validBaseline(), started: make(chan struct{}, 1), release: release}
-	enricher, media, _ := newFakeEnricher(t, renderer, EnricherOptions{})
+	enricher, media, _ := newFakeEnricher(t, renderer, PipelineOptions{})
 	ctx, cancel := context.WithCancel(context.Background())
 	result := make(chan error, 1)
 	go func() {
@@ -354,7 +354,7 @@ func TestEnricherHonorsCancellation(t *testing.T) {
 func TestEnricherLimitsConcurrencyToTwo(t *testing.T) {
 	release := make(chan struct{})
 	renderer := &fakeBaselineRenderer{baseline: validBaseline(), started: make(chan struct{}, 3), release: release}
-	enricher, _, _ := newFakeEnricher(t, renderer, EnricherOptions{})
+	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{})
 	result := make(chan error, 1)
 	go func() {
 		_, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
@@ -375,7 +375,7 @@ func TestEnricherDeadlineDoesNotWaitForUncooperativeRenderer(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	renderer := &uncooperativeRenderer{started: make(chan struct{}, 1), release: release}
-	enricher, _, _ := newFakeEnricher(t, renderer, EnricherOptions{MessageTimeout: 40 * time.Millisecond})
+	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{MessageTimeout: 40 * time.Millisecond})
 	started := time.Now()
 	result := make(chan struct {
 		blocks []ai.ContentBlock
@@ -405,7 +405,7 @@ func TestEnricherLeavesAtMostTwoUncooperativeRenderers(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	renderer := &uncooperativeRenderer{started: make(chan struct{}, MaxConcurrentEnrichments+1), release: release}
-	enricher, _, _ := newFakeEnricher(t, renderer, EnricherOptions{MessageTimeout: 40 * time.Millisecond})
+	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{MessageTimeout: 40 * time.Millisecond})
 	result := make(chan error, 1)
 	go func() {
 		_, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1), imageBlock(t, 2), imageBlock(t, 3)})
@@ -423,7 +423,7 @@ func TestEnricherLeavesAtMostTwoUncooperativeRenderers(t *testing.T) {
 
 func TestEnricherUsesOneTotalDeadline(t *testing.T) {
 	renderer := &fakeBaselineRenderer{err: errors.New("slow renderer"), release: make(chan struct{})}
-	enricher, _, _ := newFakeEnricher(t, renderer, EnricherOptions{MessageTimeout: 40 * time.Millisecond})
+	enricher, _, _ := newFakeEnricher(t, renderer, PipelineOptions{MessageTimeout: 40 * time.Millisecond})
 	started := time.Now()
 	out, err := enricher.Enrich(context.Background(), uuid.New(), "agent", []ai.ContentBlock{imageBlock(t, 1)})
 	if err != nil {
@@ -438,7 +438,7 @@ func TestEnricherUsesOneTotalDeadline(t *testing.T) {
 }
 
 func TestPrepareTasksBoundsImageCountAndAggregateBytes(t *testing.T) {
-	blocks := make([]ai.ContentBlock, MaxImagesPerMessage+1)
+	blocks := make([]ai.ContentBlock, ai.MaxImagesPerMessage+1)
 	for i := range blocks {
 		blocks[i] = imageBlock(t, byte(i))
 	}
@@ -466,9 +466,9 @@ func (p *benchmarkPersister) Persist(_ context.Context, in Input) (string, error
 func BenchmarkEnricherBaseline(b *testing.B) {
 	persister := &benchmarkPersister{}
 	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
-	enricher, err := NewEnricher(persister, VisionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
+	enricher, err := newEnricher(persister, visionFactoryFunc(func(context.Context, string) vision.BaselineRenderer {
 		return renderer
-	}), EnricherOptions{})
+	}), PipelineOptions{})
 	if err != nil {
 		b.Fatal(err)
 	}

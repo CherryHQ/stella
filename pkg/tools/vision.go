@@ -6,37 +6,26 @@ import (
 	"strings"
 )
 
-type (
-	visionKey          struct{}
-	canonicalImagesKey struct{}
+type imageResultModeKey struct{}
+
+// ImageResultMode tells image-producing tools which storage boundary will own
+// their result. It is one explicit state, not two independently configurable
+// booleans.
+type ImageResultMode uint8
+
+const (
+	// ImageResultLegacy preserves the old inline group codec and is the default.
+	ImageResultLegacy ImageResultMode = iota
+	ImageResultCanonical
 )
 
-// WithVision records whether the active model can accept image input, so tools
-// (e.g. read) can decide whether to return images inline or fall back to text.
-func WithVision(ctx context.Context, supported bool) context.Context {
-	return context.WithValue(ctx, visionKey{}, supported)
+func WithImageResultMode(ctx context.Context, mode ImageResultMode) context.Context {
+	return context.WithValue(ctx, imageResultModeKey{}, mode)
 }
 
-// VisionFromContext reports whether the active model accepts images. It defaults
-// to true (fail-open) when unset, so image-capable behavior is the default and
-// only models explicitly known to lack vision trigger text fallbacks.
-func VisionFromContext(ctx context.Context) bool {
-	v, ok := ctx.Value(visionKey{}).(bool)
-	if !ok {
-		return true
-	}
-	return v
-}
-
-// WithCanonicalImages records that tool image results will be canonicalized
-// after lifecycle hooks. It defaults false to preserve deferred group behavior.
-func WithCanonicalImages(ctx context.Context, enabled bool) context.Context {
-	return context.WithValue(ctx, canonicalImagesKey{}, enabled)
-}
-
-func CanonicalImagesFromContext(ctx context.Context) bool {
-	v, _ := ctx.Value(canonicalImagesKey{}).(bool)
-	return v
+func ImageResultModeFromContext(ctx context.Context) ImageResultMode {
+	mode, _ := ctx.Value(imageResultModeKey{}).(ImageResultMode)
+	return mode
 }
 
 // DetectImageMime returns the canonical MIME type for image bytes the read tool

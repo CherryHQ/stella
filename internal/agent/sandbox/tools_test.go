@@ -127,7 +127,7 @@ func TestReadTool_ReadsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := &stubHost{}
-	tool := newReadTool(host, "", nil)
+	tool := newReadTool(host, "")
 	out, err := tool.Execute(context.Background(), map[string]any{"path": file})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -226,7 +226,7 @@ func TestToolPathsExpandSandboxViewAndRemainConfined(t *testing.T) {
 		}),
 	}
 
-	read, err := newReadTool(host, "", nil).Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
+	read, err := newReadTool(host, "").Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
 	if err != nil || read != "uploaded" {
 		t.Fatalf("read assets = %q, %v; want uploaded", read, err)
 	}

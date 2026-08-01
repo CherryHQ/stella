@@ -129,7 +129,7 @@ func TestPartsToMessageContentKeepsMarkerWhenReadFails(t *testing.T) {
 }
 
 func TestPartsToMessageContentKeepsCanonicalLargeImage(t *testing.T) {
-	oversized := make([]byte, vision.MaxInlineBytes+1)
+	oversized := make([]byte, vision.MaxRendererPayloadBytes+1)
 	copy(oversized, pngFixture(t))
 	blocks := blocksOf(t, mustPartsToMessageContent(t,
 		func(context.Context, string) ([]byte, error) { return oversized, nil },

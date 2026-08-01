@@ -16,7 +16,7 @@ import (
 func readDefinition() pkgtools.Definition {
 	return pkgtools.Definition{
 		Name:        "read",
-		Description: "Read the contents of a file. Supports text files and images (jpg, png, gif, webp); images are returned as attachments to vision models, or extracted to text otherwise. Text output is truncated to 2000 lines or 50KB. Use offset and limit to paginate through large files.",
+		Description: "Read the contents of a file. Supports text files and images (jpg, png, gif, webp); safe images are returned as attachments and the agent runtime decides whether the model receives pixels. Text output is truncated to 2000 lines or 50KB. Use offset and limit to paginate through large files.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -29,16 +29,13 @@ func readDefinition() pkgtools.Definition {
 	}
 }
 
-// newReadTool builds the read tool. A nil vision service is allowed and keeps
-// the plain Xberg text fallback for non-vision models.
-func newReadTool(host pkgsandbox.Host, projectRoot string, visionSvc *vision.Service) pkgtools.Tool {
-	return &hostReadTool{host: host, projectRoot: projectRoot, vision: visionSvc}
+func newReadTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
+	return &hostReadTool{host: host, projectRoot: projectRoot}
 }
 
 type hostReadTool struct {
 	host        pkgsandbox.Host
 	projectRoot string
-	vision      *vision.Service
 }
 
 func (t *hostReadTool) Definition() pkgtools.Definition { return readDefinition() }
@@ -73,7 +70,7 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 	// Image/binary handling applies to the first page only.
 	if offset <= 1 {
 		if mime := pkgtools.DetectImageMime(content); mime != "" {
-			return t.imageBlocks(ctx, path, resolvedPath, content, mime), nil
+			return t.imageBlocks(ctx, path, content, mime), nil
 		}
 		sample := content
 		if len(sample) > 8*1024 {
@@ -103,47 +100,33 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 }
 
 // imageBlocks turns an image file into content blocks. Ordinary canonical
-// sessions return the original safe bytes for immutable persistence; provider
-// hydration adapts them later. Deferred legacy sessions resize inline, while
-// text-only legacy paths render through the vision service or Xberg. Failures
-// degrade to a text note rather than aborting the read.
-func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath, resolvedPath string, content []byte, mime string) []ai.ContentBlock {
+// sessions return the original safe bytes for immutable persistence; deferred
+// groups resize before their legacy inline write. Model capability is handled
+// later at the provider projection boundary.
+func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath string, content []byte, mime string) []ai.ContentBlock {
 	cfg, err := vision.ValidateBudget(content)
 	if err != nil {
 		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s, but it exceeds the safe decode budget: %v", mime, displayPath, err)}}
 	}
 
-	if pkgtools.CanonicalImagesFromContext(ctx) {
+	if pkgtools.ImageResultModeFromContext(ctx) == pkgtools.ImageResultCanonical {
 		return []ai.ContentBlock{
 			ai.TextContent{Text: fmt.Sprintf("Read image file [%s]", mime)},
 			ai.ImageContent{Data: base64.StdEncoding.EncodeToString(content), MimeType: mime},
 		}
 	}
 
-	if pkgtools.VisionFromContext(ctx) {
-		data, outMime, err := vision.PrepareInline(content, cfg, mime)
-		if err != nil {
-			return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s, but it could not be processed for inlining: %v", mime, displayPath, err)}}
-		}
-		if len(data) > vision.MaxInlineBytes {
-			return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s, but it is too large to inline (%d bytes).", outMime, displayPath, len(data))}}
-		}
-		return []ai.ContentBlock{
-			ai.TextContent{Text: fmt.Sprintf("Read image file [%s]", outMime)},
-			ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: outMime},
-		}
-	}
-
-	// The bytes already sit on disk, so hand the service the path: the Xberg
-	// fallback then reads the original file instead of staging a copy.
-	// "not configured to receive images" rather than "cannot see": this path is
-	// also taken for a model that never declared its modalities, and telling a
-	// model a falsehood about itself invites it to argue with the premise.
-	res, err := t.vision.Understand(ctx, vision.Request{Data: content, MimeType: mime, Path: resolvedPath})
+	data, outMime, err := vision.PrepareInline(content, cfg, mime)
 	if err != nil {
-		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. This model is not configured to receive images and text extraction failed: %v", mime, displayPath, err)}}
+		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s, but it could not be processed for inlining: %v", mime, displayPath, err)}}
 	}
-	return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s. This model is not configured to receive images; rendered as text via %s:\n\n%s", mime, displayPath, res.Source, res.Text)}}
+	if len(data) > vision.MaxRendererPayloadBytes {
+		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s, but it is too large to inline (%d bytes).", outMime, displayPath, len(data))}}
+	}
+	return []ai.ContentBlock{
+		ai.TextContent{Text: fmt.Sprintf("Read image file [%s]", outMime)},
+		ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: outMime},
+	}
 }
 
 func paginateReadContent(content string, offset, limit int) (string, int) {

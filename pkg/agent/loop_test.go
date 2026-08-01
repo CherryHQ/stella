@@ -35,7 +35,7 @@ func newTestRunner(stream providers.StreamFunc, opts ...Option) *Runner {
 
 func collectEvents(runner *Runner, messages []ai.Message) ([]ai.Message, []LoopEvent, error) {
 	var events []LoopEvent
-	h, err := runner.Run(context.Background(), messages, func(e LoopEvent) {
+	h, err := runner.RunWithActiveStart(context.Background(), messages, 0, func(e LoopEvent) {
 		events = append(events, e)
 	})
 	return h, events, err
@@ -155,7 +155,6 @@ func (h modelOverrideHook) OnPreLLMCall(context.Context, *hooks.PreLLMCallContex
 func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
 	var providerContexts []ai.Context
 	providerCalls := 0
-	toolSawVision := true
 	stream := func(_ context.Context, model ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 		if model.Name != "unknown-target" || model.ImageCapability() != ai.ImageUnknown {
 			t.Fatalf("effective model = %#v, want unknown override", model)
@@ -177,19 +176,15 @@ func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
 	runner, err := NewRunner(RunnerConfig{
 		Stream: stream,
 		Model:  supportedModel(),
-		Tools: ToolSet{"check": func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
-			toolSawVision = tools.VisionFromContext(ctx)
+		Tools: ToolSet{"check": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 		}},
-	}, WithImageText(func(context.Context, int, ai.ImageContent) string { return "legacy image text" }), WithHooks(hooks.NewHookSet([]hooks.HookPlugin{modelOverrideHook{model: "unknown-target"}}), hooks.HookMeta{}))
+	}, WithHooks(hooks.NewHookSet([]hooks.HookPlugin{modelOverrideHook{model: "unknown-target"}}), hooks.HookMeta{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.Run(context.Background(), []ai.Message{ai.UserMessage{Content: []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}}}}, nil); err != nil {
+	if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}}}}, 0, nil); err != nil {
 		t.Fatal(err)
-	}
-	if toolSawVision {
-		t.Fatal("tool inherited vision from the configured model after override")
 	}
 	for call, aiCtx := range providerContexts {
 		for _, msg := range aiCtx.Messages {
@@ -230,14 +225,14 @@ func TestCanonicalImagePolicyIsExplicit(t *testing.T) {
 			}
 			runner := newTestRunner(stream, tt.opts...)
 			runner.tools["check"] = func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
-				seen = tools.CanonicalImagesFromContext(ctx)
+				seen = tools.ImageResultModeFromContext(ctx) == tools.ImageResultCanonical
 				return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 			}
-			if _, err := runner.Run(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, nil); err != nil {
+			if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil); err != nil {
 				t.Fatal(err)
 			}
 			if seen != tt.want {
-				t.Fatalf("CanonicalImagesFromContext = %t, want %t", seen, tt.want)
+				t.Fatalf("canonical image mode = %t, want %t", seen, tt.want)
 			}
 		})
 	}
@@ -354,67 +349,6 @@ func TestRunInterruptStopsLoop(t *testing.T) {
 	}
 	if len(history) != 2 {
 		t.Fatalf("expected history len 2, got %d", len(history))
-	}
-}
-
-// TestRunPropagatesVisionCapability locks the policy the loop applies to the
-// model's declared image capability: only an explicit "image" declaration lets
-// a tool hand back the image itself. An undeclared model is rendered to text —
-// providers do not report modalities, so undeclared is the common case and
-// guessing "can see" costs a wasted turn against a placeholder.
-func TestRunPropagatesVisionCapability(t *testing.T) {
-	tests := []struct {
-		name  string
-		input []string
-		want  bool
-	}{
-		{"declared with image", []string{"text", "image"}, true},
-		{"declared without image", []string{"text"}, false},
-		{"undeclared renders to text", nil, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var callCount atomic.Int32
-			stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-				out := providers.NewChannelEventStream(8)
-				n := callCount.Add(1)
-				go func() {
-					if n == 1 {
-						out.Emit(ai.EventToolCallDelta{ID: "call_1", Name: "test_tool", Arguments: "{}"})
-						out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
-					} else {
-						out.Emit(ai.EventTextDelta{Text: "done"})
-						out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-					}
-					out.Finish(nil)
-				}()
-				return out, nil
-			}
-
-			runner, err := NewRunner(RunnerConfig{
-				Stream: stream,
-				Model:  ai.Model{API: "fake", Name: "stub", Input: tt.input},
-			})
-			if err != nil {
-				t.Fatalf("NewRunner: %v", err)
-			}
-
-			var gotVision bool
-			runner.tools = ToolSet{
-				"test_tool": func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
-					gotVision = tools.VisionFromContext(ctx)
-					return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
-				},
-			}
-
-			if _, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}}); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if gotVision != tt.want {
-				t.Errorf("VisionFromContext = %v, want %v", gotVision, tt.want)
-			}
-		})
 	}
 }
 

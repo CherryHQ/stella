@@ -126,7 +126,7 @@ func TestAttachmentReceivedContentInlinesImages(t *testing.T) {
 	}
 	data := buf.Bytes()
 
-	blocks := AttachmentReceivedContent("photo.png", "/home/stella/assets", "/home/stella/assets/photo.png", data, false)
+	blocks := AttachmentReceivedContent("photo.png", "/home/stella/assets", "/home/stella/assets/photo.png", data)
 	if len(blocks) != 2 {
 		t.Fatalf("expected note + image blocks, got %d: %#v", len(blocks), blocks)
 	}
@@ -147,7 +147,7 @@ func TestAttachmentReceivedContentInlinesImages(t *testing.T) {
 }
 
 func TestAttachmentReceivedContentFallsBackToFileHint(t *testing.T) {
-	blocks := AttachmentReceivedContent("report.pdf", "/home/stella/assets", "/home/stella/assets/report.pdf", []byte("%PDF-1.7 not an image"), false)
+	blocks := AttachmentReceivedContent("report.pdf", "/home/stella/assets", "/home/stella/assets/report.pdf", []byte("%PDF-1.7 not an image"))
 	got := ai.FlattenText(blocks)
 	if !strings.Contains(got, "`xberg extract") {
 		t.Fatalf("non-image attachment = %q, want Xberg extraction hint", got)
@@ -155,20 +155,14 @@ func TestAttachmentReceivedContentFallsBackToFileHint(t *testing.T) {
 }
 
 func TestAttachmentReceivedContentOversizedImageHintsRead(t *testing.T) {
-	// A real PNG header followed by padding past the inline ceiling: detected as
-	// an image but too large to inline.
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	data := append(buf.Bytes(), make([]byte, maxInlineAttachmentImageBytes)...)
-
-	if blocks := AttachmentReceivedContent("huge.png", "/home/stella/assets", "/home/stella/assets/huge.png", data, false); !ai.HasImage(blocks) {
-		t.Fatalf("direct blocks = %#v, want canonical image", blocks)
-	}
-	blocks := AttachmentReceivedContent("huge.png", "/home/stella/assets", "/home/stella/assets/huge.png", data, true)
+	data := append(buf.Bytes(), make([]byte, ai.MaxImageInputBytes)...)
+	blocks := AttachmentReceivedContent("huge.png", "/home/stella/assets", "/home/stella/assets/huge.png", data)
 	if len(blocks) != 1 || !strings.Contains(ai.FlattenText(blocks), "`read` tool") {
-		t.Fatalf("group blocks = %#v, want legacy read hint", blocks)
+		t.Fatalf("blocks = %#v, want read hint", blocks)
 	}
 }
 
@@ -179,7 +173,7 @@ func TestInlineImageFallbackInlinesWithinCeiling(t *testing.T) {
 	}
 	data := buf.Bytes()
 
-	blocks := InlineImageFallback("photo.png", "image/png", data, false)
+	blocks := InlineImageFallback("photo.png", "image/png", data)
 	if len(blocks) != 1 {
 		t.Fatalf("expected single inline image block, got %d: %#v", len(blocks), blocks)
 	}
@@ -193,17 +187,14 @@ func TestInlineImageFallbackInlinesWithinCeiling(t *testing.T) {
 }
 
 func TestInlineImageFallbackOversizedBecomesTextNote(t *testing.T) {
-	data := make([]byte, maxInlineAttachmentImageBytes+1)
-	if blocks := InlineImageFallback("huge.png", "image/png", data, false); !ai.HasImage(blocks) {
-		t.Fatalf("direct blocks = %#v, want canonical image", blocks)
-	}
-	if blocks := InlineImageFallback("huge.png", "image/png", data, true); ai.HasImage(blocks) {
-		t.Fatalf("group blocks = %#v, must keep 5 MiB ceiling", blocks)
+	data := make([]byte, ai.MaxImageInputBytes+1)
+	if blocks := InlineImageFallback("huge.png", "image/png", data); ai.HasImage(blocks) {
+		t.Fatalf("oversized blocks = %#v, must become text", blocks)
 	}
 }
 
 func TestInlineImageFallbackEmptyMimeBecomesTextNote(t *testing.T) {
-	blocks := InlineImageFallback("mystery.bin", "", []byte("tiny"), false)
+	blocks := InlineImageFallback("mystery.bin", "", []byte("tiny"))
 	if _, ok := blocks[0].(ai.ImageContent); ok {
 		t.Fatalf("empty mime must not be inlined")
 	}
@@ -217,7 +208,7 @@ func TestAttachmentSaveFailureContentInlinesImage(t *testing.T) {
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	blocks := AttachmentSaveFailureContent("photo.png", buf.Bytes(), false)
+	blocks := AttachmentSaveFailureContent("photo.png", buf.Bytes())
 	if len(blocks) != 1 {
 		t.Fatalf("expected single inline image block, got %d", len(blocks))
 	}
@@ -231,17 +222,14 @@ func TestAttachmentSaveFailureContentOversizedImageBecomesTextNote(t *testing.T)
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	data := append(buf.Bytes(), make([]byte, maxInlineAttachmentImageBytes)...)
-	if blocks := AttachmentSaveFailureContent("huge.png", data, false); !ai.HasImage(blocks) {
-		t.Fatalf("direct blocks = %#v, want canonical image", blocks)
-	}
-	if blocks := AttachmentSaveFailureContent("huge.png", data, true); ai.HasImage(blocks) {
-		t.Fatalf("group blocks = %#v, must keep 5 MiB ceiling", blocks)
+	data := append(buf.Bytes(), make([]byte, ai.MaxImageInputBytes)...)
+	if blocks := AttachmentSaveFailureContent("huge.png", data); ai.HasImage(blocks) {
+		t.Fatalf("oversized blocks = %#v, must become text", blocks)
 	}
 }
 
 func TestAttachmentSaveFailureContentNonImageBecomesPlaceholder(t *testing.T) {
-	blocks := AttachmentSaveFailureContent("report.pdf", []byte("%PDF-1.7 not an image"), false)
+	blocks := AttachmentSaveFailureContent("report.pdf", []byte("%PDF-1.7 not an image"))
 	if _, ok := blocks[0].(ai.ImageContent); ok {
 		t.Fatalf("non-image must not be inlined")
 	}

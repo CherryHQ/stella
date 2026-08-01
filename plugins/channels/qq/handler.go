@@ -22,7 +22,7 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 		authorID := msg.Author.ID
 
 		assetsDir := b.resolveAssetsDir(b.incomingMsg(authorID, "", nil), msg)
-		content := b.buildMessageContent(msg, assetsDir, false)
+		content := b.buildMessageContent(msg, assetsDir)
 		if content == nil {
 			return nil
 		}
@@ -50,7 +50,7 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 		groupID := msg.GroupID
 
 		assetsDir := b.resolveAssetsDir(b.incomingMsg(authorID, groupID, nil), msg)
-		content := b.buildMessageContent(msg, assetsDir, true)
+		content := b.buildMessageContent(msg, assetsDir)
 		if content == nil {
 			return nil
 		}
@@ -82,7 +82,7 @@ const (
 // assetsDir is the resolved per-user assets directory; pass "" when unavailable
 // (file attachments will be represented as placeholder text instead).
 // Returns nil if the message has no usable content.
-func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string, deferredGroup bool) []ai.ContentBlock {
+func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.ContentBlock {
 	text := strings.TrimSpace(msg.Content)
 	images := extractImageAttachments(msg)
 	files := extractFileAttachments(msg)
@@ -109,14 +109,14 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string, deferredGr
 		if assetsDir != "" {
 			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
 			if saveErr == nil {
-				blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data, deferredGroup)...)
+				blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
 				continue
 			}
 			logger().Warn("save inbound image failed", "error", saveErr)
 		}
 		// Persistence unavailable — degrade to inline within the ceiling; images
 		// past the inline limit become an explicit text note instead.
-		blocks = append(blocks, channel.InlineImageFallback(fileName, mime, data, deferredGroup)...)
+		blocks = append(blocks, channel.InlineImageFallback(fileName, mime, data)...)
 	}
 	for _, f := range files {
 		fileName := f.FileName
@@ -133,11 +133,11 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string, deferredGr
 			savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 			if err != nil {
 				logger().Warn("save file attachment failed", "error", err)
-				blocks = append(blocks, channel.AttachmentSaveFailureContent(fileName, data, deferredGroup)...)
+				blocks = append(blocks, channel.AttachmentSaveFailureContent(fileName, data)...)
 				continue
 			}
 			logger().Debug("file attachment received", "file_name", fileName, "size", len(data))
-			blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data, deferredGroup)...)
+			blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
 		} else {
 			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s]", fileName)})
 		}

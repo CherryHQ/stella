@@ -15,6 +15,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
 
+type sessionImagesFunc func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
+
+func (f sessionImagesFunc) Enrich(ctx context.Context, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+	return f(ctx, userID, agentID, blocks)
+}
+
 type recordingMemory struct {
 	mu            sync.Mutex
 	messages      []ai.Message
@@ -140,12 +146,12 @@ func TestRuntimeChatEnrichesAndCanonicallyAppendsOrdinaryImages(t *testing.T) {
 	ref := ai.ImageRefContent{MediaID: "media-1"}
 	rt, err := New(Config{
 		Memory: mem,
-		EnrichContent: func(_ context.Context, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+		SessionImages: sessionImagesFunc(func(_ context.Context, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			if userID != "user-1" || agentID != "agent-1" || !ai.HasImage(blocks) {
 				t.Fatalf("unexpected enrich input: user=%q agent=%q blocks=%#v", userID, agentID, blocks)
 			}
 			return []ai.ContentBlock{ref}, nil
-		},
+		}),
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return chatFakeRunner{messages: &received}, nil
 		},
@@ -176,7 +182,7 @@ func TestRuntimeChatEnrichesSingularImageBeforeCanonicalAppend(t *testing.T) {
 	enrichCalls := 0
 	rt, err := New(Config{
 		Memory: mem,
-		EnrichContent: func(_ context.Context, _, _ string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
+		SessionImages: sessionImagesFunc(func(_ context.Context, _, _ string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			enrichCalls++
 			if len(blocks) != 1 {
 				t.Fatalf("singular image blocks = %#v", blocks)
@@ -185,7 +191,7 @@ func TestRuntimeChatEnrichesSingularImageBeforeCanonicalAppend(t *testing.T) {
 				t.Fatalf("enricher received %T, want raw ImageContent", blocks[0])
 			}
 			return []ai.ContentBlock{ref}, nil
-		},
+		}),
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return chatFakeRunner{}, nil },
 	})
 	if err != nil {
@@ -206,10 +212,10 @@ func TestRuntimeChatPassesCanonicalImageRefWithoutEnrichment(t *testing.T) {
 	ref := ai.ImageRefContent{MediaID: "media-1"}
 	rt, err := New(Config{
 		Memory: mem,
-		EnrichContent: func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
+		SessionImages: sessionImagesFunc(func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			t.Fatal("canonical ImageRef input must not be re-enriched")
 			return nil, nil
-		},
+		}),
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return chatFakeRunner{}, nil },
 	})
 	if err != nil {
@@ -229,10 +235,10 @@ func TestRuntimeGroupImageKeepsLegacyAppend(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
 		Memory: mem,
-		EnrichContent: func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
+		SessionImages: sessionImagesFunc(func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			t.Fatal("groups must not invoke ordinary-session enrichment")
 			return nil, nil
-		},
+		}),
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return chatFakeRunner{}, nil },
 	})
 	if err != nil {
@@ -253,9 +259,9 @@ func TestRuntimeChatFailsClosedWhenCanonicalImageAppendFails(t *testing.T) {
 	mem := &recordingMemory{appendError: errors.New("write failed")}
 	rt, err := New(Config{
 		Memory: mem,
-		EnrichContent: func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
+		SessionImages: sessionImagesFunc(func(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error) {
 			return []ai.ContentBlock{ai.ImageRefContent{MediaID: "media-1"}}, nil
-		},
+		}),
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) { return chatFakeRunner{}, nil },
 	})
 	if err != nil {

@@ -147,29 +147,19 @@ func TextContent(text string) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: text}}
 }
 
-// maxInlineAttachmentImageBytes caps raw image bytes inlined into the
-// conversation, matching the read tool's provider inline-image ceiling.
-// Larger images are presented as a saved path with a read-tool hint so the
-// read tool's resize and non-vision fallback logic takes over.
-const maxInlineAttachmentImageBytes = 5 * 1024 * 1024
-
 // AttachmentReceivedContent returns the content blocks for an inbound
 // attachment that has been saved to disk. Images are presented as a saved-path
 // note plus the inline image so the model sees the pixels immediately and can
 // still reach the file later; everything else gets the Xberg extraction hint
 // via FileReceivedContent. data is the raw file content used for image
 // detection and inlining.
-func AttachmentReceivedContent(fileName, assetsDir, savedPath string, data []byte, deferredGroup bool) []ai.ContentBlock {
+func AttachmentReceivedContent(fileName, assetsDir, savedPath string, data []byte) []ai.ContentBlock {
 	mime := tools.DetectImageMime(data)
 	if mime == "" {
 		return FileReceivedContent(fileName, assetsDir, savedPath)
 	}
 	displayPath := attachmentDisplayPath(assetsDir, savedPath)
-	limit := ai.MaxImageInputBytes
-	if deferredGroup {
-		limit = maxInlineAttachmentImageBytes
-	}
-	if len(data) > limit {
+	if len(data) > ai.MaxImageInputBytes {
 		return TextContent(fmt.Sprintf(
 			"[Image: %s — saved to %s]\n The image is too large to attach inline; use the `read` tool on that path to view it.",
 			fileName, displayPath,
@@ -184,17 +174,12 @@ func AttachmentReceivedContent(fileName, assetsDir, savedPath string, data []byt
 // InlineImageFallback returns the content blocks for an inbound image that could
 // not be persisted to the user's assets, so the turn still reaches the agent
 // without a saved path. It honors the same inline ceiling as
-// AttachmentReceivedContent: images within maxInlineAttachmentImageBytes are
-// attached inline so the model sees the pixels; larger images cannot be stored
-// or inlined (they would balloon the request past the provider limit), so they
-// degrade to an explicit text note naming the file and its size. Callers pass
+// AttachmentReceivedContent: images within the shared ingestion ceiling are
+// attached for downstream canonical or group handling; larger images degrade
+// to an explicit text note naming the file and its size. Callers pass
 // the mime they already detected; an empty mime is treated as non-inlineable.
-func InlineImageFallback(fileName, mime string, data []byte, deferredGroup bool) []ai.ContentBlock {
-	limit := ai.MaxImageInputBytes
-	if deferredGroup {
-		limit = maxInlineAttachmentImageBytes
-	}
-	if mime != "" && len(data) <= limit {
+func InlineImageFallback(fileName, mime string, data []byte) []ai.ContentBlock {
+	if mime != "" && len(data) <= ai.MaxImageInputBytes {
 		return []ai.ContentBlock{
 			ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime},
 		}
@@ -208,12 +193,12 @@ func InlineImageFallback(fileName, mime string, data []byte, deferredGroup bool)
 // AttachmentSaveFailureContent returns the blocks to route to the agent when an
 // inbound attachment downloaded successfully but could not be persisted. It
 // keeps the four channel plugins symmetric on the save-failure path: image
-// bytes degrade via InlineImageFallback (inline within the ceiling, else a text
-// note) and any other file gets an explicit placeholder so the turn is never
+// bytes degrade via InlineImageFallback (attached within the ingestion ceiling,
+// else a text note) and any other file gets an explicit placeholder so the turn is never
 // silently dropped. data is the raw downloaded bytes used for image detection.
-func AttachmentSaveFailureContent(fileName string, data []byte, deferredGroup bool) []ai.ContentBlock {
+func AttachmentSaveFailureContent(fileName string, data []byte) []ai.ContentBlock {
 	if mime := tools.DetectImageMime(data); mime != "" {
-		return InlineImageFallback(fileName, mime, data, deferredGroup)
+		return InlineImageFallback(fileName, mime, data)
 	}
 	return TextContent(fmt.Sprintf(
 		"[File: %s — received but could not be stored (%s).]",

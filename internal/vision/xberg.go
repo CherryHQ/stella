@@ -15,7 +15,7 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// xbergTimeout bounds synchronous text extraction for non-vision models.
+// xbergTimeout bounds local extraction for canonical baseline fallback.
 const xbergTimeout = 60 * time.Second
 
 // ExtractWithXberg shells out to the Xberg CLI to extract text from a

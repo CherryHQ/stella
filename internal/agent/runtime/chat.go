@@ -217,12 +217,12 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		}
 		if blocks != nil {
 			if ai.HasImage(blocks) {
-				if rt.enrichContent == nil {
+				if rt.sessionImages == nil {
 					out <- Event{Err: errors.New("session image enrichment is not configured")}
 					close(out)
 					return
 				}
-				enriched, err := rt.enrichContent(ctx, info.UserID, info.AgentID, blocks)
+				enriched, err := rt.sessionImages.Enrich(ctx, info.UserID, info.AgentID, blocks)
 				if err != nil {
 					out <- Event{Err: fmt.Errorf("enrich user images: %w", err)}
 					close(out)

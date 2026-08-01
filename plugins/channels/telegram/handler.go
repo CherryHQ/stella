@@ -327,11 +327,11 @@ func (b *Bot) imageContent(c tele.Context, uniqueID, mimeType string, data []byt
 	if assetsDir := b.resolveAssetsDir(c); assetsDir != "" {
 		savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 		if err == nil {
-			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data, isGroup(c))
+			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)
 		}
 		logger().Warn("save inbound image failed", "error", err)
 	}
-	return channel.InlineImageFallback(fileName, mimeType, data, isGroup(c))
+	return channel.InlineImageFallback(fileName, mimeType, data)
 }
 
 // handleDocument processes incoming document (file) messages. It downloads the
@@ -416,11 +416,11 @@ func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName st
 	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 	if err != nil {
 		logger().Warn("save document failed", "error", err)
-		return channel.AttachmentSaveFailureContent(fileName, data, isGroup(c)), true
+		return channel.AttachmentSaveFailureContent(fileName, data), true
 	}
 
 	logger().Debug("document received", "file_name", fileName, "size", len(data), "path", savedPath)
-	return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data, isGroup(c)), true
+	return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data), true
 }
 
 // handleStream renders a ChatStream to the Telegram chat.

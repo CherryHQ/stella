@@ -34,24 +34,24 @@ type Input struct {
 	MimeType string
 }
 
-// Service stores one content-addressed object before creating or reusing its
+// mediaStore stores one content-addressed object before creating or reusing its
 // metadata row. Blob-first/DB-second leaves only safe unreachable objects if a
 // DB write fails; it never commits a dangling media reference.
-type Service struct {
+type mediaStore struct {
 	media asset.SessionMediaStore
 	q     *sqlc.Queries
 }
 
-func New(media asset.SessionMediaStore, db *pgxpool.Pool) (*Service, error) {
+func newMediaStore(media asset.SessionMediaStore, db *pgxpool.Pool) (*mediaStore, error) {
 	if media == nil || db == nil {
 		return nil, fmt.Errorf("session media service: %w", ErrInvalidInput)
 	}
-	return &Service{media: media, q: sqlc.New(db)}, nil
+	return &mediaStore{media: media, q: sqlc.New(db)}, nil
 }
 
 // Persist writes the verified content-addressed object before inserting metadata.
 // Existing rows may only be reused when every immutable metadata field matches.
-func (s *Service) Persist(ctx context.Context, in Input) (string, error) {
+func (s *mediaStore) Persist(ctx context.Context, in Input) (string, error) {
 	if err := validateInput(in); err != nil {
 		return "", err
 	}
@@ -89,7 +89,7 @@ func (s *Service) Persist(ctx context.Context, in Input) (string, error) {
 // Load verifies that mediaID belongs to userID, then opens its immutable blob.
 // Missing, foreign, malformed, and corrupt objects intentionally share the
 // same opaque error so a provider request cannot probe another user's media.
-func (s *Service) Load(ctx context.Context, userID uuid.UUID, mediaID string) (ai.ImageContent, error) {
+func (s *mediaStore) Load(ctx context.Context, userID uuid.UUID, mediaID string) (ai.ImageContent, error) {
 	if userID == uuid.Nil || strings.TrimSpace(mediaID) == "" {
 		return ai.ImageContent{}, ErrNotFound
 	}

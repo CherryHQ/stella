@@ -19,10 +19,10 @@ type snapshotVisionFactory struct {
 	build  vision.StreamBuilder
 }
 
-// NewSnapshotVisionFactory creates a reloadable factory. It deliberately does
+// newSnapshotVisionFactory creates a reloadable factory. It deliberately does
 // no caching: image ingestion is low frequency and reading one fresh snapshot
 // per message is simpler than coupling it to runner lifetime or cache eviction.
-func NewSnapshotVisionFactory(loader SnapshotLoader, build vision.StreamBuilder) (VisionFactory, error) {
+func newSnapshotVisionFactory(loader SnapshotLoader, build vision.StreamBuilder) (visionFactory, error) {
 	if loader == nil || build == nil {
 		return nil, fmt.Errorf("session media vision factory: %w", ErrInvalidInput)
 	}

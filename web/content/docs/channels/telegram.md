@@ -82,7 +82,7 @@ Use cases: describe screenshots, analyze diagrams, read documents from photos, e
 
 If the model returns images (e.g. from tool results), they are sent back as Telegram photos after the text response.
 
-> **Note:** Configure image understanding for the deployment under **Settings -> Vision**. A model whose **Input** declares `image` receives image pixels only during the active turn; other models receive the stored text baseline.
+> **Note:** Configure **Settings -> Vision** for ordinary-session baselines. A model whose **Input** declares `image` receives pixels only during the active turn; group history without a stored baseline uses the unavailable marker.
 
 ## File/Document Support
 
@@ -163,7 +163,7 @@ All settings below are managed through the Web UI.
 
 **Images or files not being analyzed?**
 
-- Configure image understanding under **Settings -> Vision**. Set a model's **Input** to `text, image` only when it should receive image pixels during the active turn; otherwise Stella uses the text baseline.
+- Configure **Settings -> Vision** for ordinary-session baselines. A model declaring `text, image` receives active-turn pixels; group history without a stored baseline uses the unavailable marker.
 - For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**

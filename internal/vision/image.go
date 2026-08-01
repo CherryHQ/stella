@@ -25,8 +25,6 @@ const (
 	MaxImageDim = 2000
 	// MaxRendererPayloadBytes is the hard provider image payload ceiling.
 	MaxRendererPayloadBytes = 5 * 1024 * 1024
-	// MaxInlineBytes is the legacy name used by read-tool callers.
-	MaxInlineBytes = MaxRendererPayloadBytes
 	// MaxImageInputBytes aliases the canonical session-ingress ceiling. Together
 	// with MaxImagePixels, it protects model and Xberg paths from compressed-byte
 	// and decompression-bomb inputs.
@@ -34,8 +32,8 @@ const (
 	MaxImagePixels     = 50_000_000
 )
 
-// ValidateBudget rejects unsafe image bytes before full decode. It remains for
-// legacy callers that do not have a declared MIME to compare.
+// ValidateBudget rejects unsafe image bytes before full decode for callers
+// that do not have a declared MIME to compare.
 func ValidateBudget(data []byte) (image.Config, error) {
 	cfg, _, err := decodeConfig(data)
 	return cfg, err

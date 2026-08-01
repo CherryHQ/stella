@@ -35,7 +35,7 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new asset store: %v", err)
 	}
-	svc, err := New(assets.SessionMedia(), db)
+	svc, err := newMediaStore(assets.SessionMedia(), db)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := New(assets.SessionMedia(), db)
+	svc, err := newMediaStore(assets.SessionMedia(), db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestLoadPreparesProviderPayloadWithoutMutatingStoredOriginal(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := New(assets.SessionMedia(), db)
+	svc, err := newMediaStore(assets.SessionMedia(), db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new asset store: %v", err)
 	}
-	svc, err := New(assets.SessionMedia(), db)
+	svc, err := newMediaStore(assets.SessionMedia(), db)
 	if err != nil {
 		t.Fatalf("new service: %v", err)
 	}
