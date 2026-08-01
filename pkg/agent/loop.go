@@ -117,6 +117,8 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 			if err := validateProviderImages(turnCfg.Model, normalized); err != nil {
 				return history, err
 			}
+		} else if err := validateNoImageRefs(normalized); err != nil {
+			return history, err
 		}
 
 		start := time.Now()
@@ -184,6 +186,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		// Rendering costs image detail; a wasted turn costs more, and declaring
 		// "text, image" on the provider's model restores full fidelity.
 		toolExecCtx := tools.WithVision(ctx, effectiveModel.ImageCapability() == ai.ImageSupported)
+		toolExecCtx = tools.WithCanonicalImages(toolExecCtx, cfg.CanonicalToolImages)
 		results, err := executeToolCalls(toolExecCtx, calls, cfg.Tools, toolCallbacks{
 			onStart: func(call ai.ToolCall) {
 				if emit != nil {

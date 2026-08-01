@@ -206,12 +206,12 @@ export function reconcileHistoryUIMessages(
   const consumedOptimisticIDs = new Set<string>();
 
   for (const canonical of history) {
-    if (!isCanonicalUserImage(canonical)) continue;
+    if (!isCanonicalUserAttachment(canonical)) continue;
     let closest: UIMessage | undefined;
     let closestDistance = Infinity;
     for (const candidate of current) {
       if (consumedOptimisticIDs.has(candidate.id)) continue;
-      const distance = canonicalImageMatchDistance(canonical, candidate);
+      const distance = canonicalAttachmentMatchDistance(canonical, candidate);
       if (distance !== undefined && distance < closestDistance) {
         closest = candidate;
         closestDistance = distance;
@@ -228,13 +228,15 @@ export function reconcileHistoryUIMessages(
   ];
 }
 
-function canonicalImageMatchDistance(
+function canonicalAttachmentMatchDistance(
   canonical: UIMessage,
   optimistic: UIMessage,
 ): number | undefined {
-  if (!isWorkspaceUserImage(optimistic)) return undefined;
-  if (uiMessageText(canonical) !== uiMessageText(optimistic)) return undefined;
-  if (sessionMediaImageCount(canonical) !== workspaceImageCount(optimistic)) return undefined;
+  if (!isWorkspaceUserAttachment(optimistic)) return undefined;
+  if (uiMessageCaption(canonical) !== uiMessageCaption(optimistic)) return undefined;
+  if (canonicalAttachmentCount(canonical) !== workspaceAttachmentCount(optimistic)) {
+    return undefined;
+  }
   const canonicalTime = uiMessageTimestamp(canonical);
   const optimisticTime = uiMessageTimestamp(optimistic);
   if (canonicalTime === undefined || optimisticTime === undefined) return undefined;
@@ -242,12 +244,11 @@ function canonicalImageMatchDistance(
   return distance <= CANONICAL_RECONCILIATION_WINDOW_MS ? distance : undefined;
 }
 
-function uiMessageText(message: UIMessage): string {
+function uiMessageCaption(message: UIMessage): string {
   return message.parts
-    .filter(
-      (part): part is Extract<UIMessage["parts"][number], { type: "text" }> => part.type === "text",
+    .flatMap((part) =>
+      part.type === "text" && !isStandaloneFileMarker(part.text) ? [part.text] : [],
     )
-    .map((part) => part.text)
     .join("\n");
 }
 
@@ -258,32 +259,25 @@ function uiMessageTimestamp(message: UIMessage): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function isCanonicalUserImage(message: UIMessage): boolean {
-  return message.role === "user" && sessionMediaImageCount(message) > 0;
+function isCanonicalUserAttachment(message: UIMessage): boolean {
+  return message.role === "user" && canonicalAttachmentCount(message) > 0;
 }
 
-function isWorkspaceUserImage(message: UIMessage): boolean {
-  return message.role === "user" && workspaceImageCount(message) > 0;
+function isWorkspaceUserAttachment(message: UIMessage): boolean {
+  return message.role === "user" && workspaceAttachmentCount(message) > 0;
 }
 
-function sessionMediaImageCount(message: UIMessage): number {
+function canonicalAttachmentCount(message: UIMessage): number {
   return message.parts.filter(
     (part) =>
-      part.type === "file" &&
-      isSessionMediaURL(part.url) &&
-      typeof part.mediaType === "string" &&
-      part.mediaType.startsWith("image/"),
+      (part.type === "file" && isSessionMediaURL(part.url)) ||
+      (part.type === "text" && isStandaloneFileMarker(part.text)),
   ).length;
 }
 
-function workspaceImageCount(message: UIMessage): number {
-  return message.parts.filter(
-    (part) =>
-      part.type === "file" &&
-      !isSessionMediaURL(part.url) &&
-      typeof part.mediaType === "string" &&
-      part.mediaType.startsWith("image/"),
-  ).length;
+function workspaceAttachmentCount(message: UIMessage): number {
+  return message.parts.filter((part) => part.type === "file" && !isSessionMediaURL(part.url))
+    .length;
 }
 
 function stableContentKey(m: Message): string {
@@ -375,7 +369,7 @@ function presentationBlocks(blocks: ContentBlock[]): ContentBlock[] {
 }
 
 function isStandaloneFileMarker(text: string): boolean {
-  return /^\[file: \/[^\]\r\n]+\]$/.test(text);
+  return text.startsWith("[file: /") && text.endsWith("]");
 }
 
 export function messageToUIMessage(m: Message): UIMessage {

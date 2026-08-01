@@ -39,7 +39,7 @@ func TestProjectImagesMatrix(t *testing.T) {
 			cfg := loopConfig{
 				Model:           model,
 				ImageProjection: true,
-				ImageText: func(_ context.Context, index int, _ ai.ImageContent) string {
+				LegacyImageText: func(_ context.Context, index int, _ ai.ImageContent) string {
 					return fmt.Sprintf("legacy-%d", index)
 				},
 				MediaLoader: func(_ context.Context, id string) (ai.ImageContent, error) {
@@ -101,6 +101,16 @@ func TestProjectImagesRejectsAssistantImageAndProviderLeaks(t *testing.T) {
 	}
 	if err := validateProviderImages(supportedModel(), []ai.Message{ai.UserMessage{Content: []ai.ContentBlock{canonicalRef("bad")}}}); !errors.Is(err, ErrImageRefUnresolved) {
 		t.Fatalf("ref validation = %v", err)
+	}
+}
+
+func TestActiveHydrationFailureUsesStoredBaseline(t *testing.T) {
+	ref := canonicalReadyRef("missing")
+	out, stats, err := projectImages(context.Background(), loopConfig{Model: supportedModel(), ImageProjection: true, MediaLoader: func(context.Context, string) (ai.ImageContent, error) {
+		return ai.ImageContent{}, errors.New("missing")
+	}}, []ai.Message{ai.UserMessage{Content: []ai.ContentBlock{ref}}}, 0, map[string]ai.ImageContent{})
+	if err != nil || ai.HasImage(messageBlocks(out[0])) || stats.Hydrations != 0 || stats.BaselineProjections != 1 {
+		t.Fatalf("fallback = %#v stats=%+v err=%v", out, stats, err)
 	}
 }
 
@@ -169,6 +179,7 @@ func TestContinueProjectsOnlyTailImageAsActive(t *testing.T) {
 func TestRunWithActiveStartReusesHydrationAcrossToolLoop(t *testing.T) {
 	loads := 0
 	var seen []ai.Context
+	var observations []ProjectionStats
 	calls := 0
 	stream := func(_ context.Context, _ ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 		seen = append(seen, aiCtx)
@@ -194,6 +205,8 @@ func TestRunWithActiveStartReusesHydrationAcrossToolLoop(t *testing.T) {
 	}, WithMediaLoader(func(_ context.Context, id string) (ai.ImageContent, error) {
 		loads++
 		return ai.ImageContent{Data: "identical-pixels", MimeType: "image/png"}, nil
+	}), WithProjectionObserver(func(stats ProjectionStats) {
+		observations = append(observations, stats)
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -210,6 +223,9 @@ func TestRunWithActiveStartReusesHydrationAcrossToolLoop(t *testing.T) {
 	}
 	if len(seen) != 2 {
 		t.Fatalf("provider calls = %d, want 2", len(seen))
+	}
+	if len(observations) != 2 || observations[0].Hydrations != 1 || observations[1].Hydrations != 0 {
+		t.Fatalf("hydrations per provider call = %#v, want 1 then 0", observations)
 	}
 	first := messageBlocks(seen[0].Messages[1])[0].(ai.ImageContent)
 	second := messageBlocks(seen[1].Messages[1])[0].(ai.ImageContent)

@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-type visionKey struct{}
+type (
+	visionKey          struct{}
+	canonicalImagesKey struct{}
+)
 
 // WithVision records whether the active model can accept image input, so tools
 // (e.g. read) can decide whether to return images inline or fall back to text.
@@ -22,6 +25,17 @@ func VisionFromContext(ctx context.Context) bool {
 	if !ok {
 		return true
 	}
+	return v
+}
+
+// WithCanonicalImages records that tool image results will be canonicalized
+// after lifecycle hooks. It defaults false to preserve deferred group behavior.
+func WithCanonicalImages(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, canonicalImagesKey{}, enabled)
+}
+
+func CanonicalImagesFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(canonicalImagesKey{}).(bool)
 	return v
 }
 

@@ -47,7 +47,7 @@ var (
 // the whole Run, including progress nudges and tool-loop results.
 func projectImages(ctx context.Context, cfg loopConfig, messages []ai.Message, activeStart int, memo map[string]ai.ImageContent) ([]ai.Message, ProjectionStats, error) {
 	if !cfg.ImageProjection {
-		return legacyMaterializeImages(ctx, cfg, messages), ProjectionStats{Capability: cfg.Model.ImageCapability()}, nil
+		return projectLegacyInlineHistory(ctx, cfg, messages), ProjectionStats{Capability: cfg.Model.ImageCapability()}, nil
 	}
 	if activeStart < 0 || activeStart > len(messages) {
 		return nil, ProjectionStats{}, projectionError("invalid active boundary")
@@ -115,7 +115,9 @@ func projectBlocks(ctx context.Context, cfg loopConfig, blocks []ai.ContentBlock
 					}
 					loaded, err := cfg.MediaLoader(ctx, b.MediaID)
 					if err != nil {
-						return nil, projectionError("could not load active image")
+						out[i] = ai.TextContent{Text: b.Baseline.Projection()}
+						stats.BaselineProjections++
+						continue
 					}
 					image = loaded
 					memo[b.MediaID] = image
@@ -135,11 +137,11 @@ func projectBlocks(ctx context.Context, cfg loopConfig, blocks []ai.ContentBlock
 				stats.ActivePixelBytes += len(b.Data)
 				continue
 			}
-			if cfg.ImageText == nil {
+			if cfg.LegacyImageText == nil {
 				return nil, projectionError("legacy image has no compatibility renderer")
 			}
 			stats.LegacyRendered++
-			out[i] = ai.TextContent{Text: cfg.ImageText(ctx, stats.LegacyRendered, b)}
+			out[i] = ai.TextContent{Text: cfg.LegacyImageText(ctx, stats.LegacyRendered, b)}
 		default:
 			out[i] = block
 		}
@@ -147,17 +149,12 @@ func projectBlocks(ctx context.Context, cfg loopConfig, blocks []ai.ContentBlock
 	return out, nil
 }
 
-// materializeImages preserves the old package-private test and compatibility
-// seam. Ordinary production calls projectImages instead.
-func materializeImages(ctx context.Context, cfg loopConfig, messages []ai.Message) []ai.Message {
-	return legacyMaterializeImages(ctx, cfg, messages)
-}
-
-// legacyMaterializeImages is retained only for deferred group history and old
-// inline rows. It intentionally keeps the former all-history supported-model
-// behavior; ordinary sessions always use projectImages above.
-func legacyMaterializeImages(ctx context.Context, cfg loopConfig, messages []ai.Message) []ai.Message {
-	if cfg.ImageText == nil || cfg.Model.ImageCapability() == ai.ImageSupported {
+// projectLegacyInlineHistory is the sole compatibility adapter for deferred
+// group history. It preserves legacy inline rows: declared image models keep
+// their inline pixels, while other models use LegacyImageText. Canonical ordinary
+// sessions always use projectImages above and never request-time render refs.
+func projectLegacyInlineHistory(ctx context.Context, cfg loopConfig, messages []ai.Message) []ai.Message {
+	if cfg.LegacyImageText == nil || cfg.Model.ImageCapability() == ai.ImageSupported {
 		return messages
 	}
 	out := make([]ai.Message, len(messages))
@@ -172,19 +169,29 @@ func legacyMaterializeImages(ctx context.Context, cfg loopConfig, messages []ai.
 	return out
 }
 
-// validateProviderImages is deliberately immediately before Stream: no
-// adapter can accidentally receive canonical references, and incapable models
-// can never receive provider image bytes.
-func validateProviderImages(model ai.Model, messages []ai.Message) error {
+// validateNoImageRefs is deliberately immediately before every Stream: no
+// adapter can receive a canonical reference, including deferred group history.
+func validateNoImageRefs(messages []ai.Message) error {
 	for _, msg := range messages {
 		for _, block := range messageBlocks(msg) {
-			switch block.(type) {
-			case ai.ImageRefContent:
+			if _, ok := block.(ai.ImageRefContent); ok {
 				return ErrImageRefUnresolved
-			case ai.ImageContent:
-				if model.ImageCapability() != ai.ImageSupported {
-					return ErrUnsupportedImage
-				}
+			}
+		}
+	}
+	return nil
+}
+
+// validateProviderImages adds the ordinary-session capability boundary: only
+// declared image models may receive ephemeral provider image bytes.
+func validateProviderImages(model ai.Model, messages []ai.Message) error {
+	if err := validateNoImageRefs(messages); err != nil {
+		return err
+	}
+	for _, msg := range messages {
+		for _, block := range messageBlocks(msg) {
+			if _, ok := block.(ai.ImageContent); ok && model.ImageCapability() != ai.ImageSupported {
+				return ErrUnsupportedImage
 			}
 		}
 	}

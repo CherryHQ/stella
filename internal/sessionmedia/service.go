@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/asset"
+	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -126,7 +127,15 @@ func (s *Service) Load(ctx context.Context, userID uuid.UUID, mediaID string) (a
 	if err != nil {
 		return ai.ImageContent{}, ErrNotFound
 	}
-	return ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: row.MimeType}, nil
+	cfg, mime, err := vision.ValidateImage(data, row.MimeType)
+	if err != nil {
+		return ai.ImageContent{}, ErrNotFound
+	}
+	prepared, preparedMIME, err := vision.PrepareRendererPayloadContext(ctx, data, cfg, mime)
+	if err != nil {
+		return ai.ImageContent{}, ErrNotFound
+	}
+	return ai.ImageContent{Data: base64.StdEncoding.EncodeToString(prepared), MimeType: preparedMIME}, nil
 }
 
 func validateInput(in Input) error {

@@ -37,6 +37,16 @@ type ThinkingContent struct {
 
 func (ThinkingContent) contentBlockKind() string { return "thinking" }
 
+const (
+	// MaxImageInputBytes is the largest original image accepted for canonical
+	// session ingestion before it is converted to a provider payload.
+	MaxImageInputBytes = 30 * 1024 * 1024
+	// MaxImagesPerMessage and MaxAggregateImageBytes bound one image-bearing
+	// message before decoding or persistence allocates its originals.
+	MaxImagesPerMessage    = 8
+	MaxAggregateImageBytes = 60 * 1024 * 1024
+)
+
 // ImageContent represents ephemeral, base64-encoded provider or tool input.
 // It must not be written to new ordinary-session history.
 type ImageContent struct {

@@ -63,6 +63,26 @@ describe("session history conversion", () => {
     ]);
   });
 
+  it("hides a successful image marker whose filename contains a closing bracket", () => {
+    const marker = "[file: /user/assets/photo].png]";
+    const message = sessionMessagesToMessages([
+      {
+        id: "canonical-bracket",
+        role: "user",
+        timestamp: "2026-08-01T00:00:00Z",
+        token_count: 1,
+        blocks: [
+          { type: "text", text: marker },
+          { type: "image", media_id: "media-id", mime_type: "image/png", url: mediaURL },
+        ],
+      },
+    ])[0];
+
+    expect(messageToUIMessage(message).parts).toEqual([
+      { type: "file", url: mediaURL, mediaType: "image/png" },
+    ]);
+  });
+
   it("keeps legacy workspace markers on the optimistic path", () => {
     const optimistic: UIMessage = {
       id: "optimistic",
@@ -136,6 +156,67 @@ describe("session history conversion", () => {
           blocks: [
             { type: "text", text: "look" },
             { type: "image", media_id: "media-id", mime_type: "image/png", url: mediaURL },
+          ],
+        },
+      ])[0],
+    );
+
+    expect(reconcileHistoryUIMessages([canonical], [optimistic])).toEqual([canonical]);
+  });
+
+  it("reconciles mixed PDF and image uploads", () => {
+    const optimistic: UIMessage = {
+      id: "optimistic-mixed",
+      role: "user",
+      parts: [
+        { type: "text", text: "look" },
+        { type: "file", url: "/user/assets/report.pdf", mediaType: "application/pdf" },
+        { type: "file", url: "/user/assets/photo.png", mediaType: "image/png" },
+      ],
+      metadata: { timestamp: "2026-08-01T00:00:05Z" },
+    };
+    const canonical = messageToUIMessage(
+      sessionMessagesToMessages([
+        {
+          id: "canonical-mixed",
+          role: "user",
+          timestamp: "2026-08-01T00:00:00Z",
+          token_count: 1,
+          blocks: [
+            { type: "text", text: "look" },
+            { type: "text", text: "[file: /user/assets/report.pdf]" },
+            { type: "text", text: "[file: /user/assets/photo.png]" },
+            { type: "image", media_id: "media-id", mime_type: "image/png", url: mediaURL },
+          ],
+        },
+      ])[0],
+    );
+    expect(reconcileHistoryUIMessages([canonical], [optimistic])).toEqual([canonical]);
+  });
+
+  it("reconciles when one of two optimistic images remains only as a marker", () => {
+    const optimistic: UIMessage = {
+      id: "optimistic-partial",
+      role: "user",
+      parts: [
+        { type: "text", text: "look" },
+        { type: "file", url: "/user/assets/kept.png", mediaType: "image/png" },
+        { type: "file", url: "/user/assets/unreadable].png", mediaType: "image/png" },
+      ],
+      metadata: { timestamp: "2026-08-01T00:00:05Z" },
+    };
+    const canonical = messageToUIMessage(
+      sessionMessagesToMessages([
+        {
+          id: "canonical-partial",
+          role: "user",
+          timestamp: "2026-08-01T00:00:00Z",
+          token_count: 1,
+          blocks: [
+            { type: "text", text: "look" },
+            { type: "text", text: "[file: /user/assets/kept.png]" },
+            { type: "image", media_id: "media-id", mime_type: "image/png", url: mediaURL },
+            { type: "text", text: "[file: /user/assets/unreadable].png]" },
           ],
         },
       ])[0],

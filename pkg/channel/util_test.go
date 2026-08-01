@@ -126,7 +126,7 @@ func TestAttachmentReceivedContentInlinesImages(t *testing.T) {
 	}
 	data := buf.Bytes()
 
-	blocks := AttachmentReceivedContent("photo.png", "/home/stella/assets", "/home/stella/assets/photo.png", data)
+	blocks := AttachmentReceivedContent("photo.png", "/home/stella/assets", "/home/stella/assets/photo.png", data, false)
 	if len(blocks) != 2 {
 		t.Fatalf("expected note + image blocks, got %d: %#v", len(blocks), blocks)
 	}
@@ -147,7 +147,7 @@ func TestAttachmentReceivedContentInlinesImages(t *testing.T) {
 }
 
 func TestAttachmentReceivedContentFallsBackToFileHint(t *testing.T) {
-	blocks := AttachmentReceivedContent("report.pdf", "/home/stella/assets", "/home/stella/assets/report.pdf", []byte("%PDF-1.7 not an image"))
+	blocks := AttachmentReceivedContent("report.pdf", "/home/stella/assets", "/home/stella/assets/report.pdf", []byte("%PDF-1.7 not an image"), false)
 	got := ai.FlattenText(blocks)
 	if !strings.Contains(got, "`xberg extract") {
 		t.Fatalf("non-image attachment = %q, want Xberg extraction hint", got)
@@ -163,13 +163,12 @@ func TestAttachmentReceivedContentOversizedImageHintsRead(t *testing.T) {
 	}
 	data := append(buf.Bytes(), make([]byte, maxInlineAttachmentImageBytes)...)
 
-	blocks := AttachmentReceivedContent("huge.png", "/home/stella/assets", "/home/stella/assets/huge.png", data)
-	if len(blocks) != 1 {
-		t.Fatalf("expected single text block, got %d", len(blocks))
+	if blocks := AttachmentReceivedContent("huge.png", "/home/stella/assets", "/home/stella/assets/huge.png", data, false); !ai.HasImage(blocks) {
+		t.Fatalf("direct blocks = %#v, want canonical image", blocks)
 	}
-	got := ai.FlattenText(blocks)
-	if !strings.Contains(got, "`read` tool") || strings.Contains(got, "xberg") {
-		t.Fatalf("oversized image = %q, want read-tool hint without Xberg", got)
+	blocks := AttachmentReceivedContent("huge.png", "/home/stella/assets", "/home/stella/assets/huge.png", data, true)
+	if len(blocks) != 1 || !strings.Contains(ai.FlattenText(blocks), "`read` tool") {
+		t.Fatalf("group blocks = %#v, want legacy read hint", blocks)
 	}
 }
 
@@ -180,7 +179,7 @@ func TestInlineImageFallbackInlinesWithinCeiling(t *testing.T) {
 	}
 	data := buf.Bytes()
 
-	blocks := InlineImageFallback("photo.png", "image/png", data)
+	blocks := InlineImageFallback("photo.png", "image/png", data, false)
 	if len(blocks) != 1 {
 		t.Fatalf("expected single inline image block, got %d: %#v", len(blocks), blocks)
 	}
@@ -195,21 +194,16 @@ func TestInlineImageFallbackInlinesWithinCeiling(t *testing.T) {
 
 func TestInlineImageFallbackOversizedBecomesTextNote(t *testing.T) {
 	data := make([]byte, maxInlineAttachmentImageBytes+1)
-	blocks := InlineImageFallback("huge.png", "image/png", data)
-	if len(blocks) != 1 {
-		t.Fatalf("expected single text block, got %d", len(blocks))
+	if blocks := InlineImageFallback("huge.png", "image/png", data, false); !ai.HasImage(blocks) {
+		t.Fatalf("direct blocks = %#v, want canonical image", blocks)
 	}
-	if _, ok := blocks[0].(ai.ImageContent); ok {
-		t.Fatalf("oversized image must not be inlined")
-	}
-	got := ai.FlattenText(blocks)
-	if !strings.Contains(got, "huge.png") || !strings.Contains(got, "could not be stored") {
-		t.Fatalf("oversized note = %q, want filename + could-not-store text", got)
+	if blocks := InlineImageFallback("huge.png", "image/png", data, true); ai.HasImage(blocks) {
+		t.Fatalf("group blocks = %#v, must keep 5 MiB ceiling", blocks)
 	}
 }
 
 func TestInlineImageFallbackEmptyMimeBecomesTextNote(t *testing.T) {
-	blocks := InlineImageFallback("mystery.bin", "", []byte("tiny"))
+	blocks := InlineImageFallback("mystery.bin", "", []byte("tiny"), false)
 	if _, ok := blocks[0].(ai.ImageContent); ok {
 		t.Fatalf("empty mime must not be inlined")
 	}
@@ -223,7 +217,7 @@ func TestAttachmentSaveFailureContentInlinesImage(t *testing.T) {
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	blocks := AttachmentSaveFailureContent("photo.png", buf.Bytes())
+	blocks := AttachmentSaveFailureContent("photo.png", buf.Bytes(), false)
 	if len(blocks) != 1 {
 		t.Fatalf("expected single inline image block, got %d", len(blocks))
 	}
@@ -238,17 +232,16 @@ func TestAttachmentSaveFailureContentOversizedImageBecomesTextNote(t *testing.T)
 		t.Fatalf("encode: %v", err)
 	}
 	data := append(buf.Bytes(), make([]byte, maxInlineAttachmentImageBytes)...)
-	blocks := AttachmentSaveFailureContent("huge.png", data)
-	if _, ok := blocks[0].(ai.ImageContent); ok {
-		t.Fatalf("oversized image must not be inlined on save failure")
+	if blocks := AttachmentSaveFailureContent("huge.png", data, false); !ai.HasImage(blocks) {
+		t.Fatalf("direct blocks = %#v, want canonical image", blocks)
 	}
-	if got := ai.FlattenText(blocks); !strings.Contains(got, "huge.png") {
-		t.Fatalf("note = %q, want filename", got)
+	if blocks := AttachmentSaveFailureContent("huge.png", data, true); ai.HasImage(blocks) {
+		t.Fatalf("group blocks = %#v, must keep 5 MiB ceiling", blocks)
 	}
 }
 
 func TestAttachmentSaveFailureContentNonImageBecomesPlaceholder(t *testing.T) {
-	blocks := AttachmentSaveFailureContent("report.pdf", []byte("%PDF-1.7 not an image"))
+	blocks := AttachmentSaveFailureContent("report.pdf", []byte("%PDF-1.7 not an image"), false)
 	if _, ok := blocks[0].(ai.ImageContent); ok {
 		t.Fatalf("non-image must not be inlined")
 	}

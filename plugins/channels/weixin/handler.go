@@ -201,14 +201,14 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 		if assetsDir != "" {
 			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
 			if saveErr == nil {
-				content = append(content, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
+				content = append(content, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data, false)...)
 				continue
 			}
 			logger().Warn("save inbound image failed", "user_id", msg.FromUserID, "error", saveErr)
 		}
 		// Persistence unavailable — degrade to inline within the ceiling; images
 		// past the inline limit become an explicit text note instead.
-		content = append(content, channel.InlineImageFallback(fileName, mimeType, data)...)
+		content = append(content, channel.InlineImageFallback(fileName, mimeType, data, false)...)
 	}
 
 	// Nothing decoded successfully.
@@ -342,14 +342,14 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 		// agent (image bytes inline within the ceiling, other files as a
 		// placeholder) rather than dropping the turn.
 		logger().Warn("save file asset failed", "user_id", msg.FromUserID, "error", err)
-		incoming := b.incomingMsg(msg, channel.AttachmentSaveFailureContent(fileName, data))
+		incoming := b.incomingMsg(msg, channel.AttachmentSaveFailureContent(fileName, data, false))
 		b.handleIncoming(msg, incoming, "", "")
 		return
 	}
 
 	logger().Debug("file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(data))
 
-	incoming := b.incomingMsg(msg, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data))
+	incoming := b.incomingMsg(msg, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data, false))
 	b.handleIncoming(msg, incoming, "", "")
 }
 

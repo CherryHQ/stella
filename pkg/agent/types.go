@@ -22,20 +22,21 @@ type ToolSet map[string]ToolFunc
 
 // loopConfig configures the agent loop behavior.
 type loopConfig struct {
-	Stream          providers.StreamFunc
-	Model           ai.Model
-	StreamOptions   ai.StreamOptions
-	Tools           ToolSet
-	ToolDefinitions []ai.ToolDefinition
-	System          string
-	Interrupt       <-chan struct{}
-	Hooks           *hooks.HookSet
-	HookMeta        hooks.HookMeta
-	ToolLifecycle   *ToolLifecycle
-	ToolTransform   ToolResultTransform
-	// ImageText renders legacy inline images as text. New canonical references
-	// use MediaLoader and their stored baseline instead.
-	ImageText          ImageTextFunc
+	Stream              providers.StreamFunc
+	Model               ai.Model
+	StreamOptions       ai.StreamOptions
+	Tools               ToolSet
+	ToolDefinitions     []ai.ToolDefinition
+	System              string
+	Interrupt           <-chan struct{}
+	Hooks               *hooks.HookSet
+	HookMeta            hooks.HookMeta
+	ToolLifecycle       *ToolLifecycle
+	ToolTransform       ToolResultTransform
+	CanonicalToolImages bool
+	// LegacyImageText renders inline images from old rows. New canonical
+	// references use MediaLoader and their stored baseline instead.
+	LegacyImageText    ImageTextFunc
 	MediaLoader        MediaLoader
 	ProjectionObserver ProjectionObserver
 	ImageProjection    bool

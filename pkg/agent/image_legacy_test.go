@@ -38,11 +38,14 @@ func unsupportedModel() ai.Model { return ai.Model{Input: []string{"text"}} }
 func supportedModel() ai.Model   { return ai.Model{Input: []string{"text", "image"}} }
 func unknownModel() ai.Model     { return ai.Model{} }
 
-func TestMaterializeImagesReplacesImagesForUnsupportedModel(t *testing.T) {
+func TestLegacyProjectionReplacesImagesForUnsupportedModel(t *testing.T) {
 	render, calls := stubImageText()
 	history := imageHistory()
 
-	out := materializeImages(context.Background(), loopConfig{Model: unsupportedModel(), ImageText: render}, history)
+	out, _, err := projectImages(context.Background(), loopConfig{Model: unsupportedModel(), LegacyImageText: render}, history, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if *calls != 2 {
 		t.Fatalf("render calls = %d, want 2", *calls)
@@ -65,13 +68,13 @@ func TestMaterializeImagesReplacesImagesForUnsupportedModel(t *testing.T) {
 	}
 }
 
-func TestMaterializeImagesLeavesHistoryUnmodified(t *testing.T) {
+func TestLegacyProjectionLeavesHistoryUnmodified(t *testing.T) {
 	render, _ := stubImageText()
 	history := imageHistory()
 	userBlocks := history[0].(ai.UserMessage).Content.([]ai.ContentBlock)
 	toolBlocks := history[2].(ai.ToolResultMessage).Content
 
-	out := materializeImages(context.Background(), loopConfig{Model: unsupportedModel(), ImageText: render}, history)
+	out := projectLegacyInlineHistory(context.Background(), loopConfig{Model: unsupportedModel(), LegacyImageText: render}, history)
 
 	if &out[0] == &history[0] {
 		t.Error("the message slice must be copied before rewriting")
@@ -90,11 +93,11 @@ func TestMaterializeImagesLeavesHistoryUnmodified(t *testing.T) {
 }
 
 // Only a declared "image" model keeps the image itself.
-func TestMaterializeImagesSkipsDeclaredCapableModel(t *testing.T) {
+func TestLegacyProjectionKeepsInlineImagesForDeclaredModel(t *testing.T) {
 	render, calls := stubImageText()
 	history := imageHistory()
 
-	out := materializeImages(context.Background(), loopConfig{Model: supportedModel(), ImageText: render}, history)
+	out := projectLegacyInlineHistory(context.Background(), loopConfig{Model: supportedModel(), LegacyImageText: render}, history)
 
 	if *calls != 0 {
 		t.Errorf("render calls = %d, want 0", *calls)
@@ -107,11 +110,11 @@ func TestMaterializeImagesSkipsDeclaredCapableModel(t *testing.T) {
 // An undeclared model is rendered like a text-only one: providers do not report
 // modalities, so undeclared is the common case, and guessing "can see" leaves
 // the model staring at a placeholder.
-func TestMaterializeImagesRendersForUndeclaredModel(t *testing.T) {
+func TestLegacyProjectionRendersForUndeclaredModel(t *testing.T) {
 	render, calls := stubImageText()
 	history := imageHistory()
 
-	out := materializeImages(context.Background(), loopConfig{Model: unknownModel(), ImageText: render}, history)
+	out := projectLegacyInlineHistory(context.Background(), loopConfig{Model: unknownModel(), LegacyImageText: render}, history)
 
 	if *calls != 2 {
 		t.Errorf("render calls = %d, want 2", *calls)
@@ -121,17 +124,17 @@ func TestMaterializeImagesRendersForUndeclaredModel(t *testing.T) {
 	}
 }
 
-func TestMaterializeImagesNoopWithoutRenderer(t *testing.T) {
+func TestLegacyProjectionPassesThroughWithoutRenderer(t *testing.T) {
 	history := imageHistory()
-	out := materializeImages(context.Background(), loopConfig{Model: unsupportedModel()}, history)
+	out := projectLegacyInlineHistory(context.Background(), loopConfig{Model: unsupportedModel()}, history)
 	if !ai.HasImage(contentBlocks(out[0])) {
 		t.Error("without a renderer, images must be sent as-is")
 	}
 }
 
-// TestRunMaterializesImagesForRequestOnly checks the loop seam end to end: the
-// provider sees text, the returned history still holds the image.
-func TestRunMaterializesImagesForRequestOnly(t *testing.T) {
+// TestRunRendersActiveLegacyInlineImage checks the canonical loop's dual-read
+// adapter: the provider sees text, while the returned legacy history keeps pixels.
+func TestRunRendersActiveLegacyInlineImage(t *testing.T) {
 	var seen ai.Context
 	stream := func(_ context.Context, _ ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
 		seen = aiCtx

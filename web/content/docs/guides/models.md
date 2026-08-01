@@ -40,23 +40,22 @@ Configure model tiers per agent in the Web UI on the agent settings page.
 
 ## Vision model
 
-The vision model reads images on behalf of a model that does not receive them itself. It transcribes the text in an image and describes what it shows, then hands the answering model that text. The vision model never answers you directly.
+An administrator configures one vision setting for the whole deployment under **Settings -> Vision**. It creates a text description and transcription for images; it never answers you directly.
 
-Unlike the agent tiers above, this is one setting for the whole deployment: an administrator picks it once under **Settings -> Vision**. Reading an image is infrastructure, not personality -- there is no reason for two agents to transcribe the same screenshot differently, and a per-agent setting would mean every new agent silently started blind.
+### Images in one-to-one conversations
 
-### Which model sees the image
+When you send an image in an ordinary one-to-one conversation, Stella creates one immutable text baseline as the image arrives. That same baseline is used for the rest of the conversation, even if you switch models.
 
-When an image turns up -- a photo you sent in a channel, or an image file the agent opens -- Stella takes the first of these that applies:
+During the active turn that introduced the image — including any tool loop in that turn:
 
-1. **The answering model itself**, if its **Input** modalities declare `image`. Full fidelity, no extra call.
-2. **The vision model**, otherwise.
-3. **Local text extraction (Xberg)**, if no vision model is set or the vision model fails. This reads text in an image but cannot describe a photo, chart, or layout.
+- A model whose **Input** declares `image` receives image pixels.
+- A text-only or undeclared model receives the baseline immediately.
 
-The important part is step 1: **a model only receives images if you declare that it can.** Providers do not report their models' modalities, so a model you have not configured arrives undeclared, and Stella treats undeclared as "does not receive images". Handing an image to a model that cannot read it produces a blank placeholder that the agent then wastes a turn trying to work around, so the safe assumption is the useful one.
+On later turns, every model receives the same baseline text, not the original pixels. If Stella cannot create a baseline, it uses the stable marker `[Image baseline unavailable.]` instead of retrying or inventing a description.
 
-To give a multimodal model the image itself, open **Settings -> Providers**, edit the model, and set **Input** to `text, image`.
+The original image remains visible in your authorized Web conversation history. Agents do not have a separate image-inspection tool.
 
-The ladder never falls back to an agent's default model: that is the model that did not receive the image to begin with.
+To let a multimodal model receive image pixels during its active turn, open **Settings -> Providers**, edit the model, and set **Input** to `text, image`. This declaration controls active-turn native pixels only; it does not change how earlier images are represented.
 
 ## Switching models
 

@@ -92,6 +92,28 @@ func TestReadImageResizesLargeImage(t *testing.T) {
 	}
 }
 
+func TestReadImageCanonicalResultKeepsOriginalForTransform(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pic.png")
+	writePNG(t, path, 10, 10)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks, err := newTestReadTool(dir).ExecuteContent(pkgtools.WithCanonicalImages(pkgtools.WithVision(context.Background(), false), true), map[string]any{"path": "pic.png"})
+	if err != nil || !ai.HasImage(blocks) {
+		t.Fatalf("canonical read = %#v, %v", blocks, err)
+	}
+	for _, block := range blocks {
+		if img, ok := block.(ai.ImageContent); ok {
+			got, _ := base64.StdEncoding.DecodeString(img.Data)
+			if !bytes.Equal(got, original) {
+				t.Fatal("canonical read changed original bytes")
+			}
+		}
+	}
+}
+
 func TestReadImageNonVisionFallsBackToText(t *testing.T) {
 	dir := t.TempDir()
 	writePNG(t, filepath.Join(dir, "pic.png"), 10, 10)

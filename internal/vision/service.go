@@ -238,7 +238,7 @@ Write two to five objective sentences describing only the visible image type, la
 const systemPrompt = baselinePrompt
 
 func describeBaselineWithModel(ctx context.Context, stream providers.StreamFunc, model ai.Model, req Request, cfg image.Config) (string, error) {
-	data, mime, err := PrepareBaselineContext(ctx, req.Data, cfg, req.MimeType)
+	data, mime, err := PrepareRendererPayloadContext(ctx, req.Data, cfg, req.MimeType)
 	if err != nil {
 		return "", err
 	}

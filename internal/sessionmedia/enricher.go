@@ -19,6 +19,10 @@ import (
 const (
 	MessageEnrichmentTimeout = 15 * time.Second
 	MaxConcurrentEnrichments = 2
+	// Compatibility aliases keep the ingestion policy discoverable in this
+	// package while pkg/ai owns the shared API and channel limits.
+	MaxImagesPerMessage    = ai.MaxImagesPerMessage
+	MaxAggregateImageBytes = ai.MaxAggregateImageBytes
 )
 
 // Persister is the narrow immutable-media boundary used by enrichment.
@@ -167,13 +171,31 @@ type enrichmentTask struct {
 func prepareTasks(blocks []ai.ContentBlock, userID uuid.UUID) ([]*enrichmentTask, error) {
 	byDigest := make(map[string]*enrichmentTask)
 	tasks := make([]*enrichmentTask, 0)
+	imageCount := 0
+	aggregateBytes := 0
+	// Preflight every encoded block before Base64 decoding allocates any image.
 	for index, block := range blocks {
 		imageBlock, ok := block.(ai.ImageContent)
 		if !ok {
 			continue
 		}
-		if base64.StdEncoding.DecodedLen(len(imageBlock.Data)) > vision.MaxImageInputBytes {
-			return nil, fmt.Errorf("session media image %d: decoded input exceeds %d bytes", index, vision.MaxImageInputBytes)
+		imageCount++
+		if imageCount > MaxImagesPerMessage {
+			return nil, fmt.Errorf("session media: %w: more than %d images", ErrInvalidInput, MaxImagesPerMessage)
+		}
+		decodedLen := base64.StdEncoding.DecodedLen(len(imageBlock.Data))
+		if decodedLen > ai.MaxImageInputBytes {
+			return nil, fmt.Errorf("session media image %d: decoded input exceeds %d bytes", index, ai.MaxImageInputBytes)
+		}
+		aggregateBytes += decodedLen
+		if aggregateBytes > MaxAggregateImageBytes {
+			return nil, fmt.Errorf("session media: %w: decoded images exceed %d bytes", ErrInvalidInput, MaxAggregateImageBytes)
+		}
+	}
+	for index, block := range blocks {
+		imageBlock, ok := block.(ai.ImageContent)
+		if !ok {
+			continue
 		}
 		data, err := base64.StdEncoding.DecodeString(imageBlock.Data)
 		if err != nil {

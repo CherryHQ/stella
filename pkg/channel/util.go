@@ -159,13 +159,17 @@ const maxInlineAttachmentImageBytes = 5 * 1024 * 1024
 // still reach the file later; everything else gets the Xberg extraction hint
 // via FileReceivedContent. data is the raw file content used for image
 // detection and inlining.
-func AttachmentReceivedContent(fileName, assetsDir, savedPath string, data []byte) []ai.ContentBlock {
+func AttachmentReceivedContent(fileName, assetsDir, savedPath string, data []byte, deferredGroup bool) []ai.ContentBlock {
 	mime := tools.DetectImageMime(data)
 	if mime == "" {
 		return FileReceivedContent(fileName, assetsDir, savedPath)
 	}
 	displayPath := attachmentDisplayPath(assetsDir, savedPath)
-	if len(data) > maxInlineAttachmentImageBytes {
+	limit := ai.MaxImageInputBytes
+	if deferredGroup {
+		limit = maxInlineAttachmentImageBytes
+	}
+	if len(data) > limit {
 		return TextContent(fmt.Sprintf(
 			"[Image: %s — saved to %s]\n The image is too large to attach inline; use the `read` tool on that path to view it.",
 			fileName, displayPath,
@@ -185,8 +189,12 @@ func AttachmentReceivedContent(fileName, assetsDir, savedPath string, data []byt
 // or inlined (they would balloon the request past the provider limit), so they
 // degrade to an explicit text note naming the file and its size. Callers pass
 // the mime they already detected; an empty mime is treated as non-inlineable.
-func InlineImageFallback(fileName, mime string, data []byte) []ai.ContentBlock {
-	if mime != "" && len(data) <= maxInlineAttachmentImageBytes {
+func InlineImageFallback(fileName, mime string, data []byte, deferredGroup bool) []ai.ContentBlock {
+	limit := ai.MaxImageInputBytes
+	if deferredGroup {
+		limit = maxInlineAttachmentImageBytes
+	}
+	if mime != "" && len(data) <= limit {
 		return []ai.ContentBlock{
 			ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime},
 		}
@@ -203,9 +211,9 @@ func InlineImageFallback(fileName, mime string, data []byte) []ai.ContentBlock {
 // bytes degrade via InlineImageFallback (inline within the ceiling, else a text
 // note) and any other file gets an explicit placeholder so the turn is never
 // silently dropped. data is the raw downloaded bytes used for image detection.
-func AttachmentSaveFailureContent(fileName string, data []byte) []ai.ContentBlock {
+func AttachmentSaveFailureContent(fileName string, data []byte, deferredGroup bool) []ai.ContentBlock {
 	if mime := tools.DetectImageMime(data); mime != "" {
-		return InlineImageFallback(fileName, mime, data)
+		return InlineImageFallback(fileName, mime, data, deferredGroup)
 	}
 	return TextContent(fmt.Sprintf(
 		"[File: %s — received but could not be stored (%s).]",

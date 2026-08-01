@@ -102,15 +102,22 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 	return []ai.ContentBlock{ai.TextContent{Text: tr.Content}}, nil
 }
 
-// imageBlocks turns an image file into content blocks. Vision-capable models get
-// the (resized) image inline; otherwise the image is handed to the vision
-// service, which renders it as text via the agent's vision model or Xberg, with
-// a note explaining the substitution. Failures degrade to a text note rather
-// than erroring, so a readable image never aborts the read.
+// imageBlocks turns an image file into content blocks. Ordinary canonical
+// sessions return the original safe bytes for immutable persistence; provider
+// hydration adapts them later. Deferred legacy sessions resize inline, while
+// text-only legacy paths render through the vision service or Xberg. Failures
+// degrade to a text note rather than aborting the read.
 func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath, resolvedPath string, content []byte, mime string) []ai.ContentBlock {
 	cfg, err := vision.ValidateBudget(content)
 	if err != nil {
 		return []ai.ContentBlock{ai.TextContent{Text: fmt.Sprintf("Read image file [%s] at %s, but it exceeds the safe decode budget: %v", mime, displayPath, err)}}
+	}
+
+	if pkgtools.CanonicalImagesFromContext(ctx) {
+		return []ai.ContentBlock{
+			ai.TextContent{Text: fmt.Sprintf("Read image file [%s]", mime)},
+			ai.ImageContent{Data: base64.StdEncoding.EncodeToString(content), MimeType: mime},
+		}
 	}
 
 	if pkgtools.VisionFromContext(ctx) {

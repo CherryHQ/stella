@@ -200,6 +200,53 @@ func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
 	}
 }
 
+func TestCanonicalToolImagesIsExplicit(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		opts []Option
+		want bool
+	}{
+		{
+			name: "custom transform remains non-canonical",
+			opts: []Option{WithToolResultTransform(func(_ context.Context, result ai.ToolResultMessage) (ai.ToolResultMessage, error) {
+				return result, nil
+			})},
+			want: false,
+		},
+		{name: "explicit canonical option", opts: []Option{WithCanonicalToolImages()}, want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			seen := true
+			stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+				calls++
+				out := providers.NewChannelEventStream(4)
+				go func() {
+					if calls == 1 {
+						out.Emit(ai.EventToolCallDelta{ID: "check", Name: "check"})
+					} else {
+						out.Emit(ai.EventTextDelta{Text: "done"})
+					}
+					out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+					out.Finish(nil)
+				}()
+				return out, nil
+			}
+			runner := newTestRunner(stream, tt.opts...)
+			runner.tools["check"] = func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+				seen = tools.CanonicalImagesFromContext(ctx)
+				return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+			}
+			if _, err := runner.Run(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, nil); err != nil {
+				t.Fatal(err)
+			}
+			if seen != tt.want {
+				t.Fatalf("CanonicalImagesFromContext = %t, want %t", seen, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunMultiTurnLoop(t *testing.T) {
 	var callCount atomic.Int32
 

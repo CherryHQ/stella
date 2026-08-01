@@ -389,7 +389,7 @@ func TestBaselineRejectsMIMEMismatch(t *testing.T) {
 	}
 }
 
-func TestPrepareBaselinePreservesSupportedPayloadsBelowCeiling(t *testing.T) {
+func TestPrepareRendererPayloadPreservesSupportedPayloadsBelowCeiling(t *testing.T) {
 	for _, mime := range []string{"image/png", "image/jpeg", "image/gif"} {
 		t.Run(mime, func(t *testing.T) {
 			data := encodedImage(t, mime, MaxImageDim+1, 2)
@@ -397,9 +397,9 @@ func TestPrepareBaselinePreservesSupportedPayloadsBelowCeiling(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ValidateImage: %v", err)
 			}
-			prepared, preparedMIME, err := PrepareBaseline(data, cfg, detectedMIME)
+			prepared, preparedMIME, err := PrepareRendererPayloadContext(context.Background(), data, cfg, detectedMIME)
 			if err != nil {
-				t.Fatalf("PrepareBaseline: %v", err)
+				t.Fatalf("PrepareRendererPayloadContext: %v", err)
 			}
 			if !bytes.Equal(prepared, data) || preparedMIME != detectedMIME {
 				t.Error("baseline preparation changed an image below the hard payload ceiling")
@@ -408,7 +408,7 @@ func TestPrepareBaselinePreservesSupportedPayloadsBelowCeiling(t *testing.T) {
 	}
 }
 
-func TestPrepareBaselineContextHonorsCancellation(t *testing.T) {
+func TestPrepareRendererPayloadContextHonorsCancellation(t *testing.T) {
 	data := pngBytes(t, 8, 8)
 	cfg, mime, err := ValidateImage(data, "image/png")
 	if err != nil {
@@ -416,8 +416,8 @@ func TestPrepareBaselineContextHonorsCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := PrepareBaselineContext(ctx, data, cfg, mime); !errors.Is(err, context.Canceled) {
-		t.Fatalf("PrepareBaselineContext cancellation error = %v, want context.Canceled", err)
+	if _, _, err := PrepareRendererPayloadContext(ctx, data, cfg, mime); !errors.Is(err, context.Canceled) {
+		t.Fatalf("PrepareRendererPayloadContext cancellation error = %v, want context.Canceled", err)
 	}
 }
 

@@ -230,9 +230,9 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		builtinTools := append([]BuiltinTool(nil), cfg.BuiltinTools...)
 		perRunTools := append([]tools.Tool(nil), params.ExtraTools...)
 
-		// One vision service per runner: its rendering cache then lives and dies
-		// with the session, which is the scope where the same image recurs on
-		// every turn. Agents with no vision tier get an Xberg-only service.
+		// One runner-local vision service memoizes sandbox read and legacy inline
+		// compatibility rendering. Canonical session baselines resolve the current
+		// deployment-wide setting during ingestion instead of using this snapshot.
 		visionSvc := vision.NewFromSnapshot(cfg.Snap, vision.StreamBuilder(cfg.ProviderStreamBuilder))
 
 		var toolTransform coreagent.ToolResultTransform
@@ -276,26 +276,29 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				BaseURL: creds.BaseURL,
 				Builder: cfg.ProviderStreamBuilder,
 			},
-			Thinking:              params.Thinking,
-			Sandbox:               sandboxCfg,
-			System:                system,
-			Sections:              sections,
-			BuiltinTools:          builtinTools,
-			BuiltinParams:         params,
-			PerRunTools:           perRunTools,
-			SkillStore:            cfg.SkillStore,
-			SkillReadAuthorizer:   cfg.SkillReadAuthorizer,
-			PluginView:            pluginView,
-			MCPToolProvider:       cfg.MCPToolProvider,
-			ToolOverrideFetcher:   cfg.ToolOverrideFetcher,
-			PluginTools:           cfg.PluginToolsBuilder,
-			HookPlugins:           hookPlugins,
-			ToolLifecycle:         cfg.ToolLifecycle,
-			DelegateRunner:        params.DelegateRunner,
-			DelegateTimeout:       cfg.Snap.Runner.DelegateTimeoutDuration(),
-			Vision:                visionSvc,
-			MediaLoader:           mediaLoader,
-			ToolTransform:         toolTransform,
+			Thinking:            params.Thinking,
+			Sandbox:             sandboxCfg,
+			System:              system,
+			Sections:            sections,
+			BuiltinTools:        builtinTools,
+			BuiltinParams:       params,
+			PerRunTools:         perRunTools,
+			SkillStore:          cfg.SkillStore,
+			SkillReadAuthorizer: cfg.SkillReadAuthorizer,
+			PluginView:          pluginView,
+			MCPToolProvider:     cfg.MCPToolProvider,
+			ToolOverrideFetcher: cfg.ToolOverrideFetcher,
+			PluginTools:         cfg.PluginToolsBuilder,
+			HookPlugins:         hookPlugins,
+			ToolLifecycle:       cfg.ToolLifecycle,
+			DelegateRunner:      params.DelegateRunner,
+			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
+			Vision:              visionSvc,
+			MediaLoader:         mediaLoader,
+			ToolTransform:       toolTransform,
+			// Only ordinary session runners canonicalize tool-image results.
+			// Deferred group history remains on its compatibility projection.
+			CanonicalToolImages:   params.GroupID == "",
 			LegacyImageProjection: params.GroupID != "",
 		})
 	}

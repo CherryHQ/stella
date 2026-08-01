@@ -59,10 +59,12 @@ type runnerConfig struct {
 	DelegateRunner      delegatetool.SessionRunner
 	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
-	// Vision remains the legacy request-only renderer for raw historical rows.
+	// Vision is runner-local for sandbox read and legacy inline compatibility.
+	// Canonical image baselines resolve the deployment setting at ingestion.
 	Vision                *vision.Service
 	MediaLoader           coreagent.MediaLoader
 	ToolTransform         coreagent.ToolResultTransform
+	CanonicalToolImages   bool
 	LegacyImageProjection bool
 }
 
@@ -76,9 +78,10 @@ type runner struct {
 	system                string
 	hookSet               *hooks.HookSet
 	toolLifecycle         *coreagent.ToolLifecycle
-	imageText             coreagent.ImageTextFunc
+	legacyImageText       coreagent.ImageTextFunc
 	mediaLoader           coreagent.MediaLoader
 	toolTransform         coreagent.ToolResultTransform
+	canonicalToolImages   bool
 	legacyImageProjection bool
 	chatTimeout           time.Duration
 	session               pkgsandbox.Session // runner-owned sandbox session lifecycle
@@ -135,8 +138,8 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
-	imageText := imageTextFunc(cfg.Vision)
-	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, imageText, cfg.MediaLoader, cfg.ToolTransform, cfg.LegacyImageProjection)
+	legacyImageText := legacyImageTextFunc(cfg.Vision)
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, legacyImageText, cfg.MediaLoader, cfg.ToolTransform, cfg.CanonicalToolImages, cfg.LegacyImageProjection)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -153,9 +156,10 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		system:                systemPrompt,
 		hookSet:               hookSet,
 		toolLifecycle:         cfg.ToolLifecycle,
-		imageText:             imageText,
+		legacyImageText:       legacyImageText,
 		mediaLoader:           cfg.MediaLoader,
 		toolTransform:         cfg.ToolTransform,
+		canonicalToolImages:   cfg.CanonicalToolImages,
 		legacyImageProjection: cfg.LegacyImageProjection,
 		chatTimeout:           cfg.ChatTimeout,
 		session:               session,
@@ -165,24 +169,27 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}, nil
 }
 
-func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, imageText coreagent.ImageTextFunc, mediaLoader coreagent.MediaLoader, toolTransform coreagent.ToolResultTransform, legacyImageProjection bool) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, legacyImageText coreagent.ImageTextFunc, mediaLoader coreagent.MediaLoader, toolTransform coreagent.ToolResultTransform, canonicalToolImages bool, legacyImageProjection bool) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, imageText, mediaLoader, toolTransform, legacyImageProjection, toolSet, toolDefs)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, legacyImageText, mediaLoader, toolTransform, canonicalToolImages, legacyImageProjection, toolSet, toolDefs)
 }
 
-func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, imageText coreagent.ImageTextFunc, mediaLoader coreagent.MediaLoader, toolTransform coreagent.ToolResultTransform, legacyImageProjection bool, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, legacyImageText coreagent.ImageTextFunc, mediaLoader coreagent.MediaLoader, toolTransform coreagent.ToolResultTransform, canonicalToolImages bool, legacyImageProjection bool, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
 	opts := []coreagent.Option{
 		coreagent.WithStreamOptions(streamOptions),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
-		coreagent.WithImageText(imageText),
+		coreagent.WithImageText(legacyImageText),
 		coreagent.WithMediaLoader(mediaLoader),
 		coreagent.WithToolResultTransform(toolTransform),
 		coreagent.WithProjectionObserver(func(stats coreagent.ProjectionStats) {
 			slog.Debug("session image projection", "capability", stats.Capability, "active_pixels", stats.ActivePixels, "active_pixel_bytes", stats.ActivePixelBytes, "baseline_projections", stats.BaselineProjections, "legacy_rendered", stats.LegacyRendered, "hydrations", stats.Hydrations)
 		}),
+	}
+	if canonicalToolImages {
+		opts = append(opts, coreagent.WithCanonicalToolImages())
 	}
 	if legacyImageProjection {
 		opts = append(opts, coreagent.WithLegacyImageProjection())
@@ -448,7 +455,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.imageText, r.mediaLoader, r.toolTransform, r.legacyImageProjection, toolSet, toolDefs)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.legacyImageText, r.mediaLoader, r.toolTransform, r.canonicalToolImages, r.legacyImageProjection, toolSet, toolDefs)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return

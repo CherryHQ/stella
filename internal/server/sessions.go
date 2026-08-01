@@ -23,7 +23,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -75,12 +74,22 @@ func (s *Server) CreateSession(w http.ResponseWriter, r *http.Request, agentID s
 	writeData(w, http.StatusCreated, sessionResponseFromInfo(info))
 }
 
+const (
+	// Allow the aggregate image ceiling after Base64 expansion plus 5 MiB for
+	// JSON, text, and field names.
+	maxSessionMessageRequestBytes = ai.MaxAggregateImageBytes*4/3 + 5*1024*1024
+	// maxSessionMessageParts caps workspace reads per send while leaving room
+	// for eight images, their file markers, text, and ordinary attachments.
+	maxSessionMessageParts = 32
+)
+
 func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxSessionMessageRequestBytes)
 	var body apiserver.SendSessionMessageJSONRequestBody
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
@@ -107,7 +116,11 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		s.writeSessionAccessError(w, err)
 		return
 	}
-	message := partsToMessageContent(r.Context(), workspaceUploadReader(access, agentID, sessionID), body.Parts)
+	message, err := partsToMessageContent(r.Context(), workspaceUploadReader(access, agentID, sessionID), body.Parts)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid message attachments")
+		return
+	}
 
 	result, err := s.sessionAccess.Send(r.Context(), sessionaccess.SendInput{Authority: authority, AgentID: agentID, SessionID: sessionID, Message: message})
 	if err != nil {
@@ -398,6 +411,7 @@ func workspaceUploadReader(access *sessionaccess.Access, agentID, sessionID stri
 		res, err := access.ReadWorkspacePath(ctx, sessionaccess.WorkspaceReadInput{
 			AgentID: agentID, SessionID: sessionID,
 			Scope: sessionaccess.WorkspaceScopeUser, Path: path, Raw: true,
+			MaxBytes: ai.MaxImageInputBytes,
 		})
 		if err != nil {
 			return nil, err
@@ -408,12 +422,18 @@ func workspaceUploadReader(access *sessionaccess.Access, agentID, sessionID stri
 
 // partsToMessageContent converts API MessageParts to internal MessageContent.
 // File parts name a workspace upload, so they are resolved through read rather
-// than trusted as paths.
-func partsToMessageContent(ctx context.Context, read workspaceRawReader, parts []apitypes.MessagePart) agent.MessageContent {
-	if len(parts) == 1 && parts[0].Type == apitypes.MessagePartTypeText && parts[0].Text != nil {
-		return *parts[0].Text
+// than trusted as paths. Image limits are enforced before Base64 allocation and
+// before the handler begins its SSE turn.
+func partsToMessageContent(ctx context.Context, read workspaceRawReader, parts []apitypes.MessagePart) (agent.MessageContent, error) {
+	if len(parts) > maxSessionMessageParts {
+		return nil, fmt.Errorf("too many message parts: %d exceeds %d", len(parts), maxSessionMessageParts)
 	}
-	var blocks []ai.ContentBlock
+	if len(parts) == 1 && parts[0].Type == apitypes.MessagePartTypeText && parts[0].Text != nil {
+		return *parts[0].Text, nil
+	}
+
+	budget := sessionImageBudget{}
+	blocks := make([]ai.ContentBlock, 0, len(parts)*2)
 	for _, p := range parts {
 		switch p.Type {
 		case apitypes.MessagePartTypeText:
@@ -421,54 +441,75 @@ func partsToMessageContent(ctx context.Context, read workspaceRawReader, parts [
 				blocks = append(blocks, ai.TextContent{Text: *p.Text})
 			}
 		case apitypes.MessagePartTypeImage:
-			if p.Image != nil {
-				mime := "image/png"
-				if p.MimeType != nil {
-					mime = *p.MimeType
-				}
-				blocks = append(blocks, ai.ImageContent{Data: *p.Image, MimeType: mime})
+			if p.Image == nil {
+				continue
 			}
+			if err := budget.add(conservativeBase64DecodedLen(*p.Image)); err != nil {
+				return nil, err
+			}
+			mime := "image/png"
+			if p.MimeType != nil {
+				mime = *p.MimeType
+			}
+			blocks = append(blocks, ai.ImageContent{Data: *p.Image, MimeType: mime})
 		case apitypes.MessagePartTypeFile:
-			blocks = append(blocks, fileAttachmentBlocks(ctx, read, p)...)
+			path := strings.TrimSpace(derefStr(p.Url))
+			if path == "" {
+				continue
+			}
+			marker := ai.TextContent{Text: fmt.Sprintf("[file: %s]", path)}
+			blocks = append(blocks, marker)
+			if read == nil {
+				continue
+			}
+			data, err := read(ctx, path)
+			if err != nil {
+				continue
+			}
+			imageMime := pkgtools.DetectImageMime(data)
+			if imageMime == "" || len(data) > ai.MaxImageInputBytes {
+				continue
+			}
+			if err := budget.add(len(data)); err != nil {
+				return nil, err
+			}
+			blocks = append(blocks, ai.ImageContent{
+				Data:     base64.StdEncoding.EncodeToString(data),
+				MimeType: imageMime,
+			})
 		}
 	}
 	if len(blocks) == 0 {
-		return ""
+		return "", nil
 	}
-	return blocks
+	return blocks, nil
 }
 
-// fileAttachmentBlocks turns one composer attachment into message content.
-//
-// The saved-path marker is always emitted: the transcript renders attachments
-// from it, and it is how the agent reaches the file with a tool. When the upload
-// is an image small enough to inline, the pixels ride along, so a vision model
-// answers without spending a read call and the request-time materializer can
-// render it for a model that cannot see.
-//
-// Unreadable uploads still yield their marker rather than failing the send. The
-// client's declared MIME is ignored in favour of the actual bytes.
-func fileAttachmentBlocks(ctx context.Context, read workspaceRawReader, part apitypes.MessagePart) []ai.ContentBlock {
-	path := strings.TrimSpace(derefStr(part.Url))
-	if path == "" {
-		return nil
+type sessionImageBudget struct {
+	count int
+	bytes int
+}
+
+func (b *sessionImageBudget) add(rawBytes int) error {
+	if rawBytes > ai.MaxImageInputBytes {
+		return fmt.Errorf("image input exceeds %d bytes", ai.MaxImageInputBytes)
 	}
-	marker := ai.TextContent{Text: fmt.Sprintf("[file: %s]", path)}
-	if read == nil {
-		return []ai.ContentBlock{marker}
+	b.count++
+	if b.count > ai.MaxImagesPerMessage {
+		return fmt.Errorf("too many images: %d exceeds %d", b.count, ai.MaxImagesPerMessage)
 	}
-	data, err := read(ctx, path)
-	if err != nil {
-		return []ai.ContentBlock{marker}
+	b.bytes += rawBytes
+	if b.bytes > ai.MaxAggregateImageBytes {
+		return fmt.Errorf("image inputs exceed %d bytes", ai.MaxAggregateImageBytes)
 	}
-	imageMime := pkgtools.DetectImageMime(data)
-	if imageMime == "" || len(data) > vision.MaxInlineBytes {
-		return []ai.ContentBlock{marker}
-	}
-	return []ai.ContentBlock{marker, ai.ImageContent{
-		Data:     base64.StdEncoding.EncodeToString(data),
-		MimeType: imageMime,
-	}}
+	return nil
+}
+
+// conservativeBase64DecodedLen gives a no-allocation upper bound even when a
+// client supplied malformed or unpadded Base64. Canonical enrichment performs
+// the exact decode and validation later.
+func conservativeBase64DecodedLen(encoded string) int {
+	return ((len(encoded) + 3) / 4) * 3
 }
 
 // detectMIME returns a MIME type based on file extension.
@@ -713,7 +754,7 @@ func (s *Server) GetSessionMedia(w http.ResponseWriter, r *http.Request, agentID
 	w.Header().Set("Content-Disposition", "inline")
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("ETag", fmt.Sprintf("\"%x\"", media.SHA256))
 	http.ServeContent(w, r, media.ID, time.Time{}, bytes.NewReader(media.Data))
 }

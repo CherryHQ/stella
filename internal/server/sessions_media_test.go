@@ -40,7 +40,7 @@ func TestSessionMediaAuthorizationCachingAndTypedHistory(t *testing.T) {
 		"Content-Type":           "image/png",
 		"X-Content-Type-Options": "nosniff",
 		"Content-Disposition":    "inline",
-		"Cache-Control":          "private, max-age=31536000, immutable",
+		"Cache-Control":          "private, no-cache",
 	} {
 		if got := rr.Header().Get(header); got != want {
 			t.Fatalf("%s=%q, want %q", header, got, want)

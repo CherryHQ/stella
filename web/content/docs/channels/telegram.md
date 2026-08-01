@@ -82,7 +82,7 @@ Use cases: describe screenshots, analyze diagrams, read documents from photos, e
 
 If the model returns images (e.g. from tool results), they are sent back as Telegram photos after the text response.
 
-> **Note:** Image support requires a vision-capable model (e.g. Claude 3+, GPT-4o), or a vision model tier configured for the agent.
+> **Note:** Configure image understanding for the deployment under **Settings -> Vision**. A model whose **Input** declares `image` receives image pixels only during the active turn; other models receive the stored text baseline.
 
 ## File/Document Support
 
@@ -163,7 +163,7 @@ All settings below are managed through the Web UI.
 
 **Images or files not being analyzed?**
 
-- Ensure you are using a vision-capable model (e.g. Claude 3+, GPT-4o), or set a vision model tier for the agent so images are read as text.
+- Configure image understanding under **Settings -> Vision**. Set a model's **Input** to `text, image` only when it should receive image pixels during the active turn; otherwise Stella uses the text baseline.
 - For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**

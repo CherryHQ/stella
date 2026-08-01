@@ -1,10 +1,15 @@
 package sessionmedia
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,6 +21,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -104,7 +110,12 @@ func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 	}
 	owner := seedUser(t, db)
 	other := seedUser(t, db)
-	stored, err := svc.Persist(ctx, Input{UserID: owner, Data: []byte("verified bytes"), MimeType: "image/png", WidthPX: 3, HeightPX: 4})
+	fixture := imageBlock(t, 1)
+	data, err := base64.StdEncoding.DecodeString(fixture.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := svc.Persist(ctx, Input{UserID: owner, Data: data, MimeType: "image/png", WidthPX: 8, HeightPX: 8})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +129,76 @@ func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 	if _, err := svc.Load(ctx, owner, "not-a-media-id"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("malformed load = %v, want opaque ErrNotFound", err)
 	}
+}
+
+func TestLoadPreparesProviderPayloadWithoutMutatingStoredOriginal(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc, err := NewForPool(assets.SessionMedia(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := noisyPNG(t, 1400, 1400)
+	if len(data) <= vision.MaxRendererPayloadBytes {
+		t.Fatalf("fixture = %d bytes, want more than provider payload ceiling", len(data))
+	}
+	owner := seedUser(t, db)
+	stored, err := svc.Persist(ctx, Input{UserID: owner, Data: data, MimeType: "image/png", WidthPX: 1400, HeightPX: 1400})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SizeBytes != int64(len(data)) {
+		t.Fatalf("stored size = %d, want %d", stored.SizeBytes, len(data))
+	}
+	digest := sha256.Sum256(data)
+	persisted, err := assets.SessionMedia().OpenSessionMedia(ctx, owner, digest, int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(persisted, data) {
+		t.Fatal("immutable asset bytes changed before history/provider projection")
+	}
+
+	loaded, err := svc.Load(ctx, owner, stored.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := base64.StdEncoding.DecodeString(loaded.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payload) > vision.MaxRendererPayloadBytes {
+		t.Fatalf("provider payload = %d bytes, exceeds %d", len(payload), vision.MaxRendererPayloadBytes)
+	}
+	persisted, err = assets.SessionMedia().OpenSessionMedia(ctx, owner, digest, int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(persisted, data) {
+		t.Fatal("provider hydration mutated immutable asset/history bytes")
+	}
+}
+
+func noisyPNG(t *testing.T, width, height int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	state := uint32(1)
+	for y := range height {
+		for x := range width {
+			state = state*1664525 + 1013904223
+			img.SetRGBA(x, y, color.RGBA{R: uint8(state), G: uint8(state >> 8), B: uint8(state >> 16), A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode PNG: %v", err)
+	}
+	return buf.Bytes()
 }
 
 func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {

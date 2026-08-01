@@ -48,7 +48,7 @@ Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 ### Features
 
 - Streaming responses via Draft API (Bot API 9.3+), falls back to edit-in-place
-- Image input: send photos for vision-based analysis (requires vision-capable model)
+- Image input: configure **Settings -> Vision** for deployment-wide understanding; a model declared with image input receives image pixels only in the active turn, otherwise it receives the stored text baseline
 - Multi-agent: `/agent` to list or switch agents per DM or group
 - In-chat commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
 

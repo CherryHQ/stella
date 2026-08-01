@@ -14,22 +14,23 @@ import (
 // Runner is a configured agent loop executor. It is safe for concurrent use.
 // All configuration is set at construction time via RunnerConfig + options.
 type Runner struct {
-	stream             providers.StreamFunc
-	model              ai.Model
-	streamOptions      ai.StreamOptions
-	tools              ToolSet
-	toolDefs           []ai.ToolDefinition
-	system             string
-	interrupt          <-chan struct{}
-	hooks              *hooks.HookSet
-	hookMeta           hooks.HookMeta
-	toolLifecycle      *ToolLifecycle
-	imageText          ImageTextFunc
-	mediaLoader        MediaLoader
-	toolTransform      ToolResultTransform
-	projectionObserver ProjectionObserver
-	imageProjection    bool
-	turnNotify         func(turn int, elapsed time.Duration) *string
+	stream              providers.StreamFunc
+	model               ai.Model
+	streamOptions       ai.StreamOptions
+	tools               ToolSet
+	toolDefs            []ai.ToolDefinition
+	system              string
+	interrupt           <-chan struct{}
+	hooks               *hooks.HookSet
+	hookMeta            hooks.HookMeta
+	toolLifecycle       *ToolLifecycle
+	legacyImageText     ImageTextFunc
+	mediaLoader         MediaLoader
+	toolTransform       ToolResultTransform
+	canonicalToolImages bool
+	projectionObserver  ProjectionObserver
+	imageProjection     bool
+	turnNotify          func(turn int, elapsed time.Duration) *string
 }
 
 // RunnerConfig holds the required fields for constructing a Runner.
@@ -73,11 +74,12 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 	}
 }
 
-// WithImageText sets the renderer used to replace inline images with text when
-// the configured model cannot accept image input. Without it, images are sent
-// as-is — the right default for a model whose capability was never declared.
+// WithImageText sets the compatibility renderer for legacy inline images.
+// Canonical references always use their stored baseline or MediaLoader. In
+// ordinary projection, an unsupported legacy image without this renderer fails
+// closed; deferred group history preserves its legacy pass-through behavior.
 func WithImageText(fn ImageTextFunc) Option {
-	return func(r *Runner) { r.imageText = fn }
+	return func(r *Runner) { r.legacyImageText = fn }
 }
 
 // WithMediaLoader sets the scoped immutable-media loader for active references.
@@ -88,6 +90,13 @@ func WithMediaLoader(loader MediaLoader) Option {
 // WithToolResultTransform sets the canonicalizer for final tool results.
 func WithToolResultTransform(transform ToolResultTransform) Option {
 	return func(r *Runner) { r.toolTransform = transform }
+}
+
+// WithCanonicalToolImages tells tools their image results will enter canonical
+// session-media ingestion. It is deliberately independent of a transform: test
+// and custom runners may transform tool results without changing read behavior.
+func WithCanonicalToolImages() Option {
+	return func(r *Runner) { r.canonicalToolImages = true }
 }
 
 // WithProjectionObserver observes aggregate image projection metrics.
@@ -172,21 +181,22 @@ func (r *Runner) Continue(ctx context.Context, messages []ai.Message, emit func(
 
 func (r *Runner) loopConfig() loopConfig {
 	return loopConfig{
-		Stream:             r.stream,
-		Model:              r.model,
-		StreamOptions:      r.streamOptions,
-		Tools:              r.tools,
-		ToolDefinitions:    r.toolDefs,
-		System:             r.system,
-		Interrupt:          r.interrupt,
-		Hooks:              r.hooks,
-		HookMeta:           r.hookMeta,
-		ToolLifecycle:      r.toolLifecycle,
-		ImageText:          r.imageText,
-		MediaLoader:        r.mediaLoader,
-		ToolTransform:      r.toolTransform,
-		ProjectionObserver: r.projectionObserver,
-		ImageProjection:    r.imageProjection,
-		TurnNotify:         r.turnNotify,
+		Stream:              r.stream,
+		Model:               r.model,
+		StreamOptions:       r.streamOptions,
+		Tools:               r.tools,
+		ToolDefinitions:     r.toolDefs,
+		System:              r.system,
+		Interrupt:           r.interrupt,
+		Hooks:               r.hooks,
+		HookMeta:            r.hookMeta,
+		ToolLifecycle:       r.toolLifecycle,
+		LegacyImageText:     r.legacyImageText,
+		MediaLoader:         r.mediaLoader,
+		ToolTransform:       r.toolTransform,
+		CanonicalToolImages: r.canonicalToolImages,
+		ProjectionObserver:  r.projectionObserver,
+		ImageProjection:     r.imageProjection,
+		TurnNotify:          r.turnNotify,
 	}
 }

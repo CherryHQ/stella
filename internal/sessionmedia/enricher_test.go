@@ -110,7 +110,7 @@ func (r *uncooperativeRenderer) Baseline(context.Context, vision.Request) (visio
 	return validBaseline(), nil
 }
 
-func newFakeEnricher(t *testing.T, renderer vision.BaselineRenderer, opts EnricherOptions) (*Enricher, *fakePersister, *atomic.Int64) {
+func newFakeEnricher(t testing.TB, renderer vision.BaselineRenderer, opts EnricherOptions) (*Enricher, *fakePersister, *atomic.Int64) {
 	t.Helper()
 	media := &fakePersister{}
 	var resolves atomic.Int64
@@ -124,7 +124,7 @@ func newFakeEnricher(t *testing.T, renderer vision.BaselineRenderer, opts Enrich
 	return enricher, media, &resolves
 }
 
-func imageBlock(t *testing.T, n byte) ai.ImageContent {
+func imageBlock(t testing.TB, n byte) ai.ImageContent {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	img.Set(0, 0, color.RGBA{R: n, A: 255})
@@ -480,4 +480,53 @@ func TestEnricherUsesOneTotalDeadline(t *testing.T) {
 	if got := out[0].(ai.ImageRefContent).Baseline.Status; got != ai.ImageBaselineUnavailable {
 		t.Fatalf("deadline baseline status = %q", got)
 	}
+}
+
+func TestPrepareTasksBoundsImageCountAndAggregateBytes(t *testing.T) {
+	blocks := make([]ai.ContentBlock, MaxImagesPerMessage+1)
+	for i := range blocks {
+		blocks[i] = imageBlock(t, byte(i))
+	}
+	if _, err := prepareTasks(blocks, uuid.New()); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("image count error = %v", err)
+	}
+	chunk := ai.ImageContent{Data: strings.Repeat("A", base64.StdEncoding.EncodedLen(21*1024*1024)), MimeType: "image/png"}
+	if _, err := prepareTasks([]ai.ContentBlock{chunk, chunk, chunk}, uuid.New()); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("aggregate error = %v", err)
+	}
+}
+
+type benchmarkPersister struct {
+	bytes atomic.Int64
+}
+
+func (p *benchmarkPersister) Persist(_ context.Context, in Input) (sqlc.CtxMedium, error) {
+	p.bytes.Add(int64(len(in.Data)))
+	return sqlc.CtxMedium{ID: "benchmark-media", MimeType: in.MimeType}, nil
+}
+
+// BenchmarkEnricherBaseline records the deterministic in-process cost of one
+// immutable baseline pipeline. The fake renderer makes this repeatable and
+// avoids pretending to measure external provider or local-model latency.
+func BenchmarkEnricherBaseline(b *testing.B) {
+	persister := &benchmarkPersister{}
+	renderer := &fakeBaselineRenderer{baseline: validBaseline()}
+	enricher, err := NewEnricher(persister, VisionFactoryFunc(func(context.Context, string) (vision.BaselineRenderer, error) {
+		return renderer, nil
+	}), renderer, EnricherOptions{})
+	if err != nil {
+		b.Fatal(err)
+	}
+	blocks := []ai.ContentBlock{imageBlock(b, 1)}
+	userID := uuid.New()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := enricher.Enrich(context.Background(), userID, "agent", blocks); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ReportMetric(1, "baselines/op")
+	b.ReportMetric(float64(persister.bytes.Load())/float64(b.N), "persisted_bytes/op")
 }

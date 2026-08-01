@@ -14,6 +14,8 @@ import (
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // register webp decoder for image.Decode
+
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 const (
@@ -25,9 +27,10 @@ const (
 	MaxRendererPayloadBytes = 5 * 1024 * 1024
 	// MaxInlineBytes is the legacy name used by read-tool callers.
 	MaxInlineBytes = MaxRendererPayloadBytes
-	// MaxImageInputBytes and MaxImagePixels protect both model and Xberg paths
-	// from compressed-byte and decompression-bomb inputs.
-	MaxImageInputBytes = 30 * 1024 * 1024
+	// MaxImageInputBytes aliases the canonical session-ingress ceiling. Together
+	// with MaxImagePixels, it protects model and Xberg paths from compressed-byte
+	// and decompression-bomb inputs.
+	MaxImageInputBytes = ai.MaxImageInputBytes
 	MaxImagePixels     = 50_000_000
 )
 
@@ -100,18 +103,13 @@ func PrepareInline(data []byte, cfg image.Config, mime string) ([]byte, string, 
 	return encodeImage(fitImage(img, MaxImageDim), mime)
 }
 
-// PrepareBaseline keeps the compatibility API for callers without a request
-// context. Baseline uses PrepareBaselineContext instead.
-func PrepareBaseline(data []byte, cfg image.Config, mime string) ([]byte, string, error) {
-	return PrepareBaselineContext(context.Background(), data, cfg, mime)
-}
-
-// PrepareBaselineContext keeps original pixels and dimensions untouched whenever
-// they fit the renderer payload ceiling. Only a hard payload overflow causes
-// adaptive reduction; no fixed dimension ceiling or tiling is applied. The
-// standard-library decode/encode calls themselves are not interruptible, so it
-// checks ctx around each potentially expensive step.
-func PrepareBaselineContext(ctx context.Context, data []byte, cfg image.Config, mime string) ([]byte, string, error) {
+// PrepareRendererPayloadContext keeps original pixels and dimensions untouched
+// whenever they fit the renderer payload ceiling. Both baseline rendering and
+// active provider hydration use this adaptive payload preparation. Only a hard
+// payload overflow causes reduction; no fixed dimension ceiling or tiling is
+// applied. The standard-library decode/encode calls themselves are not
+// interruptible, so it checks ctx around each potentially expensive step.
+func PrepareRendererPayloadContext(ctx context.Context, data []byte, cfg image.Config, mime string) ([]byte, string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, "", err
 	}

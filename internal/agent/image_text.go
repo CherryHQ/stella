@@ -10,14 +10,13 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-// imageTextFunc adapts the vision service to the agent loop's image renderer.
-// It returns nil when there is no service, which leaves the loop's default in
-// place: send images untouched.
+// legacyImageTextFunc adapts the runner-local vision service for legacy inline
+// history only. Canonical session images already carry an immutable baseline
+// and never call this request-time compatibility path.
 //
-// Every failure comes back as a note rather than an error. A model that cannot
-// see an image is better served by "this image could not be read" than by a
-// failed turn, and the same choice the read tool already makes.
-func imageTextFunc(svc *vision.Service) coreagent.ImageTextFunc {
+// Every legacy-rendering failure becomes a note rather than a failed turn, the
+// same degradation used by the sandbox read tool.
+func legacyImageTextFunc(svc *vision.Service) coreagent.ImageTextFunc {
 	if svc == nil {
 		return nil
 	}

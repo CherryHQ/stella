@@ -709,7 +709,7 @@ func TestStopWithoutCancel(t *testing.T) {
 func TestBuildMessageContentTextOnly(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{Content: "hello world"}
-	content := bot.buildMessageContent(msg, "")
+	content := bot.buildMessageContent(msg, "", false)
 	if len(content) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(content))
 	}
@@ -725,7 +725,7 @@ func TestBuildMessageContentTextOnly(t *testing.T) {
 func TestBuildMessageContentEmpty(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{Content: "  "}
-	content := bot.buildMessageContent(msg, "")
+	content := bot.buildMessageContent(msg, "", false)
 	if content != nil {
 		t.Errorf("expected nil for blank message, got %v", content)
 	}
@@ -734,7 +734,7 @@ func TestBuildMessageContentEmpty(t *testing.T) {
 func TestBuildMessageContentEmptyNoAttachments(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{}
-	content := bot.buildMessageContent(msg, "")
+	content := bot.buildMessageContent(msg, "", false)
 	if content != nil {
 		t.Errorf("expected nil for empty message, got %v", content)
 	}
@@ -840,7 +840,7 @@ func TestBuildMessageContentPersistsPureImage(t *testing.T) {
 		t.Fatal("expected a resolved assets dir for an image-only message")
 	}
 
-	content := bot.buildMessageContent(msg, assetsDir)
+	content := bot.buildMessageContent(msg, assetsDir, false)
 	if len(h.saveCalls) != 1 {
 		t.Fatalf("expected the image to be persisted once, got %d save calls", len(h.saveCalls))
 	}
@@ -870,7 +870,7 @@ func TestBuildMessageContentImageSaveFailureInlines(t *testing.T) {
 	}
 
 	assetsDir := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg)
-	content := bot.buildMessageContent(msg, assetsDir)
+	content := bot.buildMessageContent(msg, assetsDir, false)
 
 	// Save failed, but the turn must not be dropped: a small image degrades to an
 	// inline image block via the shared fallback.

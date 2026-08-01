@@ -268,7 +268,7 @@ Semantic routing may keep chatter silent, so users should @mention the bot for r
 
 **Images or files not being analyzed?**
 
-- Ensure you are using a vision-capable model for image analysis, or set a vision model tier for the agent so images are read as text.
+- Configure image understanding under **Settings -> Vision**. Set a model's **Input** to `text, image` only when it should receive image pixels during the active turn; otherwise Stella uses the text baseline.
 - For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**
