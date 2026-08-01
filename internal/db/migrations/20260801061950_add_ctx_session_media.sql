@@ -1,0 +1,38 @@
+-- +goose Up
+-- Session media is immutable user-owned evidence. The object bytes live under
+-- users/<user-id>/session-media in asset's private facet, outside sandbox roots.
+-- A future product account-delete flow must purge the per-user blob prefix
+-- before deleting the user and cascading this metadata; that cleanup is deferred.
+CREATE TABLE ctx_media (
+    id          UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id     UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    sha256      BYTEA NOT NULL CHECK (octet_length(sha256) = 32),
+    mime_type   TEXT NOT NULL,
+    size_bytes  BIGINT NOT NULL CHECK (size_bytes > 0),
+    width_px    INTEGER NOT NULL CHECK (width_px > 0),
+    height_px   INTEGER NOT NULL CHECK (height_px > 0),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, sha256)
+);
+
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE ctx_message_part
+    ADD COLUMN media_id UUID REFERENCES ctx_media(id) ON DELETE SET NULL,
+    ADD COLUMN baseline_status TEXT NOT NULL DEFAULT '' CHECK (baseline_status IN ('', 'ready', 'unavailable')),
+    ADD COLUMN baseline_renderer TEXT NOT NULL DEFAULT '',
+    ADD COLUMN baseline_contract INTEGER NOT NULL DEFAULT 0 CHECK (baseline_contract >= 0),
+    ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+CREATE INDEX idx_ctx_message_part_media_id ON ctx_message_part (media_id);
+
+-- +goose Down
+DROP INDEX idx_ctx_message_part_media_id;
+ALTER TABLE ctx_message_part
+    DROP COLUMN updated_at,
+    DROP COLUMN created_at,
+    DROP COLUMN baseline_contract,
+    DROP COLUMN baseline_renderer,
+    DROP COLUMN baseline_status,
+    DROP COLUMN media_id;
+DROP TABLE ctx_media;

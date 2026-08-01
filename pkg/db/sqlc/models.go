@@ -463,6 +463,18 @@ type CtxItem struct {
 	CreatedAt      time.Time   `json:"created_at"`
 }
 
+type CtxMedium struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Sha256    []byte    `json:"sha256"`
+	MimeType  string    `json:"mime_type"`
+	SizeBytes int64     `json:"size_bytes"`
+	WidthPx   int32     `json:"width_px"`
+	HeightPx  int32     `json:"height_px"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type CtxMessage struct {
 	ID             string    `json:"id"`
 	ConversationID string    `json:"conversation_id"`
@@ -484,16 +496,22 @@ type CtxMessageEmbedding struct {
 }
 
 type CtxMessagePart struct {
-	ID          string      `json:"id"`
-	MessageID   string      `json:"message_id"`
-	PartType    string      `json:"part_type"`
-	Ordinal     int64       `json:"ordinal"`
-	TextContent pgtype.Text `json:"text_content"`
-	ToolCallID  pgtype.Text `json:"tool_call_id"`
-	ToolName    pgtype.Text `json:"tool_name"`
-	ToolInput   pgtype.Text `json:"tool_input"`
-	ToolOutput  pgtype.Text `json:"tool_output"`
-	Metadata    pgtype.Text `json:"metadata"`
+	ID               string      `json:"id"`
+	MessageID        string      `json:"message_id"`
+	PartType         string      `json:"part_type"`
+	Ordinal          int64       `json:"ordinal"`
+	TextContent      pgtype.Text `json:"text_content"`
+	ToolCallID       pgtype.Text `json:"tool_call_id"`
+	ToolName         pgtype.Text `json:"tool_name"`
+	ToolInput        pgtype.Text `json:"tool_input"`
+	ToolOutput       pgtype.Text `json:"tool_output"`
+	Metadata         pgtype.Text `json:"metadata"`
+	MediaID          pgtype.Text `json:"media_id"`
+	BaselineStatus   string      `json:"baseline_status"`
+	BaselineRenderer string      `json:"baseline_renderer"`
+	BaselineContract int32       `json:"baseline_contract"`
+	CreatedAt        time.Time   `json:"created_at"`
+	UpdatedAt        time.Time   `json:"updated_at"`
 }
 
 type CtxSummary struct {
