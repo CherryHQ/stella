@@ -450,7 +450,6 @@ function ChannelDetail({
 
 interface NewChannelFormProps {
   fallbackChannelType: string;
-  isAdmin: boolean;
   agents: Agent[];
   channels: NormalizedChannel[];
   onAdd: (channel: Record<string, unknown>) => Promise<void>;
@@ -461,7 +460,6 @@ interface NewChannelFormProps {
 
 function NewChannelForm({
   fallbackChannelType,
-  isAdmin,
   agents,
   channels,
   onAdd,
@@ -709,13 +707,11 @@ function NewChannelForm({
             <option value="" disabled>
               {t("channels.selectPlatform")}
             </option>
-            {channelTypes
-              .filter(() => isAdmin)
-              .map((ct) => (
-                <option key={ct.id} value={ct.id}>
-                  {ct.label}
-                </option>
-              ))}
+            {channelTypes.map((ct) => (
+              <option key={ct.id} value={ct.id}>
+                {ct.label}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -1024,12 +1020,14 @@ export function ChannelsPage() {
 
   // ── derived state ──
 
-  const isCreating = channelId === "new";
+  const isCreating = isAdmin && channelId === "new";
 
   const selectedChannel = useMemo(
     () =>
-      channelId && channelId !== "new" ? instances.find((ch) => ch.id === channelId) : undefined,
-    [channelId, instances],
+      isAdmin && channelId && channelId !== "new"
+        ? instances.find((ch) => ch.id === channelId)
+        : undefined,
+    [isAdmin, channelId, instances],
   );
 
   const selectedPublicChannel = useMemo(
@@ -1102,7 +1100,11 @@ export function ChannelsPage() {
   // ── init ──
 
   useEffect(() => {
-    void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(), loadAgents()]);
+    if (isAdmin) {
+      void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(), loadAgents()]);
+    } else {
+      void Promise.all([loadPublicChannels(), loadIdentities()]);
+    }
     return () => {
       if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
     };
@@ -1315,48 +1317,49 @@ export function ChannelsPage() {
     return "secondary";
   };
 
-  const isLoading = loadingInstances;
+  const isLoading = isAdmin && loadingInstances;
 
   // ── build detail pane ──
 
   let detail: React.ReactNode = undefined;
 
-  if (isCreating) {
-    detail = (
-      <NewChannelForm
-        fallbackChannelType={defaultChannelType}
-        isAdmin={isAdmin}
-        agents={agents}
-        channels={instances}
-        onAdd={createNewChannel}
-        onRegistered={finishRegisteredChannel}
-        onCancel={() => void navigate({ to: "/settings/channels" })}
-        creating={creatingInstance}
-      />
-    );
-  } else if (selectedChannel) {
-    detail = (
-      <ChannelDetail
-        key={selectedChannel.id}
-        channel={selectedChannel}
-        identity={identityFor(selectedChannel.type)}
-        generating={generating}
-        linkPlatform={linkPlatform}
-        linkCode={linkCode}
-        wxQrUrl={wxQrUrl}
-        wxQrStatus={wxQrStatus}
-        wxQrPolling={wxQrPolling}
-        onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
-        onSave={saveInstance}
-        onDelete={doDeleteChannel}
-        onGenerateCode={generateCode}
-        onStartWeixinQR={startWeixinQR}
-        onUnlink={unlinkIdentity}
-        onCopyLinkCode={copyLinkCode}
-        wxQrStatusVariant={wxQrStatusVariant}
-        onRefreshWxQr={startWeixinQR}
-      />
-    );
+  if (isAdmin) {
+    if (isCreating) {
+      detail = (
+        <NewChannelForm
+          fallbackChannelType={defaultChannelType}
+          agents={agents}
+          channels={instances}
+          onAdd={createNewChannel}
+          onRegistered={finishRegisteredChannel}
+          onCancel={() => void navigate({ to: "/settings/channels" })}
+          creating={creatingInstance}
+        />
+      );
+    } else if (selectedChannel) {
+      detail = (
+        <ChannelDetail
+          key={selectedChannel.id}
+          channel={selectedChannel}
+          identity={identityFor(selectedChannel.type)}
+          generating={generating}
+          linkPlatform={linkPlatform}
+          linkCode={linkCode}
+          wxQrUrl={wxQrUrl}
+          wxQrStatus={wxQrStatus}
+          wxQrPolling={wxQrPolling}
+          onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
+          onSave={saveInstance}
+          onDelete={doDeleteChannel}
+          onGenerateCode={generateCode}
+          onStartWeixinQR={startWeixinQR}
+          onUnlink={unlinkIdentity}
+          onCopyLinkCode={copyLinkCode}
+          wxQrStatusVariant={wxQrStatusVariant}
+          onRefreshWxQr={startWeixinQR}
+        />
+      );
+    }
   } else if (selectedPublicChannel) {
     detail = (
       <PublicChannelDetail
@@ -1406,23 +1409,25 @@ export function ChannelsPage() {
       <SettingsGridPage
         title={t("channels.title")}
         action={
-          <Button
-            render={<Link to="/settings/channels/$channelId" params={{ channelId: "new" }} />}
-            variant="outline"
-            size="sm"
-          >
-            <Plus className="size-4" />
-            {t("channels.addChannel")}
-          </Button>
+          isAdmin ? (
+            <Button
+              render={<Link to="/settings/channels/$channelId" params={{ channelId: "new" }} />}
+              variant="outline"
+              size="sm"
+            >
+              <Plus className="size-4" />
+              {t("channels.addChannel")}
+            </Button>
+          ) : undefined
         }
       >
-        {isLoading ? (
-          <div className="flex justify-center py-8">
-            <Spinner className="size-4" />
-          </div>
-        ) : (
-          <>
-            {adminGroups.map((group) => (
+        {isAdmin ? (
+          isLoading ? (
+            <div className="flex justify-center py-8">
+              <Spinner className="size-4" />
+            </div>
+          ) : (
+            adminGroups.map((group) => (
               <SettingsCardSection
                 key={group.type}
                 icon={<PlatformIcon type={group.type} />}
@@ -1461,31 +1466,30 @@ export function ChannelsPage() {
                   );
                 })}
               </SettingsCardSection>
-            ))}
-            {!isAdmin && (
-              <SettingsCardSection title={t("channels.title")} count={publicChannels.length}>
-                {publicChannels.map((ch) => {
-                  const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
-                  const linked = isLinked(ch.type);
-                  return (
-                    <SettingsCard
-                      key={ch.type}
-                      icon={<PlatformIcon type={ch.type} />}
-                      title={platformLabel}
-                      active={channelId === ch.type}
-                      to="/settings/channels/$channelId"
-                      params={{ channelId: ch.type }}
-                      footer={
-                        <Badge size="sm" variant={linked ? "success" : "secondary"}>
-                          {linked ? "linked" : "not linked"}
-                        </Badge>
-                      }
-                    />
-                  );
-                })}
-              </SettingsCardSection>
-            )}
-          </>
+            ))
+          )
+        ) : (
+          <SettingsCardSection title={t("channels.title")} count={publicChannels.length}>
+            {publicChannels.map((ch) => {
+              const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
+              const linked = isLinked(ch.type);
+              return (
+                <SettingsCard
+                  key={ch.type}
+                  icon={<PlatformIcon type={ch.type} />}
+                  title={platformLabel}
+                  active={channelId === ch.type}
+                  to="/settings/channels/$channelId"
+                  params={{ channelId: ch.type }}
+                  footer={
+                    <Badge size="sm" variant={linked ? "success" : "secondary"}>
+                      {linked ? "linked" : "not linked"}
+                    </Badge>
+                  }
+                />
+              );
+            })}
+          </SettingsCardSection>
         )}
       </SettingsGridPage>
 
