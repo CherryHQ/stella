@@ -20,6 +20,7 @@ func TestSystem(t *testing.T) {
 	t.Run("startup_and_auth", h.testStartupAndAuth)
 	t.Run("chat_sse", h.testChatSSE)
 	t.Run("image_history", h.testImageHistory)
+	t.Run("read_tool_image_history", h.testReadToolImageHistory)
 	t.Run("chat_provider_error", h.testChatProviderError)
 	t.Run("webhook_sync_persistent", h.testWebhookSyncPersistent)
 	t.Run("goal_lifecycle", h.testGoalLifecycle)

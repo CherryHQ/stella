@@ -175,6 +175,12 @@ func (f *fakeAnthropic) enqueueText(text string) {
 	f.scripts = append(f.scripts, fakeResponse{text: text})
 }
 
+func (f *fakeAnthropic) enqueueTool(id, name, args string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scripts = append(f.scripts, fakeResponse{toolID: id, toolName: name, toolArgs: args})
+}
+
 // enqueueGoalControl scripts the tool_use reply for one goal_control stage,
 // matched by the action enum the server advertises in the request's goal_control
 // tool schema — not by prompt text or arrival order. args is the full
@@ -500,14 +506,9 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 	}
 	messages = make([]string, 0, len(parsed.Messages))
 	for _, message := range parsed.Messages {
-		text, ok := messageText(message.Content)
+		text, messageImages, ok := messagePayload(message.Content)
 		if !ok {
 			t.Errorf("fake anthropic: unsupported message content %s", message.Content)
-			continue
-		}
-		messageImages, ok := messageImageBlocks(message.Content)
-		if !ok {
-			t.Errorf("fake anthropic: unsupported image content %s", message.Content)
 			continue
 		}
 		messages = append(messages, text)
@@ -523,57 +524,57 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 	return parsed.Model, messages, images, names, goalControl
 }
 
-func messageImageBlocks(content json.RawMessage) ([]fakeImage, bool) {
+// messagePayload extracts text and images from top-level message blocks and
+// nested Anthropic tool_result content. Response selection never uses either;
+// journeys inspect them only after the fake has recorded the request.
+func messagePayload(content json.RawMessage) (string, []fakeImage, bool) {
 	var text string
 	if json.Unmarshal(content, &text) == nil {
-		return nil, true
+		return text, nil, true
+	}
+	var out strings.Builder
+	var images []fakeImage
+	if !collectMessageBlocks(content, &out, &images) {
+		return "", nil, false
+	}
+	return out.String(), images, true
+}
+
+func collectMessageBlocks(content json.RawMessage, text *strings.Builder, images *[]fakeImage) bool {
+	var shorthand string
+	if json.Unmarshal(content, &shorthand) == nil {
+		text.WriteString(shorthand)
+		return true
 	}
 	var blocks []struct {
-		Type   string `json:"type"`
-		Source struct {
+		Type    string          `json:"type"`
+		Text    string          `json:"text"`
+		Content json.RawMessage `json:"content"`
+		Source  struct {
 			Type      string `json:"type"`
 			MediaType string `json:"media_type"`
 			Data      string `json:"data"`
 		} `json:"source"`
 	}
 	if err := json.Unmarshal(content, &blocks); err != nil {
-		return nil, false
+		return false
 	}
-	var images []fakeImage
 	for _, block := range blocks {
-		if block.Type != "image" {
-			continue
-		}
-		if block.Source.Type != "base64" || block.Source.MediaType == "" || block.Source.Data == "" {
-			return nil, false
-		}
-		images = append(images, fakeImage{MediaType: block.Source.MediaType, Data: block.Source.Data})
-	}
-	return images, true
-}
-
-// messageText extracts text content from the Messages API's string shorthand or
-// text-block form. The fake records it for payload compatibility assertions;
-// response selection remains independent of prompt prose.
-func messageText(content json.RawMessage) (string, bool) {
-	var text string
-	if json.Unmarshal(content, &text) == nil {
-		return text, true
-	}
-	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(content, &blocks); err != nil {
-		return "", false
-	}
-	var b strings.Builder
-	for _, block := range blocks {
-		if block.Type == "text" {
-			b.WriteString(block.Text)
+		switch block.Type {
+		case "text":
+			text.WriteString(block.Text)
+		case "image":
+			if block.Source.Type != "base64" || block.Source.MediaType == "" || block.Source.Data == "" {
+				return false
+			}
+			*images = append(*images, fakeImage{MediaType: block.Source.MediaType, Data: block.Source.Data})
+		case "tool_result":
+			if len(block.Content) > 0 && !collectMessageBlocks(block.Content, text, images) {
+				return false
+			}
 		}
 	}
-	return b.String(), true
+	return true
 }
 
 // nonFailAction returns the goal_control stage discriminator: the first action

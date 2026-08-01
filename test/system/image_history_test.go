@@ -12,7 +12,9 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +59,7 @@ func (h *harness) testImageHistory(t *testing.T) {
 		t.Fatalf("first assistant text = %q, want %q", gotFirstReply, firstReply)
 	}
 
-	baseline, mediaID := h.assertCanonicalImageStored(t, ctx, sessionID, encoded, int64(len(original)))
+	baseline, mediaID := h.assertCanonicalImageStored(t, ctx, sessionID, "user", encoded, int64(len(original)))
 	if baseline != baselineReply {
 		t.Fatalf("stored baseline = %q, want scripted VLM baseline %q", baseline, baselineReply)
 	}
@@ -87,7 +89,124 @@ func (h *harness) testImageHistory(t *testing.T) {
 		t.Fatalf("historical request omitted stored baseline %q: %#v", baseline, reqs[2].Messages)
 	}
 
-	h.assertHistoryLoadsOriginal(t, ctx, agentID, sessionID, mediaID, original)
+	h.assertHistoryLoadsOriginal(t, ctx, agentID, sessionID, "user", mediaID, original)
+}
+
+// testReadToolImageHistory proves the production tool loop, not just direct
+// upload: the answer model requests read, the tool's image is canonically
+// persisted through the configured VLM, pixels remain active for the follow-up
+// answer call, and the next user turn safely receives baseline-only history.
+func (h *harness) testReadToolImageHistory(t *testing.T) {
+	fake := newFakeAnthropic(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	const modelID = "claude-sonnet-4-6"
+	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "anthropic-read-image-"+h.runID)
+	h.setVisionModel(t, ctx, providerID+"/"+modelID)
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		h.setVisionModel(t, cleanupCtx, "")
+	})
+	agentID := h.createAgent(t, ctx, providerID+"/"+modelID)
+	sessionID := h.createSession(t, ctx, agentID)
+
+	original := systemPNG(t)
+	encoded := base64.StdEncoding.EncodeToString(original)
+	readPath := h.uploadWorkspaceImage(t, ctx, agentID, sessionID, original)
+	toolArgs, err := json.Marshal(map[string]string{"path": readPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselineReply := "## Text\nread tool pixels\n\n## Scene\nAn eight-by-eight synthetic PNG contains a color grid."
+	activeReply := "read tool image received, run " + h.runID
+	historyReply := "read tool baseline received, run " + h.runID
+	fake.enqueueTool("toolu_read_image", "read", string(toolArgs))
+	fake.enqueueText(baselineReply)
+	fake.enqueueText(activeReply)
+	fake.enqueueText(historyReply)
+
+	firstEvents, gotActiveReply := h.streamChatTurn(t, ctx, agentID, sessionID, "read the uploaded image at "+readPath)
+	assertTurnEventOrder(t, firstEvents)
+	if gotActiveReply != activeReply {
+		t.Fatalf("tool-loop assistant text = %q, want %q", gotActiveReply, activeReply)
+	}
+	baseline, mediaID := h.assertCanonicalImageStored(t, ctx, sessionID, "tool", encoded, int64(len(original)))
+	if baseline != baselineReply {
+		t.Fatalf("stored read baseline = %q, want %q", baseline, baselineReply)
+	}
+
+	historyEvents, gotHistoryReply := h.streamChatTurn(t, ctx, agentID, sessionID, "what did the read image contain? "+h.runID)
+	assertTurnEventOrder(t, historyEvents)
+	if gotHistoryReply != historyReply {
+		t.Fatalf("history assistant text = %q, want %q", gotHistoryReply, historyReply)
+	}
+
+	reqs := fake.requests()
+	if len(reqs) != 4 {
+		t.Fatalf("fake received %d requests, want tool call + VLM + active follow-up + history", len(reqs))
+	}
+	if len(reqs[0].Images) != 0 || !containsString(reqs[0].ToolNames, "read") {
+		t.Fatalf("initial LLM request = images:%d tools:%v, want no images and read tool", len(reqs[0].Images), reqs[0].ToolNames)
+	}
+	for _, i := range []int{1, 2} {
+		if reqs[i].Model != modelID || len(reqs[i].Images) != 1 {
+			t.Fatalf("read image request %d model/images = %q/%#v", i, reqs[i].Model, reqs[i].Images)
+		}
+		if got := reqs[i].Images[0]; got.MediaType != "image/png" || got.Data != encoded {
+			t.Fatalf("read image request %d changed pixels: mime=%q bytes_equal=%t", i, got.MediaType, got.Data == encoded)
+		}
+	}
+	if len(reqs[3].Images) != 0 || !messagesContain(reqs[3].Messages, baseline) {
+		t.Fatalf("read history projection = images:%d messages:%#v, want zero images plus baseline %q", len(reqs[3].Images), reqs[3].Messages, baseline)
+	}
+
+	h.assertHistoryLoadsOriginal(t, ctx, agentID, sessionID, "tool", mediaID, original)
+}
+
+func (h *harness) uploadWorkspaceImage(t *testing.T, ctx context.Context, agentID, sessionID string, data []byte) string {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "read-tool.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/upload", agentID, sessionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.baseURL+path, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatalf("upload read image: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("upload read image = %d, want 201", resp.StatusCode)
+	}
+	var uploaded struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&uploaded); err != nil {
+		t.Fatal(err)
+	}
+	if uploaded.Path == "" {
+		t.Fatal("workspace upload returned empty path")
+	}
+	return uploaded.Path
+}
+
+func containsString(values []string, want string) bool {
+	return slices.Contains(values, want)
 }
 
 func (h *harness) setVisionModel(t *testing.T, ctx context.Context, model string) {
@@ -111,7 +230,7 @@ func (h *harness) setVisionModel(t *testing.T, ctx context.Context, model string
 	}
 }
 
-func (h *harness) assertCanonicalImageStored(t *testing.T, ctx context.Context, sessionID, encoded string, size int64) (baseline, mediaID string) {
+func (h *harness) assertCanonicalImageStored(t *testing.T, ctx context.Context, sessionID, role, encoded string, size int64) (baseline, mediaID string) {
 	t.Helper()
 	var (
 		parentContent string
@@ -124,13 +243,26 @@ func (h *harness) assertCanonicalImageStored(t *testing.T, ctx context.Context, 
 		  JOIN ctx_message m ON m.conversation_id = c.id
 		  JOIN ctx_message_part p ON p.message_id = m.id AND p.part_type = 'image'
 		  JOIN ctx_media media ON media.id = p.media_id
-		 WHERE c.session_id = $1 AND m.role = 'user'
+		 WHERE c.session_id = $1 AND m.role = $2
 		 ORDER BY m.seq, p.ordinal
-		 LIMIT 1`, sessionID).Scan(&parentContent, &baseline, &mediaID, &mimeType, &storedSize)
+		 LIMIT 1`, sessionID, role).Scan(&parentContent, &baseline, &mediaID, &mimeType, &storedSize)
 	if err != nil {
 		t.Fatalf("query canonical image history: %v\n%s", err, h.proc.logTail(40))
 	}
-	if baseline == "" || !strings.Contains(parentContent, baseline) {
+	if baseline == "" {
+		t.Fatal("canonical image part has empty baseline")
+	}
+	projectedParent := parentContent
+	if role == "tool" {
+		var envelope struct {
+			Result string `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(parentContent), &envelope); err != nil {
+			t.Fatalf("decode canonical tool parent: %v", err)
+		}
+		projectedParent = envelope.Result
+	}
+	if !strings.Contains(projectedParent, baseline) {
 		t.Fatalf("canonical parent/baseline = %q/%q", parentContent, baseline)
 	}
 	if strings.Contains(parentContent, encoded) {
@@ -142,7 +274,7 @@ func (h *harness) assertCanonicalImageStored(t *testing.T, ctx context.Context, 
 	return baseline, mediaID
 }
 
-func (h *harness) assertHistoryLoadsOriginal(t *testing.T, ctx context.Context, agentID, sessionID, mediaID string, original []byte) {
+func (h *harness) assertHistoryLoadsOriginal(t *testing.T, ctx context.Context, agentID, sessionID, role, mediaID string, original []byte) {
 	t.Helper()
 	path := fmt.Sprintf("/api/agents/%s/sessions/%s/messages", agentID, sessionID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+path, nil)
@@ -174,7 +306,7 @@ func (h *harness) assertHistoryLoadsOriginal(t *testing.T, ctx context.Context, 
 	var mediaURL string
 	for _, message := range history.Messages {
 		for _, block := range message.Blocks {
-			if message.Role == "user" && block.Type == "image" && block.MediaID == mediaID {
+			if message.Role == role && block.Type == "image" && block.MediaID == mediaID {
 				if block.MimeType != "image/png" {
 					t.Fatalf("history image MIME = %q", block.MimeType)
 				}

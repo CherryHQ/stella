@@ -448,8 +448,17 @@ func (a *Access) UploadWorkspacePath(ctx context.Context, in WorkspaceUploadInpu
 	rel, _ := filepath.Rel(root, abs)
 	relSlash := filepath.ToSlash(rel)
 	sandboxRoot := sandbox.UserDataViewFor(a.svc.sandboxBackend(ctx), root)
+	viewPath := filepath.Join(sandboxRoot, rel)
+	// Non-isolating backends expose host paths. Resolve aliases such as macOS
+	// /var -> /private/var so the path matches the sandbox mount authority.
+	// Never resolve /user in host space for an isolating backend.
+	if sandboxRoot == root {
+		if resolved, err := filepath.EvalSymlinks(viewPath); err == nil {
+			viewPath = resolved
+		}
+	}
 	return WorkspaceUploadResult{
-		Path:         filepath.ToSlash(filepath.Join(sandboxRoot, rel)),
+		Path:         filepath.ToSlash(viewPath),
 		RelativePath: relSlash,
 		Scope:        WorkspaceScopeUser,
 	}, nil
