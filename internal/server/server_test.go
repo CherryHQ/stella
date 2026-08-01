@@ -47,6 +47,7 @@ import (
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/internal/webhook"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -252,9 +253,12 @@ func setupAdmin(t *testing.T) *testEnv {
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	memoryManagement := memorywrite.NewManagementService(db, mem)
 	profileSvc := memprofile.NewService(db, mem, mem, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
+	webhookSvc, err := webhook.NewService(webhook.Config{Store: webhook.NewPostgresStore(db), Users: webhook.NewUserState(credPATStore), Access: webhook.NewUserAgentAccess(agentAccess)})
+	if err != nil {
+		t.Fatalf("webhook.NewService: %v", err)
+	}
 	deps := server.Deps{
 		Pinger:              db,
-		ChannelResolver:     channel.NewRuntimeResolver(store),
 		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
 		Account:             accountSvc,
 		Profile:             profileSvc,
@@ -272,6 +276,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		BaseURL:             baseURL,
 		Credentials:         credSvc,
 		ControlPlane:        controlplane.NewService(store, phost, poolManager, credSvc, slog.With("component", "controlplane-test")),
+		Webhooks:            webhookSvc,
 		Email:               email.NewService(nil, sqlc.New(db)),
 		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
 		Assets:              assetStore,
@@ -354,7 +359,7 @@ func TestNewErrorsWithoutRequiredDeps(t *testing.T) {
 	if srv != nil {
 		t.Fatal("expected nil server on validation failure")
 	}
-	for _, want := range []string{"PluginHost", "ChannelResolver", "BaseURL"} {
+	for _, want := range []string{"PluginHost", "BaseURL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention missing dep %q", err, want)
 		}
@@ -693,13 +698,39 @@ func TestChannelPluginConfigEndpointsRejected(t *testing.T) {
 	}
 }
 
+func TestChannelCreateIsInsertOnlyAndPatchIsUpdateOnly(t *testing.T) {
+	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
+	body := map[string]any{
+		"id": "telegram-method-contract", "type": "telegram", "enabled": false,
+		"config": `{"token":"tg-token"}`,
+	}
+	if rr := doRequest(t, env, http.MethodPost, "/api/channels", body); rr.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPost, "/api/channels", body); rr.Code != http.StatusConflict {
+		t.Fatalf("duplicate create = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := doRequest(t, env, http.MethodPatch, "/api/channels/missing-channel", map[string]any{
+		"type": "telegram", "enabled": false, "config": `{"token":"tg-token"}`,
+	}); rr.Code != http.StatusNotFound {
+		t.Fatalf("missing patch = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
 func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
 
-	rr := doRequest(t, env, "PATCH", "/api/channels/telegram", map[string]any{
-		"enabled": true,
-		"config":  `{"token":"tg-token","enable_notify":true}`,
+	rr := doRequest(t, env, "POST", "/api/channels", map[string]any{
+		"id": "telegram", "type": "telegram", "enabled": true,
+		"config": `{"token":"tg-token","enable_notify":true}`,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	rr = doRequest(t, env, "PATCH", "/api/channels/telegram", map[string]any{
+		"enabled": true, "config": `{"token":"tg-token","enable_notify":true}`,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
@@ -743,9 +774,15 @@ func TestUpdateQQChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 	enableChannelPlugin(t, env, pkgchannel.PlatformQQ)
 
-	rr := doRequest(t, env, "PATCH", "/api/channels/qq", map[string]any{
-		"enabled": true,
-		"config":  `{"app_id":"qq-app","app_secret":"qq-secret","enable_notify":true}`,
+	rr := doRequest(t, env, "POST", "/api/channels", map[string]any{
+		"id": "qq", "type": "qq", "enabled": true,
+		"config": `{"app_id":"qq-app","app_secret":"qq-secret","enable_notify":true}`,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	rr = doRequest(t, env, "PATCH", "/api/channels/qq", map[string]any{
+		"enabled": true, "config": `{"app_id":"qq-app","app_secret":"qq-secret","enable_notify":true}`,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
@@ -789,7 +826,14 @@ func TestUpdateFeishuChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 	enableChannelPlugin(t, env, pkgchannel.PlatformFeishu)
 
-	rr := doRequest(t, env, "PATCH", "/api/channels/feishu", map[string]any{
+	rr := doRequest(t, env, "POST", "/api/channels", map[string]any{
+		"id": "feishu", "type": "feishu", "enabled": true,
+		"config": `{"app_id":"fs-app","app_secret":"fs-secret","encrypt_key":"enc","verification_token":"verify","enable_notify":true,"groups":{"oc_123":{"system_prompt":"be brief"}}}`,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	rr = doRequest(t, env, "PATCH", "/api/channels/feishu", map[string]any{
 		"enabled": true,
 		"config":  `{"app_id":"fs-app","app_secret":"fs-secret","encrypt_key":"enc","verification_token":"verify","enable_notify":true,"groups":{"oc_123":{"system_prompt":"be brief"}}}`,
 	})
@@ -839,7 +883,14 @@ func TestUpdateWeixinChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 	enableChannelPlugin(t, env, pkgchannel.PlatformWeixin)
 
-	rr := doRequest(t, env, "PATCH", "/api/channels/weixin", map[string]any{
+	rr := doRequest(t, env, "POST", "/api/channels", map[string]any{
+		"id": "weixin", "type": "weixin", "enabled": true,
+		"config": `{"bot_token":"wx-token","base_url":"https://wx.example","bot_id":"bot-1","user_id":"user-1","enable_notify":true}`,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	rr = doRequest(t, env, "PATCH", "/api/channels/weixin", map[string]any{
 		"enabled": true,
 		"config":  `{"bot_token":"wx-token","base_url":"https://wx.example","bot_id":"bot-1","user_id":"user-1","enable_notify":true}`,
 	})

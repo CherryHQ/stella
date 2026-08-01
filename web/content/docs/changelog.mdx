@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> **Breaking:** Webhooks are now personal invocation resources with one-time capability URLs. Create or rotate your own webhook in Settings, then update callers to use that URL without an `Authorization` header. The old `POST /webhooks/<channel-id>` route is unavailable. ([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+
+### ♻️ Refactoring
+
+- Webhook: add personal invocation resources with one-time capability URLs, rotation, and revocation. ([#825](https://github.com/CherryHQ/stella/pull/825))
+
 ## [0.60.4] - 2026-07-28
 
 ### 🐛 Bug Fixes
@@ -75,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Knowledge: introduce facts-backed memory, search-first discovery, structured Reflect review and rollout controls, and Web UI management for Knowledge and active Skills. ([#593](https://github.com/CherryHQ/stella/pull/593), [#610](https://github.com/CherryHQ/stella/pull/610), [#661](https://github.com/CherryHQ/stella/pull/661), [#683](https://github.com/CherryHQ/stella/pull/683), [#732](https://github.com/CherryHQ/stella/pull/732), [#733](https://github.com/CherryHQ/stella/pull/733), [#734](https://github.com/CherryHQ/stella/pull/734))
 - Storage: persist Recally article bodies in PostgreSQL and add an optional S3-compatible durable mirror for user assets, removing remaining pod-local durable state. ([#667](https://github.com/CherryHQ/stella/pull/667), [#673](https://github.com/CherryHQ/stella/pull/673), [#675](https://github.com/CherryHQ/stella/pull/675))
 - Secrets: complete four-scope tool overrides and automatic ambient secret delivery for agents. ([#688](https://github.com/CherryHQ/stella/pull/688), [#694](https://github.com/CherryHQ/stella/pull/694))
-- Automation: add an inbound webhook channel so CI systems and third-party services can trigger an agent with a scoped personal access token. ([#691](https://github.com/CherryHQ/stella/pull/691))
+- Automation: add inbound webhooks so CI systems and third-party services can trigger an agent. ([#691](https://github.com/CherryHQ/stella/pull/691))
 - Deployment: add production Kubernetes health checks, graceful shutdown, and a Helm chart. ([#700](https://github.com/CherryHQ/stella/pull/700), [#704](https://github.com/CherryHQ/stella/pull/704))
 
 ### 🔐 Security

@@ -62,6 +62,8 @@ PostgreSQL 来手动运行服务器，或为该平台提 issue。由于套件在
 - `chat_sse` —— 一次端到端 chat 轮次，以实时 SSE 流的方式消费。
 - `chat_provider_error` —— 一次失败的模型调用以带内 error 帧的方式出现在发送流上，随后是
   finish 与 [DONE]——该轮次绝不挂起。
+- `webhook_sync_persistent` —— 两次无认证 capability 调用同步返回 fake-model 输出，并跨请求
+  复用同一个持久 Webhook session。
 - `goal_lifecycle` —— 一个 Goal 从创建被派发器的异步 worker 驱动到自主验收。
 - `graceful_drain` —— 在一个轮次仍在途中时发送 SIGTERM：`/readyz` 从 ready 翻转，一个 attach
   订阅被 drain 取消，被钉住的轮次仍在其流上完整收尾（全文、finish、[DONE]），进程以 0 退出。

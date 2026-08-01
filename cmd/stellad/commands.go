@@ -29,6 +29,7 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
@@ -48,6 +49,7 @@ import (
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -101,6 +103,7 @@ type setupResult struct {
 	vaultSvc                 *vault.Service
 	mcpSvc                   *mcp.Service
 	controlPlane             *controlplane.Service
+	webhooks                 *webhook.Service
 	credSvc                  *connections.Service
 	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
@@ -456,6 +459,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
 
+	// Webhook resource domain. It owns the user→Agent binding, opaque capability
+	// verifier, and lifecycle independently from deployment channel management.
+	webhookSvc, err := webhook.NewService(webhook.Config{
+		Store:  webhook.NewPostgresStore(db),
+		Users:  webhook.NewUserState(credential.NewPostgresStore(db)),
+		Access: webhook.NewUserAgentAccess(agentAccess),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build webhook service: %w", err)
+	}
+
 	// Control-plane domain for the admin-only deployment resources
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
@@ -505,6 +519,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		vaultSvc:                 vaultSvc,
 		mcpSvc:                   mcpSvc,
 		controlPlane:             controlPlaneSvc,
+		webhooks:                 webhookSvc,
 		credSvc:                  credSvc,
 		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,

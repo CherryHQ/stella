@@ -2,11 +2,11 @@
 name: stella
 description: >
   Self-knowledge about stella, the self-hosted AI assistant. Use when the user asks about
-  stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat),
+  stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat), webhooks,
   memory system (LCM), scheduled jobs, reusable workflows, goals (objectives that converge through acceptance), workers/decomposition/dependencies,
   skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does stella work" / "help me get started" questions.
-  Also triggers on "change my model", "set up telegram", "set up wechat", "configure provider", "update stella",
+  Also triggers on "change my model", "set up telegram", "set up wechat", "set up webhook", "configure provider", "update stella",
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
   Also triggers when the user wants to report a bug or file a GitHub issue about stella:
   "report this bug", "create an issue for this", "报告这个 issue", "帮我建个 issue".
@@ -70,6 +70,7 @@ Read the relevant reference file for detailed guidance:
 | Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                          |
 | Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                         |
 | Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                                  |
+| Webhooks      | [references/webhooks.md](references/webhooks.md)           | Personal HTTP invocation capabilities, one-time URLs, options, and lifecycle                                 |
 | Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                                   |
 | Goals         | [references/goals.md](references/goals.md)                 | Goal model: root/child, leaf/composite, derived acceptance, convergence, worker `goal_control`, deps, blocks |
 | Report issue  | [references/report-issue.md](references/report-issue.md)   | User asks to report a bug / file a GitHub issue about stella                                                 |

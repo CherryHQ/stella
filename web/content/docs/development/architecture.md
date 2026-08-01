@@ -63,7 +63,7 @@ pkg/
 plugins/
   tools/               Plugin tool registry + plugin tools (webfetch)
   hooks/               Plugin hook registry + plugin hooks (rtk)
-  channels/            Channel plugins (telegram, qq, feishu, weixin, webhook)
+  channels/            Channel plugins (telegram, qq, feishu, weixin)
   providers/           Provider plugin registry + LLM adapters (anthropic, openai, openai-response)
   sandbox/             Sandbox backend plugins
 ```

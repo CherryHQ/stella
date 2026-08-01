@@ -33,6 +33,8 @@ type Store interface {
 	ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error)
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	UpsertChannel(ctx context.Context, ch Channel) error
+	CreateChannel(ctx context.Context, ch Channel) error
+	UpdateChannel(ctx context.Context, ch Channel) error
 	DeleteChannel(ctx context.Context, id string) error
 
 	// Manifest plugin overrides — tunables for manifest-declared plugins.

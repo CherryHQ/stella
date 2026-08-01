@@ -195,6 +195,21 @@ func (s *Service) Delete(ctx context.Context, authority authz.Authority, agentID
 	return oneShot(s, ctx, authority, func(a *Access) (config.Agent, error) { return a.Delete(ctx, agentID) })
 }
 
+// CanUseAsUser evaluates one ordinary, non-admin user's current execute access.
+// It is intended for trusted adapters validating a durable delegation before
+// persisting it; callers receive only the decision, never a minted Authority.
+func (s *Service) CanUseAsUser(ctx context.Context, userID, agentID string) (bool, error) {
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), false)
+	if err != nil {
+		return false, ErrForbidden
+	}
+	access, err := s.Begin(ctx, authority)
+	if err != nil {
+		return false, err
+	}
+	return access.CanUse(ctx, agentID)
+}
+
 func (s *Service) CanList(ctx context.Context, authority authz.Authority) error {
 	a, err := s.Begin(ctx, authority)
 	if err != nil {

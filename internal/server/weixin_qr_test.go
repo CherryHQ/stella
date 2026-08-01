@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/controlplane"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
@@ -28,6 +30,15 @@ func (c *weixinNoopChannel) Start(ctx context.Context) error                    
 func (c *weixinNoopChannel) Stop()                                                     {}
 func (c *weixinNoopChannel) Notify(_ context.Context, _ pkgchannel.Notification) error { return nil }
 
+type failingWeixinChannelStore struct {
+	config.Store
+	err error
+}
+
+func (s failingWeixinChannelStore) GetChannel(context.Context, string) (config.Channel, error) {
+	return config.Channel{}, s.err
+}
+
 type testWeixinHandler struct{}
 
 func (testWeixinHandler) HandleIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
@@ -41,6 +52,27 @@ func (testWeixinHandler) ListAgents(ctx context.Context, msg pkgchannel.Incoming
 
 func (testWeixinHandler) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMessage, agentSlug string) error {
 	return nil
+}
+
+func TestSaveWeixinSingletonChannelDoesNotTreatReadFailureAsMissing(t *testing.T) {
+	readErr := errors.New("database unavailable")
+	cp := controlplane.NewService(failingWeixinChannelStore{err: readErr}, nil, nil, nil, nil)
+	authority, err := authz.NewUserAuthority("admin", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := cp.Begin(context.Background(), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation, err := access.ManageChannel(pkgchannel.PlatformWeixin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = (&Server{}).saveWeixinSingletonChannel(context.Background(), operation, "", "", false, nil, WeixinQRCodeStatus{})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("save error = %v, want read failure", err)
+	}
 }
 
 func TestSaveWeixinCredentialsUsesPluginHost(t *testing.T) {

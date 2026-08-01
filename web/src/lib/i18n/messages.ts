@@ -167,6 +167,7 @@ const en = {
   "settings.nav.account": "Account",
   "settings.nav.agents": "Agents",
   "settings.nav.channels": "Channels",
+  "settings.nav.webhooks": "Webhooks",
   "settings.nav.credentials": "Credentials",
   "settings.nav.skills": "Skills",
   "settings.nav.mcp": "MCP Servers",
@@ -428,6 +429,30 @@ const en = {
   "channels.updateFailed": "Failed to update channel",
   "channels.deleteConfirm": "Delete channel?",
   "channels.deleteConfirmDesc": "This will permanently delete the channel {{name}}.",
+
+  // Webhooks
+  "webhooks.title": "Webhooks",
+  "webhooks.configured": "Configured webhooks",
+  "webhooks.create": "Create webhook",
+  "webhooks.edit": "Edit webhook",
+  "webhooks.empty": "No webhooks yet",
+  "webhooks.emptyDesc": "Create a webhook to invoke one of your agents from another service.",
+  "webhooks.name": "Name",
+  "webhooks.agent": "Agent",
+  "webhooks.selectAgent": "Select an agent",
+  "webhooks.agentUnavailable": "no longer accessible",
+  "webhooks.enabled": "Enabled",
+  "webhooks.disabled": "Disabled",
+  "webhooks.waitTimeout": "Wait timeout (seconds)",
+  "webhooks.runTimeout": "Run timeout (seconds)",
+  "webhooks.editorDesc": "The webhook always runs as you with the selected agent.",
+  "webhooks.validation": "Enter a name, select an agent, and use whole-number timeouts.",
+  "webhooks.rotate": "Rotate capability",
+  "webhooks.copy": "Copy URL",
+  "webhooks.urlTitle": "Save this webhook URL",
+  "webhooks.urlDesc": "This is the only time Stella can show this URL. Copy it now.",
+  "webhooks.deleteTitle": "Delete webhook?",
+  "webhooks.deleteConfirm": "Delete webhook {{name}}? This cannot be undone.",
 
   // Credentials
   "credentials.title": "Credentials",
@@ -1867,19 +1892,6 @@ const en = {
   "channels.scanNeedsAgent": "Bind this channel to an agent before starting QR setup.",
   "channels.scanExpired": "QR code expired. Try again.",
   "channels.waiting": "Waiting",
-  // Webhook channel
-  "channels.webhookDefaultWait": "Wait for reply by default",
-  "channels.webhookDefaultWaitDesc":
-    "When on, callers get the agent reply synchronously unless they pass ?wait=false. Off means fire-and-forget (202).",
-  "channels.webhookSessionMode": "Session mode",
-  "channels.webhookSessionEphemeral": "Ephemeral — fresh session per request",
-  "channels.webhookSessionPersistent": "Persistent — each caller keeps a long-lived session",
-  "channels.webhookUrl": "Ingress URL",
-  "channels.webhookUrlDesc":
-    "POST your payload here with a Bearer PAT (agent:write scope); the agent runs as the PAT's user.",
-  "channels.copy": "copy",
-  "channels.copied": "Copied",
-
   // Automations schedule detail
   "automations.scheduleField": "Schedule",
   "automations.messageField": "Message",
@@ -2134,6 +2146,7 @@ const zh: Record<MessageKey, string> = {
   "settings.nav.account": "账户",
   "settings.nav.agents": "智能体",
   "settings.nav.channels": "频道",
+  "settings.nav.webhooks": "Webhooks",
   "settings.nav.credentials": "凭据",
   "settings.nav.skills": "技能",
   "settings.nav.mcp": "MCP 服务器",
@@ -2382,6 +2395,30 @@ const zh: Record<MessageKey, string> = {
   "channels.updateFailed": "更新频道失败",
   "channels.deleteConfirm": "删除频道？",
   "channels.deleteConfirmDesc": "这将永久删除频道 {{name}}。",
+
+  // Webhooks
+  "webhooks.title": "Webhooks",
+  "webhooks.configured": "已配置的 Webhook",
+  "webhooks.create": "创建 Webhook",
+  "webhooks.edit": "编辑 Webhook",
+  "webhooks.empty": "还没有 Webhook",
+  "webhooks.emptyDesc": "创建 Webhook，从其他服务调用你的智能体。",
+  "webhooks.name": "名称",
+  "webhooks.agent": "智能体",
+  "webhooks.selectAgent": "选择智能体",
+  "webhooks.agentUnavailable": "已无访问权限",
+  "webhooks.enabled": "已启用",
+  "webhooks.disabled": "已停用",
+  "webhooks.waitTimeout": "等待超时（秒）",
+  "webhooks.runTimeout": "运行超时（秒）",
+  "webhooks.editorDesc": "Webhook 始终以你的身份使用所选智能体运行。",
+  "webhooks.validation": "请填写名称、选择智能体并使用整数超时时间。",
+  "webhooks.rotate": "轮换能力 URL",
+  "webhooks.copy": "复制 URL",
+  "webhooks.urlTitle": "保存此 Webhook URL",
+  "webhooks.urlDesc": "Stella 只会显示这一次 URL，请立即复制。",
+  "webhooks.deleteTitle": "删除 Webhook？",
+  "webhooks.deleteConfirm": "删除 Webhook {{name}}？此操作不可撤销。",
 
   // Credentials
   "credentials.title": "凭据",
@@ -3795,19 +3832,6 @@ const zh: Record<MessageKey, string> = {
   "channels.scanNeedsAgent": "先把这个频道绑定到 Agent，再开始扫码配置。",
   "channels.scanExpired": "二维码已过期，请重试。",
   "channels.waiting": "等待中",
-  // Webhook channel
-  "channels.webhookDefaultWait": "默认等待回复",
-  "channels.webhookDefaultWaitDesc":
-    "开启后，除非调用方传入 ?wait=false，否则同步返回 Agent 回复；关闭则为异步触发（202）。",
-  "channels.webhookSessionMode": "会话模式",
-  "channels.webhookSessionEphemeral": "临时 — 每次请求新建会话",
-  "channels.webhookSessionPersistent": "持久 — 每个调用者保留一个长期会话",
-  "channels.webhookUrl": "接入 URL",
-  "channels.webhookUrlDesc":
-    "用具备 agent:write 权限的 Bearer PAT 向此地址 POST 负载，Agent 以该 PAT 所属用户的身份运行。",
-  "channels.copy": "复制",
-  "channels.copied": "已复制",
-
   // Automations schedule detail
   "automations.scheduleField": "计划",
   "automations.messageField": "消息",

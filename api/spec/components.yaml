@@ -4389,6 +4389,151 @@ components:
           type: array
           items:
             type: string
+    Webhook:
+      type: object
+      description: >-
+        A personal invocation capability. The URL is disclosed only by Create and Rotate and is never returned by stable reads.
+      required: [
+        id,
+        user_id,
+        name,
+        agent_id,
+        provider,
+        is_enabled,
+        wait_timeout_seconds,
+        max_run_timeout_seconds,
+        token_last4,
+        etag,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Output-only UUID v7 resource ID.
+        user_id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Output-only authenticated owner ID.
+        name:
+          type: string
+          minLength: 1
+          description: Human-readable webhook name.
+        agent_id:
+          type: string
+          minLength: 1
+          description: Agent the owner is authorized to invoke.
+        provider:
+          type: string
+          enum: [generic]
+          description: Immutable invocation provider selected at creation.
+        is_enabled:
+          type: boolean
+          description: Whether ingress admission is enabled.
+        wait_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+          description: Maximum synchronous reply wait in seconds.
+        max_run_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          description: Maximum admitted agent run duration in seconds.
+        token_last4:
+          type: string
+          readOnly: true
+          description: Output-only final four token characters for identification.
+        etag:
+          type: string
+          readOnly: true
+          description: Output-only opaque rotation precondition.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        rotated_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+        url:
+          type: string
+          readOnly: true
+          description: One-time capability URL, returned only by Create and Rotate.
+    WebhookList:
+      type: object
+      required: [webhooks]
+      properties:
+        webhooks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Webhook"
+        next_page_token:
+          type: string
+          nullable: true
+    CreateWebhookRequest:
+      type: object
+      required: [name, agent_id]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        agent_id:
+          type: string
+          minLength: 1
+          description: Caller-accessible Agent ID.
+        provider:
+          type: string
+          enum: [generic]
+          default: generic
+          description: Immutable invocation provider; defaults to generic.
+        is_enabled:
+          type: boolean
+          default: true
+        wait_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+          default: 60
+        max_run_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        agent_id:
+          type: string
+          minLength: 1
+          description: Caller-accessible Agent ID.
+        is_enabled:
+          type: boolean
+        wait_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+        max_run_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+    RotateWebhookRequest:
+      type: object
+      required: [etag]
+      properties:
+        etag:
+          type: string
     WorkflowInputSpec:
       type: object
       required: [name]

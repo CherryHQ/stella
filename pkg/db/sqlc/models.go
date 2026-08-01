@@ -940,3 +940,21 @@ type VaultEntry struct {
 	UpdatedAt   time.Time   `json:"updated_at"`
 	Description pgtype.Text `json:"description"`
 }
+
+type Webhook struct {
+	ID                   string             `json:"id"`
+	UserID               string             `json:"user_id"`
+	AgentID              string             `json:"agent_id"`
+	Name                 string             `json:"name"`
+	Provider             string             `json:"provider"`
+	IsEnabled            bool               `json:"is_enabled"`
+	WaitTimeoutSeconds   int32              `json:"wait_timeout_seconds"`
+	MaxRunTimeoutSeconds int32              `json:"max_run_timeout_seconds"`
+	TokenPublicID        string             `json:"token_public_id"`
+	TokenHash            string             `json:"token_hash"`
+	TokenLast4           string             `json:"token_last4"`
+	Revision             int64              `json:"revision"`
+	CreatedAt            time.Time          `json:"created_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
+	RotatedAt            pgtype.Timestamptz `json:"rotated_at"`
+}

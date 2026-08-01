@@ -25,14 +25,14 @@ func (f resolverFakeStore) GetAgent(context.Context, string) (config.Agent, erro
 
 func TestRuntimeResolverChannel(t *testing.T) {
 	ctx := context.Background()
-	r := NewRuntimeResolver(resolverFakeStore{channel: config.Channel{ID: "wh1", Type: "webhook", Enabled: true}})
-	ch, err := r.Channel(ctx, "wh1")
-	if err != nil || ch.ID != "wh1" {
-		t.Fatalf("Channel = (%+v, %v), want wh1", ch, err)
+	r := NewRuntimeResolver(resolverFakeStore{channel: config.Channel{ID: "telegram-main", Type: "telegram", Enabled: true}})
+	ch, err := r.Channel(ctx, "telegram-main")
+	if err != nil || ch.ID != "telegram-main" {
+		t.Fatalf("Channel = (%+v, %v), want telegram-main", ch, err)
 	}
 
 	rErr := NewRuntimeResolver(resolverFakeStore{channelErr: errors.New("boom")})
-	if _, err := rErr.Channel(ctx, "wh1"); err == nil {
+	if _, err := rErr.Channel(ctx, "telegram-main"); err == nil {
 		t.Fatal("Channel error should propagate")
 	}
 }

@@ -265,7 +265,12 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 }
 
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
-	return s.q.DeleteAgent(ctx, id)
+	err := s.q.DeleteAgent(ctx, id)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") && pgErr.ConstraintName == "webhook_agent_id_fkey" {
+		return config.ErrAgentInUse
+	}
+	return err
 }
 
 // --- Channels ---
@@ -306,10 +311,7 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 	if ch.ID == "" {
 		ch.ID = uuid.Must(uuid.NewV7()).String()
 	}
-	channelType := ch.Type
-	if channelType == "" {
-		channelType = ch.ID
-	}
+	channelType := effectiveStoredChannelType(ch)
 	err := s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
 		ID:      ch.ID,
 		Name:    ch.Name,
@@ -318,6 +320,53 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 		Enabled: ch.Enabled,
 		Config:  ch.Config,
 	})
+	return s.channelWriteError(ctx, ch, channelType, err)
+}
+
+func (s *DBStore) CreateChannel(ctx context.Context, ch config.Channel) error {
+	if ch.ID == "" {
+		ch.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	channelType := effectiveStoredChannelType(ch)
+	_, err := s.q.CreateChannel(ctx, sqlc.CreateChannelParams{
+		ID:      ch.ID,
+		Name:    ch.Name,
+		Type:    channelType,
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: ch.Enabled,
+		Config:  ch.Config,
+	})
+	return s.channelWriteError(ctx, ch, channelType, err)
+}
+
+func (s *DBStore) UpdateChannel(ctx context.Context, ch config.Channel) error {
+	channelType := effectiveStoredChannelType(ch)
+	_, err := s.q.UpdateChannel(ctx, sqlc.UpdateChannelParams{
+		ID:      ch.ID,
+		Name:    ch.Name,
+		Type:    channelType,
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: ch.Enabled,
+		Config:  ch.Config,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return config.ErrChannelNotFound
+	}
+	return s.channelWriteError(ctx, ch, channelType, err)
+}
+
+func effectiveStoredChannelType(ch config.Channel) string {
+	if ch.Type != "" {
+		return ch.Type
+	}
+	return ch.ID
+}
+
+func (s *DBStore) channelWriteError(ctx context.Context, ch config.Channel, channelType string, err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "channel_pkey" {
+		return config.ErrChannelExists
+	}
 	if !isChannelBindingViolation(err) {
 		return err
 	}

@@ -21,12 +21,15 @@ func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/agents", http.StatusFound)
 }
 
-// WebhookIngressHandler returns the auth-exempt inbound webhook ingress handler
-// (POST /webhooks/{id}). The composition root mounts it at the HTTP root, in
-// front of the admin middleware chain, because the handler authenticates itself
-// via the caller's personal access token and must never be wrapped by the
-// session authMiddleware. It stays in internal/server, with its Server-field
-// dependencies, because it is transport code — not a plugin implementation.
+// WebhookIngressHandler returns the capability-authenticated inbound webhook
+// ingress handler. The composition root mounts it behind the capability
+// reservation at the HTTP root, in front of the admin middleware chain, because
+// the opaque URL capability (not a session or Authorization header) is the sole
+// credential: the webhook module resolves and revalidates the resource's fixed
+// owner→Agent authority, so any Authorization header is ignored and the handler
+// must never be wrapped by the session authMiddleware. It stays in
+// internal/server, with its Server-field dependencies, because it is transport
+// code — not a plugin implementation.
 func (s *Server) WebhookIngressHandler() http.Handler {
 	return s.accessLogMiddleware(http.HandlerFunc(s.handleWebhookIngress))
 }

@@ -7,7 +7,7 @@ info:
 
     - Agents, Skills, Sessions, Models, Providers
     - Auth, Auth-Users, Profile, OAuth
-    - Channels, Plugins, Manifest-Plugins
+    - Channels, Webhooks, Plugins, Manifest-Plugins
     - Recally (reading assistant), Scheduler (job scheduling)
     - Users, Vault, Builtin, Weixin
 
@@ -38,6 +38,7 @@ tags:
   - name: models
   - name: builtin
   - name: channels
+  - name: webhooks
   - name: groups
   - name: weixin
   - name: providers
@@ -171,6 +172,13 @@ paths:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels"
   /api/channels/{id}:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}"
+  # ── Webhooks ───────────────────────────────────────────────────────────────
+  /api/webhooks:
+    $ref: "./domain/webhooks/paths.yaml#/paths/~1api~1webhooks"
+  /api/webhooks/{id}:
+    $ref: "./domain/webhooks/paths.yaml#/paths/~1api~1webhooks~1{id}"
+  /api/webhooks/{id}/rotate:
+    $ref: "./domain/webhooks/paths.yaml#/paths/~1api~1webhooks~1{id}~1rotate"
   /api/channels/feishu/register/init:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1feishu~1register~1init"
   /api/channels/feishu/register/begin:

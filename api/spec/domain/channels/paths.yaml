@@ -19,7 +19,7 @@ paths:
   /api/channels:
     get:
       tags: [channels]
-      summary: List all channels (admin only)
+      summary: List deployment channels (admin only)
       operationId: listChannels
       responses:
         "200":
@@ -35,7 +35,7 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     post:
       tags: [channels]
-      summary: Create a channel (admin only)
+      summary: Create a deployment channel (admin only)
       operationId: createChannel
       requestBody:
         required: true
@@ -66,7 +66,7 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [channels]
-      summary: Get a channel (admin only)
+      summary: Get a deployment channel (admin only)
       operationId: getChannel
       responses:
         "200":
@@ -83,7 +83,7 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     patch:
       tags: [channels]
-      summary: Update a channel (admin only)
+      summary: Update a deployment channel (admin only)
       operationId: updateChannel
       requestBody:
         required: true
@@ -110,7 +110,7 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
       tags: [channels]
-      summary: Delete a channel (admin only)
+      summary: Delete a deployment channel (admin only)
       operationId: deleteChannel
       responses:
         "204":
@@ -120,6 +120,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/channels/feishu/register/init:
     post:
