@@ -10,6 +10,7 @@ import (
 	"math"
 	"mime"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -409,17 +410,17 @@ func workspaceUploadReader(access *sessionaccess.Access, agentID, sessionID stri
 // File parts name a workspace upload, so they are resolved through read rather
 // than trusted as paths.
 func partsToMessageContent(ctx context.Context, read workspaceRawReader, parts []apitypes.MessagePart) agent.MessageContent {
-	if len(parts) == 1 && parts[0].Type == apitypes.Text && parts[0].Text != nil {
+	if len(parts) == 1 && parts[0].Type == apitypes.MessagePartTypeText && parts[0].Text != nil {
 		return *parts[0].Text
 	}
 	var blocks []ai.ContentBlock
 	for _, p := range parts {
 		switch p.Type {
-		case apitypes.Text:
+		case apitypes.MessagePartTypeText:
 			if p.Text != nil {
 				blocks = append(blocks, ai.TextContent{Text: *p.Text})
 			}
-		case apitypes.Image:
+		case apitypes.MessagePartTypeImage:
 			if p.Image != nil {
 				mime := "image/png"
 				if p.MimeType != nil {
@@ -427,7 +428,7 @@ func partsToMessageContent(ctx context.Context, read workspaceRawReader, parts [
 				}
 				blocks = append(blocks, ai.ImageContent{Data: *p.Image, MimeType: mime})
 			}
-		case apitypes.File:
+		case apitypes.MessagePartTypeFile:
 			blocks = append(blocks, fileAttachmentBlocks(ctx, read, p)...)
 		}
 	}
@@ -693,7 +694,28 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 		s.writeSessionAccessError(w, err)
 		return
 	}
-	writeData(w, http.StatusOK, map[string]any{"messages": serializeDBMessages(messages)})
+	writeData(w, http.StatusOK, apitypes.SessionMessageList{Messages: serializeDBMessages(agentID, sessionID, messages)})
+}
+
+// GetSessionMedia returns immutable bytes only after the Session PEP proves the
+// routed session can read a part that references them.
+func (s *Server) GetSessionMedia(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, mediaID string) {
+	access, ok := s.beginSessionAccess(w, r)
+	if !ok {
+		return
+	}
+	media, err := access.ReadMedia(r.Context(), agentID, sessionID, mediaID)
+	if err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", media.MimeType)
+	w.Header().Set("Content-Disposition", "inline")
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("ETag", fmt.Sprintf("\"%x\"", media.SHA256))
+	http.ServeContent(w, r, media.ID, time.Time{}, bytes.NewReader(media.Data))
 }
 
 func (s *Server) GetSessionContextItems(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, params apiserver.GetSessionContextItemsParams) {
@@ -1067,25 +1089,24 @@ func summaryToAPI(s sessionaccess.Summary) apitypes.SessionContextSummary {
 	}
 }
 
-// serializeDBMessages converts raw DB message rows to JSON-friendly maps,
-// preserving the created_at timestamp from the database. Keep assistant-row
-// grouping in sync with ListMessagesByLogicalPage: the SQL query uses the same
-// logical-message boundary so paginated responses never split a rendered message.
-func serializeDBMessages(rows []sessionaccess.Message) []map[string]any {
-	result := make([]map[string]any, 0, len(rows))
-	i := 0
-	for i < len(rows) {
+// serializeDBMessages converts raw DB message rows to the typed history
+// contract. Keep assistant-row grouping in sync with ListMessagesByLogicalPage:
+// the SQL query uses the same logical-message boundary so pagination never
+// splits a rendered message.
+func serializeDBMessages(agentID, sessionID string, rows []sessionaccess.Message) []apitypes.SessionMessage {
+	result := make([]apitypes.SessionMessage, 0, len(rows))
+	for i := 0; i < len(rows); {
 		row := rows[i]
 		switch row.Role {
 		case "user":
-			result = append(result, serializeUserRow(row))
+			result = append(result, serializeUserRow(agentID, sessionID, row))
 			i++
 		case "assistant":
-			m, consumed := serializeAssistantRows(rows, i)
-			result = append(result, m)
+			message, consumed := serializeAssistantRows(rows, i)
+			result = append(result, message)
 			i += consumed
 		case "tool":
-			result = append(result, serializeToolRow(row))
+			result = append(result, serializeToolRow(agentID, sessionID, row))
 			i++
 		default:
 			i++
@@ -1094,18 +1115,17 @@ func serializeDBMessages(rows []sessionaccess.Message) []map[string]any {
 	return result
 }
 
-func serializeUserRow(row sessionaccess.Message) map[string]any {
-	return map[string]any{
-		"id":          row.ID,
-		"role":        "user",
-		"timestamp":   row.CreatedAt.UTC(),
-		"content":     row.Content,
-		"token_count": row.TokenCount,
+func serializeUserRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
+	message := apitypes.SessionMessage{
+		Id: row.ID, Role: apitypes.SessionMessageRoleUser,
+		Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
 	}
+	setSessionMessagePresentation(&message, agentID, sessionID, row.Content, row.Parts)
+	return message
 }
 
-func serializeAssistantRows(rows []sessionaccess.Message, start int) (map[string]any, int) {
-	var blocks []map[string]any
+func serializeAssistantRows(rows []sessionaccess.Message, start int) (apitypes.SessionMessage, int) {
+	blocks := make([]apitypes.SessionMessageBlock, 0)
 	var totalTokens int64
 	consumed := 0
 
@@ -1119,74 +1139,140 @@ func serializeAssistantRows(rows []sessionaccess.Message, start int) (map[string
 		totalTokens += row.TokenCount
 		switch row.EventType {
 		case "thinking":
-			blocks = append(blocks, map[string]any{"type": "thinking", "thinking": row.Content})
+			blocks = append(blocks, apitypes.SessionMessageBlock{Type: apitypes.SessionMessageBlockTypeThinking, Thinking: &row.Content})
 		case "tool_call":
 			blocks = append(blocks, decodeToolCallBlock(row.Content))
 		default:
-			blocks = append(blocks, map[string]any{"type": "text", "text": row.Content})
+			blocks = append(blocks, apitypes.SessionMessageBlock{Type: apitypes.SessionMessageBlockTypeText, Text: &row.Content})
 		}
 		consumed++
 	}
 
-	return map[string]any{
+	return apitypes.SessionMessage{
 		// First row's id identifies the merged turn — stable across pagination
 		// regardless of how many earlier pages have been loaded.
-		"id":          rows[start].ID,
-		"role":        "assistant",
-		"blocks":      blocks,
-		"timestamp":   rows[start].CreatedAt.UTC(),
-		"token_count": totalTokens,
+		Id: rows[start].ID, Role: apitypes.SessionMessageRoleAssistant, Blocks: &blocks,
+		Timestamp: rows[start].CreatedAt.UTC(), TokenCount: totalTokens,
 	}, consumed
 }
 
-func decodeToolCallBlock(content string) map[string]any {
+func decodeToolCallBlock(content string) apitypes.SessionMessageBlock {
 	var env struct {
 		ID   string          `json:"id"`
 		Tool string          `json:"tool"`
 		Args json.RawMessage `json:"args"`
 	}
 	if err := json.Unmarshal([]byte(content), &env); err != nil {
-		return map[string]any{"type": "tool_call", "name": "unknown", "arguments": map[string]any{}}
+		name := "unknown"
+		args := map[string]any{}
+		return apitypes.SessionMessageBlock{Type: apitypes.SessionMessageBlockTypeToolCall, Name: &name, Arguments: &args}
 	}
 	var args map[string]any
 	_ = json.Unmarshal(env.Args, &args)
-	return map[string]any{"type": "tool_call", "id": env.ID, "name": env.Tool, "arguments": args}
+	if args == nil {
+		args = map[string]any{}
+	}
+	return apitypes.SessionMessageBlock{Type: apitypes.SessionMessageBlockTypeToolCall, Id: &env.ID, Name: &env.Tool, Arguments: &args}
 }
 
-func serializeToolRow(row sessionaccess.Message) map[string]any {
-	m := map[string]any{
-		"id":          row.ID,
-		"role":        "tool",
-		"timestamp":   row.CreatedAt.UTC(),
-		"token_count": row.TokenCount,
+func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
+	message := apitypes.SessionMessage{
+		Id: row.ID, Role: apitypes.SessionMessageRoleTool, Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
 	}
 	var env struct {
 		ID         string                 `json:"id"`
 		Tool       string                 `json:"tool"`
 		Result     json.RawMessage        `json:"result"`
 		Error      string                 `json:"error,omitempty"`
+		IsError    bool                   `json:"is_error"`
 		References []renderrefs.Reference `json:"references,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(row.Content), &env); err != nil {
 		// Malformed envelope: best-effort — show raw content, no ID to match.
-		m["content"] = row.Content
-		m["tool_name"] = ""
-		m["is_error"] = false
-		return m
+		name, isError := "", false
+		message.ToolName, message.IsError = &name, &isError
+		setSessionMessagePresentation(&message, agentID, sessionID, row.Content, row.Parts)
+		return message
 	}
 	// Try to decode result as a plain string first; fall back to raw JSON bytes.
 	var text string
 	if err := json.Unmarshal(env.Result, &text); err != nil {
 		text = string(env.Result)
 	}
-	m["tool_call_id"] = env.ID
-	m["tool_name"] = env.Tool
-	m["content"] = text
-	m["is_error"] = env.Error != ""
+	isError := env.IsError || env.Error != ""
+	message.ToolCallId, message.ToolName, message.IsError = &env.ID, &env.Tool, &isError
+	setSessionMessagePresentation(&message, agentID, sessionID, text, row.Parts)
 	if len(env.References) > 0 {
-		m["references"] = env.References
+		references := make([]apitypes.SessionMessageReference, 0, len(env.References))
+		for _, ref := range env.References {
+			apiRef := apitypes.SessionMessageReference{V: ref.V, Type: ref.Type, Id: ref.ID}
+			if ref.AgentID != "" {
+				apiRef.AgentId = &ref.AgentID
+			}
+			if ref.Intent != "" {
+				apiRef.Intent = &ref.Intent
+			}
+			if ref.Preview != nil {
+				preview := struct {
+					Status *string `json:"status,omitempty"`
+					Title  *string `json:"title,omitempty"`
+				}{Status: &ref.Preview.Status, Title: &ref.Preview.Title}
+				apiRef.Preview = &preview
+			}
+			references = append(references, apiRef)
+		}
+		message.References = &references
 	}
-	return m
+	return message
+}
+
+// setSessionMessagePresentation uses durable parts as the complete visible
+// projection when they exist. Parent message content contains the baseline used
+// by model context and must never leak beside the original image in history.
+func setSessionMessagePresentation(message *apitypes.SessionMessage, agentID, sessionID, fallback string, parts []sessionaccess.MessagePart) {
+	if len(parts) == 0 {
+		message.Content = &fallback
+		return
+	}
+	blocks := sessionMessageParts(agentID, sessionID, parts)
+	content := sessionMessageText(blocks)
+	message.Content = &content
+	if len(blocks) > 0 {
+		message.Blocks = &blocks
+	}
+}
+
+func sessionMessageParts(agentID, sessionID string, parts []sessionaccess.MessagePart) []apitypes.SessionMessageBlock {
+	blocks := make([]apitypes.SessionMessageBlock, 0, len(parts))
+	for _, part := range parts {
+		switch part.Type {
+		case "text":
+			blocks = append(blocks, apitypes.SessionMessageBlock{Type: apitypes.SessionMessageBlockTypeText, Text: &part.Text})
+		case "image":
+			if part.MediaID == "" || part.MimeType == "" {
+				continue
+			}
+			url := sessionMediaURL(agentID, sessionID, part.MediaID)
+			blocks = append(blocks, apitypes.SessionMessageBlock{
+				Type: apitypes.SessionMessageBlockTypeImage, MediaId: &part.MediaID, MimeType: &part.MimeType, Url: &url,
+			})
+		}
+	}
+	return blocks
+}
+
+func sessionMessageText(blocks []apitypes.SessionMessageBlock) string {
+	text := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if block.Type == apitypes.SessionMessageBlockTypeText && block.Text != nil {
+			text = append(text, *block.Text)
+		}
+	}
+	return strings.Join(text, "\n")
+}
+
+func sessionMediaURL(agentID, sessionID, mediaID string) string {
+	return fmt.Sprintf("/api/agents/%s/sessions/%s/media/%s", url.PathEscape(agentID), url.PathEscape(sessionID), url.PathEscape(mediaID))
 }
 
 // streamPlainReply writes a complete SSE stream for a simple text reply

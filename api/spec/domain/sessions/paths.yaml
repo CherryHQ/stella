@@ -200,6 +200,33 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
+  /api/agents/{agentId}/sessions/{sessionId}/media/{mediaId}:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+      - { name: mediaId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: Get immutable media referenced by a session message
+      operationId: getSessionMedia
+      responses:
+        "200":
+          description: media bytes
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/gif:
+              schema: { type: string, format: binary }
+            image/webp:
+              schema: { type: string, format: binary }
+        "304": { description: media unchanged }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/agents/{agentId}/sessions/{sessionId}/events:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }

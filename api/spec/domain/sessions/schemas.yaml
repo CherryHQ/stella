@@ -212,15 +212,82 @@ components:
           items: { $ref: "#/components/schemas/Session" }
         next_page_token: { type: string, nullable: true }
 
+    SessionMessageBlock:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [text, thinking, tool_call, image]
+        text:
+          type: string
+          description: Text content when type is "text".
+        thinking:
+          type: string
+          description: Reasoning content when type is "thinking".
+        id:
+          type: string
+          description: Tool call ID when type is "tool_call".
+        name:
+          type: string
+          description: Tool name when type is "tool_call".
+        arguments:
+          type: object
+          additionalProperties: {}
+          description: Tool arguments when type is "tool_call".
+        media_id:
+          type: string
+          description: Immutable session media ID when type is "image".
+        mime_type:
+          type: string
+          description: Detected MIME type when type is "image".
+        url:
+          type: string
+          description: Authenticated session-relative media URL when type is "image".
+
+    SessionMessageReference:
+      type: object
+      required: [v, type, id]
+      properties:
+        v: { type: integer }
+        type: { type: string }
+        id: { type: string }
+        agent_id: { type: string }
+        intent: { type: string }
+        preview:
+          type: object
+          properties:
+            title: { type: string }
+            status: { type: string }
+
+    SessionMessage:
+      type: object
+      required: [id, role, timestamp, token_count]
+      properties:
+        id: { type: string }
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        content: { type: string }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/SessionMessageBlock" }
+        tool_call_id: { type: string }
+        tool_name: { type: string }
+        is_error: { type: boolean }
+        references:
+          type: array
+          items: { $ref: "#/components/schemas/SessionMessageReference" }
+        timestamp: { type: string, format: date-time }
+        token_count: { type: integer, format: int64 }
+
     SessionMessageList:
       type: object
       required: [messages]
       properties:
         messages:
           type: array
-          items:
-            type: object
-            additionalProperties: {}
+          items: { $ref: "#/components/schemas/SessionMessage" }
 
     SessionContextMeta:
       type: object

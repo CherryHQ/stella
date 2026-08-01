@@ -38,6 +38,8 @@ import {
   createSessionTransport,
   mergeToolResults,
   messageToUIMessage,
+  reconcileHistoryUIMessages,
+  sessionMessagesToMessages,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
 import { useAppShell } from "@/layouts/AppShell";
@@ -188,7 +190,7 @@ export function SessionDetail({
         query: { limit: PAGE_SIZE, skip: pageParam },
         throwOnError: true,
       });
-      return (data?.messages as unknown as Message[] | undefined) ?? [];
+      return sessionMessagesToMessages(data?.messages);
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === PAGE_SIZE
@@ -218,7 +220,7 @@ export function SessionDetail({
         query: { seq_from: tailSeqRange!.from, seq_to: tailSeqRange!.to },
         throwOnError: true,
       });
-      return (data?.messages as unknown as Message[] | undefined) ?? [];
+      return sessionMessagesToMessages(data?.messages);
     },
   });
 
@@ -244,10 +246,12 @@ export function SessionDetail({
     // text copy forever (duplicated, un-collapsed tool output). Excluding
     // everything history has ever owned drops it.
     for (const m of uiMessages) historicalIDsRef.current.add(m.id);
-    setChatMessages((prev) => {
-      const liveSlice = prev.filter((m) => !historicalIDsRef.current.has(m.id));
-      return [...uiMessages, ...liveSlice];
-    });
+    setChatMessages((prev) =>
+      reconcileHistoryUIMessages(
+        uiMessages,
+        prev.filter((message) => !historicalIDsRef.current.has(message.id)),
+      ),
+    );
   }, [historyMessages, setChatMessages]);
 
   // Convert UIMessage -> Message with a per-object cache so unchanged messages
@@ -399,7 +403,7 @@ export function SessionDetail({
           transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
       }, 0);
 
-      void chatSendMessage({ parts });
+      void chatSendMessage({ parts, metadata: { timestamp: new Date().toISOString() } });
     },
     [isStreaming, session, attachments, buildMessageParts, clearAttachments, chatSendMessage],
   );

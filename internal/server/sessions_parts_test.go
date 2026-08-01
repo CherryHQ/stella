@@ -28,11 +28,11 @@ func pngFixture(t *testing.T) []byte {
 }
 
 func filePart(url string) apitypes.MessagePart {
-	return apitypes.MessagePart{Type: apitypes.File, Url: &url}
+	return apitypes.MessagePart{Type: apitypes.MessagePartTypeFile, Url: &url}
 }
 
 func textPart(text string) apitypes.MessagePart {
-	return apitypes.MessagePart{Type: apitypes.Text, Text: &text}
+	return apitypes.MessagePart{Type: apitypes.MessagePartTypeText, Text: &text}
 }
 
 func blocksOf(t *testing.T, content any) []ai.ContentBlock {

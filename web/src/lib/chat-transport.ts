@@ -1,7 +1,14 @@
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
 import type { GroupMessage } from "@/lib/api-client/types.gen";
-import type { Message, RenderableReference } from "./types";
+import type {
+  ContentBlock,
+  Message,
+  RenderableReference,
+  SessionMessage,
+  TextBlock,
+  ToolResult,
+} from "./types";
 
 export function createSessionTransport(agentId: string, sessionId: string) {
   const base = `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}`;
@@ -155,7 +162,7 @@ export function mergeToolResults(messages: Message[]): Message[] {
     if (m.role === "tool" && m.tool_call_id) {
       const prev = out.length > 0 ? out[out.length - 1] : undefined;
       if (prev?.role === "assistant" && prev.blocks) {
-        prev.blocks = prev.blocks.map((block) => {
+        const blocks = prev.blocks.map((block) => {
           if (block.type === "tool_call" && block.id === m.tool_call_id && !block.result) {
             return {
               ...block,
@@ -163,13 +170,17 @@ export function mergeToolResults(messages: Message[]): Message[] {
               result: {
                 tool_call_id: m.tool_call_id!,
                 content: m.content ?? "",
-                is_error: false,
+                is_error: m.is_error ?? false,
+                ...(m.blocks && m.blocks.length > 0
+                  ? { blocks: m.blocks.filter(isTextOrImageBlock) }
+                  : {}),
                 ...(m.references && m.references.length > 0 ? { references: m.references } : {}),
               },
             };
           }
           return block;
         });
+        out[out.length - 1] = { ...prev, blocks };
         continue;
       }
     }
@@ -182,6 +193,99 @@ export function mergeToolResults(messages: Message[]): Message[] {
 // that does not depend on the message's position in the list. Without this,
 // fetching an older page shifts every index and the dedup in setChatMessages
 // breaks — every already-loaded message would be added a second time.
+const CANONICAL_RECONCILIATION_WINDOW_MS = 2 * 60 * 1000;
+
+// reconcileHistoryUIMessages lets canonical history replace only the optimistic
+// workspace image that produced it. Matching is one-to-one and timestamp-bound:
+// an old, identical caption is not evidence that a new upload was persisted.
+export function reconcileHistoryUIMessages(
+  history: UIMessage[],
+  current: UIMessage[],
+): UIMessage[] {
+  const historyIDs = new Set(history.map((message) => message.id));
+  const consumedOptimisticIDs = new Set<string>();
+
+  for (const canonical of history) {
+    if (!isCanonicalUserImage(canonical)) continue;
+    let closest: UIMessage | undefined;
+    let closestDistance = Infinity;
+    for (const candidate of current) {
+      if (consumedOptimisticIDs.has(candidate.id)) continue;
+      const distance = canonicalImageMatchDistance(canonical, candidate);
+      if (distance !== undefined && distance < closestDistance) {
+        closest = candidate;
+        closestDistance = distance;
+      }
+    }
+    if (closest) consumedOptimisticIDs.add(closest.id);
+  }
+
+  return [
+    ...history,
+    ...current.filter(
+      (message) => !historyIDs.has(message.id) && !consumedOptimisticIDs.has(message.id),
+    ),
+  ];
+}
+
+function canonicalImageMatchDistance(
+  canonical: UIMessage,
+  optimistic: UIMessage,
+): number | undefined {
+  if (!isWorkspaceUserImage(optimistic)) return undefined;
+  if (uiMessageText(canonical) !== uiMessageText(optimistic)) return undefined;
+  if (sessionMediaImageCount(canonical) !== workspaceImageCount(optimistic)) return undefined;
+  const canonicalTime = uiMessageTimestamp(canonical);
+  const optimisticTime = uiMessageTimestamp(optimistic);
+  if (canonicalTime === undefined || optimisticTime === undefined) return undefined;
+  const distance = Math.abs(canonicalTime - optimisticTime);
+  return distance <= CANONICAL_RECONCILIATION_WINDOW_MS ? distance : undefined;
+}
+
+function uiMessageText(message: UIMessage): string {
+  return message.parts
+    .filter(
+      (part): part is Extract<UIMessage["parts"][number], { type: "text" }> => part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function uiMessageTimestamp(message: UIMessage): number | undefined {
+  const timestamp = (message.metadata as Record<string, unknown> | undefined)?.timestamp;
+  if (typeof timestamp !== "string") return undefined;
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function isCanonicalUserImage(message: UIMessage): boolean {
+  return message.role === "user" && sessionMediaImageCount(message) > 0;
+}
+
+function isWorkspaceUserImage(message: UIMessage): boolean {
+  return message.role === "user" && workspaceImageCount(message) > 0;
+}
+
+function sessionMediaImageCount(message: UIMessage): number {
+  return message.parts.filter(
+    (part) =>
+      part.type === "file" &&
+      isSessionMediaURL(part.url) &&
+      typeof part.mediaType === "string" &&
+      part.mediaType.startsWith("image/"),
+  ).length;
+}
+
+function workspaceImageCount(message: UIMessage): number {
+  return message.parts.filter(
+    (part) =>
+      part.type === "file" &&
+      !isSessionMediaURL(part.url) &&
+      typeof part.mediaType === "string" &&
+      part.mediaType.startsWith("image/"),
+  ).length;
+}
+
 function stableContentKey(m: Message): string {
   const sig = m.blocks ? JSON.stringify(m.blocks) : (m.content ?? "");
   let h = 5381;
@@ -191,11 +295,94 @@ function stableContentKey(m: Message): string {
   return (h >>> 0).toString(36);
 }
 
+// sessionMessagesToMessages is the single boundary from generated API history
+// types into the transcript model. It discards malformed optional blocks rather
+// than reviving an untyped JSON path.
+export function sessionMessagesToMessages(messages: SessionMessage[] | undefined): Message[] {
+  return (messages ?? []).map((message) => {
+    const blocks = message.blocks?.flatMap(sessionMessageBlockToContentBlock);
+    const references = message.references?.map((ref) => ({
+      v: 1 as const,
+      type: ref.type,
+      id: ref.id,
+      ...(ref.agent_id ? { agent_id: ref.agent_id } : {}),
+      ...(ref.intent ? { intent: ref.intent as RenderableReference["intent"] } : {}),
+      ...(ref.preview ? { preview: ref.preview } : {}),
+    }));
+    return {
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      ...(blocks && blocks.length > 0 ? { blocks } : {}),
+      tool_call_id: message.tool_call_id,
+      references,
+      timestamp: message.timestamp,
+      token_count: message.token_count,
+      ...(message.tool_name ? { tool_name: message.tool_name } : {}),
+      ...(message.is_error !== undefined ? { is_error: message.is_error } : {}),
+    };
+  });
+}
+
+function sessionMessageBlockToContentBlock(
+  block: NonNullable<SessionMessage["blocks"]>[number],
+): ContentBlock[] {
+  switch (block.type) {
+    case "text":
+      return typeof block.text === "string" ? [{ type: "text", text: block.text }] : [];
+    case "thinking":
+      return typeof block.thinking === "string"
+        ? [{ type: "thinking", thinking: block.thinking }]
+        : [];
+    case "tool_call":
+      return [
+        {
+          type: "tool_call",
+          id: block.id ?? "",
+          name: block.name,
+          arguments: block.arguments ?? {},
+        },
+      ];
+    case "image":
+      return typeof block.media_id === "string" &&
+        typeof block.mime_type === "string" &&
+        typeof block.url === "string"
+        ? [{ type: "image", media_id: block.media_id, mime_type: block.mime_type, url: block.url }]
+        : [];
+    default:
+      return [];
+  }
+}
+
+function isTextOrImageBlock(
+  block: ContentBlock,
+): block is TextBlock | Extract<ContentBlock, { type: "image" }> {
+  return block.type === "text" || block.type === "image";
+}
+
+// Durable API history retains every text part. The Web alone recognizes its
+// own upload marker immediately before a durable image so it can replace the
+// workspace preview without rendering the marker as prose.
+function presentationBlocks(blocks: ContentBlock[]): ContentBlock[] {
+  return blocks.filter(
+    (block, index) =>
+      !(
+        block.type === "text" &&
+        isStandaloneFileMarker(block.text) &&
+        blocks[index + 1]?.type === "image"
+      ),
+  );
+}
+
+function isStandaloneFileMarker(text: string): boolean {
+  return /^\[file: \/[^\]\r\n]+\]$/.test(text);
+}
+
 export function messageToUIMessage(m: Message): UIMessage {
   const parts: UIMessage["parts"] = [];
 
   if (m.blocks && m.blocks.length > 0) {
-    for (const block of m.blocks) {
+    for (const block of presentationBlocks(m.blocks)) {
       switch (block.type) {
         case "text":
           parts.push({ type: "text", text: block.text });
@@ -205,7 +392,13 @@ export function messageToUIMessage(m: Message): UIMessage {
             parts.push({ type: "reasoning", text: block.thinking, providerMetadata: {} });
           }
           break;
+        case "image":
+          parts.push({ type: "file", url: block.url, mediaType: block.mime_type });
+          break;
         case "tool_call": {
+          const output = block.result?.blocks
+            ? { content: block.result.content, blocks: presentationBlocks(block.result.blocks) }
+            : block.result?.content;
           parts.push({
             type: "dynamic-tool",
             toolName: block.name,
@@ -216,7 +409,7 @@ export function messageToUIMessage(m: Message): UIMessage {
                 : "output-available"
               : "input-available",
             input: block.arguments ?? {},
-            ...(block.result && !block.result.is_error ? { output: block.result.content } : {}),
+            ...(block.result ? { output } : {}),
             ...(block.result?.is_error ? { errorText: block.result.content } : {}),
           } as UIMessage["parts"][number]);
           // Re-emit references as a data part so history rehydration feeds the
@@ -297,9 +490,20 @@ export function uiMessageToMessage(m: UIMessage): Message {
         content += part.text;
         break;
       case "file": {
-        // Mirror the marker the server stores beside the attachment, so the
-        // message just sent renders its thumbnail the same way the reloaded
-        // one does.
+        if (isSessionMediaURL(part.url) && typeof part.mediaType === "string") {
+          const mediaID = part.url.split("/").at(-1);
+          if (mediaID) {
+            blocks.push({
+              type: "image",
+              media_id: decodeURIComponent(mediaID),
+              mime_type: part.mediaType,
+              url: part.url,
+            });
+          }
+          break;
+        }
+        // Optimistic workspace uploads and old stored markers retain their
+        // marker path until canonical session history replaces them.
         const marker = `[file: ${part.url}]`;
         blocks.push({ type: "text", text: marker });
         content += content ? `\n${marker}` : marker;
@@ -311,12 +515,18 @@ export function uiMessageToMessage(m: UIMessage): Message {
       default:
         if (isToolPart(part)) {
           const hasOutput = part.state === "output-available" || part.state === "output-error";
+          const output = part.output as { content?: unknown; blocks?: unknown } | undefined;
           const outputContent = hasOutput
             ? part.state === "output-error"
               ? (part.errorText ?? "error")
               : typeof part.output === "string"
                 ? part.output
-                : JSON.stringify(part.output)
+                : typeof output?.content === "string"
+                  ? output.content
+                  : JSON.stringify(part.output)
+            : undefined;
+          const outputBlocks = Array.isArray(output?.blocks)
+            ? output.blocks.filter(isTextOrImageBlock)
             : undefined;
           const references = refsByTool.get(part.toolCallId);
           blocks.push({
@@ -331,8 +541,9 @@ export function uiMessageToMessage(m: UIMessage): Message {
                     tool_call_id: part.toolCallId,
                     content: outputContent!,
                     is_error: part.state === "output-error",
+                    ...(outputBlocks && outputBlocks.length > 0 ? { blocks: outputBlocks } : {}),
                     ...(references && references.length > 0 ? { references } : {}),
-                  },
+                  } satisfies ToolResult,
                 }
               : {}),
           });
@@ -353,4 +564,8 @@ export function uiMessageToMessage(m: UIMessage): Message {
     model: meta.model as string | undefined,
     streaming: m.parts.some((p) => (p as Record<string, unknown>).state === "streaming"),
   };
+}
+
+function isSessionMediaURL(url: string): boolean {
+  return /^\/api\/agents\/[^/]+\/sessions\/[^/]+\/media\/[^/]+$/.test(url);
 }

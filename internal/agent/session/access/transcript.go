@@ -2,14 +2,18 @@ package access
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -32,8 +36,27 @@ type Message struct {
 	Role       string
 	EventType  string
 	Content    string
+	Parts      []MessagePart
 	TokenCount int64
 	CreatedAt  time.Time
+}
+
+// MessagePart is the transcript-safe projection of an ordered durable part.
+// Image parts intentionally expose only an authenticated media reference.
+type MessagePart struct {
+	Type     string
+	Text     string
+	MediaID  string
+	MimeType string
+}
+
+// Media is one authorized immutable media object ready for an HTTP response.
+// Its digest is retained solely to form an ETag; no storage path is exposed.
+type Media struct {
+	ID       string
+	MimeType string
+	SHA256   [sha256.Size]byte
+	Data     []byte
 }
 
 type ContextItemListInput struct {
@@ -128,7 +151,49 @@ func (a *Access) ListMessages(ctx context.Context, in MessageListInput) ([]Messa
 	if err != nil {
 		return nil, fmt.Errorf("%w: list session messages: %w", ErrUnavailable, err)
 	}
-	return messagesFromRows(rows), nil
+	partsByMessage, err := a.loadTranscriptParts(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	return messagesFromRows(rows, partsByMessage), nil
+}
+
+// ReadMedia authorizes the routed session before resolving a media reference
+// that is actually attached to it. Blob failures are unavailable, never an
+// authorization-shaped success.
+func (a *Access) ReadMedia(ctx context.Context, agentID, sessionID, mediaID string) (Media, error) {
+	info, err := a.Read(ctx, agentID, sessionID)
+	if err != nil {
+		return Media{}, err
+	}
+	id, err := uuid.Parse(mediaID)
+	if err != nil {
+		return Media{}, ErrNotFound
+	}
+	userID, err := uuid.Parse(info.UserID)
+	if err != nil {
+		return Media{}, fmt.Errorf("%w: invalid session media owner", ErrUnavailable)
+	}
+	row, err := a.svc.q.GetMediaForSession(ctx, sqlc.GetMediaForSessionParams{
+		MediaID: id.String(), UserID: userID.String(), SessionID: info.ID,
+		AgentID: pgtype.Text{String: info.AgentID, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Media{}, ErrNotFound
+	}
+	if err != nil {
+		return Media{}, fmt.Errorf("%w: get session media: %w", ErrUnavailable, err)
+	}
+	if len(row.Sha256) != sha256.Size || row.SizeBytes <= 0 || strings.TrimSpace(row.MimeType) == "" {
+		return Media{}, fmt.Errorf("%w: invalid session media metadata", ErrUnavailable)
+	}
+	var digest [sha256.Size]byte
+	copy(digest[:], row.Sha256)
+	data, err := a.svc.assets.SessionMedia().OpenSessionMedia(ctx, userID, digest, row.SizeBytes)
+	if err != nil {
+		return Media{}, fmt.Errorf("%w: open session media: %w", ErrUnavailable, err)
+	}
+	return Media{ID: row.ID, MimeType: row.MimeType, SHA256: digest, Data: data}, nil
 }
 
 // ListContextItems authorizes the session once, then loads materialized context
@@ -332,16 +397,61 @@ func filterMessageRowsByTime(rows []sqlc.CtxMessage, after, before *string) []sq
 	return filtered
 }
 
-func messagesFromRows(rows []sqlc.CtxMessage) []Message {
+func (a *Access) loadTranscriptParts(ctx context.Context, rows []sqlc.CtxMessage) (map[string][]MessagePart, error) {
+	result := make(map[string][]MessagePart)
+	ids := messageIDsThatCanHaveParts(rows)
+	if len(ids) == 0 {
+		return result, nil
+	}
+	parts, err := a.svc.q.GetMessagePartsByMessages(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("%w: get session message parts: %w", ErrUnavailable, err)
+	}
+	mediaRows, err := a.svc.q.ListMessagePartsWithMediaByMessages(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("%w: get session message media: %w", ErrUnavailable, err)
+	}
+	mediaByPartID := make(map[string]sqlc.CtxMedium, len(mediaRows))
+	for _, row := range mediaRows {
+		mediaByPartID[row.CtxMessagePart.ID] = row.CtxMedium
+	}
+	for _, part := range parts {
+		switch part.PartType {
+		case "text":
+			result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "text", Text: part.TextContent.String})
+		case "image":
+			baseline := ai.ImageBaseline{Status: ai.ImageBaselineStatus(part.BaselineStatus), Text: part.TextContent.String}
+			media, ok := mediaByPartID[part.ID]
+			if !ok || !part.MediaID.Valid || media.ID != part.MediaID.String || strings.TrimSpace(media.MimeType) == "" {
+				result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "text", Text: baseline.Projection()})
+				continue
+			}
+			result[part.MessageID] = append(result[part.MessageID], MessagePart{Type: "image", MediaID: media.ID, MimeType: media.MimeType})
+		}
+	}
+	return result, nil
+}
+
+func messageIDsThatCanHaveParts(rows []sqlc.CtxMessage) []string {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if (row.Role == "user" && row.EventType == "multimodal") || (row.Role == "tool" && row.EventType == "tool_result") {
+			ids = append(ids, row.ID)
+		}
+	}
+	return ids
+}
+
+func messagesFromRows(rows []sqlc.CtxMessage, partsByMessage map[string][]MessagePart) []Message {
 	out := make([]Message, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, messageFromRow(row))
+		out = append(out, messageFromRow(row, partsByMessage[row.ID]))
 	}
 	return out
 }
 
-func messageFromRow(row sqlc.CtxMessage) Message {
-	return Message{ID: row.ID, Seq: row.Seq, Role: row.Role, EventType: row.EventType, Content: row.Content, TokenCount: row.TokenCount, CreatedAt: row.CreatedAt.UTC()}
+func messageFromRow(row sqlc.CtxMessage, parts []MessagePart) Message {
+	return Message{ID: row.ID, Seq: row.Seq, Role: row.Role, EventType: row.EventType, Content: row.Content, Parts: parts, TokenCount: row.TokenCount, CreatedAt: row.CreatedAt.UTC()}
 }
 
 func contextItemsFromMessages(messages []sqlc.CtxMessage) []ContextItem {

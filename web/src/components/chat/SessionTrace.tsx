@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { getSessionMessages } from "@/lib/api-client/sdk.gen";
-import { mergeToolResults } from "@/lib/chat-transport";
+import { mergeToolResults, sessionMessagesToMessages } from "@/lib/chat-transport";
 import { useI18n } from "@/lib/i18n";
 import type { Message, ContentBlock } from "@/lib/types";
 import { AssistantMessage } from "./AssistantMessage";
@@ -32,7 +32,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
         query: { limit: 200, skip: 0 },
         throwOnError: true,
       });
-      const msgs = mergeToolResults((data?.messages as unknown as Message[]) ?? []);
+      const msgs = mergeToolResults(sessionMessagesToMessages(data?.messages));
       const found = findMatchingTurn(msgs, matchContent);
       setBlocks(found);
     } catch {

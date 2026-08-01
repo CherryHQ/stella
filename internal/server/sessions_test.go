@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	apitypes "github.com/CherryHQ/stella/api/types"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -48,38 +49,115 @@ func TestToSessionResponse(t *testing.T) {
 func TestDecodeToolCallBlock_valid(t *testing.T) {
 	content := `{"id":"call1","tool":"bash","args":{"command":"ls"}}`
 	block := decodeToolCallBlock(content)
-	if block["type"] != "tool_call" {
-		t.Errorf("type = %v, want tool_call", block["type"])
+	if block.Type != apitypes.SessionMessageBlockTypeToolCall {
+		t.Errorf("type = %v, want tool_call", block.Type)
 	}
-	if block["id"] != "call1" {
-		t.Errorf("id = %v, want call1", block["id"])
+	if block.Id == nil || *block.Id != "call1" {
+		t.Errorf("id = %v, want call1", block.Id)
 	}
-	if block["name"] != "bash" {
-		t.Errorf("name = %v, want bash", block["name"])
+	if block.Name == nil || *block.Name != "bash" {
+		t.Errorf("name = %v, want bash", block.Name)
 	}
 }
 
 func TestDecodeToolCallBlock_invalid(t *testing.T) {
 	block := decodeToolCallBlock("not json")
-	if block["type"] != "tool_call" {
-		t.Errorf("type = %v, want tool_call", block["type"])
+	if block.Type != apitypes.SessionMessageBlockTypeToolCall {
+		t.Errorf("type = %v, want tool_call", block.Type)
 	}
-	if block["name"] != "unknown" {
-		t.Errorf("name = %v, want unknown", block["name"])
+	if block.Name == nil || *block.Name != "unknown" {
+		t.Errorf("name = %v, want unknown", block.Name)
 	}
 }
 
 func TestSerializeUserRow(t *testing.T) {
 	row := sessionaccess.Message{ID: "msg-u1", Role: "user", Content: "hello", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-	m := serializeUserRow(row)
-	if m["role"] != "user" {
-		t.Errorf("role = %v", m["role"])
+	m := serializeUserRow("agent", "session", row)
+	if m.Role != apitypes.SessionMessageRoleUser {
+		t.Errorf("role = %v", m.Role)
 	}
-	if m["content"] != "hello" {
-		t.Errorf("content = %v", m["content"])
+	if m.Content == nil || *m.Content != "hello" {
+		t.Errorf("content = %v", m.Content)
 	}
-	if m["id"] != "msg-u1" {
-		t.Errorf("id = %v, want msg-u1", m["id"])
+	if m.Id != "msg-u1" {
+		t.Errorf("id = %v, want msg-u1", m.Id)
+	}
+}
+
+func TestSerializeUserRowProjectsCanonicalPartsWithoutParentBaseline(t *testing.T) {
+	marker := "[file: /user/assets/photo.png]"
+	row := sessionaccess.Message{
+		ID: "msg-u1", Role: "user", Content: "parent baseline", CreatedAt: time.Now().UTC(),
+		Parts: []sessionaccess.MessagePart{
+			{Type: "text", Text: "caption"},
+			{Type: "text", Text: marker},
+			{Type: "image", MediaID: "media-1", MimeType: "image/png"},
+		},
+	}
+	message := serializeUserRow("agent", "session", row)
+	if message.Content == nil || *message.Content != "caption\n"+marker {
+		t.Fatalf("content = %v, want ordered visible text parts only", message.Content)
+	}
+	if message.Blocks == nil || len(*message.Blocks) != 3 {
+		t.Fatalf("blocks = %#v, want caption, marker, and image", message.Blocks)
+	}
+	if block := (*message.Blocks)[0]; block.Type != apitypes.SessionMessageBlockTypeText || block.Text == nil || *block.Text != "caption" {
+		t.Errorf("first block = %#v, want caption", block)
+	}
+	if block := (*message.Blocks)[1]; block.Type != apitypes.SessionMessageBlockTypeText || block.Text == nil || *block.Text != marker {
+		t.Errorf("second block = %#v, want durable marker", block)
+	}
+	if block := (*message.Blocks)[2]; block.Type != apitypes.SessionMessageBlockTypeImage || block.MediaId == nil || *block.MediaId != "media-1" {
+		t.Errorf("third block = %#v, want durable image", block)
+	}
+}
+
+func TestSerializeUserRowKeepsNonImageFileMarker(t *testing.T) {
+	marker := "[file: /user/assets/report.pdf]"
+	message := serializeUserRow("agent", "session", sessionaccess.Message{
+		Role: "user", Content: "parent baseline", Parts: []sessionaccess.MessagePart{{Type: "text", Text: marker}},
+	})
+	if message.Content == nil || *message.Content != marker {
+		t.Fatalf("content = %v, want PDF marker", message.Content)
+	}
+	if message.Blocks == nil || len(*message.Blocks) != 1 || (*message.Blocks)[0].Text == nil || *(*message.Blocks)[0].Text != marker {
+		t.Fatalf("blocks = %#v, want PDF marker preserved", message.Blocks)
+	}
+}
+
+func TestSerializeUserRowUsesOneDeletedMediaFallback(t *testing.T) {
+	message := serializeUserRow("agent", "session", sessionaccess.Message{
+		Role: "user", Content: "parent baseline", Parts: []sessionaccess.MessagePart{{Type: "text", Text: "stable fallback"}},
+	})
+	if message.Content == nil || *message.Content != "stable fallback" {
+		t.Fatalf("content = %v, want stable fallback without parent baseline", message.Content)
+	}
+	if message.Blocks == nil || len(*message.Blocks) != 1 || (*message.Blocks)[0].Text == nil || *(*message.Blocks)[0].Text != "stable fallback" {
+		t.Fatalf("blocks = %#v, want one fallback text block", message.Blocks)
+	}
+}
+
+func TestSerializeToolRowUsesPartsWithoutLosingEnvelopeMetadata(t *testing.T) {
+	env := map[string]any{"id": "c1", "tool": "bash", "result": "parent baseline"}
+	encoded, err := json.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := serializeToolRow("agent", "session", sessionaccess.Message{
+		Role: "tool", Content: string(encoded),
+		Parts: []sessionaccess.MessagePart{
+			{Type: "text", Text: "visible output"},
+			{Type: "image", MediaID: "media-1", MimeType: "image/png"},
+		},
+	})
+	if message.Content == nil || *message.Content != "visible output" {
+		t.Fatalf("content = %v, want visible part text only", message.Content)
+	}
+	if message.ToolCallId == nil || *message.ToolCallId != "c1" || message.ToolName == nil || *message.ToolName != "bash" {
+		t.Errorf("tool pairing lost: %#v", message)
+	}
+	if message.Blocks == nil || len(*message.Blocks) != 2 {
+		t.Fatalf("blocks = %#v, want text and image", message.Blocks)
 	}
 }
 
@@ -87,20 +165,20 @@ func TestSerializeToolRow(t *testing.T) {
 	env := map[string]any{"id": "c1", "tool": "bash", "result": "ok"}
 	b, _ := json.Marshal(env)
 	row := sessionaccess.Message{Role: "tool", Content: string(b)}
-	m := serializeToolRow(row)
-	if m["role"] != "tool" {
-		t.Errorf("role = %v", m["role"])
+	m := serializeToolRow("agent", "session", row)
+	if m.Role != apitypes.SessionMessageRoleTool {
+		t.Errorf("role = %v", m.Role)
 	}
-	if m["tool_name"] != "bash" {
-		t.Errorf("tool_name = %v", m["tool_name"])
+	if m.ToolName == nil || *m.ToolName != "bash" {
+		t.Errorf("tool_name = %v", m.ToolName)
 	}
 }
 
 func TestSerializeToolRow_invalidJSON(t *testing.T) {
 	row := sessionaccess.Message{Role: "tool", Content: "bad json"}
-	m := serializeToolRow(row)
-	if m["content"] != "bad json" {
-		t.Errorf("content = %v, want 'bad json'", m["content"])
+	m := serializeToolRow("agent", "session", row)
+	if m.Content == nil || *m.Content != "bad json" {
+		t.Errorf("content = %v, want 'bad json'", m.Content)
 	}
 }
 
@@ -114,13 +192,13 @@ func TestSerializeDBMessages_mixed(t *testing.T) {
 		{Role: "tool", Content: string(toolResult)},
 		{Role: "unknown_role", Content: "skip"},
 	}
-	result := serializeDBMessages(rows)
+	result := serializeDBMessages("agent", "session", rows)
 	// user, assistant(text+tool_call merged into one), tool; unknown_role is skipped
 	if len(result) != 3 {
 		t.Errorf("expected 3 messages, got %d: %v", len(result), result)
 	}
-	if result[0]["role"] != "user" {
-		t.Errorf("first role = %v", result[0]["role"])
+	if result[0].Role != apitypes.SessionMessageRoleUser {
+		t.Errorf("first role = %v", result[0].Role)
 	}
 }
 
@@ -162,7 +240,7 @@ func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMessagesByConversation: %v", err)
 	}
-	all := serializeDBMessages(testMessagesFromRows(allRows))
+	all := serializeDBMessages("agent", "session", testMessagesFromRows(allRows))
 
 	pageRows, err := q.ListMessagesByLogicalPage(ctx, sqlc.ListMessagesByLogicalPageParams{
 		ConversationID: conv.ID,
@@ -172,7 +250,7 @@ func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListMessagesByLogicalPage: %v", err)
 	}
-	got := serializeDBMessages(testMessagesFromLogicalRows(pageRows))
+	got := serializeDBMessages("agent", "session", testMessagesFromLogicalRows(pageRows))
 	want := all[1:4]
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("logical page mismatch\ngot:  %#v\nwant: %#v", got, want)
@@ -203,11 +281,11 @@ func TestSerializeAssistantRows_text(t *testing.T) {
 	if consumed != 1 {
 		t.Errorf("consumed = %d, want 1", consumed)
 	}
-	if m["role"] != "assistant" {
-		t.Errorf("role = %v", m["role"])
+	if m.Role != apitypes.SessionMessageRoleAssistant {
+		t.Errorf("role = %v", m.Role)
 	}
-	if m["id"] != "msg-a1" {
-		t.Errorf("id = %v, want msg-a1", m["id"])
+	if m.Id != "msg-a1" {
+		t.Errorf("id = %v, want msg-a1", m.Id)
 	}
 }
 
@@ -223,7 +301,7 @@ func TestSerializeAssistantRows_mergedFirstRowID(t *testing.T) {
 	if consumed != 3 {
 		t.Errorf("consumed = %d, want 3", consumed)
 	}
-	if m["id"] != "msg-a1" {
-		t.Errorf("id = %v, want msg-a1 (first row of merged turn)", m["id"])
+	if m.Id != "msg-a1" {
+		t.Errorf("id = %v, want msg-a1 (first row of merged turn)", m.Id)
 	}
 }
