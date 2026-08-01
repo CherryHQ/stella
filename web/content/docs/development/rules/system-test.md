@@ -71,6 +71,8 @@ and one shared database serve them all in sequence:
 - `chat_sse` — one chat turn end to end, consumed as a live SSE stream.
 - `chat_provider_error` — a failed model call surfaced as an in-band error frame
   on the send stream, then finish and [DONE] — the turn never hangs.
+- `webhook_sync_persistent` — two unauthenticated capability calls return
+  synchronous fake-model output and reuse one durable Webhook session.
 - `goal_lifecycle` — a Goal driven from creation to autonomous acceptance by the
   dispatcher's async workers.
 - `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
