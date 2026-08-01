@@ -1,97 +1,185 @@
-// Package vision turns image bytes into text.
-//
-// Two callers need that: the read tool, when the agent reads an image file and
-// the running model cannot see, and the request-time materializer, when inline
-// images already in the transcript must be rendered for a text-only model.
-// Both get the same three-step degradation — configured vision model, then
-// Xberg text extraction, then a hard error — and the same decode budget, so an
-// oversized or hostile image cannot reach a decoder through either door.
+// Package vision turns verified image bytes into bounded text.
 package vision
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"math"
+	"strings"
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // register webp decoder for image.Decode
 )
 
 const (
-	// MaxImageDim is the longest edge (px) an inlined image is resized to fit.
+	// MaxImageDim is retained for legacy inline tool rendering. Canonical
+	// baselines preserve source dimensions unless their encoded payload exceeds
+	// MaxRendererPayloadBytes.
 	MaxImageDim = 2000
-	// MaxInlineBytes caps the encoded image size sent to the model,
-	// staying under provider inline-image limits (Anthropic allows ~5MB).
-	MaxInlineBytes = 5 * 1024 * 1024
-	// maxImageInputBytes caps the raw file size we are willing to decode,
-	// rejecting oversized inputs before allocating any pixel buffer.
-	maxImageInputBytes = 30 * 1024 * 1024
-	// maxImagePixels bounds total pixels (width*height) decoded, guarding
-	// against decompression bombs whose header is tiny but expand enormously.
-	maxImagePixels = 50_000_000
+	// MaxRendererPayloadBytes is the hard provider image payload ceiling.
+	MaxRendererPayloadBytes = 5 * 1024 * 1024
+	// MaxInlineBytes is the legacy name used by read-tool callers.
+	MaxInlineBytes = MaxRendererPayloadBytes
+	// MaxImageInputBytes and MaxImagePixels protect both model and Xberg paths
+	// from compressed-byte and decompression-bomb inputs.
+	MaxImageInputBytes = 30 * 1024 * 1024
+	MaxImagePixels     = 50_000_000
 )
 
-// ValidateBudget rejects oversized inputs before any full decode allocates a
-// pixel buffer: first by raw byte size, then by the decoded dimensions read from
-// the header alone. It returns the parsed config so callers can reuse it without
-// decoding the header twice. Runs on every image path (vision inline, the
-// understanding service, and the Xberg text fallback) so a decompression bomb
-// cannot reach any decoder.
+// ValidateBudget rejects unsafe image bytes before full decode. It remains for
+// legacy callers that do not have a declared MIME to compare.
 func ValidateBudget(data []byte) (image.Config, error) {
-	if len(data) > maxImageInputBytes {
-		return image.Config{}, fmt.Errorf("image input too large: %d bytes exceeds %d", len(data), maxImageInputBytes)
-	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil {
-		return image.Config{}, err
-	}
-	if int64(cfg.Width)*int64(cfg.Height) > maxImagePixels {
-		return image.Config{}, fmt.Errorf("image too large to decode: %dx%d exceeds %d pixels", cfg.Width, cfg.Height, maxImagePixels)
-	}
-	return cfg, nil
+	cfg, _, err := decodeConfig(data)
+	return cfg, err
 }
 
-// PrepareInline downsizes an image to fit MaxImageDim on its longest edge,
-// re-encoding only when a resize is needed. Images already within bounds are
-// returned untouched. WebP is re-encoded as PNG since the standard library
-// cannot encode it. The caller must pass the config from a prior
-// ValidateBudget check.
+// ValidateImage validates the security budget and requires the declared MIME to
+// match the decoder's actual format. Canonical media never trusts an extension
+// or provider-supplied content type.
+func ValidateImage(data []byte, declaredMIME string) (image.Config, string, error) {
+	cfg, format, err := decodeConfig(data)
+	if err != nil {
+		return image.Config{}, "", err
+	}
+	detected, ok := mimeForFormat(format)
+	if !ok {
+		return image.Config{}, "", fmt.Errorf("unsupported decoded image format %q", format)
+	}
+	if strings.TrimSpace(strings.ToLower(declaredMIME)) != detected {
+		return image.Config{}, "", fmt.Errorf("image MIME %q does not match detected %q", declaredMIME, detected)
+	}
+	return cfg, detected, nil
+}
+
+func decodeConfig(data []byte) (image.Config, string, error) {
+	if len(data) == 0 {
+		return image.Config{}, "", fmt.Errorf("empty image")
+	}
+	if len(data) > MaxImageInputBytes {
+		return image.Config{}, "", fmt.Errorf("image input too large: %d bytes exceeds %d", len(data), MaxImageInputBytes)
+	}
+	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return image.Config{}, "", err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > MaxImagePixels {
+		return image.Config{}, "", fmt.Errorf("image too large to decode: %dx%d exceeds %d pixels", cfg.Width, cfg.Height, MaxImagePixels)
+	}
+	return cfg, format, nil
+}
+
+func mimeForFormat(format string) (string, bool) {
+	switch format {
+	case "png":
+		return "image/png", true
+	case "jpeg":
+		return "image/jpeg", true
+	case "gif":
+		return "image/gif", true
+	case "webp":
+		return "image/webp", true
+	default:
+		return "", false
+	}
+}
+
+// PrepareInline preserves the old read-tool behavior: fit to MaxImageDim.
 func PrepareInline(data []byte, cfg image.Config, mime string) ([]byte, string, error) {
 	if cfg.Width <= MaxImageDim && cfg.Height <= MaxImageDim && mime != "image/webp" {
 		return data, mime, nil
 	}
-
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, "", err
 	}
-	fitted := fitImage(img, MaxImageDim)
+	return encodeImage(fitImage(img, MaxImageDim), mime)
+}
 
+// PrepareBaseline keeps the compatibility API for callers without a request
+// context. Baseline and Targeted use PrepareBaselineContext instead.
+func PrepareBaseline(data []byte, cfg image.Config, mime string) ([]byte, string, error) {
+	return PrepareBaselineContext(context.Background(), data, cfg, mime)
+}
+
+// PrepareBaselineContext keeps original pixels and dimensions untouched whenever
+// they fit the renderer payload ceiling. Only a hard payload overflow causes
+// adaptive reduction; no fixed dimension ceiling or tiling is applied. The
+// standard-library decode/encode calls themselves are not interruptible, so it
+// checks ctx around each potentially expensive step.
+func PrepareBaselineContext(ctx context.Context, data []byte, cfg image.Config, mime string) ([]byte, string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+	if len(data) <= MaxRendererPayloadBytes {
+		return data, mime, nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+	maxDim := max(cfg.Width, cfg.Height)
+	for range 8 {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		fitted := fitImage(img, maxDim)
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		encoded, outMIME, err := encodeImage(fitted, mime)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		if len(encoded) <= MaxRendererPayloadBytes {
+			return encoded, outMIME, nil
+		}
+		scale := math.Sqrt(float64(MaxRendererPayloadBytes)/float64(len(encoded))) * 0.9
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		next := max(int(math.Floor(float64(maxDim)*scale)), 1)
+		if next >= maxDim {
+			next = maxDim - 1
+		}
+		if next < 1 {
+			break
+		}
+		maxDim = next
+	}
+	return nil, "", fmt.Errorf("image cannot fit renderer payload ceiling of %d bytes", MaxRendererPayloadBytes)
+}
+
+func encodeImage(img image.Image, mime string) ([]byte, string, error) {
 	var buf bytes.Buffer
-	outMime := "image/png"
+	outMIME := "image/png"
+	var err error
 	switch mime {
 	case "image/jpeg":
-		outMime = "image/jpeg"
-		err = jpeg.Encode(&buf, fitted, &jpeg.Options{Quality: 90})
+		outMIME = "image/jpeg"
+		err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90})
 	case "image/gif":
-		outMime = "image/gif"
-		err = gif.Encode(&buf, fitted, nil)
+		outMIME = "image/gif"
+		err = gif.Encode(&buf, img, nil)
 	default:
-		err = png.Encode(&buf, fitted)
+		err = png.Encode(&buf, img)
 	}
 	if err != nil {
 		return nil, "", err
 	}
-	return buf.Bytes(), outMime, nil
+	return buf.Bytes(), outMIME, nil
 }
 
-// fitImage scales src down so its longest edge is at most maxDim, preserving
-// aspect ratio. Images already within bounds are returned unchanged; src is
-// never upscaled.
 func fitImage(src image.Image, maxDim int) image.Image {
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
@@ -106,8 +194,6 @@ func fitImage(src image.Image, maxDim int) image.Image {
 	return dst
 }
 
-// extensionForMime returns the file extension Xberg needs to pick a decoder,
-// defaulting to .png for anything unrecognized.
 func extensionForMime(mime string) string {
 	switch mime {
 	case "image/jpeg":

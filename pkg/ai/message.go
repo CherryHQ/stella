@@ -37,13 +37,77 @@ type ThinkingContent struct {
 
 func (ThinkingContent) contentBlockKind() string { return "thinking" }
 
-// ImageContent represents base64-encoded image data.
+// ImageContent represents ephemeral, base64-encoded provider or tool input.
+// It must not be written to new ordinary-session history.
 type ImageContent struct {
 	Data     string // base64 encoded
 	MimeType string // e.g. "image/jpeg", "image/png"
 }
 
 func (ImageContent) contentBlockKind() string { return "image" }
+
+// ImageBaselineStatus is the durable outcome of one image rendering attempt.
+type ImageBaselineStatus string
+
+const (
+	ImageBaselineReady       ImageBaselineStatus = "ready"
+	ImageBaselineUnavailable ImageBaselineStatus = "unavailable"
+)
+
+// UnavailableImageProjection is deliberately independent of a renderer,
+// timestamp, and error body. It is the only durable text for an image whose
+// original bytes persisted but whose baseline could not be produced.
+const UnavailableImageProjection = "[Image baseline unavailable. Use inspect_image for exact details.]"
+
+// ImageBaseline is immutable text and provenance for canonical session history.
+type ImageBaseline struct {
+	Status   ImageBaselineStatus `json:"status"`
+	Text     string              `json:"text,omitempty"`
+	Renderer string              `json:"renderer,omitempty"`
+	Contract int                 `json:"contract"`
+}
+
+// Projection returns the bounded stable text used by durable history.
+func (b ImageBaseline) Projection() string {
+	if b.Status == ImageBaselineReady {
+		return b.Text
+	}
+	return UnavailableImageProjection
+}
+
+// ImageRefContent is a canonical reference to immutable session media. It has
+// no path or provider representation; pixels are hydrated only at a later,
+// authorized projection boundary.
+type ImageRefContent struct {
+	MediaID  string        `json:"media_id"`
+	MimeType string        `json:"mime_type"`
+	Baseline ImageBaseline `json:"baseline"`
+}
+
+func (ImageRefContent) contentBlockKind() string { return "image_ref" }
+
+// Validate checks the storage invariants for a canonical image reference.
+func (r ImageRefContent) Validate() error {
+	if strings.TrimSpace(r.MediaID) == "" || strings.TrimSpace(r.MimeType) == "" {
+		return fmt.Errorf("image ref requires media ID and MIME type")
+	}
+	switch r.Baseline.Status {
+	case ImageBaselineReady:
+		if strings.TrimSpace(r.Baseline.Renderer) == "" || r.Baseline.Contract != ImageBaselineContractV1 {
+			return fmt.Errorf("ready image baseline requires renderer and contract V%d", ImageBaselineContractV1)
+		}
+		if err := ValidateImageBaselineText(r.Baseline.Text); err != nil {
+			return fmt.Errorf("ready image baseline: %w", err)
+		}
+	case ImageBaselineUnavailable:
+		if r.Baseline.Text != "" || r.Baseline.Renderer != "" || r.Baseline.Contract != 0 {
+			return fmt.Errorf("unavailable image baseline must not retain renderer output")
+		}
+	default:
+		return fmt.Errorf("invalid image baseline status %q", r.Baseline.Status)
+	}
+	return nil
+}
 
 // DataURI returns the image as a data URI string (e.g. "data:image/jpeg;base64,...").
 func (ic ImageContent) DataURI() string {
@@ -66,7 +130,7 @@ type Message interface {
 }
 
 // UserMessage contains user-provided content.
-// Content is string or []ContentBlock (TextContent | ImageContent).
+// Content is string or []ContentBlock (TextContent | ImageContent | ImageRefContent).
 type UserMessage struct {
 	Content   any
 	Timestamp time.Time
@@ -119,7 +183,7 @@ func (AssistantMessage) messageRole() string { return "assistant" }
 type ToolResultMessage struct {
 	ToolCallID string
 	ToolName   string
-	Content    []ContentBlock // TextContent | ImageContent
+	Content    []ContentBlock // TextContent | ImageContent | ImageRefContent
 	Details    any
 	IsError    bool
 	Timestamp  time.Time

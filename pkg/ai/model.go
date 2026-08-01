@@ -148,6 +148,9 @@ type Usage struct {
 type StopReason string
 
 const (
+	// StopReasonUnknown is an unrecognized or omitted provider finish reason.
+	// Consumers that require a complete response must fail closed on it.
+	StopReasonUnknown StopReason = ""
 	StopReasonStop    StopReason = "stop"
 	StopReasonLength  StopReason = "length"
 	StopReasonToolUse StopReason = "toolUse"
