@@ -329,6 +329,26 @@ func TestFormatMessageForSummarizerTruncatesMalformedMultimodal(t *testing.T) {
 	}
 }
 
+func TestLegacyInlineUserImageRoundTrip(t *testing.T) {
+	orig := ai.UserMessage{Content: []ai.ContentBlock{
+		ai.TextContent{Text: "look"},
+		ai.ImageContent{Data: "BASE64DATA", MimeType: "image/png"},
+	}}
+	rows := userMessageToRows(orig)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	restored := rowToUserMessage(sqlc.CtxMessage{EventType: eventTypeMultimodal, Content: rows[0].content})
+	blocks, ok := restored.Content.([]ai.ContentBlock)
+	if !ok || len(blocks) != 2 {
+		t.Fatalf("restored blocks = %#v", restored.Content)
+	}
+	image, ok := blocks[1].(ai.ImageContent)
+	if !ok || image.Data != "BASE64DATA" || image.MimeType != "image/png" {
+		t.Fatalf("legacy user image changed: %#v", blocks[1])
+	}
+}
+
 func TestToolResultImageRoundTrip(t *testing.T) {
 	orig := ai.ToolResultMessage{
 		ToolCallID: "tc1",
@@ -384,6 +404,25 @@ func TestToolResultTextOnlyRoundTrip(t *testing.T) {
 	restored := rowToToolResult(sqlc.CtxMessage{Role: roleTool, EventType: eventTypeToolResult, Content: rows[0].content})
 	if got := ai.FlattenText(restored.Content); got != "output" {
 		t.Errorf("text round-trip = %q, want output", got)
+	}
+}
+
+func TestLegacyToolResultEmptyErrorRoundTrip(t *testing.T) {
+	rows := toolResultToRows(ai.ToolResultMessage{
+		ToolCallID: "tc-empty-error",
+		ToolName:   "bash",
+		IsError:    true,
+	})
+	var env toolResultEnvelope
+	if err := json.Unmarshal([]byte(rows[0].content), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !env.IsError || env.Error != "" {
+		t.Fatalf("stored envelope = %#v, want explicit empty error", env)
+	}
+	restored := rowToToolResult(sqlc.CtxMessage{Role: roleTool, EventType: eventTypeToolResult, Content: rows[0].content})
+	if !restored.IsError || len(restored.Content) != 1 || ai.FlattenText(restored.Content) != "" {
+		t.Fatalf("legacy empty error round-trip = %#v", restored)
 	}
 }
 

@@ -10,6 +10,14 @@ RETURNING *;
 SELECT * FROM ctx_media
 WHERE user_id = $1 AND sha256 = $2;
 
+-- name: ListMediaByIDsForUser :many
+-- Canonical append validates every media reference against this user inside its
+-- parent/parts transaction. Callers deduplicate IDs before this batch lookup.
+SELECT * FROM ctx_media
+WHERE user_id = sqlc.arg('user_id')
+  AND id = ANY(sqlc.arg('media_ids')::uuid[])
+ORDER BY id ASC;
+
 -- name: GetMediaForSession :one
 -- Authorize immutable media through an ordinary session message part. The
 -- conversation's legacy text owner is intentionally compared to the UUID media

@@ -68,6 +68,17 @@ type Provider interface {
 }
 
 // ---------------------------------------------------------------------------
+// Capability: CanonicalAppender
+// ---------------------------------------------------------------------------
+
+// CanonicalAppender persists messages whose image blocks have already been
+// converted to immutable references. It is deliberately optional while the
+// runtime still sends legacy provider-ready image blocks through Append.
+type CanonicalAppender interface {
+	AppendCanonical(ctx context.Context, session Session, msgs ...ai.Message) error
+}
+
+// ---------------------------------------------------------------------------
 // Capability: Compactor
 // ---------------------------------------------------------------------------
 

@@ -128,3 +128,47 @@ func (q *Queries) GetMediaForSession(ctx context.Context, arg GetMediaForSession
 	)
 	return i, err
 }
+
+const listMediaByIDsForUser = `-- name: ListMediaByIDsForUser :many
+SELECT id, user_id, sha256, mime_type, size_bytes, width_px, height_px, created_at, updated_at FROM ctx_media
+WHERE user_id = $1
+  AND id = ANY($2::uuid[])
+ORDER BY id ASC
+`
+
+type ListMediaByIDsForUserParams struct {
+	UserID   string   `json:"user_id"`
+	MediaIds []string `json:"media_ids"`
+}
+
+// Canonical append validates every media reference against this user inside its
+// parent/parts transaction. Callers deduplicate IDs before this batch lookup.
+func (q *Queries) ListMediaByIDsForUser(ctx context.Context, arg ListMediaByIDsForUserParams) ([]CtxMedium, error) {
+	rows, err := q.db.Query(ctx, listMediaByIDsForUser, arg.UserID, arg.MediaIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxMedium{}
+	for rows.Next() {
+		var i CtxMedium
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Sha256,
+			&i.MimeType,
+			&i.SizeBytes,
+			&i.WidthPx,
+			&i.HeightPx,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
