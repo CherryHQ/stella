@@ -3,6 +3,7 @@
 package system
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -117,11 +118,12 @@ type controlResponse struct {
 	served bool
 }
 
-// fakeRequest captures only the stable fields worth asserting on. The prompt
-// body is deliberately not retained: asserting on it would couple the suite to
-// prompt wording.
+// fakeRequest captures the model-request fields a journey may assert. Response
+// selection never uses message text, so ordinary prompt edits cannot alter fake
+// behavior; GitHub compatibility alone checks that its delivery body survives.
 type fakeRequest struct {
 	Model     string
+	Messages  []string
 	ToolNames []string
 	// GoalControl is the non-fail goal_control action the request advertised
 	// ("decompose"/"submit"/"verdict"), or "" when the request carries no
@@ -227,6 +229,24 @@ func (f *fakeAnthropic) requests() []fakeRequest {
 	return out
 }
 
+// waitForRequests synchronizes an async journey with the fake without putting
+// backpressure on unrelated model requests.
+func (f *fakeAnthropic) waitForRequests(ctx context.Context, want int) []fakeRequest {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if reqs := f.requests(); len(reqs) >= want {
+			return reqs
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			f.t.Fatalf("fake anthropic: waited for %d request(s): %v", want, ctx.Err())
+			return nil
+		}
+	}
+}
+
 // handle serves one Messages request: it records the stable request fields,
 // selects a response, and streams it as SDK-valid SSE. An unscripted request
 // fails the test and returns 500 so the caller sees an error rather than a hang.
@@ -237,10 +257,10 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model, toolNames, control := parseMessagesRequest(f.t, r)
+	model, messages, toolNames, control := parseMessagesRequest(f.t, r)
 
 	f.mu.Lock()
-	f.reqs = append(f.reqs, fakeRequest{Model: model, ToolNames: toolNames, GoalControl: control})
+	f.reqs = append(f.reqs, fakeRequest{Model: model, Messages: messages, ToolNames: toolNames, GoalControl: control})
 	resp, ok := f.selectResponse(model, control)
 	f.mu.Unlock()
 	if !ok {
@@ -445,15 +465,18 @@ func (r fakeResponse) textDeltaFrame() string {
 // the request's tool schema advertises. A body it cannot parse is a real defect
 // (the system sent something the Anthropic API would reject), so it fails the
 // test rather than guessing.
-func parseMessagesRequest(t *testing.T, r *http.Request) (model string, toolNames []string, goalControl string) {
+func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages, toolNames []string, goalControl string) {
 	t.Helper()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		t.Errorf("fake anthropic: read request body: %v", err)
-		return "", nil, ""
+		return "", nil, nil, ""
 	}
 	var parsed struct {
-		Model string `json:"model"`
+		Model    string `json:"model"`
+		Messages []struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
 		Tools []struct {
 			Name        string `json:"name"`
 			InputSchema struct {
@@ -467,7 +490,16 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, toolName
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		t.Errorf("fake anthropic: request body is not valid Messages JSON: %v", err)
-		return "", nil, ""
+		return "", nil, nil, ""
+	}
+	messages = make([]string, 0, len(parsed.Messages))
+	for _, message := range parsed.Messages {
+		text, ok := messageText(message.Content)
+		if !ok {
+			t.Errorf("fake anthropic: unsupported message content %s", message.Content)
+			continue
+		}
+		messages = append(messages, text)
 	}
 	names := make([]string, 0, len(parsed.Tools))
 	for _, tool := range parsed.Tools {
@@ -476,7 +508,31 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, toolName
 			goalControl = nonFailAction(tool.InputSchema.Properties.Action.Enum)
 		}
 	}
-	return parsed.Model, names, goalControl
+	return parsed.Model, messages, names, goalControl
+}
+
+// messageText extracts text content from the Messages API's string shorthand or
+// text-block form. The fake records it for payload compatibility assertions;
+// response selection remains independent of prompt prose.
+func messageText(content json.RawMessage) (string, bool) {
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return text, true
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return "", false
+	}
+	var b strings.Builder
+	for _, block := range blocks {
+		if block.Type == "text" {
+			b.WriteString(block.Text)
+		}
+	}
+	return b.String(), true
 }
 
 // nonFailAction returns the goal_control stage discriminator: the first action

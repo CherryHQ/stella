@@ -75,6 +75,9 @@ and one shared database serve them all in sequence:
   synchronous fake-model output and reuse one durable Webhook session.
 - `goal_lifecycle` — a Goal driven from creation to autonomous acceptance by the
   dispatcher's async workers.
+- `github_webhook_compatibility` — a GitHub-shaped JSON push delivery, sent
+  without a cookie jar to an ordinary personal Webhook, receives async `202` and
+  reaches the fake model exactly once with its payload intact.
 - `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
   from ready, an attach subscription is drain-cancelled, the pinned turn still
   completes on its stream (full text, finish, [DONE]), and the process exits 0.
