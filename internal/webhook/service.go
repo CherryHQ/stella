@@ -94,8 +94,7 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (Webhook, error
 	if uuid.Validate(req.ID) != nil {
 		return Webhook{}, ErrInvalidID
 	}
-	observed, err := s.store.Get(ctx, req.ID, req.UserID)
-	if err != nil {
+	if _, err := s.store.Get(ctx, req.ID, req.UserID); err != nil {
 		return Webhook{}, err
 	}
 	if err := validateUpdate(req); err != nil {
@@ -108,10 +107,7 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (Webhook, error
 	}
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
-	// The PEP check intentionally happens before the lifecycle fence. The store
-	// then locks, re-observes, and patches the durable row in one transaction so
-	// no stale full-record write can erase a concurrent field update.
-	stored, err := s.store.Update(ctx, req, observed.AgentID)
+	stored, err := s.store.Update(ctx, req)
 	if err != nil {
 		return Webhook{}, err
 	}
@@ -258,25 +254,6 @@ func validateWebhook(w Webhook) error {
 		return ErrInvalidTimeout
 	}
 	return nil
-}
-
-func applyUpdate(w Webhook, req UpdateRequest) Webhook {
-	if req.Name != nil {
-		w.Name = *req.Name
-	}
-	if req.AgentID != nil {
-		w.AgentID = *req.AgentID
-	}
-	if req.IsEnabled != nil {
-		w.IsEnabled = *req.IsEnabled
-	}
-	if req.WaitTimeoutSeconds != nil {
-		w.WaitTimeoutSeconds = *req.WaitTimeoutSeconds
-	}
-	if req.MaxRunTimeoutSeconds != nil {
-		w.MaxRunTimeoutSeconds = *req.MaxRunTimeoutSeconds
-	}
-	return w
 }
 
 func newCredential() (credentialRecord, string, error) {

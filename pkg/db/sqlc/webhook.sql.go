@@ -324,35 +324,60 @@ func (q *Queries) RotateWebhook(ctx context.Context, arg RotateWebhookParams) (W
 
 const updateWebhookForUser = `-- name: UpdateWebhookForUser :one
 UPDATE webhook
-SET name = $3,
-    agent_id = $4,
-    is_enabled = $5,
-    wait_timeout_seconds = $6,
-    max_run_timeout_seconds = $7,
+SET name = CASE
+        WHEN $1::boolean THEN $2::text
+        ELSE name
+    END,
+    agent_id = CASE
+        WHEN $3::boolean THEN $4::text
+        ELSE agent_id
+    END,
+    is_enabled = CASE
+        WHEN $5::boolean THEN $6::boolean
+        ELSE is_enabled
+    END,
+    wait_timeout_seconds = CASE
+        WHEN $7::boolean THEN $8::integer
+        ELSE wait_timeout_seconds
+    END,
+    max_run_timeout_seconds = CASE
+        WHEN $9::boolean THEN $10::integer
+        ELSE max_run_timeout_seconds
+    END,
     updated_at = now()
-WHERE id = $1 AND user_id = $2
+WHERE id = $11 AND user_id = $12
 RETURNING id, user_id, agent_id, name, provider, is_enabled, wait_timeout_seconds, max_run_timeout_seconds, token_public_id, token_hash, token_last4, revision, created_at, updated_at, rotated_at
 `
 
 type UpdateWebhookForUserParams struct {
-	ID                   string `json:"id"`
-	UserID               string `json:"user_id"`
-	Name                 string `json:"name"`
-	AgentID              string `json:"agent_id"`
-	IsEnabled            bool   `json:"is_enabled"`
-	WaitTimeoutSeconds   int32  `json:"wait_timeout_seconds"`
-	MaxRunTimeoutSeconds int32  `json:"max_run_timeout_seconds"`
+	NameSet                 bool   `json:"name_set"`
+	Name                    string `json:"name"`
+	AgentIDSet              bool   `json:"agent_id_set"`
+	AgentID                 string `json:"agent_id"`
+	IsEnabledSet            bool   `json:"is_enabled_set"`
+	IsEnabled               bool   `json:"is_enabled"`
+	WaitTimeoutSecondsSet   bool   `json:"wait_timeout_seconds_set"`
+	WaitTimeoutSeconds      int32  `json:"wait_timeout_seconds"`
+	MaxRunTimeoutSecondsSet bool   `json:"max_run_timeout_seconds_set"`
+	MaxRunTimeoutSeconds    int32  `json:"max_run_timeout_seconds"`
+	ID                      string `json:"id"`
+	UserID                  string `json:"user_id"`
 }
 
 func (q *Queries) UpdateWebhookForUser(ctx context.Context, arg UpdateWebhookForUserParams) (Webhook, error) {
 	row := q.db.QueryRow(ctx, updateWebhookForUser,
+		arg.NameSet,
+		arg.Name,
+		arg.AgentIDSet,
+		arg.AgentID,
+		arg.IsEnabledSet,
+		arg.IsEnabled,
+		arg.WaitTimeoutSecondsSet,
+		arg.WaitTimeoutSeconds,
+		arg.MaxRunTimeoutSecondsSet,
+		arg.MaxRunTimeoutSeconds,
 		arg.ID,
 		arg.UserID,
-		arg.Name,
-		arg.AgentID,
-		arg.IsEnabled,
-		arg.WaitTimeoutSeconds,
-		arg.MaxRunTimeoutSeconds,
 	)
 	var i Webhook
 	err := row.Scan(

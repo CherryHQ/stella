@@ -45,17 +45,28 @@ func (s *memoryStore) List(_ context.Context, user string, _, _ int32) ([]creden
 	return out, nil
 }
 
-func (s *memoryStore) Update(_ context.Context, req UpdateRequest, expectedAgent string) (credentialRecord, error) {
+func (s *memoryStore) Update(_ context.Context, req UpdateRequest) (credentialRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, ok := s.rows[req.ID]
 	if !ok || current.UserID != req.UserID {
 		return credentialRecord{}, ErrNotFound
 	}
-	if current.AgentID != expectedAgent {
-		return credentialRecord{}, ErrBindingChanged
+	if req.Name != nil {
+		current.Name = *req.Name
 	}
-	current.Webhook = applyUpdate(current.Webhook, req)
+	if req.AgentID != nil {
+		current.AgentID = *req.AgentID
+	}
+	if req.IsEnabled != nil {
+		current.IsEnabled = *req.IsEnabled
+	}
+	if req.WaitTimeoutSeconds != nil {
+		current.WaitTimeoutSeconds = *req.WaitTimeoutSeconds
+	}
+	if req.MaxRunTimeoutSeconds != nil {
+		current.MaxRunTimeoutSeconds = *req.MaxRunTimeoutSeconds
+	}
 	s.rows[req.ID] = current
 	return current, nil
 }

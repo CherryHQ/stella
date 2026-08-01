@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createWebhook,
   deleteWebhook,
-  listAgents,
   listWebhooks,
   rotateWebhook,
   updateWebhook,
 } from "@/lib/api-client/sdk.gen";
-import type { Agent, Webhook } from "@/lib/api-client/types.gen";
+import type { Webhook } from "@/lib/api-client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -48,10 +48,13 @@ import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
+import { agentsQueryOptions } from "@/lib/queries/agents";
 import { Copy, Plus, RotateCw, Trash2, Webhook as WebhookIcon } from "lucide-react";
 
 type Draft = { name: string; agentID: string; enabled: boolean; wait: string; run: string };
 const emptyDraft = (): Draft => ({ name: "", agentID: "", enabled: true, wait: "60", run: "300" });
+
+const webhooksQueryKey = ["webhooks"] as const;
 
 async function fetchAllWebhooks(): Promise<Webhook[]> {
   const items: Webhook[] = [];
@@ -70,9 +73,13 @@ async function fetchAllWebhooks(): Promise<Webhook[]> {
 export function WebhooksPage() {
   const { t } = useI18n();
   const { toasts, showToast } = useToast();
-  const [items, setItems] = useState<Webhook[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const {
+    data: items = [],
+    isLoading: loading,
+    error: webhooksError,
+  } = useQuery({ queryKey: webhooksQueryKey, queryFn: fetchAllWebhooks });
+  const { data: agents = [], error: agentsError } = useQuery(agentsQueryOptions);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [selected, setSelected] = useState<Webhook | null>(null);
   const [dialogMode, setDialogMode] = useState<"editor" | "secret" | null>(null);
@@ -81,24 +88,12 @@ export function WebhooksPage() {
   const [error, setError] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Webhook | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [webhooks, { data: accessibleAgents }] = await Promise.all([
-        fetchAllWebhooks(),
-        listAgents({ throwOnError: true }),
-      ]);
-      setItems(webhooks);
-      setAgents(accessibleAgents.agents);
-    } catch (err) {
-      showToast((err as Error).message, "error");
-    } finally {
-      setLoading(false);
-    }
-  }, [showToast]);
   useEffect(() => {
-    void load();
-  }, [load]);
+    const queryError = webhooksError ?? agentsError;
+    if (queryError) {
+      showToast(queryError instanceof Error ? queryError.message : String(queryError), "error");
+    }
+  }, [webhooksError, agentsError, showToast]);
 
   const edit = (item: Webhook) => {
     setSelected(item);
@@ -153,7 +148,6 @@ export function WebhooksPage() {
           body: {
             name: draft.name.trim(),
             agent_id: draft.agentID.trim(),
-            provider: "generic",
             is_enabled: draft.enabled,
             wait_timeout_seconds: wait,
             max_run_timeout_seconds: run,
@@ -170,7 +164,7 @@ export function WebhooksPage() {
       } else {
         setDialogMode(null);
       }
-      await load();
+      await queryClient.invalidateQueries({ queryKey: webhooksQueryKey });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -186,7 +180,7 @@ export function WebhooksPage() {
       });
       setSecretURL(data.url || "");
       setDialogMode("secret");
-      await load();
+      await queryClient.invalidateQueries({ queryKey: webhooksQueryKey });
     } catch (err) {
       showToast((err as Error).message, "error");
     }
@@ -196,7 +190,7 @@ export function WebhooksPage() {
     try {
       await deleteWebhook({ path: { id: pendingDelete.id }, throwOnError: true });
       setPendingDelete(null);
-      await load();
+      await queryClient.invalidateQueries({ queryKey: webhooksQueryKey });
     } catch (err) {
       showToast((err as Error).message, "error");
     }

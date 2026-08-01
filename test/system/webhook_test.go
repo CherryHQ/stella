@@ -113,7 +113,6 @@ func (h *harness) createWebhookCapability(t *testing.T, ctx context.Context, age
 	resp := h.postJSON(t, ctx, "/api/webhooks", map[string]any{
 		"name":                    "sys-test-webhook-" + h.runID,
 		"agent_id":                agentID,
-		"provider":                "generic",
 		"wait_timeout_seconds":    30,
 		"max_run_timeout_seconds": 60,
 	})

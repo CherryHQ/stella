@@ -20,13 +20,28 @@ LIMIT $2 OFFSET $3;
 
 -- name: UpdateWebhookForUser :one
 UPDATE webhook
-SET name = $3,
-    agent_id = $4,
-    is_enabled = $5,
-    wait_timeout_seconds = $6,
-    max_run_timeout_seconds = $7,
+SET name = CASE
+        WHEN sqlc.arg(name_set)::boolean THEN sqlc.arg(name)::text
+        ELSE name
+    END,
+    agent_id = CASE
+        WHEN sqlc.arg(agent_id_set)::boolean THEN sqlc.arg(agent_id)::text
+        ELSE agent_id
+    END,
+    is_enabled = CASE
+        WHEN sqlc.arg(is_enabled_set)::boolean THEN sqlc.arg(is_enabled)::boolean
+        ELSE is_enabled
+    END,
+    wait_timeout_seconds = CASE
+        WHEN sqlc.arg(wait_timeout_seconds_set)::boolean THEN sqlc.arg(wait_timeout_seconds)::integer
+        ELSE wait_timeout_seconds
+    END,
+    max_run_timeout_seconds = CASE
+        WHEN sqlc.arg(max_run_timeout_seconds_set)::boolean THEN sqlc.arg(max_run_timeout_seconds)::integer
+        ELSE max_run_timeout_seconds
+    END,
     updated_at = now()
-WHERE id = $1 AND user_id = $2
+WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
 RETURNING *;
 
 -- name: GetWebhookByPublicID :one

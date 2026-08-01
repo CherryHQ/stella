@@ -66,6 +66,10 @@ func (s *Server) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 	if req.MaxRunTimeoutSeconds != nil {
 		run = *req.MaxRunTimeoutSeconds
 	}
+	provider := webhook.ProviderGeneric
+	if req.Provider != nil {
+		provider = webhook.Provider(*req.Provider)
+	}
 	waitSeconds, err := webhookTimeout(wait, webhook.WaitTimeoutCeilingSeconds)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -76,7 +80,7 @@ func (s *Server) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := svc.Create(r.Context(), webhook.CreateRequest{UserID: userID, Name: req.Name, AgentID: req.AgentId, Provider: webhook.Provider(req.Provider), IsEnabled: isEnabled, WaitTimeoutSeconds: waitSeconds, MaxRunTimeoutSeconds: runSeconds})
+	result, err := svc.Create(r.Context(), webhook.CreateRequest{UserID: userID, Name: req.Name, AgentID: req.AgentId, Provider: provider, IsEnabled: isEnabled, WaitTimeoutSeconds: waitSeconds, MaxRunTimeoutSeconds: runSeconds})
 	if err != nil {
 		s.writeWebhookError(w, err)
 		return
@@ -180,7 +184,7 @@ func (s *Server) writeWebhookError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, webhook.ErrNotFound):
 		writeError(w, http.StatusNotFound, "webhook not found")
-	case errors.Is(err, webhook.ErrStaleETag), errors.Is(err, webhook.ErrBindingChanged):
+	case errors.Is(err, webhook.ErrStaleETag):
 		writeError(w, http.StatusConflict, "webhook changed since it was read; refresh and retry")
 	case errors.Is(err, webhook.ErrUserInactive):
 		writeError(w, http.StatusForbidden, "user is inactive")

@@ -4481,7 +4481,7 @@ components:
           nullable: true
     CreateWebhookRequest:
       type: object
-      required: [name, agent_id, provider]
+      required: [name, agent_id]
       properties:
         name:
           type: string
@@ -4493,7 +4493,8 @@ components:
         provider:
           type: string
           enum: [generic]
-          description: Required immutable invocation provider.
+          default: generic
+          description: Immutable invocation provider; defaults to generic.
         is_enabled:
           type: boolean
           default: true

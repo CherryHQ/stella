@@ -24,7 +24,7 @@ func decodeWebhook(t *testing.T, rrBody []byte) apitypes.Webhook {
 
 func createPersonalWebhook(t *testing.T, env *testEnv, token, agentID string) apitypes.Webhook {
 	t.Helper()
-	rr := doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/webhooks", map[string]any{"name": "deploy", "agent_id": agentID, "provider": "generic"})
+	rr := doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/webhooks", map[string]any{"name": "deploy", "agent_id": agentID})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create webhook: %d %s", rr.Code, rr.Body.String())
 	}
@@ -36,6 +36,13 @@ func TestWebhookLifecycleAPISecretDisclosureAndImmutableProvider(t *testing.T) {
 	owner, ownerToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "webhook-owner", auth.RoleUser)
 	agentID := createAgentAsUser(t, env, ownerToken, "webhook-agent")
 	created := createPersonalWebhook(t, env, ownerToken, agentID)
+	if created.Provider != "generic" {
+		t.Fatalf("default provider = %q, want generic", created.Provider)
+	}
+	invalidProvider := doRequestWithSession(t, env.srv, ownerToken, http.MethodPost, "/api/webhooks", map[string]any{"name": "invalid", "agent_id": agentID, "provider": "github"})
+	if invalidProvider.Code != http.StatusBadRequest {
+		t.Fatalf("unsupported provider = %d, want 400 (%s)", invalidProvider.Code, invalidProvider.Body.String())
+	}
 	if created.Url == nil || !strings.Contains(*created.Url, "/webhooks/") {
 		t.Fatalf("Create did not disclose URL: %+v", created)
 	}

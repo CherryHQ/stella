@@ -36,7 +36,6 @@ var (
 	ErrStaleETag          = errors.New("webhook: changed since the provided etag")
 	ErrUserInactive       = errors.New("webhook: user is inactive")
 	ErrUserAgentForbidden = errors.New("webhook: user cannot use agent")
-	ErrBindingChanged     = errors.New("webhook: binding changed; retry")
 )
 
 type Provider string
@@ -127,10 +126,8 @@ type Store interface {
 	Create(context.Context, credentialRecord) (credentialRecord, error)
 	Get(context.Context, string, string) (credentialRecord, error)
 	List(context.Context, string, int32, int32) ([]credentialRecord, error)
-	// Update atomically re-observes the owner-scoped record and applies only
-	// fields present in req. expectedAgent prevents a PEP decision made before
-	// the lifecycle fence from writing over a changed durable binding.
-	Update(context.Context, UpdateRequest, string) (credentialRecord, error)
+	// Update atomically applies only fields present in the owner-scoped request.
+	Update(context.Context, UpdateRequest) (credentialRecord, error)
 	Rotate(context.Context, string, string, string, credentialRecord) (credentialRecord, error)
 	Delete(context.Context, string, string) (int64, error)
 	ResolveByPublicID(context.Context, string) (credentialRecord, error)

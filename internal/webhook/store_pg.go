@@ -50,28 +50,34 @@ func (s *PostgresStore) List(ctx context.Context, userID string, limit, offset i
 	return out, nil
 }
 
-func (s *PostgresStore) Update(ctx context.Context, req UpdateRequest, expectedAgent string) (credentialRecord, error) {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return credentialRecord{}, fmt.Errorf("webhook: begin update: %w", err)
+func (s *PostgresStore) Update(ctx context.Context, req UpdateRequest) (credentialRecord, error) {
+	params := sqlc.UpdateWebhookForUserParams{
+		ID:                      req.ID,
+		UserID:                  req.UserID,
+		NameSet:                 req.Name != nil,
+		AgentIDSet:              req.AgentID != nil,
+		IsEnabledSet:            req.IsEnabled != nil,
+		WaitTimeoutSecondsSet:   req.WaitTimeoutSeconds != nil,
+		MaxRunTimeoutSecondsSet: req.MaxRunTimeoutSeconds != nil,
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	qtx := s.q.WithTx(tx)
-	current, err := qtx.GetWebhookForUserForUpdate(ctx, sqlc.GetWebhookForUserForUpdateParams{ID: req.ID, UserID: req.UserID})
+	if req.Name != nil {
+		params.Name = *req.Name
+	}
+	if req.AgentID != nil {
+		params.AgentID = *req.AgentID
+	}
+	if req.IsEnabled != nil {
+		params.IsEnabled = *req.IsEnabled
+	}
+	if req.WaitTimeoutSeconds != nil {
+		params.WaitTimeoutSeconds = *req.WaitTimeoutSeconds
+	}
+	if req.MaxRunTimeoutSeconds != nil {
+		params.MaxRunTimeoutSeconds = *req.MaxRunTimeoutSeconds
+	}
+	row, err := s.q.UpdateWebhookForUser(ctx, params)
 	if err != nil {
 		return credentialRecord{}, mapNotFound(err)
-	}
-	locked := recordFromRow(current)
-	if locked.AgentID != expectedAgent {
-		return credentialRecord{}, ErrBindingChanged
-	}
-	next := applyUpdate(locked.Webhook, req)
-	row, err := qtx.UpdateWebhookForUser(ctx, sqlc.UpdateWebhookForUserParams{ID: next.ID, UserID: next.UserID, Name: next.Name, AgentID: next.AgentID, IsEnabled: next.IsEnabled, WaitTimeoutSeconds: next.WaitTimeoutSeconds, MaxRunTimeoutSeconds: next.MaxRunTimeoutSeconds})
-	if err != nil {
-		return credentialRecord{}, mapNotFound(err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return credentialRecord{}, fmt.Errorf("webhook: commit update: %w", err)
 	}
 	return recordFromRow(row), nil
 }
