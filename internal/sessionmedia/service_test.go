@@ -22,10 +22,83 @@ import (
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/vision"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/providers"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
+
+func TestPipelineEnrichAndLoadRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline, err := NewPipeline(
+		assets.SessionMedia(),
+		db,
+		&fakeSnapshotLoader{err: errors.New("settings unavailable")},
+		func(_, _, _ string) (providers.StreamFunc, error) {
+			t.Fatal("snapshot failure must use local baseline fallback")
+			return nil, nil
+		},
+		PipelineOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	owner := seedUser(t, db)
+	raw := imageBlock(t, 42)
+	blocks, err := pipeline.Enrich(ctx, owner.String(), "agent-1", []ai.ContentBlock{
+		ai.TextContent{Text: "inspect this"},
+		raw,
+	})
+	if err != nil {
+		t.Fatalf("enrich: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("enriched blocks = %#v", blocks)
+	}
+	ref, ok := blocks[1].(ai.ImageRefContent)
+	if !ok || ref.MediaID == "" || ref.Baseline.Projection() == "" {
+		t.Fatalf("canonical image ref = %#v", blocks[1])
+	}
+	for _, block := range blocks {
+		if _, ok := block.(ai.ImageContent); ok {
+			t.Fatalf("canonical output leaked raw image: %#v", blocks)
+		}
+	}
+
+	loaded, err := pipeline.Load(ctx, owner.String(), ref.MediaID)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	got, err := base64.StdEncoding.DecodeString(loaded.Data)
+	if err != nil {
+		t.Fatalf("decode loaded image: %v", err)
+	}
+	want, err := base64.StdEncoding.DecodeString(raw.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.MimeType != raw.MimeType || !bytes.Equal(got, want) {
+		t.Fatalf("loaded image changed: mime=%q bytes_equal=%t", loaded.MimeType, bytes.Equal(got, want))
+	}
+	if _, err := pipeline.Load(ctx, uuid.NewString(), ref.MediaID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("foreign load error = %v, want ErrNotFound", err)
+	}
+
+	var mediaRows int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM ctx_media WHERE user_id = $1`, owner).Scan(&mediaRows); err != nil {
+		t.Fatal(err)
+	}
+	if mediaRows != 1 {
+		t.Fatalf("ctx_media rows = %d, want 1", mediaRows)
+	}
+}
 
 func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	ctx := context.Background()
