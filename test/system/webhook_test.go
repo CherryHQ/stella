@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,9 +31,9 @@ func (h *harness) testWebhookSyncPersistent(t *testing.T) {
 	fake.enqueueText(secondReply)
 
 	const modelID = "claude-sonnet-4-6"
-	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL())
-	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID)
-	capabilityPath := h.createWebhookCapability(t, ctx, agentID)
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID, "")
+	capabilityPath := h.createWebhookCapability(t, ctx, agentID, "")
 
 	firstBody := `{"event":"persistent_test_1","message":"Remember ORBIT."}`
 	secondBody := `{"event":"persistent_test_2","message":"Return the remembered word."}`
@@ -67,9 +68,70 @@ func (h *harness) testWebhookSyncPersistent(t *testing.T) {
 	})
 }
 
-func (h *harness) createWebhookFakeProvider(t *testing.T, ctx context.Context, baseURL string) string {
+// testGitHubWebhookCompatibility proves GitHub needs no dedicated provider or
+// adapter: a GitHub-shaped JSON push delivery reaches the ordinary personal
+// webhook capability, which defaults to asynchronous, ephemeral execution.
+func (h *harness) testGitHubWebhookCompatibility(t *testing.T) {
+	fake := newFakeAnthropic(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	fake.enqueueText("received GitHub push " + h.runID)
+	const modelID = "claude-sonnet-4-6"
+	providerID := h.createWebhookFakeProvider(t, ctx, fake.baseURL(), "-github")
+	agentID := h.createWebhookAgent(t, ctx, providerID+"/"+modelID, "-github")
+	capabilityPath := h.createWebhookCapability(t, ctx, agentID, "-github")
+
+	payload := `{"ref":"refs/heads/main","repository":{"full_name":"octo-org/hello-world"},"head_commit":{"id":"deadbeef","message":"deploy"}}`
+	h.callGitHubWebhook(t, ctx, capabilityPath, payload)
+
+	reqs := fake.waitForRequests(ctx, 1)
+	if len(reqs) != 1 {
+		t.Fatalf("fake received %d model request(s), want exactly 1", len(reqs))
+	}
+	if reqs[0].Model != modelID {
+		t.Fatalf("model in request = %q, want %q", reqs[0].Model, modelID)
+	}
+	if !containsMessage(reqs[0].Messages, payload) {
+		t.Fatalf("model request did not contain the GitHub payload")
+	}
+}
+
+func (h *harness) callGitHubWebhook(t *testing.T, ctx context.Context, capabilityPath, payload string) {
 	t.Helper()
-	id := "anthropic-webhook-" + h.runID
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.baseURL+capabilityPath, bytes.NewBufferString(payload))
+	if err != nil {
+		t.Fatalf("build GitHub webhook request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-GitHub-Delivery", "delivery-"+h.runID)
+
+	// No cookie jar: the generic capability URL, not a GitHub-specific
+	// authentication path, admits the delivery.
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("POST GitHub webhook failed: %T\n%s", err, h.proc.logTail(40))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		t.Fatalf("POST GitHub webhook = %d, want %d (body: %s)\n%s", resp.StatusCode, http.StatusAccepted, body, h.proc.logTail(40))
+	}
+}
+
+func containsMessage(messages []string, want string) bool {
+	for _, message := range messages {
+		if strings.Contains(message, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *harness) createWebhookFakeProvider(t *testing.T, ctx context.Context, baseURL, suffix string) string {
+	t.Helper()
+	id := "anthropic-webhook-" + h.runID + suffix
 	resp := h.postJSON(t, ctx, "/api/providers", map[string]any{
 		"id":       id,
 		"type":     "anthropic",
@@ -85,10 +147,10 @@ func (h *harness) createWebhookFakeProvider(t *testing.T, ctx context.Context, b
 	return id
 }
 
-func (h *harness) createWebhookAgent(t *testing.T, ctx context.Context, model string) string {
+func (h *harness) createWebhookAgent(t *testing.T, ctx context.Context, model, suffix string) string {
 	t.Helper()
 	resp := h.postJSON(t, ctx, "/api/agents", map[string]any{
-		"name":    "sys-test-webhook-agent-" + h.runID,
+		"name":    "sys-test-webhook-agent-" + h.runID + suffix,
 		"model":   model,
 		"enabled": true,
 	})
@@ -108,10 +170,10 @@ func (h *harness) createWebhookAgent(t *testing.T, ctx context.Context, model st
 	return created.ID
 }
 
-func (h *harness) createWebhookCapability(t *testing.T, ctx context.Context, agentID string) string {
+func (h *harness) createWebhookCapability(t *testing.T, ctx context.Context, agentID, suffix string) string {
 	t.Helper()
 	resp := h.postJSON(t, ctx, "/api/webhooks", map[string]any{
-		"name":                    "sys-test-webhook-" + h.runID,
+		"name":                    "sys-test-webhook-" + h.runID + suffix,
 		"agent_id":                agentID,
 		"wait_timeout_seconds":    30,
 		"max_run_timeout_seconds": 60,

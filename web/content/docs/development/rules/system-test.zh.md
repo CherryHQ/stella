@@ -65,6 +65,8 @@ PostgreSQL 来手动运行服务器，或为该平台提 issue。由于套件在
 - `webhook_sync_persistent` —— 两次无认证 capability 调用同步返回 fake-model 输出，并跨请求
   复用同一个持久 Webhook session。
 - `goal_lifecycle` —— 一个 Goal 从创建被派发器的异步 worker 驱动到自主验收。
+- `github_webhook_compatibility` —— 一个 GitHub 风格的 JSON push 投递通过无 cookie jar 的普通个人 Webhook
+  发送，收到异步 `202`，并且其原始 payload 恰好一次、完整地抵达 fake model。
 - `graceful_drain` —— 在一个轮次仍在途中时发送 SIGTERM：`/readyz` 从 ready 翻转，一个 attach
   订阅被 drain 取消，被钉住的轮次仍在其流上完整收尾（全文、finish、[DONE]），进程以 0 退出。
   它最后运行，因为会消费掉共享服务器。
