@@ -69,6 +69,7 @@ and one shared database serve them all in sequence:
   listener, and reports ready.
 - `startup_and_auth` — bootstrap registration and session-authenticated access.
 - `chat_sse` — one chat turn end to end, consumed as a live SSE stream.
+- `image_history` — an uploaded image reaches the fake provider for baseline rendering and the active answer turn, persists as canonical media plus that exact baseline, projects as text with no pixels on the next answer request, and reloads byte-identically through the authenticated history endpoint.
 - `chat_provider_error` — a failed model call surfaced as an in-band error frame
   on the send stream, then finish and [DONE] — the turn never hangs.
 - `webhook_sync_persistent` — two unauthenticated capability calls return
@@ -110,7 +111,7 @@ tool names, the `goal_control` action enum) select a response, so ordinary promp
 edits can never turn into a system-test failure. It has two scripting modes:
 
 - **FIFO turns** (`enqueueText`) — an ordered queue replayed in arrival order;
-  used by `chat_sse`. An unscripted request fails the test.
+  used by `chat_sse` and `image_history`. An unscripted request fails the test.
 - **goal_control variant match** (`enqueueGoalControl`) — responses keyed by the
   `goal_control` action the server advertises in the request's tool schema
   (`decompose`, `submit`), matched on that stable field rather than arrival order;

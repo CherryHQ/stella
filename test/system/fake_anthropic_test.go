@@ -124,11 +124,17 @@ type controlResponse struct {
 type fakeRequest struct {
 	Model     string
 	Messages  []string
+	Images    []fakeImage
 	ToolNames []string
 	// GoalControl is the non-fail goal_control action the request advertised
 	// ("decompose"/"submit"/"verdict"), or "" when the request carries no
 	// goal_control tool. It is the Goal-stage discriminator.
 	GoalControl string
+}
+
+type fakeImage struct {
+	MediaType string
+	Data      string
 }
 
 // newFakeAnthropic starts the fake and registers cleanup that fails the test if
@@ -257,10 +263,10 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model, messages, toolNames, control := parseMessagesRequest(f.t, r)
+	model, messages, images, toolNames, control := parseMessagesRequest(f.t, r)
 
 	f.mu.Lock()
-	f.reqs = append(f.reqs, fakeRequest{Model: model, Messages: messages, ToolNames: toolNames, GoalControl: control})
+	f.reqs = append(f.reqs, fakeRequest{Model: model, Messages: messages, Images: images, ToolNames: toolNames, GoalControl: control})
 	resp, ok := f.selectResponse(model, control)
 	f.mu.Unlock()
 	if !ok {
@@ -465,12 +471,12 @@ func (r fakeResponse) textDeltaFrame() string {
 // the request's tool schema advertises. A body it cannot parse is a real defect
 // (the system sent something the Anthropic API would reject), so it fails the
 // test rather than guessing.
-func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages, toolNames []string, goalControl string) {
+func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages []string, images []fakeImage, toolNames []string, goalControl string) {
 	t.Helper()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		t.Errorf("fake anthropic: read request body: %v", err)
-		return "", nil, nil, ""
+		return "", nil, nil, nil, ""
 	}
 	var parsed struct {
 		Model    string `json:"model"`
@@ -490,7 +496,7 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		t.Errorf("fake anthropic: request body is not valid Messages JSON: %v", err)
-		return "", nil, nil, ""
+		return "", nil, nil, nil, ""
 	}
 	messages = make([]string, 0, len(parsed.Messages))
 	for _, message := range parsed.Messages {
@@ -499,7 +505,13 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 			t.Errorf("fake anthropic: unsupported message content %s", message.Content)
 			continue
 		}
+		messageImages, ok := messageImageBlocks(message.Content)
+		if !ok {
+			t.Errorf("fake anthropic: unsupported image content %s", message.Content)
+			continue
+		}
 		messages = append(messages, text)
+		images = append(images, messageImages...)
 	}
 	names := make([]string, 0, len(parsed.Tools))
 	for _, tool := range parsed.Tools {
@@ -508,7 +520,36 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 			goalControl = nonFailAction(tool.InputSchema.Properties.Action.Enum)
 		}
 	}
-	return parsed.Model, messages, names, goalControl
+	return parsed.Model, messages, images, names, goalControl
+}
+
+func messageImageBlocks(content json.RawMessage) ([]fakeImage, bool) {
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return nil, true
+	}
+	var blocks []struct {
+		Type   string `json:"type"`
+		Source struct {
+			Type      string `json:"type"`
+			MediaType string `json:"media_type"`
+			Data      string `json:"data"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return nil, false
+	}
+	var images []fakeImage
+	for _, block := range blocks {
+		if block.Type != "image" {
+			continue
+		}
+		if block.Source.Type != "base64" || block.Source.MediaType == "" || block.Source.Data == "" {
+			return nil, false
+		}
+		images = append(images, fakeImage{MediaType: block.Source.MediaType, Data: block.Source.Data})
+	}
+	return images, true
 }
 
 // messageText extracts text content from the Messages API's string shorthand or
