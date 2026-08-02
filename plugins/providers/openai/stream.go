@@ -75,6 +75,6 @@ func mapStopReason(reason string) ai.StopReason {
 	case "tool_calls":
 		return ai.StopReasonToolUse
 	default:
-		return ai.StopReasonStop
+		return ai.StopReasonUnknown
 	}
 }

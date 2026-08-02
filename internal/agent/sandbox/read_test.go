@@ -4,18 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/binary"
-	"hash/crc32"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -39,37 +36,6 @@ func writePNG(t *testing.T, path string, w, h int) {
 
 func newTestReadTool(projectRoot string) *hostReadTool {
 	return &hostReadTool{host: pkgsandbox.NopSession(), projectRoot: projectRoot}
-}
-
-func TestExtractWithXbergUsesManagedShim(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("test helper uses a POSIX shell script")
-	}
-	stellaHome := t.TempDir()
-	t.Setenv("STELLA_HOME", stellaHome)
-	config.ResetStellaHome()
-	t.Cleanup(config.ResetStellaHome)
-
-	shim := filepath.Join(pkgsandbox.MiseShimsDir(stellaHome), "xberg")
-	if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil {
-		t.Fatalf("create shim directory: %v", err)
-	}
-	if err := os.WriteFile(shim, []byte("#!/bin/sh\n[ \"$1\" = extract ] || exit 1\nprintf %s \"$PWD\"\n"), 0o755); err != nil {
-		t.Fatalf("write Xberg shim: %v", err)
-	}
-	inputDir := t.TempDir()
-
-	got, err := extractWithXberg(context.Background(), filepath.Join(inputDir, "document.pdf"))
-	if err != nil {
-		t.Fatalf("extractWithXberg() error: %v", err)
-	}
-	want, err := filepath.EvalSymlinks(inputDir)
-	if err != nil {
-		t.Fatalf("EvalSymlinks: %v", err)
-	}
-	if got != want {
-		t.Errorf("extractWithXberg() cwd = %q, want %q", got, want)
-	}
 }
 
 func TestReadImageVisionReturnsImageBlock(t *testing.T) {
@@ -121,57 +87,30 @@ func TestReadImageResizesLargeImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode config: %v", err)
 	}
-	if cfg.Width > maxImageDim || cfg.Height > maxImageDim {
-		t.Errorf("image not resized: %dx%d exceeds %d", cfg.Width, cfg.Height, maxImageDim)
+	if cfg.Width > vision.MaxImageDim || cfg.Height > vision.MaxImageDim {
+		t.Errorf("image not resized: %dx%d exceeds %d", cfg.Width, cfg.Height, vision.MaxImageDim)
 	}
 }
 
-func TestValidateImageBudgetRejectsPixelBomb(t *testing.T) {
-	// A header claiming a huge canvas must be rejected from the IHDR alone,
-	// without allocating the full pixel buffer the bomb would expand to.
-	header := pngHeaderWithDims(8000, 8000) // 64MP > maxImagePixels
-	if _, err := validateImageBudget(header); err == nil {
-		t.Fatal("expected oversized image (64MP) to be rejected before decode")
-	}
-}
-
-// pngHeaderWithDims builds a minimal PNG (signature + IHDR chunk only) declaring
-// the given dimensions. image.DecodeConfig reads the size from IHDR without
-// decoding pixels, so this exercises the header-based budget check cheaply.
-func pngHeaderWithDims(w, h uint32) []byte {
-	var buf bytes.Buffer
-	buf.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
-	ihdr := make([]byte, 13)
-	binary.BigEndian.PutUint32(ihdr[0:4], w)
-	binary.BigEndian.PutUint32(ihdr[4:8], h)
-	ihdr[8] = 8 // bit depth
-	ihdr[9] = 6 // color type: RGBA truecolor (DecodeConfig returns after IHDR)
-	length := make([]byte, 4)
-	binary.BigEndian.PutUint32(length, 13)
-	buf.Write(length)
-	chunk := append([]byte("IHDR"), ihdr...)
-	buf.Write(chunk)
-	crc := make([]byte, 4)
-	binary.BigEndian.PutUint32(crc, crc32.ChecksumIEEE(chunk))
-	buf.Write(crc)
-	return buf.Bytes()
-}
-
-func TestReadImageNonVisionFallsBackToText(t *testing.T) {
+func TestReadImageCanonicalResultKeepsOriginalForTransform(t *testing.T) {
 	dir := t.TempDir()
-	writePNG(t, filepath.Join(dir, "pic.png"), 10, 10)
-	tool := newTestReadTool(dir)
-
-	ctx := pkgtools.WithVision(context.Background(), false)
-	blocks, err := tool.ExecuteContent(ctx, map[string]any{"path": "pic.png"})
+	path := filepath.Join(dir, "pic.png")
+	writePNG(t, path, 10, 10)
+	original, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("ExecuteContent: %v", err)
+		t.Fatal(err)
 	}
-	if ai.HasImage(blocks) {
-		t.Fatal("non-vision model must not receive an image block")
+	blocks, err := newTestReadTool(dir).ExecuteContent(pkgtools.WithImageResultMode(context.Background(), pkgtools.ImageResultCanonical), map[string]any{"path": "pic.png"})
+	if err != nil || !ai.HasImage(blocks) {
+		t.Fatalf("canonical read = %#v, %v", blocks, err)
 	}
-	if !strings.Contains(ai.FlattenText(blocks), "cannot view images") {
-		t.Errorf("expected non-vision note, got %q", ai.FlattenText(blocks))
+	for _, block := range blocks {
+		if img, ok := block.(ai.ImageContent); ok {
+			got, _ := base64.StdEncoding.DecodeString(img.Data)
+			if !bytes.Equal(got, original) {
+				t.Fatal("canonical read changed original bytes")
+			}
+		}
 	}
 }
 

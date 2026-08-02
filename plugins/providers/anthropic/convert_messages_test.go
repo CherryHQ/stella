@@ -1,6 +1,8 @@
 package anthropic
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -282,6 +284,25 @@ func TestToolResultBlockBasic(t *testing.T) {
 	}
 	if block.OfToolResult.ToolUseID != "t1" {
 		t.Errorf("tool_use_id = %q, want t1", block.OfToolResult.ToolUseID)
+	}
+}
+
+func TestToolResultBlockPreservesAllProjectedText(t *testing.T) {
+	block := toolResultBlock(ai.ToolResultMessage{
+		ToolCallID: "t1",
+		Content: []ai.ContentBlock{
+			ai.TextContent{Text: "Read image file [image/png]"},
+			ai.TextContent{Text: "## Text\nwords\n\n## Scene\nA screenshot."},
+		},
+	})
+	payload, err := json.Marshal(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Read image file", "## Text", "## Scene"} {
+		if !strings.Contains(string(payload), want) {
+			t.Fatalf("tool result JSON omitted %q: %s", want, payload)
+		}
 	}
 }
 

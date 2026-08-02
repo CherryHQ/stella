@@ -84,7 +84,7 @@ func TestSessionContextItemsAndSummaryEndpoints(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &messages); err != nil {
 		t.Fatalf("decode messages: %v", err)
 	}
-	if len(messages.Messages) != 1 || messages.Messages[0]["role"] != "assistant" {
+	if len(messages.Messages) != 1 || messages.Messages[0].Role != apitypes.SessionMessageRoleAssistant {
 		t.Fatalf("messages = %+v, want merged assistant range", messages.Messages)
 	}
 }

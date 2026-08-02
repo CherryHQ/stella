@@ -14,17 +14,18 @@ import (
 // Runner is a configured agent loop executor. It is safe for concurrent use.
 // All configuration is set at construction time via RunnerConfig + options.
 type Runner struct {
-	stream        providers.StreamFunc
-	model         ai.Model
-	streamOptions ai.StreamOptions
-	tools         ToolSet
-	toolDefs      []ai.ToolDefinition
-	system        string
-	interrupt     <-chan struct{}
-	hooks         *hooks.HookSet
-	hookMeta      hooks.HookMeta
-	toolLifecycle *ToolLifecycle
-	turnNotify    func(turn int, elapsed time.Duration) *string
+	stream          providers.StreamFunc
+	model           ai.Model
+	streamOptions   ai.StreamOptions
+	tools           ToolSet
+	toolDefs        []ai.ToolDefinition
+	system          string
+	interrupt       <-chan struct{}
+	hooks           *hooks.HookSet
+	hookMeta        hooks.HookMeta
+	toolLifecycle   *ToolLifecycle
+	canonicalImages *CanonicalImageConfig
+	turnNotify      func(turn int, elapsed time.Duration) *string
 }
 
 // RunnerConfig holds the required fields for constructing a Runner.
@@ -68,6 +69,13 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 	}
 }
 
+// WithCanonicalImages enables the complete durable ordinary-session image
+// policy. Both callbacks are required so hydration and tool canonicalization
+// cannot be configured independently.
+func WithCanonicalImages(cfg CanonicalImageConfig) Option {
+	return func(r *Runner) { r.canonicalImages = &cfg }
+}
+
 // WithTurnNotify sets a callback invoked at the start of each turn.
 // If it returns a non-nil string, that text is injected as a UserMessage
 // before the model call for that turn.
@@ -95,6 +103,11 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	for _, opt := range opts {
 		opt(r)
 	}
+	if r.canonicalImages != nil {
+		if r.canonicalImages.Load == nil || r.canonicalImages.CanonicalizeToolResult == nil {
+			return nil, errors.New("agent: canonical image loader and tool canonicalizer are required together")
+		}
+	}
 	return r, nil
 }
 
@@ -110,9 +123,11 @@ func (r *Runner) SetTurnNotify(fn func(turn int, elapsed time.Duration) *string)
 	r.turnNotify = fn
 }
 
-// Run executes the agent loop from scratch.
-func (r *Runner) Run(ctx context.Context, messages []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
-	return run(ctx, r.loopConfig(), messages, emit)
+// RunWithActiveStart executes a loop with an explicit boundary between
+// assembled history and the current turn. activeStart indexes messages before
+// any synthetic progress nudges are inserted.
+func (r *Runner) RunWithActiveStart(ctx context.Context, messages []ai.Message, activeStart int, emit func(LoopEvent)) ([]ai.Message, error) {
+	return run(ctx, r.loopConfig(), messages, activeStart, emit)
 }
 
 // Continue validates the history tail and resumes the agent loop.
@@ -122,7 +137,7 @@ func (r *Runner) Continue(ctx context.Context, messages []ai.Message, emit func(
 	}
 	switch messages[len(messages)-1].(type) {
 	case ai.UserMessage, ai.ToolResultMessage:
-		return r.Run(ctx, messages, emit)
+		return r.RunWithActiveStart(ctx, messages, len(messages)-1, emit)
 	default:
 		return nil, errors.New("invalid transcript tail for continue")
 	}
@@ -140,6 +155,7 @@ func (r *Runner) loopConfig() loopConfig {
 		Hooks:           r.hooks,
 		HookMeta:        r.hookMeta,
 		ToolLifecycle:   r.toolLifecycle,
+		CanonicalImages: r.canonicalImages,
 		TurnNotify:      r.turnNotify,
 	}
 }

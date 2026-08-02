@@ -124,11 +124,17 @@ type controlResponse struct {
 type fakeRequest struct {
 	Model     string
 	Messages  []string
+	Images    []fakeImage
 	ToolNames []string
 	// GoalControl is the non-fail goal_control action the request advertised
 	// ("decompose"/"submit"/"verdict"), or "" when the request carries no
 	// goal_control tool. It is the Goal-stage discriminator.
 	GoalControl string
+}
+
+type fakeImage struct {
+	MediaType string
+	Data      string
 }
 
 // newFakeAnthropic starts the fake and registers cleanup that fails the test if
@@ -167,6 +173,12 @@ func (f *fakeAnthropic) enqueueText(text string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scripts = append(f.scripts, fakeResponse{text: text})
+}
+
+func (f *fakeAnthropic) enqueueTool(id, name, args string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scripts = append(f.scripts, fakeResponse{toolID: id, toolName: name, toolArgs: args})
 }
 
 // enqueueGoalControl scripts the tool_use reply for one goal_control stage,
@@ -257,10 +269,10 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model, messages, toolNames, control := parseMessagesRequest(f.t, r)
+	model, messages, images, toolNames, control := parseMessagesRequest(f.t, r)
 
 	f.mu.Lock()
-	f.reqs = append(f.reqs, fakeRequest{Model: model, Messages: messages, ToolNames: toolNames, GoalControl: control})
+	f.reqs = append(f.reqs, fakeRequest{Model: model, Messages: messages, Images: images, ToolNames: toolNames, GoalControl: control})
 	resp, ok := f.selectResponse(model, control)
 	f.mu.Unlock()
 	if !ok {
@@ -465,12 +477,12 @@ func (r fakeResponse) textDeltaFrame() string {
 // the request's tool schema advertises. A body it cannot parse is a real defect
 // (the system sent something the Anthropic API would reject), so it fails the
 // test rather than guessing.
-func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages, toolNames []string, goalControl string) {
+func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages []string, images []fakeImage, toolNames []string, goalControl string) {
 	t.Helper()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		t.Errorf("fake anthropic: read request body: %v", err)
-		return "", nil, nil, ""
+		return "", nil, nil, nil, ""
 	}
 	var parsed struct {
 		Model    string `json:"model"`
@@ -490,16 +502,17 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		t.Errorf("fake anthropic: request body is not valid Messages JSON: %v", err)
-		return "", nil, nil, ""
+		return "", nil, nil, nil, ""
 	}
 	messages = make([]string, 0, len(parsed.Messages))
 	for _, message := range parsed.Messages {
-		text, ok := messageText(message.Content)
+		text, messageImages, ok := messagePayload(message.Content)
 		if !ok {
 			t.Errorf("fake anthropic: unsupported message content %s", message.Content)
 			continue
 		}
 		messages = append(messages, text)
+		images = append(images, messageImages...)
 	}
 	names := make([]string, 0, len(parsed.Tools))
 	for _, tool := range parsed.Tools {
@@ -508,31 +521,60 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 			goalControl = nonFailAction(tool.InputSchema.Properties.Action.Enum)
 		}
 	}
-	return parsed.Model, messages, names, goalControl
+	return parsed.Model, messages, images, names, goalControl
 }
 
-// messageText extracts text content from the Messages API's string shorthand or
-// text-block form. The fake records it for payload compatibility assertions;
-// response selection remains independent of prompt prose.
-func messageText(content json.RawMessage) (string, bool) {
+// messagePayload extracts text and images from top-level message blocks and
+// nested Anthropic tool_result content. Response selection never uses either;
+// journeys inspect them only after the fake has recorded the request.
+func messagePayload(content json.RawMessage) (string, []fakeImage, bool) {
 	var text string
 	if json.Unmarshal(content, &text) == nil {
-		return text, true
+		return text, nil, true
+	}
+	var out strings.Builder
+	var images []fakeImage
+	if !collectMessageBlocks(content, &out, &images) {
+		return "", nil, false
+	}
+	return out.String(), images, true
+}
+
+func collectMessageBlocks(content json.RawMessage, text *strings.Builder, images *[]fakeImage) bool {
+	var shorthand string
+	if json.Unmarshal(content, &shorthand) == nil {
+		text.WriteString(shorthand)
+		return true
 	}
 	var blocks []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type    string          `json:"type"`
+		Text    string          `json:"text"`
+		Content json.RawMessage `json:"content"`
+		Source  struct {
+			Type      string `json:"type"`
+			MediaType string `json:"media_type"`
+			Data      string `json:"data"`
+		} `json:"source"`
 	}
 	if err := json.Unmarshal(content, &blocks); err != nil {
-		return "", false
+		return false
 	}
-	var b strings.Builder
 	for _, block := range blocks {
-		if block.Type == "text" {
-			b.WriteString(block.Text)
+		switch block.Type {
+		case "text":
+			text.WriteString(block.Text)
+		case "image":
+			if block.Source.Type != "base64" || block.Source.MediaType == "" || block.Source.Data == "" {
+				return false
+			}
+			*images = append(*images, fakeImage{MediaType: block.Source.MediaType, Data: block.Source.Data})
+		case "tool_result":
+			if len(block.Content) > 0 && !collectMessageBlocks(block.Content, text, images) {
+				return false
+			}
 		}
 	}
-	return b.String(), true
+	return true
 }
 
 // nonFailAction returns the goal_control stage discriminator: the first action

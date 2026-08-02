@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -34,10 +35,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/blob"
 )
 
-var ErrDestinationExists = errors.New("asset destination already exists")
+var (
+	ErrDestinationExists     = errors.New("asset destination already exists")
+	ErrSessionMediaIntegrity = errors.New("session media integrity check failed")
+)
+
+// SessionMediaStore is the immutable-media port exposed to the session domain.
+// It deliberately accepts identities and digests rather than paths: session
+// media is never addressable through mutable workspace or user-data APIs.
+type SessionMediaStore interface {
+	PutSessionMedia(context.Context, uuid.UUID, [sha256.Size]byte, []byte) error
+	OpenSessionMedia(context.Context, uuid.UUID, [sha256.Size]byte, int64) ([]byte, error)
+}
 
 // Store is the asset persistence service. It is safe for concurrent use.
 type Store struct {
@@ -80,6 +94,150 @@ func NewStore(home string, authority blob.Store, log *slog.Logger) (*Store, erro
 // authority. Tests and diagnostics use it; production code should not branch on
 // it — the durable operations already encode the authority choice.
 func (s *Store) SharedAuthority() bool { return s.authority != nil }
+
+// SessionMedia returns the narrow, write-once media facet. It is intentionally
+// not a path API: only this facet derives users/<id>/session-media/<sha256>.
+func (s *Store) SessionMedia() SessionMediaStore { return sessionMediaStore{store: s} }
+
+type sessionMediaStore struct{ store *Store }
+
+func (m sessionMediaStore) PutSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, data []byte) error {
+	return m.store.putSessionMedia(ctx, userID, digest, data)
+}
+
+func (m sessionMediaStore) OpenSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
+	return m.store.openSessionMedia(ctx, userID, digest, sizeBytes)
+}
+
+func (s *Store) putSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, data []byte) error {
+	if err := verifySessionMedia(data, digest, int64(len(data))); err != nil {
+		return err
+	}
+	key := sessionMediaKey(userID, digest)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.authority != nil {
+		if existing, err := s.readAuthoritySessionMedia(ctx, key); err == nil {
+			return verifySessionMedia(existing, digest, int64(len(data)))
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("open existing session media: %w", err)
+		}
+		if err := s.authority.Put(ctx, key, bytes.NewReader(data)); err != nil {
+			return fmt.Errorf("persist session media: %w", err)
+		}
+		stored, err := s.readAuthoritySessionMedia(ctx, key)
+		if err != nil {
+			return fmt.Errorf("verify persisted session media: %w", err)
+		}
+		return verifySessionMedia(stored, digest, int64(len(data)))
+	}
+
+	return s.writeLocalSessionMedia(userID, digest, data)
+}
+
+func (s *Store) openSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
+	if sizeBytes <= 0 {
+		return nil, fmt.Errorf("%w: invalid size %d", ErrSessionMediaIntegrity, sizeBytes)
+	}
+	key := sessionMediaKey(userID, digest)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var (
+		data []byte
+		err  error
+	)
+	if s.authority != nil {
+		data, err = s.readAuthoritySessionMedia(ctx, key)
+	} else {
+		data, err = s.readLocalSessionMedia(userID, digest)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open session media: %w", err)
+	}
+	if err := verifySessionMedia(data, digest, sizeBytes); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func (s *Store) readAuthoritySessionMedia(ctx context.Context, key string) ([]byte, error) {
+	rc, err := s.authority.Open(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := io.ReadAll(rc)
+	closeErr := rc.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	return data, closeErr
+}
+
+func (s *Store) writeLocalSessionMedia(userID uuid.UUID, digest [sha256.Size]byte, data []byte) error {
+	root, rel, _, err := s.openPath(filepath.Join(s.home, filepath.FromSlash(sessionMediaKey(userID, digest))))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if existing, err := root.ReadFile(rel); err == nil {
+		return verifySessionMedia(existing, digest, int64(len(data)))
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := root.MkdirAll(filepath.Dir(rel), 0o700); err != nil {
+		return err
+	}
+
+	// Publish only a fully closed sibling. A crash during the write leaves at
+	// most a disposable temp file, never a poisoned content-addressed final key.
+	f, tmp, err := createRootTemp(root, filepath.Dir(rel))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Remove(tmp) }()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// s.mu serializes this recheck and rename with every local asset transition.
+	// An existing final object wins only when it proves the same immutable bytes.
+	if existing, err := root.ReadFile(rel); err == nil {
+		return verifySessionMedia(existing, digest, int64(len(data)))
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := root.Rename(tmp, rel); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) readLocalSessionMedia(userID uuid.UUID, digest [sha256.Size]byte) ([]byte, error) {
+	root, rel, _, err := s.openPath(filepath.Join(s.home, filepath.FromSlash(sessionMediaKey(userID, digest))))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(rel)
+}
+
+func sessionMediaKey(userID uuid.UUID, digest [sha256.Size]byte) string {
+	return filepath.ToSlash(filepath.Join("users", userID.String(), "session-media", hex.EncodeToString(digest[:])))
+}
+
+func verifySessionMedia(data []byte, digest [sha256.Size]byte, sizeBytes int64) error {
+	if int64(len(data)) != sizeBytes || sha256.Sum256(data) != digest {
+		return fmt.Errorf("%w: expected sha256 %x and %d bytes", ErrSessionMediaIntegrity, digest, sizeBytes)
+	}
+	return nil
+}
 
 // SaveAsset writes data as a new timestamped file under assetsDir, durably
 // persists it in the selected authority, and returns the local materialized

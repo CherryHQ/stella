@@ -177,6 +177,22 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
         className="px-0.5 leading-relaxed text-[15px] text-foreground/90 font-sans"
       />
     );
+  if (block.type === "image")
+    return (
+      <a
+        href={block.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block w-fit overflow-hidden rounded-lg border border-border hover:border-primary/40 transition-colors"
+      >
+        <img
+          src={block.url}
+          alt="Tool image output"
+          className="max-h-56 max-w-full object-cover"
+          loading="lazy"
+        />
+      </a>
+    );
   return null;
 }
 
@@ -344,6 +360,8 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
     // The runner appends a trailing "[exit:N | Xms]" line; lift it into the
     // status footer instead of leaving it in the output body.
     let outputText = block.result?.content ?? "";
+    const outputBlocks = block.result?.blocks ?? [];
+    if (outputBlocks.length > 0) outputText = "";
     let duration = "";
     let exitOk = !block.result?.is_error;
     const exitMatch = outputText.match(/\n?\[exit:(\d+) \| (\d+ms)\]\s*$/);
@@ -352,7 +370,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
       duration = exitMatch[2];
       exitOk = exitMatch[1] === "0" && !block.result?.is_error;
     }
-    return { inputText, outputText, duration, exitOk };
+    return { inputText, outputText, outputBlocks, duration, exitOk };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- args derives from block
   }, [open, block]);
 
@@ -406,6 +424,35 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
               {details!.outputText}
             </pre>
           )}
+          {block.result &&
+            details!.outputBlocks.map((output, index) =>
+              output.type === "text" ? (
+                <pre
+                  key={`text-${index}`}
+                  className={cn(
+                    "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
+                    block.result?.is_error ? "text-destructive/80" : "text-muted-foreground/80",
+                  )}
+                >
+                  {output.text}
+                </pre>
+              ) : (
+                <a
+                  key={`image-${output.media_id}-${index}`}
+                  href={output.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 block w-fit overflow-hidden rounded-lg border border-border hover:border-primary/40 transition-colors"
+                >
+                  <img
+                    src={output.url}
+                    alt="Tool image output"
+                    className="max-h-56 max-w-full object-cover"
+                    loading="lazy"
+                  />
+                </a>
+              ),
+            )}
           {block.result && (
             <div
               className={cn(

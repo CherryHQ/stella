@@ -848,6 +848,7 @@ func TestTranscriptHandlersStayTransportOnly(t *testing.T) {
 
 	handlers := map[string]bool{
 		"GetSessionMessages":     true,
+		"GetSessionMedia":        true,
 		"GetSessionContextItems": true,
 		"GetSessionSummary":      true,
 	}

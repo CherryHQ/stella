@@ -45,13 +45,21 @@ func (p *Provider) BuildReviewContext(ctx context.Context, session memory.Sessio
 		if err != nil {
 			return "", fmt.Errorf("get messages since: %w", err)
 		}
-		appendReviewMessagesWithBudget(&b, msgs, remainingBudget)
+		partsByMessage, err := loadMessageParts(ctx, p.q, messageIDsThatCanHaveParts(msgs))
+		if err != nil {
+			return "", err
+		}
+		appendReviewMessagesWithParts(&b, msgs, partsByMessage, remainingBudget)
 	} else {
 		msgs, err := p.q.GetMessagesByConversation(ctx, conv.ID)
 		if err != nil {
 			return "", fmt.Errorf("get messages: %w", err)
 		}
-		appendReviewMessages(&b, msgs)
+		partsByMessage, err := loadMessageParts(ctx, p.q, messageIDsThatCanHaveParts(msgs))
+		if err != nil {
+			return "", err
+		}
+		appendReviewMessagesWithParts(&b, msgs, partsByMessage, maxReviewTokens)
 	}
 
 	return b.String(), nil
@@ -88,10 +96,10 @@ func appendReviewSummaries(b *strings.Builder, summaries []sqlc.CtxSummary, budg
 }
 
 func appendReviewMessages(b *strings.Builder, msgs []sqlc.CtxMessage) {
-	appendReviewMessagesWithBudget(b, msgs, maxReviewTokens)
+	appendReviewMessagesWithParts(b, msgs, nil, maxReviewTokens)
 }
 
-func appendReviewMessagesWithBudget(b *strings.Builder, msgs []sqlc.CtxMessage, budget int) {
+func appendReviewMessagesWithParts(b *strings.Builder, msgs []sqlc.CtxMessage, partsByMessage map[string][]loadedMessagePart, budget int) {
 	if budget <= 0 {
 		return
 	}
@@ -109,7 +117,7 @@ func appendReviewMessagesWithBudget(b *strings.Builder, msgs []sqlc.CtxMessage, 
 	// Take the tail that fits within the token budget.
 	start := len(filtered)
 	for i := len(filtered) - 1; i >= 0; i-- {
-		cost := memory.EstimateTokens(filtered[i].Content) + memory.EstimateTokens(filtered[i].Role) + 4
+		cost := memory.EstimateTokens(reviewMessageText(filtered[i], partsByMessage[filtered[i].ID])) + memory.EstimateTokens(filtered[i].Role) + 4
 		if budget-cost < 0 {
 			break
 		}
@@ -118,6 +126,13 @@ func appendReviewMessagesWithBudget(b *strings.Builder, msgs []sqlc.CtxMessage, 
 	}
 
 	for _, m := range filtered[start:] {
-		fmt.Fprintf(b, "[%s] %s\n", m.Role, m.Content)
+		fmt.Fprintf(b, "[%s] %s\n", m.Role, reviewMessageText(m, partsByMessage[m.ID]))
 	}
+}
+
+func reviewMessageText(msg sqlc.CtxMessage, parts []loadedMessagePart) string {
+	if len(parts) > 0 {
+		return stablePartText(parts)
+	}
+	return msg.Content
 }

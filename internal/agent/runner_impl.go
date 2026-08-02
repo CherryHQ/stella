@@ -29,8 +29,9 @@ import (
 
 // providerConfig groups LLM provider settings.
 type providerConfig struct {
-	API     string // provider key: "anthropic", "openai"
-	Model   string // e.g. "claude-sonnet-4-20250514"
+	API     string   // provider key: "anthropic", "openai"
+	Model   string   // e.g. "claude-sonnet-4-20250514"
+	Input   []string // declared model input modalities, e.g. ["text", "image"]; nil when undeclared
 	APIKey  string
 	BaseURL string // optional provider base URL override
 	Builder ProviderStreamBuilder
@@ -57,21 +58,23 @@ type runnerConfig struct {
 	DelegateRunner      delegatetool.SessionRunner
 	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
+	CanonicalImages     *coreagent.CanonicalImageConfig
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
 type runner struct {
-	runner        *coreagent.Runner
-	stream        providers.StreamFunc
-	tools         *tools.Registry
-	model         ai.Model
-	streamOptions ai.StreamOptions
-	system        string
-	hookSet       *hooks.HookSet
-	toolLifecycle *coreagent.ToolLifecycle
-	chatTimeout   time.Duration
-	session       pkgsandbox.Session // runner-owned sandbox session lifecycle
-	sandboxCfg    sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
+	runner          *coreagent.Runner
+	stream          providers.StreamFunc
+	tools           *tools.Registry
+	model           ai.Model
+	streamOptions   ai.StreamOptions
+	system          string
+	hookSet         *hooks.HookSet
+	toolLifecycle   *coreagent.ToolLifecycle
+	canonicalImages *coreagent.CanonicalImageConfig
+	chatTimeout     time.Duration
+	session         pkgsandbox.Session // runner-owned sandbox session lifecycle
+	sandboxCfg      sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -88,7 +91,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	systemPrompt := cfg.System
 
-	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL}
+	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input}
 
 	// Propagate the turn budget into the sandbox config so both initial OAuth env
 	// injection and per-turn refresh size their min-validity to the actual chat
@@ -124,7 +127,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
-	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle)
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -133,40 +136,45 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	return &runner{
-		runner:        coreRunner,
-		stream:        stream,
-		tools:         toolReg,
-		model:         model,
-		streamOptions: streamOptions,
-		system:        systemPrompt,
-		hookSet:       hookSet,
-		toolLifecycle: cfg.ToolLifecycle,
-		chatTimeout:   cfg.ChatTimeout,
-		session:       session,
-		sandboxCfg:    cfg.Sandbox,
-		lastActivity:  time.Now(),
-		log:           slog.With("component", "go_runner"),
+		runner:          coreRunner,
+		stream:          stream,
+		tools:           toolReg,
+		model:           model,
+		streamOptions:   streamOptions,
+		system:          systemPrompt,
+		hookSet:         hookSet,
+		toolLifecycle:   cfg.ToolLifecycle,
+		canonicalImages: cfg.CanonicalImages,
+		chatTimeout:     cfg.ChatTimeout,
+		session:         session,
+		sandboxCfg:      cfg.Sandbox,
+		lastActivity:    time.Now(),
+		log:             slog.With("component", "go_runner"),
 	}, nil
 }
 
-func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, toolSet, toolDefs)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, canonicalImages, toolSet, toolDefs)
 }
 
-func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+	opts := []coreagent.Option{
+		coreagent.WithStreamOptions(streamOptions),
+		coreagent.WithSystem(system),
+		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
+		coreagent.WithToolLifecycle(toolLifecycle),
+	}
+	if canonicalImages != nil {
+		opts = append(opts, coreagent.WithCanonicalImages(*canonicalImages))
+	}
 	return coreagent.NewRunner(coreagent.RunnerConfig{
 		Stream:          stream,
 		Model:           model,
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,
-	},
-		coreagent.WithStreamOptions(streamOptions),
-		coreagent.WithSystem(system),
-		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
-		coreagent.WithToolLifecycle(toolLifecycle),
-	)
+	}, opts...)
 }
 
 // buildStreamFunc creates the stream function for the configured API.
@@ -422,7 +430,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, toolSet, toolDefs)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return
@@ -477,7 +485,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			messages = append(messages, ai.UserMessage{Content: message, Timestamp: time.Now()})
 		}
 
-		if _, err := loopRunner.Run(ctx, messages, func(e coreagent.LoopEvent) {
+		if _, err := loopRunner.RunWithActiveStart(ctx, messages, len(history), func(e coreagent.LoopEvent) {
 			for _, evt := range convertLoopEvent(e) {
 				if !sendEvent(ctx, out, evt) {
 					return

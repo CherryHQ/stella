@@ -13,6 +13,7 @@ import {
 } from "@/components/chat/ChatTranscript";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { mergeToolResults, sessionMessagesToMessages } from "@/lib/chat-transport";
 
 interface Props {
   messages: Message[];
@@ -150,7 +151,7 @@ function SummaryCard({
   });
 
   const rawTranscript = useMemo<TranscriptMessage[]>(() => {
-    const raw = (messagesQuery.data ?? []) as unknown as Message[];
+    const raw = mergeToolResults(sessionMessagesToMessages(messagesQuery.data));
     const filtered = raw.filter((m) => m.role !== "tool");
     return mergeConsecutiveMessages(filtered).map((msg, i) => ({
       id: msg.id ?? `${msg.timestamp}-${msg.role}-${i}`,

@@ -60,6 +60,12 @@ PostgreSQL 来手动运行服务器，或为该平台提 issue。由于套件在
 - `readiness` —— 子进程迁移了交给它的数据库、绑定了 TCP 监听、并报告 ready。
 - `startup_and_auth` —— bootstrap 注册与 session 认证后的访问。
 - `chat_sse` —— 一次端到端 chat 轮次，以实时 SSE 流的方式消费。
+- `image_history` —— 上传图片通过 fake provider 完成 baseline 渲染和当前回答，随后持久化为
+  canonical media 与该精确 baseline；下一次回答请求不含像素、只投影 baseline，并可通过鉴权
+  历史接口逐字节加载原图。
+- `read_tool_image_history` —— fake 回答模型调用生产 `read` tool 读取上传的 PNG；tool image 经由
+  fake baseline VLM，在同一 tool loop 的后续回答中仍携带 pixels，持久化为 canonical tool
+  history，并在下一用户回合只投影 baseline。
 - `chat_provider_error` —— 一次失败的模型调用以带内 error 帧的方式出现在发送流上，随后是
   finish 与 [DONE]——该轮次绝不挂起。
 - `webhook_sync_persistent` —— 两次无认证 capability 调用同步返回 fake-model 输出，并跨请求
@@ -92,8 +98,8 @@ journey 依赖另一个 journey 的业务数据 —— 唯一的复用是共享�
 fake **绝不根据 prompt 文案分支** —— 只有稳定的请求字段（model、tool 名、`goal_control` 的
 action 枚举）才选择响应，所以普通的 prompt 改动永远不会变成系统测试失败。它有两种脚本模式：
 
-- **FIFO 轮次**（`enqueueText`）—— 一个按到达顺序回放的有序队列；由 `chat_sse` 使用。
-  未脚本化的请求会让测试失败。
+- **FIFO 轮次**（`enqueueText`）—— 一个按到达顺序回放的有序队列；由 `chat_sse`、
+  `image_history` 和 `read_tool_image_history` 使用。未脚本化的请求会让测试失败。
 - **goal_control 变体匹配**（`enqueueGoalControl`）—— 响应按服务器在请求 tool schema 中广告
   的 `goal_control` action（`decompose`、`submit`）作键，按该稳定字段而非到达顺序匹配；由
   `goal_lifecycle` 使用。

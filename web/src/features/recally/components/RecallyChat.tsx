@@ -6,7 +6,6 @@ import { useI18n } from "@/lib/i18n";
 import { getSessionMessages, createSession } from "@/lib/api-client/sdk.gen";
 import { getArticleOptions } from "@/lib/api-client/@tanstack/react-query.gen";
 import { agentsQueryOptions } from "@/lib/queries/agents";
-import type { Message } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
@@ -15,6 +14,7 @@ import {
   createSessionTransport,
   mergeToolResults,
   messageToUIMessage,
+  sessionMessagesToMessages,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
 
@@ -145,7 +145,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
         query: { limit: 50, skip: 0 },
         throwOnError: true,
       });
-      return (data?.messages as unknown as Message[]) ?? [];
+      return sessionMessagesToMessages(data?.messages);
     },
     enabled: !!activeAgentId && !!activeSessionId,
   });

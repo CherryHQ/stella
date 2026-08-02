@@ -17,8 +17,22 @@ type toolCallbacks struct {
 }
 
 // executeToolCalls runs each tool call in order and returns result messages.
-func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle) ([]ai.ToolResultMessage, error) {
+func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, cb toolCallbacks, hs *hooks.HookSet, meta hooks.HookMeta, lifecycle *ToolLifecycle, canonicalize ToolImageCanonicalizer) ([]ai.ToolResultMessage, error) {
 	results := make([]ai.ToolResultMessage, 0, len(calls))
+	appendFinal := func(result ai.ToolResultMessage) error {
+		if canonicalize != nil {
+			var err error
+			result, err = canonicalize(ctx, result)
+			if err != nil {
+				return err
+			}
+		}
+		results = append(results, result)
+		if cb.onFinish != nil {
+			cb.onFinish(result)
+		}
+		return nil
+	}
 
 	for _, call := range calls {
 		if cb.onStart != nil {
@@ -33,9 +47,8 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 				IsError:    true,
 				Content:    []ai.ContentBlock{ai.TextContent{Text: "tool not found"}},
 			}
-			results = append(results, result)
-			if cb.onFinish != nil {
-				cb.onFinish(result)
+			if err := appendFinal(result); err != nil {
+				return nil, err
 			}
 			continue
 		}
@@ -64,9 +77,8 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 					ToolName:   call.Name,
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
-				results = append(results, result)
-				if cb.onFinish != nil {
-					cb.onFinish(result)
+				if err := appendFinal(result); err != nil {
+					return nil, err
 				}
 				continue
 			}
@@ -119,9 +131,8 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 					ToolName:   call.Name,
 					Content:    []ai.ContentBlock{ai.TextContent{Text: blockMsg}},
 				}
-				results = append(results, result)
-				if cb.onFinish != nil {
-					cb.onFinish(result)
+				if err := appendFinal(result); err != nil {
+					return nil, err
 				}
 				continue
 			}
@@ -178,9 +189,8 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 
 		runPostToolCall(execCtx, args, resultText, result.IsError, duration)
 
-		results = append(results, result)
-		if cb.onFinish != nil {
-			cb.onFinish(result)
+		if err := appendFinal(result); err != nil {
+			return nil, err
 		}
 	}
 

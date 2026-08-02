@@ -31,6 +31,7 @@ var deniedResources = map[string]bool{
 	"providers":          true,
 	"token-scopes":       true,
 	"tools":              true,
+	"vision-settings":    true,
 }
 
 // Enforce covers bearer kind + scope. Object-level ownership (this user owns

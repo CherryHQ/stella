@@ -268,7 +268,7 @@ Semantic routing may keep chatter silent, so users should @mention the bot for r
 
 **Images or files not being analyzed?**
 
-- Ensure you are using a vision-capable model for image analysis.
+- Configure **Settings -> Vision** for ordinary-session baselines. A model declaring `text, image` receives active-turn pixels; group history without a stored baseline uses the unavailable marker.
 - For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**

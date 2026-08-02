@@ -463,6 +463,16 @@ type CtxItem struct {
 	CreatedAt      time.Time   `json:"created_at"`
 }
 
+type CtxMedium struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Sha256    []byte    `json:"sha256"`
+	MimeType  string    `json:"mime_type"`
+	SizeBytes int64     `json:"size_bytes"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type CtxMessage struct {
 	ID             string    `json:"id"`
 	ConversationID string    `json:"conversation_id"`
@@ -494,6 +504,9 @@ type CtxMessagePart struct {
 	ToolInput   pgtype.Text `json:"tool_input"`
 	ToolOutput  pgtype.Text `json:"tool_output"`
 	Metadata    pgtype.Text `json:"metadata"`
+	MediaID     pgtype.Text `json:"media_id"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
 type CtxSummary struct {

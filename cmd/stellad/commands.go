@@ -43,12 +43,14 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -242,6 +244,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, err
 	}
+	sessionImages, err := sessionmedia.NewPipeline(assetStore.SessionMedia(), db, store, vision.StreamBuilder(providerStreamBuilder), sessionmedia.PipelineOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("build session image pipeline: %w", err)
+	}
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		StellaHome: config.StellaHome(),
@@ -408,6 +414,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithAssetStorePM(assetStore),
+		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),

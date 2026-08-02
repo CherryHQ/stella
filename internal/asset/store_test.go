@@ -3,6 +3,7 @@ package asset
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"io"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/blob"
 )
@@ -245,6 +248,69 @@ func TestMoveFileRejectsExistingDestinationWithoutDataLoss(t *testing.T) {
 	}
 	if string(authority.objs[srcKey]) != "source" || string(authority.objs[dstKey]) != "destination" {
 		t.Fatalf("authority changed: src=%q dst=%q", authority.objs[srcKey], authority.objs[dstKey])
+	}
+}
+
+func TestSessionMediaRejectsIntegrityMismatch(t *testing.T) {
+	home := t.TempDir()
+	s := mustStore(t, home, nil)
+	media := s.SessionMedia()
+	userID := uuid.New()
+	data := []byte("immutable pixels")
+	digest := sha256.Sum256(data)
+
+	wrong := sha256.Sum256([]byte("different pixels"))
+	if err := media.PutSessionMedia(context.Background(), userID, wrong, data); !errors.Is(err, ErrSessionMediaIntegrity) {
+		t.Fatalf("PutSessionMedia wrong digest error = %v, want ErrSessionMediaIntegrity", err)
+	}
+	if err := media.PutSessionMedia(context.Background(), userID, digest, data); err != nil {
+		t.Fatalf("PutSessionMedia: %v", err)
+	}
+	path := filepath.Join(home, filepath.FromSlash(sessionMediaKey(userID, digest)))
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("read session-media directory: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".stella-asset-") {
+			t.Fatalf("published session media left temporary sibling %q", entry.Name())
+		}
+	}
+	if err := os.WriteFile(path, []byte("tampered"), 0o600); err != nil {
+		t.Fatalf("tamper local session media: %v", err)
+	}
+	if _, err := media.OpenSessionMedia(context.Background(), userID, digest, int64(len(data))); !errors.Is(err, ErrSessionMediaIntegrity) {
+		t.Fatalf("OpenSessionMedia tampered error = %v, want ErrSessionMediaIntegrity", err)
+	}
+	if err := media.PutSessionMedia(context.Background(), userID, digest, data); !errors.Is(err, ErrSessionMediaIntegrity) {
+		t.Fatalf("PutSessionMedia must fail closed on a poisoned final object, got %v", err)
+	}
+}
+
+func TestSessionMediaKeyIsOutsideSandboxAndWorkspaceRoots(t *testing.T) {
+	home := t.TempDir()
+	s := mustStore(t, home, nil)
+	userID := uuid.New()
+	digest := sha256.Sum256([]byte("pixels"))
+	key := sessionMediaKey(userID, digest)
+	if blob.IsUserAssetKey(key) {
+		t.Fatalf("session media key %q is classified as a mutable user asset", key)
+	}
+	abs := filepath.Join(home, filepath.FromSlash(key))
+	if _, persisted := s.assetKey(abs); persisted {
+		t.Fatalf("session media path %q is accepted by the mutable asset authority", abs)
+	}
+	for _, mutableRoot := range []string{
+		filepath.Join(home, "users", userID.String(), "data"),
+		filepath.Join(home, "users", userID.String(), "agents"),
+	} {
+		rel, err := filepath.Rel(mutableRoot, abs)
+		if err != nil {
+			t.Fatalf("relative session media path: %v", err)
+		}
+		if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			t.Fatalf("session media path %q is reachable from mutable root %q", abs, mutableRoot)
+		}
 	}
 }
 

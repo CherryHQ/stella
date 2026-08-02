@@ -70,7 +70,7 @@ const MessageRow = memo(function MessageRow({
     >
       {msg.role === "user" ? (
         <UserMessage
-          msg={{ content: msg.content, timestamp: msg.timestamp }}
+          msg={{ content: msg.content, blocks: msg.blocks, timestamp: msg.timestamp }}
           agentId={fileAgentId}
           sessionId={fileSessionId}
           agentNames={agentNames}

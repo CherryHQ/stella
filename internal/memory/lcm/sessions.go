@@ -292,7 +292,11 @@ func (p *Provider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Mess
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
 
-	return rowsToMessages(msgs), nil
+	partsByMessage, err := loadMessageParts(ctx, p.q, messageIDsThatCanHaveParts(msgs))
+	if err != nil {
+		return nil, err
+	}
+	return rowsToMessages(msgs, partsByMessage), nil
 }
 
 // LoadReviewHistory implements memory.ReviewHistoryReader.
@@ -318,7 +322,11 @@ func (p *Provider) LoadReviewHistory(ctx context.Context, sessionID string) ([]m
 		return nil, fmt.Errorf("get messages: %w", err)
 	}
 
-	return rowsToReviewMessages(msgs), nil
+	partsByMessage, err := loadMessageParts(ctx, p.q, messageIDsThatCanHaveParts(msgs))
+	if err != nil {
+		return nil, err
+	}
+	return rowsToReviewMessages(msgs, partsByMessage), nil
 }
 
 func convsToSessionInfo(convs []sqlc.CtxConversation) []memory.SessionInfo {

@@ -2,19 +2,14 @@ import { FileText } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import type { ContentBlock } from "@/lib/types";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
-import {
-  replaceUUIDMentions,
-  extractUserText,
-  parseFileRefs,
-  isImagePath,
-  workspaceFileURL,
-  basename,
-} from "./utils";
+import { basename, replaceUUIDMentions, userMessageRenderInput, workspaceFileURL } from "./utils";
 
 export interface UserMessageProps {
   msg: {
     content?: string;
+    blocks?: ContentBlock[];
     timestamp?: string;
     token_count?: number;
   };
@@ -34,10 +29,10 @@ export function UserMessage({
   showTimestamp,
 }: UserMessageProps) {
   const { t } = useI18n();
-  const displayContent = replaceUUIDMentions(extractUserText(msg), agentNames);
-  const { files, text } = parseFileRefs(displayContent);
-  const images = files.filter(isImagePath);
-  const otherFiles = files.filter((f) => !isImagePath(f));
+  const { canonicalBlocks, hasCanonicalImage, text, images, otherFiles } = userMessageRenderInput(
+    msg,
+    agentNames,
+  );
 
   return (
     <div className="group w-full min-w-0 flex flex-col items-end gap-1.5">
@@ -50,11 +45,37 @@ export function UserMessage({
         </div>
       )}
       <div className="w-full min-w-0 flex flex-col items-end gap-2">
-        {text && (
-          <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left">
-            {renderMentionedText(text, agentNames)}
-          </div>
-        )}
+        {hasCanonicalImage
+          ? canonicalBlocks?.map((block, index) =>
+              block.type === "text" ? (
+                <div
+                  key={`text-${index}`}
+                  className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left"
+                >
+                  {renderMentionedText(replaceUUIDMentions(block.text, agentNames), agentNames)}
+                </div>
+              ) : (
+                <a
+                  key={`image-${block.media_id}-${index}`}
+                  href={block.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block overflow-hidden rounded-lg border border-border hover:border-primary/40 transition-colors"
+                >
+                  <img
+                    src={block.url}
+                    alt="Image attachment"
+                    className="max-h-56 max-w-full object-cover"
+                    loading="lazy"
+                  />
+                </a>
+              ),
+            )
+          : text && (
+              <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left">
+                {renderMentionedText(text, agentNames)}
+              </div>
+            )}
 
         {agentId && sessionId && images.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-1">
@@ -96,7 +117,7 @@ export function UserMessage({
             ))}
           </div>
         )}
-        {(text || (showTimestamp && msg.timestamp)) && (
+        {(hasCanonicalImage || text || (showTimestamp && msg.timestamp)) && (
           <div
             className={cn(
               "flex items-center gap-2 text-xs font-mono text-muted-foreground/60",
@@ -104,7 +125,20 @@ export function UserMessage({
             )}
           >
             {showTimestamp && msg.timestamp && <span>{formatTime(msg.timestamp)}</span>}
-            {text && <CopyButton text={text} className="-mr-1.5" />}
+            {hasCanonicalImage ? (
+              <CopyButton
+                text={(canonicalBlocks ?? [])
+                  .filter(
+                    (block): block is Extract<ContentBlock, { type: "text" }> =>
+                      block.type === "text",
+                  )
+                  .map((block) => block.text)
+                  .join("\n")}
+                className="-mr-1.5"
+              />
+            ) : (
+              text && <CopyButton text={text} className="-mr-1.5" />
+            )}
           </div>
         )}
       </div>

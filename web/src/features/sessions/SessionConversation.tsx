@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { getSessionMessages } from "@/lib/api-client/sdk.gen";
-import type { Message } from "@/lib/types";
 import {
   createSessionTransport,
   mergeToolResults,
   messageToUIMessage,
+  reconcileHistoryUIMessages,
+  sessionMessagesToMessages,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
 import { Button } from "@/components/ui/button";
@@ -80,7 +81,7 @@ export function SessionConversation({
         },
         throwOnError: true,
       });
-      return (data?.messages as unknown as Message[] | undefined) ?? [];
+      return sessionMessagesToMessages(data?.messages);
     },
     getNextPageParam: (lastPage, allPages) =>
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
@@ -95,10 +96,12 @@ export function SessionConversation({
     const uiMessages = merged.map(messageToUIMessage);
     const newIDs = new Set(uiMessages.map((m) => m.id));
     historicalIDsRef.current = newIDs;
-    setChatMessages((prev) => {
-      const liveSlice = prev.filter((m) => !newIDs.has(m.id));
-      return [...uiMessages, ...liveSlice];
-    });
+    setChatMessages((prev) =>
+      reconcileHistoryUIMessages(
+        uiMessages,
+        prev.filter((message) => !newIDs.has(message.id)),
+      ),
+    );
   }, [messagesQuery.data, setChatMessages]);
 
   const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);

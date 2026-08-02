@@ -93,6 +93,6 @@ func mapStopReason(reason string) ai.StopReason {
 	case "end_turn":
 		return ai.StopReasonStop
 	default:
-		return ai.StopReasonStop
+		return ai.StopReasonUnknown
 	}
 }

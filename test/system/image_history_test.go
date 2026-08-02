@@ -1,0 +1,364 @@
+//go:build system
+
+package system
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+)
+
+// testImageHistory proves the complete cross-request image contract through the
+// real stellad process and a scripted model endpoint: the same pixels reach the
+// configured baseline VLM and the active answer turn, canonical history stores
+// no Base64, the next answer turn receives only the immutable baseline, and
+// authorized history can load the byte-identical original.
+func (h *harness) testImageHistory(t *testing.T) {
+	fake := newFakeAnthropic(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	baselineReply := "## Text\nsystem test pixels\n\n## Scene\nAn eight-by-eight synthetic PNG contains a color grid."
+	firstReply := "active image received, run " + h.runID
+	secondReply := "historical baseline received, run " + h.runID
+	fake.enqueueText(baselineReply)
+	fake.enqueueText(firstReply)
+	fake.enqueueText(secondReply)
+
+	const modelID = "claude-sonnet-4-6"
+	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "anthropic-image-"+h.runID)
+	h.setVisionModel(t, ctx, providerID+"/"+modelID)
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		h.setVisionModel(t, cleanupCtx, "")
+	})
+	agentID := h.createAgent(t, ctx, providerID+"/"+modelID)
+	sessionID := h.createSession(t, ctx, agentID)
+
+	original := systemPNG(t)
+	encoded := base64.StdEncoding.EncodeToString(original)
+	firstEvents, gotFirstReply := h.streamChatParts(t, ctx, agentID, sessionID, []map[string]any{
+		{"type": "image", "image": encoded, "mimeType": "image/png"},
+		{"type": "text", "text": "describe this active image " + h.runID},
+	})
+	assertTurnEventOrder(t, firstEvents)
+	if gotFirstReply != firstReply {
+		t.Fatalf("first assistant text = %q, want %q", gotFirstReply, firstReply)
+	}
+
+	baseline, mediaID := h.assertCanonicalImageStored(t, ctx, sessionID, "user", encoded, int64(len(original)))
+	if baseline != baselineReply {
+		t.Fatalf("stored baseline = %q, want scripted VLM baseline %q", baseline, baselineReply)
+	}
+
+	secondEvents, gotSecondReply := h.streamChatTurn(t, ctx, agentID, sessionID, "what was in the prior image? "+h.runID)
+	assertTurnEventOrder(t, secondEvents)
+	if gotSecondReply != secondReply {
+		t.Fatalf("second assistant text = %q, want %q", gotSecondReply, secondReply)
+	}
+
+	reqs := fake.requests()
+	if len(reqs) != 3 {
+		t.Fatalf("fake received %d model requests, want baseline render + 2 answer turns", len(reqs))
+	}
+	for i := range 2 {
+		if reqs[i].Model != modelID || len(reqs[i].Images) != 1 {
+			t.Fatalf("image request %d model/images = %q/%#v, want %q and one image", i, reqs[i].Model, reqs[i].Images, modelID)
+		}
+		if got := reqs[i].Images[0]; got.MediaType != "image/png" || got.Data != encoded {
+			t.Fatalf("image request %d changed pixels: mime=%q bytes_equal=%t", i, got.MediaType, got.Data == encoded)
+		}
+	}
+	if len(reqs[2].Images) != 0 {
+		t.Fatalf("historical request leaked %d image blocks", len(reqs[2].Images))
+	}
+	if !messagesContain(reqs[2].Messages, baseline) {
+		t.Fatalf("historical request omitted stored baseline %q: %#v", baseline, reqs[2].Messages)
+	}
+
+	h.assertHistoryLoadsOriginal(t, ctx, agentID, sessionID, "user", mediaID, original)
+}
+
+// testReadToolImageHistory proves the production tool loop, not just direct
+// upload: the answer model requests read, the tool's image is canonically
+// persisted through the configured VLM, pixels remain active for the follow-up
+// answer call, and the next user turn safely receives baseline-only history.
+func (h *harness) testReadToolImageHistory(t *testing.T) {
+	fake := newFakeAnthropic(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	const modelID = "claude-sonnet-4-6"
+	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "anthropic-read-image-"+h.runID)
+	h.setVisionModel(t, ctx, providerID+"/"+modelID)
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		h.setVisionModel(t, cleanupCtx, "")
+	})
+	agentID := h.createAgent(t, ctx, providerID+"/"+modelID)
+	sessionID := h.createSession(t, ctx, agentID)
+
+	original := systemPNG(t)
+	encoded := base64.StdEncoding.EncodeToString(original)
+	readPath := h.uploadWorkspaceImage(t, ctx, agentID, sessionID, original)
+	toolArgs, err := json.Marshal(map[string]string{"path": readPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselineReply := "## Text\nread tool pixels\n\n## Scene\nAn eight-by-eight synthetic PNG contains a color grid."
+	activeReply := "read tool image received, run " + h.runID
+	historyReply := "read tool baseline received, run " + h.runID
+	fake.enqueueTool("toolu_read_image", "read", string(toolArgs))
+	fake.enqueueText(baselineReply)
+	fake.enqueueText(activeReply)
+	fake.enqueueText(historyReply)
+
+	firstEvents, gotActiveReply := h.streamChatTurn(t, ctx, agentID, sessionID, "read the uploaded image at "+readPath)
+	assertTurnEventOrder(t, firstEvents)
+	if gotActiveReply != activeReply {
+		t.Fatalf("tool-loop assistant text = %q, want %q", gotActiveReply, activeReply)
+	}
+	baseline, mediaID := h.assertCanonicalImageStored(t, ctx, sessionID, "tool", encoded, int64(len(original)))
+	if baseline != baselineReply {
+		t.Fatalf("stored read baseline = %q, want %q", baseline, baselineReply)
+	}
+
+	historyEvents, gotHistoryReply := h.streamChatTurn(t, ctx, agentID, sessionID, "what did the read image contain? "+h.runID)
+	assertTurnEventOrder(t, historyEvents)
+	if gotHistoryReply != historyReply {
+		t.Fatalf("history assistant text = %q, want %q", gotHistoryReply, historyReply)
+	}
+
+	reqs := fake.requests()
+	if len(reqs) != 4 {
+		t.Fatalf("fake received %d requests, want tool call + VLM + active follow-up + history", len(reqs))
+	}
+	if len(reqs[0].Images) != 0 || !containsString(reqs[0].ToolNames, "read") {
+		t.Fatalf("initial LLM request = images:%d tools:%v, want no images and read tool", len(reqs[0].Images), reqs[0].ToolNames)
+	}
+	for _, i := range []int{1, 2} {
+		if reqs[i].Model != modelID || len(reqs[i].Images) != 1 {
+			t.Fatalf("read image request %d model/images = %q/%#v", i, reqs[i].Model, reqs[i].Images)
+		}
+		if got := reqs[i].Images[0]; got.MediaType != "image/png" || got.Data != encoded {
+			t.Fatalf("read image request %d changed pixels: mime=%q bytes_equal=%t", i, got.MediaType, got.Data == encoded)
+		}
+	}
+	if len(reqs[3].Images) != 0 || !messagesContain(reqs[3].Messages, baseline) {
+		t.Fatalf("read history projection = images:%d messages:%#v, want zero images plus baseline %q", len(reqs[3].Images), reqs[3].Messages, baseline)
+	}
+
+	h.assertHistoryLoadsOriginal(t, ctx, agentID, sessionID, "tool", mediaID, original)
+}
+
+func (h *harness) uploadWorkspaceImage(t *testing.T, ctx context.Context, agentID, sessionID string, data []byte) string {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "read-tool.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := fmt.Sprintf("/api/agents/%s/sessions/%s/workspace/upload", agentID, sessionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.baseURL+path, &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatalf("upload read image: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("upload read image = %d, want 201", resp.StatusCode)
+	}
+	var uploaded struct {
+		Path string `json:"path"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&uploaded); err != nil {
+		t.Fatal(err)
+	}
+	if uploaded.Path == "" {
+		t.Fatal("workspace upload returned empty path")
+	}
+	return uploaded.Path
+}
+
+func containsString(values []string, want string) bool {
+	return slices.Contains(values, want)
+}
+
+func (h *harness) setVisionModel(t *testing.T, ctx context.Context, model string) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]string{"model": model})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, h.baseURL+"/api/vision-settings", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatalf("PUT vision settings: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT vision settings = %d, want 200", resp.StatusCode)
+	}
+}
+
+func (h *harness) assertCanonicalImageStored(t *testing.T, ctx context.Context, sessionID, role, encoded string, size int64) (baseline, mediaID string) {
+	t.Helper()
+	var (
+		parentContent string
+		mimeType      string
+		storedSize    int64
+	)
+	err := h.db.QueryRow(ctx, `
+		SELECT m.content, p.text_content, p.media_id::text, media.mime_type, media.size_bytes
+		  FROM ctx_conversation c
+		  JOIN ctx_message m ON m.conversation_id = c.id
+		  JOIN ctx_message_part p ON p.message_id = m.id AND p.part_type = 'image'
+		  JOIN ctx_media media ON media.id = p.media_id
+		 WHERE c.session_id = $1 AND m.role = $2
+		 ORDER BY m.seq, p.ordinal
+		 LIMIT 1`, sessionID, role).Scan(&parentContent, &baseline, &mediaID, &mimeType, &storedSize)
+	if err != nil {
+		t.Fatalf("query canonical image history: %v\n%s", err, h.proc.logTail(40))
+	}
+	if baseline == "" {
+		t.Fatal("canonical image part has empty baseline")
+	}
+	projectedParent := parentContent
+	if role == "tool" {
+		var envelope struct {
+			Result string `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(parentContent), &envelope); err != nil {
+			t.Fatalf("decode canonical tool parent: %v", err)
+		}
+		projectedParent = envelope.Result
+	}
+	if !strings.Contains(projectedParent, baseline) {
+		t.Fatalf("canonical parent/baseline = %q/%q", parentContent, baseline)
+	}
+	if strings.Contains(parentContent, encoded) {
+		t.Fatal("canonical ctx_message.content contains provider Base64")
+	}
+	if mediaID == "" || mimeType != "image/png" || storedSize != size {
+		t.Fatalf("ctx_media = id:%q mime:%q size:%d, want image/png size %d", mediaID, mimeType, storedSize, size)
+	}
+	return baseline, mediaID
+}
+
+func (h *harness) assertHistoryLoadsOriginal(t *testing.T, ctx context.Context, agentID, sessionID, role, mediaID string, original []byte) {
+	t.Helper()
+	path := fmt.Sprintf("/api/agents/%s/sessions/%s/messages", agentID, sessionID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET session history: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET session history = %d, want 200\n%s", resp.StatusCode, h.proc.logTail(40))
+	}
+	var history struct {
+		Messages []struct {
+			Role   string `json:"role"`
+			Blocks []struct {
+				Type     string `json:"type"`
+				MediaID  string `json:"media_id"`
+				MimeType string `json:"mime_type"`
+				URL      string `json:"url"`
+			} `json:"blocks"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&history); err != nil {
+		t.Fatalf("decode session history: %v", err)
+	}
+	var mediaURL string
+	for _, message := range history.Messages {
+		for _, block := range message.Blocks {
+			if message.Role == role && block.Type == "image" && block.MediaID == mediaID {
+				if block.MimeType != "image/png" {
+					t.Fatalf("history image MIME = %q", block.MimeType)
+				}
+				mediaURL = block.URL
+			}
+		}
+	}
+	if mediaURL == "" {
+		t.Fatalf("history omitted image media %s: %#v", mediaID, history.Messages)
+	}
+
+	mediaReq, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+mediaURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaResp, err := h.client.Do(mediaReq)
+	if err != nil {
+		t.Fatalf("GET history media: %v", err)
+	}
+	defer func() { _ = mediaResp.Body.Close() }()
+	if mediaResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET history media = %d, want 200", mediaResp.StatusCode)
+	}
+	got, err := io.ReadAll(mediaResp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mediaResp.Header.Get("Content-Type") != "image/png" || !bytes.Equal(got, original) {
+		t.Fatalf("history original changed: content-type=%q bytes_equal=%t", mediaResp.Header.Get("Content-Type"), bytes.Equal(got, original))
+	}
+}
+
+func systemPNG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := range 8 {
+		for x := range 8 {
+			img.SetRGBA(x, y, color.RGBA{R: uint8(x * 20), G: uint8(y * 20), B: 90, A: 255})
+		}
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, img); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+func messagesContain(messages []string, want string) bool {
+	for _, message := range messages {
+		if strings.Contains(message, want) {
+			return true
+		}
+	}
+	return false
+}

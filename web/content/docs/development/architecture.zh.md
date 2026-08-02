@@ -129,7 +129,7 @@ LLM 提供商采用插件模式。Stella 内置三种提供商：
 | `openai`          | Chat Completions API | GPT 模型                                      |
 | `openai-response` | Responses API        | OpenAI 兼容服务（Perplexity、Together.ai 等） |
 
-每个提供商都实现 `ai.ProviderAdapter` 接口以进行流式响应，并可选实现 `ai.ModelLister` 以进行模型发现。所有提供商都通过 `ImageContent` 类型支持多模态输入（文本 + 图像），转换为其原生图像格式（Anthropic 的 base64 块、OpenAI 的数据 URI image_url）。
+每个提供商都实现 `ai.ProviderAdapter` 接口以进行流式响应，并可选实现 `ai.ModelLister` 以进行模型发现。提供商适配器可以把 `ImageContent` 编码成各自的原生图像格式（Anthropic 的 base64 块、OpenAI 的 data URI `image_url`），但 agent 边界只会在模型声明支持图片输入且图片处于引入它的当前回合时创建它。历史图片以文字基线的形式到达适配器。
 
 提供商位于 `plugins/providers/`，通过 `init()` 自注册。添加新的提供商只需在 `plugins/providers/` 下创建一个包——无需其他连接代码。详见[插件系统](/docs/development/plugin-system)。
 

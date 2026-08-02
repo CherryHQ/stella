@@ -91,6 +91,6 @@ func mapStopReason(status responses.ResponseStatus) ai.StopReason {
 	case responses.ResponseStatusFailed:
 		return ai.StopReasonError
 	default:
-		return ai.StopReasonStop
+		return ai.StopReasonUnknown
 	}
 }

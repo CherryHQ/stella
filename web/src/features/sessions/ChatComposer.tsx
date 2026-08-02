@@ -9,6 +9,8 @@ export interface Attachment {
   name: string;
   path: string;
   uploading: boolean;
+  /** Browser-reported MIME type. Advisory: the server re-detects from bytes. */
+  mediaType?: string;
 }
 
 export interface ComposerSkill {
