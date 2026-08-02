@@ -1,9 +1,9 @@
 # Plan: Implement Sandbox Architecture v2
 
-- **Status:** Approved by Fable (round 2, 2026-08-02) — ready for phase-by-phase execution
+- **Status:** APPROVED — ready to execute Phase 0; Docker Compose remains the hard gate before Kubernetes
 - **Issue:** CherryHQ/stella#828
 - **Design PR:** CherryHQ/stella#829
-- **Architecture source:** `docs/design/2026-08-01-sandbox-architecture-v2.md` rev 7, D1–D55
+- **Architecture source:** `docs/design/2026-08-01-sandbox-architecture-v2.md` rev 8, D1–D60
 - **Canonical plan:** `~/.agents/sessions/stella/2026-08-02-sandbox-architecture-v2-implementation/plan.md`
 - **Repository archive after approval:** `docs/design/2026-08-02-sandbox-architecture-v2-implementation-plan.md`
 - **Execution:** one logical phase at a time; every phase ends with its Acceptance block, review, commit(s), and a handoff before the next phase starts
@@ -17,8 +17,9 @@ Stella currently works because `stellad`, its sandbox, and durable files usually
 - active-turn exclusion, channel serialization, Publisher lookup, Docker resource identity, OAuth flows, and login rate limits depend on process memory.
 - the Helm deployment is intentionally single-replica, while the target must safely support multiple homogeneous `stellad` replicas and ordinary Kubernetes Session Pods.
 - a failed executor can leave outcome-unknown work, stale containers, stuck running rows, or accepted asynchronous input. Retrying by guess would be worse than surfacing interruption.
+- Skill current state is split between release embeds, PG rows, extracted host directories and project files; without an authority cutover, multi-replica execution would preserve a PG/disk mirror and implement a disposable DB Skill snapshot mechanism only to delete it later.
 
-The implementation must reach the architecture in rev 7 without creating a second scheduler, a long-lived Session owner, a file service, a new broker, or a second durable state machine for the same work.
+The implementation must reach the architecture in rev 8 without creating a second scheduler, a long-lived Session owner, a file service, a new broker, a Skill sync engine, or a second durable state machine for the same work.
 
 ## Success criteria
 
@@ -31,6 +32,7 @@ The program is complete when all of the following are observable:
 5. A three-replica Docker Compose deployment passes the cross-replica protocol and crash-recovery gate before Kubernetes work begins.
 6. Kubernetes passes its own POSIX, PVC topology, Pod fencing, security, and node-failure conformance before Helm permits more than one replica.
 7. Current supported local, `none`, and single-daemon Docker behavior remains available throughout the migration; deliberate removals (`/agent`, `/model`, mutable asset mirroring) are documented and tested.
+8. Builtin Skills execute from one digest-pinned release bundle; every mutable Skill has one Home filesystem authority, and the PG→Home cutover cannot leave dual writers/readers or silently lose legacy/Reflect state.
 
 ## Explicit non-goals
 
@@ -41,12 +43,14 @@ The program is complete when all of the following are observable:
 - transparent replay of outcome-unknown commands, writes, publishes, or interrupted Runs;
 - online Home dual-write migration, automatic storage expansion/sharding, or a backup/restore product;
 - mixed-version rolling execution or zero-downtime schema contracts in the initial implementation.
+- PG/Home Skill dual-write, a Skill watcher/sync service, or a PG current-state index after filesystem cutover;
+- preserving PG `skill_changelog` or cross-file database transaction semantics after arbitrary POSIX Skill writes become authoritative.
 
 ## How we got here
 
 The plan is grounded in:
 
-- the complete architecture decision record, `docs/design/2026-08-01-sandbox-architecture-v2.md` rev 7;
+- the complete architecture decision record, `docs/design/2026-08-01-sandbox-architecture-v2.md` rev 8;
 - the secrets compatibility design and multi-replica readiness audit beside it;
 - current sandbox contracts and backends in `pkg/sandbox/`, `plugins/sandbox/`, and `internal/agent/sandbox/`;
 - current runtime ownership and event paths in `internal/agent/runtime/`, `internal/agent/service.go`, and `internal/server/sessions.go`;
@@ -55,7 +59,7 @@ The plan is grounded in:
 - Goal, Scheduler, Delegate, Webhook, OAuth flow, rate-limit, config snapshot, Helm, and Docker Compose implementations;
 - repository rules for schema, goose, sqlc, OpenAPI-first APIs, Go safety patterns, Web UI, system tests, and docs.
 
-An independent Fable architecture review found no direction blocker in rev 5. Rev 6 moved the shared-control and Docker Compose multi-replica gate before Kubernetes. Rev 7 added the fail-closed migration for object-only mutable assets found during implementation-plan review.
+An independent Fable architecture review found no direction blocker in rev 5. Rev 6 moved the shared-control and Docker Compose multi-replica gate before Kubernetes. Rev 7 added the fail-closed migration for object-only mutable assets. Rev 8 replaces the planned PG Skill scratch authority with immutable builtin bundle plus mutable Home filesystem authority. Fable found and closed six concrete Skill migration defects before approving that revision in round 2.
 
 ## Design decisions
 
@@ -101,7 +105,33 @@ The mutable asset authority cutover is an explicit offline migration, not a dele
 
 **Resolved:** Added D55 and the offline, fail-closed, idempotent migration command/marker before mirror or hydrate can be removed.
 
-### 3. Session owns compute; AgentRun owns temporary execution
+### 3. Skill authority is release bundle plus Home filesystem
+
+Release-owned builtin Skills come from one deterministic `resources.Registry` manifest and execute from the same digest-pinned bundle in local/Docker/Kubernetes. Every mutable scope becomes an ordinary filesystem namespace: shared RWX SystemSkillRoot/SystemAgentSkillRoot, UserHome, AgentHome, or ProjectRoot. Scope+name is the rename-free logical identity.
+
+Phase 0 is a separate stacked prerequisite: build the bundle, stop scanning extracted builtins, classify legacy custom system roots fail-closed, and reuse `agent.enabled_builtin_skills` as a versioned per-Agent policy without adding a table. Ordinary Agent updates must stop clobbering that column; all legacy arrays retain current all-enabled behavior.
+
+Phase 2 performs the only mutable authority cutover after typed Homes and `stella-fs` exist but before AgentRun/multi-replica. Managed writes use immutable revision directories plus contained symlink flip; ordinary CLI edits retain POSIX semantics. The offline migration exhaustively disposes active/deprecated/manual/Reflect rows, archives changelog, migrates Reflect usage to logical identity+digest, and records a marker only after complete verification. Marker before/after states each have one authority; there is no dual-write or restore-on-miss.
+
+Alternatives rejected:
+
+- **Keep PG Skill content and materialize Session scratch:** preserves two content shapes and builds a mechanism Homes make unnecessary.
+- **Move mutable Skills before HomeStore/stella-fs:** writes new host-coupled paths that the next phase must delete.
+- **Wait until Kubernetes:** forces AgentRun/Compose to implement and test doomed PG snapshot semantics.
+- **Add an activation table:** the existing Agent JSONB column is sufficient when guarded by one dedicated row transaction.
+- **Rename a directory over an existing directory:** not a portable atomic replacement; managed updates need revision symlink flip.
+
+Tradeoff: arbitrary POSIX edits cannot retain PG cross-file transaction/audit guarantees. Reflect uses tree digest conflict detection and derived usage telemetry; an uncoordinated writer racing the final flip follows ordinary POSIX winner semantics rather than a fake transaction promise.
+
+> Make mutable Skill files authoritative in Homes, while keeping builtin Skills release-owned.
+
+**Review (Fable, Skill authority round 1):** `CHANGES REQUIRED`. The proposal allowed broad Agent updates to erase policy, inferred unsupported legacy-array semantics, omitted Reflect migration, promised impossible directory replacement, hid legacy custom system Skills, and left PG-only metadata without a cutover disposition.
+
+**Resolved:** Broad updates stop writing policy; all arrays preserve current behavior; Reflect moves to filesystem digest identity plus logical usage telemetry; managed writes use contained symlink flip; legacy roots fail closed at manifest skill-root granularity; metadata/status/changelog have exhaustive active/archive dispositions.
+
+**Review (Fable, Skill authority round 2):** `DECISION: APPROVED`. No remaining mandatory finding; the two-authority model, phase order and acceptance gates are approved.
+
+### 4. Session owns compute; AgentRun owns temporary execution
 
 `pkg/sandbox` will evolve from a creator-only Session abstraction to a complete Provider lifecycle:
 
@@ -124,7 +154,7 @@ Alternatives rejected:
 
 Tradeoff: an accepted message can become visibly interrupted without an automatic response. The receipt and transcript remain durable; unknown work is not guessed safe to replay.
 
-### 4. Durable input is one ChatBinding FIFO
+### 5. Durable input is one ChatBinding FIFO
 
 `ctx_chat_input` is the only new direct/channel delivery table. It is simultaneously the ingress receipt, lane item, barrier, batch member, and one-time Run relation. Existing `ctx_group_message` remains the immutable group receipt; `ctx_group_outbox` is narrowed into one expiring `GroupRoute` claim.
 
@@ -139,7 +169,7 @@ Alternatives rejected:
 
 Tradeoff: strict FIFO means a transiently failing head can block the lane. The implementation provides bounded backoff, blocked-lane observability, and audited administrator rejection rather than silently skipping it.
 
-### 5. PostgreSQL is the coordination authority, not an event broker
+### 6. PostgreSQL is the coordination authority, not an event broker
 
 Each replica owns exactly one pool-external serialized control session for small wakeups, health probes, and the global pull/WebSocket channel advisory lock. Transaction-pooling proxies are rejected.
 
@@ -153,7 +183,7 @@ Alternatives rejected:
 
 Tradeoff: watching a Run started on another replica loses token-level immediacy until a real authenticated event relay becomes a product requirement.
 
-### 6. Docker Compose is the distributed-protocol gate
+### 7. Docker Compose is the distributed-protocol gate
 
 Kubernetes must not be the first environment in which multi-replica correctness is exercised. Phase 4 runs three named `stellad` containers against:
 
@@ -173,19 +203,20 @@ Alternatives rejected:
 
 Tradeoff: Phase 4 adds a slower local/CI gate, but it sharply narrows failures in the more expensive Kubernetes phase.
 
-### 7. Activation is staged and fail-closed
+### 8. Activation is staged and fail-closed
 
 The final state never has duplicate authorities, but intermediate implementation PRs may introduce unused schema/types before cutover. Production remains single-replica through Phase 3.
 
-- Phase 1 introduces Home identity while old local/Docker behavior continues through the local adapter.
-- Phase 2 cuts file consumers to Filesystem and deletes public host-path APIs in the same phase.
-- Phase 3 cuts execution/input correctness to PostgreSQL but still rejects multi-replica configuration.
-- Phase 4 enables the Docker/Compose multi-replica flag only after all shared control-state checks and journeys pass.
-- Phase 5 enables Helm `replicaCount > 1` only after Kubernetes conformance passes.
+- Phase 0 separately cuts builtin authority and Agent Skill policy, but leaves PG mutable Skill content untouched.
+- Phase 1 introduces Home/shared Skill-root identity while old local/Docker mutable Skill behavior continues.
+- Phase 2a cuts file consumers to Filesystem. Phase 2b freezes writers, migrates PG Skills/Reflect to Homes, records one marker, then deletes PG current-state readers/writers and public host-path APIs.
+- Phase 3 cuts execution/input correctness to PostgreSQL, pins filesystem catalog/policy revisions, and still rejects multi-replica configuration.
+- Phase 4 enables the Docker/Compose multi-replica flag only after shared policy invalidation, Reflect CAS, control-state checks and journeys pass.
+- Phase 5 enables Helm `replicaCount > 1` only after Kubernetes and shared Skill-root conformance pass.
 
 There is no “best effort” fallback to process-local state. Missing shared PostgreSQL, session-pooling semantics, a distributed-capable Provider, durable channel metadata, or DB-backed security state is a startup error.
 
-### 8. API and UI changes are spec-first and ship with their consumers
+### 9. API and UI changes are spec-first and ship with their consumers
 
 Phase 2 removes host-path fields from Workspace responses and updates the generated TypeScript client and Web consumer in the same change. The existing `scope=user` wire value remains a compatibility alias meaning the shared PrincipalHome root; it is documented rather than renamed mid-program.
 
@@ -198,75 +229,101 @@ POST /api/agents/{agentId}/sessions/{sessionId}/runs/{runId}/abort
 
 Every API change starts in `api/spec/domain/sessions/`, regenerates Go/TypeScript contracts, then updates server and Web code. No handler or wire type is hand-written around generated contracts.
 
-### 9. Testing uses the lowest sufficient layer
+The Phase 0 Agent Skill activation endpoint starts in `api/spec/domain/agents/`. It uses exact logical refs, authorizes through Agent `Manage`, changes only the reused policy column, and keeps content mutation under the existing Skill policy until the Phase 2 filesystem cutover.
+
+### 10. Testing uses the lowest sufficient layer
 
 - pure identity, transition, guard, path, batching, and policy logic: Go unit tests;
 - PostgreSQL constraints, CAS, advisory locks, migrations, and sqlc queries: DB integration tests;
 - real process startup, SSE, abort, restart, TCP, and asynchronous reconciliation: existing subprocess system tests;
 - independent replicas plus shared PostgreSQL/daemon/storage and process kills: Phase 4 Compose suite;
 - RWX/RWO semantics, scheduling, attach/detach, Pod UID fencing, RBAC, and network policy: Phase 5 Kubernetes conformance.
+- Skill policy parsing/merge/digest logic: Go unit tests; symlink publication and PG→Home migration: filesystem/DB integration; cross-replica policy and Reflect invalidation: Phase 4 Compose.
 
 Every phase runs the repository's mandatory `mise run format && mise run build && mise run test`. System, Compose, and Kubernetes gates are added only where their seams require them.
 
 ## What changes where
 
-| Area                                                                               | Planned change                                                                                                                                                                                                                     |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `internal/db/migrations/`                                                          | Hand-written goose migrations for typed Homes, SessionSandbox, AgentRun, chat input/GroupRoute, source links, OAuth flows, rate limits, and config revisions. One logical schema change per migration; every migration has `Down`. |
-| `internal/db/queries/`                                                             | New focused sqlc files such as `storage_home.sql`, `ctx_session_sandbox.sql`, `ctx_agent_run.sql`, and `ctx_chat_input.sql`; narrowed group queries; guarded transcript/source updates.                                            |
-| `pkg/db/sqlc/`                                                                     | Regenerated only through `mise run generate`; never hand-edited.                                                                                                                                                                   |
-| `internal/home/`                                                                   | New deep module for typed identity, registry, Store configuration, attachment resolution, legacy registration, maintenance, tombstone, purge, and local/Docker/Kubernetes adapters.                                                |
-| `pkg/sandbox/`                                                                     | `HomeAttachment`, Provider lifecycle, normalized spec/ref/state, error taxonomy, and removal of public host-path methods.                                                                                                          |
-| `plugins/sandbox/local`, `none`, `docker`                                          | Adapt to the Provider/Filesystem contracts; Docker gains deterministic identity, labels, capability probes, Open/Inspect/Destroy, and no `owner_pid` correctness.                                                                  |
-| `internal/fsops/` and `cmd/stellad/`                                               | Shared safe file operations plus restricted multicall `stella-fs`/`stella-exec` entry modes in the existing binary.                                                                                                                |
-| `internal/agent/`                                                                  | Replace path-derived workspace identity; add AgentRun guard/finalization; move every top-level source to one lease; guard transcript and memory writes.                                                                            |
-| `internal/agent/sandbox/`                                                          | SessionSandbox lifecycle, BeginUse/keepalive, provisioning intent, reconciler, env refresh, file helper adapter, and generation checks.                                                                                            |
-| `internal/channel/`                                                                | `ctx_chat_input` ingress/dispatcher, barriers, batching, stable dedup, expiring GroupRoute, per-responder Web busy results, durable reply envelopes, and removal of process queue plus `/agent`/`/model`.                          |
-| `internal/controlplane/`, `cmd/stellad/channel_runtime.go`                         | One serialized PostgreSQL control session, leader acquisition/drain, cache invalidation, lifecycle startup order, and feature gates.                                                                                               |
-| `internal/connections/oauth`, `internal/auth`, `internal/config`                   | PostgreSQL OAuth flows, shared rate limits, monotonic config revisions, and loss-tolerant invalidation.                                                                                                                            |
-| `api/spec/domain/sessions/`, generated API, `internal/server/`                     | Spec-first Workspace response cleanup, `client_message_id`, AgentRun Get/abort, structured 409/503 details, exact Session Workspace behavior, and read-only live attach semantics.                                                 |
-| `web/src/features/sessions/`                                                       | Stable client message IDs, AgentRun/transcript polling, terminal/interrupted presentation, remote-live fallback, and no stale `/events`-only loop.                                                                                 |
-| `internal/asset`, `internal/blob`, `internal/share`, session media                 | Remove mutable asset double authority while retaining immutable media/share snapshots.                                                                                                                                             |
-| `docker-compose.yml`, `test/compose/`, `mise.toml`                                 | Preserve the one-replica developer example; add a dedicated three-replica conformance topology and `mise run compose-test`.                                                                                                        |
-| `plugins/sandbox/kubernetes/`, `deploy/helm/stella/`, `test/kubernetes/`           | Kubernetes Provider/HomeStore, Session Pod specs, PVCs/affinity, trusted provisioner, RBAC/security/network policy, chart gates, and conformance harness.                                                                          |
-| `README.md`, `web/content/docs/`, `resources/skills/system/stella/`, system prompt | Update supported behavior, configuration, commands, topology, failure semantics, and EN/ZH docs as each behavior lands.                                                                                                            |
+| Area                                                                               | Planned change                                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `internal/db/migrations/`                                                          | Hand-written goose migrations for typed Homes/shared Skill roots, Skill migration marker/Reflect usage identity, SessionSandbox, AgentRun, chat input/GroupRoute, OAuth flows, rate limits, and config revisions. One logical schema change per migration; every migration has `Down`. |
+| `internal/db/queries/`                                                             | New focused sqlc files such as `storage_home.sql`, `ctx_session_sandbox.sql`, `ctx_agent_run.sql`, and `ctx_chat_input.sql`; narrowed group queries; guarded transcript/source updates.                                                                                                |
+| `pkg/db/sqlc/`                                                                     | Regenerated only through `mise run generate`; never hand-edited.                                                                                                                                                                                                                       |
+| `internal/home/`                                                                   | New deep module for typed identity including shared Skill roots, Store configuration, attachment resolution, legacy registration, maintenance, tombstone, purge, and local/Docker/Kubernetes adapters.                                                                                 |
+| `pkg/sandbox/`                                                                     | `HomeAttachment`, Provider lifecycle, normalized spec/ref/state, error taxonomy, and removal of public host-path methods.                                                                                                                                                              |
+| `plugins/sandbox/local`, `none`, `docker`                                          | Adapt to the Provider/Filesystem contracts; Docker gains deterministic identity, labels, capability probes, Open/Inspect/Destroy, and no `owner_pid` correctness.                                                                                                                      |
+| `internal/fsops/` and `cmd/stellad/`                                               | Shared safe file operations plus restricted multicall `stella-fs`/`stella-exec` entry modes in the existing binary.                                                                                                                                                                    |
+| `internal/agent/`                                                                  | Replace path-derived workspace identity; add AgentRun guard/finalization; move every top-level source to one lease; guard transcript and memory writes.                                                                                                                                |
+| `internal/agent/sandbox/`                                                          | SessionSandbox lifecycle, BeginUse/keepalive, provisioning intent, reconciler, env refresh, file helper adapter, and generation checks.                                                                                                                                                |
+| `internal/channel/`                                                                | `ctx_chat_input` ingress/dispatcher, barriers, batching, stable dedup, expiring GroupRoute, per-responder Web busy results, durable reply envelopes, and removal of process queue plus `/agent`/`/model`.                                                                              |
+| `internal/controlplane/`, `cmd/stellad/channel_runtime.go`                         | One serialized PostgreSQL control session, leader acquisition/drain, cache invalidation, lifecycle startup order, and feature gates.                                                                                                                                                   |
+| `internal/connections/oauth`, `internal/auth`, `internal/config`                   | PostgreSQL OAuth flows, shared rate limits, monotonic config revisions, and loss-tolerant invalidation.                                                                                                                                                                                |
+| `api/spec/domain/sessions/`, generated API, `internal/server/`                     | Spec-first Workspace response cleanup, `client_message_id`, AgentRun Get/abort, structured 409/503 details, exact Session Workspace behavior, and read-only live attach semantics.                                                                                                     |
+| `web/src/features/sessions/`                                                       | Stable client message IDs, AgentRun/transcript polling, terminal/interrupted presentation, remote-live fallback, and no stale `/events`-only loop.                                                                                                                                     |
+| `internal/asset`, `internal/blob`, `internal/share`, session media                 | Remove mutable asset double authority while retaining immutable media/share snapshots.                                                                                                                                                                                                 |
+| `resources/`, `internal/skills/`, Skill APIs/UI                                    | Deterministic builtin bundle, manifest-root legacy gate, versioned Agent policy, filesystem catalog/publication, PG→Home migration, Reflect digest/usage cutover, and removal of PG Skill current-state authority.                                                                     |
+| `docker-compose.yml`, `test/compose/`, `mise.toml`                                 | Preserve the one-replica developer example; add a dedicated three-replica conformance topology and `mise run compose-test`.                                                                                                                                                            |
+| `plugins/sandbox/kubernetes/`, `deploy/helm/stella/`, `test/kubernetes/`           | Kubernetes Provider/HomeStore, Session Pod specs, PVCs/affinity, trusted provisioner, RBAC/security/network policy, chart gates, and conformance harness.                                                                                                                              |
+| `README.md`, `web/content/docs/`, `resources/skills/system/stella/`, system prompt | Update supported behavior, configuration, commands, topology, failure semantics, and EN/ZH docs as each behavior lands.                                                                                                                                                                |
 
 ## Migration and PR order
 
 One logical phase is not necessarily one enormous diff. Use reviewable PR slices, all linked to #828, while preserving each phase's activation boundary:
 
-| Phase | Suggested PR slices                                                                                              | Activation rule                                                                               |
-| ----- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| 1     | schema/queries → Home module/adapters → legacy registration/cutover                                              | Still single-replica; no data movement                                                        |
-| 2     | Filesystem/helper → tools/Workspace API → assets/share/path deletion                                             | Public host paths disappear only when all consumers compile against Filesystem                |
-| 3     | durable schema/provider lifecycle → AgentRun sources/reconciler → input/group cutover → API/UI/old-state cleanup | Multi-replica flag remains rejected until every slice is merged and Phase 3 acceptance passes |
-| 4     | control session/security state → channel ingress/publisher → Compose harness/journeys → Docker gate              | Docker multi-replica opens only in the final slice                                            |
-| 5     | Kubernetes compute → Home/PVC topology → chart/security → cluster conformance/gate                               | Helm multi-replica opens only after target-cluster conformance                                |
+| Phase | Suggested PR slices                                                                                               | Activation rule                                                                               |
+| ----- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 0     | builtin manifest/bundle → Provider projection → policy/API/UI → docs/legacy gate                                  | Separate stacked plan; no mutable PG Skill authority change                                   |
+| 1     | schema/queries → Home/shared Skill-root module/adapters → legacy registration                                     | Still single-replica; no data movement                                                        |
+| 2     | Filesystem/helper/publication → tools/Workspace/assets → PG Skill/Reflect migration → old authority/path deletion | Skill marker and asset marker each switch one authority only after exhaustive verification    |
+| 3     | durable schema/provider lifecycle → AgentRun sources/reconciler → input/group cutover → revision pin/GC cleanup   | Multi-replica flag remains rejected until every slice is merged and Phase 3 acceptance passes |
+| 4     | control/security/policy invalidation → channel ingress/publisher → Compose harness/journeys → Docker gate         | Docker multi-replica opens only in the final slice                                            |
+| 5     | Kubernetes compute → Home/shared-root/PVC topology → chart/security → cluster conformance/gate                    | Helm multi-replica opens only after target-cluster conformance                                |
 
 Schema additions are expand-first. Old columns/tables are removed only in the slice that removes their last reader/writer. No phase leaves two active authorities under a multi-replica-enabled configuration.
 
 ## Tasks
+
+### Phase 0 prerequisite: Builtin bundle and Agent Skill policy
+
+**Why before Phase 1:** release-owned builtin authority and logical activation refs do not need Homes; landing them first prevents Home migration from carrying the startup-extracted builtin mirror forward. This phase is executed through the separate canonical plan `~/.agents/sessions/stella/2026-08-02-system-skill-bundle/plan.md`; its byte-identical repository archive is `docs/design/2026-08-02-system-skill-bundle-phase-0-plan.md`.
+
+- [ ] Generate and embed the deterministic mode-preserving builtin manifest; make `resources.Registry` the catalog/content authority and install one digest-pinned execution bundle for local/none/Docker. Isolating Providers expose its exact revision read-only at `/opt/stella/skills/builtin`.
+- [ ] Before disabling the legacy scan/mount, classify `$STELLA_HOME/.agents/skills` at the same nested skill-root granularity as the current extractor. Any non-manifest root or unrecognized residue fails the capability gate with a complete operator inventory.
+- [ ] Preserve `system/system_agent`; expose builtin as distinct read-only identity; keep existing precedence and no-lower-fallback behavior.
+- [ ] Reuse `agent.enabled_builtin_skills` as typed versioned `AgentSkillPolicy`; all legacy arrays mean no disabled refs, non-empty arrays produce diagnostics, and broad Agent create/update paths never overwrite canonical policy.
+- [ ] Add the spec-first exact-ref Agent activation API/UI and current-process runner invalidation; admin and durable creator share Agent `Manage`, while Skill content permissions stay unchanged.
+- [ ] Do not migrate mutable PG Skill content, invent Home roots, add an activation table, or add a temporary sync/cache protocol.
+
+**Acceptance:**
+
+- [ ] Builtin manifest generation is deterministic; executable fixtures preserve mode; tampered/partial bundles and binary/image revision mismatch fail readiness.
+- [ ] Direct builtin catalog/file reads do not scan an extracted directory or query SkillStore; DB name resolution still preserves system shadowing.
+- [ ] A nested custom legacy system Skill blocks activation with its exact root listed; no custom root silently disappears.
+- [ ] Changing every ordinary Agent field preserves policy bytes; empty/non-empty legacy arrays both preserve current all-enabled behavior until an explicit policy write.
+- [ ] Admin/creator/other/delegated authorization, disabled-winner no-fallback, prompt/search/load/file/helper filtering, and next-turn invalidation tests pass.
+- [ ] `mise run format && mise run build && mise run test` exits 0, plus Docker bundle contract checks on a supported trusted runner.
 
 ### Phase 1: Typed Home registry and local compatibility
 
 **Why first:** every later Sandbox ref, mount, file operation, and Kubernetes volume needs a stable data identity that is not a machine path.
 
 - [ ] Add goose migrations for `storage_home`, `storage_migration`, and required lifecycle/job metadata.
-  - Encode `home_kind=principal|agent`, `principal_kind=user|group`, nullable `agent_id`, lifecycle checks, immutable typed unique indexes, UTC timestamps, and purge audit fields.
+  - Encode `home_kind=principal|agent|system_skill|system_agent_skill`, `principal_kind=user|group|nullable`, nullable owner/agent fields, lifecycle checks, singleton/per-Agent shared-root indexes, UTC timestamps, and purge audit fields.
   - Do not cascade owner deletion into Home rows; destructive owner deletion must tombstone Homes first.
 - [ ] Add focused sqlc queries and transaction helpers for Ensure, Resolve, tombstone, purge state transitions, maintenance locks, and Store cutover.
 - [ ] Implement `internal/home` with a narrow deep API: typed keys, Store registry, opaque locator, `Ensure`, `Resolve`, `Tombstone`, `Purge`, and offline migration primitives.
 - [ ] Add explicit Store configuration for local/Docker layouts; Store IDs are immutable once referenced, and default changes affect only new Homes.
+- [ ] Add opaque SystemSkillRoot and SystemAgentSkillRoot identities in the existing shared RWX Store. They are narrow Skill namespaces, not a global Agent workspace; Agent delete is their only destructive lifecycle trigger.
 - [ ] Implement idempotent legacy registration derived from authoritative DB user/group/Agent rows:
   - `users/{userID}` → UserHome;
   - `users/group-{groupID}` → GroupHome;
   - each `agents/{agentID}` subtree under the principal → AgentHome;
   - no arbitrary directory-name scan becomes an identity source.
 - [ ] Add durable storage-migration metadata and record whether the deployment starts with a configured mutable asset object authority. This is metadata-only in Phase 1; it must not change mirror/hydrate behavior yet.
-- [ ] Audit user-less jobs that currently write under `{base}/agents/{agentID}`; move intended definitions/skills to existing DB authority and make runtime writes use Session scratch.
+- [ ] Audit user-less/group jobs that currently write under `{base}/agents/{agentID}`. User-less and group Runs get applicable read-only shared Skill roots plus project/scratch; GroupHome and group AgentHome Skills do not become user/user_agent scope.
 - [ ] Route runner/project/Home setup through registry attachments while the local adapter preserves current physical files; stop treating `agent.workspace` as identity.
 - [ ] Implement explicit destructive Home deletion: tombstone, fence referencing Sessions, wait for resource detach, enqueue idempotent River purge, retain permanent purged metadata, and expose administrator retry for `purge_failed`.
-- [ ] Add typed user/group isolation, same-raw-ID collision, no-data-move, concurrent Ensure, deletion, retry, and legacy registration tests.
+- [ ] Add typed user/group isolation, shared Skill-root opacity/read-only attachment, same-raw-ID collision, no-data-move, concurrent Ensure, deletion, retry, and legacy registration tests.
 - [ ] Update architecture/developer storage docs and system skill references in English and Chinese for typed Homes and user-less scratch semantics.
 
 **Acceptance:**
@@ -274,7 +331,7 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
 - [ ] `mise run db:validate && mise run generate:check` exits 0.
 - [ ] Targeted Home/agent tests prove user `abc` and group `abc` resolve to disjoint Homes, concurrent Ensure creates one row/location, and existing bytes/inodes are not copied or renamed.
 - [ ] A destructive group deletion fences attachments and reaches `purged`; an injected physical-delete failure remains `purge_failed` and succeeds after administrator retry.
-- [ ] A user-less Run cannot resolve PrincipalHome/AgentHome and writes only to disposable scratch.
+- [ ] A user-less Run cannot resolve PrincipalHome/AgentHome, sees only applicable read-only shared Skill roots, and writes only to project/disposable scratch; group AgentHome Skills do not leak into user_agent scope.
 - [ ] `mise run format && mise run build && mise run test` exits 0.
 
 ### Phase 2: Filesystem boundary and host-path removal
@@ -284,8 +341,17 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
 - [ ] Define canonical sandbox paths and `internal/fsops` operations for stat/list/read/write/mkdir/remove/rename/upload with root containment, symlink handling, permission preservation, bounded reads, and streaming payloads.
 - [ ] Add restricted multicall modes for `stella-fs` and `stella-exec` in the existing `stellad` binary; install digest-matched entry points in the sandbox image/system bundle.
 - [ ] Implement local/`none` direct-library adapters and Docker one-shot exec adapter; classify disconnects and writes as outcome unknown without transparent retry.
+- [ ] Implement managed Skill publication in `stella-fs`:
+  - write/fsync/verify immutable `.stella-revisions/<name>/<tree-digest>` content;
+  - atomically flip one canonical contained relative symlink;
+  - accept ordinary directory Skills with normal POSIX semantics;
+  - reject absolute/escaping/cyclic symlinks and never rename over a non-empty directory;
+  - retain old revisions without GC until Phase 3 can prove AgentRun references.
+- [ ] Make the temporary no-GC ceiling observable through the existing OTel pipeline: export retained revision count/bytes/oldest-age aggregated by scope, evaluate documented capacity thresholds per root, and emit a structured warning with opaque root identity on breach. Do not put principal/root IDs in metric labels.
 - [ ] Change `pkg/sandbox.Session` and policy types so public consumers receive sandbox paths/attachments, never host paths; retain any local resolver only as Provider-private implementation.
-- [ ] Migrate Agent `read`, `write`, `edit`, prompt file reads, skills/materialization consumers, and every `ResolvePath`/`ResolveWritePath` caller to Filesystem.
+- [ ] Migrate Agent `read`, `write`, `edit`, prompt file reads, filesystem Skill catalogs/loaders, and every `ResolvePath`/`ResolveWritePath` caller to Filesystem. Catalog parsing accepts ordinary directories and managed symlinks while skipping `.stella-revisions`.
+- [ ] For isolating Providers, mount exact read-only sources at `/opt/stella/skills/builtin`, `/opt/stella/skills/system`, and `/opt/stella/skills/system-agent`; these are execution views, not authority. Managed descriptors resolve/pin the contained exact revision path so a symlink flip affects only a later Turn/Run. `none`/non-isolating local returns exact Provider paths through `SkillView`.
+- [ ] Add trusted structured admin writes for SystemSkillRoot/SystemAgentSkillRoot through one-shot Home access. The provisioner accepts validated paths/content and expected digest, never model-authored commands, arbitrary shell, or AgentRun secrets.
 - [ ] Route Workspace requests for the exact URL Session through the existing single-process Session lifecycle so it creates/reuses a Sandbox and invokes only Filesystem/`stella-fs`, with no direct host path and no AgentRun secrets. Durable generation, `BeginUse + Open`, keepalive renewal, and cross-replica linearization remain Phase 3 work.
 
 > Make Workspace requests execute `BeginUse + Open` on the exact URL Session generation in Phase 2.
@@ -308,6 +374,22 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
   - be idempotent and never delete remote objects.
 - [ ] Fail server startup when the durable metadata/config says legacy mutable object authority requires migration but the completion marker is absent. No-authority deployments record/observe `not_required` and continue normally.
 - [ ] After the marker gate, make `$STELLA_ASSETS_DIR` ordinary PrincipalHome data; migrate upload/share/channel consumers; remove mutable `asset.Store` object mirroring, hydrate, rollback, and object-version fencing while retaining immutable session media and share snapshots.
+- [ ] Extend canonical filesystem Skill metadata to preserve active/deprecated status, `disable_model_invocation`, nested metadata/`created_by`, source/install timestamps, and legacy lifecycle version; scope remains attachment-derived and rename remains delete+create.
+- [ ] Add operator-only `stellad storage migrate-skills --dry-run|--json` and a fail-closed Skill authority marker:
+  - require maintenance mode, old writers stopped, and complete PG backup;
+  - map active rows to exact SystemSkillRoot/SystemAgentSkillRoot/UserHome/AgentHome scope roots;
+  - export deprecated rows and `skill_changelog` into a non-catalog operator archive;
+  - verify every row/file/path/owner/metadata/byte digest/collision and produce a finite unsupported-row report;
+  - default PG files to `0644` unless canonical metadata proves executable intent;
+  - write the marker by CAS only after every row has a verified active/archive disposition and Reflect create/patch/delete/runtime-touch/usage adversarial tests pass;
+  - support dry-run/idempotent rerun and never delete PG backup/current rows during migration.
+- [ ] Preserve Reflect under filesystem authority:
+  - migrate `created_by=reflect` and lifecycle metadata;
+  - replace integer version CAS with expected canonical tree digest for managed writes;
+  - migrate `skill_usage` from `skill.id` FK to logical principal/Agent/scope/name plus last content digest;
+  - retain durable worker authorization, runtime usage touch, pair-activity and usage rechecks;
+  - make stale/manual concurrent edits conflict, outcome-unknown writes non-retryable, and remove-marker conversion explicit.
+- [ ] After the marker, fail startup on residual PG-only mutable current state; remove PG SkillStore/materializer/changelog writers and all runtime readers. Drop obsolete rows/tables only in a later explicit migration after backup retention and last dependency removal.
 - [ ] Delete public `ResolvePath`, `ResolveWritePath`, `HostPath` policy leakage, sessionless host `os.*` shortcuts, and obsolete resilient file retry paths.
 - [ ] Add one Filesystem conformance suite and run it against local, `none`, and Docker adapters, including permissions, rename, symlink escape, concurrent writes, helper termination, and outcome-unknown writes.
 - [ ] Update user/developer docs and built-in skills in English and Chinese for Workspace paths, mutable assets, and removed host-path behavior.
@@ -316,10 +398,16 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
 
 - [ ] `mise run generate:check` exits 0 after the spec-first API/client change.
 - [ ] The shared Filesystem conformance suite passes for local, `none`, and Docker; a helper killed during write returns outcome unknown and the caller does not retry.
+- [ ] Managed Skill publication tests prove concurrent readers see complete old or new trees without ENOENT/mixed files; unsupported symlink/Store behavior fails conformance. Ordinary CLI mutation retains documented POSIX behavior.
+- [ ] A fixture publishes known-size revisions into multiple roots: the collector reports exact aggregate count/bytes/oldest-age, a configured low threshold emits the expected opaque-root warning, and alert/capacity-response documentation is executable without high-cardinality metric labels.
+- [ ] Isolating-provider tests prove the three exact `/opt/stella/skills/*` views are read-only and disjoint; a pinned managed descriptor continues reading its old revision after a flip while the next catalog snapshot reads the new revision.
 - [ ] Workspace list/read/write/upload succeeds through an exact Session with no warm Sandbox using the current single-process lifecycle; no Workspace path or response exposes a host coordinate.
 - [ ] `rg "ResolvePath|ResolveWritePath|HostPath" pkg/sandbox internal/agent internal/server plugins/sandbox` shows no public/caller dependency; any Provider-private resolver is explicitly scoped and tested.
 - [ ] A fixture containing assets only in the configured S3-compatible authority fails server startup before migration; dry-run changes nothing; the real migration materializes and digest-verifies every fixture into the correct UserHome/GroupHome, records the marker, is idempotent, and leaves remote objects intact.
 - [ ] After cutover, mutable assets written by bash are immediately visible to Workspace/share without an object-store commit or hydrate step; immutable media/share tests remain green.
+- [ ] Skill migration fixtures cover active, deprecated, manual, Reflect, metadata-rich, binary, colliding, invalid-path, and unsupported-status rows. Dry-run changes nothing; real migration verifies every disposition; marker-before/after has exactly one authority; residual PG-only state blocks startup.
+- [ ] Reflect filesystem tests cover expected-digest conflict, exact retry/outcome unknown, manual concurrent edit, runtime usage touch, pair-activity delete refusal, logical usage migration, and no PG changelog write after cutover.
+- [ ] A checked architecture-boundary test proves post-marker production wiring cannot construct/use PG SkillStore, `materializeDBSkill`, or changelog writers; migration/archive-only code is isolated behind the pre-marker operator path.
 - [ ] `mise run format && mise run build && mise run test && mise run system-test` exits 0 on a supported host.
 
 ### Phase 3: Durable SessionSandbox, AgentRun, input, and reconciliation
@@ -342,6 +430,8 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
   - ownership CAS before transcript, memory, source-domain, and terminal writes;
   - durable `/abort` request with transactional wakeup and heartbeat fallback;
   - terminal classification and source-domain notification.
+- [ ] At admission, read one effective filesystem/builtin catalog plus canonical AgentSkillPolicy, persist their content/policy digests on AgentRun, and keep that snapshot for the complete Run. A policy or symlink flip affects only a later Run; disabled winners never reveal lower same-name entries.
+- [ ] Add managed Skill revision GC only after durable Run state exists: retain the current target and every revision that could be observed by an active matching Run; reclaim only noncurrent revisions after no matching Run reference plus a documented grace. Phase 2 disk-growth metrics remain the safety ceiling until this lands.
 - [ ] Move Chat, Webhook, Scheduler, Goal, and Delegate to AgentRun as their only running lease; keep only source queue/budget/fold/retry policy. Remove Goal's “heartbeat failure logs and continues” behavior.
 - [ ] Implement `ctx_chat_input` receipt/admission:
   - validate payload/schema and hard size limits before a row can enter `queued`;
@@ -391,6 +481,7 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
 - [ ] Deterministic DB integration tests with two independent service instances prove one admission winner, heartbeat/reaper linearization, abort/completion ordering, stale durable-write rejection, `/new` compare-and-rotate, and GroupRoute seq order.
 - [ ] Crash-window tests cover: commit-before-start, marker-before-call, provisioning create timeout, crash after fencing CAS, destroy retry, stale executor completion, and Workspace write interrupted by fencing.
 - [ ] Workspace tests with two independent service instances prove `BeginUse + Open`, keepalive/reaper ordering, exact-generation validation, and ordinary POSIX concurrency with a Run on the other instance.
+- [ ] Skill tests prove an AgentRun keeps its admitted catalog/policy digest across concurrent admin/CLI changes; the next Run sees the change; GC never removes a revision observable by an active Run.
 - [ ] FIFO tests prove bounded compatible batching, no debounce, no skip across barriers/poison heads, per-responder Web busy rejection, group multi-agent fan-out, and no automatic replay after interruption.
 - [ ] A historical consumed `/new` receipt is backfilled as handled; redelivering the same platform message after cutover does not rotate or archive the successor Session.
 - [ ] An accepted image remains readable after its platform URL expires because the queued input references immutable media; inputs exceeding binding/principal/deployment row or byte quota are rejected/backpressured before ack.
@@ -412,6 +503,8 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
 - [ ] Persist connection OAuth device/auth-code flows with encrypted secret material, expiry, and one-shot CAS; preserve signed-cookie browser OIDC without duplicating state.
 - [ ] Replace process-local login/registration/authorization rate limits with PostgreSQL-time atomic state keyed by a privacy-preserving hash; fail closed on DB unavailability.
 - [ ] Add monotonic config revisions and transactional `{kind,id,revision}` invalidation; startup/reconnect/cache-miss reloads from PostgreSQL, and missed notification cannot preserve authorization.
+- [ ] Treat the canonical AgentSkillPolicy digest as its durable revision. Dedicated policy mutation locks the Agent row, updates only the reused JSONB column, and transactionally notifies `{agent_id, policy_digest}`; missed notification is repaired by admission re-read/digest validation.
+- [ ] Serialize cross-replica managed Skill/Reflect writers for one logical ref with a bounded PostgreSQL advisory-lock connection held only around expected-digest verification and `stella-fs` publication. Lock loss/outcome unknown fails closed; arbitrary POSIX writers remain outside this managed guarantee by design.
 - [ ] Add a dedicated `test/compose/` three-replica topology:
   - named `stellad-a/b/c` services and explicit host ports;
   - shared external PostgreSQL, Docker socket/daemon, PrincipalHome/AgentHome volumes, image digest, and no test load balancer;
@@ -423,6 +516,7 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
   - one channel leader, control-session failure, leader handoff, cursor redelivery dedup, and outbound publish from a non-leader executor;
   - remote read-only attach 503 plus AgentRun/transcript polling;
   - OAuth flow continuation, global rate limit, and config invalidation across replicas.
+  - policy changed on A invalidates B/C and affects only the next Run; two replicas racing a managed Reflect patch have one expected-digest winner; ordinary POSIX race follows documented winner semantics without corrupting a revision tree.
 - [ ] Add adapter-level fake platform tests where real credentials are inappropriate; do not add production debug endpoints or a new broker solely for tests.
 - [ ] Open the explicit Docker/Compose multi-replica flag only after the suite passes; startup still rejects independent daemons, embedded PostgreSQL, transaction pooling, unsupported volume-subpath, or non-reconnectable Home Stores.
 - [ ] Document the shared-daemon Docker topology honestly: horizontally scalable control plane, one execution failure domain.
@@ -431,6 +525,7 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
 
 - [ ] `mise run compose-test` provisions a clean three-replica stack, runs every cross-replica/crash journey, and tears it down without modifying the ordinary `stella-data` developer volume.
 - [ ] At every observation point PostgreSQL contains at most one running Run per Session and one channel ingress leader; no old container survives a completed fencing transition.
+- [ ] Every replica rejects stale AgentSkillPolicy digest at admission even after a dropped notification; cross-replica managed Skill writers never publish a mixed tree or both claim the same expected digest.
 - [ ] Killing the executor and separately killing the channel leader both recover without duplicate execution or lost accepted input; unknown side effects remain interrupted rather than replayed.
 - [ ] A non-leader replica can publish a reply using only durable state; Weixin-style capability values never appear in argv, logs, Pod/container spec, Run rows, or reply JSON.
 - [ ] Supported shared-daemon configuration starts with the multi-replica flag; each unsupported configuration fails startup with a specific actionable error.
@@ -444,15 +539,15 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
 - [ ] Implement Kubernetes Provider lifecycle with deterministic Pod names, immutable UID refs, normalized spec labels, idempotent Provision/Open/Inspect/Destroy, watch/poll recovery, and no ServiceAccount token in Session Pods.
 - [ ] Implement the PrincipalHome RWX Pool adapter:
   - mandatory existing claim or explicit StorageClass/capacity;
-  - opaque typed subpaths;
-  - one-shot trusted provisioner Pod for Ensure/Purge/POSIX conformance;
+  - opaque typed PrincipalHome/SystemSkillRoot/SystemAgentSkillRoot subpaths;
+  - one-shot trusted provisioner Pod for Ensure/Purge/POSIX conformance and structured authenticated admin Skill writes;
   - root containment, no model input/secrets, and crash cleanup.
 - [ ] Implement one topology-aware RWO PVC per AgentPlacementKey:
   - `WaitForFirstConsumer`, explicit capacity, expansion support, and proven purge semantics;
   - stable Home label and required same-host Pod affinity;
   - no Session/Pod owner reference;
   - scheduler/CSI attach limits plus namespace ResourceQuota.
-- [ ] Build Session Pod specs from the same digest-pinned image/system bundle as Docker; materialize DB skills into disposable scratch; mount only the exact PrincipalHome/AgentHome attachments.
+- [ ] Build Session Pod specs from the same digest-pinned image/system bundle as Docker; mount only the exact PrincipalHome/AgentHome plus applicable read-only SystemSkillRoot/SystemAgentSkillRoot attachments under the three canonical `/opt/stella/skills/*` views. Do not materialize DB Skills into scratch.
 - [ ] Implement one-shot `stella-exec` env delivery over bounded stdin so OAuth refresh affects later processes without writing secret values into PodSpec, SandboxRef, labels, logs, or PVCs.
 - [ ] Enforce the security baseline in Provider and Helm:
   - dedicated-node guidance;
@@ -468,6 +563,7 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
   - node loss, old-Pod disappearance, CSI detach/reattach, and no double mount;
   - Pod UID/generation fencing and stale exec rejection;
   - provisioner crash/purge retry;
+  - managed Skill symlink-flip visibility across nodes and refusal on a CSI driver that cannot prove it;
   - RBAC, network policy, security context, quota, and no-secret persistence.
 - [ ] Open Helm `replicaCount > 1` only after the target cluster's configured CSI and security conformance passes; otherwise chart/runtime validation fails closed.
 - [ ] Update README, deployment/storage/sandbox development docs, chart docs, built-in skills, and Chinese equivalents. Explain that Compose proves the protocol while Kubernetes conformance proves the platform.
@@ -476,6 +572,7 @@ Schema additions are expand-first. Old columns/tables are removed only in the sl
 
 - [ ] `mise run deploy:helm:check` passes and rendered manifests contain no Session hostPath/socket/ServiceAccount-token mount, include required security/resource settings, and reject incomplete storage/multi-replica values.
 - [ ] `mise run kubernetes-test` passes on the declared CSI-backed test cluster, including cross-node RWX POSIX checks, RWO affinity/attach behavior, Pod deletion, node-failure detach/reattach, generation fencing, and provisioner recovery.
+- [ ] Shared system/system_agent roots are visible read-only to exactly the applicable Pods; cross-node readers observe complete old/new managed Skill trees, and no DB Skill scratch or Pool-root mount exists.
 - [ ] The Phase 4 distributed protocol suite passes unchanged against Kubernetes endpoints; failures are not papered over with sticky routing or owner RPC.
 - [ ] Secret scans over rendered PodSpecs, labels, refs, logs, and mounted persistent files find no injected Vault/OAuth values.
 - [ ] A targeted Windows cross-build remains green for non-Kubernetes/local code paths, and unsupported local Kubernetes execution fails by configuration rather than build tags leaking behavior.
@@ -494,7 +591,7 @@ Any finding that changes safety, product semantics, the selected module boundary
 
 ## Review threads
 
-> This plan is ready to execute in five phases, with Docker Compose as the hard multi-replica gate before Kubernetes.
+> This plan has one separately reviewed Phase 0 prerequisite followed by five parent phases, with Docker Compose as the hard multi-replica gate before Kubernetes.
 
 **Review (Fable, round 1):** `CHANGES REQUIRED`. The initial draft omitted safe migration of object-only mutable assets and historical `/new` receipts, placed durable Workspace lifecycle work one phase too early, and omitted pre-queue attachment/quota requirements.
 
@@ -502,7 +599,23 @@ Any finding that changes safety, product semantics, the selected module boundary
 
 **Review (Fable, round 2):** `DECISION: APPROVED`. Fable re-read the revised plan and architecture rev 7, verified all four round-1 findings were substantively closed, found no new required change, and confirmed the five phases and Acceptance blocks are safe and executable.
 
-**Resolved:** The approval gate is satisfied. Implementation may start with Phase 1 and must continue to use the Acceptance and Handoff gates in this plan.
+**Resolved:** The rev 7 approval gate was satisfied. Skill authority rev 3 later reopened architecture and implementation order before Phase 1 began.
+
+**Review (Fable, Skill authority round 1):** `CHANGES REQUIRED`. Broad Agent updates could erase policy; legacy arrays had invented semantics; Reflect had no cutover; non-empty directory replacement was not atomic; custom filesystem system Skills could disappear; and PG-only status/metadata had no export disposition.
+
+**Resolved:** Rev 8 and this plan stop broad policy writes, preserve current legacy behavior, retain Reflect through filesystem digest identity and logical usage telemetry, use contained revision symlink flip, gate nested legacy roots, and exhaustively archive/migrate metadata.
+
+**Review (Fable, Skill authority round 2):** `DECISION: APPROVED`. Fable found no remaining mandatory issue and approved release bundle + Home filesystem authority, the Phase 0 → Homes → stella-fs → offline cutover → AgentRun → Compose → Kubernetes order, and the expanded acceptance gates.
+
+**Resolved:** The architecture-level Skill gate is satisfied; implementation starts with the separate Phase 0 plan, not Phase 1.
+
+**Review (Fable, exact transcription round 1):** `CHANGES REQUIRED`. The Phase 2 no-GC ceiling had no task or acceptance for disk-growth observability.
+
+**Resolved:** Phase 2 now uses the existing OTel pipeline for bounded-scope retained revision count/bytes/oldest-age, per-root threshold warnings without high-cardinality labels, documented capacity response, and a runnable known-size fixture. Policy revision wording now consistently means canonical digest, and the Skill marker explicitly waits for Reflect adversarial tests.
+
+**Review (Fable, exact transcription round 2):** `DECISION: APPROVED`. Fable verified the architecture, this parent plan, and the byte-identical Phase 0 plan; it found no mandatory issue. It also approved the clarified `/opt/stella/skills/{builtin,system,system-agent}` read-only execution views as coordinates over the same two authorities, not a third source.
+
+**Resolved:** Final review gate satisfied. The canonical and repository plan copies must remain byte-identical as implementation review threads and handoffs are appended.
 
 ## Handoffs
 
@@ -552,7 +665,7 @@ Every completed phase must replace its pending entry with the concrete handoff r
 
 - What landed
 - Acceptance results
-- Final deviations from architecture rev 7
+- Final deviations from architecture rev 8
 - Residual operational risks and deferred triggers
 - Documentation/release status
 - Recommended post-implementation review and rollout sequence

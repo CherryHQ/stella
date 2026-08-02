@@ -1,74 +1,82 @@
 # Sandbox 架构 v2：可迁移 Home 与可重连 Session Sandbox
 
-- **日期**：2026-08-01（rev 7）
-- **状态**：Draft，架构与实施计划已获 Fable 批准，待 Phase 1
+- **日期**：2026-08-01（rev 8）
+- **状态**：Draft，rev 8 与精确实施计划已获 Fable 最终批准，Phase 0 ready
 - **关联 Issue**：CherryHQ/stella#828
 - **关联 PR**：CherryHQ/stella#829（Draft）
 - **实施计划**：`docs/design/2026-08-02-sandbox-architecture-v2-implementation-plan.md`（Fable approved）
+- **Phase 0 计划**：`docs/design/2026-08-02-system-skill-bundle-phase-0-plan.md`（Fable approved）
 - **范围**：持久目录、Sandbox Provider、Session 执行所有权、Docker 与 Kubernetes 多副本、文件访问边界、故障恢复和迁移路径
 - **相关设计**：`docs/design/2026-07-04-sandbox-secrets-injection.md`、`docs/design/research/2026-07-04-k8s-multi-replica-readiness.md`
 
 本文替代 rev 2。rev 2 把持久 Machine、独立 Worker 和 sessionless 直读 Workspace Store 当作目标形态；后续讨论已经否定这些前提。当前设计从产品要保留的数据和故障语义出发，不延伸现有 `STELLA_HOME` 路径布局。
 
+rev 8 把 Skill current state 收敛为 release bundle 与 Home filesystem 两个 authority，删除原计划的 PG→Session scratch 终态。Fable 对 rev 3 Skill 方案的 round 1 提出 policy clobber、legacy array、Reflect、原子目录替换、legacy filesystem system Skill 和 PG-only metadata 六项必改；全部关闭后，round 2 明确 `APPROVED`，无剩余 mandatory finding。
+
 ## 1. 已确认的决策
 
-| 编号 | 决策                                                                                                                                                                                                                                                |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1   | “个人电脑”描述持久用户目录的体验，不代表一台长期运行的个人虚拟机。Sandbox 的 rootfs mutation、进程、socket、网络状态和机器身份都可丢弃。                                                                                                            |
-| D2   | user 与 group 都是显式 principal，各有跨其所有 Agent 共享的 `PrincipalHome`；specialization 分别叫 `UserHome` 与 `GroupHome`。每个 `(principal_kind, principal_id, agent_id)` 有隔离 `AgentHome`；user-less Session 没有 writable persistent Home。 |
-| D3   | 同一 principal 的不同 Agent 必须能在不同节点并发运行。同一 AgentPlacementKey 的多个 Session 无需跨节点，允许在同一节点并发运行。                                                                                                                    |
-| D4   | `PrincipalHome` 和 `AgentHome` 上的并发写遵循普通共享 POSIX 文件系统语义。Stella 不做 MVCC、版本合并、全局写锁或透明冲突修复。                                                                                                                      |
-| D5   | Kubernetes 中一个活跃 Session 对应一个可保温的普通 OCI Pod。Pod 空闲后删除；只有 Home 数据继续存在。                                                                                                                                                |
-| D6   | 可信 Agent Loop 留在 homogeneous `stellad` 副本中。初版不拆 Executor Fleet，也不建立 Stella 自己的 VM 调度器。                                                                                                                                      |
-| D7   | `SandboxProvider` 是完整策略的 tagged union。初始 Provider 只有 `local`、`docker`、unsafe-gated `none` 和普通容器 `kubernetes`。smolvm、Kata、OpenSandbox 和通用 Remote Provider 延后。                                                             |
-| D8   | Provider 的分布式能力由当前配置能否持久定位并重连资源决定，不按 Provider 名称写死。多个 `stellad` 连接同一个 Docker daemon 时，Docker Provider 可以支持多副本。                                                                                     |
-| D9   | Session 拥有唯一的逻辑 SessionSandbox，Sandbox 不绑定任何 `stellad`。支持分布式重连的 Provider 允许任意副本 `Open` 同一有效 generation；副本只在单个 Agent Run 期间临时执行 Loop。                                                                  |
-| D10  | Agent Run 非正常失去 executor 或 Sandbox 操作 outcome unknown 后，必须递增 generation，销毁旧 Pod/Container，再创建新资源。后续 executor 不复用可能仍有旧操作的计算环境。                                                                           |
-| D11  | `PrincipalHome` 在 Kubernetes 中使用共享 RWX Pool 加隔离 `subPath`，不为每个 user/group 创建一个 PVC。每个 Pod 只挂载该 principal 目录，不挂载 Pool 根。                                                                                            |
-| D12  | `AgentHome` 在 Kubernetes 中按 `(principal_kind, principal_id, agent_id)` lazy provision 一个独立 RWO PVC。多个 Session Pod 通过 required Pod affinity 共置到同一 hostname。                                                                        |
-| D13  | PostgreSQL 的 `storage_home` registry 保存跨 Provider 的逻辑 Home 身份和生命周期。`HomeStore` adapter 决定 local 目录、Docker volume/subpath 或 Kubernetes PVC/subpath。                                                                            |
-| D14  | Store identity 一旦被 Home 引用就不可原地改变。修改默认 Store 只影响新 Home；已有 Home 使用显式、停机式迁移，不做在线双写。                                                                                                                         |
-| D15  | Home 删除采用 `tombstone -> asynchronous purge`。River 执行幂等物理删除；Session 归档、principal 与 Agent 解除分配、Helm uninstall 都不删除 Home。                                                                                                  |
-| D16  | 当前范围不实现备份、快照或恢复 API。operator 负责备份 PostgreSQL、RWX Pool 和 AgentHome PVC。                                                                                                                                                       |
-| D17  | `ResolvePath` 和 `ResolveWritePath` 从跨 Provider 契约删除。远程文件操作通过 Provider 原生 exec 启动一次性 `stella-fs` helper；不部署常驻 sidecar。                                                                                                 |
-| D18  | Stella 不把 S3 object API 实现成主文件系统，也不让普通命令经过 object checkout/merge。S3 可保存 immutable blob，或作为通过 POSIX conformance 的外部文件系统之内部介质。                                                                             |
-| D19  | Agent cache 随 `AgentHome` 持久化但可回收；Worker `NodeCAS` 是可选优化。Session `/tmp`、socket 和进程状态始终是临时数据。                                                                                                                           |
-| D20  | 任意 exec/write 在连接中断时都不得透明重试。当前 Agent Run 标记为 interrupted，副作用结果标记为 unknown。                                                                                                                                           |
-| D21  | Workspace API 由收到请求的副本对 URL 中精确 `sessionID` 的当前 generation 执行 `BeginUse + Open`，复用或唤醒该 Session 唯一的 Sandbox，并且只允许执行 `stella-fs`。初版不新增 file-access Pod。                                                     |
-| D22  | Web/API/Webhook 在 Session busy 或已有排队输入时 fail fast；异步 channel 输入持久 FIFO。当前 Run 结束后，系统把已排队的有界、连续、兼容输入原子合成一个新 Agent Run，不逐条启动 Run。                                                               |
-| D23  | batch 只合并 execution envelope 完全相同的队首连续输入，包括 authority、reply/ChatBinding、model/system/tool policy 和 run kind。遇到不兼容输入或 control barrier 立即截断，不跳过或重排。                                                          |
-| D24  | `AgentRun` 是 Chat、Channel batch、Webhook、Scheduler、Goal 和 Delegate 共用的唯一 execution lease。初始 lease 90 秒、每 20 秒 heartbeat；续租失败必须不晚于保守 deadline fail closed。                                                             |
-| D25  | `/abort` 通过 `abort_requested_at` CAS 持久化；事务内 PostgreSQL `NOTIFY` 只负责唤醒 executor，heartbeat 负责兜底。abort 与 completion 线性竞争，不清除 queued input。                                                                              |
-| D26  | 初版不实现跨副本 token-level event relay。发起 Run 的 SSE 保持直连；远端 read-only attach 返回 `503 + Retry-After`，Web 轮询 durable Run 状态与 transcript，不能误报 `204`。                                                                        |
-| D27  | ingress 只按来源提供的稳定 identity 去重；duplicate 返回原 receipt/Run 状态，不再次排队或执行。没有稳定 identity 时每次 delivery 都视为新输入，禁止用 body hash 猜测去重。                                                                          |
-| D28  | AgentRun 不设固定 lease safety margin。以 PostgreSQL 返回的剩余期限和请求开始时刻计算保守 monotonic deadline；deadline 与每次操作前检查负责软停止，hard fencing 负责最终互斥。                                                                      |
-| D29  | v2 保持现有 Vault/OAuth env、refresh、redaction 和 group isolation 语义，不并入 secrets redesign。Kubernetes 用一次性 `stella-exec` 从 stdin 注入当前 env，不把值写入 PodSpec 或持久 ref。                                                          |
-| D30  | PrincipalHome/AgentHome 的逻辑 authority 是 POSIX filesystem namespace，物理实现可以在内部使用 S3，但必须通过 conformance。mutable asset 是 PrincipalHome 文件，不再镜像到另一份 object authority。                                                 |
-| D31  | 第一方 Web/API 只使用 `client_message_id` 做幂等，不增加 header 机制。Web 必须发送稳定 UUID；兼容期 API 可省略。duplicate 返回带原 ingress/Run 状态的结构化 `409`，不重放 SSE。                                                                     |
-| D32  | pull/WebSocket channel 共用一个 PostgreSQL session advisory-lock ingress leader；Webhook 保持 stateless。Publisher 从 durable config 在任意副本构建，不把 AgentRun 路由回 leader。                                                                  |
-| D33  | 每个副本只保留一条 pool 外 PostgreSQL control session，串行承担 abort/input/config `LISTEN`、健康检查和 channel advisory lock；不为每个 channel 或每种控制信号占一条 connection。                                                                   |
-| D34  | AgentRun 没有 queued 状态、claim token 或 AgentLoop 表。来源领域持有排队状态；executor 真正开始时创建 running Run，running Run 永不转交，超时后 interrupted，新执行使用新 `run_id`。                                                                |
-| D35  | queued channel input 不冻结收件时的 authority 或 model/system/tool policy。dispatcher 在 admission 时重新授权并解析当前 policy；明确撤权进入 rejected，临时错误保持 queued。                                                                        |
-| D36  | v2 移除 channel `/agent` 命令。Agent 与稳定 ChatBinding 在收件时确定；管理员改路由只影响提交后新 ingress，因此 channel ordering 只需一层 per-ChatBinding durable FIFO。                                                                             |
-| D37  | 保留 group semantic auto-routing，但只保留一个 durable `GroupRoute` claim。routing decision 原子生成 ChatBinding FIFO items；删除 `ctx_group_dispatch` 的第二套执行 lease，由 AgentRun 执行。                                                       |
-| D38  | Home 只有显式 destructive delete 才 tombstone 并立即异步 purge；不增加 retention 或 undelete。物理数据删除后永久保留 purged metadata，失败时由管理员 retry。                                                                                        |
-| D39  | Kubernetes PrincipalHome 初版使用一个显式配置的 RWX Pool。StorageClass/existing claim 与 capacity 无默认猜测，启用前必须通过 POSIX conformance；不做自动扩容或分片。                                                                                |
-| D40  | AgentHome 的 RWO StorageClass 与初始容量同样由 operator 必填；只允许显式扩容，不自动缩放。attach limit 和总存储配额分别交给 scheduler/CSI 与 namespace ResourceQuota。                                                                              |
-| D41  | Docker/Kubernetes 复用 digest-pinned sandbox image 的 `/opt/stella` system bundle；DB skills 物化到 disposable Session scratch，principal/project skills 和 writable mise tree 留在 Home。                                                          |
-| D42  | durable input 只新增 `ctx_chat_input`。group payload 引用现有 `ctx_group_message`，其他来源由 input 自带；广播 `NOTIFY` 唤醒有容量副本竞争 admission，低频 safety scan 保证最终处理。                                                               |
-| D43  | GroupRoute 按 group message seq 串行 materialize。Web requester 持有 route claim 时必须在本副本直接 admission selected Runs；容量或 Session busy 就 fail fast，不能让广播竞争偷走主 SSE。                                                           |
-| D44  | stale executor 的 PostgreSQL/transcript 写入必须以 `run_id + executor_boot_id + running` CAS；Sandbox 删除不能 fence 外部 API，未知 outbound side effect 只记 unknown 且不得自动重放。                                                              |
-| D45  | `/new` input 在 receipt 时保存 `expected_session_id` 或 binding revision，并以 compare-and-rotate 处理；只有普通 message 在 admission 时解析 binding 当前 Session。                                                                                 |
-| D46  | channel cursor/ack 只能在 durable ingress commit 后推进；reply capability 等 secret 状态进入现有 encrypted Vault，`reply_envelope` 只保存 reference，任意 Publisher 副本不依赖 leader memory。                                                      |
-| D47  | Kubernetes PrincipalHome Pool root 只由 HomeStore 创建的一次性 trusted provisioner Pod 挂载，用于 Ensure/Purge/conformance；不挂进 `stellad`，也不创建常驻 sidecar/controller。                                                                     |
-| D48  | v2 移除整个 channel `/model` 命令，不增加只读替代命令或 per-ChatBinding model override。Agent model 只通过有明确作用域的 Web/API 配置；删除无作用域且当前实际 no-op 的 `SwitchModel`。                                                              |
-| D49  | 多副本前把 connection OAuth flow 与登录/注册 rate limit 移到 PostgreSQL；flow secret 加密且 one-shot CAS。config mutation 发 versioned `NOTIFY`，但授权/admission 不依赖通知命中。                                                                  |
-| D50  | 初版不支持 mixed-version `stellad` 并发。Helm 保持 drain 后 `Recreate`，先停完旧副本再启动同版本新副本；接受升级窗口，不为本设计增加 dual-read/write rolling protocol。                                                                             |
-| D51  | 现有 `users/group-{groupID}` 迁移为 `GroupHome(groupID)`，保留 group workspace/assets；group AgentRun 不挂任何成员的 UserHome。user-less Run 只挂 derived content 与 Session scratch。                                                              |
-| D52  | 每个副本运行同一个轻量 Sandbox lifecycle reconciler。它以 PostgreSQL CAS 回收 expired AgentRun、fence generation，并续行 `fencing`、provisioning orphan 与 idle Sandbox；不是 Session owner 或第二套 lease。                                        |
-| D53  | Web group fan-out 按 responder fail fast：busy/no-capacity responder 的 input 持久化为 `state=rejected, reject_code=busy` 且不排队；其他 responder 在请求副本直接 admission 并保持 SSE。全部拒绝时整体返回 busy。                                   |
-| D54  | Kubernetes 前必须先通过 Docker Compose 多副本硬门禁：共享 external PostgreSQL、Docker daemon 与 reconnectable Home，验证跨副本协议和故障恢复。Kubernetes 阶段只再承担 Pod/PVC/CSI/topology/RBAC/network-policy 差异。                               |
-| D55  | 删除 mutable asset object authority 前，必须离线把全部 object-only asset 物化并校验到对应 PrincipalHome，记录 migration marker；配置过旧 authority 但未完成迁移时 server 启动失败，禁止静默丢数据。                                                 |
+| 编号 | 决策                                                                                                                                                                                                                                                                                                                                  |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1   | “个人电脑”描述持久用户目录的体验，不代表一台长期运行的个人虚拟机。Sandbox 的 rootfs mutation、进程、socket、网络状态和机器身份都可丢弃。                                                                                                                                                                                              |
+| D2   | user 与 group 都是显式 principal，各有跨其所有 Agent 共享的 `PrincipalHome`；specialization 分别叫 `UserHome` 与 `GroupHome`。每个 `(principal_kind, principal_id, agent_id)` 有隔离 `AgentHome`；HomeStore 另管理窄化的共享 `SystemSkillRoot` 与 `SystemAgentSkillRoot(agent_id)`；user-less Session 没有 writable persistent Home。 |
+| D3   | 同一 principal 的不同 Agent 必须能在不同节点并发运行。同一 AgentPlacementKey 的多个 Session 无需跨节点，允许在同一节点并发运行。                                                                                                                                                                                                      |
+| D4   | `PrincipalHome` 和 `AgentHome` 上的并发写遵循普通共享 POSIX 文件系统语义。Stella 不做 MVCC、版本合并、全局写锁或透明冲突修复。                                                                                                                                                                                                        |
+| D5   | Kubernetes 中一个活跃 Session 对应一个可保温的普通 OCI Pod。Pod 空闲后删除；只有 Home 数据继续存在。                                                                                                                                                                                                                                  |
+| D6   | 可信 Agent Loop 留在 homogeneous `stellad` 副本中。初版不拆 Executor Fleet，也不建立 Stella 自己的 VM 调度器。                                                                                                                                                                                                                        |
+| D7   | `SandboxProvider` 是完整策略的 tagged union。初始 Provider 只有 `local`、`docker`、unsafe-gated `none` 和普通容器 `kubernetes`。smolvm、Kata、OpenSandbox 和通用 Remote Provider 延后。                                                                                                                                               |
+| D8   | Provider 的分布式能力由当前配置能否持久定位并重连资源决定，不按 Provider 名称写死。多个 `stellad` 连接同一个 Docker daemon 时，Docker Provider 可以支持多副本。                                                                                                                                                                       |
+| D9   | Session 拥有唯一的逻辑 SessionSandbox，Sandbox 不绑定任何 `stellad`。支持分布式重连的 Provider 允许任意副本 `Open` 同一有效 generation；副本只在单个 Agent Run 期间临时执行 Loop。                                                                                                                                                    |
+| D10  | Agent Run 非正常失去 executor 或 Sandbox 操作 outcome unknown 后，必须递增 generation，销毁旧 Pod/Container，再创建新资源。后续 executor 不复用可能仍有旧操作的计算环境。                                                                                                                                                             |
+| D11  | `PrincipalHome` 在 Kubernetes 中使用共享 RWX Pool 加隔离 `subPath`，不为每个 user/group 创建一个 PVC。每个 Pod 只挂载该 principal 目录和适用的只读共享 Skill root，不挂载 Pool 根。                                                                                                                                                   |
+| D12  | `AgentHome` 在 Kubernetes 中按 `(principal_kind, principal_id, agent_id)` lazy provision 一个独立 RWO PVC。多个 Session Pod 通过 required Pod affinity 共置到同一 hostname。                                                                                                                                                          |
+| D13  | PostgreSQL 的 `storage_home` registry 保存跨 Provider 的逻辑 Home/共享 Skill root 身份和生命周期。`HomeStore` adapter 决定 local 目录、Docker volume/subpath 或 Kubernetes PVC/subpath。                                                                                                                                              |
+| D14  | Store identity 一旦被 Home 引用就不可原地改变。修改默认 Store 只影响新 Home；已有 Home 使用显式、停机式迁移，不做在线双写。                                                                                                                                                                                                           |
+| D15  | Home 删除采用 `tombstone -> asynchronous purge`。River 执行幂等物理删除；Session 归档、principal 与 Agent 解除分配、Helm uninstall 都不删除 Home。                                                                                                                                                                                    |
+| D16  | 当前范围不实现备份、快照或恢复 API。operator 负责备份 PostgreSQL、RWX Pool 和 AgentHome PVC。                                                                                                                                                                                                                                         |
+| D17  | `ResolvePath` 和 `ResolveWritePath` 从跨 Provider 契约删除。远程文件操作通过 Provider 原生 exec 启动一次性 `stella-fs` helper；不部署常驻 sidecar。                                                                                                                                                                                   |
+| D18  | Stella 不把 S3 object API 实现成主文件系统，也不让普通命令经过 object checkout/merge。S3 可保存 immutable blob，或作为通过 POSIX conformance 的外部文件系统之内部介质。                                                                                                                                                               |
+| D19  | Agent cache 随 `AgentHome` 持久化但可回收；Worker `NodeCAS` 是可选优化。Session `/tmp`、socket 和进程状态始终是临时数据。                                                                                                                                                                                                             |
+| D20  | 任意 exec/write 在连接中断时都不得透明重试。当前 Agent Run 标记为 interrupted，副作用结果标记为 unknown。                                                                                                                                                                                                                             |
+| D21  | Workspace API 由收到请求的副本对 URL 中精确 `sessionID` 的当前 generation 执行 `BeginUse + Open`，复用或唤醒该 Session 唯一的 Sandbox，并且只允许执行 `stella-fs`。初版不新增 file-access Pod。                                                                                                                                       |
+| D22  | Web/API/Webhook 在 Session busy 或已有排队输入时 fail fast；异步 channel 输入持久 FIFO。当前 Run 结束后，系统把已排队的有界、连续、兼容输入原子合成一个新 Agent Run，不逐条启动 Run。                                                                                                                                                 |
+| D23  | batch 只合并 execution envelope 完全相同的队首连续输入，包括 authority、reply/ChatBinding、model/system/tool policy 和 run kind。遇到不兼容输入或 control barrier 立即截断，不跳过或重排。                                                                                                                                            |
+| D24  | `AgentRun` 是 Chat、Channel batch、Webhook、Scheduler、Goal 和 Delegate 共用的唯一 execution lease。初始 lease 90 秒、每 20 秒 heartbeat；续租失败必须不晚于保守 deadline fail closed。                                                                                                                                               |
+| D25  | `/abort` 通过 `abort_requested_at` CAS 持久化；事务内 PostgreSQL `NOTIFY` 只负责唤醒 executor，heartbeat 负责兜底。abort 与 completion 线性竞争，不清除 queued input。                                                                                                                                                                |
+| D26  | 初版不实现跨副本 token-level event relay。发起 Run 的 SSE 保持直连；远端 read-only attach 返回 `503 + Retry-After`，Web 轮询 durable Run 状态与 transcript，不能误报 `204`。                                                                                                                                                          |
+| D27  | ingress 只按来源提供的稳定 identity 去重；duplicate 返回原 receipt/Run 状态，不再次排队或执行。没有稳定 identity 时每次 delivery 都视为新输入，禁止用 body hash 猜测去重。                                                                                                                                                            |
+| D28  | AgentRun 不设固定 lease safety margin。以 PostgreSQL 返回的剩余期限和请求开始时刻计算保守 monotonic deadline；deadline 与每次操作前检查负责软停止，hard fencing 负责最终互斥。                                                                                                                                                        |
+| D29  | v2 保持现有 Vault/OAuth env、refresh、redaction 和 group isolation 语义，不并入 secrets redesign。Kubernetes 用一次性 `stella-exec` 从 stdin 注入当前 env，不把值写入 PodSpec 或持久 ref。                                                                                                                                            |
+| D30  | PrincipalHome/AgentHome 的逻辑 authority 是 POSIX filesystem namespace，物理实现可以在内部使用 S3，但必须通过 conformance。mutable asset 是 PrincipalHome 文件，不再镜像到另一份 object authority。                                                                                                                                   |
+| D31  | 第一方 Web/API 只使用 `client_message_id` 做幂等，不增加 header 机制。Web 必须发送稳定 UUID；兼容期 API 可省略。duplicate 返回带原 ingress/Run 状态的结构化 `409`，不重放 SSE。                                                                                                                                                       |
+| D32  | pull/WebSocket channel 共用一个 PostgreSQL session advisory-lock ingress leader；Webhook 保持 stateless。Publisher 从 durable config 在任意副本构建，不把 AgentRun 路由回 leader。                                                                                                                                                    |
+| D33  | 每个副本只保留一条 pool 外 PostgreSQL control session，串行承担 abort/input/config `LISTEN`、健康检查和 channel advisory lock；不为每个 channel 或每种控制信号占一条 connection。                                                                                                                                                     |
+| D34  | AgentRun 没有 queued 状态、claim token 或 AgentLoop 表。来源领域持有排队状态；executor 真正开始时创建 running Run，running Run 永不转交，超时后 interrupted，新执行使用新 `run_id`。                                                                                                                                                  |
+| D35  | queued channel input 不冻结收件时的 authority 或 model/system/tool policy。dispatcher 在 admission 时重新授权并解析当前 policy；明确撤权进入 rejected，临时错误保持 queued。                                                                                                                                                          |
+| D36  | v2 移除 channel `/agent` 命令。Agent 与稳定 ChatBinding 在收件时确定；管理员改路由只影响提交后新 ingress，因此 channel ordering 只需一层 per-ChatBinding durable FIFO。                                                                                                                                                               |
+| D37  | 保留 group semantic auto-routing，但只保留一个 durable `GroupRoute` claim。routing decision 原子生成 ChatBinding FIFO items；删除 `ctx_group_dispatch` 的第二套执行 lease，由 AgentRun 执行。                                                                                                                                         |
+| D38  | Home 只有显式 destructive delete 才 tombstone 并立即异步 purge；不增加 retention 或 undelete。物理数据删除后永久保留 purged metadata，失败时由管理员 retry。                                                                                                                                                                          |
+| D39  | Kubernetes PrincipalHome 初版使用一个显式配置的 RWX Pool。StorageClass/existing claim 与 capacity 无默认猜测，启用前必须通过 POSIX conformance；不做自动扩容或分片。                                                                                                                                                                  |
+| D40  | AgentHome 的 RWO StorageClass 与初始容量同样由 operator 必填；只允许显式扩容，不自动缩放。attach limit 和总存储配额分别交给 scheduler/CSI 与 namespace ResourceQuota。                                                                                                                                                                |
+| D41  | Skill current state 只有两个 authority：release-owned builtin 使用 digest-pinned immutable system bundle；`system`、`system_agent`、`user`、`user_agent` 与 `project` 都是 Home filesystem 文件。PostgreSQL SkillStore 只在离线 cutover 前临时保留，之后不再物化 DB skill scratch。                                                   |
+| D42  | durable input 只新增 `ctx_chat_input`。group payload 引用现有 `ctx_group_message`，其他来源由 input 自带；广播 `NOTIFY` 唤醒有容量副本竞争 admission，低频 safety scan 保证最终处理。                                                                                                                                                 |
+| D43  | GroupRoute 按 group message seq 串行 materialize。Web requester 持有 route claim 时必须在本副本直接 admission selected Runs；容量或 Session busy 就 fail fast，不能让广播竞争偷走主 SSE。                                                                                                                                             |
+| D44  | stale executor 的 PostgreSQL/transcript 写入必须以 `run_id + executor_boot_id + running` CAS；Sandbox 删除不能 fence 外部 API，未知 outbound side effect 只记 unknown 且不得自动重放。                                                                                                                                                |
+| D45  | `/new` input 在 receipt 时保存 `expected_session_id` 或 binding revision，并以 compare-and-rotate 处理；只有普通 message 在 admission 时解析 binding 当前 Session。                                                                                                                                                                   |
+| D46  | channel cursor/ack 只能在 durable ingress commit 后推进；reply capability 等 secret 状态进入现有 encrypted Vault，`reply_envelope` 只保存 reference，任意 Publisher 副本不依赖 leader memory。                                                                                                                                        |
+| D47  | Kubernetes RWX Pool root 只由 HomeStore 创建的一次性 trusted provisioner Pod 挂载，用于 Ensure/Purge/conformance 与结构化、认证后的 admin Skill 写入；它不接收模型命令/任意代码，不挂进 `stellad`，也不创建常驻 sidecar/controller。                                                                                                  |
+| D48  | v2 移除整个 channel `/model` 命令，不增加只读替代命令或 per-ChatBinding model override。Agent model 只通过有明确作用域的 Web/API 配置；删除无作用域且当前实际 no-op 的 `SwitchModel`。                                                                                                                                                |
+| D49  | 多副本前把 connection OAuth flow 与登录/注册 rate limit 移到 PostgreSQL；flow secret 加密且 one-shot CAS。config mutation 发 versioned `NOTIFY`，但授权/admission 不依赖通知命中。                                                                                                                                                    |
+| D50  | 初版不支持 mixed-version `stellad` 并发。Helm 保持 drain 后 `Recreate`，先停完旧副本再启动同版本新副本；接受升级窗口，不为本设计增加 dual-read/write rolling protocol。                                                                                                                                                               |
+| D51  | 现有 `users/group-{groupID}` 迁移为 `GroupHome(groupID)`，保留 group workspace/assets；group AgentRun 不挂任何成员的 UserHome，初版也不把 GroupHome/group AgentHome 的 `.agents/skills` 解释成 `user`/`user_agent` scope。group 与 user-less Run 只读挂适用的 system/system_agent roots，再使用自己的 project/scratch。               |
+| D52  | 每个副本运行同一个轻量 Sandbox lifecycle reconciler。它以 PostgreSQL CAS 回收 expired AgentRun、fence generation，并续行 `fencing`、provisioning orphan 与 idle Sandbox；不是 Session owner 或第二套 lease。                                                                                                                          |
+| D53  | Web group fan-out 按 responder fail fast：busy/no-capacity responder 的 input 持久化为 `state=rejected, reject_code=busy` 且不排队；其他 responder 在请求副本直接 admission 并保持 SSE。全部拒绝时整体返回 busy。                                                                                                                     |
+| D54  | Kubernetes 前必须先通过 Docker Compose 多副本硬门禁：共享 external PostgreSQL、Docker daemon 与 reconnectable Home，验证跨副本协议和故障恢复。Kubernetes 阶段只再承担 Pod/PVC/CSI/topology/RBAC/network-policy 差异。                                                                                                                 |
+| D55  | 删除 mutable asset object authority 前，必须离线把全部 object-only asset 物化并校验到对应 PrincipalHome，记录 migration marker；配置过旧 authority 但未完成迁移时 server 启动失败，禁止静默丢数据。                                                                                                                                   |
+| D56  | 现有 `agent.enabled_builtin_skills` JSONB 复用为 versioned `AgentSkillPolicy`；legacy array 一律保持当前“无禁用”行为，非空仅告警。policy 只引用 `builtin:<name>`、`system:<name>`、`system_agent:<name>`；admin 与 Agent creator 共用同一 per-Agent 设置，不新增 activation table 或全局 hard-lock。                                  |
+| D57  | mutable Skill 的 scope 由独立 filesystem root 决定；scope+name 是不可 rename 的逻辑身份。优先级保持 `project > user_agent > user > system_agent > system > builtin`；禁用 winner 不回退到同名低层 Skill。                                                                                                                             |
+| D58  | managed Skill create/update 使用 immutable revision directory 加受限相对 symlink 原子 flip；普通目录与任意 CLI 编辑保留普通 POSIX 语义。API 不伪造“rename 覆盖非空目录”的事务原子性，旧 revision 在 AgentRun reference-aware GC 前不删除。                                                                                            |
+| D59  | PG→Home Skill authority cutover 在 typed Homes 与 `stella-fs` 落地后、AgentRun/多副本前停机执行。marker 前 PG 是唯一 authority，marker 后 Home 是唯一 authority；不做 dual-write、长期 dual-read 或失败 fallback。                                                                                                                    |
+| D60  | Reflect Skill 保留，但内容 authority 迁到 `user_agent` filesystem root：tree digest 取代 PG version CAS，`created_by=reflect` 进入规范 metadata，usage 改按逻辑身份+digest 保存为派生 telemetry；PG changelog 退役。任意 POSIX writer 的竞争遵循 D4。                                                                                 |
 
 ## 2. 当前实现的问题
 
@@ -84,6 +92,7 @@
 8. Helm 当前固定一个副本、`Recreate` 和一个 RWO PVC，不能承载目标拓扑。
 9. `$STELLA_ASSETS_DIR` 可被 guest 直接写入，绕过 `asset.Store`。`internal/asset/store.go` 也缺少跨副本对象版本 fencing。
 10. channel `/model` 宣称可以切换模型，但 server 注入的 `SwitchModel` 永远 no-op，接口也没有 principal、Agent 或 ChatBinding scope；继续保留会制造虚假成功和未定义的跨用户影响。
+11. Skill 同时存在 release embed、PG `skill/skill_file`、启动抽取目录和 project filesystem 多套来源；PG→disk materializer 与 filesystem scan 让“目录是 authority 还是 cache”取决于 scope，脚本 mode、Reflect lifecycle 和多副本重建因此耦合到旧宿主路径。
 
 旧稿声称 `read.go` 会在宿主调用 xberg，这与当前代码不符。当前 host-side xberg 位于 `internal/vision/xberg.go`。v2 仍需审计所有解析不可信文件的宿主消费者，但不能用已经不存在的调用链证明问题。
 
@@ -116,16 +125,17 @@ RunExclusionKey      = session_id
 
 ### 3.2 持久化边界
 
-| 数据                                  | 故障或迁移后是否保留   |
-| ------------------------------------- | ---------------------- |
-| PrincipalHome 文件                    | 保留                   |
-| AgentHome 文件                        | 保留                   |
-| AgentHome 中的可回收 cache            | 通常保留，允许 GC 删除 |
-| Session rootfs mutation               | 不保留                 |
-| 运行中的进程与 shell                  | 不保留                 |
-| Unix socket、端口与 network namespace | 不保留                 |
-| `/tmp` 与 Session scratch             | 不保留                 |
-| 当前命令的“是否已经产生副作用”        | 连接中断后记为 unknown |
+| 数据                                      | 故障或迁移后是否保留   |
+| ----------------------------------------- | ---------------------- |
+| PrincipalHome 文件                        | 保留                   |
+| AgentHome 文件                            | 保留                   |
+| SystemSkillRoot/SystemAgentSkillRoot 文件 | 保留                   |
+| AgentHome 中的可回收 cache                | 通常保留，允许 GC 删除 |
+| Session rootfs mutation                   | 不保留                 |
+| 运行中的进程与 shell                      | 不保留                 |
+| Unix socket、端口与 network namespace     | 不保留                 |
+| `/tmp` 与 Session scratch                 | 不保留                 |
+| 当前命令的“是否已经产生副作用”            | 连接中断后记为 unknown |
 
 不同 Session 只共享显式挂载的 Home。它们各自拥有进程、环境变量、网络状态、scratch 和 rootfs overlay。
 
@@ -144,6 +154,7 @@ RunExclusionKey      = session_id
       S1 Pod/Container      S2 Pod/Container
       |          |          |          |
 PrincipalHome RWX  AgentHome RWO  ...      /tmp
+      \       read-only shared Skill roots      /
 ```
 
 所有 `stellad` 副本使用同一二进制和同一角色。收到 Agent Run 的副本对 `sessionID` 获取短期排他 claim，运行完整 Agent Loop，然后释放；下一个 Run 可以落到其他副本。收到 Workspace 请求的副本对当前 generation 执行 `BeginUse + Open`，即使 Agent Run 正在另一个副本执行也不需要转发。runner 和 Sandbox handle 可以缓存，但缓存命中不参与正确性。
@@ -168,9 +179,25 @@ Group G
 ├── GroupHome(group, G)            shared by A1 and A2
 ├── AgentHome(group, G, A1)        isolated from A2
 └── AgentHome(group, G, A2)        isolated from A1
+
+Shared admin-managed Skills
+├── SystemSkillRoot                 visible to applicable Runs
+└── SystemAgentSkillRoot(A1)        visible only with Agent A1
 ```
 
-GroupHome 继承当前 `users/group-{groupID}` 的产品语义，但 namespace 使用 typed principal identity，不再靠字符串前缀防碰撞。group Session 只能挂自己的 GroupHome 与 group-scoped AgentHome，不能挂任一成员的 UserHome，也不能把成员的 Vault/OAuth/CLI credential 复制进 group filesystem。user-less Session 不创建 PrincipalHome 或 AgentHome，只使用 DB-derived Agent content 和 disposable Session scratch；当前 `{base}/agents/{agentID}` 中的定义/skill 数据按 D41 迁到现有 DB authority，不能继续充当 user-less writable workspace。
+GroupHome 继承当前 `users/group-{groupID}` 的产品语义，但 namespace 使用 typed principal identity，不再靠字符串前缀防碰撞。group Session 只能挂自己的 GroupHome、group-scoped AgentHome 和适用的只读 SystemSkillRoot/SystemAgentSkillRoot，不能挂任一成员的 UserHome，也不能把成员的 Vault/OAuth/CLI credential 复制进 group filesystem。初版不把 GroupHome 或 group AgentHome 的 `.agents/skills` 解释为 `user`/`user_agent` scope。user-less Session 不创建 PrincipalHome 或 AgentHome，只挂适用的只读共享 Skill roots、DB-derived Agent definition 和 disposable Session scratch；当前 `{base}/agents/{agentID}` 不能继续充当 writable workspace 或 Skill authority。
+
+mutable Skill 的逻辑 root 与内容 authority 如下一一对应；实际子目录名由 HomeStore 隐藏，不能由调用方拼接：
+
+```text
+system       -> SystemSkillRoot
+system_agent -> SystemAgentSkillRoot(agent_id)
+user         -> UserSkillRoot(UserHome)
+user_agent   -> UserAgentSkillRoot(AgentHome)
+project      -> ProjectRoot/.agents/skills
+```
+
+`UserAgentSkillRoot` 与 `ProjectRoot/.agents/skills` 必须是两个不重叠 attachment，即使 ProjectRoot 位于 AgentHome 内也不能 alias。scope 由 root 决定，不由可伪造的 frontmatter 字段决定。
 
 ### 5.2 各 Provider 的物理实现
 
@@ -183,6 +210,8 @@ GroupHome 继承当前 `users/group-{groupID}` 的产品语义，但 namespace �
 
 逻辑 Home 不等于一个 Kubernetes PVC。PrincipalHome 的物理 Pool 可以在达到吞吐或容量上限后分片；`storage_home` 中的 opaque locator 隐藏这一点。
 
+SystemSkillRoot 与 SystemAgentSkillRoot 在所有环境都使用 PrincipalHome 同类的共享 RWX Store/volume，而不是 RWO AgentHome。它们必须被多个 principal、Session 和副本同时只读挂载；把 system_agent 内容放进任一 principal 的 AgentHome 会泄漏 ownership，也无法服务其他 principal。
+
 ### 5.3 `storage_home` registry
 
 PostgreSQL 保存 Home 的身份、归属、Store 和生命周期。下面是领域字段，不是最终 migration：
@@ -190,9 +219,9 @@ PostgreSQL 保存 Home 的身份、归属、Store 和生命周期。下面是领
 ```text
 storage_home
   id             UUID
-  home_kind      principal | agent
-  principal_kind user | group
-  principal_id
+  home_kind      principal | agent | system_skill | system_agent_skill
+  principal_kind user | group | nullable
+  principal_id   nullable
   agent_id       nullable
   store_id
   locator        opaque
@@ -208,10 +237,22 @@ PrincipalHome unique(principal_kind, principal_id)
               where home_kind = principal
 AgentHome     unique(principal_kind, principal_id, agent_id)
               where home_kind = agent
+SystemSkillRoot unique(home_kind)
+                where home_kind = system_skill
+SystemAgentSkillRoot unique(agent_id)
+                     where home_kind = system_agent_skill
 
-check(home_kind = principal AND agent_id IS NULL
-   OR home_kind = agent     AND agent_id IS NOT NULL)
+check(home_kind = principal
+      AND principal_kind IS NOT NULL AND principal_id IS NOT NULL AND agent_id IS NULL
+   OR home_kind = agent
+      AND principal_kind IS NOT NULL AND principal_id IS NOT NULL AND agent_id IS NOT NULL
+   OR home_kind = system_skill
+      AND principal_kind IS NULL AND principal_id IS NULL AND agent_id IS NULL
+   OR home_kind = system_agent_skill
+      AND principal_kind IS NULL AND principal_id IS NULL AND agent_id IS NOT NULL)
 ```
+
+`system_skill` 全部署唯一，`system_agent_skill` 对 `agent_id` 唯一；两者使用与 PrincipalHome 相同的显式 RWX Store，但拥有独立 opaque locator。它们是窄化的共享 Skill namespace，不是可写 global Agent workspace。删除 Agent 时，只有明确 destructive Agent delete 才 tombstone 对应 SystemAgentSkillRoot；普通 assignment/session 变化不影响它。
 
 `auth_user_agent` 和 group membership 只表示授权关系，不能承载 Home 生命周期。解除分配不删除文件。全局 `agent.workspace` 也不能表示任一 typed principal 的 AgentHome。
 
@@ -585,12 +626,14 @@ channel 的 outbound Publisher 与 ingress listener 分离。任意执行 AgentR
 PrincipalHome RWX Pool
 ├── 7c1...  user U1
 ├── a92...  user U2
-└── f04...  group G1
+├── f04...  group G1
+├── b18...  SystemSkillRoot
+└── c63...  SystemAgentSkillRoot(A1)
 ```
 
 目录名不使用 principal 输入。Sandbox 不能看到 Pool root。启用前必须用目标 Kubernetes/CSI 组合运行完整 POSIX conformance；失败时 Provider 不进入 ready。初版不自动扩容或分片。Pool 达到实测吞吐、容量或 CSI mount 上限后，operator 增加新 Store，新 Home 使用它；已有 Home 仍通过显式 offline migration 移动，逻辑 `PrincipalHome` 接口不变。
 
-`stellad` Deployment 不挂载 Pool root。Kubernetes HomeStore 在 `Ensure`、`Purge` 和 conformance 时创建一个短命 trusted provisioner Pod，只挂载目标 Pool root，并通过受限 `stella-fs` 操作由 registry 生成的 opaque locator。Pod 不挂 ServiceAccount token、不接收模型输入或 AgentRun secret，操作完成即删除。provisioning CAS 保证同一 Home 只有一个 winner；helper 的 root containment 和 idempotent remove 防止路径错误跨越目标 subpath。这里不增加常驻 sidecar、controller 或第二个文件服务。
+`stellad` Deployment 不挂载 Pool root。Kubernetes HomeStore 在 `Ensure`、`Purge`、conformance 和认证后的结构化 admin Skill 写入时创建一个短命 trusted provisioner Pod，只挂载目标 Pool root，并通过受限 `stella-fs` 操作由 registry 生成的 opaque locator。Pod 不挂 ServiceAccount token、不接收模型输入、任意 shell/代码或 AgentRun secret，操作完成即删除。provisioning CAS 保证同一 Home 只有一个 winner；helper 的 root containment 和 idempotent remove 防止路径错误跨越目标 subpath。这里不增加常驻 sidecar、controller 或第二个文件服务。
 
 ### 8.3 AgentHome 与共置
 
@@ -613,16 +656,43 @@ Stella 不实现 volume attach capacity controller 或自己的存储成本 sche
 - 节点故障后先 detach 再 reattach；
 - 不满足 affinity 或 volume 条件时不做无卷降级。
 
-### 8.4 System bundle 与 derived content
+### 8.4 System bundle 与 Skill authority
 
-Docker 与 Kubernetes 复用同一 digest-pinned sandbox image 和现有 `/opt/stella` layout，不创建第二套 Kubernetes tool distribution：
+Docker 与 Kubernetes 复用同一 digest-pinned sandbox image 和现有 `/opt/stella` layout，不创建第二套 Kubernetes tool distribution。Skill current state 只有 release bundle 与 Home filesystem 两个 authority，不存在第三个 PG/disk mirror：
 
-- `stella-exec`、`stella-fs`、builtin skills 和 builtin mise toolchain 作为 immutable system bundle 烘焙进 image；
-- image digest 与 bundle revision 进入 normalized SandboxSpec，revision 不匹配时 replacement，不在 warm Pod 上 patch；
-- PostgreSQL 仍是 DB-managed system/agent skill 的 authority。Sandbox generation 在首次 Run 前按 skill snapshot revision 把文件物化到 disposable Session scratch；更新后下一次 Run 刷新，Pod 删除后可重建；
-- principal/project filesystem skills 保持在 PrincipalHome/AgentHome，不复制进另一份 authority；
-- per-principal writable mise tree 保持在 PrincipalHome，builtin read-only tree 来自 image；
-- 不增加 ConfigMap 同步、skill sidecar、宿主目录 mount 或 object checkout protocol。
+- `stella-exec`、`stella-fs`、builtin Skills 和 builtin mise toolchain 作为 immutable system bundle 烘焙进 image；manifest 记录 canonical root、metadata、文件 digest/size/mode 与 bundle revision；
+- image digest 与 bundle revision 进入 normalized SandboxSpec，revision 不匹配时整个 Provider fail readiness/replacement，不在 warm Pod 上 patch，也不回退到宿主抽取目录；
+- local/none 按 revision 把同一 bundle 安装到 `$STELLA_HOME/bundles/<revision>`；Linux local 只读暴露当前 revision，host-execution Provider 通过 SkillView 使用精确 host path；
+- `system`、`system_agent`、`user`、`user_agent` 与 `project` 直接从 D57 的 Home/root 读取。PG `skill/skill_file` 在 D59 cutover 后不再是 catalog、content 或 rebuild authority，也不再物化 Session scratch；
+- system/system_agent root 对普通 Run 只读。admin API 通过 trusted `stella-fs` 写 immutable revision directory，再原子 flip root 内受限相对 symlink；catalog 同时支持这种 managed 形态与普通 POSIX Skill directory，拒绝越界 symlink；
+- per-principal writable mise tree 保持在 PrincipalHome；不增加 ConfigMap 同步、Skill sidecar、宿主目录 mount、双向同步或 object checkout protocol。
+
+隔离 Provider 把三种非 principal Skill source 映射到互不覆盖的 `/opt` 只读 execution view：
+
+```text
+/opt/stella/skills/builtin       <- exact immutable bundle revision
+/opt/stella/skills/system        <- SystemSkillRoot
+/opt/stella/skills/system-agent  <- SystemAgentSkillRoot(agent_id)
+```
+
+这些路径只是 Sandbox coordinate，不是 authority：builtin 来自 image/release bundle，后两者来自 shared RWX Store 的精确只读 attachment；admin writer 走独立 trusted Home access，不能经 Run mount 写入。managed catalog 在 admission 解析并 pin symlink 指向的 exact revision path，因此后续 flip 只影响新 Turn/Run，旧 revision 在引用释放前仍可读取。`none` 与无法建立 `/opt` 隔离视图的平台继续通过 `SkillView` 返回对应 exact Provider path，不伪造不可用的 mount。
+
+Phase 0 移除旧 builtin scan 前，必须按 `listSkillRoots` 相同的 **skill-root 粒度** 比对 manifest。任何非 manifest Skill root 或无法识别的残留都进入 blocker 清单并使 bundle capability fail closed；不能只比较 top-level 目录，也不能静默隐藏运维者放在嵌套目录中的 legacy system Skill。operator 可继续旧 binary，或先通过现有 managed system 路径导入后重试。
+
+`agent.enabled_builtin_skills` 的物理列名暂时保留，但领域层只暴露 versioned `AgentSkillPolicy`：
+
+```json
+{
+  "version": 1,
+  "disabled": [
+    "builtin:code-review",
+    "system:company-style",
+    "system_agent:deploy"
+  ]
+}
+```
+
+legacy JSON array 无论空/非空都按当前行为解释为“无禁用”；非空值只产生 admin-visible diagnostic，首次专用 policy 写入规范化，不推断历史 allowlist。普通 Agent update 不得再写该列；policy mutation 以 Agent row lock 串行并只更新该列。dangling ref 执行时忽略但管理面可见。scope+name 不支持原地 rename；rename 等价 delete+create。
 
 ### 8.5 安全基线
 
@@ -716,7 +786,33 @@ Stella 不承诺简化后的“last write wins”。并发覆盖、truncate、ap
 - Worker `NodeCAS` 可缓存 immutable toolchain、package 或模型内容；它不是数据 authority，丢失后可重建。
 - 依赖安装结果只有写入 Home 或可重建内容库后才算持久，写进 rootfs overlay 的结果不算。
 
-### 10.3 S3 与 asset
+### 10.3 Skill publication、Reflect 与 cutover
+
+managed Skill create/update 不声称可以用一次 `rename` 覆盖已有非空目录。其物理形态是：
+
+```text
+<scope-root>/
+├── <name> -> .stella-revisions/<name>/<tree-digest>
+└── .stella-revisions/<name>/<tree-digest>/
+    ├── SKILL.md
+    └── ...
+```
+
+`stella-fs` 先完整写入并 fsync 新 revision，校验 tree digest，再用同目录内相对 symlink 的 rename 原子切换 `<name>`。目标 Filesystem 必须通过 symlink flip、concurrent reader 和 close-to-open conformance；无法证明就不支持 managed Skill 写。普通目录和直接 CLI 修改仍遵循 D4 的 POSIX 语义；未协调 writer 可以绕过 managed serialization，Stella 不伪造 PG 事务隔离。旧 revision 在 Phase 3 有 durable AgentRun reference 前不 GC；Phase 2 复用现有 OTel meter 暴露按 scope 聚合的 retained revision count/bytes/oldest-age，并在单 root 越过文档化容量阈值时记录带 opaque root identity 的 structured warning，避免把高基数 principal/root ID 放入 metric label。Phase 3 之后只回收没有 Run 引用且超过 grace 的 revision。
+
+规范 `SKILL.md` metadata 保留 `status=active|deprecated`、`disable_model_invocation`、nested metadata、`created_by`、source/install timestamp 和 legacy lifecycle version。scope 来自 attachment root。active row 进入 catalog；deprecated row 在 PG cutover 时进入非 catalog migration archive，连同 changelog export 等待 operator acknowledgement。PG 不存 file mode，迁移默认 `0644`，除非现有 canonical metadata 明确证明 executable intent，禁止按扩展名猜测。
+
+Reflect 保留 create/patch/delete 与 usage curation，但不保留 PG content authority：
+
+- `metadata.created_by=reflect` 随文件迁移；tree digest 取代整数 version，managed writer 对同 logical ref 串行、比较 expected digest 后 symlink flip；
+- 手工 POSIX edit 改变 digest，stale Reflect patch/delete 失败；移除 ownership marker 即退出 Reflect 管理；与 final compare/flip 同时发生的未协调写按普通 POSIX winner 语义处理；
+- `skill_usage` 从 `skill.id` FK 迁到 `(principal_kind, principal_id, agent_id, scope, name) + last_content_digest`，只作为派生 usage telemetry；
+- delete 重新校验 marker、digest、usage timestamp 与 pair activity，再把 logical entry 原子移出 active catalog；outcome unknown 不透明 retry；
+- `skill_changelog` 导出归档后停止写入，不建立新的 current-state mirror。
+
+PG→Home cutover 必须在单副本 maintenance window 完成：freeze writer，枚举每个 row/file，按 scope 写目标 root 或 archive，验证 path/owner/metadata/bytes/digest/collision/Reflect usage，再持久化 marker。marker 前 PG 是唯一 authority；marker 后 Home 是唯一 authority，server 若发现 residual PG-only current state 就启动失败。不得 dual-write、长期 dual-read 或 restore-on-miss。旧 PG 备份按 operator migration policy 保留，最后一个 reader/writer 删除后才能 drop obsolete schema。
+
+### 10.4 S3 与 asset
 
 PrincipalHome 和 AgentHome 的 authority 是 Sandbox 挂载的 POSIX filesystem namespace，不是某一种磁盘技术。operator 可以选择内部以 S3 保存 data block、另有 metadata/locking 层的 CSI 或分布式文件系统；只要它通过同一套 rename、symlink、permission、locking、append、concurrent write、close-to-open consistency 和 durability conformance，Stella 无需知道底层对象介质。
 
@@ -732,13 +828,14 @@ immutable session media 仍可使用 content-addressed blob/S3。share 在发布
 
 迁移按最小可验证边界推进。每一阶段完成后都保持现有 local/Docker 用户行为可用。
 
-| Phase | 内容                                                                                                                                                                                                                                                                                                                                                                                                  | 验收结果                                                                                           |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| 1     | 新增 typed `storage_home` 与 HomeStore；把当前 `users/{userID}`、`users/group-{groupID}` 和其 per-Agent 目录注册为 local locator；停止把 `agent.workspace` 当数据身份，并审计 user-less job 对全局 Agent 目录的写依赖                                                                                                                                                                                 | 不移动现有文件，数据库能解析每个 UserHome、GroupHome 和 AgentHome                                  |
-| 2     | 引入 `Filesystem` 和一次性 `stella-fs`；迁移 read/write/edit、Workspace、share 和 mutable asset 消费者；先完成 object-only asset 离线回填与 marker，再删除 ResolvePath 及 asset object mirror/hydration                                                                                                                                                                                               | local、none、Docker 通过文件 conformance；bucket-only 资产不丢失；bash/API 写同一 authority        |
-| 3     | 持久化 SandboxRef/generation/lifecycle、provisioning intent、`ctx_chat_input`、AgentRun 和 ChatBinding FIFO；保留有期限的单一 GroupRoute；删除 command receipt、process queue、`ctx_group_dispatch` lease 与 `owner_pid`；移除 channel `/agent`、`/model` 及 `SwitchModel`；实现 InputDispatcher、Sandbox lifecycle reconciler、event fallback、batch admission、`BeginUse`、Docker `Open` 和 fencing | semantic routing、`/new` 保序、expired Run recovery 与 Run execution 都不依赖进程状态              |
-| 4     | 实现全局 channel advisory-lock ingress、durable bot/reply metadata 和可重建 Publisher；DB 化 OAuth flow 与 rate limit；增加 versioned config invalidation；新增共享 PostgreSQL/daemon/Home 的 3-replica Docker Compose journey，并在全部门槛通过后开放 Docker multi-replica flag                                                                                                                      | Compose 中跨副本 Run、abort、fencing、Workspace、FIFO、leader/publisher 与 crash recovery 全部通过 |
-| 5     | 实现 Kubernetes Provider、显式 storage 配置与 conformance gate、RWX PrincipalHome Pool、RWO AgentHome PVC、versioned system bundle、derived skill scratch、Pod affinity、安全基线和 `stella-exec` adapter；复用 Phase 4 协议测试，只新增 Kubernetes platform conformance                                                                                                                              | Session Pod 跨节点调度且不丢 Home；tool/skill 无宿主路径；通过后才开放 Helm 多副本                 |
+| Phase | 内容                                                                                                                                                                                                                                                                                                                                    | 验收结果                                                                                                      |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 0     | 生成 deterministic builtin manifest/bundle，切 catalog 到 Registry，治理 legacy filesystem system root；保留 system/system_agent wire scope；复用 Agent policy column 实现 per-Agent activation，普通 Agent update 停止覆盖 policy                                                                                                      | builtin 不再依赖启动抽取/反扫；legacy custom root 不静默消失；policy 在 Home cutover 前后使用同一 logical ref |
+| 1     | 新增 typed `storage_home` 与 HomeStore；注册 UserHome、GroupHome、AgentHome，并创建 opaque SystemSkillRoot/SystemAgentSkillRoot identity；停止把 `agent.workspace` 当数据身份，明确 group/user-less 只读 shared Skill mount                                                                                                             | 不移动现有文件，数据库能解析每个 typed Home/shared Skill root                                                 |
+| 2     | 先引入 `Filesystem`/`stella-fs`、managed Skill symlink publication 和 trusted admin write；迁移 read/write/edit/Workspace/share/assets。通过 object-only asset marker 后，再离线把 PG Skills/Reflect usage 完整迁入对应 Home root/archive，写 Skill marker，删除 ResolvePath、asset mirror 与 PG Skill current-state readers/writers    | local、none、Docker 通过文件/Skill conformance；asset/Skill 无双 authority；bash/API 写同一 Home              |
+| 3     | 持久化 SandboxRef/generation/lifecycle、provisioning intent、`ctx_chat_input`、AgentRun 和 ChatBinding FIFO；保留单一 GroupRoute；删除旧 process lease；实现 reconciler、event fallback、batch admission、`BeginUse`、Docker `Open`、fencing；AgentRun pin catalog/policy revision，并对旧 managed Skill revision 做 reference-aware GC | semantic routing、Skill/policy 一致性、expired Run recovery 与 execution 都不依赖进程状态                     |
+| 4     | 实现 channel leader、durable Publisher、DB OAuth/rate limit、versioned config 与 Skill policy invalidation；新增共享 PostgreSQL/daemon/Home 的 3-replica Docker Compose journey，并在全部门槛通过后开放 Docker multi-replica flag                                                                                                       | Compose 中跨副本 Run、Skill、Reflect、abort、Workspace、FIFO、leader/publisher 与 crash recovery 通过         |
+| 5     | 实现 Kubernetes Provider、显式 storage 配置与 conformance gate、RWX PrincipalHome/shared Skill roots、RWO AgentHome PVC、versioned system bundle、symlink publication、Pod affinity、安全基线和 `stella-exec` adapter；复用 Phase 4 协议测试，只新增 Kubernetes platform conformance                                                    | Session Pod 跨节点调度且不丢 Home；tool/Skill 无宿主路径或 PG scratch；通过后才开放 Helm 多副本               |
 
 Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只允许 local HomeStore adapter 提供内部过渡，不能把路径重新加入新公共契约。
 
@@ -754,7 +851,8 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 - purge 可重复，部分失败保留可重试状态。
 - purged Home 只保留 immutable registry/audit metadata，identity 与 locator 不复用。
 - `(principal_kind, principal_id)` 防止同 raw ID 的 user/group Home 碰撞；group Pod 不得挂载成员 UserHome。
-- 现有 `users/group-{groupID}` 与其 per-Agent 内容无损注册为 GroupHome/AgentHome；user-less Run 不把全局 Agent definition 目录当 writable Home。
+- SystemSkillRoot 全部署唯一，SystemAgentSkillRoot 按 agent_id 唯一，locator opaque；普通 Run 只能得到适用 root 的只读 attachment。
+- 现有 `users/group-{groupID}` 与其 per-Agent 内容无损注册为 GroupHome/AgentHome；GroupHome/group AgentHome 的 Skills 不冒充 user/user_agent scope；user-less Run 不把全局 Agent definition 目录当 writable Home。
 - local、Docker 和 Kubernetes adapter 对同一逻辑 Home 返回一致 mount view。
 - 物理实现使用 S3 的 HomeStore 仍只能暴露 POSIX locator，不能把 object key 泄漏进领域模型。
 
@@ -768,6 +866,10 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 - helper 被终止、Pod 被删除和连接中断时的错误分类；
 - local direct library 与 remote helper 行为一致。
 - object-only mutable asset 在停用 mirror/hydrate 前完整迁入 typed PrincipalHome；漏 marker 时 server fail closed，迁移命令可 dry-run/幂等重跑且不删除远端对象。
+- managed Skill revision symlink 只能使用 root 内 canonical relative target；concurrent reader 在 flip 时只能看到完整 old/new tree，不能看到 ENOENT 或 mixed files；不支持该语义的 Store fail conformance。
+- catalog 同时识别普通 Skill directory 与 managed symlink，跳过 `.stella-revisions`，拒绝 symlink escape；API 写和任意 POSIX 写的不同并发语义有独立测试。
+- PG Skill cutover fixture 覆盖 active/deprecated/manual/Reflect/metadata-rich/binary/collision/invalid/unsupported rows；marker 前后 authority 单一，residual PG-only row 使 startup fail closed。
+- legacy `$STELLA_HOME/.agents/skills` 按 manifest 的 skill-root 粒度分类，嵌套自定义 root 也必须列为 blocker，不能因 top-level 目录共用而漏检。
 
 ### 12.3 Sandbox Provider
 
@@ -821,6 +923,8 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 - transient admission poison-head 使用 capped backoff、blocked-lane alert 与 audited admin reject，不自动跳过；
 - commit-to-start crash 产生可查询的 interrupted-before-start，既不 replay 也不阻塞后续 lane；
 - Workspace 操作可以在其他副本并发 `BeginUse + Open`；
+- AgentRun admission pin 当前 Skill catalog observation 与 AgentSkillPolicy revision；运行中 policy change 只影响下一 Run，disabled winner 不回退低层同名 Skill；
+- managed Skill revision 只有在没有 AgentRun 引用且超过 grace 后才 GC；
 - `BeginUse` 与 idle reaper 之间不存在 use-after-fence 窗口；
 - expired Run 或 outcome-unknown 操作递增 generation，先删除旧资源再创建新资源。
 
@@ -828,7 +932,7 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 
 - Provider 缺少显式 RWX/RWO class/claim 或 capacity 时配置校验失败；
 - PrincipalHome Pool 必须先通过目标 CSI 的 POSIX conformance，失败时不进入 ready；
-- trusted provisioner Pod 的 opaque subpath containment、幂等 Ensure/Purge 和 crash cleanup；
+- trusted provisioner Pod 的 opaque subpath containment、幂等 Ensure/Purge、结构化 admin Skill write 和 crash cleanup；模型输入不能成为其命令/路径 authority；
 - 同 Agent Pod 并发首启共置；
 - 不同 Agent 可分布到不同节点；
 - UserHome 与 GroupHome 跨节点可见且 namespace 隔离；
@@ -838,7 +942,8 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 - node failure、Pod deletion、volume detach 和 replacement 顺序；
 - 同节点 Session replacement 不要求共享 AgentHome detach，跨节点迁移必须等待 CSI detach；
 - security context、RBAC、network policy 和 resource limit fail closed。
-- Sandbox image digest/bundle revision 匹配 normalized spec；DB skill snapshot 可重建到 Session scratch；
+- Sandbox image digest/bundle revision 匹配 normalized spec；custom image 缺少相同 bundle 时 fail readiness 并给出 rebuild contract；
+- SystemSkillRoot/SystemAgentSkillRoot 跨节点只读可见，managed symlink flip 通过目标 CSI conformance；Session 不物化 DB Skill scratch；
 - PVC attach limit 由 scheduler/CSI 执行，ResourceQuota 拒绝超额创建时 fail closed。
 - AgentHome StorageClass 缺少 `WaitForFirstConsumer`、expansion 或可证明的 purge 能力时配置校验失败。
 
@@ -860,6 +965,7 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 - PKCE verifier、device code 和 reply capability 只以 encrypted secret 保存，日志、`NOTIFY` 和 API receipt 不泄漏；
 - 登录/注册 rate limit 在副本间共享 PostgreSQL authority，轮换负载均衡目标不能绕过额度；
 - config `NOTIFY` 丢失或 control session reconnect 后，revision validation/full refresh 仍阻止过期授权或 policy admission；
+- AgentSkillPolicy mutation 在 PostgreSQL 同行事务更新 canonical policy digest 并通知；两副本并发 managed Reflect write 对同 logical ref 只有一个 expected-digest winner，漏通知时下一次 admission 仍按 durable digest 刷新；
 - Phase 4 前 Docker/Compose 拒绝 multi-replica，Phase 5 前 Helm 拒绝 `replicaCount > 1`；门槛开启后缺失任一 shared correctness capability 仍启动失败；
 - upgrade drain 后不存在 old/new binary 并发 claim；超时 Run 进入 interrupted 并按 generation fencing 恢复。
 
@@ -871,6 +977,8 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 - Stella 直接实现的 S3 object filesystem、checkout/merge、MVCC workspace 或自动冲突合并；
 - 内建 backup、snapshot 和 restore；
 - 在线 Home 双写迁移；
+- PG 与 Home 之间的 Skill 双写、长期 dual-read、watcher/sync engine 或 restore-on-miss；
+- cutover 后把 PG catalog/index 当 Skill current-state authority；只有按 logical ref 保存的派生 usage telemetry 可继续存在；
 - 独立 Executor Fleet 或 Stella 自己的 compute scheduler；
 - smolvm、Kata、OpenSandbox 和通用 Remote Provider；
 - 普通聊天 Agent Run 的 checkpoint/resume；
