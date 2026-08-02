@@ -1,9 +1,10 @@
 # Sandbox 架构 v2：可迁移 Home 与可重连 Session Sandbox
 
-- **日期**：2026-08-01（rev 5）
-- **状态**：Draft，架构决策已收敛，待实施规划
+- **日期**：2026-08-01（rev 7）
+- **状态**：Draft，架构与实施计划已获 Fable 批准，待 Phase 1
 - **关联 Issue**：CherryHQ/stella#828
 - **关联 PR**：CherryHQ/stella#829（Draft）
+- **实施计划**：`docs/design/2026-08-02-sandbox-architecture-v2-implementation-plan.md`（Fable approved）
 - **范围**：持久目录、Sandbox Provider、Session 执行所有权、Docker 与 Kubernetes 多副本、文件访问边界、故障恢复和迁移路径
 - **相关设计**：`docs/design/2026-07-04-sandbox-secrets-injection.md`、`docs/design/research/2026-07-04-k8s-multi-replica-readiness.md`
 
@@ -66,6 +67,8 @@
 | D51  | 现有 `users/group-{groupID}` 迁移为 `GroupHome(groupID)`，保留 group workspace/assets；group AgentRun 不挂任何成员的 UserHome。user-less Run 只挂 derived content 与 Session scratch。                                                              |
 | D52  | 每个副本运行同一个轻量 Sandbox lifecycle reconciler。它以 PostgreSQL CAS 回收 expired AgentRun、fence generation，并续行 `fencing`、provisioning orphan 与 idle Sandbox；不是 Session owner 或第二套 lease。                                        |
 | D53  | Web group fan-out 按 responder fail fast：busy/no-capacity responder 的 input 持久化为 `state=rejected, reject_code=busy` 且不排队；其他 responder 在请求副本直接 admission 并保持 SSE。全部拒绝时整体返回 busy。                                   |
+| D54  | Kubernetes 前必须先通过 Docker Compose 多副本硬门禁：共享 external PostgreSQL、Docker daemon 与 reconnectable Home，验证跨副本协议和故障恢复。Kubernetes 阶段只再承担 Pod/PVC/CSI/topology/RBAC/network-policy 差异。                               |
+| D55  | 删除 mutable asset object authority 前，必须离线把全部 object-only asset 物化并校验到对应 PrincipalHome，记录 migration marker；配置过旧 authority 但未完成迁移时 server 启动失败，禁止静默丢数据。                                                 |
 
 ## 2. 当前实现的问题
 
@@ -562,7 +565,7 @@ channel 的 outbound Publisher 与 ingress listener 分离。任意执行 AgentR
 
 这些事件与 abort/input wake 共用每副本那一条 serialized control session，不增加 broker 或每领域连接。
 
-`replicas > 1` 是显式能力门槛，不是“多启动一个进程试试看”。Helm 只在 Phase 5 全部验收后开放该值，并校验 external PostgreSQL、direct/session pooling、distributed-capable SandboxProvider、durable channel cursor/Publisher、DB OAuth flow/rate limit 和 config revision；Docker/Compose 使用等价的显式 multi-replica flag 与启动校验。任一条件缺失都 fail closed，不能退回 process-local correctness。
+`replicas > 1` 是显式能力门槛，不是“多启动一个进程试试看”。Docker/Compose 在 Phase 4 全部验收后开放显式 multi-replica flag；Helm 在 Phase 5 的 Kubernetes conformance 通过后开放 `replicaCount > 1`。两者都校验 external PostgreSQL、direct/session pooling、distributed-capable SandboxProvider、durable channel cursor/Publisher、DB OAuth flow/rate limit 和 config revision；任一条件缺失都 fail closed，不能退回 process-local correctness。
 
 初版要求所有 `stellad` 副本运行同一 binary/schema contract。Helm 升级先停止 admission 与 channel ingress，bounded drain active Runs，然后使用 `Recreate` 停完全部旧副本再启动新副本；超过 drain deadline 的 Run 按 interrupted/fencing 恢复。这里接受升级窗口，平台消息依靠上游 redelivery 和 durable cursor，不实现 old/new binary 同时 claim 的 rolling compatibility。以后若 zero-downtime upgrade 成为要求，再为 schema 和 durable state machine 单独设计 expand/dual-read/contract protocol。
 
@@ -721,19 +724,21 @@ PrincipalHome 和 AgentHome 的 authority 是 Sandbox 挂载的 POSIX filesystem
 
 `$STELLA_ASSETS_DIR` 是 PrincipalHome 中的普通 mutable 目录。user 与 group 的 bash、CLI、channel upload、Workspace API 和文件工具通过同一 Filesystem 写入后即持久；不需要 commit、watcher 或 metadata sidecar。现有 `asset.Store` 对 mutable asset 的 object authority、双写 rollback、hydrate 和 restore-on-miss 在迁移后删除，因为共享 Home 已经消除了它们原本补偿的 replica-local disk 前提。
 
+删除该 authority 不是直接停写。若部署配置过 `STELLA_BLOB_S3_*` mutable asset authority，新版本 server 在 migration marker 缺失时 fail closed，并提示 operator 停止旧 server 后运行 `stellad storage migrate-assets`。该命令通过现有 blob listing 枚举 mutable asset keys，按 typed principal 校验 locator，把 object-only 内容安全写入 PrincipalHome，校验数量、大小与内容摘要，再以 PostgreSQL CAS 记录完成；支持 dry-run、幂等重跑和 machine-readable output，不删除远端对象。只有 marker 完成后 server 才停止 mirror/hydrate 语义。无 object authority 的部署不需要这一步。
+
 immutable session media 仍可使用 content-addressed blob/S3。share 在发布时从 Filesystem 读取一个确定版本并保存 immutable snapshot；两者都不反过来成为 mutable asset directory 的 authority。
 
 ## 11. 迁移路线
 
 迁移按最小可验证边界推进。每一阶段完成后都保持现有 local/Docker 用户行为可用。
 
-| Phase | 内容                                                                                                                                                                                                                                                                                                                                                                                                  | 验收结果                                                                                |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 1     | 新增 typed `storage_home` 与 HomeStore；把当前 `users/{userID}`、`users/group-{groupID}` 和其 per-Agent 目录注册为 local locator；停止把 `agent.workspace` 当数据身份，并审计 user-less job 对全局 Agent 目录的写依赖                                                                                                                                                                                 | 不移动现有文件，数据库能解析每个 UserHome、GroupHome 和 AgentHome                       |
-| 2     | 引入 `Filesystem` 和一次性 `stella-fs`；迁移 read/write/edit、Workspace、share 和 mutable asset 消费者；删除 ResolvePath 及 asset object mirror/hydration                                                                                                                                                                                                                                             | local、none、Docker 通过同一文件 conformance；直接 bash asset 写与 API 写具有相同持久性 |
-| 3     | 持久化 SandboxRef/generation/lifecycle、provisioning intent、`ctx_chat_input`、AgentRun 和 ChatBinding FIFO；保留有期限的单一 GroupRoute；删除 command receipt、process queue、`ctx_group_dispatch` lease 与 `owner_pid`；移除 channel `/agent`、`/model` 及 `SwitchModel`；实现 InputDispatcher、Sandbox lifecycle reconciler、event fallback、batch admission、`BeginUse`、Docker `Open` 和 fencing | semantic routing、`/new` 保序、expired Run recovery 与 Run execution 都不依赖进程状态   |
-| 4     | 实现 Kubernetes Provider、显式 storage 配置与 conformance gate、RWX PrincipalHome Pool、RWO AgentHome PVC、versioned system bundle、derived skill scratch、Pod affinity、安全基线和 `stella-exec` adapter                                                                                                                                                                                             | Session Pod 跨节点调度且不丢 Home；tool/skill 无宿主路径；OAuth refresh 不写入持久资源  |
-| 5     | 实现全局 channel advisory-lock ingress、durable bot/reply metadata 和可重建 Publisher；DB 化 OAuth flow 与 rate limit；增加 versioned config invalidation；不偷渡 event relay；完成后才开放 `replicas > 1` 配置                                                                                                                                                                                       | Docker/Kubernetes 只启动一组 pull/WS ingress；任意副本可执行 Run 并回复平台             |
+| Phase | 内容                                                                                                                                                                                                                                                                                                                                                                                                  | 验收结果                                                                                           |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1     | 新增 typed `storage_home` 与 HomeStore；把当前 `users/{userID}`、`users/group-{groupID}` 和其 per-Agent 目录注册为 local locator；停止把 `agent.workspace` 当数据身份，并审计 user-less job 对全局 Agent 目录的写依赖                                                                                                                                                                                 | 不移动现有文件，数据库能解析每个 UserHome、GroupHome 和 AgentHome                                  |
+| 2     | 引入 `Filesystem` 和一次性 `stella-fs`；迁移 read/write/edit、Workspace、share 和 mutable asset 消费者；先完成 object-only asset 离线回填与 marker，再删除 ResolvePath 及 asset object mirror/hydration                                                                                                                                                                                               | local、none、Docker 通过文件 conformance；bucket-only 资产不丢失；bash/API 写同一 authority        |
+| 3     | 持久化 SandboxRef/generation/lifecycle、provisioning intent、`ctx_chat_input`、AgentRun 和 ChatBinding FIFO；保留有期限的单一 GroupRoute；删除 command receipt、process queue、`ctx_group_dispatch` lease 与 `owner_pid`；移除 channel `/agent`、`/model` 及 `SwitchModel`；实现 InputDispatcher、Sandbox lifecycle reconciler、event fallback、batch admission、`BeginUse`、Docker `Open` 和 fencing | semantic routing、`/new` 保序、expired Run recovery 与 Run execution 都不依赖进程状态              |
+| 4     | 实现全局 channel advisory-lock ingress、durable bot/reply metadata 和可重建 Publisher；DB 化 OAuth flow 与 rate limit；增加 versioned config invalidation；新增共享 PostgreSQL/daemon/Home 的 3-replica Docker Compose journey，并在全部门槛通过后开放 Docker multi-replica flag                                                                                                                      | Compose 中跨副本 Run、abort、fencing、Workspace、FIFO、leader/publisher 与 crash recovery 全部通过 |
+| 5     | 实现 Kubernetes Provider、显式 storage 配置与 conformance gate、RWX PrincipalHome Pool、RWO AgentHome PVC、versioned system bundle、derived skill scratch、Pod affinity、安全基线和 `stella-exec` adapter；复用 Phase 4 协议测试，只新增 Kubernetes platform conformance                                                                                                                              | Session Pod 跨节点调度且不丢 Home；tool/skill 无宿主路径；通过后才开放 Helm 多副本                 |
 
 Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只允许 local HomeStore adapter 提供内部过渡，不能把路径重新加入新公共契约。
 
@@ -762,6 +767,7 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 - permission、executable bit、append、locking、close-to-open consistency 和 fsync durability；
 - helper 被终止、Pod 被删除和连接中断时的错误分类；
 - local direct library 与 remote helper 行为一致。
+- object-only mutable asset 在停用 mirror/hydrate 前完整迁入 typed PrincipalHome；漏 marker 时 server fail closed，迁移命令可 dry-run/幂等重跑且不删除远端对象。
 
 ### 12.3 Sandbox Provider
 
@@ -854,7 +860,7 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 - PKCE verifier、device code 和 reply capability 只以 encrypted secret 保存，日志、`NOTIFY` 和 API receipt 不泄漏；
 - 登录/注册 rate limit 在副本间共享 PostgreSQL authority，轮换负载均衡目标不能绕过额度；
 - config `NOTIFY` 丢失或 control session reconnect 后，revision validation/full refresh 仍阻止过期授权或 policy admission；
-- Phase 5 前 chart/runtime 拒绝 `replicas > 1`；门槛开启后缺失任一 shared correctness capability 仍启动失败；
+- Phase 4 前 Docker/Compose 拒绝 multi-replica，Phase 5 前 Helm 拒绝 `replicaCount > 1`；门槛开启后缺失任一 shared correctness capability 仍启动失败；
 - upgrade drain 后不存在 old/new binary 并发 claim；超时 Run 进入 interrupted 并按 generation fencing 恢复。
 
 ## 13. 当前不做
