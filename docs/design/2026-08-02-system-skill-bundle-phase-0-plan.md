@@ -2,7 +2,7 @@
 
 - **Revision:** 3 — release bundle now; mutable Home authority after Homes + `stella-fs`
 - **Status:** APPROVED — ready to execute
-- **Issue draft:** `refactor(skills): separate builtin authority and add agent policy`
+- **Issue:** CherryHQ/stella#828 (umbrella; V requested no child Issue)
 - **Branch:** `refactor/system-skill-bundle`
 - **PR base:** `design/sandbox-architecture-v2` (stacked above Draft PR #829; retarget to `main` after #829 merges)
 - **Parent architecture:** `docs/design/2026-08-01-sandbox-architecture-v2.md` rev 8, D1–D60
@@ -263,7 +263,7 @@ Phase 2b migrates active rows into exact Home roots, deprecated/changelog state 
 - [ ] Update README and EN/ZH user/developer Skill/storage/sandbox docs plus builtin Stella Skill for builtin/system distinction, activation semantics, custom-image rebuild, legacy gate and downgrade behavior.
 - [ ] Run adversarial bug/security/architecture/correctness review; resolve findings affecting legacy data, policy clobber/bypass, bundle integrity, provider isolation or future Home cutover.
 - [ ] Run mandatory local checks and the lowest sufficient startup/image system seam.
-- [ ] Create the tracked Issue with confirmed metadata, commit each phase, push the stacked branch and open a linked Draft PR based on `design/sandbox-architecture-v2`.
+- [ ] Commit each phase, push the stacked branch, and open one Draft PR based on `design/sandbox-architecture-v2` whose body says `Refs #828`. Do not create a child Issue or mark the PR ready without V's instruction.
 
 **Acceptance:**
 
@@ -309,6 +309,12 @@ Kept system scopes but added `agent_skill_disablement`. Fable approved after sta
 **Review (Fable, round 2): APPROVED.** Fable re-read architecture rev 8, the parent plan, and this byte-identical exact plan, found no mandatory issue, and confirmed the `/opt/stella/skills/builtin` Phase 0 view remains a projection of the immutable bundle rather than another authority.
 
 **Resolved:** Final plan gate satisfied. Implementation may start with Phase 1 of this standalone Phase 0 plan.
+
+### Full-program execution map
+
+**Decision (V):** Implement all parent phases under umbrella Issue #828, create no child Issues, and open every PR as Draft. The initial 23-PR decomposition was too granular; V authorized Sol self-review instead of another Fable pass.
+
+**Resolved:** The parent plan now uses 15 vertical Draft PRs. Phase 0 remains one PR with four phase commits, stacked on #829 and retargeted to `main` after #829 merges. Its body uses `Refs #828`, never `Closes #828`; it stays Draft until V says otherwise.
 
 ## Handoffs
 

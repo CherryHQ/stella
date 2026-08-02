@@ -1,6 +1,6 @@
 # Plan: Implement Sandbox Architecture v2
 
-- **Status:** APPROVED — ready to execute Phase 0; Docker Compose remains the hard gate before Kubernetes
+- **Status:** APPROVED — V-authorized 15-Draft-PR execution map; Docker Compose remains the hard gate before Kubernetes
 - **Issue:** CherryHQ/stella#828
 - **Design PR:** CherryHQ/stella#829
 - **Architecture source:** `docs/design/2026-08-01-sandbox-architecture-v2.md` rev 8, D1–D60
@@ -268,18 +268,60 @@ Every phase runs the repository's mandatory `mise run format && mise run build &
 
 ## Migration and PR order
 
-One logical phase is not necessarily one enormous diff. Use reviewable PR slices, all linked to #828, while preserving each phase's activation boundary:
+The implementation baseline is **15 Draft PRs**. Every PR body says `Refs #828`; no child Issue is created, no PR says `Closes #828`, and every PR stays Draft until V explicitly changes its state. Drafts open just in time rather than all at once.
 
-| Phase | Suggested PR slices                                                                                               | Activation rule                                                                               |
-| ----- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| 0     | builtin manifest/bundle → Provider projection → policy/API/UI → docs/legacy gate                                  | Separate stacked plan; no mutable PG Skill authority change                                   |
-| 1     | schema/queries → Home/shared Skill-root module/adapters → legacy registration                                     | Still single-replica; no data movement                                                        |
-| 2     | Filesystem/helper/publication → tools/Workspace/assets → PG Skill/Reflect migration → old authority/path deletion | Skill marker and asset marker each switch one authority only after exhaustive verification    |
-| 3     | durable schema/provider lifecycle → AgentRun sources/reconciler → input/group cutover → revision pin/GC cleanup   | Multi-replica flag remains rejected until every slice is merged and Phase 3 acceptance passes |
-| 4     | control/security/policy invalidation → channel ingress/publisher → Compose harness/journeys → Docker gate         | Docker multi-replica opens only in the final slice                                            |
-| 5     | Kubernetes compute → Home/shared-root/PVC topology → chart/security → cluster conformance/gate                    | Helm multi-replica opens only after target-cluster conformance                                |
+| ID  | Branch                          | Scope                                                                                                                                                        | Depends on |
+| --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| 0.1 | `refactor/system-skill-bundle`  | Complete standalone Phase 0 in four commits: manifest/Registry, Provider projection/legacy gate, Agent policy API/UI, docs/gate                              | PR #829    |
+| 1.1 | `storage/typed-homes`           | Phase 1 vertical slice: schema/sqlc, deep Home module, local/Docker Store adapters, shared Skill roots, registration/wiring/lifecycle                        | 0.1        |
+| 2.1 | `sandbox/filesystem-boundary`   | `fsops`, restricted helpers, local/none/Docker adapters, Filesystem conformance and outcome-unknown semantics                                                | 1.1        |
+| 2.2 | `storage/home-consumers-assets` | Non-Skill read/write/edit and Workspace API/UI migration, host parser boundary, mutable-asset migration/marker/Home cutover                                  | 2.1        |
+| 2.3 | `skills/home-authority-cutover` | Filesystem Skill metadata/catalog/publication/admin path, observability, then offline PG Skill/Reflect/usage/archive migration after the asset marker exists | 2.2        |
+| 2.4 | `sandbox/host-path-cleanup`     | Remove remaining public host paths, PG Skill current-state readers/writers and obsolete retries; run complete Phase 2 acceptance                             | 2.3        |
+| 3.1 | `runtime/session-sandbox`       | Durable SessionSandbox/AgentRun/input schema, deterministic Provider lifecycle, provisioning intents and exact-generation Workspace foundation               | 2.4        |
+| 3.2 | `runtime/agent-run`             | AgentRun lease/guards/abort, lifecycle reconciler, source migration, Workspace linearization, catalog/policy pin and revision GC                             | 3.1        |
+| 3.3 | `runtime/durable-input`         | ChatBinding FIFO/media/quota/batching, receipt backfill, GroupRoute, Session API/Web behavior, command/process-local cleanup and complete Phase 3 gate       | 3.2        |
+| 4.1 | `control/shared-state`          | Pool-external control session, OAuth/rate-limit/config/policy durability and managed-writer serialization                                                    | 3.3        |
+| 4.2 | `channel/distributed-runtime`   | Global channel ingress leadership, cursor/ack/capability durability and reconstructable Publishers                                                           | 4.1        |
+| 4.3 | `sandbox/compose-gate`          | Three-replica Compose harness/journeys, documentation and fail-closed Docker multi-replica activation                                                        | 4.2        |
+| 5.1 | `sandbox/kubernetes-provider`   | Kubernetes dependency/frozen placement contract, Provider Pod/exec/watch/recovery and Session Pod compute                                                    | 4.3        |
+| 5.2 | `storage/kubernetes-topology`   | RWX Pool/shared roots, RWO AgentHome PVC/affinity, trusted provisioner, Helm storage/security/RBAC/network/quota integration                                 | 5.1        |
+| 5.3 | `sandbox/kubernetes-gate`       | Kubernetes conformance, Phase 4 journey reuse, docs and fail-closed Helm multi-replica activation                                                            | 5.2        |
 
-Schema additions are expand-first. Old columns/tables are removed only in the slice that removes their last reader/writer. No phase leaves two active authorities under a multi-replica-enabled configuration.
+Count: `1 + 1 + 4 + 3 + 3 + 3 = 15`.
+
+```text
+#829 → 0.1 → 1.1 → 2.1 → 2.2 → 2.3 → 2.4
+                              │      │
+                              │      └─ Skill preparation may start after 2.1,
+                              │         but its cutover/review base remains 2.2.
+                              └─ Workspace and asset work share the PrincipalHome boundary.
+
+2.4 → 3.1 → 3.2 → 3.3 → 4.1 → 4.2 → 4.3 → 5.1 → 5.2 → 5.3
+                              │                    │
+                              │                    └─ storage/chart preparation may run beside
+                              │                       compute after 5.1 freezes placement types.
+                              └─ auth-state and channel work may be developed in parallel
+                                 after the control-session contract commit, but merge in order.
+```
+
+PR count and worker count are independent. Separate COW clones may develop disjoint commits in parallel, then integrate them into the named Draft PR. Maximum substantive coding concurrency is two lanes; planning, fixtures and documentation may run ahead only against committed interfaces. A higher phase cannot claim Acceptance, merge, or activate before its predecessor gate passes.
+
+Use `gh stack` for linear chains. Parallel preparation does not justify sibling PRs unless it gains an independent rollback/activation boundary; fake linear micro-PRs and one permanent 15-layer stack are both rejected. After #829 merges, retarget 0.1 to `main`. Each behavior/API/config PR carries its own README/docs/EN+ZH/builtin-skill/system-prompt delta where applicable; gate PRs aggregate phase acceptance and handoff rather than receiving all documentation debt.
+
+Schema additions are expand-first. Old columns/tables are removed only in the PR that removes their last reader/writer. Asset authority switches before Skill authority; no phase leaves two active authorities under a multi-replica-enabled configuration. Split beyond 15 only when implementation evidence reveals a genuinely independent rollback boundary or one PR cannot have a single runnable Acceptance story; update this plan first rather than drifting silently.
+
+### PMO execution and progress protocol
+
+The main Sol agent is the program owner, not a feature coder. It owns dependency order, delegate briefs, COW isolation, acceptance evidence, adversarial review, commits, Draft PR metadata, plan/handoff synchronization, and the live Issue #828 dashboard. Substantive implementation is delegated one named PR or safe sub-slice at a time to Daily agents; mechanical generation/document synchronization may go to Fast agents.
+
+- Every delegate works only in `~/.agents/worktrees/stella/<pr-id>-<slug>`, created as an APFS COW clone from the exact committed dependency head. No implementation runs in the source checkout.
+- The clone removes inherited `.git/worktrees` registrations, configures `rerere`/`remote.pushDefault`, trusts mise locally, and retains no correctness dependency on another clone's uncommitted files.
+- Delegates do not edit Issue #828, PR state, canonical plans, or shared tracking. They return changed paths, focused verification, unresolved risks, and handoff evidence; the main agent independently inspects and runs the required gates before committing.
+- Only the main agent pushes, opens/edits Draft PRs, rebases stacks, records Acceptance, and changes the checklist. It never marks a PR Ready or merges without V's explicit instruction.
+- Issue #828 is the live program dashboard. Update it immediately when work is delegated, a first commit or Draft PR appears, a check fails/passes, a dependency blocks/unblocks, a review changes scope, or a PR reaches its phase gate. Also reconcile it at every session handoff; “will update later” is not a state.
+- Checklist states are `queued`, `in progress`, `verification`, `blocked`, and `done`. A checked box means the PR's complete planned Acceptance passed and its handoff was recorded, not merely that code exists.
+- Each dashboard row records PR ID/scope, current state, branch/PR link, dependency, latest verified commit, last update time, next action, and blocker if any. The canonical plan remains the detailed contract; Issue #828 is the timely status projection.
 
 ## Tasks
 
@@ -616,6 +658,12 @@ Any finding that changes safety, product semantics, the selected module boundary
 **Review (Fable, exact transcription round 2):** `DECISION: APPROVED`. Fable verified the architecture, this parent plan, and the byte-identical Phase 0 plan; it found no mandatory issue. It also approved the clarified `/opt/stella/skills/{builtin,system,system-agent}` read-only execution views as coordinates over the same two authorities, not a third source.
 
 **Resolved:** Final review gate satisfied. The canonical and repository plan copies must remain byte-identical as implementation review threads and handoffs are appended.
+
+**Decision (V, full-program execution):** Implement all phases, reuse umbrella Issue #828 for every PR, create no child Issues, and open every PR as Draft. V rejected a 23-PR draft as over-granular and explicitly authorized Sol self-review without another Fable pass.
+
+**Review (Sol, four perspectives):** The 15-PR map preserves each material rollback/activation boundary while removing bookkeeping-only splits. Bug review keeps asset marker before Skill cutover, receipt backfill before deletion, and cleanup after both authorities move. Security review keeps Docker/Kubernetes gates closed until their conformance PRs and prevents partial control-state rollout from enabling replicas. Architecture review keeps one vertical Phase 1 Home module, separates the two Phase 2 authority transitions, and refuses fake parallel PRs without independent rollback. Correctness review requires every speculative lane to compile against committed contracts, caps substantive concurrency at two, and gives each phase one final aggregate Acceptance owner.
+
+**Resolved:** Baseline is exactly 15 just-in-time Draft PRs, all `Refs #828`. Split only when implementation evidence exposes another independent rollback boundary or no single runnable Acceptance story remains; revise the plan before changing count. No PR becomes Ready or merges without V's explicit instruction.
 
 ## Handoffs
 
