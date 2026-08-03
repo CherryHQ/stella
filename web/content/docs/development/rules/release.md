@@ -53,7 +53,9 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
    Filter the project board by the `release:vX.Y.Z` label to confirm the release scope.
 
 9. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
-10. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
+10. CI triggers `.github/workflows/release.yml`. Its validation job checks the
+    exact tagged commit before the GoReleaser or Docker publication jobs can
+    start.
 
 ## Update Changelog
 
@@ -86,10 +88,12 @@ test "$(jq -r '.version' web/package.json)" = "$VERSION"
 mise run release:validate
 ```
 
-The system suite (`system-test`) is a **local** release gate: it is skipped on
-hosts without a published embedded PostgreSQL runtime and is not run in CI, so it
-runs here as part of `release:validate` rather than in the release workflow. See
-`system-test.md`.
+The system suite (`system-test`) runs both in the local gate and in the
+tag-triggered validation job. Release CI pins a supported Ubuntu runner and
+uploads the suite's server logs before any snapshot build can clean `dist/`.
+GoReleaser and Docker publication jobs depend directly on the validation result,
+so a failed or unsupported System Test cannot publish partial release artifacts.
+See `system-test.md`.
 
 ## Artifacts
 

@@ -48,9 +48,10 @@ mise run system-test
   `trixie`；
 - **macOS arm64**。
 
-在不支持的主机上，可将 `STELLA_DATABASE_URL` 指向一个带 `pg_search` 与 `pgvector` 的外部
-PostgreSQL 来手动运行服务器，或为该平台提 issue。由于套件在非受支持平台上是跳过而非失败，
-它始终是一个本地 gate，不进 CI。
+在不支持的开发主机上，可将 `STELLA_DATABASE_URL` 指向一个带 `pg_search` 与 `pgvector` 的
+外部 PostgreSQL 来手动运行服务器，或为该平台提 issue。Tag Release workflow 固定使用受支持的
+Ubuntu runner，并调用 `mise run system-test`；若该 runner 将来变得不受支持，它的 runtime 下载
+依赖会在套件执行前失败，因此发布流程不会把“不支持平台”的 skip 误算成 pass。
 
 ## 套件架构
 
