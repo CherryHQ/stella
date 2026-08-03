@@ -126,6 +126,9 @@ type fakeRequest struct {
 	Messages  []string
 	Images    []fakeImage
 	ToolNames []string
+	// APIKey is the Anthropic x-api-key header. Tests use only explicit,
+	// non-production fixture values and never print it from generic diagnostics.
+	APIKey string
 	// GoalControl is the non-fail goal_control action the request advertised
 	// ("decompose"/"submit"/"verdict"), or "" when the request carries no
 	// goal_control tool. It is the Goal-stage discriminator.
@@ -272,7 +275,10 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 	model, messages, images, toolNames, control := parseMessagesRequest(f.t, r)
 
 	f.mu.Lock()
-	f.reqs = append(f.reqs, fakeRequest{Model: model, Messages: messages, Images: images, ToolNames: toolNames, GoalControl: control})
+	f.reqs = append(f.reqs, fakeRequest{
+		Model: model, Messages: messages, Images: images, ToolNames: toolNames,
+		APIKey: r.Header.Get("x-api-key"), GoalControl: control,
+	})
 	resp, ok := f.selectResponse(model, control)
 	f.mu.Unlock()
 	if !ok {
