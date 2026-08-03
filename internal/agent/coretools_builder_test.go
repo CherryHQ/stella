@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -44,13 +43,14 @@ func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
 func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
 	session := &fakeSession{alive: true}
 	tools := buildSandboxCoreTools(session, pkgplugins.ToolBuildContext{}, nil)
-	definitions := agentsandbox.ToolDefinitions()
-	if len(tools) != len(definitions) {
-		t.Fatalf("runtime tools = %d, canonical definitions = %d", len(tools), len(definitions))
+	if len(tools) != 4 {
+		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}
-	for i := range definitions {
-		if got, want := tools[i].Definition().Name, definitions[i].Name; got != want {
-			t.Fatalf("runtime tool[%d] = %q, canonical definition = %q", i, got, want)
+	gotNames := []string{tools[0].Definition().Name, tools[1].Definition().Name, tools[2].Definition().Name, tools[3].Definition().Name}
+	want := []string{"bash", "read", "write", "edit"}
+	for i := range want {
+		if gotNames[i] != want[i] {
+			t.Fatalf("tool[%d] = %q, want %q", i, gotNames[i], want[i])
 		}
 	}
 }
