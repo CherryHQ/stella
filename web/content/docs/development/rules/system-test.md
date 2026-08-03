@@ -54,10 +54,12 @@ resource — it does not fail. Published platforms:
   `bookworm`, `noble`, and `trixie`;
 - **macOS arm64**.
 
-On an unsupported host, point `STELLA_DATABASE_URL` at an external PostgreSQL with
-`pg_search` and `pgvector` to run the server manually, or file an issue for the
-platform. Because the suite is skipped rather than failed off-platform, it stays a
-local gate and is not run in CI.
+On an unsupported development host, point `STELLA_DATABASE_URL` at an external
+PostgreSQL with `pg_search` and `pgvector` to run the server manually, or file an
+issue for the platform. The tag-triggered release workflow pins a supported
+Ubuntu runner and invokes `mise run system-test`; its runtime-download dependency
+fails before the suite if that runner ever becomes unsupported, so publication
+cannot treat an unsupported-platform skip as a pass.
 
 ## Suite architecture
 
