@@ -15,7 +15,7 @@ import (
 // run executes the agent loop: repeatedly generating assistant responses
 // and executing tool calls until the model stops calling tools,
 // the turn limit is reached, or an interrupt/error occurs.
-func run(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
+func run(ctx context.Context, cfg loopConfig, history []ai.Message, activeStart int, emit func(LoopEvent)) ([]ai.Message, error) {
 	if cfg.Stream == nil {
 		return nil, errors.New("agent: stream not configured")
 	}
@@ -23,7 +23,7 @@ func run(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(Lo
 		emit(AgentStarted{})
 	}
 
-	history, err := runLoop(ctx, cfg, history, emit)
+	history, err := runLoop(ctx, cfg, history, activeStart, emit)
 	if err != nil {
 		if emit != nil {
 			emit(AgentErrored{Err: err})
@@ -37,10 +37,12 @@ func run(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(Lo
 	return history, nil
 }
 
-func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit func(LoopEvent)) ([]ai.Message, error) {
+func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeStart int, emit func(LoopEvent)) ([]ai.Message, error) {
+	if activeStart < 0 || activeStart > len(history) {
+		return history, projectionError("invalid active boundary")
+	}
 	loopStart := time.Now()
-	toolCallCounts := make(map[string]int, len(cfg.ToolCallLimits))
-	runTools := toolsWithCallLimits(cfg.Tools, cfg.ToolCallLimits, toolCallCounts)
+	hydrationMemo := make(map[string]ai.ImageContent)
 	for turn := 1; ; turn++ {
 		if cfg.TurnNotify != nil {
 			if msg := cfg.TurnNotify(turn, time.Since(loopStart)); msg != nil {
@@ -52,16 +54,9 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 			emit(TurnStarted{Turn: turn})
 		}
 
-		// Normalize transcript before each model call.
-		normalized := ai.TransformMessages(history)
-
 		// PreLLMCall hooks: may modify system prompt, tool definitions, or model.
 		effectiveSystem := cfg.System
-		effectiveToolDefs := toolDefinitionsWithinCallLimits(
-			cfg.ToolDefinitions,
-			cfg.ToolCallLimits,
-			toolCallCounts,
-		)
+		effectiveToolDefs := cfg.ToolDefinitions
 		effectiveModel := cfg.Model
 		streamCtx := ctx // enriched by hooks with trace spans if available
 		if !cfg.Hooks.Empty() {
@@ -69,8 +64,8 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 				HookMeta:        cfg.HookMeta,
 				Model:           cfg.Model.Name,
 				System:          cfg.System,
-				ToolDefinitions: effectiveToolDefs,
-				MessageCount:    len(normalized),
+				ToolDefinitions: cfg.ToolDefinitions,
+				MessageCount:    len(history),
 				API:             cfg.Model.API,
 				Provider:        cfg.Model.Provider,
 				BaseURL:         cfg.Model.BaseURL,
@@ -87,18 +82,17 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 			if hookResult.Model != nil {
 				effectiveModel = cfg.Model
 				effectiveModel.Name = *hookResult.Model
+				// Hooks can currently replace only a model name, not its full
+				// capability metadata. Do not inherit image support from a different
+				// configured model and risk sending pixels to an unknown target.
+				if effectiveModel.Name != cfg.Model.Name {
+					effectiveModel.Input = nil
+				}
 			}
 			if hookResult.Context != nil {
 				streamCtx = hookResult.Context
 			}
 		}
-		// A hook may return the original definitions, so enforce exhausted
-		// budgets again immediately before sending tools to the provider.
-		effectiveToolDefs = toolDefinitionsWithinCallLimits(
-			effectiveToolDefs,
-			cfg.ToolCallLimits,
-			toolCallCounts,
-		)
 
 		// Build a per-turn config with hook mutations applied.
 		// NOTE: shallow copy — safe because loopConfig fields are value types
@@ -107,6 +101,18 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 		turnCfg.System = effectiveSystem
 		turnCfg.ToolDefinitions = effectiveToolDefs
 		turnCfg.Model = effectiveModel
+
+		// Project before normalization so synthetic inserts cannot shift the
+		// active boundary. The hydration memo is local to this Run.
+		projected, err := projectImages(streamCtx, turnCfg, history, activeStart, hydrationMemo)
+		if err != nil {
+			return history, err
+		}
+		// Normalize only provider-ready content.
+		normalized := ai.TransformMessages(projected)
+		if err := validateProviderImages(turnCfg.Model, normalized); err != nil {
+			return history, err
+		}
 
 		start := time.Now()
 		result, err := streamAssistant(streamCtx, normalized, turnCfg, emit)
@@ -164,8 +170,16 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 			}
 		}
 
-		toolExecCtx := tools.WithVision(ctx, effectiveModel.SupportsImage())
-		results, err := executeToolCalls(toolExecCtx, calls, runTools, toolCallbacks{
+		imageMode := tools.ImageResultLegacy
+		if cfg.CanonicalImages != nil {
+			imageMode = tools.ImageResultCanonical
+		}
+		toolExecCtx := tools.WithImageResultMode(ctx, imageMode)
+		var canonicalizer ToolImageCanonicalizer
+		if cfg.CanonicalImages != nil {
+			canonicalizer = cfg.CanonicalImages.CanonicalizeToolResult
+		}
+		results, err := executeToolCalls(toolExecCtx, calls, cfg.Tools, toolCallbacks{
 			onStart: func(call ai.ToolCall) {
 				if emit != nil {
 					emit(ToolStarted{ToolCall: call})
@@ -176,7 +190,7 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 					emit(ToolFinished{Result: result})
 				}
 			},
-		}, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle)
+		}, cfg.Hooks, cfg.HookMeta, cfg.ToolLifecycle, canonicalizer)
 		if err != nil {
 			return history, err
 		}
@@ -189,61 +203,6 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, emit fun
 			emit(TurnFinished{Turn: turn})
 		}
 	}
-}
-
-// toolsWithCallLimits wraps only configured tools with counters scoped to this
-// runLoop invocation. Tool execution is sequential, so no shared synchronization
-// or persistent state is needed, and concurrent Runner.Run calls remain isolated.
-func toolsWithCallLimits(toolSet ToolSet, limits, callCounts map[string]int) ToolSet {
-	if len(limits) == 0 {
-		return toolSet
-	}
-
-	runTools := make(ToolSet, len(toolSet))
-	for name, fn := range toolSet {
-		maxCalls := limits[name]
-		if maxCalls <= 0 {
-			runTools[name] = fn
-			continue
-		}
-
-		toolName := name
-		toolFn := fn
-		runTools[toolName] = func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
-			if callCounts[toolName] >= maxCalls {
-				return nil, fmt.Errorf(
-					"tool %s can be called at most %d times for one user request; use the available results or explain that the evidence is insufficient",
-					toolName,
-					maxCalls,
-				)
-			}
-			callCounts[toolName]++
-			return toolFn(ctx, call)
-		}
-	}
-	return runTools
-}
-
-// toolDefinitionsWithinCallLimits hides exhausted tools from later model calls
-// in the same user request. The execution wrapper remains the hard backstop for
-// providers that emit a tool call even after its definition has been removed.
-func toolDefinitionsWithinCallLimits(
-	definitions []ai.ToolDefinition,
-	limits, callCounts map[string]int,
-) []ai.ToolDefinition {
-	if len(limits) == 0 {
-		return definitions
-	}
-
-	filtered := make([]ai.ToolDefinition, 0, len(definitions))
-	for _, definition := range definitions {
-		maxCalls := limits[definition.Name]
-		if maxCalls > 0 && callCounts[definition.Name] >= maxCalls {
-			continue
-		}
-		filtered = append(filtered, definition)
-	}
-	return filtered
 }
 
 // streamAssistant opens a provider stream, emits granular assistant events,

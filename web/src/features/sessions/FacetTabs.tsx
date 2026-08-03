@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Database, Library, ListTodo, MessageSquare, Puzzle } from "lucide-react";
+import { Database, ListTodo, MessageSquare, Puzzle } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -99,13 +99,6 @@ export function FacetTabs({ kind, agentId, groupId, projectId }: FacetTabsProps)
               to: `${base}/memories`,
               icon: Database,
               active: (p) => p.startsWith(`${base}/memories`),
-            },
-            {
-              key: "knowledge",
-              label: t("facets.knowledge"),
-              to: `${base}/knowledge`,
-              icon: Library,
-              active: (p) => p.startsWith(`${base}/knowledge`),
             },
             {
               key: "skills",

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
 import { Link } from "@tanstack/react-router";
 import {
   AlertCircle,
@@ -37,12 +38,20 @@ import {
   createSessionTransport,
   mergeToolResults,
   messageToUIMessage,
+  reconcileHistoryUIMessages,
+  sessionMessagesToMessages,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
 import { useAppShell } from "@/layouts/AppShell";
 import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
+
+const PAGE_SIZE = 50;
+// Auto-fill (below) pulls older pages until the transcript overflows; cap how
+// many it may pull so a pathological history can't trigger an unbounded fetch
+// loop on mount. Scroll-up paging remains unlimited.
+const MAX_AUTO_FILL_PAGES = 3;
 
 const inboxKindLabels = {
   blocked: "inbox.kind.blocked",
@@ -69,7 +78,6 @@ export function SessionDetail({
   contextTitle,
 }: Props) {
   const { t } = useI18n();
-  const [userInput, setUserInput] = useState("");
   const { toasts, showToast } = useToast();
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -78,6 +86,7 @@ export function SessionDetail({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
+  const autoFillPagesRef = useRef(0);
   const shouldAutoScrollRef = useRef(true);
 
   const sessionId = session?.id ?? "";
@@ -94,7 +103,7 @@ export function SessionDetail({
     },
     [agentId, sessionId],
   );
-  const { attachments, selectFiles, removeAttachment, clearAttachments, buildMessageText } =
+  const { attachments, selectFiles, removeAttachment, clearAttachments, buildMessageParts } =
     useFileAttachments(uploadFn);
 
   const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
@@ -127,6 +136,8 @@ export function SessionDetail({
   } = useChat({
     id: session?.id ?? "empty",
     transport,
+    // Batch SSE deltas: without this every token re-renders the transcript.
+    experimental_throttle: 50,
     onError: (err) => console.error("[session chat]", err),
   });
 
@@ -176,13 +187,15 @@ export function SessionDetail({
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
         path: { agentId: agentId, sessionId: sessionId },
-        query: { limit: 20, skip: pageParam },
+        query: { limit: PAGE_SIZE, skip: pageParam },
         throwOnError: true,
       });
-      return (data?.messages as unknown as Message[] | undefined) ?? [];
+      return sessionMessagesToMessages(data?.messages);
     },
     getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
+      lastPage.length === PAGE_SIZE
+        ? allPages.reduce((sum, page) => sum + page.length, 0)
+        : undefined,
   });
 
   // In a compacted session the live tail is the message-type context items;
@@ -207,7 +220,7 @@ export function SessionDetail({
         query: { seq_from: tailSeqRange!.from, seq_to: tailSeqRange!.to },
         throwOnError: true,
       });
-      return (data?.messages as unknown as Message[] | undefined) ?? [];
+      return sessionMessagesToMessages(data?.messages);
     },
   });
 
@@ -233,13 +246,35 @@ export function SessionDetail({
     // text copy forever (duplicated, un-collapsed tool output). Excluding
     // everything history has ever owned drops it.
     for (const m of uiMessages) historicalIDsRef.current.add(m.id);
-    setChatMessages((prev) => {
-      const liveSlice = prev.filter((m) => !historicalIDsRef.current.has(m.id));
-      return [...uiMessages, ...liveSlice];
-    });
+    setChatMessages((prev) =>
+      reconcileHistoryUIMessages(
+        uiMessages,
+        prev.filter((message) => !historicalIDsRef.current.has(message.id)),
+      ),
+    );
   }, [historyMessages, setChatMessages]);
 
-  const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
+  // Convert UIMessage -> Message with a per-object cache so unchanged messages
+  // keep their output identity across stream updates — that identity is what
+  // lets the memoized transcript rows below skip re-rendering. The entry
+  // revalidates on parts count + tail text length in case the SDK ever grows a
+  // message in place instead of replacing it.
+  const uiToMsgCache = useRef(
+    new WeakMap<UIMessage, { partsLen: number; tailLen: number; out: Message }>(),
+  );
+  const messages = useMemo(
+    () =>
+      chatMessages.map((m) => {
+        const tail = m.parts[m.parts.length - 1] as { text?: string } | undefined;
+        const tailLen = tail?.text?.length ?? 0;
+        const hit = uiToMsgCache.current.get(m);
+        if (hit && hit.partsLen === m.parts.length && hit.tailLen === tailLen) return hit.out;
+        const out = uiMessageToMessage(m);
+        uiToMsgCache.current.set(m, { partsLen: m.parts.length, tailLen, out });
+        return out;
+      }),
+    [chatMessages],
+  );
 
   useEffect(() => {
     if (!session) {
@@ -251,6 +286,7 @@ export function SessionDetail({
     initialScrollSessionRef.current = null;
     shouldAutoScrollRef.current = true;
     historicalIDsRef.current = new Set();
+    autoFillPagesRef.current = 0;
   }, [session?.id]);
 
   const historyReady = hasContextSummaries
@@ -280,6 +316,8 @@ export function SessionDetail({
     if (!messagesQuery.isSuccess || messagesQuery.isFetchingNextPage || !messagesQuery.hasNextPage)
       return;
     if (el.scrollHeight > el.clientHeight) return;
+    if (autoFillPagesRef.current >= MAX_AUTO_FILL_PAGES) return;
+    autoFillPagesRef.current += 1;
     void messagesQuery.fetchNextPage().then(() => {
       requestAnimationFrame(() => {
         if (transcriptRef.current)
@@ -295,7 +333,24 @@ export function SessionDetail({
     messagesQuery.fetchNextPage,
   ]);
 
-  // Auto-scroll to bottom as new messages stream in (if the user is already near the bottom)
+  // Auto-scroll to bottom as new messages stream in (if the user is already
+  // near the bottom). Keyed on length + tail content size rather than the
+  // array identity: the messages array is rebuilt on every stream update, and
+  // reading scrollHeight forces a reflow of the whole transcript.
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageSize = lastMessage
+    ? (lastMessage.content?.length ?? 0) +
+      (lastMessage.blocks?.reduce(
+        (sum, b) =>
+          sum +
+          (b.type === "text"
+            ? b.text.length
+            : b.type === "thinking"
+              ? (b.thinking?.length ?? 0)
+              : 1),
+        0,
+      ) ?? 0)
+    : 0;
   useEffect(() => {
     if (!transcriptRef.current) return;
     const el = transcriptRef.current;
@@ -304,7 +359,7 @@ export function SessionDetail({
         el.scrollTop = el.scrollHeight;
       });
     }
-  }, [messages]);
+  }, [messages.length, lastMessageSize]);
 
   const loadOlderMessages = useCallback(async () => {
     // Compacted sessions have no older pages to load: everything before the
@@ -336,13 +391,11 @@ export function SessionDetail({
   }, [loadOlderMessages]);
 
   const sendMessage = useCallback(
-    async (overrideText?: string) => {
-      const input = overrideText ?? userInput;
+    async (input: string) => {
       if ((!input.trim() && attachments.length === 0) || isStreaming || !session) return;
       if (attachments.some((a) => a.uploading)) return;
 
-      const text = buildMessageText(input);
-      setUserInput("");
+      const parts = buildMessageParts(input);
       clearAttachments();
       shouldAutoScrollRef.current = true;
       setTimeout(() => {
@@ -350,17 +403,9 @@ export function SessionDetail({
           transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
       }, 0);
 
-      void chatSendMessage({ text });
+      void chatSendMessage({ parts, metadata: { timestamp: new Date().toISOString() } });
     },
-    [
-      userInput,
-      isStreaming,
-      session,
-      attachments,
-      buildMessageText,
-      clearAttachments,
-      chatSendMessage,
-    ],
+    [isStreaming, session, attachments, buildMessageParts, clearAttachments, chatSendMessage],
   );
 
   const exportSessionAs = useCallback(
@@ -566,8 +611,6 @@ export function SessionDetail({
         composer={
           session.user_id === currentUserID ? (
             <ChatComposer
-              value={userInput}
-              onChange={setUserInput}
               onSend={(text) => void sendMessage(text)}
               onStop={() => chatStop()}
               isStreaming={isStreaming}

@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/hooks"
 	"github.com/CherryHQ/stella/pkg/providers"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 func defaultFakeStream() providers.StreamFunc {
@@ -33,7 +35,7 @@ func newTestRunner(stream providers.StreamFunc, opts ...Option) *Runner {
 
 func collectEvents(runner *Runner, messages []ai.Message) ([]ai.Message, []LoopEvent, error) {
 	var events []LoopEvent
-	h, err := runner.Run(context.Background(), messages, func(e LoopEvent) {
+	h, err := runner.RunWithActiveStart(context.Background(), messages, 0, func(e LoopEvent) {
 		events = append(events, e)
 	})
 	return h, events, err
@@ -142,6 +144,100 @@ func TestRunStreamingDeltasCarryPartial(t *testing.T) {
 	}
 }
 
+type modelOverrideHook struct{ model string }
+
+func (h modelOverrideHook) Name() string { return "model-override" }
+func (modelOverrideHook) Priority() int  { return 0 }
+func (h modelOverrideHook) OnPreLLMCall(context.Context, *hooks.PreLLMCallContext) (hooks.PreLLMCallResult, error) {
+	return hooks.PreLLMCallResult{Model: &h.model}, nil
+}
+
+func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {
+	var providerContexts []ai.Context
+	providerCalls := 0
+	stream := func(_ context.Context, model ai.Model, aiCtx ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		if model.Name != "unknown-target" || model.ImageCapability() != ai.ImageUnknown {
+			t.Fatalf("effective model = %#v, want unknown override", model)
+		}
+		providerContexts = append(providerContexts, aiCtx)
+		providerCalls++
+		out := providers.NewChannelEventStream(4)
+		go func() {
+			if providerCalls == 1 {
+				out.Emit(ai.EventToolCallDelta{ID: "tool", Name: "check"})
+			} else {
+				out.Emit(ai.EventTextDelta{Text: "done"})
+			}
+			out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	runner, err := NewRunner(RunnerConfig{
+		Stream: stream,
+		Model:  supportedModel(),
+		Tools: ToolSet{"check": func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+			return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+		}},
+	}, WithHooks(hooks.NewHookSet([]hooks.HookPlugin{modelOverrideHook{model: "unknown-target"}}), hooks.HookMeta{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: []ai.ContentBlock{ai.ImageContent{Data: "raw", MimeType: "image/png"}}}}, 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	for call, aiCtx := range providerContexts {
+		for _, msg := range aiCtx.Messages {
+			if ai.HasImage(messageBlocks(msg)) {
+				t.Fatalf("provider call %d received ImageContent after model override", call+1)
+			}
+		}
+	}
+}
+
+func TestCanonicalImagePolicyIsExplicit(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		opts []Option
+		want bool
+	}{
+		{name: "default remains non-canonical", want: false},
+		{name: "complete canonical policy", opts: []Option{withTestCanonicalImages(func(context.Context, string) (ai.ImageContent, error) {
+			return ai.ImageContent{Data: "pixels", MimeType: "image/png"}, nil
+		})}, want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			seen := true
+			stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+				calls++
+				out := providers.NewChannelEventStream(4)
+				go func() {
+					if calls == 1 {
+						out.Emit(ai.EventToolCallDelta{ID: "check", Name: "check"})
+					} else {
+						out.Emit(ai.EventTextDelta{Text: "done"})
+					}
+					out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+					out.Finish(nil)
+				}()
+				return out, nil
+			}
+			runner := newTestRunner(stream, tt.opts...)
+			runner.tools["check"] = func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+				seen = tools.ImageResultModeFromContext(ctx) == tools.ImageResultCanonical
+				return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+			}
+			if _, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil); err != nil {
+				t.Fatal(err)
+			}
+			if seen != tt.want {
+				t.Fatalf("canonical image mode = %t, want %t", seen, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunMultiTurnLoop(t *testing.T) {
 	var callCount atomic.Int32
 
@@ -190,89 +286,6 @@ func TestRunMultiTurnLoop(t *testing.T) {
 	}
 	if countEvents[AssistantFinished](events) != 3 {
 		t.Fatalf("expected 3 AssistantFinished, got %d", countEvents[AssistantFinished](events))
-	}
-}
-
-func TestRunToolCallLimitResetsBetweenRuns(t *testing.T) {
-	var executed atomic.Int32
-	var definitionHidden atomic.Bool
-
-	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-		// Ask for a third invocation after two successful results so the runtime
-		// limit, rather than model cooperation, is exercised.
-		resultCount := 0
-		for _, message := range request.Messages {
-			if result, ok := message.(ai.ToolResultMessage); ok && result.ToolName == "limited_tool" {
-				resultCount++
-			}
-		}
-		if resultCount >= 2 {
-			hasLimitedTool := false
-			for _, definition := range request.Tools {
-				if definition.Name == "limited_tool" {
-					hasLimitedTool = true
-				}
-			}
-			if !hasLimitedTool {
-				definitionHidden.Store(true)
-			}
-		}
-
-		out := providers.NewChannelEventStream(8)
-		go func() {
-			if resultCount < 3 {
-				out.Emit(ai.EventToolCallDelta{
-					ID:        fmt.Sprintf("call_%d", resultCount+1),
-					Name:      "limited_tool",
-					Arguments: "{}",
-				})
-				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
-			} else {
-				out.Emit(ai.EventTextDelta{Text: "done"})
-				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-			}
-			out.Finish(nil)
-		}()
-		return out, nil
-	}
-
-	runner := newTestRunner(stream, WithToolCallLimit("limited_tool", 2))
-	runner.tools = ToolSet{
-		"limited_tool": func(_ context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
-			executed.Add(1)
-			return []ai.ContentBlock{ai.TextContent{Text: "tool result"}}, nil
-		},
-	}
-	runner.toolDefs = []ai.ToolDefinition{{Name: "limited_tool"}}
-
-	for runNumber := 1; runNumber <= 2; runNumber++ {
-		definitionHidden.Store(false)
-		history, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
-		if err != nil {
-			t.Fatalf("run %d: %v", runNumber, err)
-		}
-		if got, want := executed.Load(), int32(runNumber*2); got != want {
-			t.Fatalf("executed after run %d = %d, want %d", runNumber, got, want)
-		}
-		if !definitionHidden.Load() {
-			t.Fatalf("run %d still exposed exhausted tool definition", runNumber)
-		}
-
-		var results []ai.ToolResultMessage
-		for _, message := range history {
-			if result, ok := message.(ai.ToolResultMessage); ok {
-				results = append(results, result)
-			}
-		}
-		if len(results) != 3 {
-			t.Fatalf("run %d tool results = %d, want 3", runNumber, len(results))
-		}
-		if results[0].IsError || results[1].IsError {
-			t.Fatalf("run %d first two calls should succeed: %+v", runNumber, results)
-		}
-		if !results[2].IsError || !strings.Contains(ai.FlattenText(results[2].Content), "at most 2 times") {
-			t.Fatalf("run %d third result = %+v, want limit error", runNumber, results[2])
-		}
 	}
 }
 

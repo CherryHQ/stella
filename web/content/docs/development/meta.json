@@ -13,6 +13,7 @@
     "rules/web-theming",
     "rules/web-design",
     "rules/web-ui-test",
+    "rules/web-perf-test",
     "rules/doc-style",
     "rules/project-tracker",
     "rules/release",

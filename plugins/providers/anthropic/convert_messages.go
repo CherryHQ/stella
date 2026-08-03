@@ -89,14 +89,7 @@ func assistantContentBlocks(blocks []ai.ContentBlock) []sdk.ContentBlockParamUni
 
 func toolResultBlock(m ai.ToolResultMessage) sdk.ContentBlockParamUnion {
 	if !ai.HasImage(m.Content) {
-		text := ""
-		for _, block := range m.Content {
-			if t, ok := block.(ai.TextContent); ok && t.Text != "" {
-				text = t.Text
-				break
-			}
-		}
-		return sdk.NewToolResultBlock(m.ToolCallID, text, m.IsError)
+		return sdk.NewToolResultBlock(m.ToolCallID, ai.FlattenText(m.Content), m.IsError)
 	}
 
 	content := make([]sdk.ToolResultBlockParamContentUnion, 0, len(m.Content))

@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -39,29 +38,5 @@ func TestPoolSnapshotPromptUsesPrincipalWorkspace(t *testing.T) {
 				t.Errorf("WorkspaceRoot = %q, want %q", got.WorkspaceRoot, tt.want)
 			}
 		})
-	}
-}
-
-func TestPoolSnapshotPromptMatchesKnowledgeToolAvailability(t *testing.T) {
-	snap := &config.Snapshot{AgentID: "a1", Workspace: t.TempDir()}
-	pm := &PoolManager{}
-	build := pm.buildSnapshotPromptFunc(snap)
-	webhookInfo := session.Info{
-		UserID:  "u1",
-		AgentID: "a1",
-		Kind:    string(session.KindChat),
-		Channel: string(session.ChannelWebhook),
-	}
-
-	webhookPrompt := build(context.Background(), webhookInfo, memory.SessionSnapshot{})
-	if !strings.Contains(webhookPrompt, "# Knowledge Base") {
-		t.Fatalf("authorized webhook snapshot prompt omitted Knowledge Base guidance:\n%s", webhookPrompt)
-	}
-
-	taskInfo := webhookInfo
-	taskInfo.Kind = string(session.KindTask)
-	taskPrompt := build(context.Background(), taskInfo, memory.SessionSnapshot{})
-	if strings.Contains(taskPrompt, "# Knowledge Base") {
-		t.Fatalf("task snapshot prompt exposed Knowledge Base guidance:\n%s", taskPrompt)
 	}
 }

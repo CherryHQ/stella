@@ -3,12 +3,10 @@ package openai
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 
 	sdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -18,10 +16,6 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
-
-const maxLeadingSSECommentLineBytes = 8 << 10
-
-var errLeadingSSECommentLineTooLong = errors.New("leading SSE comment line exceeds limit")
 
 func init() {
 	pkgplugins.Register("provider/openai", pkgplugins.PluginFunc(func(host pkgplugins.Host) {
@@ -75,51 +69,30 @@ func stripLeadingSSEComments(req *http.Request, next option.MiddlewareNext) (*ht
 	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 		return resp, nil
 	}
-	resp.Body = &sseCommentStripper{ctx: req.Context(), rc: resp.Body}
+	resp.Body = &sseCommentStripper{rc: resp.Body}
 	return resp, nil
 }
 
 // sseCommentStripper wraps a ReadCloser and skips leading SSE comment lines
 // (any line beginning with ':') and the blank lines that separate SSE events.
 type sseCommentStripper struct {
-	ctx         context.Context
-	rc          io.ReadCloser
-	buf         []byte
-	done        bool
-	terminalErr error
-	closeOnce   sync.Once
-	closeErr    error
+	rc   io.ReadCloser
+	buf  []byte
+	done bool
 }
 
 func (s *sseCommentStripper) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	if !s.done {
-		if err := s.prepare(); err != nil {
-			return 0, err
+	if s.done {
+		if len(s.buf) > 0 {
+			n := copy(p, s.buf)
+			s.buf = s.buf[n:]
+			return n, nil
 		}
+		return s.rc.Read(p)
 	}
-	if len(s.buf) > 0 {
-		n := copy(p, s.buf)
-		s.buf = s.buf[n:]
-		return n, nil
-	}
-	if s.terminalErr != nil {
-		return 0, s.terminalErr
-	}
-	return s.rc.Read(p)
-}
 
-func (s *sseCommentStripper) prepare() error {
-	for {
-		if s.ctx != nil {
-			if err := s.ctx.Err(); err != nil {
-				return s.fail(err)
-			}
-		}
+	for !s.done {
 		// Drain comment lines and blank separator lines from the front of buf.
-		needMore := false
 		for len(s.buf) > 0 {
 			b := s.buf[0]
 			switch b {
@@ -127,74 +100,41 @@ func (s *sseCommentStripper) prepare() error {
 				// Skip entire comment line.
 				idx := bytes.IndexByte(s.buf, '\n')
 				if idx < 0 {
-					if len(s.buf) > maxLeadingSSECommentLineBytes {
-						return s.fail(fmt.Errorf(
-							"%w (%d bytes)",
-							errLeadingSSECommentLineTooLong,
-							maxLeadingSSECommentLineBytes,
-						))
-					}
-					needMore = true
-					break
+					break // Need more data to find end of comment line.
 				}
 				s.buf = s.buf[idx+1:]
 			case '\n', '\r':
 				s.buf = s.buf[1:]
 			default:
 				s.done = true
-				return nil
 			}
-			if needMore {
+			if s.done {
+				// Stop draining as soon as the first normal SSE payload byte is found.
 				break
 			}
 		}
-		if needMore && s.terminalErr != nil {
-			// EOF terminates the final SSE comment line even without a newline.
-			// Other read errors are surfaced after discarding the comment bytes.
-			s.buf = nil
-			s.done = true
-			return s.terminalErr
+		if s.done {
+			break
 		}
-		if !needMore && len(s.buf) > 0 {
-			continue
-		}
-		if s.terminalErr != nil {
-			s.done = true
-			return s.terminalErr
-		}
-
+		// Need more data.
 		tmp := make([]byte, 512)
 		n, err := s.rc.Read(tmp)
-		if n > 0 {
-			s.buf = append(s.buf, tmp[:n]...)
-		}
+		s.buf = append(s.buf, tmp[:n]...)
 		if err != nil {
-			s.terminalErr = err
-		}
-		if n == 0 && err == nil {
-			return s.fail(io.ErrNoProgress)
+			s.done = true
+			break
 		}
 	}
+
+	if len(s.buf) == 0 {
+		return s.rc.Read(p)
+	}
+	n := copy(p, s.buf)
+	s.buf = s.buf[n:]
+	return n, nil
 }
 
-func (s *sseCommentStripper) fail(err error) error {
-	s.buf = nil
-	s.done = true
-	s.terminalErr = err
-	_ = s.closeUnderlying()
-	return err
-}
-
-func (s *sseCommentStripper) closeUnderlying() error {
-	s.closeOnce.Do(func() {
-		s.closeErr = s.rc.Close()
-	})
-	return s.closeErr
-}
-
-func (s *sseCommentStripper) Close() error {
-	return s.closeUnderlying()
-}
+func (s *sseCommentStripper) Close() error { return s.rc.Close() }
 
 // New returns an OpenAI provider.
 func New(cfg Config) *Provider {

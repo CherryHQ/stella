@@ -47,6 +47,7 @@ export default defineConfig({
       "/api-references": "http://localhost:25678",
       "/auth": "http://localhost:25678",
       "/oidc": "http://localhost:25678",
+      "/webhooks": "http://localhost:25678",
     },
   },
 });

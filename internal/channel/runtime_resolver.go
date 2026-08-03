@@ -30,7 +30,7 @@ func NewRuntimeResolver(store runtimeConfigStore) *RuntimeResolver {
 }
 
 // Channel resolves one channel by ID for a runtime ingress lookup (e.g. the
-// webhook endpoint validating its bound instance). The caller inspects the
+// resource admission). The caller inspects the
 // returned channel's type/enabled/agent fields.
 func (r *RuntimeResolver) Channel(ctx context.Context, id string) (config.Channel, error) {
 	return r.store.GetChannel(ctx, id)

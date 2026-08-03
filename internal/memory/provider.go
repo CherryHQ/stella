@@ -39,6 +39,8 @@ type Provider interface {
 	Bootstrap(ctx context.Context, session Session) error
 
 	// Append persists one or more messages to the session's event log.
+	// Ordinary sessions receive canonical image references and must reject raw
+	// provider image bytes. Group sessions may retain their legacy inline codec.
 	// Messages must be appended in the order they arrive.
 	// Callers pass all messages from a single turn together so implementations
 	// can store them in a single atomic transaction if they choose.

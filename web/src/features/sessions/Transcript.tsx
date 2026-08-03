@@ -1,4 +1,4 @@
-import { forwardRef, useMemo, useState } from "react";
+import { forwardRef, useMemo, useRef, useState } from "react";
 import type { Message } from "@/lib/types";
 import { useQuery } from "@tanstack/react-query";
 import { Archive, ChevronDown, MessageSquareText } from "lucide-react";
@@ -13,6 +13,7 @@ import {
 } from "@/components/chat/ChatTranscript";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { mergeToolResults, sessionMessagesToMessages } from "@/lib/chat-transport";
 
 interface Props {
   messages: Message[];
@@ -42,24 +43,44 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
   const agentName = agents.find((a) => a.id === agentId)?.name ?? "Agent";
   const hasSummaries = contextItems.some((item) => item.type === "summary");
 
+  // Identity-preserving pipeline: SessionDetail hands us Message objects that
+  // are stable across stream updates, and these caches keep the merged and
+  // mapped outputs stable too, so only the streaming tail produces new objects
+  // and the memoized rows downstream skip everything else.
+  const mergeCacheRef = useRef(new WeakMap<Message, { members: Message[]; merged: Message }>());
+  const tmCacheRef = useRef(new WeakMap<Message, TmCacheEntry>());
+
   const transcriptMessages = useMemo((): TranscriptMessage[] => {
     const filtered = messages.filter((m) => m.role !== "tool");
-    const merged = mergeConsecutiveMessages(filtered);
+    const merged = mergeConsecutiveMessagesCached(filtered, mergeCacheRef.current);
     const lastAssistantIndex = activeStreaming
       ? merged.findLastIndex((m) => m.role === "assistant")
       : -1;
-    return merged.map((msg, i) => ({
-      id: msg.id ?? `${msg.timestamp}-${msg.role}-${i}`,
-      role: msg.role as "user" | "assistant",
-      content: msg.content,
-      timestamp: msg.timestamp,
-      agentName,
-      agentId,
-      blocks: msg.blocks ?? (msg.content ? [{ type: "text" as const, text: msg.content }] : []),
-      model: msg.model,
-      tokenCount: msg.token_count,
-      streaming: msg.streaming || i === lastAssistantIndex,
-    }));
+    return merged.map((msg, i) => {
+      const streaming = Boolean(msg.streaming || i === lastAssistantIndex);
+      const hit = tmCacheRef.current.get(msg);
+      if (
+        hit &&
+        hit.agentName === agentName &&
+        hit.agentId === agentId &&
+        hit.streaming === streaming
+      )
+        return hit.out;
+      const out: TranscriptMessage = {
+        id: msg.id ?? `${msg.timestamp}-${msg.role}-${i}`,
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+        timestamp: msg.timestamp,
+        agentName,
+        agentId,
+        blocks: msg.blocks ?? (msg.content ? [{ type: "text" as const, text: msg.content }] : []),
+        model: msg.model,
+        tokenCount: msg.token_count,
+        streaming,
+      };
+      tmCacheRef.current.set(msg, { agentName, agentId, streaming, out });
+      return out;
+    });
   }, [messages, agentName, agentId, activeStreaming]);
 
   // Compacted epochs render as summary cards above the live tail; the tail
@@ -130,7 +151,7 @@ function SummaryCard({
   });
 
   const rawTranscript = useMemo<TranscriptMessage[]>(() => {
-    const raw = (messagesQuery.data ?? []) as unknown as Message[];
+    const raw = mergeToolResults(sessionMessagesToMessages(messagesQuery.data));
     const filtered = raw.filter((m) => m.role !== "tool");
     return mergeConsecutiveMessages(filtered).map((msg, i) => ({
       id: msg.id ?? `${msg.timestamp}-${msg.role}-${i}`,
@@ -223,6 +244,55 @@ function SummaryCard({
 function formatNumber(value: number): string {
   if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
   return String(value);
+}
+
+interface TmCacheEntry {
+  agentName: string;
+  agentId: string;
+  streaming: boolean;
+  out: TranscriptMessage;
+}
+
+// Same semantics as mergeConsecutiveMessages, but reuses the merged output for
+// any run of messages whose member identities are unchanged, so a stream
+// update only rebuilds the tail group. Cache is keyed on the run's first
+// source message.
+function mergeConsecutiveMessagesCached(
+  messages: Message[],
+  cache: WeakMap<Message, { members: Message[]; merged: Message }>,
+): Message[] {
+  const result: Message[] = [];
+  let run: Message[] = [];
+
+  const flush = () => {
+    if (run.length === 0) return;
+    const members = run;
+    run = [];
+    const hit = cache.get(members[0]);
+    if (
+      hit &&
+      hit.members.length === members.length &&
+      hit.members.every((m, i) => m === members[i])
+    ) {
+      result.push(hit.merged);
+      return;
+    }
+    const merged = mergeConsecutiveMessages(members)[0];
+    cache.set(members[0], { members, merged });
+    result.push(merged);
+  };
+
+  for (const msg of messages) {
+    if (msg.role === "assistant") {
+      run.push(msg);
+    } else {
+      flush();
+      run.push(msg);
+      flush();
+    }
+  }
+  flush();
+  return result;
 }
 
 function mergeConsecutiveMessages(messages: Message[]): Message[] {

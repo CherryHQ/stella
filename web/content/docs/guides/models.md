@@ -38,6 +38,25 @@ If you only set the default model, Stella uses it for everything. The strong and
 
 Configure model tiers per agent in the Web UI on the agent settings page.
 
+## Vision model
+
+An administrator configures one vision setting for the whole deployment under **Settings -> Vision**. It creates a text description and transcription for images; it never answers you directly.
+
+### Images in one-to-one conversations
+
+When you send an image in an ordinary one-to-one conversation, Stella creates one immutable text baseline as the image arrives. That same baseline is used for the rest of the conversation, even if you switch models.
+
+During the active turn that introduced the image — including any tool loop in that turn:
+
+- A model whose **Input** declares `image` receives image pixels.
+- A text-only or undeclared model receives the baseline immediately.
+
+On later turns, every model receives the same baseline text, not the original pixels. If Stella cannot create a baseline, it uses the stable marker `[Image baseline unavailable.]` instead of retrying or inventing a description.
+
+The original image remains visible in your authorized Web conversation history. Agents do not have a separate image-inspection tool.
+
+To let a multimodal model receive image pixels during its active turn, open **Settings -> Providers**, edit the model, and set **Input** to `text, image`. This declaration controls active-turn native pixels only; it does not change how earlier images are represented.
+
 ## Switching models
 
 You can switch models mid-conversation without losing context:

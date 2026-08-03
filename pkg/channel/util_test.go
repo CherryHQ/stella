@@ -155,21 +155,14 @@ func TestAttachmentReceivedContentFallsBackToFileHint(t *testing.T) {
 }
 
 func TestAttachmentReceivedContentOversizedImageHintsRead(t *testing.T) {
-	// A real PNG header followed by padding past the inline ceiling: detected as
-	// an image but too large to inline.
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	data := append(buf.Bytes(), make([]byte, maxInlineAttachmentImageBytes)...)
-
+	data := append(buf.Bytes(), make([]byte, ai.MaxImageInputBytes)...)
 	blocks := AttachmentReceivedContent("huge.png", "/home/stella/assets", "/home/stella/assets/huge.png", data)
-	if len(blocks) != 1 {
-		t.Fatalf("expected single text block, got %d", len(blocks))
-	}
-	got := ai.FlattenText(blocks)
-	if !strings.Contains(got, "`read` tool") || strings.Contains(got, "xberg") {
-		t.Fatalf("oversized image = %q, want read-tool hint without Xberg", got)
+	if len(blocks) != 1 || !strings.Contains(ai.FlattenText(blocks), "`read` tool") {
+		t.Fatalf("blocks = %#v, want read hint", blocks)
 	}
 }
 
@@ -194,17 +187,9 @@ func TestInlineImageFallbackInlinesWithinCeiling(t *testing.T) {
 }
 
 func TestInlineImageFallbackOversizedBecomesTextNote(t *testing.T) {
-	data := make([]byte, maxInlineAttachmentImageBytes+1)
-	blocks := InlineImageFallback("huge.png", "image/png", data)
-	if len(blocks) != 1 {
-		t.Fatalf("expected single text block, got %d", len(blocks))
-	}
-	if _, ok := blocks[0].(ai.ImageContent); ok {
-		t.Fatalf("oversized image must not be inlined")
-	}
-	got := ai.FlattenText(blocks)
-	if !strings.Contains(got, "huge.png") || !strings.Contains(got, "could not be stored") {
-		t.Fatalf("oversized note = %q, want filename + could-not-store text", got)
+	data := make([]byte, ai.MaxImageInputBytes+1)
+	if blocks := InlineImageFallback("huge.png", "image/png", data); ai.HasImage(blocks) {
+		t.Fatalf("oversized blocks = %#v, must become text", blocks)
 	}
 }
 
@@ -237,13 +222,9 @@ func TestAttachmentSaveFailureContentOversizedImageBecomesTextNote(t *testing.T)
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	data := append(buf.Bytes(), make([]byte, maxInlineAttachmentImageBytes)...)
-	blocks := AttachmentSaveFailureContent("huge.png", data)
-	if _, ok := blocks[0].(ai.ImageContent); ok {
-		t.Fatalf("oversized image must not be inlined on save failure")
-	}
-	if got := ai.FlattenText(blocks); !strings.Contains(got, "huge.png") {
-		t.Fatalf("note = %q, want filename", got)
+	data := append(buf.Bytes(), make([]byte, ai.MaxImageInputBytes)...)
+	if blocks := AttachmentSaveFailureContent("huge.png", data); ai.HasImage(blocks) {
+		t.Fatalf("oversized blocks = %#v, must become text", blocks)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -243,10 +244,10 @@ func TestRestoreCuratorDeprecatedKnowledgeFactRestoresStatusChangelogAndUsage(t 
 	}
 	deprecateMetadata := json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`)
 	if _, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
-		Action:        FactBatchDeprecateMany,
-		Subject:       memory.FactSubjectWorld,
-		TargetFactIDs: []string{fact.ID},
-		Metadata:      deprecateMetadata,
+		Action:            FactBatchDeprecateMany,
+		Subject:           memory.FactSubjectWorld,
+		TargetFactIDs:     []string{fact.ID},
+		ChangelogMetadata: deprecateMetadata,
 	}}); err != nil {
 		t.Fatalf("ApplyFactBatch deprecate: %v", err)
 	}
@@ -354,10 +355,10 @@ func TestRestoreCuratorDeprecatedKnowledgeFactAllowsExistingReplacement(t *testi
 		t.Fatalf("CreateFact: %v", err)
 	}
 	if _, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
-		Action:        FactBatchDeprecateMany,
-		Subject:       memory.FactSubjectWorld,
-		TargetFactIDs: []string{fact.ID},
-		Metadata:      json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`),
+		Action:            FactBatchDeprecateMany,
+		Subject:           memory.FactSubjectWorld,
+		TargetFactIDs:     []string{fact.ID},
+		ChangelogMetadata: json.RawMessage(`{"curator":"usage","rule":"idle","last_used_at":"2026-06-01T00:00:00Z"}`),
 	}}); err != nil {
 		t.Fatalf("ApplyFactBatch deprecate: %v", err)
 	}
@@ -600,11 +601,15 @@ func TestApplyFactBatch_ReplacesManyWorldFacts(t *testing.T) {
 		t.Fatalf("CreateFact second: %v", err)
 	}
 
+	entityMetadata := json.RawMessage(`{"entity_label":"consolidated"}`)
+	changelogMetadata := json.RawMessage(`{"reflect_provenance":{"run_id":"run-1","operation_ref":"knowledge-0001"}}`)
 	written, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
-		Action:        FactBatchReplaceMany,
-		Subject:       memory.FactSubjectWorld,
-		TargetFactIDs: []string{first.ID, second.ID},
-		Content:       "New consolidated world fact.",
+		Action:            FactBatchReplaceMany,
+		Subject:           memory.FactSubjectWorld,
+		TargetFactIDs:     []string{first.ID, second.ID},
+		Content:           "New consolidated world fact.",
+		Metadata:          entityMetadata,
+		ChangelogMetadata: changelogMetadata,
 	}})
 	if err != nil {
 		t.Fatalf("ApplyFactBatch: %v", err)
@@ -622,6 +627,105 @@ func TestApplyFactBatch_ReplacesManyWorldFacts(t *testing.T) {
 	}
 	if active[0].Source != memory.SourceReflect {
 		t.Fatalf("replacement source = %q, want reflect", active[0].Source)
+	}
+	var entityFields map[string]any
+	if err := json.Unmarshal(active[0].Metadata, &entityFields); err != nil {
+		t.Fatalf("unmarshal replacement entity metadata: %v", err)
+	}
+	if entityFields["entity_label"] != "consolidated" {
+		t.Fatalf("replacement entity metadata = %#v", entityFields)
+	}
+	if _, exists := entityFields["reflect_provenance"]; exists {
+		t.Fatalf("changelog provenance leaked into fact entity metadata: %#v", entityFields)
+	}
+
+	logs, err := q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID: userID, AgentID: agentID, Scope: factsScope, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("list replacement changelog: %v", err)
+	}
+	matchingLogs := 0
+	for _, log := range logs {
+		if log.Metadata.Valid && log.Metadata.String == string(changelogMetadata) {
+			matchingLogs++
+		}
+	}
+	if matchingLogs != 3 {
+		t.Fatalf("changelog rows sharing operation provenance = %d, want 3", matchingLogs)
+	}
+}
+
+func TestApplyFactBatch_SingletonReplaceSharesChangelogMetadata(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := memory.WithChangeSource(context.Background(), memory.SourceReflect)
+	if _, err := SetSingletonFact(ctx, db, q, memory.FactWrite{
+		UserID: userID, AgentID: agentID, Subject: memory.FactSubjectUser,
+		Content: "Old profile.", Source: memory.SourceReflect,
+	}); err != nil {
+		t.Fatalf("seed old profile: %v", err)
+	}
+	changelogMetadata := json.RawMessage(`{"reflect_provenance":{"run_id":"run-1","operation_ref":"profile"}}`)
+	if _, err := ApplyFactBatch(ctx, db, q, userID, agentID, []FactBatchOperation{{
+		Action: FactBatchSetSingleton, Subject: memory.FactSubjectUser,
+		Content: "Old profile plus a durable preference.", ChangelogMetadata: changelogMetadata,
+	}}); err != nil {
+		t.Fatalf("replace profile: %v", err)
+	}
+
+	logs, err := q.ListMemoryChangelog(ctx, sqlc.ListMemoryChangelogParams{
+		UserID: userID, AgentID: agentID, Scope: factsScope, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("list profile changelog: %v", err)
+	}
+	matchingActions := map[string]int{}
+	var sharedVersion int64
+	for _, log := range logs {
+		if !log.Metadata.Valid || log.Metadata.String != string(changelogMetadata) {
+			continue
+		}
+		matchingActions[log.Action]++
+		if sharedVersion == 0 {
+			sharedVersion = log.MemoryVersionAfter.Int64
+		} else if log.MemoryVersionAfter.Int64 != sharedVersion {
+			t.Fatalf("singleton replacement changelog versions differ: %#v", logs)
+		}
+	}
+	if matchingActions["deprecate"] != 1 || matchingActions["replace"] != 1 {
+		t.Fatalf("singleton replacement provenance actions = %#v", matchingActions)
+	}
+}
+
+func TestApplyFactBatch_RejectsInvalidChangelogMetadataBeforeWriting(t *testing.T) {
+	db, q, userID, agentID, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	_, err := ApplyFactBatch(context.Background(), db, q, userID, agentID, []FactBatchOperation{
+		{
+			Action:  FactBatchSetSingleton,
+			Subject: memory.FactSubjectUser,
+			Content: "This write must not be committed.",
+		},
+		{
+			Action:            FactBatchCreate,
+			Subject:           memory.FactSubjectWorld,
+			Content:           "Invalid provenance must fail the whole batch.",
+			ChangelogMetadata: json.RawMessage(`[]`),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "changelog metadata must be a JSON object") {
+		t.Fatalf("expected changelog metadata validation error, got %v", err)
+	}
+
+	profiles, err := ListActiveFacts(context.Background(), q, userID, agentID, memory.FactSubjectUser)
+	if err != nil {
+		t.Fatalf("list profile facts: %v", err)
+	}
+	if len(profiles) != 0 {
+		t.Fatalf("invalid metadata committed an earlier batch operation: %#v", profiles)
 	}
 }
 

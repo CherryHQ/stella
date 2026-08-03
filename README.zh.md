@@ -50,14 +50,13 @@ stellad server
 
 所有渠道共享同一套记忆。你可以从一个渠道开始，再切换到另一个渠道，Stella 会接上之前的上下文。
 
-| 渠道     | 连接方式               | 流式响应支持         |
-| -------- | ---------------------- | -------------------- |
-| Terminal | 内置 TUI               | Token-by-token       |
-| Telegram | 长轮询，无需公网 IP    | 支持                 |
-| QQ       | WebSocket              | 支持                 |
-| 飞书     | WebSocket，无需公网 IP | Edit-in-place        |
-| 微信     | 长轮询（iLink Bot）    | 不支持               |
-| Webhook  | 入站 HTTP POST + PAT   | 不支持（同步或 202） |
+| 渠道     | 连接方式               | 流式响应支持   |
+| -------- | ---------------------- | -------------- |
+| Terminal | 内置 TUI               | Token-by-token |
+| Telegram | 长轮询，无需公网 IP    | 支持           |
+| QQ       | WebSocket              | 支持           |
+| 飞书     | WebSocket，无需公网 IP | Edit-in-place  |
+| 微信     | 长轮询（iLink Bot）    | 不支持         |
 
 你可以把某个渠道绑定到特定 agent，也可以让用户通过 Telegram 的 `/agent` 切换 agent。
 
@@ -67,13 +66,14 @@ stellad server
 
 ## 文档
 
-| 分区 | 内容                                   | 链接                                         |
-| ---- | -------------------------------------- | -------------------------------------------- |
-| 入门 | 安装、部署、配置                       | [快速开始](/docs/getting-started/quickstart) |
-| 指南 | 记忆、定时任务、技能、通知             | [指南](/docs/guides/memory)                  |
-| 渠道 | Telegram、QQ、飞书、微信、Webhook 配置 | [渠道](/docs/channels/telegram)              |
-| 管理 | Kubernetes / Helm 部署                 | [Kubernetes](/docs/admin/kubernetes)         |
-| 开发 | 架构、插件、贡献                       | [开发](/docs/development/architecture)       |
+| 分区    | 内容                         | 链接                                         |
+| ------- | ---------------------------- | -------------------------------------------- |
+| 入门    | 安装、部署、配置             | [快速开始](/docs/getting-started/quickstart) |
+| 指南    | 记忆、定时任务、技能、通知   | [指南](/docs/guides/memory)                  |
+| 渠道    | Telegram、QQ、飞书、微信配置 | [渠道](/docs/channels/telegram)              |
+| Webhook | 个人 HTTP 调用能力           | [Webhook](/docs/webhooks/webhook)            |
+| 管理    | Kubernetes / Helm 部署       | [Kubernetes](/docs/admin/kubernetes)         |
+| 开发    | 架构、插件、贡献             | [开发](/docs/development/architecture)       |
 
 ## CLI 参考
 

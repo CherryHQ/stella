@@ -72,7 +72,6 @@ type RunnerParams struct {
 	SessionID      string
 	AgentID        string
 	ProjectID      string
-	SessionKind    string
 	HooksFn        func() []hooks.HookPlugin
 	ExtraTools     []tools.Tool
 	DelegateRunner delegatetool.SessionRunner

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -30,12 +29,11 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
-	"github.com/CherryHQ/stella/internal/knowledge"
-	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -45,18 +43,20 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/vision"
+	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 	pluginhooks "github.com/CherryHQ/stella/plugins/hooks"
 	"github.com/CherryHQ/stella/resources"
@@ -105,6 +105,7 @@ type setupResult struct {
 	vaultSvc                 *vault.Service
 	mcpSvc                   *mcp.Service
 	controlPlane             *controlplane.Service
+	webhooks                 *webhook.Service
 	credSvc                  *connections.Service
 	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
@@ -112,7 +113,6 @@ type setupResult struct {
 	assetStore               *asset.Store
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
-	knowledgeSvc             *knowledge.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []agent.BuiltinTool
 	notifier                 *notify.Dispatcher
@@ -213,11 +213,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// the shared River client so its backfill worker joins the single electable client.
 	embeddingSvc := setupEmbedding(db, store, slog.With("component", "embedding"))
 
-	knowledgeSvc, err := setupKnowledge(db, agentAccess)
-	if err != nil {
-		return nil, err
-	}
-
 	memProvider, err := setupMemoryProvider(parent, db, store, providerStreamBuilder, embeddingSvc)
 	if err != nil {
 		return nil, fmt.Errorf("memory provider: %w", err)
@@ -228,10 +223,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	builtinTools := []agent.BuiltinTool{
 		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites())},
-		{
-			Tool:      knowledge.NewTool(knowledgeSvc),
-			Available: agent.KnowledgeToolAvailable,
-		},
 	}
 	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})
@@ -252,6 +243,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
 	if err != nil {
 		return nil, err
+	}
+	sessionImages, err := sessionmedia.NewPipeline(assetStore.SessionMedia(), db, store, vision.StreamBuilder(providerStreamBuilder), sessionmedia.PipelineOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("build session image pipeline: %w", err)
 	}
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
@@ -419,6 +414,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithAssetStorePM(assetStore),
+		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
@@ -470,6 +466,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
 
+	// Webhook resource domain. It owns the user→Agent binding, opaque capability
+	// verifier, and lifecycle independently from deployment channel management.
+	webhookSvc, err := webhook.NewService(webhook.Config{
+		Store:  webhook.NewPostgresStore(db),
+		Users:  webhook.NewUserState(credential.NewPostgresStore(db)),
+		Access: webhook.NewUserAgentAccess(agentAccess),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build webhook service: %w", err)
+	}
+
 	// Control-plane domain for the admin-only deployment resources
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
@@ -479,15 +486,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	riverClient, err := buildSharedRiverClient(
-		db,
-		schedulerSvc,
-		goalSvc,
-		embeddingSvc,
-		knowledgeSvc,
-		cfg.Lifecycle.RiverSoftStopTimeout,
-		cfg.Observability.RiverLogLevel,
-	)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -527,6 +526,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		vaultSvc:                 vaultSvc,
 		mcpSvc:                   mcpSvc,
 		controlPlane:             controlPlaneSvc,
+		webhooks:                 webhookSvc,
 		credSvc:                  credSvc,
 		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,
@@ -534,7 +534,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		assetStore:               assetStore,
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
-		knowledgeSvc:             knowledgeSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
@@ -595,19 +594,10 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(
-	db *pgxpool.Pool,
-	schedulerSvc *scheduler.Service,
-	goalSvc *goal.Service,
-	embeddingSvc *embedding.Service,
-	knowledgeSvc *knowledge.Service,
-	softStopTimeout time.Duration,
-	riverLogLevel string,
-) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
-	knowledgeSvc.RegisterRiverWorkers(workers)
 
 	queues := map[string]river.QueueConfig{}
 	sn, sc := scheduler.SchedulerQueueConfig()
@@ -616,8 +606,6 @@ func buildSharedRiverClient(
 	queues[gn] = gc
 	gtn, gtc := goalSvc.GoalTickQueueConfig()
 	queues[gtn] = gtc
-	kn, kc := knowledgeSvc.QueueConfig()
-	queues[kn] = kc
 
 	// The embedding lane is opt-in: only contribute its backfill worker + queue
 	// when an embedding provider is configured.
@@ -651,47 +639,12 @@ func buildSharedRiverClient(
 			return nil, err
 		}
 	}
-	knowledgeSvc.SetRiverClient(client)
 	return client, nil
 }
 
 // schedulerWorkflowAdapter bridges the scheduler's WorkflowRunner port to the
 // workflow service. It holds no queries of its own — every read goes through the
 // workflow domain (svc), so the composition root carries no application SQL.
-
-func setupKnowledge(
-	db *pgxpool.Pool,
-	agentAccess *agentaccess.Service,
-) (*knowledge.Service, error) {
-	stellaHome := config.StellaHome()
-	binaryName := "xberg"
-	if runtime.GOOS == "windows" {
-		binaryName += ".exe"
-	}
-	// Manifest tools are exposed through Stella's shared mise shim directory,
-	// not copied into $STELLA_HOME/bin.
-	binary := filepath.Join(pkgsandbox.MiseShimsDir(stellaHome), binaryName)
-	parserConfig := knowledge.DefaultXbergParserConfig(binary)
-	// Server-side parsing executes the same managed shim as sandbox sessions.
-	// Supply its read-only builtin scope explicitly; the daemon itself is not
-	// launched under mise and must not rely on ambient host configuration.
-	parserConfig.Environment = manifestplugins.RuntimeMiseEnv(stellaHome, "", "")
-	parser, err := knowledge.NewXbergParser(parserConfig)
-	if err != nil {
-		return nil, fmt.Errorf("create Xberg parser: %w", err)
-	}
-	service, err := knowledge.NewService(knowledge.ServiceConfig{
-		DB:          db,
-		Parser:      parser,
-		Logger:      slog.With("component", "knowledge"),
-		AgentAccess: agentAccess,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create knowledge service: %w", err)
-	}
-	return service, nil
-}
-
 type schedulerWorkflowAdapter struct {
 	svc *workflowpkg.Service
 }

@@ -1,0 +1,99 @@
+{
+  "label": "phase3",
+  "date": "2026-07-31T04:33:50Z",
+  "commit": "4e9c175c",
+  "huge_turns": 500,
+  "img_count": 10,
+  "runs": [
+    {
+      "hugeLoad": {
+        "fcpMs": 96,
+        "dclMs": 44,
+        "resCount": 2,
+        "resTotalKB": 45,
+        "resLastEndMs": 133,
+        "resAvgMs": 3,
+        "resMaxMs": 3,
+        "domNodes": 29153,
+        "domContentLoadedMs": 44,
+        "sinceNavMs": 2242,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 75.3,
+        "fullMountMs": 8679
+      },
+      "filesLoad": {
+        "fcpMs": 96,
+        "dclMs": 41,
+        "resCount": 10,
+        "resTotalKB": 18763,
+        "resLastEndMs": 170,
+        "resAvgMs": 21,
+        "resMaxMs": 27,
+        "total": 10,
+        "loaded": 10,
+        "settleMs": 189
+      }
+    },
+    {
+      "hugeLoad": {
+        "fcpMs": 88,
+        "dclMs": 40,
+        "resCount": 2,
+        "resTotalKB": 45,
+        "resLastEndMs": 124,
+        "resAvgMs": 2,
+        "resMaxMs": 3,
+        "domNodes": 29153,
+        "domContentLoadedMs": 40,
+        "sinceNavMs": 2187,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 197.3,
+        "fullMountMs": 8563
+      },
+      "filesLoad": {
+        "fcpMs": 100,
+        "dclMs": 46,
+        "resCount": 10,
+        "resTotalKB": 18763,
+        "resLastEndMs": 181,
+        "resAvgMs": 16,
+        "resMaxMs": 19,
+        "total": 10,
+        "loaded": 10,
+        "settleMs": 198
+      }
+    },
+    {
+      "hugeLoad": {
+        "fcpMs": 96,
+        "dclMs": 42,
+        "resCount": 2,
+        "resTotalKB": 45,
+        "resLastEndMs": 132,
+        "resAvgMs": 3,
+        "resMaxMs": 3,
+        "domNodes": 29153,
+        "domContentLoadedMs": 42,
+        "sinceNavMs": 2237,
+        "bufferedLongTasks": 0,
+        "bufferedLongTaskTotalMs": 0,
+        "jsHeapMB": 235.4,
+        "fullMountMs": 8670
+      },
+      "filesLoad": {
+        "fcpMs": 96,
+        "dclMs": 40,
+        "resCount": 10,
+        "resTotalKB": 18763,
+        "resLastEndMs": 180,
+        "resAvgMs": 21,
+        "resMaxMs": 25,
+        "total": 10,
+        "loaded": 10,
+        "settleMs": 200
+      }
+    }
+  ]
+}

@@ -123,14 +123,6 @@ func buildPublicChannelViews(channels []controlplane.PublicChannel, enabledTypes
 		if !ch.Enabled || !enabledTypes[channelType] {
 			continue
 		}
-		// Webhooks are inbound triggers with no linkable identity; they never
-		// belong in the user-facing channel list (the link-code flow rejects
-		// them, and the list keys by type so duplicates would collide).
-		// Upgrade to a plugin capability flag when the next runtime-less
-		// channel type lands.
-		if channelType == pkgchannel.PlatformWebhook {
-			continue
-		}
 		agentName := ""
 		if ch.AgentID != "" {
 			var ok bool
@@ -281,9 +273,7 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		Name:    req.Name,
 		Type:    channelType,
 		AgentID: requestAgentID(req),
-		// Bot channels start disabled until their runtime is configured/scanned;
-		// a webhook has no runtime, so it goes live the moment it's created.
-		Enabled: channelType == pkgchannel.PlatformWebhook,
+		Enabled: false,
 	}
 	// create=true enforces the POST create-only contract inside the PEP (after
 	// authorization): a re-POST to an existing id is a 409, never a silent upsert.
@@ -333,10 +323,6 @@ func (s *Server) channelFromWriteRequest(r *http.Request, req channelWriteReques
 		enabled = *req.Enabled
 	case hasExisting:
 		enabled = existing.Enabled
-	case channelType == pkgchannel.PlatformWebhook:
-		// PUT-created webhooks match POST semantics: no runtime to configure,
-		// so they go live on creation unless explicitly disabled.
-		enabled = true
 	}
 
 	return config.Channel{

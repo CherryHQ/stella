@@ -74,7 +74,11 @@ func (h *harness) testChatSSE(t *testing.T) {
 // it never collides with the seeded default provider.
 func (h *harness) createFakeProvider(t *testing.T, ctx context.Context, baseURL string) string {
 	t.Helper()
-	id := "anthropic-" + h.runID
+	return h.createFakeProviderNamed(t, ctx, baseURL, "anthropic-"+h.runID)
+}
+
+func (h *harness) createFakeProviderNamed(t *testing.T, ctx context.Context, baseURL, id string) string {
+	t.Helper()
 	body := map[string]any{
 		"id":       id,
 		"type":     "anthropic",
@@ -82,6 +86,13 @@ func (h *harness) createFakeProvider(t *testing.T, ctx context.Context, baseURL 
 		"enabled":  true,
 		"api_key":  "system-test-not-a-secret",
 		"base_url": baseURL,
+		"models": map[string]any{
+			"claude-sonnet-4-6": map[string]any{
+				"id":      "claude-sonnet-4-6",
+				"enabled": true,
+				"input":   []string{"text", "image"},
+			},
+		},
 	}
 	resp := h.postJSON(t, ctx, "/api/providers", body)
 	defer func() { _ = resp.Body.Close() }()
@@ -154,8 +165,12 @@ type turnEvent struct {
 // rather than a buffered whole.
 func (h *harness) streamChatTurn(t *testing.T, ctx context.Context, agentID, sessionID, text string) ([]turnEvent, string) {
 	t.Helper()
-	body := map[string]any{"parts": []map[string]any{{"type": "text", "text": text}}}
-	payload, err := json.Marshal(body)
+	return h.streamChatParts(t, ctx, agentID, sessionID, []map[string]any{{"type": "text", "text": text}})
+}
+
+func (h *harness) streamChatParts(t *testing.T, ctx context.Context, agentID, sessionID string, parts []map[string]any) ([]turnEvent, string) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"parts": parts})
 	if err != nil {
 		t.Fatalf("marshal send-message body: %v", err)
 	}

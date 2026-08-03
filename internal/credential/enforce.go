@@ -24,7 +24,6 @@ var deniedResources = map[string]bool{
 	"embedding-settings": true,
 	"groups":             true,
 	"inbox":              true,
-	"knowledge-files":    true,
 	"manifest-plugins":   true,
 	"models":             true,
 	"plugins":            true,
@@ -32,6 +31,7 @@ var deniedResources = map[string]bool{
 	"providers":          true,
 	"token-scopes":       true,
 	"tools":              true,
+	"vision-settings":    true,
 }
 
 // Enforce covers bearer kind + scope. Object-level ownership (this user owns
@@ -137,7 +137,7 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 		return agentRouteScope(method, rest[1:])
 	case "users":
 		return usersRouteScope(method, rest[1:])
-	case "goals", "workflows", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
+	case "goals", "workflows", "webhooks", "shares", "recally", "email", "mcp", "vault", "scheduler", "skills":
 		return scopeForMethod(resource, method), true
 	}
 

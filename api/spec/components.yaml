@@ -2036,89 +2036,6 @@ components:
         next_page_token:
           type: string
           nullable: true
-    KnowledgeFileScope:
-      type: string
-      enum: [system, system_agent, user, user_agent]
-    KnowledgeFileStatus:
-      type: string
-      enum: [processing, ready, failed]
-    KnowledgeFile:
-      type: object
-      required: [
-        id,
-        scope,
-        file_name,
-        media_type,
-        size_bytes,
-        status,
-        created_at,
-        updated_at,
-      ]
-      properties:
-        id:
-          type: string
-          format: uuid
-        scope:
-          $ref: "#/components/schemas/KnowledgeFileScope"
-        file_name:
-          type: string
-        media_type:
-          type: string
-          enum: [
-            application/pdf,
-            application/vnd.openxmlformats-officedocument.wordprocessingml.document,
-            text/markdown,
-            text/plain,
-          ]
-        size_bytes:
-          type: integer
-          format: int64
-          minimum: 0
-        status:
-          $ref: "#/components/schemas/KnowledgeFileStatus"
-        error_message:
-          type: string
-          nullable: true
-          description: Safe user-facing parser error, present only when status is failed.
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-    KnowledgeFileQuota:
-      type: object
-      required: [used_files, max_files, used_bytes, max_bytes]
-      properties:
-        used_files:
-          type: integer
-          format: int64
-          minimum: 0
-        max_files:
-          type: integer
-          format: int64
-          minimum: 0
-        used_bytes:
-          type: integer
-          format: int64
-          minimum: 0
-        max_bytes:
-          type: integer
-          format: int64
-          minimum: 0
-    KnowledgeFileList:
-      type: object
-      required: [knowledge_files, quota]
-      properties:
-        knowledge_files:
-          type: array
-          items:
-            $ref: "#/components/schemas/KnowledgeFile"
-        next_page_token:
-          type: string
-          nullable: true
-        quota:
-          $ref: "#/components/schemas/KnowledgeFileQuota"
     MCPServer:
       type: object
       required: [id, scope, name, url, transport, auth_type, enabled]
@@ -3939,6 +3856,90 @@ components:
         next_page_token:
           type: string
           nullable: true
+    SessionMessageBlock:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [text, thinking, tool_call, image]
+        text:
+          type: string
+          description: Text content when type is "text".
+        thinking:
+          type: string
+          description: Reasoning content when type is "thinking".
+        id:
+          type: string
+          description: Tool call ID when type is "tool_call".
+        name:
+          type: string
+          description: Tool name when type is "tool_call".
+        arguments:
+          type: object
+          additionalProperties: {}
+          description: Tool arguments when type is "tool_call".
+        media_id:
+          type: string
+          description: Immutable session media ID when type is "image".
+        mime_type:
+          type: string
+          description: Detected MIME type when type is "image".
+        url:
+          type: string
+          description: Authenticated session-relative media URL when type is "image".
+    SessionMessageReference:
+      type: object
+      required: [v, type, id]
+      properties:
+        v:
+          type: integer
+        type:
+          type: string
+        id:
+          type: string
+        agent_id:
+          type: string
+        intent:
+          type: string
+        preview:
+          type: object
+          properties:
+            title:
+              type: string
+            status:
+              type: string
+    SessionMessage:
+      type: object
+      required: [id, role, timestamp, token_count]
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        content:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionMessageBlock"
+        tool_call_id:
+          type: string
+        tool_name:
+          type: string
+        is_error:
+          type: boolean
+        references:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionMessageReference"
+        timestamp:
+          type: string
+          format: date-time
+        token_count:
+          type: integer
+          format: int64
     SessionMessageList:
       type: object
       required: [messages]
@@ -3946,8 +3947,7 @@ components:
         messages:
           type: array
           items:
-            type: object
-            additionalProperties: {}
+            $ref: "#/components/schemas/SessionMessage"
     SessionContextMeta:
       type: object
       required: [
@@ -4472,6 +4472,169 @@ components:
           type: array
           items:
             type: string
+    VisionSettings:
+      type: object
+      description: >
+        Deployment-wide image-understanding configuration. model is a "provider/model" reference resolved against the configured providers; an empty string means no vision model is set and image understanding falls back to local text extraction.
+
+      required: [model]
+      properties:
+        model:
+          type: string
+    VisionSettingsUpdate:
+      type: object
+      description: >
+        Update payload for the vision settings. Send an empty model to clear the vision model.
+
+      required: [model]
+      properties:
+        model:
+          type: string
+    Webhook:
+      type: object
+      description: >-
+        A personal invocation capability. The URL is disclosed only by Create and Rotate and is never returned by stable reads.
+      required: [
+        id,
+        user_id,
+        name,
+        agent_id,
+        provider,
+        is_enabled,
+        wait_timeout_seconds,
+        max_run_timeout_seconds,
+        token_last4,
+        etag,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Output-only UUID v7 resource ID.
+        user_id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Output-only authenticated owner ID.
+        name:
+          type: string
+          minLength: 1
+          description: Human-readable webhook name.
+        agent_id:
+          type: string
+          minLength: 1
+          description: Agent the owner is authorized to invoke.
+        provider:
+          type: string
+          enum: [generic]
+          description: Immutable invocation provider selected at creation.
+        is_enabled:
+          type: boolean
+          description: Whether ingress admission is enabled.
+        wait_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+          description: Maximum synchronous reply wait in seconds.
+        max_run_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          description: Maximum admitted agent run duration in seconds.
+        token_last4:
+          type: string
+          readOnly: true
+          description: Output-only final four token characters for identification.
+        etag:
+          type: string
+          readOnly: true
+          description: Output-only opaque rotation precondition.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        rotated_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+        url:
+          type: string
+          readOnly: true
+          description: One-time capability URL, returned only by Create and Rotate.
+    WebhookList:
+      type: object
+      required: [webhooks]
+      properties:
+        webhooks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Webhook"
+        next_page_token:
+          type: string
+          nullable: true
+    CreateWebhookRequest:
+      type: object
+      required: [name, agent_id]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        agent_id:
+          type: string
+          minLength: 1
+          description: Caller-accessible Agent ID.
+        provider:
+          type: string
+          enum: [generic]
+          default: generic
+          description: Immutable invocation provider; defaults to generic.
+        is_enabled:
+          type: boolean
+          default: true
+        wait_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+          default: 60
+        max_run_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        agent_id:
+          type: string
+          minLength: 1
+          description: Caller-accessible Agent ID.
+        is_enabled:
+          type: boolean
+        wait_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+        max_run_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+    RotateWebhookRequest:
+      type: object
+      required: [etag]
+      properties:
+        etag:
+          type: string
     WorkflowInputSpec:
       type: object
       required: [name]

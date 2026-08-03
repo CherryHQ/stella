@@ -62,9 +62,6 @@ type promptData struct {
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
-	// KnowledgeAvailable controls whether private file-retrieval guidance is
-	// rendered for this concrete session.
-	KnowledgeAvailable bool
 
 	// Group session rendering. IsGroup switches the template from the per-user
 	// "## User Profile" section to "## Group Memory" (+ optional current speaker),
@@ -89,9 +86,6 @@ type DBPromptParams struct {
 	Host         sandbox.Host
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
-	// KnowledgeAvailable is true only when knowledge_search is registered for
-	// this authorized, user-representing private Agent run.
-	KnowledgeAvailable bool
 
 	// CurrentSpeaker is retained for compatibility with callers/tests that still
 	// populate it, but it is intentionally not rendered into the system prompt.
@@ -123,9 +117,8 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		agentSoul = DefaultAgentSoul()
 	}
 	data := promptData{
-		SystemPrompt:       sysPrompt,
-		AgentSoul:          agentSoul,
-		KnowledgeAvailable: p.KnowledgeAvailable,
+		SystemPrompt: sysPrompt,
+		AgentSoul:    agentSoul,
 	}
 
 	// Memory: per-user soul overrides the agent default when set.

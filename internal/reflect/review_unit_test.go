@@ -32,10 +32,11 @@ func TestBuildReviewUnit_ChronologicalWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	mark := reviewWatermark{At: old.Add(time.Minute)}
 	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
 		session:         sess,
 		privateOneToOne: true,
-	}, reviewWatermark{At: old.Add(time.Minute)}, 32)
+	}, mark, 32)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +55,9 @@ func TestBuildReviewUnit_ChronologicalWindow(t *testing.T) {
 	}
 	if unit.FreshCount != 1 {
 		t.Fatalf("expected one fresh message included, got %d", unit.FreshCount)
+	}
+	if !unit.ReviewFromAt.Equal(mark.At) || unit.ReviewFromSeq != 0 {
+		t.Fatalf("review start boundary = seq:%d at:%v, want seq:0 at:%v", unit.ReviewFromSeq, unit.ReviewFromAt, mark.At)
 	}
 }
 
@@ -152,10 +156,11 @@ func TestBuildReviewUnit_UsesReviewSeqBoundary(t *testing.T) {
 		log: testLogger(),
 	}
 
+	mark := reviewWatermark{Seq: 1}
 	unit, err := svc.buildReviewUnit(context.Background(), reviewTarget{
 		session:         memory.Session{ID: "s1", AgentID: "a", UserID: "u1"},
 		privateOneToOne: true,
-	}, reviewWatermark{Seq: 1}, 1000)
+	}, mark, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +176,9 @@ func TestBuildReviewUnit_UsesReviewSeqBoundary(t *testing.T) {
 	}
 	if !unit.LastIncludedAt.Equal(at) {
 		t.Fatalf("expected timestamp retained for compatibility, got %v", unit.LastIncludedAt)
+	}
+	if unit.ReviewFromSeq != mark.Seq || !unit.ReviewFromAt.IsZero() {
+		t.Fatalf("review start boundary = seq:%d at:%v, want seq:%d", unit.ReviewFromSeq, unit.ReviewFromAt, mark.Seq)
 	}
 }
 
@@ -438,11 +446,14 @@ func TestBuildReviewUnitRedactsUserAndAssistantText(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := fake.Append(ctx, sess,
-		ai.UserMessage{Content: "token ghp_abcdefghijklmnopqrstuvwxyz123456", Timestamp: at},
+		ai.UserMessage{
+			Content:   "token ghp_abcdefghijklmnopqrstuvwxyz123456 and postgres://app:correct-horse-battery-staple@db.internal/app",
+			Timestamp: at,
+		},
 		ai.AssistantMessage{
 			Timestamp: at.Add(time.Second),
 			Content: []ai.ContentBlock{
-				ai.TextContent{Text: "password=supersecretvalue"},
+				ai.TextContent{Text: "password=supersecretvalue Authorization: Bearer fake-access-token-12345"},
 			},
 		},
 	); err != nil {
@@ -456,7 +467,10 @@ func TestBuildReviewUnitRedactsUserAndAssistantText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(unit.Text, "ghp_") || strings.Contains(unit.Text, "supersecretvalue") {
+	if strings.Contains(unit.Text, "ghp_") ||
+		strings.Contains(unit.Text, "supersecretvalue") ||
+		strings.Contains(unit.Text, "correct-horse-battery-staple") ||
+		strings.Contains(unit.Text, "fake-access-token-12345") {
 		t.Fatalf("expected user and assistant text to be redacted, got %q", unit.Text)
 	}
 	if !strings.Contains(unit.Text, "[redacted_secret]") {

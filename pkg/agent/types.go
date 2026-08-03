@@ -13,6 +13,17 @@ import (
 // (text and/or images).
 type ToolFunc func(ctx context.Context, call ai.ToolCall) ([]ai.ContentBlock, error)
 
+// ToolImageCanonicalizer converts final tool images into durable references
+// after lifecycle mutations and before the result enters the loop or history.
+type ToolImageCanonicalizer func(context.Context, ai.ToolResultMessage) (ai.ToolResultMessage, error)
+
+// CanonicalImageConfig is the complete ordinary-session image policy. Keeping
+// hydration and tool canonicalization together prevents invalid partial modes.
+type CanonicalImageConfig struct {
+	Load                   MediaLoader
+	CanonicalizeToolResult ToolImageCanonicalizer
+}
+
 // ToolSet maps tool names to handlers.
 type ToolSet map[string]ToolFunc
 
@@ -28,7 +39,7 @@ type loopConfig struct {
 	Hooks           *hooks.HookSet
 	HookMeta        hooks.HookMeta
 	ToolLifecycle   *ToolLifecycle
-	ToolCallLimits  map[string]int
+	CanonicalImages *CanonicalImageConfig
 	// TurnNotify is called at the start of each turn. If it returns a non-nil
 	// string, that text is injected as a UserMessage before the model call.
 	// Intended for progress nudges at milestone turns (e.g. 50, 80, 100).

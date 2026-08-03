@@ -48,7 +48,7 @@ Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 ### Features
 
 - Streaming responses via Draft API (Bot API 9.3+), falls back to edit-in-place
-- Image input: send photos for vision-based analysis (requires vision-capable model)
+- Image input: configure **Settings -> Vision** for ordinary-session baselines; only a model declaring image input receives active-turn pixels, and group history without a baseline uses the unavailable marker
 - Multi-agent: `/agent` to list or switch agents per DM or group
 - In-chat commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
 
@@ -159,28 +159,3 @@ Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 - Notifications require a cached `context_token` (in-memory only, lost on restart)
 - No group chat support (DM only)
 - Session expiry requires a fresh scan-created bot or a fresh manual credential bundle
-
-## Webhook (inbound trigger)
-
-Not a chat bot: an inbound-only HTTP endpoint that runs the bound agent. There is no outbound messaging and no in-chat commands.
-
-1. Open the Web UI and add a channel of type Webhook with a channel ID (e.g. `deploy-notify`)
-2. Bind an agent (required). The channel is enabled the moment it's created
-3. Callers POST to `https://your-host/webhooks/<channel-id>` with a Bearer personal access token carrying the `agent:write` scope; the request body becomes the agent's message
-
-The agent runs **as the calling PAT's user** (that user must be allowed to run the bound agent); there is no user binding on the channel.
-
-Webhook channel config (JSON):
-
-```json
-{
-  "default_wait": false,
-  "wait_timeout_seconds": 60,
-  "max_run_timeout_seconds": 300,
-  "session_mode": "ephemeral"
-}
-```
-
-- `?wait=true|false` on the request overrides `default_wait`: sync (200 with the reply, up to `wait_timeout_seconds`, then 504) vs fire-and-forget (202 with `session_id`)
-- `session_mode`: `ephemeral` = fresh session per trigger; `persistent` = one long-lived session per caller per webhook (busy session → 429, retry later)
-- Limits: 256 KiB body, per-webhook rate limit and max 10 in-flight runs (429 when exceeded)

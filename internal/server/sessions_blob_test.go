@@ -616,16 +616,12 @@ func TestUploadWorkspaceFileMirrorsToAuthority(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 	var body struct {
-		Path string `json:"path"`
+		RelativePath string `json:"relative_path"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	local := body.Path
-	if after, ok := strings.CutPrefix(filepath.ToSlash(body.Path), "/user/"); ok {
-		rel := after
-		local = filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), filepath.FromSlash(rel))
-	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), filepath.FromSlash(body.RelativePath))
 	key, err := blob.KeyForPath(home, local)
 	if err != nil {
 		t.Fatal(err)

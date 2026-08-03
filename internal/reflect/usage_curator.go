@@ -299,7 +299,7 @@ writeGroups:
 				Action:                            memorywrite.FactBatchDeprecateMany,
 				Subject:                           memory.FactSubjectWorld,
 				TargetFactIDs:                     []string{candidate.FactID},
-				Metadata:                          metadata,
+				ChangelogMetadata:                 metadata,
 				TargetUsageLastUsedAt:             map[string]time.Time{candidate.FactID: candidate.LastUsedAt},
 				RequireEligibleActivityAfterUsage: true,
 			}

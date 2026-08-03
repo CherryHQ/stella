@@ -417,7 +417,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	adminSrv, err := server.New(gctx, server.Deps{
 		Pinger:              s.db,
-		ChannelResolver:     channel.NewRuntimeResolver(s.store),
 		Account:             accountSvc,
 		Profile:             profileSvc,
 		ProjectStore:        s.projectStore,
@@ -435,10 +434,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		BaseURL:             baseURL,
 		Credentials:         s.credSvc,
 		ControlPlane:        s.controlPlane,
+		Webhooks:            s.webhooks,
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,
-		Knowledge:           s.knowledgeSvc,
 		Assets:              s.assetStore,
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
@@ -585,15 +584,13 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	addr := ln.Addr().String()
 	slog.Info("starting Web UI", "addr", addr)
 	fmt.Printf("Web UI running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
-	// Root mux: the inbound webhook ingress (POST /webhooks/{id}) is mounted here,
-	// ahead of the admin handler, so it bypasses the admin middleware chain (it
-	// authenticates itself via the caller's PAT). It is wrapped in the same OTel
-	// instrumentation the admin handler uses so the webhook request still produces
-	// a server span. Everything else falls through to the admin handler.
-	rootMux := http.NewServeMux()
-	rootMux.Handle("POST /webhooks/{id}", observability.Handler(adminSrv.WebhookIngressHandler()))
-	rootMux.Handle("/", adminSrv.Handler())
-	httpSrv := &http.Server{Handler: rootMux}
+	// The capability reservation owns the entire /webhooks/ namespace ahead of
+	// all instrumentation. It sanitizes a disclosed capability into private
+	// context and dispatches only canonical POSTs to the ingress handler (itself
+	// OTel-wrapped with a sanitized URL); every other /webhooks/ shape gets an
+	// opaque 404. Everything else falls through to the admin handler.
+	capabilityIngress := observability.Handler(adminSrv.WebhookIngressHandler())
+	httpSrv := &http.Server{Handler: server.WebhookCapabilityReservation(capabilityIngress, adminSrv.Handler())}
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
@@ -652,16 +649,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// immediately before blocking on the errgroup, so a probe never sees ready
 	// while wiring is still in progress.
 	adminSrv.MarkStartupComplete()
-
-	// Knowledge reconciliation repairs uploads left in processing after an
-	// interrupted worker or missing River job.
-	if s.knowledgeSvc != nil && s.riverClient != nil {
-		handle, err := s.knowledgeSvc.StartReconciliation()
-		if err != nil {
-			return fmt.Errorf("start knowledge reconciliation: %w", err)
-		}
-		defer s.knowledgeSvc.StopReconciliation(handle)
-	}
 
 	waitErr := g.Wait()
 	// The errgroup empties at the START of a graceful drain, not the end:

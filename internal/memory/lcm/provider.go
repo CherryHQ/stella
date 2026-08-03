@@ -107,12 +107,108 @@ func (p *Provider) Bootstrap(ctx context.Context, session memory.Session) error 
 	return err
 }
 
-// Append implements memory.Provider.
+// Append implements the sole durable-write contract. Ordinary sessions accept
+// only canonical references; deferred groups retain the legacy inline codec.
 func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
 	if len(msgs) == 0 {
 		return nil
 	}
+	rows := make([]storageRow, 0, len(msgs))
+	for _, msg := range msgs {
+		if session.GroupID != "" {
+			rows = append(rows, messageToRows(msg)...)
+			continue
+		}
+		canonical, err := canonicalMessageToRows(msg)
+		if err != nil {
+			return fmt.Errorf("canonical message: %w", err)
+		}
+		rows = append(rows, canonical...)
+	}
+	if len(rows) == 0 {
+		return p.withSessionLock(session.ID, func() error {
+			_, err := p.getOrCreateConversation(ctx, session)
+			return err
+		})
+	}
+	return p.appendRows(ctx, session, rows)
+}
+
+var errCanonicalMediaUnavailable = errors.New("canonical media unavailable")
+
+func validateCanonicalMedia(ctx context.Context, q *sqlc.Queries, userID string, rows []storageRow) error {
+	ids := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, row := range rows {
+		for _, part := range row.parts {
+			if part.partType != "image" {
+				continue
+			}
+			if _, ok := seen[part.mediaID]; ok {
+				continue
+			}
+			seen[part.mediaID] = struct{}{}
+			ids = append(ids, part.mediaID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	media, err := q.ListMediaByIDsForUser(ctx, sqlc.ListMediaByIDsForUserParams{
+		UserID:   userID,
+		MediaIds: ids,
+	})
+	if err != nil {
+		return fmt.Errorf("validate canonical media: %w", err)
+	}
+	owned := make(map[string]struct{}, len(media))
+	for _, item := range media {
+		owned[item.ID] = struct{}{}
+	}
+	for _, row := range rows {
+		for _, part := range row.parts {
+			if part.partType != "image" {
+				continue
+			}
+			if _, ok := owned[part.mediaID]; !ok {
+				return errCanonicalMediaUnavailable
+			}
+		}
+	}
+	return nil
+}
+
+func createMessagePart(ctx context.Context, q *sqlc.Queries, messageID string, ordinal int64, part messagePartRow) error {
+	params := sqlc.CreateMessagePartParams{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		MessageID: messageID,
+		PartType:  part.partType,
+		Ordinal:   ordinal,
+	}
+	switch part.partType {
+	case "text":
+		params.TextContent = pgtype.Text{String: part.text, Valid: true}
+	case "image":
+		params.MediaID = pgtype.Text{String: part.mediaID, Valid: true}
+		params.TextContent = pgtype.Text{String: part.text, Valid: true}
+	default:
+		return fmt.Errorf("create message part: unsupported type %q", part.partType)
+	}
+	if _, err := q.CreateMessagePart(ctx, params); err != nil {
+		return fmt.Errorf("create message part: %w", err)
+	}
+	return nil
+}
+
+func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows []storageRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
 	return p.withSessionLock(session.ID, func() error {
+		session, err := requireMemorySessionScope(ctx, session)
+		if err != nil {
+			return err
+		}
 		convID, err := p.getOrCreateConversation(ctx, session)
 		if err != nil {
 			return err
@@ -142,36 +238,41 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 		if err != nil {
 			return fmt.Errorf("get max ordinal: %w", err)
 		}
+		if err := validateCanonicalMedia(ctx, qtx, session.UserID, rows); err != nil {
+			return err
+		}
 
-		for _, msg := range msgs {
-			rows := messageToRows(msg)
-			for _, row := range rows {
-				seq++
-				dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
-					ID:             uuid.Must(uuid.NewV7()).String(),
-					ConversationID: convID,
-					Seq:            seq,
-					Role:           row.role,
-					EventType:      row.eventType,
-					Content:        row.content,
-					TokenCount:     int64(memory.EstimateTokens(row.content)),
-				})
-				if err != nil {
-					return fmt.Errorf("create message: %w", err)
+		for _, row := range rows {
+			seq++
+			dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
+				ID:             uuid.Must(uuid.NewV7()).String(),
+				ConversationID: convID,
+				Seq:            seq,
+				Role:           row.role,
+				EventType:      row.eventType,
+				Content:        row.content,
+				TokenCount:     int64(memory.EstimateTokens(row.tokenText)),
+			})
+			if err != nil {
+				return fmt.Errorf("create message: %w", err)
+			}
+			for partOrdinal, part := range row.parts {
+				if err := createMessagePart(ctx, qtx, dbMsg.ID, int64(partOrdinal), part); err != nil {
+					return err
 				}
+			}
 
-				ordinal++
-				err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
-					ConversationID: convID,
-					Ordinal:        ordinal,
-					ItemType:       itemTypeMessage,
-					MessageID:      pgtype.Text{String: dbMsg.ID, Valid: true},
-					EventType:      row.eventType,
-					Role:           row.role,
-				})
-				if err != nil {
-					return fmt.Errorf("append context item: %w", err)
-				}
+			ordinal++
+			err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
+				ConversationID: convID,
+				Ordinal:        ordinal,
+				ItemType:       itemTypeMessage,
+				MessageID:      pgtype.Text{String: dbMsg.ID, Valid: true},
+				EventType:      row.eventType,
+				Role:           row.role,
+			})
+			if err != nil {
+				return fmt.Errorf("append context item: %w", err)
 			}
 		}
 

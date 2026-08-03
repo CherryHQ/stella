@@ -295,6 +295,60 @@ func TestFormatMessageForSummarizer(t *testing.T) {
 	}
 }
 
+// A multimodal message stores its image base64 inline. Reaching the summarizer
+// with those bytes would send megabytes of base64 to the model for one
+// screenshot, so the image must be named rather than carried.
+func TestFormatMessageForSummarizerOmitsImageData(t *testing.T) {
+	payload := strings.Repeat("A", 4096)
+	blocks := []contentBlockJSON{
+		{Kind: "text", Text: "look at this"},
+		{Kind: "image", Data: payload, MimeType: "image/png"},
+		{Kind: "text", Text: "what is it?"},
+	}
+	data, _ := json.Marshal(blocks)
+	msg := sqlc.CtxMessage{Role: "user", EventType: eventTypeMultimodal, Content: string(data)}
+
+	got := formatMessageForSummarizer(msg)
+
+	if strings.Contains(got, payload) {
+		t.Fatalf("image base64 reached the summarizer prompt: len=%d", len(got))
+	}
+	for _, want := range []string{"look at this", "what is it?", "[image 1 omitted (image/png)]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %q", want, got)
+		}
+	}
+}
+
+// A corrupt multimodal row must not fall through to the raw content either: the
+// whole point is that this row is the one that can be enormous.
+func TestFormatMessageForSummarizerTruncatesMalformedMultimodal(t *testing.T) {
+	msg := sqlc.CtxMessage{Role: "user", EventType: eventTypeMultimodal, Content: strings.Repeat("B", 4096)}
+	if got := formatMessageForSummarizer(msg); len([]rune(got)) > len("[user] ")+300+3 {
+		t.Errorf("malformed multimodal not truncated: len=%d", len(got))
+	}
+}
+
+func TestLegacyInlineUserImageRoundTrip(t *testing.T) {
+	orig := ai.UserMessage{Content: []ai.ContentBlock{
+		ai.TextContent{Text: "look"},
+		ai.ImageContent{Data: "BASE64DATA", MimeType: "image/png"},
+	}}
+	rows := userMessageToRows(orig)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	restored := rowToUserMessage(sqlc.CtxMessage{EventType: eventTypeMultimodal, Content: rows[0].content})
+	blocks, ok := restored.Content.([]ai.ContentBlock)
+	if !ok || len(blocks) != 2 {
+		t.Fatalf("restored blocks = %#v", restored.Content)
+	}
+	image, ok := blocks[1].(ai.ImageContent)
+	if !ok || image.Data != "BASE64DATA" || image.MimeType != "image/png" {
+		t.Fatalf("legacy user image changed: %#v", blocks[1])
+	}
+}
+
 func TestToolResultImageRoundTrip(t *testing.T) {
 	orig := ai.ToolResultMessage{
 		ToolCallID: "tc1",
@@ -350,6 +404,25 @@ func TestToolResultTextOnlyRoundTrip(t *testing.T) {
 	restored := rowToToolResult(sqlc.CtxMessage{Role: roleTool, EventType: eventTypeToolResult, Content: rows[0].content})
 	if got := ai.FlattenText(restored.Content); got != "output" {
 		t.Errorf("text round-trip = %q, want output", got)
+	}
+}
+
+func TestLegacyToolResultEmptyErrorRoundTrip(t *testing.T) {
+	rows := toolResultToRows(ai.ToolResultMessage{
+		ToolCallID: "tc-empty-error",
+		ToolName:   "bash",
+		IsError:    true,
+	})
+	var env toolResultEnvelope
+	if err := json.Unmarshal([]byte(rows[0].content), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !env.IsError || env.Error != "" {
+		t.Fatalf("stored envelope = %#v, want explicit empty error", env)
+	}
+	restored := rowToToolResult(sqlc.CtxMessage{Role: roleTool, EventType: eventTypeToolResult, Content: rows[0].content})
+	if !restored.IsError || len(restored.Content) != 1 || ai.FlattenText(restored.Content) != "" {
+		t.Fatalf("legacy empty error round-trip = %#v", restored)
 	}
 }
 

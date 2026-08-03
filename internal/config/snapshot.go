@@ -11,6 +11,10 @@ import (
 const (
 	ModelTierStrong = "strong"
 	ModelTierFast   = "fast"
+	// ModelTierVision is the auxiliary multimodal tier used to render images as
+	// text. It is the one tier that does not fall back to the default model:
+	// see ResolveVisionModel.
+	ModelTierVision = "vision"
 )
 
 // ProviderCreds holds credentials for a single provider.
@@ -18,6 +22,14 @@ type ProviderCreds struct {
 	Type    string
 	APIKey  string
 	BaseURL string
+}
+
+// ModelKey identifies one model within one provider. Model IDs may themselves
+// contain "/" (e.g. "openrouter/anthropic/claude"), so the two parts are kept
+// separate instead of being joined back into a ref string.
+type ModelKey struct {
+	Provider string
+	Model    string
 }
 
 // Snapshot is a read-only config snapshot assembled from DB for downstream
@@ -35,12 +47,16 @@ type Snapshot struct {
 	ModelStrongThinking string
 	ModelFast           string
 	ModelFastThinking   string
-	Workspace           string
-	Sandbox             SandboxConfig
-	APIKey              string
-	BaseURL             string
-	SystemPrompt        string // agent's base system prompt from DB
-	Soul                string // agent's default soul from DB (fallback for all users)
+	// ModelVision is the deployment-wide vision model (VisionSettings), copied
+	// into the snapshot so tier resolution treats it like any other tier. It is
+	// the one model field here that does not come from the agent row.
+	ModelVision  string
+	Workspace    string
+	Sandbox      SandboxConfig
+	APIKey       string
+	BaseURL      string
+	SystemPrompt string // agent's base system prompt from DB
+	Soul         string // agent's default soul from DB (fallback for all users)
 
 	Runner     RunnerConfig
 	Compaction CompactionConfig
@@ -50,6 +66,19 @@ type Snapshot struct {
 	// Providers maps provider ID to credentials, enabling per-tier provider
 	// resolution when model_strong or model_fast use a different provider.
 	Providers map[string]ProviderCreds
+
+	// ModelInputs carries the input modalities each model declares in provider
+	// config (e.g. ["text", "image"]). Only this one per-model field is
+	// snapshotted: it is what downstream capability checks need, and the rest
+	// of ProviderModel has no consumer here. A missing entry means the
+	// deployment never declared modalities, not that there are none.
+	ModelInputs map[ModelKey][]string
+}
+
+// ModelInput returns the input modalities declared for a provider's model, or
+// nil when none were declared.
+func (s *Snapshot) ModelInput(providerID, modelID string) []string {
+	return s.ModelInputs[ModelKey{Provider: providerID, Model: modelID}]
 }
 
 // ParseModelRef splits a "provider/model" string into its parts.
@@ -69,6 +98,11 @@ func (s *Snapshot) ResolveModelID(tier string) string {
 		if s.ModelFast != "" {
 			return s.ModelFast
 		}
+	case ModelTierVision:
+		// No fallback on purpose: an unset vision tier means the deployment has
+		// no image-understanding model, not "use the main one". Falling back
+		// would send images straight back to the model that cannot read them.
+		return s.ModelVision
 	default: // strong or unknown tier
 		if s.ModelStrong != "" {
 			return s.ModelStrong
@@ -126,7 +160,19 @@ func (s *Snapshot) ResolveModelTier(tier string) ai.Model {
 		API:      api,
 		Provider: provID,
 		BaseURL:  baseURL,
+		Input:    s.ModelInput(provID, modelID),
 	}
+}
+
+// ResolveVisionModel returns the deployment's auxiliary vision model and true
+// when one is configured. It reports false — rather than a model the caller must
+// then second-guess — when the vision tier is unset, which is the signal that
+// image understanding must degrade to local text extraction.
+func (s *Snapshot) ResolveVisionModel() (ai.Model, bool) {
+	if s.ModelVision == "" {
+		return ai.Model{}, false
+	}
+	return s.ResolveModelTier(ModelTierVision), true
 }
 
 // ResolveProviderCreds returns the API key and base URL for the given

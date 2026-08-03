@@ -111,12 +111,12 @@ type ServiceManager interface {
 	Default() *Service
 }
 
-// Chat resolves (or creates) a session and executes a chat turn.
-//
-// When SessionID is empty, a new session is created with a generated ID.
-// When SessionID is non-empty, the session must already exist (resume-only);
-// unknown IDs return an error instead of silently creating.
-func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
+// ChatAdmitted resolves (or creates) a session and synchronously admits one
+// chat turn. A non-nil error means session access, session resolution, or the
+// runtime busy guard rejected the turn before any run/session/tool side effect
+// began. Once it returns a stream, the turn is admitted and all later runtime
+// failures arrive on the stream — the call returns at admission, not completion.
+func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Event, error) {
 	kind := req.Kind
 	if kind == "" {
 		kind = session.KindChat
@@ -139,11 +139,11 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 	}
 	access, err := s.beginSessionAccess(ctx, req.Authority)
 	if err != nil {
-		return errorEvents(fmt.Errorf("begin session access: %w", err))
+		return nil, fmt.Errorf("begin session access: %w", err)
 	}
 	info, err := access.EnsureUse(ctx, ensureReq)
 	if err != nil {
-		return errorEvents(fmt.Errorf("resolve session: %w", err))
+		return nil, fmt.Errorf("resolve session: %w", err)
 	}
 
 	opts := req.RuntimeOpts
@@ -153,7 +153,22 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 	if info.GroupID != "" && req.CurrentSpeaker != (memory.CurrentSpeaker{}) {
 		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
-	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+	return s.Runtime.ChatAdmitted(ctx, info, req.Message, opts...)
+}
+
+// Chat resolves (or creates) a session and executes a chat turn.
+//
+// When SessionID is empty, a new session is created with a generated ID.
+// When SessionID is non-empty, the session must already exist (resume-only);
+// unknown IDs return an error instead of silently creating. A rejected admission
+// remains its historic immediate error event; callers needing that distinction
+// use ChatAdmitted.
+func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
+	stream, err := s.ChatAdmitted(ctx, req)
+	if err != nil {
+		return errorEvents(err)
+	}
+	return stream
 }
 
 // SubscribeSession registers a read-only listener for a session's live turn

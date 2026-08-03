@@ -1,8 +1,6 @@
 package openai
 
 import (
-	"io"
-	"strings"
 	"testing"
 )
 
@@ -42,28 +40,12 @@ func TestMapStopReasonValues(t *testing.T) {
 		{"stop", "stop"},
 		{"length", "length"},
 		{"tool_calls", "toolUse"},
-		{"unknown", "stop"},
+		{"unknown", ""},
 	}
 	for _, tt := range tests {
 		got := mapStopReason(tt.reason)
 		if string(got) != tt.want {
 			t.Errorf("mapStopReason(%q) = %q, want %q", tt.reason, got, tt.want)
 		}
-	}
-}
-
-func TestSSECommentStripperRemovesLeadingComments(t *testing.T) {
-	t.Parallel()
-
-	longComment := ": " + strings.Repeat("x", 700) + "\n\n"
-	input := ": keep-alive\n\n" + longComment + "data: {\"message\":\"ok\"}\n\n"
-	want := "data: {\"message\":\"ok\"}\n\n"
-	reader := &sseCommentStripper{rc: io.NopCloser(strings.NewReader(input))}
-	got, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != want {
-		t.Fatalf("ReadAll() = %q, want %q", got, want)
 	}
 }

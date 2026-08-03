@@ -137,7 +137,6 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		SessionID:      info.ID,
 		AgentID:        info.AgentID,
 		ProjectID:      info.ProjectID,
-		SessionKind:    info.Kind,
 		HooksFn:        hooksFn,
 		ExtraTools:     extraTools,
 		DelegateRunner: delegateRunner,

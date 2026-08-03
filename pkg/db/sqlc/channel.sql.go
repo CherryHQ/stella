@@ -11,6 +11,44 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createChannel = `-- name: CreateChannel :one
+INSERT INTO channel (id, name, type, agent_id, enabled, config)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at
+`
+
+type CreateChannelParams struct {
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Type    string      `json:"type"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Enabled bool        `json:"enabled"`
+	Config  string      `json:"config"`
+}
+
+func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, createChannel,
+		arg.ID,
+		arg.Name,
+		arg.Type,
+		arg.AgentID,
+		arg.Enabled,
+		arg.Config,
+	)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.AgentID,
+		&i.Enabled,
+		&i.Config,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createWebChannelIfNotExists = `-- name: CreateWebChannelIfNotExists :exec
 INSERT INTO channel (id, name, type, agent_id)
 VALUES ($1, 'Web', 'web', $2)
@@ -120,6 +158,50 @@ func (q *Queries) ListChannelsByType(ctx context.Context, type_ string) ([]Chann
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateChannel = `-- name: UpdateChannel :one
+UPDATE channel
+SET name = $2,
+    type = $3,
+    agent_id = $4,
+    enabled = $5,
+    config = $6,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, name, type, agent_id, enabled, config, created_at, updated_at
+`
+
+type UpdateChannelParams struct {
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Type    string      `json:"type"`
+	AgentID pgtype.Text `json:"agent_id"`
+	Enabled bool        `json:"enabled"`
+	Config  string      `json:"config"`
+}
+
+func (q *Queries) UpdateChannel(ctx context.Context, arg UpdateChannelParams) (Channel, error) {
+	row := q.db.QueryRow(ctx, updateChannel,
+		arg.ID,
+		arg.Name,
+		arg.Type,
+		arg.AgentID,
+		arg.Enabled,
+		arg.Config,
+	)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.AgentID,
+		&i.Enabled,
+		&i.Config,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const upsertChannel = `-- name: UpsertChannel :exec

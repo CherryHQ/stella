@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
@@ -50,6 +51,29 @@ func (a *Access) SetEmbeddingSettings(ctx context.Context, upd EmbeddingUpdate) 
 		return config.EmbeddingSettings{}, err
 	}
 	return next, nil
+}
+
+// GetVisionSettings returns the deployment-wide image-understanding configuration.
+func (a *Access) GetVisionSettings(ctx context.Context) (config.VisionSettings, error) {
+	return config.LoadVisionSettings(ctx, a.svc.store)
+}
+
+// SetVisionSettings persists the vision model. An empty model clears it, which
+// returns image understanding to local text extraction. A non-empty model must
+// carry its provider prefix: unlike an agent's own tiers there is no agent
+// context to infer a default provider from, and a bare model name would resolve
+// differently per agent.
+func (a *Access) SetVisionSettings(ctx context.Context, s config.VisionSettings) (config.VisionSettings, error) {
+	s.Model = strings.TrimSpace(s.Model)
+	if s.Model != "" {
+		if provider, model := config.ParseModelRef(s.Model); provider == "" || model == "" {
+			return config.VisionSettings{}, invalid(`model must be in "provider/model" form`)
+		}
+	}
+	if err := config.SaveVisionSettings(ctx, a.svc.store, s); err != nil {
+		return config.VisionSettings{}, err
+	}
+	return s, nil
 }
 
 // SearchCliToolRegistry searches the mise tool registry so the UI can add a CLI

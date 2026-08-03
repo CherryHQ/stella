@@ -85,20 +85,36 @@ type Model struct {
 	Headers       map[string]string
 }
 
-// SupportsImage reports whether the model accepts image input. It fails open:
-// a model with no declared input modalities is assumed image-capable, since most
-// current models are multimodal and sending images is the primary intent.
-//
-// Accepted risk: a non-vision model whose config omits Input will receive the
-// inlined image instead of the Xberg text fallback. We accept this because
-// the modern default is multimodal and a stricter fail-closed policy would
-// silently degrade the common case; non-vision models must declare Input
-// explicitly to opt into the text path.
-func (m Model) SupportsImage() bool {
-	if len(m.Input) == 0 {
-		return true
+// ImageCapability describes what the configuration says about a model's ability
+// to accept image input. It is deliberately three-valued: "we know it cannot"
+// and "we were never told" are different facts, and callers decide how to treat
+// the latter.
+type ImageCapability int
+
+const (
+	// ImageUnknown means no input modalities were declared, so the capability
+	// was never stated. It is the zero value: an undeclared model is unknown,
+	// never implicitly unsupported — callers that must choose treat it as
+	// "cannot see", but the distinction stays visible here.
+	ImageUnknown ImageCapability = iota
+	// ImageSupported means the declared input modalities include images.
+	ImageSupported
+	// ImageUnsupported means input modalities were declared and images are not
+	// among them.
+	ImageUnsupported
+)
+
+// ImageCapability reports what the model's declared input modalities say about
+// image input. Callers choose the policy for ImageUnknown.
+func (m Model) ImageCapability() ImageCapability {
+	switch {
+	case len(m.Input) == 0:
+		return ImageUnknown
+	case slices.Contains(m.Input, "image"):
+		return ImageSupported
+	default:
+		return ImageUnsupported
 	}
-	return slices.Contains(m.Input, "image")
 }
 
 // Context carries all conversation and tool state for a model request.
@@ -132,6 +148,9 @@ type Usage struct {
 type StopReason string
 
 const (
+	// StopReasonUnknown is an unrecognized or omitted provider finish reason.
+	// Consumers that require a complete response must fail closed on it.
+	StopReasonUnknown StopReason = ""
 	StopReasonStop    StopReason = "stop"
 	StopReasonLength  StopReason = "length"
 	StopReasonToolUse StopReason = "toolUse"

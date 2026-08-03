@@ -11,6 +11,12 @@ icon: History
 
 ## [Unreleased]
 
+> **重大变更：** Webhook 现在是个人调用资源，使用一次性能力 URL。在设置中创建或轮换自己的 Webhook，并让调用方使用该 URL，且不发送 `Authorization` 请求头。旧的 `POST /webhooks/<channel-id>` 路由已不可用。([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+
+### ♻️ 重构
+
+- Webhook：以绑定所有者的能力端点替换令牌认证路由，其一次性 URL 是唯一凭证，可在 Web UI 中轮换与撤销。([#825](https://github.com/CherryHQ/stella/pull/825))
+
 ## [0.60.4] - 2026-07-28
 
 ### 🐛 修复
@@ -75,7 +81,7 @@ icon: History
 - 知识：引入基于事实的记忆、搜索优先的发现、结构化 Reflect 审核及其发布控制，并在 Web UI 中支持管理知识和已启用技能。([#593](https://github.com/CherryHQ/stella/pull/593), [#610](https://github.com/CherryHQ/stella/pull/610), [#661](https://github.com/CherryHQ/stella/pull/661), [#683](https://github.com/CherryHQ/stella/pull/683), [#732](https://github.com/CherryHQ/stella/pull/732), [#733](https://github.com/CherryHQ/stella/pull/733), [#734](https://github.com/CherryHQ/stella/pull/734))
 - 存储：将 Recally 文章正文持久化到 PostgreSQL，并为用户资产增加可选的 S3 兼容持久镜像，移除剩余的 Pod 本地持久状态。([#667](https://github.com/CherryHQ/stella/pull/667), [#673](https://github.com/CherryHQ/stella/pull/673), [#675](https://github.com/CherryHQ/stella/pull/675))
 - 密钥：完善工具覆盖的四级作用域，并为 Agent 自动注入环境密钥。([#688](https://github.com/CherryHQ/stella/pull/688), [#694](https://github.com/CherryHQ/stella/pull/694))
-- 自动化：新增入站 webhook channel，让 CI 系统和第三方服务可通过带作用域限制的个人访问令牌触发 Agent。([#691](https://github.com/CherryHQ/stella/pull/691))
+- 自动化：新增入站 Webhook，让 CI 系统和第三方服务触发 Agent。([#691](https://github.com/CherryHQ/stella/pull/691))
 - 部署：新增生产 Kubernetes 健康检查、优雅停机和 Helm chart。([#700](https://github.com/CherryHQ/stella/pull/700), [#704](https://github.com/CherryHQ/stella/pull/704))
 
 ### 🔐 安全

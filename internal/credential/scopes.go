@@ -45,6 +45,7 @@ var catalog = []Scope{
 	{Resource: "agent", Description: "Full agent access: read config, sessions, messages, and workspace files; write can delete agents, manage members, post messages, and modify files", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "goals", Description: "Manage goals", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "workflows", Description: "Manage reusable workflows", ExposableToPAT: true, ExposableToOAuth: true},
+	{Resource: "webhooks", Description: "Manage personal webhook invocation capabilities", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "scheduler", Description: "Manage scheduled jobs", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "skills", Description: "Manage skills, including installing and uploading skills that run as code in your sandbox", ExposableToPAT: true, ExposableToOAuth: true},
 	{Resource: "shares", Description: "Manage public shares", ExposableToPAT: true, ExposableToOAuth: true},

@@ -19,8 +19,12 @@ func TestSystem(t *testing.T) {
 	t.Run("readiness", h.testReadiness)
 	t.Run("startup_and_auth", h.testStartupAndAuth)
 	t.Run("chat_sse", h.testChatSSE)
+	t.Run("image_history", h.testImageHistory)
+	t.Run("read_tool_image_history", h.testReadToolImageHistory)
 	t.Run("chat_provider_error", h.testChatProviderError)
+	t.Run("webhook_sync_persistent", h.testWebhookSyncPersistent)
 	t.Run("goal_lifecycle", h.testGoalLifecycle)
+	t.Run("github_webhook_compatibility", h.testGitHubWebhookCompatibility)
 	// graceful_drain MUST run last: it sends SIGTERM to the shared server and
 	// asserts the process exits, consuming the server no later journey can use.
 	t.Run("graceful_drain", h.testGracefulDrain)

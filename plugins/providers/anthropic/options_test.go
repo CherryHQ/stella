@@ -223,7 +223,7 @@ func TestMapStopReasonValues(t *testing.T) {
 		{"tool_use", "toolUse"},
 		{"max_tokens", "length"},
 		{"end_turn", "stop"},
-		{"unknown", "stop"},
+		{"unknown", ""},
 	}
 	for _, tt := range tests {
 		got := mapStopReason(tt.reason)

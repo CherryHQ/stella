@@ -3,11 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -138,82 +136,6 @@ func (f *runnerFakeProvider) Stream(_ context.Context, _ ai.Model, _ ai.Context,
 		out.Finish(nil)
 	}()
 	return out, nil
-}
-
-func TestNewAgentRunnerLimitsKnowledgeSearchPerRequest(t *testing.T) {
-	var executed atomic.Int32
-
-	stream := func(_ context.Context, _ ai.Model, request ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
-		resultCount := 0
-		for _, message := range request.Messages {
-			if result, ok := message.(ai.ToolResultMessage); ok && result.ToolName == knowledgeSearchToolName {
-				resultCount++
-			}
-		}
-
-		out := providers.NewChannelEventStream(8)
-		go func() {
-			// Deliberately request three searches; only the first two may reach
-			// the Knowledge Base implementation for this user request.
-			if resultCount < 3 {
-				out.Emit(ai.EventToolCallDelta{
-					ID:        fmt.Sprintf("knowledge_call_%d", resultCount+1),
-					Name:      knowledgeSearchToolName,
-					Arguments: `{"query":"test"}`,
-				})
-				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
-			} else {
-				out.Emit(ai.EventTextDelta{Text: "done"})
-				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
-			}
-			out.Finish(nil)
-		}()
-		return out, nil
-	}
-
-	coreRunner, err := newAgentRunnerWithTools(
-		stream,
-		ai.Model{API: "fake", Name: "stub"},
-		ai.StreamOptions{},
-		"",
-		nil,
-		nil,
-		coreagent.ToolSet{
-			knowledgeSearchToolName: func(_ context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
-				executed.Add(1)
-				return []ai.ContentBlock{ai.TextContent{Text: `{"results":[]}`}}, nil
-			},
-		},
-		[]tools.Definition{{Name: knowledgeSearchToolName}},
-	)
-	if err != nil {
-		t.Fatalf("newAgentRunnerWithTools: %v", err)
-	}
-
-	for runNumber := 1; runNumber <= 2; runNumber++ {
-		history, err := coreRunner.Run(
-			context.Background(),
-			[]ai.Message{ai.UserMessage{Content: "search"}},
-			nil,
-		)
-		if err != nil {
-			t.Fatalf("run %d: %v", runNumber, err)
-		}
-		if got, want := executed.Load(), int32(runNumber*knowledgeSearchMaxCallsPerRequest); got != want {
-			t.Fatalf("executed after run %d = %d, want %d", runNumber, got, want)
-		}
-
-		var lastResult ai.ToolResultMessage
-		for _, message := range history {
-			if result, ok := message.(ai.ToolResultMessage); ok {
-				lastResult = result
-			}
-		}
-		if !lastResult.IsError ||
-			!strings.Contains(ai.FlattenText(lastResult.Content), "at most 2 times") {
-			t.Fatalf("run %d last result = %+v, want limit error", runNumber, lastResult)
-		}
-	}
 }
 
 // newTestRunner creates a runner wired to a fake provider.

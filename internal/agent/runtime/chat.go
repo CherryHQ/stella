@@ -194,14 +194,54 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	// duplicate it on the next attempt.
 	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now()}
 	modelMsg := userMsg
-	if memSess.GroupID != "" && co.hasSpeaker {
-		modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker)
-	}
 	var storePrefix []ai.Message
 	if memSess.GroupID != "" {
+		// Groups intentionally retain their legacy raw-image codec and append
+		// timing until group-owned media receives its own authorization design.
+		if co.hasSpeaker {
+			modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker)
+		}
 		storePrefix = []ai.Message{userMsg}
-	} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
-		rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
+	} else {
+		// Direct internal callers may supply either one image block or the usual
+		// ordered block list. Existing canonical refs are not re-enriched.
+		var blocks []ai.ContentBlock
+		hasCanonicalImage := false
+		switch content := userMsg.Content.(type) {
+		case ai.ImageContent:
+			blocks = []ai.ContentBlock{content}
+		case ai.ImageRefContent:
+			blocks = []ai.ContentBlock{content}
+		case []ai.ContentBlock:
+			blocks = content
+		}
+		if blocks != nil {
+			if ai.HasImage(blocks) {
+				if rt.sessionImages == nil {
+					out <- Event{Err: errors.New("session image enrichment is not configured")}
+					close(out)
+					return
+				}
+				enriched, err := rt.sessionImages.Enrich(ctx, info.UserID, info.AgentID, blocks)
+				if err != nil {
+					out <- Event{Err: fmt.Errorf("enrich user images: %w", err)}
+					close(out)
+					return
+				}
+				blocks = enriched
+			}
+			hasCanonicalImage = ai.HasImageRef(blocks)
+			userMsg.Content = blocks
+			modelMsg = userMsg
+		}
+		if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
+			if hasCanonicalImage {
+				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
+				close(out)
+				return
+			}
+			rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
+		}
 	}
 
 	stream := r.Chat(ctx, history, modelMsg)
@@ -325,6 +365,9 @@ func (rt *Runtime) streamEvents(
 		storeMessages = append(storeMessages, storePrefix...)
 		storeMessages = append(storeMessages, msgs...)
 		storePrefix = nil
+		if isGroup {
+			return rt.mem.Append(persistCtx, memSess, storeMessages...)
+		}
 		return rt.mem.Append(persistCtx, memSess, storeMessages...)
 	}
 	storeCurrent := func(msgs ...ai.Message) error {

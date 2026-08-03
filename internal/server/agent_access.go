@@ -48,6 +48,8 @@ func agentManagementError(err error) (int, string) {
 		return http.StatusBadRequest, "scope must be 'system' or 'restricted'"
 	case errors.Is(err, agentaccess.ErrUserNotFound):
 		return http.StatusNotFound, "user not found"
+	case errors.Is(err, agentaccess.ErrInUse):
+		return http.StatusConflict, "agent is still used by a webhook"
 	default:
 		return agentAccessError(err)
 	}

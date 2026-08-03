@@ -133,6 +133,12 @@ func WithAssetStorePM(a *asset.Store) PoolManagerOption {
 	return func(pm *PoolManager) { pm.assets = a }
 }
 
+// WithSessionImagePipeline wires the ordinary-session canonical image boundary.
+// Groups deliberately bypass it until their separate ownership model exists.
+func WithSessionImagePipeline(images SessionImagePipeline) PoolManagerOption {
+	return func(pm *PoolManager) { pm.sessionImages = images }
+}
+
 // PoolManager manages one Service per enabled agent. It reads enabled agents
 // from the config Store and creates a Service (session.Registry + runtime.Runtime)
 // per agent.
@@ -167,6 +173,7 @@ type PoolManager struct {
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	assets                   *asset.Store
+	sessionImages            SessionImagePipeline
 	sessionAccess            SessionAccessService
 	log                      *slog.Logger
 }
@@ -369,6 +376,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		HooksFn:         pm.HookPlugins,
 		BeforeRun:       pm.runtimeBeforeRunFunc(snap),
 		SnapshotPrompt:  pm.buildSnapshotPromptFunc(snap),
+		SessionImages:   pm.sessionImages,
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,
@@ -477,12 +485,6 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 			UserRoot:        userRoot,
 			Sections:        sections,
 			SnapshotVersion: &version,
-			KnowledgeAvailable: KnowledgeToolAvailable(ctx, RunnerParams{
-				UserID:      info.UserID,
-				GroupID:     info.GroupID,
-				AgentID:     info.AgentID,
-				SessionKind: info.Kind,
-			}),
 		})
 	}
 }
@@ -694,6 +696,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		VaultEnvLoader:           pm.vaultEnvLoader,
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
+		SessionImages:            pm.sessionImages,
 	})
 }
 

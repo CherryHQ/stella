@@ -157,7 +157,15 @@ run = "go run ./cmd/stellad postgres download-runtime"
 [tasks.test]
 description = "Run all tests"
 depends = ["pg:runtime:download"]
-run = "go test ./..."
+run = """
+go test ./...
+mise run test:web
+"""
+
+[tasks."test:web"]
+description = "Run frontend unit tests (vitest via vp)"
+dir = "web"
+run = "vp test run"
 
 [tasks."test:coverage"]
 description = "Run tests with coverage report"

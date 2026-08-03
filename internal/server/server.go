@@ -26,7 +26,6 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/inbox"
-	"github.com/CherryHQ/stella/internal/knowledge"
 	"github.com/CherryHQ/stella/internal/mcp"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
@@ -36,12 +35,12 @@ import (
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 )
 
 // Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
-	channelResolver *channel.RuntimeResolver
 	account         *account.Service
 	profileSvc      *memprofile.Service
 	projectStore    *agent.ProjectStore
@@ -73,7 +72,6 @@ type Server struct {
 	shareSvc       *sharepkg.Service     // shared share service
 	recallySvc     *recally.Service      // shared recally service
 	recally        *recallyHandlers      // recally HTTP API (articles, feeds, digest)
-	knowledgeSvc   *knowledge.Service    // optional; if nil, Knowledge Base endpoints return 503
 	schedulerSvc   *scheduler.Service    // optional; if set, create/delete go through the live scheduler
 	goalSvc        *goal.Service         // optional; if nil, goal endpoints return 503
 	workflowSvc    *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
@@ -99,6 +97,12 @@ type Server struct {
 	runtimeCtx context.Context
 	// webhookLimiter throttles accepted webhook ingress calls per instance.
 	webhookLimiter *webhookLimiter
+	// webhookIngress is the deep capability-admission surface: candidate
+	// resolution before body read, then lifecycle-revalidating admission.
+	webhookIngress webhookIngressPort
+	webhooks       *webhook.Service
+	// webhookRun is the narrow agent-execution surface the ingress callback uses.
+	webhookRun webhookRunPort
 	// readiness backs the /healthz and /readyz infrastructure probes and carries
 	// the graceful-drain signal streaming handlers watch.
 	readiness *readiness
@@ -118,11 +122,6 @@ type Deps struct {
 	// narrow port so the transport can never reach an application query — every
 	// data access is routed through a domain service below.
 	Pinger DBPinger
-
-	// ChannelResolver is the narrow runtime read port for webhook/channel and
-	// agent-name lookups, replacing the aggregate config.Store on the transport.
-	ChannelResolver *channel.RuntimeResolver
-
 	// Account owns the user-account application boundary: admin/self user
 	// reads/mutations, login/channel identities, sessions, password credential,
 	// and agent assignments, with the role/deactivation revocation invariants.
@@ -176,8 +175,11 @@ type Deps struct {
 	// Shared domain services — single, fully-wired instances built by the
 	// composition root. The same instances back both the agent tools and the
 	// HTTP endpoints, so there is one source of truth per capability.
-	Credentials         *connections.Service
-	ControlPlane        *controlplane.Service
+	Credentials  *connections.Service
+	ControlPlane *controlplane.Service
+	// Webhooks is the personal invocation-capability domain used by both the
+	// authenticated resource API and unauthenticated capability ingress.
+	Webhooks            *webhook.Service
 	Email               *email.Service
 	Share               *sharepkg.Service
 	Recally             *recally.Service
@@ -201,7 +203,6 @@ type Deps struct {
 	Vault          *vault.Service
 	VaultRecipient *age.X25519Recipient
 	MCP            *mcp.Service
-	Knowledge      *knowledge.Service
 	Scheduler      *scheduler.Service
 	Goal           *goal.Service
 	Workflow       *workflowpkg.Service
@@ -234,7 +235,6 @@ func (d Deps) validate() error {
 		}
 	}
 	req(d.Pinger != nil, "Pinger")
-	req(d.ChannelResolver != nil, "ChannelResolver")
 	req(d.Group != nil, "Group")
 	req(d.Account != nil, "Account")
 	req(d.Profile != nil, "Profile")
@@ -278,7 +278,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 
 	log := slog.With("component", "admin")
 	s := &Server{
-		channelResolver: deps.ChannelResolver,
 		account:         deps.Account,
 		profileSvc:      deps.Profile,
 		projectStore:    deps.ProjectStore,
@@ -310,7 +309,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		shareSvc:        deps.Share,
 		recallySvc:      deps.Recally,
 		recally:         newRecallyHandlersWithService(deps.Recally, log),
-		knowledgeSvc:    deps.Knowledge,
 		schedulerSvc:    deps.Scheduler,
 		goalSvc:         deps.Goal,
 		workflowSvc:     deps.Workflow,
@@ -324,6 +322,14 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		startedAt:       time.Now(),
 		runtimeCtx:      ctx,
 	}
+	// Assign the ingress port only when configured, so a nil *webhook.Service
+	// never becomes a non-nil interface whose methods would panic. Handlers treat
+	// a nil port as "capability ingress unavailable".
+	s.webhooks = deps.Webhooks
+	if deps.Webhooks != nil {
+		s.webhookIngress = deps.Webhooks
+	}
+	s.webhookRun = poolWebhookRunPort{pool: deps.PoolManager}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
 	// streaming handlers. The narrow DBPinger answers the /readyz liveness ping.
 	s.readiness = newReadiness(ctx, s.pinger)
