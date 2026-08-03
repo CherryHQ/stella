@@ -439,8 +439,8 @@ capabilities:
   - id: C06
     class: core
     name: provider-model-control-plane
-    title: Provider and model control plane
-    description: Manage provider configuration and types, discover models, fetch remote model catalogs, and maintain the model cache.
+    title: Provider, model, and vision control plane
+    description: Manage provider configuration and types, discover models, fetch remote model catalogs, maintain the model cache, and select the deployment-wide vision model.
     surfaces:
       openapi: [
         listProviders,
@@ -452,18 +452,24 @@ capabilities:
         fetchProviderModels,
         listProviderTypes,
         listModels,
+        getVisionSettings,
+        updateVisionSettings,
       ]
-      web_routes: [/settings/providers, /settings/providers/$providerId]
+      web_routes: [
+        /settings/providers,
+        /settings/providers/$providerId,
+        /settings/vision,
+      ]
       cli_commands: []
       plugins: []
       system_skills: []
     scenarios:
       - id: C06-S01
-        name: provider-crud-and-model-cache
+        name: provider-model-and-vision-control-plane
         layer: integration
         status: partial
         release_policy: blocking
-        summary: Provider configuration and cached models remain scoped, redacted, and refreshable.
+        summary: Provider configuration, cached models, and the deployment-wide vision model remain scoped, validated, redacted where needed, and refreshable.
         evidence:
           - kind: go_test
             path: internal/controlplane/authorized_test.go
@@ -473,7 +479,18 @@ capabilities:
             path: internal/server/models_test.go
             direct: true
             proves: Model listing and per-provider cache replacement behavior.
-        gap: Existing tests do not directly cover every provider CRUD endpoint and secret-redaction response as one lifecycle.
+          - kind: go_test
+            path: internal/controlplane/vision_test.go
+            test: TestSetVisionSettingsRoundTrip
+            direct: true
+            proves: The admin control plane persists and normalizes a deployment-wide provider/model vision reference.
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: image_history
+            direct: true
+            proves: The real binary accepts a vision-model update over HTTP and uses it to render image history.
+        gap: Existing tests do not directly cover every provider CRUD endpoint and secret-redaction response as one lifecycle, nor vision-settings read/write authorization and error paths through HTTP.
       - id: C06-S02
         name: browser-provider-management
         layer: browser
@@ -487,7 +504,7 @@ capabilities:
     class: core
     name: sessions-and-chat
     title: Sessions and chat
-    description: Manage sessions, message history, SSE chat and event streams, context, summaries, and system prompts.
+    description: Manage sessions, message history and media, SSE chat and event streams, context, summaries, and system prompts.
     surfaces:
       openapi: [
         listSessions,
@@ -496,6 +513,7 @@ capabilities:
         updateSession,
         deleteSession,
         getSessionMessages,
+        getSessionMedia,
         sendSessionMessage,
         streamSessionEvents,
         getSessionContextItems,
@@ -512,7 +530,7 @@ capabilities:
         layer: integration
         status: partial
         release_policy: blocking
-        summary: Session CRUD, visibility, message history, context, summary, and prompt endpoints enforce scope and persistence.
+        summary: Session CRUD, visibility, message history and media, context, summary, and prompt endpoints enforce scope and persistence.
         evidence:
           - kind: go_test
             path: internal/server/sessions_api_test.go
@@ -539,6 +557,11 @@ capabilities:
             test: TestSessionSystemPromptAdvertisesSkillSearch
             direct: true
             proves: The system-prompt endpoint renders skill discovery instructions for a persisted session.
+          - kind: go_test
+            path: internal/server/sessions_media_test.go
+            test: TestSessionMediaAuthorizationCachingAndTypedHistory
+            direct: true
+            proves: Authorized session media reads preserve byte and response-header safety while denying foreign, mismatched, and missing resources.
         gap: Existing tests do not directly prove the complete create/get lifecycle or consistent scope and cross-request persistence across every endpoint in this scenario.
       - id: C07-S02
         name: real-sse-chat-and-provider-error
@@ -1471,44 +1494,50 @@ capabilities:
 
   - id: X07
     class: extension
-    name: webhook-channel
-    title: Webhook channel
-    description: Configure outbound webhook delivery and enforce safe, rate-limited inbound webhook behavior.
+    name: webhooks
+    title: Webhooks
+    description: Create personal webhook invocation capabilities, bind them to authorized agents, rotate or revoke their opaque URLs, and process rate-limited inbound requests.
     surfaces:
-      openapi: []
-      web_routes: []
+      openapi: [
+        listWebhooks,
+        createWebhook,
+        getWebhook,
+        updateWebhook,
+        deleteWebhook,
+        rotateWebhook,
+      ]
+      web_routes: [/settings/webhooks]
       cli_commands: []
-      plugins: [channel/webhook]
+      plugins: []
       system_skills: []
     scenarios:
       - id: X07-S01
-        name: webhook-ingress-and-config-contract
+        name: webhook-lifecycle-and-ingress-contract
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Webhook configuration, inbound authorization, rate limiting, payload parsing, and outbound delivery obey the protocol contract.
+        summary: Personal webhook CRUD, one-time capability disclosure and rotation, opaque ingress authorization, rate limiting, and persistent execution obey the generic webhook contract.
         evidence:
-          - kind: contract_test
-            path: plugins/channels/webhook/config_test.go
+          - kind: go_test
+            path: internal/server/webhooks_api_test.go
+            test: TestWebhookLifecycleAPISecretDisclosureAndImmutableProvider
             direct: true
-            proves: Webhook configuration decoding and validation.
+            proves: Generic webhook creation, read, list, update, rotation, deletion, and one-time URL disclosure through HTTP handlers.
           - kind: go_test
             path: internal/server/webhook_ingress_test.go
             direct: true
-            proves: Inbound webhook authentication and request behavior.
+            proves: Opaque-capability ingress validates requests, handles synchronous execution, and enforces safe time and size limits.
           - kind: go_test
             path: internal/server/webhook_ratelimit_test.go
             direct: true
-            proves: Webhook rate-limit enforcement.
-        gap: No deterministic outbound receiver contract proves retries, payload contents, and delivery failures.
-      - id: X07-S02
-        name: webhook-controlled-delivery-contract
-        layer: contract
-        status: missing
-        release_policy: blocking
-        summary: Stella delivers messages to a controlled self-hosted receiver with the expected payload, retry, permanent-failure, and cleanup behavior.
-        evidence: []
-        gap: No self-hosted webhook receiver contract currently proves the complete outbound delivery lifecycle.
+            proves: Per-webhook rate and in-flight limits recover correctly after a request finishes or a webhook is deleted.
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: webhook_sync_persistent
+            direct: true
+            proves: The real binary serves an unauthenticated webhook capability synchronously and reuses its durable session across requests.
+        gap: ""
 
   - id: X08
     class: extension
