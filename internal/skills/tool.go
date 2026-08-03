@@ -264,19 +264,16 @@ func (t *Tool) WithActionsOnly(actions ...string) *Tool {
 // root pairs; a skill dir under no known root is then omitted rather than leaked.
 type SkillDirView struct {
 	Isolated bool
-	// SystemSkillsHost/View map the system skills dir specifically (not all of
-	// STELLA_HOME): only that subtree is mounted, so a broad STELLA_HOME mapping
-	// would wrongly swallow the sibling users/ and agents/ trees nested under it.
-	SystemSkillsHost string
-	SystemSkillsView string
+	// BuiltinSkillsHost/View map the exact immutable release bundle projection.
+	BuiltinSkillsHost string
+	BuiltinSkillsView string
 	// AgentSkillsHost/View map the admin-managed agent-bound (system_agent) skills
 	// dir, mounted at its own fixed path (/opt/stella/agent-skills) since it lives
 	// in the user-independent agent definition tree, outside the two roots.
 	AgentSkillsHost string
 	AgentSkillsView string
-	// SystemDBSkillsHost/View map the DB-installed system skills dir (a sibling of
-	// the shipped built-ins under STELLA_HOME), mounted at its own fixed path
-	// (/opt/stella/db-skills); the built-ins map via SystemSkillsHost/View.
+	// SystemDBSkillsHost/View map the DB-installed system skills dir, mounted at
+	// /opt/stella/db-skills; release builtins map via BuiltinSkillsHost/View.
 	SystemDBSkillsHost string
 	SystemDBSkillsView string
 	// UserData and Workspace are full binds, so their whole root maps (this lets
@@ -298,7 +295,7 @@ func (v SkillDirView) apply(hostDir string) string {
 	for _, m := range [][2]string{
 		{v.WorkspaceHost, v.WorkspaceView},
 		{v.UserDataHost, v.UserDataView},
-		{v.SystemSkillsHost, v.SystemSkillsView},
+		{v.BuiltinSkillsHost, v.BuiltinSkillsView},
 		{v.AgentSkillsHost, v.AgentSkillsView},
 		{v.SystemDBSkillsHost, v.SystemDBSkillsView},
 	} {

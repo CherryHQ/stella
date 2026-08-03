@@ -253,7 +253,9 @@ func dbSkillToPluginSkill(sk skills.Skill) pkgplugins.Skill {
 
 func resolvedSkillToView(rs skills.ResolvedSkill) skillView {
 	var files []string
-	if rs.Dir != "" {
+	if builtinFiles := rs.BuiltinFiles(); builtinFiles != nil {
+		files = builtinFiles
+	} else if rs.Dir != "" {
 		files, _ = skills.ListDirFiles(rs.Dir)
 	}
 	if files == nil {
@@ -364,6 +366,25 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 	if code != 0 {
 		return nil, nil, "", code, msg
 	}
+	// Builtin IDs are release identities, not PostgreSQL row IDs. Resolve them
+	// through the merged catalog so a project/PG shadow still wins after one
+	// store lookup, rather than probing the store for every builtin descriptor.
+	if strings.HasPrefix(ref, "builtin-") {
+		projectRoot, err := s.projectRootForSession(ctx, agentID, sessionID)
+		if err != nil {
+			return nil, nil, "", http.StatusInternalServerError, "internal error"
+		}
+		vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
+		rs, err := s.skillService().Resolve(ctx, ref, vc, projectRoot)
+		if err != nil {
+			s.log.Error("resolve builtin skill reference", "agent_id", agentID, "skill", ref, "error", err)
+			return nil, nil, "", http.StatusInternalServerError, "internal error"
+		}
+		if rs == nil || rs.Status == "deprecated" || (exactScope && rs.Scope != scope) {
+			return nil, nil, "", http.StatusNotFound, "skill not found"
+		}
+		return rs, acc, projectRoot, 0, ""
+	}
 
 	sk, err := s.findSkillByID(ctx, ref)
 	if err == nil {
@@ -407,6 +428,9 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 
 // loadSkillFile loads a file from an already-resolved skill.
 func (s *Server) loadSkillFile(ctx context.Context, rs *skills.ResolvedSkill, path string) (string, error) {
+	if rs.BuiltinFiles() != nil {
+		return rs.LoadBuiltinFile(path)
+	}
 	if rs.Dir != "" {
 		fp, err := safeSkillFilePath(rs.Dir, path)
 		if err != nil {

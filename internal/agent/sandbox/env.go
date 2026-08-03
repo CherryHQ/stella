@@ -38,6 +38,9 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 			Access:      pkgsandbox.MountReadOnly,
 		})
 	}
+	if paths.BuiltinBundle != "" {
+		mounts = append(mounts, pkgsandbox.Mount{HostPath: paths.BuiltinBundle, SandboxPath: pkgsandbox.MountBuiltinSkills, Access: pkgsandbox.MountReadOnly})
+	}
 	if agentSkills := agentSkillsDirHost(paths); agentSkills != "" {
 		mounts = append(mounts, pkgsandbox.Mount{HostPath: agentSkills, SandboxPath: pkgsandbox.MountAgentSkills, Access: pkgsandbox.MountReadOnly})
 	}

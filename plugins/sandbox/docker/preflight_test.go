@@ -120,3 +120,12 @@ func TestPreflightDaemonUnreachable(t *testing.T) {
 		t.Errorf("expected 'daemon not reachable' in error, got: %v", err)
 	}
 }
+
+func TestPreflightRejectsBuiltinBundleRevisionMismatch(t *testing.T) {
+	api := &fakePreflightAPI{inspectFn: func(string) (mobyclient.ImageInspectResult, error) { return mobyclient.ImageInspectResult{}, nil }}
+	client := dockerclient.NewWithAPI(api)
+	err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test", ExpectedBundleRevision: "expected"}}, client)
+	if err == nil || !strings.Contains(err.Error(), "expected expected, image has ") || !strings.Contains(err.Error(), "mise run sandbox:docker:build") {
+		t.Fatalf("preflight mismatch error = %v", err)
+	}
+}

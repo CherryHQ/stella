@@ -284,8 +284,8 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
 		view := skillstool.SkillDirView{
 			Isolated:           sv.Isolated,
-			SystemSkillsHost:   sv.SystemSkillsHost,
-			SystemSkillsView:   sv.SystemSkillsView,
+			BuiltinSkillsHost:  sv.BuiltinSkillsHost,
+			BuiltinSkillsView:  sv.BuiltinSkillsView,
 			AgentSkillsHost:    sv.AgentSkillsHost,
 			AgentSkillsView:    sv.AgentSkillsView,
 			SystemDBSkillsHost: sv.SystemDBSkillsHost,

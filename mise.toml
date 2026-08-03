@@ -341,6 +341,7 @@ description = "Build local stella-sandbox:dev image (used by the docker sandbox 
 run = """
   DIR=plugins/sandbox/docker
   VERSION_ARG=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}
+	BUNDLE_REVISION="$(go run ./cmd/stellad system-bundle revision)"
   export GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
   if [ -z "$GITHUB_TOKEN" ] && command -v gh >/dev/null 2>&1; then
     export GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
@@ -349,11 +350,13 @@ run = """
     DOCKER_BUILDKIT=1 docker build \
       --secret id=github_token,env=GITHUB_TOKEN \
       --build-arg VERSION=$VERSION_ARG \
+		--build-arg BUILTIN_BUNDLE_REVISION=$BUNDLE_REVISION \
       -f "$DIR/Dockerfile" \
       -t stella-sandbox:dev .
   else
     DOCKER_BUILDKIT=1 docker build \
       --build-arg VERSION=$VERSION_ARG \
+		--build-arg BUILTIN_BUNDLE_REVISION=$BUNDLE_REVISION \
       -f "$DIR/Dockerfile" \
       -t stella-sandbox:dev .
   fi

@@ -19,13 +19,6 @@ func ListProjectSkills(root string) ([]pkgplugins.Skill, map[string]string, erro
 	return listFSSkills(root, "project")
 }
 
-// ListSystemSkills walks {stellaHome}/.agents/skills/ and returns skill metadata
-// structs with Scope="system". System skills are extracted from the embedded FS
-// at startup under a system/ subdirectory, so this walks recursively.
-func ListSystemSkills(stellaHome string) ([]pkgplugins.Skill, map[string]string, error) {
-	return listFSSkills(stellaHome, "system")
-}
-
 func listFSSkills(root, scope string) ([]pkgplugins.Skill, map[string]string, error) {
 	if root == "" {
 		return nil, nil, nil
