@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -327,13 +328,42 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 // fence runs after the busy guard is acquired but before transcript/runtime
 // side effects, allowing a synchronous queue to reject a caller that timed out
 // at the admission boundary without replay or ambiguous execution.
-func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info, msg MessageContent, beforeStart func() error, opts ...Option) (<-chan Event, error) {
+func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info, msg MessageContent, beforeStart func() error, opts ...Option) (stream <-chan Event, admissionErr error) {
 	activityScope, err := info.MemoryScope()
 	if err != nil {
 		return nil, err
 	}
+	var (
+		selection      runnerSelection
+		selectionReady bool
+		turn           *activeTurn
+	)
+	defer func() {
+		if recover() == nil {
+			return
+		}
+		// This is only the narrow synchronous admission envelope. Deep cache
+		// construction owns its own cleanup; this protects options/UUID/hub setup
+		// and any post-selection panic before the goroutine's async recovery.
+		// Do not log recovered values: provider panics may contain secrets.
+		rt.log.Error("chat admission panicked", "session_id", info.ID)
+		if selectionReady {
+			rt.cache.abortReservedAdmission(selection.session)
+		}
+		if turn != nil {
+			turn.cancel()
+			if rt.active.CompareAndDelete(info.ID, turn) {
+				close(turn.done)
+			}
+		}
+		stream = nil
+		admissionErr = errors.New("chat admission failed")
+	}()
+	if rt.closed.Load() {
+		return nil, errors.New("runtime is closed")
+	}
 	turnCtx, cancel := context.WithCancel(ctx)
-	turn := &activeTurn{cancel: cancel, done: make(chan struct{})}
+	turn = &activeTurn{cancel: cancel, done: make(chan struct{})}
 	if _, loaded := rt.active.LoadOrStore(info.ID, turn); loaded {
 		cancel()
 		return nil, fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)
@@ -362,6 +392,21 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 	// admits one turn per session at a time, so "different id" means "different
 	// user message" for every turn a user drives.
 	ctx = agentctx.WithTurnID(ctx, uuid.Must(uuid.NewV7()).String())
+	ctx = withSessionIdentity(ctx, info)
+	// Select and reserve the runner before returning admission. Service holds its
+	// per-Agent policy barrier around this call, so a policy commit cannot swap
+	// factories or stale an idle old runner between active registration and
+	// runner selection. The reservation protects the gap before Runner.Chat
+	// marks itself busy in the goroutine below.
+	selection, err = rt.getOrCreateReservedRunner(ctx, info, co.model, co.extraTools)
+	if err != nil {
+		cancel()
+		if rt.active.CompareAndDelete(info.ID, turn) {
+			close(turn.done)
+		}
+		return nil, fmt.Errorf("get runner: %w", err)
+	}
+	selectionReady = true
 	rt.markSessionTurnStarted(ctx, activityScope)
 
 	// Tee: chat writes to inner; the forwarder fans every event out to the hub
@@ -396,7 +441,7 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 			}
 			producerResult <- result
 		}()
-		rt.chat(ctx, inner, info, msg, co)
+		rt.chatWithRunner(ctx, inner, info, msg, co, selection)
 	}()
 	go func() {
 		defer close(out)

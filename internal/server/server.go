@@ -79,6 +79,7 @@ type Server struct {
 	workflowSvc     *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
 	provisioningSvc *provisioning.Service // provisioned-user lifecycle boundary
 	librarySvc      *library.Service      // optional; if nil, Library file endpoints return 503
+	agentSkillPolicy AgentSkillPolicyStore
 	builtinTools    []agent.BuiltinTool
 	startedAt       time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
@@ -155,7 +156,8 @@ type Deps struct {
 	AgentManagement *agentaccess.Management
 	// ToolOverrides persists per-agent tool-visibility overrides. The transport
 	// holds this narrow domain store instead of the aggregate query handle.
-	ToolOverrides *agent.ToolOverrideStore
+	ToolOverrides    *agent.ToolOverrideStore
+	AgentSkillPolicy AgentSkillPolicyStore
 	// SkillAccess is the DB-backed Skill enforcement point. When nil the
 	// skill endpoints report 503 through the centralized unavailable mapping.
 	SkillAccess *skillaccess.Service
@@ -249,6 +251,7 @@ func (d Deps) validate() error {
 	req(d.AgentAccess != nil, "AgentAccess")
 	req(d.AgentManagement != nil, "AgentManagement")
 	req(d.ToolOverrides != nil, "ToolOverrides")
+	req(d.AgentSkillPolicy != nil, "AgentSkillPolicy")
 	req(d.SessionAccess != nil, "SessionAccess")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
@@ -320,6 +323,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		workflowSvc:     deps.Workflow,
 		provisioningSvc: deps.Provisioning,
 		librarySvc:      deps.Library,
+		agentSkillPolicy: deps.AgentSkillPolicy,
 		groupSvc:        deps.Group,
 		assets:          deps.Assets,
 		authProviders:   deps.OIDC.Providers,

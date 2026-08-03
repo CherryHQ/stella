@@ -27,6 +27,9 @@ type skillView struct {
 	Version                string    `json:"version,omitempty"`
 	LifecycleVersion       int64     `json:"lifecycle_version"`
 	CreatedBy              string    `json:"created_by"`
+	Builtin                *bool     `json:"builtin,omitempty"`
+	LogicalRef             string    `json:"logical_ref,omitempty"`
+	Enabled                *bool     `json:"enabled,omitempty"`
 	CreatedAt              time.Time `json:"created_at"`
 	UpdatedAt              time.Time `json:"updated_at"`
 }

@@ -28,13 +28,12 @@ func addSecondMember(t *testing.T, fx dispatcherFixture) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID:                   "agent-2",
-		Name:                 "Agent Two",
-		Workspace:            t.TempDir(),
-		Sandbox:              json.RawMessage("{}"),
-		EnabledBuiltinSkills: json.RawMessage("[]"),
-		Scope:                "system",
-		Enabled:              true,
+		ID:        "agent-2",
+		Name:      "Agent Two",
+		Workspace: t.TempDir(),
+		Sandbox:   json.RawMessage("{}"),
+		Scope:     "system",
+		Enabled:   true,
 	}); err != nil {
 		t.Fatalf("create agent-2: %v", err)
 	}
