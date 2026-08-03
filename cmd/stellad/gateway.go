@@ -373,6 +373,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// user directory backs assignment views with the account user store (per-id
 	// lookups; the assignment set per agent is small and admin-only).
 	toolOverrides := agent.NewToolOverrideStore(s.db)
+	agentSkillPolicy, ok := s.store.(server.AgentSkillPolicyStore)
+	if !ok {
+		return fmt.Errorf("agent Skill policy store is unavailable")
+	}
 	agentManagement := agentaccess.NewManagement(
 		agentAccess,
 		s.store,
@@ -432,6 +436,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Inbox:               inbox.NewService(s.db),
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
+		AgentSkillPolicy:    agentSkillPolicy,
 		ToolOverrides:       toolOverrides,
 		SessionAccess:       s.sessionAccess,
 		SkillAccess:         s.skillAccess,

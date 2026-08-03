@@ -270,6 +270,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		Inbox:               inbox.NewService(db),
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
+		AgentSkillPolicy:    store,
 		ToolOverrides:       agent.NewToolOverrideStore(db),
 		SessionAccess:       sessionSvc,
 		SkillAccess:         skillaccess.NewService(skillStore, agentAccess),

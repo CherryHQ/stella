@@ -33,21 +33,31 @@ type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, 
 // SnapshotPromptFunc builds a system prompt from the session's snapshot version.
 type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) string
 
-// chat is the goroutine body for Runtime.Chat.
+// chat is retained for direct internal callers and tests. Runtime.ChatAdmitted
+// uses chatWithRunner after synchronously selecting a runner at admission.
 func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
+	ctx = withSessionIdentity(ctx, info)
+	selection, err := rt.getOrCreateReservedRunner(ctx, info, co.model, co.extraTools)
+	if err != nil {
+		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
+		close(out)
+		return
+	}
+	rt.chatWithRunner(ctx, out, info, msg, co, selection)
+}
+
+// chatWithRunner is the goroutine body for Runtime.Chat. The runner was selected and
+// reserved synchronously by ChatAdmitted, so a policy invalidation cannot slip
+// between admission and runner selection.
+func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions, selection runnerSelection) {
+	defer rt.cache.releaseReservation(selection.session)
+
 	isGuest := info.GuestID != ""
-	switch {
-	case isGuest:
-		// Guest mode is derived exclusively from durable session metadata. Never
-		// mint a Stella user identity for the guest's UUID-shaped owner key.
-		ctx = authz.WithGuestID(ctx, info.GuestID)
-	case info.GroupID == "":
-		ctx = authz.WithUserID(ctx, info.UserID)
-	default:
+	ctx = withSessionIdentity(ctx, info)
+	if info.GroupID != "" {
 		// Group turns: carry the group id (not a user) so trusted adapters can mint
 		// a confined GroupAgentActor. authz.WithUserID stays unset so runtime
 		// identity remains the group (D9).
-		ctx = authz.WithGroupID(ctx, info.GroupID)
 		if co.hasSpeaker {
 			// Attach the speaker as a personalization target only.
 			ctx = memory.WithCurrentSpeaker(ctx, co.currentSpeaker)
@@ -61,13 +71,6 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		ctx = withChannel(ctx, info.Channel)
 	}
 
-	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
-	if err != nil {
-		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
-		close(out)
-		return
-	}
-
 	memSess, err := info.MemoryScope()
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("session scope: %w", err)}
@@ -78,7 +81,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	msgText := MessageText(msg)
 	rt.log.Debug("chat started", "session_id", info.ID, "message_len", len(msgText))
 
-	// Fire PreAgentCall hook for authenticated sessions only.
+	// Fire PreAgentCall hooks for authenticated sessions only.
 	chatStart := time.Now()
 	var hookPlugins []hooks.HookPlugin
 	if !isGuest {
@@ -109,12 +112,9 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		} else {
 			cancel()
 			rt.log.Info("auto-compaction succeeded", "session_id", info.ID, "summary_len", len(summary))
-			cs, r, err = rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
-			if err != nil {
-				out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
-				close(out)
-				return
-			}
+			// The admission lease owns this runner and its metadata for the
+			// full turn. Re-selecting through mutable cache state here would let
+			// a concurrent non-terminal reset change beforeRun's model midway.
 		}
 	}
 
@@ -169,10 +169,10 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	if isGuest {
 		// A caller override is another capability surface. Guest runners always
 		// use the minimal prompt selected from durable GuestID at construction.
-		baseSystem = r.SystemPrompt()
+		baseSystem = selection.runner.SystemPrompt()
 	}
 	if baseSystem == "" {
-		baseSystem = r.SystemPrompt()
+		baseSystem = selection.runner.SystemPrompt()
 		if !isGuest && info.GroupID == "" && rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
 			// DM per-turn snapshot prompt: rebuild system with frozen memory
 			// version. Skipped when systemOverride is set (e.g. delegate custom
@@ -189,7 +189,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		}
 	}
 	if !isGuest && rt.beforeRun != nil {
-		systemOut, err := rt.beforeRun(ctx, info, cs.model, msgText, baseSystem, history)
+		systemOut, err := rt.beforeRun(ctx, info, selection.model, msgText, baseSystem, history)
 		if err != nil {
 			out <- Event{Err: fmt.Errorf("before run: %w", err)}
 			close(out)
@@ -263,7 +263,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		}
 	}
 
-	stream := r.Chat(ctx, history, modelMsg)
+	stream := selection.runner.Chat(ctx, history, modelMsg)
 	chatErr := rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
 	if chatErr == nil && assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
 		if committer, ok := rt.mem.(memory.GroupCursorCommitter); ok {
@@ -275,7 +275,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	}
 }
 
-func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (*cachedSession, Runner, error) {
+func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (runnerSelection, error) {
 	attrs := []attribute.KeyValue{
 		attribute.String("gen_ai.conversation.id", info.ID),
 		attribute.String("agent_id", info.AgentID),
@@ -298,16 +298,29 @@ func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, mod
 	spanCtx, span := otel.Tracer("stella").Start(ctx, "agent.runner_get_or_create", trace.WithAttributes(attrs...))
 	defer span.End()
 
-	cs, r, err := rt.cache.getOrCreate(spanCtx, info, model, "", extraTools...)
+	selection, err := rt.cache.getOrCreateReserved(spanCtx, info, model, "", extraTools...)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return nil, nil, err
+		return runnerSelection{}, err
 	}
-	if cs != nil && cs.model != "" {
-		span.SetAttributes(attribute.String("gen_ai.response.model", cs.model))
+	if selection.model != "" {
+		span.SetAttributes(attribute.String("gen_ai.response.model", selection.model))
 	}
-	return cs, r, nil
+	return selection, nil
+}
+
+func withSessionIdentity(ctx context.Context, info session.Info) context.Context {
+	switch {
+	case info.GuestID != "":
+		// Guest mode is derived exclusively from durable session metadata. Never
+		// mint a Stella user identity for the guest's UUID-shaped owner key.
+		return authz.WithGuestID(ctx, info.GuestID)
+	case info.GroupID != "":
+		return authz.WithGroupID(ctx, info.GroupID)
+	default:
+		return authz.WithUserID(ctx, info.UserID)
+	}
 }
 
 func (rt *Runtime) hookPlugins() []hooks.HookPlugin {
@@ -520,6 +533,18 @@ func bufferedAssistantMessage(text, reasoning string) ai.AssistantMessage {
 		blocks = append(blocks, ai.TextContent{Text: text})
 	}
 	return ai.AssistantMessage{Content: blocks}
+}
+
+func autoTitle(msgText string) string {
+	title := msgText
+	if len(title) > 60 {
+		if idx := strings.LastIndex(title[:60], " "); idx > 20 {
+			title = title[:idx] + "…"
+		} else {
+			title = title[:60] + "…"
+		}
+	}
+	return title
 }
 
 // --- context helpers --------------------------------------------------------

@@ -83,6 +83,7 @@ type Tool struct {
 	// prompt search instructions use the same visible system-skill set.
 	registeredPluginIDs []string
 	enabledPluginIDs    []string
+	disabledSkillRefs   []string
 	// readAuthz enforces Skill read authorization on every DB-backed skill this tool
 	// reads (load/search_installed/list). Injected from the composition root; when
 	// nil, DB-backed reads fail closed (the row is dropped or reported not-found).
@@ -133,6 +134,13 @@ func (t *Tool) WithSkillDirView(v SkillDirView) *Tool {
 func (t *Tool) WithPluginVisibility(registered, enabled []string) *Tool {
 	t.registeredPluginIDs = append([]string(nil), registered...)
 	t.enabledPluginIDs = append([]string(nil), enabled...)
+	return t
+}
+
+// WithAgentSkillPolicy captures the runner's immutable policy snapshot. The
+// next runner observes a committed mutation after local invalidation.
+func (t *Tool) WithAgentSkillPolicy(disabled []string) *Tool {
+	t.disabledSkillRefs = append([]string(nil), disabled...)
 	return t
 }
 
@@ -372,8 +380,9 @@ func (t *Tool) targetScope(ctx context.Context, rawScope string) (string, error)
 // viewContext builds a SkillViewContext from the request context.
 func (t *Tool) viewContext(ctx context.Context) pkgplugins.SkillViewContext {
 	return pkgplugins.SkillViewContext{
-		UserID:  authz.UserIDFromContext(ctx),
-		AgentID: authz.AgentIDFromContext(ctx),
+		UserID:            authz.UserIDFromContext(ctx),
+		AgentID:           authz.AgentIDFromContext(ctx),
+		DisabledSkillRefs: t.disabledSkillRefs,
 	}
 }
 

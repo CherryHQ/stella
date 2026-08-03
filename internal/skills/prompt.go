@@ -21,8 +21,9 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 
 	svc := NewService(store, build.StellaHome)
 	vc := pkgplugins.SkillViewContext{
-		UserID:  build.UserID,
-		AgentID: build.AgentID,
+		UserID:            build.UserID,
+		AgentID:           build.AgentID,
+		DisabledSkillRefs: append([]string(nil), build.DisabledSkillRefs...),
 	}
 
 	merged, err := svc.ListMerged(ctx, vc, build.ProjectRoot)
@@ -108,7 +109,7 @@ func filterVisibleSkills(skills []pkgplugins.Skill, build pkgplugins.SystemPromp
 
 	out := make([]pkgplugins.Skill, 0, len(skills))
 	for _, skill := range skills {
-		if skill.Scope != "system" {
+		if skill.Scope != "system" && skill.Scope != "builtin" {
 			out = append(out, skill)
 			continue
 		}

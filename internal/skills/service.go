@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/resources"
@@ -72,7 +73,7 @@ func (s *Service) ListMerged(ctx context.Context, vc pkgplugins.SkillViewContext
 			return nil, fmt.Errorf("list db skills: %w", err)
 		}
 	}
-	return s.mergeSkills(dbSkills, projectRoot), nil
+	return filterDisabled(s.mergeSkills(dbSkills, projectRoot), vc.DisabledSkillRefs), nil
 }
 
 // ListMergedWithDB merges the given DB skills with FS skills.
@@ -122,7 +123,7 @@ func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillV
 	}
 	if projectRoot != "" {
 		if rs := findFSSkill(projectRoot, "project", name); rs != nil {
-			return rs, nil
+			return filterResolved(rs, vc.DisabledSkillRefs), nil
 		}
 	}
 
@@ -132,11 +133,54 @@ func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillV
 			return nil, err
 		}
 		if sk != nil {
-			return &ResolvedSkill{Skill: *sk}, nil
+			return filterResolved(&ResolvedSkill{Skill: *sk}, vc.DisabledSkillRefs), nil
 		}
 	}
+	rs, err := s.builtinSkill(name)
+	if err != nil {
+		return nil, err
+	}
+	return filterResolved(rs, vc.DisabledSkillRefs), nil
+}
 
-	return s.builtinSkill(name)
+// filterDisabled runs only after precedence resolution. A disabled winner is
+// absent; callers must never retry a lower-precedence implementation by name.
+func filterDisabled(in []ResolvedSkill, disabled []string) []ResolvedSkill {
+	if len(disabled) == 0 {
+		return in
+	}
+	out := make([]ResolvedSkill, 0, len(in))
+	for _, rs := range in {
+		if !isDisabled(rs, disabled) {
+			out = append(out, rs)
+		}
+	}
+	return out
+}
+
+func filterResolved(rs *ResolvedSkill, disabled []string) *ResolvedSkill {
+	if rs == nil || !isDisabled(*rs, disabled) {
+		return rs
+	}
+	return nil
+}
+
+func isDisabled(rs ResolvedSkill, disabled []string) bool {
+	ref, ok := PolicyRef(rs)
+	return ok && slices.Contains(disabled, ref)
+}
+
+// PolicyRef returns the stable policy identity for policy-addressable Skills.
+func PolicyRef(rs ResolvedSkill) (string, bool) {
+	if rs.builtin != nil {
+		return "builtin:" + rs.Name, true
+	}
+	switch rs.Scope {
+	case "system", "system_agent":
+		return rs.Scope + ":" + rs.Name, true
+	default:
+		return "", false
+	}
 }
 
 // findFSSkill returns the named skill from a filesystem scope root, or nil.
@@ -160,6 +204,8 @@ func findFSSkill(root, scope, name string) *ResolvedSkill {
 // effective Resolve query filters out.
 func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
 	switch scope {
+	case "builtin":
+		return s.builtinSkill(name)
 	case "project":
 		return findFSSkill(projectRoot, "project", name), nil
 	case "system_agent", "user", "user_agent":

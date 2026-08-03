@@ -80,6 +80,10 @@ type Snapshot struct {
 	// of ProviderModel has no consumer here. A missing entry means the
 	// deployment never declared modalities, not that there are none.
 	ModelInputs map[ModelKey][]string
+
+	// DisabledSkillRefs is the immutable Agent Skill policy snapshot. A runner
+	// captures it once; an explicit activation commit invalidates future runners.
+	DisabledSkillRefs []string
 }
 
 // ModelInput returns the input modalities declared for a provider's model, or

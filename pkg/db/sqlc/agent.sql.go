@@ -11,28 +11,27 @@ import (
 )
 
 const createAgent = `-- name: CreateAgent :one
-INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, scope, creator_id, enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at
 `
 
 type CreateAgentParams struct {
-	ID                   string          `json:"id"`
-	Name                 string          `json:"name"`
-	Model                string          `json:"model"`
-	ModelThinking        string          `json:"model_thinking"`
-	ModelStrong          string          `json:"model_strong"`
-	ModelStrongThinking  string          `json:"model_strong_thinking"`
-	ModelFast            string          `json:"model_fast"`
-	ModelFastThinking    string          `json:"model_fast_thinking"`
-	SystemPrompt         string          `json:"system_prompt"`
-	Soul                 string          `json:"soul"`
-	Workspace            string          `json:"workspace"`
-	Sandbox              json.RawMessage `json:"sandbox"`
-	EnabledBuiltinSkills json.RawMessage `json:"enabled_builtin_skills"`
-	Scope                string          `json:"scope"`
-	CreatorID            string          `json:"creator_id"`
-	Enabled              bool            `json:"enabled"`
+	ID                  string          `json:"id"`
+	Name                string          `json:"name"`
+	Model               string          `json:"model"`
+	ModelThinking       string          `json:"model_thinking"`
+	ModelStrong         string          `json:"model_strong"`
+	ModelStrongThinking string          `json:"model_strong_thinking"`
+	ModelFast           string          `json:"model_fast"`
+	ModelFastThinking   string          `json:"model_fast_thinking"`
+	SystemPrompt        string          `json:"system_prompt"`
+	Soul                string          `json:"soul"`
+	Workspace           string          `json:"workspace"`
+	Sandbox             json.RawMessage `json:"sandbox"`
+	Scope               string          `json:"scope"`
+	CreatorID           string          `json:"creator_id"`
+	Enabled             bool            `json:"enabled"`
 }
 
 func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent, error) {
@@ -49,7 +48,6 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 		arg.Soul,
 		arg.Workspace,
 		arg.Sandbox,
-		arg.EnabledBuiltinSkills,
 		arg.Scope,
 		arg.CreatorID,
 		arg.Enabled,
@@ -115,6 +113,17 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getAgentSkillPolicyForUpdate = `-- name: GetAgentSkillPolicyForUpdate :one
+SELECT enabled_builtin_skills FROM agent WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetAgentSkillPolicyForUpdate(ctx context.Context, id string) (json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, getAgentSkillPolicyForUpdate, id)
+	var enabled_builtin_skills json.RawMessage
+	err := row.Scan(&enabled_builtin_skills)
+	return enabled_builtin_skills, err
 }
 
 const listAccessibleAgents = `-- name: ListAccessibleAgents :many
@@ -250,21 +259,20 @@ func (q *Queries) ListEnabledAgents(ctx context.Context) ([]Agent, error) {
 }
 
 const seedAgent = `-- name: SeedAgent :exec
-INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, scope, enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (id) DO NOTHING
 `
 
 type SeedAgentParams struct {
-	ID                   string          `json:"id"`
-	Name                 string          `json:"name"`
-	Model                string          `json:"model"`
-	SystemPrompt         string          `json:"system_prompt"`
-	Workspace            string          `json:"workspace"`
-	Sandbox              json.RawMessage `json:"sandbox"`
-	EnabledBuiltinSkills json.RawMessage `json:"enabled_builtin_skills"`
-	Scope                string          `json:"scope"`
-	Enabled              bool            `json:"enabled"`
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Model        string          `json:"model"`
+	SystemPrompt string          `json:"system_prompt"`
+	Workspace    string          `json:"workspace"`
+	Sandbox      json.RawMessage `json:"sandbox"`
+	Scope        string          `json:"scope"`
+	Enabled      bool            `json:"enabled"`
 }
 
 func (q *Queries) SeedAgent(ctx context.Context, arg SeedAgentParams) error {
@@ -275,7 +283,6 @@ func (q *Queries) SeedAgent(ctx context.Context, arg SeedAgentParams) error {
 		arg.SystemPrompt,
 		arg.Workspace,
 		arg.Sandbox,
-		arg.EnabledBuiltinSkills,
 		arg.Scope,
 		arg.Enabled,
 	)
@@ -295,29 +302,27 @@ UPDATE agent SET
     soul = $9,
     workspace = $10,
     sandbox = $11,
-    enabled_builtin_skills = $12,
-    scope = $13,
-    enabled = $14,
+    scope = $12,
+    enabled = $13,
     updated_at = now()
-WHERE id = $15
+WHERE id = $14
 `
 
 type UpdateAgentParams struct {
-	Name                 string          `json:"name"`
-	Model                string          `json:"model"`
-	ModelThinking        string          `json:"model_thinking"`
-	ModelStrong          string          `json:"model_strong"`
-	ModelStrongThinking  string          `json:"model_strong_thinking"`
-	ModelFast            string          `json:"model_fast"`
-	ModelFastThinking    string          `json:"model_fast_thinking"`
-	SystemPrompt         string          `json:"system_prompt"`
-	Soul                 string          `json:"soul"`
-	Workspace            string          `json:"workspace"`
-	Sandbox              json.RawMessage `json:"sandbox"`
-	EnabledBuiltinSkills json.RawMessage `json:"enabled_builtin_skills"`
-	Scope                string          `json:"scope"`
-	Enabled              bool            `json:"enabled"`
-	ID                   string          `json:"id"`
+	Name                string          `json:"name"`
+	Model               string          `json:"model"`
+	ModelThinking       string          `json:"model_thinking"`
+	ModelStrong         string          `json:"model_strong"`
+	ModelStrongThinking string          `json:"model_strong_thinking"`
+	ModelFast           string          `json:"model_fast"`
+	ModelFastThinking   string          `json:"model_fast_thinking"`
+	SystemPrompt        string          `json:"system_prompt"`
+	Soul                string          `json:"soul"`
+	Workspace           string          `json:"workspace"`
+	Sandbox             json.RawMessage `json:"sandbox"`
+	Scope               string          `json:"scope"`
+	Enabled             bool            `json:"enabled"`
+	ID                  string          `json:"id"`
 }
 
 func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error {
@@ -333,10 +338,25 @@ func (q *Queries) UpdateAgent(ctx context.Context, arg UpdateAgentParams) error 
 		arg.Soul,
 		arg.Workspace,
 		arg.Sandbox,
-		arg.EnabledBuiltinSkills,
 		arg.Scope,
 		arg.Enabled,
 		arg.ID,
 	)
+	return err
+}
+
+const updateAgentSkillPolicy = `-- name: UpdateAgentSkillPolicy :exec
+UPDATE agent
+SET enabled_builtin_skills = $1, updated_at = now()
+WHERE id = $2
+`
+
+type UpdateAgentSkillPolicyParams struct {
+	EnabledBuiltinSkills json.RawMessage `json:"enabled_builtin_skills"`
+	ID                   string          `json:"id"`
+}
+
+func (q *Queries) UpdateAgentSkillPolicy(ctx context.Context, arg UpdateAgentSkillPolicyParams) error {
+	_, err := q.db.Exec(ctx, updateAgentSkillPolicy, arg.EnabledBuiltinSkills, arg.ID)
 	return err
 }

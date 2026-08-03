@@ -33,6 +33,8 @@ interface Props {
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
   onDeleteSkillFile: () => void;
   onOpenSkillInstallModal: (scope?: "user_agent" | "system_agent") => void;
+  onToggleActivation: (skill: Skill, enabled: boolean) => void;
+  onClearDanglingActivation: (ref: string) => void;
   onDelete?: () => void;
 }
 
@@ -52,6 +54,8 @@ export function AgentForm({
   onSelectSkillFile,
   onDeleteSkillFile,
   onOpenSkillInstallModal,
+  onToggleActivation,
+  onClearDanglingActivation,
   onDelete,
 }: Props) {
   const { t } = useI18n();
@@ -115,6 +119,8 @@ export function AgentForm({
               onSelectSkillFile={onSelectSkillFile}
               onDeleteSkillFile={onDeleteSkillFile}
               onOpenSkillInstallModal={onOpenSkillInstallModal}
+              onToggleActivation={onToggleActivation}
+              onClearDanglingActivation={onClearDanglingActivation}
             />
           </ProfilePanelSection>
         )}

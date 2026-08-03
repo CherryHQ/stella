@@ -167,3 +167,31 @@ func TestBuiltinStableIDChecksPGShadowOnce(t *testing.T) {
 		t.Fatalf("PG Resolve calls = %d, want 1", counting.resolveCalls)
 	}
 }
+
+func TestAgentSkillPolicyFiltersOnlyTheResolvedWinner(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	svc := NewService(store, t.TempDir())
+	ctx := context.Background()
+	vc := pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}
+
+	// A DB system Skill shadows the builtin. Disabling that winner must produce
+	// no lower-precedence fallback, regardless of whether it is named by API ID
+	// or ordinary name.
+	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "system", Name: "stella"})
+	vc.DisabledSkillRefs = []string{"system:stella"}
+	for _, name := range []string{"stella", "builtin-stella", "builtin:stella"} {
+		rs, err := svc.Resolve(ctx, name, vc, "")
+		if err != nil || rs != nil {
+			t.Fatalf("Resolve(%q) = %#v, %v; disabled winner must not fall back", name, rs, err)
+		}
+	}
+
+	// Activation is independent from disable_model_invocation: an active policy
+	// leaves a model-disabled skill to the existing invocation filter, rather
+	// than treating its content state as an activation disablement.
+	vc.DisabledSkillRefs = nil
+	rs, err := svc.Resolve(ctx, "stella", vc, "")
+	if err != nil || rs == nil || rs.Scope != "system" {
+		t.Fatalf("Resolve active policy = %#v, %v; want system winner", rs, err)
+	}
+}

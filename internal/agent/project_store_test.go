@@ -35,8 +35,8 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 	agentID := "project-store-agent"
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID: agentID, Name: "Projects Agent", Workspace: "/tmp/projects-agent",
-		Sandbox: json.RawMessage(`{}`), EnabledBuiltinSkills: json.RawMessage(`[]`),
-		Scope: "system", Enabled: true,
+		Sandbox: json.RawMessage(`{}`),
+		Scope:   "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
@@ -74,8 +74,8 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 	freshAgent := "project-store-agent-2"
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID: freshAgent, Name: "Fresh Agent", Workspace: "/tmp/fresh-agent",
-		Sandbox: json.RawMessage(`{}`), EnabledBuiltinSkills: json.RawMessage(`[]`),
-		Scope: "system", Enabled: true,
+		Sandbox: json.RawMessage(`{}`),
+		Scope:   "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent fresh: %v", err)
 	}
@@ -178,8 +178,8 @@ func TestProjectStoreCRUDOwnershipAndTraversal(t *testing.T) {
 	mkAgent := func(id string) {
 		if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
 			ID: id, Name: id, Workspace: "/tmp/" + id,
-			Sandbox: json.RawMessage(`{}`), EnabledBuiltinSkills: json.RawMessage(`[]`),
-			Scope: "system", Enabled: true,
+			Sandbox: json.RawMessage(`{}`),
+			Scope:   "system", Enabled: true,
 		}); err != nil {
 			t.Fatalf("CreateAgent(%s): %v", id, err)
 		}

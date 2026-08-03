@@ -190,7 +190,7 @@ components:
         id: { type: string }
         scope:
           type: string
-          enum: [project, user, user_agent, system, system_agent]
+          enum: [project, user, user_agent, system, system_agent, builtin]
         user_id: { type: string }
         agent_id: { type: string }
         name: { type: string }
@@ -204,12 +204,25 @@ components:
         updated_at: { type: string, format: date-time }
         lifecycle_version: { type: integer, format: int64 }
         created_by: { type: string, enum: [manual, reflect] }
+        builtin:
+          type: boolean
+          readOnly: true
+          description: True when this read-only Skill is supplied by the release bundle.
+        logical_ref:
+          type: string
+          readOnly: true
+          description: Exact AgentSkillPolicy ref when this Skill can be activated per Agent.
+        enabled:
+          type: boolean
+          readOnly: true
+          description: Effective Agent Skill activation, independent of disable_model_invocation.
 
     SkillScopeCounts:
       type: object
-      required: [all, system, agent, user, project]
+      required: [all, builtin, system, agent, user, project]
       properties:
         all: { type: integer }
+        builtin: { type: integer }
         system: { type: integer }
         agent: { type: integer }
         user: { type: integer }
@@ -223,6 +236,29 @@ components:
         total_size: { type: integer }
         scope_counts: { $ref: "#/components/schemas/SkillScopeCounts" }
         next_page_token: { type: string, nullable: true }
+        can_manage_activation: { type: boolean, readOnly: true }
+        policy_diagnostics:
+          $ref: "#/components/schemas/AgentSkillPolicyDiagnostics"
+
+    AgentSkillPolicyDiagnostics:
+      type: object
+      required: [legacy_non_empty_array, dangling_disabled_refs]
+      properties:
+        legacy_non_empty_array: { type: boolean }
+        dangling_disabled_refs: { type: array, items: { type: string } }
+
+    AgentSkillActivation:
+      type: object
+      required: [logical_ref, enabled]
+      properties:
+        logical_ref: { type: string }
+        enabled: { type: boolean }
+
+    UpdateAgentSkillActivationRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
 
     CreateSkillRequest:
       type: object

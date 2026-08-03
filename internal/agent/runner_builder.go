@@ -166,6 +166,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			SkillStore:          cfg.SkillStore,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
+			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
 		}
 		var sections []pkgplugins.SystemPromptSection
 		if cfg.PromptSectionsBuilder != nil {
@@ -291,6 +292,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			Sections:            sections,
 			BuiltinTools:        builtinTools,
 			BuiltinParams:       params,
+			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
 			PerRunTools:         perRunTools,
 			SkillStore:          cfg.SkillStore,
 			SkillReadAuthorizer: cfg.SkillReadAuthorizer,

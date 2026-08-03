@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
@@ -54,6 +55,10 @@ type Service struct {
 	SessionAccess SessionAccessService
 	// AgentID is the executor this service belongs to.
 	AgentID string
+	// admissionMu linearizes Runtime.ChatAdmitted with committed Agent Skill
+	// policy replacement for this agent only. It deliberately guards admission,
+	// not execution: admitted turns keep their immutable runner snapshot.
+	admissionMu sync.Mutex
 }
 
 // ChatRequest describes a foreground chat turn.
@@ -154,7 +159,30 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 	if info.GroupID != "" && req.CurrentSpeaker != (memory.CurrentSpeaker{}) {
 		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
-	return s.Runtime.ChatAdmitted(ctx, info, req.Message, opts...)
+	return s.admit(ctx, info, req.Message, opts...)
+}
+
+// admit covers Runtime.ChatAdmitted's active-session registration, the sole
+// turn admission point. Every Service turn path uses it so policy commits cannot
+// leave a post-return gap where an old runner is handed to a new turn.
+func (s *Service) admit(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
+	s.admissionMu.Lock()
+	defer s.admissionMu.Unlock()
+	return s.admitLocked(ctx, info, message, opts...)
+}
+
+// admitLocked is the actual Runtime admission point. Caller owns admissionMu.
+func (s *Service) admitLocked(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
+	return s.Runtime.ChatAdmitted(ctx, info, message, opts...)
+}
+
+// withAdmissionBarrier runs a committed policy mutation and local invalidation
+// atomically with respect to this agent's turn admission. It is intentionally
+// per-Service rather than process-global; other agents continue admitting.
+func (s *Service) withAdmissionBarrier(fn func() error) error {
+	s.admissionMu.Lock()
+	defer s.admissionMu.Unlock()
+	return fn()
 }
 
 // Chat resolves (or creates) a session and executes a chat turn.
@@ -227,7 +255,11 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
-	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+	stream, err := s.admit(ctx, info, req.Message, opts...)
+	if err != nil {
+		return errorEvents(err)
+	}
+	return stream
 }
 
 // TaskChatRequest describes one worker turn on a durable task session.
@@ -299,7 +331,10 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
-	src := s.Runtime.Chat(ctx, info, req.Message, opts...)
+	src, err := s.admit(ctx, info, req.Message, opts...)
+	if err != nil {
+		return errorEvents(err)
+	}
 	out := make(chan Event)
 	go func() {
 		defer close(out)
@@ -507,7 +542,10 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
 
-	stream := s.Runtime.Chat(ctx, info, req.Task, opts...)
+	stream, err := s.admit(ctx, info, req.Task, opts...)
+	if err != nil {
+		return DelegateResult{SessionID: info.ID}, err
+	}
 	result := DelegateResult{SessionID: info.ID}
 	var output strings.Builder
 	for ev := range stream {

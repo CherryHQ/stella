@@ -71,6 +71,12 @@ export interface AgentsPageState {
   confirmAction: () => void;
   agentSkills: Skill[];
   agentSkillsLoading: boolean;
+  agentSkillCanManageActivation: boolean;
+  agentSkillActivationPending: boolean;
+  agentSkillPolicyDiagnostics: {
+    legacy_non_empty_array: boolean;
+    dangling_disabled_refs: string[];
+  };
   userSkills: Skill[];
   skillViewFilter: string;
   skillScopeFilter: string;
@@ -137,6 +143,9 @@ export function initialAgentDetailState(
     confirmAction: () => {},
     agentSkills: data.agentSkills,
     agentSkillsLoading: false,
+    agentSkillCanManageActivation: data.agentSkillCanManageActivation,
+    agentSkillActivationPending: false,
+    agentSkillPolicyDiagnostics: data.agentSkillPolicyDiagnostics,
     userSkills: [],
     skillViewFilter: "enabled",
     skillScopeFilter: "all",

@@ -355,7 +355,7 @@ paths:
           required: false
           schema: {
             type: string,
-            enum: [project, user, user_agent, system, system_agent],
+            enum: [project, user, user_agent, system, system_agent, builtin],
           }
         - name: scope_group
           in: query
@@ -502,7 +502,7 @@ paths:
           required: false
           schema: {
             type: string,
-            enum: [project, user, user_agent, system, system_agent],
+            enum: [project, user, user_agent, system, system_agent, builtin],
           }
         - name: session_id
           in: query
@@ -647,7 +647,7 @@ paths:
           required: false
           schema: {
             type: string,
-            enum: [project, user, user_agent, system, system_agent],
+            enum: [project, user, user_agent, system, system_agent, builtin],
           }
         - name: session_id
           in: query
@@ -669,6 +669,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
     delete:
       tags: [skills]
       summary: Delete a skill file
@@ -689,6 +690,44 @@ paths:
       responses:
         "204":
           description: deleted
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/agents/{id}/skills/{skillRef}/activation:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: skillRef,
+          in: path,
+          required: true,
+          schema: { type: string },
+          description: Exact logical AgentSkillPolicy ref.,
+        }
+    patch:
+      tags: [skills]
+      summary: Enable or disable one policy-addressable Agent Skill
+      operationId: updateAgentSkillActivation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateAgentSkillActivationRequest",
+            }
+      responses:
+        "200":
+          description: committed activation
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AgentSkillActivation",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
