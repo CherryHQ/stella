@@ -1,0 +1,49 @@
+name: Feature request
+description: Propose a user-visible capability or improvement.
+title: "feat: "
+labels:
+  - enhancement
+  - status:needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before prescribing a solution. Accepted requests remain on GitHub until maintainers commit them to the delivery plan.
+  - type: textarea
+    id: what
+    attributes:
+      label: What should Stella enable?
+      description: Describe the desired outcome in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is this needed?
+      description: Explain the concrete user problem, who has it, and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: Suggested approach
+      description: Optional. Include constraints and acceptance criteria if known.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or simpler alternatives.
+  - type: textarea
+    id: refs
+    attributes:
+      label: References
+      description: Link examples, related issues, designs, discussions, or documentation.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: This request describes a problem or outcome, not only a preferred implementation.
+          required: true

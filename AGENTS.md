@@ -44,7 +44,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | Web perf testing  | `web-perf-test.md`   | Measuring or optimizing web UI performance                                  |
 | Backend API test  | `api-test.md`        | Testing the backend via live HTTP API + DB assertions (no browser)          |
 | System test       | `system-test.md`     | Adding or running the subprocess system suite; choosing a test layer        |
-| Project tracking  | `project-tracker.md` | Managing GitHub issues and project board                                    |
+| Project tracking  | `project-tracker.md` | Managing Feishu plans, GitHub issues, and pull requests                     |
 | Release           | `release.md`         | Cutting a release, tagging, changelog                                       |
 | Marketing         | `marketing.md`       | Writing a landing page, README opener, hero copy, or any marketing content  |
 
@@ -70,7 +70,7 @@ When behavior, APIs, config, commands, or architecture change:
 ## Issue & PR tracking
 
 - **Every PR must link to a GitHub issue.** If a PR is being created without an associated issue, stop and ask the user to create one first (or create it on their behalf). No PR should be opened without a traceable issue.
-- When starting a new feature or task, ensure a tracked GitHub issue exists; if not, create one and add it to the project board. **Read `web/content/docs/development/rules/project-tracker.md`** for the full workflow.
+- When starting a new feature or task, ensure a tracked GitHub issue exists. Maintainer-committed work must also be linked from a Feishu Task; community issues remain GitHub-only until accepted and scheduled. **Read `web/content/docs/development/rules/project-tracker.md`** for the full workflow.
 
 ## Commit style
 
