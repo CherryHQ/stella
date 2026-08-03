@@ -22,6 +22,13 @@ type ProviderCreds struct {
 	Type    string
 	APIKey  string
 	BaseURL string
+	// ProviderID is the canonical provider row ID this entry resolves to. It is
+	// stable even when the map key is a type alias (a compatibility lookup that
+	// disappears once a second provider of that type exists), so an Agent
+	// credential override — keyed by canonical ID — can be applied to every map
+	// entry, alias or not, that points at the same provider. Empty only on the
+	// legacy default-credential fallback path.
+	ProviderID string
 }
 
 // ModelKey identifies one model within one provider. Model IDs may themselves

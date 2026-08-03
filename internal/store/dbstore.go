@@ -46,6 +46,16 @@ func (s *DBStore) ListProviders(ctx context.Context) ([]config.Provider, error) 
 	return out, nil
 }
 
+// ListProviderIDs returns canonical Provider row IDs without loading Provider
+// config, which contains the deployment-global API key.
+func (s *DBStore) ListProviderIDs(ctx context.Context) ([]string, error) {
+	ids, err := s.q.ListProviderIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list provider ids: %w", err)
+	}
+	return ids, nil
+}
+
 func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, error) {
 	r, err := s.q.GetProvider(ctx, id)
 	if err != nil {
@@ -766,7 +776,10 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 		if !ok {
 			continue
 		}
-		creds[pid] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL}
+		// p.ID is the canonical row ID even when pid is a type alias, so a per-Agent
+		// override keyed by canonical ID can later be applied to every alias entry
+		// that shares it.
+		creds[pid] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL, ProviderID: p.ID}
 		// Key by the referenced provider ID, not p.ID, so type aliases resolve
 		// the same way the credentials above do.
 		for modelID, m := range p.Models {

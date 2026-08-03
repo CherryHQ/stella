@@ -105,6 +105,32 @@ func (q *Queries) ListEnabledProviders(ctx context.Context) ([]Provider, error) 
 	return items, nil
 }
 
+const listProviderIDs = `-- name: ListProviderIDs :many
+SELECT id FROM provider ORDER BY id
+`
+
+// Credential validation needs canonical IDs, never Provider config or its
+// deployment-global API key.
+func (q *Queries) ListProviderIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listProviderIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProviders = `-- name: ListProviders :many
 SELECT id, type, name, enabled, config, created_at, updated_at FROM provider ORDER BY name, id
 `

@@ -18,18 +18,13 @@ import (
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-func buildMemorySummarizer(store config.Store, providerStreamBuilder agent.ProviderStreamBuilder) func(context.Context, string) (string, error) {
+func buildMemorySummarizer(snapshots config.SnapshotLoader, providerStreamBuilder agent.ProviderStreamBuilder) func(context.Context, string) (string, error) {
 	return func(ctx context.Context, prompt string) (string, error) {
 		agentID := authz.AgentIDFromContext(ctx)
 		if agentID == "" {
-			if agents, err := store.ListEnabledAgents(ctx); err == nil && len(agents) > 0 {
-				agentID = agents[0].ID
-			}
-		}
-		if agentID == "" {
 			return "", fmt.Errorf("no agent ID in context for memory summarizer")
 		}
-		currentSnap, err := store.Snapshot(ctx, agentID)
+		currentSnap, err := snapshots.Snapshot(ctx, agentID)
 		if err != nil {
 			return "", fmt.Errorf("load summarizer snapshot: %w", err)
 		}
@@ -68,8 +63,8 @@ func buildMemorySummarizer(store config.Store, providerStreamBuilder agent.Provi
 	}
 }
 
-func setupMemoryProvider(_ context.Context, memDB *pgxpool.Pool, store config.Store, providerStreamBuilder agent.ProviderStreamBuilder, embeddingSvc *embedding.Service) (memory.Provider, error) {
-	summarizer := buildMemorySummarizer(store, providerStreamBuilder)
+func setupMemoryProvider(_ context.Context, memDB *pgxpool.Pool, snapshots config.SnapshotLoader, providerStreamBuilder agent.ProviderStreamBuilder, embeddingSvc *embedding.Service) (memory.Provider, error) {
+	summarizer := buildMemorySummarizer(snapshots, providerStreamBuilder)
 	// Guard the option on the concrete pointer: passing a typed-nil *Service as the
 	// QueryEmbedder interface would make a non-nil interface wrapping a nil pointer,
 	// defeating the engine's nil check and panicking on first search.
