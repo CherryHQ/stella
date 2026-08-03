@@ -29,21 +29,29 @@ type Baseline struct {
 
 // SurfaceRefs lists concrete product surfaces owned by one capability.
 type SurfaceRefs struct {
-	OpenAPI      []string `yaml:"openapi" json:"openapi"`
-	WebRoutes    []string `yaml:"web_routes" json:"web_routes"`
-	CLICommands  []string `yaml:"cli_commands" json:"cli_commands"`
-	Plugins      []string `yaml:"plugins" json:"plugins"`
-	SystemSkills []string `yaml:"system_skills" json:"system_skills"`
+	OpenAPI          []string `yaml:"openapi" json:"openapi"`
+	WebRoutes        []string `yaml:"web_routes" json:"web_routes"`
+	CLICommands      []string `yaml:"cli_commands" json:"cli_commands"`
+	Plugins          []string `yaml:"plugins" json:"plugins"`
+	SystemSkills     []string `yaml:"system_skills" json:"system_skills"`
+	BuiltinSouls     []string `yaml:"builtin_souls" json:"builtin_souls"`
+	BuiltinDelegates []string `yaml:"builtin_delegates" json:"builtin_delegates"`
+	BuiltinTemplates []string `yaml:"builtin_templates" json:"builtin_templates"`
+	CoreTools        []string `yaml:"core_tools" json:"core_tools"`
 }
 
 // SurfaceExemptions records discovered surfaces that are intentionally not a
 // product capability, together with a reviewable reason.
 type SurfaceExemptions struct {
-	OpenAPI      []Exemption `yaml:"openapi" json:"openapi"`
-	WebRoutes    []Exemption `yaml:"web_routes" json:"web_routes"`
-	CLICommands  []Exemption `yaml:"cli_commands" json:"cli_commands"`
-	Plugins      []Exemption `yaml:"plugins" json:"plugins"`
-	SystemSkills []Exemption `yaml:"system_skills" json:"system_skills"`
+	OpenAPI          []Exemption `yaml:"openapi" json:"openapi"`
+	WebRoutes        []Exemption `yaml:"web_routes" json:"web_routes"`
+	CLICommands      []Exemption `yaml:"cli_commands" json:"cli_commands"`
+	Plugins          []Exemption `yaml:"plugins" json:"plugins"`
+	SystemSkills     []Exemption `yaml:"system_skills" json:"system_skills"`
+	BuiltinSouls     []Exemption `yaml:"builtin_souls" json:"builtin_souls"`
+	BuiltinDelegates []Exemption `yaml:"builtin_delegates" json:"builtin_delegates"`
+	BuiltinTemplates []Exemption `yaml:"builtin_templates" json:"builtin_templates"`
+	CoreTools        []Exemption `yaml:"core_tools" json:"core_tools"`
 }
 
 // Exemption explains why a discovered surface is not mapped to a capability.
@@ -134,6 +142,27 @@ func (m *Manifest) DeclaredSurfaces() SurfaceRefs {
 		refs.CLICommands = append(refs.CLICommands, capability.Surfaces.CLICommands...)
 		refs.Plugins = append(refs.Plugins, capability.Surfaces.Plugins...)
 		refs.SystemSkills = append(refs.SystemSkills, capability.Surfaces.SystemSkills...)
+		refs.BuiltinSouls = append(refs.BuiltinSouls, capability.Surfaces.BuiltinSouls...)
+		refs.BuiltinDelegates = append(refs.BuiltinDelegates, capability.Surfaces.BuiltinDelegates...)
+		refs.BuiltinTemplates = append(refs.BuiltinTemplates, capability.Surfaces.BuiltinTemplates...)
+		refs.CoreTools = append(refs.CoreTools, capability.Surfaces.CoreTools...)
 	}
 	return refs
+}
+
+// DeclaredSystemJourneys returns the subprocess journeys directly owned by
+// scenarios. System journeys are evidence rather than product entrypoints, so
+// their ownership is derived from evidence instead of duplicated in surfaces.
+func (m *Manifest) DeclaredSystemJourneys() []string {
+	var journeys []string
+	for _, capability := range m.Capabilities {
+		for _, scenario := range capability.Scenarios {
+			for _, evidence := range scenario.Evidence {
+				if evidence.Kind == "system_test" && evidence.Path == "test/system/system_test.go" && evidence.Test == "TestSystem" && evidence.Subtest != "" {
+					journeys = append(journeys, evidence.Subtest)
+				}
+			}
+		}
+	}
+	return journeys
 }

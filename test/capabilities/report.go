@@ -100,6 +100,11 @@ func BuildReport(manifest *Manifest, actual RepositorySurfaces, metrics TestMetr
 		newSurfaceReport("cli_commands", len(declared.CLICommands), len(declared.CLICommands), len(manifest.SurfaceExemptions.CLICommands), "checked-by-cmd-test"),
 		newSurfaceReport("plugins", len(actual.Plugins), len(declared.Plugins), len(manifest.SurfaceExemptions.Plugins), "checked"),
 		newSurfaceReport("system_skills", len(actual.SystemSkills), len(declared.SystemSkills), len(manifest.SurfaceExemptions.SystemSkills), "checked"),
+		newSurfaceReport("builtin_souls", len(actual.BuiltinSouls), len(declared.BuiltinSouls), len(manifest.SurfaceExemptions.BuiltinSouls), "checked"),
+		newSurfaceReport("builtin_delegates", len(actual.BuiltinDelegates), len(declared.BuiltinDelegates), len(manifest.SurfaceExemptions.BuiltinDelegates), "checked"),
+		newSurfaceReport("builtin_templates", len(actual.BuiltinTemplates), len(declared.BuiltinTemplates), len(manifest.SurfaceExemptions.BuiltinTemplates), "checked"),
+		newSurfaceReport("core_tools", len(actual.CoreTools), len(declared.CoreTools), len(manifest.SurfaceExemptions.CoreTools), "checked"),
+		newSurfaceReport("system_journeys", len(actual.SystemJourneys), len(sortedUnique(manifest.DeclaredSystemJourneys())), 0, "checked-by-evidence"),
 	}
 
 	for _, capability := range manifest.Capabilities {

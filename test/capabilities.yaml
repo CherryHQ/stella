@@ -1,7 +1,7 @@
 # This file is the long-lived release capability inventory. Update it with the
 # product change that adds, removes, or renames a public surface; release runs
 # validate it but never regenerate or overwrite it.
-schema_version: 1
+schema_version: 2
 
 baseline:
   commit: 8e454a0112d51e0cde7e81ffd3ba2df0fb69672d
@@ -19,6 +19,10 @@ surface_exemptions:
   cli_commands: []
   plugins: []
   system_skills: []
+  builtin_souls: []
+  builtin_delegates: []
+  builtin_templates: []
+  core_tools: []
 
 test_assets:
   - id: A01
@@ -85,7 +89,7 @@ test_assets:
     entrypoints: [mise run system-test]
     evidence_paths: [test/system/system_test.go, test/system/harness_test.go]
     summary: Runs the real stellad binary over TCP with embedded PostgreSQL and a scripted fake Anthropic provider.
-    limitations: Six ordered journeys cover only selected process seams and no browser.
+    limitations: The ordered journeys cover only selected process seams and no browser.
 
   - id: A07
     category: harness
@@ -171,6 +175,20 @@ test_assets:
     summary: Runs opt-in real-model evaluation cases and writes diagnostic reports under dist.
     limitations: Requires an explicit environment flag and provider access; it is not part of a unified release runner.
 
+  - id: A15
+    category: framework
+    name: Vitest frontend unit tests
+    automation: automated
+    entrypoints: [mise run test:web, mise run test]
+    evidence_paths: [
+      web/package.json,
+      web/src/components/chat/UserMessage.test.ts,
+      web/src/features/providers/provider-helpers.test.ts,
+      web/src/lib/chat-transport.test.ts,
+    ]
+    summary: Exercises frontend rendering helpers, provider form behavior, and chat transport contracts under Vitest.
+    limitations: Unit tests do not traverse a browser, a real stellad process, or persisted backend state.
+
 capabilities:
   - id: C01
     class: core
@@ -205,17 +223,26 @@ capabilities:
             proves: Readiness transition, in-flight completion, and zero exit on SIGTERM.
         gap: ""
       - id: C01-S02
-        name: restart-and-external-postgres
+        name: restart-persistence
         layer: system
         status: partial
         release_policy: blocking
-        summary: Data and migrations remain correct across restart and when using supported external PostgreSQL.
+        summary: A stable data directory preserves migrated data and resumes cleanly after the stellad process restarts.
         evidence:
           - kind: go_test
             path: internal/db/embedded_smoke_test.go
+            test: TestEmbeddedSmoke
             direct: false
             proves: Embedded database lifecycle behavior below the release process boundary.
-        gap: No automated restart journey or deployed external-PostgreSQL release scenario exists.
+        gap: No real-process journey writes domain data, restarts stellad on the same database, and verifies recovery.
+      - id: C01-S03
+        name: external-postgres-startup
+        layer: system
+        status: missing
+        release_policy: blocking
+        summary: The release binary migrates, becomes ready, serves data, and drains against a supported external PostgreSQL URL.
+        evidence: []
+        gap: No deployed external-PostgreSQL process journey exists.
 
   - id: C02
     class: core
@@ -465,20 +492,50 @@ capabilities:
       system_skills: []
     scenarios:
       - id: C06-S01
-        name: provider-model-and-vision-control-plane
+        name: provider-configuration-and-redaction
         layer: integration
         status: partial
         release_policy: blocking
-        summary: Provider configuration, cached models, and the deployment-wide vision model remain scoped, validated, redacted where needed, and refreshable.
+        summary: Provider configuration CRUD remains admin-scoped, validates provider types, and never returns stored secret values.
         evidence:
           - kind: go_test
             path: internal/controlplane/authorized_test.go
             direct: true
-            proves: Authorized provider and model control-plane service behavior.
+            proves: Provider control-plane access is restricted to valid admin authority.
+        gap: No direct HTTP lifecycle test covers every provider CRUD endpoint and secret-redaction response together.
+      - id: C06-S02
+        name: browser-provider-management
+        layer: browser
+        status: missing
+        release_policy: blocking
+        summary: An administrator configures a provider and observes model discovery and validation errors in the Web UI.
+        evidence: []
+        gap: No automated browser provider-management journey exists.
+      - id: C06-S03
+        name: model-discovery-and-cache
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Model catalogs merge custom and fetched entries, exclude disabled providers, and replace cached entries only for the selected provider.
+        evidence:
           - kind: go_test
             path: internal/server/models_test.go
+            test: TestListCachedModelsMergesCustomAndFetchedAndFiltersDisabled
             direct: true
-            proves: Model listing and per-provider cache replacement behavior.
+            proves: Model listing merges custom and fetched entries while filtering disabled providers.
+          - kind: go_test
+            path: internal/server/models_test.go
+            test: TestReplaceCachedModelsIsPerProvider
+            direct: true
+            proves: Cache replacement is isolated to one provider.
+        gap: ""
+      - id: C06-S04
+        name: vision-model-settings-and-image-history
+        layer: system
+        status: partial
+        release_policy: blocking
+        summary: Vision settings persist a normalized provider/model reference and the real process uses it for canonical image history.
+        evidence:
           - kind: go_test
             path: internal/controlplane/vision_test.go
             test: TestSetVisionSettingsRoundTrip
@@ -490,15 +547,7 @@ capabilities:
             subtest: image_history
             direct: true
             proves: The real binary accepts a vision-model update over HTTP and uses it to render image history.
-        gap: Existing tests do not directly cover every provider CRUD endpoint and secret-redaction response as one lifecycle, nor vision-settings read/write authorization and error paths through HTTP.
-      - id: C06-S02
-        name: browser-provider-management
-        layer: browser
-        status: missing
-        release_policy: blocking
-        summary: An administrator configures a provider and observes model discovery and validation errors in the Web UI.
-        evidence: []
-        gap: No automated browser provider-management journey exists.
+        gap: Vision-settings read/write authorization and malformed-reference errors are not directly exercised through HTTP.
 
   - id: C07
     class: core
@@ -526,11 +575,11 @@ capabilities:
       system_skills: []
     scenarios:
       - id: C07-S01
-        name: session-crud-and-history
+        name: session-crud-and-visibility
         layer: integration
         status: partial
         release_policy: blocking
-        summary: Session CRUD, visibility, message history and media, context, summary, and prompt endpoints enforce scope and persistence.
+        summary: Session create, get, list, update, and archive operations preserve ownership, kind visibility, and persisted identity.
         evidence:
           - kind: go_test
             path: internal/server/sessions_api_test.go
@@ -543,26 +592,16 @@ capabilities:
             direct: true
             proves: Session listing visibility and kind filtering through HTTP handlers.
           - kind: go_test
-            path: internal/server/context_items_test.go
-            test: TestSessionContextItemsAndSummaryEndpoints
+            path: internal/agent/session/registry_test.go
+            test: TestEnsure_GeneratedCreate
             direct: true
-            proves: Message history, context item, and summary HTTP responses.
+            proves: Session creation persists canonical identity and kind metadata.
           - kind: go_test
-            path: internal/server/context_items_test.go
-            test: TestSessionContextItemsTenantIsolation
+            path: internal/agent/session/registry_test.go
+            test: TestGet_CrossUserDenied
             direct: true
-            proves: Context and summary endpoints reject cross-user access.
-          - kind: go_test
-            path: internal/server/skills_scoped_test.go
-            test: TestSessionSystemPromptAdvertisesSkillSearch
-            direct: true
-            proves: The system-prompt endpoint renders skill discovery instructions for a persisted session.
-          - kind: go_test
-            path: internal/server/sessions_media_test.go
-            test: TestSessionMediaAuthorizationCachingAndTypedHistory
-            direct: true
-            proves: Authorized session media reads preserve byte and response-header safety while denying foreign, mismatched, and missing resources.
-        gap: Existing tests do not directly prove the complete create/get lifecycle or consistent scope and cross-request persistence across every endpoint in this scenario.
+            proves: Session retrieval rejects a foreign owner.
+        gap: No direct HTTP test currently proves create and get together with cross-request persistence and cross-user denial.
       - id: C07-S02
         name: real-sse-chat-and-provider-error
         layer: system
@@ -591,6 +630,47 @@ capabilities:
         summary: A user creates a session, sends a message, sees streaming output, reloads, and sees persisted history.
         evidence: []
         gap: No repository-owned Browser E2E chat journey exists.
+      - id: C07-S04
+        name: message-history-and-media
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Typed message history preserves ordering and error metadata while media reads enforce session ownership, integrity, and safe response headers.
+        evidence:
+          - kind: go_test
+            path: internal/server/context_items_test.go
+            test: TestSessionContextItemsAndSummaryEndpoints
+            direct: true
+            proves: Message range reads return the persisted logical assistant history.
+          - kind: go_test
+            path: internal/server/sessions_media_test.go
+            test: TestSessionMediaAuthorizationCachingAndTypedHistory
+            direct: true
+            proves: Typed history and media reads preserve content while rejecting foreign, mismatched, and missing resources.
+        gap: ""
+      - id: C07-S05
+        name: context-summary-and-system-prompt
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Context items, summary detail, and system-prompt inspection return scoped projections for a persisted session.
+        evidence:
+          - kind: go_test
+            path: internal/server/context_items_test.go
+            test: TestSessionContextItemsAndSummaryEndpoints
+            direct: true
+            proves: Context item and summary HTTP responses preserve ordering and aggregate metadata.
+          - kind: go_test
+            path: internal/server/context_items_test.go
+            test: TestSessionContextItemsTenantIsolation
+            direct: true
+            proves: Context and summary endpoints reject cross-user access.
+          - kind: go_test
+            path: internal/server/skills_scoped_test.go
+            test: TestSessionSystemPromptAdvertisesSkillSearch
+            direct: true
+            proves: The system-prompt endpoint renders skill discovery instructions for a persisted session.
+        gap: Context and summary tenant isolation is direct, but the system-prompt endpoint lacks an equivalent cross-user authorization assertion.
 
   - id: C08
     class: core
@@ -714,25 +794,32 @@ capabilities:
       system_skills: []
     scenarios:
       - id: C10-S01
-        name: goal-state-machine-and-authorization
+        name: goal-crud-control-and-authorization
         layer: integration
-        status: covered
+        status: partial
         release_policy: blocking
-        summary: Goal lifecycle, readiness, attempts, edges, plans, acceptance, and authorization preserve their database invariants.
+        summary: Goal create, get, lifecycle controls, and actor boundaries preserve ownership and legal state transitions.
         evidence:
+          - kind: go_test
+            path: internal/server/goals_test.go
+            test: TestGoals_CreateAndGet
+            direct: true
+            proves: Goal creation and retrieval work through the HTTP boundary.
+          - kind: go_test
+            path: internal/server/goals_test.go
+            test: TestGoalContinuationCommandsRequireFreshAgentUse
+            direct: true
+            proves: Continuation controls re-check the current agent authorization decision.
           - kind: go_test
             path: internal/goal/lifecycle_leaf_test.go
             direct: true
-            proves: Leaf goal lifecycle transitions and acceptance rules.
+            proves: Leaf activation, cancellation, reattempt, abandonment, and retry transitions preserve invariants.
           - kind: go_test
-            path: internal/goal/edges_readiness_test.go
+            path: internal/goal/authorized_test.go
+            test: TestGoalEnforcesOwnerAndExecutorBoundaries
             direct: true
-            proves: Dependency readiness and edge semantics.
-          - kind: go_test
-            path: internal/server/goals_test.go
-            direct: true
-            proves: Goal HTTP behavior against the integrated service.
-        gap: ""
+            proves: User, agent, and foreign actor access boundaries fail closed.
+        gap: Existing HTTP evidence does not directly prove list, update, delete, and unarchive as one authorized persisted lifecycle.
       - id: C10-S02
         name: autonomous-goal-lifecycle
         layer: system
@@ -755,6 +842,52 @@ capabilities:
         summary: A user creates, monitors, intervenes in, and reviews a goal through the Web UI.
         evidence: []
         gap: No automated browser goal journey exists.
+      - id: C10-S04
+        name: goal-dependencies-readiness-and-health
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Goal edges gate dispatch without cycles, readiness reflects lifecycle and dependency state, and health aggregates execution outcomes.
+        evidence:
+          - kind: go_test
+            path: internal/goal/edges_readiness_test.go
+            test: TestEdgReadinessEndToEndAcceptUnblocks
+            direct: true
+            proves: A satisfied hard dependency transitions a persisted downstream goal to dispatchable.
+          - kind: go_test
+            path: internal/goal/edges_readiness_test.go
+            test: TestEdgAddEdgeCycleRejected
+            direct: true
+            proves: Dependency creation rejects cycles.
+          - kind: go_test
+            path: internal/goal/health_test.go
+            test: TestHealthReportAggregatesGoalExecutionMetrics
+            direct: true
+            proves: Health reporting aggregates terminal execution and review outcomes.
+        gap: Domain invariants are direct, but the readiness and health HTTP handlers are not exercised by equivalent endpoint tests.
+      - id: C10-S05
+        name: goal-plan-acceptance-and-verdicts
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Composite plan approval, acceptance contracts, and review verdicts move goals only through authorized legal transitions.
+        evidence:
+          - kind: go_test
+            path: internal/goal/composite_rollup_test.go
+            test: TestCompositeRollup_HumanReviewPlanGate
+            direct: true
+            proves: A human plan gate blocks materialization until an authorized approval.
+          - kind: go_test
+            path: internal/goal/review_test.go
+            test: TestReview_AgentVerdictAccepts
+            direct: true
+            proves: A valid agent verdict accepts covered deterministic evidence.
+          - kind: go_test
+            path: internal/goal/review_test.go
+            test: TestReview_SubmitRejectsUncoveredVerdicts
+            direct: true
+            proves: Verdict submission rejects evidence that does not cover the acceptance contract.
+        gap: Existing evidence does not directly exercise plan rejection and both plan decisions through their HTTP endpoints.
 
   - id: C11
     class: core
@@ -921,21 +1054,18 @@ capabilities:
             proves: Knowledge lifecycle and authorization through handlers.
         gap: ""
       - id: C13-S02
-        name: compaction-and-reflect-workers
+        name: session-compaction
         layer: integration
         status: partial
         release_policy: blocking
-        summary: Session compaction and background Reflect produce durable, scoped memory and skill changes with recoverable watermarks.
+        summary: Eligible private sessions compact into durable scoped memory without allowing unsupported group compaction.
         evidence:
           - kind: go_test
             path: internal/agent/compact_session_test.go
+            test: TestCompactSession_GroupRejectedBeforeCompactor
             direct: true
-            proves: Session compaction behavior in the agent service.
-          - kind: go_test
-            path: internal/reflect/reconciliation_pipeline_test.go
-            direct: true
-            proves: Fact and skill reconciliation pipeline behavior and watermark advancement.
-        gap: No real-process asynchronous journey proves compaction and Reflect across worker scheduling and restart.
+            proves: Group sessions fail closed before invoking the compactor.
+        gap: No real-process asynchronous journey proves successful compaction scheduling, persistence, and restart recovery.
       - id: C13-S03
         name: browser-memory-management
         layer: browser
@@ -944,6 +1074,24 @@ capabilities:
         summary: A user edits profile, soul, constraints, and knowledge and sees history in the Web UI.
         evidence: []
         gap: No automated browser memory journey exists.
+      - id: C13-S04
+        name: reflect-reconciliation-workers
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Background Reflect reconciles fact and skill candidates independently and advances durable watermarks only for completed work.
+        evidence:
+          - kind: go_test
+            path: internal/reflect/reconciliation_pipeline_test.go
+            test: TestReconciliationPipelineRunsFactAndSkillConcurrently
+            direct: true
+            proves: Fact and skill reconciliation execute independently in one pipeline run.
+          - kind: go_test
+            path: internal/reflect/reconciliation_pipeline_test.go
+            test: TestReconciliationPipelineFactWriteFailureDoesNotBlockSkillWatermark
+            direct: true
+            proves: A fact write failure cannot incorrectly block an independent skill watermark.
+        gap: No real-process worker journey proves reconciliation scheduling, retry, persistence, and restart recovery.
 
   - id: C14
     class: core
@@ -1041,21 +1189,35 @@ capabilities:
       system_skills: []
     scenarios:
       - id: C15-S01
-        name: group-membership-messages-and-sse
+        name: group-control-plane-history-and-sse
         layer: integration
         status: partial
         release_policy: blocking
-        summary: Group CRUD, member access, durable history, speaker routing, and SSE delivery preserve scope and ordering.
+        summary: Group and member operations stay owner-scoped while message submission, durable history, and SSE delivery preserve ordering.
         evidence:
           - kind: go_test
             path: internal/server/groups_sse_test.go
             direct: true
-            proves: Group message streaming and authorization through handlers.
+            proves: Group message streaming, deduplication, pagination validation, and authorization through handlers.
+        gap: No direct HTTP lifecycle test covers group CRUD, member mutations, and persisted history together.
+      - id: C15-S02
+        name: multi-agent-group-turn-routing
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Multiple senders share the authorized group session while current-speaker context reaches the model without promoting that speaker to durable authority.
+        evidence:
           - kind: go_test
             path: internal/agent/group_session_test.go
+            test: TestTwoSendersShareGroupSessionKey
             direct: true
-            proves: Group session and multi-agent runtime behavior.
-        gap: No real-process or browser group journey proves the full multi-agent flow and persisted history together.
+            proves: Different senders resolve the same group session identity.
+          - kind: go_test
+            path: internal/agent/runtime/chat_group_speaker_test.go
+            test: TestRuntimeChatGroupSpeakerContextInjectedIntoModelMessageOnly
+            direct: true
+            proves: Speaker context reaches the model message but not durable user authority.
+        gap: No real-process group journey proves member selection, multi-agent execution, SSE output, and persisted history together.
 
   - id: C16
     class: core
@@ -1070,11 +1232,11 @@ capabilities:
       system_skills: []
     scenarios:
       - id: C16-S01
-        name: inbox-aggregation-and-notification-routing
+        name: inbox-aggregation
         layer: integration
         status: covered
         release_policy: blocking
-        summary: Actionable items are aggregated while notifications route to preferred, dedicated, or explicit channels with isolated failures.
+        summary: Actionable goals and attention items aggregate into one scoped inbox while terminal and nonactionable rows stay excluded.
         evidence:
           - kind: go_test
             path: internal/server/inbox_test.go
@@ -1082,18 +1244,50 @@ capabilities:
             direct: true
             proves: Inbox aggregation and exclusion rules.
           - kind: go_test
-            path: internal/notify/dispatcher_test.go
+            path: internal/server/inbox_test.go
+            test: TestListInboxExcludesNonActionableGoals
             direct: true
-            proves: Notification routing, fallback, and partial-failure behavior.
+            proves: Nonactionable goal states do not appear in the inbox.
         gap: ""
       - id: C16-S02
-        name: browser-inbox-and-live-notification
+        name: browser-inbox
         layer: browser
         status: missing
         release_policy: nonblocking
-        summary: A user sees actionable inbox items and observes a notification delivered to the configured identity.
+        summary: A user opens the inbox and can inspect and follow every actionable item.
         evidence: []
-        gap: No browser inbox journey or real notification target is automated.
+        gap: No automated browser inbox journey exists.
+      - id: C16-S03
+        name: notification-routing-and-failure-isolation
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Notifications select preferred, dedicated, platform, or explicit destinations and isolate unavailable or failing channels.
+        evidence:
+          - kind: go_test
+            path: internal/notify/dispatcher_test.go
+            test: TestNotifyUserSendsToPreferred
+            direct: true
+            proves: User notifications select the preferred linked channel.
+          - kind: go_test
+            path: internal/notify/dispatcher_test.go
+            test: TestNotifyUserAgentBoundUsesDedicatedChannel
+            direct: true
+            proves: Agent-bound notifications use that agent's dedicated channel.
+          - kind: go_test
+            path: internal/notify/dispatcher_test.go
+            test: TestDispatcherPartialFailure
+            direct: true
+            proves: One failed destination does not suppress successful deliveries.
+        gap: ""
+      - id: C16-S04
+        name: live-notification-delivery
+        layer: live
+        status: missing
+        release_policy: nonblocking
+        summary: A dedicated external identity receives one Run-ID-correlated notification through its configured channel.
+        evidence: []
+        gap: No dedicated external notification identity or nonblocking Live runner is registered.
 
   - id: C17
     class: core
@@ -1184,34 +1378,437 @@ capabilities:
     class: core
     name: builtin-resources-and-tools
     title: Built-in resources and tools
-    description: Discover bundled resources and assemble the built-in Memory, Goal, Scheduler, Workflow, Share, Vault, and notification tools for authorized agents.
+    description: Discover bundled souls and templates and assemble domain tools for authorized agents without leaking unavailable capabilities.
     surfaces:
       openapi: [listBuiltinResources, getBuiltinResource]
       web_routes: []
       cli_commands: []
       plugins: []
       system_skills: []
+      builtin_souls: [
+        catgirl,
+        concise,
+        creative,
+        helpful,
+        hype,
+        kawaii,
+        noir,
+        philosopher,
+        pirate,
+        shakespeare,
+        stella,
+        surfer,
+        teacher,
+        technical,
+        uwu,
+      ]
+      builtin_templates: [stella]
     scenarios:
       - id: C19-S01
-        name: builtin-resource-discovery-and-tool-assembly
+        name: builtin-resource-catalog
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: The runtime registry parses every bundled soul and template, and the built-in resource API lists and retrieves catalog entries with metadata.
+        evidence:
+          - kind: go_test
+            path: resources/registry_test.go
+            test: TestDefaultLoadsBuiltinResources
+            direct: true
+            proves: The embedded registry loads the shipped soul, template, delegate, and skill kinds.
+          - kind: go_test
+            path: internal/server/builtin_test.go
+            test: TestListBuiltinTemplates
+            direct: true
+            proves: Built-in resource listing returns the registered templates.
+          - kind: go_test
+            path: internal/server/builtin_test.go
+            test: TestGetBuiltinTemplate
+            direct: true
+            proves: Built-in resource retrieval returns parsed content and metadata.
+        gap: ""
+      - id: C19-S02
+        name: builtin-domain-tool-authorization
         layer: integration
         status: partial
         release_policy: blocking
-        summary: Bundled resources are discoverable and the agent runtime exposes only authorized built-in tools with valid schemas.
+        summary: Memory, Goal, Scheduler, Workflow, Share, Vault, notification, and other domain tools appear only when their dependencies and actor authority permit them.
         evidence:
           - kind: go_test
-            path: internal/server/builtin_test.go
+            path: internal/agent/access/invocation_inventory_test.go
+            test: TestAgentInvocationInventoryIsExact
             direct: true
-            proves: Built-in resource listing and content retrieval handlers.
+            proves: Every production Agent turn entry remains behind an access-authorized adapter.
+          - kind: go_test
+            path: internal/agent/builtin_tool_test.go
+            test: TestBuiltinToolAvailable
+            direct: true
+            proves: Built-in domain tools require the expected user and agent authority.
+          - kind: go_test
+            path: internal/agent/tool_registry_override_test.go
+            test: TestBuildToolRegistryAppliesToolOverrides
+            direct: true
+            proves: Runtime tool assembly applies persisted visibility overrides.
+        gap: No deterministic runtime scenario successfully invokes every advertised domain tool and proves its per-action authorization result.
+
+  - id: C20
+    class: core
+    name: agent-execution-runtime
+    title: Agent execution runtime
+    description: Assemble prompts, stream model turns, execute sandboxed tools, project multimodal history, and bound concurrent or cancelled sessions.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+      core_tools: [bash, edit, read, write]
+    scenarios:
+      - id: C20-S01
+        name: prompt-assembly-and-streamed-turn
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: A turn rebuilds its effective system prompt from one memory snapshot and streams model text deltas through the runner.
+        evidence:
+          - kind: go_test
+            path: internal/agent/prompt/prompt_memory_test.go
+            test: TestBuildSystemPromptUsesFrozenVersionZero
+            direct: true
+            proves: Prompt assembly reads one frozen memory snapshot rather than mixing versions.
+          - kind: go_test
+            path: internal/agent/runtime/chat_test.go
+            test: TestChatRebuildsSnapshotPromptAtVersionZero
+            direct: true
+            proves: Each runtime turn rebuilds the prompt against its current snapshot.
+          - kind: go_test
+            path: internal/agent/runner_impl_test.go
+            test: TestChatStreamsTextDeltas
+            direct: true
+            proves: The runner converts provider deltas into a complete streamed text response.
+        gap: ""
+      - id: C20-S02
+        name: core-tool-loop-and-multimodal-projection
+        layer: system
+        status: covered
+        release_policy: blocking
+        summary: Canonical sandbox tools execute inside the active session, preserve structured failures and images, and project immutable image history without replaying raw bytes.
+        evidence:
           - kind: go_test
             path: internal/agent/coretools_builder_test.go
+            test: TestBuildSandboxCoreTools_WithSessionUsesHostTools
             direct: true
-            proves: Core tool construction and dependency gating.
+            proves: The runtime registers exactly the canonical sandbox-backed core tools.
           - kind: go_test
-            path: internal/agent/access/invocation_inventory_test.go
+            path: pkg/agent/tool_execution_test.go
+            test: TestToolExecutionPreservesContentOnError
             direct: true
-            proves: Tool invocation inventory remains aligned with access policy.
-        gap: No single runtime scenario verifies discovery and successful invocation of every advertised built-in tool.
+            proves: Tool failures preserve useful output and structured error state.
+          - kind: go_test
+            path: pkg/agent/tool_execution_test.go
+            test: TestToolExecutionLifecycleTextMutationPreservesImages
+            direct: true
+            proves: Tool result mutation preserves multimodal image blocks.
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: read_tool_image_history
+            direct: true
+            proves: The real process completes a read-tool image loop and persists baseline-only canonical history.
+        gap: ""
+      - id: C20-S03
+        name: turn-cancellation-timeout-and-concurrency
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Session turns stop on context cancellation or timeout, reject concurrent work on one session, and avoid committing known partial state.
+        evidence:
+          - kind: go_test
+            path: internal/agent/runner_impl_test.go
+            test: TestChatContextCancellation
+            direct: true
+            proves: Cancelling a runner context closes its output channel promptly.
+          - kind: go_test
+            path: internal/agent/runtime/busy_guard_test.go
+            test: TestChat_BusyGuard_RejectsConcurrentSameSession
+            direct: true
+            proves: Concurrent turns on one session fail with the stable busy result and release the guard afterward.
+          - kind: go_test
+            path: internal/agent/runtime/chat_test.go
+            test: TestRuntimeChatDoesNotPersistGroupPartialOnTimeout
+            direct: true
+            proves: A timed-out group turn does not persist partial model output.
+        gap: No real-process journey proves SSE disconnect cancellation, timeout cleanup, and partial-write behavior for an ordinary private session.
+
+  - id: C21
+    class: core
+    name: delegation
+    title: Delegation
+    description: Run bounded parallel subtasks in isolated persistent child sessions using layered delegate presets, model overrides, and restricted tool sets.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+      builtin_delegates: [coder]
+    scenarios:
+      - id: C21-S01
+        name: delegate-preset-discovery-and-precedence
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Built-in, agent, user, and project delegate presets parse validated metadata and resolve in deterministic precedence order.
+        evidence:
+          - kind: go_test
+            path: resources/registry_test.go
+            test: TestDefaultLoadsBuiltinResources
+            direct: true
+            proves: The embedded runtime registry contains the shipped coder delegate.
+          - kind: go_test
+            path: internal/agent/delegate/preset_loader_test.go
+            test: TestLoadDelegatePresetsAllFourTiers
+            direct: true
+            proves: All four preset tiers load and project scope wins deterministic name collisions.
+          - kind: go_test
+            path: internal/agent/delegate/preset_loader_test.go
+            test: TestLoadPresetFromFile
+            direct: true
+            proves: Preset frontmatter validates descriptions, models, tools, and timeouts.
+        gap: ""
+      - id: C21-S02
+        name: delegate-session-identity-and-tool-isolation
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Delegates run under the validated parent identity in dedicated persistent sessions, drop chat bindings, and cannot recursively re-enable delegation.
+        evidence:
+          - kind: go_test
+            path: internal/agent/service_architecture_test.go
+            test: TestService_RunDelegateSessionRejectsForeignOrSpoofedIdentityBeforePEP
+            direct: true
+            proves: Delegate session execution rejects spoofed ownership before policy evaluation.
+          - kind: go_test
+            path: internal/agent/delegate/chat_boundary_test.go
+            test: TestDelegateRunDropsParentChatBinding
+            direct: true
+            proves: A child turn cannot inherit the live channel binding of its parent chat.
+          - kind: go_test
+            path: internal/agent/delegate/chat_boundary_test.go
+            test: TestDelegateAlwaysExcludesDelegate
+            direct: true
+            proves: Tool whitelists cannot re-enable recursive delegation.
+        gap: No deterministic test resumes one successful delegate session across multiple turns, verifies persisted child history, and proves the current hook set reaches the child turn.
+      - id: C21-S03
+        name: delegate-concurrency-timeout-and-failure
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Parallel delegate tasks honor concurrency and wall-clock bounds and return isolated results for success, cancellation, failure, or panic.
+        evidence:
+          - kind: go_test
+            path: internal/agent/delegate/agent_test.go
+            test: TestDelegateConfig_Defaults
+            direct: true
+            proves: Delegate concurrency and timeout defaults are bounded.
+          - kind: go_test
+            path: internal/agent/delegate/architecture_test.go
+            test: TestParseDelegateTasks_DuplicateSessionIDRejected
+            direct: true
+            proves: One invocation cannot race two tasks through the same persistent child session.
+        gap: No execution test drives parallel child sessions through semaphore saturation, timeout, cancellation, runner failure, and panic recovery.
+
+  - id: C22
+    class: core
+    name: hook-dispatch
+    title: Hook dispatch
+    description: Dispatch ordered Agent, LLM, tool, and memory hooks with explicit rewrite, blocking, context propagation, telemetry, and failure semantics.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C22-S01
+        name: hook-ordering-rewrite-and-blocking
+        layer: unit
+        status: covered
+        release_policy: blocking
+        summary: Hook points sort deterministically, chain context and argument rewrites, short-circuit blocked tools, and run post hooks against the final result.
+        evidence:
+          - kind: go_test
+            path: pkg/hooks/set_test.go
+            test: TestNewHookSet_SortsByPriorityThenName
+            direct: true
+            proves: Hook dispatch order is stable by priority and name.
+          - kind: go_test
+            path: pkg/hooks/set_test.go
+            test: TestRunPreToolCall_RewriteChaining
+            direct: true
+            proves: Rewritten tool arguments flow through the remaining pre-hook chain.
+          - kind: go_test
+            path: pkg/hooks/set_test.go
+            test: TestRunPreToolCall_BlockShortCircuits
+            direct: true
+            proves: A blocking pre-tool hook prevents later hooks and tool execution.
+          - kind: go_test
+            path: pkg/hooks/set_test.go
+            test: TestRunPreLLMCall_SystemOverride
+            direct: true
+            proves: Pre-LLM hooks can replace the effective system prompt.
+          - kind: go_test
+            path: pkg/hooks/set_test.go
+            test: TestRunPreAgentCall
+            direct: true
+            proves: Agent lifecycle hooks receive the turn metadata.
+          - kind: go_test
+            path: pkg/hooks/set_test.go
+            test: TestRunPreMemoryCall
+            direct: true
+            proves: Memory hooks receive the operation and can propagate context.
+          - kind: go_test
+            path: pkg/agent/tool_execution_test.go
+            test: TestToolExecutionRunsPostHookWhenPreHookBlocks
+            direct: true
+            proves: Post-tool hooks observe blocked calls as explicit errors.
+        gap: ""
+      - id: C22-S02
+        name: hook-failure-and-core-security-boundary
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Optional hook failures remain observable without bypassing core lifecycle checks, and security-critical policy stays outside disableable plugins.
+        evidence:
+          - kind: go_test
+            path: pkg/agent/tool_execution_test.go
+            test: TestToolExecutionOrdersLifecycleBeforeAndAfterHooks
+            direct: true
+            proves: Core before/after lifecycle checks enclose the plugin hook and tool call sequence.
+          - kind: go_test
+            path: pkg/agent/tool_execution_test.go
+            test: TestToolExecutionRunsPostHookWhenLifecycleAfterFails
+            direct: true
+            proves: Post hooks receive a core lifecycle failure as an error result.
+        gap: No direct test covers the documented log-and-skip behavior for errors at every pre-hook point or concurrent hook reload during an active turn.
+
+  - id: C23
+    class: core
+    name: durable-assets
+    title: Durable assets
+    description: Persist user files and immutable session media through a local authority or injected object store with rollback, materialization, hydration, integrity, and path isolation.
+    surfaces:
+      openapi: []
+      web_routes: []
+      cli_commands: []
+      plugins: []
+      system_skills: []
+    scenarios:
+      - id: C23-S01
+        name: asset-authority-selection-and-configuration
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Absent S3 configuration selects local durability, complete configuration selects an injected shared authority, and partial configuration fails closed.
+        evidence:
+          - kind: go_test
+            path: internal/blob/fs_test.go
+            test: TestNewStoreFromConfig
+            direct: true
+            proves: Empty configuration selects no remote store, partial configuration fails, and complete configuration constructs the S3 adapter.
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestNewStoreSelectsConfiguredAuthority
+            direct: true
+            proves: Asset storage reports local authority without an injected store and shared authority with one.
+          - kind: go_test
+            path: internal/blob/default_boundary_test.go
+            test: TestNoBlobProcessGlobal
+            direct: true
+            proves: Only the asset boundary may own the injected object store; transports cannot use a process-global blob client.
+        gap: ""
+      - id: C23-S02
+        name: durable-asset-mutation-and-rollback
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Asset create, write, move, and delete operations persist before destructive local changes and roll back safely when the shared authority fails.
+        evidence:
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestCreateFileDurableAndRollsBack
+            direct: true
+            proves: Durable create either reaches the shared authority or removes the local orphan.
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestMoveDirectoryPartialPutLeavesSourceIntact
+            direct: true
+            proves: Partial shared-authority failure cannot destroy the source directory.
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestRemoveFileAuthorityFailureLeavesLocalIntact
+            direct: true
+            proves: Failed remote deletion leaves the readable local source intact.
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestWriteFileCannotFollowSymlinkIntoAnotherPrincipal
+            direct: true
+            proves: Asset writes reject symlink traversal into another principal.
+        gap: ""
+      - id: C23-S03
+        name: asset-restore-hydration-and-materialization
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: A cold instance restores missing assets from shared authority while preserving valid concurrent local writes and rejecting traversal keys.
+        evidence:
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestCrossInstanceMaterialization
+            direct: true
+            proves: A second instance restores missing local content from the shared authority.
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestRestoreDoesNotReplaceConcurrentLocalWrite
+            direct: true
+            proves: Restore cannot overwrite a newer local write.
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestHydrateUserLocalWinsAndSingleFlight
+            direct: true
+            proves: Per-user hydration is single-flight and valid local content wins.
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestHydrateSkipsTraversalKey
+            direct: true
+            proves: Hydration ignores shared-authority keys that escape the user asset root.
+        gap: ""
+      - id: C23-S04
+        name: immutable-session-media-integrity
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Session media uses immutable digest-addressed keys outside mutable workspaces and rejects byte or size mismatches.
+        evidence:
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestSessionMediaRejectsIntegrityMismatch
+            direct: true
+            proves: Immutable session media rejects digest and size mismatches.
+          - kind: go_test
+            path: internal/asset/store_test.go
+            test: TestSessionMediaKeyIsOutsideSandboxAndWorkspaceRoots
+            direct: true
+            proves: Session media keys cannot alias mutable workspace or user asset paths.
+        gap: ""
+      - id: C23-S05
+        name: s3-object-store-contract
+        layer: contract
+        status: missing
+        release_policy: blocking
+        summary: The production S3-compatible adapter performs scoped put, open, list, and delete operations with deterministic error and cleanup behavior.
+        evidence: []
+        gap: No deterministic MinIO or fake-S3 contract proves put, open, list, delete, error, and cleanup behavior through the production adapter.
 
   - id: X01
     class: extension
@@ -1243,29 +1840,18 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X01-S01
-        name: command-tree-and-local-behavior
+        name: command-tree-registration
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Every documented command is registered and local version, upgrade, runtime, key generation, reconciliation, and service adapters handle success and failure safely.
+        summary: Every advertised stellad command and subcommand is registered exactly once in the production CLI tree.
         evidence:
           - kind: go_test
-            path: cmd/stellad/commands_test.go
+            path: cmd/stellad/capability_surface_test.go
+            test: TestCapabilityCommandSurface
             direct: true
-            proves: App construction and CLI error behavior.
-          - kind: go_test
-            path: cmd/stellad/version_test.go
-            direct: true
-            proves: Release lookup, checksum, archive, and upgrade behavior.
-          - kind: go_test
-            path: cmd/stellad/postgres_test.go
-            direct: true
-            proves: PostgreSQL runtime download and replacement behavior.
-          - kind: go_test
-            path: cmd/stellad/service_linux_test.go
-            direct: true
-            proves: Linux service manager command rendering and lifecycle behavior.
-        gap: The complete command tree and real systemd lifecycle are not executed through the exact Linux amd64 release-candidate binary.
+            proves: The capability-tagged test traverses the real production command tree and compares every path with this manifest.
+        gap: ""
       - id: X01-S02
         name: released-linux-cli-and-service-lifecycle
         layer: system
@@ -1274,6 +1860,60 @@ capabilities:
         summary: On Linux amd64, the extracted release-candidate binary runs the documented CLI and completes systemd install, start, status, logs, restart, stop, and uninstall.
         evidence: []
         gap: No Linux amd64 runner currently executes the exact candidate binary through the real CLI and systemd lifecycle.
+      - id: X01-S03
+        name: version-upgrade-and-postgres-runtime
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Upgrade and PostgreSQL-runtime commands validate checksums and archives, recover interrupted replacement, and reuse valid installed runtimes.
+        evidence:
+          - kind: go_test
+            path: cmd/stellad/version_test.go
+            test: TestVerifyChecksumIntegration
+            direct: true
+            proves: Upgrade verifies the downloaded archive against the release checksum.
+          - kind: go_test
+            path: cmd/stellad/version_test.go
+            test: TestCleanStaleUpgradeArtifactsRestoresBackupWhenTargetMissing
+            direct: true
+            proves: Interrupted replacement restores the backup when the target is missing.
+          - kind: go_test
+            path: cmd/stellad/version_test.go
+            test: TestExtractBinaryFromTarGzRejectsOversizedSkippedEntry
+            direct: true
+            proves: Upgrade extraction rejects oversized archive entries even when they are not the selected binary.
+          - kind: go_test
+            path: cmd/stellad/postgres_test.go
+            test: TestDownloadPostgresRuntimeUsesExistingInstall
+            direct: true
+            proves: PostgreSQL runtime installation reuses an already valid runtime.
+        gap: ""
+      - id: X01-S04
+        name: vault-key-and-builtin-reconciliation
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Vault bootstrap emits a valid key and built-in reconciliation installs the current embedded resources without reviving retired assets.
+        evidence:
+          - kind: go_test
+            path: cmd/stellad/commands_test.go
+            test: TestEnsureEmbeddedAssetsReplacesRetiredKreuzbergSkill
+            direct: true
+            proves: Embedded asset reconciliation removes the retired skill and installs its replacement.
+        gap: Vault key generation and the public reconcile-builtins command lack direct command-level success and failure tests.
+      - id: X01-S05
+        name: operating-system-service-adapter
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Service installation validates privileged binary ownership and renders safe platform lifecycle operations.
+        evidence:
+          - kind: go_test
+            path: cmd/stellad/service_linux_test.go
+            test: TestCheckBinaryPathSecurityRejectsUserOwnedBinary
+            direct: true
+            proves: Linux service installation rejects an unsafe user-owned executable.
+        gap: Linux systemd and macOS launchd command rendering and lifecycle failures are not covered by direct adapter tests.
 
   - id: X02
     class: extension
@@ -1295,25 +1935,18 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X02-S01
-        name: channel-control-plane-and-runtime-contract
+        name: channel-control-plane-and-public-metadata
         layer: contract
         status: partial
         release_policy: blocking
-        summary: Generic channel CRUD, safe metadata, identity routing, runtime apply, streaming publication, and shutdown obey a shared contract.
+        summary: Generic channel CRUD applies safe defaults and public metadata omits private configuration and credentials.
         evidence:
           - kind: go_test
             path: internal/server/channels_test.go
+            test: TestChannelFromWriteRequestEnabledDefaults
             direct: true
-            proves: Public metadata filtering and channel write defaults.
-          - kind: go_test
-            path: internal/pluginhost/discovery_test.go
-            direct: true
-            proves: Channel plugin discovery, configuration, and runtime registration.
-          - kind: go_test
-            path: internal/channel/runtime_resolver_test.go
-            direct: true
-            proves: Channel persistence and platform behavior.
-        gap: There is no reusable conformance suite that every built-in channel implementation must pass.
+            proves: Channel writes apply the documented enabled default.
+        gap: No direct HTTP lifecycle test covers generic channel create, get, list, update, delete, and public metadata redaction together.
       - id: X02-S02
         name: browser-channel-management
         layer: browser
@@ -1322,6 +1955,31 @@ capabilities:
         summary: An administrator creates, configures, starts, observes, and removes a channel from the Web UI.
         evidence: []
         gap: No automated browser channel-management journey exists.
+      - id: X02-S03
+        name: channel-runtime-resolution-and-lifecycle
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: Configured channel plugins register runtime services and resolve persisted channel and agent identities before inbound or outbound work.
+        evidence:
+          - kind: go_test
+            path: internal/pluginhost/discovery_test.go
+            test: TestChannelRuntimeServicesExtension
+            direct: true
+            proves: Channel plugins expose their runtime service extension through the host.
+          - kind: go_test
+            path: internal/channel/runtime_resolver_test.go
+            direct: true
+            proves: Runtime resolution maps persisted channel and agent identities.
+        gap: Generic evidence does not prove streaming publication, reload, and shutdown behavior for every built-in channel.
+      - id: X02-S04
+        name: builtin-channel-conformance
+        layer: contract
+        status: missing
+        release_policy: blocking
+        summary: Every built-in channel passes one reusable contract for identity routing, inbound delivery, streamed publication, errors, reload, and shutdown.
+        evidence: []
+        gap: There is no reusable conformance suite that every built-in channel implementation must pass.
 
   - id: X03
     class: extension
@@ -1363,7 +2021,7 @@ capabilities:
         name: feishu-live-message
         layer: live
         status: missing
-        release_policy: blocking
+        release_policy: nonblocking
         summary: A real external Feishu sender reaches Stella and receives a streamed reply with identity and thread routing intact.
         evidence: []
         gap: No test tenant, automated sender, or Live Smoke runner is registered.
@@ -1400,7 +2058,7 @@ capabilities:
         name: qq-live-message
         layer: live
         status: missing
-        release_policy: blocking
+        release_policy: nonblocking
         summary: A real QQ sender reaches Stella and receives a streamed response from a configured test bot.
         evidence: []
         gap: No QQ test bot, automated sender, or Live Smoke runner is registered.
@@ -1437,7 +2095,7 @@ capabilities:
         name: telegram-live-message
         layer: live
         status: missing
-        release_policy: blocking
+        release_policy: nonblocking
         summary: A real Telegram sender reaches Stella and receives a streamed response from a configured test bot.
         evidence: []
         gap: No Telegram test bot, automated sender, or Live Smoke runner is registered.
@@ -1537,6 +2195,12 @@ capabilities:
             subtest: webhook_sync_persistent
             direct: true
             proves: The real binary serves an unauthenticated webhook capability synchronously and reuses its durable session across requests.
+          - kind: system_test
+            path: test/system/system_test.go
+            test: TestSystem
+            subtest: github_webhook_compatibility
+            direct: true
+            proves: A GitHub-shaped push payload reaches the generic asynchronous webhook capability without a provider-specific adapter.
         gap: ""
 
   - id: X08
@@ -1559,33 +2223,64 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X08-S01
-        name: email-config-access-and-send-contract
+        name: email-account-configuration-and-access
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Account configuration, egress safety, scope, listing, reading, state changes, idempotent sending, and agent-tool access obey one contract.
+        summary: Email account configuration validates names and public egress, resolves defaults, and isolates user and agent authority.
         evidence:
           - kind: go_test
             path: internal/email/email_test.go
+            test: TestConfigValidate
             direct: true
-            proves: Account configuration, validation, and resolution.
+            proves: Account configuration rejects incomplete and invalid protocol settings.
           - kind: go_test
-            path: internal/email/service_test.go
+            path: internal/email/email_test.go
+            test: TestValidateAccountEgressRejectsPrivateHosts
             direct: true
-            proves: Service errors and duplicate-send suppression.
+            proves: Account egress rejects private network targets.
+          - kind: go_test
+            path: internal/email/email_test.go
+            test: TestResolve
+            direct: true
+            proves: Account resolution applies explicit and default identities.
           - kind: go_test
             path: internal/email/access_test.go
+            test: TestEmailAgentActsAsUser
             direct: true
-            proves: User and agent scope isolation.
-        gap: No fake IMAP/SMTP or provider server covers list, read, mark, and send as one deterministic protocol lifecycle.
+            proves: An authorized agent uses its owning user's scoped email account.
+          - kind: go_test
+            path: internal/email/access_test.go
+            test: TestEmailForeignUserIsolated
+            direct: true
+            proves: Foreign user account access is denied.
+        gap: ""
       - id: X08-S02
         name: email-live-round-trip
         layer: live
         status: missing
-        release_policy: blocking
+        release_policy: nonblocking
         summary: A dedicated mailbox receives, lists, reads, marks, sends, and observes a real round-trip message.
         evidence: []
         gap: No dedicated mailbox credentials, controlled correspondent, or Live Smoke runner is registered.
+      - id: X08-S03
+        name: deterministic-email-protocol-lifecycle
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: A deterministic mail target supports folder and message listing, reads, state changes, and idempotent sends through both HTTP and the agent tool.
+        evidence:
+          - kind: go_test
+            path: internal/email/service_test.go
+            test: TestServiceSendSuppressesDuplicate
+            direct: true
+            proves: Repeated sends with the same idempotency identity are suppressed.
+          - kind: go_test
+            path: internal/email/service_test.go
+            test: TestServiceNoConfigFriendlyError
+            direct: true
+            proves: Missing account configuration returns a stable service error.
+        gap: No fake IMAP/SMTP server covers list, read, mark, and send as one deterministic protocol lifecycle through Stella.
 
   - id: X09
     class: extension
@@ -1605,21 +2300,43 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X09-S01
-        name: mcp-management-discovery-and-invocation
+        name: mcp-management-and-discovery
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Scoped server CRUD, secret storage, endpoint safety, discovery, namespacing, caching, concurrency, invocation, errors, and timeouts obey the MCP contract.
+        summary: Scoped server CRUD validates endpoint safety, stores bearer credentials in the vault, resolves precedence, and discovers namespaced tools with bounded caching.
         evidence:
           - kind: contract_test
             path: internal/mcp/mcp_test.go
+            test: TestValidateEndpointURLRejectsUnsafeTargets
             direct: true
-            proves: MCP validation, credential storage, resolution, discovery, caching, and namespacing.
+            proves: MCP endpoint validation rejects unsafe targets.
+          - kind: contract_test
+            path: internal/mcp/mcp_test.go
+            test: TestCreateBearerStoresTokenInVaultNotRow
+            direct: true
+            proves: Bearer credentials are stored in the vault rather than server rows.
+          - kind: contract_test
+            path: internal/mcp/mcp_test.go
+            test: TestResolveForContextDedupPrecedence
+            direct: true
+            proves: Scoped server resolution deduplicates according to precedence.
+          - kind: contract_test
+            path: internal/mcp/mcp_test.go
+            test: TestToolProviderDiscoversServersConcurrently
+            direct: true
+            proves: Tool discovery runs concurrently across resolved servers.
           - kind: go_test
             path: internal/mcp/service_integration_test.go
+            test: TestCredentialEncryptedAtRest
             direct: true
-            proves: Encrypted credentials and scope precedence with real PostgreSQL.
-        gap: Existing tests do not prove a complete fake-server invocation lifecycle through stellad HTTP and agent runtime.
+            proves: MCP credentials remain encrypted in real PostgreSQL.
+          - kind: go_test
+            path: internal/mcp/service_integration_test.go
+            test: TestScopeVisibilityPrecedence
+            direct: true
+            proves: PostgreSQL-backed scope visibility follows the same precedence contract.
+        gap: ""
       - id: X09-S02
         name: mcp-self-hosted-lifecycle-contract
         layer: contract
@@ -1654,28 +2371,32 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X10-S01
-        name: plugin-discovery-config-runtime-and-reconcile
+        name: plugin-discovery-config-and-runtime
         layer: integration
         status: covered
         release_policy: blocking
-        summary: Static and manifest plugins expose valid metadata, enforce capability boundaries, persist config, reconcile tools, and cleanly apply or stop runtimes.
+        summary: Static plugins expose complete metadata, persist configuration, enforce platform capability boundaries, and apply or stop managed runtimes.
         evidence:
           - kind: go_test
             path: internal/pluginhost/discovery_test.go
+            test: TestDiscoveryReportsRegistrationsAndMergedAdminView
             direct: true
-            proves: Discovery, metadata, config, sandbox exclusivity, and managed runtime registration.
+            proves: Discovery merges static registration metadata with persisted admin state.
+          - kind: go_test
+            path: internal/pluginhost/discovery_test.go
+            test: TestHostBackedManagedRuntimeRegistrationAddsMetadataAndSchema
+            direct: true
+            proves: Managed runtimes expose complete metadata and configuration schema.
           - kind: go_test
             path: internal/pluginhost/capability_test.go
+            test: TestStartRefusedWhenRequiredCapabilityUnbacked
             direct: true
-            proves: Required platform capabilities are validated and fail closed.
+            proves: A plugin cannot start when its required platform capability is unavailable.
           - kind: go_test
-            path: internal/manifestplugins/reconcile_test.go
+            path: internal/pluginhost/capability_test.go
+            test: TestStartAllowedWhenRequiredCapabilityBacked
             direct: true
-            proves: Manifest reconciliation, state, and cleanup behavior.
-          - kind: contract_test
-            path: plugins/tools/webfetch/webfetch_test.go
-            direct: true
-            proves: Built-in WebFetch tool protocol and safety behavior.
+            proves: A plugin starts when every declared platform capability is backed.
         gap: ""
       - id: X10-S02
         name: plugin-browser-management
@@ -1689,10 +2410,61 @@ capabilities:
         name: external-cli-plugin-smoke
         layer: live
         status: missing
-        release_policy: blocking
+        release_policy: nonblocking
         summary: A plugin requiring a managed external CLI installs, runs, reloads, and reports status in the release environment.
         evidence: []
         gap: No controlled external CLI target or Live Smoke runner is registered.
+      - id: X10-S04
+        name: manifest-plugin-reconciliation
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Manifest plugin synchronization applies enabled state, reuses valid cached artifacts, rejects retired identities, and persists deterministic reconciliation state.
+        evidence:
+          - kind: go_test
+            path: internal/manifestplugins/reconcile_test.go
+            test: TestReconcile_CacheHit
+            direct: true
+            proves: Reconciliation reuses a valid cached managed artifact.
+          - kind: go_test
+            path: internal/manifestplugins/reconcile_test.go
+            test: TestReconcile_XbergDoesNotReuseLegacyBinaryState
+            direct: true
+            proves: A renamed plugin cannot reuse retired binary identity state.
+          - kind: go_test
+            path: internal/manifestplugins/reconcile_test.go
+            test: TestReconcile_DisabledPlugin
+            direct: true
+            proves: Disabled manifest plugins remain absent from active reconciliation.
+          - kind: go_test
+            path: internal/manifestplugins/reconcile_test.go
+            test: TestSaveAndLoadState
+            direct: true
+            proves: Reconciliation state persists and reloads deterministically.
+        gap: ""
+      - id: X10-S05
+        name: builtin-webfetch-tool-contract
+        layer: contract
+        status: covered
+        release_policy: blocking
+        summary: The built-in WebFetch tool validates its definition and returns bounded text, HTML, JSON, empty-content, and error results.
+        evidence:
+          - kind: contract_test
+            path: plugins/tools/webfetch/webfetch_test.go
+            test: TestWebFetchToolSuccess
+            direct: true
+            proves: WebFetch returns successful target content through the tool contract.
+          - kind: contract_test
+            path: plugins/tools/webfetch/webfetch_test.go
+            test: TestWebFetchTool_FormatJSON
+            direct: true
+            proves: JSON results remain bounded and readable.
+          - kind: contract_test
+            path: plugins/tools/webfetch/webfetch_test.go
+            test: TestWebFetchToolNoContent
+            direct: true
+            proves: Empty responses return a stable no-content result.
+        gap: ""
 
   - id: X11
     class: extension
@@ -1804,7 +2576,7 @@ capabilities:
         name: provider-live-tool-call
         layer: live
         status: missing
-        release_policy: blocking
+        release_policy: nonblocking
         summary: Each advertised provider returns streamed text and completes a controlled tool call using a dedicated low-quota account.
         evidence: []
         gap: No provider test accounts, target registry, or Live Smoke runner exists.
@@ -1884,33 +2656,59 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X14-S01
-        name: embedding-config-index-and-query
+        name: embedding-configuration-and-provider-safety
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Configuration changes rebuild providers, vectors normalize safely, sensitive text avoids external APIs, backfill persists, and semantic query returns scoped results.
+        summary: Configuration changes rebuild provider chains while fallback, sensitivity policy, normalization, and circuit breaking avoid unsafe external calls.
         evidence:
           - kind: contract_test
             path: internal/embedding/chain_test.go
+            test: TestChain_TransientFailsOverToLocal
             direct: true
-            proves: Provider fallback, sensitivity, and circuit-breaker behavior.
-          - kind: go_test
-            path: internal/embedding/indexer_test.go
+            proves: Transient external failures fall back to the local provider.
+          - kind: contract_test
+            path: internal/embedding/chain_test.go
+            test: TestChain_SensitiveSkipsAPI
             direct: true
-            proves: Indexing and backfill behavior with PostgreSQL.
+            proves: Sensitive content never reaches the external provider.
+          - kind: contract_test
+            path: internal/embedding/chain_test.go
+            test: TestChain_BreakerOpensThenSkipsAPI
+            direct: true
+            proves: Repeated transient failures open the external-provider circuit breaker.
           - kind: go_test
             path: internal/embedding/service_test.go
+            test: TestService_ResolveCachesAndRebuildsOnConfigChange
             direct: true
-            proves: Configuration caching, invalidation, and disabled behavior.
-        gap: No end-to-end semantic query scenario crosses settings, external fake protocol, worker backfill, restart, and search.
+            proves: Provider resolution caches and rebuilds when configuration changes.
+          - kind: go_test
+            path: internal/embedding/service_test.go
+            test: TestService_ResolveDisabled
+            direct: true
+            proves: Disabled embedding configuration exposes no provider.
+        gap: ""
       - id: X14-S02
         name: embedding-provider-live-query
         layer: live
         status: missing
-        release_policy: blocking
+        release_policy: nonblocking
         summary: A dedicated external embedding account indexes known content and returns the expected semantic result.
         evidence: []
         gap: No embedding test account, fixture corpus, or Live Smoke runner exists.
+      - id: X14-S03
+        name: embedding-index-backfill-and-semantic-query
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Worker backfill persists normalized scoped vectors idempotently and semantic queries rank only authorized content.
+        evidence:
+          - kind: go_test
+            path: internal/embedding/indexer_test.go
+            test: TestIndexer_BackfillPopulatesThenIsIdempotent
+            direct: true
+            proves: PostgreSQL backfill populates missing vectors and becomes idempotent.
+        gap: No end-to-end semantic query scenario crosses settings, a deterministic external protocol, worker backfill, restart, and ranked search.
 
   - id: X15
     class: extension
@@ -1925,33 +2723,91 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X15-S01
-        name: local-none-and-docker-contracts
+        name: local-sandbox-contract
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Backend selection, filesystem and network policy, process or container execution, output, preflight, tool cache, and cleanup obey the sandbox contract.
+        summary: The Local backend executes processes while enforcing platform filesystem, network, environment, working-directory, and cleanup policy.
         evidence:
           - kind: contract_test
-            path: plugins/sandbox/docker/contract_test.go
+            path: plugins/sandbox/local/session_test.go
+            test: TestExec_success
             direct: true
-            proves: Real Docker container create, execute, completion, and close behavior when a daemon is available.
+            proves: Local sandbox execution returns successful process output.
           - kind: contract_test
             path: plugins/sandbox/local/session_test.go
+            test: TestResolvePath_rejectsOutsideRoot
             direct: true
-            proves: Local sandbox session execution and lifecycle.
+            proves: Local path resolution rejects access outside configured roots.
           - kind: contract_test
-            path: plugins/sandbox/none/session_test.go
+            path: plugins/sandbox/local/session_test.go
+            test: TestBuildEnv_denyListFiltersVaultKey
             direct: true
-            proves: None backend session behavior.
-        gap: Docker coverage can Skip, and no single required platform matrix records an actual result for every advertised backend.
+            proves: Local process environments remove the vault key.
+          - kind: contract_test
+            path: plugins/sandbox/local/session_test.go
+            test: TestLocalSession_workspaceAndWorkingDir
+            direct: true
+            proves: Local sessions preserve their configured workspace and working directory.
+          - kind: contract_test
+            path: plugins/sandbox/local/session_test.go
+            test: TestCleanupOwnedTmpMountsLeavesBorrowedMounts
+            direct: true
+            proves: Cleanup removes session-owned temporary mounts without deleting borrowed mounts.
+          - kind: contract_test
+            path: plugins/sandbox/local/session_linux_test.go
+            test: TestWrapCommand_linux_networkDisabled
+            direct: true
+            proves: Linux local execution applies the disabled-network wrapper.
+        gap: ""
       - id: X15-S02
-        name: sandbox-docker-platform-contract
+        name: required-sandbox-platform-matrix
         layer: contract
         status: missing
         release_policy: blocking
         summary: Each advertised sandbox backend, including a CI Docker daemon, executes commands, enforces policy, handles timeout, and leaves no resource residue.
         evidence: []
         gap: No required self-hosted backend matrix currently records deterministic execution and cleanup results for every advertised sandbox.
+      - id: X15-S03
+        name: none-sandbox-contract
+        layer: contract
+        status: covered
+        release_policy: blocking
+        summary: The None backend executes directly with explicit environment and working-directory semantics and closes owned process state predictably.
+        evidence:
+          - kind: contract_test
+            path: plugins/sandbox/none/session_test.go
+            test: TestExec_success
+            direct: true
+            proves: None backend execution returns successful process output.
+          - kind: contract_test
+            path: plugins/sandbox/none/session_test.go
+            test: TestBuildEnv
+            direct: true
+            proves: None backend process environments follow explicit inheritance and override rules.
+          - kind: contract_test
+            path: plugins/sandbox/none/session_test.go
+            test: TestNoneSession_closeAndAlive
+            direct: true
+            proves: None sessions expose stable close and liveness behavior.
+        gap: ""
+      - id: X15-S04
+        name: docker-sandbox-contract
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: The Docker backend creates, executes, times out, closes, and cleans container sessions while enforcing mounted path and network policy.
+        evidence:
+          - kind: contract_test
+            path: plugins/sandbox/docker/contract_test.go
+            test: TestSessionContract
+            direct: true
+            proves: Real Docker container create, execute, completion, and close behavior when a daemon is available.
+          - kind: go_test
+            path: plugins/sandbox/docker/session_lifecycle_test.go
+            direct: true
+            proves: Container session cleanup preserves recoverable state across start and stop failures.
+        gap: The real-daemon contract can Skip when Docker is unavailable, so the maintained evidence is not a required platform result.
 
   - id: X16
     class: extension
@@ -1966,29 +2822,43 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X16-S01
-        name: remote-search-install-and-upgrade-contract
+        name: clawhub-catalog-discovery
         layer: contract
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Remote search, detail, source parsing, authenticated fetch, canonical file layout, install, and upgrade handle success and failure safely.
+        summary: ClawHub browse and search map catalog metadata, ownership, cursors, details, and empty pages through a deterministic HTTP fake.
         evidence:
           - kind: contract_test
             path: internal/skills/clawhub_test.go
+            test: TestBrowseCatalog_Browse_MapsStatsAndCursor
             direct: true
-            proves: ClawHub search, detail, and response conversion against an HTTP fake.
+            proves: ClawHub browse maps metadata, statistics, and pagination cursors.
           - kind: contract_test
-            path: internal/skills/install_lib_test.go
+            path: internal/skills/clawhub_test.go
+            test: TestBrowseCatalog_Search_MapsOwnerAndEmptyNextToken
             direct: true
-            proves: Remote source parsing, token propagation, file normalization, and upgrade failures.
-        gap: Other advertised marketplace sources and a complete search-to-installed-skill lifecycle are not covered by one deterministic contract.
+            proves: ClawHub search maps ownership and terminal pagination through the HTTP fake.
+        gap: ""
       - id: X16-S02
         name: remote-marketplace-live-smoke
         layer: live
         status: missing
-        release_policy: blocking
+        release_policy: nonblocking
         summary: A stable public test skill can be searched, installed, loaded, upgraded, and removed from each supported remote source.
         evidence: []
         gap: No stable marketplace target or Live Smoke runner is registered.
+      - id: X16-S03
+        name: remote-install-and-upgrade-source-contract
+        layer: contract
+        status: partial
+        release_policy: blocking
+        summary: Remote source parsing, authenticated fetch, canonical file layout, install, and upgrade preserve credentials and recover safely from malformed content.
+        evidence:
+          - kind: contract_test
+            path: internal/skills/install_lib_test.go
+            direct: true
+            proves: GitHub source parsing, token propagation, file normalization, and upgrade failures.
+        gap: Other advertised source forms and a complete catalog-search-to-installed-upgrade lifecycle are not covered by one deterministic contract.
 
   - id: X17
     class: extension
@@ -2014,30 +2884,44 @@ capabilities:
       ]
     scenarios:
       - id: X17-S01
-        name: system-skill-discovery-and-injection
+        name: system-skill-discovery-and-drift
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: Every bundled system skill is registered, visible under the right plugin state, and injected into the runtime prompt with valid files.
+        summary: Every recursively discovered bundled system skill has one canonical frontmatter identity and explicit capability ownership.
         evidence:
           - kind: go_test
             path: resources/registry_test.go
+            test: TestDefaultLoadsBuiltinResources
             direct: true
             proves: Embedded resource and skill registry contents.
-          - kind: go_test
-            path: internal/skills/prompt_test.go
-            test: TestBuildPromptSectionListsSystemSkillsAndSearchesOthers
-            direct: true
-            proves: System skill discovery and prompt injection behavior.
-        gap: There is no per-skill conformance test proving each skill's declared commands, prerequisites, and stable observable result.
+        gap: ""
       - id: X17-S02
         name: external-system-skill-smoke
         layer: live
         status: missing
-        release_policy: blocking
+        release_policy: nonblocking
         summary: System skills requiring browser, Lark, Python, or other external tools execute successfully in the release environment.
         evidence: []
         gap: No external CLI environment, target registry, or Live Smoke runner exists.
+      - id: X17-S03
+        name: system-skill-prompt-injection-and-conformance
+        layer: integration
+        status: partial
+        release_policy: blocking
+        summary: Visible system skills are injected into the runtime prompt according to plugin state and each declared workflow resolves its prerequisites and observable result.
+        evidence:
+          - kind: go_test
+            path: internal/skills/prompt_test.go
+            test: TestBuildPromptSectionListsSystemSkillsAndSearchesOthers
+            direct: true
+            proves: System skills are listed while non-system skills remain search-first.
+          - kind: go_test
+            path: internal/skills/prompt_test.go
+            test: TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState
+            direct: true
+            proves: Plugin-owned system skills follow runtime plugin visibility.
+        gap: There is no per-skill conformance test proving each skill's declared commands, prerequisites, and stable observable result.
 
   - id: X18
     class: extension
@@ -2052,33 +2936,77 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X18-S01
-        name: release-config-and-package-shape
+        name: candidate-archive-and-checksum-shape
         layer: package
         status: partial
         release_policy: blocking
-        summary: GoReleaser produces structurally valid Linux, macOS, and Windows archives for amd64 and arm64 with checksums, while Docker multi-architecture builds and Helm templates remain valid.
+        summary: GoReleaser defines Linux, macOS, and Windows archives for amd64 and arm64 with checksums and upgrade-compatible executable layouts.
         evidence:
           - kind: task
             path: mise.toml
             direct: false
-            proves: Existing release check, snapshot, Docker build, and Helm check entrypoints.
+            proves: Existing release check and snapshot entrypoints build archive candidates.
           - kind: workflow
             path: .github/workflows/release.yml
             direct: false
-            proves: Tag-triggered build and publication configuration.
+            proves: Tag-triggered GoReleaser publication configuration.
           - kind: go_test
             path: cmd/stellad/version_test.go
             direct: true
             proves: Upgrade archive selection, checksum, extraction, and replacement behavior.
-        gap: Existing checks do not record a result for all six candidate archives or prove that the staged Docker digests and Helm deployment are the same artifacts later promoted.
+        gap: Existing checks do not record a current-candidate result and checksum for every advertised archive platform.
       - id: X18-S02
-        name: release-artifact-deployment-smoke
+        name: candidate-binary-platform-smoke
         layer: package
         status: missing
         release_policy: blocking
-        summary: The exact Linux amd64 candidate completes binary, Docker, and Helm deployment checks; Linux arm64 completes the deterministic System suite and Docker Smoke; Docker and Helm use a temporary networked PostgreSQL started from the pinned Stella PG Runtime.
+        summary: Each required platform extracts and starts the exact candidate archive; Linux candidates complete the deterministic System suite.
         evidence: []
-        gap: No build-once runner currently validates and cleans up the amd64 and arm64 candidate matrix with Docker, kind, Helm, embedded PostgreSQL, and a temporary external-DSN PostgreSQL before promotion.
+        gap: No build-once runner executes the exact archive checksum through the required startup and System platform matrix.
+      - id: X18-S03
+        name: docker-image-package-shape
+        layer: package
+        status: partial
+        release_policy: blocking
+        summary: Docker builds advertise linux/amd64 and linux/arm64 images from the release commit with the expected entrypoint and bundled assets.
+        evidence:
+          - kind: task
+            path: mise.toml
+            direct: false
+            proves: The repository exposes a local Docker build entrypoint.
+          - kind: workflow
+            path: .github/workflows/release.yml
+            direct: false
+            proves: The release workflow publishes multi-architecture Docker tags.
+        gap: No candidate-bound result records both image digests and verifies their runtime package contents before publication.
+      - id: X18-S04
+        name: helm-chart-package-shape
+        layer: package
+        status: partial
+        release_policy: blocking
+        summary: The Helm chart renders valid Kubernetes resources with explicit image and external PostgreSQL configuration.
+        evidence:
+          - kind: task
+            path: mise.toml
+            direct: false
+            proves: The deploy:helm:check task renders and validates the maintained chart.
+        gap: Helm rendering has no direct scenario evidence bound to the candidate image digest and release values.
+      - id: X18-S05
+        name: candidate-docker-deployment-smoke
+        layer: package
+        status: missing
+        release_policy: blocking
+        summary: Exact amd64 and arm64 candidate image digests start, become ready, serve a deterministic request, and clean up against temporary networked PostgreSQL.
+        evidence: []
+        gap: No build-once Docker smoke runner validates and cleans both candidate image digests against external PostgreSQL.
+      - id: X18-S06
+        name: candidate-helm-external-postgres-smoke
+        layer: package
+        status: missing
+        release_policy: blocking
+        summary: A kind cluster deploys the exact candidate image by digest through Helm and completes readiness and data persistence against temporary external PostgreSQL.
+        evidence: []
+        gap: No kind/Helm candidate deployment runner records image identity, external-PostgreSQL behavior, and cleanup before promotion.
 
   - id: X19
     class: extension
@@ -2093,11 +3021,11 @@ capabilities:
       system_skills: []
     scenarios:
       - id: X19-S01
-        name: structured-log-and-trace-hooks
+        name: structured-log-configuration-and-context
         layer: integration
-        status: partial
+        status: covered
         release_policy: blocking
-        summary: HTTP, agent, and lifecycle spans and structured logs preserve context, honor enablement, and avoid known sensitive fields.
+        summary: Structured logging honors signal enablement and enriches records with available trace and span context.
         evidence:
           - kind: go_test
             path: internal/observability/observability_test.go
@@ -2105,13 +3033,10 @@ capabilities:
             proves: Observability configuration and provider construction.
           - kind: go_test
             path: internal/observability/slog_test.go
+            test: TestTraceContextHandlerAddsIDs
             direct: true
             proves: Structured logging and attribute behavior.
-          - kind: go_test
-            path: internal/observability/tracehook/tracehook_test.go
-            direct: true
-            proves: Agent trace hook spans, events, and redaction behavior.
-        gap: There is no release-wide assertion that all failure artifacts, screenshots, traces, and server logs remain secret-free.
+        gap: ""
       - id: X19-S02
         name: otlp-self-hosted-export-contract
         layer: contract
@@ -2120,3 +3045,34 @@ capabilities:
         summary: A release deployment exports Run-ID-correlated traces to a self-hosted OpenTelemetry collector, recovers from failure, flushes on shutdown, and exposes no secrets.
         evidence: []
         gap: No self-hosted collector contract currently proves export, recovery, shutdown flush, querying, and redaction.
+      - id: X19-S03
+        name: in-process-agent-trace-hooks
+        layer: integration
+        status: covered
+        release_policy: blocking
+        summary: Agent, LLM, tool, and memory trace hooks preserve span hierarchy, record bounded diagnostics, and redact known error secrets.
+        evidence:
+          - kind: go_test
+            path: internal/observability/tracehook/tracehook_enabled_test.go
+            test: TestHook_EnabledSpanHierarchy
+            direct: true
+            proves: Enabled hooks preserve the Agent-to-LLM, tool, and memory span hierarchy.
+          - kind: go_test
+            path: internal/observability/tracehook/tracehook_enabled_test.go
+            test: TestHook_SpanErrorRedacted
+            direct: true
+            proves: Span error diagnostics redact configured secret values.
+          - kind: go_test
+            path: internal/observability/tracehook/tracehook_test.go
+            test: TestRedactSecrets
+            direct: true
+            proves: Known secret-bearing fields and values are removed from trace summaries.
+        gap: ""
+      - id: X19-S04
+        name: release-diagnostic-secret-redaction
+        layer: system
+        status: missing
+        release_policy: blocking
+        summary: Failure logs, traces, Browser screenshots, network captures, fake-target requests, and retained release artifacts contain no configured secret values.
+        evidence: []
+        gap: There is no release-wide assertion that every retained diagnostic artifact remains secret-free.

@@ -4,13 +4,18 @@ package capabilities
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
+	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/resources"
 	"gopkg.in/yaml.v3"
 )
@@ -21,11 +26,16 @@ var webFullPathPattern = regexp.MustCompile(`fullPath:\s*'([^']+)'`)
 // checkout. CLI commands are supplied by the cmd/stellad package test because a
 // package main cannot be imported by the report command.
 type RepositorySurfaces struct {
-	OpenAPI      []string `json:"openapi"`
-	WebRoutes    []string `json:"web_routes"`
-	CLICommands  []string `json:"cli_commands,omitempty"`
-	Plugins      []string `json:"plugins"`
-	SystemSkills []string `json:"system_skills"`
+	OpenAPI          []string `json:"openapi"`
+	WebRoutes        []string `json:"web_routes"`
+	CLICommands      []string `json:"cli_commands,omitempty"`
+	Plugins          []string `json:"plugins"`
+	SystemSkills     []string `json:"system_skills"`
+	BuiltinSouls     []string `json:"builtin_souls"`
+	BuiltinDelegates []string `json:"builtin_delegates"`
+	BuiltinTemplates []string `json:"builtin_templates"`
+	CoreTools        []string `json:"core_tools"`
+	SystemJourneys   []string `json:"system_journeys"`
 }
 
 // TestMetrics records repository-wide facts that help interpret the existing
@@ -52,15 +62,29 @@ func CollectRepositorySurfaces(root string, pluginIDs []string) (RepositorySurfa
 	if err != nil {
 		return RepositorySurfaces{}, err
 	}
-	systemSkills, err := collectSystemSkills(root)
+	builtinResources, err := collectBuiltinResources(root)
 	if err != nil {
 		return RepositorySurfaces{}, err
 	}
+	systemJourneys, err := collectSystemJourneys(root)
+	if err != nil {
+		return RepositorySurfaces{}, err
+	}
+	coreDefinitions := agentsandbox.ToolDefinitions()
+	coreTools := make([]string, 0, len(coreDefinitions))
+	for _, definition := range coreDefinitions {
+		coreTools = append(coreTools, definition.Name)
+	}
 	return RepositorySurfaces{
-		OpenAPI:      openAPI,
-		WebRoutes:    webRoutes,
-		Plugins:      sortedUnique(pluginIDs),
-		SystemSkills: systemSkills,
+		OpenAPI:          openAPI,
+		WebRoutes:        webRoutes,
+		Plugins:          sortedUnique(pluginIDs),
+		SystemSkills:     builtinResources[resources.KindSkill],
+		BuiltinSouls:     builtinResources[resources.KindSoul],
+		BuiltinDelegates: builtinResources[resources.KindDelegate],
+		BuiltinTemplates: builtinResources[resources.KindTemplate],
+		CoreTools:        sortedUnique(coreTools),
+		SystemJourneys:   systemJourneys,
 	}, nil
 }
 
@@ -124,24 +148,81 @@ func collectWebRoutes(root string) ([]string, error) {
 	return sortedUnique(routes), nil
 }
 
-func collectSystemSkills(root string) ([]string, error) {
+func collectBuiltinResources(root string) (map[resources.Kind][]string, error) {
 	resourceRoot := filepath.Join(root, "resources")
 	registry, err := resources.Load(os.DirFS(resourceRoot))
 	if err != nil {
 		return nil, fmt.Errorf("load builtin resources: %w", err)
 	}
 
-	// Registry.Load is the runtime source of truth for recursive skill-root
-	// discovery and frontmatter-based IDs.
-	skillResources := registry.List(resources.KindSkill)
-	skills := make([]string, 0, len(skillResources))
-	for _, resource := range skillResources {
-		skills = append(skills, resource.ID)
+	// Registry.Load is the runtime source of truth for every embedded resource,
+	// including recursive skill roots and frontmatter-derived IDs.
+	result := make(map[resources.Kind][]string, len(resources.AllKinds()))
+	for _, kind := range resources.AllKinds() {
+		for _, resource := range registry.List(kind) {
+			result[kind] = append(result[kind], resource.ID)
+		}
+		result[kind] = sortedUnique(result[kind])
 	}
-	if len(skills) == 0 {
+	if len(result[resources.KindSkill]) == 0 {
 		return nil, fmt.Errorf("no system skills found in %s", resourceRoot)
 	}
-	return sortedUnique(skills), nil
+	return result, nil
+}
+
+func collectSystemJourneys(root string) ([]string, error) {
+	path := filepath.Join(root, "test", "system", "system_test.go")
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		return nil, fmt.Errorf("parse system journey owner %s: %w", path, err)
+	}
+	var testSystem *ast.FuncDecl
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if ok && function.Name.Name == "TestSystem" {
+			testSystem = function
+			break
+		}
+	}
+	if testSystem == nil {
+		return nil, fmt.Errorf("TestSystem not found in %s", path)
+	}
+
+	var testParam string
+	if testSystem.Type.Params != nil && len(testSystem.Type.Params.List) > 0 && len(testSystem.Type.Params.List[0].Names) > 0 {
+		testParam = testSystem.Type.Params.List[0].Names[0].Name
+	}
+	var journeys []string
+	for _, statement := range testSystem.Body.List {
+		expression, ok := statement.(*ast.ExprStmt)
+		if !ok {
+			continue
+		}
+		call, ok := expression.X.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			continue
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "Run" {
+			continue
+		}
+		receiver, ok := selector.X.(*ast.Ident)
+		if !ok || receiver.Name != testParam {
+			continue
+		}
+		literal, ok := call.Args[0].(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			continue
+		}
+		journey, err := strconv.Unquote(literal.Value)
+		if err == nil {
+			journeys = append(journeys, journey)
+		}
+	}
+	if len(journeys) == 0 {
+		return nil, fmt.Errorf("no top-level system journeys found in %s", path)
+	}
+	return sortedUnique(journeys), nil
 }
 
 // CollectTestMetrics scans source files only; generated dependencies and build

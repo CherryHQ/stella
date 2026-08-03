@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-const currentSchemaVersion = 1
+const currentSchemaVersion = 2
 
 var (
 	capabilityIDPattern = regexp.MustCompile(`^[CX][0-9]{2}$`)
@@ -190,6 +190,9 @@ func (c *problemCollector) validateScenario(root, capabilityID string, scenario 
 	if scenario.ReleasePolicy == "manual" && scenario.Status != "manual-only" {
 		c.add("scenario %s with release_policy manual must have status manual-only", scenario.ID)
 	}
+	if scenario.Layer == "live" && scenario.ReleasePolicy == "blocking" {
+		c.add("live scenario %s cannot be blocking; deterministic self-hosted targets belong in contract or package layers", scenario.ID)
+	}
 	if strings.TrimSpace(scenario.Summary) == "" {
 		c.add("scenario %s requires a summary", scenario.ID)
 	}
@@ -214,6 +217,9 @@ func (c *problemCollector) validateScenario(root, capabilityID string, scenario 
 			if evidence.Direct {
 				hasDirectAutomated = true
 			}
+		}
+		if evidence.Kind == "system_test" && evidence.Test == "TestSystem" && evidence.Subtest != "" && !evidence.Direct {
+			c.add("%s TestSystem journey must be direct evidence", location)
 		}
 		if evidence.Kind == "runbook" {
 			hasRunbook = true
@@ -291,6 +297,37 @@ func (c *problemCollector) compareAllSurfaces(manifest *Manifest, actual Reposit
 	}
 	c.compareSurface("plugins", declared.Plugins, manifest.SurfaceExemptions.Plugins, actual.Plugins)
 	c.compareSurface("system_skills", declared.SystemSkills, manifest.SurfaceExemptions.SystemSkills, actual.SystemSkills)
+	c.compareSurface("builtin_souls", declared.BuiltinSouls, manifest.SurfaceExemptions.BuiltinSouls, actual.BuiltinSouls)
+	c.compareSurface("builtin_delegates", declared.BuiltinDelegates, manifest.SurfaceExemptions.BuiltinDelegates, actual.BuiltinDelegates)
+	c.compareSurface("builtin_templates", declared.BuiltinTemplates, manifest.SurfaceExemptions.BuiltinTemplates, actual.BuiltinTemplates)
+	c.compareSurface("core_tools", declared.CoreTools, manifest.SurfaceExemptions.CoreTools, actual.CoreTools)
+	c.compareEvidenceCatalog("system_journeys", manifest.DeclaredSystemJourneys(), actual.SystemJourneys)
+}
+
+// compareEvidenceCatalog requires every discovered executable journey to have
+// scenario evidence and rejects references to deleted journeys. One journey may
+// directly support more than one scenario, so duplicate references are valid.
+func (c *problemCollector) compareEvidenceCatalog(kind string, declared, actual []string) {
+	declaredSet := make(map[string]struct{}, len(declared))
+	for _, id := range declared {
+		if id == "" {
+			c.add("%s contains an empty evidence reference", kind)
+			continue
+		}
+		declaredSet[id] = struct{}{}
+	}
+	actualSet := make(map[string]struct{}, len(actual))
+	for _, id := range actual {
+		actualSet[id] = struct{}{}
+		if _, mapped := declaredSet[id]; !mapped {
+			c.add("%s evidence %q is not mapped", kind, id)
+		}
+	}
+	for id := range declaredSet {
+		if _, exists := actualSet[id]; !exists {
+			c.add("%s evidence %q no longer exists", kind, id)
+		}
+	}
 }
 
 func (c *problemCollector) compareSurface(kind string, declared []string, exemptions []Exemption, actual []string) {
