@@ -17,7 +17,6 @@ func StellaHomeSandboxDirs() []string {
 	return []string{
 		"bin",
 		".mise-tools",
-		filepath.Join(".agents", "skills"),
 	}
 }
 

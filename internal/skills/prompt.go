@@ -15,6 +15,9 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 	} else if build.Platform != nil {
 		store = build.Platform.SkillStore()
 	}
+	if store == nil {
+		return pkgplugins.SystemPromptSection{}, nil
+	}
 
 	svc := NewService(store, build.StellaHome)
 	vc := pkgplugins.SkillViewContext{
@@ -134,5 +137,10 @@ func ownerPlugin(raw json.RawMessage) string {
 		return ""
 	}
 	owner, _ := meta["owner_plugin"].(string)
+	if owner != "" {
+		return owner
+	}
+	nested, _ := meta["metadata"].(map[string]any)
+	owner, _ = nested["owner_plugin"].(string)
 	return owner
 }

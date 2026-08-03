@@ -457,13 +457,13 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 // TestSystemTree_readableButNotWritable verifies that on an isolating backend
 // (sandbox STELLA_HOME differs from host), the read-only system install tree
 // addressed as /opt/stella is resolvable for reads and rejected for writes.
-func TestSystemTree_readableButNotWritable(t *testing.T) {
+func TestBuiltinBundleReadableButNotWritable(t *testing.T) {
 	root := t.TempDir()
 	root, _ = filepath.EvalSymlinks(root)
 	hostSH := t.TempDir()
 	hostSH, _ = filepath.EvalSymlinks(hostSH)
 
-	skillDir := filepath.Join(hostSH, ".agents", "skills", "demo")
+	skillDir := filepath.Join(hostSH, "bundles", "revision", "system", "demo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestSystemTree_readableButNotWritable(t *testing.T) {
 
 	s := &localSession{
 		id:                "test",
-		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: filepath.Join(hostSH, "bundles", "revision"), SandboxPath: sandboxpkg.MountBuiltinSkills, Access: sandboxpkg.MountReadOnly}}}},
 		realRoot:          root,
 		sandboxRoot:       root,
 		stellaHomeHost:    hostSH,
@@ -481,8 +481,8 @@ func TestSystemTree_readableButNotWritable(t *testing.T) {
 		done:              make(chan struct{}),
 	}
 
-	// The agent addresses the system tree via its sandbox view (/opt/stella/...).
-	sandboxPath := "/opt/stella/.agents/skills/demo/refs.md"
+	// The agent addresses the exact release bundle through its fixed sandbox view.
+	sandboxPath := sandboxpkg.MountBuiltinSkills + "/system/demo/refs.md"
 	real, _, err := s.resolvePath(sandboxPath)
 	if err != nil {
 		t.Fatalf("resolvePath rejected system-tree read: %v", err)
@@ -491,18 +491,17 @@ func TestSystemTree_readableButNotWritable(t *testing.T) {
 		t.Errorf("resolvePath real = %q, want %q", real, want)
 	}
 
-	// Writes into the system tree must be rejected.
+	// Writes into the bundle must be rejected.
 	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
 		t.Fatal("expected ResolveWritePath to reject system-tree path, got nil")
 	}
 
-	// Only the RO-mounted subtrees are reachable: sibling host trees nested under
-	// STELLA_HOME (users/, agents/) must stay invisible even via /opt/stella.
+	// The old STELLA_HOME projection is not a fallback mount.
 	if err := os.MkdirAll(filepath.Join(hostSH, "users", "u1"), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if _, _, err := s.resolvePath("/opt/stella/users/u1/secret"); err == nil {
-		t.Fatal("expected resolvePath to reject /opt/stella/users (not a mounted subtree), got nil")
+	if _, _, err := s.resolvePath("/opt/stella/.agents/skills/demo/refs.md"); err == nil {
+		t.Fatal("expected resolvePath to reject the retired extracted builtin path, got nil")
 	}
 }
 

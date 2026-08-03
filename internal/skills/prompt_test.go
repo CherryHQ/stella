@@ -97,7 +97,7 @@ func TestBuildPromptSectionUsesSearchFirstInstructions(t *testing.T) {
 	}
 }
 
-func TestBuildPromptSectionOmitsEmptySkillList(t *testing.T) {
+func TestBuildPromptSectionIncludesBuiltinSkillList(t *testing.T) {
 	store, userID, _ := newTestSkillStore(t)
 	// Empty store and no project skills.
 	platform := &skillStorePlatform{store: store}
@@ -108,8 +108,8 @@ func TestBuildPromptSectionOmitsEmptySkillList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if section.Title != "" || section.Content != "" {
-		t.Fatalf("expected empty section, got %#v", section)
+	if section.Title != "Skills" || !strings.Contains(section.Content, "<name>stella</name>") {
+		t.Fatalf("expected builtin Skills section, got %#v", section)
 	}
 }
 
@@ -199,8 +199,8 @@ func TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState(t *testin
 	if strings.Contains(section.Content, "<name>lark-cli</name>") {
 		t.Fatalf("expected disabled plugin-owned skill to be hidden: %s", section.Content)
 	}
-	if section.Title != "" || section.Content != "" {
-		t.Fatalf("expected no skills section when the only skill is disabled by plugin visibility: %#v", section)
+	if section.Title != "Skills" || strings.Contains(section.Content, "<name>lark-cli</name>") {
+		t.Fatalf("expected plugin-owned builtin skill to be hidden: %#v", section)
 	}
 
 	section, err = BuildPromptSection(ctx, pkgplugins.SystemPromptContext{
@@ -219,5 +219,34 @@ func TestBuildPromptSectionFiltersPluginOwnedSystemSkillsByPluginState(t *testin
 	}
 	if !strings.Contains(section.Content, "<name>lark-cli</name>") {
 		t.Fatalf("expected enabled plugin-owned system skill to be listed: %s", section.Content)
+	}
+}
+
+func TestBuildPromptSectionFiltersRegistryPluginOwnedSkillByPluginState(t *testing.T) {
+	store, _, _ := newTestSkillStore(t)
+	platform := &skillStorePlatform{store: store}
+	ctx := context.Background()
+
+	section, err := BuildPromptSection(ctx, pkgplugins.SystemPromptContext{
+		Platform:            platform,
+		RegisteredPluginIDs: []string{"tool/lark-cli"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(section.Content, "<name>lark-cli</name>") {
+		t.Fatalf("disabled Registry lark-cli leaked into prompt: %s", section.Content)
+	}
+
+	section, err = BuildPromptSection(ctx, pkgplugins.SystemPromptContext{
+		Platform:            platform,
+		RegisteredPluginIDs: []string{"tool/lark-cli"},
+		EnabledPluginIDs:    []string{"tool/lark-cli"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(section.Content, "<name>lark-cli</name>") {
+		t.Fatalf("enabled Registry lark-cli missing from prompt: %s", section.Content)
 	}
 }

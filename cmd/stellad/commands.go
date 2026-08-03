@@ -591,15 +591,29 @@ func ensureEmbeddedAssets() error {
 	// remain discoverable beside their replacements.
 	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella"))
 	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella.exe"))
-	_ = os.RemoveAll(filepath.Join(config.StellaHome(), ".agents", "skills", "system", "kreuzberg"))
 	if err := binaries.EnsureTools(config.StellaHome()); err != nil {
 		return fmt.Errorf("extract embedded tools: %w", err)
 	}
 	if err := binaries.VerifyTools(config.StellaHome()); err != nil {
 		return err
 	}
-	if err := resources.EnsureBuiltinSkills(filepath.Join(config.StellaHome(), ".agents", "skills")); err != nil {
-		return fmt.Errorf("extract builtin skills: %w", err)
+	registry, err := resources.Default()
+	if err != nil {
+		return fmt.Errorf("load builtin skill bundle: %w", err)
+	}
+	blockers, err := registry.InventoryLegacySkills(filepath.Join(config.StellaHome(), ".agents", "skills"))
+	if err != nil {
+		return fmt.Errorf("inventory legacy system skills: %w", err)
+	}
+	if len(blockers) != 0 {
+		paths := make([]string, 0, len(blockers))
+		for _, blocker := range blockers {
+			paths = append(paths, blocker.Path)
+		}
+		return fmt.Errorf("cannot activate builtin skill bundle: legacy system skills remain at %s; import or remove them through the current managed system path, then retry", strings.Join(paths, ", "))
+	}
+	if _, err := registry.InstallBuiltinBundle(config.StellaHome()); err != nil {
+		return fmt.Errorf("install builtin skill bundle: %w", err)
 	}
 	return nil
 }

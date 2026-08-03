@@ -436,6 +436,28 @@ func TestSearchInstalledRanksVisibleSkills(t *testing.T) {
 	}
 }
 
+func TestSearchInstalledFiltersRegistryPluginOwnedSkillByPluginState(t *testing.T) {
+	ctx := context.Background()
+	stellaHome := t.TempDir()
+	disabled := NewTool(nil, stellaHome, "").WithPluginVisibility([]string{"tool/lark-cli"}, nil)
+	out, err := disabled.Execute(ctx, map[string]any{"action": "search_installed", "query": "calendar"})
+	if err != nil {
+		t.Fatalf("search disabled Registry lark-cli: %v", err)
+	}
+	if strings.Contains(out, `"name": "lark-cli"`) {
+		t.Fatalf("disabled Registry lark-cli leaked into search_installed: %s", out)
+	}
+
+	enabled := NewTool(nil, stellaHome, "").WithPluginVisibility([]string{"tool/lark-cli"}, []string{"tool/lark-cli"})
+	out, err = enabled.Execute(ctx, map[string]any{"action": "search_installed", "query": "calendar"})
+	if err != nil {
+		t.Fatalf("search enabled Registry lark-cli: %v", err)
+	}
+	if !strings.Contains(out, `"name": "lark-cli"`) {
+		t.Fatalf("enabled Registry lark-cli missing from search_installed: %s", out)
+	}
+}
+
 func TestSearchInstalledBoostsExactNameBeforeLimit(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)

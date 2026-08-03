@@ -121,6 +121,19 @@ func (c *Client) ImageExists(ctx context.Context, image string) (bool, error) {
 	return false, fmt.Errorf("dockerclient: image inspect %s: %w", image, err)
 }
 
+// ImageLabel returns one image config label after image readiness has been
+// established by the caller.
+func (c *Client) ImageLabel(ctx context.Context, image, key string) (string, error) {
+	result, err := c.api.ImageInspect(ctx, image)
+	if err != nil {
+		return "", fmt.Errorf("dockerclient: image inspect %s: %w", image, err)
+	}
+	if result.Config == nil {
+		return "", nil
+	}
+	return result.Config.Labels[key], nil
+}
+
 func (c *Client) VolumeCreate(ctx context.Context, opts mobyclient.VolumeCreateOptions) (mobyclient.VolumeCreateResult, error) {
 	res, err := c.api.VolumeCreate(ctx, opts)
 	if err != nil {

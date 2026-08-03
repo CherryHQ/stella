@@ -10,8 +10,8 @@ import (
 func isolatingView() SkillDirView {
 	return SkillDirView{
 		Isolated:           true,
-		SystemSkillsHost:   "/srv/.stella/.agents/skills",
-		SystemSkillsView:   "/opt/stella/.agents/skills",
+		BuiltinSkillsHost:  "/srv/.stella/bundles/revision",
+		BuiltinSkillsView:  "/opt/stella/skills/builtin",
 		AgentSkillsHost:    "/srv/.stella/agents/a1/.agents/skills",
 		AgentSkillsView:    "/opt/stella/agent-skills",
 		SystemDBSkillsHost: "/srv/.stella/.agents/db-skills",
@@ -30,7 +30,7 @@ func TestSkillDirView_remapsReachableTiers(t *testing.T) {
 		host string
 		want string
 	}{
-		{"system", "/srv/.stella/.agents/skills/foo", "/opt/stella/.agents/skills/foo"},
+		{"builtin", "/srv/.stella/bundles/revision/system/foo", "/opt/stella/skills/builtin/system/foo"},
 		{"user", "/srv/.stella/users/u1/data/.agents/skills/bar", "/user/.agents/skills/bar"},
 		{"project", "/srv/.stella/users/u1/agents/a1/projects/p1/.agents/skills/baz", "/workspace/projects/p1/.agents/skills/baz"},
 		{"workspace-root", "/srv/.stella/users/u1/agents/a1/.agents/skills/qux", "/workspace/.agents/skills/qux"},

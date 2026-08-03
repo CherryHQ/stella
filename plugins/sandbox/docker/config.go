@@ -22,6 +22,10 @@ type Config struct {
 	// Image is the container image to use. Required.
 	Image string
 
+	// ExpectedBundleRevision is the revision embedded by the running stellad.
+	// Docker readiness rejects an image that labels a different revision.
+	ExpectedBundleRevision string
+
 	// StellaHome is the stella-process-view home directory. When stellad runs
 	// inside a container this is the in-container path; when it runs on the host
 	// this is the host path. Used for orphan cleanup scoping, preflight checks,
