@@ -65,6 +65,8 @@ You can bind each channel to a specific agent in the Web UI.
 
 Skills are reusable playbooks that teach Stella how to perform specific tasks. Stella manages skills through a built-in tool — ask her to search, install, or load skills directly in conversation.
 
+Release-provided skills are read-only; administrators manage shared skills separately. See the [Skills guide](web/content/docs/guides/skills.md) for scopes, per-Agent activation, and precedence.
+
 ## Documentation
 
 | Section         | What's inside                             | Link                                            |

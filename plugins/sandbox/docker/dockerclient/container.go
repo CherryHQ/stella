@@ -253,9 +253,10 @@ func buildHostConfig(opts CreateOptions) *container.HostConfig {
 			PidsLimit: &pidsLimit,
 		},
 		// Drop all capabilities by default; relax narrowly if a toolchain genuinely needs one.
-		CapDrop:     []string{"ALL"},
-		SecurityOpt: []string{"no-new-privileges"},
-		Mounts:      buildMounts(opts),
+		CapDrop:        []string{"ALL"},
+		SecurityOpt:    []string{"no-new-privileges"},
+		ReadonlyRootfs: true,
+		Mounts:         buildMounts(opts),
 	}
 	return hc
 }
