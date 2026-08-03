@@ -81,6 +81,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 			postgresCommand(),
 			vaultCommand(),
 			miseCommand(),
+			systemBundleCommand(),
 			serviceCommand(),
 		},
 	}
