@@ -21,7 +21,7 @@ type fakeCipher struct {
 
 func (c fakeCipher) EncryptSystem(plaintext string) (string, error) {
 	if c.failOnPlaintext != "" && plaintext == c.failOnPlaintext {
-		return "", errors.New("forced encrypt failure")
+		return "", fmt.Errorf("forced encrypt failure for %s", plaintext)
 	}
 	return "enc:" + base64.StdEncoding.EncodeToString([]byte(plaintext)), nil
 }
@@ -48,9 +48,9 @@ func (s *fakeStore) GetAgentProviderCredential(context.Context, string, string) 
 	return providercred.Encrypted{}, false, nil
 }
 
-func (s *fakeStore) UpsertAgentProviderCredential(_ context.Context, _ string, cred providercred.Encrypted) error {
+func (s *fakeStore) UpsertAgentProviderCredential(_ context.Context, _ string, cred providercred.Encrypted) (providercred.Metadata, error) {
 	s.upserts = append(s.upserts, cred)
-	return nil
+	return providercred.Metadata{ProviderID: cred.ProviderID, HasAPIKey: true}, nil
 }
 
 func (s *fakeStore) DeleteAgentProviderCredential(context.Context, string, string) error {
@@ -68,7 +68,7 @@ func TestServiceEncryptsBeforePersist(t *testing.T) {
 	store := &fakeStore{}
 	svc := providercred.NewService(store, fakeCipher{})
 
-	if err := svc.Set(context.Background(), "a1", providercred.Input{ProviderID: "openai", APIKey: "sk-secret"}); err != nil {
+	if _, err := svc.Set(context.Background(), "a1", providercred.Input{ProviderID: "openai", APIKey: "sk-secret"}); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	if len(store.upserts) != 1 {
@@ -84,7 +84,7 @@ func TestServiceSetRejectsEmptyKey(t *testing.T) {
 	store := &fakeStore{}
 	svc := providercred.NewService(store, fakeCipher{})
 
-	err := svc.Set(context.Background(), "a1", providercred.Input{ProviderID: "openai", APIKey: ""})
+	_, err := svc.Set(context.Background(), "a1", providercred.Input{ProviderID: "openai", APIKey: ""})
 	if !errors.Is(err, providercred.ErrEmptyAPIKey) {
 		t.Fatalf("err = %v, want ErrEmptyAPIKey", err)
 	}
@@ -95,7 +95,7 @@ func TestServiceSetRejectsEmptyKey(t *testing.T) {
 
 func TestServiceSetRejectsEmptyProviderID(t *testing.T) {
 	svc := providercred.NewService(&fakeStore{}, fakeCipher{})
-	err := svc.Set(context.Background(), "a1", providercred.Input{ProviderID: "", APIKey: "k"})
+	_, err := svc.Set(context.Background(), "a1", providercred.Input{ProviderID: "", APIKey: "k"})
 	if !errors.Is(err, providercred.ErrEmptyProviderID) {
 		t.Fatalf("err = %v, want ErrEmptyProviderID", err)
 	}
@@ -105,9 +105,12 @@ func TestServiceSetRotationPreservesOldOnEncryptFailure(t *testing.T) {
 	store := &fakeStore{}
 	svc := providercred.NewService(store, fakeCipher{failOnPlaintext: "new-key"})
 
-	err := svc.Set(context.Background(), "a1", providercred.Input{ProviderID: "openai", APIKey: "new-key"})
+	_, err := svc.Set(context.Background(), "a1", providercred.Input{ProviderID: "openai", APIKey: "new-key"})
 	if err == nil {
 		t.Fatal("Set: expected encrypt failure")
+	}
+	if !errors.Is(err, providercred.ErrUnavailable) || strings.Contains(err.Error(), "new-key") {
+		t.Fatalf("Set returned unsafe encryption error: %v", err)
 	}
 	// The store is never touched, so any previously stored ciphertext stands.
 	if len(store.upserts) != 0 {
@@ -128,6 +131,29 @@ func TestServiceCreateRejectsDuplicateProvider(t *testing.T) {
 	}
 	if store.createCalls != 0 {
 		t.Errorf("store.Create called %d times despite duplicate", store.createCalls)
+	}
+}
+
+func TestServiceRejectsBoundedCredentialInputs(t *testing.T) {
+	store := &fakeStore{}
+	svc := providercred.NewService(store, fakeCipher{})
+
+	tooMany := make([]providercred.Input, providercred.MaxCredentialsPerCreate+1)
+	for i := range tooMany {
+		tooMany[i] = providercred.Input{ProviderID: fmt.Sprintf("provider-%d", i), APIKey: "k"}
+	}
+	if err := svc.CreateAgentWithCredentials(context.Background(), config.Agent{ID: "a1"}, tooMany); !errors.Is(err, providercred.ErrTooManyCredentials) {
+		t.Fatalf("too many credentials err = %v", err)
+	}
+	if _, err := svc.Set(context.Background(), "a1", providercred.Input{
+		ProviderID: strings.Repeat("p", providercred.MaxProviderIDLength+1), APIKey: "k",
+	}); !errors.Is(err, providercred.ErrProviderIDTooLong) {
+		t.Fatalf("long provider id err = %v", err)
+	}
+	if _, err := svc.Set(context.Background(), "a1", providercred.Input{
+		ProviderID: "openai", APIKey: strings.Repeat("k", providercred.MaxAPIKeyLength+1),
+	}); !errors.Is(err, providercred.ErrAPIKeyTooLong) {
+		t.Fatalf("long api key err = %v", err)
 	}
 }
 
@@ -201,7 +227,7 @@ func TestSecretTypesDoNotMarshalKeyMaterial(t *testing.T) {
 func TestServiceFailsClosedWhenDependenciesUnavailable(t *testing.T) {
 	ctx := context.Background()
 	withoutCipher := providercred.NewService(&fakeStore{}, nil)
-	if err := withoutCipher.Set(ctx, "a1", providercred.Input{ProviderID: "openai", APIKey: "k"}); !errors.Is(err, providercred.ErrUnavailable) {
+	if _, err := withoutCipher.Set(ctx, "a1", providercred.Input{ProviderID: "openai", APIKey: "k"}); !errors.Is(err, providercred.ErrUnavailable) {
 		t.Fatalf("Set err = %v, want ErrUnavailable", err)
 	}
 	withoutStore := providercred.NewService(nil, fakeCipher{})

@@ -33,21 +33,22 @@ func (s *Service) List(ctx context.Context, agentID string) ([]Metadata, error) 
 // key is encrypted before the write, and the write itself replaces the row in a
 // single statement, so a failure at either step leaves the previous ciphertext
 // intact.
-func (s *Service) Set(ctx context.Context, agentID string, input Input) error {
+func (s *Service) Set(ctx context.Context, agentID string, input Input) (Metadata, error) {
 	if err := validateInput(input); err != nil {
-		return err
+		return Metadata{}, err
 	}
 	enc, err := s.encrypt(input)
 	if err != nil {
-		return err
+		return Metadata{}, err
 	}
 	if s.store == nil {
-		return ErrUnavailable
+		return Metadata{}, ErrUnavailable
 	}
-	if err := s.store.UpsertAgentProviderCredential(ctx, agentID, enc); err != nil {
-		return fmt.Errorf("provider credential: set %q: %w", input.ProviderID, err)
+	meta, err := s.store.UpsertAgentProviderCredential(ctx, agentID, enc)
+	if err != nil {
+		return Metadata{}, fmt.Errorf("provider credential: set %q: %w", input.ProviderID, err)
 	}
-	return nil
+	return meta, nil
 }
 
 // Delete removes one credential, restoring global-key fallback. It is
@@ -95,7 +96,10 @@ func (s *Service) encrypt(input Input) (Encrypted, error) {
 	}
 	ciphertext, err := s.cipher.EncryptSystem(input.APIKey)
 	if err != nil {
-		return Encrypted{}, fmt.Errorf("provider credential: encrypt %q: %w", input.ProviderID, err)
+		// Cipher implementations receive plaintext. Do not propagate their error
+		// text into logs or API error chains because a faulty implementation may
+		// include its input. The caller still gets a typed unavailable failure.
+		return Encrypted{}, fmt.Errorf("provider credential: encrypt %q: %w", input.ProviderID, ErrUnavailable)
 	}
 	return Encrypted{ProviderID: input.ProviderID, APIKeyEnc: ciphertext}, nil
 }
@@ -104,13 +108,22 @@ func validateInput(input Input) error {
 	if input.ProviderID == "" {
 		return ErrEmptyProviderID
 	}
+	if len(input.ProviderID) > MaxProviderIDLength {
+		return ErrProviderIDTooLong
+	}
 	if input.APIKey == "" {
 		return ErrEmptyAPIKey
+	}
+	if len(input.APIKey) > MaxAPIKeyLength {
+		return ErrAPIKeyTooLong
 	}
 	return nil
 }
 
 func validateSet(inputs []Input) error {
+	if len(inputs) > MaxCredentialsPerCreate {
+		return ErrTooManyCredentials
+	}
 	seen := make(map[string]struct{}, len(inputs))
 	for _, in := range inputs {
 		if err := validateInput(in); err != nil {

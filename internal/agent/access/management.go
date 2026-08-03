@@ -61,7 +61,7 @@ type AgentReloader interface {
 // validates before delegating; it never sees plaintext after handing off.
 type CredentialWriter interface {
 	List(ctx context.Context, agentID string) ([]providercred.Metadata, error)
-	Set(ctx context.Context, agentID string, input providercred.Input) error
+	Set(ctx context.Context, agentID string, input providercred.Input) (providercred.Metadata, error)
 	Delete(ctx context.Context, agentID, providerID string) error
 	CreateAgentWithCredentials(ctx context.Context, agent config.Agent, inputs []providercred.Input) error
 }
@@ -301,25 +301,26 @@ func (m *Management) ListProviderCredentials(ctx context.Context, authority auth
 // SetProviderCredential upserts (or rotates) one Agent Provider key override. It
 // requires Manage, validates the target is a canonical configured Provider before
 // any encryption, and reloads only the affected Agent's runners after commit.
-func (m *Management) SetProviderCredential(ctx context.Context, authority authz.Authority, agentID string, input providercred.Input) error {
+func (m *Management) SetProviderCredential(ctx context.Context, authority authz.Authority, agentID string, input providercred.Input) (providercred.Metadata, error) {
 	if m.creds == nil {
-		return ErrCredentialsUnavailable
+		return providercred.Metadata{}, ErrCredentialsUnavailable
 	}
 	acc, err := m.pep.Begin(ctx, authority)
 	if err != nil {
-		return err
+		return providercred.Metadata{}, err
 	}
 	if _, err := acc.Manage(ctx, agentID); err != nil {
-		return err
+		return providercred.Metadata{}, err
 	}
 	if err := m.validateProviderIDs(ctx, input.ProviderID); err != nil {
-		return err
+		return providercred.Metadata{}, err
 	}
-	if err := m.creds.Set(ctx, agentID, input); err != nil {
-		return mapCredentialError(err)
+	meta, err := m.creds.Set(ctx, agentID, input)
+	if err != nil {
+		return providercred.Metadata{}, mapCredentialError(err)
 	}
 	m.reload(ctx, agentID)
-	return nil
+	return meta, nil
 }
 
 // DeleteProviderCredential removes an Agent Provider key override, restoring the
@@ -384,7 +385,10 @@ func mapCredentialError(err error) error {
 		return nil
 	case errors.Is(err, providercred.ErrEmptyProviderID),
 		errors.Is(err, providercred.ErrEmptyAPIKey),
-		errors.Is(err, providercred.ErrDuplicateProvider):
+		errors.Is(err, providercred.ErrDuplicateProvider),
+		errors.Is(err, providercred.ErrTooManyCredentials),
+		errors.Is(err, providercred.ErrProviderIDTooLong),
+		errors.Is(err, providercred.ErrAPIKeyTooLong):
 		return err
 	case errors.Is(err, providercred.ErrUnavailable):
 		return fmt.Errorf("%w: %w", ErrCredentialsUnavailable, err)

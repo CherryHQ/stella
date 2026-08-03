@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 )
@@ -44,6 +45,16 @@ func agentAccessError(err error) (int, string) {
 // found", an authenticated denial is 403, and anything else is a logged 500.
 func agentManagementError(err error) (int, string) {
 	switch {
+	case errors.Is(err, agentaccess.ErrUnknownProvider),
+		errors.Is(err, providercred.ErrEmptyProviderID),
+		errors.Is(err, providercred.ErrEmptyAPIKey),
+		errors.Is(err, providercred.ErrDuplicateProvider),
+		errors.Is(err, providercred.ErrTooManyCredentials),
+		errors.Is(err, providercred.ErrProviderIDTooLong),
+		errors.Is(err, providercred.ErrAPIKeyTooLong):
+		return http.StatusBadRequest, "invalid provider credential"
+	case errors.Is(err, agentaccess.ErrCredentialsUnavailable):
+		return http.StatusServiceUnavailable, "provider credentials are unavailable"
 	case errors.Is(err, agentaccess.ErrInvalidScope):
 		return http.StatusBadRequest, "scope must be 'system' or 'restricted'"
 	case errors.Is(err, agentaccess.ErrUserNotFound):

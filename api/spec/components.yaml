@@ -129,6 +129,66 @@ components:
           type: boolean
         template_id:
           type: string
+        provider_credentials:
+          type: array
+          maxItems: 8
+          description: >-
+            Optional write-only API-key overrides for canonical global Providers. Omit to use deployment-global Provider keys.
+          items:
+            $ref: "#/components/schemas/AgentProviderCredentialInput"
+    AgentProviderCredentialInput:
+      type: object
+      required: [provider_id, api_key]
+      properties:
+        provider_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Canonical global Provider ID; type aliases are not accepted.
+        api_key:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          writeOnly: true
+          description: Write-only API key override. Use DELETE to restore the global key.
+    AgentProviderCredential:
+      type: object
+      required: [id, has_api_key, updated_at]
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: Canonical global Provider ID for this override.
+        has_api_key:
+          type: boolean
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    AgentProviderCredentialList:
+      type: object
+      required: [provider_credentials, next_page_token, total_size]
+      properties:
+        provider_credentials:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentProviderCredential"
+        next_page_token:
+          type: string
+          nullable: true
+        total_size:
+          type: integer
+    UpdateAgentProviderCredentialRequest:
+      type: object
+      required: [api_key]
+      properties:
+        api_key:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          writeOnly: true
+          description: Write-only replacement API key. Use DELETE to restore the global key.
     AgentUser:
       type: object
       properties:

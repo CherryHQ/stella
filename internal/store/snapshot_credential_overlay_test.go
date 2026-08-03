@@ -25,7 +25,7 @@ func TestSnapshotOverlayCanonicalOverride(t *testing.T) {
 	overlayAgent(t, s, "ag", "openai/gpt")
 
 	svc := providercred.NewService(s, b64Cipher{})
-	if err := svc.Set(ctx, "ag", providercred.Input{ProviderID: "openai", APIKey: "AGENTKEY"}); err != nil {
+	if _, err := svc.Set(ctx, "ag", providercred.Input{ProviderID: "openai", APIKey: "AGENTKEY"}); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestSnapshotOverlayAppliesToTypeAlias(t *testing.T) {
 
 	svc := providercred.NewService(s, b64Cipher{})
 	// The override must be keyed by the canonical id, not the alias.
-	if err := svc.Set(ctx, "ag", providercred.Input{ProviderID: "prov-1", APIKey: "AGENTKEY"}); err != nil {
+	if _, err := svc.Set(ctx, "ag", providercred.Input{ProviderID: "prov-1", APIKey: "AGENTKEY"}); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 

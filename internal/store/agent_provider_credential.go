@@ -52,15 +52,16 @@ func (s *DBStore) GetAgentProviderCredential(ctx context.Context, agentID, provi
 }
 
 // UpsertAgentProviderCredential writes or atomically rotates one credential.
-func (s *DBStore) UpsertAgentProviderCredential(ctx context.Context, agentID string, cred providercred.Encrypted) error {
-	if _, err := s.q.UpsertAgentProviderCredential(ctx, sqlc.UpsertAgentProviderCredentialParams{
+func (s *DBStore) UpsertAgentProviderCredential(ctx context.Context, agentID string, cred providercred.Encrypted) (providercred.Metadata, error) {
+	row, err := s.q.UpsertAgentProviderCredential(ctx, sqlc.UpsertAgentProviderCredentialParams{
 		AgentID:    agentID,
 		ProviderID: cred.ProviderID,
 		ApiKeyEnc:  cred.APIKeyEnc,
-	}); err != nil {
-		return fmt.Errorf("upsert agent %q provider credential %q: %w", agentID, cred.ProviderID, err)
+	})
+	if err != nil {
+		return providercred.Metadata{}, fmt.Errorf("upsert agent %q provider credential %q: %w", agentID, cred.ProviderID, err)
 	}
-	return nil
+	return providercred.Metadata{ProviderID: row.ProviderID, HasAPIKey: true, UpdatedAt: row.UpdatedAt.UTC()}, nil
 }
 
 // DeleteAgentProviderCredential removes one credential. It is idempotent: a

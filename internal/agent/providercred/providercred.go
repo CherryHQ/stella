@@ -18,6 +18,14 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
+// Transport limits keep credential writes bounded without putting plaintext on a
+// transport or persistence type. The OpenAPI contract mirrors these values.
+const (
+	MaxCredentialsPerCreate = 8
+	MaxProviderIDLength     = 255
+	MaxAPIKeyLength         = 16384
+)
+
 // Validation errors are returned before any secret work happens, so callers can
 // map them to a 400 without risking partial writes.
 var (
@@ -29,6 +37,14 @@ var (
 	// ErrDuplicateProvider rejects a create/collection that names the same
 	// canonical Provider twice.
 	ErrDuplicateProvider = errors.New("provider credential: duplicate provider_id")
+	// ErrTooManyCredentials rejects a create collection beyond the supported
+	// bounded cardinality.
+	ErrTooManyCredentials = errors.New("provider credential: too many credentials")
+	// ErrProviderIDTooLong rejects an identifier that cannot be accepted by the
+	// bounded API contract.
+	ErrProviderIDTooLong = errors.New("provider credential: provider_id is too long")
+	// ErrAPIKeyTooLong rejects an oversized write-only key before encryption.
+	ErrAPIKeyTooLong = errors.New("provider credential: api_key is too long")
 	// ErrUnavailable reports missing persistence or encryption dependencies. It
 	// is safe for a transport layer to map to 503.
 	ErrUnavailable = errors.New("provider credential: unavailable")
@@ -90,7 +106,7 @@ type Store interface {
 	// false when no override exists.
 	GetAgentProviderCredential(ctx context.Context, agentID, providerID string) (Encrypted, bool, error)
 	// UpsertAgentProviderCredential writes (or atomically rotates) one credential.
-	UpsertAgentProviderCredential(ctx context.Context, agentID string, cred Encrypted) error
+	UpsertAgentProviderCredential(ctx context.Context, agentID string, cred Encrypted) (Metadata, error)
 	// DeleteAgentProviderCredential removes one credential; it is idempotent.
 	DeleteAgentProviderCredential(ctx context.Context, agentID, providerID string) error
 	// CreateAgentWithCredentials inserts the Agent and all its credential rows in

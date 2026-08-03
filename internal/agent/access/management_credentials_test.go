@@ -24,12 +24,12 @@ func (f *fakeCreds) List(context.Context, string) ([]providercred.Metadata, erro
 	return f.listResult, f.listErr
 }
 
-func (f *fakeCreds) Set(_ context.Context, _ string, input providercred.Input) error {
+func (f *fakeCreds) Set(_ context.Context, _ string, input providercred.Input) (providercred.Metadata, error) {
 	if f.setErr != nil {
-		return f.setErr
+		return providercred.Metadata{}, f.setErr
 	}
 	f.setInputs = append(f.setInputs, input)
-	return nil
+	return providercred.Metadata{ProviderID: input.ProviderID, HasAPIKey: true}, nil
 }
 
 func (f *fakeCreds) Delete(_ context.Context, _, providerID string) error {
@@ -76,8 +76,12 @@ func TestSetProviderCredentialCreatorAllowedSyncsOnlyThatAgent(t *testing.T) {
 	reloader := &fakeReloader{}
 	m := newCredManagement(credAgent(), newFakeAssign(), reloader, creds, fakeProviders{ids: []string{"openai"}})
 
-	if err := m.SetProviderCredential(context.Background(), userAuthority(t, "u1", false), "a", openaiInput()); err != nil {
+	meta, err := m.SetProviderCredential(context.Background(), userAuthority(t, "u1", false), "a", openaiInput())
+	if err != nil {
 		t.Fatalf("creator Set: %v", err)
+	}
+	if meta.ProviderID != "openai" || !meta.HasAPIKey {
+		t.Fatalf("creator Set metadata = %+v", meta)
 	}
 	if len(creds.setInputs) != 1 {
 		t.Fatalf("Set not delegated: %+v", creds.setInputs)
@@ -92,7 +96,7 @@ func TestSetProviderCredentialCreatorAllowedSyncsOnlyThatAgent(t *testing.T) {
 func TestSetProviderCredentialAdminAllowed(t *testing.T) {
 	creds := &fakeCreds{}
 	m := newCredManagement(credAgent(), newFakeAssign(), &fakeReloader{}, creds, fakeProviders{ids: []string{"openai"}})
-	if err := m.SetProviderCredential(context.Background(), userAuthority(t, "admin", true), "a", openaiInput()); err != nil {
+	if _, err := m.SetProviderCredential(context.Background(), userAuthority(t, "admin", true), "a", openaiInput()); err != nil {
 		t.Fatalf("admin Set: %v", err)
 	}
 	if len(creds.setInputs) != 1 {
@@ -106,7 +110,7 @@ func TestSetProviderCredentialAssignedNonCreatorDenied(t *testing.T) {
 	assign.byUser["u2"] = []string{"a"} // genuinely assigned, but not the creator
 	m := newCredManagement(credAgent(), assign, &fakeReloader{}, creds, fakeProviders{ids: []string{"openai"}})
 
-	err := m.SetProviderCredential(context.Background(), userAuthority(t, "u2", false), "a", openaiInput())
+	_, err := m.SetProviderCredential(context.Background(), userAuthority(t, "u2", false), "a", openaiInput())
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("assigned non-creator Set = %v, want ErrForbidden", err)
 	}
@@ -120,7 +124,7 @@ func TestSetProviderCredentialUnknownProviderRejectedBeforeWrite(t *testing.T) {
 	m := newCredManagement(credAgent(), newFakeAssign(), &fakeReloader{}, creds, fakeProviders{ids: []string{"openai"}})
 
 	// "openai-completions" is a type alias, not a canonical provider row id.
-	err := m.SetProviderCredential(context.Background(), userAuthority(t, "u1", false), "a",
+	_, err := m.SetProviderCredential(context.Background(), userAuthority(t, "u1", false), "a",
 		providercred.Input{ProviderID: "openai-completions", APIKey: "sk"})
 	if !errors.Is(err, ErrUnknownProvider) {
 		t.Fatalf("alias Set = %v, want ErrUnknownProvider", err)
@@ -135,7 +139,7 @@ func TestSetProviderCredentialReloadFailureIsDurable(t *testing.T) {
 	reloader := &fakeReloader{err: errors.New("pool down")}
 	m := newCredManagement(credAgent(), newFakeAssign(), reloader, creds, fakeProviders{ids: []string{"openai"}})
 
-	if err := m.SetProviderCredential(context.Background(), userAuthority(t, "u1", false), "a", openaiInput()); err != nil {
+	if _, err := m.SetProviderCredential(context.Background(), userAuthority(t, "u1", false), "a", openaiInput()); err != nil {
 		t.Fatalf("Set must succeed despite reload failure: %v", err)
 	}
 	if len(creds.setInputs) != 1 {
@@ -280,7 +284,7 @@ func TestCredentialMethodsUnavailableWhenUnwired(t *testing.T) {
 	m := newManagement(credAgent(), newFakeAssign(), &fakeReloader{}, fakeUsers{}, nil)
 	ctx := context.Background()
 	admin := userAuthority(t, "admin", true)
-	if err := m.SetProviderCredential(ctx, admin, "a", openaiInput()); !errors.Is(err, ErrCredentialsUnavailable) {
+	if _, err := m.SetProviderCredential(ctx, admin, "a", openaiInput()); !errors.Is(err, ErrCredentialsUnavailable) {
 		t.Fatalf("Set = %v, want ErrCredentialsUnavailable", err)
 	}
 	if err := m.DeleteProviderCredential(ctx, admin, "a", "openai"); !errors.Is(err, ErrCredentialsUnavailable) {
@@ -294,7 +298,7 @@ func TestCredentialMethodsUnavailableWhenUnwired(t *testing.T) {
 func TestCredentialCipherUnavailableMapsToManagementUnavailable(t *testing.T) {
 	creds := &fakeCreds{setErr: providercred.ErrUnavailable}
 	m := newCredManagement(credAgent(), newFakeAssign(), &fakeReloader{}, creds, fakeProviders{ids: []string{"openai"}})
-	err := m.SetProviderCredential(context.Background(), userAuthority(t, "u1", false), "a", openaiInput())
+	_, err := m.SetProviderCredential(context.Background(), userAuthority(t, "u1", false), "a", openaiInput())
 	if !errors.Is(err, ErrCredentialsUnavailable) {
 		t.Fatalf("Set = %v, want ErrCredentialsUnavailable", err)
 	}

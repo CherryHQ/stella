@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -175,10 +176,14 @@ func TestUpsertUniquenessAndRotation(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	if err := s.UpsertAgentProviderCredential(ctx, "rotator", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:v1"}); err != nil {
+	meta, err := s.UpsertAgentProviderCredential(ctx, "rotator", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:v1"})
+	if err != nil {
 		t.Fatalf("first upsert: %v", err)
 	}
-	if err := s.UpsertAgentProviderCredential(ctx, "rotator", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:v2"}); err != nil {
+	if meta.ProviderID != "openai" || !meta.HasAPIKey || meta.UpdatedAt.IsZero() || meta.UpdatedAt.Location() != time.UTC {
+		t.Fatalf("first upsert metadata = %+v", meta)
+	}
+	if _, err := s.UpsertAgentProviderCredential(ctx, "rotator", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:v2"}); err != nil {
 		t.Fatalf("rotation upsert: %v", err)
 	}
 
@@ -202,13 +207,13 @@ func TestSetRotationPreservesOldOnEncryptFailure(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	if err := providercred.NewService(s, b64Cipher{}).Set(ctx, "keep-old", providercred.Input{ProviderID: "openai", APIKey: "original"}); err != nil {
+	if _, err := providercred.NewService(s, b64Cipher{}).Set(ctx, "keep-old", providercred.Input{ProviderID: "openai", APIKey: "original"}); err != nil {
 		t.Fatalf("initial Set: %v", err)
 	}
 
 	// A rotation whose encryption fails must leave the original ciphertext intact.
 	failing := providercred.NewService(s, b64Cipher{failOn: "rotated"})
-	if err := failing.Set(ctx, "keep-old", providercred.Input{ProviderID: "openai", APIKey: "rotated"}); err == nil {
+	if _, err := failing.Set(ctx, "keep-old", providercred.Input{ProviderID: "openai", APIKey: "rotated"}); err == nil {
 		t.Fatal("expected encrypt failure on rotation")
 	}
 
@@ -228,12 +233,12 @@ func TestUpsertWriteFailurePreservesOldCiphertext(t *testing.T) {
 	if err := s.CreateAgent(ctx, newCredAgent("keep-old-write")); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	if err := s.UpsertAgentProviderCredential(ctx, "keep-old-write", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:old"}); err != nil {
+	if _, err := s.UpsertAgentProviderCredential(ctx, "keep-old-write", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:old"}); err != nil {
 		t.Fatalf("initial upsert: %v", err)
 	}
 
 	// The CHECK rejects the replacement statement atomically.
-	if err := s.UpsertAgentProviderCredential(ctx, "keep-old-write", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: ""}); err == nil {
+	if _, err := s.UpsertAgentProviderCredential(ctx, "keep-old-write", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: ""}); err == nil {
 		t.Fatal("expected empty-ciphertext write to fail")
 	}
 	enc, found, err := s.GetAgentProviderCredential(ctx, "keep-old-write", "openai")
@@ -252,7 +257,7 @@ func TestCredentialCascadeOnAgentDelete(t *testing.T) {
 	if err := s.CreateAgent(ctx, newCredAgent("gone")); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	if err := s.UpsertAgentProviderCredential(ctx, "gone", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:x"}); err != nil {
+	if _, err := s.UpsertAgentProviderCredential(ctx, "gone", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:x"}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -271,7 +276,7 @@ func TestCredentialCascadeOnProviderDelete(t *testing.T) {
 	if err := s.CreateAgent(ctx, newCredAgent("survivor")); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	if err := s.UpsertAgentProviderCredential(ctx, "survivor", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:x"}); err != nil {
+	if _, err := s.UpsertAgentProviderCredential(ctx, "survivor", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:x"}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -299,7 +304,7 @@ func TestDeleteAgentProviderCredentialIdempotent(t *testing.T) {
 	if err := s.DeleteAgentProviderCredential(ctx, "idem", "openai"); err != nil {
 		t.Fatalf("delete missing: %v", err)
 	}
-	if err := s.UpsertAgentProviderCredential(ctx, "idem", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:x"}); err != nil {
+	if _, err := s.UpsertAgentProviderCredential(ctx, "idem", providercred.Encrypted{ProviderID: "openai", APIKeyEnc: "enc:x"}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 	if err := s.DeleteAgentProviderCredential(ctx, "idem", "openai"); err != nil {
