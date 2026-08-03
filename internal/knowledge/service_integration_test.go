@@ -1,65 +1,40 @@
 package knowledge
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
-	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
-type staticParser struct {
-	chunks []ParsedChunk
-	err    error
-}
+const (
+	testUserA  = "10000000-0000-0000-0000-000000000001"
+	testUserB  = "10000000-0000-0000-0000-000000000002"
+	testAgentA = "knowledge-agent-a"
+)
 
-func (p staticParser) Parse(context.Context, string, string) ([]ParsedChunk, error) {
-	if p.err != nil {
-		return nil, p.err
-	}
-	return append([]ParsedChunk(nil), p.chunks...), nil
-}
-
-type unavailableParser struct {
-	staticParser
-}
-
-func (unavailableParser) Available() error {
-	return errors.New("managed parser is not installed")
-}
-
-type cancelAwareParser struct {
-	started  chan struct{}
-	canceled chan struct{}
-}
-
-func (p *cancelAwareParser) Parse(ctx context.Context, _, _ string) ([]ParsedChunk, error) {
-	close(p.started)
-	<-ctx.Done()
-	close(p.canceled)
-	return nil, ctx.Err()
-}
-
-func TestKnowledgeOwnerConstraint(t *testing.T) {
-	db := dbtest.New(t)
-	seedKnowledgePrincipals(t, db)
-
+func TestKnowledgeSchemaEnforcesOwnerAndActivePointer(t *testing.T) {
+	database := dbtest.New(t)
+	seedKnowledgePrincipals(t, database)
 	valid := []Owner{
 		{Scope: ScopeSystem},
 		{Scope: ScopeSystemAgent, AgentID: testAgentA},
@@ -67,11 +42,10 @@ func TestKnowledgeOwnerConstraint(t *testing.T) {
 		{Scope: ScopeUserAgent, UserID: testUserA, AgentID: testAgentA},
 	}
 	for index, owner := range valid {
-		if _, err := insertKnowledgeFile(t.Context(), db, owner, fmt.Sprintf("valid-%d.txt", index), "ready"); err != nil {
+		if _, err := insertKnowledgeFile(t.Context(), database, owner, int64(index), "processing", nil); err != nil {
 			t.Fatalf("valid owner %+v: %v", owner, err)
 		}
 	}
-
 	invalid := []Owner{
 		{Scope: ScopeSystem, UserID: testUserA},
 		{Scope: ScopeSystem, AgentID: testAgentA},
@@ -80,506 +54,426 @@ func TestKnowledgeOwnerConstraint(t *testing.T) {
 		{Scope: ScopeUser},
 		{Scope: ScopeUser, UserID: testUserA, AgentID: testAgentA},
 		{Scope: ScopeUserAgent, UserID: testUserA},
-		{Scope: ScopeUserAgent, AgentID: testAgentA},
-		{Scope: Scope("other")},
+		{Scope: "future_scope"},
 	}
-	for index, owner := range invalid {
-		if _, err := insertKnowledgeFile(t.Context(), db, owner, fmt.Sprintf("invalid-%d.txt", index), "ready"); err == nil {
-			t.Fatalf("invalid owner %+v unexpectedly passed database CHECK", owner)
+	for _, owner := range invalid {
+		if _, err := insertKnowledgeFile(t.Context(), database, owner, 1, "processing", nil); err == nil {
+			t.Fatalf("invalid owner %+v passed database CHECK", owner)
 		}
 	}
+	if _, err := insertKnowledgeFile(
+		t.Context(), database, Owner{Scope: ScopeSystem}, -1, "processing", nil,
+	); err == nil {
+		t.Fatal("negative size passed database CHECK")
+	}
+	// Status is deliberately a Go-validated evolvable value, not a database
+	// enum; adding a lifecycle state should not require dropping a CHECK first.
+	if _, err := insertKnowledgeFile(
+		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "future_status", nil,
+	); err != nil {
+		t.Fatalf("evolvable status was rejected: %v", err)
+	}
+
+	fileA, err := insertKnowledgeFile(
+		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileB, err := insertKnowledgeFile(
+		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setA := uuid.NewString()
+	setB := uuid.NewString()
+	for _, value := range []struct{ setID, fileID string }{{setA, fileA}, {setB, fileB}} {
+		if _, err := database.Exec(t.Context(), `
+			INSERT INTO knowledge_chunk_set
+				(id, file_id, derivation_key, processor_key, raw_sha256)
+			VALUES ($1, $2, $3, 'xberg:test', $4)
+		`, value.setID, value.fileID, "derivation:"+value.setID, bytes.Repeat([]byte{1}, sha256.Size)); err != nil {
+			t.Fatalf("insert ChunkSet: %v", err)
+		}
+	}
+	if _, err := database.Exec(
+		t.Context(), `UPDATE knowledge_file SET active_chunk_set_id = $1 WHERE id = $2`, setB, fileA,
+	); err == nil {
+		t.Fatal("active pointer accepted another file's ChunkSet")
+	}
+	if _, err := database.Exec(
+		t.Context(), `UPDATE knowledge_file SET active_chunk_set_id = $1 WHERE id = $2`, setA, fileA,
+	); err != nil {
+		t.Fatalf("same-file active pointer was rejected: %v", err)
+	}
+	if _, err := database.Exec(t.Context(), `DELETE FROM knowledge_file WHERE id = $1`, fileA); err != nil {
+		t.Fatalf("file deletion did not cascade through its active ChunkSet: %v", err)
+	}
 }
 
-func TestKnowledgeServiceRiverReadySearchAndDelete(t *testing.T) {
-	db := dbtest.New(t)
-	service, client := newWorkingKnowledgeService(t, db, staticParser{
-		chunks: []ParsedChunk{{
-			Content: "The travel reimbursement ceiling is 800 yuan.",
-			Locator: ChunkLocator{
-				FirstPage:   uint32Pointer(2),
-				LastPage:    uint32Pointer(2),
-				HeadingPath: []string{"Finance", "Travel"},
-				ByteStart:   10,
-				ByteEnd:     60,
-			},
-		}},
+func TestCreateManagedUploadCommitsRawMetadataAndUniqueJob(t *testing.T) {
+	database := dbtest.New(t)
+	store, service := newKnowledgeService(t, database)
+	content := []byte("travel reimbursement limit is 800 yuan")
+	file, err := service.CreateManagedUpload(
+		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "travel.txt", bytes.NewReader(content),
+	)
+	if err != nil {
+		t.Fatalf("CreateManagedUpload: %v", err)
+	}
+	parsedID, err := uuid.Parse(file.ID)
+	if err != nil || parsedID.Version() != 7 {
+		t.Fatalf("file ID %q is not UUIDv7: %v", file.ID, err)
+	}
+	if file.Status != FileStatusProcessing || file.SizeBytes != int64(len(content)) {
+		t.Fatalf("created file = %+v", file)
+	}
+	wantHash := sha256.Sum256(content)
+	if !bytes.Equal(file.RawSHA256, wantHash[:]) {
+		t.Fatalf("raw hash = %x, want %x", file.RawSHA256, wantHash)
+	}
+	rawKey, err := RawKey(file.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, err := store.Open(t.Context(), rawKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotContent, readErr := io.ReadAll(object)
+	_ = object.Close()
+	if readErr != nil || !bytes.Equal(gotContent, content) {
+		t.Fatalf("raw content = %q, error %v", gotContent, readErr)
+	}
+	var kind, fileID string
+	if err := database.QueryRow(t.Context(), `
+		SELECT kind, args ->> 'file_id'
+		FROM river_job
+		WHERE kind = 'stella_knowledge_chunk'
+	`).Scan(&kind, &fileID); err != nil {
+		t.Fatalf("load River job: %v", err)
+	}
+	if kind != (chunkArgs{}).Kind() || fileID != file.ID {
+		t.Fatalf("River job = %q %q, want %q %q", kind, fileID, (chunkArgs{}).Kind(), file.ID)
+	}
+	var rawColumnCount int
+	if err := database.QueryRow(t.Context(), `
+		SELECT count(*)
+		FROM information_schema.columns
+		WHERE table_name = 'knowledge_file' AND column_name = 'raw_content'
+	`).Scan(&rawColumnCount); err != nil {
+		t.Fatal(err)
+	}
+	if rawColumnCount != 0 {
+		t.Fatal("raw_content BYTEA still exists in knowledge_file")
+	}
+}
+
+func TestCreateManagedUploadAuthorizesBeforeReadingBody(t *testing.T) {
+	database := dbtest.New(t)
+	_, service := newKnowledgeService(t, database)
+	reader := &countingReader{reader: stringsReader("secret")}
+	_, err := service.CreateManagedUpload(
+		t.Context(), testAuthority(t, testUserA, false), ScopeSystem, "", "secret.txt", reader,
+	)
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("CreateManagedUpload error = %v, want ErrForbidden", err)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("unauthorized request body was read %d times", reader.reads)
+	}
+}
+
+func TestRawStoreIOCompletesBeforeDatabaseTransactionBegins(t *testing.T) {
+	database := dbtest.New(t)
+	baseStore, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocking := &blockingRawStore{
+		RawStore: baseStore, started: make(chan struct{}), release: make(chan struct{}),
+	}
+	client, err := river.NewClient(riverpgxv5.New(database), &river.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(ServiceConfig{
+		DB: database, RawStore: blocking, River: client,
+		TempDir: t.TempDir(), MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
-	startRiverClient(t, client)
-
-	file, err := service.Create(t.Context(), Owner{Scope: ScopeSystem}, "travel.txt", []byte("source"))
 	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if file.Status != FileStatusProcessing {
-		t.Fatalf("created status = %q, want processing", file.Status)
-	}
-
-	ready := waitForKnowledgeStatus(t, service, file.ID, FileStatusReady)
-	if ready.ErrorMessage != "" {
-		t.Fatalf("ready error message = %q", ready.ErrorMessage)
-	}
-
-	results, err := service.Search(t.Context(), testUserA, testAgentA, "travel reimbursement", 5)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if len(results) != 1 || results[0].FileName != "travel.txt" {
-		t.Fatalf("Search results = %+v, want travel.txt", results)
-	}
-	if results[0].Locator == nil || results[0].Locator.FirstPage == nil || *results[0].Locator.FirstPage != 2 {
-		t.Fatalf("public locator = %+v, want page 2", results[0].Locator)
-	}
-	if results[0].Locator.HeadingContext != "Finance > Travel" {
-		t.Fatalf("heading context = %q, want Finance > Travel", results[0].Locator.HeadingContext)
-	}
-
-	if _, err := service.Delete(t.Context(), file.ID); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	var files, chunks int
-	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM knowledge_file`).Scan(&files); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM knowledge_chunk`).Scan(&chunks); err != nil {
+	result := make(chan error, 1)
+	go func() {
+		_, createErr := service.createSnapshot(
+			t.Context(), Owner{Scope: ScopeSystem}, "blocked.txt", stringsReader("content"),
+		)
+		result <- createErr
+	}()
+	<-blocking.started
+	var idleTransactions int
+	if err := database.QueryRow(t.Context(), `
+		SELECT count(*)
+		FROM pg_stat_activity
+		WHERE datname = current_database()
+		  AND pid <> pg_backend_pid()
+		  AND state = 'idle in transaction'
+	`).Scan(&idleTransactions); err != nil {
+		close(blocking.release)
 		t.Fatal(err)
 	}
-	if files != 0 || chunks != 0 {
-		t.Fatalf("after delete: files=%d chunks=%d, want both zero", files, chunks)
+	if idleTransactions != 0 {
+		close(blocking.release)
+		t.Fatalf("RawStore Create overlapped %d idle database transactions", idleTransactions)
 	}
-	results, err = service.Search(t.Context(), testUserA, testAgentA, "travel reimbursement", 5)
-	if err != nil {
-		t.Fatalf("Search after delete: %v", err)
-	}
-	if len(results) != 0 {
-		t.Fatalf("Search after delete = %+v, want empty", results)
+	close(blocking.release)
+	if err := <-result; err != nil {
+		t.Fatalf("createSnapshot after release: %v", err)
 	}
 }
 
-func TestKnowledgeDeleteCancelsQueuedParseJob(t *testing.T) {
-	db := dbtest.New(t)
-	service := newInsertOnlyKnowledgeService(t, db)
-
-	file, err := service.Create(t.Context(), Owner{Scope: ScopeSystem}, "queued.txt", []byte("source"))
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if _, err := service.Delete(t.Context(), file.ID); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-
-	state, found, err := service.latestParseJobState(t.Context(), file.ID)
-	if err != nil {
-		t.Fatalf("latest parse job: %v", err)
-	}
-	if !found || state != "cancelled" {
-		t.Fatalf("parse job state = %q found=%v, want cancelled", state, found)
-	}
-}
-
-func TestKnowledgeDeleteCancelsRunningParserAfterRead(t *testing.T) {
-	db := dbtest.New(t)
-	parser := &cancelAwareParser{
-		started:  make(chan struct{}),
-		canceled: make(chan struct{}),
-	}
-	service, client := newWorkingKnowledgeService(t, db, parser)
-	startRiverClient(t, client)
-
-	file, err := service.Create(t.Context(), Owner{Scope: ScopeSystem}, "running.txt", []byte("source"))
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	select {
-	case <-parser.started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("parser did not start")
-	}
-
-	if _, err := service.Delete(t.Context(), file.ID); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	select {
-	case <-parser.canceled:
-	case <-time.After(5 * time.Second):
-		t.Fatal("running parser context was not cancelled after delete")
-	}
-	if _, err := service.Get(t.Context(), file.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("Get after delete error = %v, want not found", err)
-	}
-}
-
-func TestKnowledgeServiceRiverDeterministicFailure(t *testing.T) {
-	db := dbtest.New(t)
-	service, client := newWorkingKnowledgeService(t, db, staticParser{err: ErrNoExtractedText})
-	startRiverClient(t, client)
-
-	file, err := service.Create(t.Context(), Owner{Scope: ScopeSystem}, "empty.txt", []byte("source"))
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	failed := waitForKnowledgeStatus(t, service, file.ID, FileStatusFailed)
-	if failed.ErrorMessage == "" {
-		t.Fatal("failed file has no public error message")
-	}
-
-	var chunks int
-	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM knowledge_chunk WHERE file_id = $1`, file.ID).Scan(&chunks); err != nil {
+func TestCreateSnapshotCompensatesKnownPreCommitFailure(t *testing.T) {
+	database := dbtest.New(t)
+	store, service := newKnowledgeService(t, database)
+	// River insertion occurs after metadata insertion but in the same
+	// transaction. Removing its table makes that pre-commit phase fail.
+	if _, err := database.Exec(t.Context(), `ALTER TABLE river_job RENAME TO river_job_unavailable`); err != nil {
 		t.Fatal(err)
 	}
-	if chunks != 0 {
-		t.Fatalf("failed file chunks = %d, want zero", chunks)
-	}
-}
-
-func TestKnowledgeCreateRollsBackWhenRiverInsertFails(t *testing.T) {
-	db := dbtest.New(t)
-	service := newInsertOnlyKnowledgeService(t, db)
-
-	// Renaming River's table makes InsertTx fail after knowledge_file has been
-	// inserted, proving both writes are governed by the same transaction.
-	if _, err := db.Exec(t.Context(), `ALTER TABLE river_job RENAME TO river_job_unavailable`); err != nil {
-		t.Fatalf("rename river_job: %v", err)
-	}
-	_, err := service.Create(t.Context(), Owner{Scope: ScopeSystem}, "rollback.txt", []byte("source"))
+	_, err := service.createSnapshot(
+		t.Context(), Owner{Scope: ScopeSystem}, "rollback.txt", stringsReader("content"),
+	)
 	if err == nil {
-		t.Fatal("Create unexpectedly succeeded without river_job")
+		t.Fatal("createSnapshot unexpectedly succeeded without river_job")
 	}
-
-	var count int
-	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM knowledge_file`).Scan(&count); err != nil {
+	var fileCount int
+	if err := database.QueryRow(t.Context(), `SELECT count(*) FROM knowledge_file`).Scan(&fileCount); err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Fatalf("knowledge_file count = %d, want zero after rollback", count)
+	if fileCount != 0 {
+		t.Fatalf("knowledge_file count = %d after transaction rollback", fileCount)
+	}
+	page, err := store.ListPage(t.Context(), RawPrefix, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Objects) != 0 {
+		t.Fatalf("known pre-commit failure left %d raw objects", len(page.Objects))
 	}
 }
 
-func TestKnowledgeCreateRejectsUnavailableParserBeforePersisting(t *testing.T) {
-	db := dbtest.New(t)
-	service := newKnowledgeService(t, db, unavailableParser{})
-	client, err := river.NewClient(riverpgxv5.New(db), &river.Config{})
+func TestCommitOutcomeUnknownRetainsPotentiallyOwnedRaw(t *testing.T) {
+	database := dbtest.New(t)
+	store, service := newKnowledgeService(t, database)
+	service.commitTx = func(ctx context.Context, transaction pgx.Tx) error {
+		if err := transaction.Commit(ctx); err != nil {
+			return err
+		}
+		return errors.New("commit acknowledgement lost")
+	}
+	_, err := service.createSnapshot(
+		t.Context(), Owner{Scope: ScopeSystem}, "uncertain.txt", stringsReader("content"),
+	)
+	if err == nil {
+		t.Fatal("createSnapshot did not surface the uncertain commit result")
+	}
+	var fileID string
+	if err := database.QueryRow(t.Context(), `SELECT id FROM knowledge_file`).Scan(&fileID); err != nil {
+		t.Fatalf("committed metadata was lost: %v", err)
+	}
+	key, err := RawKey(fileID)
 	if err != nil {
-		t.Fatalf("new insert-only River client: %v", err)
-	}
-	service.SetRiverClient(client)
-
-	_, err = service.Create(t.Context(), Owner{Scope: ScopeSystem}, "not-ready.txt", []byte("source"))
-	if !errors.Is(err, ErrServiceUnavailable) {
-		t.Fatalf("Create error = %v, want service unavailable", err)
-	}
-	var count int
-	if err := db.QueryRow(t.Context(), `SELECT count(*) FROM knowledge_file`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Fatalf("knowledge_file count = %d, want zero while parser is unavailable", count)
+	object, err := store.Open(t.Context(), key)
+	if err != nil {
+		t.Fatalf("potentially owned raw was deleted: %v", err)
 	}
+	_ = object.Close()
 }
 
 func TestPersonalQuotaSerializesUserAndUserAgent(t *testing.T) {
-	db := dbtest.New(t)
-	seedKnowledgePrincipals(t, db)
-	service := newInsertOnlyKnowledgeService(t, db)
-
-	// Seed one below the shared personal file limit. The two concurrent uploads
-	// target different scopes but the same user and therefore the same lock.
-	_, err := db.Exec(t.Context(), `
-		INSERT INTO knowledge_file (
-			scope, user_id, file_name, media_type, size_bytes, raw_content
-		)
-		SELECT
-			'user', $1, 'seed-' || value || '.txt', 'text/plain', 1, convert_to('a', 'UTF8')
-		FROM generate_series(1, $2::integer) AS value
-	`, testUserA, PersonalMaxFiles-1)
-	if err != nil {
-		t.Fatalf("seed quota: %v", err)
+	database := dbtest.New(t)
+	seedKnowledgePrincipals(t, database)
+	store, service := newKnowledgeService(t, database)
+	if _, err := insertKnowledgeFile(
+		t.Context(), database, Owner{Scope: ScopeUser, UserID: testUserA},
+		PersonalMaxBytes-1, "processing", nil,
+	); err != nil {
+		t.Fatal(err)
 	}
-
 	owners := []Owner{
 		{Scope: ScopeUser, UserID: testUserA},
 		{Scope: ScopeUserAgent, UserID: testUserA, AgentID: testAgentA},
 	}
-	errs := make(chan error, len(owners))
+	results := make([]error, len(owners))
+	start := make(chan struct{})
 	var wait sync.WaitGroup
 	for index, owner := range owners {
 		wait.Add(1)
 		go func(index int, owner Owner) {
 			defer wait.Done()
-			_, err := service.Create(context.Background(), owner, fmt.Sprintf("concurrent-%d.txt", index), []byte("b"))
-			errs <- err
+			<-start
+			_, results[index] = service.createSnapshot(
+				t.Context(), owner, "one-byte.txt", stringsReader("x"),
+			)
 		}(index, owner)
 	}
+	close(start)
 	wait.Wait()
-	close(errs)
-
-	var succeeded, quotaExceeded int
-	for err := range errs {
+	var successes, quotaFailures int
+	for _, err := range results {
 		switch {
 		case err == nil:
-			succeeded++
+			successes++
 		case errors.Is(err, ErrQuotaExceeded):
-			quotaExceeded++
+			quotaFailures++
 		default:
-			t.Fatalf("unexpected concurrent Create error: %v", err)
+			t.Fatalf("concurrent create error = %v", err)
 		}
 	}
-	if succeeded != 1 || quotaExceeded != 1 {
-		t.Fatalf("concurrent results: succeeded=%d quota_exceeded=%d, want 1/1", succeeded, quotaExceeded)
+	if successes != 1 || quotaFailures != 1 {
+		t.Fatalf("concurrent personal quota = %d successes, %d quota failures", successes, quotaFailures)
 	}
-
-	quota, err := service.Quota(t.Context(), Owner{Scope: ScopeUserAgent, UserID: testUserA, AgentID: testAgentA})
-	if err != nil {
-		t.Fatalf("Quota: %v", err)
-	}
-	if quota.UsedFiles != PersonalMaxFiles {
-		t.Fatalf("personal used files = %d, want %d", quota.UsedFiles, PersonalMaxFiles)
-	}
-}
-
-func TestKnowledgeSearchUsesExactlyFourVisibleScopes(t *testing.T) {
-	db := dbtest.New(t)
-	seedKnowledgePrincipals(t, db)
-	service := newInsertOnlyKnowledgeService(t, db)
-
-	visible := []struct {
-		owner Owner
-		name  string
-	}{
-		{Owner{Scope: ScopeSystem}, "system.txt"},
-		{Owner{Scope: ScopeSystemAgent, AgentID: testAgentA}, "system-agent.txt"},
-		{Owner{Scope: ScopeUser, UserID: testUserA}, "user.txt"},
-		{Owner{Scope: ScopeUserAgent, UserID: testUserA, AgentID: testAgentA}, "user-agent.txt"},
-	}
-	for _, fixture := range visible {
-		fileID, err := insertKnowledgeFile(t.Context(), db, fixture.owner, fixture.name, "ready")
-		if err != nil {
-			t.Fatalf("insert %s: %v", fixture.name, err)
-		}
-		insertKnowledgeChunk(t, db, fileID, "orion handbook "+fixture.name)
-	}
-
-	hidden := []struct {
-		owner Owner
-		name  string
-	}{
-		{Owner{Scope: ScopeSystemAgent, AgentID: testAgentB}, "other-agent-system.txt"},
-		{Owner{Scope: ScopeUser, UserID: testUserB}, "other-user.txt"},
-		{Owner{Scope: ScopeUserAgent, UserID: testUserA, AgentID: testAgentB}, "same-user-other-agent.txt"},
-		{Owner{Scope: ScopeUserAgent, UserID: testUserB, AgentID: testAgentA}, "other-user-same-agent.txt"},
-	}
-	for _, fixture := range hidden {
-		fileID, err := insertKnowledgeFile(t.Context(), db, fixture.owner, fixture.name, "ready")
-		if err != nil {
-			t.Fatalf("insert %s: %v", fixture.name, err)
-		}
-		insertKnowledgeChunk(t, db, fileID, "orion handbook "+fixture.name)
-	}
-
-	processingID, err := insertKnowledgeFile(t.Context(), db, Owner{Scope: ScopeSystem}, "processing.txt", "processing")
+	page, err := store.ListPage(t.Context(), RawPrefix, "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	insertKnowledgeChunk(t, db, processingID, "orion handbook processing")
-
-	results, err := service.Search(t.Context(), testUserA, testAgentA, "orion handbook", 10)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if len(results) != len(visible) {
-		t.Fatalf("Search returned %d results: %+v; want exactly %d visible scopes", len(results), results, len(visible))
-	}
-	gotNames := make(map[string]bool, len(results))
-	for _, result := range results {
-		gotNames[result.FileName] = true
-	}
-	for _, fixture := range visible {
-		if !gotNames[fixture.name] {
-			t.Errorf("missing visible file %q from %+v", fixture.name, gotNames)
-		}
+	if len(page.Objects) != 1 {
+		t.Fatalf("raw object count = %d, want one committed object", len(page.Objects))
 	}
 }
 
-func TestKnowledgeSearchSupportsChineseAndMixedQueries(t *testing.T) {
-	db := dbtest.New(t)
-	seedKnowledgePrincipals(t, db)
-	service := newInsertOnlyKnowledgeService(t, db)
-
-	fileID, err := insertKnowledgeFile(
-		t.Context(),
-		db,
-		Owner{Scope: ScopeSystem},
-		"差旅制度.txt",
-		"ready",
+func TestRawOwnershipQueryIncludesLiveAndTombstonedFiles(t *testing.T) {
+	database := dbtest.New(t)
+	liveID, err := insertKnowledgeFile(
+		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	insertKnowledgeChunk(t, db, fileID, "Alpha-2026 差旅报销制度规定，住宿费用上限为八百元。")
-
-	for _, query := range []string{"差旅 报销", "Alpha-2026 差旅"} {
-		results, err := service.Search(t.Context(), testUserA, testAgentA, query, 5)
-		if err != nil {
-			t.Fatalf("Search(%q): %v", query, err)
-		}
-		if len(results) != 1 || results[0].FileName != "差旅制度.txt" {
-			t.Fatalf("Search(%q) = %+v, want Chinese policy file", query, results)
-		}
-	}
-}
-
-func TestKnowledgeSearchRejectsOversizedQuery(t *testing.T) {
-	db := dbtest.New(t)
-	service := newInsertOnlyKnowledgeService(t, db)
-
-	_, err := service.Search(
-		t.Context(),
-		testUserA,
-		testAgentA,
-		strings.Repeat("知", MaxSearchQueryRunes+1),
-		5,
+	deletedAt := time.Now().UTC()
+	deletedID, err := insertKnowledgeFile(
+		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", &deletedAt,
 	)
-	if err == nil {
-		t.Fatal("Search() accepted a query above MaxSearchQueryRunes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := sqlc.New(database).GetKnowledgeRawOwners(t.Context(), []string{liveID, deletedID, uuid.NewString()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("ownership rows = %d, want live and tombstoned rows", len(rows))
+	}
+	ownership := make(map[string]bool)
+	for _, row := range rows {
+		ownership[row.ID] = row.DeletedAt.Valid
+	}
+	if ownership[liveID] || !ownership[deletedID] {
+		t.Fatalf("ownership tombstones = %+v", ownership)
 	}
 }
 
-const (
-	testUserA  = "10000000-0000-0000-0000-000000000001"
-	testUserB  = "10000000-0000-0000-0000-000000000002"
-	testAgentA = "knowledge-agent-a"
-	testAgentB = "knowledge-agent-b"
-)
+type countingReader struct {
+	reader io.Reader
+	reads  int
+}
 
-func seedKnowledgePrincipals(t *testing.T, db *pgxpool.Pool) {
+type blockingRawStore struct {
+	RawStore
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *blockingRawStore) Create(ctx context.Context, key string, reader io.Reader) error {
+	s.once.Do(func() { close(s.started) })
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return s.RawStore.Create(ctx, key, reader)
+}
+
+func (r *countingReader) Read(buffer []byte) (int, error) {
+	r.reads++
+	return r.reader.Read(buffer)
+}
+
+func stringsReader(value string) io.Reader { return bytes.NewBufferString(value) }
+
+func newKnowledgeService(t *testing.T, database *pgxpool.Pool) (*FSRawStore, *Service) {
 	t.Helper()
-	if _, err := db.Exec(t.Context(), `
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := river.NewClient(riverpgxv5.New(database), &river.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(ServiceConfig{
+		DB: database, RawStore: store, River: client,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), TempDir: t.TempDir(),
+		MaxConcurrentUploads: 4, MaxSpoolBytes: 4 * MaxFileBytes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store, service
+}
+
+func testAuthority(t *testing.T, userID string, admin bool) authz.Authority {
+	t.Helper()
+	authority, err := authz.NewUserAuthority(authz.UserID(userID), admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authority
+}
+
+func seedKnowledgePrincipals(t *testing.T, database *pgxpool.Pool) {
+	t.Helper()
+	if _, err := database.Exec(t.Context(), `
 		INSERT INTO auth_user (id, email)
 		VALUES ($1, 'knowledge-a@test.local'), ($2, 'knowledge-b@test.local')
 	`, testUserA, testUserB); err != nil {
 		t.Fatalf("seed users: %v", err)
 	}
-	q := sqlc.New(db)
-	for _, agentID := range []string{testAgentA, testAgentB} {
-		if _, err := q.CreateAgent(t.Context(), sqlc.CreateAgentParams{
-			ID: agentID, Name: agentID, Model: "test/model", Workspace: "/tmp/" + agentID,
-			Sandbox: json.RawMessage(`{}`), EnabledBuiltinSkills: json.RawMessage(`[]`),
-			Scope: "system", Enabled: true,
-		}); err != nil {
-			t.Fatalf("seed Agent %s: %v", agentID, err)
-		}
+	if _, err := sqlc.New(database).CreateAgent(t.Context(), sqlc.CreateAgentParams{
+		ID: testAgentA, Name: testAgentA, Model: "test/model", Workspace: "/tmp/" + testAgentA,
+		Sandbox: json.RawMessage(`{}`), EnabledBuiltinSkills: json.RawMessage(`[]`),
+		Scope: string(config.AgentScopeSystem), Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed Agent: %v", err)
 	}
-}
-
-func newWorkingKnowledgeService(
-	t *testing.T,
-	db *pgxpool.Pool,
-	parser Parser,
-) (*Service, *river.Client[pgx.Tx]) {
-	t.Helper()
-	service := newKnowledgeService(t, db, parser)
-	workers := river.NewWorkers()
-	service.RegisterRiverWorkers(workers)
-	queue, config := service.QueueConfig()
-	client, err := appdb.NewWorkingRiverClient(
-		db,
-		map[string]river.QueueConfig{queue: config},
-		workers,
-		slog.New(slog.NewTextHandler(io.Discard, nil)),
-		appdb.DefaultRiverSoftStopTimeout,
-	)
-	if err != nil {
-		t.Fatalf("NewWorkingRiverClient: %v", err)
-	}
-	service.SetRiverClient(client)
-	return service, client
-}
-
-func newInsertOnlyKnowledgeService(t *testing.T, db *pgxpool.Pool) *Service {
-	t.Helper()
-	service := newKnowledgeService(t, db, staticParser{})
-	client, err := river.NewClient(riverpgxv5.New(db), &river.Config{})
-	if err != nil {
-		t.Fatalf("new insert-only River client: %v", err)
-	}
-	service.SetRiverClient(client)
-	return service
-}
-
-func newKnowledgeService(t *testing.T, db *pgxpool.Pool, parser Parser) *Service {
-	t.Helper()
-	service, err := NewService(ServiceConfig{
-		DB:      db,
-		Parser:  parser,
-		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
-		TempDir: t.TempDir(),
-	})
-	if err != nil {
-		t.Fatalf("NewService: %v", err)
-	}
-	return service
-}
-
-func startRiverClient(t *testing.T, client *river.Client[pgx.Tx]) {
-	t.Helper()
-	if err := client.Start(t.Context()); err != nil {
-		t.Fatalf("start River client: %v", err)
-	}
-	t.Cleanup(func() {
-		stopContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := client.Stop(stopContext); err != nil {
-			t.Errorf("stop River client: %v", err)
-		}
-	})
-}
-
-func waitForKnowledgeStatus(t *testing.T, service *Service, fileID string, want FileStatus) File {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		file, err := service.Get(t.Context(), fileID)
-		if err != nil {
-			t.Fatalf("Get while waiting for %q: %v", want, err)
-		}
-		if file.Status == want {
-			return file
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	file, err := service.Get(t.Context(), fileID)
-	t.Fatalf("timed out waiting for %q; final file=%+v err=%v", want, file, err)
-	return File{}
 }
 
 func insertKnowledgeFile(
 	ctx context.Context,
-	db *pgxpool.Pool,
+	database *pgxpool.Pool,
 	owner Owner,
-	fileName string,
+	sizeBytes int64,
 	status string,
+	deletedAt *time.Time,
 ) (string, error) {
-	var id string
-	err := db.QueryRow(ctx, `
-		INSERT INTO knowledge_file (
-			scope, user_id, agent_id, file_name, media_type,
-			size_bytes, raw_content, status, error_message
-		)
-		VALUES (
-			$1, NULLIF($2, '')::uuid, NULLIF($3, ''), $4, 'text/plain',
-			1, convert_to('a', 'UTF8'), $5,
-			CASE WHEN $5 = 'failed' THEN 'failed for test' ELSE NULL END
-		)
-		RETURNING id
-	`, owner.Scope, owner.UserID, owner.AgentID, fileName, status).Scan(&id)
-	return id, err
-}
-
-func insertKnowledgeChunk(t *testing.T, db *pgxpool.Pool, fileID, content string) {
-	t.Helper()
-	if _, err := db.Exec(t.Context(), `
-		INSERT INTO knowledge_chunk (file_id, ordinal, content, locator)
-		VALUES ($1, 0, $2, '{}')
-	`, fileID, content); err != nil {
-		t.Fatalf("insert chunk for %s: %v", fileID, err)
+	id := uuid.NewString()
+	var userID, agentID any
+	if owner.UserID != "" {
+		userID = owner.UserID
 	}
+	if owner.AgentID != "" {
+		agentID = owner.AgentID
+	}
+	_, err := database.Exec(ctx, `
+		INSERT INTO knowledge_file (
+			id, scope, user_id, agent_id, file_name, media_type,
+			size_bytes, raw_sha256, status, deleted_at
+		) VALUES ($1, $2, $3, $4, 'fixture.txt', 'text/plain', $5, $6, $7, $8)
+	`, id, owner.Scope, userID, agentID, sizeBytes, bytes.Repeat([]byte{1}, sha256.Size), status, deletedAt)
+	return id, err
 }

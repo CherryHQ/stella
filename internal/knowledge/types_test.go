@@ -1,174 +1,188 @@
 package knowledge
 
 import (
-	"archive/zip"
 	"bytes"
+	"crypto/sha256"
 	"errors"
-	"io"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestOwnerValidate(t *testing.T) {
 	t.Parallel()
-
 	tests := []struct {
 		name  string
 		owner Owner
-		ok    bool
+		valid bool
 	}{
-		{name: "system", owner: Owner{Scope: ScopeSystem}, ok: true},
-		{name: "system agent", owner: Owner{Scope: ScopeSystemAgent, AgentID: "finance"}, ok: true},
-		{name: "user", owner: Owner{Scope: ScopeUser, UserID: "user-1"}, ok: true},
-		{name: "user agent", owner: Owner{Scope: ScopeUserAgent, UserID: "user-1", AgentID: "finance"}, ok: true},
-		{name: "system with user", owner: Owner{Scope: ScopeSystem, UserID: "user-1"}},
-		{name: "system agent without agent", owner: Owner{Scope: ScopeSystemAgent}},
-		{name: "user with agent", owner: Owner{Scope: ScopeUser, UserID: "user-1", AgentID: "finance"}},
-		{name: "user agent without user", owner: Owner{Scope: ScopeUserAgent, AgentID: "finance"}},
-		{name: "unknown", owner: Owner{Scope: "other"}},
+		{"system", Owner{Scope: ScopeSystem}, true},
+		{"system agent", Owner{Scope: ScopeSystemAgent, AgentID: "a"}, true},
+		{"user", Owner{Scope: ScopeUser, UserID: "u"}, true},
+		{"user agent", Owner{Scope: ScopeUserAgent, UserID: "u", AgentID: "a"}, true},
+		{"system with user", Owner{Scope: ScopeSystem, UserID: "u"}, false},
+		{"system agent without agent", Owner{Scope: ScopeSystemAgent}, false},
+		{"user without user", Owner{Scope: ScopeUser}, false},
+		{"user agent without user", Owner{Scope: ScopeUserAgent, AgentID: "a"}, false},
+		{"unknown", Owner{Scope: "unknown"}, false},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			err := tt.owner.Validate()
-			if (err == nil) != tt.ok {
-				t.Fatalf("Validate() error = %v, ok = %t", err, tt.ok)
+			err := test.owner.Validate()
+			if (err == nil) != test.valid {
+				t.Fatalf("Validate() error = %v, valid = %t", err, test.valid)
 			}
 		})
 	}
 }
 
-func TestNormalizeSearchQuery(t *testing.T) {
+func TestQuotaPoolIdentity(t *testing.T) {
 	t.Parallel()
-
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{name: "collapses whitespace", input: "  差旅\n\t 报销  ", want: "差旅 报销"},
-		{name: "drops invalid runes", input: "Alpha\x00\uFFFD-2026", want: "Alpha-2026"},
-		{name: "punctuation only", input: " -- / … ", want: ""},
-		{name: "keeps searchable identifiers", input: "C++ Alpha-2026 v1.2", want: "C++ Alpha-2026 v1.2"},
+	user := Owner{Scope: ScopeUser, UserID: "u"}
+	userAgent := Owner{Scope: ScopeUserAgent, UserID: "u", AgentID: "a"}
+	if quotaLockKey(user) != quotaLockKey(userAgent) {
+		t.Fatal("user and user_agent must share one personal quota lock")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := normalizeSearchQuery(tt.input); got != tt.want {
-				t.Fatalf("normalizeSearchQuery(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
+	if quotaLockKey(Owner{Scope: ScopeSystem}) == quotaLockKey(user) {
+		t.Fatal("system and personal pools must not share a quota lock")
+	}
+	if quotaLockKey(Owner{Scope: ScopeSystemAgent, AgentID: "a"}) ==
+		quotaLockKey(Owner{Scope: ScopeSystemAgent, AgentID: "b"}) {
+		t.Fatal("different Agents must have independent system_agent quota locks")
 	}
 }
 
-func TestValidateUpload(t *testing.T) {
+func TestPrepareUploadStreamsToServerOnlySpool(t *testing.T) {
 	t.Parallel()
-
-	docx := testDOCXBytes(t)
-	tests := []struct {
-		name      string
-		fileName  string
-		content   []byte
-		wantName  string
-		wantMedia string
-		wantErr   error
-	}{
-		{
-			name:      "pdf",
-			fileName:  `C:\uploads\policy.PDF`,
-			content:   []byte("%PDF-1.4\n"),
-			wantName:  "policy.PDF",
-			wantMedia: MediaTypePDF,
-		},
-		{
-			name:      "docx",
-			fileName:  "policy.docx",
-			content:   docx,
-			wantName:  "policy.docx",
-			wantMedia: MediaTypeDOCX,
-		},
-		{
-			name:      "markdown",
-			fileName:  "policy.markdown",
-			content:   []byte("# Policy\n"),
-			wantName:  "policy.markdown",
-			wantMedia: MediaTypeMarkdown,
-		},
-		{
-			name:      "text",
-			fileName:  "policy.txt",
-			content:   []byte("Policy\n"),
-			wantName:  "policy.txt",
-			wantMedia: MediaTypeText,
-		},
-		{
-			name:     "spoofed pdf",
-			fileName: "policy.pdf",
-			content:  []byte("plain text"),
-			wantErr:  ErrInvalidFile,
-		},
-		{
-			name:     "spoofed docx",
-			fileName: "policy.docx",
-			content:  []byte("PK"),
-			wantErr:  ErrInvalidFile,
-		},
-		{
-			name:     "binary text",
-			fileName: "policy.txt",
-			content:  []byte{'a', 0, 'b'},
-			wantErr:  ErrInvalidFile,
-		},
-		{
-			name:     "unsupported",
-			fileName: "policy.xlsx",
-			content:  []byte("x"),
-			wantErr:  ErrUnsupportedFileType,
-		},
-		{
-			name:     "too large",
-			fileName: "policy.txt",
-			content:  []byte(strings.Repeat("x", MaxFileBytes+1)),
-			wantErr:  ErrFileTooLarge,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := ValidateUpload(tt.fileName, tt.content)
-			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("ValidateUpload() error = %v, want %v", err, tt.wantErr)
-			}
-			if tt.wantErr != nil {
-				return
-			}
-			if got.FileName != tt.wantName || got.MediaType != tt.wantMedia {
-				t.Fatalf("ValidateUpload() = %#v", got)
-			}
-		})
-	}
-}
-
-func testDOCXBytes(t *testing.T) []byte {
-	t.Helper()
-	var buffer bytes.Buffer
-	writer := zip.NewWriter(&buffer)
-	for name, content := range map[string]string{
-		"[Content_Types].xml": "<Types/>",
-		"word/document.xml":   "<document/>",
-	} {
-		file, err := writer.Create(name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := io.WriteString(file, content); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := writer.Close(); err != nil {
+	budget, err := newSpoolBudget(2, 2*MaxFileBytes)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return buffer.Bytes()
+	content := []byte("报销标准是 800 元。")
+	prepared, err := prepareUpload(
+		t.Context(), t.TempDir(), budget, `C:\\docs\\policy.md`, bytes.NewReader(content),
+	)
+	if err != nil {
+		t.Fatalf("prepareUpload: %v", err)
+	}
+	path := prepared.path
+	if prepared.fileName != "policy.md" || prepared.mediaType != MediaTypeMarkdown {
+		t.Fatalf("prepared metadata = %q, %q", prepared.fileName, prepared.mediaType)
+	}
+	if prepared.sizeBytes != int64(len(content)) {
+		t.Fatalf("size = %d, want %d", prepared.sizeBytes, len(content))
+	}
+	wantHash := sha256.Sum256(content)
+	if !bytes.Equal(prepared.rawSHA256, wantHash[:]) {
+		t.Fatalf("hash = %x, want %x", prepared.rawSHA256, wantHash)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("spool mode = %o, want 600", info.Mode().Perm())
+	}
+	prepared.close()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("spool still exists after close: %v", err)
+	}
+	if budget.active != 0 || budget.bytes != 0 {
+		t.Fatalf("budget after close = active %d bytes %d", budget.active, budget.bytes)
+	}
+}
+
+func TestPrepareUploadRejectsInvalidAndOversizedContent(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		fileName string
+		content  []byte
+		wantErr  error
+	}{
+		{"unsupported", "policy.csv", []byte("a,b"), ErrUnsupportedFileType},
+		{"empty", "policy.txt", nil, ErrInvalidFile},
+		{"invalid UTF-8", "policy.txt", []byte{0xff}, ErrInvalidFile},
+		{"PDF signature", "policy.pdf", []byte("not a PDF"), ErrInvalidFile},
+		{"DOCX container", "policy.docx", []byte("not a zip"), ErrInvalidFile},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			budget, err := newSpoolBudget(1, MaxFileBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = prepareUpload(
+				t.Context(), t.TempDir(), budget, test.fileName, bytes.NewReader(test.content),
+			)
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("prepareUpload error = %v, want %v", err, test.wantErr)
+			}
+			if budget.active != 0 || budget.bytes != 0 {
+				t.Fatalf("failed upload leaked budget: active %d bytes %d", budget.active, budget.bytes)
+			}
+		})
+	}
+
+	budget, err := newSpoolBudget(1, MaxFileBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = prepareUpload(
+		t.Context(), t.TempDir(), budget, "large.txt",
+		strings.NewReader(strings.Repeat("x", MaxFileBytes+1)),
+	)
+	if !errors.Is(err, ErrFileTooLarge) {
+		t.Fatalf("oversized error = %v, want ErrFileTooLarge", err)
+	}
+}
+
+func TestSpoolBudgetBoundsConcurrentFilesAndBytes(t *testing.T) {
+	t.Parallel()
+	budget, err := newSpoolBudget(2, MaxFileBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := budget.begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := budget.begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := budget.begin(); !errors.Is(err, ErrSpoolCapacity) {
+		t.Fatalf("third begin error = %v, want ErrSpoolCapacity", err)
+	}
+	if err := first.add(MaxFileBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.add(1); !errors.Is(err, ErrSpoolCapacity) {
+		t.Fatalf("byte overflow error = %v, want ErrSpoolCapacity", err)
+	}
+	first.release()
+	second.release()
+}
+
+func TestRawKeyRoundTrip(t *testing.T) {
+	t.Parallel()
+	fileID := uuid.Must(uuid.NewV7()).String()
+	key, err := RawKey(fileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := FileIDFromRawKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != fileID {
+		t.Fatalf("file ID = %q, want %q", got, fileID)
+	}
+	if _, err := FileIDFromRawKey("knowledge/files/not-a-uuid/source"); err == nil {
+		t.Fatal("malformed raw key was accepted")
+	}
 }

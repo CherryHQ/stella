@@ -44,13 +44,17 @@ func TestKnowledgeFilesMigrationUpgradesDatabaseAtPreviousLatest(t *testing.T) {
 	if _, err := provider.DownTo(ctx, 20260731014023); err != nil {
 		t.Fatalf("goose down knowledge migration: %v", err)
 	}
-	if tableExists(t, db, "knowledge_file") || tableExists(t, db, "knowledge_chunk") {
+	if tableExists(t, db, "knowledge_file") ||
+		tableExists(t, db, "knowledge_chunk_set") ||
+		tableExists(t, db, "knowledge_chunk") {
 		t.Fatal("knowledge tables should not exist after down")
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatalf("goose up knowledge migration: %v", err)
 	}
-	if !tableExists(t, db, "knowledge_file") || !tableExists(t, db, "knowledge_chunk") {
+	if !tableExists(t, db, "knowledge_file") ||
+		!tableExists(t, db, "knowledge_chunk_set") ||
+		!tableExists(t, db, "knowledge_chunk") {
 		t.Fatal("knowledge tables should exist after up")
 	}
 }

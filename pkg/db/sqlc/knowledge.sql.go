@@ -7,21 +7,20 @@ package sqlc
 
 import (
 	"context"
-	"encoding/json"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createKnowledgeFile = `-- name: CreateKnowledgeFile :one
 INSERT INTO knowledge_file (
+    id,
     scope,
     user_id,
     agent_id,
     file_name,
     media_type,
     size_bytes,
-    raw_content
+    raw_sha256
 ) VALUES (
     $1,
     $2,
@@ -29,7 +28,8 @@ INSERT INTO knowledge_file (
     $4,
     $5,
     $6,
-    $7
+    $7,
+    $8
 )
 RETURNING
     id,
@@ -39,47 +39,38 @@ RETURNING
     file_name,
     media_type,
     size_bytes,
+    raw_sha256,
     status,
     error_message,
+    active_chunk_set_id,
+    deleted_at,
     created_at,
     updated_at
 `
 
 type CreateKnowledgeFileParams struct {
-	Scope      string      `json:"scope"`
-	UserID     pgtype.Text `json:"user_id"`
-	AgentID    pgtype.Text `json:"agent_id"`
-	FileName   string      `json:"file_name"`
-	MediaType  string      `json:"media_type"`
-	SizeBytes  int64       `json:"size_bytes"`
-	RawContent []byte      `json:"raw_content"`
+	ID        string      `json:"id"`
+	Scope     string      `json:"scope"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
+	FileName  string      `json:"file_name"`
+	MediaType string      `json:"media_type"`
+	SizeBytes int64       `json:"size_bytes"`
+	RawSha256 []byte      `json:"raw_sha256"`
 }
 
-type CreateKnowledgeFileRow struct {
-	ID           string      `json:"id"`
-	Scope        string      `json:"scope"`
-	UserID       pgtype.Text `json:"user_id"`
-	AgentID      pgtype.Text `json:"agent_id"`
-	FileName     string      `json:"file_name"`
-	MediaType    string      `json:"media_type"`
-	SizeBytes    int64       `json:"size_bytes"`
-	Status       string      `json:"status"`
-	ErrorMessage pgtype.Text `json:"error_message"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
-}
-
-func (q *Queries) CreateKnowledgeFile(ctx context.Context, arg CreateKnowledgeFileParams) (CreateKnowledgeFileRow, error) {
+func (q *Queries) CreateKnowledgeFile(ctx context.Context, arg CreateKnowledgeFileParams) (KnowledgeFile, error) {
 	row := q.db.QueryRow(ctx, createKnowledgeFile,
+		arg.ID,
 		arg.Scope,
 		arg.UserID,
 		arg.AgentID,
 		arg.FileName,
 		arg.MediaType,
 		arg.SizeBytes,
-		arg.RawContent,
+		arg.RawSha256,
 	)
-	var i CreateKnowledgeFileRow
+	var i KnowledgeFile
 	err := row.Scan(
 		&i.ID,
 		&i.Scope,
@@ -88,68 +79,11 @@ func (q *Queries) CreateKnowledgeFile(ctx context.Context, arg CreateKnowledgeFi
 		&i.FileName,
 		&i.MediaType,
 		&i.SizeBytes,
+		&i.RawSha256,
 		&i.Status,
 		&i.ErrorMessage,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const deleteKnowledgeChunks = `-- name: DeleteKnowledgeChunks :exec
-DELETE FROM knowledge_chunk
-WHERE file_id = $1
-`
-
-func (q *Queries) DeleteKnowledgeChunks(ctx context.Context, fileID string) error {
-	_, err := q.db.Exec(ctx, deleteKnowledgeChunks, fileID)
-	return err
-}
-
-const deleteKnowledgeFile = `-- name: DeleteKnowledgeFile :one
-DELETE FROM knowledge_file
-WHERE id = $1
-RETURNING
-    id,
-    scope,
-    user_id,
-    agent_id,
-    file_name,
-    media_type,
-    size_bytes,
-    status,
-    error_message,
-    created_at,
-    updated_at
-`
-
-type DeleteKnowledgeFileRow struct {
-	ID           string      `json:"id"`
-	Scope        string      `json:"scope"`
-	UserID       pgtype.Text `json:"user_id"`
-	AgentID      pgtype.Text `json:"agent_id"`
-	FileName     string      `json:"file_name"`
-	MediaType    string      `json:"media_type"`
-	SizeBytes    int64       `json:"size_bytes"`
-	Status       string      `json:"status"`
-	ErrorMessage pgtype.Text `json:"error_message"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
-}
-
-func (q *Queries) DeleteKnowledgeFile(ctx context.Context, id string) (DeleteKnowledgeFileRow, error) {
-	row := q.db.QueryRow(ctx, deleteKnowledgeFile, id)
-	var i DeleteKnowledgeFileRow
-	err := row.Scan(
-		&i.ID,
-		&i.Scope,
-		&i.UserID,
-		&i.AgentID,
-		&i.FileName,
-		&i.MediaType,
-		&i.SizeBytes,
-		&i.Status,
-		&i.ErrorMessage,
+		&i.ActiveChunkSetID,
+		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -165,31 +99,21 @@ SELECT
     file_name,
     media_type,
     size_bytes,
+    raw_sha256,
     status,
     error_message,
+    active_chunk_set_id,
+    deleted_at,
     created_at,
     updated_at
 FROM knowledge_file
 WHERE id = $1
+  AND deleted_at IS NULL
 `
 
-type GetKnowledgeFileRow struct {
-	ID           string      `json:"id"`
-	Scope        string      `json:"scope"`
-	UserID       pgtype.Text `json:"user_id"`
-	AgentID      pgtype.Text `json:"agent_id"`
-	FileName     string      `json:"file_name"`
-	MediaType    string      `json:"media_type"`
-	SizeBytes    int64       `json:"size_bytes"`
-	Status       string      `json:"status"`
-	ErrorMessage pgtype.Text `json:"error_message"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
-}
-
-func (q *Queries) GetKnowledgeFile(ctx context.Context, id string) (GetKnowledgeFileRow, error) {
+func (q *Queries) GetKnowledgeFile(ctx context.Context, id string) (KnowledgeFile, error) {
 	row := q.db.QueryRow(ctx, getKnowledgeFile, id)
-	var i GetKnowledgeFileRow
+	var i KnowledgeFile
 	err := row.Scan(
 		&i.ID,
 		&i.Scope,
@@ -198,60 +122,46 @@ func (q *Queries) GetKnowledgeFile(ctx context.Context, id string) (GetKnowledge
 		&i.FileName,
 		&i.MediaType,
 		&i.SizeBytes,
+		&i.RawSha256,
 		&i.Status,
 		&i.ErrorMessage,
+		&i.ActiveChunkSetID,
+		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const getKnowledgeFileForParse = `-- name: GetKnowledgeFileForParse :one
-SELECT
-    id,
-    media_type,
-    raw_content,
-    status
+const getKnowledgeRawOwners = `-- name: GetKnowledgeRawOwners :many
+SELECT id, deleted_at
 FROM knowledge_file
-WHERE id = $1
+WHERE id = ANY($1::uuid[])
 `
 
-type GetKnowledgeFileForParseRow struct {
-	ID         string `json:"id"`
-	MediaType  string `json:"media_type"`
-	RawContent []byte `json:"raw_content"`
-	Status     string `json:"status"`
+type GetKnowledgeRawOwnersRow struct {
+	ID        string             `json:"id"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
 }
 
-func (q *Queries) GetKnowledgeFileForParse(ctx context.Context, id string) (GetKnowledgeFileForParseRow, error) {
-	row := q.db.QueryRow(ctx, getKnowledgeFileForParse, id)
-	var i GetKnowledgeFileForParseRow
-	err := row.Scan(
-		&i.ID,
-		&i.MediaType,
-		&i.RawContent,
-		&i.Status,
-	)
-	return i, err
-}
-
-const getKnowledgeFileStateForUpdate = `-- name: GetKnowledgeFileStateForUpdate :one
-SELECT id, status
-FROM knowledge_file
-WHERE id = $1
-FOR UPDATE
-`
-
-type GetKnowledgeFileStateForUpdateRow struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-}
-
-func (q *Queries) GetKnowledgeFileStateForUpdate(ctx context.Context, id string) (GetKnowledgeFileStateForUpdateRow, error) {
-	row := q.db.QueryRow(ctx, getKnowledgeFileStateForUpdate, id)
-	var i GetKnowledgeFileStateForUpdateRow
-	err := row.Scan(&i.ID, &i.Status)
-	return i, err
+func (q *Queries) GetKnowledgeRawOwners(ctx context.Context, ids []string) ([]GetKnowledgeRawOwnersRow, error) {
+	rows, err := q.db.Query(ctx, getKnowledgeRawOwners, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetKnowledgeRawOwnersRow{}
+	for rows.Next() {
+		var i GetKnowledgeRawOwnersRow
+		if err := rows.Scan(&i.ID, &i.DeletedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getPersonalKnowledgeQuotaUsage = `-- name: GetPersonalKnowledgeQuotaUsage :one
@@ -261,6 +171,7 @@ SELECT
 FROM knowledge_file
 WHERE scope IN ('user', 'user_agent')
   AND user_id = $1
+  AND deleted_at IS NULL
 `
 
 type GetPersonalKnowledgeQuotaUsageRow struct {
@@ -282,6 +193,7 @@ SELECT
 FROM knowledge_file
 WHERE scope = 'system_agent'
   AND agent_id = $1
+  AND deleted_at IS NULL
 `
 
 type GetSystemAgentKnowledgeQuotaUsageRow struct {
@@ -302,6 +214,7 @@ SELECT
     coalesce(sum(size_bytes), 0)::bigint AS used_bytes
 FROM knowledge_file
 WHERE scope = 'system'
+  AND deleted_at IS NULL
 `
 
 type GetSystemKnowledgeQuotaUsageRow struct {
@@ -316,176 +229,6 @@ func (q *Queries) GetSystemKnowledgeQuotaUsage(ctx context.Context) (GetSystemKn
 	return i, err
 }
 
-const insertKnowledgeChunks = `-- name: InsertKnowledgeChunks :execrows
-INSERT INTO knowledge_chunk (file_id, ordinal, content, locator)
-SELECT
-    $1::uuid,
-    input.ordinal,
-    input.content,
-    input.locator::jsonb
-FROM ROWS FROM (
-    unnest($2::bigint[]),
-    unnest($3::text[]),
-    unnest($4::text[])
-) AS input(ordinal, content, locator)
-`
-
-type InsertKnowledgeChunksParams struct {
-	FileID   string   `json:"file_id"`
-	Ordinals []int64  `json:"ordinals"`
-	Contents []string `json:"contents"`
-	Locators []string `json:"locators"`
-}
-
-func (q *Queries) InsertKnowledgeChunks(ctx context.Context, arg InsertKnowledgeChunksParams) (int64, error) {
-	result, err := q.db.Exec(ctx, insertKnowledgeChunks,
-		arg.FileID,
-		arg.Ordinals,
-		arg.Contents,
-		arg.Locators,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const listKnowledgeFiles = `-- name: ListKnowledgeFiles :many
-SELECT
-    id,
-    scope,
-    user_id,
-    agent_id,
-    file_name,
-    media_type,
-    size_bytes,
-    status,
-    error_message,
-    created_at,
-    updated_at
-FROM knowledge_file
-WHERE scope = $1
-  AND user_id IS NOT DISTINCT FROM $2::uuid
-  AND agent_id IS NOT DISTINCT FROM $3::text
-  AND (
-    $4::text = ''
-    OR strpos(lower(file_name), lower($4::text)) > 0
-  )
-  AND (
-    $5::timestamptz IS NULL
-    OR (created_at, id) < (
-      $5::timestamptz,
-      $6::uuid
-    )
-  )
-ORDER BY created_at DESC, id DESC
-LIMIT $7
-`
-
-type ListKnowledgeFilesParams struct {
-	Scope           string             `json:"scope"`
-	UserID          pgtype.Text        `json:"user_id"`
-	AgentID         pgtype.Text        `json:"agent_id"`
-	Q               string             `json:"q"`
-	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
-	CursorID        pgtype.Text        `json:"cursor_id"`
-	PageSize        int32              `json:"page_size"`
-}
-
-type ListKnowledgeFilesRow struct {
-	ID           string      `json:"id"`
-	Scope        string      `json:"scope"`
-	UserID       pgtype.Text `json:"user_id"`
-	AgentID      pgtype.Text `json:"agent_id"`
-	FileName     string      `json:"file_name"`
-	MediaType    string      `json:"media_type"`
-	SizeBytes    int64       `json:"size_bytes"`
-	Status       string      `json:"status"`
-	ErrorMessage pgtype.Text `json:"error_message"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
-}
-
-func (q *Queries) ListKnowledgeFiles(ctx context.Context, arg ListKnowledgeFilesParams) ([]ListKnowledgeFilesRow, error) {
-	rows, err := q.db.Query(ctx, listKnowledgeFiles,
-		arg.Scope,
-		arg.UserID,
-		arg.AgentID,
-		arg.Q,
-		arg.CursorCreatedAt,
-		arg.CursorID,
-		arg.PageSize,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListKnowledgeFilesRow{}
-	for rows.Next() {
-		var i ListKnowledgeFilesRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Scope,
-			&i.UserID,
-			&i.AgentID,
-			&i.FileName,
-			&i.MediaType,
-			&i.SizeBytes,
-			&i.Status,
-			&i.ErrorMessage,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listStaleProcessingKnowledgeFiles = `-- name: ListStaleProcessingKnowledgeFiles :many
-SELECT id, status, updated_at
-FROM knowledge_file
-WHERE status = 'processing'
-  AND updated_at < $1
-ORDER BY updated_at ASC, id ASC
-LIMIT $2
-`
-
-type ListStaleProcessingKnowledgeFilesParams struct {
-	StaleBefore time.Time `json:"stale_before"`
-	Limit       int32     `json:"limit"`
-}
-
-type ListStaleProcessingKnowledgeFilesRow struct {
-	ID        string    `json:"id"`
-	Status    string    `json:"status"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-func (q *Queries) ListStaleProcessingKnowledgeFiles(ctx context.Context, arg ListStaleProcessingKnowledgeFilesParams) ([]ListStaleProcessingKnowledgeFilesRow, error) {
-	rows, err := q.db.Query(ctx, listStaleProcessingKnowledgeFiles, arg.StaleBefore, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListStaleProcessingKnowledgeFilesRow{}
-	for rows.Next() {
-		var i ListStaleProcessingKnowledgeFilesRow
-		if err := rows.Scan(&i.ID, &i.Status, &i.UpdatedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const lockKnowledgeQuotaPool = `-- name: LockKnowledgeQuotaPool :exec
 SELECT pg_advisory_xact_lock($1::bigint)
 `
@@ -493,135 +236,4 @@ SELECT pg_advisory_xact_lock($1::bigint)
 func (q *Queries) LockKnowledgeQuotaPool(ctx context.Context, lockKey int64) error {
 	_, err := q.db.Exec(ctx, lockKnowledgeQuotaPool, lockKey)
 	return err
-}
-
-const markKnowledgeFileFailed = `-- name: MarkKnowledgeFileFailed :execrows
-UPDATE knowledge_file
-SET status = 'failed',
-    error_message = $1,
-    updated_at = now()
-WHERE id = $2
-  AND status = 'processing'
-`
-
-type MarkKnowledgeFileFailedParams struct {
-	ErrorMessage pgtype.Text `json:"error_message"`
-	ID           string      `json:"id"`
-}
-
-func (q *Queries) MarkKnowledgeFileFailed(ctx context.Context, arg MarkKnowledgeFileFailedParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markKnowledgeFileFailed, arg.ErrorMessage, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const markKnowledgeFileReady = `-- name: MarkKnowledgeFileReady :execrows
-UPDATE knowledge_file
-SET status = 'ready',
-    error_message = NULL,
-    updated_at = now()
-WHERE id = $1
-  AND status = 'processing'
-`
-
-func (q *Queries) MarkKnowledgeFileReady(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.Exec(ctx, markKnowledgeFileReady, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const searchKnowledgeChunks = `-- name: SearchKnowledgeChunks :many
-SELECT
-    c.id,
-    c.file_id,
-    c.ordinal,
-    c.content,
-    c.locator,
-    f.file_name,
-    paradedb.score(c.id)::double precision AS score
-FROM knowledge_chunk c
-JOIN knowledge_file f ON f.id = c.file_id
-WHERE c.id @@@ paradedb.match('content', $1::text)
-  AND f.status = 'ready'
-  AND (
-    f.scope = 'system'
-    OR (f.scope = 'system_agent' AND f.agent_id = $2)
-    OR (f.scope = 'user' AND f.user_id = $3)
-    OR (
-      f.scope = 'user_agent'
-      AND f.user_id = $3
-      AND f.agent_id = $2
-    )
-  )
-ORDER BY score DESC, c.id DESC
-LIMIT $4
-`
-
-type SearchKnowledgeChunksParams struct {
-	Match   string      `json:"match"`
-	AgentID pgtype.Text `json:"agent_id"`
-	UserID  pgtype.Text `json:"user_id"`
-	Limit   int32       `json:"limit"`
-}
-
-type SearchKnowledgeChunksRow struct {
-	ID       string          `json:"id"`
-	FileID   string          `json:"file_id"`
-	Ordinal  int64           `json:"ordinal"`
-	Content  string          `json:"content"`
-	Locator  json.RawMessage `json:"locator"`
-	FileName string          `json:"file_name"`
-	Score    float64         `json:"score"`
-}
-
-func (q *Queries) SearchKnowledgeChunks(ctx context.Context, arg SearchKnowledgeChunksParams) ([]SearchKnowledgeChunksRow, error) {
-	rows, err := q.db.Query(ctx, searchKnowledgeChunks,
-		arg.Match,
-		arg.AgentID,
-		arg.UserID,
-		arg.Limit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []SearchKnowledgeChunksRow{}
-	for rows.Next() {
-		var i SearchKnowledgeChunksRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.FileID,
-			&i.Ordinal,
-			&i.Content,
-			&i.Locator,
-			&i.FileName,
-			&i.Score,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const touchProcessingKnowledgeFile = `-- name: TouchProcessingKnowledgeFile :execrows
-UPDATE knowledge_file
-SET updated_at = now()
-WHERE id = $1
-  AND status = 'processing'
-`
-
-func (q *Queries) TouchProcessingKnowledgeFile(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.Exec(ctx, touchProcessingKnowledgeFile, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
 }

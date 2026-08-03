@@ -3,7 +3,6 @@ package knowledge
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -17,7 +16,7 @@ const (
 	ScopeUserAgent   Scope = "user_agent"
 )
 
-// FileStatus is the durable ingestion state of one immutable file.
+// FileStatus is the durable processing state of one immutable snapshot.
 type FileStatus string
 
 const (
@@ -37,10 +36,6 @@ const (
 	PersonalMaxBytes    int64 = 10 << 30
 )
 
-// MaxSearchQueryRunes bounds one model-generated BM25 query without penalizing
-// Chinese text, where byte length is not a useful user-facing measure.
-const MaxSearchQueryRunes = 500
-
 var (
 	ErrInvalidOwner        = errors.New("invalid knowledge owner")
 	ErrFileTooLarge        = errors.New("knowledge file is too large")
@@ -50,6 +45,7 @@ var (
 	ErrNotFound            = errors.New("knowledge file not found")
 	ErrForbidden           = errors.New("knowledge access forbidden")
 	ErrServiceUnavailable  = errors.New("knowledge service is unavailable")
+	ErrSpoolCapacity       = errors.New("knowledge upload spool is at capacity")
 )
 
 // Owner is the normalized four-part scope tuple. Empty IDs are database NULLs.
@@ -88,20 +84,24 @@ func (o Owner) Validate() error {
 	)
 }
 
-// File is management metadata for one immutable source document.
+// File is internal metadata for one canonical immutable source snapshot.
+// Raw bytes remain in RawStore and are never included in this value.
 type File struct {
-	ID           string
-	Owner        Owner
-	FileName     string
-	MediaType    string
-	SizeBytes    int64
-	Status       FileStatus
-	ErrorMessage string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID               string
+	Owner            Owner
+	FileName         string
+	MediaType        string
+	SizeBytes        int64
+	RawSHA256        []byte
+	Status           FileStatus
+	ErrorMessage     string
+	ActiveChunkSetID string
+	DeletedAt        *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
-// Quota describes current usage and the fixed limit of one quota pool.
+// Quota describes current usage and the fixed limit of one logical quota pool.
 type Quota struct {
 	UsedFiles int64
 	MaxFiles  int64
@@ -114,7 +114,7 @@ func (q Quota) CanAdd(sizeBytes int64) bool {
 	return q.UsedFiles+1 <= q.MaxFiles && q.UsedBytes+sizeBytes <= q.MaxBytes
 }
 
-// QuotaExceededError carries the pool state used by the API's 429 response.
+// QuotaExceededError carries the authoritative pool state at rejection time.
 type QuotaExceededError struct {
 	Quota Quota
 }
@@ -131,42 +131,3 @@ func (e *QuotaExceededError) Error() string {
 }
 
 func (e *QuotaExceededError) Unwrap() error { return ErrQuotaExceeded }
-
-// ListCursor is the keyset position used by the management API.
-type ListCursor struct {
-	CreatedAt time.Time
-	ID        string
-}
-
-// ListInput identifies one owner tuple and one stable list page.
-type ListInput struct {
-	Owner    Owner
-	Query    string
-	PageSize int
-	Cursor   *ListCursor
-}
-
-// ListResult contains one metadata page plus quota for the full pool.
-type ListResult struct {
-	Files   []File
-	HasMore bool
-	Quota   Quota
-}
-
-// SearchResult is the only evidence shape returned by the Agent tool.
-type SearchResult struct {
-	Content  string         `json:"content"`
-	FileName string         `json:"file_name"`
-	Locator  *PublicLocator `json:"locator,omitempty"`
-}
-
-// PublicLocator contains only stable positions that can be cited to a user.
-type PublicLocator struct {
-	FirstPage      *uint32 `json:"first_page,omitempty"`
-	LastPage       *uint32 `json:"last_page,omitempty"`
-	HeadingContext string  `json:"heading_context,omitempty"`
-}
-
-func normalizeQuery(value string) string {
-	return strings.TrimSpace(value)
-}

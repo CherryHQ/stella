@@ -23,15 +23,22 @@ type S3Store struct {
 	bucket string
 }
 
-func NewS3Store(cfg S3Config) (*S3Store, error) {
+// NewS3Client builds the shared deployment-S3 transport. Domain adapters such
+// as asset Store and Knowledge RawStore keep their own persistence semantics
+// while reusing this client construction and the same deployment credentials.
+func NewS3Client(cfg S3Config) (*minio.Client, error) {
 	if cfg.Endpoint == "" || cfg.Bucket == "" || cfg.AccessKey == "" || cfg.SecretKey == "" {
 		return nil, fmt.Errorf("blob s3 endpoint, bucket, access key, and secret key are required")
 	}
-	client, err := minio.New(cfg.Endpoint, &minio.Options{
+	return minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: cfg.UseSSL,
 		Region: cfg.Region,
 	})
+}
+
+func NewS3Store(cfg S3Config) (*S3Store, error) {
+	client, err := NewS3Client(cfg)
 	if err != nil {
 		return nil, err
 	}

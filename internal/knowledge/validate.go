@@ -2,8 +2,12 @@ package knowledge
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path"
 	"strings"
 	"unicode/utf8"
@@ -16,54 +20,104 @@ const (
 	MediaTypeText     = "text/plain"
 )
 
-// Upload is a bounded, validated file ready to enter the creation transaction.
-type Upload struct {
-	FileName  string
-	MediaType string
-	Content   []byte
-}
-
-// ValidateUpload determines the canonical media type from the file name and
-// bytes. A client-provided Content-Type is deliberately not trusted.
-func ValidateUpload(fileName string, content []byte) (Upload, error) {
-	if len(content) > MaxFileBytes {
-		return Upload{}, fmt.Errorf("%w: maximum is %d bytes", ErrFileTooLarge, MaxFileBytes)
-	}
-
+// validateUploadName determines the canonical media type without trusting a
+// client-provided Content-Type. It runs before the request body is consumed.
+func validateUploadName(fileName string) (string, string, error) {
 	safeName := safeFileName(fileName)
 	if safeName == "" || safeName == "." {
-		return Upload{}, fmt.Errorf("%w: file name is empty", ErrInvalidFile)
+		return "", "", fmt.Errorf("%w: file name is empty", ErrInvalidFile)
 	}
 
 	var mediaType string
 	switch strings.ToLower(path.Ext(safeName)) {
 	case ".pdf":
 		mediaType = MediaTypePDF
-		if !validPDF(content) {
-			return Upload{}, fmt.Errorf("%w: PDF signature is missing", ErrInvalidFile)
-		}
 	case ".docx":
 		mediaType = MediaTypeDOCX
-		if !validDOCX(content) {
-			return Upload{}, fmt.Errorf("%w: DOCX container is incomplete", ErrInvalidFile)
-		}
 	case ".md", ".markdown":
 		mediaType = MediaTypeMarkdown
-		if !validUTF8Text(content) {
-			return Upload{}, fmt.Errorf("%w: Markdown must be UTF-8 text", ErrInvalidFile)
-		}
 	case ".txt":
 		mediaType = MediaTypeText
-		if !validUTF8Text(content) {
-			return Upload{}, fmt.Errorf("%w: TXT must be UTF-8 text", ErrInvalidFile)
-		}
 	default:
-		return Upload{}, fmt.Errorf("%w: supported extensions are .pdf, .docx, .md, .markdown, and .txt", ErrUnsupportedFileType)
+		return "", "", fmt.Errorf(
+			"%w: supported extensions are .pdf, .docx, .md, .markdown, and .txt",
+			ErrUnsupportedFileType,
+		)
+	}
+	return safeName, mediaType, nil
+}
+
+func validateUploadFile(filePath, mediaType string) error {
+	info, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("inspect upload spool: %w", err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("%w: content is empty", ErrInvalidFile)
 	}
 
-	// Isolate the persisted value from a caller that reuses its upload buffer.
-	stored := append([]byte(nil), content...)
-	return Upload{FileName: safeName, MediaType: mediaType, Content: stored}, nil
+	switch mediaType {
+	case MediaTypePDF:
+		file, err := os.Open(filePath)
+		if err != nil {
+			return fmt.Errorf("open PDF upload spool: %w", err)
+		}
+		defer func() { _ = file.Close() }()
+		sample := make([]byte, 1024)
+		n, readErr := io.ReadFull(file, sample)
+		if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
+			return fmt.Errorf("read PDF signature: %w", readErr)
+		}
+		if !bytes.Contains(sample[:n], []byte("%PDF-")) {
+			return fmt.Errorf("%w: PDF signature is missing", ErrInvalidFile)
+		}
+		return nil
+	case MediaTypeDOCX:
+		archive, err := zip.OpenReader(filePath)
+		if err != nil {
+			return fmt.Errorf("%w: DOCX container is invalid", ErrInvalidFile)
+		}
+		defer func() { _ = archive.Close() }()
+		var hasContentTypes, hasDocument bool
+		for _, file := range archive.File {
+			switch file.Name {
+			case "[Content_Types].xml":
+				hasContentTypes = true
+			case "word/document.xml":
+				hasDocument = true
+			}
+		}
+		if !hasContentTypes || !hasDocument {
+			return fmt.Errorf("%w: DOCX container is incomplete", ErrInvalidFile)
+		}
+		return nil
+	case MediaTypeMarkdown, MediaTypeText:
+		return validateUTF8File(filePath)
+	default:
+		return fmt.Errorf("%w: media type %q", ErrUnsupportedFileType, mediaType)
+	}
+}
+
+func validateUTF8File(filePath string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("open text upload spool: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	reader := bufio.NewReader(file)
+	for {
+		r, size, err := reader.ReadRune()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read text upload spool: %w", err)
+		}
+		if r == '\x00' || r == utf8.RuneError && size == 1 {
+			return fmt.Errorf("%w: text must be valid UTF-8 without NUL bytes", ErrInvalidFile)
+		}
+	}
 }
 
 func safeFileName(value string) string {
@@ -71,33 +125,4 @@ func safeFileName(value string) string {
 	// path even when the server runs on Linux.
 	value = strings.ReplaceAll(value, `\`, "/")
 	return strings.TrimSpace(path.Base(value))
-}
-
-func validPDF(content []byte) bool {
-	sample := content
-	if len(sample) > 1024 {
-		sample = sample[:1024]
-	}
-	return bytes.Contains(sample, []byte("%PDF-"))
-}
-
-func validDOCX(content []byte) bool {
-	reader, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
-	if err != nil {
-		return false
-	}
-	var hasContentTypes, hasDocument bool
-	for _, file := range reader.File {
-		switch file.Name {
-		case "[Content_Types].xml":
-			hasContentTypes = true
-		case "word/document.xml":
-			hasDocument = true
-		}
-	}
-	return hasContentTypes && hasDocument
-}
-
-func validUTF8Text(content []byte) bool {
-	return utf8.Valid(content) && !bytes.ContainsRune(content, '\x00')
 }

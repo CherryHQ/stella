@@ -571,26 +571,43 @@ type Fact struct {
 }
 
 type KnowledgeChunk struct {
-	ID      string          `json:"id"`
-	FileID  string          `json:"file_id"`
-	Ordinal int64           `json:"ordinal"`
-	Content string          `json:"content"`
-	Locator json.RawMessage `json:"locator"`
+	ID            string          `json:"id"`
+	ChunkSetID    string          `json:"chunk_set_id"`
+	Ordinal       int64           `json:"ordinal"`
+	Content       string          `json:"content"`
+	Locator       json.RawMessage `json:"locator"`
+	ContentSha256 []byte          `json:"content_sha256"`
+}
+
+type KnowledgeChunkSet struct {
+	ID            string             `json:"id"`
+	FileID        string             `json:"file_id"`
+	DerivationKey string             `json:"derivation_key"`
+	ProcessorKey  string             `json:"processor_key"`
+	RawSha256     []byte             `json:"raw_sha256"`
+	Status        string             `json:"status"`
+	ChunkCount    pgtype.Int8        `json:"chunk_count"`
+	ContentDigest []byte             `json:"content_digest"`
+	ErrorMessage  pgtype.Text        `json:"error_message"`
+	CreatedAt     time.Time          `json:"created_at"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
 }
 
 type KnowledgeFile struct {
-	ID           string      `json:"id"`
-	Scope        string      `json:"scope"`
-	UserID       pgtype.Text `json:"user_id"`
-	AgentID      pgtype.Text `json:"agent_id"`
-	FileName     string      `json:"file_name"`
-	MediaType    string      `json:"media_type"`
-	SizeBytes    int64       `json:"size_bytes"`
-	RawContent   []byte      `json:"raw_content"`
-	Status       string      `json:"status"`
-	ErrorMessage pgtype.Text `json:"error_message"`
-	CreatedAt    time.Time   `json:"created_at"`
-	UpdatedAt    time.Time   `json:"updated_at"`
+	ID               string             `json:"id"`
+	Scope            string             `json:"scope"`
+	UserID           pgtype.Text        `json:"user_id"`
+	AgentID          pgtype.Text        `json:"agent_id"`
+	FileName         string             `json:"file_name"`
+	MediaType        string             `json:"media_type"`
+	SizeBytes        int64              `json:"size_bytes"`
+	RawSha256        []byte             `json:"raw_sha256"`
+	Status           string             `json:"status"`
+	ErrorMessage     pgtype.Text        `json:"error_message"`
+	ActiveChunkSetID pgtype.Text        `json:"active_chunk_set_id"`
+	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
 type KnowledgeUsage struct {
