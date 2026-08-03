@@ -627,16 +627,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 }
 
 func ensureEmbeddedAssets() error {
-	// Remove assets retired or renamed by newer releases so stale copies do not
-	// remain discoverable beside their replacements.
-	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella"))
-	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella.exe"))
-	if err := binaries.EnsureTools(config.StellaHome()); err != nil {
-		return fmt.Errorf("extract embedded tools: %w", err)
-	}
-	if err := binaries.VerifyTools(config.StellaHome()); err != nil {
-		return err
-	}
 	registry, err := resources.Default()
 	if err != nil {
 		return fmt.Errorf("load builtin skill bundle: %w", err)
@@ -651,6 +641,16 @@ func ensureEmbeddedAssets() error {
 			paths = append(paths, blocker.Path)
 		}
 		return fmt.Errorf("cannot activate builtin skill bundle: legacy system skills remain at %s; import or remove them through the current managed system path, then retry", strings.Join(paths, ", "))
+	}
+	// Remove assets retired or renamed by newer releases so stale copies do not
+	// remain discoverable beside their replacements.
+	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella"))
+	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella.exe"))
+	if err := binaries.EnsureTools(config.StellaHome()); err != nil {
+		return fmt.Errorf("extract embedded tools: %w", err)
+	}
+	if err := binaries.VerifyTools(config.StellaHome()); err != nil {
+		return err
 	}
 	if _, err := registry.InstallBuiltinBundle(config.StellaHome()); err != nil {
 		return fmt.Errorf("install builtin skill bundle: %w", err)

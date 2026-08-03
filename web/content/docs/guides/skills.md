@@ -8,23 +8,27 @@ Skills are reusable playbooks that teach Stella how to perform specific tasks. W
 
 Skills are written in plain markdown — they are essentially cheat sheets that Stella reads and follows. You can install skills from public registries, or write your own.
 
-## Skill Scopes
+## Skill scopes and priority
 
-Skills are organized by who manages them and where they apply:
+Stella has two Skill authorities today. Release-provided builtins come only from the immutable, content-addressed release bundle. Project Skills are ordinary files in durable Agent/project working trees. Global, Agent-bound, user, and user-Agent Skills remain stored in PostgreSQL, with execution mirrors derived from them. The later Home filesystem authority cutover has not landed.
 
-- **Project skills** — live in your repository under `.agents/skills/`. They ship with the code and are available when the current session is attached to that project.
-- **User skills** — your personal skills, available across all of your agents.
-- **User · this agent** — your personal skills scoped to a single agent.
-- **Shared agent skills** — managed by admins and available to everyone who uses that agent.
-- **Built-in skills** — managed by admins and available everywhere.
+The stored scopes are `project`, `user_agent`, `user`, `system_agent`, and `system`. `builtin` is contextual: a release Skill has the immutable identity `builtin:<name>`. An administrator-installed global Skill is the separate mutable identity `system:<name>`, and an Agent-bound administrator Skill is `system_agent:<name>`.
 
-When two skills share a name, the most specific one wins. Resolution order, highest first:
+When names collide, Stella selects one winner in this order:
 
 ```
-project > user · this agent > user > shared agent > built-in
+project > user_agent > user > system_agent > system > builtin
 ```
 
-Manage your user and per-agent skills from an agent's **Skills** tab, or manage every scope (including the admin-only shared and built-in scopes) from **Settings → Skills**.
+It applies policy after selecting that winner. Disabling a winner does not reveal a lower-priority Skill with the same name.
+
+## Per-Agent activation
+
+Skills are enabled for an Agent by default. An administrator or durable Agent creator can use that Agent's **Skills** tab to enable or disable a builtin, global, or matching Agent Skill. This is one shared setting: the last committed update wins.
+
+Activation is separate from permission to edit Skill content and from `disable_model_invocation`. A turn already admitted keeps its Skill snapshot; the next turn sees a committed activation change.
+
+Older non-empty activation lists are shown as diagnostics but mean all Skills are enabled. Disabled references to Skills that no longer exist do not affect execution; clear them explicitly in the Web UI.
 
 ## Installing Skills
 

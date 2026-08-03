@@ -172,7 +172,15 @@ mise、Lark 和系统目录由其工具托管，不是通用存储位置。
 
 每个后端都会为每个沙箱会话创建私有临时目录，并在会话关闭时删除。Docker 的 backing 目录位于 `$STELLA_HOME/cache/sandbox-tmp/` 下并挂载到 `/tmp`，因此 shell 命令和文件工具访问的是同一份内容；启动清理会删除遗留的 Docker 临时目录。这是临时工作区，不承诺持久性。
 
-隔离型后端还会将系统安装树以只读方式渲染到 `/opt/stella`。其中只挂载 `bin`、`.mise-tools` 和 `.agents/skills` 子树；`STELLA_HOME` 下同级的 `users/` 和 `agents/` 树不会暴露。Docker 后端会将 mise 工具链置于该路径，Linux `local` 则在该路径渲染对应的系统树，因此工具解析在各隔离型后端之间保持一致。`MISE_DATA_DIR` 及相关变量固定指向这个由工具托管的目录树。
+隔离型后端还会将系统安装树以只读方式渲染到 `/opt/stella`。其中保留由工具托管的 `bin` 和 `.mise-tools` 树，builtin 位于 `/opt/stella/skills/builtin`，选定的 PostgreSQL 派生只读镜像位于 `/opt/stella/db-skills` 和 `/opt/stella/agent-skills`；`STELLA_HOME` 下同级的 `users/` 和 `agents/` 树不会暴露。Docker 后端会将 mise 工具链置于该路径，Linux `local` 则在该路径渲染对应的系统树，因此工具解析在各隔离型后端之间保持一致。`MISE_DATA_DIR` 及相关变量固定指向这个由工具托管的目录树。
+
+### builtin Skill bundle
+
+原生 `local` 和 `none` 安装使用 `$STELLA_HOME/bundles/<revision>` 中与发行版完全一致的 bundle。只读挂载 `/opt/stella/skills/builtin` 只是隔离执行视图，绝不是第二个权威。bundle 中辅助可执行文件的模式会被保留。
+
+Docker 沙箱镜像会烤入并标记同一 revision，且不会回退到宿主机 builtin。Docker provider preflight 会拒绝 revision 与运行中的 Stella 二进制不匹配的组合，因此 runner session 不会启动。命令语法请运行 `stellad system-bundle --help`。开发者重建本地沙箱镜像时运行 `mise run sandbox:docker:build`；自定义沙箱镜像必须从匹配的 Stella revision 重建。
+
+升级前，请使用旧的可工作二进制，在 **设置 → 技能** 中将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill。其他残留路径应先备份、验证后删除。启动会列出每个阻塞路径并停止，不会删除或修改任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
 
 ### 升级现有工作区
 

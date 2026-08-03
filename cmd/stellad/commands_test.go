@@ -202,6 +202,10 @@ func setupCommandTestStellaHome(t *testing.T) string {
 
 func TestEnsureEmbeddedAssetsBlocksLegacySkillWithoutMutation(t *testing.T) {
 	stellaHome := setupCommandTestStellaHome(t)
+	retiredBinary := filepath.Join(stellaHome, "bin", "stella")
+	if err := os.WriteFile(retiredBinary, []byte("retired binary"), 0o755); err != nil {
+		t.Fatalf("write retired binary: %v", err)
+	}
 	retired := filepath.Join(stellaHome, ".agents", "skills", "system", "kreuzberg")
 	if err := os.MkdirAll(retired, 0o755); err != nil {
 		t.Fatalf("create retired skill: %v", err)
@@ -215,6 +219,9 @@ func TestEnsureEmbeddedAssetsBlocksLegacySkillWithoutMutation(t *testing.T) {
 	}
 	if content, err := os.ReadFile(filepath.Join(retired, "SKILL.md")); err != nil || string(content) != "stale" {
 		t.Fatalf("legacy skill mutated: %q, %v", content, err)
+	}
+	if content, err := os.ReadFile(retiredBinary); err != nil || string(content) != "retired binary" {
+		t.Fatalf("legacy gate mutated retired binary: %q, %v", content, err)
 	}
 	if _, err := os.Stat(filepath.Join(stellaHome, "bundles")); !os.IsNotExist(err) {
 		t.Fatalf("legacy gate installed a bundle: %v", err)
