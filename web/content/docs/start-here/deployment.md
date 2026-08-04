@@ -88,6 +88,27 @@ If the entire release must be rolled back, deploy the previous binary rather tha
 
 See [Configuration](/docs/start-here/configuration#environment-variables) for accepted values. The [memory internals page](/docs/development/memory-internals#structured-reflect-and-curator) explains the watermark migration, Shadow behavior, and fail-closed wiring.
 
+## Install the Web UI as an App
+
+The Web UI is a progressive web app, so you can install it to your dock, taskbar,
+or home screen and open it in its own window without browser chrome.
+
+- **Chrome, Edge, Brave (desktop and Android)** — open the Web UI and choose the
+  install icon in the address bar, or **Menu → Install Stella**.
+- **Safari on iPhone and iPad** — open the Web UI and choose **Share → Add to Home Screen**.
+- **Safari on macOS** — choose **File → Add to Dock**.
+
+After you have opened the installed app a couple of times, it shows the interface
+instead of a browser error page when you launch it offline. Talking to your agents
+still needs the server, so anything beyond the interface itself waits for the
+connection to return.
+
+Browsers only allow installation on a secure origin. If you reach Stella over
+plain `http://` on a LAN address, no install option appears and the app stays a
+normal browser tab. Put Stella behind HTTPS — see
+[the three URL roles](#the-three-url-roles) — or open it at `http://localhost`,
+which browsers treat as secure.
+
 ## Run as a Background Service
 
 ### macOS — Homebrew

@@ -183,11 +183,29 @@ var publicAuthAPIPaths = []string{
 	"/api/auth/local/register",
 }
 
+// Root-level SPA build output that the browser fetches without a session: the
+// progressive-web-app manifest and service worker, plus the icons the manifest
+// references. None of it carries user data. Without these, a logged-out visitor
+// gets redirected to /login instead, the browser rejects the manifest and the
+// worker on their content type, and the Web UI is never installable.
+// Keep in sync with web/public/.
+var publicRootFiles = []string{
+	"/sw.js",
+	"/site.webmanifest",
+	"/favicon.svg",
+	"/favicon-32x32.png",
+	"/apple-touch-icon.png",
+	"/icon-192.png",
+	"/icon-512.png",
+}
+
 // isAuthExempt returns true for paths that bypass session validation:
 // login/signup pages, static assets, public shares, auth flow endpoints, and OAuth callbacks.
 func isAuthExempt(method, path string) bool {
 	switch {
 	case path == "/login" || path == "/signup":
+		return true
+	case slices.Contains(publicRootFiles, path):
 		return true
 	case path == "/healthz" || path == "/readyz":
 		// Infrastructure probes for orchestrators (kubelet); no user session.

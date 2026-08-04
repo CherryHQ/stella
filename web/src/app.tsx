@@ -6,10 +6,13 @@ import { routeTree } from "./routeTree.gen";
 import { queryClient } from "@/lib/queryClient";
 import { I18nProvider } from "@/lib/i18n";
 import { applyTheme, getStoredTheme } from "@/lib/theme";
+import { recoverFromStaleChunks, registerServiceWorker } from "@/lib/pwa";
 import "./globals.css";
 
 if (typeof window !== "undefined") {
   applyTheme(getStoredTheme());
+  recoverFromStaleChunks();
+  registerServiceWorker();
 }
 
 const router = createRouter({

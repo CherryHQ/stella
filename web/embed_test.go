@@ -50,3 +50,22 @@ func firstEmbeddedAsset(t *testing.T) string {
 	t.Skip("SPA not built, no embedded JS asset found")
 	return ""
 }
+
+// A long-lived cache entry for the service worker would pin stale offline
+// behavior in every browser that fetched it, with no way to recover remotely.
+func TestSPAHandlerDoesNotCacheServiceWorker(t *testing.T) {
+	if _, err := staticFS.ReadFile("static/dist/sw.js"); err != nil {
+		t.Skipf("SPA not built, no embedded service worker: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/sw.js", nil)
+	rr := httptest.NewRecorder()
+	SPAHandler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("Cache-Control = %q, want no-cache", got)
+	}
+}

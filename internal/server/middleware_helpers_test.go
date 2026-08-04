@@ -76,3 +76,27 @@ func TestPluginToChannelView(t *testing.T) {
 	// Let's just verify the isAPIRoute and UserFromContext functions for now.
 	_ = isAPIRoute("/api/foo")
 }
+
+// A logged-out visitor must be able to fetch the progressive-web-app files, or
+// the browser never offers to install the Web UI.
+func TestIsAuthExemptCoversPWARootFiles(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/sw.js", true},
+		{"/site.webmanifest", true},
+		{"/favicon.svg", true},
+		{"/favicon-32x32.png", true},
+		{"/apple-touch-icon.png", true},
+		{"/icon-192.png", true},
+		{"/icon-512.png", true},
+		{"/agents", false},
+		{"/settings/credentials", false},
+	}
+	for _, tc := range tests {
+		if got := isAuthExempt(http.MethodGet, tc.path); got != tc.want {
+			t.Errorf("isAuthExempt(GET, %q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
