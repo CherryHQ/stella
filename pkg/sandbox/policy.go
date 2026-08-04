@@ -83,6 +83,9 @@ type Mount struct {
 
 // FilesystemPolicy defines filesystem constraints for a sandbox session.
 type FilesystemPolicy struct {
+	// Homes preserves typed persistent identity alongside Phase-1 host mounts.
+	// Providers must not derive host paths from these opaque attachments.
+	Homes []HomeAttachment
 	// WorkspaceRoot is the host workspace root. When empty, WorkingDir is used for
 	// backwards compatibility and for relative-path anchoring in non-isolating code.
 	WorkspaceRoot string

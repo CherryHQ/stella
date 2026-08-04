@@ -33,6 +33,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
@@ -59,6 +60,12 @@ import (
 	telegramplugin "github.com/CherryHQ/stella/plugins/channels/telegram"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 )
+
+type externalServerTestWorkspace struct{}
+
+func (externalServerTestWorkspace) WorkspaceView(context.Context, home.WorkspaceRequest) (home.WorkspaceView, error) {
+	return home.WorkspaceView{}, nil
+}
 
 func TestMain(m *testing.M) {
 	// Lower bcrypt cost for the whole package before handing the run+exit to
@@ -239,7 +246,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		Memory:     mem,
 		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
 		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
-		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Workspace:  externalServerTestWorkspace{},
 		Plugins:    phost,
 		SkillStore: pluginhost.NewSkillStoreAdapter(skillStore),
 		Skills:     skills.BuildPromptSection,

@@ -112,6 +112,51 @@ func (s *LocalStore) Attachment(home Record, readOnly bool) sandbox.HomeAttachme
 	return sandbox.HomeAttachment{HomeID: home.ID, StoreID: home.StoreID, Locator: home.Locator, ReadOnly: readOnly}
 }
 
+// pathFor is the sole Phase-1 local compatibility projection. It validates the
+// persisted relative locator before resolving it beneath this configured root.
+func (s *LocalStore) pathFor(home Record) (string, error) {
+	if home.StoreID != s.id {
+		return "", errors.New("home belongs to another Store")
+	}
+	if err := s.ValidateLocator(home.Key, home.Locator); err != nil {
+		return "", fmt.Errorf("invalid persisted locator: %w", err)
+	}
+	return filepath.Join(s.base, filepath.FromSlash(home.Locator)), nil
+}
+
+// ProjectWorkspace creates the legacy workspace shape through an os.Root. A
+// symlink beneath a Home can therefore never redirect writes outside the Store.
+// It projects absolute paths only after every required relative directory exists.
+func (s *LocalStore) ProjectWorkspace(principal, agent Record) (string, string, string, error) {
+	principalRoot, err := s.pathFor(principal)
+	if err != nil {
+		return "", "", "", err
+	}
+	agentRoot, err := s.pathFor(agent)
+	if err != nil {
+		return "", "", "", err
+	}
+	root, err := os.OpenRoot(s.base)
+	if err != nil {
+		return "", "", "", fmt.Errorf("open store root: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	for _, dir := range []string{
+		principal.Locator,
+		path.Join(principal.Locator, "data"),
+		path.Join(principal.Locator, "data", ".cache"),
+		path.Join(principal.Locator, "data", ".agents", "skills"),
+		path.Join(principal.Locator, "data", ".agents", "delegates"),
+		path.Join(principal.Locator, "data", "assets"),
+		agent.Locator,
+	} {
+		if err := root.MkdirAll(dir, 0o755); err != nil {
+			return "", "", "", fmt.Errorf("materialize workspace %q: %w", dir, err)
+		}
+	}
+	return principalRoot, filepath.Join(principalRoot, "data"), agentRoot, nil
+}
+
 // LegacyAgentIDs inspects only the agents child of an already-authoritative
 // principal Home. It never derives principals from directory names.
 func (s *LocalStore) LegacyAgentIDs(key Key) ([]string, error) {

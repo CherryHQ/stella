@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -18,6 +19,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -62,6 +64,7 @@ type runnerBuilderConfig struct {
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
 	SessionImages            SessionImagePipeline
+	WorkspaceViewer          home.WorkspaceViewer
 }
 
 // newRunnerFunc assembles a NewRunnerFunc for a given config snapshot.
@@ -105,27 +108,35 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
 			})
 		}
+		if cfg.WorkspaceViewer == nil {
+			return nil, fmt.Errorf("runner: Home workspace resolver is required")
+		}
 
-		stellaHome := config.StellaHome()
+		view, err := cfg.WorkspaceViewer.WorkspaceView(ctx, home.WorkspaceRequest{UserID: params.UserID, GroupID: params.GroupID, AgentID: params.AgentID})
+		if err != nil {
+			return nil, fmt.Errorf("resolve Home workspace: %w", err)
+		}
 		var (
 			userRoot string
 			// projectValidateRoot is the per-(principal, agent) dir a project must
 			// live under: a project is owned by the agent (see #442), so it stays
 			// scoped to the agent's subdir of the shared user/group home.
 			projectValidateRoot string
+			scratchCleanup      func() error
 		)
 		if params.UserID != "" || params.GroupID != "" {
-			principal, err := SetupPrincipalWorkspace(stellaHome, params.UserID, params.GroupID, cfg.Snap.AgentID)
-			if err != nil {
-				return nil, fmt.Errorf("setup workspace: %w", err)
-			}
-			userRoot = principal.HomeDir
-			projectValidateRoot = principal.AgentDir
+			userRoot = view.PrincipalRoot
+			projectValidateRoot = view.AgentRoot
 		} else {
-			// A user-less agent job (e.g. a builtin scheduled job) has no
-			// principal home; it runs in the agent's own pool workspace (#442).
-			userRoot = cfg.Snap.Workspace
+			if params.ProjectID != "" {
+				return nil, fmt.Errorf("runner: user-less runs cannot use a project")
+			}
+			userRoot, err = os.MkdirTemp("", "stella-runner-")
+			if err != nil {
+				return nil, fmt.Errorf("create user-less scratch: %w", err)
+			}
 			projectValidateRoot = userRoot
+			scratchCleanup = func() error { return os.RemoveAll(userRoot) }
 		}
 
 		// Resolve project directory when session has a project.
@@ -172,7 +183,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if cfg.PromptSectionsBuilder != nil {
 			sections, _ = cfg.PromptSectionsBuilder(ctx, promptBuild)
 		}
-		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+		skillPromptBuild := promptBuild
+		if params.GroupID != "" {
+			skillPromptBuild.UserID, skillPromptBuild.UserRoot, skillPromptBuild.WorkspaceRoot = "", "", ""
+		}
+		if skillsSection, err := skillstool.BuildPromptSection(ctx, skillPromptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
 			sections = append(sections, skillsSection)
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -230,6 +245,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				UserRoot:    userRoot,
 				ProjectRoot: projectRoot,
 			},
+			Homes:               homeAttachments(view),
 			UserID:              params.UserID,
 			GroupID:             params.GroupID,
 			AgentID:             params.AgentID,
@@ -277,7 +293,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			canonicalImages = &coreagent.CanonicalImageConfig{Load: load, CanonicalizeToolResult: canonicalize}
 		}
 
-		return newRunner(ctx, runnerConfig{
+		runner, err := newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
 				API:     apiName,
 				Model:   modelID,
@@ -305,8 +321,23 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DelegateRunner:      params.DelegateRunner,
 			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:     canonicalImages,
+			Cleanup:             scratchCleanup,
 		})
+		if err != nil && scratchCleanup != nil {
+			_ = scratchCleanup()
+		}
+		return runner, err
 	}
+}
+
+func homeAttachments(view home.WorkspaceView) []pkgsandbox.HomeAttachment {
+	attachments := make([]pkgsandbox.HomeAttachment, 0, 4)
+	for _, attachment := range []pkgsandbox.HomeAttachment{view.Principal, view.Agent, view.SystemSkillRoot, view.SystemAgentSkillRoot} {
+		if attachment.HomeID != "" {
+			attachments = append(attachments, attachment)
+		}
+	}
+	return attachments
 }
 
 func formatAvailableSecretMetas(metas []vault.AmbientSecretMeta) string {
