@@ -1,6 +1,6 @@
 # Configuration reference
 
-All configuration is stored in PostgreSQL. Stella can run an embedded PostgreSQL cluster whose data directory lives under `$STELLA_HOME`; run `stellad postgres download-runtime` first if the runtime is not installed. Set `STELLA_DATABASE_URL` to point at an external PostgreSQL server instead.
+All configuration is stored in PostgreSQL. Stella can run an embedded PostgreSQL cluster whose data directory lives under `$STELLA_HOME`; run `stellad postgres download` first if the runtime is not installed. Set `STELLA_DATABASE_URL` to point at an external PostgreSQL server instead.
 
 The easiest way to configure stella is to run `stellad server` and open `http://localhost:25678`. Use `--port` to change the port.
 
@@ -104,7 +104,7 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 | Operator path                               | Purpose                                                                                                         |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `postgres/`                                 | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
-| `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download-runtime`                       |
+| `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                               |
 | `cache/models.json`                         | Cached model list (safe to delete)                                                                              |
 | `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed area                                                |
 | `agents/{agent_id}/.agents/skills/`         | Administrator-managed, agent-bound skills                                                                       |

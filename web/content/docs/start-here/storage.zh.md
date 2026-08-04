@@ -8,19 +8,19 @@ Stella 写入磁盘的所有内容都位于 `$STELLA_HOME` 下（默认为 `~/.s
 
 ## 分类速览
 
-| `$STELLA_HOME` 下的路径                                                   | 存放内容                              | 分类       | Kubernetes / 临时磁盘处理方式                                   |
-| ------------------------------------------------------------------------- | ------------------------------------- | ---------- | --------------------------------------------------------------- |
-| `postgres/`                                                               | 内嵌 PostgreSQL 集群——事实来源        | 持久数据   | 持久卷**并**备份。设置 `STELLA_DATABASE_URL` 时不存在。         |
-| `users/{id}/data/assets/`                                                 | 用户上传的文件（按用户）              | 持久数据\* | 持久卷——**除非**配置了 S3 镜像（见下文）。                      |
-| `users/group-{id}/data/assets/`                                           | 用户上传的文件（按群组）              | 持久数据\* | 同按用户资产。                                                  |
-| `users/{id}/agents/{id}/`                                                 | Agent 工作树与项目文件                | 持久数据   | 持久卷**并**固定到单一副本。不在任何地方镜像。                  |
-| `library/`                                                                | 旧版文章镜像（正被迁移进 PostgreSQL） | 遗留       | 保留在卷上，直到回填报告缺失为零，之后可归档或删除。            |
-| `.agents/skills/`、`.agents/db-skills/`、`users/{id}/.../.agents/skills/` | 供沙箱执行的磁盘技能文件              | 派生缓存   | 临时磁盘即可。从 PostgreSQL 重建。                              |
-| `bin/`                                                                    | 内嵌工具与 `stella` CLI               | 派生缓存   | 临时磁盘即可。启动时重新解压。                                  |
-| `.mise-tools/`、`users/{id}/.mise-tools/`                                 | 沙箱工具链                            | 派生缓存   | 临时磁盘即可。按需重新安装。                                    |
-| `pg-runtime/`                                                             | 下载并解压的内嵌 PostgreSQL runtime   | 派生缓存   | 临时磁盘即可。用 `stellad postgres download-runtime` 重新下载。 |
-| `users/{id}/data/.cache/`                                                 | 每用户工具缓存                        | 派生缓存   | 临时磁盘即可。                                                  |
-| `dumps/`                                                                  | 收到信号时写出的诊断转储              | 临时数据   | 临时磁盘即可。仅用于诊断。                                      |
+| `$STELLA_HOME` 下的路径                                                   | 存放内容                              | 分类       | Kubernetes / 临时磁盘处理方式                           |
+| ------------------------------------------------------------------------- | ------------------------------------- | ---------- | ------------------------------------------------------- |
+| `postgres/`                                                               | 内嵌 PostgreSQL 集群——事实来源        | 持久数据   | 持久卷**并**备份。设置 `STELLA_DATABASE_URL` 时不存在。 |
+| `users/{id}/data/assets/`                                                 | 用户上传的文件（按用户）              | 持久数据\* | 持久卷——**除非**配置了 S3 镜像（见下文）。              |
+| `users/group-{id}/data/assets/`                                           | 用户上传的文件（按群组）              | 持久数据\* | 同按用户资产。                                          |
+| `users/{id}/agents/{id}/`                                                 | Agent 工作树与项目文件                | 持久数据   | 持久卷**并**固定到单一副本。不在任何地方镜像。          |
+| `library/`                                                                | 旧版文章镜像（正被迁移进 PostgreSQL） | 遗留       | 保留在卷上，直到回填报告缺失为零，之后可归档或删除。    |
+| `.agents/skills/`、`.agents/db-skills/`、`users/{id}/.../.agents/skills/` | 供沙箱执行的磁盘技能文件              | 派生缓存   | 临时磁盘即可。从 PostgreSQL 重建。                      |
+| `bin/`                                                                    | 内嵌工具与 `stella` CLI               | 派生缓存   | 临时磁盘即可。启动时重新解压。                          |
+| `.mise-tools/`、`users/{id}/.mise-tools/`                                 | 沙箱工具链                            | 派生缓存   | 临时磁盘即可。按需重新安装。                            |
+| `pg-runtime/`                                                             | 下载并解压的内嵌 PostgreSQL runtime   | 派生缓存   | 临时磁盘即可。用 `stellad postgres download` 重新下载。 |
+| `users/{id}/data/.cache/`                                                 | 每用户工具缓存                        | 派生缓存   | 临时磁盘即可。                                          |
+| `dumps/`                                                                  | 收到信号时写出的诊断转储              | 临时数据   | 临时磁盘即可。仅用于诊断。                              |
 
 \* 默认在本地磁盘上属于持久数据；一旦配置了 S3 镜像即变为可恢复的缓存——参见[用户资产](#用户资产持久或镜像)。
 
@@ -55,7 +55,7 @@ PostgreSQL 保存了几乎全部状态：配置、密钥元数据、消息历史
 - **技能镜像**（`.agents/skills/`、`.agents/db-skills/` 以及每用户、每 agent 的 `.agents/skills/` 树）：PostgreSQL 是事实来源。磁盘副本在启动时重建，并在每次加载技能时刷新，因此陈旧或缺失的镜像会自我修复。
 - **`bin/`**：内嵌工具与 `stella` CLI，启动时重新解压。
 - **工具链**（`.mise-tools/`、每用户 `.mise-tools/`）：按需重新安装。
-- **`pg-runtime/`**：下载的内嵌 PostgreSQL runtime；用 `stellad postgres download-runtime` 重新下载。每个 runtime 版本安装在各自的目录中，旧版本不会被自动清理，每个约数百 MB。执行 `stellad postgres prune-runtimes` 查看哪些已不再使用，加 `--force` 才会真正删除。
+- **`pg-runtime/`**：下载的内嵌 PostgreSQL runtime；用 `stellad postgres download` 重新下载。每个 runtime 版本安装在各自的目录中，旧版本不会被自动清理，每个约数百 MB。执行 `stellad postgres prune` 查看哪些已不再使用，加 `--force` 才会真正删除。
 - **`users/{id}/data/.cache/`**：每用户工具缓存。
 
 ## 临时数据

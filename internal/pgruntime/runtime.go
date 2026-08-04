@@ -21,7 +21,7 @@ const (
 	// libicu could not start the runtime. The suffix also renames the local
 	// cache directory, so an existing install stops using the broken extraction
 	// rather than silently keeping it — `stellad upgrade` fetches the
-	// replacement, and any other install path needs `postgres download-runtime`.
+	// replacement, and any other install path needs `postgres download`.
 	RuntimeVersion     = "pg18.4-pgvector0.8.2-pgsearch0.24.1-r2"
 	DefaultRuntimeRepo = "CherryHQ/stella-pg-runtime"
 
@@ -35,19 +35,19 @@ func MissingRuntimeHint() string {
 	case "linux":
 		data, err := os.ReadFile("/etc/os-release")
 		if err != nil {
-			return fmt.Sprintf("Could not read /etc/os-release to select a Linux runtime. Supported Linux runtime sources: %s. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your OS details: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+			return fmt.Sprintf("Could not read /etc/os-release to select a Linux runtime. Supported Linux runtime sources: %s. Run `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your OS details: %s", supportedLinuxRuntimeSources, stellaIssueURL)
 		}
 		codename := linuxRuntimeCodenameFromOSRelease(string(data))
 		if codename == "" {
-			return fmt.Sprintf("Could not detect VERSION_CODENAME or UBUNTU_CODENAME from /etc/os-release. Supported Linux runtime sources: %s. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your /etc/os-release: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+			return fmt.Sprintf("Could not detect VERSION_CODENAME or UBUNTU_CODENAME from /etc/os-release. Supported Linux runtime sources: %s. Run `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your /etc/os-release: %s", supportedLinuxRuntimeSources, stellaIssueURL)
 		}
 		if _, ok := supportedLinuxRuntimeSource(codename); !ok {
 			return fmt.Sprintf("Detected Linux runtime source %q, but Stella only publishes PostgreSQL runtimes for: %s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue requesting this distro: %s", codename, supportedLinuxRuntimeSources, stellaIssueURL)
 		}
-		return fmt.Sprintf("Detected supported Linux runtime source %q, but no PostgreSQL runtime is installed. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download-runtime fails: %s", codename, stellaIssueURL)
+		return fmt.Sprintf("Detected supported Linux runtime source %q, but no PostgreSQL runtime is installed. Run `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download fails: %s", codename, stellaIssueURL)
 	case "darwin":
 		if runtime.GOARCH == "arm64" {
-			return fmt.Sprintf("No PostgreSQL runtime is installed for darwin/arm64. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download-runtime fails: %s", stellaIssueURL)
+			return fmt.Sprintf("No PostgreSQL runtime is installed for darwin/arm64. Run `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download fails: %s", stellaIssueURL)
 		}
 		return fmt.Sprintf("PostgreSQL runtime downloads are not published for darwin/%s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", runtime.GOARCH, stellaIssueURL)
 	default:

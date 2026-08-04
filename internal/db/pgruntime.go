@@ -67,7 +67,7 @@ func newPostgresRuntimeInfo(dataDir, tmpDir string) (postgresRuntimeInfo, error)
 			// runtime is installed. Refuse instead of booting vanilla PostgreSQL and
 			// failing later with missing extension errors.
 			return postgresRuntimeInfo{}, fmt.Errorf(
-				"db: no PostgreSQL runtime for %s/%s (expected %s). Download it with `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or set %s to an extracted runtime. %s",
+				"db: no PostgreSQL runtime for %s/%s (expected %s). Download it with `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or set %s to an extracted runtime. %s",
 				runtime.GOOS, runtime.GOARCH, postgresRuntimeID, postgresRuntimeEnvName, pgruntime.MissingRuntimeHint())
 		}
 	}
@@ -280,7 +280,7 @@ func (rt postgresRuntimeInfo) startupDiagnostic(cause error) string {
 		"the PostgreSQL runtime at %s cannot run on this host%s. "+
 			"Its bundled libraries may not resolve here — install the matching system libraries "+
 			"(on Debian/Ubuntu usually libicu) or re-download the runtime with "+
-			"`stellad postgres download-runtime --force`",
+			"`stellad postgres download --force`",
 		rt.BinariesPath, detail)
 }
 

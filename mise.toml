@@ -156,7 +156,7 @@ PY
 
 [tasks."pg:runtime:download"]
 description = "Download the embedded PostgreSQL runtime used by tests and local server runs"
-run = "go run ./cmd/stellad postgres download-runtime"
+run = "go run ./cmd/stellad postgres download"
 
 [tasks."build:web"]
 description = "Build the SPA into web/static/dist, which the Go binary embeds"

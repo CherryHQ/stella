@@ -28,7 +28,7 @@ Run mode:
 
 - **Server**: `stellad server` (Telegram, QQ, Feishu, WeChat bots + scheduler + Web UI)
 
-Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download-runtime` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
+Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
 
 ## Filesystem locations
 

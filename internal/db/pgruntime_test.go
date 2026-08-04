@@ -203,7 +203,7 @@ func TestPostgresRuntimeStartupDiagnosticSurfacesLoaderFailure(t *testing.T) {
 	if !strings.Contains(hint, rt.BinariesPath) {
 		t.Errorf("diagnostic does not name the runtime: %q", hint)
 	}
-	if !strings.Contains(hint, "download-runtime") {
+	if !strings.Contains(hint, "postgres download") {
 		t.Errorf("diagnostic gives no way forward: %q", hint)
 	}
 }
@@ -235,7 +235,7 @@ func TestPostgresRuntimeStartupDiagnosticDoesNotRepeatKnownCause(t *testing.T) {
 	if strings.Contains(hint, loaderError) {
 		t.Errorf("diagnostic repeats what the error already says: %q", hint)
 	}
-	if !strings.Contains(hint, "download-runtime") {
+	if !strings.Contains(hint, "postgres download") {
 		t.Errorf("diagnostic gives no way forward: %q", hint)
 	}
 }
@@ -289,7 +289,7 @@ func TestStartEmbeddedExplainsARuntimeThatCannotRun(t *testing.T) {
 	if err == nil {
 		t.Fatal("StartEmbedded succeeded with a runtime that cannot run")
 	}
-	if !strings.Contains(err.Error(), "download-runtime --force") {
+	if !strings.Contains(err.Error(), "postgres download --force") {
 		t.Errorf("StartEmbedded error carries no remediation: %v", err)
 	}
 	if got := strings.Count(err.Error(), "libicudata.so.76"); got != 1 {

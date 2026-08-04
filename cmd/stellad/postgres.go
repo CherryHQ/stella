@@ -22,15 +22,15 @@ func postgresCommand() *ucli.Command {
 		Usage:    "Manage the embedded PostgreSQL runtime",
 		Category: "System",
 		Subcommands: []*ucli.Command{
-			postgresDownloadRuntimeCommand(),
-			postgresPruneRuntimesCommand(),
+			postgresDownloadCommand(),
+			postgresPruneCommand(),
 		},
 	}
 }
 
-func postgresPruneRuntimesCommand() *ucli.Command {
+func postgresPruneCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "prune-runtimes",
+		Name:  "prune",
 		Usage: "Remove downloaded PostgreSQL runtimes this binary does not use",
 		Description: "Every runtime version installs into its own directory and nothing removes the " +
 			"siblings, so each upgrade leaves a few hundred megabytes behind. This lists what it " +
@@ -65,7 +65,7 @@ type pruneReport struct {
 func pruneRuntimes(out io.Writer, stellaHome string, force, asJSON bool) error {
 	installed, err := pgruntime.InstalledRuntimes(stellaHome)
 	if err != nil {
-		return fmt.Errorf("postgres prune-runtimes: %w", err)
+		return fmt.Errorf("postgres prune: %w", err)
 	}
 
 	report := pruneReport{Current: pgruntime.CurrentRuntimeDir(), Pruned: force}
@@ -83,7 +83,7 @@ func pruneRuntimes(out io.Writer, stellaHome string, force, asJSON bool) error {
 	if force {
 		for _, rt := range report.Runtimes {
 			if err := os.RemoveAll(rt.Path); err != nil {
-				return fmt.Errorf("postgres prune-runtimes: remove %s: %w", rt.Path, err)
+				return fmt.Errorf("postgres prune: remove %s: %w", rt.Path, err)
 			}
 		}
 	}
@@ -119,10 +119,15 @@ func writePruneReport(out io.Writer, report pruneReport) {
 	fprintf(out, "\n%s would be reclaimed. Re-run with --force to remove them.\n", humanBytes(report.Bytes))
 }
 
-func postgresDownloadRuntimeCommand() *ucli.Command {
+func postgresDownloadCommand() *ucli.Command {
 	return &ucli.Command{
-		Name:  "download-runtime",
-		Usage: "Download the embedded PostgreSQL runtime for this platform",
+		Name: "download",
+		// The command shipped as download-runtime; the suffix was redundant under
+		// a domain whose whole job is the runtime. Keep the old name working —
+		// it is in released docs, in error hints users have already seen, and in
+		// whatever scripts they wrote around it.
+		Aliases: []string{"download-runtime"},
+		Usage:   "Download the embedded PostgreSQL runtime for this platform",
 		Description: "Download and install the PostgreSQL runtime used when STELLA_DATABASE_URL is unset. " +
 			"Set STELLA_DATABASE_URL instead if you run PostgreSQL yourself.",
 		Flags: []ucli.Flag{
@@ -136,7 +141,7 @@ func postgresDownloadRuntimeCommand() *ucli.Command {
 				var ok bool
 				source, ok = pgruntime.DefaultRuntimeSource()
 				if !ok {
-					return fmt.Errorf("postgres download-runtime: no default runtime source for %s/%s. %s", runtime.GOOS, runtime.GOARCH, pgruntime.MissingRuntimeHint())
+					return fmt.Errorf("postgres download: no default runtime source for %s/%s. %s", runtime.GOOS, runtime.GOARCH, pgruntime.MissingRuntimeHint())
 				}
 			}
 			root, err := downloadPostgresRuntime(c.Context, os.Stderr, config.StellaHome(), c.String("repo"), source, c.Bool("force"))

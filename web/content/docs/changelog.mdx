@@ -13,11 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Features
 
-- `stellad postgres prune-runtimes` reports the embedded-PostgreSQL runtimes this binary no longer uses and, with `--force`, removes them. Every runtime revision installed alongside the old one and nothing cleaned up, so an upgraded host was carrying a few hundred megabytes per version. Pruning stays manual on purpose: a rolled-back binary or a second server still running from the old runtime would both break. ([#881](https://github.com/CherryHQ/stella/pull/881), [#878](https://github.com/CherryHQ/stella/issues/878))
+- `stellad postgres prune` reports the embedded-PostgreSQL runtimes this binary no longer uses and, with `--force`, removes them. Every runtime revision installed alongside the old one and nothing cleaned up, so an upgraded host was carrying a few hundred megabytes per version. Pruning stays manual on purpose: a rolled-back binary or a second server still running from the old runtime would both break. ([#881](https://github.com/CherryHQ/stella/pull/881), [#878](https://github.com/CherryHQ/stella/issues/878))
 
 ### 🐛 Bug Fixes
 
-- Embedded PostgreSQL: the runtime bundle shipped every library it needed but gave those libraries no rpath of their own, so on a host without a matching system libicu the database failed to start with a bare `exit status 127`. Stella now uses the rebuilt `-r2` runtime and explains the failure when it happens. `stellad upgrade` fetches the replacement automatically for embedded installs; other install paths need `stellad postgres download-runtime` once before the next start. ([#877](https://github.com/CherryHQ/stella/pull/877), [#866](https://github.com/CherryHQ/stella/issues/866))
+- Embedded PostgreSQL: the runtime bundle shipped every library it needed but gave those libraries no rpath of their own, so on a host without a matching system libicu the database failed to start with a bare `exit status 127`. Stella now uses the rebuilt `-r2` runtime and explains the failure when it happens. `stellad upgrade` fetches the replacement automatically for embedded installs; other install paths need `stellad postgres download` once before the next start. ([#877](https://github.com/CherryHQ/stella/pull/877), [#866](https://github.com/CherryHQ/stella/issues/866))
 
 ## [0.61.0] - 2026-08-04
 

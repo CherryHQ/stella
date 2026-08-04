@@ -13,7 +13,16 @@ import (
 	"github.com/CherryHQ/stella/internal/pgruntime"
 )
 
-func TestPostgresDownloadRuntimeHelp(t *testing.T) {
+func TestPostgresDownloadHelp(t *testing.T) {
+	app := newApp()
+	if err := app.Run([]string{"stellad", "postgres", "download", "--help"}); err != nil {
+		t.Fatalf("run postgres download --help: %v", err)
+	}
+}
+
+// The command shipped as download-runtime and appears in released docs and in
+// error hints users have already read, so the old name has to keep resolving.
+func TestPostgresDownloadRuntimeAliasStillResolves(t *testing.T) {
 	app := newApp()
 	if err := app.Run([]string{"stellad", "postgres", "download-runtime", "--help"}); err != nil {
 		t.Fatalf("run postgres download-runtime --help: %v", err)
@@ -154,9 +163,9 @@ func TestPruneRuntimesJSONWithNothingToRemove(t *testing.T) {
 	}
 }
 
-func TestPostgresPruneRuntimesHelp(t *testing.T) {
+func TestPostgresPruneHelp(t *testing.T) {
 	app := newApp()
-	if err := app.Run([]string{"stellad", "postgres", "prune-runtimes", "--help"}); err != nil {
-		t.Fatalf("run postgres prune-runtimes --help: %v", err)
+	if err := app.Run([]string{"stellad", "postgres", "prune", "--help"}); err != nil {
+		t.Fatalf("run postgres prune --help: %v", err)
 	}
 }
