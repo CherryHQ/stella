@@ -62,22 +62,28 @@ self.addEventListener("fetch", (event) => {
   // Build output is content-hashed and served immutable, so a hit is never
   // stale and no precache manifest is needed.
   if (url.pathname.startsWith("/assets/")) {
-    event.respondWith(cacheFirst(request));
+    event.respondWith(cacheFirst(event));
     return;
   }
 
   if (request.mode === "navigate") {
-    event.respondWith(shellNetworkFirst(request));
+    event.respondWith(shellNetworkFirst(event));
   }
 });
 
-function cacheFirst(request) {
+function cacheFirst(event) {
+  const request = event.request;
   return self.caches.match(request).then((hit) => {
     if (hit) return hit;
     return self.fetch(request).then((response) => {
-      if (response.ok) {
-        const copy = response.clone();
-        void self.caches.open(CACHE).then((cache) => cache.put(request, copy));
+      // A reverse proxy doing SPA fallback answers a vanished hashed chunk with
+      // the app shell and a 200. Storing that under a script URL is
+      // unrecoverable: the entry never expires, and because the hashes are
+      // deterministic, rolling the server back to the build that owns the URL
+      // still reads HTML out of this cache. The Go handler 404s these, but
+      // nothing guarantees what sits in front of it.
+      if (isStorable(response) && !isHTML(response)) {
+        store(event, request, response.clone());
       }
       return response;
     });
@@ -87,17 +93,37 @@ function cacheFirst(request) {
 // Network-first so a server upgrade lands on the next load. Every SPA route
 // returns the same document, so any successful navigation refreshes the
 // offline shell.
-function shellNetworkFirst(request) {
+function shellNetworkFirst(event) {
   return self
-    .fetch(request)
+    .fetch(event.request)
     .then((response) => {
-      // A logged-out visitor is bounced to /login, and a redirected response
-      // cannot be cached.
-      if (response.ok && !response.redirected) {
-        const copy = response.clone();
-        void self.caches.open(CACHE).then((cache) => cache.put(SHELL_KEY, copy));
+      if (isStorable(response)) {
+        store(event, SHELL_KEY, response.clone());
       }
       return response;
     })
     .catch(() => self.caches.match(SHELL_KEY).then((hit) => hit || Response.error()));
+}
+
+// A logged-out visitor is bounced to /login, and a redirected response cannot be
+// cached at all.
+function isStorable(response) {
+  return response.ok && !response.redirected;
+}
+
+function isHTML(response) {
+  return (response.headers.get("Content-Type") || "").startsWith("text/html");
+}
+
+// Cache writes must outlive the response: once respondWith settles the browser
+// is free to kill the worker, and a half-written entry means the next offline
+// launch is missing the very thing this visit was supposed to store. A failed
+// write (quota, eviction) must never fail the fetch.
+function store(event, key, response) {
+  event.waitUntil(
+    self.caches
+      .open(CACHE)
+      .then((cache) => cache.put(key, response))
+      .catch(() => {}),
+  );
 }

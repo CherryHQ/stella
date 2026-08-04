@@ -17,6 +17,7 @@ interface StubResponse {
   ok: boolean;
   redirected: boolean;
   body: string;
+  headers: { get: (name: string) => string | null };
   clone: () => StubResponse;
 }
 
@@ -24,13 +25,18 @@ function request(path: string, overrides: Partial<StubRequest> = {}): StubReques
   return { method: "GET", url: `${ORIGIN}${path}`, mode: "cors", ...overrides };
 }
 
-function response(body: string, overrides: Partial<StubResponse> = {}): StubResponse {
+function response(
+  body: string,
+  overrides: Partial<StubResponse> & { contentType?: string } = {},
+): StubResponse {
+  const { contentType = "text/javascript", ...rest } = overrides;
   const stub: StubResponse = {
     ok: true,
     redirected: false,
     body,
+    headers: { get: (name) => (name.toLowerCase() === "content-type" ? contentType : null) },
     clone: () => stub,
-    ...overrides,
+    ...rest,
   };
   return stub;
 }
@@ -44,11 +50,17 @@ function startWorker(networkResponse: (req: StubRequest | string) => Promise<Stu
   const stored = new Map<string, StubResponse>();
   const fetch = vi.fn((req: StubRequest | string) => networkResponse(req));
 
+  // Deliberately deferred: a cache write that only lands on a later task is
+  // exactly what the browser is free to kill the worker before finishing, so
+  // the worker has to hold the fetch event open for it.
   const cache = {
-    put: (key: StubRequest | string, res: StubResponse) => {
-      stored.set(cacheKey(key), res);
-      return Promise.resolve();
-    },
+    put: (key: StubRequest | string, res: StubResponse) =>
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          stored.set(cacheKey(key), res);
+          resolve();
+        }, 0);
+      }),
   };
 
   const scope = {
@@ -68,6 +80,8 @@ function startWorker(networkResponse: (req: StubRequest | string) => Promise<Stu
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   new Function("self", source)(scope);
 
+  const kept: Promise<unknown>[] = [];
+
   return {
     stored,
     fetch,
@@ -79,9 +93,12 @@ function startWorker(networkResponse: (req: StubRequest | string) => Promise<Stu
         respondWith: (value: Promise<StubResponse>) => {
           taken = value;
         },
+        waitUntil: (value: Promise<unknown>) => kept.push(value),
       });
       return taken;
     },
+    /** Runs out everything the worker asked to keep the event alive for. */
+    settle: () => Promise.all(kept),
   };
 }
 
@@ -137,15 +154,45 @@ describe("service worker routing", () => {
     const worker = startWorker(() => Promise.resolve(response("gone", { ok: false })));
 
     await worker.handle(request("/assets/route-abc123.js"));
+    await worker.settle();
     expect(worker.stored.has("/assets/route-abc123.js")).toBe(false);
   });
 
+  // A proxy doing SPA fallback answers a vanished chunk with the shell and a
+  // 200. Storing HTML under a script URL never expires and survives a rollback
+  // that restores the real file, so the app breaks until site data is cleared.
+  it("never stores an HTML body under a hashed asset URL", async () => {
+    const worker = startWorker(() =>
+      Promise.resolve(response("<!doctype html>", { contentType: "text/html; charset=utf-8" })),
+    );
+
+    await worker.handle(request("/assets/route-abc123.js"));
+    await worker.settle();
+    expect(worker.stored.has("/assets/route-abc123.js")).toBe(false);
+  });
+
+  // respondWith settling lets the browser kill the worker, so a write that has
+  // not landed yet must hold the event open or the next offline launch is
+  // missing exactly what this visit was meant to store.
+  it("holds the fetch event open until the cache write lands", async () => {
+    const worker = startWorker(() => Promise.resolve(response("chunk")));
+
+    await worker.handle(request("/assets/route-abc123.js"));
+    expect(worker.stored.has("/assets/route-abc123.js")).toBe(false);
+
+    await worker.settle();
+    expect(worker.stored.get("/assets/route-abc123.js")).toMatchObject({ body: "chunk" });
+  });
+
   it("prefers the network for navigations and refreshes the shell", async () => {
-    const worker = startWorker(() => Promise.resolve(response("fresh shell")));
+    const worker = startWorker(() =>
+      Promise.resolve(response("fresh shell", { contentType: "text/html; charset=utf-8" })),
+    );
 
     await expect(worker.handle(request("/agents", { mode: "navigate" }))).resolves.toMatchObject({
       body: "fresh shell",
     });
+    await worker.settle();
     expect(worker.stored.get("/index.html")).toMatchObject({ body: "fresh shell" });
   });
 
@@ -162,6 +209,7 @@ describe("service worker routing", () => {
     const worker = startWorker(() => Promise.resolve(response("/login", { redirected: true })));
 
     await worker.handle(request("/", { mode: "navigate" }));
+    await worker.settle();
     expect(worker.stored.has("/index.html")).toBe(false);
   });
 
