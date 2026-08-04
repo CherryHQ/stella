@@ -1,10 +1,14 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/pgruntime"
 )
@@ -24,6 +28,10 @@ const (
 	// settled; external DSNs remain the supported advanced-search path for now.
 	postgresRuntimeEnvName = "STELLA_POSTGRES_RUNTIME"
 )
+
+// Long enough for a cold binary on a slow disk, short enough that a hung probe
+// cannot outlive the error it is explaining. A variable so tests can shorten it.
+var startupDiagnosticTimeout = 10 * time.Second
 
 type postgresRuntimeInfo struct {
 	BinariesPath string
@@ -224,10 +232,74 @@ func postgresLibraryRoot(root string) string {
 }
 
 func pgCtlName() string {
+	return pgBinaryName("pg_ctl")
+}
+
+func pgBinaryName(name string) string {
 	if runtime.GOOS == "windows" {
-		return "pg_ctl.exe"
+		return name + ".exe"
 	}
-	return "pg_ctl"
+	return name
+}
+
+// startupDiagnostic explains a failed start when the cause is that the
+// runtime's binaries cannot run at all, and returns "" otherwise. A runtime
+// whose bundled libraries do not resolve on this host fails as "exit status
+// 127", which says nothing about what to do; embedded-postgres passes the
+// child's stderr through only sometimes. Re-running the cheapest binary in the
+// bundle settles both questions, and cause is only appended when the failure
+// does not already carry it.
+//
+// Called only after a start has already failed, so its cost never lands on a
+// healthy path.
+func (rt postgresRuntimeInfo) startupDiagnostic(cause error) string {
+	if rt.BinariesPath == "" {
+		return ""
+	}
+	// A diagnostic must never outlast the failure it explains. The probe runs a
+	// binary this host has already shown it cannot be trusted to run, so bound
+	// it and let WaitDelay cut a child that holds the output pipe open.
+	ctx, cancel := context.WithTimeout(context.Background(), startupDiagnosticTimeout)
+	defer cancel()
+	initdb := filepath.Join(rt.BinariesPath, "bin", pgBinaryName("initdb"))
+	cmd := exec.CommandContext(ctx, initdb, "--version")
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return ""
+	}
+	detail := strings.TrimSpace(string(out))
+	if detail == "" {
+		detail = err.Error()
+	}
+	detail = withoutLinesFrom(detail, cause)
+	if detail != "" {
+		detail = ": " + detail
+	}
+	return fmt.Sprintf(
+		"the PostgreSQL runtime at %s cannot run on this host%s. "+
+			"Its bundled libraries may not resolve here — install the matching system libraries "+
+			"(on Debian/Ubuntu usually libicu) or re-download the runtime with "+
+			"`stellad postgres download-runtime --force`",
+		rt.BinariesPath, detail)
+}
+
+// withoutLinesFrom drops the lines of detail that cause already reports. It
+// works per line because the probe's output and the failed start's output
+// overlap partially: the loader message is the same, the command line around it
+// is not.
+func withoutLinesFrom(detail string, cause error) string {
+	if cause == nil {
+		return detail
+	}
+	reported := cause.Error()
+	var kept []string
+	for line := range strings.SplitSeq(detail, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" && !strings.Contains(reported, trimmed) {
+			kept = append(kept, trimmed)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 func postgresSharedLibraryName(name string) string {
