@@ -2,6 +2,7 @@ package home
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -396,5 +400,365 @@ func TestObserveMutableAssetObjectAuthorityStoresNoConfigurationSecret(t *testin
 	}
 	if marker.State != "pending" || !marker.ObjectAuthorityConfigured || string(marker.Metadata) != "{}" {
 		t.Fatalf("marker = %+v", marker)
+	}
+}
+
+func TestObserveMutableAssetObjectAuthorityDoesNotRegressCompleted(t *testing.T) {
+	r, _ := newRegistry(t)
+	ctx := context.Background()
+	if err := r.ObserveMutableAssetObjectAuthority(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.q.CompleteStorageMigration(ctx, sqlc.CompleteStorageMigrationParams{Name: MutableAssetObjectAuthorityMigration, State: "pending"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ObserveMutableAssetObjectAuthority(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	marker, err := r.q.GetStorageMigration(ctx, MutableAssetObjectAuthorityMigration)
+	if err != nil || marker.State != "completed" || !marker.ObjectAuthorityConfigured || !marker.CompletedAt.Valid || string(marker.Metadata) != "{}" {
+		t.Fatalf("completed marker regressed: %+v, %v", marker, err)
+	}
+}
+
+func TestRegisterLegacyUsesOnlyAuthoritativeIdentities(t *testing.T) {
+	db := dbtest.New(t)
+	store, err := NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(db, store.ID(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	// The same raw UUID is a valid user and group identity, but must remain disjoint.
+	principalID := uuid.NewString()
+	if _, err := db.Exec(ctx, "INSERT INTO auth_user (id, email) VALUES ($1, $2)", principalID, principalID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, "INSERT INTO ctx_group_state (id, platform, platform_group_id) VALUES ($1, 'test', $2)", principalID, "group-"+principalID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"current", "stale", "group-agent"} {
+		if _, err := db.Exec(ctx, "INSERT INTO agent (id, name, workspace) VALUES ($1, $1, '/tmp')", id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(ctx, "INSERT INTO auth_user_agent (user_id, agent_id) VALUES ($1, 'current')", principalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, "INSERT INTO channel (id) VALUES ('reply')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, "INSERT INTO channel_group_member (group_id, agent_id, reply_channel_id) VALUES ($1, 'group-agent', 'reply')", principalID); err != nil {
+		t.Fatal(err)
+	}
+	staleKey := Agent(UserPrincipal, principalID, "stale")
+	staleLocator, err := store.Allocate(staleKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleFile := filepath.Join(store.base, filepath.FromSlash(staleLocator), "keep")
+	if err := os.MkdirAll(filepath.Dir(staleFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staleFile, []byte("legacy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(staleFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := filepath.Join(store.base, "users", principalID, "agents", "unknown")
+	if err := os.MkdirAll(unknown, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterLegacy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterLegacy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []Key{Principal(UserPrincipal, principalID), Principal(GroupPrincipal, principalID), Agent(UserPrincipal, principalID, "current"), staleKey, Agent(GroupPrincipal, principalID, "group-agent"), SystemSkills(), SystemAgentSkills("current")} {
+		if _, err := r.Resolve(ctx, key, false); err != nil {
+			t.Fatalf("registered %v: %v", key, err)
+		}
+	}
+	if _, err := r.Resolve(ctx, Agent(UserPrincipal, principalID, "unknown"), false); err == nil {
+		t.Fatal("unknown directory became an AgentHome")
+	}
+	after, err := os.Stat(staleFile)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("legacy inode changed: %v", err)
+	}
+}
+
+func TestValidateConfiguredStoresFailsBeforeRegistration(t *testing.T) {
+	db := dbtest.New(t)
+	store, err := NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(db, store.ID(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := r.Ensure(context.Background(), Principal(UserPrincipal, "user"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(context.Background(), "UPDATE storage_home SET store_id = 'missing', updated_at = now() WHERE id = $1", home.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ValidateConfiguredStores(context.Background()); err == nil {
+		t.Fatal("unknown referenced Store accepted at startup")
+	}
+}
+
+func TestValidateConfiguredStoresAllowsPurgedRetiredStore(t *testing.T) {
+	db := dbtest.New(t)
+	oldStore, err := NewLocalStore("old", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRegistry, err := NewRegistry(db, oldStore.ID(), oldStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	home, err := oldRegistry.Ensure(ctx, Principal(UserPrincipal, "user"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldRegistry.Tombstone(ctx, home.Key, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldRegistry.Purge(ctx, home.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	newStore, err := NewLocalStore("new", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRegistry, err := NewRegistry(db, newStore.ID(), newStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := newRegistry.ValidateConfiguredStores(ctx); err != nil {
+		t.Fatalf("purged retired Store blocked startup: %v", err)
+	}
+}
+
+func TestValidateConfiguredStoresRequiresTombstonedRetiredStore(t *testing.T) {
+	db := dbtest.New(t)
+	oldStore, err := NewLocalStore("old", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRegistry, err := NewRegistry(db, oldStore.ID(), oldStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	home, err := oldRegistry.Ensure(ctx, Principal(UserPrincipal, "user"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oldRegistry.Tombstone(ctx, home.Key, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	newStore, err := NewLocalStore("new", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRegistry, err := NewRegistry(db, newStore.ID(), newStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := newRegistry.ValidateConfiguredStores(ctx); err == nil {
+		t.Fatal("tombstoned retired Store did not block startup")
+	}
+}
+
+type failingLegacyStore struct {
+	Store
+	local *LocalStore
+	err   error
+	calls int
+}
+
+func (s *failingLegacyStore) LegacyAgentIDs(key Key) ([]string, error) {
+	s.calls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.local.LegacyAgentIDs(key)
+}
+
+func TestRegisterLegacyRetriesPendingAndSkipsCompletedInventory(t *testing.T) {
+	db := dbtest.New(t)
+	local, err := NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &failingLegacyStore{Store: local, local: local, err: errors.New("injected legacy inspection failure")}
+	r, err := NewRegistry(db, local.ID(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	userID := uuid.NewString()
+	if _, err := db.Exec(ctx, "INSERT INTO auth_user (id, email) VALUES ($1, $2)", userID, userID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterLegacy(ctx); err == nil {
+		t.Fatal("injected inspection failure completed registration")
+	}
+	marker, err := r.q.GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
+	if err != nil || marker.State != "pending" || marker.CompletedAt.Valid {
+		t.Fatalf("marker after failed registration = %+v, %v", marker, err)
+	}
+	store.err = nil
+	if err := r.RegisterLegacy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	marker, err = r.q.GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
+	var metadata map[string]string
+	if err != nil || json.Unmarshal(marker.Metadata, &metadata) != nil || marker.State != "completed" || !marker.CompletedAt.Valid || metadata["store_id"] != "local" {
+		t.Fatalf("marker after retry = %+v, %v", marker, err)
+	}
+	store.err = errors.New("completed registration must not inspect disk")
+	if err := r.RegisterLegacy(ctx); err != nil {
+		t.Fatalf("completed registration re-inspected inventory: %v", err)
+	}
+}
+
+func TestRegisterLegacyInspectsOnlyDefaultStore(t *testing.T) {
+	db := dbtest.New(t)
+	defaultStore, err := NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStore, err := NewLocalStore("old", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	failingOldStore := &failingLegacyStore{Store: oldStore, local: oldStore, err: errors.New("non-default Store must not be inspected")}
+	r, err := NewRegistry(db, defaultStore.ID(), defaultStore, failingOldStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userID := uuid.NewString()
+	if _, err := db.Exec(context.Background(), "INSERT INTO auth_user (id, email) VALUES ($1, $2)", userID, userID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterLegacy(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRegisterLegacyPendingMarkerUsesRecordedStore(t *testing.T) {
+	db := dbtest.New(t)
+	storeA, err := NewLocalStore("store-a", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeB, err := NewLocalStore("store-b", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &failingLegacyStore{Store: storeA, local: storeA, err: errors.New("fail Store A inspection")}
+	rA, err := NewRegistry(db, storeA.ID(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	userID := uuid.NewString()
+	if _, err := db.Exec(ctx, "INSERT INTO auth_user (id, email) VALUES ($1, $2)", userID, userID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := rA.RegisterLegacy(ctx); err == nil {
+		t.Fatal("Store A failure did not leave a pending marker")
+	}
+	if a.calls == 0 {
+		t.Fatal("initial registration did not inspect Store A")
+	}
+	a.err = nil
+	b := &failingLegacyStore{Store: storeB, local: storeB, err: errors.New("retry inspected new default Store B")}
+	rB, err := NewRegistry(db, storeB.ID(), a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rB.RegisterLegacy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if b.calls != 0 || a.calls < 2 {
+		t.Fatalf("retry Store calls: A=%d B=%d, want A only", a.calls, b.calls)
+	}
+	marker, err := rB.q.GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
+	var metadata map[string]string
+	if err != nil || json.Unmarshal(marker.Metadata, &metadata) != nil || marker.State != "completed" || metadata["store_id"] != storeA.ID() {
+		t.Fatalf("completed marker = %+v, %v", marker, err)
+	}
+}
+
+func TestRegisterLegacyFailsWhenRecordedStoreIsAbsent(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	if _, err := sqlc.New(db).CreateStorageMigration(ctx, sqlc.CreateStorageMigrationParams{Name: TypedHomeLegacyRegistrationMigration, Metadata: []byte(`{"store_id":"store-a"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	storeB, err := NewLocalStore("store-b", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(db, storeB.ID(), storeB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterLegacy(ctx); err == nil {
+		t.Fatal("registration accepted an absent recorded Store")
+	}
+}
+
+func TestRegisterLegacyCompletedMarkerAllowsRetiredStore(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	q := sqlc.New(db)
+	if _, err := q.CreateStorageMigration(ctx, sqlc.CreateStorageMigrationParams{Name: TypedHomeLegacyRegistrationMigration, Metadata: []byte(`{"store_id":"old"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CompleteStorageMigration(ctx, sqlc.CompleteStorageMigrationParams{Name: TypedHomeLegacyRegistrationMigration, State: "pending"}); err != nil {
+		t.Fatal(err)
+	}
+	newStore, err := NewLocalStore("new", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(db, newStore.ID(), newStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterLegacy(ctx); err != nil {
+		t.Fatalf("completed marker pinned retired Store: %v", err)
+	}
+}
+
+func TestObserveMutableAssetObjectAuthorityRejectsCompletedLocalToObjectTransition(t *testing.T) {
+	r, _ := newRegistry(t)
+	ctx := context.Background()
+	if err := r.ObserveMutableAssetObjectAuthority(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.q.CompleteStorageMigration(ctx, sqlc.CompleteStorageMigrationParams{Name: MutableAssetObjectAuthorityMigration, State: "not_required"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ObserveMutableAssetObjectAuthority(ctx, true); err == nil {
+		t.Fatal("completed local authority migration accepted object authority")
+	}
+	marker, err := r.q.GetStorageMigration(ctx, MutableAssetObjectAuthorityMigration)
+	if err != nil || marker.State != "completed" || marker.ObjectAuthorityConfigured {
+		t.Fatalf("terminal marker changed: %+v, %v", marker, err)
 	}
 }

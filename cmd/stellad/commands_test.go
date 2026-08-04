@@ -22,6 +22,19 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
+func TestSetupRunsPhaseZeroGateBeforeHomeRegistration(t *testing.T) {
+	source, err := os.ReadFile("commands.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := strings.Index(string(source), "ensureEmbeddedAssets()")
+	observe := strings.Index(string(source), "ObserveMutableAssetObjectAuthority")
+	register := strings.Index(string(source), "RegisterLegacy(parent)")
+	if gate < 0 || observe < 0 || register < 0 || gate > observe || gate > register {
+		t.Fatal("Phase 0 asset gate must precede Home observation and legacy registration")
+	}
+}
+
 type commandTestProvider struct{}
 
 func (commandTestProvider) API() string { return "anthropic" }
