@@ -218,12 +218,8 @@ run = "git config --unset core.hooksPath || true && prek install --overwrite --p
 # db:migrate:up/status target STELLA_DATABASE_URL (an external PostgreSQL).
 
 [tasks."db:migrate:new"]
-description = "Scaffold a new goose SQL migration in internal/db/migrations"
-run = "goose -dir internal/db/migrations create {{arg(name='name', default='migration')}} sql"
-
-[tasks."db:migrate:check-order"]
-description = "Check new Goose migrations sort after the base branch"
-run = 'go run ./internal/db/cmd/checkmigrationorder --base "${STELLA_MIGRATION_BASE_REF:-origin/main}"'
+description = "Scaffold the next sequential Goose SQL migration in internal/db/migrations"
+run = "goose -dir internal/db/migrations -s create {{arg(name='name', default='migration')}} sql"
 
 [tasks."db:validate"]
 description = "Validate goose migrations parse and are well-formed"

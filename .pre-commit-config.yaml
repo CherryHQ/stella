@@ -8,13 +8,6 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
-      - id: migration-order
-        name: check Goose migration order
-        entry: mise run db:migrate:check-order
-        language: system
-        pass_filenames: false
-        files: ^internal/db/migrations/.*\.sql$
-        stages: [pre-commit]
       - id: post-checkout-build
         name: mise trust and build after branch switch
         entry: ./scripts/post-checkout.sh
