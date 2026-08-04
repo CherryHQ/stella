@@ -60,7 +60,7 @@ func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Pro
 		t.Fatalf("create session fixture: %v", err)
 	}
 	agentAccess := agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{})
-	sessions, err := sessionaccess.NewService(mem, db, store, assets, agentAccess, sessionaccess.WithHomeWorkspace(serverTestWorkspace{}))
+	sessions, err := sessionaccess.NewService(mem, db, store, assets, agentAccess, sessionaccess.WithHomeWorkspace(serverTestWorkspace{root: home}))
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}

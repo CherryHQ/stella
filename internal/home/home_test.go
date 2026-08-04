@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -482,6 +483,37 @@ func TestExistingHomeKeepsStoreAndCutoverValidatesLocator(t *testing.T) {
 	moved, err := r2.CutoverStore(context.Background(), home, second.ID(), newLocator, "worker")
 	if err != nil || moved.StoreID != second.ID() || moved.Locator != newLocator {
 		t.Fatalf("cutover = %+v, %v", moved, err)
+	}
+}
+
+func TestCutoverStoreRejectsSharedSkillRootsUntilPhase2(t *testing.T) {
+	db := dbtest.New(t)
+	first, err := NewLocalStore("first", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewLocalStore("second", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(db, first.ID(), first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []Key{SystemSkills(), SystemAgentSkills("agent")} {
+		t.Run(string(key.Kind), func(t *testing.T) {
+			record, err := r.Ensure(context.Background(), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			locator, err := second.Allocate(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.CutoverStore(context.Background(), record, second.ID(), locator, "worker"); err == nil || !strings.Contains(err.Error(), "Phase 2 Skill consumers") {
+				t.Fatalf("shared Skill root cutover error = %v, want Phase 2 requirement", err)
+			}
+		})
 	}
 }
 

@@ -38,12 +38,14 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-type serverTestWorkspace struct{}
+// serverTestWorkspace maps each helper fixture's temporary legacy Home layout.
+// It is explicit test composition, never a production fallback.
+type serverTestWorkspace struct{ root string }
 
-func (serverTestWorkspace) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
-	principal := filepath.Join(config.StellaHome(), "users", req.UserID)
+func (w serverTestWorkspace) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
+	principal := filepath.Join(w.root, "users", req.UserID)
 	if req.GroupID != "" {
-		principal = filepath.Join(config.StellaHome(), "users", "group-"+req.GroupID)
+		principal = filepath.Join(w.root, "users", "group-"+req.GroupID)
 	}
 	data, agentRoot := filepath.Join(principal, "data"), filepath.Join(principal, "agents", req.AgentID)
 	if err := os.MkdirAll(filepath.Join(data, "assets"), 0o755); err != nil {
@@ -53,6 +55,18 @@ func (serverTestWorkspace) WorkspaceView(_ context.Context, req home.WorkspaceRe
 		return home.WorkspaceView{}, err
 	}
 	return home.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agentRoot}, nil
+}
+
+// testTransportOwnerDeletion preserves the HTTP fixture's historical database
+// delete behavior. It is test-only: production uses Home OwnerDeletion.
+type testTransportOwnerDeletion struct {
+	agents interface {
+		DeleteAgent(context.Context, string) error
+	}
+}
+
+func (d testTransportOwnerDeletion) DeleteAgent(ctx context.Context, id, _ string) error {
+	return d.agents.DeleteAgent(ctx, id)
 }
 
 // testServerDeps builds a full, valid Deps mirroring what the composition root
@@ -91,7 +105,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		Memory:     mem,
 		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
 		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
-		Workspace:  serverTestWorkspace{},
+		Workspace:  serverTestWorkspace{root: config.StellaHome()},
 		Plugins:    phost,
 		SkillStore: pluginhost.NewSkillStoreAdapter(phost.SkillStore()),
 		Skills:     skills.BuildPromptSection,
@@ -106,7 +120,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	}
 	toolOverrides := agent.NewToolOverrideStore(db)
 	agentSkillPolicy, _ := store.(AgentSkillPolicyStore)
-	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"))
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"), agentaccess.WithOwnerDeletion(testTransportOwnerDeletion{agents: store}))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	memProfiles, _ := mem.(memory.ProfileStore)
 	memChangelog, _ := mem.(memory.ChangelogReader)
@@ -133,7 +147,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		Credentials:         credSvc,
 		ControlPlane:        controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test")),
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()})),
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,

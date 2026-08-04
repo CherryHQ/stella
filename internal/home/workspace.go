@@ -6,7 +6,6 @@ import (
 	"sort"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -40,68 +39,87 @@ type WorkspaceViewer interface {
 // that can safely materialize and project the legacy local layout implement it.
 // It is not a generic host-path API.
 type localWorkspaceProjector interface {
-	ProjectWorkspace(Record, Record) (principalRoot, dataRoot, agentRoot string, err error)
+	PrepareWorkspace(Record, Record) error
+	WorkspacePaths(Record, Record) (principalRoot, dataRoot, agentRoot string, err error)
 }
 
-// WorkspaceView resolves fresh registry rows before projecting local paths.
-// A caller cannot supply an attachment here, so every attachment in the view
-// is DB-backed and ready at the instant the view is captured.
+// WorkspaceView projects compatibility paths outside a DB transaction, then
+// captures ready attachments behind the owner advisory gate. The bounded local
+// owner lock is a Phase-1 one-replica ceiling: it keeps deletion from purging a
+// Home while a local Store call is in flight; Phase 3 uses SessionSandbox fencing.
 func (r *Registry) WorkspaceView(ctx context.Context, req WorkspaceRequest) (WorkspaceView, error) {
 	if req.AgentID == "" {
 		return WorkspaceView{}, fmt.Errorf("home: workspace agent ID is required")
 	}
 	principalKey, hasPrincipal := workspacePrincipal(req)
+	ownerKeys := workspaceOwnerKeys(req.AgentID, principalKey, hasPrincipal)
+	unlock, err := r.lockOwnerKeys(ctx, ownerKeys)
+	if err != nil {
+		return WorkspaceView{}, err
+	}
+	defer unlock()
+
+	// Store Ensure and local compatibility preparation perform filesystem I/O and
+	// must not retain a database connection or advisory transaction lock.
+	system, err := r.Ensure(ctx, SystemSkills())
+	if err != nil {
+		return WorkspaceView{}, fmt.Errorf("home: ensure system Skill root: %w", err)
+	}
+	systemAgent, err := r.Ensure(ctx, SystemAgentSkills(req.AgentID))
+	if err != nil {
+		return WorkspaceView{}, fmt.Errorf("home: ensure system Agent Skill root: %w", err)
+	}
+	var principal, agent Record
+	var projector localWorkspaceProjector
+	var principalRoot, dataRoot, agentRoot string
+	if hasPrincipal {
+		principal, err = r.Ensure(ctx, principalKey)
+		if err != nil {
+			return WorkspaceView{}, fmt.Errorf("home: ensure principal workspace: %w", err)
+		}
+		agent, err = r.Ensure(ctx, Agent(principalKey.PrincipalKind, principalKey.PrincipalID, req.AgentID))
+		if err != nil {
+			return WorkspaceView{}, fmt.Errorf("home: ensure Agent workspace: %w", err)
+		}
+		var ok bool
+		projector, ok = r.stores[principal.StoreID].(localWorkspaceProjector)
+		if !ok || agent.StoreID != principal.StoreID {
+			return WorkspaceView{}, fmt.Errorf("home: Store %q has no local workspace projection", principal.StoreID)
+		}
+		if err := projector.PrepareWorkspace(principal, agent); err != nil {
+			return WorkspaceView{}, err
+		}
+		principalRoot, dataRoot, agentRoot, err = projector.WorkspacePaths(principal, agent)
+		if err != nil {
+			return WorkspaceView{}, err
+		}
+	}
+
+	// The final transaction is DB-only. It serializes with owner deletion and
+	// revalidates every record captured above before any attachment is returned.
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return WorkspaceView{}, fmt.Errorf("home: begin workspace owner gate: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := sqlc.New(tx)
-
-	// Agent deletion owns agent:<id>; principal deletion owns user/group:<id>.
-	// Lock the identical canonical keys in lexical order so either deletion and
-	// this view serialize without a lock inversion.
-	locks := []string{ownerLockKey(OwnerAgent, req.AgentID)}
-	if hasPrincipal {
-		kind := OwnerUser
-		if principalKey.PrincipalKind == GroupPrincipal {
-			kind = OwnerGroup
-		}
-		locks = append(locks, ownerLockKey(kind, principalKey.PrincipalID))
-	}
+	locks := append([]string(nil), ownerKeys...)
 	sort.Strings(locks)
 	for _, lock := range locks {
 		if err := q.LockStorageHomeOwner(ctx, lock); err != nil {
 			return WorkspaceView{}, fmt.Errorf("home: lock workspace owner gate: %w", err)
 		}
 	}
-
 	view := WorkspaceView{}
-	system, err := r.ensureWithQueries(ctx, q, SystemSkills())
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: ensure system Skill root: %w", err)
-	}
 	view.SystemSkillRoot, err = r.resolveRecordWithQueries(ctx, q, system, true)
 	if err != nil {
 		return WorkspaceView{}, fmt.Errorf("home: resolve system Skill root: %w", err)
-	}
-	systemAgent, err := r.ensureWithQueries(ctx, q, SystemAgentSkills(req.AgentID))
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: ensure system Agent Skill root: %w", err)
 	}
 	view.SystemAgentSkillRoot, err = r.resolveRecordWithQueries(ctx, q, systemAgent, true)
 	if err != nil {
 		return WorkspaceView{}, fmt.Errorf("home: resolve system Agent Skill root: %w", err)
 	}
 	if hasPrincipal {
-		principal, err := r.ensureWithQueries(ctx, q, principalKey)
-		if err != nil {
-			return WorkspaceView{}, fmt.Errorf("home: ensure principal workspace: %w", err)
-		}
-		agent, err := r.ensureWithQueries(ctx, q, Agent(principalKey.PrincipalKind, principalKey.PrincipalID, req.AgentID))
-		if err != nil {
-			return WorkspaceView{}, fmt.Errorf("home: ensure Agent workspace: %w", err)
-		}
 		view.Principal, err = r.resolveRecordWithQueries(ctx, q, principal, false)
 		if err != nil {
 			return WorkspaceView{}, err
@@ -110,19 +128,27 @@ func (r *Registry) WorkspaceView(ctx context.Context, req WorkspaceRequest) (Wor
 		if err != nil {
 			return WorkspaceView{}, err
 		}
-		store, ok := r.stores[principal.StoreID].(localWorkspaceProjector)
-		if !ok || agent.StoreID != principal.StoreID {
-			return WorkspaceView{}, fmt.Errorf("home: Store %q has no local workspace projection", principal.StoreID)
+		if agent.StoreID != principal.StoreID {
+			return WorkspaceView{}, fmt.Errorf("home: Store %q changed during workspace projection", principal.StoreID)
 		}
-		view.PrincipalRoot, view.DataRoot, view.AgentRoot, err = store.ProjectWorkspace(principal, agent)
-		if err != nil {
-			return WorkspaceView{}, err
-		}
+		view.PrincipalRoot, view.DataRoot, view.AgentRoot = principalRoot, dataRoot, agentRoot
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return WorkspaceView{}, fmt.Errorf("home: commit workspace view: %w", err)
 	}
 	return view, nil
+}
+
+func workspaceOwnerKeys(agentID string, principal Key, hasPrincipal bool) []string {
+	keys := []string{ownerLockKey(OwnerAgent, agentID)}
+	if !hasPrincipal {
+		return keys
+	}
+	kind := OwnerUser
+	if principal.PrincipalKind == GroupPrincipal {
+		kind = OwnerGroup
+	}
+	return append(keys, ownerLockKey(kind, principal.PrincipalID))
 }
 
 func workspacePrincipal(req WorkspaceRequest) (Key, bool) {
