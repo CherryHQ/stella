@@ -55,7 +55,7 @@ PostgreSQL 保存了几乎全部状态：配置、密钥元数据、消息历史
 - **技能镜像**（`.agents/skills/`、`.agents/db-skills/` 以及每用户、每 agent 的 `.agents/skills/` 树）：PostgreSQL 是事实来源。磁盘副本在启动时重建，并在每次加载技能时刷新，因此陈旧或缺失的镜像会自我修复。
 - **`bin/`**：内嵌工具与 `stella` CLI，启动时重新解压。
 - **工具链**（`.mise-tools/`、每用户 `.mise-tools/`）：按需重新安装。
-- **`pg-runtime/`**：下载的内嵌 PostgreSQL runtime；用 `stellad postgres download-runtime` 重新下载。
+- **`pg-runtime/`**：下载的内嵌 PostgreSQL runtime；用 `stellad postgres download-runtime` 重新下载。每个 runtime 版本安装在各自的目录中，旧版本不会被自动清理，每个约数百 MB。执行 `stellad postgres prune-runtimes` 查看哪些已不再使用，加 `--force` 才会真正删除。
 - **`users/{id}/data/.cache/`**：每用户工具缓存。
 
 ## 临时数据

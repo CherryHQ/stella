@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
@@ -66,7 +68,78 @@ func DefaultRuntimeSource() (string, bool) {
 }
 
 func RuntimeRoot(stellaHome, source string) string {
-	return filepath.Join(stellaHome, "pg-runtime", RuntimeVersion+"-"+runtime.GOOS+"-"+runtime.GOARCH, "downloaded", source)
+	return filepath.Join(runtimesDir(stellaHome), CurrentRuntimeDir(), "downloaded", source)
+}
+
+// CurrentRuntimeDir names the directory holding the runtime this binary uses.
+// Every installed version gets its own sibling, so the name doubles as the
+// identity an operator sees when deciding what is safe to remove.
+func CurrentRuntimeDir() string {
+	return RuntimeVersion + "-" + runtime.GOOS + "-" + runtime.GOARCH
+}
+
+func runtimesDir(stellaHome string) string {
+	return filepath.Join(stellaHome, "pg-runtime")
+}
+
+// InstalledRuntime is one extracted runtime version found on disk.
+type InstalledRuntime struct {
+	// Name is the directory name, which encodes version, OS, and architecture.
+	Name string
+	Path string
+	// Bytes is the extracted size, best effort: entries that cannot be read are
+	// skipped rather than failing a report whose only purpose is disk space.
+	Bytes int64
+	// Current marks the runtime this binary would use. Removing it is not
+	// pruning, it is uninstalling, so callers keep the two apart.
+	Current bool
+}
+
+// InstalledRuntimes lists the runtime versions extracted under $STELLA_HOME,
+// sorted by name. A missing pg-runtime directory is not an error: it just means
+// nothing has been downloaded yet.
+func InstalledRuntimes(stellaHome string) ([]InstalledRuntime, error) {
+	dir := runtimesDir(stellaHome)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read PostgreSQL runtime dir %s: %w", dir, err)
+	}
+	current := CurrentRuntimeDir()
+	installed := make([]InstalledRuntime, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		installed = append(installed, InstalledRuntime{
+			Name:    entry.Name(),
+			Path:    path,
+			Bytes:   dirSize(path),
+			Current: entry.Name() == current,
+		})
+	}
+	slices.SortFunc(installed, func(a, b InstalledRuntime) int { return strings.Compare(a.Name, b.Name) })
+	return installed, nil
+}
+
+func dirSize(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		// Only regular files consume space here; a symlink's target is either
+		// inside the tree already or outside it and not ours to count.
+		if err == nil && d.Type().IsRegular() {
+			if info, statErr := d.Info(); statErr == nil {
+				total += info.Size()
+			}
+		}
+		// Unreadable entries are skipped rather than aborting: this number only
+		// tells an operator roughly how much a prune would free.
+		return nil
+	})
+	return total
 }
 
 func RuntimeAssetName(version, goos, goarch, source string) string {

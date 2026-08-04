@@ -55,7 +55,7 @@ These directories are rebuilt automatically and can live on ephemeral disk:
 - **Skill mirrors** (`.agents/skills/`, `.agents/db-skills/`, and the per-user and per-agent `.agents/skills/` trees): PostgreSQL is the source of truth. The disk copies are rebuilt at startup and refreshed on every skill load, so a stale or missing mirror self-heals.
 - **`bin/`**: embedded tools and the `stella` CLI, re-extracted at startup.
 - **Toolchains** (`.mise-tools/`, per-user `.mise-tools/`): re-installed on demand.
-- **`pg-runtime/`**: the downloaded embedded-PostgreSQL runtime; re-download with `stellad postgres download-runtime`.
+- **`pg-runtime/`**: the downloaded embedded-PostgreSQL runtime; re-download with `stellad postgres download-runtime`. Each runtime version installs into its own directory and older ones are never removed automatically — a few hundred megabytes each. Run `stellad postgres prune-runtimes` to see what is unused, and again with `--force` to remove it.
 - **`users/{id}/data/.cache/`**: per-user tool cache.
 
 ## Scratch
