@@ -14,7 +14,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/CherryHQ/stella/pkg/endpoint"
+	"github.com/CherryHQ/stella/internal/diagnostic"
 )
 
 // clientImpl identifies Stella to MCP servers during the initialize handshake.
@@ -65,7 +65,7 @@ func (e *connectionFailure) Unwrap() error { return e.cause }
 func connectionError(reg Registration, cause error) error {
 	return &connectionFailure{
 		name:     reg.Name,
-		endpoint: endpoint.ForDiagnostic(reg.URL),
+		endpoint: diagnostic.Endpoint(reg.URL),
 		detail:   safeValidationDetail(cause),
 		cause:    cause,
 	}

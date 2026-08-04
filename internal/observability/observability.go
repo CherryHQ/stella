@@ -33,8 +33,8 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/CherryHQ/stella/internal/diagnostic"
 	"github.com/CherryHQ/stella/internal/version"
-	"github.com/CherryHQ/stella/pkg/endpoint"
 )
 
 // Config holds OTel settings derived from standard environment variables.
@@ -169,7 +169,7 @@ func exporterEndpoint(signalKey string) string {
 	if raw == "" {
 		raw = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	}
-	return endpoint.ForDiagnostic(raw)
+	return diagnostic.Endpoint(raw)
 }
 
 func traceEndpoint() string   { return exporterEndpoint("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") }

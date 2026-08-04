@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/CherryHQ/stella/pkg/endpoint"
+	"github.com/CherryHQ/stella/internal/diagnostic"
 )
 
 func TestInitDiagnosticRedactsOTLPEndpointSecrets(t *testing.T) {
@@ -59,7 +59,7 @@ func TestExporterErrorsRedactOTLPEndpointSecrets(t *testing.T) {
 	const raw = "https://user:canary-userinfo@collector.example:4318/v1/traces?api_key=canary-query#canary-fragment"
 	cause := errors.New(raw)
 	for name, err := range map[string]error{
-		"initialization": exporterInitError("trace", endpoint.ForDiagnostic(raw), cause),
+		"initialization": exporterInitError("trace", diagnostic.Endpoint(raw), cause),
 		"shutdown":       providerShutdownError("trace", cause),
 	} {
 		t.Run(name, func(t *testing.T) {
