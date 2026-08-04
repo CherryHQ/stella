@@ -102,8 +102,8 @@ const SOURCE_META = {
 
 const SCOPE_PILLS: ScopeFilter[] = ["all", "system", "agent", "user", "project"];
 
-// Match FacetTabs' active treatment so the in-page filter pills read as the
-// same tab language as the top agent nav (accent pill / muted ghost).
+// Accent pill for the selected filter, muted ghost otherwise — the same active
+// treatment the global top bar uses for its app tabs.
 const tabPillCls = (active: boolean, size: "sm" | "xs" = "sm") =>
   cn(
     "inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md font-medium transition-colors",

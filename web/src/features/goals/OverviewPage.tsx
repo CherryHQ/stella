@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { queryOptions, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
   abandonGoal,
   listSchedulerJobRuns,
@@ -12,6 +12,7 @@ import type { SchedulerJob } from "@/lib/types";
 import { goalChildrenOptions, goalsOptions } from "@/lib/queries/goals";
 import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
 import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
+import { agentProjectsOptions } from "@/lib/queries/projects";
 import { workflowsOptions, workflowRunsOptions } from "@/lib/queries/workflows";
 import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
@@ -21,6 +22,13 @@ import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -74,16 +82,52 @@ export function OverviewPage() {
     agentId: string;
     projectId?: string;
   };
+  const projectFilter = (useSearch({ strict: false }) as { project_id?: string }).project_id ?? "";
   const navigate = useNavigate();
   const { setHeaderActions } = useAppShell();
   const { toasts, showToast } = useToast();
 
-  const { data: goals = [] } = useQuery(goalsOptions(agentId));
+  const { data: allGoals = [] } = useQuery(goalsOptions(agentId));
   const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
+  const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
+
+  // Goals already carry a project scope, so the agent-level hub can narrow to
+  // one project without a second endpoint. Inside a project route the scope is
+  // fixed by the URL and the picker would be noise.
+  const scopeProjectId = projectId ?? projectFilter;
+  const goals = useMemo(
+    () =>
+      scopeProjectId ? allGoals.filter((goal) => goal.project_id === scopeProjectId) : allGoals,
+    [allGoals, scopeProjectId],
+  );
 
   useEffect(() => {
     setHeaderActions(
       <div className="flex items-center gap-1">
+        {!projectId && projects.length > 0 && (
+          <Select
+            value={projectFilter}
+            onValueChange={(value) =>
+              void navigate({
+                to: "/agents/$agentId/goals",
+                params: { agentId },
+                search: { project_id: (value as string) || undefined },
+              })
+            }
+          >
+            <SelectTrigger size="sm" className="w-40">
+              <SelectValue placeholder={t("goals.allProjects")} />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="">{t("goals.allProjects")}</SelectItem>
+              {projects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        )}
         <Button
           render={
             <Link
@@ -103,7 +147,7 @@ export function OverviewPage() {
     return () => {
       setHeaderActions(null);
     };
-  }, [setHeaderActions, t, agentId, projectId]);
+  }, [setHeaderActions, t, agentId, navigate, projectFilter, projectId, projects]);
 
   const needsYou = useMemo(
     () =>

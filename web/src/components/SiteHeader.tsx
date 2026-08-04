@@ -192,6 +192,30 @@ const APPEARANCE_ICONS: Record<ThemeAppearance, LucideIcon> = {
 // both "how the app looks", so a single control beats two header buttons.
 export function ThemeMenu() {
   const { t } = useI18n();
+  const [appearance] = useState<ThemeAppearance>(() => getStoredTheme().appearance);
+  const TriggerIcon = APPEARANCE_ICONS[appearance];
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        className="inline-flex items-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label={t("header.appearance")}
+        title={t("header.appearance")}
+      >
+        <TriggerIcon className="size-4" />
+      </PopoverTrigger>
+      <PopoverPopup align="end" sideOffset={8} className="w-68 space-y-4 p-4">
+        <ThemeControls />
+      </PopoverPopup>
+    </Popover>
+  );
+}
+
+// The appearance + accent controls with no surface of their own, so they can sit
+// inside a popover (marketing header) or directly in the user menu (app chrome)
+// without ever nesting one overlay inside another.
+export function ThemeControls() {
+  const { t } = useI18n();
   const [theme, setTheme] = useState<ThemeSettings>(() => getStoredTheme());
 
   useEffect(() => {
@@ -222,97 +246,87 @@ export function ThemeMenu() {
     update({ ...getStoredTheme(), accentHue });
   }
 
-  const TriggerIcon = APPEARANCE_ICONS[theme.appearance];
   const current = theme.accentHue ?? DEFAULT_ACCENT_HUE;
   const appearances: ThemeAppearance[] = ["system", "light", "dark"];
 
   return (
-    <Popover>
-      <PopoverTrigger
-        className="inline-flex items-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        aria-label={t("header.appearance")}
-        title={t("header.appearance")}
-      >
-        <TriggerIcon className="size-4" />
-      </PopoverTrigger>
-      <PopoverPopup align="end" sideOffset={8} className="w-68 space-y-4 p-4">
-        <div className="space-y-2.5">
-          <span className="px-0.5 text-xs font-medium text-muted-foreground">
-            {t("header.appearance")}
-          </span>
-          <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1.5">
-            {appearances.map((appearance) => {
-              const ItemIcon = APPEARANCE_ICONS[appearance];
-              const active = theme.appearance === appearance;
-              return (
-                <button
-                  key={appearance}
-                  type="button"
-                  onClick={() => setAppearance(appearance)}
-                  className={cn(
-                    "flex flex-col items-center gap-1.5 rounded-lg py-2.5 text-xs whitespace-nowrap transition-colors",
-                    active
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <ItemIcon className="size-4" />
-                  {appearance === "system"
-                    ? t("header.system")
-                    : appearance === "light"
-                      ? t("header.light")
-                      : t("header.dark")}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <Separator />
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between px-0.5">
-            <span className="text-xs font-medium text-muted-foreground">{t("header.accent")}</span>
-            {theme.accentHue !== undefined && (
+    <>
+      <div className="space-y-2.5">
+        <span className="px-0.5 text-xs font-medium text-muted-foreground">
+          {t("header.appearance")}
+        </span>
+        <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1.5">
+          {appearances.map((appearance) => {
+            const ItemIcon = APPEARANCE_ICONS[appearance];
+            const active = theme.appearance === appearance;
+            return (
               <button
+                key={appearance}
                 type="button"
-                onClick={() => setHue(undefined)}
-                className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => setAppearance(appearance)}
+                className={cn(
+                  "flex flex-col items-center gap-1.5 rounded-lg py-2.5 text-xs whitespace-nowrap transition-colors",
+                  active
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
               >
-                {t("header.resetAccent")}
+                <ItemIcon className="size-4" />
+                {appearance === "system"
+                  ? t("header.system")
+                  : appearance === "light"
+                    ? t("header.light")
+                    : t("header.dark")}
               </button>
-            )}
-          </div>
-          <div className="grid grid-cols-7 gap-1.5">
-            {ACCENT_PRESETS.map((p) => {
-              const active = current === p.hue;
-              return (
-                <button
-                  key={p.hue}
-                  type="button"
-                  onClick={() => setHue(p.hue)}
-                  title={p.name}
-                  aria-label={p.name}
-                  className={cn(
-                    "size-6 rounded-full transition-transform hover:scale-110",
-                    active && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-popover",
-                  )}
-                  style={{ background: accentSwatch(p.hue) }}
-                />
-              );
-            })}
-          </div>
-          <div className="px-0.5 pt-1">
-            <Slider
-              min={0}
-              max={359}
-              value={current}
-              onValueChange={(v) => setHue(Array.isArray(v) ? v[0] : v)}
-            />
-          </div>
+            );
+          })}
         </div>
-      </PopoverPopup>
-    </Popover>
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-0.5">
+          <span className="text-xs font-medium text-muted-foreground">{t("header.accent")}</span>
+          {theme.accentHue !== undefined && (
+            <button
+              type="button"
+              onClick={() => setHue(undefined)}
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {t("header.resetAccent")}
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-7 gap-1.5">
+          {ACCENT_PRESETS.map((p) => {
+            const active = current === p.hue;
+            return (
+              <button
+                key={p.hue}
+                type="button"
+                onClick={() => setHue(p.hue)}
+                title={p.name}
+                aria-label={p.name}
+                className={cn(
+                  "size-6 rounded-full transition-transform hover:scale-110",
+                  active && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-popover",
+                )}
+                style={{ background: accentSwatch(p.hue) }}
+              />
+            );
+          })}
+        </div>
+        <div className="px-0.5 pt-1">
+          <Slider
+            min={0}
+            max={359}
+            value={current}
+            onValueChange={(v) => setHue(Array.isArray(v) ? v[0] : v)}
+          />
+        </div>
+      </div>
+    </>
   );
 }
 

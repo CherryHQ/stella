@@ -38,6 +38,31 @@ export function projectSessionsQueryOptions(agentId: string, projectId: string) 
   });
 }
 
+// allChatSessionsQueryOptions walks every page of one agent's chat sessions.
+// The sessions API has no server-side search, so the global palette filters the
+// full set client-side; `enabled` keeps the walk off the critical path until a
+// caller (the search dialog) actually opens.
+export function allChatSessionsQueryOptions(agentId: string, enabled = true) {
+  return queryOptions({
+    queryKey: ["sessions", agentId, "chat", "all"],
+    queryFn: async () => {
+      const all: Session[] = [];
+      let pageToken: string | undefined;
+      do {
+        const { data } = await listSessions({
+          path: { agentId },
+          query: { page_size: 200, page_token: pageToken, kind: "chat" },
+          throwOnError: true,
+        });
+        all.push(...((data?.sessions as Session[]) ?? []));
+        pageToken = data?.next_page_token ?? undefined;
+      } while (pageToken);
+      return all;
+    },
+    enabled: enabled && !!agentId,
+  });
+}
+
 export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["kind"]) {
   return infiniteQueryOptions({
     queryKey: ["sessions", agentId, kind],

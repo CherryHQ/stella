@@ -36,13 +36,40 @@ const en = {
   "inbox.source.goal": "Goal",
   "inbox.source.scheduler_run": "Schedule run",
   "inbox.open": "Open",
-  "facets.conversation": "Conversation",
-  "facets.goals": "Goals",
-  "facets.memory": "Memory",
-  "facets.skills": "Skills",
-  "facets.files": "Files",
-  "facets.sessions": "Sessions",
-  "facets.comingSoon": "Coming soon",
+  "inbox.viewAll": "View all",
+
+  // Global top bar
+  "nav.chats": "Chats",
+  "search.open": "Search",
+  "search.placeholder": "Search agents, projects and chats",
+  "search.empty": "No matches.",
+  "search.agents": "Agents",
+  "search.groups": "Groups",
+  "search.projects": "Projects",
+  "search.chats": "Chats",
+  "search.scopeHint": "Chat search covers the agent you are in.",
+
+  // Conversation sidebar
+  "sidebar.newChat": "New chat",
+  "sidebar.mainChat": "Main chat",
+  "sidebar.goals": "Goals",
+  "sidebar.projects": "Projects",
+  "sidebar.recent": "Recent",
+  "sidebar.members": "Members",
+  "sidebar.noMembers": "No members yet.",
+  "sidebar.new": "New",
+  "sidebar.newAgent": "New agent",
+  "sidebar.newGroup": "New group",
+
+  // Agent / project profile
+  "profile.title": "Profile",
+  "profile.memory": "Memory",
+  "profile.skills": "Skills",
+  "profile.manageSkills": "Manage skills",
+  "profile.noSkills": "No skills installed.",
+  "profile.files": "Files",
+  "profile.openFiles": "Open files",
+  "profile.more": "More",
 
   // Common actions
   "common.cancel": "Cancel",
@@ -1175,6 +1202,7 @@ const en = {
 
   // Goals — new (create form)
   "goals.new": "New goal",
+  "goals.allProjects": "All projects",
   "goals.newTitle": "Title",
   "goals.newTitlePlaceholder": "What should the agent deliver?",
   "goals.newIntent": "Definition of done",
@@ -2034,13 +2062,40 @@ const zh: Record<MessageKey, string> = {
   "inbox.source.goal": "目标",
   "inbox.source.scheduler_run": "定时运行",
   "inbox.open": "打开",
-  "facets.conversation": "对话",
-  "facets.goals": "目标",
-  "facets.memory": "记忆",
-  "facets.skills": "技能",
-  "facets.files": "文件",
-  "facets.sessions": "会话",
-  "facets.comingSoon": "即将推出",
+  "inbox.viewAll": "查看全部",
+
+  // Global top bar
+  "nav.chats": "对话",
+  "search.open": "搜索",
+  "search.placeholder": "搜索智能体、项目和对话",
+  "search.empty": "没有匹配结果。",
+  "search.agents": "智能体",
+  "search.groups": "群组",
+  "search.projects": "项目",
+  "search.chats": "对话",
+  "search.scopeHint": "对话搜索范围为当前智能体。",
+
+  // Conversation sidebar
+  "sidebar.newChat": "新对话",
+  "sidebar.mainChat": "主对话",
+  "sidebar.goals": "目标",
+  "sidebar.projects": "项目",
+  "sidebar.recent": "最近对话",
+  "sidebar.members": "成员",
+  "sidebar.noMembers": "暂无成员。",
+  "sidebar.new": "新建",
+  "sidebar.newAgent": "新建智能体",
+  "sidebar.newGroup": "新建群组",
+
+  // Agent / project profile
+  "profile.title": "档案",
+  "profile.memory": "记忆",
+  "profile.skills": "技能",
+  "profile.manageSkills": "管理技能",
+  "profile.noSkills": "尚未安装技能。",
+  "profile.files": "文件",
+  "profile.openFiles": "打开文件",
+  "profile.more": "更多",
 
   // Common actions
   "common.cancel": "取消",
@@ -3147,6 +3202,7 @@ const zh: Record<MessageKey, string> = {
 
   // Goals — new (create form)
   "goals.new": "新建目标",
+  "goals.allProjects": "全部项目",
   "goals.newTitle": "标题",
   "goals.newTitlePlaceholder": "需要 Agent 交付什么?",
   "goals.newIntent": "完成标准",

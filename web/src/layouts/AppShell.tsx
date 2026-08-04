@@ -3,12 +3,9 @@ import {
   SidebarProvider,
   Sidebar,
   SidebarContent,
-  SidebarHeader,
-  SidebarFooter,
   SidebarInset,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import { AppSidebarHeader, AppSidebarFooter } from "@/components/AppSidebar";
 import { Separator } from "@/components/ui/separator";
 
 interface AppShellContextType {
@@ -35,16 +32,21 @@ interface AppShellProps {
   defaultSidebarOpen?: boolean;
   title?: ReactNode;
   headerActions?: ReactNode;
-  subnav?: ReactNode;
 }
 
+/**
+ * L1 + L2: the per-app sidebar and the content pane under the global top bar.
+ *
+ * The desktop sidebar is `position: fixed`, so it has to be told where the top
+ * bar ends — hence the h-14 offset here. Everything else (width, collapse,
+ * mobile offcanvas) stays CossUI's.
+ */
 export function AppShell({
   sidebar,
   children,
   defaultSidebarOpen = true,
   title,
   headerActions,
-  subnav,
 }: AppShellProps) {
   const [dynamicTitle, setDynamicTitle] = useState<ReactNode>(null);
   const [dynamicActions, setDynamicActions] = useState<ReactNode>(null);
@@ -57,26 +59,21 @@ export function AppShell({
 
   return (
     <AppShellContext.Provider value={{ setHeaderTitle, setHeaderActions }}>
-      <SidebarProvider defaultOpen={defaultSidebarOpen}>
-        <Sidebar side="left" collapsible="offcanvas">
-          <SidebarHeader className="p-0">
-            <AppSidebarHeader />
-          </SidebarHeader>
+      <SidebarProvider defaultOpen={defaultSidebarOpen} className="min-h-0 flex-1">
+        {/* inset-y-auto/h-auto undo CossUI's viewport-height fixed placement so
+            the fixed sidebar starts below the h-14 global bar instead of under it. */}
+        <Sidebar
+          side="left"
+          collapsible="offcanvas"
+          className="inset-y-auto bottom-0 top-14 h-auto"
+        >
           <SidebarContent>{sidebar}</SidebarContent>
-          <SidebarFooter>
-            <AppSidebarFooter />
-          </SidebarFooter>
         </Sidebar>
         <SidebarInset className="min-w-0 overflow-hidden">
           <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card/65 px-4 backdrop-blur-xl">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-1 h-4" />
-            <div
-              className={subnav ? "hidden min-w-0 max-w-md shrink-0 sm:block" : "min-w-0 flex-1"}
-            >
-              {displayTitle}
-            </div>
-            {subnav ? <div className="min-w-0 flex-1">{subnav}</div> : null}
+            <div className="min-w-0 flex-1">{displayTitle}</div>
             {displayActions && <div className="flex shrink-0 items-center">{displayActions}</div>}
           </header>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
