@@ -36,6 +36,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -123,6 +124,7 @@ type setupResult struct {
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
 	assetStore               *asset.Store
+	homeRegistry             *home.Registry
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
 	riverClient              *river.Client[pgx.Tx]
@@ -185,6 +187,36 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	agentAccess := agentaccess.NewService(store, authStore)
 
 	if err := ensureEmbeddedAssets(); err != nil {
+		return nil, err
+	}
+	// Home registration is deliberately after the Phase 0 legacy-skill and
+	// bundle/tool gates: it may create directories, so it must not mutate a
+	// blocked installation.
+	localHomeStore, err := home.NewLocalStore(cfg.Storage.HomeStoreID, config.StellaHome())
+	if err != nil {
+		return nil, fmt.Errorf("configure Home Store: %w", err)
+	}
+	homeRegistry, err := home.NewRegistry(db, cfg.Storage.HomeStoreID, localHomeStore)
+	if err != nil {
+		return nil, fmt.Errorf("build Home registry: %w", err)
+	}
+	if err := homeRegistry.ValidateConfiguredStores(parent); err != nil {
+		return nil, err
+	}
+	// Record authority observation and adopt existing typed layouts before any
+	// runtime service can consume a Home attachment.
+	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
+	if err != nil {
+		return nil, err
+	}
+	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
+	if err != nil {
+		return nil, err
+	}
+	if err := homeRegistry.ObserveMutableAssetObjectAuthority(parent, assetStore.SharedAuthority()); err != nil {
+		return nil, err
+	}
+	if err := homeRegistry.RegisterLegacy(parent); err != nil {
 		return nil, err
 	}
 
@@ -269,18 +301,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(skillStore)
-	// Asset authority is selected by capability: a configured object store is the
-	// shared authority; otherwise the local filesystem under STELLA_HOME is the
-	// single-node authority. This replaces the former blob process-global
-	// (blob.SetDefault/Default) with one service injected into every consumer.
-	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
-	if err != nil {
-		return nil, err
-	}
-	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
-	if err != nil {
-		return nil, err
-	}
+	// Asset authority is selected during the pre-runtime Home boot gate above.
 	sessionImages, err := sessionmedia.NewPipeline(assetStore.SessionMedia(), db, snapshotLoader, vision.StreamBuilder(providerStreamBuilder), sessionmedia.PipelineOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("build session image pipeline: %w", err)
@@ -566,6 +587,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		shareSvc:                 shareSvc,
 		recallySvc:               recallySvc,
 		assetStore:               assetStore,
+		homeRegistry:             homeRegistry,
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
 		riverClient:              riverClient,

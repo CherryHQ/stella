@@ -28,7 +28,10 @@ const (
 	SystemAgentSkillRoot Kind = "system_agent_skill"
 )
 
-const MutableAssetObjectAuthorityMigration = "mutable_asset_object_authority"
+const (
+	MutableAssetObjectAuthorityMigration = "mutable_asset_object_authority"
+	TypedHomeLegacyRegistrationMigration = "typed_home_legacy_registration_v1"
+)
 
 func (k Kind) Valid() bool {
 	return k == PrincipalHome || k == AgentHome || k == SystemSkillRoot || k == SystemAgentSkillRoot
@@ -373,11 +376,195 @@ func (r *Registry) ObserveMutableAssetObjectAuthority(ctx context.Context, confi
 	if configured {
 		state = "pending"
 	}
-	_, err := r.q.UpsertStorageMigrationObservation(ctx, sqlc.UpsertStorageMigrationObservationParams{Name: MutableAssetObjectAuthorityMigration, State: state, ObjectAuthorityConfigured: configured, Metadata: json.RawMessage(`{}`)})
+	marker, err := r.q.UpsertStorageMigrationObservation(ctx, sqlc.UpsertStorageMigrationObservationParams{Name: MutableAssetObjectAuthorityMigration, State: state, ObjectAuthorityConfigured: configured, Metadata: json.RawMessage(`{}`)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		marker, err = r.q.GetStorageMigration(ctx, MutableAssetObjectAuthorityMigration)
+	}
 	if err != nil {
 		return fmt.Errorf("home: record mutable asset authority: %w", err)
 	}
+	if marker.State == "completed" && !marker.ObjectAuthorityConfigured && configured {
+		return errors.New("home: completed mutable asset authority migration conflicts with configured object authority")
+	}
 	return nil
+}
+
+// ValidateConfiguredStores fails startup before a dormant Home reaches a later
+// consumer with a Store unavailable in this deployment.
+func (r *Registry) ValidateConfiguredStores(ctx context.Context) error {
+	ids, err := r.q.ListStorageHomeStoreID(ctx)
+	if err != nil {
+		return fmt.Errorf("home: list referenced stores: %w", err)
+	}
+	for _, id := range ids {
+		if err := validateStoreID(id); err != nil || r.stores[id] == nil {
+			return fmt.Errorf("home: referenced store %q is not configured", id)
+		}
+	}
+	return nil
+}
+
+type legacyAgentLister interface {
+	LegacyAgentIDs(Key) ([]string, error)
+}
+
+// RegisterLegacy registers only identities already known to PostgreSQL. Disk
+// inspection is limited to child Agent directories under those known roots.
+func (r *Registry) RegisterLegacy(ctx context.Context) error {
+	if err := r.ValidateConfiguredStores(ctx); err != nil {
+		return err
+	}
+	marker, legacyStore, err := r.legacyRegistrationMarker(ctx)
+	if err != nil {
+		return err
+	}
+	if marker.State == "completed" {
+		return nil
+	}
+	if marker.State != "pending" {
+		return fmt.Errorf("home: legacy registration has invalid state %q", marker.State)
+	}
+	lister, ok := legacyStore.(legacyAgentLister)
+	if !ok {
+		return fmt.Errorf("home: legacy Store %q cannot inspect legacy AgentHomes", legacyStore.ID())
+	}
+	users, err := r.q.ListStorageLegacyUserID(ctx)
+	if err != nil {
+		return fmt.Errorf("home: list legacy users: %w", err)
+	}
+	groups, err := r.q.ListStorageLegacyGroupID(ctx)
+	if err != nil {
+		return fmt.Errorf("home: list legacy groups: %w", err)
+	}
+	agents, err := r.q.ListStorageLegacyAgentID(ctx)
+	if err != nil {
+		return fmt.Errorf("home: list legacy agents: %w", err)
+	}
+	knownAgents := make(map[string]struct{}, len(agents))
+	for _, id := range agents {
+		knownAgents[id] = struct{}{}
+		if _, err := r.Ensure(ctx, SystemAgentSkills(id)); err != nil {
+			return fmt.Errorf("home: register system Agent Skill root %q: %w", id, err)
+		}
+	}
+	if _, err := r.Ensure(ctx, SystemSkills()); err != nil {
+		return fmt.Errorf("home: register system Skill root: %w", err)
+	}
+	principals := make([]Key, 0, len(users)+len(groups))
+	for _, id := range users {
+		principals = append(principals, Principal(UserPrincipal, id))
+	}
+	for _, id := range groups {
+		principals = append(principals, Principal(GroupPrincipal, id))
+	}
+	for _, key := range principals {
+		if _, err := r.Ensure(ctx, key); err != nil {
+			return fmt.Errorf("home: register principal: %w", err)
+		}
+	}
+	userAgents, err := r.q.ListStorageLegacyUserAgent(ctx)
+	if err != nil {
+		return fmt.Errorf("home: list legacy user assignments: %w", err)
+	}
+	for _, assignment := range userAgents {
+		if _, ok := knownAgents[assignment.AgentID]; !ok {
+			return fmt.Errorf("home: user assignment references unknown Agent %q", assignment.AgentID)
+		}
+		if _, err := r.Ensure(ctx, Agent(UserPrincipal, assignment.UserID, assignment.AgentID)); err != nil {
+			return fmt.Errorf("home: register user AgentHome: %w", err)
+		}
+	}
+	groupAgents, err := r.q.ListStorageLegacyGroupAgent(ctx)
+	if err != nil {
+		return fmt.Errorf("home: list legacy group assignments: %w", err)
+	}
+	for _, assignment := range groupAgents {
+		if _, ok := knownAgents[assignment.AgentID]; !ok {
+			return fmt.Errorf("home: group assignment references unknown Agent %q", assignment.AgentID)
+		}
+		if _, err := r.Ensure(ctx, Agent(GroupPrincipal, assignment.GroupID, assignment.AgentID)); err != nil {
+			return fmt.Errorf("home: register group AgentHome: %w", err)
+		}
+	}
+	for _, principal := range principals {
+		ids, err := lister.LegacyAgentIDs(principal)
+		if err != nil {
+			return fmt.Errorf("home: inspect legacy AgentHomes: %w", err)
+		}
+		for _, id := range ids {
+			if _, ok := knownAgents[id]; !ok {
+				continue
+			}
+			if _, err := r.Ensure(ctx, Agent(principal.PrincipalKind, principal.PrincipalID, id)); err != nil {
+				return fmt.Errorf("home: register legacy AgentHome: %w", err)
+			}
+		}
+	}
+	if _, err := r.q.CompleteStorageMigration(ctx, sqlc.CompleteStorageMigrationParams{Name: TypedHomeLegacyRegistrationMigration, State: "pending"}); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("home: complete legacy registration: %w", err)
+		}
+		marker, getErr := r.q.GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
+		if getErr != nil {
+			return fmt.Errorf("home: reload legacy registration completion: %w", getErr)
+		}
+		if marker.State != "completed" {
+			return fmt.Errorf("home: legacy registration completion CAS lost to state %q", marker.State)
+		}
+	}
+	return nil
+}
+
+func (r *Registry) legacyRegistrationMarker(ctx context.Context) (sqlc.StorageMigration, Store, error) {
+	marker, err := r.q.GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
+	if err == nil {
+		store, validateErr := r.legacyRegistrationStore(marker)
+		return marker, store, validateErr
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return sqlc.StorageMigration{}, nil, fmt.Errorf("home: load legacy registration marker: %w", err)
+	}
+	metadata, marshalErr := json.Marshal(map[string]string{"store_id": r.defaultStore})
+	if marshalErr != nil {
+		return sqlc.StorageMigration{}, nil, fmt.Errorf("home: encode legacy registration metadata: %w", marshalErr)
+	}
+	marker, err = r.q.CreateStorageMigration(ctx, sqlc.CreateStorageMigrationParams{Name: TypedHomeLegacyRegistrationMigration, Metadata: metadata})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		if err != nil {
+			return sqlc.StorageMigration{}, nil, fmt.Errorf("home: create legacy registration marker: %w", err)
+		}
+		store, validateErr := r.legacyRegistrationStore(marker)
+		return marker, store, validateErr
+	}
+	marker, err = r.q.GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
+	if err != nil {
+		return sqlc.StorageMigration{}, nil, fmt.Errorf("home: reload legacy registration marker: %w", err)
+	}
+	store, validateErr := r.legacyRegistrationStore(marker)
+	return marker, store, validateErr
+}
+
+func (r *Registry) legacyRegistrationStore(marker sqlc.StorageMigration) (Store, error) {
+	var metadata struct {
+		StoreID string `json:"store_id"`
+	}
+	if err := json.Unmarshal(marker.Metadata, &metadata); err != nil {
+		return nil, fmt.Errorf("home: decode legacy registration metadata: %w", err)
+	}
+	if err := validateStoreID(metadata.StoreID); err != nil {
+		return nil, fmt.Errorf("home: legacy registration metadata has invalid Store ID: %w", err)
+	}
+	// A completed marker is an audit record, not a live attachment. Its Store
+	// identity must remain well-formed, but retiring that adapter is safe once
+	// no further legacy inventory can run.
+	if marker.State == "completed" {
+		return nil, nil
+	}
+	store := r.stores[metadata.StoreID]
+	if store == nil {
+		return nil, fmt.Errorf("home: legacy registration Store %q is not configured", metadata.StoreID)
+	}
+	return store, nil
 }
 
 func (r *Registry) purgedAfterRace(ctx context.Context, id string) (Record, error) {
@@ -428,8 +615,13 @@ func (r *Registry) decode(row sqlc.StorageHome) (Record, error) {
 }
 
 func validateStoreID(id string) error {
-	if strings.TrimSpace(id) == "" || strings.TrimSpace(id) != id || strings.ContainsAny(id, `/\\`) {
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(id) != id {
 		return errors.New("must be a non-empty logical identifier")
+	}
+	for _, r := range id {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
+			return errors.New("must be a safe logical identifier")
+		}
 	}
 	return nil
 }

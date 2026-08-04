@@ -11,6 +11,24 @@ RETURNING *;
 -- name: GetStorageHome :one
 SELECT * FROM storage_home WHERE id = $1;
 
+-- name: ListStorageHomeStoreID :many
+SELECT DISTINCT store_id FROM storage_home WHERE state <> 'purged' ORDER BY store_id;
+
+-- name: ListStorageLegacyUserID :many
+SELECT id FROM auth_user ORDER BY id;
+
+-- name: ListStorageLegacyGroupID :many
+SELECT id FROM ctx_group_state ORDER BY id;
+
+-- name: ListStorageLegacyAgentID :many
+SELECT id FROM agent ORDER BY id;
+
+-- name: ListStorageLegacyUserAgent :many
+SELECT user_id, agent_id FROM auth_user_agent ORDER BY user_id, agent_id;
+
+-- name: ListStorageLegacyGroupAgent :many
+SELECT group_id, agent_id FROM channel_group_member ORDER BY group_id, agent_id;
+
 -- name: GetPrincipalStorageHome :one
 SELECT * FROM storage_home
 WHERE home_kind = 'principal' AND principal_kind = $1 AND principal_id = $2;
@@ -84,6 +102,13 @@ SET state = excluded.state,
     object_authority_configured = excluded.object_authority_configured,
     metadata = excluded.metadata,
     updated_at = now()
+WHERE storage_migration.state <> 'completed'
+RETURNING *;
+
+-- name: CreateStorageMigration :one
+INSERT INTO storage_migration (name, state, metadata)
+VALUES ($1, 'pending', $2)
+ON CONFLICT (name) DO NOTHING
 RETURNING *;
 
 -- name: CompleteStorageMigration :one

@@ -177,6 +177,33 @@ func (q *Queries) CreateStorageHome(ctx context.Context, arg CreateStorageHomePa
 	return i, err
 }
 
+const createStorageMigration = `-- name: CreateStorageMigration :one
+INSERT INTO storage_migration (name, state, metadata)
+VALUES ($1, 'pending', $2)
+ON CONFLICT (name) DO NOTHING
+RETURNING name, state, object_authority_configured, metadata, completed_at, created_at, updated_at
+`
+
+type CreateStorageMigrationParams struct {
+	Name     string          `json:"name"`
+	Metadata json.RawMessage `json:"metadata"`
+}
+
+func (q *Queries) CreateStorageMigration(ctx context.Context, arg CreateStorageMigrationParams) (StorageMigration, error) {
+	row := q.db.QueryRow(ctx, createStorageMigration, arg.Name, arg.Metadata)
+	var i StorageMigration
+	err := row.Scan(
+		&i.Name,
+		&i.State,
+		&i.ObjectAuthorityConfigured,
+		&i.Metadata,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const cutoverStorageHomeStore = `-- name: CutoverStorageHomeStore :one
 UPDATE storage_home
 SET store_id = $4, locator = $5, maintenance_owner = NULL, maintenance_until = NULL, updated_at = now()
@@ -426,6 +453,155 @@ func (q *Queries) GetSystemSkillStorageHome(ctx context.Context) (StorageHome, e
 	return i, err
 }
 
+const listStorageHomeStoreID = `-- name: ListStorageHomeStoreID :many
+SELECT DISTINCT store_id FROM storage_home WHERE state <> 'purged' ORDER BY store_id
+`
+
+func (q *Queries) ListStorageHomeStoreID(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listStorageHomeStoreID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var store_id string
+		if err := rows.Scan(&store_id); err != nil {
+			return nil, err
+		}
+		items = append(items, store_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStorageLegacyAgentID = `-- name: ListStorageLegacyAgentID :many
+SELECT id FROM agent ORDER BY id
+`
+
+func (q *Queries) ListStorageLegacyAgentID(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listStorageLegacyAgentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStorageLegacyGroupAgent = `-- name: ListStorageLegacyGroupAgent :many
+SELECT group_id, agent_id FROM channel_group_member ORDER BY group_id, agent_id
+`
+
+type ListStorageLegacyGroupAgentRow struct {
+	GroupID string `json:"group_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) ListStorageLegacyGroupAgent(ctx context.Context) ([]ListStorageLegacyGroupAgentRow, error) {
+	rows, err := q.db.Query(ctx, listStorageLegacyGroupAgent)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListStorageLegacyGroupAgentRow{}
+	for rows.Next() {
+		var i ListStorageLegacyGroupAgentRow
+		if err := rows.Scan(&i.GroupID, &i.AgentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStorageLegacyGroupID = `-- name: ListStorageLegacyGroupID :many
+SELECT id FROM ctx_group_state ORDER BY id
+`
+
+func (q *Queries) ListStorageLegacyGroupID(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listStorageLegacyGroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStorageLegacyUserAgent = `-- name: ListStorageLegacyUserAgent :many
+SELECT user_id, agent_id FROM auth_user_agent ORDER BY user_id, agent_id
+`
+
+func (q *Queries) ListStorageLegacyUserAgent(ctx context.Context) ([]AuthUserAgent, error) {
+	rows, err := q.db.Query(ctx, listStorageLegacyUserAgent)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuthUserAgent{}
+	for rows.Next() {
+		var i AuthUserAgent
+		if err := rows.Scan(&i.UserID, &i.AgentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStorageLegacyUserID = `-- name: ListStorageLegacyUserID :many
+SELECT id FROM auth_user ORDER BY id
+`
+
+func (q *Queries) ListStorageLegacyUserID(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listStorageLegacyUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markStorageHomePurgeFailed = `-- name: MarkStorageHomePurgeFailed :one
 UPDATE storage_home SET state = 'purge_failed', purge_failed_at = now(), last_purge_error = $2, updated_at = now()
 WHERE id = $1 AND state IN ('tombstoned', 'purge_failed')
@@ -610,6 +786,7 @@ SET state = excluded.state,
     object_authority_configured = excluded.object_authority_configured,
     metadata = excluded.metadata,
     updated_at = now()
+WHERE storage_migration.state <> 'completed'
 RETURNING name, state, object_authority_configured, metadata, completed_at, created_at, updated_at
 `
 

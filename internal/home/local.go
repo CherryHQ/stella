@@ -111,3 +111,40 @@ func (s *LocalStore) Purge(_ context.Context, home Record) error {
 func (s *LocalStore) Attachment(home Record, readOnly bool) sandbox.HomeAttachment {
 	return sandbox.HomeAttachment{HomeID: home.ID, StoreID: home.StoreID, Locator: home.Locator, ReadOnly: readOnly}
 }
+
+// LegacyAgentIDs inspects only the agents child of an already-authoritative
+// principal Home. It never derives principals from directory names.
+func (s *LocalStore) LegacyAgentIDs(key Key) ([]string, error) {
+	if key.Kind != PrincipalHome {
+		return nil, errors.New("home: legacy agent parent must be a principal")
+	}
+	locator, err := s.Allocate(key)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(s.base)
+	if err != nil {
+		return nil, fmt.Errorf("open store root: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	dir, err := root.Open(path.Join(locator, "agents"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open legacy agent directory: %w", err)
+	}
+	defer func() { _ = dir.Close() }()
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		return nil, fmt.Errorf("read legacy agent directory: %w", err)
+	}
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
+			continue
+		}
+		ids = append(ids, entry.Name())
+	}
+	return ids, nil
+}
