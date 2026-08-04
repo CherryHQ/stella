@@ -115,6 +115,36 @@ func (q *Queries) GetAgent(ctx context.Context, id string) (Agent, error) {
 	return i, err
 }
 
+const getAgentForUpdate = `-- name: GetAgentForUpdate :one
+SELECT id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled, created_at, updated_at FROM agent WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetAgentForUpdate(ctx context.Context, id string) (Agent, error) {
+	row := q.db.QueryRow(ctx, getAgentForUpdate, id)
+	var i Agent
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Model,
+		&i.ModelThinking,
+		&i.ModelStrong,
+		&i.ModelStrongThinking,
+		&i.ModelFast,
+		&i.ModelFastThinking,
+		&i.SystemPrompt,
+		&i.Soul,
+		&i.Workspace,
+		&i.Sandbox,
+		&i.EnabledBuiltinSkills,
+		&i.Scope,
+		&i.CreatorID,
+		&i.Enabled,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getAgentSkillPolicyForUpdate = `-- name: GetAgentSkillPolicyForUpdate :one
 SELECT enabled_builtin_skills FROM agent WHERE id = $1 FOR UPDATE
 `

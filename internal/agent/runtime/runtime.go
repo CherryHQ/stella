@@ -286,6 +286,13 @@ func (rt *Runtime) ResetRunnersForUser(userID string) error {
 	return rt.cache.resetWhere(func(cs *cachedSession) bool { return cs.info.UserID == userID })
 }
 
+// TerminalCloseWhere immediately detaches matching runners, including busy and
+// reserved ones. It is solely for destructive owner deletion after admission is
+// blocked by the caller.
+func (rt *Runtime) TerminalCloseWhere(include func(session.Info) bool) error {
+	return rt.cache.closeWhere(func(cs *cachedSession) bool { return include(cs.info) })
+}
+
 // NewRunnerFunc returns the current runner builder. Used by the task system to
 // create standalone runners with custom tools.
 func (rt *Runtime) NewRunnerFunc() NewRunnerFunc {

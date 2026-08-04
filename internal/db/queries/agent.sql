@@ -11,6 +11,9 @@ ON CONFLICT (id) DO NOTHING;
 -- name: GetAgent :one
 SELECT * FROM agent WHERE id = $1;
 
+-- name: GetAgentForUpdate :one
+SELECT * FROM agent WHERE id = $1 FOR UPDATE;
+
 -- name: ListAgents :many
 SELECT * FROM agent ORDER BY name;
 

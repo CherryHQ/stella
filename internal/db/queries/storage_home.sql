@@ -11,6 +11,9 @@ RETURNING *;
 -- name: GetStorageHome :one
 SELECT * FROM storage_home WHERE id = $1;
 
+-- name: LockStorageHomeOwner :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
+
 -- name: ListStorageHomeStoreID :many
 SELECT DISTINCT store_id FROM storage_home WHERE state <> 'purged' ORDER BY store_id;
 
@@ -43,6 +46,18 @@ SELECT * FROM storage_home WHERE home_kind = 'system_skill';
 -- name: GetSystemAgentSkillStorageHome :one
 SELECT * FROM storage_home WHERE home_kind = 'system_agent_skill' AND agent_id = $1;
 
+-- name: ListStorageHomeByPrincipalForUpdate :many
+SELECT * FROM storage_home
+WHERE principal_kind = $1 AND principal_id = $2
+ORDER BY CASE WHEN home_kind = 'agent' THEN 0 ELSE 1 END, id
+FOR UPDATE;
+
+-- name: ListStorageHomeByAgentForUpdate :many
+SELECT * FROM storage_home
+WHERE agent_id = $1 AND home_kind IN ('agent', 'system_agent_skill')
+ORDER BY CASE WHEN home_kind = 'agent' THEN 0 ELSE 1 END, id
+FOR UPDATE;
+
 -- name: MarkStorageHomeReady :one
 UPDATE storage_home SET state = 'ready', updated_at = now()
 WHERE id = $1 AND state = 'provisioning'
@@ -58,6 +73,15 @@ RETURNING *;
 UPDATE storage_home
 SET purge_attempts = purge_attempts + 1, purge_started_at = now(), last_purge_error = NULL, updated_at = now()
 WHERE id = $1 AND state IN ('tombstoned', 'purge_failed')
+RETURNING *;
+
+-- name: ClaimStorageHomeFailedPurgeRetry :one
+-- A retry claimant moves the failed row back to tombstoned before physical I/O.
+-- This is the CAS that makes retry-purge an exactly-one-operator action.
+UPDATE storage_home
+SET state = 'tombstoned', purge_attempts = purge_attempts + 1,
+    purge_started_at = now(), last_purge_error = NULL, updated_at = now()
+WHERE id = $1 AND state = 'purge_failed'
 RETURNING *;
 
 -- name: MarkStorageHomePurgeFailed :one

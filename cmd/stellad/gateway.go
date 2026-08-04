@@ -388,6 +388,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		s.credentialSvc,
 		s.credentialProviders,
 		slog.With("component", "agent-management"),
+		agentaccess.WithOwnerDeletion(s.homeDeletion),
 	)
 
 	// The Account service owns the user-account application boundary. It composes
@@ -424,7 +425,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// per-agent use authorization, the runtime resolver for agent-name projection,
 	// and the event log + group dispatcher for the send path (nil-tolerant: the
 	// send path degrades to 503 while CRUD stays available).
-	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher)
+	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher, channel.WithOwnerDeletion(s.homeDeletion))
 
 	// Accepted Web turns outlive their initiating HTTP connections and must also
 	// survive the errgroup cancellation caused by HTTP Shutdown. workCtx is

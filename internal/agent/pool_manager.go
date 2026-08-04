@@ -874,6 +874,49 @@ func (pm *PoolManager) InvalidateAgent(agentID string) error {
 	return nil
 }
 
+// FenceHomeOwner is the terminal execution fence used by Home deletion workers.
+// It intentionally differs from reset-based invalidation: deletion may close a
+// busy/reserved runner so no process retains an attachment while bytes are purged.
+func (pm *PoolManager) FenceHomeOwner(ctx context.Context, kind home.OwnerKind, ownerID string) error {
+	if ownerID == "" {
+		return errors.New("agent: Home owner ID is required")
+	}
+	if kind == home.OwnerAgent {
+		return pm.removeAgent(ownerID)
+	}
+	if kind != home.OwnerUser && kind != home.OwnerGroup {
+		return fmt.Errorf("agent: unsupported Home owner %q", kind)
+	}
+	pm.mu.RLock()
+	services := make(map[string]*Service, len(pm.services))
+	maps.Copy(services, pm.services)
+	pm.mu.RUnlock()
+	var lastErr error
+	for agentID, svc := range services {
+		err := svc.withAdmissionBarrier(func() error {
+			return svc.Runtime.TerminalCloseWhere(func(info session.Info) bool { return matchesHomeOwner(info, kind, ownerID) })
+		})
+		if err != nil {
+			pm.log.Error("terminal close Home owner runners", "owner", ownerID, "agent_id", agentID, "error", err)
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+// matchesHomeOwner identifies sessions owned by a deleted principal. Agent
+// deletion removes the whole service through removeAgent, not this predicate.
+func matchesHomeOwner(info session.Info, kind home.OwnerKind, id string) bool {
+	switch kind {
+	case home.OwnerUser:
+		return info.UserID == id && info.GroupID == ""
+	case home.OwnerGroup:
+		return info.GroupID == id
+	default:
+		return false
+	}
+}
+
 var errAgentSkillPolicyServiceChanged = errors.New("agent Skill policy service changed")
 
 // ApplyAgentSkillPolicyMutation commits mutate and makes every locally

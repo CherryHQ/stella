@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -29,7 +31,22 @@ type Management struct {
 	activity  ActivityReader
 	creds     CredentialWriter
 	providers ProviderReader
+	deletion  OwnerDeletion
 	log       *slog.Logger
+}
+
+// OwnerDeletion is the destructive Agent lifecycle boundary. A nil dependency
+// keeps construction source-compatible but makes Delete fail closed.
+type OwnerDeletion interface {
+	DeleteAgent(context.Context, string, string) error
+}
+
+// ManagementOption configures optional Management dependencies.
+type ManagementOption func(*Management)
+
+// WithOwnerDeletion supplies the destructive Home lifecycle for Agent deletion.
+func WithOwnerDeletion(d OwnerDeletion) ManagementOption {
+	return func(m *Management) { m.deletion = d }
 }
 
 // AgentWriter persists agent rows. config.Store satisfies it; the interface stays
@@ -116,11 +133,15 @@ var (
 
 // NewManagement builds the Agent management service over the Agent PEP and its
 // write/reload/lookup ports. log defaults to slog.Default() when nil.
-func NewManagement(pep *Service, agents AgentWriter, assign AssignmentWriter, reloader AgentReloader, users UserDirectory, activity ActivityReader, creds CredentialWriter, providers ProviderReader, log *slog.Logger) *Management {
+func NewManagement(pep *Service, agents AgentWriter, assign AssignmentWriter, reloader AgentReloader, users UserDirectory, activity ActivityReader, creds CredentialWriter, providers ProviderReader, log *slog.Logger, opts ...ManagementOption) *Management {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Management{pep: pep, agents: agents, assign: assign, reloader: reloader, users: users, activity: activity, creds: creds, providers: providers, log: log}
+	m := &Management{pep: pep, agents: agents, assign: assign, reloader: reloader, users: users, activity: activity, creds: creds, providers: providers, log: log}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // Create authorizes and persists a new agent, enforcing the scope rules,
@@ -292,14 +313,21 @@ func (m *Management) Delete(ctx context.Context, authority authz.Authority, agen
 	if _, err := acc.Delete(ctx, agentID); err != nil {
 		return err
 	}
-	if err := m.agents.DeleteAgent(ctx, agentID); err != nil {
-		if errors.Is(err, config.ErrAgentInUse) {
+	if m.deletion == nil {
+		return fmt.Errorf("%w: delete agent lifecycle is not wired", ErrUnavailable)
+	}
+	if err := m.deletion.DeleteAgent(ctx, agentID, string(authority.UserID())); err != nil {
+		if errors.Is(err, config.ErrAgentInUse) || isAgentInUse(err) {
 			return ErrInUse
 		}
 		return fmt.Errorf("%w: delete agent: %w", ErrUnavailable, err)
 	}
-	m.reload(ctx, agentID)
 	return nil
+}
+
+func isAgentInUse(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") && pgErr.ConstraintName == "webhook_agent_id_fkey"
 }
 
 // ListProviderCredentials returns secret-free credential metadata for an Agent.

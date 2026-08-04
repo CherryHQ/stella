@@ -5,6 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 )
 
 func TestWorkspaceViewKeepsTypedPrincipalsDisjointAndSharedRootsReadOnly(t *testing.T) {
@@ -46,6 +51,30 @@ func TestWorkspaceViewKeepsTypedPrincipalsDisjointAndSharedRootsReadOnly(t *test
 	}
 	if _, err := r.WorkspaceView(ctx, WorkspaceRequest{AgentID: "a"}); err != nil {
 		t.Fatalf("user-less shared roots: %v", err)
+	}
+}
+
+func TestWorkspaceViewUsesAdvisoryLockTransactionWithoutSecondPoolCheckout(t *testing.T) {
+	base := dbtest.New(t)
+	cfg := base.Config().Copy()
+	cfg.MaxConns = 1
+	db, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(db.Close)
+	store, err := NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(db, store.ID(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := r.WorkspaceView(ctx, WorkspaceRequest{UserID: "u", AgentID: "a"}); err != nil {
+		t.Fatalf("WorkspaceView with one pool connection: %v", err)
 	}
 }
 

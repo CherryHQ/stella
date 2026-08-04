@@ -3,6 +3,9 @@ package home
 import (
 	"context"
 	"fmt"
+	"sort"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -47,52 +50,77 @@ func (r *Registry) WorkspaceView(ctx context.Context, req WorkspaceRequest) (Wor
 	if req.AgentID == "" {
 		return WorkspaceView{}, fmt.Errorf("home: workspace agent ID is required")
 	}
+	principalKey, hasPrincipal := workspacePrincipal(req)
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return WorkspaceView{}, fmt.Errorf("home: begin workspace owner gate: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := sqlc.New(tx)
+
+	// Agent deletion owns agent:<id>; principal deletion owns user/group:<id>.
+	// Lock the identical canonical keys in lexical order so either deletion and
+	// this view serialize without a lock inversion.
+	locks := []string{ownerLockKey(OwnerAgent, req.AgentID)}
+	if hasPrincipal {
+		kind := OwnerUser
+		if principalKey.PrincipalKind == GroupPrincipal {
+			kind = OwnerGroup
+		}
+		locks = append(locks, ownerLockKey(kind, principalKey.PrincipalID))
+	}
+	sort.Strings(locks)
+	for _, lock := range locks {
+		if err := q.LockStorageHomeOwner(ctx, lock); err != nil {
+			return WorkspaceView{}, fmt.Errorf("home: lock workspace owner gate: %w", err)
+		}
+	}
+
 	view := WorkspaceView{}
-	var err error
-	system, err := r.Ensure(ctx, SystemSkills())
+	system, err := r.ensureWithQueries(ctx, q, SystemSkills())
 	if err != nil {
 		return WorkspaceView{}, fmt.Errorf("home: ensure system Skill root: %w", err)
 	}
-	view.SystemSkillRoot, err = r.resolveRecord(ctx, system, true)
+	view.SystemSkillRoot, err = r.resolveRecordWithQueries(ctx, q, system, true)
 	if err != nil {
 		return WorkspaceView{}, fmt.Errorf("home: resolve system Skill root: %w", err)
 	}
-	systemAgent, err := r.Ensure(ctx, SystemAgentSkills(req.AgentID))
+	systemAgent, err := r.ensureWithQueries(ctx, q, SystemAgentSkills(req.AgentID))
 	if err != nil {
 		return WorkspaceView{}, fmt.Errorf("home: ensure system Agent Skill root: %w", err)
 	}
-	view.SystemAgentSkillRoot, err = r.resolveRecord(ctx, systemAgent, true)
+	view.SystemAgentSkillRoot, err = r.resolveRecordWithQueries(ctx, q, systemAgent, true)
 	if err != nil {
 		return WorkspaceView{}, fmt.Errorf("home: resolve system Agent Skill root: %w", err)
 	}
-
-	key, ok := workspacePrincipal(req)
-	if !ok {
-		return view, nil
+	if hasPrincipal {
+		principal, err := r.ensureWithQueries(ctx, q, principalKey)
+		if err != nil {
+			return WorkspaceView{}, fmt.Errorf("home: ensure principal workspace: %w", err)
+		}
+		agent, err := r.ensureWithQueries(ctx, q, Agent(principalKey.PrincipalKind, principalKey.PrincipalID, req.AgentID))
+		if err != nil {
+			return WorkspaceView{}, fmt.Errorf("home: ensure Agent workspace: %w", err)
+		}
+		view.Principal, err = r.resolveRecordWithQueries(ctx, q, principal, false)
+		if err != nil {
+			return WorkspaceView{}, err
+		}
+		view.Agent, err = r.resolveRecordWithQueries(ctx, q, agent, false)
+		if err != nil {
+			return WorkspaceView{}, err
+		}
+		store, ok := r.stores[principal.StoreID].(localWorkspaceProjector)
+		if !ok || agent.StoreID != principal.StoreID {
+			return WorkspaceView{}, fmt.Errorf("home: Store %q has no local workspace projection", principal.StoreID)
+		}
+		view.PrincipalRoot, view.DataRoot, view.AgentRoot, err = store.ProjectWorkspace(principal, agent)
+		if err != nil {
+			return WorkspaceView{}, err
+		}
 	}
-	principal, err := r.Ensure(ctx, key)
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: ensure principal workspace: %w", err)
-	}
-	agent, err := r.Ensure(ctx, Agent(key.PrincipalKind, key.PrincipalID, req.AgentID))
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: ensure Agent workspace: %w", err)
-	}
-	view.Principal, err = r.resolveRecord(ctx, principal, false)
-	if err != nil {
-		return WorkspaceView{}, err
-	}
-	view.Agent, err = r.resolveRecord(ctx, agent, false)
-	if err != nil {
-		return WorkspaceView{}, err
-	}
-	store, ok := r.stores[principal.StoreID].(localWorkspaceProjector)
-	if !ok || agent.StoreID != principal.StoreID {
-		return WorkspaceView{}, fmt.Errorf("home: Store %q has no local workspace projection", principal.StoreID)
-	}
-	view.PrincipalRoot, view.DataRoot, view.AgentRoot, err = store.ProjectWorkspace(principal, agent)
-	if err != nil {
-		return WorkspaceView{}, err
+	if err := tx.Commit(ctx); err != nil {
+		return WorkspaceView{}, fmt.Errorf("home: commit workspace view: %w", err)
 	}
 	return view, nil
 }
