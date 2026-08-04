@@ -31,7 +31,7 @@ All config lives in normalized PostgreSQL tables:
 
 Each agent has:
 
-- A provider + model configuration
+- A global Provider + model selection, with an optional API-only key override
 - A system prompt (personality/identity)
 - A user-independent definition and administrator-managed skills area
 - A separate sandbox workspace for each user or channel group
@@ -40,6 +40,15 @@ Inside a sandbox, `$HOME` is that principal's per-agent workspace, not the
 operator's `$STELLA_HOME/agents/{agent_id}` directory.
 
 Create agents via the Web UI or directly in the database.
+
+Provider type, base URL, models, enabled state, and default key are global
+administrator configuration. Enterprise provisioning may set a write-only key
+override through `POST /api/agents` or the Agent Provider credential
+subresource. Override precedence is Agent key, then global Provider key;
+deleting the override restores fallback. Safe metadata follows Agent Read, while
+only administrators and the persisted Agent creator may mutate it. The same key
+resolution applies to every host-side Agent model call, including Vision when it
+uses that Provider. Do not place overrides in sandbox environment variables.
 
 ## Channel configuration
 

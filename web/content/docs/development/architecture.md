@@ -135,6 +135,29 @@ Providers live in `plugins/providers/` and self-register via `init()`. Adding a 
 
 Managing providers (like settings, plugins, and channels) is a control-plane operation authorized through `internal/controlplane`, not a bare role check. It is admin-only: `Begin` requires `IsAdmin()` before minting an Access.
 
+### Agent Provider credential overrides
+
+Provider metadata and the default key remain global control-plane state. A
+separate `agent_provider_credential` relation stores an encrypted override for
+`(agent_id, canonical provider_id)`. `providercred.Service` is the only plaintext
+encryption boundary and uses the Vault system cipher; neither `config.Agent` nor
+ordinary Agent projections contain credential fields.
+
+The credential-aware Snapshot loader decorates the global Snapshot at the Agent
+boundary. It replaces only the API key on every canonical and type-alias entry
+for the referenced Provider, including the legacy default credential field.
+Provider type, base URL, model catalog, and enabled state never move into Agent
+scope. Missing or deleted rows use the global key; a referenced row that cannot
+be decrypted fails closed instead of silently falling back. All host-side Agent
+consumers share this loader, including Runner, memory summarization, intent and
+semantic routing, Reflect, and Vision.
+
+Safe metadata follows Agent Read access. Mutation requires Agent Manage, which
+allows administrators and the persisted Agent creator but not assigned
+non-creators. A mutation commits first and then calls targeted `SyncAgent`; it
+does not reload global Providers. The write-only HTTP subresource exposes
+paginated List, Get, PATCH rotation, and idempotent DELETE fallback.
+
 ## Tools
 
 The Runner injects tools into LLM calls. Tools follow a common interface defined in `pkg/tools/`. The `tools.Definition` type is a type alias for `ai.ToolDefinition`, keeping domain packages decoupled:

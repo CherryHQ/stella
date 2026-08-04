@@ -78,13 +78,17 @@ func (h *harness) createFakeProvider(t *testing.T, ctx context.Context, baseURL 
 }
 
 func (h *harness) createFakeProviderNamed(t *testing.T, ctx context.Context, baseURL, id string) string {
+	return h.createFakeProviderNamedWithKey(t, ctx, baseURL, id, "system-test-not-a-secret")
+}
+
+func (h *harness) createFakeProviderNamedWithKey(t *testing.T, ctx context.Context, baseURL, id, apiKey string) string {
 	t.Helper()
 	body := map[string]any{
 		"id":       id,
 		"type":     "anthropic",
 		"name":     id,
 		"enabled":  true,
-		"api_key":  "system-test-not-a-secret",
+		"api_key":  apiKey,
 		"base_url": baseURL,
 		"models": map[string]any{
 			"claude-sonnet-4-6": map[string]any{

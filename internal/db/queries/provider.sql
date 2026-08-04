@@ -4,6 +4,11 @@ SELECT * FROM provider WHERE id = $1;
 -- name: ListProviders :many
 SELECT * FROM provider ORDER BY name, id;
 
+-- name: ListProviderIDs :many
+-- Credential validation needs canonical IDs, never Provider config or its
+-- deployment-global API key.
+SELECT id FROM provider ORDER BY id;
+
 -- name: ListEnabledProviders :many
 SELECT * FROM provider WHERE enabled = true ORDER BY name, id;
 

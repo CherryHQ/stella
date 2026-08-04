@@ -5,17 +5,10 @@ import (
 	"net/http"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
+	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/resources"
 )
-
-// createAgentRequest wraps config.Agent to accept an optional template_id
-// hint. When set, fields on the template pre-populate empty fields on the
-// submitted agent; values the user already supplied always win.
-type createAgentRequest struct {
-	config.Agent
-	TemplateID string `json:"template_id"`
-}
 
 // applyTemplate merges a builtin template (and its referenced soul) into a
 // fresh agent. Non-empty fields on the agent take precedence so the caller
@@ -100,7 +93,11 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, params apise
 			agents[i].LastActive = &t
 		}
 	}
-	writeData(w, http.StatusOK, map[string]any{"agents": agents})
+	result := make([]apitypes.Agent, len(agents))
+	for i := range agents {
+		result[i] = agentToAPI(agents[i])
+	}
+	writeData(w, http.StatusOK, apitypes.AgentList{Agents: result})
 }
 
 func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
@@ -115,17 +112,17 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req createAgentRequest
+	var req apiserver.CreateAgentJSONRequestBody
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	a := req.Agent
+	a, templateID, credentials := createAgentFromAPI(req)
 	if a.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if err := applyTemplate(&a, req.TemplateID); err != nil {
+	if err := applyTemplate(&a, templateID); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
@@ -143,7 +140,7 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	// scope decision, sets the creator, and (for a restricted agent) auto-assigns.
 	a.ID = slugify(a.Name)
 
-	created, err := s.agentManagement.Create(ctx, authority, a)
+	created, err := s.agentManagement.CreateWithProviderCredentials(ctx, authority, a, credentials)
 	if err != nil {
 		code, msg := agentManagementError(err)
 		if code == http.StatusInternalServerError {
@@ -154,7 +151,7 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusCreated, created)
+	writeData(w, http.StatusCreated, agentToAPI(created))
 }
 
 func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
@@ -166,7 +163,7 @@ func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
 	}
 
 	fillAgentDefaults(&a)
-	writeData(w, http.StatusOK, a)
+	writeData(w, http.StatusOK, agentToAPI(a))
 }
 
 func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) {
@@ -182,11 +179,12 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 
-	var a config.Agent
-	if err := decodeJSON(r, &a); err != nil {
+	var req apiserver.UpdateAgentJSONRequestBody
+	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	a := agentFromAPI(req)
 	a.ID = id
 	if a.Name == "" {
 		a.Name = id
@@ -211,7 +209,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 		writeError(w, code, msg)
 		return
 	}
-	writeData(w, http.StatusOK, updated)
+	writeData(w, http.StatusOK, agentToAPI(updated))
 }
 
 func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) {

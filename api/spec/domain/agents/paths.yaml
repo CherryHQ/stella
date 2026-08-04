@@ -47,6 +47,9 @@ paths:
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
   /api/agents/{id}:
     parameters:
@@ -174,6 +177,116 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/agents/{id}/provider-credentials:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [agents]
+      summary: List write-only Provider credential metadata for an agent
+      operationId: listAgentProviderCredentials
+      parameters:
+        - {
+            name: page_size,
+            in: query,
+            required: false,
+            schema: { type: integer, minimum: 1, maximum: 500 },
+          }
+        - {
+            name: page_token,
+            in: query,
+            required: false,
+            schema: { type: string },
+          }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/AgentProviderCredentialList"
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/agents/{id}/provider-credentials/{providerId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: providerId,
+          in: path,
+          required: true,
+          schema: { type: string, minLength: 1, maxLength: 255 },
+        }
+    get:
+      tags: [agents]
+      summary: Get Provider credential metadata for an agent
+      operationId: getAgentProviderCredential
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/AgentProviderCredential"
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    patch:
+      tags: [agents]
+      summary: Set or rotate an agent Provider API key override
+      operationId: updateAgentProviderCredential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../../components.yaml#/components/schemas/UpdateAgentProviderCredentialRequest"
+      responses:
+        "200":
+          description: updated
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/AgentProviderCredential"
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    delete:
+      tags: [agents]
+      summary: Delete an agent Provider API key override
+      operationId: deleteAgentProviderCredential
+      responses:
+        "204": { description: deleted }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
 
   /api/agents/{id}/tools:
     parameters:

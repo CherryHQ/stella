@@ -165,7 +165,7 @@ func agentRouteScope(method string, sub []string) (scope string, registered bool
 		return scopeForMethod("skills", method), true
 	case "tools":
 		return "", true
-	case "sessions", "projects", "users":
+	case "sessions", "projects", "users", "provider-credentials":
 		// Conversation history, workspace files, projects, and membership are all
 		// gated by the agent scope. NOTE: agent:read here grants read of full
 		// session messages and workspace file contents, not just status -- see

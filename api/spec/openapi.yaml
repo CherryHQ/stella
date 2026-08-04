@@ -90,6 +90,10 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users"
   /api/agents/{id}/users/{userId}:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users~1{userId}"
+  /api/agents/{id}/provider-credentials:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1provider-credentials"
+  /api/agents/{id}/provider-credentials/{providerId}:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1provider-credentials~1{providerId}"
   /api/agents/{id}/tools:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1tools"
   /api/agents/{id}/tools/{toolName}:

@@ -154,7 +154,7 @@ func (f fakeActivity) ListAgentLastActive(context.Context, string) (map[string]t
 
 func newManagement(agents *fakeAgents, assign *fakeAssign, reloader AgentReloader, users UserDirectory, activity ActivityReader) *Management {
 	pep := NewService(agents, assign)
-	return NewManagement(pep, agents, assign, reloader, users, activity, nil)
+	return NewManagement(pep, agents, assign, reloader, users, activity, nil, nil, nil)
 }
 
 func TestManagementCreateNonAdminRestrictedAndAutoAssigns(t *testing.T) {
@@ -399,7 +399,7 @@ func TestManagementListAgentLastActive(t *testing.T) {
 	}
 
 	// A nil activity reader degrades to an empty map, never a nil-deref.
-	mNil := NewManagement(NewService(newFakeAgents(), newFakeAssign()), newFakeAgents(), newFakeAssign(), &fakeReloader{}, fakeUsers{}, nil, nil)
+	mNil := NewManagement(NewService(newFakeAgents(), newFakeAssign()), newFakeAgents(), newFakeAssign(), &fakeReloader{}, fakeUsers{}, nil, nil, nil, nil)
 	empty, err := mNil.ListAgentLastActive(ctx, "u1")
 	if err != nil || len(empty) != 0 {
 		t.Fatalf("nil activity = (%v, %v), want (empty, nil)", empty, err)

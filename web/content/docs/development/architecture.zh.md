@@ -135,6 +135,14 @@ LLM 提供商采用插件模式。Stella 内置三种提供商：
 
 提供商管理（与设置、插件、通道一样）是一项控制面操作，直接经由 `internal/controlplane` 授权，而非裸角色检查。它仅限管理员：`Begin` 在铸造 Access 前要求 `IsAdmin()`。
 
+### Agent 提供商凭证覆盖
+
+提供商元数据与默认密钥仍是全局控制面状态。独立的 `agent_provider_credential` 关系为 `(agent_id, canonical provider_id)` 存储加密覆盖密钥。`providercred.Service` 是唯一接触明文的加密边界，并使用 Vault system cipher；`config.Agent` 与普通 Agent 投影都不包含凭证字段。
+
+凭证感知的 Snapshot loader 在 Agent 边界装饰全局 Snapshot。它只替换目标提供商全部 canonical 与 type-alias 条目的 API 密钥，并同步旧版默认凭证字段。提供商类型、base URL、模型目录和启用状态绝不进入 Agent scope。缺少或删除覆盖行时使用全局密钥；已引用但无法解密的行会 fail closed，不会静默回退。所有宿主侧 Agent 消费者共用这一 loader，包括 Runner、memory summarization、intent 与 semantic routing、Reflect 和 Vision。
+
+安全元数据遵循 Agent Read 权限。变更要求 Agent Manage，因此管理员与持久化的 Agent 创建者可以操作，被分配但不是创建者的用户不能操作。变更先提交，再定向调用 `SyncAgent`；它不会重载全局提供商。只写 HTTP 子资源提供分页 List、Get、PATCH 轮换和幂等 DELETE 回退。
+
 ## 工具
 
 Runner 将工具注入 LLM 调用。工具遵循定义在 `pkg/tools/` 中的通用接口。`tools.Definition` 类型是 `ai.ToolDefinition` 的类型别名，使领域包保持解耦：
