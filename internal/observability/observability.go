@@ -33,6 +33,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/CherryHQ/stella/internal/diagnostic"
 	"github.com/CherryHQ/stella/internal/version"
 )
 
@@ -107,21 +108,21 @@ func Init(ctx context.Context) (*Provider, error) {
 	if cfg.Enabled {
 		p.tp, err = newTracerProvider(ctx, res)
 		if err != nil {
-			return nil, err
+			return nil, exporterInitError("trace", traceEndpoint(), err)
 		}
 	}
 	if logsEnabled {
 		p.lp, err = newLoggerProvider(ctx, res)
 		if err != nil {
 			_ = p.shutdownProviders(ctx)
-			return nil, err
+			return nil, exporterInitError("log", logsEndpoint(), err)
 		}
 	}
 	if metricsEnabled {
 		p.mp, err = newMeterProvider(ctx, res)
 		if err != nil {
 			_ = p.shutdownProviders(ctx)
-			return nil, err
+			return nil, exporterInitError("metric", metricsEndpoint(), err)
 		}
 	}
 
@@ -129,7 +130,7 @@ func Init(ctx context.Context) (*Provider, error) {
 		p.previousTracerProvider = otel.GetTracerProvider()
 		otel.SetTracerProvider(p.tp)
 		slog.Info("otel tracing enabled",
-			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+			"endpoint", traceEndpoint(),
 			"service", cfg.ServiceName)
 	}
 	if p.lp != nil {
@@ -138,7 +139,7 @@ func Init(ctx context.Context) (*Provider, error) {
 		otellogglobal.SetLoggerProvider(p.lp)
 		slog.SetDefault(slog.New(newTeeHandler(currentSlogHandler(), otelslog.NewHandler("stella"))))
 		slog.Info("otel logs enabled",
-			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+			"endpoint", logsEndpoint(),
 			"service", cfg.ServiceName)
 	}
 	if p.mp != nil {
@@ -152,13 +153,48 @@ func Init(ctx context.Context) (*Provider, error) {
 			slog.Warn("otel runtime metrics failed to start", "error", err)
 		}
 		slog.Info("otel metrics enabled",
-			"endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+			"endpoint", metricsEndpoint(),
 			"service", cfg.ServiceName)
 	}
 	if os.Getenv("OTEL_EXPORTER_OTLP_INSECURE") == "true" {
 		slog.Warn("otel exporter transport is insecure; telemetry is sent without TLS")
 	}
 	return p, nil
+}
+
+// exporterEndpoint returns the signal-specific endpoint when configured,
+// otherwise the generic OTLP endpoint. It is only for diagnostics.
+func exporterEndpoint(signalKey string) string {
+	raw := os.Getenv(signalKey)
+	if raw == "" {
+		raw = os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	}
+	return diagnostic.Endpoint(raw)
+}
+
+func traceEndpoint() string   { return exporterEndpoint("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") }
+func logsEndpoint() string    { return exporterEndpoint("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT") }
+func metricsEndpoint() string { return exporterEndpoint("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") }
+
+// exporterInitializationError keeps the cause available to errors.Is/As, but
+// never includes it in Error: exporters may echo endpoint credentials.
+type exporterInitializationError struct {
+	signal   string
+	endpoint string
+	cause    error
+}
+
+func (e *exporterInitializationError) Error() string {
+	if e.endpoint == "" {
+		return fmt.Sprintf("otel: create %s exporter: initialization failed", e.signal)
+	}
+	return fmt.Sprintf("otel: create %s exporter for %s: initialization failed", e.signal, e.endpoint)
+}
+
+func (e *exporterInitializationError) Unwrap() error { return e.cause }
+
+func exporterInitError(signal, safeEndpoint string, cause error) error {
+	return &exporterInitializationError{signal: signal, endpoint: safeEndpoint, cause: cause}
 }
 
 func newResource(ctx context.Context, cfg Config) (*resource.Resource, error) {
@@ -279,13 +315,33 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 func (p *Provider) shutdownProviders(ctx context.Context) error {
 	var err error
 	if p.lp != nil {
-		err = errors.Join(err, p.lp.Shutdown(ctx))
+		err = errors.Join(err, providerShutdownError("log", p.lp.Shutdown(ctx)))
 	}
 	if p.mp != nil {
-		err = errors.Join(err, p.mp.Shutdown(ctx))
+		err = errors.Join(err, providerShutdownError("metric", p.mp.Shutdown(ctx)))
 	}
 	if p.tp != nil {
-		err = errors.Join(err, p.tp.Shutdown(ctx))
+		err = errors.Join(err, providerShutdownError("trace", p.tp.Shutdown(ctx)))
 	}
 	return err
+}
+
+// providerShutdownFailure keeps the cause inspectable without exposing it in
+// Error, because Shutdown callers log the returned error.
+type providerShutdownFailure struct {
+	signal string
+	cause  error
+}
+
+func (e *providerShutdownFailure) Error() string {
+	return fmt.Sprintf("otel: shutdown %s provider failed", e.signal)
+}
+
+func (e *providerShutdownFailure) Unwrap() error { return e.cause }
+
+func providerShutdownError(signal string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &providerShutdownFailure{signal: signal, cause: err}
 }

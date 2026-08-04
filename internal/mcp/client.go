@@ -13,6 +13,8 @@ import (
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/CherryHQ/stella/internal/diagnostic"
 )
 
 // clientImpl identifies Stella to MCP servers during the initialize handshake.
@@ -31,14 +33,63 @@ type Client struct {
 func Connect(ctx context.Context, reg Registration, bearer string) (*Client, error) {
 	transport, err := buildTransport(reg, bearer)
 	if err != nil {
-		return nil, err
+		return nil, connectionError(reg, err)
 	}
 	c := mcpsdk.NewClient(clientImpl, nil)
 	session, err := c.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, fmt.Errorf("mcp: connect %q (%s): %w", reg.Name, reg.URL, err)
+		return nil, connectionError(reg, err)
 	}
 	return &Client{session: session}, nil
+}
+
+// connectionFailure keeps the operational cause available to errors.Is/As,
+// while Error deliberately excludes it: SDK and net/url errors can echo the
+// full endpoint, including query credentials.
+type connectionFailure struct {
+	name     string
+	endpoint string
+	detail   string
+	cause    error
+}
+
+func (e *connectionFailure) Error() string {
+	if e.detail == "" {
+		return fmt.Sprintf("mcp: connect %q (%s) failed", e.name, e.endpoint)
+	}
+	return fmt.Sprintf("mcp: connect %q (%s) failed: %s", e.name, e.endpoint, e.detail)
+}
+
+func (e *connectionFailure) Unwrap() error { return e.cause }
+
+func connectionError(reg Registration, cause error) error {
+	return &connectionFailure{
+		name:     reg.Name,
+		endpoint: diagnostic.Endpoint(reg.URL),
+		detail:   safeValidationDetail(cause),
+		cause:    cause,
+	}
+}
+
+// safeValidationDetail retains only validation text known not to echo caller
+// input. Transport, SDK, and new validation errors stay opaque until audited.
+func safeValidationDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	for _, safe := range []string{
+		"mcp: endpoint url must ",
+		"mcp: endpoint url requires a host",
+	} {
+		if strings.HasPrefix(message, safe) {
+			return message
+		}
+	}
+	if strings.HasPrefix(message, "mcp: unsupported transport ") {
+		return "mcp: unsupported transport; only streamable_http and sse are allowed"
+	}
+	return ""
 }
 
 // buildTransport returns the SDK transport for the registration. It is the

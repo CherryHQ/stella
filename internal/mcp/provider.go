@@ -9,6 +9,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/CherryHQ/stella/internal/diagnostic"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -175,7 +176,7 @@ func (p *ToolProvider) toolsForServer(ctx context.Context, reg Registration) []p
 
 	client, err := p.connect(connCtx, reg, bearer)
 	if err != nil {
-		p.log.Warn("mcp connect failed; skipping server", "server", reg.Name, "url", reg.URL, "error", err)
+		p.log.Warn("mcp connect failed; skipping server", "server", reg.Name, "url", diagnostic.Endpoint(reg.URL), "error", err)
 		return nil
 	}
 	remoteTools, err := client.ListTools(connCtx)
