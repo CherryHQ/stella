@@ -332,10 +332,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	}
 	slog.Info("oidc: authentication configured")
 
-	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
+	intentClassifier := newIntentClassifier(s.snapshotLoader, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
-	if semanticArbiter := newSemanticGroupArbiter(s.store, s.pluginHost); semanticArbiter != nil {
+	if semanticArbiter := newSemanticGroupArbiter(s.snapshotLoader, s.pluginHost); semanticArbiter != nil {
 		coordOpts = append(coordOpts, channel.WithSemanticGroupArbiter(semanticArbiter))
 	}
 
@@ -377,6 +377,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		s.poolManager,
 		userDirectory{users: oidcStore},
 		agent.NewAgentActivityStore(s.db),
+		s.credentialSvc,
+		s.credentialProviders,
 		slog.With("component", "agent-management"),
 	)
 
@@ -893,13 +895,13 @@ func hostFromAddr(addr string) string {
 	return host
 }
 
-func newIntentClassifier(store config.Store, ph *pluginhost.Host) *channel.LLMIntentClassifier {
-	if store == nil || ph == nil {
+func newIntentClassifier(snapshots config.SnapshotLoader, ph *pluginhost.Host) *channel.LLMIntentClassifier {
+	if snapshots == nil || ph == nil {
 		return nil
 	}
 	return channel.NewLLMIntentClassifier(
 		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
-			return store.Snapshot(ctx, agentID)
+			return snapshots.Snapshot(ctx, agentID)
 		},
 		intentClassifierStreamFuncBuilder(ph),
 	)
@@ -914,13 +916,13 @@ func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBu
 	}
 }
 
-func newSemanticGroupArbiter(store config.Store, ph *pluginhost.Host) *channel.LLMSemanticGroupArbiter {
-	if store == nil || ph == nil {
+func newSemanticGroupArbiter(snapshots config.SnapshotLoader, ph *pluginhost.Host) *channel.LLMSemanticGroupArbiter {
+	if snapshots == nil || ph == nil {
 		return nil
 	}
 	return channel.NewLLMSemanticGroupArbiter(
 		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
-			return store.Snapshot(ctx, agentID)
+			return snapshots.Snapshot(ctx, agentID)
 		},
 		intentClassifierStreamFuncBuilder(ph),
 	)

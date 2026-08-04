@@ -36,8 +36,8 @@ var envReadAllowlist = map[string]map[string]bool{
 	"internal/config/paths.go": {"STELLA_HOME": true},
 	"internal/cli/dotenv.go":   {"STELLA_HOME": true, nonLiteralRead: true},
 
-	// Per-call lenient selection: the sandbox backend is chosen per operation
-	// from the live plugin set, not fixed at boot.
+	// Per-call lenient selection: the sandbox backend is read where a sandbox is
+	// created, deep in the runtime, and never threaded through ServerConfig.
 	"internal/config/sandbox_env.go": {nonLiteralRead: true},
 
 	// Internal testing escape hatch (STELLA_POSTGRES_RUNTIME) for exercising a

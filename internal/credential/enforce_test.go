@@ -104,6 +104,7 @@ func TestRequiredScopeUnknownAgentSubResourceFailsClosed(t *testing.T) {
 		"/api/agents/a1/scheduler/jobs",
 		"/api/agents/a1/projects",
 		"/api/agents/a1/users",
+		"/api/agents/a1/provider-credentials",
 		"/api/agents/a1",
 	} {
 		if _, registered := RequiredScope("GET", path); !registered {

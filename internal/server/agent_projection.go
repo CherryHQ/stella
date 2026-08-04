@@ -1,0 +1,125 @@
+package server
+
+import (
+	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/agent/providercred"
+	"github.com/CherryHQ/stella/internal/config"
+)
+
+// agentFromAPI is the explicit transport-to-domain projection for ordinary Agent
+// writes. Provider credentials deliberately have no representation on
+// config.Agent, so PATCH remains unable to modify them.
+func agentFromAPI(in apitypes.Agent) config.Agent {
+	out := config.Agent{
+		ID:                  stringValue(in.Id),
+		Name:                stringValue(in.Name),
+		Model:               stringValue(in.Model),
+		ModelThinking:       stringValue(in.ModelThinking),
+		ModelStrong:         stringValue(in.ModelStrong),
+		ModelStrongThinking: stringValue(in.ModelStrongThinking),
+		ModelFast:           stringValue(in.ModelFast),
+		ModelFastThinking:   stringValue(in.ModelFastThinking),
+		SystemPrompt:        stringValue(in.SystemPrompt),
+		Soul:                stringValue(in.Soul),
+		Workspace:           stringValue(in.Workspace),
+		Scope:               stringValue(in.Scope),
+		CreatorID:           stringValue(in.CreatorId),
+		Enabled:             boolValue(in.Enabled),
+	}
+	if in.LastActive != nil {
+		lastActive := in.LastActive.UTC()
+		out.LastActive = &lastActive
+	}
+	if in.Sandbox != nil && in.Sandbox.Network != nil {
+		out.Sandbox.Network.Mode = stringValue(in.Sandbox.Network.Mode)
+		if in.Sandbox.Network.Allowlist != nil {
+			out.Sandbox.Network.Allowlist = append([]string(nil), (*in.Sandbox.Network.Allowlist)...)
+		}
+	}
+	return out
+}
+
+// createAgentFromAPI extracts the sole credential-bearing Agent request into
+// write-only domain inputs. The API DTO is never used as a response projection.
+func createAgentFromAPI(in apitypes.CreateAgentRequest) (config.Agent, string, []providercred.Input) {
+	agent := agentFromAPI(apitypes.Agent{
+		CreatorId:           in.CreatorId,
+		Enabled:             in.Enabled,
+		Id:                  in.Id,
+		Model:               in.Model,
+		ModelFast:           in.ModelFast,
+		ModelFastThinking:   in.ModelFastThinking,
+		ModelStrong:         in.ModelStrong,
+		ModelStrongThinking: in.ModelStrongThinking,
+		ModelThinking:       in.ModelThinking,
+		Name:                in.Name,
+		Sandbox:             in.Sandbox,
+		Scope:               in.Scope,
+		Soul:                in.Soul,
+		SystemPrompt:        in.SystemPrompt,
+		Workspace:           in.Workspace,
+	})
+
+	var inputs []providercred.Input
+	if in.ProviderCredentials != nil {
+		inputs = make([]providercred.Input, len(*in.ProviderCredentials))
+		for i, credential := range *in.ProviderCredentials {
+			inputs[i] = providercred.Input{
+				ProviderID: credential.ProviderId,
+				APIKey:     stringValue(credential.ApiKey),
+			}
+		}
+	}
+	return agent, stringValue(in.TemplateId), inputs
+}
+
+// agentToAPI is the explicit secret-free domain-to-transport projection. Keep
+// this field list in sync with the public Agent schema rather than serializing a
+// domain struct whose internals may grow.
+func agentToAPI(in config.Agent) apitypes.Agent {
+	out := apitypes.Agent{
+		Id:                  stringPtr(in.ID),
+		Name:                stringPtr(in.Name),
+		Model:               stringPtr(in.Model),
+		ModelThinking:       stringPtr(in.ModelThinking),
+		ModelStrong:         stringPtr(in.ModelStrong),
+		ModelStrongThinking: stringPtr(in.ModelStrongThinking),
+		ModelFast:           stringPtr(in.ModelFast),
+		ModelFastThinking:   stringPtr(in.ModelFastThinking),
+		SystemPrompt:        stringPtr(in.SystemPrompt),
+		Soul:                stringPtr(in.Soul),
+		Workspace:           stringPtr(in.Workspace),
+		Scope:               stringPtr(in.Scope),
+		CreatorId:           stringPtr(in.CreatorID),
+		Enabled:             boolPtrValue(in.Enabled),
+		Sandbox: &apitypes.SandboxConfig{Network: &apitypes.SandboxNetworkConfig{
+			Mode:      stringPtr(in.Sandbox.Network.Mode),
+			Allowlist: stringsPtr(in.Sandbox.Network.Allowlist),
+		}},
+	}
+	if in.LastActive != nil {
+		lastActive := in.LastActive.UTC()
+		out.LastActive = &lastActive
+	}
+	return out
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func boolValue(value *bool) bool {
+	return value != nil && *value
+}
+
+func stringPtr(value string) *string { return &value }
+
+func boolPtrValue(value bool) *bool { return &value }
+
+func stringsPtr(values []string) *[]string {
+	copy := append([]string(nil), values...)
+	return &copy
+}

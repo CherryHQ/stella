@@ -102,15 +102,13 @@ sandbox 镜像通过 `stellad mise reconcile-builtins`（与宿主相同的 `res
 
 每个新沙箱后端需要在以下所有位置进行修改——遗漏任何一处都会导致运行时错误：
 
-| 步骤 | 文件                                                                                    | 操作                                                                                              |
-| ---- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 1    | `internal/config/sandbox.go`                                                            | 添加 `SandboxBackend<Name> = "<name>"` 常量                                                       |
-| 2    | `internal/config/plugin.go`                                                             | 将名称追加到 `builtinSandboxNames`，确保 DB 行被初始化                                            |
-| 3    | `plugins/sandbox/<name>/session.go`                                                     | 实现 `sandbox.Factory` 和 `sandbox.Session`                                                       |
-| 4    | `plugins/sandbox/plugin.go`                                                             | 在 `init()` 的 `backends` 切片中添加条目，注册 `AdminVisible` 插件元数据                          |
-| 5    | `internal/agent/sandbox/session.go`                                                     | 在 `createSessionForBackend` 中添加 `case config.SandboxBackend<Name>:` 分支，并实现工厂函数      |
-| 6    | `web/src/features/plugins/PluginsPage.tsx` 和 `web/src/features/plugins/pluginUtils.ts` | 将 `"sandbox/<name>"` 添加到 `validSandboxBackends`，并在 `sandboxMeta` 中添加包含特性/限制的条目 |
-| 7    | 文档                                                                                    | 更新[沙箱指南](/docs/guides/sandbox)和本文件                                                      |
+| 步骤 | 文件                                | 操作                                                                                         |
+| ---- | ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| 1    | `internal/config/sandbox.go`        | 添加 `SandboxBackend<Name> = "<name>"` 常量                                                  |
+| 2    | `internal/config/sandbox_env.go`    | 在 `ActiveSandboxBackend` 的 `STELLA_SANDBOX_BACKEND` switch 中接受该名称                    |
+| 3    | `plugins/sandbox/<name>/session.go` | 实现 `sandbox.Factory` 和 `sandbox.Session`                                                  |
+| 4    | `internal/agent/sandbox/session.go` | 在 `createSessionForBackend` 中添加 `case config.SandboxBackend<Name>:` 分支，并实现工厂函数 |
+| 5    | 文档                                | 更新[沙箱指南](/docs/guides/sandbox)和本文件                                                 |
 
 ## 相关文档
 

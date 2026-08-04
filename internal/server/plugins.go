@@ -3,7 +3,6 @@ package server
 import (
 	"net/http"
 
-	"github.com/CherryHQ/stella/internal/config"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -35,24 +34,16 @@ type pluginView struct {
 	Capabilities []string       `json:"capabilities"`
 	Persisted    bool           `json:"persisted"`
 	PersistedID  string         `json:"persisted_id"`
-	EnvLocked    bool           `json:"env_locked,omitempty"`
 }
 
 func flattenRegisteredPlugins(s *Server, plugins []pkgplugins.RegisteredPlugin) []pluginView {
-	envBackend := config.SandboxBackendEnvOverride()
 	out := make([]pluginView, 0, len(plugins))
 	for _, plugin := range plugins {
-		enabled := plugin.State.Enabled
-		envLocked := false
-		if envBackend != "" && plugin.Kind == config.PluginKindSandbox {
-			envLocked = true
-			enabled = plugin.Name == envBackend
-		}
 		out = append(out, pluginView{
 			ID:           plugin.Info.ID,
 			Kind:         plugin.Kind,
 			Name:         plugin.Name,
-			Enabled:      enabled,
+			Enabled:      plugin.State.Enabled,
 			Config:       s.pluginHost.RedactConfig(plugin.Info.ID, plugin.State.Config),
 			DisplayName:  plugin.Info.DisplayName,
 			Description:  plugin.Info.Description,
@@ -63,7 +54,6 @@ func flattenRegisteredPlugins(s *Server, plugins []pkgplugins.RegisteredPlugin) 
 			Capabilities: plugin.SortedCapabilities(),
 			Persisted:    plugin.Persisted,
 			PersistedID:  plugin.PersistedID,
-			EnvLocked:    envLocked,
 		})
 	}
 	return out

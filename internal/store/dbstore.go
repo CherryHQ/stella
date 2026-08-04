@@ -21,11 +21,15 @@ import (
 // DBStore implements config.Store using sqlc queries backed by PostgreSQL.
 type DBStore struct {
 	q *sqlc.Queries
+	// pool is retained (not just wrapped by q) so composite writes that must be
+	// atomic — the Agent + its encrypted Provider credentials — can open one
+	// transaction via Queries.WithTx.
+	pool *pgxpool.Pool
 }
 
 // NewDBStore creates a new DBStore wrapping the given database connection.
 func NewDBStore(db *pgxpool.Pool) *DBStore {
-	return &DBStore{q: sqlc.New(db)}
+	return &DBStore{q: sqlc.New(db), pool: db}
 }
 
 // --- Providers (backed by provider) ---
@@ -40,6 +44,16 @@ func (s *DBStore) ListProviders(ctx context.Context) ([]config.Provider, error) 
 		out[i] = providerFromDB(r)
 	}
 	return out, nil
+}
+
+// ListProviderIDs returns canonical Provider row IDs without loading Provider
+// config, which contains the deployment-global API key.
+func (s *DBStore) ListProviderIDs(ctx context.Context) ([]string, error) {
+	ids, err := s.q.ListProviderIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list provider ids: %w", err)
+	}
+	return ids, nil
 }
 
 func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, error) {
@@ -191,6 +205,21 @@ func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error)
 }
 
 func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
+	params, err := createAgentParams(a)
+	if err != nil {
+		return err
+	}
+	if _, err := s.q.CreateAgent(ctx, params); err != nil {
+		return fmt.Errorf("create agent %q: %w", params.ID, err)
+	}
+	return nil
+}
+
+// createAgentParams mints a missing ID, applies the default scope, and validates
+// and marshals the sandbox config into insert params. It is shared by the plain
+// CreateAgent and the atomic Agent+credentials create so both write identical
+// rows.
+func createAgentParams(a config.Agent) (sqlc.CreateAgentParams, error) {
 	if a.ID == "" {
 		a.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -199,13 +228,13 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 		scope = config.AgentScopeSystem
 	}
 	if err := a.Sandbox.Validate(); err != nil {
-		return fmt.Errorf("create agent %q: %w", a.ID, err)
+		return sqlc.CreateAgentParams{}, fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
 	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
 	if err != nil {
-		return fmt.Errorf("create agent %q: %w", a.ID, err)
+		return sqlc.CreateAgentParams{}, fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
-	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
+	return sqlc.CreateAgentParams{
 		ID:                   a.ID,
 		Name:                 a.Name,
 		Model:                a.Model,
@@ -222,11 +251,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 		Scope:                scope,
 		CreatorID:            a.CreatorID,
 		Enabled:              a.Enabled,
-	})
-	if err != nil {
-		return fmt.Errorf("create agent %q: %w", a.ID, err)
-	}
-	return nil
+	}, nil
 }
 
 func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
@@ -751,7 +776,10 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 		if !ok {
 			continue
 		}
-		creds[pid] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL}
+		// p.ID is the canonical row ID even when pid is a type alias, so a per-Agent
+		// override keyed by canonical ID can later be applied to every alias entry
+		// that shares it.
+		creds[pid] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL, ProviderID: p.ID}
 		// Key by the referenced provider ID, not p.ID, so type aliases resolve
 		// the same way the credentials above do.
 		for modelID, m := range p.Models {

@@ -133,17 +133,36 @@ func TestReadTextFileReturnsTextBlock(t *testing.T) {
 	}
 }
 
-func TestReadToolProjectRootAbsolutePathUsesHostBoundary(t *testing.T) {
-	rawWorkspace := t.TempDir()
-	workspace, err := filepath.EvalSymlinks(rawWorkspace)
+// unshadowedTempDir returns a temporary directory outside the system temp tree.
+// A local sandbox session binds session-private directories over /tmp and
+// /var/tmp, so a host path under them is ambiguous with sandbox-space temp paths
+// and resolves into the private backing instead of the host file. Tests that
+// hand host paths to a real session must stay clear of that overlap.
+func unshadowedTempDir(t *testing.T) string {
+	t.Helper()
+	home, err := os.UserHomeDir()
 	if err != nil {
-		t.Fatalf("EvalSymlinks workspace: %v", err)
+		t.Fatalf("UserHomeDir: %v", err)
 	}
+	dir, err := os.MkdirTemp(home, "stella-sandbox-test-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp(%q): %v", home, err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) }) //nolint:errcheck
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", dir, err)
+	}
+	return resolved
+}
+
+func TestReadToolProjectRootAbsolutePathUsesHostBoundary(t *testing.T) {
+	workspace := unshadowedTempDir(t)
 	inside := filepath.Join(workspace, "inside.txt")
 	if err := os.WriteFile(inside, []byte("inside workspace\n"), 0o644); err != nil {
 		t.Fatalf("write inside: %v", err)
 	}
-	outside := filepath.Join(t.TempDir(), "secret.txt")
+	outside := filepath.Join(unshadowedTempDir(t), "secret.txt")
 	if err := os.WriteFile(outside, []byte("outside workspace\n"), 0o644); err != nil {
 		t.Fatalf("write outside: %v", err)
 	}

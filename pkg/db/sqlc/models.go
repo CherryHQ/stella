@@ -144,6 +144,14 @@ type AgentGoalEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type AgentProviderCredential struct {
+	AgentID    string    `json:"agent_id"`
+	ProviderID string    `json:"provider_id"`
+	ApiKeyEnc  string    `json:"api_key_enc"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type AgentWorkflow struct {
 	ID                 string          `json:"id"`
 	OwnerKind          string          `json:"owner_kind"`

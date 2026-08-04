@@ -23,6 +23,14 @@ Models are managed through the Web UI (web UI). You can browse available models,
 
 Create provider rows in the Web UI or API. Select **Anthropic**, **OpenAI**, or **OpenAI-compatible**, then store that provider's API key and base URL (when required) in its row. Provider credentials and base URLs are not read from server environment variables.
 
+An enterprise provisioner can assign an Agent-specific API key for a canonical
+Provider through the Agent credential API. The override applies to every call
+that Agent makes through the Provider, including Vision when it selects the same
+Provider. Deleting the override restores the global key. Assigned users consume
+the override but cannot change it unless they created the Agent; administrators
+can always manage it. Overrides never change the Provider type, endpoint, model
+catalog, or enabled state, and the Web UI has no override editor yet.
+
 ## Vision
 
 An administrator configures image understanding once for the deployment under **Settings -> Vision**. In ordinary one-to-one sessions, each image gets one immutable text baseline at ingestion. A model declared with `image` input receives image pixels only in the active turn and its tool loop; text-only and undeclared models receive the baseline immediately, and every model receives it on later turns. If no baseline can be produced, the stable marker is `[Image baseline unavailable.]`. Original pixels remain in authorized Web history; there is no image-inspection tool.

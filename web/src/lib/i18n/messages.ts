@@ -172,7 +172,6 @@ const en = {
   "settings.nav.skills": "Skills",
   "settings.nav.mcp": "MCP Servers",
   "settings.nav.plugins": "Plugins",
-  "settings.nav.sandbox": "Sandbox",
   "settings.nav.providers": "Providers",
   "settings.nav.embedding": "Embedding",
   "settings.nav.users": "Users",
@@ -1990,6 +1989,11 @@ const en = {
 
   // Composer
   "sessions.composer.compactDesc": "Compact session memory",
+
+  // App update
+  "update.available": "A new version of Stella is available.",
+  "update.reload": "Reload",
+  "update.dismiss": "Dismiss",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -2164,7 +2168,6 @@ const zh: Record<MessageKey, string> = {
   "settings.nav.skills": "技能",
   "settings.nav.mcp": "MCP 服务器",
   "settings.nav.plugins": "插件",
-  "settings.nav.sandbox": "沙盒",
   "settings.nav.providers": "提供商",
   "settings.nav.embedding": "向量嵌入",
   "settings.nav.users": "用户",
@@ -3942,6 +3945,11 @@ const zh: Record<MessageKey, string> = {
 
   // Composer
   "sessions.composer.compactDesc": "压缩会话记忆",
+
+  // App update
+  "update.available": "Stella 有新版本可用。",
+  "update.reload": "刷新",
+  "update.dismiss": "忽略",
 };
 
 export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };

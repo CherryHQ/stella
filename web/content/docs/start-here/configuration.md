@@ -2,7 +2,7 @@
 title: Configuration
 ---
 
-All configuration is managed through the Web UI. Start the server with `stellad server` and open [http://localhost:25678](http://localhost:25678) in your browser. Everything is stored in PostgreSQL — either an embedded cluster managed under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. If the embedded PostgreSQL runtime is not installed, run `stellad postgres download-runtime` once before starting the server. There are no config files to edit.
+Most configuration is managed through the Web UI. Start the server with `stellad server` and open [http://localhost:25678](http://localhost:25678) in your browser. Everything is stored in PostgreSQL — either an embedded cluster managed under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. If the embedded PostgreSQL runtime is not installed, run `stellad postgres download-runtime` once before starting the server. There are no config files to edit.
 
 The home directory defaults to `~/.stella` and can be changed by setting the `STELLA_HOME` environment variable.
 
@@ -22,6 +22,36 @@ Open the **Agents** page to create and configure agents. Each agent has:
 - **Sandbox settings** — network access policy for agent code execution
 
 You can also override the system prompt by placing a `SOUL.md` file in the agent's workspace at `~/.stella/agents/{agent-id}/`.
+
+### Per-Agent Provider API keys
+
+An administrator still owns each Provider's type, base URL, model catalog,
+enabled state, and default API key. Enterprise provisioning can use the Agent
+API to attach a different write-only API key to one Agent for a canonical
+Provider ID:
+
+```json
+{
+  "name": "Enterprise Coder",
+  "model": "openai-main/gpt-4.1",
+  "provider_credentials": [{ "provider_id": "openai-main", "api_key": "write-only" }]
+}
+```
+
+- include `provider_credentials` when creating the Agent;
+- use `PATCH /api/agents/{id}/provider-credentials/{providerId}` to set or
+  rotate an override with `{ "api_key": "write-only" }`;
+- use `DELETE` on the same resource to restore the Provider's global key;
+- use the List and Get endpoints to read safe metadata. Keys are never returned.
+
+The Agent override wins over the global key for every call that Agent makes
+through the Provider. This includes image understanding when Vision selects the
+same Provider. Assigned users consume the override when they use the Agent, but
+only administrators and the Agent's creator can change it.
+
+This API changes only the key. Provider endpoints, types, models, and enabled
+state remain administrator-controlled. There is no per-Agent credential editor
+in the Web UI yet.
 
 ## Channels
 

@@ -53,13 +53,24 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install bubblewrap
-        run: sudo apt-get install -y bubblewrap
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor, so
+          # an installed bwrap still cannot create a sandbox. The local sandbox
+          # backend probes exactly this, and the System Test runs real agent
+          # turns through it — without the sysctl every turn fails at runtime.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # Fail here, with the reason visible, rather than inside a test run.
+          bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
 
       - name: Generate code and check drift
         run: mise run generate:check
 
       - name: Run tests with race detection and coverage
         run: mise run test:coverage:race
+        env:
+          STELLA_TEST_REQUIRE_BWRAP: "1"
 
       - name: Prepare coverage report data
         run: |

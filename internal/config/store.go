@@ -4,6 +4,15 @@ import (
 	"context"
 )
 
+// SnapshotLoader assembles the read-only per-Agent config Snapshot. DBStore is
+// the base implementation; a credential-aware decorator wraps it to overlay
+// per-Agent Provider key overrides without the runtime consumers knowing which
+// one they hold. Keeping this narrow lets exactly one decorated value be threaded
+// through every consumer.
+type SnapshotLoader interface {
+	Snapshot(ctx context.Context, agentID string) (*Snapshot, error)
+}
+
 // Store provides typed access to configuration stored in the database.
 type Store interface {
 	// Providers
