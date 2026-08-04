@@ -48,6 +48,15 @@ func SPAHandler() http.Handler {
 			fileServer.ServeHTTP(w, r)
 			return
 		}
+		// A missing hashed asset is a file that no longer exists, not a SPA
+		// route. Answering it with the shell and a 200 hands a stale client
+		// HTML under a script URL, which any cache-first store then keeps
+		// forever — and because the hashes are deterministic, a rollback that
+		// restores the real file still gets HTML from that cache.
+		if strings.HasPrefix(p, "assets/") {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(indexHTML)

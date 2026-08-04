@@ -17,6 +17,7 @@ import (
 func TestSystem(t *testing.T) {
 	h := newHarness(t)
 	t.Run("readiness", h.testReadiness)
+	t.Run("pwa_assets_anonymous", h.testPWAAssetsAnonymous)
 	t.Run("startup_and_auth", h.testStartupAndAuth)
 	t.Run("chat_sse", h.testChatSSE)
 	t.Run("agent_provider_credentials", h.testAgentProviderCredentials)

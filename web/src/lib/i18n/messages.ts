@@ -1989,6 +1989,11 @@ const en = {
 
   // Composer
   "sessions.composer.compactDesc": "Compact session memory",
+
+  // App update
+  "update.available": "A new version of Stella is available.",
+  "update.reload": "Reload",
+  "update.dismiss": "Dismiss",
 } as const;
 
 type MessageKey = keyof typeof en;
@@ -3940,6 +3945,11 @@ const zh: Record<MessageKey, string> = {
 
   // Composer
   "sessions.composer.compactDesc": "压缩会话记忆",
+
+  // App update
+  "update.available": "Stella 有新版本可用。",
+  "update.reload": "刷新",
+  "update.dismiss": "忽略",
 };
 
 export const messages: Record<Locale, Record<MessageKey, string>> = { en, zh };

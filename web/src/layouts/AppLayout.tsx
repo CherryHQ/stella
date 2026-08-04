@@ -1,4 +1,5 @@
 import { Outlet } from "@tanstack/react-router";
+import { AppUpdateNotice } from "@/components/AppUpdateNotice";
 
 export function AppLayout() {
   return (
@@ -6,6 +7,7 @@ export function AppLayout() {
       <main className="flex min-h-0 flex-1 flex-col">
         <Outlet />
       </main>
+      <AppUpdateNotice />
     </div>
   );
 }

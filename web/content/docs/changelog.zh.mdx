@@ -13,6 +13,10 @@ icon: History
 
 > **重大变更：** Webhook 现在是个人调用资源，使用一次性能力 URL。在设置中创建或轮换自己的 Webhook，并让调用方使用该 URL，且不发送 `Authorization` 请求头。旧的 `POST /webhooks/<channel-id>` 路由已不可用。([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
 
+### ✨ 新功能
+
+- Web UI：可以安装为应用。新增带离线应用外壳的 Service Worker、iOS 独立窗口支持，以及服务端升级到新构建后的刷新提示。([#853](https://github.com/CherryHQ/stella/pull/853), [#846](https://github.com/CherryHQ/stella/issues/846))
+
 ### ♻️ 重构
 
 - Webhook：以绑定所有者的能力端点替换令牌认证路由，其一次性 URL 是唯一凭证，可在 Web UI 中轮换与撤销。([#825](https://github.com/CherryHQ/stella/pull/825))

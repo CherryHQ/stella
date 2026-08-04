@@ -668,6 +668,11 @@ export function AgentAppSidebar({ agents, agentId, onAgentChange }: Props) {
                   editingSessionId === session.id ? undefined : (
                     <DropdownMenu>
                       <DropdownMenuTrigger
+                        // SidebarItem already renders the row as a link or a
+                        // button, so a nested <button> would be invalid markup.
+                        // Declaring the trigger non-native makes Base UI supply
+                        // the button role and keyboard handling instead.
+                        nativeButton={false}
                         render={
                           <span
                             className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/thread:opacity-70"
