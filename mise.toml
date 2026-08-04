@@ -221,6 +221,10 @@ run = "git config --unset core.hooksPath || true && prek install --overwrite --p
 description = "Scaffold a new goose SQL migration in internal/db/migrations"
 run = "goose -dir internal/db/migrations create {{arg(name='name', default='migration')}} sql"
 
+[tasks."db:migrate:check-order"]
+description = "Check new Goose migrations sort after the base branch"
+run = 'go run ./internal/db/cmd/checkmigrationorder --base "${STELLA_MIGRATION_BASE_REF:-origin/main}"'
+
 [tasks."db:validate"]
 description = "Validate goose migrations parse and are well-formed"
 run = "goose -dir internal/db/migrations validate"

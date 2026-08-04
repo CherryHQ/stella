@@ -87,6 +87,7 @@ Some objects are created outside the migration files and must NOT appear in them
 | Command                             | What it does                                          |
 | ----------------------------------- | ----------------------------------------------------- |
 | `mise run db:migrate:new -- <name>` | Scaffold a new timestamped goose migration            |
+| `mise run db:migrate:check-order`   | Check new migrations sort after the base branch       |
 | `mise run db:validate`              | Validate all migrations parse and are well-formed     |
 | `mise run db:migrate:up`            | Apply pending migrations to `STELLA_DATABASE_URL`     |
 | `mise run db:migrate:status`        | Show applied/pending status for `STELLA_DATABASE_URL` |
@@ -96,13 +97,16 @@ driving an external PostgreSQL.
 
 ## Rules
 
-1. **Never edit a committed migration** — write a new one. Migrations are the
-   historical record. The **one** exception is the schema baseline _while the
-   PostgreSQL backend is pre-release and carries no production or shared dev
-   data_: amending the baseline in place is cleaner than a create-then-drop
-   forward migration, and a dev reset (below) is cheap. This exception ends the
-   moment a release ships a database anyone else holds.
-2. **Never delete migrations.**
+1. **Migrations merged into `main` are immutable** — never edit, rename, or
+   delete one; write a new migration instead. They are the historical record.
+   Unmerged PR migrations are different: after rebasing, rename them above the
+   current base branch's maximum version before merging. The **one** exception
+   is the schema baseline _while the PostgreSQL backend is pre-release and
+   carries no production or shared dev data_: amending the baseline in place is
+   cleaner than a create-then-drop forward migration, and a dev reset (below)
+   is cheap. This exception ends the moment a release ships a database anyone
+   else holds.
+2. **Never delete migrations merged into `main`.**
 3. **One logical change per migration** — don't batch unrelated changes.
 4. **Forward-only in spirit** — to undo a shipped change, write a new migration
    that reverses it. `Down` sections exist for local iteration, not production
@@ -110,6 +114,15 @@ driving an external PostgreSQL.
 5. **No `CREATE EXTENSION`** in migrations (see carve-outs).
 6. Migrations are the schema source of truth — if it's not in a migration, it
    isn't in the database.
+7. Before committing a PR migration, run `mise run db:migrate:check-order`.
+   It compares added (including staged) migration versions with `origin/main` by default; set
+   `STELLA_MIGRATION_BASE_REF` to an explicit PR base ref or SHA when needed.
+   CI supplies the exact PR or merge-queue base SHA.
+
+`stellad` intentionally uses Goose's strict default ordering. Do **not** enable
+`AllowOutOfOrder` at startup. `goose -allow-missing` is only an explicit,
+backup-first repair for an already-diverged development or operations database;
+it is never a normal startup setting.
 
 ## Resetting a dev database
 

@@ -6,6 +6,9 @@ on:
     tags-ignore: ["v*.*.*"]
   pull_request:
     branches: [main]
+  merge_group:
+    branches: [main]
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -19,9 +22,13 @@ jobs:
   format:
     name: Format
     runs-on: ubuntu-latest
+    env:
+      STELLA_MIGRATION_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || 'origin/main' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup mise
         uses: jdx/mise-action@v4
@@ -36,6 +43,28 @@ jobs:
 
       - name: Run pre-commit hooks
         run: prek run --all-files
+
+  migration-order:
+    name: Migration order
+    runs-on: ubuntu-latest
+    env:
+      STELLA_MIGRATION_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || 'origin/main' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check migration ordering
+        run: mise run db:migrate:check-order
 
   test:
     name: Test
