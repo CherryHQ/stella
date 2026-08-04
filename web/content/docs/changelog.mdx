@@ -11,11 +11,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> **Breaking:** Webhooks are now personal invocation resources with one-time capability URLs. Create or rotate your own webhook in Settings, then update callers to use that URL without an `Authorization` header. The old `POST /webhooks/<channel-id>` route is unavailable. ([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+## [0.61.0] - 2026-08-04
+
+### ⚠️ Breaking Changes
+
+- Webhooks are now personal invocation resources with one-time capability URLs. Create or rotate your own webhook in Settings, then update callers to use that URL without an `Authorization` header. The old `POST /webhooks/<channel-id>` route is unavailable. ([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+- Sandbox: `STELLA_SANDBOX_BACKEND` is now the only way to select a sandbox backend, and the `/settings/sandbox` page is gone. Set the variable at deploy time. ([#851](https://github.com/CherryHQ/stella/pull/851), [#850](https://github.com/CherryHQ/stella/issues/850))
+- Lark: `lark-cli` is now an ordinary user-managed CLI. Stella installs and updates the binary but no longer configures an app or injects credentials — authorize it yourself once per user. ([#807](https://github.com/CherryHQ/stella/pull/807))
+
+### ✨ Features
+
+- Channels: `/new` starts a real fresh session instead of aliasing `/compact`. DM sessions rotate transactionally, and group and private-channel chats resolve their session through a durable binding, so old chats keep their history and new ones start clean. ([#798](https://github.com/CherryHQ/stella/pull/798), [#799](https://github.com/CherryHQ/stella/pull/799), [#797](https://github.com/CherryHQ/stella/pull/797), [#794](https://github.com/CherryHQ/stella/issues/794))
+- Multimodal: session images are stored once as durable, user-owned media with an OCR and scene baseline. Pixels are sent only for images introduced in the active turn, and only to models that declare image input. ([#803](https://github.com/CherryHQ/stella/pull/803), [#788](https://github.com/CherryHQ/stella/issues/788))
+- Webhooks: personal webhook resources with one-time capability URLs, agent binding, timeout ceilings, rotation, and revocation. ([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+- Agents: use a different provider API key per agent while keeping the global provider's endpoint, type, and model catalog. ([#849](https://github.com/CherryHQ/stella/pull/849), [#844](https://github.com/CherryHQ/stella/issues/844))
+- Sandbox: one filesystem contract across the local, Docker, and none backends — `$HOME` is the durable private per-agent workspace, `$STELLA_ASSETS_DIR` holds user- and group-shared uploads and deliverables. ([#810](https://github.com/CherryHQ/stella/pull/810), [#809](https://github.com/CherryHQ/stella/issues/809))
+- Web UI: the session file panel is now a single tree with **Workspace** and **Shared** folders, hidden-file filtering, single-click open, and a full context menu for create, rename, share, download, and delete. ([#815](https://github.com/CherryHQ/stella/pull/815), [#814](https://github.com/CherryHQ/stella/issues/814))
+- Web UI: install it as an app. Adds a service worker with an offline app shell, iOS standalone support, and a prompt to reload once the server moves to a newer build. ([#853](https://github.com/CherryHQ/stella/pull/853), [#846](https://github.com/CherryHQ/stella/issues/846))
+- Lark: persist `lark-cli` config and data under the user's shared sandbox directory, so one setup works from all of that user's agent workspaces. ([#807](https://github.com/CherryHQ/stella/pull/807))
+- Reflect: record which candidate, evaluation, and reconciliation decision produced every committed fact and skill mutation. ([#778](https://github.com/CherryHQ/stella/pull/778))
+
+### ⚡ Performance
+
+- Web UI: chat rendering no longer re-renders per streamed token, plus a reproducible perf harness for history load, streaming frame times, and per-keystroke cost. ([#824](https://github.com/CherryHQ/stella/pull/824), [#823](https://github.com/CherryHQ/stella/issues/823))
+
+### 🐛 Bug Fixes
+
+- OpenAI: stop SSE streams from hanging before any model output is returned. ([#813](https://github.com/CherryHQ/stella/pull/813))
+- Tools: bump xberg to v1.0.4 so its CLI install verifies instead of failing on every startup. ([#820](https://github.com/CherryHQ/stella/pull/820), [#819](https://github.com/CherryHQ/stella/issues/819))
+- Web UI: a workspace path that disappears between renders now returns 404 instead of 500. ([#815](https://github.com/CherryHQ/stella/pull/815))
+- Tests: reclaim orphaned embedded PostgreSQL roots left behind by abnormally terminated test runs. ([#777](https://github.com/CherryHQ/stella/pull/777), [#772](https://github.com/CherryHQ/stella/issues/772))
 
 ### ♻️ Refactoring
 
-- Webhook: add personal invocation resources with one-time capability URLs, rotation, and revocation. ([#825](https://github.com/CherryHQ/stella/pull/825))
+- Sandbox: make the backend a deploy-time environment choice and remove the database-backed plugin toggles. ([#851](https://github.com/CherryHQ/stella/pull/851), [#850](https://github.com/CherryHQ/stella/issues/850))
+
+### 🔧 CI
+
+- Release: validate the exact tagged commit — source, Go/Web, system, and release checks — before any GoReleaser or Docker publication job can start. ([#840](https://github.com/CherryHQ/stella/pull/840), [#834](https://github.com/CherryHQ/stella/issues/834))
+
+### 📦 Dependencies
+
+- Upgrade the bundled mise to 2026.7.18 and refresh pinned builtin tools. ([#822](https://github.com/CherryHQ/stella/pull/822), [#821](https://github.com/CherryHQ/stella/issues/821))
+
+### 📝 Documentation
+
+- Webhooks: document configuring GitHub repository webhooks against the generic capability URL. ([#826](https://github.com/CherryHQ/stella/pull/826))
+- Project tracking: codify the Feishu planning and GitHub execution workflow, add issue forms and a PR template, and add machine-readable Feishu coordinates. ([#848](https://github.com/CherryHQ/stella/pull/848), [#854](https://github.com/CherryHQ/stella/pull/854), [#852](https://github.com/CherryHQ/stella/issues/852))
+- Marketing: reposition the marketing rules and docs landing page around self-hosted digital employees. ([#796](https://github.com/CherryHQ/stella/pull/796))
+
+**Full Changelog**: [v0.60.4...v0.61.0](https://github.com/CherryHQ/stella/compare/v0.60.4...v0.61.0)
 
 ## [0.60.4] - 2026-07-28
 

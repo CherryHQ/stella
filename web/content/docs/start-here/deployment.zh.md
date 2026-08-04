@@ -88,6 +88,20 @@ Structured Reflect 始终启用，生命周期 curator 默认使用 `armed`。�
 
 可选值见[配置](/docs/start-here/configuration#环境变量)。[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)进一步说明 watermark 迁移、Shadow 行为和 fail-closed wiring。
 
+## 将 Web UI 安装为应用
+
+Web UI 是一个渐进式 Web 应用，你可以把它安装到程序坞、任务栏或主屏幕，在独立窗口中打开，不带浏览器界面。
+
+- **Chrome、Edge、Brave（桌面端和 Android）** — 打开 Web UI，点击地址栏中的安装图标，或选择**菜单 → 安装 Stella**。
+- **iPhone 和 iPad 上的 Safari** — 打开 Web UI，选择**分享 → 添加到主屏幕**。
+- **macOS 上的 Safari** — 选择**文件 → 添加到程序坞**。
+
+安装后打开过几次，之后即使离线启动，应用也会显示界面，而不是浏览器错误页。与 agent 对话仍然需要服务端，因此界面之外的功能会等待连接恢复。
+
+升级 Stella 后，仍然开着的应用或标签页会提示刷新以载入新版本。你可以忽略该提示继续工作，下次升级时它会再次出现。
+
+浏览器只允许在安全来源上安装。如果你通过局域网地址以纯 `http://` 访问 Stella，不会出现安装选项，应用会保持为普通浏览器标签页。请为 Stella 配置 HTTPS（见[三种 URL 角色](#三种-url-角色)），或使用浏览器视为安全来源的 `http://localhost` 访问。
+
 ## 作为后台服务运行
 
 ### macOS — Homebrew

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/CherryHQ/stella/web"
 )
 
 func TestIsAPIRoute(t *testing.T) {
@@ -75,4 +77,22 @@ func TestPluginToChannelView(t *testing.T) {
 	// We need config.Plugin - but that's from internal/config.
 	// Let's just verify the isAPIRoute and UserFromContext functions for now.
 	_ = isAPIRoute("/api/foo")
+}
+
+// A logged-out visitor must be able to fetch the progressive-web-app files, or
+// the browser never offers to install the Web UI.
+func TestIsAuthExemptCoversPWARootFiles(t *testing.T) {
+	// Driven off the declared list so a file added there is covered here too.
+	for _, path := range web.PWARootFiles {
+		if !isAuthExempt(http.MethodGet, path) {
+			t.Errorf("isAuthExempt(GET, %q) = false, want true", path)
+		}
+	}
+
+	// The exemption must stay narrow: ordinary page routes still need a session.
+	for _, path := range []string{"/agents", "/settings/credentials", "/", "/sw.js.map"} {
+		if isAuthExempt(http.MethodGet, path) {
+			t.Errorf("isAuthExempt(GET, %q) = true, want false", path)
+		}
+	}
 }

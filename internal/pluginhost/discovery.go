@@ -104,17 +104,7 @@ func (h *Host) ListAdminVisiblePlugins(ctx context.Context) ([]pkgplugins.Regist
 		persisted[plugin.ID] = true
 	}
 
-	sandboxEnabled := false
 	for _, plugin := range plugins {
-		if plugin.Kind == config.PluginKindSandbox && plugin.Enabled {
-			sandboxEnabled = true
-			break
-		}
-	}
-	for _, plugin := range plugins {
-		if plugin.ID == config.PluginID(config.PluginKindSandbox, config.SandboxBackendLocal) && !sandboxEnabled {
-			plugin.Enabled = true
-		}
 		entry, ok := registered[plugin.ID]
 		if !ok {
 			entry = pkgplugins.RegisteredPlugin{

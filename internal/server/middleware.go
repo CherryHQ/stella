@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/credential"
+	"github.com/CherryHQ/stella/web"
 )
 
 // contextKey is used for storing auth info in request context.
@@ -188,6 +189,12 @@ var publicAuthAPIPaths = []string{
 func isAuthExempt(method, path string) bool {
 	switch {
 	case path == "/login" || path == "/signup":
+		return true
+	case slices.Contains(web.PWARootFiles, path):
+		// The progressive-web-app manifest, worker, and icons. A browser fetches
+		// them with no session — redirect them to /login and it rejects the
+		// manifest and the worker on their content type, so the Web UI never
+		// becomes installable.
 		return true
 	case path == "/healthz" || path == "/readyz":
 		// Infrastructure probes for orchestrators (kubelet); no user session.

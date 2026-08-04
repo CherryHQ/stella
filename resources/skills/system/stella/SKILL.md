@@ -42,7 +42,7 @@ Use semantic environment variables for Agent files, never host or sandbox litera
 
 ## Architecture
 
-- **Multi-agent**: Multiple agents can run simultaneously, each with its own provider, model, system prompt, and workspace. Managed via the Web UI.
+- **Multi-agent**: Multiple agents can run simultaneously, each with its own global Provider/model selection, optional API-key override, system prompt, and workspace. Provider endpoints, types, models, and enabled state remain administrator-controlled; per-Agent key overrides are API-only.
 - **Multi-user**: Users are auto-created from platform identity. Each user has per-agent memory that persists across sessions.
 - **Single bot per platform**: One Telegram/QQ/Feishu/WeChat bot serves all agents. Users switch agents via `/agent` command.
 - **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.

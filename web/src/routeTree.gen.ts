@@ -30,7 +30,6 @@ import { Route as AppSettingsWebhooksRouteImport } from './routes/_app/settings/
 import { Route as AppSettingsVisionRouteImport } from './routes/_app/settings/vision'
 import { Route as AppSettingsUsersRouteImport } from './routes/_app/settings/users'
 import { Route as AppSettingsSkillsRouteImport } from './routes/_app/settings/skills'
-import { Route as AppSettingsSandboxRouteImport } from './routes/_app/settings/sandbox'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsPluginsRouteImport } from './routes/_app/settings/plugins'
 import { Route as AppSettingsEmbeddingRouteImport } from './routes/_app/settings/embedding'
@@ -182,13 +181,6 @@ const AppSettingsSkillsRoute = AppSettingsSkillsRouteImport.update({
   getParentRoute: () => AppSettingsRoute,
 } as any).lazy(() =>
   import('./routes/_app/settings/skills.lazy').then((d) => d.Route),
-)
-const AppSettingsSandboxRoute = AppSettingsSandboxRouteImport.update({
-  id: '/sandbox',
-  path: '/sandbox',
-  getParentRoute: () => AppSettingsRoute,
-} as any).lazy(() =>
-  import('./routes/_app/settings/sandbox.lazy').then((d) => d.Route),
 )
 const AppSettingsProvidersRoute = AppSettingsProvidersRouteImport.update({
   id: '/providers',
@@ -535,7 +527,6 @@ export interface FileRoutesByFullPath {
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
-  '/settings/sandbox': typeof AppSettingsSandboxRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
   '/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/settings/vision': typeof AppSettingsVisionRoute
@@ -594,7 +585,6 @@ export interface FileRoutesByTo {
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
-  '/settings/sandbox': typeof AppSettingsSandboxRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
   '/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/settings/vision': typeof AppSettingsVisionRoute
@@ -658,7 +648,6 @@ export interface FileRoutesById {
   '/_app/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/_app/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
-  '/_app/settings/sandbox': typeof AppSettingsSandboxRoute
   '/_app/settings/skills': typeof AppSettingsSkillsRoute
   '/_app/settings/users': typeof AppSettingsUsersRouteWithChildren
   '/_app/settings/vision': typeof AppSettingsVisionRoute
@@ -722,7 +711,6 @@ export interface FileRouteTypes {
     | '/settings/embedding'
     | '/settings/plugins'
     | '/settings/providers'
-    | '/settings/sandbox'
     | '/settings/skills'
     | '/settings/users'
     | '/settings/vision'
@@ -781,7 +769,6 @@ export interface FileRouteTypes {
     | '/settings/embedding'
     | '/settings/plugins'
     | '/settings/providers'
-    | '/settings/sandbox'
     | '/settings/skills'
     | '/settings/users'
     | '/settings/vision'
@@ -844,7 +831,6 @@ export interface FileRouteTypes {
     | '/_app/settings/embedding'
     | '/_app/settings/plugins'
     | '/_app/settings/providers'
-    | '/_app/settings/sandbox'
     | '/_app/settings/skills'
     | '/_app/settings/users'
     | '/_app/settings/vision'
@@ -1039,13 +1025,6 @@ declare module '@tanstack/react-router' {
       path: '/skills'
       fullPath: '/settings/skills'
       preLoaderRoute: typeof AppSettingsSkillsRouteImport
-      parentRoute: typeof AppSettingsRoute
-    }
-    '/_app/settings/sandbox': {
-      id: '/_app/settings/sandbox'
-      path: '/sandbox'
-      fullPath: '/settings/sandbox'
-      preLoaderRoute: typeof AppSettingsSandboxRouteImport
       parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/providers': {
@@ -1514,7 +1493,6 @@ interface AppSettingsRouteChildren {
   AppSettingsEmbeddingRoute: typeof AppSettingsEmbeddingRoute
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRouteWithChildren
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
-  AppSettingsSandboxRoute: typeof AppSettingsSandboxRoute
   AppSettingsSkillsRoute: typeof AppSettingsSkillsRoute
   AppSettingsUsersRoute: typeof AppSettingsUsersRouteWithChildren
   AppSettingsVisionRoute: typeof AppSettingsVisionRoute
@@ -1531,7 +1509,6 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsEmbeddingRoute: AppSettingsEmbeddingRoute,
   AppSettingsPluginsRoute: AppSettingsPluginsRouteWithChildren,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
-  AppSettingsSandboxRoute: AppSettingsSandboxRoute,
   AppSettingsSkillsRoute: AppSettingsSkillsRoute,
   AppSettingsUsersRoute: AppSettingsUsersRouteWithChildren,
   AppSettingsVisionRoute: AppSettingsVisionRoute,

@@ -54,10 +54,12 @@ resource — it does not fail. Published platforms:
   `bookworm`, `noble`, and `trixie`;
 - **macOS arm64**.
 
-On an unsupported host, point `STELLA_DATABASE_URL` at an external PostgreSQL with
-`pg_search` and `pgvector` to run the server manually, or file an issue for the
-platform. Because the suite is skipped rather than failed off-platform, it stays a
-local gate and is not run in CI.
+On an unsupported development host, point `STELLA_DATABASE_URL` at an external
+PostgreSQL with `pg_search` and `pgvector` to run the server manually, or file an
+issue for the platform. The tag-triggered release workflow pins a supported
+Ubuntu runner and invokes `mise run system-test`; its runtime-download dependency
+fails before the suite if that runner ever becomes unsupported, so publication
+cannot treat an unsupported-platform skip as a pass.
 
 ## Suite architecture
 
@@ -69,6 +71,9 @@ and one shared database serve them all in sequence:
   listener, and reports ready.
 - `startup_and_auth` — bootstrap registration and session-authenticated access.
 - `chat_sse` — one chat turn end to end, consumed as a live SSE stream.
+- `agent_provider_credentials` — three Agents share one global fake Provider;
+  two send distinct encrypted overrides, one sends the global key, and live
+  rotation/delete changes the next request without changing Agent model state.
 - `image_history` — an uploaded image reaches the fake provider for baseline rendering and the active answer turn, persists as canonical media plus that exact baseline, projects as text with no pixels on the next answer request, and reloads byte-identically through the authenticated history endpoint.
 - `read_tool_image_history` — the fake answer model calls the production `read` tool on an uploaded PNG; the resulting tool image passes through the fake baseline VLM, remains pixel-active for the tool-loop follow-up, persists as canonical tool history, and becomes baseline-only on the next user turn.
 - `chat_provider_error` — a failed model call surfaced as an in-band error frame

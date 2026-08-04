@@ -47,6 +47,17 @@ func WithIdleTimeoutPM(d time.Duration) PoolManagerOption {
 	return func(pm *PoolManager) { pm.idleTimeout = d }
 }
 
+// WithSnapshotLoader overrides the loader used for per-agent Snapshots. The
+// composition root passes the credential-aware loader so every runner factory
+// resolves per-Agent Provider key overrides. A nil loader leaves the base store.
+func WithSnapshotLoader(loader config.SnapshotLoader) PoolManagerOption {
+	return func(pm *PoolManager) {
+		if loader != nil {
+			pm.snapshots = loader
+		}
+	}
+}
+
 func WithCompactionPM(cfg CompactionConfig) PoolManagerOption {
 	return func(pm *PoolManager) { pm.compaction = cfg }
 }
@@ -145,8 +156,13 @@ func WithSessionImagePipeline(images SessionImagePipeline) PoolManagerOption {
 type PoolManager struct {
 	services map[string]*Service
 	store    config.Store
-	mem      memory.Provider
-	mu       sync.RWMutex
+	// snapshots loads the per-agent config Snapshot. It is the credential-aware
+	// loader when one is wired (overlaying per-Agent Provider key overrides),
+	// otherwise it falls back to store. Kept separate from store so only the
+	// Snapshot read is decorated; GetAgent and the rest stay on the base store.
+	snapshots config.SnapshotLoader
+	mem       memory.Provider
+	mu        sync.RWMutex
 	// started is set true when StartAll runs. The one-shot pre-start binds
 	// (Bind* below) refuse to run once started, while the dynamic reconfigure
 	// surface (ReloadPlugin*/SyncAgent/Invalidate*) stays available afterward.
@@ -182,12 +198,16 @@ func NewPoolManager(store config.Store, mem memory.Provider, opts ...PoolManager
 	pm := &PoolManager{
 		services:    make(map[string]*Service),
 		store:       store,
+		snapshots:   store,
 		mem:         mem,
 		idleTimeout: 10 * time.Minute,
 		log:         slog.With("component", "pool_manager"),
 	}
 	for _, opt := range opts {
 		opt(pm)
+	}
+	if pm.snapshots == nil {
+		pm.snapshots = store
 	}
 	return pm
 }
@@ -662,7 +682,7 @@ func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*
 	if err != nil {
 		return nil, "", fmt.Errorf("setup workspace for agent %q: %w", agentID, err)
 	}
-	snap, err := pm.store.Snapshot(ctx, agentID)
+	snap, err := pm.snapshots.Snapshot(ctx, agentID)
 	if err != nil {
 		return nil, "", fmt.Errorf("load snapshot for agent %q: %w", agentID, err)
 	}
@@ -676,10 +696,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 	builtinTools := append([]BuiltinTool{}, pm.builtinTools...)
 	pm.mu.RUnlock()
 
-	sandboxBackendFn := func(ctx context.Context) string {
-		plugins, _ := pm.store.ListPlugins(ctx)
-		return config.ActiveSandboxBackend(plugins)
-	}
+	sandboxBackendFn := func(context.Context) string { return config.ActiveSandboxBackend() }
 	return newRunnerFunc(runnerBuilderConfig{
 		Snap:                     snap,
 		BuiltinTools:             builtinTools,

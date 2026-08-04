@@ -200,6 +200,30 @@ func newTestSession(t *testing.T) (*localSession, string) {
 	return s, root
 }
 
+// newExecTestSession returns a session built by the factory, so the sandbox root
+// carries the platform's real mapping (/workspace under bwrap). Tests that run a
+// command must not use newTestSession: its hand-built session claims the host
+// path is also the sandbox path, which on Linux collides with the session's
+// private /tmp bind and leaves the working directory unreachable.
+func newExecTestSession(t *testing.T) *localSession {
+	t.Helper()
+	root := t.TempDir()
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: root,
+			WorkingDir:    root,
+		},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+		InheritEnv: true,
+	}
+	sess, err := NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	t.Cleanup(func() { sess.Close() }) //nolint:errcheck
+	return sess.(*localSession)
+}
+
 // TestResolvePath_rejectsOutsideRoot verifies that ResolvePath returns an error
 // when the resolved path is outside the workspace root.
 func TestResolvePath_rejectsOutsideRoot(t *testing.T) {
@@ -940,7 +964,7 @@ func TestBuildEnv_denyListFiltersVaultKey(t *testing.T) {
 // failing commands and does not surface it as a Go error.
 func TestExec_nonzeroExitCode(t *testing.T) {
 	skipIfBwrapNotFunctional(t)
-	s, _ := newTestSession(t)
+	s := newExecTestSession(t)
 	result, err := s.Exec(context.Background(), "exit 42", sandboxpkg.ExecOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -954,7 +978,7 @@ func TestExec_nonzeroExitCode(t *testing.T) {
 // captures stdout correctly.
 func TestExec_success(t *testing.T) {
 	skipIfBwrapNotFunctional(t)
-	s, _ := newTestSession(t)
+	s := newExecTestSession(t)
 	result, err := s.Exec(context.Background(), "echo hello", sandboxpkg.ExecOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

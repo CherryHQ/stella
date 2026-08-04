@@ -18,7 +18,7 @@ Stella is a single-tenant, multi-user, multi-agent AI assistant platform written
 - On a fresh clone, run `mise run setup` once. Use `mise tasks` to discover workflows.
 - Run project workflows through `mise run <task>` instead of invoking underlying tools directly.
 - Before committing, **ALWAYS** run: `mise run format && mise run build && mise run test`.
-- `mise run system-test` runs the subprocess system suite (real `stellad` over TCP against embedded PostgreSQL); it is a local gate, skipped on unsupported hosts. `mise run release:validate` runs the full pre-release gate sequentially (format → build → test → system-test → release checks).
+- `mise run system-test` runs the subprocess system suite (real `stellad` over TCP against embedded PostgreSQL); it is a local and tag-release gate and requires a supported runtime host. `mise run release:validate` runs the full local pre-release gate sequentially (format → build → test → system-test → release checks).
 - When touching platform-specific behavior, run a targeted cross-platform build before committing (e.g., `GOOS=windows GOARCH=amd64 go build -o dist/bin/stellad-windows-amd64.exe ./cmd/stellad`).
 - Do not run Go tests with `-race` locally by default.
 - Build with `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stellad` explicitly; never build the `stellad` binary into the repo root.
@@ -44,7 +44,7 @@ Rules in `web/content/docs/development/rules/` are the **source of truth** for d
 | Web perf testing  | `web-perf-test.md`   | Measuring or optimizing web UI performance                                  |
 | Backend API test  | `api-test.md`        | Testing the backend via live HTTP API + DB assertions (no browser)          |
 | System test       | `system-test.md`     | Adding or running the subprocess system suite; choosing a test layer        |
-| Project tracking  | `project-tracker.md` | Managing GitHub issues and project board                                    |
+| Project tracking  | `project-tracker.md` | Managing Feishu plans, GitHub issues, and pull requests                     |
 | Release           | `release.md`         | Cutting a release, tagging, changelog                                       |
 | Marketing         | `marketing.md`       | Writing a landing page, README opener, hero copy, or any marketing content  |
 
@@ -70,7 +70,7 @@ When behavior, APIs, config, commands, or architecture change:
 ## Issue & PR tracking
 
 - **Every PR must link to a GitHub issue.** If a PR is being created without an associated issue, stop and ask the user to create one first (or create it on their behalf). No PR should be opened without a traceable issue.
-- When starting a new feature or task, ensure a tracked GitHub issue exists; if not, create one and add it to the project board. **Read `web/content/docs/development/rules/project-tracker.md`** for the full workflow.
+- When starting a new feature or task, ensure a tracked GitHub issue exists. Maintainer-committed work must also be linked from a Feishu Task; community issues remain GitHub-only until accepted and scheduled. **Read `web/content/docs/development/rules/project-tracker.md`** for the full workflow.
 
 ## Commit style
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -28,6 +29,10 @@ type Config struct {
 	StateStore pkgplugins.StateStore
 	Memory     memory.Provider
 	Store      Store
+	// Snapshots loads per-agent Snapshots for review. The composition root passes
+	// the credential-aware loader so reviews use each Agent's Provider key
+	// overrides; when nil it falls back to Store, which also satisfies the loader.
+	Snapshots  config.SnapshotLoader
 	SkillStore pkgplugins.SkillStore
 	// SkillAuthorizer applies Skill domain rules to reflect's staged writes (the
 	// reconciliation-plan/usage-curator path); when nil those fail closed.
@@ -55,6 +60,7 @@ type watermarker interface {
 type Service struct {
 	memory                   memory.Provider
 	store                    Store
+	snapshots                config.SnapshotLoader
 	skillStore               pkgplugins.SkillStore
 	skillAuthorizer          skillWriteAuthorizer
 	stateStore               pkgplugins.StateStore
@@ -70,14 +76,31 @@ type Service struct {
 	services                 agent.ServiceManager
 }
 
+// snapshotLoader returns the configured credential-aware loader, falling back to
+// store (which also satisfies config.SnapshotLoader) when unset — e.g. tests that
+// construct Service directly rather than through New.
+func (s *Service) snapshotLoader() config.SnapshotLoader {
+	if s.snapshots != nil {
+		return s.snapshots
+	}
+	return s.store
+}
+
 // New creates a new reflect service.
 func New(cfg Config) *Service {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
+	snapshots := cfg.Snapshots
+	if snapshots == nil {
+		// Store also satisfies config.SnapshotLoader, so an unset loader keeps the
+		// prior undecorated behavior.
+		snapshots = cfg.Store
+	}
 	return &Service{
 		memory:                   cfg.Memory,
 		store:                    cfg.Store,
+		snapshots:                snapshots,
 		skillStore:               cfg.SkillStore,
 		skillAuthorizer:          cfg.SkillAuthorizer,
 		stateStore:               cfg.StateStore,

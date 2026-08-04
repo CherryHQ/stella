@@ -2,7 +2,7 @@
 title: Sandbox
 ---
 
-Stella runs agent code inside a sandbox. You choose the sandbox backend per agent — each backend offers different isolation levels, platform support, and tradeoffs.
+Stella runs agent code inside a sandbox. The backend is a deployment-wide choice made by the operator — each backend offers different isolation levels, platform support, and tradeoffs.
 
 ## Choosing a Backend
 
@@ -15,7 +15,13 @@ Stella runs agent code inside a sandbox. You choose the sandbox backend per agen
 | Trusted single-user local dev              | `none`      | Zero dependencies, no isolation                                 |
 | Custom toolchain (specific Python/Node/Go) | `docker`    | Clean Linux userspace independent of host                       |
 
-Change the active sandbox backend from the **Plugins** page in the Web UI. Only one backend is active at a time.
+Set the backend with the `STELLA_SANDBOX_BACKEND` environment variable when you deploy, then restart `stellad`:
+
+```bash
+STELLA_SANDBOX_BACKEND=docker   # docker | local | none
+```
+
+The default is `local`. An unset or unrecognized value also resolves to `local`, so a typo never leaves agents unisolated. There is no Web UI or per-agent override — the sandbox boundary is an operator decision, not a runtime one.
 
 ## Docker Backend
 
@@ -100,11 +106,12 @@ volumes:
 
 ### Environment Variables
 
-| Variable                     | Description                                                               |
-| ---------------------------- | ------------------------------------------------------------------------- |
-| `STELLA_DOCKER_SANDBOX_MODE` | Required for the `docker` sandbox backend: `host`, `bind`, or `volume`    |
-| `STELLA_HOME_HOST`           | Host-side path backing `STELLA_HOME`; required only in `bind` mode        |
-| `STELLA_HOME_VOLUME`         | Docker named volume backing `STELLA_HOME`; required only in `volume` mode |
+| Variable                     | Description                                                                |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `STELLA_SANDBOX_BACKEND`     | Sandbox backend for the deployment: `docker`, `local` (default), or `none` |
+| `STELLA_DOCKER_SANDBOX_MODE` | Required for the `docker` sandbox backend: `host`, `bind`, or `volume`     |
+| `STELLA_HOME_HOST`           | Host-side path backing `STELLA_HOME`; required only in `bind` mode         |
+| `STELLA_HOME_VOLUME`         | Docker named volume backing `STELLA_HOME`; required only in `volume` mode  |
 
 If agents use `local` or `none`, none of these variables are needed.
 
