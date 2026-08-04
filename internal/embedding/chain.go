@@ -71,6 +71,13 @@ func (c *Chain) Embed(ctx context.Context, req Request) (Result, error) {
 		eligible = true
 
 		res, err := p.Embed(ctx, req)
+		// The caller no longer needs a result. Do not turn its cancellation into a
+		// provider failure (or send it to a fallback): an upstream timeout remains
+		// a transient provider failure as long as this context is still live.
+		if err := ctx.Err(); err != nil {
+			c.breakers[i].releaseProbe()
+			return Result{}, err
+		}
 		if err == nil {
 			c.breakers[i].recordSuccess()
 			res.ProviderName = p.Name()
@@ -81,6 +88,7 @@ func (c *Chain) Embed(ctx context.Context, req Request) (Result, error) {
 		// Caller/data faults are not the provider's fault to fix: every provider
 		// would reject identically, so stop rather than fan the same error out.
 		if IsTerminal(err) {
+			c.breakers[i].releaseProbe()
 			return Result{}, err
 		}
 		c.breakers[i].recordFailure()
@@ -146,4 +154,12 @@ func (b *breaker) recordFailure() {
 	if b.failures >= b.threshold {
 		b.openUntil = b.now().Add(b.openFor)
 	}
+}
+
+// releaseProbe gives back a half-open slot when the caller cancels. Cancellation
+// is not a provider outcome, so it neither closes nor extends the breaker window.
+func (b *breaker) releaseProbe() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.probing = false
 }

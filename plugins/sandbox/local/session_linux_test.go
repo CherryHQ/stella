@@ -3,7 +3,6 @@ package local
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -58,9 +57,7 @@ func TestWrapCommand_linux_networkDisabled(t *testing.T) {
 // TestWrapCommand_linux_allowAllNoWrap verifies that when network is allow_all,
 // bwrap is used without --unshare-net.
 func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	root := "/tmp/test-workspace"
 	sandboxCwd := "/workspace"
@@ -88,12 +85,7 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 // available, the args include --dir /workspace, --bind <realRoot> /workspace,
 // and --chdir <sandboxCwd>.
 func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	rawRoot := t.TempDir()
 	root, err := filepath.EvalSymlinks(rawRoot)
@@ -157,12 +149,7 @@ func TestAppendResolvedFileMount_mountsSymlinkTarget(t *testing.T) {
 }
 
 func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	root := "/tmp/test-workspace"
 	sandboxCwd := "/workspace/sub"
@@ -250,12 +237,7 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 // on Linux — it lives under /user — but the mechanism still backs macOS and any
 // future out-of-root writable.)
 func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
 	userDir := filepath.Join(stellaHome, "users", "u1", ".mise-tools")
@@ -299,12 +281,7 @@ func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 // writable via the realRoot -> /workspace bind, and a second bind would only
 // re-expose the host path.
 func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
 	userHome := filepath.Join(stellaHome, "users", "u1")
@@ -342,12 +319,7 @@ func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 // under the STELLA_HOME tree: the /user bind already makes it writable, and a
 // second bind would re-expose the host path to the agent.
 func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
 	agentDir := filepath.Join(stellaHome, "users", "u1", "agents", "a1")
@@ -386,12 +358,7 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 // /user, with NO sibling-hiding tmpfs — isolation is by non-mounting, since the
 // workspace IS the per-agent dir and siblings are never exposed.
 func TestWrapCommand_linux_twoRoots(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	agentDir := "/tmp/test-workspace/users/u1/agents/a1"
 	userData := "/tmp/test-workspace/users/u1/data"

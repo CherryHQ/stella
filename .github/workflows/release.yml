@@ -74,8 +74,18 @@ jobs:
       - name: Build
         run: mise run build
 
+      # go:embed snapshots web/static/dist at compile time, so the SPA has to
+      # exist before the test binaries are built. GoReleaser builds it later in
+      # this job anyway — building it here is what lets the PWA build contract
+      # be checked instead of skipped.
+      - name: Build web assets
+        run: mise run build:web
+
       - name: Run Go and Web tests
         run: mise run test
+        env:
+          STELLA_TEST_REQUIRE_BWRAP: "1"
+          STELLA_TEST_REQUIRE_SPA: "1"
 
       - name: Run System Test
         run: mise run system-test

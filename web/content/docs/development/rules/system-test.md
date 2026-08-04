@@ -85,6 +85,9 @@ and one shared database serve them all in sequence:
 - `github_webhook_compatibility` — a GitHub-shaped JSON push delivery, sent
   without a cookie jar to an ordinary personal Webhook, receives async `202` and
   reaches the fake model exactly once with its payload intact.
+- `scheduler_one_time_job_survives_forced_restart` — a future one-time chat job
+  is persisted, the server is force-killed before it is due, and a replacement
+  process on the same database executes and retires that exact job once.
 - `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
   from ready, an attach subscription is drain-cancelled, the pinned turn still
   completes on its stream (full text, finish, [DONE]), and the process exits 0.
@@ -139,11 +142,13 @@ and no unscripted request," never an exact call count.
 
 ## Diagnostics
 
-Server logs are written to `dist/logs/system-test/server-<runid>-a<attempt>.log`
-in the repo (they survive the run), so a failure message can always point at a
-live file. Failures attach a tail of that log; the goal journey additionally dumps
-the goal tree, its attempts, and the fake's request log, so a stuck async run is
-diagnosable without a rerun.
+Server logs are written to
+`dist/logs/system-test/server-<runid>-g<generation>-a<attempt>.log` in the repo
+(they survive the run), so restart journeys retain every process generation and
+a failure message can always point at a live file. Failures attach a tail of the
+relevant log; the goal and scheduler-restart journeys additionally dump their
+durable rows and fake request logs, so stuck async work is diagnosable without a
+rerun.
 
 ## When to add a system-test journey
 
