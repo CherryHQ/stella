@@ -14,7 +14,11 @@ import (
 )
 
 const (
-	RuntimeVersion     = "pg18.4-pgvector0.8.2-pgsearch0.24.1"
+	// The -r2 suffix is a rebuild of the same upstream versions: the bundled
+	// libraries had no rpath of their own, so a host without a matching system
+	// libicu could not start the runtime. It also renames the local cache
+	// directory, which is what makes an existing install pick the fix up.
+	RuntimeVersion     = "pg18.4-pgvector0.8.2-pgsearch0.24.1-r2"
 	DefaultRuntimeRepo = "CherryHQ/stella-pg-runtime"
 
 	supportedLinuxRuntimeSources = "bookworm, noble, trixie"
