@@ -355,32 +355,32 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 
 **Why first:** every later Sandbox ref, mount, file operation, and Kubernetes volume needs a stable data identity that is not a machine path.
 
-- [ ] Add goose migrations for `storage_home`, `storage_migration`, and required lifecycle/job metadata.
+- [x] Add goose migrations for `storage_home`, `storage_migration`, and required lifecycle/job metadata.
   - Encode `home_kind=principal|agent|system_skill|system_agent_skill`, `principal_kind=user|group|nullable`, nullable owner/agent fields, lifecycle checks, singleton/per-Agent shared-root indexes, UTC timestamps, and purge audit fields.
   - Do not cascade owner deletion into Home rows; destructive owner deletion must tombstone Homes first.
-- [ ] Add focused sqlc queries and transaction helpers for Ensure, Resolve, tombstone, purge state transitions, maintenance locks, and Store cutover.
-- [ ] Implement `internal/home` with a narrow deep API: typed keys, Store registry, opaque locator, `Ensure`, `Resolve`, `Tombstone`, `Purge`, and offline migration primitives.
-- [ ] Add explicit Store configuration for local/Docker layouts; Store IDs are immutable once referenced, and default changes affect only new Homes.
-- [ ] Add opaque SystemSkillRoot and SystemAgentSkillRoot identities in the existing shared RWX Store. They are narrow Skill namespaces, not a global Agent workspace; Agent delete is their only destructive lifecycle trigger.
-- [ ] Implement idempotent legacy registration derived from authoritative DB user/group/Agent rows:
+- [x] Add focused sqlc queries and transaction helpers for Ensure, Resolve, tombstone, purge state transitions, maintenance locks, and Store cutover.
+- [x] Implement `internal/home` with a narrow deep API: typed keys, Store registry, opaque locator, `Ensure`, `Resolve`, `Tombstone`, `Purge`, and offline migration primitives.
+- [x] Add explicit Store configuration for local/Docker layouts; Store IDs are immutable once referenced, and default changes affect only new Homes.
+- [x] Add opaque SystemSkillRoot and SystemAgentSkillRoot identities in the existing shared RWX Store. They are narrow Skill namespaces, not a global Agent workspace; Agent delete is their only destructive lifecycle trigger.
+- [x] Implement idempotent legacy registration derived from authoritative DB user/group/Agent rows:
   - `users/{userID}` → UserHome;
   - `users/group-{groupID}` → GroupHome;
   - each `agents/{agentID}` subtree under the principal → AgentHome;
   - no arbitrary directory-name scan becomes an identity source.
-- [ ] Add durable storage-migration metadata and record whether the deployment starts with a configured mutable asset object authority. This is metadata-only in Phase 1; it must not change mirror/hydrate behavior yet.
-- [ ] Audit user-less/group jobs that currently write under `{base}/agents/{agentID}`. User-less and group Runs get applicable read-only shared Skill roots plus project/scratch; GroupHome and group AgentHome Skills do not become user/user_agent scope.
-- [ ] Route runner/project/Home setup through registry attachments while the local adapter preserves current physical files; stop treating `agent.workspace` as identity.
-- [ ] Implement explicit destructive Home deletion: tombstone, fence referencing Sessions, wait for resource detach, enqueue idempotent River purge, retain permanent purged metadata, and expose administrator retry for `purge_failed`.
-- [ ] Add typed user/group isolation, shared Skill-root opacity/read-only attachment, same-raw-ID collision, no-data-move, concurrent Ensure, deletion, retry, and legacy registration tests.
-- [ ] Update architecture/developer storage docs and system skill references in English and Chinese for typed Homes and user-less scratch semantics.
+- [x] Add durable storage-migration metadata and record whether the deployment starts with a configured mutable asset object authority. This is metadata-only in Phase 1; it must not change mirror/hydrate behavior yet.
+- [x] Audit user-less/group jobs that currently write under `{base}/agents/{agentID}`. User-less and group Runs get applicable read-only shared Skill roots plus project/scratch; GroupHome and group AgentHome Skills do not become user/user_agent scope.
+- [x] Route runner/project/Home setup through registry attachments while the local adapter preserves current physical files; stop treating `agent.workspace` as identity.
+- [x] Implement explicit destructive Home deletion: tombstone, fence referencing Sessions, wait for resource detach, enqueue idempotent River purge, retain permanent purged metadata, and expose administrator retry for `purge_failed`.
+- [x] Add typed user/group isolation, shared Skill-root opacity/read-only attachment, same-raw-ID collision, no-data-move, concurrent Ensure, deletion, retry, and legacy registration tests.
+- [x] Update architecture/developer storage docs and system skill references in English and Chinese for typed Homes and user-less scratch semantics.
 
 **Acceptance:**
 
-- [ ] `mise run db:validate && mise run generate:check` exits 0.
-- [ ] Targeted Home/agent tests prove user `abc` and group `abc` resolve to disjoint Homes, concurrent Ensure creates one row/location, and existing bytes/inodes are not copied or renamed.
-- [ ] A destructive group deletion fences attachments and reaches `purged`; an injected physical-delete failure remains `purge_failed` and succeeds after administrator retry.
-- [ ] A user-less Run cannot resolve PrincipalHome/AgentHome, sees only applicable read-only shared Skill roots, and writes only to project/disposable scratch; group AgentHome Skills do not leak into user_agent scope.
-- [ ] `mise run format && mise run build && mise run test` exits 0.
+- [x] `mise run db:validate && mise run generate:check` exits 0.
+- [x] Targeted Home/agent tests prove user `abc` and group `abc` resolve to disjoint Homes, concurrent Ensure creates one row/location, and existing bytes/inodes are not copied or renamed.
+- [x] A destructive group deletion fences attachments and reaches `purged`; an injected physical-delete failure remains `purge_failed` and succeeds after administrator retry.
+- [x] A user-less Run cannot resolve PrincipalHome/AgentHome, sees only applicable read-only shared Skill roots, and writes only to project/disposable scratch; group AgentHome Skills do not leak into user_agent scope.
+- [x] `mise run format && mise run build && mise run test` exits 0.
 
 ### Phase 2: Filesystem boundary and host-path removal
 
@@ -691,15 +691,15 @@ Any finding that changes safety, product semantics, the selected module boundary
 
 Every completed phase must replace its pending entry with the concrete handoff required by the Blueprint workflow.
 
-### Handoff after Phase 1 — pending
+### Handoff after Phase 1
 
-- What landed
-- Acceptance results
-- Decisions made during implementation
-- Surprises / gotchas
-- What changed from this plan
-- What remains open
-- What Phase 2 must read or verify first
+- **What landed** — `storage_home`/`storage_migration`, typed `internal/home` Store registry and opaque attachments, legacy registration, explicit consumer injection, local compatibility projection, atomic owner tombstone/fence/River purge, retry CLI, and synchronized EN/ZH architecture/storage/Skill docs.
+- **Acceptance results** — `mise run db:validate`, `mise run generate:check`, `mise run format`, `mise run build`, full `mise run test`, and temporary-Home `mise run system-test` all exited 0. Focused tests prove typed user/group isolation, one-location concurrent Ensure, inode-preserving registration, user-less scratch, shared-root read-only policy, group/Agent overlap deletion, purge failure/retry, and exact Home consumer routing.
+- **Decisions made during impl** — one injected `home.WorkspaceViewer` is mandatory with no production fallback; Phase-1 local projection uses bounded context-cancellable owner stripes plus a short DB-only revalidation transaction; Principal/Agent offline Store cutover remains available, while shared Skill-root cutover stays closed until Phase 2 consumes attachment coordinates.
+- **Surprises / gotchas** — holding owner advisory transactions across filesystem I/O threatened availability; moving I/O out required the same process-local owner gate on projection and deletion to prevent purge/create races. Group and Agent deletion sets overlap on AgentHome, so the second valid owner delete must skip the first delete's terminal audit row rather than fail or enqueue it twice.
+- **What changed from this plan** — no scope or phase-order change. The one-replica compatibility ceiling is now explicit and cancellation-aware; Compose/Kubernetes and durable SessionSandbox fencing remain closed.
+- **What remains open** — Phase 2 must remove host-path filesystem access and route provider-native operations through opaque attachments; mutable asset contents, mutable Skill authority, SessionSandbox, multi-replica, and Kubernetes remain intentionally unchanged.
+- **What Phase 2 must read or verify first** — `internal/home/{home,workspace,local,deletion}.go`, `pkg/sandbox.HomeAttachment`, the live consumer AST guard, architecture §5.4/§9, and the invariant that shared Skill consumers cannot move Stores until readers and mounts derive coordinates from attachments.
 
 ### Handoff after Phase 2 — pending
 
