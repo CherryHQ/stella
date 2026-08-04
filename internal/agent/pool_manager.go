@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -139,6 +140,11 @@ func WithProjectEnsurerPM(fn ProjectEnsurerFunc) PoolManagerOption {
 	return func(pm *PoolManager) { pm.projectEnsurer = fn }
 }
 
+// WithHomeWorkspace supplies the sole persistent Home resolver for runners.
+func WithHomeWorkspace(v home.WorkspaceViewer) PoolManagerOption {
+	return func(pm *PoolManager) { pm.homeWorkspace = v }
+}
+
 // WithAssetStorePM injects the authoritative asset store used for cold-pod asset
 // hydration. When unset (e.g. in tests), hydration is skipped.
 func WithAssetStorePM(a *asset.Store) PoolManagerOption {
@@ -199,6 +205,7 @@ type PoolManager struct {
 	sessionImages            SessionImagePipeline
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
+	homeWorkspace            home.WorkspaceViewer
 	log                      *slog.Logger
 }
 
@@ -449,17 +456,22 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 // profile rendering. Group sessions blank the prompt UserID so the group id is
 // never treated as a human profile subject (D9); plugin/skill sections still use
 // the session's UserID (the group id) so they match the cached group runner.
-func (pm *PoolManager) promptScope(agentID string, info session.Info) (userRoot, promptUserID, groupID string) {
+func (pm *PoolManager) promptScope(ctx context.Context, info session.Info) (userRoot, workspaceRoot, promptUserID, groupID string, err error) {
 	if info.GroupID != "" || info.UserID != "" {
-		if workspace, err := SetupPrincipalWorkspace(config.StellaHome(), info.UserID, info.GroupID, agentID); err == nil {
-			userRoot = workspace.HomeDir
-			pm.hydrateAssets(workspace.HomeDir)
+		if pm.homeWorkspace == nil {
+			return "", "", "", "", errors.New("home workspace resolver is not configured")
 		}
+		workspace, resolveErr := pm.homeWorkspace.WorkspaceView(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID})
+		if resolveErr != nil {
+			return "", "", "", "", fmt.Errorf("resolve Home workspace: %w", resolveErr)
+		}
+		userRoot, workspaceRoot = workspace.PrincipalRoot, workspace.AgentRoot
+		pm.hydrateAssets(userRoot)
 	}
 	if info.GroupID != "" {
-		return userRoot, "", info.GroupID
+		return userRoot, workspaceRoot, "", info.GroupID, nil
 	}
-	return userRoot, info.UserID, ""
+	return userRoot, workspaceRoot, info.UserID, "", nil
 }
 
 // hydrateAssets restores the principal's assets subtree from the shared asset
@@ -480,15 +492,14 @@ func (pm *PoolManager) hydrateAssets(home string) {
 	}()
 }
 
-func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, userRoot string) []pkgplugins.SystemPromptSection {
+func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, userRoot, workspaceRoot string) []pkgplugins.SystemPromptSection {
 	homeDir, _ := os.UserHomeDir()
 	pluginView := pkgplugins.SessionPluginView{}
 	if pm.sessionPluginViewBuilder != nil {
 		pluginView, _ = pm.sessionPluginViewBuilder(ctx)
 	}
-	workspaceRoot := snap.Workspace
-	if userRoot != "" {
-		workspaceRoot = AgentDirInHome(userRoot, info.AgentID)
+	if workspaceRoot == "" {
+		workspaceRoot = snap.Workspace
 	}
 	promptBuild := pkgplugins.SystemPromptContext{
 		StellaHome:          config.StellaHome(),
@@ -507,18 +518,25 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 	if pm.promptSectionsBuilder != nil {
 		sections, _ = pm.promptSectionsBuilder(ctx, promptBuild)
 	}
-	if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+	skillBuild := promptBuild
+	if info.GroupID != "" {
+		skillBuild.UserID, skillBuild.UserRoot, skillBuild.WorkspaceRoot = "", "", ""
+	}
+	if skillsSection, err := skillstool.BuildPromptSection(ctx, skillBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
 		sections = append(sections, skillsSection)
 	}
 	return sections
 }
 
 func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentruntime.SnapshotPromptFunc {
-	return func(ctx context.Context, info session.Info, ss memory.SessionSnapshot) string {
+	return func(ctx context.Context, info session.Info, ss memory.SessionSnapshot) (string, error) {
 		// Keep an addressable copy so version zero remains an explicit snapshot.
 		version := ss.Version
-		userRoot, promptUserID, groupID := pm.promptScope(snap.AgentID, info)
-		sections := pm.promptSections(ctx, snap, info, userRoot)
+		userRoot, workspaceRoot, promptUserID, groupID, err := pm.promptScope(ctx, info)
+		if err != nil {
+			return "", err
+		}
+		sections := pm.promptSections(ctx, snap, info, userRoot, workspaceRoot)
 
 		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 			SystemPrompt:    snap.SystemPrompt,
@@ -532,7 +550,7 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 			UserRoot:        userRoot,
 			Sections:        sections,
 			SnapshotVersion: &version,
-		})
+		}), nil
 	}
 }
 
@@ -747,7 +765,7 @@ func (pm *PoolManager) removeAgent(agentID string) error {
 func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*config.Snapshot, string, error) {
 	workspace, err := SetupAgentWorkspace(config.StellaHome(), agentID)
 	if err != nil {
-		return nil, "", fmt.Errorf("setup workspace for agent %q: %w", agentID, err)
+		return nil, "", fmt.Errorf("setup Agent definition workspace for %q: %w", agentID, err)
 	}
 	snap, err := pm.snapshots.Snapshot(ctx, agentID)
 	if err != nil {
@@ -781,6 +799,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
 		SessionImages:            pm.sessionImages,
+		WorkspaceViewer:          pm.homeWorkspace,
 	})
 }
 

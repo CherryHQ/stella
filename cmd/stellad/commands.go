@@ -346,7 +346,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Memory:     memProvider,
 		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
 		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
-		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Workspace:  homeRegistry,
 		Plugins:    phost,
 		SkillStore: skillStoreAdapter,
 		Skills:     skills.BuildPromptSection,
@@ -520,6 +520,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithProjectEnsurerPM(projectStore.Ensure),
+		agent.WithHomeWorkspace(homeRegistry),
 	)
 
 	// Bind the static Vault/MCP/OAuth capabilities into the pool BEFORE StartAll,

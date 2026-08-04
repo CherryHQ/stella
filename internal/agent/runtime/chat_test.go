@@ -202,12 +202,12 @@ func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return chatFakeRunner{system: "live base prompt", events: []Event{{Text: "ok"}}}, nil
 		},
-		SnapshotPrompt: func(_ context.Context, _ session.Info, snap memory.SessionSnapshot) string {
+		SnapshotPrompt: func(_ context.Context, _ session.Info, snap memory.SessionSnapshot) (string, error) {
 			promptCalls++
 			if snap.Version != 0 {
 				t.Fatalf("snapshot version = %d, want 0", snap.Version)
 			}
-			return "frozen snapshot prompt"
+			return "frozen snapshot prompt", nil
 		},
 		BeforeRun: func(_ context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
 			beforeRunSystem = system
@@ -248,7 +248,9 @@ func TestAdmittedChatKeepsPromptBuilderSnapshot(t *testing.T) {
 		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
 			return chatFakeRunner{system: "runner prompt", events: []Event{{Text: "ok"}}}, nil
 		},
-		SnapshotPrompt: func(context.Context, session.Info, memory.SessionSnapshot) string { return "admitted prompt" },
+		SnapshotPrompt: func(context.Context, session.Info, memory.SessionSnapshot) (string, error) {
+			return "admitted prompt", nil
+		},
 		BeforeRun: func(_ context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
 			systemsSeen <- system
 			return "", nil
@@ -267,7 +269,9 @@ func TestAdmittedChatKeepsPromptBuilderSnapshot(t *testing.T) {
 			systemsSeen <- system
 			return "", nil
 		},
-		func(context.Context, session.Info, memory.SessionSnapshot) string { return "refreshed prompt" },
+		func(context.Context, session.Info, memory.SessionSnapshot) (string, error) {
+			return "refreshed prompt", nil
+		},
 	)
 	close(mem.release)
 	for evt := range first {
@@ -286,6 +290,44 @@ func TestAdmittedChatKeepsPromptBuilderSnapshot(t *testing.T) {
 	}
 	if got := <-systemsSeen; got != "refreshed prompt" {
 		t.Fatalf("next chat prompt = %q, want refreshed prompt", got)
+	}
+}
+
+type countingChatRunner struct{ calls *int }
+
+func (r countingChatRunner) Chat(context.Context, []ai.Message, MessageContent) <-chan Event {
+	*r.calls++
+	ch := make(chan Event)
+	close(ch)
+	return ch
+}
+func (countingChatRunner) Alive() bool             { return true }
+func (countingChatRunner) Busy() bool              { return false }
+func (countingChatRunner) LastActivity() time.Time { return time.Now() }
+func (countingChatRunner) SystemPrompt() string    { return "base" }
+func (countingChatRunner) Close() error            { return nil }
+
+func TestChatSnapshotPromptErrorIsTerminalBeforeRunnerChat(t *testing.T) {
+	mem := &snapshotRecordingMemory{recordingMemory: &recordingMemory{}, snapshot: memory.SessionSnapshot{Version: 1}}
+	var calls int
+	want := errors.New("Home unavailable")
+	rt, err := New(Config{
+		Memory:         mem,
+		NewRunner:      func(context.Context, RunnerParams) (Runner, error) { return countingChatRunner{calls: &calls}, nil },
+		SnapshotPrompt: func(context.Context, session.Info, memory.SessionSnapshot) (string, error) { return "", want },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []Event
+	for event := range rt.Chat(context.Background(), session.Info{ID: "s", UserID: "u", AgentID: "a"}, "hello") {
+		events = append(events, event)
+	}
+	if len(events) != 1 || !errors.Is(events[0].Err, want) {
+		t.Fatalf("events = %#v, want one terminal snapshot error", events)
+	}
+	if calls != 0 {
+		t.Fatalf("runner Chat calls = %d, want 0", calls)
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
@@ -35,6 +36,12 @@ import (
 	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+type serverTestWorkspace struct{}
+
+func (serverTestWorkspace) WorkspaceView(context.Context, home.WorkspaceRequest) (home.WorkspaceView, error) {
+	return home.WorkspaceView{}, nil
+}
 
 // testServerDeps builds a full, valid Deps mirroring what the composition root
 // assembles — the same shared instances, no shadow construction. Optional
@@ -72,7 +79,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		Memory:     mem,
 		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
 		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
-		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Workspace:  serverTestWorkspace{},
 		Plugins:    phost,
 		SkillStore: pluginhost.NewSkillStoreAdapter(phost.SkillStore()),
 		Skills:     skills.BuildPromptSection,

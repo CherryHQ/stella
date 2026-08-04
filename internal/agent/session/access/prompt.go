@@ -7,11 +7,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -39,10 +39,6 @@ type PromptProjectStore interface {
 	ProjectRoot(context.Context, string, string) (string, error)
 }
 
-type PromptWorkspace interface {
-	SetupPrincipalWorkspace(stellaHome, userID, groupID, agentID string) (homeDir, agentDir string, err error)
-}
-
 type PromptPlugins interface {
 	SessionPluginView(context.Context) (pkgplugins.SessionPluginView, error)
 	SystemPromptSections(context.Context, pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
@@ -65,7 +61,7 @@ type SystemPromptDeps struct {
 	Memory     memory.Provider
 	Agents     PromptAgentStore
 	Projects   PromptProjectStore
-	Workspace  PromptWorkspace
+	Workspace  home.WorkspaceViewer
 	Plugins    PromptPlugins
 	SkillStore pkgplugins.SkillStore
 	Skills     PromptSkillSectionBuilder
@@ -123,10 +119,14 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 
 	userRoot := ""
 	workspaceRoot := agentCfg.Workspace
-	if (info.UserID != "" || info.GroupID != "") && info.AgentID != "" {
-		if homeDir, agentDir, err := b.deps.Workspace.SetupPrincipalWorkspace(b.deps.StellaHome, info.UserID, info.GroupID, info.AgentID); err == nil {
-			userRoot = homeDir
-			workspaceRoot = agentDir
+	if info.AgentID != "" {
+		view, err := b.deps.Workspace.WorkspaceView(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID})
+		if err != nil {
+			return "", fmt.Errorf("%w: Home workspace: %w", ErrUnavailable, err)
+		}
+		if info.UserID != "" || info.GroupID != "" {
+			userRoot = view.PrincipalRoot
+			workspaceRoot = view.AgentRoot
 		}
 	}
 
@@ -210,12 +210,4 @@ func (s *SQLPromptProjectStore) ProjectRoot(ctx context.Context, userID, project
 		return "", err
 	}
 	return p.BaseDir, nil
-}
-
-// AgentPromptWorkspace adapts the agent workspace materializer to the prompt port.
-type AgentPromptWorkspace struct{}
-
-func (AgentPromptWorkspace) SetupPrincipalWorkspace(stellaHome, userID, groupID, agentID string) (string, string, error) {
-	workspace, err := agent.SetupPrincipalWorkspace(stellaHome, userID, groupID, agentID)
-	return workspace.HomeDir, workspace.AgentDir, err
 }

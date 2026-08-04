@@ -231,8 +231,23 @@ func (r *Registry) Resolve(ctx context.Context, key Key, readOnly bool) (sandbox
 	if err != nil {
 		return sandbox.HomeAttachment{}, err
 	}
-	if home.State != StateReady {
-		return sandbox.HomeAttachment{}, fmt.Errorf("home: %s cannot resolve", home.State)
+	return r.resolveRecord(ctx, home, readOnly)
+}
+
+// resolveRecord re-reads the row by immutable ID before issuing an attachment.
+// This closes the cutover/tombstone window between Ensure and compatibility
+// projection; a stale, forged, or non-ready record never obtains a local path.
+func (r *Registry) resolveRecord(ctx context.Context, record Record, readOnly bool) (sandbox.HomeAttachment, error) {
+	row, err := r.q.GetStorageHome(ctx, record.ID)
+	if err != nil {
+		return sandbox.HomeAttachment{}, fmt.Errorf("home: revalidate attachment: %w", err)
+	}
+	home, err := r.decode(row)
+	if err != nil {
+		return sandbox.HomeAttachment{}, err
+	}
+	if home.Key != record.Key || home.StoreID != record.StoreID || home.Locator != record.Locator || home.State != StateReady {
+		return sandbox.HomeAttachment{}, errors.New("home: stale or unavailable attachment")
 	}
 	if home.Key.Kind == SystemSkillRoot || home.Key.Kind == SystemAgentSkillRoot {
 		readOnly = true
