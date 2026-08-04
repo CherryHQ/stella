@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { Link } from "@tanstack/react-router";
@@ -11,7 +11,7 @@ import {
   PanelRightOpen,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
+import { getSession, getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
 import { agentSkillsOptions, agentsQueryOptions } from "@/lib/queries/agents";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionContextItemsOptions } from "@/lib/queries/session-context";
@@ -73,11 +73,13 @@ export function SessionDetail({
   session,
   currentUserID,
   onNewSession,
+  onSessionUpdate,
   onToggleWorkspace,
   workspaceOpen,
   contextTitle,
 }: Props) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const { toasts, showToast } = useToast();
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -142,6 +144,39 @@ export function SessionDetail({
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
+
+  // The server titles an untitled session from its first user message *during*
+  // the turn (internal/agent/runtime/chat.go), so nothing on the client knows
+  // the new title until the turn ends. Re-read the session and drop the cached
+  // session lists once streaming settles; without this the header and the
+  // sidebar both sit on "untitled" until a full reload.
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (isStreaming) {
+      wasStreamingRef.current = true;
+      return;
+    }
+    if (!wasStreamingRef.current) return;
+    wasStreamingRef.current = false;
+    if (!agentId || !sessionId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await getSession({
+          path: { agentId, sessionId },
+          throwOnError: true,
+        });
+        if (!cancelled) onSessionUpdate(data);
+      } catch (err) {
+        // A stale title is better than tearing down the transcript.
+        console.error("[session refresh]", err);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isStreaming, agentId, sessionId, onSessionUpdate, queryClient]);
 
   // Server-driven sessions (scheduler/task/delegate) run turns that carry no
   // HTTP request of their own, so the normal send-stream never sees them. Poll

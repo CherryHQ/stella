@@ -50,14 +50,13 @@ const en = {
   "search.scopeHint": "Chat search covers the agent you are in.",
 
   // Conversation sidebar
-  "sidebar.newChat": "New chat",
-  "sidebar.mainChat": "Main chat",
   "sidebar.goals": "Goals",
   "sidebar.projects": "Projects",
-  "sidebar.recent": "Recent",
+  "sidebar.recentThreads": "Recent threads",
+  "sidebar.showMore": "Show more",
   "sidebar.members": "Members",
   "sidebar.noMembers": "No members yet.",
-  "sidebar.new": "New",
+  "sidebar.addTarget": "Add agent or group",
   "sidebar.newAgent": "New agent",
   "sidebar.newGroup": "New group",
 
@@ -151,6 +150,7 @@ const en = {
   "account.title": "Account",
   "account.description": "Manage your account settings and profile.",
   "account.profile": "Profile",
+  "account.appearance": "Appearance",
   "account.username": "Username",
   "account.changePassword": "Change Password",
   "account.currentPassword": "Current Password",
@@ -764,7 +764,6 @@ const en = {
 
   // Sessions sidebar
   "sessions.sidebar.skills": "Skills",
-  "sessions.sidebar.noThreads": "No threads yet.",
   "sessions.sidebar.loadMore": "Load more…",
   "sessions.sidebar.chats": "Chats",
   "sessions.sidebar.threads": "Threads",
@@ -2076,16 +2075,15 @@ const zh: Record<MessageKey, string> = {
   "search.scopeHint": "对话搜索范围为当前智能体。",
 
   // Conversation sidebar
-  "sidebar.newChat": "新对话",
-  "sidebar.mainChat": "主对话",
   "sidebar.goals": "目标",
   "sidebar.projects": "项目",
-  "sidebar.recent": "最近对话",
+  "sidebar.recentThreads": "最近话题",
+  "sidebar.showMore": "显示更多",
   "sidebar.members": "成员",
   "sidebar.noMembers": "暂无成员。",
-  "sidebar.new": "新建",
+  "sidebar.addTarget": "添加智能体 / 群聊",
   "sidebar.newAgent": "新建智能体",
-  "sidebar.newGroup": "新建群组",
+  "sidebar.newGroup": "新建群聊",
 
   // Agent / project profile
   "profile.title": "档案",
@@ -2176,6 +2174,7 @@ const zh: Record<MessageKey, string> = {
   "account.title": "账户",
   "account.description": "管理你的账户设置和个人资料。",
   "account.profile": "个人信息",
+  "account.appearance": "外观",
   "account.username": "用户名",
   "account.changePassword": "修改密码",
   "account.currentPassword": "当前密码",
@@ -2773,7 +2772,6 @@ const zh: Record<MessageKey, string> = {
 
   // Sessions sidebar
   "sessions.sidebar.skills": "技能",
-  "sessions.sidebar.noThreads": "暂无话题。",
   "sessions.sidebar.loadMore": "加载更多…",
   "sessions.sidebar.chats": "聊天",
   "sessions.sidebar.threads": "话题",

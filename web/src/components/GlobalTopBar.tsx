@@ -15,8 +15,7 @@ import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
-import { cn } from "@/lib/utils";
-import { ThemeControls } from "@/components/SiteHeader";
+import { ThemeAppearanceControl } from "@/components/ThemeControls";
 import { GlobalSearchDialog } from "@/components/GlobalSearchDialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -94,13 +93,14 @@ export function GlobalTopBar() {
       </Link>
 
       {/* Desktop: app tabs inline. Mobile: the same set behind one menu. */}
-      <nav className="ml-4 hidden items-center gap-1 sm:flex">
+      {/* `secondary` is the active affordance: it reads as a filled tab in both
+          light and dark, where a ghost hover tint does not. */}
+      <nav className="ml-8 hidden items-center gap-2 sm:flex">
         {tabs.map((tab) => (
           <Button
             key={tab.key}
-            variant="ghost"
+            variant={isActive(tab, pathname) ? "secondary" : "ghost"}
             size="sm"
-            className={cn(isActive(tab, pathname) && "bg-accent text-accent-foreground")}
             render={<Link to={tab.to as never} />}
           >
             {tab.label}
@@ -109,7 +109,7 @@ export function GlobalTopBar() {
       </nav>
       <DropdownMenu>
         <DropdownMenuTrigger
-          render={<Button variant="ghost" size="sm" className="ml-2 sm:hidden" />}
+          render={<Button variant="ghost" size="sm" className="ml-4 sm:hidden" />}
         >
           {activeTab?.label ?? t("nav.chats")}
           <ChevronDown />
@@ -211,9 +211,9 @@ function InboxBell() {
   );
 }
 
-// Identity, personal settings, appearance, and sign-out. The theme controls live
-// inline here rather than behind their own trigger — nesting a popover inside a
-// menu is a bug, and appearance is a personal setting.
+// Identity, personal settings, appearance, and sign-out. The appearance switch
+// lives inline here rather than behind its own trigger — nesting a popover
+// inside a menu is a bug — and stays a single row so the menu fits the viewport.
 function AppUserMenu() {
   const { data: me } = useQuery(meQueryOptions);
   const queryClient = useQueryClient();
@@ -229,21 +229,25 @@ function AppUserMenu() {
   }
 
   const nextLocaleLabel = locale === "en" ? t("locale.zh") : t("locale.en");
+  const initial = me.username.trim()[0]?.toUpperCase() ?? "?";
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="ml-1 flex cursor-pointer items-center rounded-lg p-1 outline-none transition-colors hover:bg-accent">
         <Avatar className="size-7">
-          <AvatarFallback className="font-mono text-xs font-semibold">
-            {me.username[0]?.toUpperCase()}
-          </AvatarFallback>
+          {/* Not font-mono: a mono capital O is indistinguishable from a zero. */}
+          <AvatarFallback className="text-xs font-semibold">{initial}</AvatarFallback>
         </Avatar>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="w-68">
+      <DropdownMenuContent align="end" sideOffset={8} className="w-64">
         <DropdownMenuGroup>
           <DropdownMenuLabel>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium text-foreground">{me.username}</span>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              {/* Usernames can be opaque provider IDs — one line, ellipsis, so the
+                  menu never grows a horizontal scrollbar. */}
+              <span className="truncate text-sm font-medium text-foreground" title={me.username}>
+                {me.username}
+              </span>
               {me.is_admin && <span className="text-xs text-muted-foreground">admin</span>}
             </div>
           </DropdownMenuLabel>
@@ -270,8 +274,10 @@ function AppUserMenu() {
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <div className="flex flex-col gap-4 p-2">
-          <ThemeControls />
+        {/* Only the light/dark/system switch lives here — it is a one-tap toggle.
+            Accent color is a rarer, wider control and lives on the account page. */}
+        <div className="p-2">
+          <ThemeAppearanceControl layout="inline" />
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>

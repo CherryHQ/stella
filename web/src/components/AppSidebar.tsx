@@ -21,6 +21,7 @@ export function SidebarSection({
   children,
   open = true,
   onOpenChange,
+  count,
   action,
   className,
 }: {
@@ -28,18 +29,26 @@ export function SidebarSection({
   children: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /**
+   * How many rows are hidden behind a collapsed label. Shown only while
+   * collapsed — once the rows are visible the number is noise.
+   */
+  count?: number;
   action?: ReactNode;
   className?: string;
 }) {
+  // px-2.5 matches SidebarItem so a section label lines up with the rows under it.
   const headerClassName =
-    "flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-2 font-mono text-xs text-muted-foreground";
+    "flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 font-mono text-xs text-muted-foreground";
   const interactiveHeaderClassName = cn(
     headerClassName,
     "cursor-pointer hover:bg-foreground/[0.045] hover:text-muted-foreground",
   );
 
+  const hiddenCount = !open && count ? <span className="ml-auto shrink-0">{count}</span> : null;
+
   return (
-    <section className={cn("mt-3", className)}>
+    <section className={cn("mt-4", className)}>
       <div className="flex h-[30px] items-center gap-1 pr-1">
         {onOpenChange ? (
           <button
@@ -54,10 +63,12 @@ export function SidebarSection({
                 open && "rotate-90",
               )}
             />
+            {hiddenCount}
           </button>
         ) : (
           <div className={headerClassName}>
             <span className="truncate">{title}</span>
+            {hiddenCount}
           </div>
         )}
         {action}
@@ -69,6 +80,7 @@ export function SidebarSection({
 
 export function SidebarItem({
   active,
+  emphasized,
   icon,
   label,
   badge,
@@ -80,6 +92,12 @@ export function SidebarItem({
   params,
 }: {
   active?: boolean;
+  /**
+   * A row that owns the rows below it (an expanded accordion parent) without
+   * being the current destination: emphasized text, no fill. Keeping the fill
+   * exclusive to `active` means exactly one row ever reads as "you are here".
+   */
+  emphasized?: boolean;
   icon?: ReactNode;
   label: ReactNode;
   badge?: ReactNode;
@@ -94,7 +112,9 @@ export function SidebarItem({
     "flex min-h-[34px] w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg px-2.5 py-1 text-left text-[13px] tracking-[-0.01em] transition-all duration-150 border",
     active
       ? "bg-muted font-semibold text-foreground border-border/60"
-      : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
+      : emphasized
+        ? "font-semibold text-foreground hover:bg-muted/40 border-transparent"
+        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
     className,
   );
   const content = (

@@ -1,16 +1,8 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  FileText,
-  LogOut,
-  Menu as MenuIcon,
-  Monitor,
-  Moon,
-  Sun,
-  type LucideIcon,
-} from "lucide-react";
+import { FileText, LogOut, Menu as MenuIcon } from "lucide-react";
 import { siGithub } from "simple-icons";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import { Separator } from "@/components/ui/separator";
@@ -27,19 +19,9 @@ import {
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
 import { Popover, PopoverTrigger, PopoverPopup } from "@/components/ui/popover";
-import { Slider } from "@/components/ui/slider";
-import { cn } from "@/lib/utils";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
-import {
-  applyTheme,
-  getStoredTheme,
-  setStoredTheme,
-  accentSwatch,
-  ACCENT_PRESETS,
-  DEFAULT_ACCENT_HUE,
-  type ThemeAppearance,
-  type ThemeSettings,
-} from "@/lib/theme";
+import { APPEARANCE_ICONS, ThemeControls } from "@/components/ThemeControls";
+import { getStoredTheme, type ThemeAppearance } from "@/lib/theme";
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -182,12 +164,6 @@ export function SiteHeader() {
   );
 }
 
-const APPEARANCE_ICONS: Record<ThemeAppearance, LucideIcon> = {
-  system: Monitor,
-  light: Sun,
-  dark: Moon,
-};
-
 // Appearance (system / light / dark) and accent color in one popover — they're
 // both "how the app looks", so a single control beats two header buttons.
 export function ThemeMenu() {
@@ -208,125 +184,6 @@ export function ThemeMenu() {
         <ThemeControls />
       </PopoverPopup>
     </Popover>
-  );
-}
-
-// The appearance + accent controls with no surface of their own, so they can sit
-// inside a popover (marketing header) or directly in the user menu (app chrome)
-// without ever nesting one overlay inside another.
-export function ThemeControls() {
-  const { t } = useI18n();
-  const [theme, setTheme] = useState<ThemeSettings>(() => getStoredTheme());
-
-  useEffect(() => {
-    if (theme.appearance !== "system") return;
-
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    // Re-read full settings so a system-theme flip still honors the chosen accent.
-    const update = () => applyTheme(getStoredTheme());
-    media.addEventListener("change", update);
-
-    return () => media.removeEventListener("change", update);
-  }, [theme]);
-
-  function update(next: ThemeSettings) {
-    setTheme(next);
-    setStoredTheme(next);
-  }
-
-  function setAppearance(appearance: ThemeAppearance) {
-    update({ ...getStoredTheme(), appearance });
-  }
-
-  function setHue(next: number | undefined) {
-    // Treat the default teal hue as "unset" so we fall back to tokens.css and
-    // hide the reset affordance.
-    const norm = next === undefined ? undefined : ((next % 360) + 360) % 360;
-    const accentHue = norm === DEFAULT_ACCENT_HUE ? undefined : norm;
-    update({ ...getStoredTheme(), accentHue });
-  }
-
-  const current = theme.accentHue ?? DEFAULT_ACCENT_HUE;
-  const appearances: ThemeAppearance[] = ["system", "light", "dark"];
-
-  return (
-    <>
-      <div className="space-y-2.5">
-        <span className="px-0.5 text-xs font-medium text-muted-foreground">
-          {t("header.appearance")}
-        </span>
-        <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1.5">
-          {appearances.map((appearance) => {
-            const ItemIcon = APPEARANCE_ICONS[appearance];
-            const active = theme.appearance === appearance;
-            return (
-              <button
-                key={appearance}
-                type="button"
-                onClick={() => setAppearance(appearance)}
-                className={cn(
-                  "flex flex-col items-center gap-1.5 rounded-lg py-2.5 text-xs whitespace-nowrap transition-colors",
-                  active
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <ItemIcon className="size-4" />
-                {appearance === "system"
-                  ? t("header.system")
-                  : appearance === "light"
-                    ? t("header.light")
-                    : t("header.dark")}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <Separator />
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-0.5">
-          <span className="text-xs font-medium text-muted-foreground">{t("header.accent")}</span>
-          {theme.accentHue !== undefined && (
-            <button
-              type="button"
-              onClick={() => setHue(undefined)}
-              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {t("header.resetAccent")}
-            </button>
-          )}
-        </div>
-        <div className="grid grid-cols-7 gap-1.5">
-          {ACCENT_PRESETS.map((p) => {
-            const active = current === p.hue;
-            return (
-              <button
-                key={p.hue}
-                type="button"
-                onClick={() => setHue(p.hue)}
-                title={p.name}
-                aria-label={p.name}
-                className={cn(
-                  "size-6 rounded-full transition-transform hover:scale-110",
-                  active && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-popover",
-                )}
-                style={{ background: accentSwatch(p.hue) }}
-              />
-            );
-          })}
-        </div>
-        <div className="px-0.5 pt-1">
-          <Slider
-            min={0}
-            max={359}
-            value={current}
-            onValueChange={(v) => setHue(Array.isArray(v) ? v[0] : v)}
-          />
-        </div>
-      </div>
-    </>
   );
 }
 

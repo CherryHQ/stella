@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
@@ -11,8 +11,8 @@ import {
   MessageSquare,
   MoreHorizontal,
   Pencil,
-  Pin,
   Plus,
+  SquarePen,
   Trash2,
   Users,
 } from "lucide-react";
@@ -31,7 +31,11 @@ import { getAgentColor } from "@/lib/agent-colors";
 import { cn } from "@/lib/utils";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { goalCountsOptions } from "@/lib/queries/goals";
-import { mainSessionQueryOptions, sessionsInfiniteQueryOptions } from "@/lib/queries/sessions";
+import {
+  mainSessionQueryOptions,
+  projectSessionsQueryOptions,
+  sessionsInfiniteQueryOptions,
+} from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
@@ -57,8 +61,17 @@ import {
 import { useSidebar } from "@/components/ui/sidebar";
 import { CreateGroupDialog } from "@/features/groups/CreateGroupDialog";
 
-/** How many recent chats an expanded agent shows before search takes over. */
-const RECENT_CHAT_LIMIT = 10;
+/** How many recent threads a page of "Recent threads" reveals. */
+const RECENT_THREAD_PAGE = 5;
+/** How many threads are inlined under the project the URL points at. */
+const PROJECT_THREAD_LIMIT = 5;
+
+/** Hand-started, live chats, newest first — the only threads worth listing. */
+function sortedChats(sessions: Session[]): Session[] {
+  return sessions
+    .filter((session) => session.kind === "chat" && !session.archived)
+    .sort((a, b) => new Date(b.last_active).getTime() - new Date(a.last_active).getTime());
+}
 
 interface DirEntry {
   path: string;
@@ -401,46 +414,33 @@ export function ConversationSidebar() {
               target.kind === "agent"
                 ? !activeGroupId && activeAgentId === target.id
                 : activeGroupId === target.id;
-            const attention = target.kind === "agent" ? (attentionByAgent.get(target.id) ?? 0) : 0;
+            if (target.kind === "agent") {
+              return (
+                <AgentNode
+                  key={`agent:${target.id}`}
+                  target={target}
+                  expanded={expanded}
+                  attention={attentionByAgent.get(target.id) ?? 0}
+                  onNavigate={closeMobile}
+                />
+              );
+            }
             return (
-              <div key={`${target.kind}:${target.id}`} className="min-w-0">
+              <div key={`group:${target.id}`} className="min-w-0">
                 <SidebarItem
                   active={expanded}
-                  icon={
-                    target.kind === "agent" ? (
-                      <span
-                        className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
-                        style={{ background: getAgentColor(target.id, target.colorIndex) }}
-                      >
-                        {target.label[0]?.toUpperCase()}
-                      </span>
-                    ) : (
-                      <Users className="size-4" />
-                    )
-                  }
+                  icon={<Users className="size-4" />}
                   label={target.label}
-                  badge={
-                    attention > 0 ? (
-                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-foreground">
-                        {attention}
-                      </span>
-                    ) : undefined
-                  }
                   meta={
                     target.updatedAt ? (
                       <span className="font-mono text-xs">{relativeTime(target.updatedAt)}</span>
                     ) : undefined
                   }
-                  to={target.kind === "agent" ? "/agents/$agentId" : "/groups/$groupId"}
-                  params={target.kind === "agent" ? { agentId: target.id } : { groupId: target.id }}
+                  to="/groups/$groupId"
+                  params={{ groupId: target.id }}
                   onClick={closeMobile}
                 />
-                {expanded &&
-                  (target.kind === "agent" ? (
-                    <AgentBranch agentId={target.id} onNavigate={closeMobile} />
-                  ) : (
-                    <GroupBranch groupId={target.id} />
-                  ))}
+                {expanded && <GroupBranch groupId={target.id} />}
               </div>
             );
           })}
@@ -449,31 +449,96 @@ export function ConversationSidebar() {
               {t("sessions.sidebar.noAgents")}
             </p>
           )}
+
+          {/* Last row of the list, not a pinned footer: creating a target is the
+              same kind of action as picking one, and it belongs where the list
+              ends rather than across a dead gap at the bottom of the panel. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="sm" className="w-full justify-start" />}
+            >
+              <Plus />
+              {t("sidebar.addTarget")}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" sideOffset={6}>
+              <DropdownMenuItem render={<Link to="/settings/agents" />}>
+                <Bot className="size-4" />
+                {t("sidebar.newAgent")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowGroupDialog(true)}>
+                <Users className="size-4" />
+                {t("sidebar.newGroup")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border/60 px-3 py-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" size="sm" className="w-full justify-start" />}
-          >
-            <Plus />
-            {t("sidebar.new")}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" sideOffset={6}>
-            <DropdownMenuItem render={<Link to="/settings/agents" />}>
-              <Bot className="size-4" />
-              {t("sidebar.newAgent")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setShowGroupDialog(true)}>
-              <Users className="size-4" />
-              {t("sidebar.newGroup")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
       <CreateGroupDialog open={showGroupDialog} onClose={() => setShowGroupDialog(false)} />
+    </div>
+  );
+}
+
+/**
+ * One agent row plus, when the URL points at it, its branch. The row is the
+ * destination for the agent's main conversation — there is no separate "main"
+ * child row — so it reads as active on the agent root and on the main session.
+ */
+function AgentNode({
+  target,
+  expanded,
+  attention,
+  onNavigate,
+}: {
+  target: TargetRow;
+  expanded: boolean;
+  attention: number;
+  onNavigate: () => void;
+}) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { data: mainSession = null } = useQuery({
+    ...mainSessionQueryOptions(target.id),
+    enabled: expanded,
+  });
+
+  const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
+  const active =
+    expanded &&
+    (pathname === `/agents/${target.id}` || (!!mainSession && activeSessionId === mainSession.id));
+
+  return (
+    <div className="min-w-0">
+      <SidebarItem
+        // An expanded agent that is not itself the destination only heads a
+        // branch: emphasized, not filled, so exactly one row reads "you are here".
+        active={active}
+        emphasized={expanded && !active}
+        icon={
+          <span
+            className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
+            style={{ background: getAgentColor(target.id, target.colorIndex) }}
+          >
+            {target.label[0]?.toUpperCase()}
+          </span>
+        }
+        label={target.label}
+        badge={
+          attention > 0 ? (
+            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-foreground">
+              {attention}
+            </span>
+          ) : undefined
+        }
+        meta={
+          target.updatedAt ? (
+            <span className="font-mono text-xs">{relativeTime(target.updatedAt)}</span>
+          ) : undefined
+        }
+        to="/agents/$agentId"
+        params={{ agentId: target.id }}
+        onClick={onNavigate}
+      />
+      {expanded && <AgentBranch agentId={target.id} onNavigate={onNavigate} />}
     </div>
   );
 }
@@ -483,7 +548,12 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const [projectsOpen, setProjectsOpen] = useState(true);
+  // Section open/closed is a glance-level preference, not navigation: it must
+  // not survive a refresh, so it stays local. `null` means "nobody touched it",
+  // which lets the route keep the section holding the active row open.
+  const [projectsOverride, setProjectsOverride] = useState<boolean | null>(null);
+  const [threadsOverride, setThreadsOverride] = useState<boolean | null>(null);
+  const [visibleThreads, setVisibleThreads] = useState(RECENT_THREAD_PAGE);
   const [showProjectDialog, setShowProjectDialog] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState("");
   const [editingTitle, setEditingTitle] = useState("");
@@ -497,18 +567,28 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
   const onGoals = pathname.includes(`/agents/${agentId}/goals`);
-  const onMain = !!mainSession && activeSessionId === mainSession.id;
+
+  const projectSessions = useQuery(projectSessionsQueryOptions(agentId, activeProjectId));
 
   // "main" is the pinned conversation and scheduler/task/delegate sessions are
   // machine-owned; recent only ever lists what the user started by hand.
-  const recentChats = useMemo(
-    () =>
-      (chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? [])
-        .filter((session) => session.kind === "chat" && !session.archived)
-        .sort((a, b) => new Date(b.last_active).getTime() - new Date(a.last_active).getTime())
-        .slice(0, RECENT_CHAT_LIMIT),
+  const recentThreads = useMemo(
+    () => sortedChats(chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? []),
     [chatsQuery.data],
   );
+  // Only the project the URL points at gets its threads inlined — every other
+  // project stays a single row so the section keeps its flat shape.
+  const activeProjectThreads = useMemo(
+    () => sortedChats(projectSessions.data ?? []).slice(0, PROJECT_THREAD_LIMIT),
+    [projectSessions.data],
+  );
+
+  // A section that holds the current route opens itself, so the active row is
+  // never hidden behind a collapsed label. Derived from the URL rather than the
+  // loaded page, so it holds even before the thread list has paged in.
+  const projectsOpen = projectsOverride ?? !!activeProjectId;
+  const onThread = !activeProjectId && !!activeSessionId && activeSessionId !== mainSession?.id;
+  const threadsOpen = threadsOverride ?? onThread;
 
   const refreshSessions = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
@@ -585,19 +665,13 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   );
 
   return (
-    <div className="ml-3 grid min-w-0 gap-0.5 border-l border-border/60 pl-2 pt-0.5">
+    // No rail, no deep nesting: one shallow indent, and grouping is carried by
+    // the muted section labels and the space around them.
+    <div className="ml-2 grid min-w-0 gap-0.5 pb-2 pt-0.5">
       <SidebarItem
-        icon={<Plus className="size-4" />}
-        label={t("sidebar.newChat")}
+        icon={<SquarePen className="size-4" />}
+        label={t("sessions.sidebar.newThread")}
         onClick={() => void createChat()}
-      />
-      <SidebarItem
-        active={onMain}
-        icon={<Pin className="size-4" />}
-        label={t("sidebar.mainChat")}
-        to="/agents/$agentId"
-        params={{ agentId }}
-        onClick={onNavigate}
       />
       <SidebarItem
         active={onGoals}
@@ -618,7 +692,8 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
       <SidebarSection
         title={t("sidebar.projects")}
         open={projectsOpen}
-        onOpenChange={setProjectsOpen}
+        onOpenChange={setProjectsOverride}
+        count={projects.length}
         action={
           <Button
             variant="ghost"
@@ -631,126 +706,167 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
         }
       >
         {(projects as Project[]).map((project) => (
-          <SidebarItem
-            key={project.id}
-            active={activeProjectId === project.id}
-            className="group/project"
-            icon={<Folder className="size-4" />}
-            label={project.name}
-            trailing={
-              <span
-                className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/project:opacity-70"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void deleteProject(project.id);
-                }}
-              >
-                <Trash2 className="size-3.5" />
-              </span>
-            }
-            to="/agents/$agentId/projects/$projectId"
-            params={{ agentId, projectId: project.id }}
-            onClick={onNavigate}
-          />
+          <Fragment key={project.id}>
+            <SidebarItem
+              active={activeProjectId === project.id}
+              className="group/project"
+              icon={<Folder className="size-4" />}
+              label={project.name}
+              trailing={
+                <span
+                  className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/project:opacity-70"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void deleteProject(project.id);
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                </span>
+              }
+              to="/agents/$agentId/projects/$projectId"
+              params={{ agentId, projectId: project.id }}
+              onClick={onNavigate}
+            />
+            {activeProjectId === project.id && activeProjectThreads.length > 0 && (
+              <div className="grid min-w-0 gap-0.5 pl-4">
+                {activeProjectThreads.map((session) => (
+                  <SidebarItem
+                    key={session.id}
+                    active={activeSessionId === session.id}
+                    icon={<MessageSquare className="size-4" />}
+                    label={session.title || t("sessions.untitled")}
+                    meta={
+                      <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
+                    }
+                    to="/agents/$agentId/projects/$projectId/sessions/$sessionId"
+                    params={{ agentId, projectId: project.id, sessionId: session.id }}
+                    onClick={onNavigate}
+                  />
+                ))}
+              </div>
+            )}
+          </Fragment>
         ))}
       </SidebarSection>
 
-      <SidebarSection title={t("sidebar.recent")}>
-        {recentChats.map((session: Session) => {
-          const label = session.title || t("sessions.untitled");
-          return (
-            <SidebarItem
-              key={session.id}
-              active={activeSessionId === session.id}
-              className="group/chat"
-              icon={<MessageSquare className="size-4" />}
-              label={
-                editingSessionId === session.id ? (
-                  <Input
-                    autoFocus
-                    unstyled
-                    size="sm"
-                    className="w-full min-w-0"
-                    disabled={renaming}
-                    value={editingTitle}
-                    onBlur={() => void renameSession(session, label)}
-                    onChange={(event) => setEditingTitle(event.target.value)}
-                    onClick={(event) => event.stopPropagation()}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void renameSession(session, label);
-                      }
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        cancelRename();
-                      }
-                    }}
-                  />
-                ) : (
-                  label
-                )
-              }
-              meta={<time className="font-mono text-xs">{relativeTime(session.last_active)}</time>}
-              trailing={
-                editingSessionId === session.id ? undefined : (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      // SidebarItem already renders the row as a link or a button,
-                      // so a nested <button> would be invalid markup. Declaring the
-                      // trigger non-native makes Base UI supply the button role and
-                      // keyboard handling instead.
-                      nativeButton={false}
-                      render={
-                        <span
-                          className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/chat:opacity-70"
-                          onClick={(event) => {
+      {/* An agent with no threads yet gets no label and no placeholder — an
+          empty section is noise the user cannot act on. */}
+      {recentThreads.length > 0 && (
+        <SidebarSection
+          title={t("sidebar.recentThreads")}
+          open={threadsOpen}
+          onOpenChange={setThreadsOverride}
+          count={recentThreads.length}
+        >
+          {recentThreads.slice(0, visibleThreads).map((session: Session) => {
+            const label = session.title || t("sessions.untitled");
+            return (
+              <SidebarItem
+                key={session.id}
+                active={activeSessionId === session.id}
+                className="group/chat"
+                icon={<MessageSquare className="size-4" />}
+                label={
+                  editingSessionId === session.id ? (
+                    <Input
+                      autoFocus
+                      unstyled
+                      size="sm"
+                      className="w-full min-w-0"
+                      disabled={renaming}
+                      value={editingTitle}
+                      onBlur={() => void renameSession(session, label)}
+                      onChange={(event) => setEditingTitle(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void renameSession(session, label);
+                        }
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelRename();
+                        }
+                      }}
+                    />
+                  ) : (
+                    label
+                  )
+                }
+                meta={
+                  <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
+                }
+                trailing={
+                  editingSessionId === session.id ? undefined : (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        // SidebarItem already renders the row as a link or a button,
+                        // so a nested <button> would be invalid markup. Declaring the
+                        // trigger non-native makes Base UI supply the button role and
+                        // keyboard handling instead.
+                        nativeButton={false}
+                        render={
+                          <span
+                            className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/chat:opacity-70"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                          />
+                        }
+                      >
+                        <MoreHorizontal className="size-4" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onMouseDown={(event) => {
                             event.preventDefault();
-                            event.stopPropagation();
+                            setEditingSessionId(session.id);
+                            setEditingTitle(label);
                           }}
-                        />
-                      }
-                    >
-                      <MoreHorizontal className="size-3.5" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          setEditingSessionId(session.id);
-                          setEditingTitle(label);
-                        }}
-                      >
-                        <Pencil className="size-4" />
-                        {t("sessions.sidebar.renameThread")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          void deleteChat(session);
-                        }}
-                      >
-                        <Trash2 className="size-4" />
-                        {t("common.delete")}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )
-              }
-              to="/agents/$agentId/sessions/$sessionId"
-              params={{ agentId, sessionId: session.id }}
-              onClick={onNavigate}
+                        >
+                          <Pencil className="size-4" />
+                          {t("sessions.sidebar.renameThread")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            void deleteChat(session);
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                          {t("common.delete")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )
+                }
+                to="/agents/$agentId/sessions/$sessionId"
+                params={{ agentId, sessionId: session.id }}
+                onClick={onNavigate}
+              />
+            );
+          })}
+          {(recentThreads.length > visibleThreads || chatsQuery.hasNextPage) && (
+            <SidebarItem
+              label={t("sidebar.showMore")}
+              onClick={() => {
+                setVisibleThreads((count) => count + RECENT_THREAD_PAGE);
+                // Local slice first, network only once the cache runs dry.
+                if (
+                  recentThreads.length <= visibleThreads + RECENT_THREAD_PAGE &&
+                  chatsQuery.hasNextPage &&
+                  !chatsQuery.isFetchingNextPage
+                ) {
+                  void chatsQuery.fetchNextPage();
+                }
+              }}
             />
-          );
-        })}
-        {recentChats.length === 0 && (
-          <p className="px-2 py-2 text-xs text-muted-foreground">
-            {t("sessions.sidebar.noThreads")}
-          </p>
-        )}
-      </SidebarSection>
+          )}
+        </SidebarSection>
+      )}
 
       {showProjectDialog && (
         <CreateProjectDialog
@@ -772,7 +888,7 @@ function GroupBranch({ groupId }: { groupId: string }) {
   const { data: members = [] } = useQuery(groupMembersQueryOptions(groupId));
 
   return (
-    <div className="ml-3 grid min-w-0 gap-0.5 border-l border-border/60 pl-2 pt-0.5">
+    <div className="ml-4 grid min-w-0 gap-0.5 border-l border-border/60 pb-1 pl-2 pt-0.5">
       <SidebarSection title={t("sidebar.members")}>
         {members.map((member) => (
           <SidebarItem
