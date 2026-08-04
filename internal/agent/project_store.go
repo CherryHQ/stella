@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/home"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -36,6 +38,7 @@ type ProjectStore struct {
 	store  config.Store
 	assets *asset.Store
 	agents ProjectAgentAuthorizer
+	homes  home.WorkspaceViewer
 }
 
 // NewProjectStore builds a ProjectStore over the given pool and config store.
@@ -43,8 +46,18 @@ type ProjectStore struct {
 // tree when a project is first created; it may be nil (hydration is skipped).
 // agents is the Agent PEP the CRUD use cases gate on; it may be nil for the
 // runtime-only Resolve/Ensure paths (which perform no authorization).
-func NewProjectStore(db *pgxpool.Pool, store config.Store, assets *asset.Store, agents ProjectAgentAuthorizer) *ProjectStore {
-	return &ProjectStore{q: sqlc.New(db), store: store, assets: assets, agents: agents}
+type ProjectStoreOption func(*ProjectStore)
+
+func WithProjectHomeWorkspace(viewer home.WorkspaceViewer) ProjectStoreOption {
+	return func(s *ProjectStore) { s.homes = viewer }
+}
+
+func NewProjectStore(db *pgxpool.Pool, store config.Store, assets *asset.Store, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
+	s := &ProjectStore{q: sqlc.New(db), store: store, assets: assets, agents: agents}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Project is the transport-neutral view of a project row. Description is a plain
@@ -118,7 +131,7 @@ func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, ag
 		return Project{}, err
 	}
 	userID := string(authority.UserID())
-	if err := s.validateBaseDir(userID, agentID, baseDir); err != nil {
+	if err := s.validateBaseDir(ctx, userID, agentID, baseDir); err != nil {
 		return Project{}, err
 	}
 	p, err := s.q.CreateProject(ctx, sqlc.CreateProjectParams{
@@ -165,7 +178,7 @@ func (s *ProjectStore) Update(ctx context.Context, authority authz.Authority, ag
 	}
 	baseDir := existing.BaseDir
 	if in.BaseDir != nil {
-		if err := s.validateBaseDir(userID, agentID, *in.BaseDir); err != nil {
+		if err := s.validateBaseDir(ctx, userID, agentID, *in.BaseDir); err != nil {
 			return Project{}, err
 		}
 		baseDir = *in.BaseDir
@@ -221,12 +234,15 @@ func (s *ProjectStore) getOwned(ctx context.Context, userID, agentID, projectID 
 // validateBaseDir ensures the agent workspace exists and base_dir is contained in
 // it (a project is owned by the agent, #442, so it must live under the agent's
 // subdir of the user home). It resolves the process-global home once.
-func (s *ProjectStore) validateBaseDir(userID, agentID, baseDir string) error {
-	stellaHome := config.StellaHome()
-	if _, err := SetupUserWorkspace(stellaHome, userID, agentID); err != nil {
+func (s *ProjectStore) validateBaseDir(ctx context.Context, userID, agentID, baseDir string) error {
+	if s.homes == nil {
 		return ErrWorkspaceSetup
 	}
-	if err := ValidateProjectDir(baseDir, UserAgentDir(stellaHome, userID, agentID)); err != nil {
+	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
+	if err != nil {
+		return ErrWorkspaceSetup
+	}
+	if err := ValidateProjectDir(baseDir, view.AgentRoot); err != nil {
 		return ErrInvalidBaseDir
 	}
 	return nil
@@ -292,8 +308,10 @@ func (s *ProjectStore) Ensure(ctx context.Context, agentID, userID string) (stri
 	}
 	// Resolve the process-global home once so workspace setup and the project path
 	// cannot observe different generations of the mutable test seam.
-	stellaHome := config.StellaHome()
-	userHome, err := SetupUserWorkspace(stellaHome, userID, agentID)
+	if s.homes == nil {
+		return "", ErrWorkspaceSetup
+	}
+	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
 	if err != nil {
 		return "", err
 	}
@@ -304,14 +322,14 @@ func (s *ProjectStore) Ensure(ctx context.Context, agentID, userID string) (stri
 	if s.assets != nil {
 		assets := s.assets
 		go func() {
-			if err := assets.HydrateUser(context.Background(), UserAssetsDir(userHome)); err != nil {
-				slog.Warn("hydrate user assets failed", "home", userHome, "error", err)
+			if err := assets.HydrateUser(context.Background(), filepath.Join(view.DataRoot, "assets")); err != nil {
+				slog.Warn("hydrate user assets failed", "home", view.PrincipalRoot, "error", err)
 			}
 		}()
 	}
 	// The default project's working tree is the agent's private area under the
 	// user home (a project is owned by the agent, #442).
-	baseDir := UserAgentDir(stellaHome, userID, agentID)
+	baseDir := view.AgentRoot
 	p, err := s.q.CreateProject(ctx, sqlc.CreateProjectParams{
 		ID:      uuid.Must(uuid.NewV7()).String(),
 		AgentID: agentID,

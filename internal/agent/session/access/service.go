@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -44,12 +45,17 @@ type Service struct {
 	assets   *asset.Store
 	runtime  RuntimeManager
 	prompts  SystemPromptBuilder
+	homes    home.WorkspaceViewer
 }
 
 type Option func(*Service)
 
 func WithSystemPromptBuilder(builder SystemPromptBuilder) Option {
 	return func(s *Service) { s.prompts = builder }
+}
+
+func WithHomeWorkspace(viewer home.WorkspaceViewer) Option {
+	return func(s *Service) { s.homes = viewer }
 }
 
 // NewService constructs the only Session/Workspace PEP. The registry remains the

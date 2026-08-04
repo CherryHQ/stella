@@ -446,7 +446,7 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 		t.Fatal(err)
 	}
 	agentAccess := agentaccess.NewService(store, appdb.NewAuthStore(pool))
-	svc, err := NewService(mem, pool, store, assets, agentAccess)
+	svc, err := NewService(mem, pool, store, assets, agentAccess, WithHomeWorkspace(testWorkspaceViewer{}))
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

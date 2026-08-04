@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -74,6 +75,7 @@ type Coordinator struct {
 	assets               *asset.Store
 	guests               GuestStore
 	guestLimiter         *guestRateLimiter
+	homes                home.WorkspaceViewer
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -83,6 +85,10 @@ func WithGuestStore(store GuestStore) CoordinatorOption {
 
 // CoordinatorOption configures the Coordinator.
 type CoordinatorOption func(*Coordinator)
+
+func WithHomeWorkspace(viewer home.WorkspaceViewer) CoordinatorOption {
+	return func(c *Coordinator) { c.homes = viewer }
+}
 
 // WithCoordinatorAuth configures the coordinator with auth support.
 func WithCoordinatorAuth(store channelAuthStore, agentAccess *agentaccess.Service, linkCodes *auth.LinkCodeStore) CoordinatorOption {
@@ -664,18 +670,14 @@ func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.Incomi
 	if rc.GuestID != "" {
 		return "", agentaccess.ErrForbidden
 	}
-	if rc.GroupID != "" {
-		dir, err := agent.SetupGroupWorkspace(config.StellaHome(), rc.GroupID, rc.AgentID)
-		if err != nil {
-			return "", fmt.Errorf("setup group workspace: %w", err)
-		}
-		return dir, nil
+	if c.homes == nil {
+		return "", errors.New("home workspace resolver not configured")
 	}
-	userDir, err := agent.SetupUserWorkspace(config.StellaHome(), rc.User.ID, rc.AgentID)
+	view, err := c.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: rc.User.ID, GroupID: rc.GroupID, AgentID: rc.AgentID})
 	if err != nil {
-		return "", fmt.Errorf("setup user workspace: %w", err)
+		return "", fmt.Errorf("resolve Home workspace: %w", err)
 	}
-	return userDir, nil
+	return view.PrincipalRoot, nil
 }
 
 // SaveAsset persists an inbound channel attachment through the authoritative

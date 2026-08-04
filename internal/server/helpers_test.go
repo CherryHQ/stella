@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,8 +40,19 @@ import (
 
 type serverTestWorkspace struct{}
 
-func (serverTestWorkspace) WorkspaceView(context.Context, home.WorkspaceRequest) (home.WorkspaceView, error) {
-	return home.WorkspaceView{}, nil
+func (serverTestWorkspace) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
+	principal := filepath.Join(config.StellaHome(), "users", req.UserID)
+	if req.GroupID != "" {
+		principal = filepath.Join(config.StellaHome(), "users", "group-"+req.GroupID)
+	}
+	data, agentRoot := filepath.Join(principal, "data"), filepath.Join(principal, "agents", req.AgentID)
+	if err := os.MkdirAll(filepath.Join(data, "assets"), 0o755); err != nil {
+		return home.WorkspaceView{}, err
+	}
+	if err := os.MkdirAll(agentRoot, 0o755); err != nil {
+		return home.WorkspaceView{}, err
+	}
+	return home.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agentRoot}, nil
 }
 
 // testServerDeps builds a full, valid Deps mirroring what the composition root

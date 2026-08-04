@@ -321,7 +321,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
@@ -430,7 +430,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())
-	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL)
+	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL, sharepkg.WithHomeWorkspace(homeRegistry))
 
 	// MCP registration service: one instance shared by the HTTP API and the agent
 	// runtime. Built here (before StartAll) so its tool provider can be bound into
@@ -460,7 +460,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	// The agent domain owns project resolution/ensuring and tool-override
 	// fetching; the composition root passes the pool, not raw queries.
-	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess)
+	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
