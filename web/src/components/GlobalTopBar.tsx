@@ -12,6 +12,7 @@ import {
   UserCog,
 } from "lucide-react";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
+import { cn } from "@/lib/utils";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
@@ -32,7 +33,7 @@ import {
 } from "@/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { AppHeaderSlotTarget } from "@/layouts/AppHeaderSlot";
+import { AppHeaderSlotTarget, useAppHeaderLeadWidth } from "@/layouts/AppHeaderSlot";
 
 const INBOX_KIND_LABELS = {
   blocked: "inbox.kind.blocked",
@@ -60,15 +61,24 @@ function isActive(tab: AppTab, pathname: string): boolean {
 }
 
 /**
- * The app's only bar. Left: which app you are in (logo + tabs). Middle: whatever
- * the mounted shell puts there (sidebar trigger, breadcrumb, page actions) via
- * the header slot. Right: what needs you (bell), who you are (avatar menu).
+ * The app's only bar, and a projection of the columns below it.
+ *
+ * The left segment tracks the sidebar column exactly (width + border), so its
+ * right edge is the same seam the panes below share; it carries the brand and
+ * which app you are in. The right segment is the content column's header: the
+ * shell's trigger and breadcrumb at its left edge, then page actions, then the
+ * global controls (search, inbox, account) at the far right.
+ *
+ * When there is no column below (sidebar collapsed, mobile, shell-less route)
+ * the left segment falls back to its content width. That switch snaps rather
+ * than animates — CSS cannot transition to `auto` — while the sidebar slides.
  */
 export function GlobalTopBar() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const tabs = useAppTabs();
+  const leadWidth = useAppHeaderLeadWidth();
   const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
@@ -87,67 +97,79 @@ export function GlobalTopBar() {
   const activeTab = tabs.find((tab) => isActive(tab, pathname));
 
   return (
-    <header className="relative z-30 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
-      <Link to="/agents" className="flex shrink-0 items-center gap-2">
-        <img src="/stella-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
-        <span className="select-none font-serif text-xl italic tracking-tight max-lg:hidden">
-          stella
-        </span>
-      </Link>
+    <header className="relative z-30 flex h-14 shrink-0 items-center border-b border-border bg-background">
+      {/* Left segment — the sidebar column's head. Only the monogram rides here:
+          the wordmark plus both tabs do not fit 16rem, and the tabs are what
+          this column is for. */}
+      <div
+        className={cn(
+          "flex h-full shrink-0 items-center gap-1 pl-4 pr-2",
+          leadWidth && "border-r border-border",
+        )}
+        style={leadWidth ? { width: leadWidth } : undefined}
+      >
+        <Link to="/agents" aria-label="stella" className="flex shrink-0 items-center">
+          <img src="/stella-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
+        </Link>
 
-      {/* Desktop: app tabs inline. Mobile: the same set behind one menu. */}
-      {/* `secondary` is the active affordance: it reads as a filled tab in both
-          light and dark, where a ghost hover tint does not. */}
-      <nav className="ml-2 hidden items-center gap-1 sm:flex">
-        {tabs.map((tab) => (
-          <Button
-            key={tab.key}
-            variant={isActive(tab, pathname) ? "secondary" : "ghost"}
-            size="sm"
-            render={<Link to={tab.to as never} />}
+        {/* Desktop: app tabs inline. Mobile: the same set behind one menu. */}
+        {/* `secondary` is the active affordance: it reads as a filled tab in both
+            light and dark, where a ghost hover tint does not. */}
+        <nav className="ml-1 hidden min-w-0 items-center gap-1 sm:flex">
+          {tabs.map((tab) => (
+            <Button
+              key={tab.key}
+              variant={isActive(tab, pathname) ? "secondary" : "ghost"}
+              size="sm"
+              render={<Link to={tab.to as never} />}
+            >
+              {tab.label}
+            </Button>
+          ))}
+        </nav>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" size="sm" className="ml-1 sm:hidden" />}
           >
-            {tab.label}
+            {activeTab?.label ?? t("nav.agents")}
+            <ChevronDown />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" sideOffset={6}>
+            <DropdownMenuGroup>
+              {tabs.map((tab) => (
+                <DropdownMenuItem key={tab.key} render={<Link to={tab.to as never} />}>
+                  <MessagesSquare className="size-4" />
+                  {tab.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Right segment — the content column's head. The shell portals its
+          trigger, breadcrumb, page actions and the closing rule into the slot;
+          on shell-less routes the slot is empty and only the global cluster
+          shows. */}
+      <div className="flex h-full min-w-0 flex-1 items-center gap-2 pl-2 pr-4">
+        <AppHeaderSlotTarget className="flex min-w-0 flex-1 items-center gap-2" />
+
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSearchOpen(true)}
+            aria-label={t("search.open")}
+          >
+            <Search />
+            {/* Search is this cluster's one labelled anchor; below xl even that
+                yields the row to the breadcrumb. */}
+            <span className="max-xl:hidden">{t("search.open")}</span>
+            <Kbd className="max-xl:hidden">⌘K</Kbd>
           </Button>
-        ))}
-      </nav>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={<Button variant="ghost" size="sm" className="ml-1 sm:hidden" />}
-        >
-          {activeTab?.label ?? t("nav.agents")}
-          <ChevronDown />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" sideOffset={6}>
-          <DropdownMenuGroup>
-            {tabs.map((tab) => (
-              <DropdownMenuItem key={tab.key} render={<Link to={tab.to as never} />}>
-                <MessagesSquare className="size-4" />
-                {tab.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {/* Contextual region: the mounted shell portals its sidebar trigger,
-          breadcrumb, and page actions in here. Empty on shell-less routes. */}
-      <AppHeaderSlotTarget className="flex min-w-0 flex-1 items-center gap-2 pl-2" />
-
-      <div className="flex shrink-0 items-center gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setSearchOpen(true)}
-          aria-label={t("search.open")}
-        >
-          <Search />
-          {/* The middle region now competes for the same row: below xl the
-              search trigger drops to its icon so the breadcrumb keeps its width. */}
-          <span className="max-xl:hidden">{t("search.open")}</span>
-          <Kbd className="max-xl:hidden">⌘K</Kbd>
-        </Button>
-        <InboxBell />
-        <AppUserMenu />
+          <InboxBell />
+          <AppUserMenu />
+        </div>
       </div>
 
       <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />

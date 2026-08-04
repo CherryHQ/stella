@@ -41,7 +41,11 @@ Read `web/.agents/skills/coss/SKILL.md` for imports, composition, and particle e
 
 ## Layout shell
 
-One bar only: the global top bar (h-14, border-b) carries the app tabs on the left, the mounted shell's contextual content (sidebar trigger, breadcrumb, page actions) in the middle, and search/inbox/avatar on the right. Shells portal their middle content into it via `AppHeaderSlot` — never add a second header row under it. Below the bar: Sidebar (16rem desktop, 18rem mobile, 3rem collapsed icon-only, offcanvas modal on mobile) + content inset. Split-pane views use CSS `flex` with a draggable divider (not Grid), min-width constraints, and fall back to Sheet on mobile. Mobile breakpoint: `max-md` (< 768px); multi-column layouts collapse to single column.
+One bar only: the global top bar (h-14, border-b) carries the app tabs on the left, the mounted shell's contextual content (sidebar trigger, breadcrumb, page actions) in the middle, and search/inbox/avatar on the right. Shells portal their middle content into it via `AppHeaderSlot` — never add a second header row under it. Below the bar: Sidebar (16rem desktop, 18rem mobile, 3rem collapsed icon-only, offcanvas modal on mobile) + content inset.
+
+**Column projection (≥md).** The bar is the head of the columns below it, not a separate strip: its left segment tracks the sidebar column's width and border, so the seam continues straight down; its right segment is the content column's own header — trigger and breadcrumb at the column's left edge, page actions clustered at the far end. The shell owns that geometry: it publishes its live sidebar width up through `AppHeaderSlot` (`AppHeaderLeadColumn`), because the bar renders outside `SidebarProvider` and cannot read sidebar state itself. When no column exists (sidebar collapsed, mobile, shell-less route) the left segment falls back to its content width. Any new shell must publish its column the same way instead of hardcoding widths into the bar.
+
+**Cluster rhythm.** Group header controls, never run them flat: `gap-1` inside a cluster, `gap-2` plus a vertical `Separator` between clusters, page actions before global controls. One labelled anchor per cluster (the rest icon-only), and labelled actions come last within their cluster. Split-pane views use CSS `flex` with a draggable divider (not Grid), min-width constraints, and fall back to Sheet on mobile. Mobile breakpoint: `max-md` (< 768px); multi-column layouts collapse to single column.
 
 ## Overlay decision tree
 

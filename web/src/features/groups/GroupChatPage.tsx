@@ -40,12 +40,11 @@ export function GroupChatPage() {
       headerActions={
         <Button
           variant="ghost"
-          size="xs"
+          size="icon-sm"
           onClick={() => setSettingsOpen(true)}
-          className="h-7 w-7 rounded-full p-0 text-muted-foreground"
-          title={t("groups.settings")}
+          aria-label={t("groups.settings")}
         >
-          <Settings className="size-3.5" />
+          <Settings />
         </Button>
       }
     >
