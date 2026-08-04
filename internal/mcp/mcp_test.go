@@ -2,6 +2,9 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 // fakeDB is an in-memory mcp.DB for unit tests.
@@ -141,6 +145,91 @@ func TestValidateEndpointURLRejectsUnsafeTargets(t *testing.T) {
 	}
 	if err := validateEndpointURL("https://example.com/mcp"); err != nil {
 		t.Fatalf("public https endpoint rejected: %v", err)
+	}
+}
+
+type recordingRoundTripper struct{ request *http.Request }
+
+func (r *recordingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.request = req
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       http.NoBody,
+		Request:    req,
+	}, nil
+}
+
+func TestAuthRoundTripperClonesRequestBeforeAddingBearer(t *testing.T) {
+	request, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	request.Header.Set("X-Caller", "unchanged")
+	base := &recordingRoundTripper{}
+	response, err := (&authRoundTripper{base: base, bearer: "secret"}).RoundTrip(request)
+	if err != nil {
+		t.Fatalf("round trip: %v", err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
+	}
+	if base.request == request {
+		t.Fatal("outbound request must be cloned before adding authorization")
+	}
+	if got := base.request.Header.Get("Authorization"); got != "Bearer secret" {
+		t.Fatalf("outbound authorization = %q, want bearer token", got)
+	}
+	if got := request.Header.Get("Authorization"); got != "" {
+		t.Fatalf("original request authorization = %q, want unchanged", got)
+	}
+	if got := request.Header.Get("X-Caller"); got != "unchanged" {
+		t.Fatalf("original request header = %q, want unchanged", got)
+	}
+}
+
+func TestAuthRoundTripperOmitsEmptyBearer(t *testing.T) {
+	request, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	base := &recordingRoundTripper{}
+	response, err := (&authRoundTripper{base: base}).RoundTrip(request)
+	if err != nil {
+		t.Fatalf("round trip: %v", err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
+	}
+	if got := base.request.Header.Get("Authorization"); got != "" {
+		t.Fatalf("outbound authorization = %q, want none", got)
+	}
+}
+
+func TestSafeHTTPClientRedirectPolicy(t *testing.T) {
+	client := safeHTTPClient("secret")
+	first, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
+	if err != nil {
+		t.Fatalf("new first request: %v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		target  string
+		wantErr bool
+	}{
+		{name: "same origin", target: "https://EXAMPLE.COM/next"},
+		{name: "other public origin", target: "https://other.example.com/next", wantErr: true},
+		{name: "unsafe private target", target: "http://127.0.0.1/next", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target, err := http.NewRequest(http.MethodGet, tc.target, nil)
+			if err != nil {
+				t.Fatalf("new redirect request: %v", err)
+			}
+			err = client.CheckRedirect(target, []*http.Request{first})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("CheckRedirect(%q) error = %v, wantErr = %v", tc.target, err, tc.wantErr)
+			}
+		})
 	}
 }
 
@@ -364,14 +453,19 @@ func TestResolveForContextDedupPrecedence(t *testing.T) {
 }
 
 type fakeMCPClient struct {
-	tools  []*mcpsdk.Tool
-	calls  int
-	closed bool
+	tools      []*mcpsdk.Tool
+	listErr    error
+	listFn     func(context.Context) ([]*mcpsdk.Tool, error)
+	closeOnce  sync.Once
+	closeCalls atomic.Int32
+	closeCount atomic.Int32
 }
 
-func (c *fakeMCPClient) ListTools(context.Context) ([]*mcpsdk.Tool, error) {
-	c.calls++
-	return c.tools, nil
+func (c *fakeMCPClient) ListTools(ctx context.Context) ([]*mcpsdk.Tool, error) {
+	if c.listFn != nil {
+		return c.listFn(ctx)
+	}
+	return c.tools, c.listErr
 }
 
 func (c *fakeMCPClient) CallTool(context.Context, string, map[string]any) (string, error) {
@@ -379,7 +473,8 @@ func (c *fakeMCPClient) CallTool(context.Context, string, map[string]any) (strin
 }
 
 func (c *fakeMCPClient) Close() error {
-	c.closed = true
+	c.closeCalls.Add(1)
+	c.closeOnce.Do(func() { c.closeCount.Add(1) })
 	return nil
 }
 
@@ -452,6 +547,132 @@ func TestToolProviderDiscoversServersConcurrently(t *testing.T) {
 	}
 }
 
+func TestToolProviderDiscoverySharesDeadlineAndKeepsHealthyTools(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	db := newFakeDB()
+	for _, name := range []string{"connect-blocked", "list-blocked", "healthy"} {
+		db.forCtx = append(db.forCtx, sqlc.McpServer{
+			ID: name, Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: name, Url: "https://mcp.example.com",
+			Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now,
+		})
+	}
+	provider := NewToolProvider(NewService(db, newFakeVault()))
+	provider.timeout = 100 * time.Millisecond
+	provider.concurrency = 3
+
+	var deadlineCalls atomic.Int32
+	var cancelled atomic.Int32
+	checkDeadline := func(ctx context.Context) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > provider.timeout {
+			return
+		}
+		deadlineCalls.Add(1)
+	}
+	provider.connect = func(ctx context.Context, reg Registration, _ string) (mcpClient, error) {
+		checkDeadline(ctx)
+		switch reg.Name {
+		case "connect-blocked":
+			<-ctx.Done()
+			cancelled.Add(1)
+			return nil, ctx.Err()
+		case "list-blocked":
+			return &fakeMCPClient{listFn: func(ctx context.Context) ([]*mcpsdk.Tool, error) {
+				checkDeadline(ctx)
+				<-ctx.Done()
+				cancelled.Add(1)
+				return nil, ctx.Err()
+			}}, nil
+		case "healthy":
+			return &fakeMCPClient{listFn: func(ctx context.Context) ([]*mcpsdk.Tool, error) {
+				checkDeadline(ctx)
+				return []*mcpsdk.Tool{{Name: "available", InputSchema: map[string]any{"type": "object"}}}, nil
+			}}, nil
+		default:
+			return nil, errors.New("unexpected server")
+		}
+	}
+
+	results := make(chan []pkgtools.Tool, 1)
+	go func() { results <- provider.ToolsForContext(context.Background(), "u1", "a1") }()
+	timer := time.NewTimer(2 * provider.timeout)
+	defer timer.Stop()
+	select {
+	case tools := <-results:
+		if len(tools) != 1 || tools[0].Definition().Name != "mcp__healthy__available" {
+			t.Fatalf("tools = %#v, want only healthy server tool", tools)
+		}
+	case <-timer.C:
+		t.Fatal("discovery exceeded its shared deadline window")
+	}
+	if got := deadlineCalls.Load(); got != 5 {
+		t.Fatalf("connect/list deadline observations = %d, want 5", got)
+	}
+	if got := cancelled.Load(); got != 2 {
+		t.Fatalf("blocked calls observing cancellation = %d, want 2", got)
+	}
+}
+
+func TestToolProviderClosesClientWhenListToolsFails(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	db := newFakeDB()
+	db.forCtx = []sqlc.McpServer{{
+		ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "broken", Url: "https://mcp.example.com",
+		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now,
+	}}
+	client := &fakeMCPClient{listErr: errors.New("list failed")}
+	provider := NewToolProvider(NewService(db, newFakeVault()))
+	provider.connect = func(context.Context, Registration, string) (mcpClient, error) { return client, nil }
+
+	if tools := provider.ToolsForContext(context.Background(), "u1", "a1"); len(tools) != 0 {
+		t.Fatalf("tools = %d, want none after list failure", len(tools))
+	}
+	if got := client.closeCount.Load(); got != 1 {
+		t.Fatalf("failed discovery close count = %d, want 1", got)
+	}
+	if got := client.closeCalls.Load(); got != 1 {
+		t.Fatalf("failed discovery Close calls = %d, want 1", got)
+	}
+}
+
+func TestToolProviderSuccessfulDiscoveryDefersClientCloseToToolProxies(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	db := newFakeDB()
+	db.forCtx = []sqlc.McpServer{{
+		ID: "srv1", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "healthy", Url: "https://mcp.example.com",
+		Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now,
+	}}
+	client := &fakeMCPClient{tools: []*mcpsdk.Tool{
+		{Name: "one", InputSchema: map[string]any{"type": "object"}},
+		{Name: "two", InputSchema: map[string]any{"type": "object"}},
+	}}
+	provider := NewToolProvider(NewService(db, newFakeVault()))
+	provider.connect = func(context.Context, Registration, string) (mcpClient, error) { return client, nil }
+
+	tools := provider.ToolsForContext(context.Background(), "u1", "a1")
+	if len(tools) != 2 {
+		t.Fatalf("tools = %d, want 2", len(tools))
+	}
+	if got := client.closeCount.Load(); got != 0 {
+		t.Fatalf("successful discovery Close calls = %d, want 0", got)
+	}
+	for _, tool := range tools {
+		proxy, ok := tool.(*toolProxy)
+		if !ok {
+			t.Fatalf("tool proxy = %T, want *toolProxy", tool)
+		}
+		if err := proxy.Close(); err != nil {
+			t.Fatalf("close tool proxy: %v", err)
+		}
+	}
+	if got := client.closeCount.Load(); got != 1 {
+		t.Fatalf("shared client close count = %d, want 1", got)
+	}
+	if got := client.closeCalls.Load(); got != 2 {
+		t.Fatalf("shared client Close calls = %d, want 2 tool proxy closes", got)
+	}
+}
+
 func TestToolProviderSkipsCollidingToolNames(t *testing.T) {
 	now := time.Unix(100, 0).UTC()
 	db := newFakeDB()
@@ -460,8 +681,11 @@ func TestToolProviderSkipsCollidingToolNames(t *testing.T) {
 		{ID: "srv2", Scope: ScopeUser, UserID: pgnull.Text("u1"), Name: "git_hub", Url: "https://mcp.example.com", Transport: TransportStreamableHTTP, AuthType: AuthTypeNone, Enabled: true, UpdatedAt: now},
 	}
 	provider := NewToolProvider(NewService(db, newFakeVault()))
-	provider.connect = func(context.Context, Registration, string) (mcpClient, error) {
-		return &fakeMCPClient{tools: []*mcpsdk.Tool{{Name: "foo-bar", InputSchema: map[string]any{"type": "object"}}}}, nil
+	var clients sync.Map
+	provider.connect = func(_ context.Context, reg Registration, _ string) (mcpClient, error) {
+		client := &fakeMCPClient{tools: []*mcpsdk.Tool{{Name: "foo-bar", InputSchema: map[string]any{"type": "object"}}}}
+		clients.Store(reg.ID, client)
+		return client, nil
 	}
 
 	tools := provider.ToolsForContext(context.Background(), "u1", "a1")
@@ -470,6 +694,20 @@ func TestToolProviderSkipsCollidingToolNames(t *testing.T) {
 	}
 	if got := tools[0].Definition().Name; got != "mcp__git_hub__foo_bar" {
 		t.Fatalf("tool name = %q", got)
+	}
+	retained, retainedOK := clients.Load("srv1")
+	shadowed, shadowedOK := clients.Load("srv2")
+	if !retainedOK || !shadowedOK {
+		t.Fatalf("connected clients missing: retained=%v shadowed=%v", retainedOK, shadowedOK)
+	}
+	if got := retained.(*fakeMCPClient).closeCount.Load(); got != 0 {
+		t.Fatalf("retained server close count = %d, want 0 before registry teardown", got)
+	}
+	if got := shadowed.(*fakeMCPClient).closeCount.Load(); got != 1 {
+		t.Fatalf("fully shadowed server close count = %d, want 1", got)
+	}
+	if err := tools[0].(*toolProxy).Close(); err != nil {
+		t.Fatalf("close retained proxy: %v", err)
 	}
 }
 
