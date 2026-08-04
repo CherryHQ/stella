@@ -154,6 +154,15 @@ PY
 description = "Download the embedded PostgreSQL runtime used by tests and local server runs"
 run = "go run ./cmd/stellad postgres download-runtime"
 
+[tasks."build:web"]
+description = "Build the SPA into web/static/dist, which the Go binary embeds"
+# tsc imports web/src/lib/api-client, which is generated and gitignored, so the
+# build needs the SDK before it can typecheck anything. The Dockerfile runs
+# openapi-ts for the same reason; GoReleaser gets it from `mise run generate`.
+depends = ["generate:ts-sdk"]
+dir = "web"
+run = "pnpm install --frozen-lockfile && pnpm build"
+
 [tasks.test]
 description = "Run all tests"
 depends = ["pg:runtime:download"]
@@ -255,7 +264,12 @@ run = """
 set -e
 mise run format
 mise run build
-mise run test
+# The SPA must exist before `test` compiles the test binaries: go:embed
+# snapshots web/static/dist at compile time, and STELLA_TEST_REQUIRE_SPA makes
+# the PWA build contract a failure instead of a skip. A stale dist here is what
+# caught the missing service worker during the v0.61.0 release.
+mise run build:web
+STELLA_TEST_REQUIRE_SPA=1 mise run test
 mise run system-test
 mise run release:check
 mise run release:snapshot
