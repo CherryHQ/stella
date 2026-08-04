@@ -11,15 +11,56 @@ icon: History
 
 ## [Unreleased]
 
-> **重大变更：** Webhook 现在是个人调用资源，使用一次性能力 URL。在设置中创建或轮换自己的 Webhook，并让调用方使用该 URL，且不发送 `Authorization` 请求头。旧的 `POST /webhooks/<channel-id>` 路由已不可用。([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+## [0.61.0] - 2026-08-04
+
+### ⚠️ 重大变更
+
+- Webhook 现在是个人调用资源，使用一次性能力 URL。在设置中创建或轮换自己的 Webhook，并让调用方使用该 URL，且不发送 `Authorization` 请求头。旧的 `POST /webhooks/<channel-id>` 路由已不可用。([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+- 沙箱：`STELLA_SANDBOX_BACKEND` 成为选择沙箱后端的唯一方式，`/settings/sandbox` 页面已移除。请在部署时设置该环境变量。([#851](https://github.com/CherryHQ/stella/pull/851), [#850](https://github.com/CherryHQ/stella/issues/850))
+- 飞书：`lark-cli` 变为普通的用户自管理 CLI。Stella 仍负责安装和更新二进制，但不再配置应用或注入凭证——每位用户需自行授权一次。([#807](https://github.com/CherryHQ/stella/pull/807))
 
 ### ✨ 新功能
 
+- 渠道：`/new` 不再等同于 `/compact`，而是真正开启新会话。私聊会话以事务方式轮换，群聊和私有渠道通过持久绑定解析会话，旧会话保留历史，新会话干净开始。([#798](https://github.com/CherryHQ/stella/pull/798), [#799](https://github.com/CherryHQ/stella/pull/799), [#797](https://github.com/CherryHQ/stella/pull/797), [#794](https://github.com/CherryHQ/stella/issues/794))
+- 多模态：会话图片只存储一次，作为用户所有的持久媒体，并附带 OCR 与场景描述基线。仅当前轮次新引入的图片会以像素形式发送，且只发给显式声明支持图片输入的模型。([#803](https://github.com/CherryHQ/stella/pull/803), [#788](https://github.com/CherryHQ/stella/issues/788))
+- Webhook：个人 Webhook 资源，具备一次性能力 URL、Agent 绑定、超时上限、轮换与撤销。([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+- Agent：可为每个 Agent 配置不同的 provider API Key，同时沿用全局 provider 的地址、类型和模型列表。([#849](https://github.com/CherryHQ/stella/pull/849), [#844](https://github.com/CherryHQ/stella/issues/844))
+- 沙箱：local、Docker 和 none 后端统一文件系统契约——`$HOME` 是每个 Agent 的持久私有工作区，`$STELLA_ASSETS_DIR` 存放用户与群组共享的上传文件和交付物。([#810](https://github.com/CherryHQ/stella/pull/810), [#809](https://github.com/CherryHQ/stella/issues/809))
+- Web UI：会话文件面板重做为单一文件树，包含 **工作区** 和 **共享** 两个根目录，支持隐藏文件过滤、单击打开，以及新建、重命名、分享、下载、删除的完整右键菜单。([#815](https://github.com/CherryHQ/stella/pull/815), [#814](https://github.com/CherryHQ/stella/issues/814))
 - Web UI：可以安装为应用。新增带离线应用外壳的 Service Worker、iOS 独立窗口支持，以及服务端升级到新构建后的刷新提示。([#853](https://github.com/CherryHQ/stella/pull/853), [#846](https://github.com/CherryHQ/stella/issues/846))
+- 飞书：将 `lark-cli` 的配置和数据目录持久化到用户的共享沙箱目录，一次配置即可在该用户的所有 Agent 工作区中使用。([#807](https://github.com/CherryHQ/stella/pull/807))
+- Reflect：为每次提交的 Fact 和 Skill 变更记录来源——候选、评估与协调决策。([#778](https://github.com/CherryHQ/stella/pull/778))
+
+### ⚡ 性能
+
+- Web UI：聊天渲染不再逐 token 重渲染，并新增可复现的性能测量工具，覆盖长历史加载、流式帧时间和每次按键开销。([#824](https://github.com/CherryHQ/stella/pull/824), [#823](https://github.com/CherryHQ/stella/issues/823))
+
+### 🐛 修复
+
+- OpenAI：修复 SSE 流在返回任何模型输出前挂起的问题。([#813](https://github.com/CherryHQ/stella/pull/813))
+- 工具：将 xberg 升级到 v1.0.4，其 CLI 安装校验不再每次启动都失败。([#820](https://github.com/CherryHQ/stella/pull/820), [#819](https://github.com/CherryHQ/stella/issues/819))
+- Web UI：渲染期间被删除的工作区路径现在返回 404 而非 500。([#815](https://github.com/CherryHQ/stella/pull/815))
+- 测试：回收测试异常终止后残留的内嵌 PostgreSQL 目录。([#777](https://github.com/CherryHQ/stella/pull/777), [#772](https://github.com/CherryHQ/stella/issues/772))
 
 ### ♻️ 重构
 
-- Webhook：以绑定所有者的能力端点替换令牌认证路由，其一次性 URL 是唯一凭证，可在 Web UI 中轮换与撤销。([#825](https://github.com/CherryHQ/stella/pull/825))
+- 沙箱：将后端选择改为部署期环境变量决定，移除数据库中的插件开关。([#851](https://github.com/CherryHQ/stella/pull/851), [#850](https://github.com/CherryHQ/stella/issues/850))
+
+### 🔧 CI
+
+- 发布：在 GoReleaser 和 Docker 发布任务启动前，先对打标签的确切 commit 执行源码、Go/Web、系统和发布检查。([#840](https://github.com/CherryHQ/stella/pull/840), [#834](https://github.com/CherryHQ/stella/issues/834))
+
+### 📦 依赖
+
+- 将内置 mise 升级到 2026.7.18，并刷新内置工具的固定版本。([#822](https://github.com/CherryHQ/stella/pull/822), [#821](https://github.com/CherryHQ/stella/issues/821))
+
+### 📝 文档
+
+- Webhook：说明如何将 GitHub 仓库 Webhook 直接配置到通用能力 URL。([#826](https://github.com/CherryHQ/stella/pull/826))
+- 项目跟踪：确立飞书规划 + GitHub 执行的工作流，新增 Issue 表单和 PR 模板，并补充可机读的飞书坐标。([#848](https://github.com/CherryHQ/stella/pull/848), [#854](https://github.com/CherryHQ/stella/pull/854), [#852](https://github.com/CherryHQ/stella/issues/852))
+- 市场：将营销规则和文档首页重新定位到自托管数字员工。([#796](https://github.com/CherryHQ/stella/pull/796))
+
+**完整变更记录**：[v0.60.4...v0.61.0](https://github.com/CherryHQ/stella/compare/v0.60.4...v0.61.0)
 
 ## [0.60.4] - 2026-07-28
 
