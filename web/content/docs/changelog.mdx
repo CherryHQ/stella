@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Breaking:** Webhooks are now personal invocation resources with one-time capability URLs. Create or rotate your own webhook in Settings, then update callers to use that URL without an `Authorization` header. The old `POST /webhooks/<channel-id>` route is unavailable. ([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
 
+### ✨ Features
+
+- Web UI: install it as an app. Adds a service worker with an offline app shell, iOS standalone support, and a prompt to reload once the server moves to a newer build. ([#853](https://github.com/CherryHQ/stella/pull/853), [#846](https://github.com/CherryHQ/stella/issues/846))
+
 ### ♻️ Refactoring
 
 - Webhook: add personal invocation resources with one-time capability URLs, rotation, and revocation. ([#825](https://github.com/CherryHQ/stella/pull/825))

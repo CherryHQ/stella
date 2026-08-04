@@ -93,6 +93,12 @@ function cacheFirst(event) {
 // Network-first so a server upgrade lands on the next load. Every SPA route
 // returns the same document, so any successful navigation refreshes the
 // offline shell.
+//
+// Deliberate ceiling: no timeout. On a connection that is degraded rather than
+// dead the navigation waits on the network instead of falling back to the
+// cached shell. Add a race against a timer if that becomes the common
+// complaint; a timeout that fires too eagerly serves a stale shell to someone
+// who was about to get the real page.
 function shellNetworkFirst(event) {
   return self
     .fetch(event.request)

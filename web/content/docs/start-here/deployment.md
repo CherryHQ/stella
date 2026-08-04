@@ -103,6 +103,10 @@ instead of a browser error page when you launch it offline. Talking to your agen
 still needs the server, so anything beyond the interface itself waits for the
 connection to return.
 
+When you upgrade Stella, any app or tab left open offers to reload so it picks up
+the new version. You can dismiss the prompt and keep working; it comes back the
+next time you upgrade.
+
 Browsers only allow installation on a secure origin. If you reach Stella over
 plain `http://` on a LAN address, no install option appears and the app stays a
 normal browser tab. Put Stella behind HTTPS — see
