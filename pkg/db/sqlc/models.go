@@ -1005,6 +1005,40 @@ type SkillUsage struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+type StorageHome struct {
+	ID               string             `json:"id"`
+	HomeKind         string             `json:"home_kind"`
+	PrincipalKind    pgtype.Text        `json:"principal_kind"`
+	PrincipalID      pgtype.Text        `json:"principal_id"`
+	AgentID          pgtype.Text        `json:"agent_id"`
+	StoreID          string             `json:"store_id"`
+	Locator          string             `json:"locator"`
+	State            string             `json:"state"`
+	MaintenanceOwner pgtype.Text        `json:"maintenance_owner"`
+	MaintenanceUntil pgtype.Timestamptz `json:"maintenance_until"`
+	TombstonedAt     pgtype.Timestamptz `json:"tombstoned_at"`
+	TombstonedBy     pgtype.Text        `json:"tombstoned_by"`
+	PurgeAttempts    int32              `json:"purge_attempts"`
+	PurgeRequestedAt pgtype.Timestamptz `json:"purge_requested_at"`
+	PurgeStartedAt   pgtype.Timestamptz `json:"purge_started_at"`
+	PurgeFailedAt    pgtype.Timestamptz `json:"purge_failed_at"`
+	LastPurgeError   pgtype.Text        `json:"last_purge_error"`
+	PurgedAt         pgtype.Timestamptz `json:"purged_at"`
+	PurgedBy         pgtype.Text        `json:"purged_by"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+type StorageMigration struct {
+	Name                      string             `json:"name"`
+	State                     string             `json:"state"`
+	ObjectAuthorityConfigured bool               `json:"object_authority_configured"`
+	Metadata                  json.RawMessage    `json:"metadata"`
+	CompletedAt               pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	UpdatedAt                 time.Time          `json:"updated_at"`
+}
+
 type ToolOverride struct {
 	ID        string      `json:"id"`
 	ToolName  string      `json:"tool_name"`
