@@ -114,6 +114,13 @@ type LibraryFile struct {
 	UpdatedAt        time.Time
 }
 
+// ListCursor is the stable position after one management-list item.
+// HTTP keeps its serialized form opaque and binds it to the authorized query.
+type ListCursor struct {
+	CreatedAt time.Time
+	ID        string
+}
+
 // Quota describes current usage and the fixed limit of one logical quota pool.
 type Quota struct {
 	UsedFiles int64

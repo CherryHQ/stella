@@ -6,7 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useSidebar } from "@/components/ui/sidebar";
 import { AppShell } from "@/layouts/AppShell";
-import { KeyRound, Webhook as WebhookIcon } from "lucide-react";
+import { KeyRound, Library, Webhook as WebhookIcon } from "lucide-react";
 
 const settingsNav: {
   section: string;
@@ -154,6 +154,13 @@ const settingsNav: {
             />
           </svg>
         ),
+      },
+      {
+        id: "library",
+        label: "settings.nav.library",
+        href: "/settings/library",
+        adminOnly: false,
+        icon: <Library className="size-4 shrink-0 opacity-50 group-[.active]/item:opacity-80" />,
       },
       {
         id: "skills",

@@ -2111,6 +2111,96 @@ components:
         next_page_token:
           type: string
           nullable: true
+    LibraryFileScope:
+      type: string
+      enum: [system, system_agent, user, user_agent]
+    LibraryFileStatus:
+      type: string
+      enum: [processing, ready, failed]
+    LibraryFile:
+      type: object
+      required:
+        - id
+        - scope
+        - file_name
+        - media_type
+        - size_bytes
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        scope:
+          $ref: "#/components/schemas/LibraryFileScope"
+        agent_id:
+          type: string
+          nullable: true
+          readOnly: true
+        file_name:
+          type: string
+          readOnly: true
+        media_type:
+          type: string
+          readOnly: true
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+        status:
+          $ref: "#/components/schemas/LibraryFileStatus"
+        error_message:
+          type: string
+          nullable: true
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    LibraryQuota:
+      type: object
+      required: [used_files, max_files, used_bytes, max_bytes]
+      properties:
+        used_files:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+        max_files:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+        used_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+        max_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          readOnly: true
+    LibraryFileList:
+      type: object
+      required: [library_files, quota]
+      properties:
+        library_files:
+          type: array
+          items:
+            $ref: "#/components/schemas/LibraryFile"
+        next_page_token:
+          type: string
+          nullable: true
+        quota:
+          $ref: "#/components/schemas/LibraryQuota"
     MCPServer:
       type: object
       required: [id, scope, name, url, transport, auth_type, enabled]

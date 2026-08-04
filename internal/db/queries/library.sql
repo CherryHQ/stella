@@ -40,6 +40,41 @@ FROM library_file
 WHERE id = sqlc.arg('id')
   AND deleted_at IS NULL;
 
+-- name: ListManagedLibraryFiles :many
+SELECT
+    id,
+    scope,
+    user_id,
+    agent_id,
+    file_name,
+    media_type,
+    size_bytes,
+    raw_sha256,
+    status,
+    error_message,
+    active_chunk_set_id,
+    deleted_at,
+    created_at,
+    updated_at
+FROM library_file
+WHERE scope = sqlc.arg('scope')
+  AND user_id IS NOT DISTINCT FROM sqlc.narg('user_id')
+  AND agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+  AND deleted_at IS NULL
+  AND (
+    sqlc.arg('query')::text = ''
+    OR strpos(lower(file_name), lower(sqlc.arg('query')::text)) > 0
+  )
+  AND (
+    sqlc.narg('cursor_created_at')::timestamptz IS NULL
+    OR (created_at, id) < (
+      sqlc.narg('cursor_created_at')::timestamptz,
+      sqlc.narg('cursor_id')::uuid
+    )
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit');
+
 -- name: LockLibraryFileLifecycle :one
 SELECT
     id,

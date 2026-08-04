@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import {
   Brain,
   ChevronRight,
+  Library,
   ListTodo,
   MessageCircle,
   Puzzle,
@@ -176,6 +177,7 @@ export function ProfilePage() {
           <TabsPanel value="overview" className="pt-4">
             <OverviewTab
               agentId={agentId}
+              agentName={title}
               projectId={projectId}
               facts={
                 agent && !projectId
@@ -292,6 +294,7 @@ interface Fact {
  */
 function OverviewTab({
   agentId,
+  agentName,
   projectId,
   facts,
   memoryUpdatedAt,
@@ -299,6 +302,7 @@ function OverviewTab({
   onSelectTab,
 }: {
   agentId: string;
+  agentName: string;
   projectId?: string;
   facts: Fact[];
   memoryUpdatedAt?: string;
@@ -365,6 +369,15 @@ function OverviewTab({
             detail={t("profile.channelsDesc")}
             onClick={() => onSelectTab("channels")}
           />
+        )}
+        {!projectId && (
+          <Link to="/agents/$agentId/library" params={{ agentId }} className={SUMMARY_CARD_CLS}>
+            <SummaryCardBody
+              icon={<Library size={16} />}
+              title={t("library.title")}
+              detail={t("library.description.userAgent", { agent: agentName })}
+            />
+          </Link>
         )}
         {!projectId && (
           <Link to="/agents/$agentId/goals" params={{ agentId }} className={SUMMARY_CARD_CLS}>

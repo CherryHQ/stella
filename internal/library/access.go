@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // ResolveManageOwner authorizes a scope-keyed management operation and returns
@@ -94,6 +98,59 @@ func (s *Service) GetManaged(
 		return LibraryFile{}, ErrNotFound
 	}
 	return file, nil
+}
+
+// ListManaged returns files owned by the exact authorized scope tuple together
+// with its authoritative logical quota. Callers fetch limit+1 rows to determine
+// whether another page exists. Personal scopes intentionally share one quota.
+func (s *Service) ListManaged(
+	ctx context.Context,
+	authority authz.Authority,
+	scope Scope,
+	agentID string,
+	query string,
+	limit int32,
+	cursor *ListCursor,
+) ([]LibraryFile, Quota, error) {
+	owner, err := s.ResolveManageOwner(ctx, authority, scope, agentID)
+	if err != nil {
+		return nil, Quota{}, err
+	}
+	if s == nil || s.q == nil {
+		return nil, Quota{}, ErrServiceUnavailable
+	}
+	if limit < 1 {
+		return nil, Quota{}, fmt.Errorf("%w: list limit must be positive", ErrInvalidFile)
+	}
+
+	params := sqlc.ListManagedLibraryFilesParams{
+		Scope:   string(owner.Scope),
+		UserID:  nullableText(owner.UserID),
+		AgentID: nullableText(owner.AgentID),
+		Query:   strings.TrimSpace(query),
+		Limit:   limit,
+	}
+	if cursor != nil {
+		if cursor.CreatedAt.IsZero() || cursor.ID == "" {
+			return nil, Quota{}, fmt.Errorf("%w: incomplete list cursor", ErrInvalidFile)
+		}
+		params.CursorCreatedAt = pgtype.Timestamptz{Time: cursor.CreatedAt.UTC(), Valid: true}
+		params.CursorID = nullableText(cursor.ID)
+	}
+
+	rows, err := s.q.ListManagedLibraryFiles(ctx, params)
+	if err != nil {
+		return nil, Quota{}, fmt.Errorf("list managed Library files: %w", err)
+	}
+	files := make([]LibraryFile, len(rows))
+	for i, row := range rows {
+		files[i] = fileFromListRow(row)
+	}
+	quota, err := quotaForOwner(ctx, s.q, owner)
+	if err != nil {
+		return nil, Quota{}, err
+	}
+	return files, quota, nil
 }
 
 func libraryAgentAccessError(err error) error {

@@ -1,0 +1,141 @@
+paths:
+  /api/library-files:
+    get:
+      tags: [library-files]
+      summary: List files in one authorized Library scope
+      operationId: listLibraryFiles
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [system, system_agent, user, user_agent]
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string, minLength: 1 }
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 200 }
+        - name: page_size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: page_token
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/LibraryFileList",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    post:
+      tags: [library-files]
+      summary: Upload one immutable file into an authorized Library scope
+      operationId: createLibraryFile
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [system, system_agent, user, user_agent]
+        - name: agent_id
+          in: query
+          required: false
+          schema: { type: string, minLength: 1 }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: accepted for asynchronous processing
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/LibraryFile",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "413":
+          description: file exceeds the supported upload size
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+        "429":
+          description: logical Library quota exceeded
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+
+  /api/library-files/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [library-files]
+      summary: Get one authorized Library file
+      operationId: getLibraryFile
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/LibraryFile",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }
+    delete:
+      tags: [library-files]
+      summary: Delete one authorized Library file
+      operationId: deleteLibraryFile
+      responses:
+        "204": { description: deleted }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "503": {
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
+        }

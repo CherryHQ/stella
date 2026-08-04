@@ -48,6 +48,7 @@ tags:
   - name: shares
   - name: agents
   - name: skills
+  - name: library-files
   - name: mcp
   - name: clawhub
   - name: users
@@ -132,6 +133,10 @@ paths:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}"
   /api/skills/{id}/file:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}~1file"
+  /api/library-files:
+    $ref: "./domain/library/paths.yaml#/paths/~1api~1library-files"
+  /api/library-files/{id}:
+    $ref: "./domain/library/paths.yaml#/paths/~1api~1library-files~1{id}"
   # ── MCP ────────────────────────────────────────────────────────────────────
   /api/mcp/servers:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers"

@@ -491,6 +491,95 @@ func (q *Queries) ListLibraryTombstone(ctx context.Context, limit int32) ([]List
 	return items, nil
 }
 
+const listManagedLibraryFiles = `-- name: ListManagedLibraryFiles :many
+SELECT
+    id,
+    scope,
+    user_id,
+    agent_id,
+    file_name,
+    media_type,
+    size_bytes,
+    raw_sha256,
+    status,
+    error_message,
+    active_chunk_set_id,
+    deleted_at,
+    created_at,
+    updated_at
+FROM library_file
+WHERE scope = $1
+  AND user_id IS NOT DISTINCT FROM $2
+  AND agent_id IS NOT DISTINCT FROM $3
+  AND deleted_at IS NULL
+  AND (
+    $4::text = ''
+    OR strpos(lower(file_name), lower($4::text)) > 0
+  )
+  AND (
+    $5::timestamptz IS NULL
+    OR (created_at, id) < (
+      $5::timestamptz,
+      $6::uuid
+    )
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT $7
+`
+
+type ListManagedLibraryFilesParams struct {
+	Scope           string             `json:"scope"`
+	UserID          pgtype.Text        `json:"user_id"`
+	AgentID         pgtype.Text        `json:"agent_id"`
+	Query           string             `json:"query"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        pgtype.Text        `json:"cursor_id"`
+	Limit           int32              `json:"limit"`
+}
+
+func (q *Queries) ListManagedLibraryFiles(ctx context.Context, arg ListManagedLibraryFilesParams) ([]LibraryFile, error) {
+	rows, err := q.db.Query(ctx, listManagedLibraryFiles,
+		arg.Scope,
+		arg.UserID,
+		arg.AgentID,
+		arg.Query,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LibraryFile{}
+	for rows.Next() {
+		var i LibraryFile
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.FileName,
+			&i.MediaType,
+			&i.SizeBytes,
+			&i.RawSha256,
+			&i.Status,
+			&i.ErrorMessage,
+			&i.ActiveChunkSetID,
+			&i.DeletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStaleLibraryDerivation = `-- name: ListStaleLibraryDerivation :many
 SELECT
   f.id,

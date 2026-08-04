@@ -458,6 +458,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Goal:                s.goalSvc,
 		Workflow:            s.workflowSvc,
 		Provisioning:        provisioningSvc,
+		Library:             s.librarySvc,
 		OIDC: server.OIDCDeps{
 			Providers:  oidcResult.Providers,
 			AuthSvc:    oidcResult.AuthSvc,
