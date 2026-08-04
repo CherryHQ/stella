@@ -156,9 +156,11 @@ run = "go run ./cmd/stellad postgres download-runtime"
 
 [tasks."build:web"]
 description = "Build the SPA into web/static/dist, which the Go binary embeds"
+# tsc imports web/src/lib/api-client, which is generated and gitignored, so the
+# build needs the SDK before it can typecheck anything. The Dockerfile runs
+# openapi-ts for the same reason; GoReleaser gets it from `mise run generate`.
+depends = ["generate:ts-sdk"]
 dir = "web"
-# Same command GoReleaser's before-hook and the Dockerfile run, so the three
-# build paths cannot drift.
 run = "pnpm install --frozen-lockfile && pnpm build"
 
 [tasks.test]
