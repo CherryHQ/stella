@@ -3,7 +3,6 @@ package local
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -86,9 +85,6 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 // available, the args include --dir /workspace, --bind <realRoot> /workspace,
 // and --chdir <sandboxCwd>.
 func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
 	skipIfBwrapNotFunctional(t)
 
 	rawRoot := t.TempDir()
@@ -153,9 +149,6 @@ func TestAppendResolvedFileMount_mountsSymlinkTarget(t *testing.T) {
 }
 
 func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
 	skipIfBwrapNotFunctional(t)
 
 	root := "/tmp/test-workspace"
@@ -244,9 +237,6 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 // on Linux — it lives under /user — but the mechanism still backs macOS and any
 // future out-of-root writable.)
 func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
 	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
@@ -291,9 +281,6 @@ func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 // writable via the realRoot -> /workspace bind, and a second bind would only
 // re-expose the host path.
 func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
 	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
@@ -332,9 +319,6 @@ func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 // under the STELLA_HOME tree: the /user bind already makes it writable, and a
 // second bind would re-expose the host path to the agent.
 func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
 	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
@@ -374,9 +358,6 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 // /user, with NO sibling-hiding tmpfs — isolation is by non-mounting, since the
 // workspace IS the per-agent dir and siblings are never exposed.
 func TestWrapCommand_linux_twoRoots(t *testing.T) {
-	if _, err := exec.LookPath("bwrap"); err != nil {
-		t.Skip("bwrap not installed")
-	}
 	skipIfBwrapNotFunctional(t)
 
 	agentDir := "/tmp/test-workspace/users/u1/agents/a1"
