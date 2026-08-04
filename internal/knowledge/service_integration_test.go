@@ -199,7 +199,7 @@ func TestRawStoreIOCompletesBeforeDatabaseTransactionBegins(t *testing.T) {
 		t.Fatal(err)
 	}
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: blocking, River: client,
+		DB: database, RawStore: blocking, Parser: staticKnowledgeParser{}, River: client,
 		TempDir: t.TempDir(), MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
 	if err != nil {
@@ -591,6 +591,7 @@ func newSnapshotServiceWithConfig(
 	}
 	config.DB = database
 	config.River = client
+	config.Parser = staticKnowledgeParser{}
 	config.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	config.TempDir = t.TempDir()
 	config.MaxConcurrentUploads = 4
@@ -600,6 +601,12 @@ func newSnapshotServiceWithConfig(
 		t.Fatal(err)
 	}
 	return service
+}
+
+type staticKnowledgeParser struct{}
+
+func (staticKnowledgeParser) Parse(context.Context, string, string) ([]ParsedChunk, error) {
+	return []ParsedChunk{{Content: "test knowledge"}}, nil
 }
 
 func testAuthority(t *testing.T, userID string, admin bool) authz.Authority {

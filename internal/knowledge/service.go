@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,13 +29,29 @@ const (
 	defaultSnapshotCommitTimeout    = 30 * time.Second
 	defaultDatabaseStatementTimeout = 20 * time.Second
 	defaultDatabaseLockTimeout      = 10 * time.Second
+	defaultReconciliationInterval   = 5 * time.Minute
+	defaultStaleDerivationAfter     = 15 * time.Minute
+	defaultOrphanMinAge             = 10 * time.Minute
+	defaultMaxClockSkew             = time.Minute
+	defaultOrphanSafetyMargin       = time.Minute
+	defaultKnowledgeWorkers         = 2
 )
 
-// ServiceConfig contains only the storage-core dependencies. The service is
-// intentionally not composed into stellad until the chunk worker is delivered.
+// Parser is the bounded document parser used by the asynchronous chunk worker.
+type Parser interface {
+	Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error)
+}
+
+type parserAvailability interface {
+	Available(context.Context) error
+}
+
+// ServiceConfig contains the internal Knowledge ingestion and lifecycle
+// dependencies. Public management and retrieval surfaces are composed later.
 type ServiceConfig struct {
 	DB                       *pgxpool.Pool
 	RawStore                 RawStore
+	Parser                   Parser
 	River                    *river.Client[pgx.Tx]
 	Logger                   *slog.Logger
 	TempDir                  string
@@ -44,6 +61,12 @@ type ServiceConfig struct {
 	SnapshotCommitTimeout    time.Duration
 	DatabaseStatementTimeout time.Duration
 	DatabaseLockTimeout      time.Duration
+	ReconciliationInterval   time.Duration
+	StaleDerivationAfter     time.Duration
+	OrphanMinAge             time.Duration
+	MaxClockSkew             time.Duration
+	OrphanSafetyMargin       time.Duration
+	MaxWorkers               int
 }
 
 // Service owns authorization, bounded acquisition, immutable raw publication,
@@ -52,7 +75,7 @@ type Service struct {
 	db          *pgxpool.Pool
 	q           *sqlc.Queries
 	rawStore    RawStore
-	river       *river.Client[pgx.Tx]
+	parser      Parser
 	logger      *slog.Logger
 	tempDir     string
 	spool       *spoolBudget
@@ -61,6 +84,16 @@ type Service struct {
 	snapshotCommitTimeout    time.Duration
 	databaseStatementTimeout time.Duration
 	databaseLockTimeout      time.Duration
+	reconciliationInterval   time.Duration
+	staleDerivationAfter     time.Duration
+	orphanMinAge             time.Duration
+	maxWorkers               int
+
+	// mu guards the one-shot River bind and periodic lifecycle. It is never held
+	// while calling River or performing storage/database IO.
+	mu      sync.Mutex
+	river   *river.Client[pgx.Tx]
+	started bool
 
 	// commitTx is replaceable only by same-package fault tests so they can model
 	// a successful commit whose acknowledgement is lost.
@@ -74,8 +107,8 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if config.RawStore == nil {
 		return nil, fmt.Errorf("knowledge RawStore is required")
 	}
-	if config.River == nil {
-		return nil, fmt.Errorf("knowledge River client is required")
+	if config.Parser == nil {
+		return nil, fmt.Errorf("knowledge parser is required")
 	}
 	budget, err := newSpoolBudget(config.MaxConcurrentUploads, config.MaxSpoolBytes)
 	if err != nil {
@@ -98,10 +131,26 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if lockTimeout > statementTimeout {
 		return nil, fmt.Errorf("knowledge database lock timeout must not exceed statement timeout")
 	}
+	maxClockSkew := defaultDuration(config.MaxClockSkew, defaultMaxClockSkew)
+	orphanSafetyMargin := defaultDuration(config.OrphanSafetyMargin, defaultOrphanSafetyMargin)
+	orphanMinAge := defaultDuration(config.OrphanMinAge, defaultOrphanMinAge)
+	minimumOrphanAge := snapshotCommitTimeout + maxClockSkew + orphanSafetyMargin
+	if orphanMinAge <= minimumOrphanAge {
+		return nil, fmt.Errorf(
+			"knowledge orphan minimum age %s must be greater than commit window plus skew and safety margin %s",
+			orphanMinAge,
+			minimumOrphanAge,
+		)
+	}
+	maxWorkers := config.MaxWorkers
+	if maxWorkers <= 0 {
+		maxWorkers = defaultKnowledgeWorkers
+	}
 	service := &Service{
 		db:                       config.DB,
 		q:                        sqlc.New(config.DB),
 		rawStore:                 config.RawStore,
+		parser:                   config.Parser,
 		river:                    config.River,
 		logger:                   logger,
 		tempDir:                  tempDir,
@@ -110,6 +159,10 @@ func NewService(config ServiceConfig) (*Service, error) {
 		snapshotCommitTimeout:    snapshotCommitTimeout,
 		databaseStatementTimeout: statementTimeout,
 		databaseLockTimeout:      lockTimeout,
+		reconciliationInterval:   defaultDuration(config.ReconciliationInterval, defaultReconciliationInterval),
+		staleDerivationAfter:     defaultDuration(config.StaleDerivationAfter, defaultStaleDerivationAfter),
+		orphanMinAge:             orphanMinAge,
+		maxWorkers:               maxWorkers,
 	}
 	service.commitTx = func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) }
 	return service, nil
@@ -120,6 +173,34 @@ func defaultDuration(value, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return value
+}
+
+// BindRiverClient injects the single shared working River client. Tests may
+// still supply an insert-only client in ServiceConfig; production binds once
+// before the client starts.
+func (s *Service) BindRiverClient(client *river.Client[pgx.Tx]) error {
+	if client == nil {
+		return fmt.Errorf("knowledge: BindRiverClient requires a non-nil client")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started {
+		return fmt.Errorf("knowledge: BindRiverClient after reconciliation start")
+	}
+	if s.river != nil {
+		return fmt.Errorf("knowledge: River client already bound")
+	}
+	s.river = client
+	return nil
+}
+
+func (s *Service) riverClient() *river.Client[pgx.Tx] {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.river
 }
 
 // CreateManagedUpload is the upload acquisition boundary. Scope and Agent
@@ -136,6 +217,12 @@ func (s *Service) CreateManagedUpload(
 	if err != nil {
 		return File{}, err
 	}
+	if availability, ok := s.parser.(parserAvailability); ok {
+		if err := availability.Available(ctx); err != nil {
+			s.logger.Warn("knowledge parser is unavailable", "error", err)
+			return File{}, ErrServiceUnavailable
+		}
+	}
 	return s.createSnapshot(ctx, owner, fileName, source)
 }
 
@@ -145,7 +232,11 @@ func (s *Service) createSnapshot(
 	fileName string,
 	source io.Reader,
 ) (File, error) {
-	if s == nil || s.db == nil || s.rawStore == nil || s.river == nil || s.spool == nil {
+	if s == nil || s.db == nil || s.rawStore == nil || s.parser == nil || s.spool == nil {
+		return File{}, ErrServiceUnavailable
+	}
+	riverClient := s.riverClient()
+	if riverClient == nil {
 		return File{}, ErrServiceUnavailable
 	}
 	if err := owner.Validate(); err != nil {
@@ -193,7 +284,7 @@ func (s *Service) createSnapshot(
 		s.logger.Warn("prepared knowledge upload close failed", "file_id", fileID, "error", closeErr)
 	}
 
-	file, commitAttempted, err := s.commitSnapshot(snapshotContext, fileID, owner, prepared)
+	file, commitAttempted, err := s.commitSnapshot(snapshotContext, riverClient, fileID, owner, prepared)
 	if err == nil {
 		return file, nil
 	}
@@ -218,6 +309,7 @@ func (s *Service) createSnapshot(
 
 func (s *Service) commitSnapshot(
 	ctx context.Context,
+	riverClient *river.Client[pgx.Tx],
 	fileID string,
 	owner Owner,
 	prepared *preparedUpload,
@@ -227,6 +319,7 @@ func (s *Service) commitSnapshot(
 		return File{}, false, fmt.Errorf("begin knowledge snapshot commit: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+
 	if err := queries.LockKnowledgeQuotaPool(ctx, quotaLockKey(owner)); err != nil {
 		return File{}, false, fmt.Errorf("lock knowledge quota: %w", err)
 	}
@@ -253,7 +346,7 @@ func (s *Service) commitSnapshot(
 	}
 	args := chunkArgs{FileID: fileID}
 	options := args.InsertOpts()
-	if _, err := s.river.InsertTx(ctx, tx, args, &options); err != nil {
+	if _, err := riverClient.InsertTx(ctx, tx, args, &options); err != nil {
 		return File{}, false, fmt.Errorf("enqueue knowledge chunk job: %w", err)
 	}
 

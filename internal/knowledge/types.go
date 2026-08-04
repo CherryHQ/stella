@@ -25,6 +25,16 @@ const (
 	FileStatusFailed     FileStatus = "failed"
 )
 
+// ChunkSetStatus is the publication state of one deterministic generation.
+// Only a ready set referenced by File.ActiveChunkSetID may be retrieved.
+type ChunkSetStatus string
+
+const (
+	ChunkSetStatusBuilding ChunkSetStatus = "building"
+	ChunkSetStatusReady    ChunkSetStatus = "ready"
+	ChunkSetStatusFailed   ChunkSetStatus = "failed"
+)
+
 const (
 	MaxFileBytes = 25 << 20
 
@@ -46,6 +56,9 @@ var (
 	ErrForbidden           = errors.New("knowledge access forbidden")
 	ErrServiceUnavailable  = errors.New("knowledge service is unavailable")
 	ErrSpoolCapacity       = errors.New("knowledge upload spool is at capacity")
+	ErrGenerationConflict  = errors.New("knowledge chunk generation conflicts with staged data")
+	ErrGenerationChanged   = errors.New("knowledge chunk generation state changed")
+	ErrRawIntegrity        = errors.New("knowledge raw snapshot failed integrity validation")
 )
 
 // Owner is the normalized four-part scope tuple. Empty IDs are database NULLs.

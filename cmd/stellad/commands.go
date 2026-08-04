@@ -36,6 +36,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/knowledge"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -124,6 +125,7 @@ type setupResult struct {
 	assetStore               *asset.Store
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
+	knowledgeSvc             *knowledge.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []agent.BuiltinTool
 	notifier                 *notify.Dispatcher
@@ -279,6 +281,30 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
 	if err != nil {
 		return nil, err
+	}
+	knowledgeRaw, err := knowledge.NewRawStoreFromConfig(config.StellaHome(), cfg.Blob, knowledge.RawStoreOptions{
+		TempDir:        os.TempDir(),
+		FSMinFreeBytes: knowledge.DefaultFSMinFreeBytes,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build knowledge RawStore: %w", err)
+	}
+	knowledgeParser, err := knowledge.NewManagedXbergParser(config.StellaHome())
+	if err != nil {
+		return nil, fmt.Errorf("build knowledge parser: %w", err)
+	}
+	knowledgeSvc, err := knowledge.NewService(knowledge.ServiceConfig{
+		DB:                   db,
+		RawStore:             knowledgeRaw,
+		Parser:               knowledgeParser,
+		Logger:               slog.With("component", "knowledge"),
+		TempDir:              os.TempDir(),
+		MaxConcurrentUploads: 4,
+		MaxSpoolBytes:        4 * knowledge.MaxFileBytes,
+		AgentAccess:          agentAccess,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build knowledge service: %w", err)
 	}
 	sessionImages, err := sessionmedia.NewPipeline(assetStore.SessionMedia(), db, snapshotLoader, vision.StreamBuilder(providerStreamBuilder), sessionmedia.PipelineOptions{})
 	if err != nil {
@@ -516,7 +542,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, knowledgeSvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -567,6 +593,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		assetStore:               assetStore,
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
+		knowledgeSvc:             knowledgeSvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
@@ -627,7 +654,7 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, knowledgeSvc *knowledge.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
@@ -646,6 +673,11 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 		embeddingSvc.RegisterRiverWorker(workers)
 		en, ec := embeddingSvc.BackfillQueueConfig()
 		queues[en] = ec
+	}
+	if knowledgeSvc != nil {
+		knowledgeSvc.RegisterRiverWorkers(workers)
+		kn, kc := knowledgeSvc.QueueConfig()
+		queues[kn] = kc
 	}
 
 	// River heartbeats at DEBUG/INFO every few seconds (producer batches, job
@@ -669,6 +701,11 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	}
 	if embeddingSvc != nil {
 		if err := embeddingSvc.BindRiverClient(client); err != nil {
+			return nil, err
+		}
+	}
+	if knowledgeSvc != nil {
+		if err := knowledgeSvc.BindRiverClient(client); err != nil {
 			return nil, err
 		}
 	}

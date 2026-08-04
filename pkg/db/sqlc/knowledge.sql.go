@@ -7,9 +7,50 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const createKnowledgeChunkSet = `-- name: CreateKnowledgeChunkSet :execrows
+INSERT INTO knowledge_chunk_set (
+    id,
+    file_id,
+    derivation_key,
+    processor_key,
+    raw_sha256
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
+)
+ON CONFLICT (file_id, derivation_key) DO NOTHING
+`
+
+type CreateKnowledgeChunkSetParams struct {
+	ID            string `json:"id"`
+	FileID        string `json:"file_id"`
+	DerivationKey string `json:"derivation_key"`
+	ProcessorKey  string `json:"processor_key"`
+	RawSha256     []byte `json:"raw_sha256"`
+}
+
+func (q *Queries) CreateKnowledgeChunkSet(ctx context.Context, arg CreateKnowledgeChunkSetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, createKnowledgeChunkSet,
+		arg.ID,
+		arg.FileID,
+		arg.DerivationKey,
+		arg.ProcessorKey,
+		arg.RawSha256,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
 
 const createKnowledgeFile = `-- name: CreateKnowledgeFile :one
 INSERT INTO knowledge_file (
@@ -76,6 +117,82 @@ func (q *Queries) CreateKnowledgeFile(ctx context.Context, arg CreateKnowledgeFi
 	return i, err
 }
 
+const getKnowledgeChunkSetByDerivation = `-- name: GetKnowledgeChunkSetByDerivation :one
+SELECT
+    id,
+    file_id,
+    derivation_key,
+    processor_key,
+    raw_sha256,
+    status,
+    chunk_count,
+    content_digest,
+    error_message,
+    created_at,
+    updated_at,
+    completed_at
+FROM knowledge_chunk_set
+WHERE file_id = $1
+  AND derivation_key = $2
+`
+
+type GetKnowledgeChunkSetByDerivationParams struct {
+	FileID        string `json:"file_id"`
+	DerivationKey string `json:"derivation_key"`
+}
+
+func (q *Queries) GetKnowledgeChunkSetByDerivation(ctx context.Context, arg GetKnowledgeChunkSetByDerivationParams) (KnowledgeChunkSet, error) {
+	row := q.db.QueryRow(ctx, getKnowledgeChunkSetByDerivation, arg.FileID, arg.DerivationKey)
+	var i KnowledgeChunkSet
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.DerivationKey,
+		&i.ProcessorKey,
+		&i.RawSha256,
+		&i.Status,
+		&i.ChunkCount,
+		&i.ContentDigest,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const getKnowledgeChunkSetIntegrity = `-- name: GetKnowledgeChunkSetIntegrity :one
+SELECT
+    count(*)::bigint AS chunk_count,
+    coalesce(min(ordinal), -1)::bigint AS min_ordinal,
+    coalesce(max(ordinal), -1)::bigint AS max_ordinal,
+    sha256(decode(coalesce(string_agg(
+        lpad(to_hex(ordinal), 16, '0') || encode(content_sha256, 'hex'),
+        '' ORDER BY ordinal
+    ), ''), 'hex')) AS content_digest
+FROM knowledge_chunk
+WHERE chunk_set_id = $1
+`
+
+type GetKnowledgeChunkSetIntegrityRow struct {
+	ChunkCount    int64  `json:"chunk_count"`
+	MinOrdinal    int64  `json:"min_ordinal"`
+	MaxOrdinal    int64  `json:"max_ordinal"`
+	ContentDigest []byte `json:"content_digest"`
+}
+
+func (q *Queries) GetKnowledgeChunkSetIntegrity(ctx context.Context, chunkSetID string) (GetKnowledgeChunkSetIntegrityRow, error) {
+	row := q.db.QueryRow(ctx, getKnowledgeChunkSetIntegrity, chunkSetID)
+	var i GetKnowledgeChunkSetIntegrityRow
+	err := row.Scan(
+		&i.ChunkCount,
+		&i.MinOrdinal,
+		&i.MaxOrdinal,
+		&i.ContentDigest,
+	)
+	return i, err
+}
+
 const getKnowledgeFile = `-- name: GetKnowledgeFile :one
 SELECT
     id,
@@ -114,6 +231,50 @@ func (q *Queries) GetKnowledgeFile(ctx context.Context, id string) (KnowledgeFil
 		&i.ActiveChunkSetID,
 		&i.DeletedAt,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getKnowledgeFileLifecycle = `-- name: GetKnowledgeFileLifecycle :one
+SELECT
+    id,
+    media_type,
+    size_bytes,
+    raw_sha256,
+    status,
+    error_message,
+    active_chunk_set_id,
+    deleted_at,
+    updated_at
+FROM knowledge_file
+WHERE id = $1
+`
+
+type GetKnowledgeFileLifecycleRow struct {
+	ID               string             `json:"id"`
+	MediaType        string             `json:"media_type"`
+	SizeBytes        int64              `json:"size_bytes"`
+	RawSha256        []byte             `json:"raw_sha256"`
+	Status           string             `json:"status"`
+	ErrorMessage     pgtype.Text        `json:"error_message"`
+	ActiveChunkSetID pgtype.Text        `json:"active_chunk_set_id"`
+	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+func (q *Queries) GetKnowledgeFileLifecycle(ctx context.Context, id string) (GetKnowledgeFileLifecycleRow, error) {
+	row := q.db.QueryRow(ctx, getKnowledgeFileLifecycle, id)
+	var i GetKnowledgeFileLifecycleRow
+	err := row.Scan(
+		&i.ID,
+		&i.MediaType,
+		&i.SizeBytes,
+		&i.RawSha256,
+		&i.Status,
+		&i.ErrorMessage,
+		&i.ActiveChunkSetID,
+		&i.DeletedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -215,6 +376,281 @@ func (q *Queries) GetSystemKnowledgeQuotaUsage(ctx context.Context) (GetSystemKn
 	return i, err
 }
 
+const hardDeleteKnowledgeFile = `-- name: HardDeleteKnowledgeFile :execrows
+DELETE FROM knowledge_file
+WHERE id = $1
+  AND deleted_at IS NOT NULL
+`
+
+func (q *Queries) HardDeleteKnowledgeFile(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, hardDeleteKnowledgeFile, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const insertKnowledgeChunkBatch = `-- name: InsertKnowledgeChunkBatch :execrows
+INSERT INTO knowledge_chunk (
+    id,
+    chunk_set_id,
+    ordinal,
+    content,
+    locator,
+    content_sha256
+)
+SELECT
+    input.id,
+    $1::uuid,
+    input.ordinal,
+    input.content,
+    input.locator::jsonb,
+    input.content_sha256
+FROM ROWS FROM (
+    unnest($2::uuid[]),
+    unnest($3::bigint[]),
+    unnest($4::text[]),
+    unnest($5::text[]),
+    unnest($6::bytea[])
+) AS input(id, ordinal, content, locator, content_sha256)
+ON CONFLICT (chunk_set_id, ordinal) DO NOTHING
+`
+
+type InsertKnowledgeChunkBatchParams struct {
+	ChunkSetID     string   `json:"chunk_set_id"`
+	Ids            []string `json:"ids"`
+	Ordinals       []int64  `json:"ordinals"`
+	Contents       []string `json:"contents"`
+	Locators       []string `json:"locators"`
+	ContentSha256s [][]byte `json:"content_sha256s"`
+}
+
+func (q *Queries) InsertKnowledgeChunkBatch(ctx context.Context, arg InsertKnowledgeChunkBatchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertKnowledgeChunkBatch,
+		arg.ChunkSetID,
+		arg.Ids,
+		arg.Ordinals,
+		arg.Contents,
+		arg.Locators,
+		arg.ContentSha256s,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const listKnowledgeChunkByOrdinals = `-- name: ListKnowledgeChunkByOrdinals :many
+SELECT ordinal, content, locator, content_sha256
+FROM knowledge_chunk
+WHERE chunk_set_id = $1
+  AND ordinal = ANY($2::bigint[])
+ORDER BY ordinal ASC
+`
+
+type ListKnowledgeChunkByOrdinalsParams struct {
+	ChunkSetID string  `json:"chunk_set_id"`
+	Ordinals   []int64 `json:"ordinals"`
+}
+
+type ListKnowledgeChunkByOrdinalsRow struct {
+	Ordinal       int64           `json:"ordinal"`
+	Content       string          `json:"content"`
+	Locator       json.RawMessage `json:"locator"`
+	ContentSha256 []byte          `json:"content_sha256"`
+}
+
+func (q *Queries) ListKnowledgeChunkByOrdinals(ctx context.Context, arg ListKnowledgeChunkByOrdinalsParams) ([]ListKnowledgeChunkByOrdinalsRow, error) {
+	rows, err := q.db.Query(ctx, listKnowledgeChunkByOrdinals, arg.ChunkSetID, arg.Ordinals)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListKnowledgeChunkByOrdinalsRow{}
+	for rows.Next() {
+		var i ListKnowledgeChunkByOrdinalsRow
+		if err := rows.Scan(
+			&i.Ordinal,
+			&i.Content,
+			&i.Locator,
+			&i.ContentSha256,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listKnowledgeTombstone = `-- name: ListKnowledgeTombstone :many
+SELECT id, deleted_at
+FROM knowledge_file
+WHERE deleted_at IS NOT NULL
+ORDER BY deleted_at ASC, id ASC
+LIMIT $1
+`
+
+type ListKnowledgeTombstoneRow struct {
+	ID        string             `json:"id"`
+	DeletedAt pgtype.Timestamptz `json:"deleted_at"`
+}
+
+func (q *Queries) ListKnowledgeTombstone(ctx context.Context, limit int32) ([]ListKnowledgeTombstoneRow, error) {
+	rows, err := q.db.Query(ctx, listKnowledgeTombstone, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListKnowledgeTombstoneRow{}
+	for rows.Next() {
+		var i ListKnowledgeTombstoneRow
+		if err := rows.Scan(&i.ID, &i.DeletedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStaleKnowledgeDerivation = `-- name: ListStaleKnowledgeDerivation :many
+SELECT f.id, f.status, f.updated_at
+FROM knowledge_file AS f
+WHERE f.deleted_at IS NULL
+  AND f.updated_at < $1
+  AND (
+    f.status = 'processing'
+    OR EXISTS (
+      SELECT 1
+      FROM knowledge_chunk_set AS chunk_set
+      WHERE chunk_set.file_id = f.id
+        AND chunk_set.status = 'building'
+    )
+  )
+ORDER BY f.updated_at ASC, f.id ASC
+LIMIT $2
+`
+
+type ListStaleKnowledgeDerivationParams struct {
+	StaleBefore time.Time `json:"stale_before"`
+	Limit       int32     `json:"limit"`
+}
+
+type ListStaleKnowledgeDerivationRow struct {
+	ID        string    `json:"id"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (q *Queries) ListStaleKnowledgeDerivation(ctx context.Context, arg ListStaleKnowledgeDerivationParams) ([]ListStaleKnowledgeDerivationRow, error) {
+	rows, err := q.db.Query(ctx, listStaleKnowledgeDerivation, arg.StaleBefore, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListStaleKnowledgeDerivationRow{}
+	for rows.Next() {
+		var i ListStaleKnowledgeDerivationRow
+		if err := rows.Scan(&i.ID, &i.Status, &i.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockKnowledgeChunkSetLifecycle = `-- name: LockKnowledgeChunkSetLifecycle :one
+SELECT
+    id,
+    file_id,
+    derivation_key,
+    processor_key,
+    raw_sha256,
+    status,
+    chunk_count,
+    content_digest,
+    error_message,
+    created_at,
+    updated_at,
+    completed_at
+FROM knowledge_chunk_set
+WHERE id = $1
+FOR UPDATE
+`
+
+func (q *Queries) LockKnowledgeChunkSetLifecycle(ctx context.Context, id string) (KnowledgeChunkSet, error) {
+	row := q.db.QueryRow(ctx, lockKnowledgeChunkSetLifecycle, id)
+	var i KnowledgeChunkSet
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.DerivationKey,
+		&i.ProcessorKey,
+		&i.RawSha256,
+		&i.Status,
+		&i.ChunkCount,
+		&i.ContentDigest,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const lockKnowledgeFileLifecycle = `-- name: LockKnowledgeFileLifecycle :one
+SELECT
+    id,
+    media_type,
+    size_bytes,
+    raw_sha256,
+    status,
+    error_message,
+    active_chunk_set_id,
+    deleted_at,
+    updated_at
+FROM knowledge_file
+WHERE id = $1
+FOR UPDATE
+`
+
+type LockKnowledgeFileLifecycleRow struct {
+	ID               string             `json:"id"`
+	MediaType        string             `json:"media_type"`
+	SizeBytes        int64              `json:"size_bytes"`
+	RawSha256        []byte             `json:"raw_sha256"`
+	Status           string             `json:"status"`
+	ErrorMessage     pgtype.Text        `json:"error_message"`
+	ActiveChunkSetID pgtype.Text        `json:"active_chunk_set_id"`
+	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+}
+
+func (q *Queries) LockKnowledgeFileLifecycle(ctx context.Context, id string) (LockKnowledgeFileLifecycleRow, error) {
+	row := q.db.QueryRow(ctx, lockKnowledgeFileLifecycle, id)
+	var i LockKnowledgeFileLifecycleRow
+	err := row.Scan(
+		&i.ID,
+		&i.MediaType,
+		&i.SizeBytes,
+		&i.RawSha256,
+		&i.Status,
+		&i.ErrorMessage,
+		&i.ActiveChunkSetID,
+		&i.DeletedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const lockKnowledgeQuotaPool = `-- name: LockKnowledgeQuotaPool :exec
 SELECT pg_advisory_xact_lock($1::bigint)
 `
@@ -222,4 +658,128 @@ SELECT pg_advisory_xact_lock($1::bigint)
 func (q *Queries) LockKnowledgeQuotaPool(ctx context.Context, lockKey int64) error {
 	_, err := q.db.Exec(ctx, lockKnowledgeQuotaPool, lockKey)
 	return err
+}
+
+const markKnowledgeChunkSetFailed = `-- name: MarkKnowledgeChunkSetFailed :execrows
+UPDATE knowledge_chunk_set
+SET status = 'failed',
+    error_message = $1,
+    completed_at = now()
+WHERE id = $2
+  AND status = 'building'
+`
+
+type MarkKnowledgeChunkSetFailedParams struct {
+	ErrorMessage pgtype.Text `json:"error_message"`
+	ID           string      `json:"id"`
+}
+
+func (q *Queries) MarkKnowledgeChunkSetFailed(ctx context.Context, arg MarkKnowledgeChunkSetFailedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markKnowledgeChunkSetFailed, arg.ErrorMessage, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markKnowledgeChunkSetReady = `-- name: MarkKnowledgeChunkSetReady :execrows
+UPDATE knowledge_chunk_set
+SET status = 'ready',
+    chunk_count = $1,
+    content_digest = $2,
+    error_message = NULL,
+    completed_at = now()
+WHERE id = $3
+  AND status = 'building'
+`
+
+type MarkKnowledgeChunkSetReadyParams struct {
+	ChunkCount    pgtype.Int8 `json:"chunk_count"`
+	ContentDigest []byte      `json:"content_digest"`
+	ID            string      `json:"id"`
+}
+
+func (q *Queries) MarkKnowledgeChunkSetReady(ctx context.Context, arg MarkKnowledgeChunkSetReadyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markKnowledgeChunkSetReady, arg.ChunkCount, arg.ContentDigest, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markKnowledgeFileFailedWithoutActiveSet = `-- name: MarkKnowledgeFileFailedWithoutActiveSet :execrows
+UPDATE knowledge_file
+SET status = 'failed',
+    error_message = $1,
+    updated_at = now()
+WHERE id = $2
+  AND active_chunk_set_id IS NULL
+  AND deleted_at IS NULL
+`
+
+type MarkKnowledgeFileFailedWithoutActiveSetParams struct {
+	ErrorMessage pgtype.Text `json:"error_message"`
+	ID           string      `json:"id"`
+}
+
+func (q *Queries) MarkKnowledgeFileFailedWithoutActiveSet(ctx context.Context, arg MarkKnowledgeFileFailedWithoutActiveSetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markKnowledgeFileFailedWithoutActiveSet, arg.ErrorMessage, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const publishKnowledgeFileChunkSet = `-- name: PublishKnowledgeFileChunkSet :execrows
+UPDATE knowledge_file
+SET status = 'ready',
+    error_message = NULL,
+    active_chunk_set_id = $1,
+    updated_at = now()
+WHERE id = $2
+  AND deleted_at IS NULL
+`
+
+type PublishKnowledgeFileChunkSetParams struct {
+	ChunkSetID pgtype.Text `json:"chunk_set_id"`
+	ID         string      `json:"id"`
+}
+
+func (q *Queries) PublishKnowledgeFileChunkSet(ctx context.Context, arg PublishKnowledgeFileChunkSetParams) (int64, error) {
+	result, err := q.db.Exec(ctx, publishKnowledgeFileChunkSet, arg.ChunkSetID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const tombstoneKnowledgeFile = `-- name: TombstoneKnowledgeFile :execrows
+UPDATE knowledge_file
+SET deleted_at = now(),
+    updated_at = now()
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+func (q *Queries) TombstoneKnowledgeFile(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, tombstoneKnowledgeFile, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const touchKnowledgeFileDerivation = `-- name: TouchKnowledgeFileDerivation :execrows
+UPDATE knowledge_file
+SET updated_at = now()
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+func (q *Queries) TouchKnowledgeFileDerivation(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, touchKnowledgeFileDerivation, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

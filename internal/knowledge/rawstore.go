@@ -18,6 +18,9 @@ import (
 const (
 	RawPrefix          = "knowledge/files"
 	MaxRawListPageSize = 500
+	// DefaultFSMinFreeBytes keeps a local deployment from consuming the final
+	// disk reserve with immutable knowledge snapshots.
+	DefaultFSMinFreeBytes int64 = 5 << 30
 )
 
 var (
@@ -60,8 +63,7 @@ type RawStoreOptions struct {
 }
 
 // NewRawStoreFromConfig selects local FS or deployment S3 using the existing
-// STELLA_BLOB_S3_* configuration group. It is intentionally not wired into the
-// daemon until the derivation worker exists in the next delivery slice.
+// STELLA_BLOB_S3_* configuration group.
 func NewRawStoreFromConfig(
 	root string,
 	deploymentS3 config.BlobS3Config,
