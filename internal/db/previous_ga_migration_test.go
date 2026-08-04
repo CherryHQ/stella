@@ -18,8 +18,10 @@ const (
 	// Keep these boundaries explicit. Advancing either one without adding the
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
-	previousGAVersion       = int64(20260725161331)
-	currentMigrationVersion = int64(20260804120000)
+	previousGAVersion = int64(20260725161331)
+	// The sequential anchor is intentionally a no-op, so crossing it changes
+	// only Goose's ledger; the schema assertions below remain complete.
+	currentMigrationVersion = sequentialAnchor
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
