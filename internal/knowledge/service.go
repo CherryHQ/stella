@@ -23,19 +23,27 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-const rawCompensationTimeout = 5 * time.Second
+const (
+	rawCompensationTimeout          = 5 * time.Second
+	defaultSnapshotCommitTimeout    = 30 * time.Second
+	defaultDatabaseStatementTimeout = 20 * time.Second
+	defaultDatabaseLockTimeout      = 10 * time.Second
+)
 
 // ServiceConfig contains only the storage-core dependencies. The service is
 // intentionally not composed into stellad until the chunk worker is delivered.
 type ServiceConfig struct {
-	DB                   *pgxpool.Pool
-	RawStore             RawStore
-	River                *river.Client[pgx.Tx]
-	Logger               *slog.Logger
-	TempDir              string
-	MaxConcurrentUploads int
-	MaxSpoolBytes        int64
-	AgentAccess          *agentaccess.Service
+	DB                       *pgxpool.Pool
+	RawStore                 RawStore
+	River                    *river.Client[pgx.Tx]
+	Logger                   *slog.Logger
+	TempDir                  string
+	MaxConcurrentUploads     int
+	MaxSpoolBytes            int64
+	AgentAccess              *agentaccess.Service
+	SnapshotCommitTimeout    time.Duration
+	DatabaseStatementTimeout time.Duration
+	DatabaseLockTimeout      time.Duration
 }
 
 // Service owns authorization, bounded acquisition, immutable raw publication,
@@ -49,6 +57,10 @@ type Service struct {
 	tempDir     string
 	spool       *spoolBudget
 	agentAccess *agentaccess.Service
+
+	snapshotCommitTimeout    time.Duration
+	databaseStatementTimeout time.Duration
+	databaseLockTimeout      time.Duration
 
 	// commitTx is replaceable only by same-package fault tests so they can model
 	// a successful commit whose acknowledgement is lost.
@@ -77,18 +89,37 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if tempDir == "" {
 		tempDir = os.TempDir()
 	}
+	snapshotCommitTimeout := defaultDuration(config.SnapshotCommitTimeout, defaultSnapshotCommitTimeout)
+	statementTimeout := defaultDuration(config.DatabaseStatementTimeout, defaultDatabaseStatementTimeout)
+	lockTimeout := defaultDuration(config.DatabaseLockTimeout, defaultDatabaseLockTimeout)
+	if statementTimeout > snapshotCommitTimeout {
+		return nil, fmt.Errorf("knowledge database statement timeout must not exceed snapshot commit timeout")
+	}
+	if lockTimeout > statementTimeout {
+		return nil, fmt.Errorf("knowledge database lock timeout must not exceed statement timeout")
+	}
 	service := &Service{
-		db:          config.DB,
-		q:           sqlc.New(config.DB),
-		rawStore:    config.RawStore,
-		river:       config.River,
-		logger:      logger,
-		tempDir:     tempDir,
-		spool:       budget,
-		agentAccess: config.AgentAccess,
+		db:                       config.DB,
+		q:                        sqlc.New(config.DB),
+		rawStore:                 config.RawStore,
+		river:                    config.River,
+		logger:                   logger,
+		tempDir:                  tempDir,
+		spool:                    budget,
+		agentAccess:              config.AgentAccess,
+		snapshotCommitTimeout:    snapshotCommitTimeout,
+		databaseStatementTimeout: statementTimeout,
+		databaseLockTimeout:      lockTimeout,
 	}
 	service.commitTx = func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) }
 	return service, nil
+}
+
+func defaultDuration(value, fallback time.Duration) time.Duration {
+	if value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 // CreateManagedUpload is the upload acquisition boundary. Scope and Agent
@@ -135,15 +166,19 @@ func (s *Service) createSnapshot(
 	if err != nil {
 		return File{}, err
 	}
+	// Start the service-owned uncertainty window before raw publication. Once it
+	// expires, this uploader can no longer begin or complete the metadata commit.
+	snapshotContext, cancelSnapshot := context.WithTimeout(ctx, s.snapshotCommitTimeout)
+	defer cancelSnapshot()
 	raw, err := os.Open(prepared.path)
 	if err != nil {
 		return File{}, fmt.Errorf("open prepared knowledge upload: %w", err)
 	}
-	createErr := s.rawStore.Create(ctx, rawKey, raw)
+	createErr := s.rawStore.Create(snapshotContext, rawKey, raw)
 	closeErr := raw.Close()
 	if createErr != nil {
 		if errors.Is(createErr, ErrRawAlreadyExists) {
-			if verifyErr := s.verifyRawSnapshot(ctx, rawKey, prepared); verifyErr != nil {
+			if verifyErr := s.verifyRawSnapshot(snapshotContext, rawKey, prepared); verifyErr != nil {
 				return File{}, verifyErr
 			}
 			// The upload API never accepts a caller-supplied file ID, so an existing
@@ -158,7 +193,7 @@ func (s *Service) createSnapshot(
 		s.logger.Warn("prepared knowledge upload close failed", "file_id", fileID, "error", closeErr)
 	}
 
-	file, commitAttempted, err := s.commitSnapshot(ctx, fileID, owner, prepared)
+	file, commitAttempted, err := s.commitSnapshot(snapshotContext, fileID, owner, prepared)
 	if err == nil {
 		return file, nil
 	}
@@ -187,13 +222,11 @@ func (s *Service) commitSnapshot(
 	owner Owner,
 	prepared *preparedUpload,
 ) (File, bool, error) {
-	tx, err := s.db.Begin(ctx)
+	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
 		return File{}, false, fmt.Errorf("begin knowledge snapshot commit: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	queries := s.q.WithTx(tx)
-
 	if err := queries.LockKnowledgeQuotaPool(ctx, quotaLockKey(owner)); err != nil {
 		return File{}, false, fmt.Errorf("lock knowledge quota: %w", err)
 	}
@@ -229,6 +262,41 @@ func (s *Service) commitSnapshot(
 		return File{}, commitAttempted, fmt.Errorf("commit knowledge snapshot: %w", err)
 	}
 	return fileFromCreateRow(row), commitAttempted, nil
+}
+
+func (s *Service) beginBoundedTx(ctx context.Context) (pgx.Tx, *sqlc.Queries, error) {
+	statementTimeout, lockTimeout, err := s.remainingDatabaseTimeouts(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+		SELECT
+			set_config('statement_timeout', $1, true),
+			set_config('lock_timeout', $2, true)
+	`, statementTimeout.String(), lockTimeout.String()); err != nil {
+		_ = tx.Rollback(context.Background())
+		return nil, nil, err
+	}
+	return tx, s.q.WithTx(tx), nil
+}
+
+func (s *Service) remainingDatabaseTimeouts(ctx context.Context) (time.Duration, time.Duration, error) {
+	statementTimeout := s.databaseStatementTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return 0, 0, context.DeadlineExceeded
+		}
+		if remaining < statementTimeout {
+			statementTimeout = remaining
+		}
+	}
+	lockTimeout := min(statementTimeout, s.databaseLockTimeout)
+	return statementTimeout, lockTimeout, nil
 }
 
 func (s *Service) verifyRawSnapshot(

@@ -585,6 +585,8 @@ type KnowledgeChunk struct {
 	Content       string          `json:"content"`
 	Locator       json.RawMessage `json:"locator"`
 	ContentSha256 []byte          `json:"content_sha256"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
 type KnowledgeChunkSet struct {
@@ -598,6 +600,7 @@ type KnowledgeChunkSet struct {
 	ContentDigest []byte             `json:"content_digest"`
 	ErrorMessage  pgtype.Text        `json:"error_message"`
 	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
 	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
 }
 

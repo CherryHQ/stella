@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,6 +112,7 @@ func runRawStoreContract(t *testing.T, store RawStore) {
 
 	seen := make(map[string]RawObject)
 	var cursor string
+	var previousKey string
 	for pages := 0; ; pages++ {
 		if pages > len(want) {
 			t.Fatal("ListPage cursor did not converge")
@@ -122,6 +125,9 @@ func runRawStoreContract(t *testing.T, store RawStore) {
 			t.Fatalf("page contains %d objects, limit 2", len(page.Objects))
 		}
 		for _, object := range page.Objects {
+			if previousKey != "" && object.Key <= previousKey {
+				t.Fatalf("pagination order advanced from %q to %q", previousKey, object.Key)
+			}
 			if _, duplicate := seen[object.Key]; duplicate {
 				t.Fatalf("duplicate paginated key %q", object.Key)
 			}
@@ -132,12 +138,16 @@ func runRawStoreContract(t *testing.T, store RawStore) {
 				t.Fatalf("LastModified for %q is zero", object.Key)
 			}
 			seen[object.Key] = object
+			previousKey = object.Key
 		}
 		if page.NextCursor == "" {
 			break
 		}
 		if page.NextCursor == cursor {
 			t.Fatalf("cursor did not advance from %q", cursor)
+		}
+		if len(page.Objects) == 0 || page.NextCursor != page.Objects[len(page.Objects)-1].Key {
+			t.Fatalf("next cursor %q is not the last returned canonical key", page.NextCursor)
 		}
 		cursor = page.NextCursor
 	}
@@ -150,6 +160,84 @@ func runRawStoreContract(t *testing.T, store RawStore) {
 	}
 	if err := store.Delete(ctx, collisionKey); err != nil {
 		t.Fatalf("idempotent Delete: %v", err)
+	}
+}
+
+func TestFSRawStoreCursorSurvivesInterPageMutation(t *testing.T) {
+	t.Parallel()
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key1 := rawKeyForTestID(t, "00000000-0000-7000-8000-000000000001")
+	key2 := rawKeyForTestID(t, "00000000-0000-7000-8000-000000000002")
+	key3 := rawKeyForTestID(t, "00000000-0000-7000-8000-000000000003")
+	key4 := rawKeyForTestID(t, "00000000-0000-7000-8000-000000000004")
+	key5 := rawKeyForTestID(t, "00000000-0000-7000-8000-000000000005")
+	for _, key := range []string{key5, key3, key1} {
+		seedFSRawObject(t, store, key)
+	}
+
+	first, err := store.ListPage(t.Context(), RawPrefix, "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rawObjectKeys(first.Objects); !slicesEqual(got, []string{key1, key3}) {
+		t.Fatalf("first page = %v", got)
+	}
+
+	// Delete before the cursor, then insert on both sides. Keyset pagination
+	// must neither repeat key3 nor skip keys that still sort after key3.
+	if err := store.Delete(t.Context(), key1); err != nil {
+		t.Fatal(err)
+	}
+	seedFSRawObject(t, store, key2)
+	seedFSRawObject(t, store, key4)
+	second, err := store.ListPage(t.Context(), RawPrefix, first.NextCursor, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rawObjectKeys(second.Objects); !slicesEqual(got, []string{key4, key5}) {
+		t.Fatalf("second page after mutation = %v", got)
+	}
+	if second.NextCursor != "" {
+		t.Fatalf("second page cursor = %q, want end of scan", second.NextCursor)
+	}
+}
+
+func TestFSRawStoreLargeDirectoryPaginationIsStable(t *testing.T) {
+	t.Parallel()
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const objectCount = 1024
+	want := make([]string, 0, objectCount)
+	for range objectCount {
+		want = append(want, mustRawKey(t))
+	}
+	sort.Strings(want)
+	// Seed in reverse order so creation order cannot accidentally satisfy the
+	// canonical ordering contract.
+	for index := len(want) - 1; index >= 0; index-- {
+		seedFSRawObject(t, store, want[index])
+	}
+
+	got := make([]string, 0, objectCount)
+	var cursor string
+	for {
+		page, err := store.ListPage(t.Context(), RawPrefix, cursor, 37)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, rawObjectKeys(page.Objects)...)
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if !slicesEqual(got, want) {
+		t.Fatalf("large-directory pagination returned %d ordered keys, want %d", len(got), len(want))
 	}
 }
 
@@ -212,6 +300,49 @@ func mustRawKey(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return key
+}
+
+func rawKeyForTestID(t *testing.T, id string) string {
+	t.Helper()
+	key, err := RawKey(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func seedFSRawObject(t *testing.T, store *FSRawStore, key string) {
+	t.Helper()
+	target, err := store.path(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("raw"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func rawObjectKeys(objects []RawObject) []string {
+	keys := make([]string, 0, len(objects))
+	for _, object := range objects {
+		keys = append(keys, object.Key)
+	}
+	return keys
+}
+
+func slicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 type rawS3Object struct {

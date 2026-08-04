@@ -33,14 +33,17 @@ type RawObject struct {
 	LastModified time.Time
 }
 
-// RawPage is one bounded, backend-opaque enumeration page.
+// RawPage is one bounded canonical-key-ordered enumeration page. NextCursor is
+// the last returned key and is an exclusive lower bound for the following page.
 type RawPage struct {
 	Objects    []RawObject
 	NextCursor string
 }
 
 // RawStore owns canonical immutable raw snapshots. Create must never replace an
-// existing key; ListPage must bound both returned objects and adapter memory.
+// existing key. ListPage must order by canonical key and bound both returned
+// objects and adapter memory; it does not provide snapshot isolation across
+// concurrent pages.
 type RawStore interface {
 	Create(ctx context.Context, key string, reader io.Reader) error
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
@@ -113,6 +116,17 @@ func validateRawListRequest(prefix, cursor string, limit int) (string, error) {
 	}
 	if cursor != "" && strings.ContainsRune(cursor, '\x00') {
 		return "", fmt.Errorf("%w: cursor contains NUL", ErrInvalidRawStorePage)
+	}
+	return clean, nil
+}
+
+func validateRawListCursor(prefix, cursor string) (string, error) {
+	if cursor == "" {
+		return "", nil
+	}
+	clean, err := blob.ValidateKey(cursor)
+	if err != nil || !strings.HasPrefix(clean, prefix+"/") {
+		return "", fmt.Errorf("%w: cursor is outside prefix", ErrInvalidRawStorePage)
 	}
 	return clean, nil
 }

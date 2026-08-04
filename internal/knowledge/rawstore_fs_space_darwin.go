@@ -1,4 +1,4 @@
-//go:build !windows && !darwin
+//go:build darwin
 
 package knowledge
 
@@ -9,5 +9,6 @@ func availableDiskBytes(path string) (int64, error) {
 	if err := syscall.Statfs(path, &stats); err != nil {
 		return 0, err
 	}
-	return int64(stats.Bavail) * stats.Bsize, nil
+	// Darwin exposes Bsize as uint32, unlike Linux's int64 field.
+	return int64(stats.Bavail) * int64(stats.Bsize), nil
 }

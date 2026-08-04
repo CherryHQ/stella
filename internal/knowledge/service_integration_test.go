@@ -234,6 +234,169 @@ func TestRawStoreIOCompletesBeforeDatabaseTransactionBegins(t *testing.T) {
 	}
 }
 
+func TestSnapshotDeadlineBoundsRawStoreCreate(t *testing.T) {
+	database := dbtest.New(t)
+	baseStore, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocking := &blockingRawStore{
+		RawStore: baseStore, started: make(chan struct{}), release: make(chan struct{}),
+	}
+	service := newSnapshotServiceWithConfig(t, database, ServiceConfig{
+		RawStore:                 blocking,
+		SnapshotCommitTimeout:    80 * time.Millisecond,
+		DatabaseStatementTimeout: 60 * time.Millisecond,
+		DatabaseLockTimeout:      40 * time.Millisecond,
+	})
+	started := time.Now()
+	_, err = service.createSnapshot(
+		context.Background(), Owner{Scope: ScopeSystem}, "blocked-raw.txt", stringsReader("content"),
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("raw publication deadline error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("raw publication was not bounded: %s", elapsed)
+	}
+	page, listErr := baseStore.ListPage(t.Context(), RawPrefix, "", 10)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(page.Objects) != 0 {
+		t.Fatalf("timed-out raw publication left %d objects", len(page.Objects))
+	}
+}
+
+func TestSnapshotCommitLockWaitIsBoundedAndCompensated(t *testing.T) {
+	database := dbtest.New(t)
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := newSnapshotServiceWithConfig(t, database, ServiceConfig{
+		RawStore:                 store,
+		SnapshotCommitTimeout:    300 * time.Millisecond,
+		DatabaseStatementTimeout: 200 * time.Millisecond,
+		DatabaseLockTimeout:      100 * time.Millisecond,
+	})
+	lockTx, err := database.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lockTx.Rollback(context.Background()) }()
+	if _, err := lockTx.Exec(
+		t.Context(), `SELECT pg_advisory_xact_lock($1)`, quotaLockKey(Owner{Scope: ScopeSystem}),
+	); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	_, err = service.createSnapshot(
+		t.Context(), Owner{Scope: ScopeSystem}, "blocked-commit.txt", stringsReader("content"),
+	)
+	if err == nil {
+		t.Fatal("snapshot commit unexpectedly waited through a held quota lock")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("snapshot lock wait was not bounded: %s", elapsed)
+	}
+	page, listErr := store.ListPage(t.Context(), RawPrefix, "", 10)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(page.Objects) != 0 {
+		t.Fatalf("known pre-commit timeout left %d raw objects", len(page.Objects))
+	}
+}
+
+func TestSnapshotCommitRespectsEarlierRequestDeadline(t *testing.T) {
+	database := dbtest.New(t)
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := newSnapshotServiceWithConfig(t, database, ServiceConfig{
+		RawStore:                 store,
+		SnapshotCommitTimeout:    2 * time.Second,
+		DatabaseStatementTimeout: time.Second,
+		DatabaseLockTimeout:      time.Second,
+	})
+	lockTx, err := database.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lockTx.Rollback(context.Background()) }()
+	if _, err := lockTx.Exec(
+		t.Context(), `SELECT pg_advisory_xact_lock($1)`, quotaLockKey(Owner{Scope: ScopeSystem}),
+	); err != nil {
+		t.Fatal(err)
+	}
+	requestContext, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err = service.createSnapshot(
+		requestContext, Owner{Scope: ScopeSystem}, "request-timeout.txt", stringsReader("content"),
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("request deadline error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("request deadline did not bound snapshot commit: %s", elapsed)
+	}
+	page, listErr := store.ListPage(t.Context(), RawPrefix, "", 10)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(page.Objects) != 0 {
+		t.Fatalf("request timeout left %d raw objects", len(page.Objects))
+	}
+}
+
+func TestSnapshotCommitStatementTimeoutIsBoundedAndCompensated(t *testing.T) {
+	database := dbtest.New(t)
+	if _, err := database.Exec(t.Context(), `
+		CREATE FUNCTION test_slow_knowledge_insert() RETURNS trigger
+		LANGUAGE plpgsql AS $$
+		BEGIN
+			PERFORM pg_sleep(0.2);
+			RETURN NEW;
+		END;
+		$$;
+		CREATE TRIGGER test_slow_knowledge_insert
+		BEFORE INSERT ON knowledge_file
+		FOR EACH ROW EXECUTE FUNCTION test_slow_knowledge_insert();
+	`); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := newSnapshotServiceWithConfig(t, database, ServiceConfig{
+		RawStore:                 store,
+		SnapshotCommitTimeout:    500 * time.Millisecond,
+		DatabaseStatementTimeout: 50 * time.Millisecond,
+		DatabaseLockTimeout:      40 * time.Millisecond,
+	})
+	started := time.Now()
+	_, err = service.createSnapshot(
+		t.Context(), Owner{Scope: ScopeSystem}, "statement-timeout.txt", stringsReader("content"),
+	)
+	if err == nil {
+		t.Fatal("slow metadata insert ignored statement_timeout")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("statement timeout was not bounded: %s", elapsed)
+	}
+	page, listErr := store.ListPage(t.Context(), RawPrefix, "", 10)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(page.Objects) != 0 {
+		t.Fatalf("statement timeout left %d raw objects", len(page.Objects))
+	}
+}
+
 func TestCreateSnapshotCompensatesKnownPreCommitFailure(t *testing.T) {
 	database := dbtest.New(t)
 	store, service := newKnowledgeService(t, database)
@@ -412,19 +575,31 @@ func newKnowledgeService(t *testing.T, database *pgxpool.Pool) (*FSRawStore, *Se
 	if err != nil {
 		t.Fatal(err)
 	}
+	service := newSnapshotServiceWithConfig(t, database, ServiceConfig{RawStore: store})
+	return store, service
+}
+
+func newSnapshotServiceWithConfig(
+	t *testing.T,
+	database *pgxpool.Pool,
+	config ServiceConfig,
+) *Service {
+	t.Helper()
 	client, err := river.NewClient(riverpgxv5.New(database), &river.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: store, River: client,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), TempDir: t.TempDir(),
-		MaxConcurrentUploads: 4, MaxSpoolBytes: 4 * MaxFileBytes,
-	})
+	config.DB = database
+	config.River = client
+	config.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	config.TempDir = t.TempDir()
+	config.MaxConcurrentUploads = 4
+	config.MaxSpoolBytes = 4 * MaxFileBytes
+	service, err := NewService(config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store, service
+	return service
 }
 
 func testAuthority(t *testing.T, userID string, admin bool) authz.Authority {

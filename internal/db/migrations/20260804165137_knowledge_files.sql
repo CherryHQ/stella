@@ -61,6 +61,7 @@ CREATE TABLE "knowledge_chunk_set" (
   "content_digest" bytea NULL,
   "error_message" text NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
   "completed_at" timestamptz NULL,
   PRIMARY KEY ("id"),
   CONSTRAINT "knowledge_chunk_set_file_id_fkey" FOREIGN KEY ("file_id") REFERENCES "knowledge_file" ("id") ON DELETE CASCADE,
@@ -85,6 +86,8 @@ CREATE TABLE "knowledge_chunk" (
   "content" text NOT NULL,
   "locator" jsonb NOT NULL DEFAULT '{}',
   "content_sha256" bytea NOT NULL,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY ("id"),
   CONSTRAINT "knowledge_chunk_set_id_fkey" FOREIGN KEY ("chunk_set_id") REFERENCES "knowledge_chunk_set" ("id") ON DELETE CASCADE,
   CONSTRAINT "knowledge_chunk_set_ordinal_key" UNIQUE ("chunk_set_id", "ordinal")

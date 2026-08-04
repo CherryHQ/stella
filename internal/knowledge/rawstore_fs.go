@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -8,7 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
+	"sort"
 	"strings"
 	"time"
 
@@ -151,7 +152,7 @@ func (s *FSRawStore) ListPage(
 	if err != nil {
 		return RawPage{}, err
 	}
-	offset, err := decodeFSCursor(cursor)
+	cleanCursor, err := validateRawListCursor(cleanPrefix, cursor)
 	if err != nil {
 		return RawPage{}, err
 	}
@@ -166,38 +167,44 @@ func (s *FSRawStore) ListPage(
 		return RawPage{}, fmt.Errorf("inspect knowledge raw prefix: %w", err)
 	}
 
-	objects := make([]RawObject, 0, limit+1)
-	var seen int64
-	stop := errors.New("raw page complete")
+	// The filesystem cannot portably seek to a filename in directory order.
+	// Keep only the smallest limit+1 canonical keys after the cursor so page
+	// memory remains bounded even though this V1 adapter rescans the tree.
+	candidates := make(rawObjectMaxHeap, 0, limit+1)
+	heap.Init(&candidates)
 	err = walkFilesBounded(ctx, directory, func(objectPath string, info fs.FileInfo) error {
-		if seen < offset {
-			seen++
-			return nil
-		}
 		relative, err := filepath.Rel(s.root, objectPath)
 		if err != nil {
 			return err
 		}
-		objects = append(objects, RawObject{
+		key := filepath.ToSlash(relative)
+		if cleanCursor != "" && key <= cleanCursor {
+			return nil
+		}
+		candidate := RawObject{
 			Key:          filepath.ToSlash(relative),
 			Size:         info.Size(),
 			LastModified: info.ModTime().UTC(),
-		})
-		seen++
-		if len(objects) == limit+1 {
-			return stop
+		}
+		if len(candidates) < limit+1 {
+			heap.Push(&candidates, candidate)
+		} else if candidate.Key < candidates[0].Key {
+			candidates[0] = candidate
+			heap.Fix(&candidates, 0)
 		}
 		return nil
 	})
-	if err != nil && !errors.Is(err, stop) {
+	if err != nil {
 		return RawPage{}, err
 	}
+	objects := []RawObject(candidates)
+	sort.Slice(objects, func(i, j int) bool { return objects[i].Key < objects[j].Key })
 	if len(objects) <= limit {
 		return RawPage{Objects: objects}, nil
 	}
 	return RawPage{
 		Objects:    objects[:limit],
-		NextCursor: encodeFSCursor(offset + int64(limit)),
+		NextCursor: objects[limit-1].Key,
 	}, nil
 }
 
@@ -272,19 +279,22 @@ func walkFilesBounded(ctx context.Context, root string, visit func(string, fs.Fi
 	}
 }
 
-func encodeFSCursor(offset int64) string { return "fs:" + strconv.FormatInt(offset, 10) }
+// rawObjectMaxHeap keeps the lexicographically greatest retained key at index
+// zero, allowing a bounded next-page selection during an unordered FS walk.
+type rawObjectMaxHeap []RawObject
 
-func decodeFSCursor(cursor string) (int64, error) {
-	if cursor == "" {
-		return 0, nil
-	}
-	value, ok := strings.CutPrefix(cursor, "fs:")
-	if !ok {
-		return 0, fmt.Errorf("%w: invalid FS cursor", ErrInvalidRawStorePage)
-	}
-	offset, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || offset < 0 {
-		return 0, fmt.Errorf("%w: invalid FS cursor", ErrInvalidRawStorePage)
-	}
-	return offset, nil
+func (h rawObjectMaxHeap) Len() int           { return len(h) }
+func (h rawObjectMaxHeap) Less(i, j int) bool { return h[i].Key > h[j].Key }
+func (h rawObjectMaxHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *rawObjectMaxHeap) Push(value any) {
+	*h = append(*h, value.(RawObject))
+}
+
+func (h *rawObjectMaxHeap) Pop() any {
+	old := *h
+	last := len(old) - 1
+	value := old[last]
+	*h = old[:last]
+	return value
 }

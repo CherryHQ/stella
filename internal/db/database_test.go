@@ -23,7 +23,7 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
-func TestKnowledgeFilesMigrationUpgradesDatabaseAtPreviousLatest(t *testing.T) {
+func TestKnowledgeFilesMigrationUpgradesDatabaseAtMainLatest(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
@@ -38,10 +38,10 @@ func TestKnowledgeFilesMigrationUpgradesDatabaseAtPreviousLatest(t *testing.T) {
 		t.Fatalf("create migration provider: %v", err)
 	}
 
-	// Simulate an existing Stella database that has already applied every
-	// migration from main. The unpublished Knowledge migration must sort after
-	// that version so a normal ordered Up can apply it during an upgrade.
-	if _, err := provider.DownTo(ctx, 20260731014023); err != nil {
+	// newTestDB starts fully migrated. Rolling back only the unpublished
+	// Knowledge migration leaves the exact schema an existing current-main
+	// deployment has before this PR is installed.
+	if _, err := provider.DownTo(ctx, 20260804120000); err != nil {
 		t.Fatalf("goose down knowledge migration: %v", err)
 	}
 	if tableExists(t, db, "knowledge_file") ||

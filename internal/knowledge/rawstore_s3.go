@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/minio/minio-go/v7"
 
@@ -156,19 +155,16 @@ func (s *S3RawStore) ListPage(
 		return RawPage{}, err
 	}
 	prefixWithSlash := cleanPrefix + "/"
-	if cursor != "" {
-		cleanCursor, err := blob.ValidateKey(cursor)
-		if err != nil || !strings.HasPrefix(cleanCursor, prefixWithSlash) {
-			return RawPage{}, fmt.Errorf("%w: cursor is outside prefix", ErrInvalidRawStorePage)
-		}
-		cursor = cleanCursor
+	cleanCursor, err := validateRawListCursor(cleanPrefix, cursor)
+	if err != nil {
+		return RawPage{}, err
 	}
 
 	listContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 	objects := make([]RawObject, 0, limit+1)
 	for object := range s.client.ListObjects(listContext, s.bucket, minio.ListObjectsOptions{
-		Prefix: prefixWithSlash, Recursive: true, StartAfter: cursor, MaxKeys: limit + 1,
+		Prefix: prefixWithSlash, Recursive: true, StartAfter: cleanCursor, MaxKeys: limit + 1,
 	}) {
 		if object.Err != nil {
 			if len(objects) > limit && errors.Is(object.Err, context.Canceled) {
