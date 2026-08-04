@@ -3,13 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { Link } from "@tanstack/react-router";
-import {
-  AlertCircle,
-  Download,
-  MessageSquarePlus,
-  PanelRightClose,
-  PanelRightOpen,
-} from "lucide-react";
+import { AlertCircle, Download, FolderTree, MessageSquarePlus } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getSession, getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
 import { agentSkillsOptions, agentsQueryOptions } from "@/lib/queries/agents";
@@ -44,6 +38,7 @@ import {
 } from "@/lib/chat-transport";
 import { useAppShell } from "@/layouts/AppShell";
 import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
+import { SessionInfoPopover } from "./SessionInfoPopover";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
 
@@ -66,7 +61,6 @@ interface Props {
   onSessionUpdate: (s: Session) => void;
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
-  contextTitle?: string;
 }
 
 export function SessionDetail({
@@ -76,7 +70,6 @@ export function SessionDetail({
   onSessionUpdate,
   onToggleWorkspace,
   workspaceOpen,
-  contextTitle,
 }: Props) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -484,13 +477,19 @@ export function SessionDetail({
 
   const { setHeaderTitle, setHeaderActions } = useAppShell();
 
-  const titleText = session ? contextTitle || session.title || t("sessions.untitled") : "";
+  // A main session *is* the agent (or project) conversation, so its title only
+  // repeats the breadcrumb — "Anna / Anna". Only a branched thread earns a tail.
+  const titleText =
+    session && session.kind !== "main" ? session.title || t("sessions.untitled") : "";
   useEffect(() => {
     setHeaderTitle(
       titleText ? (
         <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{titleText}</h1>
       ) : null,
     );
+    // The shell outlives this page: leaving a stale title behind is what made a
+    // session's crumb linger on the profile page.
+    return () => setHeaderTitle(null);
   }, [titleText, setHeaderTitle]);
 
   const exportDisabled = exporting || isStreaming;
@@ -559,20 +558,23 @@ export function SessionDetail({
               <TooltipPopup side="bottom">{t("sessions.startThread")}</TooltipPopup>
             </Tooltip>
           )}
+          <SessionInfoPopover session={session} />
           {onToggleWorkspace && (
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="sm"
               onClick={onToggleWorkspace}
+              aria-pressed={workspaceOpen}
               aria-label={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
-              title={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
             >
-              {workspaceOpen ? <PanelRightClose /> : <PanelRightOpen />}
+              <FolderTree />
+              {t("sessions.inspector.files")}
             </Button>
           )}
         </div>
       ) : null,
     );
+    return () => setHeaderActions(null);
   }, [
     session,
     onNewSession,

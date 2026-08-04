@@ -1,7 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ListTodo, MoreHorizontal, Puzzle, UserRound } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { Button } from "@/components/ui/button";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -10,12 +8,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/menu";
 
 /**
  * L2 header: where you are, and the only way into the profile pages behind the
@@ -62,61 +54,6 @@ export function AppBreadcrumb({
         )}
       </BreadcrumbList>
     </Breadcrumb>
-  );
-}
-
-/**
- * The "⋯" menu behind the breadcrumb, rendered in the header's static actions
- * slot so page-level actions can never displace it.
- */
-export function AppHeaderMenu({ agentId, projectId }: { agentId: string; projectId?: string }) {
-  const { t } = useI18n();
-  const inProject = !!projectId;
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon-sm" aria-label={t("profile.more")} />}
-      >
-        <MoreHorizontal />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" sideOffset={6}>
-        <DropdownMenuItem
-          render={
-            inProject && projectId ? (
-              <Link
-                to="/agents/$agentId/projects/$projectId/profile"
-                params={{ agentId, projectId }}
-              />
-            ) : (
-              <Link to="/agents/$agentId/profile" params={{ agentId }} />
-            )
-          }
-        >
-          <UserRound className="size-4" />
-          {t("profile.title")}
-        </DropdownMenuItem>
-        <DropdownMenuItem render={<Link to="/agents/$agentId/goals" params={{ agentId }} />}>
-          <ListTodo className="size-4" />
-          {t("sidebar.goals")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          render={
-            inProject ? (
-              <Link
-                to="/agents/$agentId/projects/$projectId/skills"
-                params={{ agentId, projectId }}
-              />
-            ) : (
-              <Link to="/agents/$agentId/skills" params={{ agentId }} />
-            )
-          }
-        >
-          <Puzzle className="size-4" />
-          {t("profile.skills")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

@@ -3,14 +3,13 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createSession, getSession, getSessionWorkspace } from "@/lib/api-client/sdk.gen";
 import type { Session, Workspace } from "@/lib/types";
-import { agentsQueryOptions } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useI18n } from "@/lib/i18n";
-import { InspectorPanel } from "./InspectorPanel";
 import { SessionDetail } from "./SessionDetail";
+import { WorkspacePanel } from "./WorkspacePanel";
 
 const RIGHT_MIN = 360;
 const RIGHT_MAX_RATIO = 0.45;
@@ -33,10 +32,8 @@ export function SessionView() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: me } = useQuery(meQueryOptions);
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
   const currentUserID = me?.id ?? "";
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
-  const currentAgent = useMemo(() => agents.find((a) => a.id === agentId), [agents, agentId]);
   const project = useMemo(
     () => (projectId ? projects.find((p) => p.id === projectId) : undefined),
     [projects, projectId],
@@ -174,7 +171,6 @@ export function SessionView() {
     });
   }, [agentId, navigate, projectId, queryClient]);
 
-  const contextTitle = project?.name ?? currentAgent?.name ?? sessionDetail?.title;
   const showWorkspace = rightOpen && !compactWorkspace;
   const toggleInspector = useCallback(() => {
     if (compactWorkspace) {
@@ -194,7 +190,6 @@ export function SessionView() {
           onSessionUpdate={(s) => setSessionDetail(s)}
           onToggleWorkspace={toggleInspector}
           workspaceOpen={showWorkspace}
-          contextTitle={contextTitle}
         />
       </div>
 
@@ -213,13 +208,12 @@ export function SessionView() {
             className="absolute top-0 bottom-0 left-0 z-10 w-1.5 -translate-x-[3px] cursor-col-resize transition-colors hover:bg-primary/20 active:bg-primary/35"
           />
         )}
-        <InspectorPanel
+        <WorkspacePanel
           agentID={agentId}
           sessionID={sessionDetail?.id ?? ""}
-          session={sessionDetail}
           workspace={workspace}
           workspaceLoading={workspaceLoading}
-          onReloadWorkspace={loadWorkspace}
+          onReload={loadWorkspace}
           projectDir={projectDir}
         />
       </div>
@@ -235,13 +229,12 @@ export function SessionView() {
             {t("sessions.inspector.sessionWorkspace")}
           </SheetDescription>
           <div className="flex h-full flex-col overflow-hidden">
-            <InspectorPanel
+            <WorkspacePanel
               agentID={agentId}
               sessionID={sessionDetail?.id ?? ""}
-              session={sessionDetail}
               workspace={workspace}
               workspaceLoading={workspaceLoading}
-              onReloadWorkspace={loadWorkspace}
+              onReload={loadWorkspace}
               projectDir={projectDir}
             />
           </div>

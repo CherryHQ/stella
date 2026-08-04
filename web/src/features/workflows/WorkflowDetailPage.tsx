@@ -92,7 +92,11 @@ export function WorkflowDetailPage() {
       </div>,
     );
     setHeaderActions(null);
-    return () => setHeaderActions(null);
+    // The shell outlives this page — leave no title or actions behind.
+    return () => {
+      setHeaderTitle(null);
+      setHeaderActions(null);
+    };
   }, [setHeaderActions, setHeaderTitle, t, workflow?.name]);
 
   const deleteCurrentWorkflow = async () => {
