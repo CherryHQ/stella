@@ -31,6 +31,14 @@ title: 沙箱后端抽象
 
 文件 I/O（`read`、`write`、`edit`）由 runner 拥有：runner 调用 `ResolvePath` 获取宿主机路径，然后直接使用 `os.ReadFile`/`os.WriteFile`/`os.MkdirAll`。`Session` 不包含文件读写方法。
 
+## 类型化 Home registry 与 attachment
+
+Phase 1 将持久 Home 的类型化身份与机器路径分离。registry 为每个用户或群组 Principal Home、每 Principal 的 Agent Home，以及窄范围 system 或 system-Agent Skill 根记录不可变 Store ID 与不透明 locator。`sandbox.HomeAttachment` 是面向计算消费者的稳定契约。`internal/home.WorkspaceView` 会暂时为已迁移的当前消费者携带 local root projection，直到 Phase 2。原始 ID 相同的用户和群组仍是不同 Principal。
+
+用户或群组运行会得到其 Principal、Agent Home attachment，以及只读的共享 Skill 根。无用户运行只得到这些只读共享 Skill 根，没有 Principal 或 Agent Home。群组 Agent Home 的 Skill materialization 不含 user 或 `user_agent` scope：它不会把群组数据变成某个用户的 `user_agent` Skill。
+
+显式破坏性所有者删除会先 tombstone 并 fence Home，随后共享 River purge worker 清除字节。此 fencing 仅适用于单副本。Phase 3 必须加入跨副本 SessionSandbox fencing；目前尚未实现。
+
 ## 当前架构
 
 ### 会话所有权

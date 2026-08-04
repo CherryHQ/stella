@@ -31,6 +31,14 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 
 File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePath` to obtain the host path and then uses `os.ReadFile` / `os.WriteFile` / `os.MkdirAll` directly. `Session` carries no file read/write methods.
 
+## Typed Home registry and attachments
+
+Phase 1 gives persistent Homes typed identity separate from a machine path. The registry records an immutable Store ID and opaque locator for each user or group Principal Home, per-principal Agent Home, and narrow system or system-Agent Skill root. `sandbox.HomeAttachment` is the stable contract for compute-facing consumers. `internal/home.WorkspaceView` temporarily carries local root projections for migrated current consumers until Phase 2. A user and a group with the same raw ID are distinct principals.
+
+A user or group run receives its Principal and Agent Home attachments plus read-only shared Skill roots. A user-less run receives only those read-only shared Skill roots and no Principal or Agent Home. Group Agent Home Skill materialization has no user or `user_agent` scope: it does not turn group data into a user's `user_agent` Skill.
+
+Explicit destructive owner deletion tombstones and fences Homes before a shared River purge worker removes bytes. This fencing is single-replica only. Phase 3 must add cross-replica SessionSandbox fencing; it is not implemented now.
+
 ## Current Architecture
 
 ### Session ownership
