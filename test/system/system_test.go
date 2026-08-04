@@ -27,6 +27,7 @@ func TestSystem(t *testing.T) {
 	t.Run("webhook_sync_persistent", h.testWebhookSyncPersistent)
 	t.Run("goal_lifecycle", h.testGoalLifecycle)
 	t.Run("github_webhook_compatibility", h.testGitHubWebhookCompatibility)
+	t.Run("scheduler_one_time_job_survives_forced_restart", h.testSchedulerOneTimeJobSurvivesForcedRestart)
 	// graceful_drain MUST run last: it sends SIGTERM to the shared server and
 	// asserts the process exits, consuming the server no later journey can use.
 	t.Run("graceful_drain", h.testGracefulDrain)
@@ -79,7 +80,7 @@ func TestHarnessEarlyExit(t *testing.T) {
 		"HOST=127.0.0.1",
 		fmt.Sprintf("PORT=%d", port),
 	)
-	proc := startServerProcess(t, "early-exit-"+runID, env)
+	proc := startServerProcess(t, t, "early-exit-"+runID, env)
 
 	start := time.Now()
 	err := proc.waitReady(fmt.Sprintf("http://127.0.0.1:%d", port), readyTimeout)
