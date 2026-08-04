@@ -6,7 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupsQueryOptions } from "@/lib/queries/groups";
 import { agentProjectsOptions } from "@/lib/queries/projects";
-import { allChatSessionsQueryOptions } from "@/lib/queries/sessions";
+import { agentLevelChats, allChatSessionsQueryOptions } from "@/lib/queries/sessions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -86,8 +86,9 @@ export function GlobalSearchDialog({
         to: "/agents/$agentId/projects/$projectId",
         params: { agentId, projectId: project.id },
       }));
-    const chatResults: Result[] = chats
-      .filter((session) => !session.archived)
+    // Agent-level only: a project thread's home is its project, and the
+    // threads page is where the two lists come back together.
+    const chatResults: Result[] = agentLevelChats(chats)
       .filter((session) => !needle || match(session.title || "", needle))
       .map((session) => ({
         key: `session:${session.id}`,

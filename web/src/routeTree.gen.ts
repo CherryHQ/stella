@@ -48,6 +48,7 @@ import { Route as AppSettingsPluginsPluginIdRouteImport } from './routes/_app/se
 import { Route as AppSettingsCredentialsSectionRouteImport } from './routes/_app/settings/credentials.$section'
 import { Route as AppSettingsChannelsChannelIdRouteImport } from './routes/_app/settings/channels.$channelId'
 import { Route as AppSettingsAgentsAgentIdRouteImport } from './routes/_app/settings/agents.$agentId'
+import { Route as AppAgentsAgentIdThreadsRouteImport } from './routes/_app/agents.$agentId/threads'
 import { Route as AppAgentsAgentIdProfileRouteImport } from './routes/_app/agents.$agentId/profile'
 import { Route as AppAgentsAgentIdMemoriesRouteImport } from './routes/_app/agents.$agentId/memories'
 import { Route as AppAgentsAgentIdWorkflowsIndexRouteImport } from './routes/_app/agents.$agentId/workflows/index'
@@ -319,6 +320,13 @@ const AppSettingsAgentsAgentIdRoute =
   } as any).lazy(() =>
     import('./routes/_app/settings/agents.$agentId.lazy').then((d) => d.Route),
   )
+const AppAgentsAgentIdThreadsRoute = AppAgentsAgentIdThreadsRouteImport.update({
+  id: '/threads',
+  path: '/threads',
+  getParentRoute: () => AppAgentsAgentIdRoute,
+} as any).lazy(() =>
+  import('./routes/_app/agents.$agentId/threads.lazy').then((d) => d.Route),
+)
 const AppAgentsAgentIdProfileRoute = AppAgentsAgentIdProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
@@ -541,6 +549,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AppSettingsIndexRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRoute
   '/agents/$agentId/profile': typeof AppAgentsAgentIdProfileRoute
+  '/agents/$agentId/threads': typeof AppAgentsAgentIdThreadsRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
   '/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
   '/settings/credentials/$section': typeof AppSettingsCredentialsSectionRoute
@@ -599,6 +608,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsIndexRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRoute
   '/agents/$agentId/profile': typeof AppAgentsAgentIdProfileRoute
+  '/agents/$agentId/threads': typeof AppAgentsAgentIdThreadsRoute
   '/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
   '/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
   '/settings/credentials/$section': typeof AppSettingsCredentialsSectionRoute
@@ -662,6 +672,7 @@ export interface FileRoutesById {
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRoute
   '/_app/agents/$agentId/profile': typeof AppAgentsAgentIdProfileRoute
+  '/_app/agents/$agentId/threads': typeof AppAgentsAgentIdThreadsRoute
   '/_app/settings/agents/$agentId': typeof AppSettingsAgentsAgentIdRouteWithChildren
   '/_app/settings/channels/$channelId': typeof AppSettingsChannelsChannelIdRoute
   '/_app/settings/credentials/$section': typeof AppSettingsCredentialsSectionRoute
@@ -725,6 +736,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/agents/$agentId/memories'
     | '/agents/$agentId/profile'
+    | '/agents/$agentId/threads'
     | '/settings/agents/$agentId'
     | '/settings/channels/$channelId'
     | '/settings/credentials/$section'
@@ -783,6 +795,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/agents/$agentId/memories'
     | '/agents/$agentId/profile'
+    | '/agents/$agentId/threads'
     | '/settings/agents/$agentId'
     | '/settings/channels/$channelId'
     | '/settings/credentials/$section'
@@ -845,6 +858,7 @@ export interface FileRouteTypes {
     | '/_app/settings/'
     | '/_app/agents/$agentId/memories'
     | '/_app/agents/$agentId/profile'
+    | '/_app/agents/$agentId/threads'
     | '/_app/settings/agents/$agentId'
     | '/_app/settings/channels/$channelId'
     | '/_app/settings/credentials/$section'
@@ -1158,6 +1172,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAgentsAgentIdRouteImport
       parentRoute: typeof AppSettingsAgentsRoute
     }
+    '/_app/agents/$agentId/threads': {
+      id: '/_app/agents/$agentId/threads'
+      path: '/threads'
+      fullPath: '/agents/$agentId/threads'
+      preLoaderRoute: typeof AppAgentsAgentIdThreadsRouteImport
+      parentRoute: typeof AppAgentsAgentIdRoute
+    }
     '/_app/agents/$agentId/profile': {
       id: '/_app/agents/$agentId/profile'
       path: '/profile'
@@ -1311,6 +1332,7 @@ declare module '@tanstack/react-router' {
 interface AppAgentsAgentIdRouteChildren {
   AppAgentsAgentIdMemoriesRoute: typeof AppAgentsAgentIdMemoriesRoute
   AppAgentsAgentIdProfileRoute: typeof AppAgentsAgentIdProfileRoute
+  AppAgentsAgentIdThreadsRoute: typeof AppAgentsAgentIdThreadsRoute
   AppAgentsAgentIdIndexRoute: typeof AppAgentsAgentIdIndexRoute
   AppAgentsAgentIdGoalsGoalIdRoute: typeof AppAgentsAgentIdGoalsGoalIdRoute
   AppAgentsAgentIdGoalsAllRoute: typeof AppAgentsAgentIdGoalsAllRoute
@@ -1335,6 +1357,7 @@ interface AppAgentsAgentIdRouteChildren {
 const AppAgentsAgentIdRouteChildren: AppAgentsAgentIdRouteChildren = {
   AppAgentsAgentIdMemoriesRoute: AppAgentsAgentIdMemoriesRoute,
   AppAgentsAgentIdProfileRoute: AppAgentsAgentIdProfileRoute,
+  AppAgentsAgentIdThreadsRoute: AppAgentsAgentIdThreadsRoute,
   AppAgentsAgentIdIndexRoute: AppAgentsAgentIdIndexRoute,
   AppAgentsAgentIdGoalsGoalIdRoute: AppAgentsAgentIdGoalsGoalIdRoute,
   AppAgentsAgentIdGoalsAllRoute: AppAgentsAgentIdGoalsAllRoute,

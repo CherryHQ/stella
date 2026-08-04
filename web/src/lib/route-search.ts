@@ -32,6 +32,24 @@ export interface SkillsSearch {
 const SKILL_SOURCES = new Set(["installed", "market", "manual"]);
 const SKILL_SCOPES = new Set(["project", "user", "agent", "system"]);
 
+export interface ThreadsSearch {
+  /**
+   * Which home the thread list is scoped to: absent means every home, "agent"
+   * means agent-level threads only, anything else is a project id. Unknown ids
+   * are harmless — the page falls back to "all" when it cannot resolve one.
+   */
+  home?: string;
+  /** Client-side title filter over the pages loaded so far. */
+  q?: string;
+}
+
+export function validateThreadsSearch(search: Record<string, unknown>): ThreadsSearch {
+  return {
+    home: typeof search.home === "string" && search.home ? search.home : undefined,
+    q: typeof search.q === "string" && search.q ? search.q : undefined,
+  };
+}
+
 export function validateMemorySearch(search: Record<string, unknown>): MemorySearch {
   return {
     ...(search.knowledge === "removed" ? { knowledge: "removed" as const } : {}),

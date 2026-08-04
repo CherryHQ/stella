@@ -165,6 +165,15 @@ export function SessionView() {
     });
     const session = data;
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+    // The new thread's home is wherever it was started from: a project thread
+    // opens under its project route, never at agent level.
+    if (projectId) {
+      void navigate({
+        to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",
+        params: { agentId, projectId, sessionId: session.id },
+      });
+      return;
+    }
     void navigate({
       to: "/agents/$agentId/sessions/$sessionId",
       params: { agentId, sessionId: session.id },

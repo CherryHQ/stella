@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Folder,
   FolderPlus,
+  List,
   ListTodo,
   MessageSquare,
   MoreHorizontal,
@@ -33,9 +34,11 @@ import { cn } from "@/lib/utils";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { goalCountsOptions } from "@/lib/queries/goals";
 import {
+  agentLevelChats,
   mainSessionQueryOptions,
   projectSessionsQueryOptions,
   sessionsInfiniteQueryOptions,
+  sortedChats,
 } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
@@ -67,11 +70,47 @@ const RECENT_THREAD_PAGE = 5;
 /** How many threads are inlined under the project the URL points at. */
 const PROJECT_THREAD_LIMIT = 5;
 
-/** Hand-started, live chats, newest first — the only threads worth listing. */
-function sortedChats(sessions: Session[]): Session[] {
-  return sessions
-    .filter((session) => session.kind === "chat" && !session.archived)
-    .sort((a, b) => new Date(b.last_active).getTime() - new Date(a.last_active).getTime());
+/**
+ * An icon action inside a sidebar row. SidebarItem already renders the row as a
+ * link, so a nested <button> would be invalid markup — hence a span carrying the
+ * button role and its keyboard handling. Hidden until the row is hovered or the
+ * action itself is focused, so keyboard users can still reach it.
+ */
+function RowAction({
+  label,
+  group,
+  onSelect,
+  children,
+}: {
+  label: string;
+  /** Tailwind group name of the owning row, e.g. `group-hover/project`. */
+  group: string;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  const activate = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSelect();
+  };
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      title={label}
+      className={cn(
+        "grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground focus-visible:opacity-100",
+        group,
+      )}
+      onClick={activate}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") activate(event);
+      }}
+    >
+      {children}
+    </span>
+  );
 }
 
 interface DirEntry {
@@ -573,9 +612,10 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   const projectSessions = useQuery(projectSessionsQueryOptions(agentId, activeProjectId));
 
   // "main" is the pinned conversation and scheduler/task/delegate sessions are
-  // machine-owned; recent only ever lists what the user started by hand.
+  // machine-owned; recent only ever lists what the user started by hand, and
+  // only at agent level — a project thread's home is its project.
   const recentThreads = useMemo(
-    () => sortedChats(chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? []),
+    () => agentLevelChats(chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? []),
     [chatsQuery.data],
   );
   // Only the project the URL points at gets its threads inlined — every other
@@ -610,6 +650,26 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
       params: { agentId, sessionId: session.id },
     });
   }, [agentId, navigate, onNavigate, refreshSessions]);
+
+  // A project thread is created explicitly from the project it belongs to —
+  // never inferred from "where you happened to be" — and opens at its own home.
+  const createProjectChat = useCallback(
+    async (projectId: string) => {
+      const { data } = await sdkCreateSession({
+        path: { agentId },
+        body: { kind: "chat", project_id: projectId },
+        throwOnError: true,
+      });
+      const session = data as ComponentsSession;
+      await refreshSessions();
+      onNavigate();
+      void navigate({
+        to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",
+        params: { agentId, projectId, sessionId: session.id },
+      });
+    },
+    [agentId, navigate, onNavigate, refreshSessions],
+  );
 
   const deleteProject = useCallback(
     async (projectId: string) => {
@@ -723,15 +783,21 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
               icon={<Folder className="size-4" />}
               label={project.name}
               trailing={
-                <span
-                  className="grid size-6 place-items-center rounded-lg text-muted-foreground opacity-0 transition-colors hover:bg-card hover:text-foreground group-hover/project:opacity-70"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void deleteProject(project.id);
-                  }}
-                >
-                  <Trash2 className="size-4" />
+                <span className="flex shrink-0 items-center gap-0.5">
+                  <RowAction
+                    label={t("sessions.sidebar.newProjectThread")}
+                    group="group-hover/project:opacity-70"
+                    onSelect={() => void createProjectChat(project.id)}
+                  >
+                    <Plus className="size-4" />
+                  </RowAction>
+                  <RowAction
+                    label={t("sessions.sidebar.deleteProject")}
+                    group="group-hover/project:opacity-70"
+                    onSelect={() => void deleteProject(project.id)}
+                  >
+                    <Trash2 className="size-4" />
+                  </RowAction>
                 </span>
               }
               to="/agents/$agentId/projects/$projectId"
@@ -760,14 +826,28 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
         ))}
       </SidebarSection>
 
-      {/* An agent with no threads yet gets no label and no placeholder — an
-          empty section is noise the user cannot act on. */}
-      {recentThreads.length > 0 && (
+      {/* An agent with no threads and no projects gets no label and no
+          placeholder — an empty section is noise the user cannot act on. With
+          projects around, the label stays so "view all" (the only route to
+          project threads in bulk) is reachable. */}
+      {(recentThreads.length > 0 || projects.length > 0) && (
         <SidebarSection
           title={t("sidebar.recentThreads")}
           open={threadsOpen}
           onOpenChange={setThreadsOverride}
           count={recentThreads.length}
+          action={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t("sidebar.viewAllThreads")}
+              title={t("sidebar.viewAllThreads")}
+              render={<Link to="/agents/$agentId/threads" params={{ agentId }} />}
+              onClick={onNavigate}
+            >
+              <List />
+            </Button>
+          }
         >
           {recentThreads.slice(0, visibleThreads).map((session: Session) => {
             const label = session.title || t("sessions.untitled");
