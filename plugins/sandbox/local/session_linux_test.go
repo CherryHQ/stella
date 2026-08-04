@@ -58,9 +58,7 @@ func TestWrapCommand_linux_networkDisabled(t *testing.T) {
 // TestWrapCommand_linux_allowAllNoWrap verifies that when network is allow_all,
 // bwrap is used without --unshare-net.
 func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	root := "/tmp/test-workspace"
 	sandboxCwd := "/workspace"
@@ -91,9 +89,7 @@ func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
 	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	rawRoot := t.TempDir()
 	root, err := filepath.EvalSymlinks(rawRoot)
@@ -160,9 +156,7 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
 	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	root := "/tmp/test-workspace"
 	sandboxCwd := "/workspace/sub"
@@ -253,9 +247,7 @@ func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
 	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
 	userDir := filepath.Join(stellaHome, "users", "u1", ".mise-tools")
@@ -302,9 +294,7 @@ func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
 	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
 	userHome := filepath.Join(stellaHome, "users", "u1")
@@ -345,9 +335,7 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
 	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
 	agentDir := filepath.Join(stellaHome, "users", "u1", "agents", "a1")
@@ -389,9 +377,7 @@ func TestWrapCommand_linux_twoRoots(t *testing.T) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		t.Skip("bwrap not installed")
 	}
-	if !bwrapFunctional() {
-		t.Skip("bwrap not functional (namespace creation blocked)")
-	}
+	skipIfBwrapNotFunctional(t)
 
 	agentDir := "/tmp/test-workspace/users/u1/agents/a1"
 	userData := "/tmp/test-workspace/users/u1/data"
