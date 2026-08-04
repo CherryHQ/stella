@@ -390,6 +390,16 @@ func (failingPutStore) Put(context.Context, string, io.Reader) error {
 	return errors.New("intentional put failure")
 }
 
+type failingDeleteStore struct {
+	blob.Store
+	deleteCalls *int
+}
+
+func (f failingDeleteStore) Delete(context.Context, string) error {
+	(*f.deleteCalls)++
+	return errors.New("intentional delete failure")
+}
+
 func TestCreateWorkspaceFilePersistsAssetToAuthority(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("STELLA_HOME", home)
@@ -464,6 +474,102 @@ func (lazyMissingStore) Open(context.Context, string) (io.ReadCloser, error) {
 type lazyMissingReader struct{}
 
 func (lazyMissingReader) Read([]byte) (int, error) { return 0, os.ErrNotExist }
+
+func TestDeleteWorkspaceFileRemovesLocalAndAuthority(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "delete.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("delete me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	key, err := blob.KeyForPath(home, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Put(context.Background(), key, strings.NewReader("delete me")); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, remote, mem)
+	scope := apitypes.WorkspaceScopeUser
+	req := httptest.NewRequest(http.MethodDelete, "/", strings.NewReader(`{"path":"assets/202607/delete.txt"}`)).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.DeleteWorkspaceFile(rr, req, "a1", "s1", apiserver.DeleteWorkspaceFileParams{Scope: &scope})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(local); !os.IsNotExist(err) {
+		t.Fatalf("local file after delete: %v, want not exist", err)
+	}
+	if _, err := remote.Open(context.Background(), key); !os.IsNotExist(err) {
+		t.Fatalf("authority file after delete: %v, want not exist", err)
+	}
+}
+
+func TestDeleteWorkspaceFileAuthorityFailurePreservesLocalFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "keep.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	key, err := blob.KeyForPath(home, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Put(context.Background(), key, strings.NewReader("keep me")); err != nil {
+		t.Fatal(err)
+	}
+	deleteCalls := 0
+	s := assetServer(t, home, failingDeleteStore{Store: remote, deleteCalls: &deleteCalls}, mem)
+	scope := apitypes.WorkspaceScopeUser
+	req := httptest.NewRequest(http.MethodDelete, "/", strings.NewReader(`{"path":"assets/202607/keep.txt"}`)).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.DeleteWorkspaceFile(rr, req, "a1", "s1", apiserver.DeleteWorkspaceFileParams{Scope: &scope})
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if deleteCalls != 1 {
+		t.Fatalf("authority delete calls = %d, want 1", deleteCalls)
+	}
+	if data, err := os.ReadFile(local); err != nil || string(data) != "keep me" {
+		t.Fatalf("local file after failed delete = %q, err=%v", data, err)
+	}
+	body, err := remote.Open(context.Background(), key)
+	if err != nil {
+		t.Fatalf("authority file after failed delete: %v", err)
+	}
+	data, err := io.ReadAll(body)
+	_ = body.Close()
+	if err != nil || string(data) != "keep me" {
+		t.Fatalf("authority data after failed delete = %q, err=%v", data, err)
+	}
+}
 
 func TestMoveWorkspaceFileMirrorsAssetToAuthority(t *testing.T) {
 	home := t.TempDir()
