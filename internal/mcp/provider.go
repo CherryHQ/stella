@@ -132,7 +132,8 @@ func (p *ToolProvider) ToolsForContext(ctx context.Context, userID, agentID stri
 	}
 	seen := map[string]struct{}{}
 	var out []pkgtools.Tool
-	for _, tools := range byIndex {
+	for i, tools := range byIndex {
+		kept := false
 		for _, tool := range tools {
 			name := tool.Definition().Name
 			if _, ok := seen[name]; ok {
@@ -141,6 +142,18 @@ func (p *ToolProvider) ToolsForContext(ctx context.Context, userID, agentID stri
 			}
 			seen[name] = struct{}{}
 			out = append(out, tool)
+			kept = true
+		}
+		// Every proxy from one server shares one idempotent client. If collision
+		// filtering discarded the whole server, no registry-owned proxy remains to
+		// close that client; close one discarded proxy now. Do not close when any
+		// sibling survived, or it would invalidate the retained proxies.
+		if !kept && len(tools) > 0 {
+			if closer, ok := tools[0].(interface{ Close() error }); ok {
+				if err := closer.Close(); err != nil {
+					p.log.Warn("close fully shadowed mcp server", "server", regs[i].Name, "error", err)
+				}
+			}
 		}
 	}
 	return out

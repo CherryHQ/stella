@@ -136,10 +136,20 @@ func safeHTTPClient(bearer string) *http.Client {
 	return &http.Client{
 		Transport: &authRoundTripper{base: safeBaseTransport(), bearer: bearer},
 		Timeout:   30 * time.Second,
-		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-			return validateEndpointURL(req.URL.String())
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if err := validateEndpointURL(req.URL.String()); err != nil {
+				return err
+			}
+			if len(via) == 0 || !sameOrigin(req.URL, via[0].URL) {
+				return fmt.Errorf("mcp: redirect to a different origin is not allowed")
+			}
+			return nil
 		},
 	}
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
 func safeBaseTransport() http.RoundTripper {
