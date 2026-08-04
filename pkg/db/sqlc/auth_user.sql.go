@@ -9,12 +9,45 @@ import (
 	"context"
 )
 
+const deleteAuthUser = `-- name: DeleteAuthUser :exec
+DELETE FROM auth_user WHERE id = $1
+`
+
+func (q *Queries) DeleteAuthUser(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteAuthUser, id)
+	return err
+}
+
 const getAuthUser = `-- name: GetAuthUser :one
 SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_user WHERE id = $1
 `
 
 func (q *Queries) GetAuthUser(ctx context.Context, id string) (AuthUser, error) {
 	row := q.db.QueryRow(ctx, getAuthUser, id)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.AvatarUrl,
+		&i.Role,
+		&i.IsActive,
+		&i.DefaultAgentID,
+		&i.NotifyIdentityID,
+		&i.AgePublicKey,
+		&i.AgePrivateKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getAuthUserForUpdate = `-- name: GetAuthUserForUpdate :one
+SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id, age_public_key, age_private_key, created_at, updated_at FROM auth_user WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetAuthUserForUpdate(ctx context.Context, id string) (AuthUser, error) {
+	row := q.db.QueryRow(ctx, getAuthUserForUpdate, id)
 	var i AuthUser
 	err := row.Scan(
 		&i.ID,

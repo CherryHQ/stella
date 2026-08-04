@@ -54,6 +54,20 @@ func TestLoadServerConfigHomeStoreID(t *testing.T) {
 	}
 }
 
+func TestLoadHomeMaintenanceConfig(t *testing.T) {
+	cfg, err := LoadHomeMaintenanceConfig(lookupFrom(nil))
+	if err != nil || cfg.HomeStoreID != "local" || cfg.DatabaseURL != "" {
+		t.Fatalf("defaults = %#v, %v", cfg, err)
+	}
+	cfg, err = LoadHomeMaintenanceConfig(lookupFrom(map[string]string{homeStoreIDEnv: "store-2", databaseURLEnv: "postgres://db/stella"}))
+	if err != nil || cfg.HomeStoreID != "store-2" || cfg.DatabaseURL != "postgres://db/stella" {
+		t.Fatalf("custom = %#v, %v", cfg, err)
+	}
+	if _, err := LoadHomeMaintenanceConfig(lookupFrom(map[string]string{homeStoreIDEnv: "bad/store"})); err == nil {
+		t.Fatal("invalid Store ID accepted")
+	}
+}
+
 func TestLoadServerConfigHappy(t *testing.T) {
 	cfg, err := LoadServerConfig(lookupFrom(map[string]string{
 		requireExternalDBEnv:    "true",

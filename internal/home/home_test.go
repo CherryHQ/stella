@@ -240,8 +240,11 @@ func TestRegistryConstraintsLifecycleAndPurgeRetries(t *testing.T) {
 	if _, err := r.Purge(ctx, user.ID, ""); err == nil {
 		t.Fatal("blank purge actor accepted")
 	}
+	if _, err := r.RetryFailedPurge(ctx, group.ID, "admin"); err == nil {
+		t.Fatal("tombstoned Home accepted as an admin retry")
+	}
 	flaky.fail = false
-	purged, err := r.Purge(ctx, user.ID, "admin")
+	purged, err := r.RetryFailedPurge(ctx, user.ID, "admin")
 	if err != nil || purged.State != StatePurged {
 		t.Fatalf("purge retry = %+v, %v", purged, err)
 	}
@@ -264,6 +267,138 @@ func (s *failingPurgeStore) Purge(ctx context.Context, home Record) error {
 		return errors.New("injected physical delete failure")
 	}
 	return s.Store.Purge(ctx, home)
+}
+
+func TestRetryFailedPurgeClaimsEligibilityOnce(t *testing.T) {
+	store, err := NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	flaky := &failingPurgeStore{Store: store, fail: true}
+	r, err := NewRegistry(dbtest.New(t), store.ID(), flaky)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := r.Ensure(context.Background(), Principal(UserPrincipal, "retry-race"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Tombstone(context.Background(), record.Key, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Purge(context.Background(), record.ID, "admin"); err == nil {
+		t.Fatal("initial failure unexpectedly succeeded")
+	}
+	flaky.fail = false
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			_, err := r.RetryFailedPurge(context.Background(), record.ID, "admin")
+			results <- err
+		})
+	}
+	wg.Wait()
+	close(results)
+	var success, rejected int
+	for err := range results {
+		if err == nil {
+			success++
+		} else {
+			rejected++
+		}
+	}
+	if success != 1 || rejected != 1 {
+		t.Fatalf("retry results success=%d rejected=%d, want one each", success, rejected)
+	}
+}
+
+func TestLocalStoreFailedPurgePreservesAuditAndRetryRemovesBytes(t *testing.T) {
+	ctx := context.Background()
+	base, err := NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	flaky := &failingPurgeStore{Store: base, fail: true}
+	r, err := NewRegistry(dbtest.New(t), base.ID(), flaky)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready, err := r.Ensure(ctx, Principal(UserPrincipal, "purge-retry"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := filepath.Join(base.base, filepath.FromSlash(ready.Locator), "payload")
+	if err := os.WriteFile(payload, []byte("durable bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tombstoned, err := r.Tombstone(ctx, ready.Key, "delete-actor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.Purge(ctx, ready.ID, "purge-actor")
+	var physical *PhysicalPurgeError
+	if !errors.As(err, &physical) {
+		t.Fatalf("Purge error = %v, want PhysicalPurgeError", err)
+	}
+	failed, err := r.Record(ctx, ready.ID)
+	if err != nil || failed.State != StatePurgeFailed {
+		t.Fatalf("failed record = %#v, %v", failed, err)
+	}
+	if failed.ID != ready.ID || failed.Key != ready.Key || failed.StoreID != ready.StoreID || failed.Locator != ready.Locator {
+		t.Fatalf("failed identity = %#v, want %#v", failed, ready)
+	}
+	row, err := r.q.GetStorageHome(ctx, ready.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !row.TombstonedAt.Valid || !row.PurgeRequestedAt.Valid || !row.PurgeFailedAt.Valid || !row.TombstonedBy.Valid || row.TombstonedBy.String != "delete-actor" || !row.LastPurgeError.Valid {
+		t.Fatalf("failed purge audit = %#v", row)
+	}
+	if tombstoned.ID != ready.ID {
+		t.Fatalf("tombstoned record = %#v, want %s", tombstoned, ready.ID)
+	}
+	flaky.fail = false
+	purged, err := r.RetryFailedPurge(ctx, ready.ID, "retry-actor")
+	if err != nil || purged.State != StatePurged {
+		t.Fatalf("RetryFailedPurge = %#v, %v", purged, err)
+	}
+	if _, err := os.Stat(payload); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("purged bytes stat = %v, want absent", err)
+	}
+	for _, tt := range []struct {
+		name string
+		id   string
+	}{
+		{name: "ready", id: mustEnsureHome(t, r, Principal(UserPrincipal, "retry-ready")).ID},
+		{name: "tombstoned", id: mustTombstoneHome(t, r, Principal(UserPrincipal, "retry-tombstoned")).ID},
+		{name: "purged", id: ready.ID},
+		{name: "missing", id: "00000000-0000-0000-0000-000000000000"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := r.RetryFailedPurge(ctx, tt.id, "retry-actor"); err == nil {
+				t.Fatal("RetryFailedPurge accepted an ineligible Home")
+			}
+		})
+	}
+}
+
+func mustEnsureHome(t *testing.T, r *Registry, key Key) Record {
+	t.Helper()
+	record, err := r.Ensure(context.Background(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func mustTombstoneHome(t *testing.T, r *Registry, key Key) Record {
+	t.Helper()
+	record := mustEnsureHome(t, r, key)
+	if _, err := r.Tombstone(context.Background(), key, "delete-actor"); err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
 
 func TestConcurrentPurgeTreatsWinnerAsSuccess(t *testing.T) {

@@ -136,6 +136,7 @@ type Store interface {
 }
 
 type Registry struct {
+	db           *pgxpool.Pool
 	q            *sqlc.Queries
 	stores       map[string]Store
 	defaultStore string
@@ -148,7 +149,7 @@ func NewRegistry(db *pgxpool.Pool, defaultStore string, stores ...Store) (*Regis
 	if err := validateStoreID(defaultStore); err != nil {
 		return nil, fmt.Errorf("home: invalid default store: %w", err)
 	}
-	r := &Registry{q: sqlc.New(db), stores: make(map[string]Store), defaultStore: defaultStore}
+	r := &Registry{db: db, q: sqlc.New(db), stores: make(map[string]Store), defaultStore: defaultStore}
 	for _, store := range stores {
 		if store == nil {
 			return nil, errors.New("home: store is required")
@@ -168,10 +169,16 @@ func NewRegistry(db *pgxpool.Pool, defaultStore string, stores ...Store) (*Regis
 }
 
 func (r *Registry) Ensure(ctx context.Context, key Key) (Record, error) {
+	return r.ensureWithQueries(ctx, r.q, key)
+}
+
+// ensureWithQueries keeps every registry transition on the supplied handle.
+// WorkspaceView passes its advisory-lock transaction; public callers use r.q.
+func (r *Registry) ensureWithQueries(ctx context.Context, q *sqlc.Queries, key Key) (Record, error) {
 	if err := key.Validate(); err != nil {
 		return Record{}, err
 	}
-	row, err := r.get(ctx, key)
+	row, err := r.getWithQueries(ctx, q, key)
 	if errors.Is(err, pgx.ErrNoRows) {
 		store := r.stores[r.defaultStore]
 		locator, allocateErr := store.Allocate(key)
@@ -181,9 +188,9 @@ func (r *Registry) Ensure(ctx context.Context, key Key) (Record, error) {
 		if err := store.ValidateLocator(key, locator); err != nil {
 			return Record{}, fmt.Errorf("home: validate allocated locator: %w", err)
 		}
-		row, err = r.q.CreateStorageHome(ctx, sqlc.CreateStorageHomeParams{ID: uuid.Must(uuid.NewV7()).String(), HomeKind: string(key.Kind), PrincipalKind: nullable(string(key.PrincipalKind)), PrincipalID: nullable(key.PrincipalID), AgentID: nullable(key.AgentID), StoreID: store.ID(), Locator: locator})
+		row, err = q.CreateStorageHome(ctx, sqlc.CreateStorageHomeParams{ID: uuid.Must(uuid.NewV7()).String(), HomeKind: string(key.Kind), PrincipalKind: nullable(string(key.PrincipalKind)), PrincipalID: nullable(key.PrincipalID), AgentID: nullable(key.AgentID), StoreID: store.ID(), Locator: locator})
 		if errors.Is(err, pgx.ErrNoRows) {
-			row, err = r.get(ctx, key)
+			row, err = r.getWithQueries(ctx, q, key)
 		}
 	}
 	if err != nil {
@@ -200,9 +207,9 @@ func (r *Registry) Ensure(ctx context.Context, key Key) (Record, error) {
 		if err := r.stores[home.StoreID].Ensure(ctx, home); err != nil {
 			return Record{}, fmt.Errorf("home: ensure physical storage: %w", err)
 		}
-		row, err = r.q.MarkStorageHomeReady(ctx, home.ID)
+		row, err = q.MarkStorageHomeReady(ctx, home.ID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			row, err = r.q.GetStorageHome(ctx, home.ID)
+			row, err = q.GetStorageHome(ctx, home.ID)
 		}
 		if err != nil {
 			return Record{}, fmt.Errorf("home: mark ready: %w", err)
@@ -220,10 +227,14 @@ func (r *Registry) Ensure(ctx context.Context, key Key) (Record, error) {
 }
 
 func (r *Registry) Resolve(ctx context.Context, key Key, readOnly bool) (sandbox.HomeAttachment, error) {
+	return r.resolveWithQueries(ctx, r.q, key, readOnly)
+}
+
+func (r *Registry) resolveWithQueries(ctx context.Context, q *sqlc.Queries, key Key, readOnly bool) (sandbox.HomeAttachment, error) {
 	if err := key.Validate(); err != nil {
 		return sandbox.HomeAttachment{}, err
 	}
-	row, err := r.get(ctx, key)
+	row, err := r.getWithQueries(ctx, q, key)
 	if err != nil {
 		return sandbox.HomeAttachment{}, fmt.Errorf("home: resolve registry row: %w", err)
 	}
@@ -231,14 +242,18 @@ func (r *Registry) Resolve(ctx context.Context, key Key, readOnly bool) (sandbox
 	if err != nil {
 		return sandbox.HomeAttachment{}, err
 	}
-	return r.resolveRecord(ctx, home, readOnly)
+	return r.resolveRecordWithQueries(ctx, q, home, readOnly)
 }
 
 // resolveRecord re-reads the row by immutable ID before issuing an attachment.
 // This closes the cutover/tombstone window between Ensure and compatibility
 // projection; a stale, forged, or non-ready record never obtains a local path.
 func (r *Registry) resolveRecord(ctx context.Context, record Record, readOnly bool) (sandbox.HomeAttachment, error) {
-	row, err := r.q.GetStorageHome(ctx, record.ID)
+	return r.resolveRecordWithQueries(ctx, r.q, record, readOnly)
+}
+
+func (r *Registry) resolveRecordWithQueries(ctx context.Context, q *sqlc.Queries, record Record, readOnly bool) (sandbox.HomeAttachment, error) {
+	row, err := q.GetStorageHome(ctx, record.ID)
 	if err != nil {
 		return sandbox.HomeAttachment{}, fmt.Errorf("home: revalidate attachment: %w", err)
 	}
@@ -283,8 +298,16 @@ func (r *Registry) Tombstone(ctx context.Context, key Key, actor string) (Record
 	return r.decode(row)
 }
 
-// Purge is intentionally not wired to River in this slice. A caller must have
-// already fenced active consumers before invoking it.
+// PhysicalPurgeError proves that the physical Store operation failed and that
+// the durable registry row was parked in purge_failed. Workers may suppress
+// only this error; all other failures are unsafe to acknowledge.
+type PhysicalPurgeError struct{ err error }
+
+func (e *PhysicalPurgeError) Error() string { return fmt.Sprintf("home: physical purge: %v", e.err) }
+func (e *PhysicalPurgeError) Unwrap() error { return e.err }
+
+// Purge performs the physical half of a previously fenced deletion. It is
+// idempotent for purged records and records a physical failure durably.
 func (r *Registry) Purge(ctx context.Context, id, actor string) (Record, error) {
 	if strings.TrimSpace(actor) == "" {
 		return Record{}, errors.New("home: purge actor is required")
@@ -322,7 +345,7 @@ func (r *Registry) Purge(ctx context.Context, id, actor string) (Record, error) 
 			}
 			return Record{}, fmt.Errorf("home: physical purge: %w; record failure: %w", err, markErr)
 		}
-		return Record{}, fmt.Errorf("home: physical purge: %w", err)
+		return Record{}, &PhysicalPurgeError{err: err}
 	}
 	row, err = r.q.MarkStorageHomePurged(ctx, sqlc.MarkStorageHomePurgedParams{ID: id, PurgedBy: nullable(actor)})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -330,6 +353,52 @@ func (r *Registry) Purge(ctx context.Context, id, actor string) (Record, error) 
 	}
 	if err != nil {
 		return Record{}, fmt.Errorf("home: mark purged: %w", err)
+	}
+	return r.decode(row)
+}
+
+// Record reads one registry record for lifecycle workers without exposing raw
+// sqlc state to callers.
+func (r *Registry) Record(ctx context.Context, id string) (Record, error) {
+	row, err := r.q.GetStorageHome(ctx, id)
+	if err != nil {
+		return Record{}, fmt.Errorf("home: get record: %w", err)
+	}
+	return r.decode(row)
+}
+
+// RetryFailedPurge retries exactly one durably parked physical failure. It
+// refuses tombstoned, ready, purged, and missing records, so maintenance cannot
+// turn an ordinary pending deletion into an immediate purge.
+func (r *Registry) RetryFailedPurge(ctx context.Context, id, actor string) (Record, error) {
+	if strings.TrimSpace(actor) == "" {
+		return Record{}, errors.New("home: purge actor is required")
+	}
+	row, err := r.q.ClaimStorageHomeFailedPurgeRetry(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		home, readErr := r.Record(ctx, id)
+		if readErr != nil {
+			return Record{}, fmt.Errorf("home: find failed purge: %w", readErr)
+		}
+		return Record{}, fmt.Errorf("home: %s is not eligible for purge retry", home.State)
+	}
+	if err != nil {
+		return Record{}, fmt.Errorf("home: claim failed purge retry: %w", err)
+	}
+	home, err := r.decode(row)
+	if err != nil {
+		return Record{}, err
+	}
+	if err := r.stores[home.StoreID].Purge(ctx, home); err != nil {
+		_, markErr := r.q.MarkStorageHomePurgeFailed(ctx, sqlc.MarkStorageHomePurgeFailedParams{ID: id, LastPurgeError: nullable(err.Error())})
+		if markErr != nil {
+			return Record{}, fmt.Errorf("home: physical purge: %w; record failure: %w", err, markErr)
+		}
+		return Record{}, &PhysicalPurgeError{err: err}
+	}
+	row, err = r.q.MarkStorageHomePurged(ctx, sqlc.MarkStorageHomePurgedParams{ID: id, PurgedBy: nullable(actor)})
+	if err != nil {
+		return Record{}, fmt.Errorf("home: mark retried purge: %w", err)
 	}
 	return r.decode(row)
 }
@@ -598,15 +667,19 @@ func (r *Registry) purgedAfterRace(ctx context.Context, id string) (Record, erro
 }
 
 func (r *Registry) get(ctx context.Context, key Key) (sqlc.StorageHome, error) {
+	return r.getWithQueries(ctx, r.q, key)
+}
+
+func (r *Registry) getWithQueries(ctx context.Context, q *sqlc.Queries, key Key) (sqlc.StorageHome, error) {
 	switch key.Kind {
 	case PrincipalHome:
-		return r.q.GetPrincipalStorageHome(ctx, sqlc.GetPrincipalStorageHomeParams{PrincipalKind: nullable(string(key.PrincipalKind)), PrincipalID: nullable(key.PrincipalID)})
+		return q.GetPrincipalStorageHome(ctx, sqlc.GetPrincipalStorageHomeParams{PrincipalKind: nullable(string(key.PrincipalKind)), PrincipalID: nullable(key.PrincipalID)})
 	case AgentHome:
-		return r.q.GetAgentStorageHome(ctx, sqlc.GetAgentStorageHomeParams{PrincipalKind: nullable(string(key.PrincipalKind)), PrincipalID: nullable(key.PrincipalID), AgentID: nullable(key.AgentID)})
+		return q.GetAgentStorageHome(ctx, sqlc.GetAgentStorageHomeParams{PrincipalKind: nullable(string(key.PrincipalKind)), PrincipalID: nullable(key.PrincipalID), AgentID: nullable(key.AgentID)})
 	case SystemSkillRoot:
-		return r.q.GetSystemSkillStorageHome(ctx)
+		return q.GetSystemSkillStorageHome(ctx)
 	case SystemAgentSkillRoot:
-		return r.q.GetSystemAgentSkillStorageHome(ctx, nullable(key.AgentID))
+		return q.GetSystemAgentSkillStorageHome(ctx, nullable(key.AgentID))
 	}
 	return sqlc.StorageHome{}, fmt.Errorf("home: unsupported kind %q", key.Kind)
 }

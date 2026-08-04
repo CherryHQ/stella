@@ -542,6 +542,31 @@ func (c *runnerCache) closeAll() error {
 	return lastErr
 }
 
+// closeWhere is terminal: unlike resetWhere it removes every matching cache
+// entry and closes busy or reserved runners too. Owner deletion is allowed to
+// interrupt work; ordinary policy invalidation must never use this path.
+func (c *runnerCache) closeWhere(include func(*cachedSession) bool) error {
+	c.mu.Lock()
+	closing := make([]Runner, 0)
+	for id, cs := range c.sessions {
+		if !include(cs) {
+			continue
+		}
+		delete(c.sessions, id)
+		if cs.r != nil {
+			closing = append(closing, cs.r)
+		}
+	}
+	c.mu.Unlock()
+	var lastErr error
+	for _, r := range closing {
+		if err := c.closeRetired(r); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
 // reap closes runners that are idle or dead.
 func (c *runnerCache) reap() {
 	now := time.Now()
