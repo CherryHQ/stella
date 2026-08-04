@@ -19,21 +19,23 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion       = int64(20260725161331)
-	currentMigrationVersion = int64(20260801061950)
+	currentMigrationVersion = int64(20260804120000)
 
-	previousGAUserID       = "00000000-0000-0000-0000-000000000001"
-	previousGAGroupID      = "00000000-0000-0000-0000-000000000002"
-	previousGAOlderChatID  = "00000000-0000-0000-0000-000000000009"
-	previousGAOldChatID    = "00000000-0000-0000-0000-000000000003"
-	previousGANewChatID    = "00000000-0000-0000-0000-000000000004"
-	previousGAMessageID    = "00000000-0000-0000-0000-000000000005"
-	previousGAPartID       = "00000000-0000-0000-0000-000000000006"
-	previousGAMediaID      = "00000000-0000-0000-0000-000000000007"
-	previousGAWebhookID    = "00000000-0000-0000-0000-000000000008"
-	previousGAAgentID      = "previous-ga-agent"
-	previousGAOlderSession = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
-	previousGAOldSession   = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
-	previousGANewSession   = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
+	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
+	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
+	previousGAOlderChatID    = "00000000-0000-0000-0000-000000000009"
+	previousGAOldChatID      = "00000000-0000-0000-0000-000000000003"
+	previousGANewChatID      = "00000000-0000-0000-0000-000000000004"
+	previousGAMessageID      = "00000000-0000-0000-0000-000000000005"
+	previousGAPartID         = "00000000-0000-0000-0000-000000000006"
+	previousGAMediaID        = "00000000-0000-0000-0000-000000000007"
+	previousGAWebhookID      = "00000000-0000-0000-0000-000000000008"
+	previousGAAgentID        = "previous-ga-agent"
+	previousGACascadeAgentID = "previous-ga-cascade-agent"
+	previousGAProviderID     = "previous-ga-provider"
+	previousGAOlderSession   = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
+	previousGAOldSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
+	previousGANewSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
 )
 
 var previousGATime = time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)
@@ -124,7 +126,18 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 	}
 
 	exec("user", `INSERT INTO auth_user (id, email, created_at, updated_at) VALUES ($1, 'previous-ga@test.invalid', $2, $2)`, previousGAUserID, previousGATime)
-	exec("agent", `INSERT INTO agent (id, name, workspace, created_at, updated_at) VALUES ($1, 'Previous GA Agent', '/tmp', $2, $2)`, previousGAAgentID, previousGATime)
+	exec("agents", `INSERT INTO agent (id, name, workspace, created_at, updated_at) VALUES
+		($1, 'Previous GA Agent', '/tmp', $3, $3),
+		($2, 'Previous GA Cascade Agent', '/tmp', $3, $3)`, previousGAAgentID, previousGACascadeAgentID, previousGATime)
+	exec("canonical provider", `INSERT INTO provider (id, type, name, created_at, updated_at) VALUES ($1, 'anthropic', 'Previous GA Provider', $2, $2)`, previousGAProviderID, previousGATime)
+	exec("sandbox plugin rows", `INSERT INTO plugin (id, kind, name, created_at, updated_at) VALUES
+		('sandbox/local', 'sandbox', 'Local sandbox', $1, $1),
+		('sandbox', 'sandbox', 'Sandbox near miss', $1, $1),
+		('tool/unrelated', 'tool', 'Unrelated tool', $1, $1)`, previousGATime)
+	exec("sandbox plugin state rows", `INSERT INTO plugin_state (plugin_id, scope_kind, state_key, value, created_at, updated_at) VALUES
+		('sandbox/local', 'system', 'sandbox-state', '{"keep":"no"}', $1, $1),
+		('sandbox', 'system', 'near-miss-state', '{"keep":"yes"}', $1, $1),
+		('tool/unrelated', 'system', 'unrelated-state', '{"keep":"yes"}', $1, $1)`, previousGATime)
 	exec("group", `INSERT INTO ctx_group_state (id, platform, platform_group_id, created_at, updated_at) VALUES ($1, 'test', 'previous-ga-group', $2, $2)`, previousGAGroupID, previousGATime)
 	exec("duplicate group chats", `
 		INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id, group_id, created_at, updated_at)
@@ -190,6 +203,24 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	if !larkClean || !larkCustom || !unrelatedPreserved {
 		t.Fatalf("Lark cleanup = fields removed %v, custom preserved %v, unrelated preserved %v; want true, true, true", larkClean, larkCustom, unrelatedPreserved)
 	}
+	if got := count("deleted sandbox plugins", `SELECT count(*) FROM plugin WHERE id LIKE 'sandbox/%'`); got != 0 {
+		t.Fatalf("sandbox plugin rows = %d, want 0", got)
+	}
+	if got := count("deleted sandbox plugin state", `SELECT count(*) FROM plugin_state WHERE plugin_id LIKE 'sandbox/%'`); got != 0 {
+		t.Fatalf("sandbox plugin state rows = %d, want 0", got)
+	}
+	if got := count("sandbox plugin near miss", `SELECT count(*) FROM plugin WHERE id = 'sandbox'`); got != 1 {
+		t.Fatalf("sandbox plugin near-miss rows = %d, want 1", got)
+	}
+	if got := count("sandbox plugin state near miss", `SELECT count(*) FROM plugin_state WHERE plugin_id = 'sandbox' AND state_key = 'near-miss-state'`); got != 1 {
+		t.Fatalf("sandbox plugin state near-miss rows = %d, want 1", got)
+	}
+	if got := count("unrelated plugin rows", `SELECT count(*) FROM plugin WHERE id = 'tool/unrelated'`); got != 1 {
+		t.Fatalf("unrelated plugin rows = %d, want 1", got)
+	}
+	if got := count("unrelated plugin state", `SELECT count(*) FROM plugin_state WHERE plugin_id = 'tool/unrelated' AND state_key = 'unrelated-state'`); got != 1 {
+		t.Fatalf("unrelated plugin state rows = %d, want 1", got)
+	}
 
 	var olderArchived, oldArchived, newArchived bool
 	if err := db.QueryRow(ctx, `SELECT archived FROM ctx_conversation WHERE session_id = $1`, previousGAOlderSession).Scan(&olderArchived); err != nil {
@@ -250,6 +281,33 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if mediaID != nil {
 		t.Fatalf("message part media_id after media delete = %q, want NULL", *mediaID)
+	}
+
+	if _, err := db.Exec(ctx, `INSERT INTO agent_provider_credential (agent_id, provider_id, api_key_enc, created_at, updated_at) VALUES ($1, $2, 'ciphertext', $3, $3)`, previousGACascadeAgentID, previousGAProviderID, previousGATime); err != nil {
+		t.Fatalf("insert valid agent Provider credential: %v", err)
+	}
+	_, err = db.Exec(ctx, `INSERT INTO agent_provider_credential (agent_id, provider_id, api_key_enc) VALUES ($1, $2, 'duplicate-ciphertext')`, previousGACascadeAgentID, previousGAProviderID)
+	assertConstraintViolation(t, err, "agent_provider_credential_pkey")
+	_, err = db.Exec(ctx, `INSERT INTO agent_provider_credential (agent_id, provider_id, api_key_enc) VALUES ($1, $2, '')`, previousGAAgentID, previousGAProviderID)
+	assertConstraintViolation(t, err, "agent_provider_credential_api_key_enc_check")
+	_, err = db.Exec(ctx, `INSERT INTO agent_provider_credential (agent_id, provider_id, api_key_enc) VALUES ('missing-agent', $1, 'ciphertext')`, previousGAProviderID)
+	assertConstraintViolation(t, err, "agent_provider_credential_agent_id_fkey")
+	_, err = db.Exec(ctx, `INSERT INTO agent_provider_credential (agent_id, provider_id, api_key_enc) VALUES ($1, 'missing-provider', 'ciphertext')`, previousGACascadeAgentID)
+	assertConstraintViolation(t, err, "agent_provider_credential_provider_id_fkey")
+	if _, err := db.Exec(ctx, `DELETE FROM agent WHERE id = $1`, previousGACascadeAgentID); err != nil {
+		t.Fatalf("delete credential Agent: %v", err)
+	}
+	if got := count("credentials after Agent cascade", `SELECT count(*) FROM agent_provider_credential WHERE agent_id = $1`, previousGACascadeAgentID); got != 0 {
+		t.Fatalf("credential rows after Agent delete = %d, want 0", got)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO agent_provider_credential (agent_id, provider_id, api_key_enc, created_at, updated_at) VALUES ($1, $2, 'provider-ciphertext', $3, $3)`, previousGAAgentID, previousGAProviderID, previousGATime); err != nil {
+		t.Fatalf("insert provider-cascade credential: %v", err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM provider WHERE id = $1`, previousGAProviderID); err != nil {
+		t.Fatalf("delete credential Provider: %v", err)
+	}
+	if got := count("credentials after Provider cascade", `SELECT count(*) FROM agent_provider_credential WHERE provider_id = $1`, previousGAProviderID); got != 0 {
+		t.Fatalf("credential rows after Provider delete = %d, want 0", got)
 	}
 
 	var latest int64
