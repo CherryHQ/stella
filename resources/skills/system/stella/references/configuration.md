@@ -122,7 +122,7 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 | Operator path                               | Purpose                                                                                                         |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `postgres/`                                 | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
-| `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                       |
+| `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                               |
 | `cache/sandbox-tmp/`                        | Docker sandbox temporary directories; scratch, removed when stale                                               |
 | `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed area                                                |
 | `agents/{agent_id}/.agents/skills/`         | Derived execution materialization of PostgreSQL-backed `system_agent` Skills                                    |

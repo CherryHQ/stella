@@ -346,7 +346,7 @@ All data lives under the stella home directory (`~/.stella` by default, configur
 | Path                                          | Purpose                                                                                       |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                         | Embedded PostgreSQL data (config, memory, scheduler); absent when using `STELLA_DATABASE_URL` |
-| `~/.stella/pg-runtime/`                       | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`     |
+| `~/.stella/pg-runtime/`                       | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`             |
 | `~/.stella/bundles/{revision}/`               | Exact release-provided builtin Skill bundle; derived from the matching binary                 |
 | `~/.stella/agents/{agent-id}/.agents/skills/` | Derived `system_agent` Skill execution cache                                                  |
 | `~/.stella/agents/{agent-id}/SOUL.md`         | Optional per-agent soul/identity override                                                     |

@@ -335,7 +335,7 @@ terminationGracePeriodSeconds: 200
 | 路径                                          | 用途                                                                            |
 | --------------------------------------------- | ------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                         | 内嵌 PostgreSQL 数据（配置、记忆、调度器）；使用 `STELLA_DATABASE_URL` 时不存在 |
-| `~/.stella/pg-runtime/`                       | 下载的内嵌 PostgreSQL runtime；可用 `stellad postgres download` 重建    |
+| `~/.stella/pg-runtime/`                       | 下载的内嵌 PostgreSQL runtime；可用 `stellad postgres download` 重建            |
 | `~/.stella/bundles/{revision}/`               | 与发行版完全一致的 builtin Skill bundle；从匹配二进制派生                       |
 | `~/.stella/agents/{agent-id}/.agents/skills/` | 派生的 `system_agent` Skill 执行缓存                                            |
 | `~/.stella/agents/{agent-id}/SOUL.md`         | 可选的每个 agent 的灵魂/身份覆盖                                                |
