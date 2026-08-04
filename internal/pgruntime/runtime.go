@@ -16,8 +16,10 @@ import (
 const (
 	// The -r2 suffix is a rebuild of the same upstream versions: the bundled
 	// libraries had no rpath of their own, so a host without a matching system
-	// libicu could not start the runtime. It also renames the local cache
-	// directory, which is what makes an existing install pick the fix up.
+	// libicu could not start the runtime. The suffix also renames the local
+	// cache directory, so an existing install stops using the broken extraction
+	// rather than silently keeping it — `stellad upgrade` fetches the
+	// replacement, and any other install path needs `postgres download-runtime`.
 	RuntimeVersion     = "pg18.4-pgvector0.8.2-pgsearch0.24.1-r2"
 	DefaultRuntimeRepo = "CherryHQ/stella-pg-runtime"
 

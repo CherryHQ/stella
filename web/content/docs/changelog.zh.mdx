@@ -11,6 +11,10 @@ icon: History
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- 内嵌 PostgreSQL：runtime 包携带了所需的全部动态库，却没有给这些库设置各自的 rpath，因此在没有匹配系统 libicu 的主机上数据库会以 `exit status 127` 直接启动失败。Stella 现在使用重新构建的 `-r2` runtime，并在失败时给出可读的原因。内嵌安装执行 `stellad upgrade` 会自动获取新 runtime；其他安装方式需要在下次启动前运行一次 `stellad postgres download-runtime`。([#877](https://github.com/CherryHQ/stella/pull/877), [#866](https://github.com/CherryHQ/stella/issues/866))
+
 ## [0.61.0] - 2026-08-04
 
 ### ⚠️ 重大变更
