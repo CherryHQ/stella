@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -64,6 +65,35 @@ func TestNodeIsPinnedOnlyInMise(t *testing.T) {
 			t.Errorf("%s sets up its own Node; it would shadow the mise pin on PATH. "+
 				"Use jdx/mise-action and run the build through a mise task instead", path)
 		}
+	}
+}
+
+func TestDockerCrossBuildScopesGoTargetToFinalBuild(t *testing.T) {
+	dockerfile, err := os.ReadFile(filepath.Join("..", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+	if regexp.MustCompile(`(?s)\b(?:GOOS|GOARCH)=\$\{TARGET(?:OS|ARCH)\}.*?\bmise\s+run\s+build\b`).Match(dockerfile) {
+		t.Error("Dockerfile passes GOOS/GOARCH to the entire mise build task graph")
+	}
+	crossBuild := regexp.MustCompile(`(?m)env\s+-u\s+GOOS\s+-u\s+GOARCH\s+\\?\s*TARGET_GOOS=\$\{TARGETOS\}\s+TARGET_GOARCH=\$\{TARGETARCH\}\s+\\?\s*mise\s+run\s+build\b`)
+	if !crossBuild.Match(dockerfile) {
+		t.Error("Dockerfile must clear GOOS/GOARCH and pass TARGET_GOOS/TARGET_GOARCH to mise")
+	}
+
+	mise, err := os.ReadFile(filepath.Join("..", "mise.toml"))
+	if err != nil {
+		t.Fatalf("read mise.toml: %v", err)
+	}
+	if !regexp.MustCompile(`(?s)TARGET_GOOS\+x.*TARGET_GOARCH\+x.*TARGET_GOOS:-.*TARGET_GOARCH:-.*must be set together.*exit 1`).Match(mise) {
+		t.Error("mise build must reject a missing TARGET_GOOS or TARGET_GOARCH")
+	}
+	if strings.Count(string(mise), `GOOS="$TARGET_GOOS"`) != 1 || strings.Count(string(mise), `GOARCH="$TARGET_GOARCH"`) != 1 {
+		t.Error("TARGET_GOOS/TARGET_GOARCH must map to GOOS/GOARCH exactly once")
+	}
+	finalBuild := regexp.MustCompile(`(?s)env\s+GOOS="\$TARGET_GOOS"\s+GOARCH="\$TARGET_GOARCH"\s+\\?\s*go\s+build\b`)
+	if !finalBuild.Match(mise) {
+		t.Error("mise must apply GOOS/GOARCH only to the final go build")
 	}
 }
 

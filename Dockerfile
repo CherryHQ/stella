@@ -73,7 +73,9 @@ RUN --mount=type=secret,id=github_token \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} mise run build
+    env -u GOOS -u GOARCH \
+      TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} \
+      mise run build
 
 FROM debian:13-slim AS app
 
