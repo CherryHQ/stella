@@ -54,8 +54,11 @@ export function AppShell({
   const setHeaderTitle = useCallback((t: ReactNode) => setDynamicTitle(t), []);
   const setHeaderActions = useCallback((a: ReactNode) => setDynamicActions(a), []);
 
-  const displayTitle = dynamicTitle ?? title;
-  const displayActions = dynamicActions ?? headerActions;
+  // The static `title` (breadcrumb spine) always renders; a page's dynamic
+  // title appends as the trailing crumb instead of replacing it — replacing is
+  // what made the profile entry points vanish once a session mounted. Static
+  // headerActions (the "⋯" menu) likewise survive page-level actions.
+  const showTailSeparator = title != null && dynamicTitle != null;
 
   return (
     <AppShellContext.Provider value={{ setHeaderTitle, setHeaderActions }}>
@@ -73,8 +76,21 @@ export function AppShell({
           <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card/65 px-4 backdrop-blur-xl">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-1 h-4" />
-            <div className="min-w-0 flex-1">{displayTitle}</div>
-            {displayActions && <div className="flex shrink-0 items-center">{displayActions}</div>}
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              {title != null && <div className="flex min-w-0 shrink-0 items-center">{title}</div>}
+              {showTailSeparator && (
+                <span aria-hidden className="shrink-0 text-muted-foreground">
+                  /
+                </span>
+              )}
+              {dynamicTitle != null && <div className="min-w-0 flex-1">{dynamicTitle}</div>}
+            </div>
+            {(dynamicActions || headerActions) && (
+              <div className="flex shrink-0 items-center gap-1">
+                {dynamicActions}
+                {headerActions}
+              </div>
+            )}
           </header>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
         </SidebarInset>

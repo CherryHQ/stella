@@ -1,7 +1,7 @@
 import { createLazyFileRoute, Outlet, useParams, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ConversationSidebar } from "@/features/sessions/ConversationSidebar";
-import { AppBreadcrumb } from "@/features/sessions/AppBreadcrumb";
+import { AppBreadcrumb, AppHeaderMenu } from "@/features/sessions/AppBreadcrumb";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { AppShell } from "@/layouts/AppShell";
@@ -31,6 +31,7 @@ function AgentLayout() {
           projectName={currentProject?.name}
         />
       }
+      headerActions={<AppHeaderMenu agentId={agentId} projectId={projectId || undefined} />}
     >
       <Outlet />
     </AppShell>

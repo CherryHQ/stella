@@ -33,82 +33,90 @@ export function AppBreadcrumb({
   projectId?: string;
   projectName?: string;
 }) {
-  const { t } = useI18n();
   const inProject = !!projectId && !!projectName;
 
   return (
-    <div className="flex min-w-0 items-center gap-1">
-      <Breadcrumb className="min-w-0">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink render={<Link to="/agents/$agentId/profile" params={{ agentId }} />}>
-              <span className="truncate font-medium text-foreground">{agentName}</span>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          {inProject && (
-            <>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink
-                  render={
-                    <Link
-                      to="/agents/$agentId/projects/$projectId/profile"
-                      params={{ agentId, projectId }}
-                    />
-                  }
-                >
-                  <span className="truncate font-medium text-foreground">{projectName}</span>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-            </>
-          )}
-        </BreadcrumbList>
-      </Breadcrumb>
+    <Breadcrumb className="min-w-0">
+      <BreadcrumbList>
+        <BreadcrumbItem>
+          <BreadcrumbLink render={<Link to="/agents/$agentId/profile" params={{ agentId }} />}>
+            <span className="truncate font-medium text-foreground">{agentName}</span>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        {inProject && (
+          <>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink
+                render={
+                  <Link
+                    to="/agents/$agentId/projects/$projectId/profile"
+                    params={{ agentId, projectId }}
+                  />
+                }
+              >
+                <span className="truncate font-medium text-foreground">{projectName}</span>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+          </>
+        )}
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
+}
 
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={<Button variant="ghost" size="icon-sm" aria-label={t("profile.more")} />}
+/**
+ * The "⋯" menu behind the breadcrumb, rendered in the header's static actions
+ * slot so page-level actions can never displace it.
+ */
+export function AppHeaderMenu({ agentId, projectId }: { agentId: string; projectId?: string }) {
+  const { t } = useI18n();
+  const inProject = !!projectId;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="icon-sm" aria-label={t("profile.more")} />}
+      >
+        <MoreHorizontal />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" sideOffset={6}>
+        <DropdownMenuItem
+          render={
+            inProject && projectId ? (
+              <Link
+                to="/agents/$agentId/projects/$projectId/profile"
+                params={{ agentId, projectId }}
+              />
+            ) : (
+              <Link to="/agents/$agentId/profile" params={{ agentId }} />
+            )
+          }
         >
-          <MoreHorizontal />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" sideOffset={6}>
-          <DropdownMenuItem
-            render={
-              inProject ? (
-                <Link
-                  to="/agents/$agentId/projects/$projectId/profile"
-                  params={{ agentId, projectId }}
-                />
-              ) : (
-                <Link to="/agents/$agentId/profile" params={{ agentId }} />
-              )
-            }
-          >
-            <UserRound className="size-4" />
-            {t("profile.title")}
-          </DropdownMenuItem>
-          <DropdownMenuItem render={<Link to="/agents/$agentId/goals" params={{ agentId }} />}>
-            <ListTodo className="size-4" />
-            {t("sidebar.goals")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            render={
-              inProject ? (
-                <Link
-                  to="/agents/$agentId/projects/$projectId/skills"
-                  params={{ agentId, projectId }}
-                />
-              ) : (
-                <Link to="/agents/$agentId/skills" params={{ agentId }} />
-              )
-            }
-          >
-            <Puzzle className="size-4" />
-            {t("profile.skills")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+          <UserRound className="size-4" />
+          {t("profile.title")}
+        </DropdownMenuItem>
+        <DropdownMenuItem render={<Link to="/agents/$agentId/goals" params={{ agentId }} />}>
+          <ListTodo className="size-4" />
+          {t("sidebar.goals")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          render={
+            inProject ? (
+              <Link
+                to="/agents/$agentId/projects/$projectId/skills"
+                params={{ agentId, projectId }}
+              />
+            ) : (
+              <Link to="/agents/$agentId/skills" params={{ agentId }} />
+            )
+          }
+        >
+          <Puzzle className="size-4" />
+          {t("profile.skills")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
