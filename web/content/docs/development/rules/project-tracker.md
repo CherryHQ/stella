@@ -56,15 +56,96 @@ Roadmap
 Use the canonical fields and lifecycle values below. Do not add synonyms or
 one-off states.
 
-- Roadmap: `战线`, `一句话方向`, `状态` (`候选`, `进行中`, `暂停`, `已完成`),
-  `DRI`, `里程碑`.
-- Milestones: `里程碑`, `状态` (`候选`, `已计划`, `进行中`, `暂停`,
-  `已完成`, `已取消`), `目标与验收`, `DRI`, `目标日期`, `预计人周`,
-  `所属战线`, `任务`.
-- Tasks: `任务`, `状态` (`待评估`, `就绪`, `进行中`, `阻塞`, `已完成`,
-  `已取消`), `优先级`, `DRI`, `里程碑`, `GitHub Issue`, `验收标准`,
-  dates, estimate, `父任务`, `依赖任务`, `依赖说明`, `触发条件`, product
-  line, and references.
+### Coordinates
+
+Use these directly — do not re-resolve or guess them from the Base URL.
+
+| Resource              | Id                            |
+| --------------------- | ----------------------------- |
+| Base token            | `BEEbbI9jtad6PmsYSXpcmBy2nUd` |
+| Tasks (`任务`)        | `tbl4pUhlngTJdg2Z`            |
+| Milestones (`里程碑`) | `tblCRcuKDjmnKCJr`            |
+| Roadmap               | `tblp9iIcKyO9NN00`            |
+
+### Fields
+
+`select` values are the complete allowed set. `user` fields take
+`[{"id":"ou_..."}]`; resolve the id with `lark-cli contact +get-user` (omit the
+user id for yourself). `link` fields take `[{"id":"recXXXXXXXXXX"}]` referencing a
+record in the table named in the Links column — read that table first to get the
+id; never invent one.
+
+**Tasks**
+
+| Field                  | Type     | Values / links to                                         |
+| ---------------------- | -------- | --------------------------------------------------------- |
+| `任务`                 | text     | The task title                                            |
+| `状态`                 | select   | `待评估`, `就绪`, `进行中`, `阻塞`, `已完成`, `已取消`    |
+| `优先级`               | select   | `P0`, `P1`, `P2`                                          |
+| `产品线`               | select   | `数字员工`, `数字分身`, `平台核心`, `渠道`, `Web`, `运维` |
+| `DRI`                  | user     | —                                                         |
+| `里程碑`               | link     | Milestones                                                |
+| `父任务`               | link     | Tasks                                                     |
+| `依赖任务`             | link     | Tasks                                                     |
+| `GitHub Issue`         | text     | Full URL, not a number                                    |
+| `验收标准`             | text     | Acceptance criteria                                       |
+| `触发条件`             | text     | What unblocks a `待评估` task                             |
+| `依赖说明`             | text     | —                                                         |
+| `Refs`                 | text     | —                                                         |
+| `开始日期`, `截止日期` | datetime | `YYYY-MM-DD HH:MM:SS`                                     |
+| `估算(人/天)`          | number   | —                                                         |
+
+**Milestones**
+
+| Field        | Type     | Values / links to                                      |
+| ------------ | -------- | ------------------------------------------------------ |
+| `里程碑`     | text     | The milestone name                                     |
+| `状态`       | select   | `候选`, `已计划`, `进行中`, `暂停`, `已完成`, `已取消` |
+| `目标与验收` | text     | —                                                      |
+| `DRI`        | user     | —                                                      |
+| `所属战线`   | link     | Roadmap                                                |
+| `任务`       | link     | Tasks                                                  |
+| `目标日期`   | datetime | —                                                      |
+| `预计人周`   | number   | —                                                      |
+
+**Roadmap**
+
+| Field        | Type   | Values / links to                  |
+| ------------ | ------ | ---------------------------------- |
+| `战线`       | text   | The workstream name                |
+| `一句话方向` | text   | —                                  |
+| `状态`       | select | `候选`, `进行中`, `暂停`, `已完成` |
+| `DRI`        | user   | —                                  |
+| `里程碑`     | link   | Milestones                         |
+
+### Writing to the Base
+
+Use `lark-cli base` with `--as user`. Confirm fields before writing, and preview
+any write with `--dry-run` first.
+
+```bash
+BASE=BEEbbI9jtad6PmsYSXpcmBy2nUd
+TASKS=tbl4pUhlngTJdg2Z
+
+# confirm the live field set before constructing a payload
+lark-cli base +field-list --base-token $BASE --table-id $TASKS --as user
+
+# create a task (drop --dry-run to execute)
+lark-cli base +record-upsert --base-token $BASE --table-id $TASKS --as user --dry-run \
+  --json '{"任务":"...","状态":"就绪","优先级":"P2","产品线":"平台核心",
+           "GitHub Issue":"https://github.com/CherryHQ/stella/issues/123",
+           "DRI":[{"id":"ou_..."}],"验收标准":"..."}'
+
+# write back an Issue URL on an existing task
+lark-cli base +record-upsert --base-token $BASE --table-id $TASKS --as user \
+  --record-id recXXXXXXXXXX --json '{"GitHub Issue":"https://github.com/CherryHQ/stella/issues/123"}'
+```
+
+`+record-upsert` creates without `--record-id` and updates with it; it does not
+match on a business key. Its response does not echo the stored row, so read the
+record back (`+record-search`) rather than trusting the exit status.
+
+### Lifecycle rules
 
 `待评估` tasks are internal candidates and do not need a GitHub issue. Every
 task at `就绪` or later must contain a full GitHub Issue URL. Store the URL,
@@ -97,15 +178,20 @@ During triage:
 
 ## Execution lifecycle
 
-| Event                 | Feishu Task                | GitHub                                       |
-| --------------------- | -------------------------- | -------------------------------------------- |
-| Candidate             | `待评估`                   | No issue required                            |
-| Committed and ready   | `就绪`                     | Open + `status:ready`                        |
-| Work starts           | `进行中`                   | Remove `status:ready`; assign or link a PR   |
-| Blocked               | `阻塞`                     | Add `status:blocked` and explain the blocker |
-| Implementation closes | unchanged until acceptance | Close through the PR                         |
-| Acceptance passes     | `已完成`                   | Closed                                       |
-| Cancelled             | `已取消`                   | Close with the reason                        |
+| Event                  | Feishu Task                | GitHub                                       |
+| ---------------------- | -------------------------- | -------------------------------------------- |
+| Candidate              | `待评估`                   | No issue required                            |
+| Committed, not started | `就绪`                     | Open + `status:ready`                        |
+| A PR is open           | `进行中`                   | Remove `status:ready`; assign or link the PR |
+| Blocked                | `阻塞`                     | Add `status:blocked` and explain the blocker |
+| Implementation closes  | unchanged until acceptance | Close through the PR                         |
+| Acceptance passes      | `已完成`                   | Closed                                       |
+| Cancelled              | `已取消`                   | Close with the reason                        |
+
+An open PR is the marker for `进行中` because it is the one transition with an
+objective timestamp. Set the state that matches reality: work already
+implemented when its issue is filed goes straight to `进行中` and never wears
+`status:ready`.
 
 Closing an issue does not automatically complete the Feishu task; the DRI
 marks it `已完成` after acceptance.
@@ -119,8 +205,10 @@ commits a task:
 1. Search GitHub for an existing community issue.
 2. Link it when one exists; otherwise create a new issue.
 3. Put the full Issue URL and final acceptance criteria in the Feishu task, then
-   move it to `就绪`.
-4. Add `status:ready` and, when known, a version milestone to the issue.
+   move it to the state matching real progress — `就绪`, or `进行中` when a PR
+   is already open.
+4. Add the matching status label and, when known, a version milestone to the
+   issue.
 
 Contributors do not need Feishu access. Maintainers own the Feishu promotion
 step when accepting community work.
@@ -172,9 +260,10 @@ Before creating an issue on a user's behalf:
 5. For committed work, confirm that a Feishu task will link the new issue, and
    ask whether a version milestone is known. `none` is valid.
 
-Then create the issue. For committed work, create or update the Feishu task
-with the returned URL, move it to `就绪`, and add `status:ready`; finally return
-the Issue URL. Do not bulk-create issues without confirmation, and prefer
+Then create the issue. For committed work, create or update the Feishu task with
+the returned URL, set the state matching real progress (`就绪`, or `进行中` with
+no `status:ready` when a PR is already open), add the matching status label, and
+return the Issue URL. Do not bulk-create issues without confirmation, and prefer
 closing over deleting.
 
 ## Automation boundary
