@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -140,7 +141,13 @@ type Registry struct {
 	q            *sqlc.Queries
 	stores       map[string]Store
 	defaultStore string
+	ownerLocks   [ownerLockStripeCount]chan struct{}
 }
+
+// Phase 1 supports one replica. These bounded process-local stripes serialize
+// physical workspace projection with deletion; Phase 3 replaces this ceiling
+// with durable SessionSandbox fencing.
+const ownerLockStripeCount = 257
 
 func NewRegistry(db *pgxpool.Pool, defaultStore string, stores ...Store) (*Registry, error) {
 	if db == nil {
@@ -150,6 +157,10 @@ func NewRegistry(db *pgxpool.Pool, defaultStore string, stores ...Store) (*Regis
 		return nil, fmt.Errorf("home: invalid default store: %w", err)
 	}
 	r := &Registry{db: db, q: sqlc.New(db), stores: make(map[string]Store), defaultStore: defaultStore}
+	for i := range r.ownerLocks {
+		r.ownerLocks[i] = make(chan struct{}, 1)
+		r.ownerLocks[i] <- struct{}{}
+	}
 	for _, store := range stores {
 		if store == nil {
 			return nil, errors.New("home: store is required")
@@ -438,6 +449,9 @@ func (r *Registry) CutoverStore(ctx context.Context, current Record, newStoreID,
 	if current.StoreID != persisted.StoreID || current.Locator != persisted.Locator {
 		return Record{}, errors.New("home: stale store cutover record")
 	}
+	if persisted.Key.Kind == SystemSkillRoot || persisted.Key.Kind == SystemAgentSkillRoot {
+		return Record{}, errors.New("home: shared Skill root Store cutover requires Phase 2 Skill consumers and mounts to derive coordinates from attachments")
+	}
 	store := r.stores[newStoreID]
 	if store == nil {
 		return Record{}, fmt.Errorf("home: target store %q is not configured", newStoreID)
@@ -450,6 +464,52 @@ func (r *Registry) CutoverStore(ctx context.Context, current Record, newStoreID,
 		return Record{}, fmt.Errorf("home: cut over store: %w", err)
 	}
 	return r.decode(row)
+}
+
+// lockOwnerKeys serializes only local filesystem projection and owner deletion.
+// It deliberately uses ownerLockKey vocabulary and bounded stripes rather than
+// retaining a mutex per owner forever.
+func (r *Registry) lockOwnerKeys(ctx context.Context, keys []string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("home: acquire owner lifecycle lock: %w", err)
+	}
+	stripes := make([]int, 0, len(keys))
+	for _, key := range keys {
+		stripes = append(stripes, ownerLockStripe(key))
+	}
+	sort.Ints(stripes)
+	unique := stripes[:0]
+	for _, stripe := range stripes {
+		if len(unique) == 0 || unique[len(unique)-1] != stripe {
+			unique = append(unique, stripe)
+		}
+	}
+	acquired := make([]int, 0, len(unique))
+	release := func() {
+		for i := len(acquired) - 1; i >= 0; i-- {
+			r.ownerLocks[acquired[i]] <- struct{}{}
+		}
+	}
+	for _, stripe := range unique {
+		select {
+		case <-ctx.Done():
+			release()
+			return nil, fmt.Errorf("home: acquire owner lifecycle lock: %w", ctx.Err())
+		case <-r.ownerLocks[stripe]:
+			acquired = append(acquired, stripe)
+		}
+	}
+	return release, nil
+}
+
+func ownerLockStripe(key string) int {
+	// FNV-1a is stable across processes, useful when diagnosing a blocked stripe.
+	hash := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		hash ^= uint32(key[i])
+		hash *= 16777619
+	}
+	return int(hash % ownerLockStripeCount)
 }
 
 // ObserveMutableAssetObjectAuthority records only whether legacy mutable asset

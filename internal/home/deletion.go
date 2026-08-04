@@ -104,6 +104,13 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 	if strings.TrimSpace(id) == "" || strings.TrimSpace(actor) == "" {
 		return errors.New("home: owner deletion ID and actor are required")
 	}
+	// Phase-1 local projection holds this same bounded process lock before it
+	// touches Store bytes. Keep it through commit and the synchronous fence.
+	unlock, err := d.registry.lockOwnerKeys(ctx, []string{ownerLockKey(kind, id)})
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	tx, err := d.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("home: begin owner deletion: %w", err)
@@ -192,7 +199,10 @@ func (d *OwnerDeletion) tombstoneHomes(ctx context.Context, q *sqlc.Queries, kin
 	out := make([]sqlc.StorageHome, 0, len(rows))
 	for _, row := range rows {
 		if State(row.State) == StateTombstoned || State(row.State) == StatePurgeFailed || State(row.State) == StatePurged {
-			return nil, fmt.Errorf("home: owner has already deleted Home %s", row.ID)
+			// AgentHomes are shared by their principal and Agent deletion sets.
+			// A terminal row belongs to the first valid owner delete; do not make
+			// that prior audit block deletion of the other owner.
+			continue
 		}
 		tombstoned, err := q.TombstoneStorageHome(ctx, sqlc.TombstoneStorageHomeParams{ID: row.ID, TombstonedBy: text(actor)})
 		if err != nil {

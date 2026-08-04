@@ -149,6 +149,82 @@ func TestOwnerDeletionAgentTombstonesUserGroupAndSystemAgentHomes(t *testing.T) 
 	}
 }
 
+func TestOwnerDeletionSkipsTerminalSharedHomesForOverlappingOwners(t *testing.T) {
+	ctx := context.Background()
+	for _, tt := range []struct {
+		name   string
+		first  func(*OwnerDeletion, context.Context, string, string) error
+		second func(*OwnerDeletion, context.Context, string, string) error
+	}{
+		{name: "group then agent", first: func(d *OwnerDeletion, ctx context.Context, groupID, _ string) error {
+			return d.DeleteGroup(ctx, groupID, "first")
+		}, second: func(d *OwnerDeletion, ctx context.Context, _, agentID string) error {
+			return d.DeleteAgent(ctx, agentID, "second")
+		}},
+		{name: "agent then group", first: func(d *OwnerDeletion, ctx context.Context, _, agentID string) error {
+			return d.DeleteAgent(ctx, agentID, "first")
+		}, second: func(d *OwnerDeletion, ctx context.Context, groupID, _ string) error {
+			return d.DeleteGroup(ctx, groupID, "second")
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			db := dbtest.New(t)
+			store, err := NewLocalStore("local", t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			registry, err := NewRegistry(db, store.ID(), store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := sqlc.New(db)
+			groupID, agentID := uuid.NewString(), uuid.NewString()
+			if _, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: groupID, Platform: "test", PlatformGroupID: groupID, GroupName: "group"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := q.SeedAgent(ctx, sqlc.SeedAgentParams{ID: agentID, Name: "agent", Model: "test", SystemPrompt: "", Workspace: "", Sandbox: []byte(`{}`), Scope: "system", Enabled: true}); err != nil {
+				t.Fatal(err)
+			}
+			shared, err := registry.Ensure(ctx, Agent(GroupPrincipal, groupID, agentID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			enqueue := &recordingOwnerEnqueue{}
+			deletion, err := NewOwnerDeletion(db, registry, enqueue, &recordingOwnerFencer{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := tt.first(deletion, ctx, groupID, agentID); err != nil {
+				t.Fatalf("first delete: %v", err)
+			}
+			prior, err := q.GetStorageHome(ctx, shared.ID)
+			if err != nil || prior.State != string(StateTombstoned) {
+				t.Fatalf("prior shared Home = %#v, %v", prior, err)
+			}
+			if err := tt.second(deletion, ctx, groupID, agentID); err != nil {
+				t.Fatalf("second group delete: %v", err)
+			}
+			if len(enqueue.args) != 2 || len(enqueue.args[1].HomeIDs) != 1 {
+				t.Fatalf("batches = %#v, want one new Home in second batch", enqueue.args)
+			}
+			second, err := registry.Record(ctx, enqueue.args[1].HomeIDs[0])
+			if err != nil || second.State != StateTombstoned || second.ID == shared.ID {
+				t.Fatalf("second batch Home = %#v, %v; want new tombstoned sentinel", second, err)
+			}
+			after, err := q.GetStorageHome(ctx, shared.ID)
+			if err != nil || after.State != prior.State || after.TombstonedAt != prior.TombstonedAt || after.TombstonedBy != prior.TombstonedBy || after.PurgeRequestedAt != prior.PurgeRequestedAt {
+				t.Fatalf("shared audit changed: before=%#v after=%#v err=%v", prior, after, err)
+			}
+			if _, err := q.GetGroupStateByID(ctx, groupID); !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatalf("group remains: %v", err)
+			}
+			if _, err := q.GetAgent(ctx, agentID); !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatalf("agent remains: %v", err)
+			}
+		})
+	}
+}
+
 func TestOwnerDeletionAgentInUseRollsBackHomesAndJob(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)

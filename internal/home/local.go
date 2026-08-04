@@ -124,21 +124,16 @@ func (s *LocalStore) pathFor(home Record) (string, error) {
 	return filepath.Join(s.base, filepath.FromSlash(home.Locator)), nil
 }
 
-// ProjectWorkspace creates the legacy workspace shape through an os.Root. A
+// PrepareWorkspace creates the legacy workspace shape through an os.Root. A
 // symlink beneath a Home can therefore never redirect writes outside the Store.
-// It projects absolute paths only after every required relative directory exists.
-func (s *LocalStore) ProjectWorkspace(principal, agent Record) (string, string, string, error) {
-	principalRoot, err := s.pathFor(principal)
-	if err != nil {
-		return "", "", "", err
-	}
-	agentRoot, err := s.pathFor(agent)
-	if err != nil {
-		return "", "", "", err
+// WorkspaceView calls it before opening its short DB revalidation transaction.
+func (s *LocalStore) PrepareWorkspace(principal, agent Record) error {
+	if _, _, _, err := s.WorkspacePaths(principal, agent); err != nil {
+		return err
 	}
 	root, err := os.OpenRoot(s.base)
 	if err != nil {
-		return "", "", "", fmt.Errorf("open store root: %w", err)
+		return fmt.Errorf("open store root: %w", err)
 	}
 	defer func() { _ = root.Close() }()
 	for _, dir := range []string{
@@ -151,8 +146,22 @@ func (s *LocalStore) ProjectWorkspace(principal, agent Record) (string, string, 
 		agent.Locator,
 	} {
 		if err := root.MkdirAll(dir, 0o755); err != nil {
-			return "", "", "", fmt.Errorf("materialize workspace %q: %w", dir, err)
+			return fmt.Errorf("materialize workspace %q: %w", dir, err)
 		}
+	}
+	return nil
+}
+
+// WorkspacePaths validates and projects an already-prepared workspace without
+// filesystem I/O, so it is safe inside the final DB revalidation phase.
+func (s *LocalStore) WorkspacePaths(principal, agent Record) (string, string, string, error) {
+	principalRoot, err := s.pathFor(principal)
+	if err != nil {
+		return "", "", "", err
+	}
+	agentRoot, err := s.pathFor(agent)
+	if err != nil {
+		return "", "", "", err
 	}
 	return principalRoot, filepath.Join(principalRoot, "data"), agentRoot, nil
 }
