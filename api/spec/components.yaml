@@ -2425,8 +2425,6 @@ components:
           type: boolean
         persisted_id:
           type: string
-        env_locked:
-          type: boolean
     TogglePluginRequest:
       type: object
       required: [enabled]

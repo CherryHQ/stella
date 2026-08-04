@@ -347,11 +347,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		ExcludedTools: workerExcludedTools,
 		AgentAccess:   agentAccess,
 		Capabilities: goal.CapabilityProbeFunc(func() bool {
-			plugins, err := store.ListPlugins(context.Background())
-			if err != nil {
-				return false
-			}
-			return config.ActiveSandboxBackend(plugins) != config.SandboxBackendNone
+			return config.ActiveSandboxBackend() != config.SandboxBackendNone
 		}),
 		Chat: func(ctx context.Context, p goal.TaskChatParams) <-chan agent.Event {
 			var svc *agent.Service

@@ -102,15 +102,13 @@ The sandbox image bakes its mise toolchain at `/opt/stella` via `stellad mise re
 
 Every new sandbox backend requires changes in all of the following locations — missing any one causes a runtime error:
 
-| Step | File                                                                                     | What to do                                                                                                       |
-| ---- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1    | `internal/config/sandbox.go`                                                             | Add `SandboxBackend<Name> = "<name>"` constant                                                                   |
-| 2    | `internal/config/plugin.go`                                                              | Append name to `builtinSandboxNames` so the DB row is seeded                                                     |
-| 3    | `plugins/sandbox/<name>/session.go`                                                      | Implement `sandbox.Factory` and `sandbox.Session`                                                                |
-| 4    | `plugins/sandbox/plugin.go`                                                              | Add entry to the `backends` slice in `init()` to register `AdminVisible` plugin metadata                         |
-| 5    | `internal/agent/sandbox/session.go`                                                      | Add a `case config.SandboxBackend<Name>:` branch in `createSessionForBackend` and implement the factory function |
-| 6    | `web/src/features/plugins/PluginsPage.tsx` and `web/src/features/plugins/pluginUtils.ts` | Add `"sandbox/<name>"` to `validSandboxBackends` and a `sandboxMeta` entry with features/limitations             |
-| 7    | Docs                                                                                     | Update the [Sandbox guide](/docs/guides/sandbox) and this file                                                   |
+| Step | File                                | What to do                                                                                                       |
+| ---- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1    | `internal/config/sandbox.go`        | Add `SandboxBackend<Name> = "<name>"` constant                                                                   |
+| 2    | `internal/config/sandbox_env.go`    | Accept the name in `ActiveSandboxBackend`'s `STELLA_SANDBOX_BACKEND` switch                                      |
+| 3    | `plugins/sandbox/<name>/session.go` | Implement `sandbox.Factory` and `sandbox.Session`                                                                |
+| 4    | `internal/agent/sandbox/session.go` | Add a `case config.SandboxBackend<Name>:` branch in `createSessionForBackend` and implement the factory function |
+| 5    | Docs                                | Update the [Sandbox guide](/docs/guides/sandbox) and this file                                                   |
 
 ## Related Docs
 

@@ -25,43 +25,5 @@ func (s *configService) Set(ctx context.Context, pluginID string, raw map[string
 }
 
 func (s *configService) SetEnabled(ctx context.Context, pluginID string, enabled bool) error {
-	plug, err := s.store.GetPlugin(ctx, pluginID)
-	if err != nil {
-		return fmt.Errorf("get plugin %q: %w", pluginID, err)
-	}
-	if plug.Kind != config.PluginKindSandbox {
-		return s.store.SetPluginEnabled(ctx, pluginID, enabled)
-	}
-
-	sandboxes, err := s.store.ListPluginsByKind(ctx, config.PluginKindSandbox)
-	if err != nil {
-		return fmt.Errorf("list sandbox plugins: %w", err)
-	}
-	if enabled {
-		if err := s.store.SetPluginEnabled(ctx, pluginID, true); err != nil {
-			return err
-		}
-		for _, sandbox := range sandboxes {
-			if sandbox.ID == pluginID || !sandbox.Enabled {
-				continue
-			}
-			if err := s.store.SetPluginEnabled(ctx, sandbox.ID, false); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	for _, sandbox := range sandboxes {
-		if sandbox.ID != pluginID && sandbox.Enabled {
-			return s.store.SetPluginEnabled(ctx, pluginID, false)
-		}
-	}
-	if pluginID == config.PluginID(config.PluginKindSandbox, config.SandboxBackendLocal) {
-		return nil
-	}
-	if err := s.store.SetPluginEnabled(ctx, config.PluginID(config.PluginKindSandbox, config.SandboxBackendLocal), true); err != nil {
-		return err
-	}
-	return s.store.SetPluginEnabled(ctx, pluginID, false)
+	return s.store.SetPluginEnabled(ctx, pluginID, enabled)
 }

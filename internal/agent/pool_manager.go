@@ -696,10 +696,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 	builtinTools := append([]BuiltinTool{}, pm.builtinTools...)
 	pm.mu.RUnlock()
 
-	sandboxBackendFn := func(ctx context.Context) string {
-		plugins, _ := pm.store.ListPlugins(ctx)
-		return config.ActiveSandboxBackend(plugins)
-	}
+	sandboxBackendFn := func(context.Context) string { return config.ActiveSandboxBackend() }
 	return newRunnerFunc(runnerBuilderConfig{
 		Snap:                     snap,
 		BuiltinTools:             builtinTools,

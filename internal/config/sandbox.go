@@ -14,7 +14,7 @@ const (
 )
 
 // SandboxConfig configures the sandbox backend.
-// The active backend is selected globally on the Plugins page.
+// The active backend itself is fixed at deploy time; see ActiveSandboxBackend.
 type SandboxConfig struct {
 	Network SandboxNetworkConfig `json:"network"`
 }
