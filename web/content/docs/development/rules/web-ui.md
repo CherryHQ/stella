@@ -41,7 +41,7 @@ Read `web/.agents/skills/coss/SKILL.md` for imports, composition, and particle e
 
 ## Layout shell
 
-SiteHeader (h-14, border-b) over Sidebar (16rem desktop, 18rem mobile, 3rem collapsed icon-only, offcanvas modal on mobile) + content inset with sub-header (h-12, backdrop-blur). Split-pane views use CSS `flex` with a draggable divider (not Grid), min-width constraints, and fall back to Sheet on mobile. Mobile breakpoint: `max-md` (< 768px); multi-column layouts collapse to single column.
+One bar only: the global top bar (h-14, border-b) carries the app tabs on the left, the mounted shell's contextual content (sidebar trigger, breadcrumb, page actions) in the middle, and search/inbox/avatar on the right. Shells portal their middle content into it via `AppHeaderSlot` — never add a second header row under it. Below the bar: Sidebar (16rem desktop, 18rem mobile, 3rem collapsed icon-only, offcanvas modal on mobile) + content inset. Split-pane views use CSS `flex` with a draggable divider (not Grid), min-width constraints, and fall back to Sheet on mobile. Mobile breakpoint: `max-md` (< 768px); multi-column layouts collapse to single column.
 
 ## Overlay decision tree
 

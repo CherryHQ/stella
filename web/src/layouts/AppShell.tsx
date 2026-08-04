@@ -7,6 +7,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { AppHeaderSlotContent } from "@/layouts/AppHeaderSlot";
 
 interface AppShellContextType {
   setHeaderTitle: (title: ReactNode) => void;
@@ -35,7 +36,11 @@ interface AppShellProps {
 }
 
 /**
- * L1 + L2: the per-app sidebar and the content pane under the global top bar.
+ * The per-app sidebar and the content pane under the single top bar.
+ *
+ * This shell has no header row of its own: its contextual header content
+ * (sidebar trigger, breadcrumb, page actions) is portalled into the top bar's
+ * slot, so the app shows one h-14 bar instead of two stacked ones.
  *
  * The desktop sidebar is `position: fixed`, so it has to be told where the top
  * bar ends — hence the h-14 offset here. Everything else (width, collapse,
@@ -72,26 +77,26 @@ export function AppShell({
         >
           <SidebarContent>{sidebar}</SidebarContent>
         </Sidebar>
-        <SidebarInset className="min-w-0 overflow-hidden">
-          <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card/65 px-4 backdrop-blur-xl">
-            <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="mr-1 h-4" />
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              {title != null && <div className="flex min-w-0 shrink-0 items-center">{title}</div>}
-              {showTailSeparator && (
-                <span aria-hidden className="shrink-0 text-muted-foreground">
-                  /
-                </span>
-              )}
-              {dynamicTitle != null && <div className="min-w-0 flex-1">{dynamicTitle}</div>}
-            </div>
-            {(dynamicActions || headerActions) && (
-              <div className="flex shrink-0 items-center gap-1">
-                {dynamicActions}
-                {headerActions}
-              </div>
+        <AppHeaderSlotContent>
+          <SidebarTrigger />
+          <Separator orientation="vertical" className="mr-1 h-4" />
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {title != null && <div className="flex min-w-0 shrink-0 items-center">{title}</div>}
+            {showTailSeparator && (
+              <span aria-hidden className="shrink-0 text-muted-foreground">
+                /
+              </span>
             )}
-          </header>
+            {dynamicTitle != null && <div className="min-w-0 flex-1 truncate">{dynamicTitle}</div>}
+          </div>
+          {(dynamicActions || headerActions) && (
+            <div className="flex shrink-0 items-center gap-1">
+              {dynamicActions}
+              {headerActions}
+            </div>
+          )}
+        </AppHeaderSlotContent>
+        <SidebarInset className="min-w-0 overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
         </SidebarInset>
       </SidebarProvider>

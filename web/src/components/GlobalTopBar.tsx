@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { AppHeaderSlotTarget } from "@/layouts/AppHeaderSlot";
 
 const INBOX_KIND_LABELS = {
   blocked: "inbox.kind.blocked",
@@ -49,7 +50,7 @@ interface AppTab {
 function useAppTabs(): AppTab[] {
   const { t } = useI18n();
   return [
-    { key: "chats", label: t("nav.chats"), to: "/agents", prefixes: ["/agents", "/groups"] },
+    { key: "agents", label: t("nav.agents"), to: "/agents", prefixes: ["/agents", "/groups"] },
     { key: "recally", label: t("nav.recally"), to: "/recally", prefixes: ["/recally"] },
   ];
 }
@@ -59,9 +60,9 @@ function isActive(tab: AppTab, pathname: string): boolean {
 }
 
 /**
- * L0 product bar: which app you are in (tabs), what needs you (bell), who you
- * are (avatar menu). Everything below it — the sidebar and the content header —
- * belongs to the app the tabs select.
+ * The app's only bar. Left: which app you are in (logo + tabs). Middle: whatever
+ * the mounted shell puts there (sidebar trigger, breadcrumb, page actions) via
+ * the header slot. Right: what needs you (bell), who you are (avatar menu).
  */
 export function GlobalTopBar() {
   const { t } = useI18n();
@@ -89,13 +90,15 @@ export function GlobalTopBar() {
     <header className="relative z-30 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
       <Link to="/agents" className="flex shrink-0 items-center gap-2">
         <img src="/stella-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
-        <span className="select-none font-serif text-xl italic tracking-tight">stella</span>
+        <span className="select-none font-serif text-xl italic tracking-tight max-lg:hidden">
+          stella
+        </span>
       </Link>
 
       {/* Desktop: app tabs inline. Mobile: the same set behind one menu. */}
       {/* `secondary` is the active affordance: it reads as a filled tab in both
           light and dark, where a ghost hover tint does not. */}
-      <nav className="ml-8 hidden items-center gap-2 sm:flex">
+      <nav className="ml-2 hidden items-center gap-1 sm:flex">
         {tabs.map((tab) => (
           <Button
             key={tab.key}
@@ -109,9 +112,9 @@ export function GlobalTopBar() {
       </nav>
       <DropdownMenu>
         <DropdownMenuTrigger
-          render={<Button variant="ghost" size="sm" className="ml-4 sm:hidden" />}
+          render={<Button variant="ghost" size="sm" className="ml-1 sm:hidden" />}
         >
-          {activeTab?.label ?? t("nav.chats")}
+          {activeTab?.label ?? t("nav.agents")}
           <ChevronDown />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" sideOffset={6}>
@@ -126,7 +129,9 @@ export function GlobalTopBar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <div className="flex-1" />
+      {/* Contextual region: the mounted shell portals its sidebar trigger,
+          breadcrumb, and page actions in here. Empty on shell-less routes. */}
+      <AppHeaderSlotTarget className="flex min-w-0 flex-1 items-center gap-2 pl-2" />
 
       <div className="flex shrink-0 items-center gap-1">
         <Button
@@ -136,8 +141,10 @@ export function GlobalTopBar() {
           aria-label={t("search.open")}
         >
           <Search />
-          <span className="max-sm:hidden">{t("search.open")}</span>
-          <Kbd className="max-sm:hidden">⌘K</Kbd>
+          {/* The middle region now competes for the same row: below xl the
+              search trigger drops to its icon so the breadcrumb keeps its width. */}
+          <span className="max-xl:hidden">{t("search.open")}</span>
+          <Kbd className="max-xl:hidden">⌘K</Kbd>
         </Button>
         <InboxBell />
         <AppUserMenu />

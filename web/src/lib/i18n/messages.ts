@@ -39,7 +39,7 @@ const en = {
   "inbox.viewAll": "View all",
 
   // Global top bar
-  "nav.chats": "Chats",
+  "nav.agents": "Agents",
   "search.open": "Search",
   "search.placeholder": "Search agents, projects and chats",
   "search.empty": "No matches.",
@@ -2085,7 +2085,7 @@ const zh: Record<MessageKey, string> = {
   "inbox.viewAll": "查看全部",
 
   // Global top bar
-  "nav.chats": "对话",
+  "nav.agents": "智能体",
   "search.open": "搜索",
   "search.placeholder": "搜索智能体、项目和对话",
   "search.empty": "没有匹配结果。",
