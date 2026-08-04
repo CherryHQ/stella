@@ -126,19 +126,11 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.0.8
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
+      # No pnpm/Node setup here on purpose. mise-action installed both from
+      # mise.toml above; adding actions/setup-node prepended a different Node to
+      # PATH and silently won, so the release built the embedded SPA on Node 22
+      # while every PR built it on Node 24. The validate job above already runs
+      # the same SPA build on mise alone.
       - name: Cache Go build
         uses: actions/cache@v4
         with:

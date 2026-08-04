@@ -14,7 +14,11 @@ go = "1.25.9"
 "github:sqlc-dev/sqlc" = "1.29.0"
 # Web
 vp = "0.1.20"
-pnpm = "10.33.0"
+# This pin bootstraps pnpm for the root-level `pnpm --package=...` calls below,
+# which run outside web/ and so cannot be governed by its packageManager field.
+# Inside web/, pnpm self-switches to packageManager, which means a mismatch here
+# is invisible rather than loud — web/toolchain_test.go fails if they drift.
+pnpm = "11.0.8"
 node = "24.14.1"
 
 [env]
@@ -157,11 +161,17 @@ run = "go run ./cmd/stellad postgres download-runtime"
 [tasks."build:web"]
 description = "Build the SPA into web/static/dist, which the Go binary embeds"
 # tsc imports web/src/lib/api-client, which is generated and gitignored, so the
-# build needs the SDK before it can typecheck anything. The Dockerfile runs
-# openapi-ts for the same reason; GoReleaser gets it from `mise run generate`.
+# build needs the SDK before it can typecheck anything.
 depends = ["generate:ts-sdk"]
 dir = "web"
 run = "pnpm install --frozen-lockfile && pnpm build"
+
+[tasks."build:embedded"]
+description = "Generate code and build the SPA, i.e. everything the Go binary embeds"
+# One entry point for GoReleaser and the Dockerfile, so neither reimplements the
+# SPA build with its own toolchain. Both tasks want generate:ts-sdk; naming them
+# together lets mise resolve that dependency once instead of twice.
+depends = ["generate", "build:web"]
 
 [tasks.test]
 description = "Run all tests"
