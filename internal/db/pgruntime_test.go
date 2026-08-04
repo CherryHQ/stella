@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPostgresRuntimeFromRootWithNestedPostgresRoot(t *testing.T) {
@@ -236,5 +237,62 @@ func TestPostgresRuntimeStartupDiagnosticDoesNotRepeatKnownCause(t *testing.T) {
 	}
 	if !strings.Contains(hint, "download-runtime") {
 		t.Errorf("diagnostic gives no way forward: %q", hint)
+	}
+}
+
+// A probe must not outlive the failure it explains: the binary it runs is one
+// this host has already shown it cannot be trusted to run.
+func TestPostgresRuntimeStartupDiagnosticGivesUpOnAHungProbe(t *testing.T) {
+	rt := postgresRuntimeInfo{BinariesPath: t.TempDir()}
+	writeFakeInitdb(t, rt.BinariesPath, `sleep 60`)
+	restore := startupDiagnosticTimeout
+	startupDiagnosticTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { startupDiagnosticTimeout = restore })
+
+	done := make(chan string, 1)
+	go func() { done <- rt.startupDiagnostic(nil) }()
+	select {
+	case hint := <-done:
+		if !strings.Contains(hint, "cannot run on this host") {
+			t.Errorf("diagnostic = %q, want the runtime named", hint)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("startupDiagnostic did not return after its timeout elapsed")
+	}
+}
+
+// The probe's output and the failed start's output overlap only in part: the
+// loader message is shared, the command line around it is not.
+func TestPostgresRuntimeStartupDiagnosticKeepsLinesTheCauseOmits(t *testing.T) {
+	rt := postgresRuntimeInfo{BinariesPath: t.TempDir()}
+	const shared = "initdb: error while loading shared libraries: libicudata.so.76: cannot open shared object file"
+	writeFakeInitdb(t, rt.BinariesPath, `echo "`+shared+`" >&2; echo "initdb: hint: check your installation" >&2; exit 127`)
+
+	hint := rt.startupDiagnostic(errors.New("unable to init database: exit status 127\n" + shared))
+	if strings.Contains(hint, shared) {
+		t.Errorf("diagnostic repeats the line the error already carries: %q", hint)
+	}
+	if !strings.Contains(hint, "check your installation") {
+		t.Errorf("diagnostic dropped a line the error does not carry: %q", hint)
+	}
+}
+
+// The diagnostic is only worth anything if a real failed start reaches it.
+func TestStartEmbeddedExplainsARuntimeThatCannotRun(t *testing.T) {
+	root := t.TempDir()
+	binaries := filepath.Join(root, "postgres")
+	writeFakeInitdb(t, binaries, `echo "initdb: error while loading shared libraries: libicudata.so.76: cannot open shared object file" >&2; exit 127`)
+	touch(t, filepath.Join(binaries, "bin", pgCtlName()))
+	t.Setenv(postgresRuntimeEnvName, root)
+
+	_, err := StartEmbedded("", 0)
+	if err == nil {
+		t.Fatal("StartEmbedded succeeded with a runtime that cannot run")
+	}
+	if !strings.Contains(err.Error(), "download-runtime --force") {
+		t.Errorf("StartEmbedded error carries no remediation: %v", err)
+	}
+	if got := strings.Count(err.Error(), "libicudata.so.76"); got != 1 {
+		t.Errorf("loader message appears %d times, want exactly 1: %v", got, err)
 	}
 }

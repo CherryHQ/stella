@@ -1,12 +1,14 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/pgruntime"
 )
@@ -26,6 +28,10 @@ const (
 	// settled; external DSNs remain the supported advanced-search path for now.
 	postgresRuntimeEnvName = "STELLA_POSTGRES_RUNTIME"
 )
+
+// Long enough for a cold binary on a slow disk, short enough that a hung probe
+// cannot outlive the error it is explaining. A variable so tests can shorten it.
+var startupDiagnosticTimeout = 10 * time.Second
 
 type postgresRuntimeInfo struct {
 	BinariesPath string
@@ -250,8 +256,15 @@ func (rt postgresRuntimeInfo) startupDiagnostic(cause error) string {
 	if rt.BinariesPath == "" {
 		return ""
 	}
+	// A diagnostic must never outlast the failure it explains. The probe runs a
+	// binary this host has already shown it cannot be trusted to run, so bound
+	// it and let WaitDelay cut a child that holds the output pipe open.
+	ctx, cancel := context.WithTimeout(context.Background(), startupDiagnosticTimeout)
+	defer cancel()
 	initdb := filepath.Join(rt.BinariesPath, "bin", pgBinaryName("initdb"))
-	out, err := exec.Command(initdb, "--version").CombinedOutput()
+	cmd := exec.CommandContext(ctx, initdb, "--version")
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return ""
 	}
@@ -259,9 +272,8 @@ func (rt postgresRuntimeInfo) startupDiagnostic(cause error) string {
 	if detail == "" {
 		detail = err.Error()
 	}
-	if cause != nil && strings.Contains(cause.Error(), detail) {
-		detail = ""
-	} else {
+	detail = withoutLinesFrom(detail, cause)
+	if detail != "" {
 		detail = ": " + detail
 	}
 	return fmt.Sprintf(
@@ -270,6 +282,24 @@ func (rt postgresRuntimeInfo) startupDiagnostic(cause error) string {
 			"(on Debian/Ubuntu usually libicu) or re-download the runtime with "+
 			"`stellad postgres download-runtime --force`",
 		rt.BinariesPath, detail)
+}
+
+// withoutLinesFrom drops the lines of detail that cause already reports. It
+// works per line because the probe's output and the failed start's output
+// overlap partially: the loader message is the same, the command line around it
+// is not.
+func withoutLinesFrom(detail string, cause error) string {
+	if cause == nil {
+		return detail
+	}
+	reported := cause.Error()
+	var kept []string
+	for line := range strings.SplitSeq(detail, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" && !strings.Contains(reported, trimmed) {
+			kept = append(kept, trimmed)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 func postgresSharedLibraryName(name string) string {
