@@ -14,6 +14,7 @@ import {
   Plus,
   SquarePen,
   Trash2,
+  UserRound,
   Users,
 } from "lucide-react";
 import type { Agent, Project, Session } from "@/lib/types";
@@ -567,6 +568,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
   const onGoals = pathname.includes(`/agents/${agentId}/goals`);
+  const onProfile = pathname === `/agents/${agentId}/profile`;
 
   const projectSessions = useQuery(projectSessionsQueryOptions(agentId, activeProjectId));
 
@@ -685,6 +687,14 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
           ) : undefined
         }
         to="/agents/$agentId/goals"
+        params={{ agentId }}
+        onClick={onNavigate}
+      />
+      <SidebarItem
+        active={onProfile}
+        icon={<UserRound className="size-4" />}
+        label={t("profile.title")}
+        to="/agents/$agentId/profile"
         params={{ agentId }}
         onClick={onNavigate}
       />
