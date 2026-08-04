@@ -11,9 +11,13 @@ icon: History
 
 ## [Unreleased]
 
-### 🐛 Bug Fixes
+### ✨ 功能
 
-- 内嵌 PostgreSQL：runtime 包携带了所需的全部动态库，却没有给这些库设置各自的 rpath，因此在没有匹配系统 libicu 的主机上数据库会以 `exit status 127` 直接启动失败。Stella 现在使用重新构建的 `-r2` runtime，并在失败时给出可读的原因。内嵌安装执行 `stellad upgrade` 会自动获取新 runtime；其他安装方式需要在下次启动前运行一次 `stellad postgres download-runtime`。([#877](https://github.com/CherryHQ/stella/pull/877), [#866](https://github.com/CherryHQ/stella/issues/866))
+- `stellad postgres prune` 会列出当前二进制不再使用的内嵌 PostgreSQL runtime，加 `--force` 才真正删除。此前每次 runtime 版本更新都会在旧版本旁新装一份且从不清理，升级过的主机因此每个版本多占数百 MB。清理刻意保持手动：回滚后的二进制、或仍在使用旧 runtime 运行的另一个服务进程，都会因自动删除而中断。([#881](https://github.com/CherryHQ/stella/pull/881), [#878](https://github.com/CherryHQ/stella/issues/878))
+
+### 🐛 修复
+
+- 内嵌 PostgreSQL：runtime 包携带了所需的全部动态库，却没有给这些库设置各自的 rpath，因此在没有匹配系统 libicu 的主机上数据库会以 `exit status 127` 直接启动失败。Stella 现在使用重新构建的 `-r2` runtime，并在失败时给出可读的原因。内嵌安装执行 `stellad upgrade` 会自动获取新 runtime；其他安装方式需要在下次启动前运行一次 `stellad postgres download`。([#877](https://github.com/CherryHQ/stella/pull/877), [#866](https://github.com/CherryHQ/stella/issues/866))
 
 ## [0.61.0] - 2026-08-04
 

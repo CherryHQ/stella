@@ -153,12 +153,12 @@ func syncPostgresRuntime(ctx context.Context, out io.Writer, installDir, stellaH
 		return
 	}
 	fprintln(out, "\nUpdating the embedded PostgreSQL runtime for the new version...")
-	cmd := exec.CommandContext(ctx, filepath.Join(installDir, binariesToUpgrade(goos)[0]), "postgres", "download-runtime")
+	cmd := exec.CommandContext(ctx, filepath.Join(installDir, binariesToUpgrade(goos)[0]), "postgres", "download")
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
 		fprintf(out, "\n  Could not update the PostgreSQL runtime: %v\n", err)
-		fprintln(out, "  Run `stellad postgres download-runtime` before starting the server.")
+		fprintln(out, "  Run `stellad postgres download` before starting the server.")
 	}
 }
 

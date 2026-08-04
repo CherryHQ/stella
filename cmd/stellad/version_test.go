@@ -631,8 +631,8 @@ func TestSyncPostgresRuntimeFetchesForAnEmbeddedHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the new binary was never invoked: %v", err)
 	}
-	if got := strings.TrimSpace(string(args)); got != "postgres download-runtime" {
-		t.Errorf("invoked with %q, want \"postgres download-runtime\"", got)
+	if got := strings.TrimSpace(string(args)); got != "postgres download" {
+		t.Errorf("invoked with %q, want \"postgres download\"", got)
 	}
 	if !strings.Contains(out.String(), "fetched") {
 		t.Errorf("child output was not surfaced: %q", out.String())
@@ -674,7 +674,7 @@ func TestSyncPostgresRuntimeReportsAFailedFetch(t *testing.T) {
 	var out bytes.Buffer
 	syncPostgresRuntime(context.Background(), &out, installDir, home, runtime.GOOS)
 
-	if !strings.Contains(out.String(), "download-runtime") {
+	if !strings.Contains(out.String(), "postgres download") {
 		t.Errorf("a failed fetch must tell the operator what to run: %q", out.String())
 	}
 }

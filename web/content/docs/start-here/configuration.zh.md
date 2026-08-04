@@ -2,7 +2,7 @@
 title: 配置
 ---
 
-大多数配置都通过 Web UI 管理。使用 `stellad server` 启动服务器，然后在浏览器中打开 [http://localhost:25678](http://localhost:25678)。所有配置存储在 PostgreSQL 中——可以使用托管在 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果内嵌 PostgreSQL runtime 尚未安装，先运行一次 `stellad postgres download-runtime`。无需编辑任何配置文件。
+大多数配置都通过 Web UI 管理。使用 `stellad server` 启动服务器，然后在浏览器中打开 [http://localhost:25678](http://localhost:25678)。所有配置存储在 PostgreSQL 中——可以使用托管在 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果内嵌 PostgreSQL runtime 尚未安装，先运行一次 `stellad postgres download`。无需编辑任何配置文件。
 
 主目录默认为 `~/.stella`，可以通过设置 `STELLA_HOME` 环境变量来更改。
 
@@ -85,7 +85,7 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | 路径                                    | 用途                                                                                                        |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                   | 内嵌 PostgreSQL 数据（配置、记忆、调度器）— 请备份此目录。设置 `STELLA_DATABASE_URL` 指向外部服务器时不存在 |
-| `~/.stella/pg-runtime/`                 | 下载的内嵌 PostgreSQL runtime；删除后可用 `stellad postgres download-runtime` 重建                          |
+| `~/.stella/pg-runtime/`                 | 下载的内嵌 PostgreSQL runtime；删除后可用 `stellad postgres download` 重建                                  |
 | `~/.stella/agents/{agent-id}/`          | 每个代理的工作空间、技能和覆盖文件                                                                          |
 | `~/.stella/agents/{agent-id}/SOUL.md`   | 可选的代理人格覆盖                                                                                          |
 | `~/.stella/agents/{agent-id}/SYSTEM.md` | 可选的系统提示覆盖                                                                                          |

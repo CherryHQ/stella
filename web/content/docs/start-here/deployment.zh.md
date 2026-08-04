@@ -10,7 +10,7 @@ title: 部署
 brew install CherryHQ/tap/stella
 ```
 
-如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download-runtime`。
+如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download`。
 
 ### Linux 软件包（.deb / .rpm）
 
@@ -24,7 +24,7 @@ sudo apt install ./stella_*_linux_amd64.deb
 sudo dnf install ./stella_*_linux_amd64.rpm
 ```
 
-如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download-runtime`。
+如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download`。
 
 ### 二进制文件
 
@@ -55,7 +55,7 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 stellad server
 ```
 
-这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 PostgreSQL 中——可以使用 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果缺少内嵌 runtime，先运行一次 `stellad postgres download-runtime` 再启动 `stellad server`。无需手动配置文件。
+这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 PostgreSQL 中——可以使用 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果缺少内嵌 runtime，先运行一次 `stellad postgres download` 再启动 `stellad server`。无需手动配置文件。
 
 ```bash
 stellad server --port 8080                  # 自定义端口
@@ -335,7 +335,7 @@ terminationGracePeriodSeconds: 200
 | 路径                                  | 用途                                                                            |
 | ------------------------------------- | ------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                 | 内嵌 PostgreSQL 数据（配置、记忆、调度器）；使用 `STELLA_DATABASE_URL` 时不存在 |
-| `~/.stella/pg-runtime/`               | 下载的内嵌 PostgreSQL runtime；可用 `stellad postgres download-runtime` 重建    |
+| `~/.stella/pg-runtime/`               | 下载的内嵌 PostgreSQL runtime；可用 `stellad postgres download` 重建            |
 | `~/.stella/agents/{agent-id}/skills/` | 每个 agent 安装的技能                                                           |
 | `~/.stella/agents/{agent-id}/SOUL.md` | 可选的每个 agent 的灵魂/身份覆盖                                                |
 | `~/.stella/cache/`                    | 模型缓存（可重新生成，安全删除）                                                |

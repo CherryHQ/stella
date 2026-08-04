@@ -2,7 +2,7 @@
 title: Configuration
 ---
 
-Most configuration is managed through the Web UI. Start the server with `stellad server` and open [http://localhost:25678](http://localhost:25678) in your browser. Everything is stored in PostgreSQL — either an embedded cluster managed under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. If the embedded PostgreSQL runtime is not installed, run `stellad postgres download-runtime` once before starting the server. There are no config files to edit.
+Most configuration is managed through the Web UI. Start the server with `stellad server` and open [http://localhost:25678](http://localhost:25678) in your browser. Everything is stored in PostgreSQL — either an embedded cluster managed under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. If the embedded PostgreSQL runtime is not installed, run `stellad postgres download` once before starting the server. There are no config files to edit.
 
 The home directory defaults to `~/.stella` and can be changed by setting the `STELLA_HOME` environment variable.
 
@@ -94,7 +94,7 @@ All data lives under `~/.stella` (configurable via `STELLA_HOME`):
 | Path                                    | Purpose                                                                                                                             |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                   | Embedded PostgreSQL data (config, memory, scheduler) — back this up. Absent when `STELLA_DATABASE_URL` points at an external server |
-| `~/.stella/pg-runtime/`                 | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download-runtime` if deleted                                |
+| `~/.stella/pg-runtime/`                 | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download` if deleted                                        |
 | `~/.stella/agents/{agent-id}/`          | Per-agent workspace, skills, and overrides                                                                                          |
 | `~/.stella/agents/{agent-id}/SOUL.md`   | Optional agent personality override                                                                                                 |
 | `~/.stella/agents/{agent-id}/SYSTEM.md` | Optional system prompt override                                                                                                     |
