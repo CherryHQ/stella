@@ -112,6 +112,9 @@ func startEmbeddedOnce(dataDir string, port uint32) (*Embedded, error) {
 		// embedded-postgres may return after a partial start. Keep the marked root
 		// for a future janitor rather than guessing that it is safe to remove.
 		ephemeral.release()
+		if hint := rt.startupDiagnostic(err); hint != "" {
+			return nil, fmt.Errorf("db: start embedded postgres: %w — %s", err, hint)
+		}
 		return nil, fmt.Errorf("db: start embedded postgres: %w", err)
 	}
 

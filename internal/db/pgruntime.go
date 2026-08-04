@@ -3,8 +3,10 @@ package db
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/pgruntime"
 )
@@ -224,10 +226,50 @@ func postgresLibraryRoot(root string) string {
 }
 
 func pgCtlName() string {
+	return pgBinaryName("pg_ctl")
+}
+
+func pgBinaryName(name string) string {
 	if runtime.GOOS == "windows" {
-		return "pg_ctl.exe"
+		return name + ".exe"
 	}
-	return "pg_ctl"
+	return name
+}
+
+// startupDiagnostic explains a failed start when the cause is that the
+// runtime's binaries cannot run at all, and returns "" otherwise. A runtime
+// whose bundled libraries do not resolve on this host fails as "exit status
+// 127", which says nothing about what to do; embedded-postgres passes the
+// child's stderr through only sometimes. Re-running the cheapest binary in the
+// bundle settles both questions, and cause is only appended when the failure
+// does not already carry it.
+//
+// Called only after a start has already failed, so its cost never lands on a
+// healthy path.
+func (rt postgresRuntimeInfo) startupDiagnostic(cause error) string {
+	if rt.BinariesPath == "" {
+		return ""
+	}
+	initdb := filepath.Join(rt.BinariesPath, "bin", pgBinaryName("initdb"))
+	out, err := exec.Command(initdb, "--version").CombinedOutput()
+	if err == nil {
+		return ""
+	}
+	detail := strings.TrimSpace(string(out))
+	if detail == "" {
+		detail = err.Error()
+	}
+	if cause != nil && strings.Contains(cause.Error(), detail) {
+		detail = ""
+	} else {
+		detail = ": " + detail
+	}
+	return fmt.Sprintf(
+		"the PostgreSQL runtime at %s cannot run on this host%s. "+
+			"Its bundled libraries may not resolve here — install the matching system libraries "+
+			"(on Debian/Ubuntu usually libicu) or re-download the runtime with "+
+			"`stellad postgres download-runtime --force`",
+		rt.BinariesPath, detail)
 }
 
 func postgresSharedLibraryName(name string) string {

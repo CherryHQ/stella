@@ -1,9 +1,11 @@
 package db
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -166,5 +168,73 @@ func touch(t *testing.T, path string) {
 	}
 	if err := os.WriteFile(path, nil, 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// writeFakeInitdb installs a bin/initdb that behaves like the script says. It
+// stands in for the real binary so the diagnostic can be exercised without a
+// downloaded runtime.
+func writeFakeInitdb(t *testing.T, binariesPath, script string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executables need a POSIX shell")
+	}
+	path := filepath.Join(binariesPath, "bin", pgBinaryName("initdb"))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+		t.Fatalf("write initdb: %v", err)
+	}
+}
+
+// A runtime whose bundled libraries do not resolve on this host fails with a
+// bare exit status and no stderr, because embedded-postgres drops the child's
+// output. The diagnostic has to put the loader's own message back in the error.
+func TestPostgresRuntimeStartupDiagnosticSurfacesLoaderFailure(t *testing.T) {
+	rt := postgresRuntimeInfo{BinariesPath: t.TempDir()}
+	writeFakeInitdb(t, rt.BinariesPath, `echo "initdb: error while loading shared libraries: libicudata.so.76: cannot open shared object file" >&2; exit 127`)
+
+	hint := rt.startupDiagnostic(nil)
+	if !strings.Contains(hint, "libicudata.so.76") {
+		t.Errorf("diagnostic lost the loader message: %q", hint)
+	}
+	if !strings.Contains(hint, rt.BinariesPath) {
+		t.Errorf("diagnostic does not name the runtime: %q", hint)
+	}
+	if !strings.Contains(hint, "download-runtime") {
+		t.Errorf("diagnostic gives no way forward: %q", hint)
+	}
+}
+
+func TestPostgresRuntimeStartupDiagnosticSilentWhenBinariesRun(t *testing.T) {
+	rt := postgresRuntimeInfo{BinariesPath: t.TempDir()}
+	writeFakeInitdb(t, rt.BinariesPath, `echo "initdb (PostgreSQL) 18.4"`)
+
+	if hint := rt.startupDiagnostic(nil); hint != "" {
+		t.Errorf("diagnostic = %q, want empty for a runnable runtime", hint)
+	}
+}
+
+func TestPostgresRuntimeStartupDiagnosticSilentWithoutBinariesPath(t *testing.T) {
+	var rt postgresRuntimeInfo
+	if hint := rt.startupDiagnostic(nil); hint != "" {
+		t.Errorf("diagnostic = %q, want empty when no runtime is configured", hint)
+	}
+}
+
+// embedded-postgres sometimes passes the child's stderr through. Repeating it
+// makes the error twice as long and no clearer, so the advice stands alone.
+func TestPostgresRuntimeStartupDiagnosticDoesNotRepeatKnownCause(t *testing.T) {
+	rt := postgresRuntimeInfo{BinariesPath: t.TempDir()}
+	const loaderError = "initdb: error while loading shared libraries: libicudata.so.76: cannot open shared object file"
+	writeFakeInitdb(t, rt.BinariesPath, `echo "`+loaderError+`" >&2; exit 127`)
+
+	hint := rt.startupDiagnostic(errors.New("unable to init database: exit status 127\n" + loaderError))
+	if strings.Contains(hint, loaderError) {
+		t.Errorf("diagnostic repeats what the error already says: %q", hint)
+	}
+	if !strings.Contains(hint, "download-runtime") {
+		t.Errorf("diagnostic gives no way forward: %q", hint)
 	}
 }
