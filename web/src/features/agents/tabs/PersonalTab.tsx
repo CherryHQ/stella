@@ -1,4 +1,4 @@
-import type { AgentsPageState } from "../AgentsPage";
+import type { AgentsPageState } from "../agent-detail-state";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";

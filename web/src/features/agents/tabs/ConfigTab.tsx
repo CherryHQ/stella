@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { Channel } from "@/lib/api-client";
-import type { AgentsPageState, ModelOption } from "../AgentsPage";
+import type { AgentsPageState, ModelOption } from "../agent-detail-state";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
