@@ -55,6 +55,7 @@ internal/
   controlplane/        控制面域（providers、settings、plugins、channels）
   pluginhost/          按能力限定的插件平台宿主
   db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询
+  home/                类型化 Home registry、local 兼容投影、删除生命周期
   scheduler/           River 持久化调度服务（供 Web UI 和 Agent 原生工具使用）
   skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
 pkg/
@@ -76,16 +77,22 @@ plugins/
 - **DBStore**（`config.DBStore`）-- 使用 sqlc 生成的查询的 PostgreSQL 支持实现。
 - **Snapshot**（`config.Snapshot`）-- 单个代理的只读配置视图。在池创建时从 Store 组装。包含已解析的提供商凭证、模型名称、工作区路径、系统提示和 runner 设置。传递给 runner 工厂和需要每个代理配置的工具。
 
+## Home 持久化与生命周期
+
+`internal/home` 自持类型化持久 Home 的身份：用户与群组 Principal Home、每 Principal 的 Agent Home，以及窄范围的 system 与 system-Agent Skill 根。PostgreSQL 存储每个 Home 的不可变 Store ID、不透明 locator 与生命周期状态；Phase 1 的 local store 将当前路径布局保留为内部兼容投影。registry 元数据不能恢复文件字节，因此必须将持久 Principal、Agent Home 存储与 PostgreSQL 一起备份。
+
+显式破坏性删除用户、群组或 Agent 时，会在删除事务中先 tombstone Home、再移除所有者，并持久化地入队一个清除批次。提交后，进程同步 fence 本地缓存的执行；共享 River worker 会在幂等清除字节前再次 fence。物理清除失败会以 `purge_failed` 状态连同审计数据保留，供操作员重试。移除分配、移除成员、归档 Session 和卸载 Helm 都不是 Home 删除操作。这是单副本边界；多副本拓扑和跨副本 SessionSandbox fencing 属于未来工作。
+
 ## 组合与生命周期
 
 `cmd/stellad` 是唯一的手动组合根。没有 DI 框架，也没有通用 `Lifecycle` 接口——各子系统在同一处显式构造和装配，使布线可审计。启动按严格阶段进行，每一阶段必须先于下一阶段完成：
 
 1. **启动配置** — `serverAction` 在启动边界一次性解析 `config.LoadServerConfig(os.LookupEnv)` 与 `oidc.LoadLoginConfig(os.LookupEnv, baseURL)`。其它包一律不读环境变量（由测试三线闸强制，仅对 `STELLA_HOME`/OTel/运行时透传保留小白名单）。最终 base URL 在此解析并向下传递，共享服务直接用它构造——绝不用 `localhost` 占位符再事后改写。
 2. **Build（构建）** — `setup()` 一次性构造每个子系统。共享的 credentials/email/share/recally/MCP 服务只建一次（每个域通过 `*ForPool` 构造子自持查询集），因此同一实例同时支撑 agent 工具与 HTTP 端点。
-3. **Bind（绑定）** — 真正的反向边用一次性的预启动绑定闭合，拒绝 nil/重复/迟到绑定：PoolManager 的 `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry`（在 `StartAll` 之前）、scheduler/goal/embedding 服务上共享 River 客户端的 `BindRiverClient`，以及 `AddBuiltinTool`（去重，由 `StartAll` 密封）。普通依赖走构造注入，不走绑定。
+3. **Bind（绑定）** — 真正的反向边用一次性的预启动绑定闭合，拒绝 nil/重复/迟到绑定：PoolManager 的 `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry`（在 `StartAll` 之前）、scheduler/goal/Home-deletion/embedding 服务上共享 River 客户端的 `BindRiverClient`，以及 `AddBuiltinTool`（去重，由 `StartAll` 密封）。普通依赖走构造注入，不走绑定。
 4. **Validate / Seal（校验/密封）** — `pluginhost.Seal()` 校验全部静态注册与能力绑定后拒绝进一步静态注册；动态期望态接口（`ApplyChannel`/`RegisterManifestPlugins`）保持开放。admin 服务由不可变、已校验的 `server.Deps` 经 `server.New(ctx, deps)` 构建，缺任一必需依赖即快速失败。`server.New` 不读环境、不构造服务、无 setter。
 5. **可观测性** — 全局 OTel 追踪在服务阶段之前初始化，因此任何产生 span 的组件（经 HTTP/通道入口的 agent 运行）都不会在 exporter 装好之前启动。
-6. **Run（运行）** — 至此组合根才启动入口，且必须在其依赖的所有后端就绪之后。先接好静态回调（`notifier.SetAuthService`、scheduler 的 `OnJob` 处理器——均为互斥保护的一次性写入），并启动 River、scheduler、goal 调度 tick、embedding backfill；scheduler 处理器在 River 启动**之前**接好，因为 River 一启动就可能处理已持久化的作业。之后入口才上线——group 调度循环、受管通道运行时，最后是 `httpSrv.Serve`（监听器提前绑定但不 serve）。组合根持有单个 `errgroup`：`httpSrv.Serve` 与 `groupDispatcher.Run(ingressCtx)` 在其下运行。预期的关停错误归一为 `nil`（`http.ErrServerClosed`、`context.Canceled`）；任何其它组件错误取消同伴并成为根错误。组件构造子不启动 goroutine——后台循环由显式阻塞式 `Run(ctx)` 或组合根拥有的 `Start` 进入（例如 trace hook 的空闲会话回收器）。
+6. **Run（运行）** — 至此组合根才启动入口，且必须在其依赖的所有后端就绪之后。先接好静态回调（`notifier.SetAuthService`、scheduler 的 `OnJob` 处理器——均为互斥保护的一次性写入），并启动包含 scheduler、goal、Home purge、embedding worker 的唯一共享 River client，再启动 scheduler、goal 调度 tick、embedding backfill；scheduler 处理器在 River 启动**之前**接好，因为 River 一启动就可能处理已持久化的作业。之后入口才上线——group 调度循环、受管通道运行时，最后是 `httpSrv.Serve`（监听器提前绑定但不 serve）。组合根持有单个 `errgroup`：`httpSrv.Serve` 与 `groupDispatcher.Run(ingressCtx)` 在其下运行。预期的关停错误归一为 `nil`（`http.ErrServerClosed`、`context.Canceled`）；任何其它组件错误取消同伴并成为根错误。组件构造子不启动 goroutine——后台循环由显式阻塞式 `Run(ctx)` 或组合根拥有的 `Start` 进入（例如 trace hook 的空闲会话回收器）。
 
 **不可变 Server Deps。** `server.Deps` 是由应用服务组成的值结构体：Account、Profile、Project、Inbox、Agent/Session/Skill access、Group、控制面和共享能力服务。`internal/server` 不持有持久化 store、查询句柄或连接池；唯一带数据库形状的依赖是仅用于存活探针的 `DBPinger`。终态 AST 守卫拒绝宽泛 `Deps` 字段、Server 持久化选择器以及 `sqlc`/`pgxpool` 导入；其反例覆盖嵌套字段、别名、无导入的 handler 查询使用、仅 DTO 导入和 dot import。可选能力容忍 nil，并通过单一集中的 503 映射退化。
 

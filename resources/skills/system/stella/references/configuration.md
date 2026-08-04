@@ -124,11 +124,12 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 | `postgres/`                                 | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
 | `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                               |
 | `cache/sandbox-tmp/`                        | Docker sandbox temporary directories; scratch, removed when stale                                               |
-| `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed area                                                |
-| `agents/{agent_id}/.agents/skills/`         | Derived execution materialization of PostgreSQL-backed `system_agent` Skills                                    |
-| `users/{user_id}/agents/{agent_id}/`        | This user's sandbox workspace for this agent; sandbox `$HOME` and initial working directory                     |
-| `users/group-{group_id}/agents/{agent_id}/` | This channel group's sandbox workspace for this agent; sandbox `$HOME` and initial working directory            |
-| `users/{principal}/data/`                   | Shared principal data and uploads; persistent user data lives here                                              |
+| `.agents/db-skills/`                        | Local compatibility coordinate for the narrow system Skill root; PostgreSQL-derived materialization             |
+| `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed compatibility area                                  |
+| `agents/{agent_id}/.agents/skills/`         | Local compatibility coordinate for the narrow system-Agent Skill root; PostgreSQL-derived materialization       |
+| `users/{user_id}/agents/{agent_id}/`        | This user's per-principal Agent Home; sandbox `$HOME` and initial working directory                             |
+| `users/group-{group_id}/agents/{agent_id}/` | This channel group's per-principal Agent Home; sandbox `$HOME` and initial working directory                    |
+| `users/{principal}/data/`                   | User or group Principal Home: shared principal data and uploads                                                 |
 | `users/{principal}/data/assets/`            | Uploaded assets; inside the sandbox, use `$STELLA_ASSETS_DIR` rather than an operator path                      |
 | `users/{principal}/.mise-tools/`            | Managed per-user or per-group toolchain; shared by that principal's agents                                      |
 
@@ -144,11 +145,21 @@ For an exact operator command syntax, run `stellad system-bundle --help`. Docker
 
 Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` through **Settings → Skills** as a global (`system`) Skill. Back up, verify, and remove other residual paths. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup without mutation.
 
-`{principal}` is a user ID or `group-{group_id}`. These are operator filesystem
-paths. Agents should use their sandbox variables and ordinary relative paths:
+`{principal}` is a user ID or `group-{group_id}`. These operator filesystem
+paths are local compatibility coordinates, not Home identity. A typed Home has
+an immutable Store ID and opaque locator in PostgreSQL. Agents should use their sandbox variables and ordinary relative paths:
 `$HOME` for their workspace and `$STELLA_ASSETS_DIR` for uploaded assets. Persistent
 XDG state is stored under the principal's `data/` tree; it is not an agent
 workspace.
+
+PostgreSQL records typed user/group Principal Homes, per-principal Agent Homes,
+and narrow system/system-Agent Skill roots, but registry metadata cannot recover
+their file bytes. Back up PostgreSQL with durable Home storage. An explicit
+destructive user, group, or Agent delete tombstones and fences Homes, then
+purges bytes asynchronously. Removing an assignment or member, archiving a
+Session, and uninstalling Helm do not delete Homes. A physical-purge failure is
+retained as `purge_failed` for operator retry; use `stellad storage retry-purge --help`
+for syntax.
 
 ## Environment variables
 
