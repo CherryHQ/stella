@@ -1,6 +1,6 @@
 # Plan: Phase 0 — Builtin Skill bundle and Agent Skill policy
 
-- **Revision:** 5 — final gate hardening and acceptance
+- **Revision:** 6 — latest-main rebase reconciliation
 - **Status:** IMPLEMENTED — Phase 0 acceptance gates complete; Draft PR #831 remains Draft
 - **Issue:** CherryHQ/stella#828 (umbrella; V requested no child Issue)
 - **Branch:** `refactor/system-skill-bundle`
@@ -316,7 +316,7 @@ Kept system scopes but added `agent_skill_disablement`. Fable approved after sta
 
 **Decision (V):** Implement all parent phases under umbrella Issue #828, create no child Issues, and open every PR as Draft. The initial 23-PR decomposition was too granular; V authorized Sol self-review instead of another Fable pass.
 
-**Resolved:** The parent plan now uses 15 vertical Draft PRs. Phase 0 remains one PR with four phase commits, stacked on #829 and retargeted to `main` after #829 merges. Its body uses `Refs #828`, never `Closes #828`; it stays Draft until V says otherwise.
+**Resolved:** The parent plan now uses 15 vertical Draft PRs. Phase 0 remains one PR with four implementation phase commits, stacked on #829 and retargeted to `main` after #829 merges. A later upstream rebase may add one generated reconciliation commit when release-owned builtin source bytes change. Its body uses `Refs #828`, never `Closes #828`; it stays Draft until V says otherwise.
 
 ### Revision 4 implementation reconciliation — Sol
 
@@ -330,9 +330,16 @@ Kept system scopes but added `agent_skill_disablement`. Fable approved after sta
 
 **Resolved:** Registry inventory now runs before every Stella Home mutation and locks the ordering with a retired-binary sentinel test. Docker sandbox containers use the platform's read-only root filesystem while keeping only the explicit workspace, principal-data and temporary mounts writable; pure wiring, real-daemon contract and exact-image checks prove the boundary. The independent final reviewer returned `APPROVED` after both corrections. These changes enforce existing Phase 0 contracts and do not alter parent dependencies or authority order.
 
+### Revision 6 latest-main rebase reconciliation — Sol and independent Terra
+
+**Review: APPROVED.** V requested a rebase onto `main` at `44e26162`. Upstream had removed database-backed sandbox plugins in favor of deployment-owned `STELLA_SANDBOX_BACKEND`, added atomic Agent-specific Provider credentials, and changed builtin Stella Skill documentation.
+
+**Resolved:** The shared plugin catalog no longer imports the retired sandbox plugin package; daemon and generator still import the same current plugin set. `DBStore.pool` is the single transaction capability for both AgentSkillPolicy and Agent+credential writes, while broad Agent create/update/seed paths continue to leave policy to its database default or preserve committed bytes. The exact upstream builtin content regenerated bundle revision `55cd41879df458f2b2c50f14d87695067dbc578fe183fc2fea1084af796b1d3e`. Independent re-review returned `APPROVED`; mandatory local, subprocess system, cross-platform, Docker build, real-daemon and exact-image gates passed. Architecture and parent phase order remain unchanged.
+
 ## Handoffs
 
-- Phase 1: deterministic Registry/bundle committed as `c208ccc0` after generation, installer, mode, tamper and cross-platform gates.
-- Phase 2: Provider projection and legacy gate committed as `44c84c05` after local/none/Docker contract and dual-review approval.
-- Phase 3: Agent policy/API/UI and admission safety committed as `98d0c829` after security/correctness approval and full local gates.
-- Phase 4: EN/ZH docs, plan reconciliation, legacy zero-mutation ordering, Docker read-only rootfs, aggregate review and full local/system/image gates are complete; Draft PR #831 remains Draft.
+- Phase 1: deterministic Registry/bundle rebased as `b74110ed` after generation, installer, mode, tamper and cross-platform gates.
+- Phase 2: Provider projection and legacy gate rebased as `72061cb1` after local/none/Docker contract and dual-review approval.
+- Phase 3: Agent policy/API/UI and admission safety rebased as `7021eb99` after security/correctness approval and full local gates.
+- Phase 4: EN/ZH docs, plan reconciliation, legacy zero-mutation ordering, Docker read-only rootfs, aggregate review and full local/system/image gates rebased as `ca722e0a`; Draft PR #831 remains Draft.
+- Latest-main reconciliation: stack rebased onto `44e26162`; upstream plugin/credential contracts were preserved and builtin revision `55cd41879df458f2b2c50f14d87695067dbc578fe183fc2fea1084af796b1d3e` was regenerated and reverified.
