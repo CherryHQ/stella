@@ -9,7 +9,6 @@ const (
 	PluginKindChannel  = "channel"
 	PluginKindHook     = "hook"
 	PluginKindProvider = "provider"
-	PluginKindSandbox  = "sandbox"
 	PluginKindAuth     = "auth"
 )
 
@@ -47,9 +46,6 @@ var BuiltinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
 // BuiltinHookNames lists the built-in hook plugins.
 var BuiltinHookNames = []string{"rtk"}
 
-// BuiltinSandboxNames lists the built-in sandbox backend plugins.
-var BuiltinSandboxNames = []string{SandboxBackendDocker, SandboxBackendLocal, SandboxBackendNone}
-
 // BuiltinPlugin describes a code-defined plugin with its default enabled state.
 type BuiltinPlugin struct {
 	ID             string
@@ -73,10 +69,6 @@ func BuiltinPlugins() []BuiltinPlugin {
 	for _, n := range BuiltinHookNames {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindHook, n), Kind: PluginKindHook, Name: n, DefaultEnabled: true})
 	}
-	for _, n := range BuiltinSandboxNames {
-		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindSandbox, n), Kind: PluginKindSandbox, Name: n, DefaultEnabled: n == SandboxBackendLocal})
-	}
-
 	return out
 }
 
@@ -112,19 +104,4 @@ func BuiltinPluginByID(id string) (BuiltinPlugin, bool) {
 	idx := builtinPluginIndex()
 	b, ok := idx[id]
 	return b, ok
-}
-
-// ActiveSandboxBackend returns the name of the enabled sandbox backend plugin.
-// STELLA_SANDBOX_BACKEND takes precedence; otherwise the DB-enabled plugin wins,
-// defaulting to SandboxBackendLocal.
-func ActiveSandboxBackend(plugins []Plugin) string {
-	if override := SandboxBackendEnvOverride(); override != "" {
-		return override
-	}
-	for _, p := range plugins {
-		if p.Kind == PluginKindSandbox && p.Enabled {
-			return p.Name
-		}
-	}
-	return SandboxBackendLocal
 }

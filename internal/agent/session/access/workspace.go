@@ -139,7 +139,7 @@ func (a *Access) ListWorkspace(ctx context.Context, in WorkspaceListInput) (Work
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	info.SandboxRoot = scopeSandboxView(a.svc.sandboxBackend(ctx), root, in.Scope)
+	info.SandboxRoot = scopeSandboxView(config.ActiveSandboxBackend(), root, in.Scope)
 	return info, nil
 }
 
@@ -447,7 +447,7 @@ func (a *Access) UploadWorkspacePath(ctx context.Context, in WorkspaceUploadInpu
 	}
 	rel, _ := filepath.Rel(root, abs)
 	relSlash := filepath.ToSlash(rel)
-	sandboxRoot := sandbox.UserDataViewFor(a.svc.sandboxBackend(ctx), root)
+	sandboxRoot := sandbox.UserDataViewFor(config.ActiveSandboxBackend(), root)
 	viewPath := filepath.Join(sandboxRoot, rel)
 	// Non-isolating backends expose host paths. Resolve aliases such as macOS
 	// /var -> /private/var so the path matches the sandbox mount authority.
@@ -483,11 +483,6 @@ func workspaceRootForScope(userID, agentID string, scope WorkspaceScope) string 
 		return agent.UserDataDir(agent.UserHomeDir(config.StellaHome(), userID))
 	}
 	return agent.UserAgentDir(config.StellaHome(), userID, agentID)
-}
-
-func (s *Service) sandboxBackend(ctx context.Context) string {
-	plugins, _ := s.store.ListPlugins(ctx)
-	return config.ActiveSandboxBackend(plugins)
 }
 
 func scopeSandboxView(backend, root string, scope WorkspaceScope) string {

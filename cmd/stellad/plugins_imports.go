@@ -20,7 +20,4 @@ import (
 
 	// Plugin hooks.
 	_ "github.com/CherryHQ/stella/plugins/hooks/rtk"
-
-	// Plugin sandbox backends.
-	_ "github.com/CherryHQ/stella/plugins/sandbox"
 )

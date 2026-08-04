@@ -22,7 +22,6 @@ components:
         capabilities: { type: array, items: { type: string } }
         persisted: { type: boolean }
         persisted_id: { type: string }
-        env_locked: { type: boolean }
 
     TogglePluginRequest:
       type: object
