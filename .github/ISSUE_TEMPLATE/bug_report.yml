@@ -1,0 +1,65 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Stella.
+title: "bug: "
+labels:
+  - bug
+  - status:needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Stella. Search existing issues first and remove secrets or private data from everything you submit.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Describe the incorrect behavior clearly and concisely.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How can we reproduce it?
+      description: Give the smallest reliable sequence of steps, commands, or input.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Stella version or commit, operating system, deployment method, and relevant provider or channel.
+      placeholder: |
+        Stella: v0.61.0
+        OS: macOS 15.5 arm64
+        Deployment: Homebrew
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Include only relevant evidence. Redact tokens, credentials, personal data, and private content.
+  - type: textarea
+    id: refs
+    attributes:
+      label: References
+      description: Link related issues, pull requests, discussions, or documentation.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I removed secrets, credentials, and private data from this report.
+          required: true

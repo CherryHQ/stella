@@ -1,0 +1,39 @@
+name: Documentation or other issue
+description: Report documentation problems or work that does not fit the other forms.
+title: ""
+labels:
+  - status:needs-triage
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What needs to change?
+      description: Describe the problem or requested outcome clearly.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is this needed?
+      description: Explain the impact of leaving the current behavior or documentation unchanged.
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: Suggested approach
+      description: Optional. Include acceptance criteria if known.
+  - type: textarea
+    id: refs
+    attributes:
+      label: References
+      description: Link affected pages, related issues, pull requests, discussions, or other evidence.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I removed secrets, credentials, and private data from this report.
+          required: true

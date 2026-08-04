@@ -33,29 +33,33 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
    git log --oneline -1
    ```
    Stop if the release commit is not `HEAD`; never tag before the commit exists.
-7. Tag the release commit and verify the tag points at `HEAD`:
+7. Verify that the version milestone contains the exact release scope and has
+   no open issues. Stop and resolve any open issue before tagging:
+   ```bash
+   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state open
+   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state all
+   ```
+8. Tag the release commit and verify the tag points at `HEAD`:
    ```bash
    git tag vX.Y.Z
    test "$(git rev-parse vX.Y.Z)" = "$(git rev-parse HEAD)"
    ```
-8. Tag release issues with the release label so they are traceable on the GitHub Project board:
-
-   ```bash
-   # warn about any issue still open in the milestone before tagging
-   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state open
-
-   # label every issue in the milestone with release:vX.Y.Z (--add-label is idempotent)
-   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state all \
-     --json number --jq '.[].number' \
-   | xargs -I{} gh issue edit {} --repo CherryHQ/stella --add-label "release:vX.Y.Z"
-   ```
-
-   Filter the project board by the `release:vX.Y.Z` label to confirm the release scope.
-
 9. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
 10. CI triggers `.github/workflows/release.yml`. Its validation job checks the
     exact tagged commit before the GoReleaser or Docker publication jobs can
     start.
+11. After CI succeeds and the GitHub Release is visible, close the version
+    milestone:
+    ```bash
+    MILESTONE_NUMBER=$(gh api 'repos/CherryHQ/stella/milestones?state=open' \
+      --jq '.[] | select(.title == "vX.Y.Z") | .number')
+    test -n "$MILESTONE_NUMBER"
+    gh api --method PATCH "repos/CherryHQ/stella/milestones/$MILESTONE_NUMBER" \
+      -f state=closed
+    ```
+
+The version milestone is the durable release record. Do not create a duplicate
+`release:vX.Y.Z` label.
 
 ## Update Changelog
 
