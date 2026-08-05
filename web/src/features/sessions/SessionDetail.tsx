@@ -11,6 +11,7 @@ import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import { fetchAllSessionMessages } from "@/lib/paginated";
 import type { Message, Session } from "@/lib/types";
+import { sessionDisplayTitle } from "@/lib/session-title";
 import { ChatPane } from "@/components/chat/ChatPane";
 import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { Button } from "@/components/ui/button";
@@ -493,7 +494,9 @@ export function SessionDetail({
   // A main session *is* the agent (or project) conversation, so its title only
   // repeats the breadcrumb — "Anna / Anna". Only a branched thread earns a tail.
   const titleText =
-    session && session.kind !== "main" ? session.title || t("sessions.untitled") : "";
+    session && session.kind !== "main"
+      ? sessionDisplayTitle(session.title, t("sessions.untitled"))
+      : "";
   useEffect(() => {
     setHeaderTitle(
       titleText ? (

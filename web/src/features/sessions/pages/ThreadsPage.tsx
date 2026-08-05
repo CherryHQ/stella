@@ -10,6 +10,8 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import type { Session } from "@/lib/types";
+import { sessionDisplayTitle } from "@/lib/session-title";
+import { SessionOriginBadge } from "@/components/SessionOriginBadge";
 import { useAppShell } from "@/layouts/AppShell";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -109,7 +111,13 @@ export function ThreadsPage() {
     const scoped =
       selectedHome === AGENT_HOME ? loaded.filter((session) => !session.project_id) : loaded;
     return needle
-      ? scoped.filter((session) => (session.title || "").toLowerCase().includes(needle))
+      ? scoped.filter((session) =>
+          // Match what is on screen as well as what is stored: a derived title
+          // is the only text the user can actually see to search for.
+          `${session.title ?? ""} ${sessionDisplayTitle(session.title, "")}`
+            .toLowerCase()
+            .includes(needle),
+        )
       : scoped;
   }, [needle, selectedHome, threadsQuery.data]);
 
@@ -230,11 +238,15 @@ export function ThreadsPage() {
         ) : (
           <div className="divide-y divide-border overflow-hidden rounded-lg border">
             {threads.map((session) => {
-              const label = session.title || t("sessions.untitled");
+              const label = sessionDisplayTitle(session.title, t("sessions.untitled"));
               const projectId = session.project_id;
+              // Only a project home discriminates. On an agent's own thread list
+              // the agent name is on every row, and a badge that never varies is
+              // read as chrome — worse here, because it sits beside the origin
+              // badge, which does vary and is the one worth seeing.
               const homeLabel = projectId
                 ? (projectNames.get(projectId) ?? t("sidebar.projects"))
-                : agentName || t("threads.homeAgent");
+                : null;
               return (
                 <Link
                   key={session.id}
@@ -282,9 +294,12 @@ export function ThreadsPage() {
                       label
                     )}
                   </span>
-                  <Badge variant="outline" size="sm" className="max-sm:hidden">
-                    {homeLabel}
-                  </Badge>
+                  <SessionOriginBadge session={session} />
+                  {homeLabel && (
+                    <Badge variant="outline" size="sm" className="max-sm:hidden">
+                      {homeLabel}
+                    </Badge>
+                  )}
                   <time className="shrink-0 text-xs text-muted-foreground">
                     {formatTime(session.last_active)}
                   </time>

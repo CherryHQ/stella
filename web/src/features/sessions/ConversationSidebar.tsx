@@ -44,6 +44,7 @@ import {
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
+import { sessionDisplayTitle } from "@/lib/session-title";
 import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -807,7 +808,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                     key={session.id}
                     active={activeSessionId === session.id}
                     icon={<MessageSquare className="size-4" />}
-                    label={session.title || t("sessions.untitled")}
+                    label={sessionDisplayTitle(session.title, t("sessions.untitled"))}
                     meta={
                       <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
                     }
@@ -846,7 +847,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
           }
         >
           {recentThreads.slice(0, visibleThreads).map((session: Session) => {
-            const label = session.title || t("sessions.untitled");
+            const label = sessionDisplayTitle(session.title, t("sessions.untitled"));
             return (
               <SidebarItem
                 key={session.id}
