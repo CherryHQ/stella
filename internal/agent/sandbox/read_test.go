@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/fsops"
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -34,8 +35,18 @@ func writePNG(t *testing.T, path string, w, h int) {
 	}
 }
 
+type readTestSession struct {
+	pkgsandbox.Session
+	root string
+}
+
+func (s readTestSession) WorkingDir() string { return "/workspace" }
+func (s readTestSession) Filesystem() (pkgsandbox.Filesystem, error) {
+	return fsops.NewFilesystem([]fsops.Mount{{Path: pkgsandbox.PathWorkspace, Directory: s.root}})
+}
+
 func newTestReadTool(projectRoot string) *hostReadTool {
-	return &hostReadTool{host: pkgsandbox.NopSession(), projectRoot: projectRoot}
+	return &hostReadTool{session: readTestSession{Session: pkgsandbox.NopSession(), root: projectRoot}}
 }
 
 func TestReadImageVisionReturnsImageBlock(t *testing.T) {
@@ -156,7 +167,7 @@ func unshadowedTempDir(t *testing.T) string {
 	return resolved
 }
 
-func TestReadToolProjectRootAbsolutePathUsesHostBoundary(t *testing.T) {
+func TestReadToolRejectsHostAbsolutePath(t *testing.T) {
 	workspace := unshadowedTempDir(t)
 	inside := filepath.Join(workspace, "inside.txt")
 	if err := os.WriteFile(inside, []byte("inside workspace\n"), 0o644); err != nil {
@@ -180,8 +191,12 @@ func TestReadToolProjectRootAbsolutePathUsesHostBoundary(t *testing.T) {
 	}
 	defer session.Close() //nolint:errcheck
 
-	tool := newReadTool(session, workspace)
-	out, err := tool.Execute(context.Background(), map[string]any{"path": inside})
+	fsSession, ok := session.(pkgsandbox.FilesystemSession)
+	if !ok {
+		t.Fatal("local session lacks filesystem capability")
+	}
+	tool := newReadTool(fsSession)
+	out, err := tool.Execute(context.Background(), map[string]any{"path": "/workspace/inside.txt"})
 	if err != nil {
 		t.Fatalf("read inside workspace: %v", err)
 	}

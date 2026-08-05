@@ -24,6 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 type fakeRuntimeManager struct{ svc *fakeRuntimeService }
@@ -65,6 +66,10 @@ func (s *fakeRuntimeService) SubscribeSession(string) (<-chan agent.Event, func(
 func (s *fakeRuntimeService) SessionLive(string) bool { return s.live }
 func (s *fakeRuntimeService) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
 	return "", errors.New("not used")
+}
+
+func (s *fakeRuntimeService) UseFilesystem(context.Context, agentsession.Info, func(sandbox.Filesystem) error) error {
+	return errors.New("not used")
 }
 
 func TestMain(m *testing.M) { dbtest.Main(m) }

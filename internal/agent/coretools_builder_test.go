@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"os"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/fsops"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -32,6 +34,9 @@ func (f *fakeSession) StartProcess(_ context.Context, _ pkgsandbox.ProcessReques
 func (f *fakeSession) ResolvePath(path string) (string, error)      { return path, nil }
 func (f *fakeSession) ResolveWritePath(path string) (string, error) { return path, nil }
 func (f *fakeSession) WorkingDir() string                           { return "/tmp" }
+func (f *fakeSession) Filesystem() (pkgsandbox.Filesystem, error) {
+	return fsops.NewFilesystem([]fsops.Mount{{Path: pkgsandbox.PathWorkspace, Directory: os.TempDir()}})
+}
 
 func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
 	tools := buildSandboxCoreTools(nil, pkgplugins.ToolBuildContext{Paths: pkgplugins.ToolPaths{ToolsBinDir: "/tmp/bin"}}, nil)

@@ -12,5 +12,5 @@ func buildSandboxCoreTools(session pkgsandbox.Session, bc pkgplugins.ToolBuildCo
 	if session == nil {
 		return nil
 	}
-	return agentsandbox.NewTools(session, bc.Paths.ToolsBinDir, bc.Paths.ProjectRoot, sessionSecretValues)
+	return agentsandbox.NewTools(session, bc.Paths.ToolsBinDir, sessionSecretValues)
 }

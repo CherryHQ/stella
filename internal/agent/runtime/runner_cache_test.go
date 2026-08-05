@@ -36,7 +36,7 @@ func TestRunnerCacheCloseWhereTerminallyEvictsBusyAndReserved(t *testing.T) {
 	busy.busy = true
 	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
 	cache.sessions["busy"] = &cachedSession{r: busy, info: session.Info{ID: "busy", UserID: "gone"}}
-	cache.sessions["reserved"] = &cachedSession{r: reserved, reserved: true, info: session.Info{ID: "reserved", UserID: "gone"}}
+	cache.sessions["reserved"] = &cachedSession{r: reserved, leases: 1, info: session.Info{ID: "reserved", UserID: "gone"}}
 	cache.sessions["keep"] = &cachedSession{r: keep, info: session.Info{ID: "keep", UserID: "stay"}}
 	if err := cache.closeWhere(func(cs *cachedSession) bool { return cs.info.UserID == "gone" }); err != nil {
 		t.Fatalf("closeWhere: %v", err)
@@ -413,8 +413,8 @@ func TestRunnerCacheReapDoesNotProbeReservedRunner(t *testing.T) {
 	bad.lastAct = time.Now().Add(-time.Hour)
 
 	cache.reap()
-	if bad.closed || !cs.reserved || cs.r != bad {
-		t.Fatalf("reap touched reserved runner: closed=%t reserved=%t runner=%v", bad.closed, cs.reserved, cs.r)
+	if bad.closed || cs.leases == 0 || cs.r != bad {
+		t.Fatalf("reap touched reserved runner: closed=%t leases=%d runner=%v", bad.closed, cs.leases, cs.r)
 	}
 
 	bad.panicBusy = false
@@ -454,12 +454,18 @@ func TestRunnerCacheReservedLookupDoesNotProbeAndMarksStale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reserved reselection: %v", err)
 	}
-	if selected.runner != bad || selected.model != "old-model" || selected.thinking != "low" || !cs.stale || !cs.reserved {
+	if selected.runner != bad || selected.model != "old-model" || selected.thinking != "low" || !cs.stale || cs.leases == 0 {
 		t.Fatalf("reserved selection=%#v cache=%#v; want current stale reserved selection", selected, cs)
 	}
 
 	bad.panicBusy = false
 	bad.panicAlive = false
+	// Two holds are outstanding: the seed reserve() and the reselection above.
+	// Each is released by its own owner; replacement waits until the last clears.
+	cache.releaseReservation(cs)
+	if cs.leases == 0 {
+		t.Fatalf("reselection released a coexisting hold: leases=%d", cs.leases)
+	}
 	cache.releaseReservation(cs)
 	next, err := cache.getOrCreateReserved(context.Background(), info, "new-model", "high")
 	if err != nil {
@@ -838,7 +844,7 @@ func TestChatAdmittedBootstrapPanicLeavesStaleRunnerForCurrentFactory(t *testing
 	}
 	rt.cache.mu.Lock()
 	cs := rt.cache.sessions[info.ID]
-	if cs == nil || cs.r != runners[0] || cs.reserved || !cs.stale || cs.model != "" || cs.thinking != "" {
+	if cs == nil || cs.r != runners[0] || cs.leases != 0 || !cs.stale || cs.model != "" || cs.thinking != "" {
 		rt.cache.mu.Unlock()
 		t.Fatalf("bootstrap panic cache=%#v; want unreserved stale runner with cleared metadata", cs)
 	}
@@ -899,17 +905,17 @@ func TestFailedAdmissionReservedRunnerDefersRetirement(t *testing.T) {
 	bad.panicBusy = true
 	rt.cache.mu.Lock()
 	cs := rt.cache.sessions[info.ID]
-	cs.reserved = true
+	cs.leases = 1
 	rt.cache.mu.Unlock()
 	if err := rt.ResetRunners(); err != nil {
 		t.Fatalf("reset reserved failed admission: %v", err)
 	}
 	rt.cache.mu.Lock()
-	if cs.r != bad || !cs.reserved || !cs.stale || !cs.failedAdmission || bad.closed {
+	if cs.r != bad || cs.leases == 0 || !cs.stale || !cs.failedAdmission || bad.closed {
 		rt.cache.mu.Unlock()
 		t.Fatalf("reserved failed admission state=%#v closed=%t; want retained stale lease", cs, bad.closed)
 	}
-	cs.reserved = false
+	cs.leases = 0
 	rt.cache.mu.Unlock()
 	if err := rt.ResetRunners(); err != nil {
 		t.Fatalf("reset released failed admission: %v", err)
@@ -1030,7 +1036,7 @@ func testChatAdmittedCachedRunnerPanic(t *testing.T, name string, panicRunner fu
 	}
 	rt.cache.mu.Lock()
 	cs := rt.cache.sessions[info.ID]
-	if cs == nil || cs.reserved || !cs.stale || cs.model != "" || cs.thinking != "" {
+	if cs == nil || cs.leases != 0 || !cs.stale || cs.model != "" || cs.thinking != "" {
 		rt.cache.mu.Unlock()
 		t.Fatalf("panic lookup cache=%#v; want unreserved stale runner with cleared metadata", cs)
 	}
@@ -1110,5 +1116,103 @@ func TestRunnerCache_InvalidGroupSessionFailsClosedWithoutRunner(t *testing.T) {
 	}
 	if _, ok := cache.sessions["s1"]; ok {
 		t.Fatal("no session entry should be installed for an invalid session")
+	}
+}
+
+// TestRecoverFailedAdmissionReleasesOnlyOwnedLease proves the lease-ownership
+// invariant directly: a panic that unwinds an admission which never acquired a
+// lease must not decrement a lease held by a concurrent turn or callback, and it
+// must still quarantine an installed runner for rebuild.
+func TestRecoverFailedAdmissionReleasesOnlyOwnedLease(t *testing.T) {
+	cache, _ := testCache(nil)
+	info := validInfo("held-lease")
+	r := newFakeRunner()
+	// A runner already leased once by an in-flight turn/callback.
+	cs := &cachedSession{info: info, r: r, leases: 1, model: "m", thinking: "low"}
+	cache.sessions[info.ID] = cs
+
+	// owned=false: this invocation panicked before acquiring, so the held lease
+	// is untouched while the panicked runner is quarantined.
+	cache.recoverFailedAdmission(cs, false, false)
+	if cs.leases != 1 {
+		t.Fatalf("unowned recovery changed lease count: leases=%d, want 1", cs.leases)
+	}
+	if !cs.stale || !cs.failedAdmission || cs.model != "" || cs.thinking != "" {
+		t.Fatalf("panicked runner not quarantined: %#v", cs)
+	}
+	if r.closed {
+		t.Fatal("recovery closed a still-leased runner")
+	}
+
+	// owned=true: the owning holder unwinds and releases exactly its own lease.
+	cache.recoverFailedAdmission(cs, false, true)
+	if cs.leases != 0 {
+		t.Fatalf("owned recovery released wrong count: leases=%d, want 0", cs.leases)
+	}
+}
+
+// TestReservedLookupProbePanicDoesNotUnderflowLease drives the real admission
+// path into a provider probe panic that fires before any lease is acquired, and
+// proves the recovery quarantines the runner and returns an error without
+// touching the lease counter.
+func TestReservedLookupProbePanicDoesNotUnderflowLease(t *testing.T) {
+	cache, bad := testCache(nil)
+	info := validInfo("probe-panic")
+	if _, _, err := cache.getOrCreate(context.Background(), info, "m", "low"); err != nil {
+		t.Fatalf("seed runner: %v", err)
+	}
+	cache.mu.Lock()
+	cache.sessions[info.ID].stale = true // force the stale-probe branch
+	cache.mu.Unlock()
+	bad.panicBusy = true // Busy() panics before this invocation acquires
+
+	if _, err := cache.getOrCreateReserved(context.Background(), info, "m2", "high"); err == nil {
+		t.Fatal("expected admission error from probe panic")
+	}
+	cache.mu.Lock()
+	cs := cache.sessions[info.ID]
+	cache.mu.Unlock()
+	if cs == nil || cs.leases != 0 || !cs.stale || !cs.failedAdmission {
+		t.Fatalf("probe panic state = %#v; want quarantined runner with leases=0", cs)
+	}
+}
+
+// TestReservedConstructionErrorReleasesLeaseWhenConcurrentInstallWins proves the
+// counted lease acquired for construction is released when the factory fails and
+// a concurrent goroutine has meanwhile installed a runner on the same session —
+// the record must not be left permanently pinned by a leaked lease.
+func TestReservedConstructionErrorReleasesLeaseWhenConcurrentInstallWins(t *testing.T) {
+	var cache *runnerCache
+	info := validInfo("construct-err-race")
+	installed := make(chan struct{})
+	good := newFakeRunner()
+	var calls int
+	factory := func(_ context.Context, _ RunnerParams) (Runner, error) {
+		calls++
+		if calls == 1 {
+			// While this reserved construction runs unlocked, let a plain lookup
+			// install a runner on the same cs, then fail this construction.
+			go func() {
+				_, _, _ = cache.getOrCreate(context.Background(), info, "", "")
+				close(installed)
+			}()
+			<-installed
+			return nil, errors.New("boom")
+		}
+		return good, nil
+	}
+	cache = newRunnerCache(factory, fakeMemory{}, time.Minute, slog.Default())
+
+	if _, err := cache.getOrCreateReserved(context.Background(), info, "", ""); err == nil {
+		t.Fatal("expected construction error")
+	}
+	cache.mu.Lock()
+	cs := cache.sessions[info.ID]
+	cache.mu.Unlock()
+	if cs == nil || cs.r != good {
+		t.Fatalf("concurrent install missing: cs=%#v", cs)
+	}
+	if cs.leases != 0 {
+		t.Fatalf("construction error leaked a lease: leases=%d, want 0", cs.leases)
 	}
 }

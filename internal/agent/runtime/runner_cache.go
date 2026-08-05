@@ -28,10 +28,13 @@ type cachedSession struct {
 	// lookup panic. It must be retired without invoking it again: Alive/Busy may
 	// be the operation that panicked.
 	failedAdmission bool
-	// reserved is set synchronously during turn admission, before the chat
-	// goroutine invokes Runner.Chat. Policy invalidation treats it like Busy so
-	// an admitted turn keeps its immutable runner snapshot through that gap.
-	reserved bool
+	// leases counts the outstanding use holds on this runner. A turn admission
+	// takes one from selection until releaseReservation; a Filesystem callback
+	// takes one from acquireFilesystemUse until releaseFilesystemUse. Each is
+	// acquired and released exactly once by its owner, and the two coexist. A
+	// non-zero count is authoritative: policy invalidation, reset, and the reaper
+	// treat the runner like Busy so an in-flight hold keeps its runner snapshot.
+	leases int
 }
 
 // runnerSelection is the immutable admission lease for one turn. Cache fields
@@ -108,22 +111,19 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		// malformed provider/memory implementation cannot wedge that session.
 		// Never include recovered values: panics can contain provider secrets.
 		c.log.Error("runner construction panicked", "session_id", info.ID)
-		if reservationOwned {
-			c.abortReservedAdmission(cs)
-		} else if cs != nil {
-			c.mu.Lock()
-			if c.sessions[info.ID] == cs {
-				if cs.r == nil && !cs.reserved && created {
-					// No runner escaped the failed admission; do not retain an
-					// empty reserved cache record.
-					delete(c.sessions, info.ID)
-				}
-			}
-			c.mu.Unlock()
-		}
+		c.recoverFailedAdmission(cs, created, reservationOwned)
 		selection = runnerSelection{}
 		err = errors.New("runner construction failed")
 	}()
+	// acquire takes this invocation's single lease and records ownership in the
+	// same step. reservationOwned therefore becomes true only after cs.leases has
+	// actually been incremented, so a provider method (Busy/Alive) panicking
+	// before this point can never make the recovery defer release a lease this
+	// invocation does not hold — protecting a concurrent turn or callback lease.
+	acquire := func() {
+		c.acquireLeaseLocked(cs)
+		reservationOwned = true
+	}
 	// Validate the session and derive its memory scope before any cache lookup or
 	// runner creation. An invalid session (missing owner, malformed group id) must
 	// fail closed here so a runner is never installed over an unusable scope.
@@ -154,8 +154,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 			c.sessions[info.ID] = cs
 			created = true
 		}
-		wasReserved := cs.reserved
-		reservationOwned = reserve && !wasReserved
+		wasReserved := c.using(cs)
 		if cs.failedAdmission && cs.r == nil && !wasReserved {
 			// The bad runner was already detached by another lifecycle path.
 			// Nothing cache-reachable remains to quarantine.
@@ -170,7 +169,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 			if wasReserved {
 				cs.stale = true
 				if reserve {
-					cs.reserved = true
+					acquire()
 				}
 				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
 				selected = true
@@ -188,6 +187,9 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				(thinking != "" && cs.thinking != thinking) {
 				cs.stale = true
 			}
+			if reserve {
+				acquire()
+			}
 			selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
 			selected = true
 			return
@@ -196,7 +198,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		if cs.r != nil && cs.stale {
 			if cs.r.Busy() {
 				if reserve {
-					cs.reserved = true
+					acquire()
 				}
 				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
 				selected = true
@@ -216,7 +218,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				// path defers to it and makes the following turn rebuild instead.
 				cs.stale = true
 				if reserve {
-					cs.reserved = true
+					acquire()
 				}
 				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
 				selected = true
@@ -245,7 +247,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 				cs.r = nil
 			default:
 				if reserve {
-					cs.reserved = true
+					acquire()
 				}
 				selection = runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
 				selected = true
@@ -255,7 +257,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 		// Mark the lease before runner construction releases c.mu. This covers a
 		// reset/reaper/invalidation interleaving while the factory is running.
 		if reserve {
-			cs.reserved = true
+			acquire()
 		}
 		newRunner = c.newRunner
 		hooksFn = c.hooksFn
@@ -304,7 +306,15 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 	})
 	if err != nil {
 		c.mu.Lock()
-		if current := c.sessions[info.ID]; current == cs && cs.r == nil {
+		// The empty selection returned here is never handed to a caller, so this
+		// invocation must release the lease it acquired for construction; leaving
+		// it would permanently pin the record when a concurrent goroutine installs
+		// a runner on the same session.
+		if reservationOwned {
+			c.releaseLeaseLocked(cs)
+			reservationOwned = false
+		}
+		if current := c.sessions[info.ID]; current == cs && cs.r == nil && !c.using(cs) {
 			delete(c.sessions, info.ID)
 		}
 		c.mu.Unlock()
@@ -312,6 +322,18 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 	}
 
 	c.mu.Lock()
+	if c.sessions[info.ID] != cs {
+		// A terminal close detached this construction while its factory ran. Never
+		// resurrect the record or hand its runner to a callback/turn after that
+		// fencing point.
+		if reservationOwned {
+			c.releaseLeaseLocked(cs)
+			reservationOwned = false
+		}
+		c.mu.Unlock()
+		_ = c.closeRetired(r)
+		return runnerSelection{}, errors.New("runner admission closed")
+	}
 	if cs.r != nil {
 		// Another goroutine installed a runner; discard ours.
 		selection := runnerSelection{session: cs, runner: cs.r, model: cs.model, thinking: cs.thinking}
@@ -342,7 +364,7 @@ func (c *runnerCache) getOrCreateWithReservation(ctx context.Context, info sessi
 func (c *runnerCache) reserve(cs *cachedSession) {
 	c.mu.Lock()
 	if cs != nil && c.sessions[cs.info.ID] == cs {
-		cs.reserved = true
+		c.acquireLeaseLocked(cs)
 	}
 	c.mu.Unlock()
 }
@@ -350,9 +372,84 @@ func (c *runnerCache) reserve(cs *cachedSession) {
 func (c *runnerCache) releaseReservation(cs *cachedSession) {
 	c.mu.Lock()
 	if cs != nil && c.sessions[cs.info.ID] == cs {
-		cs.reserved = false
+		c.releaseLeaseLocked(cs)
 	}
 	c.mu.Unlock()
+}
+
+func (c *runnerCache) acquireFilesystemUse(ctx context.Context, info session.Info) (runnerSelection, error) {
+	return c.getOrCreateReserved(ctx, info, "", "")
+}
+
+func (c *runnerCache) releaseFilesystemUse(cs *cachedSession) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cs != nil && c.sessions[cs.info.ID] == cs {
+		c.releaseLeaseLocked(cs)
+	}
+}
+
+func (c *runnerCache) acquireLeaseLocked(cs *cachedSession) { cs.leases++ }
+func (c *runnerCache) releaseLeaseLocked(cs *cachedSession) {
+	if cs.leases > 0 {
+		cs.leases--
+	}
+}
+func (c *runnerCache) using(cs *cachedSession) bool { return cs.leases > 0 }
+
+// recoverFailedAdmission unwinds a synchronous admission whose construction or a
+// provider probe panicked. It releases a lease only when this invocation owned
+// one (owned), so a panic before this invocation acquired never decrements a
+// concurrent turn's or callback's lease. An installed runner is quarantined
+// rather than closed under an unknown panic; an empty record this invocation
+// created is dropped only when nothing else still leases it.
+func (c *runnerCache) recoverFailedAdmission(cs *cachedSession, created, owned bool) {
+	if cs == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// A terminal close may have detached cs while construction ran. Its owner
+	// still releases exactly its own local lease; it must not depend on cache
+	// reachability, which terminal close intentionally removes.
+	if owned {
+		c.releaseLeaseLocked(cs)
+	}
+	if c.sessions[cs.info.ID] != cs {
+		return
+	}
+	if cs.r != nil {
+		// The runner or one of its probe methods panicked; retire it for rebuild
+		// without invoking it again. A surviving lease keeps it cache-reachable.
+		cs.stale = true
+		cs.failedAdmission = true
+		cs.model = ""
+		cs.thinking = ""
+		return
+	}
+	if created && !c.using(cs) {
+		delete(c.sessions, cs.info.ID)
+	}
+}
+
+// quarantineLeasedRunner retires a runner whose provider panicked while a lease
+// is held, without releasing that lease: the lease owner releases it exactly
+// once on its own path. The runner is marked failed so the next lookup rebuilds
+// without probing it. An active turn keeps its own runner snapshot and is
+// unaffected; only future cache lookups observe the quarantine.
+func (c *runnerCache) quarantineLeasedRunner(cs *cachedSession) {
+	if cs == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sessions[cs.info.ID] != cs || cs.r == nil {
+		return
+	}
+	cs.stale = true
+	cs.failedAdmission = true
+	cs.model = ""
+	cs.thinking = ""
 }
 
 // abortReservedAdmission unwinds one synchronously admitted turn that never
@@ -367,7 +464,7 @@ func (c *runnerCache) abortReservedAdmission(cs *cachedSession) {
 	if c.sessions[cs.info.ID] != cs {
 		return
 	}
-	cs.reserved = false
+	c.releaseLeaseLocked(cs)
 	if cs.r == nil {
 		delete(c.sessions, cs.info.ID)
 		return
@@ -437,7 +534,7 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 				continue
 			}
 			switch {
-			case cs.failedAdmission && cs.reserved:
+			case cs.failedAdmission && c.using(cs):
 				cs.stale = true
 			case cs.failedAdmission && cs.r != nil:
 				runners = append(runners, cs.r)
@@ -447,7 +544,7 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 			case cs.failedAdmission:
 				cs.stale = false
 				cs.failedAdmission = false
-			case cs.reserved:
+			case c.using(cs):
 				cs.stale = true
 			case cs.r != nil && cs.r.Busy():
 				cs.stale = true
@@ -482,7 +579,7 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 		for _, cs := range c.sessions {
 			// Defensive ordering: a reservation is authoritative even if another
 			// cache path has temporarily cleared r. The next lookup must rebuild.
-			if cs.failedAdmission && cs.reserved {
+			if cs.failedAdmission && c.using(cs) {
 				cs.stale = true
 				continue
 			}
@@ -498,7 +595,7 @@ func (c *runnerCache) invalidateSkillPolicy() error {
 				cs.failedAdmission = false
 				continue
 			}
-			if cs.reserved {
+			if c.using(cs) {
 				cs.stale = true
 				continue
 			}
@@ -575,7 +672,7 @@ func (c *runnerCache) reap() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		for id, cs := range c.sessions {
-			if cs.failedAdmission && cs.reserved {
+			if cs.failedAdmission && c.using(cs) {
 				cs.stale = true
 				continue
 			}
@@ -591,7 +688,7 @@ func (c *runnerCache) reap() {
 				cs.failedAdmission = false
 				continue
 			}
-			if cs.reserved {
+			if c.using(cs) {
 				continue
 			}
 			if cs.r == nil || cs.r.Busy() {

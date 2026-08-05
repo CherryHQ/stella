@@ -61,6 +61,16 @@ type Service struct {
 	admissionMu sync.Mutex
 }
 
+// UseFilesystem exposes the runtime's narrow callback-only Filesystem lease to
+// Session access. Authorization and exact-session resolution remain outside
+// this runtime facade.
+func (s *Service) UseFilesystem(ctx context.Context, info session.Info, cb func(sandbox.Filesystem) error) error {
+	if s.Runtime == nil {
+		return errors.New("agent runtime is unavailable")
+	}
+	return s.Runtime.UseFilesystem(ctx, info, cb)
+}
+
 // ChatRequest describes a foreground chat turn.
 type ChatRequest struct {
 	SessionID string

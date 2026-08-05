@@ -7,44 +7,66 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/fsops"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-type stubHost struct {
+// toolTestSession is a Filesystem-backed session: read/write/edit resolve a
+// canonical sandbox path and operate through fsops mounts confined to real
+// temp directories. Nothing is addressed by host coordinates.
+type toolTestSession struct {
 	pkgsandbox.Session
-	policy      pkgsandbox.Policy
-	resolvePath func(path string) (string, error)
+	policy  pkgsandbox.Policy
+	workDir string
+	mounts  []fsops.Mount
 }
 
-func (s *stubHost) Policy() pkgsandbox.Policy { return s.policy }
-
-func (s *stubHost) ResolvePath(path string) (string, error) {
-	if s.resolvePath != nil {
-		return s.resolvePath(path)
+func (s *toolTestSession) Policy() pkgsandbox.Policy { return s.policy }
+func (s *toolTestSession) WorkingDir() string {
+	if s.workDir == "" {
+		return pkgsandbox.PathWorkspace
 	}
-	return path, nil
+	return s.workDir
 }
 
-func (s *stubHost) ResolveWritePath(path string) (string, error) {
-	return s.ResolvePath(path)
+func (s *toolTestSession) Filesystem() (pkgsandbox.Filesystem, error) {
+	return fsops.NewFilesystem(s.mounts)
 }
 
-type policylessHost struct{ pkgsandbox.Session }
+func workspaceSession(t *testing.T, dir string) *toolTestSession {
+	t.Helper()
+	return &toolTestSession{
+		Session: pkgsandbox.NopSession(),
+		workDir: pkgsandbox.PathWorkspace,
+		mounts:  []fsops.Mount{{Path: pkgsandbox.PathWorkspace, Directory: dir}},
+	}
+}
 
-func (s *policylessHost) ResolvePath(path string) (string, error)      { return path, nil }
-func (s *policylessHost) ResolveWritePath(path string) (string, error) { return path, nil }
+// panicPolicySession fails if Policy() is read; it proves literal (non-variable)
+// paths canonicalize without touching the session policy.
+type panicPolicySession struct{ pkgsandbox.Session }
+
+func (panicPolicySession) Policy() pkgsandbox.Policy {
+	panic("policy must not be read for literal paths")
+}
+func (panicPolicySession) WorkingDir() string { return pkgsandbox.PathWorkspace }
 
 func TestLiteralToolPathsDoNotRequireSessionPolicy(t *testing.T) {
-	host := &policylessHost{}
-	for _, path := range []string{filepath.Join(t.TempDir(), "literal.txt"), "relative.txt"} {
-		for _, resolve := range []func(pkgsandbox.Host, string, string) (string, error){resolveToolPath, resolveWritableToolPath} {
-			got, err := resolve(host, "", path)
-			if err != nil {
-				t.Fatalf("resolve literal path: %v", err)
-			}
-			if got != path {
-				t.Errorf("resolved literal path = %q, want %q", got, path)
-			}
+	session := panicPolicySession{Session: pkgsandbox.NopSession()}
+	// Absolute paths canonicalize as-is; relative paths join the working dir.
+	// Neither form is a leading variable, so Policy() must never be consulted.
+	for input, want := range map[string]string{
+		"/tmp/literal.txt":    "/tmp/literal.txt",
+		"/workspace/./a/../b": "/workspace/b",
+		"relative.txt":        "/workspace/relative.txt",
+		"nested/relative.txt": "/workspace/nested/relative.txt",
+	} {
+		got, err := resolveToolPath(session, input)
+		if err != nil {
+			t.Fatalf("resolve literal %q: %v", input, err)
+		}
+		if got != want {
+			t.Errorf("resolveToolPath(%q) = %q, want %q", input, got, want)
 		}
 	}
 }
@@ -122,13 +144,10 @@ func splitLines(s string) []string {
 
 func TestReadTool_ReadsFile(t *testing.T) {
 	dir := t.TempDir()
-	file := filepath.Join(dir, "hello.txt")
-	if err := os.WriteFile(file, []byte("hello\nworld\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "hello.txt"), []byte("hello\nworld\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	host := &stubHost{}
-	tool := newReadTool(host, "")
-	out, err := tool.Execute(context.Background(), map[string]any{"path": file})
+	out, err := newReadTool(workspaceSession(t, dir)).Execute(context.Background(), map[string]any{"path": "hello.txt"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -139,14 +158,11 @@ func TestReadTool_ReadsFile(t *testing.T) {
 
 func TestWriteTool_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
-	file := filepath.Join(dir, "out.txt")
-	host := &stubHost{}
-	tool := newWriteTool(host, "")
-	_, err := tool.Execute(context.Background(), map[string]any{"path": file, "content": "data"})
+	_, err := newWriteTool(workspaceSession(t, dir)).Execute(context.Background(), map[string]any{"path": "/workspace/out.txt", "content": "data"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got, err := os.ReadFile(file)
+	got, err := os.ReadFile(filepath.Join(dir, "out.txt"))
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
@@ -155,22 +171,22 @@ func TestWriteTool_CreatesFile(t *testing.T) {
 	}
 }
 
-type resolverHost struct {
-	pkgsandbox.Session
-	policy   pkgsandbox.Policy
-	resolver *pkgsandbox.PathResolver
-}
-
-func (s *resolverHost) Policy() pkgsandbox.Policy { return s.policy }
-
-func (s *resolverHost) ResolvePath(path string) (string, error) {
-	resolved, err := s.resolver.ResolvePath(path)
-	return resolved.HostPath, err
-}
-
-func (s *resolverHost) ResolveWritePath(path string) (string, error) {
-	resolved, err := s.resolver.ResolveWritePath(path)
-	return resolved.HostPath, err
+func TestEditTool_EditsFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "edit.txt"), []byte("foo bar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := newEditTool(workspaceSession(t, dir)).Execute(context.Background(), map[string]any{"path": "edit.txt", "old_string": "foo", "new_string": "baz"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "edit.txt"))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if string(got) != "baz bar" {
+		t.Errorf("file content = %q, want %q", string(got), "baz bar")
+	}
 }
 
 func TestFileToolPathDescriptionsUseSemanticRoots(t *testing.T) {
@@ -194,6 +210,9 @@ func TestFileToolPathDescriptionsUseSemanticRoots(t *testing.T) {
 	}
 }
 
+// TestToolPathsExpandSandboxViewAndRemainConfined exercises every leading
+// variable across the three canonical roots and confirms a traversal that
+// escapes a mount is rejected before any host write.
 func TestToolPathsExpandSandboxViewAndRemainConfined(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "workspace")
 	userData := filepath.Join(t.TempDir(), "user")
@@ -209,98 +228,93 @@ func TestToolPathsExpandSandboxViewAndRemainConfined(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "edit.txt"), []byte("before"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	host := &resolverHost{
+	session := &toolTestSession{
+		Session: pkgsandbox.NopSession(),
+		workDir: pkgsandbox.PathWorkspace,
 		policy: pkgsandbox.Policy{Env: map[string]string{
-			pkgsandbox.EnvHome:            "/workspace",
-			pkgsandbox.EnvStellaAssetsDir: "/user/assets",
-			pkgsandbox.EnvTempDir:         "/tmp",
+			pkgsandbox.EnvHome:            pkgsandbox.PathWorkspace,
+			pkgsandbox.EnvStellaAssetsDir: pkgsandbox.PathUser + "/assets",
+			pkgsandbox.EnvTempDir:         pkgsandbox.PathTemp,
 		}},
-		resolver: pkgsandbox.NewPathResolver(pkgsandbox.PathResolverConfig{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
-			Mounts: []pkgsandbox.Mount{
-				{HostPath: workspace, SandboxPath: "/workspace", Access: pkgsandbox.MountReadWrite},
-				{HostPath: userData, SandboxPath: "/user", Access: pkgsandbox.MountReadWrite},
-				{HostPath: tmp, SandboxPath: "/tmp", Access: pkgsandbox.MountReadWrite},
-			},
-		}),
+		mounts: []fsops.Mount{
+			{Path: pkgsandbox.PathWorkspace, Directory: workspace},
+			{Path: pkgsandbox.PathUser, Directory: userData},
+			{Path: pkgsandbox.PathTemp, Directory: tmp},
+		},
 	}
 
-	read, err := newReadTool(host, "").Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
+	read, err := newReadTool(session).Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
 	if err != nil || read != "uploaded" {
 		t.Fatalf("read assets = %q, %v; want uploaded", read, err)
 	}
-	if _, err := newWriteTool(host, "").Execute(context.Background(), map[string]any{"path": "$HOME/output.txt", "content": "written"}); err != nil {
+	if _, err := newWriteTool(session).Execute(context.Background(), map[string]any{"path": "$HOME/output.txt", "content": "written"}); err != nil {
 		t.Fatalf("write HOME: %v", err)
 	}
 	if got, err := os.ReadFile(filepath.Join(workspace, "output.txt")); err != nil || string(got) != "written" {
 		t.Fatalf("HOME output = %q, %v", got, err)
 	}
-	if _, err := newEditTool(host, "").Execute(context.Background(), map[string]any{"path": "$TMPDIR/edit.txt", "old_string": "before", "new_string": "after"}); err != nil {
+	if _, err := newEditTool(session).Execute(context.Background(), map[string]any{"path": "$TMPDIR/edit.txt", "old_string": "before", "new_string": "after"}); err != nil {
 		t.Fatalf("edit TMPDIR: %v", err)
 	}
 	if got, err := os.ReadFile(filepath.Join(tmp, "edit.txt")); err != nil || string(got) != "after" {
 		t.Fatalf("TMPDIR edit = %q, %v", got, err)
 	}
-	if _, err := newWriteTool(host, "").Execute(context.Background(), map[string]any{"path": "$HOME/../escape.txt", "content": "nope"}); err == nil {
-		t.Fatal("write accepted traversal outside the sandbox workspace")
+	if _, err := newWriteTool(session).Execute(context.Background(), map[string]any{"path": "$HOME/../escape.txt", "content": "nope"}); err == nil {
+		t.Fatal("write accepted traversal outside the mounted roots")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(workspace), "escape.txt")); !os.IsNotExist(err) {
+		t.Fatalf("traversal wrote outside the workspace mount: %v", err)
 	}
 }
 
-func TestToolPathsExpandHostViewBeforeProjectResolution(t *testing.T) {
+// TestToolPathsResolveRelativeAgainstWorkingDir proves a leading variable is
+// expanded to its canonical root, while a bare relative path joins the session
+// working directory rather than being treated as a literal variable directory.
+func TestToolPathsResolveRelativeAgainstWorkingDir(t *testing.T) {
 	workspace := t.TempDir()
-	project := filepath.Join(workspace, "project")
-	if err := os.MkdirAll(project, 0o755); err != nil {
-		t.Fatal(err)
+	session := &toolTestSession{
+		Session: pkgsandbox.NopSession(),
+		workDir: pkgsandbox.PathWorkspace + "/project",
+		policy:  pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvHome: pkgsandbox.PathWorkspace}},
+		mounts:  []fsops.Mount{{Path: pkgsandbox.PathWorkspace, Directory: workspace}},
 	}
-	host := &stubHost{policy: pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvHome: workspace}}}
-	if _, err := newWriteTool(host, project).Execute(context.Background(), map[string]any{"path": "$HOME/output.txt", "content": "written"}); err != nil {
+	if _, err := newWriteTool(session).Execute(context.Background(), map[string]any{"path": "output.txt", "content": "written"}); err != nil {
+		t.Fatalf("write relative: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(workspace, "project", "output.txt")); err != nil || string(got) != "written" {
+		t.Fatalf("relative output = %q, %v; want working-dir join", got, err)
+	}
+	if _, err := newWriteTool(session).Execute(context.Background(), map[string]any{"path": "$HOME/root.txt", "content": "home"}); err != nil {
 		t.Fatalf("write HOME: %v", err)
 	}
-	if got, err := os.ReadFile(filepath.Join(workspace, "output.txt")); err != nil || string(got) != "written" {
-		t.Fatalf("HOME output = %q, %v", got, err)
+	if got, err := os.ReadFile(filepath.Join(workspace, "root.txt")); err != nil || string(got) != "home" {
+		t.Fatalf("HOME output = %q, %v; want canonical expansion", got, err)
 	}
-	if _, err := os.Stat(filepath.Join(project, "$HOME")); !os.IsNotExist(err) {
-		t.Fatalf("project has literal $HOME directory: %v", err)
+	if _, err := os.Stat(filepath.Join(workspace, "project", "$HOME")); !os.IsNotExist(err) {
+		t.Fatalf("working dir has literal $HOME directory: %v", err)
 	}
 }
 
 func TestToolPathsRejectInvalidLeadingVariablesBeforeWriting(t *testing.T) {
-	root := t.TempDir()
-	host := &stubHost{policy: pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvHome: root}}}
+	workspace := t.TempDir()
+	session := &toolTestSession{
+		Session: pkgsandbox.NopSession(),
+		workDir: pkgsandbox.PathWorkspace,
+		policy:  pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvHome: pkgsandbox.PathWorkspace}},
+		mounts:  []fsops.Mount{{Path: pkgsandbox.PathWorkspace, Directory: workspace}},
+	}
 	for _, path := range []string{"$UNKNOWN/file.txt", "$STELLA_ASSETS_DIR/file.txt", "${HOME"} {
 		t.Run(path, func(t *testing.T) {
-			if _, err := newWriteTool(host, "").Execute(context.Background(), map[string]any{"path": path, "content": "nope"}); err == nil {
+			if _, err := newWriteTool(session).Execute(context.Background(), map[string]any{"path": path, "content": "nope"}); err == nil {
 				t.Fatalf("write %q succeeded", path)
 			}
 		})
 	}
-	entries, err := os.ReadDir(root)
+	entries, err := os.ReadDir(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(entries) != 0 {
 		t.Fatalf("invalid paths created files: %v", entries)
-	}
-}
-
-func TestEditTool_EditsFile(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "edit.txt")
-	if err := os.WriteFile(file, []byte("foo bar"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	host := &stubHost{}
-	tool := newEditTool(host, "")
-	_, err := tool.Execute(context.Background(), map[string]any{"path": file, "old_string": "foo", "new_string": "baz"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	got, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if string(got) != "baz bar" {
-		t.Errorf("file content = %q, want %q", string(got), "baz bar")
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	agentsandbox "github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/fsops"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 	"github.com/CherryHQ/stella/plugins/tools/webfetch"
@@ -72,24 +73,31 @@ func (h *passthroughHost) Exec(_ context.Context, command string, opts sandbox.E
 
 func (h *passthroughHost) ResolvePath(path string) (string, error)      { return path, nil }
 func (h *passthroughHost) ResolveWritePath(path string) (string, error) { return path, nil }
+func (h *passthroughHost) WorkingDir() string                           { return h.workDir }
+
+// Filesystem mounts the host work directory at the canonical workspace root, so
+// read/write/edit address files by canonical path while bash still runs in the
+// real working directory.
+func (h *passthroughHost) Filesystem() (sandbox.Filesystem, error) {
+	return fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: h.workDir}})
+}
 
 func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	t.Setenv("STELLA_HOME", t.TempDir())
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "note.txt")
-	if err := os.WriteFile(path, []byte("hello world"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("hello world"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	host := &passthroughHost{workDir: dir}
 	reg := pkgtools.NewRegistry()
-	for _, tool := range agentsandbox.NewTools(host, "", "", nil) {
+	for _, tool := range agentsandbox.NewTools(host, "", nil) {
 		reg.Register(tool)
 	}
 	defer func() { _ = reg.Close() }()
 
-	readResult, err := reg.Execute(context.Background(), "read", map[string]any{"path": path})
+	readResult, err := reg.Execute(context.Background(), "read", map[string]any{"path": "/workspace/note.txt"})
 	if err != nil {
 		t.Fatalf("read execute: %v", err)
 	}
@@ -98,7 +106,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	}
 
 	editResult, err := reg.Execute(context.Background(), "edit", map[string]any{
-		"path":       path,
+		"path":       "/workspace/note.txt",
 		"old_string": "world",
 		"new_string": "stella",
 	})
@@ -109,7 +117,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 		t.Fatal("expected non-empty edit result")
 	}
 
-	updated, err := os.ReadFile(path)
+	updated, err := os.ReadFile(filepath.Join(dir, "note.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,9 +125,8 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 		t.Fatalf("updated file = %q, want %q", string(updated), "hello stella")
 	}
 
-	writePath := filepath.Join(dir, "write.txt")
 	writeResult, err := reg.Execute(context.Background(), "write", map[string]any{
-		"path":    writePath,
+		"path":    "/workspace/write.txt",
 		"content": "from plugin",
 	})
 	if err != nil {
@@ -129,7 +136,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 		t.Fatal("expected non-empty write result")
 	}
 
-	written, err := os.ReadFile(writePath)
+	written, err := os.ReadFile(filepath.Join(dir, "write.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +151,7 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	workDir := t.TempDir()
 	host := &passthroughHost{workDir: workDir}
 	reg := pkgtools.NewRegistry()
-	for _, tool := range agentsandbox.NewTools(host, "", "", nil) {
+	for _, tool := range agentsandbox.NewTools(host, "", nil) {
 		reg.Register(tool)
 	}
 	reg.Register(webfetch.New())

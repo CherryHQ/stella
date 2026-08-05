@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -208,47 +209,48 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	// Project context.
-	contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.ProjectRoot)
-	defer closeContextHost()
-	data.ContextFiles = loadProjectContextFiles(contextHost, p.ProjectRoot)
+	filesystem, closeFilesystem, injected := promptFilesystem(p.Host)
+	defer closeFilesystem()
+	if !injected || filesystem != nil {
+		data.ContextFiles = loadProjectContextFiles(ctx, filesystem, promptPath(p.Host, p.ProjectRoot, filesystem), injected)
+	}
 
 	var buf bytes.Buffer
 	_ = systemTmpl.Execute(&buf, data)
 	return buf.String()
 }
 
-// resolvePromptContextHost returns the host to use for reading prompt context
-// files. When a session host is already available it is used directly. When no
-// host is present (prompt rendering outside of a runner session) the function
-// returns nil and host.go falls back to plain os.* calls.
-func resolvePromptContextHost(_ context.Context, host sandbox.Host, _ string) (sandbox.Host, func()) {
-	return host, func() {}
-}
-
-func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
+func loadProjectContextFiles(ctx context.Context, filesystem sandbox.Filesystem, cwd string, injected bool) []contextFile {
 	if cwd == "" {
 		return nil
 	}
 
-	absDir, err := filepath.Abs(cwd)
-	if err != nil {
-		return nil
+	absDir := cwd
+	if !injected {
+		var err error
+		absDir, err = filepath.Abs(cwd)
+		if err != nil {
+			return nil
+		}
 	}
 
 	var files []contextFile
 	seen := map[string]bool{}
 
 	for {
-		if path := resolveFile(host, absDir, "AGENTS.md"); path != "" {
-			if !seen[path] {
-				seen[path] = true
-				if content, ok := readPromptFile(host, path); ok {
-					files = append(files, contextFile{Path: path, Content: content})
+		if filePath := resolveFile(ctx, filesystem, absDir, "AGENTS.md"); filePath != "" {
+			if !seen[filePath] {
+				seen[filePath] = true
+				if content, ok := readPromptFile(ctx, filesystem, filePath); ok {
+					files = append(files, contextFile{Path: filePath, Content: content})
 				}
 			}
 		}
 
 		parent := filepath.Dir(absDir)
+		if injected {
+			parent = path.Dir(absDir)
+		}
 		if parent == absDir {
 			break
 		}
@@ -265,18 +267,24 @@ func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
 
 // resolveFile finds a file in dir with case-insensitive matching.
 // Returns the full path if found, empty string otherwise.
-func resolveFile(host sandbox.Host, dir, name string) string {
+func resolveFile(ctx context.Context, filesystem sandbox.Filesystem, dir, name string) string {
 	exact := filepath.Join(dir, name)
-	if path, ok := statPromptFile(host, exact); ok {
-		return path
+	if filesystem != nil {
+		exact = path.Join(dir, name)
 	}
-	entries, err := readPromptDir(host, dir)
+	if filePath, ok := statPromptFile(ctx, filesystem, exact); ok {
+		return filePath
+	}
+	entries, err := readPromptDir(ctx, filesystem, dir)
 	if err != nil {
 		return ""
 	}
 	target := strings.ToLower(name)
 	for _, e := range entries {
 		if strings.ToLower(e.Name) == target {
+			if filesystem != nil {
+				return path.Join(dir, e.Name)
+			}
 			return filepath.Join(dir, e.Name)
 		}
 	}

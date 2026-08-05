@@ -156,6 +156,36 @@ func TestResilientSession_PermanentCloseRejectsExec(t *testing.T) {
 	}
 }
 
+// fsMockSession adds the mediated filesystem capability to mockSession.
+type fsMockSession struct {
+	*mockSession
+	fs  Filesystem
+	err error
+}
+
+func (m fsMockSession) Filesystem() (Filesystem, error) { return m.fs, m.err }
+
+func TestResilientSession_FilesystemForwardsToInner(t *testing.T) {
+	sentinel := errors.New("provider filesystem")
+	rs := NewResilientSession(fsMockSession{mockSession: newMockSession(), err: sentinel}, func(_ context.Context) (Session, error) {
+		t.Fatal("should not recreate")
+		return nil, nil
+	})
+	if _, err := rs.Filesystem(); !errors.Is(err, sentinel) {
+		t.Fatalf("Filesystem() err = %v, want forwarded inner error", err)
+	}
+}
+
+func TestResilientSession_FilesystemMissingCapability(t *testing.T) {
+	rs := NewResilientSession(newMockSession(), func(_ context.Context) (Session, error) {
+		t.Fatal("should not recreate")
+		return nil, nil
+	})
+	if _, err := rs.Filesystem(); err == nil {
+		t.Fatal("Filesystem() must fail closed when the inner lacks the capability")
+	}
+}
+
 func TestResilientSession_RecreateFailurePropagates(t *testing.T) {
 	first := newMockSession()
 	_ = first.Close()

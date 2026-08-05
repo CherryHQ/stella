@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // RuntimeManager is the typed runtime lookup port used by session Send/Attach.
@@ -67,6 +68,14 @@ type RuntimeService interface {
 	SubscribeSession(sessionID string) (<-chan agent.Event, func())
 	SessionLive(sessionID string) bool
 	CompactAuthorizedSession(context.Context, agentsession.Info) (string, error)
+}
+
+// FilesystemRuntimeService is the additive callback-only extension used by the
+// upcoming Workspace Filesystem slice. Existing live-turn fakes and consumers
+// remain deliberately unaware of this capability.
+type FilesystemRuntimeService interface {
+	RuntimeService
+	UseFilesystem(context.Context, agentsession.Info, func(sandbox.Filesystem) error) error
 }
 
 // BindRuntimeManager wires the live runtime port after the pool has been

@@ -1,9 +1,10 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"os"
+	"io/fs"
 	"strings"
 
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -26,49 +27,44 @@ func editDefinition() pkgtools.Definition {
 	}
 }
 
-func newEditTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
-	return &hostEditTool{host: host, projectRoot: projectRoot}
+func newEditTool(session pkgsandbox.FilesystemSession) pkgtools.Tool {
+	return &hostEditTool{session: session}
 }
 
-type hostEditTool struct {
-	host        pkgsandbox.Host
-	projectRoot string
-}
+type hostEditTool struct{ session pkgsandbox.FilesystemSession }
 
 func (t *hostEditTool) Definition() pkgtools.Definition { return editDefinition() }
-
-func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, error) {
-	path := pkgtools.StringArg(args, "path")
-	oldStr := pkgtools.StringArg(args, "old_string")
-	newStr := pkgtools.StringArg(args, "new_string")
-	if path == "" {
+func (t *hostEditTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	input, oldStr, newStr := pkgtools.StringArg(args, "path"), pkgtools.StringArg(args, "old_string"), pkgtools.StringArg(args, "new_string")
+	if input == "" {
 		return "", fmt.Errorf("edit: path is required")
 	}
 	if oldStr == "" {
 		return "", fmt.Errorf("edit: old_string is required")
 	}
-
-	resolvedPath, err := resolveWritableToolPath(t.host, t.projectRoot, path)
+	p, err := resolveToolPath(t.session, input)
 	if err != nil {
-		return "", fmt.Errorf("edit %s: %w", path, err)
+		return "", fmt.Errorf("edit %s: %w", input, err)
 	}
-
-	raw, err := os.ReadFile(resolvedPath)
+	err = withFilesystem(t.session, func(filesystem pkgsandbox.Filesystem) error {
+		raw, err := readAll(ctx, filesystem, p)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", input, err)
+		}
+		fileContent := string(raw)
+		count := strings.Count(fileContent, oldStr)
+		if count == 0 {
+			return fmt.Errorf("old_string not found in %s", input)
+		}
+		if count > 1 {
+			return fmt.Errorf("old_string matches %d times in %s (must be unique)", count, input)
+		}
+		updated := strings.Replace(fileContent, oldStr, newStr, 1)
+		length := int64(len(updated))
+		return filesystem.Write(ctx, p, bytes.NewReader([]byte(updated)), pkgsandbox.WriteOptions{Perm: fs.FileMode(0o644), ContentLength: &length})
+	})
 	if err != nil {
-		return "", fmt.Errorf("edit: read %s: %w", path, err)
+		return "", fmt.Errorf("edit %s: %w", input, err)
 	}
-	fileContent := string(raw)
-	count := strings.Count(fileContent, oldStr)
-	if count == 0 {
-		return "", fmt.Errorf("edit: old_string not found in %s", path)
-	}
-	if count > 1 {
-		return "", fmt.Errorf("edit: old_string matches %d times in %s (must be unique)", count, path)
-	}
-
-	updated := strings.Replace(fileContent, oldStr, newStr, 1)
-	if err := os.WriteFile(resolvedPath, []byte(updated), 0o644); err != nil {
-		return "", fmt.Errorf("edit %s: %w", path, err)
-	}
-	return fmt.Sprintf("Edited %s", path), nil
+	return fmt.Sprintf("Edited %s", input), nil
 }
