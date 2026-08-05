@@ -76,25 +76,31 @@ export function ThemeAppearanceControl({ layout = "stacked" }: { layout?: "stack
         {APPEARANCES.map((appearance) => {
           const ItemIcon = APPEARANCE_ICONS[appearance];
           const active = theme.appearance === appearance;
+          const label =
+            appearance === "system"
+              ? t("header.system")
+              : appearance === "light"
+                ? t("header.light")
+                : t("header.dark");
           return (
             <button
               key={appearance}
               type="button"
               onClick={() => update({ ...getStoredTheme(), appearance })}
+              // Inline lives inside a 16rem dropdown where three worded
+              // segments cannot fit in every locale, so it is icon-only.
+              aria-label={label}
+              title={inline ? label : undefined}
               className={cn(
                 "flex items-center justify-center rounded-lg text-xs whitespace-nowrap transition-colors",
-                inline ? "gap-1.5 px-2 py-1.5" : "flex-col gap-1.5 py-2.5",
+                inline ? "py-1.5" : "flex-col gap-1.5 py-2.5",
                 active
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
               <ItemIcon className="size-4 shrink-0" />
-              {appearance === "system"
-                ? t("header.system")
-                : appearance === "light"
-                  ? t("header.light")
-                  : t("header.dark")}
+              {!inline && label}
             </button>
           );
         })}

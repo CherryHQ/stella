@@ -198,72 +198,83 @@ export function AppChromeFooter() {
   const initial = displayName.trim()[0]?.toUpperCase() ?? "?";
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={<Button variant="ghost" size="sm" className="w-full min-w-0 justify-start" />}
-      >
-        <Avatar className="size-6">
-          {me.avatar_url && <AvatarImage src={me.avatar_url} alt="" />}
-          {/* Not font-mono: a mono capital O is indistinguishable from a zero. */}
-          <AvatarFallback className="text-xs font-semibold">{initial}</AvatarFallback>
-        </Avatar>
-        {/* Usernames can be opaque provider IDs — one line, ellipsis. */}
-        <span className="min-w-0 flex-1 truncate text-left" title={displayName}>
-          {displayName}
-        </span>
-        <ChevronsUpDown />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-64">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-sm font-medium text-foreground" title={displayName}>
-                {displayName}
-              </span>
-              {name && (
-                <span className="truncate text-xs text-muted-foreground" title={me.username}>
-                  {me.username}
+    <div className="flex min-w-0 items-center gap-0.5">
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={<Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start" />}
+        >
+          <Avatar className="size-6">
+            {me.avatar_url && <AvatarImage src={me.avatar_url} alt="" />}
+            {/* Not font-mono: a mono capital O is indistinguishable from a zero. */}
+            <AvatarFallback className="text-xs font-semibold">{initial}</AvatarFallback>
+          </Avatar>
+          {/* Usernames can be opaque provider IDs — one line, ellipsis. */}
+          <span className="min-w-0 flex-1 truncate text-left" title={displayName}>
+            {displayName}
+          </span>
+          <ChevronsUpDown />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-64">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-sm font-medium text-foreground" title={displayName}>
+                  {displayName}
                 </span>
-              )}
-              {me.is_admin && <span className="text-xs text-muted-foreground">admin</span>}
-            </div>
-          </DropdownMenuLabel>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem render={<Link to="/settings/account" />}>
-            <UserCog className="size-4" />
-            {t("settings.nav.account")}
-          </DropdownMenuItem>
-          <DropdownMenuItem render={<Link to="/settings" />}>
-            <Settings className="size-4" />
-            {t("nav.settings")}
-          </DropdownMenuItem>
-          <DropdownMenuItem render={<Link to={"/docs" as never} />}>
-            <FileText className="size-4" />
-            {t("nav.docs")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => void setLocale(SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale)}
-          >
-            <span className="flex size-4 items-center justify-center text-xs font-medium">文</span>
-            {nextLocaleLabel}
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        {/* Only the light/dark/system switch lives here — it is a one-tap toggle.
-            Accent color is a rarer, wider control and lives on the account page. */}
-        <div className="p-2">
-          <ThemeAppearanceControl layout="inline" />
-        </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={logout}>
-            <LogOut className="size-4" />
-            {t("header.logout")}
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+                {name && (
+                  <span className="truncate text-xs text-muted-foreground" title={me.username}>
+                    {me.username}
+                  </span>
+                )}
+                {me.is_admin && <span className="text-xs text-muted-foreground">admin</span>}
+              </div>
+            </DropdownMenuLabel>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem render={<Link to="/settings/account" />}>
+              <UserCog className="size-4" />
+              {t("settings.nav.account")}
+            </DropdownMenuItem>
+            <DropdownMenuItem render={<Link to={"/docs" as never} />}>
+              <FileText className="size-4" />
+              {t("nav.docs")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void setLocale(SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale)}
+            >
+              <span className="flex size-4 items-center justify-center text-xs font-medium">
+                文
+              </span>
+              {nextLocaleLabel}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          {/* Only the light/dark/system switch lives here — it is a one-tap toggle.
+              Accent color is a rarer, wider control and lives on the account page. */}
+          <div className="p-2">
+            <ThemeAppearanceControl layout="inline" />
+          </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={logout}>
+              <LogOut className="size-4" />
+              {t("header.logout")}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {/* Settings is the most-visited destination down here, so it keeps its
+          own always-visible entry instead of hiding one click deep in the menu. */}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={t("nav.settings")}
+        title={t("nav.settings")}
+        render={<Link to="/settings" />}
+      >
+        <Settings />
+      </Button>
+    </div>
   );
 }
