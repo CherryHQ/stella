@@ -1,38 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
-import QRCode from "qrcode";
 import {
-  beginFeishuRegistration,
-  beginWeixinRegistration,
   createChannel as createChannelRequest,
   deleteChannel,
   listAgents,
   listChannels,
   listProfileIdentities,
   listPublicChannels,
-  pollFeishuRegistration,
-  pollWeixinRegistration,
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
 import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
 import type { Agent, Channel, Identity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Dialog,
-  DialogClose,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import {
@@ -50,24 +34,14 @@ import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { Plus } from "lucide-react";
 import { PlatformIcon, platformLabel } from "@/components/PlatformIcon";
 import {
-  ChannelConfigFields,
   ChannelFields,
   channelConfig,
-  channelTypes,
   defaultChannelType,
   hasConfig,
-  newInstanceDraft,
   normalizeChannel,
-  serializePlatformConfig,
   type NormalizedChannel,
 } from "./ChannelFields";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { NewChannelForm, newChannelDraftError } from "./NewChannelForm";
 import { useAccountLink, weixinQrStatusVariant } from "./use-account-link";
 
 // ─── ChannelDetail ────────────────────────────────────────────────────────────
@@ -225,442 +199,6 @@ function ChannelDetail({
         message={t("channels.deleteChannelMsg", { id: channel.id })}
         onConfirm={() => onDelete(channel.id)}
       />
-    </DetailPanel>
-  );
-}
-
-// ─── NewChannelForm ───────────────────────────────────────────────────────────
-
-interface NewChannelFormProps {
-  fallbackChannelType: string;
-  /** Preselected bound agent when creation starts from an agent's profile. */
-  initialAgentId?: string;
-  agents: Agent[];
-  channels: NormalizedChannel[];
-  onAdd: (channel: Record<string, unknown>) => Promise<void>;
-  onRegistered: (channel: NormalizedChannel) => Promise<void>;
-  onCancel: () => void;
-  creating: boolean;
-}
-
-function NewChannelForm({
-  fallbackChannelType,
-  initialAgentId = "",
-  agents,
-  channels,
-  onAdd,
-  onRegistered,
-  onCancel,
-  creating,
-}: NewChannelFormProps) {
-  const { t } = useI18n();
-  const [draft, setDraft] = useState<Record<string, unknown>>(() => ({
-    ...newInstanceDraft(fallbackChannelType, ""),
-    agent_id: initialAgentId,
-  }));
-  const [scanOpen, setScanOpen] = useState(false);
-  const [scanQrUrl, setScanQrUrl] = useState("");
-  const [scanStatus, setScanStatus] = useState("");
-  const [scanError, setScanError] = useState("");
-  const [scanning, setScanning] = useState(false);
-  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const weixinScanRefreshesRef = useRef(0);
-
-  const stopScanPolling = useCallback(() => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-    setScanning(false);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
-    },
-    [],
-  );
-
-  const updateField = (key: string, value: unknown) => {
-    if (key === "type") {
-      // Switching platform resets the credential fields but keeps the chosen
-      // agent — it is platform-independent.
-      setDraft({
-        ...newInstanceDraft(value as string, draft.id as string),
-        agent_id: draft.agent_id,
-      });
-    } else if (key !== "id" || draft.type !== "weixin") {
-      setDraft((prev) => ({ ...prev, [key]: value }));
-    }
-  };
-
-  const pollFeishuScan = useCallback(
-    async (deviceCode: string, intervalSeconds: number) => {
-      const channelId = ((draft.id as string) || "").trim();
-      const agentId = ((draft.agent_id as string) || "").trim();
-      if (!deviceCode || !channelId || !agentId) return;
-      try {
-        const { data: result } = await pollFeishuRegistration({
-          body: {
-            device_code: deviceCode,
-            channel_id: channelId,
-            agent_id: agentId,
-            name: (draft.name as string) || "Feishu",
-            enabled: true,
-            config: serializePlatformConfig("feishu", draft),
-          },
-          throwOnError: true,
-        });
-        setScanStatus(result.status);
-        if (result.status === "slow_down") {
-          stopScanPolling();
-          scanIntervalRef.current = setInterval(
-            () => void pollFeishuScan(deviceCode, result.interval || intervalSeconds + 5),
-            (result.interval || intervalSeconds + 5) * 1000,
-          );
-          setScanning(true);
-        }
-        if (result.status === "created" && result.channel) {
-          stopScanPolling();
-          setScanOpen(false);
-          await onRegistered(normalizeChannel(result.channel as Channel));
-        }
-      } catch (e) {
-        stopScanPolling();
-        setScanError((e as Error).message);
-      }
-    },
-    [draft, onRegistered, stopScanPolling],
-  );
-
-  async function pollWeixinScan(qrCode: string) {
-    const channelId = ((draft.id as string) || "").trim();
-    const agentId = ((draft.agent_id as string) || "").trim();
-    if (!qrCode || !channelId || !agentId) return;
-    try {
-      const { data: result } = await pollWeixinRegistration({
-        body: {
-          qrcode: qrCode,
-          channel_id: channelId,
-          agent_id: agentId,
-          name: (draft.name as string) || "WeChat",
-          config: serializePlatformConfig("weixin", draft),
-        },
-        throwOnError: true,
-      });
-      setScanStatus(result.status);
-      if (result.status === "expired") {
-        stopScanPolling();
-        if (weixinScanRefreshesRef.current < 3) {
-          weixinScanRefreshesRef.current += 1;
-          await beginWeixinScanPolling();
-        } else {
-          setScanError(t("channels.scanExpired"));
-        }
-      }
-      if (result.status === "created" && result.channel) {
-        stopScanPolling();
-        setScanOpen(false);
-        await onRegistered(normalizeChannel(result.channel as Channel));
-      }
-    } catch (e) {
-      stopScanPolling();
-      setScanError((e as Error).message);
-    }
-  }
-
-  async function beginWeixinScanPolling() {
-    setScanQrUrl("");
-    setScanStatus("waiting");
-    setScanError("");
-    stopScanPolling();
-    setScanning(true);
-    try {
-      const { data: result } = await beginWeixinRegistration({
-        throwOnError: true,
-      });
-      setScanQrUrl(await QRCode.toDataURL(result.qr_image_url, { width: 256, margin: 2 }));
-      const intervalSeconds = result.poll_interval || 2;
-      scanIntervalRef.current = setInterval(
-        () => void pollWeixinScan(result.qrcode),
-        intervalSeconds * 1000,
-      );
-      setScanning(true);
-    } catch (e) {
-      setScanError((e as Error).message);
-      setScanning(false);
-    }
-  }
-
-  const startFeishuScan = async () => {
-    const channelName = ((draft.name as string) || "").trim();
-    const channelId = ((draft.id as string) || "").trim();
-    if (!channelName) {
-      setScanError(t("channels.scanNeedsName"));
-      setScanOpen(true);
-      return;
-    }
-    if (!channelId) {
-      setScanError(t("channels.scanNeedsId"));
-      setScanOpen(true);
-      return;
-    }
-    if (!draft.agent_id) {
-      setScanError(t("channels.scanNeedsAgent"));
-      setScanOpen(true);
-      return;
-    }
-    setScanOpen(true);
-    setScanQrUrl("");
-    setScanStatus("waiting");
-    setScanError("");
-    stopScanPolling();
-    setScanning(true);
-    try {
-      const { data: result } = await beginFeishuRegistration({
-        body: {},
-        throwOnError: true,
-      });
-      setScanQrUrl(await QRCode.toDataURL(result.qr_url, { width: 256, margin: 2 }));
-      const intervalSeconds = result.interval || 5;
-      scanIntervalRef.current = setInterval(
-        () => void pollFeishuScan(result.device_code, intervalSeconds),
-        intervalSeconds * 1000,
-      );
-      setScanning(true);
-    } catch (e) {
-      setScanError((e as Error).message);
-      setScanning(false);
-    }
-  };
-
-  const startWeixinScan = async () => {
-    const channelName = ((draft.name as string) || "").trim();
-    const channelId = ((draft.id as string) || "").trim();
-    if (!channelName) {
-      setScanError(t("channels.scanNeedsName"));
-      setScanOpen(true);
-      return;
-    }
-    if (!channelId) {
-      setScanError(t("channels.scanNeedsId"));
-      setScanOpen(true);
-      return;
-    }
-    if (!draft.agent_id) {
-      setScanError(t("channels.scanNeedsAgent"));
-      setScanOpen(true);
-      return;
-    }
-    setScanOpen(true);
-    weixinScanRefreshesRef.current = 0;
-    await beginWeixinScanPolling();
-  };
-
-  const requiresBoundAgent = draft.type === "feishu" || draft.type === "weixin";
-
-  const availableAgents = agents.filter(
-    (agent) =>
-      agent.enabled !== false &&
-      !channels.some((channel) => channel.type === draft.type && channel.agent_id === agent.id),
-  );
-
-  const canStartRegistrationScan = Boolean(
-    ((draft.name as string) || "").trim() &&
-    ((draft.id as string) || "").trim() &&
-    ((draft.agent_id as string) || "").trim(),
-  );
-
-  const canSubmit = !creating && !!draft.id && !!draft.type;
-
-  return (
-    <DetailPanel
-      onSave={() => onAdd(draft)}
-      onCancel={onCancel}
-      saveLabel={t("channels.addChannel")}
-      cancelLabel={t("common.cancel")}
-      isSaving={creating}
-      isSavingLabel={t("channels.adding")}
-      canSave={canSubmit}
-    >
-      <DetailPanelHeader
-        title={t("channels.newChannel")}
-        subtitle={<p className="text-sm text-muted-foreground">{t("channels.connectDesc")}</p>}
-      />
-
-      <div className="space-y-4">
-        <div className="w-full space-y-1.5">
-          <label className="text-sm font-medium">{t("channels.platform")}</label>
-          <Select
-            value={(draft.type as string) || null}
-            onValueChange={(value) => updateField("type", (value as string | null) ?? "")}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder={t("channels.selectPlatform")}>
-                {(value) =>
-                  value ? (channelTypes.find((ct) => ct.id === value)?.label ?? value) : null
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              {channelTypes.map((ct) => (
-                <SelectItem key={ct.id} value={ct.id}>
-                  {ct.label}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
-
-        <div className="w-full space-y-1.5">
-          <label className="text-sm font-medium">{t("common.name")}</label>
-          <Input
-            nativeInput
-            type="text"
-            value={(draft.name as string) || ""}
-            onChange={(e) => updateField("name", e.target.value)}
-            placeholder={t("channels.namePlaceholder")}
-            className="w-full text-sm"
-          />
-        </div>
-
-        <div className="w-full space-y-1.5">
-          <label className="text-sm font-medium font-mono">{t("channels.channelId")}</label>
-          <Input
-            nativeInput
-            type="text"
-            value={(draft.id as string) || ""}
-            onChange={(e) => updateField("id", e.target.value)}
-            placeholder={t("channels.channelIdPlaceholder")}
-            disabled={draft.type === "weixin"}
-            className="w-full text-sm font-mono"
-          />
-          <p className="text-xs text-muted-foreground">
-            {draft.type === "weixin"
-              ? t("channels.weixinChannelIdDesc")
-              : t("channels.channelIdDesc")}
-          </p>
-        </div>
-
-        {requiresBoundAgent && (
-          <div className="w-full space-y-1.5">
-            <label className="text-sm font-medium">{t("channels.boundAgent")}</label>
-            <Select
-              value={(draft.agent_id as string) || null}
-              onValueChange={(value) => updateField("agent_id", (value as string | null) ?? "")}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("channels.selectAgent")}>
-                  {(value) =>
-                    value
-                      ? (availableAgents.find((agent) => agent.id === value)?.name ??
-                        (value as string))
-                      : null
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                {availableAgents.map((agent) => (
-                  <SelectItem key={agent.id} value={agent.id}>
-                    {agent.name || agent.id}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-            <p className="text-xs text-muted-foreground">{t("channels.boundAgentDesc")}</p>
-            {availableAgents.length === 0 && (
-              <p className="text-xs text-muted-foreground">{t("channels.noAvailableAgents")}</p>
-            )}
-          </div>
-        )}
-
-        {!!draft.type && (
-          <div className="space-y-4">
-            <FormSectionTitle>{t("channels.configuration")}</FormSectionTitle>
-            {(draft.type === "feishu" || draft.type === "weixin") && (
-              <div className="space-y-2">
-                <Button
-                  type="button"
-                  onClick={draft.type === "weixin" ? startWeixinScan : startFeishuScan}
-                  loading={scanning}
-                  disabled={scanning || !canStartRegistrationScan}
-                  size="sm"
-                >
-                  {draft.type === "weixin"
-                    ? t("channels.scanCreateWeixin")
-                    : t("channels.scanCreateFeishu")}
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  {draft.type === "weixin"
-                    ? t("channels.scanCreateWeixinDesc")
-                    : t("channels.scanCreateFeishuDesc")}
-                </p>
-              </div>
-            )}
-            {draft.type === "feishu" || draft.type === "weixin" ? (
-              <details className="space-y-4">
-                <summary className="cursor-pointer text-sm font-medium">
-                  {draft.type === "weixin"
-                    ? t("channels.manualWeixinSetup")
-                    : t("channels.manualFeishuSetup")}
-                </summary>
-                <div className="pt-4">
-                  <ChannelConfigFields channel={draft} onChange={updateField} />
-                </div>
-              </details>
-            ) : (
-              <ChannelConfigFields channel={draft} onChange={updateField} />
-            )}
-          </div>
-        )}
-      </div>
-
-      <Dialog open={scanOpen} onOpenChange={setScanOpen}>
-        <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>
-              {draft.type === "weixin"
-                ? t("channels.scanWeixinTitle")
-                : t("channels.scanFeishuTitle")}
-            </DialogTitle>
-            <DialogDescription>
-              {draft.type === "weixin"
-                ? t("channels.scanWeixinDesc")
-                : t("channels.scanFeishuDesc")}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel>
-            <div className="flex flex-col items-center gap-4 text-center">
-              {scanQrUrl && (
-                <img
-                  src={scanQrUrl}
-                  alt={
-                    draft.type === "weixin"
-                      ? t("channels.scanWeixinQrAlt")
-                      : t("channels.scanFeishuQrAlt")
-                  }
-                  className="size-48 max-w-full"
-                />
-              )}
-              {!scanQrUrl && !scanError && <Spinner className="size-4" />}
-              <Badge
-                size="sm"
-                variant={scanError ? "error" : scanStatus === "created" ? "success" : "warning"}
-                className="max-w-full whitespace-normal"
-              >
-                {scanError || scanStatus || t("channels.waiting")}
-              </Badge>
-            </div>
-          </DialogPanel>
-          <DialogFooter>
-            <DialogClose
-              render={<Button type="button" variant="ghost" onClick={stopScanPolling} />}
-            >
-              {t("common.cancel")}
-            </DialogClose>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
     </DetailPanel>
   );
 }
@@ -980,19 +518,12 @@ export function ChannelsPage() {
   };
 
   const createNewChannel = async (draft: Record<string, unknown>) => {
+    const invalid = newChannelDraftError(draft, t);
+    if (invalid) {
+      showToast(invalid, "error");
+      return;
+    }
     const id = ((draft.id as string) || "").trim();
-    if (!id || !draft.type) {
-      showToast("ID and platform are required", "error");
-      return;
-    }
-    if (id === draft.type && draft.type !== "weixin") {
-      showToast("Dedicated instance ID must not match the platform ID", "error");
-      return;
-    }
-    if ((draft.type === "feishu" || draft.type === "weixin") && !draft.agent_id) {
-      showToast(t("channels.scanNeedsAgent"), "error");
-      return;
-    }
     setCreatingInstance(true);
     try {
       const { data: saved } = await createChannelRequest({

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { Pencil, Plus } from "lucide-react";
 import {
   AlertDialog,
@@ -26,6 +25,7 @@ import { meQueryOptions } from "@/lib/queries/me";
 import type { Identity } from "@/lib/types";
 import { ToastContainer, useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
+import { ChannelCreateSheet } from "@/features/channels/ChannelCreateSheet";
 import { ChannelEditSheet } from "@/features/channels/ChannelEditSheet";
 import { normalizeChannel, type NormalizedChannel } from "@/features/channels/ChannelFields";
 import {
@@ -94,6 +94,9 @@ export function AgentChannelsPanel({ agentId }: Props) {
   // the profile to rename a channel loses the agent you were configuring.
   const [editing, setEditing] = useState<NormalizedChannel | null>(null);
   const [editKey, setEditKey] = useState(0);
+  // Same reasoning for creation: the new channel's agent is the one on screen.
+  const [creating, setCreating] = useState(false);
+  const [createKey, setCreateKey] = useState(0);
 
   const openEditor = (id: string) => {
     const channel = (adminChannels.data ?? []).find((ch) => ch.id === id);
@@ -208,17 +211,15 @@ export function AgentChannelsPanel({ agentId }: Props) {
         count={rows.length}
         action={
           isAdmin ? (
+            // Creation started here already knows which agent it serves, so it
+            // stays on this page instead of routing to /settings/channels.
             <Button
               variant="outline"
               size="sm"
-              render={
-                <Link
-                  to="/settings/channels/$channelId"
-                  params={{ channelId: "new" }}
-                  // Creation started here already knows which agent it serves.
-                  search={{ agent: agentId }}
-                />
-              }
+              onClick={() => {
+                setCreateKey((key) => key + 1);
+                setCreating(true);
+              }}
             >
               <Plus size={16} />
               {t("channels.addChannel")}
@@ -410,6 +411,14 @@ export function AgentChannelsPanel({ agentId }: Props) {
           )}
         </div>
       </ProfilePanelSection>
+
+      <ChannelCreateSheet
+        open={creating}
+        agentId={agentId}
+        formKey={createKey}
+        onOpenChange={setCreating}
+        notify={showToast}
+      />
 
       <ChannelEditSheet
         open={!!editing}

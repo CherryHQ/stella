@@ -2027,6 +2027,9 @@ const en = {
   "channels.scanNeedsAgent": "Bind this channel to an agent before starting QR setup.",
   "channels.scanExpired": "QR code expired. Try again.",
   "channels.waiting": "Waiting",
+  "channels.boundToThisAgent": "Will be bound to this agent",
+  "channels.idAndPlatformRequired": "ID and platform are required",
+  "channels.idMustNotMatchPlatform": "Dedicated instance ID must not match the platform ID",
   // Automations schedule detail
   "automations.scheduleField": "Schedule",
   "automations.messageField": "Message",
@@ -4104,6 +4107,9 @@ const zh: Record<MessageKey, string> = {
   "channels.scanNeedsAgent": "先把这个渠道绑定到 Agent，再开始扫码配置。",
   "channels.scanExpired": "二维码已过期，请重试。",
   "channels.waiting": "等待中",
+  "channels.boundToThisAgent": "将绑定给此智能体",
+  "channels.idAndPlatformRequired": "需要填写渠道 ID 和平台",
+  "channels.idMustNotMatchPlatform": "专用实例的渠道 ID 不能与平台 ID 相同",
   // Automations schedule detail
   "automations.scheduleField": "计划",
   "automations.messageField": "消息",
