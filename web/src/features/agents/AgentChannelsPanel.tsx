@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { Pencil, Plus } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -12,8 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PlatformIcon, platformLabel } from "@/components/PlatformIcon";
-import { updateChannel, unlinkProfileIdentity } from "@/lib/api-client/sdk.gen";
-import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
+import { bindChannelAgent, unlinkProfileIdentity } from "@/lib/api-client/sdk.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import {
@@ -22,7 +23,7 @@ import {
   publicChannelsQueryOptions,
 } from "@/lib/queries/channels";
 import { meQueryOptions } from "@/lib/queries/me";
-import type { Channel, Identity } from "@/lib/types";
+import type { Identity } from "@/lib/types";
 import { ToastContainer, useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -40,16 +41,35 @@ const QR_STATUS_KEY = {
   expired: "channels.qrExpired",
 } as const;
 
+/** One channel as this tab needs it, from either the admin or the public list. */
+interface ChannelRow {
+  id: string;
+  type: string;
+  name: string;
+  agentId: string;
+  agentName: string;
+  enabled: boolean;
+}
+
+interface PlatformGroup {
+  type: string;
+  label: string;
+  rows: ChannelRow[];
+}
+
 interface Props {
   agentId: string;
 }
 
 /**
- * How this agent is reached from chat platforms, in the two shapes the feature
- * actually has: every user links their own account on a platform (the identity
- * is per platform, not per channel), while an admin may hand a whole channel to
- * one agent. Both read the same channel list so the binding a user sees is the
- * one an admin just wrote.
+ * Every channel this viewer can see, as one list grouped by platform: binding a
+ * channel to an agent is a per-user action, so the list is not split by role —
+ * an admin simply also sees disabled channels and the edit/create affordances
+ * that lead to the settings page which owns channel credentials.
+ *
+ * Linking your own chat account is per platform, not per channel, so it rides
+ * along as a secondary line under each platform's channels instead of a section
+ * competing with them.
  */
 export function AgentChannelsPanel({ agentId }: Props) {
   const { t } = useI18n();
@@ -58,13 +78,16 @@ export function AgentChannelsPanel({ agentId }: Props) {
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
 
-  const publicChannels = useQuery(publicChannelsQueryOptions);
-  const identities = useQuery(profileIdentitiesQueryOptions);
+  // The two lists answer the same question for different viewers: admins get
+  // every channel (including disabled ones), everyone else the enabled channels
+  // whose binding they may see.
+  const publicChannels = useQuery({ ...publicChannelsQueryOptions, enabled: !isAdmin });
   const adminChannels = useQuery({ ...channelsQueryOptions, enabled: isAdmin });
+  const identities = useQuery(profileIdentitiesQueryOptions);
   const { data: agents = [] } = useQuery(agentsQueryOptions);
 
   const [pendingUnlink, setPendingUnlink] = useState<Identity | null>(null);
-  const [pendingRebind, setPendingRebind] = useState<Channel | null>(null);
+  const [pendingBind, setPendingBind] = useState<{ row: ChannelRow; target: string } | null>(null);
 
   const invalidateIdentities = () =>
     void queryClient.invalidateQueries({ queryKey: ["profile-identities"] });
@@ -83,11 +106,11 @@ export function AgentChannelsPanel({ agentId }: Props) {
       showToast(apiErrorMessage(error, t("agents.channels.unlinkFailed")), "error"),
   });
 
-  // Binding is a partial PATCH on purpose: sending `config` here would make the
-  // channels tab a second writer of credentials it never read.
+  // The dedicated bind endpoint moves only agent_id, so this tab never becomes a
+  // second writer of the credentials it does not read.
   const bind = useMutation({
-    mutationFn: ({ channel, target }: { channel: Channel; target: string }) =>
-      updateChannel({ path: { id: channel.id }, body: { agent_id: target }, throwOnError: true }),
+    mutationFn: ({ row, target }: { row: ChannelRow; target: string }) =>
+      bindChannelAgent({ path: { id: row.id }, body: { agent_id: target }, throwOnError: true }),
     onSuccess: async (_data, variables) => {
       showToast(variables.target ? t("agents.channels.bound") : t("agents.channels.unbound"));
       await Promise.all([
@@ -95,130 +118,228 @@ export function AgentChannelsPanel({ agentId }: Props) {
         queryClient.invalidateQueries({ queryKey: ["public-channels"] }),
       ]);
     },
-    onError: (error) => showToast(apiErrorMessage(error, t("agents.channels.bindFailed")), "error"),
+    onError: (error) => {
+      const message = apiErrorMessage(error, t("agents.channels.bindFailed"));
+      // The binding conflict explains itself and must reach the user verbatim;
+      // the Agent PEP's bare "forbidden" explains nothing, so it gets words.
+      showToast(message === "forbidden" ? t("agents.channels.bindForbidden") : message, "error");
+    },
   });
+
+  const agentName = (id: string, fallback = "") =>
+    agents.find((agent) => agent.id === id)?.name || fallback || id;
+
+  const rows = useMemo<ChannelRow[]>(() => {
+    if (isAdmin) {
+      return (adminChannels.data ?? []).map((channel) => {
+        // A row written before `type` existed carries its platform in the id,
+        // the same fallback the backend applies.
+        const type = channel.type || channel.id;
+        return {
+          id: channel.id,
+          type,
+          name: channel.name || platformLabel(type),
+          agentId: channel.agent_id ?? "",
+          agentName: "",
+          enabled: channel.enabled ?? false,
+        };
+      });
+    }
+    return (publicChannels.data ?? []).map((channel) => ({
+      id: channel.id,
+      type: channel.type,
+      name: platformLabel(channel.type, channel.label),
+      agentId: channel.agent_id ?? "",
+      agentName: channel.agent_name ?? "",
+      enabled: channel.enabled,
+    }));
+  }, [isAdmin, adminChannels.data, publicChannels.data]);
+
+  // One group per platform: an account is linked per platform, so the link
+  // affordance belongs to the group while the rows carry the routing.
+  const groups = useMemo<PlatformGroup[]>(() => {
+    const byType = new Map<string, PlatformGroup>();
+    for (const row of rows) {
+      const group = byType.get(row.type) ?? {
+        type: row.type,
+        label: platformLabel(row.type),
+        rows: [],
+      };
+      group.rows.push(row);
+      byType.set(row.type, group);
+    }
+    for (const group of byType.values()) {
+      group.rows.sort((a, b) => {
+        // The platform's default instance (id === type) leads its group.
+        const aDefault = a.id === a.type;
+        const bDefault = b.id === b.type;
+        if (aDefault !== bDefault) return aDefault ? -1 : 1;
+        return a.id.localeCompare(b.id);
+      });
+    }
+    return [...byType.values()].sort((a, b) => a.label.localeCompare(b.label));
+  }, [rows]);
 
   const identityFor = (platform: string) =>
     (identities.data ?? []).find((identity) => identity.platform === platform) ?? null;
 
-  const agentName = (id: string) => agents.find((agent) => agent.id === id)?.name || id;
-
-  // One group per platform: an account is linked per platform, so the link
-  // controls belong to the group while the channels below it carry the routing.
-  const platforms = useMemo(() => {
-    const groups = new Map<
-      string,
-      { type: string; label: string; channels: ComponentsPublicChannel[] }
-    >();
-    for (const channel of publicChannels.data ?? []) {
-      const group = groups.get(channel.type) ?? {
-        type: channel.type,
-        label: platformLabel(channel.type, channel.label),
-        channels: [],
-      };
-      group.channels.push(channel);
-      groups.set(channel.type, group);
-    }
-    return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label));
-  }, [publicChannels.data]);
-
-  const bindableChannels = useMemo(
-    () =>
-      [...(adminChannels.data ?? [])]
-        .filter((channel) => channel.enabled)
-        .sort((a, b) => a.id.localeCompare(b.id)),
-    [adminChannels.data],
-  );
-
-  const routingLine = (channel: ComponentsPublicChannel) => {
-    if (channel.agent_id === agentId) return t("agents.channels.servesThisAgent");
-    if (channel.agent_id)
-      return t("agents.channels.servesAgent", { name: channel.agent_name || channel.agent_id });
+  const routingLine = (row: ChannelRow) => {
+    if (row.agentId === agentId) return t("agents.channels.servesThisAgent");
+    if (row.agentId)
+      return t("agents.channels.servesAgent", { name: agentName(row.agentId, row.agentName) });
     return t("agents.channels.routesToDefault");
   };
+
+  const isLoading = isAdmin ? adminChannels.isLoading : publicChannels.isLoading;
 
   return (
     <div className="flex flex-col gap-6">
       <ToastContainer messages={toasts} />
 
       <ProfilePanelSection
-        title={t("agents.channels.accessTitle")}
-        description={t("agents.channels.accessDesc")}
-        count={platforms.length}
+        title={t("agents.channels.title")}
+        description={t("agents.channels.desc")}
+        count={rows.length}
+        action={
+          isAdmin ? (
+            <Button
+              variant="outline"
+              size="sm"
+              render={<Link to="/settings/channels/$channelId" params={{ channelId: "new" }} />}
+            >
+              <Plus size={16} />
+              {t("channels.addChannel")}
+            </Button>
+          ) : undefined
+        }
       >
-        <div className="flex flex-col gap-2">
-          {publicChannels.isLoading ? (
+        <div className="flex flex-col gap-4">
+          {isLoading ? (
             <ProfileSectionMessage>{t("agents.channels.loading")}</ProfileSectionMessage>
-          ) : platforms.length === 0 ? (
-            <ProfileSectionMessage>{t("agents.channels.noEnabled")}</ProfileSectionMessage>
+          ) : groups.length === 0 ? (
+            <ProfileSectionMessage>{t("agents.channels.empty")}</ProfileSectionMessage>
           ) : (
-            platforms.map((group) => {
+            groups.map((group) => {
               const identity = identityFor(group.type);
               const canLinkCode = LINK_CODE_PLATFORMS.has(group.type);
               const canScan = group.type === QR_PLATFORM;
               const pending = link.platform === group.type;
               return (
-                <div
-                  key={group.type}
-                  className="flex flex-col gap-2 rounded-lg border border-border p-3"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="shrink-0 text-muted-foreground">
-                          <PlatformIcon type={group.type} />
-                        </span>
-                        <span className="truncate text-sm font-semibold text-foreground">
-                          {group.label}
-                        </span>
-                        <Badge variant={identity ? "success" : "outline"}>
-                          {identity ? t("channels.linked") : t("channels.notLinked")}
-                        </Badge>
+                <div key={group.type} className="flex flex-col gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="shrink-0 text-muted-foreground">
+                      <PlatformIcon type={group.type} />
+                    </span>
+                    <span className="truncate text-sm font-semibold text-foreground">
+                      {group.label}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {group.rows.length}
+                    </span>
+                  </div>
+
+                  {group.rows.map((row) => {
+                    const boundHere = row.agentId === agentId;
+                    const busy = bind.isPending && bind.variables?.row.id === row.id;
+                    return (
+                      <div
+                        key={row.id}
+                        className="flex items-start justify-between gap-3 rounded-lg border border-border p-3"
+                      >
+                        <div className="flex min-w-0 flex-col gap-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-sm font-medium text-foreground">
+                              {row.name}
+                            </span>
+                            {boundHere && (
+                              <Badge variant="success" size="sm">
+                                {t("agents.channels.servesThisAgent")}
+                              </Badge>
+                            )}
+                            {isAdmin && !row.enabled && (
+                              <Badge variant="outline" size="sm">
+                                {t("channels.disabled")}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {row.id !== row.type ? `${row.id} · ` : ""}
+                            {routingLine(row)}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {isAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={t("common.edit")}
+                              render={
+                                <Link
+                                  to="/settings/channels/$channelId"
+                                  params={{ channelId: row.id }}
+                                />
+                              }
+                            >
+                              <Pencil size={16} />
+                            </Button>
+                          )}
+                          <Button
+                            variant={boundHere ? "ghost" : "outline"}
+                            size="sm"
+                            loading={busy}
+                            onClick={() => {
+                              if (boundHere) {
+                                setPendingBind({ row, target: "" });
+                              } else if (row.agentId) {
+                                setPendingBind({ row, target: agentId });
+                              } else {
+                                bind.mutate({ row, target: agentId });
+                              }
+                            }}
+                          >
+                            {boundHere ? t("agents.channels.unbind") : t("agents.channels.bind")}
+                          </Button>
+                        </div>
                       </div>
-                      {identity && (
-                        <p className="truncate font-mono text-xs text-muted-foreground">
-                          {identity.name ? `${identity.name} · ` : ""}
-                          {identity.external_id}
+                    );
+                  })}
+
+                  {(canLinkCode || canScan) &&
+                    (identity ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                        <p className="min-w-0 truncate text-xs text-muted-foreground">
+                          {t("channels.linked")} ·{" "}
+                          <span className="font-mono">
+                            {identity.name ? `${identity.name} · ` : ""}
+                            {identity.external_id}
+                          </span>
                         </p>
-                      )}
-                      {group.channels.map((channel) => (
-                        <p key={channel.id} className="truncate text-xs text-muted-foreground">
-                          {group.channels.length > 1 ? `${channel.id} · ` : ""}
-                          {routingLine(channel)}
-                        </p>
-                      ))}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {identity ? (
                         <Button
                           variant="ghost"
-                          size="sm"
+                          size="xs"
                           disabled={unlink.isPending}
                           onClick={() => setPendingUnlink(identity)}
                         >
                           {t("agents.channels.unlink")}
                         </Button>
-                      ) : canLinkCode ? (
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                        <p className="min-w-0 text-xs text-muted-foreground">
+                          {t("agents.channels.linkPrompt")}
+                        </p>
                         <Button
-                          variant="outline"
-                          size="sm"
-                          loading={link.generating && pending}
-                          onClick={() => void link.generateCode(group.type)}
+                          variant="ghost"
+                          size="xs"
+                          loading={pending && (canScan ? link.qrPolling : link.generating)}
+                          onClick={() =>
+                            void (canScan ? link.startQr() : link.generateCode(group.type))
+                          }
                         >
                           {t("agents.channels.linkAccount")}
                         </Button>
-                      ) : canScan ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          loading={link.qrPolling && pending}
-                          onClick={() => void link.startQr()}
-                        >
-                          {t("agents.channels.linkAccount")}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
+                      </div>
+                    ))}
 
                   {pending && link.code && (
                     <div className="flex flex-col gap-2 rounded-lg bg-muted p-3">
@@ -269,79 +390,6 @@ export function AgentChannelsPanel({ agentId }: Props) {
         </div>
       </ProfilePanelSection>
 
-      {isAdmin && (
-        <ProfilePanelSection
-          title={t("agents.channels.bindingTitle")}
-          description={t("agents.channels.bindingDesc")}
-          count={bindableChannels.length}
-        >
-          <div className="flex flex-col gap-2">
-            {adminChannels.isLoading ? (
-              <ProfileSectionMessage>{t("agents.channels.loading")}</ProfileSectionMessage>
-            ) : bindableChannels.length === 0 ? (
-              <ProfileSectionMessage>{t("agents.channels.noEnabled")}</ProfileSectionMessage>
-            ) : (
-              bindableChannels.map((channel) => {
-                const boundHere = channel.agent_id === agentId;
-                const boundElsewhere = !!channel.agent_id && !boundHere;
-                const busy = bind.isPending && bind.variables?.channel.id === channel.id;
-                // A row written before `type` existed carries its platform in
-                // the id, the same fallback the backend applies.
-                const type = channel.type || channel.id;
-                return (
-                  <div
-                    key={channel.id}
-                    className="flex items-start justify-between gap-3 rounded-lg border border-border p-3"
-                  >
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="shrink-0 text-muted-foreground">
-                          <PlatformIcon type={type} />
-                        </span>
-                        <span className="truncate text-sm font-semibold text-foreground">
-                          {channel.name || platformLabel(type)}
-                        </span>
-                        {boundHere && (
-                          <Badge variant="success">{t("agents.channels.servesThisAgent")}</Badge>
-                        )}
-                        {boundElsewhere && (
-                          <Badge variant="outline">
-                            {t("agents.channels.servesAgent", {
-                              name: agentName(channel.agent_id ?? ""),
-                            })}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="truncate font-mono text-xs text-muted-foreground">
-                        {channel.id}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <Button
-                        variant={boundHere ? "ghost" : "outline"}
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => {
-                          if (boundHere) {
-                            bind.mutate({ channel, target: "" });
-                          } else if (boundElsewhere) {
-                            setPendingRebind(channel);
-                          } else {
-                            bind.mutate({ channel, target: agentId });
-                          }
-                        }}
-                      >
-                        {boundHere ? t("agents.channels.unbind") : t("agents.channels.bind")}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </ProfilePanelSection>
-      )}
-
       {/* Both confirmations live at page level: an overlay nested inside another
           overlay is a bug (see web-ui.md). */}
       <AlertDialog open={!!pendingUnlink} onOpenChange={(open) => !open && setPendingUnlink(null)}>
@@ -372,15 +420,21 @@ export function AgentChannelsPanel({ agentId }: Props) {
         </AlertDialogPopup>
       </AlertDialog>
 
-      <AlertDialog open={!!pendingRebind} onOpenChange={(open) => !open && setPendingRebind(null)}>
+      <AlertDialog open={!!pendingBind} onOpenChange={(open) => !open && setPendingBind(null)}>
         <AlertDialogPopup>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("agents.channels.rebindTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {pendingBind?.target
+                ? t("agents.channels.rebindTitle")
+                : t("agents.channels.unbindTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("agents.channels.rebindConfirm", {
-                channel: pendingRebind?.name || pendingRebind?.id || "",
-                agent: agentName(pendingRebind?.agent_id ?? ""),
-              })}
+              {pendingBind?.target
+                ? t("agents.channels.rebindConfirm", {
+                    channel: pendingBind.row.name,
+                    agent: agentName(pendingBind.row.agentId, pendingBind.row.agentName),
+                  })
+                : t("agents.channels.unbindConfirm", { channel: pendingBind?.row.name ?? "" })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -388,13 +442,14 @@ export function AgentChannelsPanel({ agentId }: Props) {
               {t("common.cancel")}
             </AlertDialogClose>
             <Button
+              variant={pendingBind?.target ? "default" : "destructive"}
               onClick={() => {
-                const target = pendingRebind;
-                setPendingRebind(null);
-                if (target) bind.mutate({ channel: target, target: agentId });
+                const target = pendingBind;
+                setPendingBind(null);
+                if (target) bind.mutate(target);
               }}
             >
-              {t("agents.channels.bind")}
+              {pendingBind?.target ? t("agents.channels.bind") : t("agents.channels.unbind")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>
