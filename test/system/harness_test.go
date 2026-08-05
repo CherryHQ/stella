@@ -43,6 +43,9 @@ const (
 	// startupAttempts bounds retries when the free-port pick races another
 	// process binding the same port between selection and server bind.
 	startupAttempts = 3
+	// forcedCrashTimeout bounds reaping an intentionally killed server and
+	// proving its owned process group is gone before a replacement starts.
+	forcedCrashTimeout = 10 * time.Second
 )
 
 // harness owns every resource of one system-test run: the embedded PostgreSQL
@@ -51,11 +54,20 @@ const (
 // registered on t as each resource is acquired, so a failure at any point
 // still tears down everything acquired so far.
 type harness struct {
+	owner   *testing.T
 	runID   string
 	baseURL string
 	client  *http.Client
 	db      *pgxpool.Pool
 	proc    *serverProcess
+
+	// These are deliberately retained for restart journeys. A replacement
+	// process must receive the original home, database, and vault identity so
+	// it proves durable recovery rather than a fresh deployment.
+	home       string
+	dsn        string
+	vaultKey   string
+	generation int
 }
 
 // newHarness starts the full system under test or skips on hosts without an
@@ -84,7 +96,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	home := t.TempDir()
 
-	proc, baseURL := startServer(t, runID, home, embedded.DSN(), vaultKey)
+	proc, baseURL := startServer(t, t, runID, 1, home, embedded.DSN(), vaultKey)
 
 	db, err := pgxpool.New(context.Background(), embedded.DSN())
 	if err != nil {
@@ -100,12 +112,15 @@ func newHarness(t *testing.T) *harness {
 	// stream. Every request must carry its own context deadline instead.
 	client := &http.Client{Jar: jar}
 
-	return &harness{runID: runID, baseURL: baseURL, client: client, db: db, proc: proc}
+	return &harness{
+		owner: t, runID: runID, baseURL: baseURL, client: client, db: db, proc: proc,
+		home: home, dsn: embedded.DSN(), vaultKey: vaultKey, generation: 1,
+	}
 }
 
 // startServer boots the stellad subprocess and waits for readiness, retrying
 // with a fresh port when the free-port pick loses its bind race.
-func startServer(t *testing.T, runID, home, dsn, vaultKey string) (*serverProcess, string) {
+func startServer(t, cleanupT *testing.T, runID string, generation int, home, dsn, vaultKey string) (*serverProcess, string) {
 	t.Helper()
 	for attempt := 1; ; attempt++ {
 		port := freePort(t)
@@ -118,7 +133,7 @@ func startServer(t *testing.T, runID, home, dsn, vaultKey string) (*serverProces
 			fmt.Sprintf("PORT=%d", port),
 			"LOG_LEVEL=debug",
 		)
-		proc := startServerProcess(t, fmt.Sprintf("server-%s-a%d", runID, attempt), env)
+		proc := startServerProcess(t, cleanupT, fmt.Sprintf("server-%s-g%d-a%d", runID, generation, attempt), env)
 		err := proc.waitReady(baseURL, readyTimeout)
 		if err == nil {
 			return proc, baseURL
@@ -130,6 +145,26 @@ func startServer(t *testing.T, runID, home, dsn, vaultKey string) (*serverProces
 		}
 		t.Fatalf("system: server never became ready: %v", err)
 	}
+}
+
+// restartAfterForcedCrash replaces the running server with a new process while
+// retaining the same durable identities. It is intentionally not a graceful
+// shutdown: a restart recovery journey needs the old process to leave no
+// in-process cleanup behind. The expected signal exit is reaped but never
+// reported as a graceful-shutdown failure.
+func (h *harness) restartAfterForcedCrash(t *testing.T) *serverProcess {
+	t.Helper()
+	old := h.proc
+	old.forceCrash(t)
+
+	h.generation++
+	// startServer registers process cleanup on the harness owner, not the
+	// restart journey's subtest. The replacement must remain alive for later
+	// ordered journeys, especially graceful_drain.
+	proc, baseURL := startServer(t, h.owner, h.runID, h.generation, h.home, h.dsn, h.vaultKey)
+	h.proc = proc
+	h.baseURL = baseURL
+	return old
 }
 
 // skipUnsupportedHost skips before any resource is acquired on platforms where
@@ -169,7 +204,7 @@ type serverProcess struct {
 // startServerProcess launches `stellad serve` in its own process group with
 // stdout/stderr captured to a per-run log under dist/logs/system-test/. The
 // log outlives the run so failures can always point at it.
-func startServerProcess(t *testing.T, logName string, env []string) *serverProcess {
+func startServerProcess(t, cleanupT *testing.T, logName string, env []string) *serverProcess {
 	t.Helper()
 	logPath := filepath.Join(logDir(t), logName+".log")
 	logFile, err := os.Create(logPath)
@@ -193,7 +228,7 @@ func startServerProcess(t *testing.T, logName string, env []string) *serverProce
 		p.waitErr = cmd.Wait()
 		close(p.done)
 	}()
-	t.Cleanup(func() { p.stop(t) })
+	cleanupT.Cleanup(func() { p.stop(cleanupT) })
 	return p
 }
 
@@ -261,6 +296,39 @@ func (p *serverProcess) stop(t *testing.T) {
 	if processGroupAlive(p.cmd) {
 		killProcessGroup(p.cmd)
 		t.Errorf("system: processes left in the server's process group after shutdown (server log: %s)", p.logPath)
+	}
+}
+
+// forceCrash kills this owned process group and waits until it has been reaped
+// and the group no longer exists. Unlike stop, a signal-caused exit is the
+// expected outcome and must not be mistaken for graceful-shutdown failure.
+func (p *serverProcess) forceCrash(t *testing.T) {
+	t.Helper()
+	if p.exited() {
+		t.Fatalf("system: server exited before forced crash: %v\nserver log: %s\n%s", p.waitErr, p.logPath, p.logTail(40))
+	}
+
+	killProcessGroup(p.cmd)
+	deadline := time.NewTimer(forcedCrashTimeout)
+	defer deadline.Stop()
+	select {
+	case <-p.done:
+	case <-deadline.C:
+		t.Fatalf("system: server did not exit within %s of forced process-group kill (pid %d, server log: %s)\n%s",
+			forcedCrashTimeout, p.cmd.Process.Pid, p.logPath, p.logTail(40))
+	}
+
+	// Reaping the group leader does not prove a descendant has gone away. Poll
+	// signal-0 under the same deadline until the owned group is empty.
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for processGroupAlive(p.cmd) {
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatalf("system: processes left in forced-crash process group (pid %d, server log: %s)\n%s",
+				p.cmd.Process.Pid, p.logPath, p.logTail(40))
+		}
 	}
 }
 

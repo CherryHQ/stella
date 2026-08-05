@@ -28,8 +28,17 @@ func TestPWARootFilesArePublished(t *testing.T) {
 // exists but holds the wrong bytes (a truncated copy, or an error page picked
 // up by a broken asset step) is indistinguishable from a healthy build until a
 // browser refuses to install.
+// requireSPAEnv lets an environment that builds the SPA turn the skip below into
+// a failure. A backend-only `go test ./...` with no web/static/dist must stay
+// usable, but where the SPA is genuinely built the contract has to be checked —
+// otherwise the skip means the test never runs anywhere that matters.
+const requireSPAEnv = "STELLA_TEST_REQUIRE_SPA"
+
 func TestPWARootFilesAreBuilt(t *testing.T) {
 	if _, err := staticFS.ReadFile("static/dist/index.html"); err != nil {
+		if os.Getenv(requireSPAEnv) != "" {
+			t.Fatalf("SPA must be built here but is not (%s is set): %v", requireSPAEnv, err)
+		}
 		t.Skipf("SPA not built: %v", err)
 	}
 	for _, path := range PWARootFiles {

@@ -6,6 +6,9 @@ on:
     tags-ignore: ["v*.*.*"]
   pull_request:
     branches: [main]
+  merge_group:
+    branches: [main]
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -67,10 +70,18 @@ jobs:
       - name: Generate code and check drift
         run: mise run generate:check
 
+      # go:embed snapshots web/static/dist at compile time, so this has to run
+      # before the test binaries are built. Without it the PWA build contract
+      # only gets checked at tag time, and a commit that breaks the Web UI's
+      # installability merges green.
+      - name: Build web assets
+        run: mise run build:web
+
       - name: Run tests with race detection and coverage
         run: mise run test:coverage:race
         env:
           STELLA_TEST_REQUIRE_BWRAP: "1"
+          STELLA_TEST_REQUIRE_SPA: "1"
 
       - name: Prepare coverage report data
         run: |

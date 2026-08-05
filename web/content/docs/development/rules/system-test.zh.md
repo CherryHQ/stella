@@ -74,6 +74,8 @@ Ubuntu runner，并调用 `mise run system-test`；若该 runner 将来变得不
 - `goal_lifecycle` —— 一个 Goal 从创建被派发器的异步 worker 驱动到自主验收。
 - `github_webhook_compatibility` —— 一个 GitHub 风格的 JSON push 投递通过无 cookie jar 的普通个人 Webhook
   发送，收到异步 `202`，并且其原始 payload 恰好一次、完整地抵达 fake model。
+- `scheduler_one_time_job_survives_forced_restart` —— 持久化一个未来触发的一次性 chat job，在到期前
+  强杀服务器，再由连接同一数据库的替代进程恰好执行并退役该 job 一次。
 - `graceful_drain` —— 在一个轮次仍在途中时发送 SIGTERM：`/readyz` 从 ready 翻转，一个 attach
   订阅被 drain 取消，被钉住的轮次仍在其流上完整收尾（全文、finish、[DONE]），进程以 0 退出。
   它最后运行，因为会消费掉共享服务器。
@@ -119,9 +121,11 @@ action 枚举）才选择响应，所以普通的 prompt 改动永远不会变�
 
 ## 诊断
 
-服务器日志写到仓库内的 `dist/logs/system-test/server-<runid>-a<attempt>.log`（运行结束后仍
-保留），因此失败信息始终能指向一个真实文件。失败会附带该日志的尾部；goal journey 还会额外
-dump goal 树、它的 attempts 以及 fake 的请求日志，使卡住的异步运行无需重跑即可诊断。
+服务器日志写到仓库内的
+`dist/logs/system-test/server-<runid>-g<generation>-a<attempt>.log`（运行结束后仍保留），
+因此 restart journey 会保留每一代进程，失败信息也始终能指向一个真实文件。失败会附带相关日志
+的尾部；goal 与 scheduler restart journey 还会额外 dump 持久化行和 fake 请求日志，使卡住的
+异步任务无需重跑即可诊断。
 
 ## 何时新增一个系统测试 journey
 

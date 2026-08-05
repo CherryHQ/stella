@@ -5,122 +5,121 @@ description: PostgreSQL migration rules for Stella's hand-written goose migratio
 
 Stella manages its PostgreSQL schema with [goose](https://github.com/pressly/goose).
 Migrations are **hand-written** and are the **single source of truth** for the
-schema — there is no declarative schema layer. (Atlas was removed: it cannot
-manage pgvector's `vector` type, HNSW operator classes, or pg_search's `USING
-bm25` access method, all of which the search stack needs.)
+schema — there is no declarative schema layer. Atlas was removed because it
+cannot manage the pgvector and pg_search objects the search stack needs.
 
 ## Core concept
 
-1. You write a migration with `-- +goose Up` / `-- +goose Down` sections.
+1. Write a migration with `-- +goose Up` / `-- +goose Down` sections.
 2. `stellad` applies pending migrations automatically on startup
    (`internal/db/database.go` → `runMigrations`, via `goose.Provider`).
-3. sqlc reads the same migrations to generate Go types — it applies only the
-   `Up` sections to build its catalog.
+3. sqlc reads the same migrations and applies their `Up` sections to build its
+   catalog.
 
-The schema lives **only** in `internal/db/migrations/`. There is no
-`schemas/tables/*.sql` mirror to keep in sync.
+The schema lives only in `internal/db/migrations/`. There is no declarative
+schema mirror to keep in sync.
 
-## Project layout
+## Version transition and concurrency
 
+Historical migrations use immutable timestamp versions through
+`20260804120000`. `90000000000000_sequential_versioning.sql` is a documented
+no-op anchor: it is deliberately 14 digits and lexically after the historical
+`2`-prefixed files, so Goose and sqlc use the same order.
+
+Every future migration must use the next contiguous integer:
+
+```text
+20260804120000  # final timestamp migration
+90000000000000  # no-op sequential anchor
+90000000000001  # first future migration
+90000000000002  # next future migration
 ```
-internal/db/
-  migrations/
-    20260620131914_postgres_baseline.sql   # full baseline schema
-    20260707092307_add_provider_models_cache.sql
-  queries/                                  # sqlc query files (separate concern)
+
+Create one only with:
+
+```sh
+mise run db:migrate:new -- add_shop_order
 ```
+
+The task passes Goose's `-s` flag, which continues from the anchor. Do **not**
+run `goose fix`: it would renumber the immutable historical files.
+
+Concurrent branches can select the same next number. The repository test
+rejects duplicate or skipped sequential versions in every checkout, including a
+merge-queue checkout. Rebase or update from `main`, then rename only your
+unmerged migration to the next version reported by the test. Never rename,
+edit, or delete a migration already merged into `main`.
 
 ## Migration file format
 
 ```sql
 -- +goose Up
 CREATE TABLE shop_order (
-    id          UUID PRIMARY KEY DEFAULT uuidv7(),
-    user_id     UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
-    status      TEXT NOT NULL DEFAULT 'pending',
-    total_cents BIGINT NOT NULL CHECK (total_cents >= 0),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    user_id UUID NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_shop_order_user_id ON shop_order (user_id);
 
 -- +goose Down
 DROP TABLE shop_order;
 ```
 
-- Statements are split on `;`. For a statement that contains its own semicolons
-  (a `CREATE FUNCTION` body, a `DO $$ ... $$` block), wrap it in
+- Statements are split on `;`. Wrap a statement containing its own semicolons
+  (such as `CREATE FUNCTION` or `DO $$ ... $$`) in
   `-- +goose StatementBegin` / `-- +goose StatementEnd`.
-- Each migration runs in its own transaction (PostgreSQL DDL is transactional),
-  so a failed migration rolls back cleanly.
-- Always write a `Down` section. If a migration is genuinely irreversible (the
-  baseline), make `Down` an explicit no-op (`SELECT 1;`) with a comment saying
-  why, rather than leaving it empty.
+- Each migration runs in its own transaction, so PostgreSQL rolls back a failed
+  migration cleanly.
+- Always write a `Down` section. For a genuinely irreversible migration, make
+  it an explicit `SELECT 1;` no-op with a comment explaining why.
 
-## Runtime-managed objects (carve-outs)
+## Runtime-managed objects
 
-Some objects are created outside the migration files and must NOT appear in them:
+Do not add these to application migrations:
 
-- **Extensions** (`pg_trgm`, `vector`, `pg_search`) — created by `ensureExtensions`
-  in `internal/db/database.go` before any migration runs, because they require
-  extension binaries (and `shared_preload_libraries` for pg_search) that a plain
-  `CREATE EXTENSION` in a migration cannot guarantee. Never put `CREATE EXTENSION`
-  in a migration.
-- **`river_*` tables** — River owns and versions its job-queue schema itself via
-  `rivermigrate` (`internal/db/river.go`). Keep them out of the app migrations.
+- **Extensions** (`pg_trgm`, `vector`, `pg_search`) are installed by
+  `ensureExtensions` before migrations because they require installed binaries
+  and, for pg_search, `shared_preload_libraries`.
+- **`river_*` tables** are owned and versioned by River via `rivermigrate`.
 
 ## Workflow
 
-### Add or change a table
+1. Create the next version with `mise run db:migrate:new -- <name>`.
+2. Write the `Up` and `Down` SQL.
+3. Validate parsing with `mise run db:validate`.
+4. Update related sqlc queries and run `mise run generate`.
+5. Run `mise run build && mise run test`; startup applies migrations to the
+   test database.
 
-1. Scaffold: `mise run db:migrate:new -- add_shop_order`
-   (creates `internal/db/migrations/<timestamp>_add_shop_order.sql`).
-2. Write the `Up` and `Down` SQL by hand.
-3. Validate it parses: `mise run db:validate`.
-4. Update or add sqlc queries in `internal/db/queries/`.
-5. Regenerate Go code: `mise run generate`.
-6. Build and test (`mise run build && mise run test`) — startup applies the
-   migration to the test database, so a broken migration fails fast.
+| Command                             | What it does                                           |
+| ----------------------------------- | ------------------------------------------------------ |
+| `mise run db:migrate:new -- <name>` | Scaffold the next sequential SQL migration             |
+| `mise run db:validate`              | Validate all migration files parse and are well-formed |
+| `mise run db:migrate:up`            | Apply pending migrations to `STELLA_DATABASE_URL`      |
+| `mise run db:migrate:status`        | Show applied/pending status for `STELLA_DATABASE_URL`  |
 
-### Commands
+`stellad` applies migrations on startup, so `db:migrate:up` is only for
+manually driving an external PostgreSQL instance.
 
-| Command                             | What it does                                          |
-| ----------------------------------- | ----------------------------------------------------- |
-| `mise run db:migrate:new -- <name>` | Scaffold a new timestamped goose migration            |
-| `mise run db:validate`              | Validate all migrations parse and are well-formed     |
-| `mise run db:migrate:up`            | Apply pending migrations to `STELLA_DATABASE_URL`     |
-| `mise run db:migrate:status`        | Show applied/pending status for `STELLA_DATABASE_URL` |
+## Rules and repair
 
-`stellad` applies migrations on startup, so `db:migrate:up` is only for manually
-driving an external PostgreSQL.
+1. Migrations merged into `main` are immutable: never edit, rename, or delete
+   them. Write a new migration instead.
+2. Keep one logical change per migration.
+3. Changes are forward-only in spirit. `Down` supports local iteration, not a
+   production rollback plan.
+4. Never use `CREATE EXTENSION` in a migration.
+5. Do not enable Goose's `AllowOutOfOrder` at startup. `goose -allow-missing`
+   is only a backup-first repair for an already-diverged development or
+   operations database, never a normal startup setting.
 
-## Rules
-
-1. **Never edit a committed migration** — write a new one. Migrations are the
-   historical record. The **one** exception is the schema baseline _while the
-   PostgreSQL backend is pre-release and carries no production or shared dev
-   data_: amending the baseline in place is cleaner than a create-then-drop
-   forward migration, and a dev reset (below) is cheap. This exception ends the
-   moment a release ships a database anyone else holds.
-2. **Never delete migrations.**
-3. **One logical change per migration** — don't batch unrelated changes.
-4. **Forward-only in spirit** — to undo a shipped change, write a new migration
-   that reverses it. `Down` sections exist for local iteration, not production
-   rollback.
-5. **No `CREATE EXTENSION`** in migrations (see carve-outs).
-6. Migrations are the schema source of truth — if it's not in a migration, it
-   isn't in the database.
-
-## Resetting a dev database
+## Resetting a development database
 
 The baseline has no real `Down`. To reset, drop and recreate the database (or
-delete the embedded data directory under `~/.stella/postgres`) and let `stellad`
-re-apply migrations from scratch. The PostgreSQL backend is new and carries no
-production data, so a clean reset is cheap.
+delete `~/.stella/postgres` for embedded PostgreSQL), then let `stellad` apply
+migrations from scratch.
 
 ## Integration with sqlc
 
-`sqlc.yaml` points `schema` at `internal/db/migrations`. sqlc parses the goose
-files, applies only the `Up` sections, and generates Go types in `pkg/db/sqlc/`.
-A migration that adds a column and the query that uses it ship together; run
-`mise run generate` after editing either.
+`sqlc.yaml` points `schema` at `internal/db/migrations`. sqlc applies the `Up`
+sections and generates Go types in `pkg/db/sqlc/`. A migration and queries that
+depend on it ship together; run `mise run generate` after changing either.

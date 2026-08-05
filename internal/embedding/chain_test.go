@@ -80,6 +80,71 @@ func TestChain_TransientFailsOverToLocal(t *testing.T) {
 	}
 }
 
+func TestChain_LiveCallerTreatsUpstreamDeadlineAsProviderFailure(t *testing.T) {
+	primary := &fakeProvider{name: "api", kind: KindAPI, model: "space-a", outcomes: []error{context.DeadlineExceeded}}
+	local := &fakeProvider{name: "local", kind: KindLocal, model: "space-b"}
+	c := NewChain([]Provider{primary, local}, BreakerConfig{}, nil)
+
+	res, err := c.Embed(context.Background(), req())
+	if err != nil {
+		t.Fatalf("upstream deadline with live caller returned error: %v", err)
+	}
+	if res.ProviderName != "local" || !res.FallbackUsed {
+		t.Fatalf("upstream deadline must fall back, got provider=%q fallback=%v", res.ProviderName, res.FallbackUsed)
+	}
+}
+
+type halfOpenCancelProvider struct {
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (*halfOpenCancelProvider) Name() string  { return "api" }
+func (*halfOpenCancelProvider) Kind() Kind    { return KindAPI }
+func (*halfOpenCancelProvider) Model() string { return "space-a" }
+
+func (p *halfOpenCancelProvider) Embed(ctx context.Context, req Request) (Result, error) {
+	p.calls++
+	switch p.calls {
+	case 1:
+		return Result{}, errors.New("503")
+	case 2:
+		p.cancel()
+		return Result{}, ctx.Err()
+	default:
+		vecs := make([][]float32, len(req.Texts))
+		for i := range vecs {
+			vecs[i] = []float32{1, 0, 0}
+		}
+		return Result{Vectors: vecs}, nil
+	}
+}
+
+func TestChain_CallerCancellationReleasesHalfOpenProbe(t *testing.T) {
+	clock := &manualClock{t: time.Unix(1000, 0)}
+	primary := &halfOpenCancelProvider{}
+	local := &fakeProvider{name: "local", kind: KindLocal, model: "space-b"}
+	chain := NewChain([]Provider{primary, local}, BreakerConfig{FailureThreshold: 1, OpenDuration: time.Minute}, clock.now)
+
+	if result, err := chain.Embed(context.Background(), req()); err != nil || result.ProviderName != "local" {
+		t.Fatalf("trip breaker result = provider %q, error %v; want local fallback", result.ProviderName, err)
+	}
+	clock.advance(time.Minute + time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	primary.cancel = cancel
+	if _, err := chain.Embed(ctx, req()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled half-open probe error = %v, want context.Canceled", err)
+	}
+	if local.calls != 1 {
+		t.Fatalf("cancelled half-open probe called fallback; local calls = %d, want 1", local.calls)
+	}
+
+	if result, err := chain.Embed(context.Background(), req()); err != nil || result.ProviderName != "api" {
+		t.Fatalf("next half-open probe result = provider %q, error %v; want API success", result.ProviderName, err)
+	}
+}
+
 func TestChain_TerminalErrorDoesNotFallback(t *testing.T) {
 	primary := &fakeProvider{name: "api", kind: KindAPI, model: "space-a", outcomes: []error{Terminal(errors.New("401 unauthorized"))}}
 	local := &fakeProvider{name: "local", kind: KindLocal, model: "space-b"}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -13,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -583,4 +585,104 @@ func TestWarnStaleUpgradeArtifacts(t *testing.T) {
 
 	// Nonexistent dir — should not panic.
 	warnStaleUpgradeArtifacts(filepath.Join(dir, "nope"))
+}
+
+func TestPostgresRuntimeInstalledDetectsAnExtractedRuntime(t *testing.T) {
+	home := t.TempDir()
+	if got := postgresRuntimeInstalled(home); got {
+		t.Error("a home with no pg-runtime dir must read as external-database")
+	}
+
+	root := filepath.Join(home, "pg-runtime")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := postgresRuntimeInstalled(home); got {
+		t.Error("an empty pg-runtime dir must read as external-database")
+	}
+
+	// A runtime for a version this binary no longer uses still means embedded.
+	if err := os.MkdirAll(filepath.Join(root, "pg18.4-pgvector0.8.2-pgsearch0.24.1-darwin-arm64"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := postgresRuntimeInstalled(home); !got {
+		t.Error("a stale extracted runtime must read as embedded")
+	}
+}
+
+// The binary and its runtime are versioned together, so an upgrade that swaps
+// only the binary leaves the next restart failing on a missing runtime.
+func TestSyncPostgresRuntimeFetchesForAnEmbeddedHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executables need a POSIX shell")
+	}
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "pg-runtime", "old-version"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	installDir := t.TempDir()
+	marker := filepath.Join(installDir, "args")
+	writeFakeStellad(t, installDir, `echo "$@" > `+marker+`; echo fetched`)
+
+	var out bytes.Buffer
+	syncPostgresRuntime(context.Background(), &out, installDir, home, runtime.GOOS)
+
+	args, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("the new binary was never invoked: %v", err)
+	}
+	if got := strings.TrimSpace(string(args)); got != "postgres download" {
+		t.Errorf("invoked with %q, want \"postgres download\"", got)
+	}
+	if !strings.Contains(out.String(), "fetched") {
+		t.Errorf("child output was not surfaced: %q", out.String())
+	}
+}
+
+func TestSyncPostgresRuntimeSkipsAnExternalDatabaseHost(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executables need a POSIX shell")
+	}
+	installDir := t.TempDir()
+	marker := filepath.Join(installDir, "args")
+	writeFakeStellad(t, installDir, `echo "$@" > `+marker)
+
+	var out bytes.Buffer
+	syncPostgresRuntime(context.Background(), &out, installDir, t.TempDir(), runtime.GOOS)
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a host with no runtime installed must not download one")
+	}
+	if out.Len() != 0 {
+		t.Errorf("unexpected output for an external-database host: %q", out.String())
+	}
+}
+
+// The upgrade has already committed by this point, so a runtime that cannot be
+// fetched must be reported, not fatal.
+func TestSyncPostgresRuntimeReportsAFailedFetch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executables need a POSIX shell")
+	}
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "pg-runtime", "old-version"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	installDir := t.TempDir()
+	writeFakeStellad(t, installDir, `echo "network is unreachable" >&2; exit 1`)
+
+	var out bytes.Buffer
+	syncPostgresRuntime(context.Background(), &out, installDir, home, runtime.GOOS)
+
+	if !strings.Contains(out.String(), "postgres download") {
+		t.Errorf("a failed fetch must tell the operator what to run: %q", out.String())
+	}
+}
+
+func writeFakeStellad(t *testing.T, installDir, script string) {
+	t.Helper()
+	path := filepath.Join(installDir, binariesToUpgrade(runtime.GOOS)[0])
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+		t.Fatalf("write fake stellad: %v", err)
+	}
 }

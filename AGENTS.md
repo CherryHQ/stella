@@ -24,6 +24,12 @@ Stella is a single-tenant, multi-user, multi-agent AI assistant platform written
 - Build with `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stellad` explicitly; never build the `stellad` binary into the repo root.
 - `mise run dev` writes combined UI/API output to `dist/logs/dev.log` and truncates that file on each startup; use it for agent-friendly debugging.
 
+## Goose migrations
+
+- Create migrations only with `mise run db:migrate:new -- <name>`; after
+  `90000000000000_sequential_versioning.sql`, versions are sequential and
+  contiguous. Never run `goose fix`.
+
 ## Development rules
 
 Rules in `web/content/docs/development/rules/` are the **source of truth** for development conventions. Read the relevant rule before designing or changing anything in that domain.

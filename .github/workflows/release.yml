@@ -74,10 +74,18 @@ jobs:
       - name: Build
         run: mise run build
 
+      # go:embed snapshots web/static/dist at compile time, so the SPA has to
+      # exist before the test binaries are built. GoReleaser builds it later in
+      # this job anyway — building it here is what lets the PWA build contract
+      # be checked instead of skipped.
+      - name: Build web assets
+        run: mise run build:web
+
       - name: Run Go and Web tests
         run: mise run test
         env:
           STELLA_TEST_REQUIRE_BWRAP: "1"
+          STELLA_TEST_REQUIRE_SPA: "1"
 
       - name: Run System Test
         run: mise run system-test
@@ -118,19 +126,11 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.0.8
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
+      # No pnpm/Node setup here on purpose. mise-action installed both from
+      # mise.toml above; adding actions/setup-node prepended a different Node to
+      # PATH and silently won, so the release built the embedded SPA on Node 22
+      # while every PR built it on Node 24. The validate job above already runs
+      # the same SPA build on mise alone.
       - name: Cache Go build
         uses: actions/cache@v4
         with:
