@@ -23,3 +23,6 @@ resources/binaries/binaries/*/*.gz
 
 internal/agent/runner/.agents/
 .chorus/
+
+# Impeccable design-skill local caches and critique artifacts
+.impeccable/
