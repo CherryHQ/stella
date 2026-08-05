@@ -135,7 +135,6 @@ export function SkillInspectorPanel({
 
   function invalidateSkillQueries() {
     void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-    void queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
     void queryClient.invalidateQueries({
       queryKey: ["agent-skill", agentId, sessionId ?? "", skill.scope, skill.id],
     });
@@ -202,8 +201,8 @@ export function SkillInspectorPanel({
         throwOnError: true,
       });
       notify(t("sessions.skillsList.deletedSuccess"), "success");
-      await queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
-      void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+      // Awaited so the list has dropped the skill before the sheet closes.
+      await queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
       onClose();
     } catch (error) {
       notify(apiErrorMessage(error, t("common.error")), "error");
@@ -492,7 +491,6 @@ function SkillFileView({
         queryKey: ["agent-skill-file", agentId, sessionId ?? "", skill.scope, skill.id, path],
       });
       void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-      void queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
       if (shouldConvertToManual) onClose();
     } catch (error) {
       notify(apiErrorMessage(error, t("common.error")), "error");

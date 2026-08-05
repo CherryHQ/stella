@@ -208,7 +208,6 @@ export function SkillInstallSheet({
 
   function invalidateSkills() {
     void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-    void queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
   }
 
   async function install(skill: Pick<ClawhubSkill, "slug" | "name">) {

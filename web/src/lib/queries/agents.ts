@@ -1,4 +1,4 @@
-import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 import {
   getClawhubSkill,
   listAgents,
@@ -8,20 +8,7 @@ import {
   listProfileMemories,
   listSchedulerJobs,
 } from "@/lib/api-client/sdk.gen";
-import type { ComponentsSkillList, ListAgentSkillsData } from "@/lib/api-client/types.gen";
 import type { Agent, Skill, Tool, UserMemory } from "@/lib/types";
-
-type AgentSkillScopeGroup = NonNullable<ListAgentSkillsData["query"]>["scope_group"];
-
-export interface AgentSkillsPageFilters {
-  agentId: string;
-  projectId?: string;
-  sessionId?: string;
-  scopeGroup?: AgentSkillScopeGroup;
-  q?: string;
-}
-
-const AGENT_SKILLS_PAGE_SIZE = 12;
 
 export function clawhubSkillsOptions(query: string) {
   const q = query.trim();
@@ -97,42 +84,6 @@ export function agentSkillsOptions(agentId: string) {
     },
     enabled: !!agentId,
   });
-}
-
-export function agentSkillsInfiniteQueryOptions(filters: AgentSkillsPageFilters) {
-  const q = filters.q?.trim() ?? "";
-  return infiniteQueryOptions({
-    queryKey: [
-      "agent-skills-management",
-      filters.agentId,
-      filters.projectId ?? "",
-      filters.sessionId ?? "",
-      filters.scopeGroup ?? "all",
-      q,
-      AGENT_SKILLS_PAGE_SIZE,
-    ],
-    initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) => {
-      const { data } = await listAgentSkills({
-        path: { id: filters.agentId },
-        query: {
-          ...(filters.scopeGroup ? { scope_group: filters.scopeGroup } : {}),
-          ...(q ? { q } : {}),
-          page_size: AGENT_SKILLS_PAGE_SIZE,
-          ...(filters.sessionId ? { session_id: filters.sessionId } : {}),
-          ...(pageParam ? { page_token: pageParam } : {}),
-        },
-        throwOnError: true,
-      });
-      return data;
-    },
-    getNextPageParam: (lastPage) => lastPage.next_page_token ?? undefined,
-    enabled: !!filters.agentId,
-  });
-}
-
-export function flattenAgentSkillPages(pages?: ComponentsSkillList[]) {
-  return pages?.flatMap((page) => page.skills) ?? [];
 }
 
 export function agentMemoriesOptions(agentId: string) {

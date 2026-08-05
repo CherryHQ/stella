@@ -72,10 +72,7 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
   const { data: skills = [], isPending } = useQuery(agentSkillsOptions(agentId));
   const isAdmin = me?.is_admin ?? false;
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] }).then(() => {
-      void queryClient.invalidateQueries({ queryKey: ["agent-skills-management", agentId] });
-    });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
 
   // The skill list has no `enabled` flag: what a row toggles is
   // `disable_model_invocation`, i.e. whether the model may call the skill.
