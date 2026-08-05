@@ -14,6 +14,7 @@ import { agentProjectsOptions } from "@/lib/queries/projects";
 import { formatTime } from "@/lib/time";
 import type { AgentConfigTab, MemorySearch, ProfileTab } from "@/lib/route-search";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs";
 import { Spinner } from "@/components/ui/spinner";
 import { canEditAgent } from "./agent-detail-state";
@@ -159,7 +160,7 @@ export function ProfilePage() {
         </header>
 
         <Tabs value={tab} onValueChange={(value) => selectTab(value as ProfileTab)}>
-          <TabsList variant="underline" className="w-full justify-start overflow-x-auto">
+          <TabsList variant="underline">
             {tabs.map((value) => (
               <TabsTab key={value} value={value}>
                 {TAB_LABEL[value]}
@@ -252,7 +253,15 @@ export function ProfilePage() {
                   onDeleted={() => void navigate({ to: "/agents" })}
                 />
               ) : (
-                <p className="text-sm text-muted-foreground">{t("common.error")}</p>
+                <div className="flex flex-col items-start gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    {t("common.error")}
+                    {settings.error?.message ? `: ${settings.error.message}` : ""}
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => void settings.refetch()}>
+                    {t("common.retry")}
+                  </Button>
+                </div>
               )}
             </TabsPanel>
           )}

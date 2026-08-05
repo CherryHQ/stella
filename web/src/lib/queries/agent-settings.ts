@@ -23,8 +23,10 @@ export type ModelOption = { value: string; label: string };
 
 type ProfileMemory = { agent_id: string; soul?: string; content?: string };
 
+// GET /api/users/me/memories wraps the list: { memories: [...] }.
 function profileMemories(value: unknown) {
-  return (value as ProfileMemory[]) ?? [];
+  const v = value as { memories?: ProfileMemory[] } | ProfileMemory[] | undefined;
+  return (Array.isArray(v) ? v : v?.memories) ?? [];
 }
 
 /**

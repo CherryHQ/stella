@@ -46,8 +46,10 @@ import { useI18n } from "@/lib/i18n";
 
 type ProfileMemory = { agent_id: string; soul?: string; content?: string };
 
+// GET /api/users/me/memories wraps the list: { memories: [...] }.
 function profileMemories(value: unknown) {
-  return (value as ProfileMemory[]) ?? [];
+  const v = value as { memories?: ProfileMemory[] } | ProfileMemory[] | undefined;
+  return (Array.isArray(v) ? v : v?.memories) ?? [];
 }
 
 export interface AgentDetailPanelProps {
