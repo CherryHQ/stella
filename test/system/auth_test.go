@@ -58,9 +58,9 @@ func (h *harness) testStartupAndAuth(t *testing.T) {
 
 // testPersonalAccessToken proves the PAT bearer lifecycle end to end over the
 // wire: a session mints a token, that token alone (no cookie) authenticates an
-// API route, and revoking it makes the same bearer fail closed. It runs inside
-// startup_and_auth because it reuses the bootstrap session already established
-// above.
+// ordinary API route, and revoking it makes the same bearer fail closed. It runs
+// inside startup_and_auth because it reuses the bootstrap session already
+// established above.
 //
 // The probe route is GET /api/agents. Its 200 vs 401 directly reflects whether
 // the API-only bearer authenticated; domain authorization still applies to the

@@ -60,7 +60,6 @@ func TestPATAuthority(t *testing.T) {
 		{"model control plane", http.MethodGet, "/api/models", http.StatusOK},
 		{"channel control plane", http.MethodGet, "/api/channels", http.StatusOK},
 		{"plugin control plane", http.MethodGet, "/api/plugins", http.StatusOK},
-		{"PAT management", http.MethodGet, "/api/users/me/tokens", http.StatusOK},
 		{"non-api page", http.MethodGet, "/agents", http.StatusForbidden},
 	}
 	for _, c := range cases {
@@ -91,6 +90,43 @@ func TestPATAuthority(t *testing.T) {
 	}
 }
 
+// TestPATCredentialRouteFence proves the PAT-specific parent fence runs before
+// the generated handlers. Every request uses an admin-owned PAT: a handler-only
+// authorization check could otherwise hide a missing fence behind a 403.
+func TestPATCredentialRouteFence(t *testing.T) {
+	env := setupAdmin(t)
+	adminPAT, _ := mintPAT(t, env, env.bearerToken, "admin_credential_fence")
+
+	for _, tc := range []struct {
+		name         string
+		method, path string
+		body         any
+	}{
+		{"cannot mint never-expiring PAT", http.MethodPost, "/api/users/me/tokens", map[string]any{"name": "escape", "never_expires": true}},
+		{"cannot inspect PAT", http.MethodGet, "/api/users/me/tokens/token-1", nil},
+		{"cannot create OAuth client", http.MethodPost, "/api/users/me/oauth-clients", map[string]any{}},
+		{"cannot rotate OAuth client secret", http.MethodPost, "/api/users/me/oauth-clients/client-1/rotate-secret", nil},
+		{"cannot list authorized apps", http.MethodGet, "/api/users/me/authorized-apps", nil},
+		{"cannot revoke authorized app", http.MethodDelete, "/api/users/me/authorized-apps/client-1", nil},
+		{"cannot list browser sessions", http.MethodGet, "/api/auth/sessions", nil},
+		{"cannot revoke browser session", http.MethodDelete, "/api/auth/sessions/session-1", nil},
+		{"cannot list own identities", http.MethodGet, "/api/users/me/identities", nil},
+		{"cannot unlink own identity", http.MethodDelete, "/api/users/me/identities/identity-1", nil},
+		{"cannot list another user's identities", http.MethodGet, "/api/users/target-user/identities/login", nil},
+		{"cannot change password", http.MethodPatch, "/api/users/me/password", map[string]any{}},
+		{"cannot generate link code", http.MethodPost, "/api/users/me/link-code", map[string]any{}},
+		{"cannot change role", http.MethodPatch, "/api/users/target-user/role", map[string]any{"role": "admin"}},
+		{"cannot change active state", http.MethodPatch, "/api/users/target-user/active", map[string]any{"is_active": false}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := doBearerRequest(t, env.srv, adminPAT, tc.method, tc.path, tc.body)
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("%s %s: status = %d, want 403 before handler (body %s)", tc.method, tc.path, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
 // TestPAT_Lifecycle covers create-time expiry policy, one-time plaintext, and
 // input validation through the real handler.
 func TestPAT_Lifecycle(t *testing.T) {
@@ -117,6 +153,29 @@ func TestPAT_Lifecycle(t *testing.T) {
 	}
 	if len(scopes) != 0 {
 		t.Fatalf("new PAT scopes = %v, want empty legacy storage value", scopes)
+	}
+
+	// Older clients may still send scopes after the field left the API contract.
+	// JSON compatibility is deliberate, but the legacy column must stay empty.
+	legacyCreate := doRequest(t, env, http.MethodPost, "/api/users/me/tokens",
+		map[string]any{"name": "life_legacy_scopes", "scopes": []string{"goals:read"}})
+	if legacyCreate.Code != http.StatusCreated {
+		t.Fatalf("legacy scoped create: status = %d (%s)", legacyCreate.Code, legacyCreate.Body.String())
+	}
+	var legacyResp struct {
+		PAT struct {
+			ID string `json:"id"`
+		} `json:"personal_access_token"`
+	}
+	if err := json.Unmarshal(legacyCreate.Body.Bytes(), &legacyResp); err != nil {
+		t.Fatalf("decode legacy create: %v", err)
+	}
+	var legacyScopes []string
+	if err := env.db.QueryRow(ctx, "select scopes from personal_access_token where id=$1", legacyResp.PAT.ID).Scan(&legacyScopes); err != nil {
+		t.Fatalf("query legacy scoped token: %v", err)
+	}
+	if len(legacyScopes) != 0 {
+		t.Fatalf("legacy scoped create stored scopes = %v, want empty", legacyScopes)
 	}
 
 	// never_expires -> NULL expiry.
@@ -165,26 +224,25 @@ func TestPAT_Lifecycle(t *testing.T) {
 	}
 }
 
-// TestPAT_OwnershipAndRevoke proves ownership isolation (a token is invisible to
-// other users, 404 before existence leaks), revocation, post-revoke rejection at
-// the resolver, and expiry enforcement.
+// TestPAT_OwnershipAndRevoke proves session-only PAT management preserves
+// ownership isolation (404 before existence leaks), plus token revocation and
+// expiry enforcement at the resolver.
 func TestPAT_OwnershipAndRevoke(t *testing.T) {
 	env := setupAdmin(t)
 	ctx := context.Background()
 
-	// A second user's PAT remains visible only to its own owner.
-	_, u2Bearer := createTestUserWithToken(t, env.authStore, env.oidcStore, "patuser2", auth.RoleUser)
-	u2PAT, u2PATID := mintPAT(t, env, u2Bearer, "u2_tok")
-	if rr := doBearerRequest(t, env.srv, u2PAT, http.MethodGet, "/api/users/me/tokens/"+u2PATID, nil); rr.Code != http.StatusOK {
-		t.Fatalf("PAT GET own token: want 200, got %d (%s)", rr.Code, rr.Body.String())
+	// A second user's token remains visible only to that user's browser session.
+	_, u2Session := createTestUserWithToken(t, env.authStore, env.oidcStore, "patuser2", auth.RoleUser)
+	_, u2PATID := mintPAT(t, env, u2Session, "u2_tok")
+	if rr := doRequestWithSession(t, env.srv, u2Session, http.MethodGet, "/api/users/me/tokens/"+u2PATID, nil); rr.Code != http.StatusOK {
+		t.Fatalf("session GET own token: want 200, got %d (%s)", rr.Code, rr.Body.String())
 	}
-	_, otherBearer := createTestUserWithToken(t, env.authStore, env.oidcStore, "patuser3", auth.RoleUser)
-	otherPAT, _ := mintPAT(t, env, otherBearer, "u3_tok")
-	if rr := doBearerRequest(t, env.srv, otherPAT, http.MethodGet, "/api/users/me/tokens/"+u2PATID, nil); rr.Code != http.StatusNotFound {
-		t.Fatalf("PAT GET other user's token: want 404, got %d (%s)", rr.Code, rr.Body.String())
+	_, otherSession := createTestUserWithToken(t, env.authStore, env.oidcStore, "patuser3", auth.RoleUser)
+	if rr := doRequestWithSession(t, env.srv, otherSession, http.MethodGet, "/api/users/me/tokens/"+u2PATID, nil); rr.Code != http.StatusNotFound {
+		t.Fatalf("session GET other user's token: want 404, got %d (%s)", rr.Code, rr.Body.String())
 	}
-	if rr := doBearerRequest(t, env.srv, otherPAT, http.MethodDelete, "/api/users/me/tokens/"+u2PATID, nil); rr.Code != http.StatusNotFound {
-		t.Fatalf("PAT DELETE other user's token: want 404, got %d", rr.Code)
+	if rr := doRequestWithSession(t, env.srv, otherSession, http.MethodDelete, "/api/users/me/tokens/"+u2PATID, nil); rr.Code != http.StatusNotFound {
+		t.Fatalf("session DELETE other user's token: want 404, got %d", rr.Code)
 	}
 
 	// Revoke invalidates the token at the auth boundary.

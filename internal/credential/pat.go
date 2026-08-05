@@ -47,7 +47,6 @@ func (s *Service) resolvePAT(ctx context.Context, raw string) (*Principal, error
 	return &Principal{
 		Kind:      KindPAT,
 		UserID:    ident.UserID,
-		Scopes:    rec.Scopes,
 		Username:  ident.Username,
 		Email:     ident.Email,
 		Name:      ident.Name,

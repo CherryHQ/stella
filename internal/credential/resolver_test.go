@@ -107,6 +107,9 @@ func TestResolvePATRoundTrip(t *testing.T) {
 	if p == nil || p.Kind != KindPAT || p.UserID != "u1" {
 		t.Fatalf("unexpected principal: %+v", p)
 	}
+	if len(p.Scopes) != 0 {
+		t.Fatalf("resolved PAT scopes = %v, want empty", p.Scopes)
+	}
 	if len(rec.Scopes) != 0 {
 		t.Fatalf("new PAT scopes = %v, want empty legacy storage value", rec.Scopes)
 	}
@@ -117,8 +120,8 @@ func TestResolvePATRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve legacy PAT: %v", err)
 	}
-	if err := Enforce(p, "GET", "/api/users"); err != nil {
-		t.Fatalf("legacy PAT scopes must not restrict API entry: %v", err)
+	if len(p.Scopes) != 0 {
+		t.Fatalf("resolved legacy PAT scopes = %v, want empty", p.Scopes)
 	}
 	if len(store.touched) == 0 {
 		t.Fatal("resolve should throttle-touch last_used")

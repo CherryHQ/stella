@@ -61,6 +61,9 @@ func Enforce(p *Principal, method, path string) error {
 
 	switch p.Kind {
 	case KindPAT:
+		if patCredentialRouteDenied(path) {
+			return fmt.Errorf("%w: PAT may not manage authentication credentials", ErrForbidden)
+		}
 		return nil
 	case KindOAuth:
 		// OAuth access tokens are delegated capabilities, not account credentials.
@@ -82,6 +85,51 @@ func Enforce(p *Principal, method, path string) error {
 	default:
 		return fmt.Errorf("%w: unknown credential kind %q", ErrForbidden, p.Kind)
 	}
+}
+
+// patCredentialRouteDenied is the parent-layer fence for PATs. A PAT inherits
+// its owner's business and admin authority, but it must not create or control
+// authentication credentials, browser sessions, or identities: a stolen bearer
+// must neither reproduce itself nor become an account-takeover primitive.
+//
+// Keep this policy here, before handlers, rather than duplicating it across
+// self-service and admin endpoints. The patterns deliberately compare complete
+// path segments: family rules include their root and descendants, while exact
+// rules do not grow to future sub-routes by accident.
+func patCredentialRouteDenied(path string) bool {
+	rest := apiSegments(path)
+	switch {
+	case hasSegmentPrefix(rest, "users", "me", "tokens"),
+		hasSegmentPrefix(rest, "users", "me", "oauth-clients"),
+		hasSegmentPrefix(rest, "users", "me", "authorized-apps"),
+		hasSegmentPrefix(rest, "auth", "sessions"),
+		hasSegmentPrefix(rest, "users", "me", "identities"):
+		return true
+	case len(rest) >= 3 && rest[0] == "users" && rest[2] == "identities":
+		return true
+	case hasExactSegments(rest, "users", "me", "password"),
+		hasExactSegments(rest, "users", "me", "link-code"),
+		len(rest) == 3 && rest[0] == "users" && (rest[2] == "role" || rest[2] == "active"):
+		return true
+	default:
+		return false
+	}
+}
+
+func hasSegmentPrefix(got []string, want ...string) bool {
+	if len(got) < len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func hasExactSegments(got []string, want ...string) bool {
+	return len(got) == len(want) && hasSegmentPrefix(got, want...)
 }
 
 // apiSegments returns the path segments after the leading /api (e.g.

@@ -13,7 +13,15 @@ func TestEnforcePATInheritsOwnerAuthorityForAPIRoutes(t *testing.T) {
 		{"POST", "/api/goals"},
 		{"GET", "/api/auth/me"},
 		{"GET", "/api/users"},
+		{"GET", "/api/users/user-1"},
+		{"GET", "/api/users/user-1/default-agent"},
+		{"GET", "/api/users/user-1/notify-identity"},
+		{"GET", "/api/users/user-1/agents"},
+		{"GET", "/api/users/me/memories"},
+		{"GET", "/api/users/me/oauth-client-scopes"},
+		{"GET", "/api/users/me/oauth/github/connected"},
 		{"GET", "/api/vault/EMAIL_CONFIG"},
+		{"GET", "/api/providers"},
 		{"GET", "/api/nonexistent-xyz"},
 	} {
 		if err := Enforce(p, tc.method, tc.path); err != nil {
@@ -23,6 +31,47 @@ func TestEnforcePATInheritsOwnerAuthorityForAPIRoutes(t *testing.T) {
 
 	if err := Enforce(p, "GET", "/agents"); err == nil {
 		t.Fatal("PAT must not call non-API routes")
+	}
+}
+
+func TestEnforcePATCredentialRouteFence(t *testing.T) {
+	p := &Principal{Kind: KindPAT, UserID: "u1", IsAdmin: true}
+
+	for _, path := range []string{
+		"/api/users/me/tokens",
+		"/api/users/me/tokens/token-1",
+		"/api/users/me/oauth-clients",
+		"/api/users/me/oauth-clients/client-1/rotate-secret",
+		"/api/users/me/authorized-apps",
+		"/api/users/me/authorized-apps/client-1",
+		"/api/auth/sessions",
+		"/api/auth/sessions/session-1",
+		"/api/users/me/identities",
+		"/api/users/me/identities/identity-1",
+		"/api/users/user-1/identities/login",
+		"/api/users/me/password",
+		"/api/users/me/link-code",
+		"/api/users/user-1/role",
+		"/api/users/user-1/active",
+	} {
+		if err := Enforce(p, "POST", path); err == nil {
+			t.Errorf("admin PAT POST %s must be denied", path)
+		}
+	}
+
+	// These look similar but are intentionally outside the fence. Exact rules
+	// must not grow descendants, and family matching must stay segment-aware.
+	for _, path := range []string{
+		"/api/auth/session",
+		"/api/users/me/oauth-client-scopes",
+		"/api/users/me/oauth/github/connected",
+		"/api/users/me/password/reset",
+		"/api/users/user-1/roles",
+		"/api/users/user-1/active/history",
+	} {
+		if err := Enforce(p, "GET", path); err != nil {
+			t.Errorf("admin PAT GET %s must remain outside the fence: %v", path, err)
+		}
 	}
 }
 
