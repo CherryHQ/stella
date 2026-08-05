@@ -311,8 +311,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	var coordOpts []channel.CoordinatorOption
 	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, agentAccess, linkCodes))
-	coordOpts = append(coordOpts, channel.WithCoordinatorAssets(s.assetStore))
-	coordOpts = append(coordOpts, channel.WithHomeWorkspace(s.homeRegistry))
+	coordOpts = append(coordOpts, channel.WithHomeAssetIngress(s.homeRegistry))
 	if s.vaultSvc != nil {
 		vaultRecipient = s.vaultSvc.MasterRecipient()
 		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))

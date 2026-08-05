@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
+
+const maxInboundAssetBytes = 100 << 20
 
 type Kind string
 
@@ -136,6 +139,13 @@ type Store interface {
 	Attachment(Record, bool) sandbox.HomeAttachment
 }
 
+// inboundAssetStore is deliberately narrower than Store: channel ingress can
+// create one new asset in a Principal Home, but cannot address locators or
+// mutate arbitrary Home contents.
+type inboundAssetStore interface {
+	writeInboundAsset(context.Context, Record, string, []byte) error
+}
+
 type Registry struct {
 	db           *pgxpool.Pool
 	q            *sqlc.Queries
@@ -181,6 +191,55 @@ func NewRegistry(db *pgxpool.Pool, defaultStore string, stores ...Store) (*Regis
 
 func (r *Registry) Ensure(ctx context.Context, key Key) (Record, error) {
 	return r.ensureWithQueries(ctx, r.q, key)
+}
+
+// WriteInboundAsset durably creates one channel-ingress asset in a typed
+// Principal Home. The returned name is portable sandbox syntax, never a store
+// coordinate or a host path. Ensure intentionally happens before the write and
+// outside a caller transaction or advisory lock.
+func (r *Registry) WriteInboundAsset(ctx context.Context, key Key, filename string, content []byte) (string, error) {
+	if key.Kind != PrincipalHome || !key.PrincipalKind.Valid() {
+		return "", errors.New("home: inbound assets require a PrincipalHome")
+	}
+	if err := key.Validate(); err != nil {
+		return "", err
+	}
+	if err := validateInboundAssetFilename(filename); err != nil {
+		return "", err
+	}
+	if len(content) > maxInboundAssetBytes {
+		return "", fmt.Errorf("home: inbound asset exceeds %d byte limit", maxInboundAssetBytes)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	record, err := r.Ensure(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("home: ensure inbound asset Home: %w", err)
+	}
+	store, ok := r.stores[record.StoreID].(inboundAssetStore)
+	if !ok {
+		return "", fmt.Errorf("home: Store %q does not support inbound assets", record.StoreID)
+	}
+	// UUIDv7 makes each publication independent of wall-clock resolution while
+	// retaining a useful stable assets-relative suffix for users and agents.
+	now := time.Now().UTC()
+	unique, err := uuid.NewV7()
+	if err != nil {
+		return "", fmt.Errorf("home: allocate inbound asset name: %w", err)
+	}
+	suffix := path.Join(now.Format("200601"), unique.String()+"_"+filename)
+	if err := store.writeInboundAsset(ctx, record, suffix, content); err != nil {
+		return "", fmt.Errorf("home: write inbound asset: %w", err)
+	}
+	return "$" + sandbox.EnvStellaAssetsDir + "/" + suffix, nil
+}
+
+func validateInboundAssetFilename(filename string) error {
+	if filename == "" || len(filename) > 255 || filename == "." || filename == ".." || path.Base(filename) != filename || strings.ContainsAny(filename, `/\\`) {
+		return errors.New("home: invalid inbound asset filename")
+	}
+	return nil
 }
 
 // ensureWithQueries keeps every registry transition on the supplied handle.

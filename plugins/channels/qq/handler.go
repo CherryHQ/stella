@@ -9,7 +9,6 @@ import (
 	"github.com/tencent-connect/botgo/dto"
 	"github.com/tencent-connect/botgo/event"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/httpclient"
@@ -21,8 +20,7 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 		msg := (*dto.Message)(data)
 		authorID := msg.Author.ID
 
-		assetsDir := b.resolveAssetsDir(b.incomingMsg(authorID, "", nil), msg)
-		content := b.buildMessageContent(msg, assetsDir)
+		content := b.buildMessageContent(msg, b.incomingMsg(authorID, "", nil))
 		if content == nil {
 			return nil
 		}
@@ -49,8 +47,7 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 		authorID := msg.Author.ID
 		groupID := msg.GroupID
 
-		assetsDir := b.resolveAssetsDir(b.incomingMsg(authorID, groupID, nil), msg)
-		content := b.buildMessageContent(msg, assetsDir)
+		content := b.buildMessageContent(msg, b.incomingMsg(authorID, groupID, nil))
 		if content == nil {
 			return nil
 		}
@@ -79,10 +76,9 @@ const (
 )
 
 // buildMessageContent constructs the message content from a QQ message.
-// assetsDir is the resolved per-user assets directory; pass "" when unavailable
-// (file attachments will be represented as placeholder text instead).
+// incoming carries the authoritative channel identity used by Home ingress.
 // Returns nil if the message has no usable content.
-func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.ContentBlock {
+func (b *Bot) buildMessageContent(msg *dto.Message, incoming channel.IncomingMessage) []ai.ContentBlock {
 	text := strings.TrimSpace(msg.Content)
 	images := extractImageAttachments(msg)
 	files := extractFileAttachments(msg)
@@ -106,14 +102,12 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.Conte
 		if fileName == "" {
 			fileName = channel.ImageFileName("image", mime)
 		}
-		if assetsDir != "" {
-			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
-			if saveErr == nil {
-				blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
-				continue
-			}
-			logger().Warn("save inbound image failed", "error", saveErr)
+		savedPath, saveErr := b.saveAsset(b.ctx, incoming, fileName, data)
+		if saveErr == nil {
+			blocks = append(blocks, channel.AttachmentReceivedContent(fileName, savedPath, data)...)
+			continue
 		}
+		logger().Warn("save inbound image failed", "error", saveErr)
 		// Persistence unavailable — degrade to inline within the ceiling; images
 		// past the inline limit become an explicit text note instead.
 		blocks = append(blocks, channel.InlineImageFallback(fileName, mime, data)...)
@@ -123,24 +117,20 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetsDir string) []ai.Conte
 		if fileName == "" {
 			fileName = "file"
 		}
-		if assetsDir != "" {
-			data, _, err := downloadImage(b.ctx, f.URL) // reuse HTTP downloader
-			if err != nil {
-				logger().Warn("download file attachment failed", "url", f.URL, "error", err)
-				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (download failed)", fileName)})
-				continue
-			}
-			savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
-			if err != nil {
-				logger().Warn("save file attachment failed", "error", err)
-				blocks = append(blocks, channel.AttachmentSaveFailureContent(fileName, data)...)
-				continue
-			}
-			logger().Debug("file attachment received", "file_name", fileName, "size", len(data))
-			blocks = append(blocks, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
-		} else {
-			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s]", fileName)})
+		data, _, err := downloadImage(b.ctx, f.URL) // reuse HTTP downloader
+		if err != nil {
+			logger().Warn("download file attachment failed", "url", f.URL, "error", err)
+			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (download failed)", fileName)})
+			continue
 		}
+		savedPath, err := b.saveAsset(b.ctx, incoming, fileName, data)
+		if err != nil {
+			logger().Warn("save file attachment failed", "error", err)
+			blocks = append(blocks, channel.AttachmentSaveFailureContent(fileName, data)...)
+			continue
+		}
+		logger().Debug("file attachment received", "file_name", fileName, "size", len(data))
+		blocks = append(blocks, channel.AttachmentReceivedContent(fileName, savedPath, data)...)
 	}
 
 	if len(blocks) == 0 {
@@ -174,25 +164,6 @@ func extractFileAttachments(msg *dto.Message) []*dto.MessageAttachment {
 		files = append(files, a)
 	}
 	return files
-}
-
-// resolveAssetsDir returns the per-user assets directory if the handler supports
-// UserRootResolver and the message contains image or file attachments to persist.
-// Returns "" otherwise.
-func (b *Bot) resolveAssetsDir(probeMsg channel.IncomingMessage, msg *dto.Message) string {
-	if len(extractImageAttachments(msg)) == 0 && len(extractFileAttachments(msg)) == 0 {
-		return ""
-	}
-	resolver, ok := b.handler.(channel.UserRootResolver)
-	if !ok {
-		return ""
-	}
-	userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg)
-	if err != nil {
-		logger().Warn("resolve user root failed for file attachment", "error", err)
-		return ""
-	}
-	return agent.UserAssetsDir(userRoot)
 }
 
 const maxImageSize = 20 << 20 // 20 MB

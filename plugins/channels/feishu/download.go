@@ -82,3 +82,10 @@ func (b *Bot) downloadFile(messageID, fileKey string) ([]byte, error) {
 	}
 	return data, nil
 }
+
+func (b *Bot) fetchFile(messageID, fileKey string) ([]byte, error) {
+	if b.downloadFileFn != nil {
+		return b.downloadFileFn(messageID, fileKey)
+	}
+	return b.downloadFile(messageID, fileKey)
+}

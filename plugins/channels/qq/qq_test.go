@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -500,7 +499,7 @@ func TestStopWithoutCancel(t *testing.T) {
 func TestBuildMessageContentTextOnly(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{Content: "hello world"}
-	content := bot.buildMessageContent(msg, "")
+	content := bot.buildMessageContent(msg, channel.IncomingMessage{})
 	if len(content) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(content))
 	}
@@ -516,7 +515,7 @@ func TestBuildMessageContentTextOnly(t *testing.T) {
 func TestBuildMessageContentEmpty(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{Content: "  "}
-	content := bot.buildMessageContent(msg, "")
+	content := bot.buildMessageContent(msg, channel.IncomingMessage{})
 	if content != nil {
 		t.Errorf("expected nil for blank message, got %v", content)
 	}
@@ -525,7 +524,7 @@ func TestBuildMessageContentEmpty(t *testing.T) {
 func TestBuildMessageContentEmptyNoAttachments(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{}
-	content := bot.buildMessageContent(msg, "")
+	content := bot.buildMessageContent(msg, channel.IncomingMessage{})
 	if content != nil {
 		t.Errorf("expected nil for empty message, got %v", content)
 	}
@@ -568,46 +567,24 @@ func TestIncomingMsgGroup(t *testing.T) {
 
 // --- pure-image persistence (regression: image-only messages must persist) ---
 
-// assetMockHandler extends mockHandler with the UserRootResolver and AssetSaver
-// capabilities so buildMessageContent can resolve a storage dir and persist.
+// assetMockHandler supplies the portable ingress writer capability.
 type assetMockHandler struct {
 	mockHandler
-	userRoot  string
 	saveErr   error
 	saveCalls []savedAsset
 }
 
 type savedAsset struct {
-	assetsDir string
-	fileName  string
-	data      []byte
+	fileName string
+	data     []byte
 }
 
-func (m *assetMockHandler) ResolveUserRoot(_ context.Context, _ channel.IncomingMessage) (string, error) {
-	return m.userRoot, nil
-}
-
-func (m *assetMockHandler) SaveAsset(_ context.Context, assetsDir, fileName string, data []byte) (string, error) {
+func (m *assetMockHandler) SaveAsset(_ context.Context, _ channel.IncomingMessage, fileName string, data []byte) (string, error) {
 	if m.saveErr != nil {
 		return "", m.saveErr
 	}
-	m.saveCalls = append(m.saveCalls, savedAsset{assetsDir: assetsDir, fileName: fileName, data: append([]byte(nil), data...)})
-	return filepath.Join(assetsDir, fileName), nil
-}
-
-func TestResolveAssetsDirImageOnlyMessage(t *testing.T) {
-	h := &assetMockHandler{userRoot: "/home/stella"}
-	bot := &Bot{handler: h, ctx: context.Background()}
-	msg := &dto.Message{
-		Attachments: []*dto.MessageAttachment{
-			{URL: "https://example.com/a.png", ContentType: "image/png"},
-		},
-	}
-	// Regression: an image-only message (no file attachments) must still resolve a
-	// storage dir so the image is persisted rather than inline-only.
-	if got := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg); got == "" {
-		t.Fatal("expected a resolved assets dir for an image-only message, got \"\"")
-	}
+	m.saveCalls = append(m.saveCalls, savedAsset{fileName: fileName, data: append([]byte(nil), data...)})
+	return "$STELLA_ASSETS_DIR/test/" + fileName, nil
 }
 
 func TestBuildMessageContentPersistsPureImage(t *testing.T) {
@@ -618,7 +595,7 @@ func TestBuildMessageContentPersistsPureImage(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := &assetMockHandler{userRoot: "/home/stella"}
+	h := &assetMockHandler{}
 	bot := &Bot{handler: h, ctx: context.Background()}
 	msg := &dto.Message{
 		Attachments: []*dto.MessageAttachment{
@@ -626,12 +603,7 @@ func TestBuildMessageContentPersistsPureImage(t *testing.T) {
 		},
 	}
 
-	assetsDir := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg)
-	if assetsDir == "" {
-		t.Fatal("expected a resolved assets dir for an image-only message")
-	}
-
-	content := bot.buildMessageContent(msg, assetsDir)
+	content := bot.buildMessageContent(msg, bot.incomingMsg("user1", "", nil))
 	if len(h.saveCalls) != 1 {
 		t.Fatalf("expected the image to be persisted once, got %d save calls", len(h.saveCalls))
 	}
@@ -652,7 +624,7 @@ func TestBuildMessageContentImageSaveFailureInlines(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := &assetMockHandler{userRoot: "/home/stella", saveErr: fmt.Errorf("storage down")}
+	h := &assetMockHandler{saveErr: fmt.Errorf("storage down")}
 	bot := &Bot{handler: h, ctx: context.Background()}
 	msg := &dto.Message{
 		Attachments: []*dto.MessageAttachment{
@@ -660,8 +632,7 @@ func TestBuildMessageContentImageSaveFailureInlines(t *testing.T) {
 		},
 	}
 
-	assetsDir := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg)
-	content := bot.buildMessageContent(msg, assetsDir)
+	content := bot.buildMessageContent(msg, bot.incomingMsg("user1", "", nil))
 
 	// Save failed, but the turn must not be dropped: a small image degrades to an
 	// inline image block via the shared fallback.

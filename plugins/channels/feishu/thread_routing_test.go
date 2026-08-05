@@ -363,12 +363,12 @@ func TestOnMessageAuthPreservesThreadID(t *testing.T) {
 	}
 }
 
-func TestOnMessageFileResolveUserRootPreservesThreadID(t *testing.T) {
+func TestOnMessageFileAssetAdmissionPreservesThreadID(t *testing.T) {
 	b, h, captured := newThreadRoutingBotWithHandler(t)
 	probeCh := make(chan channel.IncomingMessage, 1)
-	h.resolveUserRootFn = func(_ context.Context, msg channel.IncomingMessage) (string, error) {
+	h.admitAssetSaveFn = func(_ context.Context, msg channel.IncomingMessage) error {
 		probeCh <- msg
-		return t.TempDir(), nil
+		return nil
 	}
 
 	event := fileReceiveEvent("oc_chat", "group", "om_file", "om_root", "om_parent")
@@ -418,8 +418,8 @@ func TestAttachmentResolverErrorsFailClosed(t *testing.T) {
 	for _, resolveErr := range []error{errors.New("resolver unavailable"), internalchannel.ErrAgentAccessDenied} {
 		t.Run(resolveErr.Error(), func(t *testing.T) {
 			b, h, captured := newThreadRoutingBotWithHandler(t)
-			h.resolveUserRootFn = func(context.Context, channel.IncomingMessage) (string, error) {
-				return "", resolveErr
+			h.admitAssetSaveFn = func(context.Context, channel.IncomingMessage) error {
+				return resolveErr
 			}
 			event := receiveEvent("oc_chat", "group", "om_image", "", "", "image", `{"image_key":"img_secret"}`)
 			if err := b.onMessage(context.Background(), event); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
@@ -30,6 +32,195 @@ func newRegistry(t *testing.T) (*Registry, *LocalStore) {
 		t.Fatal(err)
 	}
 	return r, store
+}
+
+func TestWriteInboundAssetUsesTypedPrincipalAndPortablePath(t *testing.T) {
+	r, store := newRegistry(t)
+	ctx := context.Background()
+	portable, err := r.WriteInboundAsset(ctx, Principal(GroupPrincipal, "shared"), "report.pdf", []byte("group bytes"))
+	if err != nil {
+		t.Fatalf("WriteInboundAsset: %v", err)
+	}
+	if !strings.HasPrefix(portable, "$STELLA_ASSETS_DIR/") || strings.Contains(portable, store.base) {
+		t.Fatalf("portable path = %q", portable)
+	}
+	record, err := r.Ensure(ctx, Principal(GroupPrincipal, "shared"))
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	root, err := store.pathFor(record)
+	if err != nil {
+		t.Fatalf("pathFor: %v", err)
+	}
+	rel := strings.TrimPrefix(portable, "$STELLA_ASSETS_DIR/")
+	data, err := os.ReadFile(filepath.Join(root, "data", "assets", rel))
+	if err != nil || string(data) != "group bytes" {
+		t.Fatalf("inbound bytes = %q, %v", data, err)
+	}
+	if _, err := r.WriteInboundAsset(ctx, Agent(UserPrincipal, "u", "a"), "x", nil); err == nil {
+		t.Fatal("agent Home inbound write unexpectedly succeeded")
+	}
+	if _, err := r.WriteInboundAsset(ctx, Principal(UserPrincipal, "u"), "../x", nil); err == nil {
+		t.Fatal("escaping filename unexpectedly succeeded")
+	}
+	userPath, err := r.WriteInboundAsset(ctx, Principal(UserPrincipal, "shared"), "report.pdf", []byte("user bytes"))
+	if err != nil {
+		t.Fatalf("user WriteInboundAsset: %v", err)
+	}
+	userRecord, err := r.Ensure(ctx, Principal(UserPrincipal, "shared"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupRoot, err := store.pathFor(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userRoot, err := store.pathFor(userRecord)
+	if err != nil || groupRoot == userRoot || portable == userPath {
+		t.Fatalf("typed asset isolation group=%q user=%q paths=%q/%q err=%v", portable, userPath, groupRoot, userRoot, err)
+	}
+}
+
+func TestWriteInboundAssetUniquelyMaterializesConcurrentIdenticalNames(t *testing.T) {
+	r, store := newRegistry(t)
+	ctx := context.Background()
+	key := Principal(UserPrincipal, "concurrent-assets")
+	const writes = 32
+	type result struct {
+		path    string
+		payload string
+		err     error
+	}
+	results := make(chan result, writes)
+	var wg sync.WaitGroup
+	for i := range writes {
+		wg.Go(func() {
+			payload := fmt.Sprintf("payload-%d", i)
+			path, err := r.WriteInboundAsset(ctx, key, "same-name.txt", []byte(payload))
+			results <- result{path: path, payload: payload, err: err}
+		})
+	}
+	wg.Wait()
+	close(results)
+
+	record, err := r.Ensure(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := store.pathFor(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := make(map[string]struct{}, writes)
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("WriteInboundAsset: %v", result.err)
+		}
+		if !strings.HasPrefix(result.path, "$"+sandbox.EnvStellaAssetsDir+"/") {
+			t.Fatalf("non-portable path: %q", result.path)
+		}
+		if _, exists := paths[result.path]; exists {
+			t.Fatalf("duplicate portable path: %q", result.path)
+		}
+		paths[result.path] = struct{}{}
+		rel := strings.TrimPrefix(result.path, "$"+sandbox.EnvStellaAssetsDir+"/")
+		data, err := os.ReadFile(filepath.Join(root, "data", "assets", rel))
+		if err != nil || string(data) != result.payload {
+			t.Fatalf("asset %q = %q, %v; want %q", result.path, data, err, result.payload)
+		}
+	}
+	if len(paths) != writes {
+		t.Fatalf("unique paths = %d, want %d", len(paths), writes)
+	}
+}
+
+func TestWriteInboundAssetFailsClosedBeforeOrAfterPublication(t *testing.T) {
+	t.Run("canceled context writes nothing", func(t *testing.T) {
+		r, store := newRegistry(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := r.WriteInboundAsset(ctx, Principal(UserPrincipal, "cancelled"), "x", []byte("x")); !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want canceled", err)
+		}
+		if _, err := os.Stat(filepath.Join(store.base, "users", "cancelled")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("canceled write created Home: %v", err)
+		}
+	})
+
+	t.Run("oversize and invalid keys do not ensure a Home", func(t *testing.T) {
+		r, store := newRegistry(t)
+		if _, err := r.WriteInboundAsset(context.Background(), Principal(UserPrincipal, "large"), "x", make([]byte, maxInboundAssetBytes+1)); err == nil {
+			t.Fatal("oversize asset succeeded")
+		}
+		if _, err := os.Stat(filepath.Join(store.base, "users", "large")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("oversize asset ensured Home: %v", err)
+		}
+		if _, err := r.WriteInboundAsset(context.Background(), Agent(UserPrincipal, "owner", "agent"), "x", nil); err == nil {
+			t.Fatal("agent Home asset succeeded")
+		}
+		if _, err := r.WriteInboundAsset(context.Background(), Principal(UserPrincipal, "owner"), "../x", nil); err == nil {
+			t.Fatal("invalid filename succeeded")
+		}
+	})
+
+	t.Run("unsupported Store fails closed", func(t *testing.T) {
+		local, err := NewLocalStore("local", t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := NewRegistry(dbtest.New(t), local.ID(), struct{ Store }{Store: local})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.WriteInboundAsset(context.Background(), Principal(UserPrincipal, "unsupported"), "x", nil); err == nil {
+			t.Fatal("unsupported Store ingress succeeded")
+		}
+	})
+
+	for _, tc := range []struct {
+		name string
+		fail func(*os.File) bool
+	}{
+		{name: "target file sync", fail: func(file *os.File) bool {
+			return !strings.HasPrefix(filepath.Base(file.Name()), ".stella-migrate-") && !isDirectory(t, file)
+		}},
+		{name: "directory sync", fail: func(file *os.File) bool { return isDirectory(t, file) }},
+	} {
+		t.Run(tc.name+" after publication is outcome unknown", func(t *testing.T) {
+			r, store := newRegistry(t)
+			store.syncFile = func(file *os.File) error {
+				if tc.fail(file) {
+					return errors.New("injected durability failure")
+				}
+				return nil
+			}
+			key := Principal(UserPrincipal, "durability-"+strings.ReplaceAll(tc.name, " ", "-"))
+			portable, err := r.WriteInboundAsset(context.Background(), key, "x", []byte("published"))
+			if !errors.Is(err, sandbox.ErrOutcomeUnknown) || portable != "" {
+				t.Fatalf("write = %q, %v; want no success and outcome unknown", portable, err)
+			}
+			record, ensureErr := r.Ensure(context.Background(), key)
+			if ensureErr != nil {
+				t.Fatal(ensureErr)
+			}
+			root, pathErr := store.pathFor(record)
+			if pathErr != nil {
+				t.Fatal(pathErr)
+			}
+			if matches, globErr := filepath.Glob(filepath.Join(root, "data", "assets", "*", "*_x")); globErr != nil || len(matches) != 1 {
+				t.Fatalf("published target = %v, %v", matches, globErr)
+			}
+		})
+	}
+}
+
+func isDirectory(t *testing.T, file *os.File) bool {
+	t.Helper()
+	info, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.IsDir()
 }
 
 func TestKeyValidationKeepsTypedOwnersDisjoint(t *testing.T) {

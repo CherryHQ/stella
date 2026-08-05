@@ -3,7 +3,6 @@ package channel
 import (
 	"encoding/base64"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -145,18 +144,15 @@ func TextContent(text string) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: text}}
 }
 
-// AttachmentReceivedContent returns the content blocks for an inbound
-// attachment that has been saved to disk. Images are presented as a saved-path
-// note plus the inline image so the model sees the pixels immediately and can
-// still reach the file later; everything else gets the Xberg extraction hint
-// via FileReceivedContent. data is the raw file content used for image
-// detection and inlining.
-func AttachmentReceivedContent(fileName, assetsDir, savedPath string, data []byte) []ai.ContentBlock {
+// AttachmentReceivedContent returns content blocks for an inbound attachment
+// saved through Home ingress. savedPath is a portable sandbox expression;
+// images also carry inline bytes, while other files get the Xberg hint.
+func AttachmentReceivedContent(fileName, savedPath string, data []byte) []ai.ContentBlock {
 	mime := tools.DetectImageMime(data)
 	if mime == "" {
-		return FileReceivedContent(fileName, assetsDir, savedPath)
+		return FileReceivedContent(fileName, savedPath)
 	}
-	displayPath := attachmentDisplayPath(assetsDir, savedPath)
+	displayPath := savedPath
 	if len(data) > ai.MaxImageInputBytes {
 		return TextContent(fmt.Sprintf(
 			"[Image: %s — saved to %s]\n The image is too large to attach inline; use the `read` tool on that path to view it.",
@@ -221,11 +217,9 @@ func humanReadableSize(n int) string {
 
 // FileReceivedContent returns the standard content block telling the agent
 // about a file that has been saved to disk, with an Xberg extraction hint.
-// assetsDir is the host-side assets directory; savedPath is the host-side absolute
-// path returned by SaveAsset. The hint uses a path relative to the user root
-// (parent of assetsDir) so it resolves correctly inside the bwrap sandbox at /workspace.
-func FileReceivedContent(fileName, assetsDir, savedPath string) []ai.ContentBlock {
-	displayPath := attachmentDisplayPath(assetsDir, savedPath)
+// savedPath is the portable expression returned by AssetSaver.
+func FileReceivedContent(fileName, savedPath string) []ai.ContentBlock {
+	displayPath := savedPath
 	return TextContent(fmt.Sprintf(
 		"[File: %s — saved to %s]\n Read Xberg skill and use `xberg extract %q` to read its content.",
 		fileName, displayPath, displayPath,
@@ -246,17 +240,4 @@ func ImageFileName(base, mime string) string {
 		ext = "jpg"
 	}
 	return base + "." + ext
-}
-
-// attachmentDisplayPath rewrites a host-side saved path relative to the user
-// root (parent of assetsDir) so it resolves inside the bwrap sandbox at
-// /workspace; without an assetsDir the host path is shown as-is.
-func attachmentDisplayPath(assetsDir, savedPath string) string {
-	if assetsDir == "" {
-		return savedPath
-	}
-	if rel, err := filepath.Rel(filepath.Dir(assetsDir), savedPath); err == nil {
-		return rel
-	}
-	return savedPath
 }

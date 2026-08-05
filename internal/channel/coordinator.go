@@ -13,7 +13,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -72,10 +71,11 @@ type Coordinator struct {
 	publisherRegistry    *PublisherRegistry
 	groupDispatcher      *GroupDispatcher
 	db                   *pgxpool.Pool
-	assets               *asset.Store
 	guests               GuestStore
 	guestLimiter         *guestRateLimiter
-	homes                home.WorkspaceViewer
+	ingressAssets        interface {
+		WriteInboundAsset(context.Context, home.Key, string, []byte) (string, error)
+	}
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -85,10 +85,6 @@ func WithGuestStore(store GuestStore) CoordinatorOption {
 
 // CoordinatorOption configures the Coordinator.
 type CoordinatorOption func(*Coordinator)
-
-func WithHomeWorkspace(viewer home.WorkspaceViewer) CoordinatorOption {
-	return func(c *Coordinator) { c.homes = viewer }
-}
 
 // WithCoordinatorAuth configures the coordinator with auth support.
 func WithCoordinatorAuth(store channelAuthStore, agentAccess *agentaccess.Service, linkCodes *auth.LinkCodeStore) CoordinatorOption {
@@ -151,12 +147,13 @@ func WithVaultService(svc *vault.Service) CoordinatorOption {
 	}
 }
 
-// WithCoordinatorAssets injects the authoritative asset store so inbound channel
-// attachments are persisted durably (satisfies pkgchannel.AssetSaver).
-func WithCoordinatorAssets(a *asset.Store) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.assets = a
-	}
+// WithHomeAssetIngress supplies the narrow typed-Principal asset writer used
+// before HandleIncoming creates or uses any agent Session.
+func WithHomeAssetIngress(writer interface {
+	WriteInboundAsset(context.Context, home.Key, string, []byte) (string, error)
+},
+) CoordinatorOption {
+	return func(c *Coordinator) { c.ingressAssets = writer }
 }
 
 func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
@@ -658,43 +655,44 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 	return nil
 }
 
-// ResolveUserRoot resolves the per-user writable root for the sender in msg.
-// It performs the same user+agent resolution as HandleIncoming but stops before
-// starting a session, so it is cheap and safe to call before file downloads.
-// For group sessions, returns the group workspace instead of a per-user one.
-func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error) {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return "", fmt.Errorf("resolve user root: %w", err)
-	}
-	if rc.GuestID != "" {
-		return "", agentaccess.ErrForbidden
-	}
-	if c.homes == nil {
-		return "", errors.New("home workspace resolver not configured")
-	}
-	view, err := c.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: rc.User.ID, GroupID: rc.GroupID, AgentID: rc.AgentID})
-	if err != nil {
-		return "", fmt.Errorf("resolve Home workspace: %w", err)
-	}
-	return view.PrincipalRoot, nil
-}
-
 // SaveAsset persists an inbound channel attachment through the authoritative
 // asset store, satisfying pkgchannel.AssetSaver. It fails when no asset store is
 // configured rather than silently dropping the attachment.
-func (c *Coordinator) SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error) {
-	if c.assets == nil {
-		return "", fmt.Errorf("asset store is not configured")
+func (c *Coordinator) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMessage, fileName string, data []byte) (string, error) {
+	if c.ingressAssets == nil {
+		return "", fmt.Errorf("home asset ingress is not configured")
 	}
-	return c.assets.SaveAsset(ctx, assetsDir, fileName, data)
+	rc, err := c.resolve(ctx, msg)
+	if err != nil {
+		return "", fmt.Errorf("resolve inbound asset owner: %w", err)
+	}
+	key := home.Principal(home.UserPrincipal, rc.User.ID)
+	if rc.GroupID != "" {
+		key = home.Principal(home.GroupPrincipal, rc.GroupID)
+	}
+	return c.ingressAssets.WriteInboundAsset(ctx, key, fileName, data)
+}
+
+// AdmitAssetSave verifies attachment ownership before a plugin downloads bytes.
+func (c *Coordinator) AdmitAssetSave(ctx context.Context, msg pkgchannel.IncomingMessage) error {
+	if c.ingressAssets == nil {
+		return errors.New("home asset ingress is not configured")
+	}
+	rc, err := c.resolve(ctx, msg)
+	if err != nil {
+		return fmt.Errorf("resolve inbound asset owner: %w", err)
+	}
+	if rc.GuestID != "" {
+		return agentaccess.ErrForbidden
+	}
+	return nil
 }
 
 // compile-time checks.
 var (
-	_ pkgchannel.Handler          = (*Coordinator)(nil)
-	_ pkgchannel.Provisioner      = (*Coordinator)(nil)
-	_ pkgchannel.UserRootResolver = (*Coordinator)(nil)
-	_ pkgchannel.AssetSaver       = (*Coordinator)(nil)
-	_ pkgchannel.BotRegistrar     = (*Coordinator)(nil)
+	_ pkgchannel.Handler           = (*Coordinator)(nil)
+	_ pkgchannel.Provisioner       = (*Coordinator)(nil)
+	_ pkgchannel.AssetSaver        = (*Coordinator)(nil)
+	_ pkgchannel.AssetSaveAdmitter = (*Coordinator)(nil)
+	_ pkgchannel.BotRegistrar      = (*Coordinator)(nil)
 )

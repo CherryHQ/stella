@@ -16,6 +16,7 @@ const marker ctxKey = "marker"
 // the context each agent-facing method receives.
 type fullSurfaceHandler struct {
 	handle    context.Context
+	asset     context.Context
 	handleCtx string
 	assetCtx  string
 }
@@ -34,13 +35,15 @@ func (h *fullSurfaceHandler) ProvisionUser(context.Context, pkgchannel.Provision
 	return nil
 }
 
-func (h *fullSurfaceHandler) ResolveUserRoot(context.Context, pkgchannel.IncomingMessage) (string, error) {
-	return "", nil
+func (h *fullSurfaceHandler) AdmitAssetSave(ctx context.Context, _ pkgchannel.IncomingMessage) error {
+	h.asset = ctx
+	return nil
 }
 
-func (h *fullSurfaceHandler) SaveAsset(ctx context.Context, _, _ string, _ []byte) (string, error) {
+func (h *fullSurfaceHandler) SaveAsset(ctx context.Context, _ pkgchannel.IncomingMessage, _ string, _ []byte) (string, error) {
+	h.asset = ctx
 	h.assetCtx, _ = ctx.Value(marker).(string)
-	return "saved", nil
+	return "$STELLA_ASSETS_DIR/test", nil
 }
 
 func (h *fullSurfaceHandler) EnsurePlatformGroupMember(context.Context, string, string, string) error {
@@ -76,6 +79,20 @@ func TestWrapOperationHandlerUsesOperationLifetimeAndCallValues(t *testing.T) {
 	if err := inner.handle.Err(); err != nil {
 		t.Fatalf("poll cancellation leaked into accepted operation: %v", err)
 	}
+	admitter := wrapped.(pkgchannel.AssetSaveAdmitter)
+	if err := admitter.AdmitAssetSave(callCtx, pkgchannel.IncomingMessage{}); err != nil {
+		t.Fatalf("AdmitAssetSave: %v", err)
+	}
+	if got, _ := inner.asset.Value(marker).(string); got != "poll" {
+		t.Fatalf("AdmitAssetSave value = %q, want call-scoped value", got)
+	}
+	saver := wrapped.(pkgchannel.AssetSaver)
+	if _, err := saver.SaveAsset(callCtx, pkgchannel.IncomingMessage{}, "x", nil); err != nil {
+		t.Fatalf("SaveAsset: %v", err)
+	}
+	if got, _ := inner.asset.Value(marker).(string); got != "poll" {
+		t.Fatalf("SaveAsset value = %q, want call-scoped value", got)
+	}
 	cancelOperation()
 	select {
 	case <-inner.handle.Done():
@@ -94,14 +111,14 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 	if _, ok := wrapped.(pkgchannel.Provisioner); !ok {
 		t.Error("wrapper dropped Provisioner")
 	}
-	if _, ok := wrapped.(pkgchannel.UserRootResolver); !ok {
-		t.Error("wrapper dropped UserRootResolver")
+	if _, ok := wrapped.(pkgchannel.AssetSaveAdmitter); !ok {
+		t.Error("wrapper dropped AssetSaveAdmitter")
 	}
 	assetSaver, ok := wrapped.(pkgchannel.AssetSaver)
 	if !ok {
 		t.Fatal("wrapper dropped AssetSaver")
 	}
-	if _, err := assetSaver.SaveAsset(context.WithValue(context.Background(), marker, "asset"), "assets", "file", nil); err != nil {
+	if _, err := assetSaver.SaveAsset(context.WithValue(context.Background(), marker, "asset"), pkgchannel.IncomingMessage{}, "file", nil); err != nil {
 		t.Fatalf("SaveAsset: %v", err)
 	}
 	if inner.assetCtx != "asset" {

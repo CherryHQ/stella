@@ -1,6 +1,7 @@
 package home
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -363,6 +364,22 @@ func (s *LocalStore) syncMutableAsset(ctx context.Context, home Record, relative
 			return nil
 		}
 	}
+}
+
+// writeInboundAsset uses the same no-replace, durable contained publication as
+// the migration writer. It is only reachable through Registry.WriteInboundAsset.
+func (s *LocalStore) writeInboundAsset(ctx context.Context, home Record, relative string, content []byte) error {
+	_, published, err := s.installMutableAsset(ctx, home, relative, io.NopCloser(bytes.NewReader(content)))
+	if err != nil {
+		if published {
+			return fmt.Errorf("%w: inbound asset published: %w", sandbox.ErrOutcomeUnknown, err)
+		}
+		return err
+	}
+	if err := s.syncMutableAsset(ctx, home, relative); err != nil {
+		return fmt.Errorf("%w: inbound asset published: %w", sandbox.ErrOutcomeUnknown, err)
+	}
+	return nil
 }
 
 func (s *LocalStore) mutableAssetRoot(home Record, relative string) (*os.Root, string, error) {

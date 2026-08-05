@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -177,7 +176,7 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 		content = append(content, ai.TextContent{Text: caption})
 	}
 
-	assetsDir := b.resolveAssetsDir(msg)
+	probe := b.incomingMsg(msg, nil)
 	for _, imageItem := range images {
 		data, err := b.downloadImage(msg.FromUserID, imageItem)
 		if err != nil {
@@ -187,14 +186,12 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 		mimeType := http.DetectContentType(data)
 		logger().Debug("image received", "user_id", msg.FromUserID, "size", len(data), "mime", mimeType)
 		fileName := channel.ImageFileName("image", mimeType)
-		if assetsDir != "" {
-			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
-			if saveErr == nil {
-				content = append(content, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)...)
-				continue
-			}
-			logger().Warn("save inbound image failed", "user_id", msg.FromUserID, "error", saveErr)
+		savedPath, saveErr := b.saveAsset(b.ctx, probe, fileName, data)
+		if saveErr == nil {
+			content = append(content, channel.AttachmentReceivedContent(fileName, savedPath, data)...)
+			continue
 		}
+		logger().Warn("save inbound image failed", "user_id", msg.FromUserID, "error", saveErr)
 		// Persistence unavailable — degrade to inline within the ceiling; images
 		// past the inline limit become an explicit text note instead.
 		content = append(content, channel.InlineImageFallback(fileName, mimeType, data)...)
@@ -210,19 +207,6 @@ func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption strin
 	b.handleIncoming(msg, incoming, "", "")
 }
 
-// resolveAssetsDir returns the user assets directory for msg, or "" if unavailable.
-func (b *Bot) resolveAssetsDir(msg WeixinMessage) string {
-	if resolver, ok := b.handler.(channel.UserRootResolver); ok {
-		probeMsg := b.incomingMsg(msg, nil)
-		if userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg); err == nil {
-			return agent.UserAssetsDir(userRoot)
-		} else {
-			logger().Warn("resolve user root failed", "user_id", msg.FromUserID, "error", err)
-		}
-	}
-	return ""
-}
-
 // handleVoice handles a voice message item.
 // Preference order:
 //  1. Transcription text present: route as text message.
@@ -236,12 +220,6 @@ func (b *Bot) handleVoice(msg WeixinMessage, voiceItem *VoiceItem) {
 
 	if voiceItem.Media == nil || voiceItem.Media.EncryptQueryParam == "" {
 		logger().Debug("voice item has no transcription and no CDN reference", "user_id", msg.FromUserID)
-		return
-	}
-
-	assetsDir := b.resolveAssetsDir(msg)
-	if assetsDir == "" {
-		b.sendReply(msg, "[Voice message] (storage unavailable)")
 		return
 	}
 
@@ -272,7 +250,7 @@ func (b *Bot) handleVoice(msg WeixinMessage, voiceItem *VoiceItem) {
 		fileData = wav
 	}
 
-	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, fileData)
+	savedPath, err := b.saveAsset(b.ctx, b.incomingMsg(msg, nil), fileName, fileData)
 	if err != nil {
 		logger().Error("save voice asset failed", "user_id", msg.FromUserID, "error", err)
 		b.sendReply(msg, "[Voice message] (save failed)")
@@ -280,7 +258,7 @@ func (b *Bot) handleVoice(msg WeixinMessage, voiceItem *VoiceItem) {
 	}
 
 	logger().Debug("voice file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(fileData))
-	incoming := b.incomingMsg(msg, channel.FileReceivedContent(fileName, assetsDir, savedPath))
+	incoming := b.incomingMsg(msg, channel.FileReceivedContent(fileName, savedPath))
 	b.handleIncoming(msg, incoming, "", "")
 }
 
@@ -290,12 +268,6 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 	fileName := fileItem.FileName
 	if fileName == "" {
 		fileName = "file"
-	}
-
-	assetsDir := b.resolveAssetsDir(msg)
-	if assetsDir == "" {
-		b.sendReply(msg, fmt.Sprintf("[File: %s] (storage unavailable)", fileName))
-		return
 	}
 
 	// Download from CDN.
@@ -325,7 +297,7 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 		}
 	}
 
-	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
+	savedPath, err := b.saveAsset(b.ctx, b.incomingMsg(msg, nil), fileName, data)
 	if err != nil {
 		// Persistence failed after a successful download — route a fallback to the
 		// agent (image bytes inline within the ceiling, other files as a
@@ -338,7 +310,7 @@ func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
 
 	logger().Debug("file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(data))
 
-	incoming := b.incomingMsg(msg, channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data))
+	incoming := b.incomingMsg(msg, channel.AttachmentReceivedContent(fileName, savedPath, data))
 	b.handleIncoming(msg, incoming, "", "")
 }
 
