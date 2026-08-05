@@ -217,16 +217,33 @@ export function AppChromeFooter() {
         <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-64">
           <DropdownMenuGroup>
             <DropdownMenuLabel>
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate text-sm font-medium text-foreground" title={displayName}>
-                  {displayName}
-                </span>
-                {name && (
-                  <span className="truncate text-xs text-muted-foreground" title={me.username}>
-                    {me.username}
-                  </span>
-                )}
-                {me.is_admin && <span className="text-xs text-muted-foreground">admin</span>}
+              {/* The identity card mirrors the trigger: avatar, human name, an
+                  admin badge — and the sign-in username demoted to fine print. */}
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Avatar className="size-8 shrink-0">
+                  {me.avatar_url && <AvatarImage src={me.avatar_url} alt="" />}
+                  <AvatarFallback className="text-xs font-semibold">{initial}</AvatarFallback>
+                </Avatar>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className="truncate text-sm font-medium text-foreground"
+                      title={displayName}
+                    >
+                      {displayName}
+                    </span>
+                    {me.is_admin && (
+                      <Badge variant="secondary" size="sm">
+                        admin
+                      </Badge>
+                    )}
+                  </div>
+                  {name && (
+                    <span className="truncate text-xs text-muted-foreground" title={me.username}>
+                      {me.username}
+                    </span>
+                  )}
+                </div>
               </div>
             </DropdownMenuLabel>
           </DropdownMenuGroup>

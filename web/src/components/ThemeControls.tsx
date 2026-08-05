@@ -63,14 +63,18 @@ export function ThemeAppearanceControl({ layout = "stacked" }: { layout?: "stack
   const inline = layout === "inline";
 
   return (
-    <div className={cn("flex flex-col", inline ? "gap-1.5" : "gap-2.5")}>
+    // Inline is one row — label left, a compact segmented control right — so it
+    // reads as a menu row instead of a full-width slab of empty pill.
+    <div
+      className={cn(inline ? "flex items-center justify-between gap-3" : "flex flex-col gap-2.5")}
+    >
       <span className="px-0.5 text-xs font-medium text-muted-foreground">
         {t("header.appearance")}
       </span>
       <div
         className={cn(
-          "grid grid-cols-3 rounded-xl bg-muted",
-          inline ? "gap-1 p-1" : "gap-1.5 p-1.5",
+          "grid grid-cols-3 bg-muted",
+          inline ? "shrink-0 gap-0.5 rounded-lg p-0.5" : "gap-1.5 rounded-xl p-1.5",
         )}
       >
         {APPEARANCES.map((appearance) => {
@@ -92,8 +96,8 @@ export function ThemeAppearanceControl({ layout = "stacked" }: { layout?: "stack
               aria-label={label}
               title={inline ? label : undefined}
               className={cn(
-                "flex items-center justify-center rounded-lg text-xs whitespace-nowrap transition-colors",
-                inline ? "py-1.5" : "flex-col gap-1.5 py-2.5",
+                "flex items-center justify-center whitespace-nowrap text-xs transition-colors",
+                inline ? "rounded-md px-2.5 py-1" : "flex-col gap-1.5 rounded-lg py-2.5",
                 active
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
