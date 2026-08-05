@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
@@ -178,6 +179,9 @@ function InboxBell() {
  */
 export function AppChromeFooter() {
   const { data: me } = useQuery(meQueryOptions);
+  // The menu anchors to the whole footer row, not the trigger button, so its
+  // width tracks the sidebar column instead of drifting past its edge.
+  const anchorRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { t, locale, setLocale } = useI18n();
@@ -198,7 +202,7 @@ export function AppChromeFooter() {
   const initial = displayName.trim()[0]?.toUpperCase() ?? "?";
 
   return (
-    <div className="flex min-w-0 items-center gap-0.5">
+    <div ref={anchorRef} className="flex min-w-0 items-center gap-0.5">
       <DropdownMenu>
         <DropdownMenuTrigger
           render={<Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start" />}
@@ -214,7 +218,13 @@ export function AppChromeFooter() {
           </span>
           <ChevronsUpDown />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-64">
+        <DropdownMenuContent
+          anchor={anchorRef}
+          align="start"
+          side="top"
+          sideOffset={8}
+          className="w-(--anchor-width)"
+        >
           <DropdownMenuGroup>
             <DropdownMenuLabel>
               {/* The identity card mirrors the trigger: avatar, human name, an
