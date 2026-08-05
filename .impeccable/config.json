@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-08-05T14:08:41.161Z",
+        "reason": "Operate-mode app chrome; Inter chosen for small-size UI legibility per web-design.md"
+      }
+    ]
+  }
+}

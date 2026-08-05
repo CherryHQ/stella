@@ -24,5 +24,9 @@ resources/binaries/binaries/*/*.gz
 internal/agent/runner/.agents/
 .chorus/
 
-# Impeccable design-skill local caches and critique artifacts
-.impeccable/
+# Impeccable design-skill local caches and critique artifacts. config.json is
+# the reviewable half — it holds the detector suppressions the whole repo shares,
+# so a rule someone deliberately waived stays waived for everyone.
+.impeccable/*
+!.impeccable/config.json
+web/.impeccable/
