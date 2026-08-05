@@ -78,6 +78,37 @@ describe("sessionDisplayTitle", () => {
     );
   });
 
+  it("decodes unicode escapes, which is how most senders send non-ASCII", () => {
+    // Python's json.dumps escapes by default, so this is the common shape, not
+    // an edge case — and it is exactly the history this helper exists to fix.
+    expect(
+      sessionDisplayTitle('{"event":"deploy","message":"\\u90e8\\u7f72\\u5b8c\\u6210"}', UNTITLED),
+    ).toBe("deploy · 部署完成");
+    expect(sessionDisplayTitle('{"event":"emoji","message":"\\ud83d\\ude80 up"}', UNTITLED)).toBe(
+      "emoji · 🚀 up",
+    );
+  });
+
+  it("keeps an escaped backslash instead of eating the character after it", () => {
+    expect(sessionDisplayTitle('{"event":"literal","message":"a\\\\nb"}', UNTITLED)).toBe(
+      "literal · a\\nb",
+    );
+  });
+
+  it("survives a cut that lands inside an escape", () => {
+    // 60-character truncation does not respect escape boundaries.
+    expect(sessionDisplayTitle('{"event":"deploy","message":"done \\u90e', UNTITLED)).toBe(
+      "deploy · done",
+    );
+    expect(sessionDisplayTitle('{"event":"deploy","message":"done \\', UNTITLED)).toBe(
+      "deploy · done",
+    );
+  });
+
+  it("matches the backend on key case", () => {
+    expect(sessionDisplayTitle('{"Event":"Deploy","Message":"ok"}', UNTITLED)).toBe("Deploy · ok");
+  });
+
   it("handles an array payload", () => {
     expect(sessionDisplayTitle('[{"event":"batch","message":"3 items"}]', UNTITLED)).toBe(
       "batch · 3 items",

@@ -69,7 +69,20 @@ func jsonTitle(msgText string) string {
 	return strings.Join(parts, " · ")
 }
 
-type jsonPair struct{ key, value string }
+type jsonPair struct {
+	key, value string
+	depth      int // nesting level of the object holding the key; 0 is top level
+}
+
+// jsonFrame is one open container. `hasKey` is a separate flag rather than a
+// `key != ""` test because the empty string is a legal JSON key: using the value
+// as its own presence sentinel makes `{"":"noise","event":"deploy"}` read
+// "noise" as a key and pair up (event, deploy)'s neighbours instead.
+type jsonFrame struct {
+	key     string
+	hasKey  bool
+	inArray bool
+}
 
 // jsonStringPairs walks the payload in document order and returns every
 // key/string-value pair, at any depth. Order matters: it is the fallback's only
@@ -77,10 +90,16 @@ type jsonPair struct{ key, value string }
 func jsonStringPairs(payload string) []jsonPair {
 	dec := json.NewDecoder(strings.NewReader(payload))
 	var (
-		pairs   []jsonPair
-		keys    []string // pending key per open object, "" inside an array
-		inArray []bool
+		pairs  []jsonPair
+		frames []jsonFrame
 	)
+	// clearKey marks the innermost still-open container as expecting a key
+	// again, which is what "a value just ended" means.
+	clearKey := func() {
+		if n := len(frames); n > 0 {
+			frames[n-1].hasKey = false
+		}
+	}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
@@ -91,52 +110,60 @@ func jsonStringPairs(payload string) []jsonPair {
 		case json.Delim:
 			switch t {
 			case '{':
-				keys = append(keys, "")
-				inArray = append(inArray, false)
+				frames = append(frames, jsonFrame{})
 			case '[':
-				keys = append(keys, "")
-				inArray = append(inArray, true)
+				frames = append(frames, jsonFrame{inArray: true})
 			case '}', ']':
-				if len(keys) > 0 {
-					keys, inArray = keys[:len(keys)-1], inArray[:len(inArray)-1]
+				if len(frames) > 0 {
+					frames = frames[:len(frames)-1]
 				}
 				// The container that just closed *was* the parent's pending
 				// value. Leaving the key set would make the next sibling key
 				// read as its value, so `{"meta":{...},"event":"push"}` would
 				// yield the pair (meta, event).
-				if depth := len(keys) - 1; depth >= 0 {
-					keys[depth] = ""
-				}
+				clearKey()
 			}
 		case string:
-			depth := len(keys) - 1
+			depth := len(frames) - 1
 			if depth < 0 {
 				return pairs
 			}
+			frame := &frames[depth]
 			// Inside an object, a string alternates key then value.
-			if !inArray[depth] && keys[depth] == "" {
-				keys[depth] = t
+			if !frame.inArray && !frame.hasKey {
+				frame.key, frame.hasKey = t, true
 				continue
 			}
 			if v := collapseSpace(t); v != "" {
-				pairs = append(pairs, jsonPair{key: keys[depth], value: v})
+				pairs = append(pairs, jsonPair{key: frame.key, value: v, depth: depth})
 			}
-			keys[depth] = ""
+			frame.hasKey = false
 		default:
 			// Numbers, bools and null are values; clear any pending key so the
 			// next string is read as a key again.
-			if depth := len(keys) - 1; depth >= 0 {
-				keys[depth] = ""
-			}
+			clearKey()
 		}
 	}
 }
 
+// pickKey chooses the value whose key best names the payload.
+//
+// Shallowest wins before best-named does. A webhook says what happened at the
+// top level and carries metadata underneath, so ranking by key alone lets a
+// nested `type` outrank a top-level `action` — `{"action":"opened","sender":
+// {"type":"User"}}` gets titled after the sender. Depth is the stronger signal:
+// the outer object is the message, the inner ones describe its parts.
 func pickKey(pairs []jsonPair, wanted []string) string {
-	for _, want := range wanted {
-		for _, p := range pairs {
-			if strings.EqualFold(p.key, want) {
-				return p.value
+	deepest := 0
+	for _, p := range pairs {
+		deepest = max(deepest, p.depth)
+	}
+	for depth := 0; depth <= deepest; depth++ {
+		for _, want := range wanted {
+			for _, p := range pairs {
+				if p.depth == depth && strings.EqualFold(p.key, want) {
+					return p.value
+				}
 			}
 		}
 	}

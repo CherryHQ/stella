@@ -25,6 +25,21 @@ func TestAutoTitleReadsJSONPayloads(t *testing.T) {
 			"push · main",
 		},
 		{"case-insensitive keys", `{"Event":"Deploy","Message":"ok"}`, "Deploy · ok"},
+		{
+			// A GitHub webhook says what happened at the top level and describes
+			// the actor underneath. Ranking by key name alone titles it after
+			// the sender, because `type` outranks `action` in titleLabelKeys.
+			"a top-level label outranks a better-named nested one",
+			`{"action":"opened","sender":{"type":"User"},"message":"pull request"}`,
+			"opened · pull request",
+		},
+		{
+			// The empty string is a legal key. Treating it as "no key yet"
+			// shifts the walker by one and pairs up the *keys* that follow.
+			"an empty key does not desynchronize the walker",
+			`{"":"noise","event":"deploy","message":"ok"}`,
+			"deploy · ok",
+		},
 		{"unescapes and flattens", `{"event":"ci","message":"line one\nline two"}`, "ci · line one line two"},
 		{"skips empty values", `{"event":"","message":"only a body"}`, "only a body"},
 	}
