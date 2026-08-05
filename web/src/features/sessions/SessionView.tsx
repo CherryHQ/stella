@@ -67,7 +67,7 @@ export function SessionView() {
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
-  const [projectDir, setProjectDir] = useState("");
+  const projectDir = project?.path ?? "";
 
   const [rightWidth, setRightWidth] = useState(RIGHT_DEFAULT);
   const dragging = useRef(false);
@@ -125,24 +125,14 @@ export function SessionView() {
           query: { show_hidden: true, depth: 2, ...(scopePath ? { path: scopePath } : {}) },
           throwOnError: true,
         });
-        const workspace = data;
-        setWorkspace(workspace);
-        if (
-          !scopePath &&
-          project?.base_dir &&
-          workspace.root &&
-          project.base_dir.startsWith(workspace.root + "/")
-        ) {
-          const rel = project.base_dir.slice(workspace.root.length + 1);
-          if (rel) setProjectDir(rel);
-        }
+        setWorkspace(data);
       } catch {
         setWorkspace(null);
       } finally {
         setWorkspaceLoading(false);
       }
     },
-    [agentId, project?.base_dir],
+    [agentId],
   );
 
   useEffect(() => {

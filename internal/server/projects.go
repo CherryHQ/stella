@@ -21,7 +21,7 @@ func projectError(err error) (int, string) {
 	case errors.Is(err, agent.ErrProjectNotFound):
 		return http.StatusNotFound, "project not found"
 	case errors.Is(err, agent.ErrInvalidBaseDir):
-		return http.StatusBadRequest, "invalid base_dir"
+		return http.StatusBadRequest, "invalid path"
 	case errors.Is(err, agent.ErrWorkspaceSetup):
 		return http.StatusInternalServerError, "failed to resolve workspace"
 	case errors.Is(err, agentaccess.ErrNotFound), errors.Is(err, agentaccess.ErrForbidden):
@@ -68,25 +68,43 @@ func (s *Server) CreateProject(w http.ResponseWriter, r *http.Request, agentID s
 	if !ok {
 		return
 	}
-	var body apiserver.CreateProjectJSONRequestBody
-	if err := decodeJSON(r, &body); err != nil {
+	body, err := decodeCreateProjectRequest(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}
-	if body.Name == "" {
+	if body.name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if body.BaseDir == "" {
-		writeError(w, http.StatusBadRequest, "base_dir is required")
+	if body.path == nil {
+		writeError(w, http.StatusBadRequest, "path is required")
 		return
 	}
-	p, err := s.projectStore.Create(r.Context(), authority, agentID, body.Name, body.BaseDir, body.Description)
+	p, err := s.projectStore.Create(r.Context(), authority, agentID, body.name, *body.path, body.description)
 	if err != nil {
 		s.writeProjectError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, toProjectResponse(p))
+}
+
+type createProjectRequest struct {
+	name        string
+	path        *string
+	description *string
+}
+
+func decodeCreateProjectRequest(r *http.Request) (createProjectRequest, error) {
+	var wire struct {
+		Name        string  `json:"name"`
+		Path        *string `json:"path"`
+		Description *string `json:"description"`
+	}
+	if err := decodeJSON(r, &wire); err != nil {
+		return createProjectRequest{}, err
+	}
+	return createProjectRequest{name: wire.Name, path: wire.Path, description: wire.Description}, nil
 }
 
 func (s *Server) GetProject(w http.ResponseWriter, r *http.Request, agentID string, projectID string) {
@@ -114,7 +132,7 @@ func (s *Server) UpdateProject(w http.ResponseWriter, r *http.Request, agentID s
 	}
 	updated, err := s.projectStore.Update(r.Context(), authority, agentID, projectID, agent.ProjectUpdate{
 		Name:        body.Name,
-		BaseDir:     body.BaseDir,
+		Path:        body.Path,
 		Description: body.Description,
 	})
 	if err != nil {
@@ -157,7 +175,7 @@ type projectResponse struct {
 	AgentID     string    `json:"agent_id"`
 	UserID      string    `json:"user_id"`
 	Name        string    `json:"name"`
-	BaseDir     string    `json:"base_dir"`
+	Path        string    `json:"path"`
 	Description string    `json:"description,omitempty"`
 	Archived    bool      `json:"archived"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -170,7 +188,7 @@ func toProjectResponse(p agent.Project) projectResponse {
 		AgentID:     p.AgentID,
 		UserID:      p.UserID,
 		Name:        p.Name,
-		BaseDir:     p.BaseDir,
+		Path:        p.Path,
 		Description: p.Description,
 		Archived:    p.Archived,
 		CreatedAt:   p.CreatedAt,

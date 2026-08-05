@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,7 +69,7 @@ type Project struct {
 	AgentID     string
 	UserID      string
 	Name        string
-	BaseDir     string
+	Path        string
 	Description string
 	Archived    bool
 	CreatedAt   time.Time
@@ -81,8 +83,8 @@ var (
 	// project owned by another user, or one bound to a different route agent (a
 	// route-agent mismatch never confirms the project exists).
 	ErrProjectNotFound = errors.New("project not found")
-	// ErrInvalidBaseDir reports a base_dir that escapes the agent workspace (400).
-	ErrInvalidBaseDir = errors.New("invalid base_dir")
+	// ErrInvalidBaseDir reports a project path that escapes the agent workspace (400).
+	ErrInvalidBaseDir = errors.New("invalid path")
 	// ErrWorkspaceSetup reports a failure to resolve/create the agent workspace (500).
 	ErrWorkspaceSetup = errors.New("failed to resolve workspace")
 )
@@ -91,7 +93,7 @@ var (
 // stored value unchanged.
 type ProjectUpdate struct {
 	Name        *string
-	BaseDir     *string
+	Path        *string
 	Description *string
 }
 
@@ -119,19 +121,24 @@ func (s *ProjectStore) List(ctx context.Context, authority authz.Authority, agen
 	}
 	out := make([]Project, 0, len(rows))
 	for _, p := range rows {
-		out = append(out, projectFromRow(p))
+		project, err := s.projectFromRow(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, project)
 	}
 	return out, nil
 }
 
 // Create persists a new project for the caller under the agent, after validating
-// that base_dir is contained in the agent workspace. Gated on agent read access.
-func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, agentID, name, baseDir string, description *string) (Project, error) {
+// that path is contained in the agent workspace. Gated on agent read access.
+func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, agentID, name, projectPath string, description *string) (Project, error) {
 	if err := s.gate(ctx, authority, agentID); err != nil {
 		return Project{}, err
 	}
 	userID := string(authority.UserID())
-	if err := s.validateBaseDir(ctx, userID, agentID, baseDir); err != nil {
+	baseDir, err := s.absoluteProjectPath(ctx, userID, agentID, projectPath)
+	if err != nil {
 		return Project{}, err
 	}
 	p, err := s.q.CreateProject(ctx, sqlc.CreateProjectParams{
@@ -145,7 +152,7 @@ func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, ag
 	if err != nil {
 		return Project{}, err
 	}
-	return projectFromRow(p), nil
+	return s.projectFromRow(ctx, p)
 }
 
 // Get returns one owned project bound to the route agent. A missing project, a
@@ -158,7 +165,7 @@ func (s *ProjectStore) Get(ctx context.Context, authority authz.Authority, agent
 	if err != nil {
 		return Project{}, err
 	}
-	return projectFromRow(p), nil
+	return s.projectFromRow(ctx, p)
 }
 
 // Update merges the provided fields into an owned project bound to the route
@@ -177,11 +184,12 @@ func (s *ProjectStore) Update(ctx context.Context, authority authz.Authority, ag
 		name = *in.Name
 	}
 	baseDir := existing.BaseDir
-	if in.BaseDir != nil {
-		if err := s.validateBaseDir(ctx, userID, agentID, *in.BaseDir); err != nil {
+	if in.Path != nil {
+		resolved, err := s.absoluteProjectPath(ctx, userID, agentID, *in.Path)
+		if err != nil {
 			return Project{}, err
 		}
-		baseDir = *in.BaseDir
+		baseDir = resolved
 	}
 	description := existing.Description
 	if in.Description != nil {
@@ -200,7 +208,7 @@ func (s *ProjectStore) Update(ctx context.Context, authority authz.Authority, ag
 	if err != nil {
 		return Project{}, err
 	}
-	return projectFromRow(updated), nil
+	return s.projectFromRow(ctx, updated)
 }
 
 // Delete removes an owned project bound to the route agent.
@@ -231,24 +239,72 @@ func (s *ProjectStore) getOwned(ctx context.Context, userID, agentID, projectID 
 	return p, nil
 }
 
-// validateBaseDir ensures the agent workspace exists and base_dir is contained in
-// it (a project is owned by the agent, #442, so it must live under the agent's
-// subdir of the user home). It resolves the process-global home once.
-func (s *ProjectStore) validateBaseDir(ctx context.Context, userID, agentID, baseDir string) error {
+// absoluteProjectPath converts the public canonical relative path into the
+// private legacy absolute base_dir the current runner still consumes.
+func (s *ProjectStore) absoluteProjectPath(ctx context.Context, userID, agentID, relative string) (string, error) {
 	if s.homes == nil {
-		return ErrWorkspaceSetup
+		return "", ErrWorkspaceSetup
 	}
 	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
 	if err != nil {
-		return ErrWorkspaceSetup
+		return "", ErrWorkspaceSetup
+	}
+	if err := validateProjectPath(relative); err != nil {
+		return "", ErrInvalidBaseDir
+	}
+	baseDir := view.AgentRoot
+	if relative != "" {
+		baseDir = filepath.Join(view.AgentRoot, filepath.FromSlash(relative))
 	}
 	if err := ValidateProjectDir(baseDir, view.AgentRoot); err != nil {
+		return "", ErrInvalidBaseDir
+	}
+	return baseDir, nil
+}
+
+func validateProjectPath(value string) error {
+	if value == "" {
+		return nil
+	}
+	if path.IsAbs(value) || filepath.IsAbs(value) || strings.Contains(value, `\`) || path.Clean(value) != value {
 		return ErrInvalidBaseDir
+	}
+	for segment := range strings.SplitSeq(value, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return ErrInvalidBaseDir
+		}
+		for _, r := range segment {
+			if r == ':' || r == 0 || r < 0x20 || r == 0x7f {
+				return ErrInvalidBaseDir
+			}
+		}
 	}
 	return nil
 }
 
-func projectFromRow(p sqlc.Project) Project {
+func (s *ProjectStore) projectFromRow(ctx context.Context, p sqlc.Project) (Project, error) {
+	if s.homes == nil {
+		return Project{}, ErrWorkspaceSetup
+	}
+	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: p.UserID, AgentID: p.AgentID})
+	if err != nil {
+		return Project{}, ErrWorkspaceSetup
+	}
+	if err := ValidateProjectDir(p.BaseDir, view.AgentRoot); err != nil {
+		return Project{}, ErrInvalidBaseDir
+	}
+	relative, err := filepath.Rel(view.AgentRoot, p.BaseDir)
+	if err != nil {
+		return Project{}, ErrInvalidBaseDir
+	}
+	if relative == "." {
+		relative = ""
+	} else {
+		relative = filepath.ToSlash(relative)
+	}
+	if err := validateProjectPath(relative); err != nil {
+		return Project{}, ErrInvalidBaseDir
+	}
 	description := ""
 	if p.Description.Valid {
 		description = p.Description.String
@@ -258,12 +314,12 @@ func projectFromRow(p sqlc.Project) Project {
 		AgentID:     p.AgentID,
 		UserID:      p.UserID,
 		Name:        p.Name,
-		BaseDir:     p.BaseDir,
+		Path:        relative,
 		Description: description,
 		Archived:    p.Archived,
 		CreatedAt:   p.CreatedAt.UTC(),
 		UpdatedAt:   p.UpdatedAt.UTC(),
-	}
+	}, nil
 }
 
 // isProjectNotFound mirrors the transport's not-found predicate: an empty result

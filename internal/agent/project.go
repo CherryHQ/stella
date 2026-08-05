@@ -52,7 +52,7 @@ func ValidateProjectDir(baseDir, userRoot string) error {
 	if err != nil {
 		return fmt.Errorf("base_dir is not under user workspace")
 	}
-	if strings.HasPrefix(rel, "..") {
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("base_dir must be under user workspace")
 	}
 

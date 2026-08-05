@@ -2856,7 +2856,7 @@ components:
         agent_id,
         user_id,
         name,
-        base_dir,
+        path,
         archived,
         created_at,
         updated_at,
@@ -2870,8 +2870,9 @@ components:
           type: string
         name:
           type: string
-        base_dir:
+        path:
           type: string
+          description: Canonical path relative to the agent workspace; empty selects its root.
         description:
           type: string
         archived:
@@ -2884,11 +2885,11 @@ components:
           format: date-time
     CreateProjectRequest:
       type: object
-      required: [name, base_dir]
+      required: [name, path]
       properties:
         name:
           type: string
-        base_dir:
+        path:
           type: string
         description:
           type: string
@@ -2897,7 +2898,7 @@ components:
       properties:
         name:
           type: string
-        base_dir:
+        path:
           type: string
         description:
           type: string

@@ -142,23 +142,16 @@ function toFolderSegment(name: string): string {
     .replace(/^\.+/, "");
 }
 
-function joinPath(root: string, rel: string): string {
-  const base = root.replace(/\/$/, "");
-  return rel ? `${base}/${rel}` : base;
-}
-
 function FolderTree({
   agentId,
   sessionId,
   selected,
   onSelect,
-  onRootResolved,
 }: {
   agentId: string;
   sessionId: string;
   selected: string;
   onSelect: (path: string) => void;
-  onRootResolved: (root: string) => void;
 }) {
   const { t } = useI18n();
   const [dirs, setDirs] = useState<DirEntry[]>([]);
@@ -176,7 +169,6 @@ function FolderTree({
       ({ data }) => {
         if (cancelled) return;
         setDirs(parseDirs(data.paths));
-        if (data.root) onRootResolved(data.root);
         setLoading(false);
       },
       () => {
@@ -186,7 +178,7 @@ function FolderTree({
     return () => {
       cancelled = true;
     };
-  }, [agentId, sessionId, onRootResolved]);
+  }, [agentId, sessionId]);
 
   if (loading) {
     return <p className="px-2 py-3 text-xs text-muted-foreground">{t("common.loading")}</p>;
@@ -263,7 +255,6 @@ function CreateProjectDialog({
   onClose: () => void;
 }) {
   const { t } = useI18n();
-  const [root, setRoot] = useState("");
   const [selectedDir, setSelectedDir] = useState("");
   const [name, setName] = useState("");
   const [showLocation, setShowLocation] = useState(false);
@@ -279,7 +270,7 @@ function CreateProjectDialog({
   const relDir = custom ? selectedDir : segment;
   const folderBasename = selectedDir.split("/").pop() ?? "";
   const effectiveName = custom ? name.trim() || folderBasename : name.trim();
-  const canSubmit = !!root && !!relDir && !!effectiveName && !submitting;
+  const canSubmit = !!relDir && !!effectiveName && !submitting;
 
   const submit = useCallback(async () => {
     if (!canSubmit) return;
@@ -288,7 +279,7 @@ function CreateProjectDialog({
     try {
       await createProject({
         path: { agentId },
-        body: { name: effectiveName, base_dir: joinPath(root, relDir) },
+        body: { name: effectiveName, path: relDir },
         throwOnError: true,
       });
       onCreated();
@@ -296,7 +287,7 @@ function CreateProjectDialog({
       setError(err instanceof Error ? err.message : "Failed to create project");
       setSubmitting(false);
     }
-  }, [agentId, canSubmit, effectiveName, onCreated, relDir, root]);
+  }, [agentId, canSubmit, effectiveName, onCreated, relDir]);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -346,7 +337,6 @@ function CreateProjectDialog({
                     sessionId={sessionId}
                     selected={selectedDir}
                     onSelect={setSelectedDir}
-                    onRootResolved={setRoot}
                   />
                 </div>
               </CollapsibleContent>
