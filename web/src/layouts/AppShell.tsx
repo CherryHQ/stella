@@ -108,7 +108,9 @@ export function AppShell({
             <AppChromeHeader />
           </SidebarHeader>
           <SidebarContent>{sidebar}</SidebarContent>
-          <SidebarFooter className="shrink-0">
+          {/* The sidebar's only rule: it fences off the pinned footer (design
+              says lines are scarce — hierarchy elsewhere comes from type). */}
+          <SidebarFooter className="shrink-0 border-t">
             <AppChromeFooter />
           </SidebarFooter>
         </Sidebar>

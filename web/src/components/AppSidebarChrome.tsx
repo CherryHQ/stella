@@ -15,7 +15,7 @@ import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
-import { ThemeAppearanceControl } from "@/components/ThemeControls";
+import { ThemeAccentControl, ThemeAppearanceControl } from "@/components/ThemeControls";
 import { useGlobalSearch } from "@/components/GlobalSearch";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -202,10 +202,27 @@ export function AppChromeFooter() {
   const initial = displayName.trim()[0]?.toUpperCase() ?? "?";
 
   return (
-    <div ref={anchorRef} className="flex min-w-0 items-center gap-0.5">
+    // Two stacked full-width rows: a lone icon beside a stretched pill reads as
+    // two unrelated widths, so Settings gets the same row shape as the user.
+    // Settings is a secondary entry, so it sits in muted; the identity row keeps
+    // full foreground as the anchor of the footer.
+    <div ref={anchorRef} className="flex min-w-0 flex-col gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full min-w-0 justify-start text-muted-foreground"
+        render={<Link to="/settings" />}
+      >
+        {/* The leading slot matches the avatar's box so both rows' labels share
+            one left edge. */}
+        <span className="flex size-6 shrink-0 items-center justify-center">
+          <Settings />
+        </span>
+        {t("nav.settings")}
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger
-          render={<Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start" />}
+          render={<Button variant="ghost" size="sm" className="w-full min-w-0 justify-start" />}
         >
           <Avatar className="size-6">
             {me.avatar_url && <AvatarImage src={me.avatar_url} alt="" />}
@@ -277,10 +294,12 @@ export function AppChromeFooter() {
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          {/* Only the light/dark/system switch lives here — it is a one-tap toggle.
-              Accent color is a rarer, wider control and lives on the account page. */}
-          <div className="p-2">
+          {/* The full theme block (appearance + accent): this menu is the one
+              always-reachable home for personalization, so hiding accent on the
+              account page made it effectively lost. */}
+          <div className="flex flex-col gap-3 p-2">
             <ThemeAppearanceControl layout="inline" />
+            <ThemeAccentControl />
           </div>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
@@ -291,17 +310,6 @@ export function AppChromeFooter() {
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      {/* Settings is the most-visited destination down here, so it keeps its
-          own always-visible entry instead of hiding one click deep in the menu. */}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={t("nav.settings")}
-        title={t("nav.settings")}
-        render={<Link to="/settings" />}
-      >
-        <Settings />
-      </Button>
     </div>
   );
 }
