@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, Plus, Puzzle, SquarePen, Trash2 } from "lucide-react";
+import { Lock, Plus, Store, Trash2, Upload, Wand2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -13,9 +13,26 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/menu";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { deleteAgentSkill, updateAgentSkill } from "@/lib/api-client/sdk.gen";
+import { deleteAgentSkill, updateAgentSkill, uploadAgentSkill } from "@/lib/api-client/sdk.gen";
+import { apiErrorMessage } from "@/lib/api-error";
 import { agentSkillsOptions } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
 import {
@@ -29,6 +46,7 @@ import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import type { Skill } from "@/lib/types";
 import { ProfilePanelSection, ProfileSectionMessage } from "./ProfilePanelSection";
+import { ProfileSkillDetailSheet } from "./ProfileSkillDetailSheet";
 
 type GroupKey = "mine" | "project" | "system";
 
@@ -54,13 +72,16 @@ const GROUP_ORDER: GroupKey[] = ["mine", "project", "system"];
  * carries, and the trailing actions mirror the backend write rules
  * (`isSkillReadOnly`) so the list never offers an edit that would 403 —
  * read-only rows explain themselves through the scope's own description
- * instead. Installing a skill stays on the full skills page, which owns the
- * market and upload surfaces.
+ * instead. Adding a skill is an action reachable from here — the market and the
+ * content editor stay on the skills page, which this tab links into.
  */
 export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; projectId?: string }) {
   const { t } = useI18n();
   const { toasts, showToast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [selected, setSelected] = useState<Skill | null>(null);
   const { data: me } = useQuery(meQueryOptions);
   const { data: skills = [], isPending } = useQuery(agentSkillsOptions(agentId));
   const isAdmin = me?.is_admin ?? false;
@@ -95,42 +116,89 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
     onError: () => showToast(t("profile.skillDeleteFailed"), "error"),
   });
 
+  const upload = useMutation({
+    mutationFn: (file: File) =>
+      // Uploads land in the user's own profile scope: the agent-wide and
+      // admin scopes need the picker the skills page already owns.
+      uploadAgentSkill({
+        path: { id: agentId },
+        body: { file, scope: "user_agent" },
+        throwOnError: true,
+      }),
+    onSuccess: () => {
+      setUploadOpen(false);
+      showToast(t("profile.skillUploaded"), "success");
+      void invalidate();
+    },
+    onError: (error) => showToast(apiErrorMessage(error, t("profile.skillUploadFailed")), "error"),
+  });
+
   const groups = useMemo(() => {
     const buckets: Record<GroupKey, Skill[]> = { mine: [], project: [], system: [] };
     for (const skill of skills) buckets[groupOf(skill.scope)].push(skill);
     return buckets;
   }, [skills]);
 
-  // The skills page owns install (market + upload); both entry points here just
-  // point at it rather than rebuilding that surface inside a tab.
-  const skillsPageLink = () =>
-    projectId ? (
-      <Link to="/agents/$agentId/projects/$projectId/skills" params={{ agentId, projectId }} />
-    ) : (
-      <Link to="/agents/$agentId/skills" params={{ agentId }} />
-    );
+  // Browsing surfaces (create-from-source, market) stay on the skills page,
+  // which drives both from its `new` / `source` search params.
+  const goToSkillsPage = (search: { new?: boolean; source?: "market" }) =>
+    projectId
+      ? navigate({
+          to: "/agents/$agentId/projects/$projectId/skills",
+          params: { agentId, projectId },
+          search,
+        })
+      : navigate({ to: "/agents/$agentId/skills", params: { agentId }, search });
 
   return (
     <div className="flex flex-col gap-6">
       <ToastContainer messages={toasts} />
       <div className="flex items-center justify-between gap-2">
         <p className="min-w-0 text-sm text-muted-foreground">{t("profile.skillsDesc")}</p>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("profile.addSkill")}
-            title={t("profile.addSkill")}
-            render={skillsPageLink()}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0"
+                aria-label={t("profile.addSkill")}
+                title={t("profile.addSkill")}
+              />
+            }
           >
             <Plus />
-          </Button>
-          <Button variant="ghost" size="sm" render={skillsPageLink()}>
-            <Puzzle />
-            {t("profile.manageAllSkills")}
-          </Button>
-        </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" sideOffset={6}>
+            <DropdownMenuItem onClick={() => void goToSkillsPage({ new: true })}>
+              <Wand2 />
+              {t("profile.skillMenuNew")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setUploadOpen(true)}>
+              <Upload />
+              {t("profile.skillMenuUpload")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => void goToSkillsPage({ source: "market" })}>
+              <Store />
+              {t("profile.skillMenuMarket")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+
+      <UploadSkillDialog
+        open={uploadOpen}
+        busy={upload.isPending}
+        onOpenChange={setUploadOpen}
+        onUpload={(file) => upload.mutate(file)}
+      />
+
+      <ProfileSkillDetailSheet
+        agentId={agentId}
+        projectId={projectId}
+        skill={selected}
+        onClose={() => setSelected(null)}
+      />
 
       {isPending ? (
         <ProfileSectionMessage>{t("common.loading")}</ProfileSectionMessage>
@@ -144,13 +212,12 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
                 <SkillRow
                   key={`${skill.scope}:${skill.id}`}
                   skill={skill}
-                  agentId={agentId}
-                  projectId={projectId}
                   readOnly={isSkillReadOnly(skill.scope, isAdmin)}
                   busy={
                     (toggle.isPending && toggle.variables?.skill.id === skill.id) ||
                     (remove.isPending && remove.variables?.id === skill.id)
                   }
+                  onOpen={() => setSelected(skill)}
                   onToggle={(invocable) => toggle.mutate({ skill, invocable })}
                   onDelete={() => remove.mutate(skill)}
                 />
@@ -165,18 +232,16 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
 
 function SkillRow({
   skill,
-  agentId,
-  projectId,
   readOnly,
   busy,
+  onOpen,
   onToggle,
   onDelete,
 }: {
   skill: Skill;
-  agentId: string;
-  projectId?: string;
   readOnly: boolean;
   busy: boolean;
+  onOpen: () => void;
   onToggle: (invocable: boolean) => void;
   onDelete: () => void;
 }) {
@@ -185,16 +250,23 @@ function SkillRow({
   const scope = skill.scope as SkillScope;
   const labelKey = SCOPE_LABEL_KEY[scope];
   const descKey = SCOPE_DESC_KEY[scope];
-  const sel = `${skill.scope}:${skill.id}`;
 
   return (
     <li className="flex min-w-0 items-center gap-3 rounded-lg border border-border p-3">
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      {/* Only the text block opens the detail sheet: the switch, the delete
+          button and the scope tooltip stay siblings, so no interactive control
+          is ever nested inside another one. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={t("profile.openSkill")}
+        className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 text-left"
+      >
         <span className="truncate text-sm font-medium">{skill.name}</span>
         {skill.description && (
           <span className="truncate text-xs text-muted-foreground">{skill.description}</span>
         )}
-      </div>
+      </button>
       {labelKey &&
         (descKey ? (
           <Tooltip>
@@ -244,24 +316,6 @@ function SkillRow({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label={t("profile.editSkill")}
-            render={
-              projectId ? (
-                <Link
-                  to="/agents/$agentId/projects/$projectId/skills"
-                  params={{ agentId, projectId }}
-                  search={{ sel }}
-                />
-              ) : (
-                <Link to="/agents/$agentId/skills" params={{ agentId }} search={{ sel }} />
-              )
-            }
-          >
-            <SquarePen />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
             disabled={busy}
             aria-label={t("profile.deleteSkill")}
             onClick={() => setConfirmOpen(true)}
@@ -295,5 +349,58 @@ function SkillRow({
         </>
       )}
     </li>
+  );
+}
+
+/**
+ * Upload is the one install path with nothing to browse, so it stays in the
+ * profile instead of bouncing the user to the skills page for a file picker.
+ */
+function UploadSkillDialog({
+  open,
+  busy,
+  onOpenChange,
+  onUpload,
+}: {
+  open: boolean;
+  busy: boolean;
+  onOpenChange: (open: boolean) => void;
+  onUpload: (file: File) => void;
+}) {
+  const { t } = useI18n();
+  const [file, setFile] = useState<File | null>(null);
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setFile(null);
+        onOpenChange(next);
+      }}
+    >
+      <DialogPopup className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("profile.uploadSkillTitle")}</DialogTitle>
+          <DialogDescription>{t("profile.uploadSkillDesc")}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2 px-6">
+          <Input
+            nativeInput
+            type="file"
+            accept=".zip"
+            aria-label={t("profile.uploadSkillTitle")}
+            onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
+          />
+          <p className="text-xs text-muted-foreground">{t("profile.uploadSkillTarget")}</p>
+        </div>
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost" />}>{t("common.cancel")}</DialogClose>
+          <Button disabled={!file || busy} loading={busy} onClick={() => file && onUpload(file)}>
+            <Upload />
+            {t("profile.uploadSkillAction")}
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
   );
 }
