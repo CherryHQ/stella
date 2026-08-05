@@ -7,7 +7,9 @@ description: 使用受限的开通令牌创建和管理无密码、仅 API 可�
 
 ## 创建开通令牌
 
-以管理员身份登录 Web UI，并在交互式管理员 session 中创建令牌：
+以管理员身份登录 Web UI，打开 **设置 → 用户开通**，然后选择 **创建令牌**。填写集成名称、选择有效期，并将返回的 `stella_prv_…` 复制到集成使用的密钥管理器。Stella 只显示一次。
+
+Web UI 使用当前交互式管理员 session。等价的 API 请求是：
 
 ```sh
 curl -X POST https://stella.example/api/admin/provisioning-tokens \
@@ -16,7 +18,7 @@ curl -X POST https://stella.example/api/admin/provisioning-tokens \
   -d '{"name":"hr-provisioner"}'
 ```
 
-将返回的 `stella_prv_…` 保存到集成的密钥管理器。Stella 只显示一次。默认有效期为 90 天，最长 365 天。计划轮换时可短暂保留两个令牌：部署并验证新令牌后，撤销旧令牌。
+令牌默认有效期为 90 天，最长 365 天。计划轮换时可短暂保留两个令牌：部署并验证新令牌后，在 **设置 → 用户开通** 中撤销旧令牌。
 
 开通令牌只能访问开通用户 API；不能登录 Web UI、管理普通账户或创建更多开通令牌。
 
