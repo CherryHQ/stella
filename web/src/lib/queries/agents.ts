@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
   getClawhubSkill,
   listAgents,
@@ -10,17 +10,28 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import type { Agent, Skill, Tool, UserMemory } from "@/lib/types";
 
-export function clawhubSkillsOptions(query: string) {
+const CLAWHUB_PAGE_SIZE = 30;
+
+// The marketplace is browsed by scrolling, so it pages. The search term is part
+// of the key: a new term is a new list that starts from page one instead of
+// appending onto the previous term's pages.
+export function clawhubSkillsInfiniteQueryOptions(query: string) {
   const q = query.trim();
-  return queryOptions({
-    queryKey: ["clawhub-skills", q],
-    queryFn: async () => {
+  return infiniteQueryOptions({
+    queryKey: ["clawhub-skills", q, CLAWHUB_PAGE_SIZE],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
       const { data } = await listClawhubSkills({
-        query: { ...(q ? { q } : {}), page_size: 50 },
+        query: {
+          ...(q ? { q } : {}),
+          page_size: CLAWHUB_PAGE_SIZE,
+          ...(pageParam ? { page_token: pageParam } : {}),
+        },
         throwOnError: true,
       });
-      return data?.skills ?? [];
+      return data;
     },
+    getNextPageParam: (last) => last.next_page_token ?? undefined,
   });
 }
 

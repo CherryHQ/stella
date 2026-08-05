@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Blocks,
   Check,
@@ -10,6 +10,7 @@ import {
   FileText,
   GitFork,
   PackagePlus,
+  RefreshCw,
   Search,
   Store,
   Upload,
@@ -29,9 +30,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
+import { Spinner } from "@/components/ui/spinner";
 import { SkillGlyph } from "@/features/skills/SkillGlyph";
 import type { SkillNotify } from "@/features/skills/SkillInspectorPanel";
 import type { ClawhubSkill } from "@/lib/api-client/types.gen";
@@ -41,7 +49,7 @@ import { useI18n } from "@/lib/i18n";
 import {
   agentSkillsOptions,
   clawhubSkillDetailOptions,
-  clawhubSkillsOptions,
+  clawhubSkillsInfiniteQueryOptions,
 } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
 import { INSTALL_SCOPES, SCOPE_DESC_KEY, SCOPE_LABEL_KEY } from "@/lib/skill-scope";
@@ -58,10 +66,9 @@ const MODE_META = {
 
 // Accent pill for the selected filter, muted ghost otherwise — the same active
 // treatment the global top bar uses for its app tabs.
-const tabPillCls = (active: boolean, size: "sm" | "xs" = "sm") =>
+const tabPillCls = (active: boolean) =>
   cn(
-    "inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md font-medium transition-colors",
-    size === "sm" ? "h-8 px-3 text-sm" : "h-7 px-2.5 text-xs",
+    "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors",
     active
       ? "bg-accent text-accent-foreground"
       : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
@@ -119,41 +126,43 @@ function AuthorChip({ handle, image }: { handle: string; image?: string }) {
   );
 }
 
-// Scope picker for install/upload. Each pill carries a tooltip spelling out what
-// the scope means (who it's for, which agents) so the short label needs no manual.
-function InstallScopePicker({
+// The install destination is one sheet-level control, pinned to the bottom of
+// every view: whichever install button the user reaches, the scope that write
+// uses is on screen next to it. The selected scope's description sits under the
+// label so the compound names ("Mine · This agent only") explain themselves.
+function InstallScopeBar({
   scope,
   onScope,
   showAgentScope,
-  size = "xs",
 }: {
   scope: InstallScope;
   onScope: (scope: InstallScope) => void;
   showAgentScope: boolean;
-  size?: "sm" | "xs";
 }) {
   const { t } = useI18n();
+  const scopes = INSTALL_SCOPES.filter((s) => s !== "system_agent" || showAgentScope);
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      {INSTALL_SCOPES.filter((s) => s !== "system_agent" || showAgentScope).map((s) => (
-        <Tooltip key={s}>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-pressed={scope === s}
-                onClick={() => onScope(s)}
-                className={tabPillCls(scope === s, size)}
-              >
+    <div className="flex shrink-0 items-center gap-3 border-t p-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-xs font-medium">{t("sessions.discover.installTo")}</span>
+        <span className="truncate text-xs text-muted-foreground">{t(SCOPE_DESC_KEY[scope])}</span>
+      </div>
+      <div className="w-44 shrink-0">
+        <Select value={scope} onValueChange={(value) => onScope(value as InstallScope)}>
+          <SelectTrigger size="sm" aria-label={t("sessions.discover.installTo")}>
+            <SelectValue>
+              {(value) => t(SCOPE_LABEL_KEY[(value as InstallScope) ?? scope])}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            {scopes.map((s) => (
+              <SelectItem key={s} value={s}>
                 {t(SCOPE_LABEL_KEY[s])}
-              </button>
-            }
-          />
-          <TooltipPopup side="top" className="max-w-56">
-            {t(SCOPE_DESC_KEY[s])}
-          </TooltipPopup>
-        </Tooltip>
-      ))}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      </div>
     </div>
   );
 }
@@ -187,6 +196,8 @@ export function SkillInstallSheet({
   const [scope, setScope] = useState<InstallScope>("user_agent");
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
   const [detailSlug, setDetailSlug] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query), 250);
@@ -196,15 +207,62 @@ export function SkillInstallSheet({
   const marketActive = open && mode === "market";
   // The marketplace needs the complete installed set to mark existing entries.
   const installedLookup = useQuery({ ...agentSkillsOptions(agentId), enabled: marketActive });
-  const market = useQuery({ ...clawhubSkillsOptions(debounced), enabled: marketActive });
+  const market = useInfiniteQuery({
+    ...clawhubSkillsInfiniteQueryOptions(debounced),
+    enabled: marketActive,
+  });
   const skills = useMemo(() => installedLookup.data ?? [], [installedLookup.data]);
   const installedNames = useMemo(() => new Set(skills.map((s) => s.name)), [skills]);
   const installedSources = useMemo(
     () => new Set(skills.map((s) => s.source).filter((src): src is string => !!src)),
     [skills],
   );
-  const rows = market.data ?? [];
+  const rows = useMemo(
+    () => (market.data?.pages ?? []).flatMap((page) => page.skills ?? []),
+    [market.data?.pages],
+  );
   const detailRow = detailSlug ? rows.find((r) => r.slug === detailSlug) : undefined;
+
+  // Auto-load the next marketplace page as the sentinel nears the sheet's scroll
+  // container. The rAF follow-up covers the case where an appended page still
+  // leaves the list shorter than the viewport, which never re-triggers the observer.
+  const listVisible = marketActive && !detailSlug;
+  useEffect(() => {
+    if (!listVisible || !market.hasNextPage || market.isFetchingNextPage) return;
+    if (market.isFetchNextPageError) return;
+    const root = contentRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel) return;
+
+    let requested = false;
+    const loadNext = () => {
+      if (requested) return;
+      requested = true;
+      void market.fetchNextPage();
+    };
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) loadNext();
+      },
+      { root, rootMargin: "240px 0px" },
+    );
+    observer.observe(sentinel);
+
+    const frame = requestAnimationFrame(() => {
+      if (root.scrollHeight <= root.clientHeight + 1) loadNext();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [
+    listVisible,
+    rows.length,
+    market.hasNextPage,
+    market.isFetchingNextPage,
+    market.isFetchNextPageError,
+    market.fetchNextPage,
+  ]);
 
   function invalidateSkills() {
     void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
@@ -239,92 +297,99 @@ export function SkillInstallSheet({
         showCloseButton={false}
         className="w-full sm:w-[560px] sm:max-w-[560px]"
       >
-        {detailSlug ? (
-          <DiscoverDetail
-            slug={detailSlug}
-            row={detailRow}
-            installedNames={installedNames}
-            installedSources={installedSources}
-            installingSlug={installingSlug}
-            scope={scope}
-            onScope={setScope}
-            showAgentScope={!!me?.is_admin}
-            onInstall={(slug) => void install({ slug, name: detailRow?.name ?? slug })}
-            onBack={() => setDetailSlug(null)}
-          />
-        ) : (
-          <div className="flex h-full min-h-0 flex-col">
-            <div className="flex items-center gap-3 border-b p-5">
-              <h2 className="min-w-0 flex-1 truncate text-base font-semibold">
-                {t("profile.addSkill")}
-              </h2>
-              <Button size="icon-sm" variant="ghost" aria-label={t("common.close")} onClick={close}>
-                <X size={16} />
-              </Button>
-            </div>
-
-            <div className="flex flex-col gap-2.5 border-b p-4">
-              <div className="flex flex-wrap items-center gap-1">
-                {(["market", "manual"] as const).map((m) => {
-                  const Icon = MODE_META[m].icon;
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      aria-pressed={mode === m}
-                      onClick={() => setMode(m)}
-                      className={tabPillCls(mode === m)}
-                    >
-                      <Icon className="size-4" />
-                      {t(MODE_META[m].key)}
-                    </button>
-                  );
-                })}
+        <div className="flex h-full min-h-0 flex-col">
+          {detailSlug ? (
+            <DiscoverDetail
+              slug={detailSlug}
+              row={detailRow}
+              installedNames={installedNames}
+              installedSources={installedSources}
+              installingSlug={installingSlug}
+              onInstall={(slug) => void install({ slug, name: detailRow?.name ?? slug })}
+              onBack={() => setDetailSlug(null)}
+            />
+          ) : (
+            <>
+              <div className="flex items-center gap-3 border-b p-5">
+                <h2 className="min-w-0 flex-1 truncate text-base font-semibold">
+                  {t("profile.addSkill")}
+                </h2>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t("common.close")}
+                  onClick={close}
+                >
+                  <X size={16} />
+                </Button>
               </div>
-              {mode === "market" && (
-                <InputGroup>
-                  <InputGroupAddon>
-                    <Search />
-                  </InputGroupAddon>
-                  <InputGroupInput
-                    nativeInput
-                    type="search"
-                    value={query}
-                    onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
-                    placeholder={t("sessions.skillsList.searchPlaceholder")}
-                  />
-                </InputGroup>
-              )}
-            </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {mode === "market" ? (
-                <MarketGrid
-                  query={market}
-                  rows={rows}
-                  installedNames={installedNames}
-                  installedSources={installedSources}
-                  installingSlug={installingSlug}
-                  onOpen={setDetailSlug}
-                  onInstall={(s) => void install(s)}
-                />
-              ) : (
-                <ManualInstallPanel
-                  agentId={agentId}
-                  scope={scope}
-                  onScope={setScope}
-                  showAgentScope={!!me?.is_admin}
-                  notify={notify}
-                  onInstalled={() => {
-                    notify(t("sessions.discover.installSuccess"), "success");
-                    invalidateSkills();
-                    close();
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        )}
+              <div className="flex flex-col gap-2.5 border-b p-4">
+                <div className="flex flex-wrap items-center gap-1">
+                  {(["market", "manual"] as const).map((m) => {
+                    const Icon = MODE_META[m].icon;
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        aria-pressed={mode === m}
+                        onClick={() => setMode(m)}
+                        className={tabPillCls(mode === m)}
+                      >
+                        <Icon className="size-4" />
+                        {t(MODE_META[m].key)}
+                      </button>
+                    );
+                  })}
+                </div>
+                {mode === "market" && (
+                  <InputGroup>
+                    <InputGroupAddon>
+                      <Search />
+                    </InputGroupAddon>
+                    <InputGroupInput
+                      nativeInput
+                      type="search"
+                      value={query}
+                      onChange={(e) => setQuery((e.target as HTMLInputElement).value)}
+                      placeholder={t("sessions.skillsList.searchPlaceholder")}
+                    />
+                  </InputGroup>
+                )}
+              </div>
+
+              <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto p-4">
+                {mode === "market" ? (
+                  <MarketGrid
+                    query={market}
+                    rows={rows}
+                    installedNames={installedNames}
+                    installedSources={installedSources}
+                    installingSlug={installingSlug}
+                    sentinelRef={sentinelRef}
+                    onOpen={setDetailSlug}
+                    onInstall={(s) => void install(s)}
+                    onRetry={() =>
+                      void (market.isFetchNextPageError ? market.fetchNextPage() : market.refetch())
+                    }
+                  />
+                ) : (
+                  <ManualInstallPanel
+                    agentId={agentId}
+                    scope={scope}
+                    notify={notify}
+                    onInstalled={() => {
+                      notify(t("sessions.discover.installSuccess"), "success");
+                      invalidateSkills();
+                      close();
+                    }}
+                  />
+                )}
+              </div>
+            </>
+          )}
+          <InstallScopeBar scope={scope} onScope={setScope} showAgentScope={!!me?.is_admin} />
+        </div>
       </SheetPopup>
     </Sheet>
   );
@@ -336,16 +401,26 @@ function MarketGrid({
   installedNames,
   installedSources,
   installingSlug,
+  sentinelRef,
   onOpen,
   onInstall,
+  onRetry,
 }: {
-  query: { isLoading: boolean; isError: boolean };
+  query: {
+    isLoading: boolean;
+    isError: boolean;
+    isFetchingNextPage: boolean;
+    isFetchNextPageError: boolean;
+    hasNextPage: boolean;
+  };
   rows: ClawhubSkill[];
   installedNames: Set<string>;
   installedSources: Set<string>;
   installingSlug: string | null;
+  sentinelRef: RefObject<HTMLDivElement | null>;
   onOpen: (slug: string) => void;
   onInstall: (skill: Pick<ClawhubSkill, "slug" | "name">) => void;
+  onRetry: () => void;
 }) {
   const { t } = useI18n();
   if (query.isLoading) {
@@ -376,23 +451,47 @@ function MarketGrid({
             {query.isError ? t("sessions.discover.loadError") : t("sessions.discover.empty")}
           </EmptyDescription>
         </EmptyHeader>
+        {query.isError && (
+          <Button variant="outline" onClick={onRetry}>
+            <RefreshCw />
+            {t("common.retry")}
+          </Button>
+        )}
       </Empty>
     );
   }
   return (
-    <div className="grid grid-cols-1 gap-3">
-      {rows.map((skill) => (
-        <MarketCard
-          key={skill.slug}
-          skill={skill}
-          installed={isSkillInstalled(skill, installedNames, installedSources)}
-          installing={installingSlug === skill.slug}
-          installDisabled={installingSlug !== null}
-          onOpen={() => onOpen(skill.slug)}
-          onInstall={() => onInstall(skill)}
-        />
-      ))}
-    </div>
+    <>
+      {/* Single column on purpose: the grid lives in a 560px sheet, but Tailwind
+          breakpoints key off the viewport, so responsive columns would misfire. */}
+      <div className="grid grid-cols-1 gap-3">
+        {rows.map((skill) => (
+          <MarketCard
+            key={skill.slug}
+            skill={skill}
+            installed={isSkillInstalled(skill, installedNames, installedSources)}
+            installing={installingSlug === skill.slug}
+            installDisabled={installingSlug !== null}
+            onOpen={() => onOpen(skill.slug)}
+            onInstall={() => onInstall(skill)}
+          />
+        ))}
+      </div>
+      <div ref={sentinelRef} className="flex min-h-12 items-center justify-center py-3">
+        {query.isFetchingNextPage && <Spinner />}
+        {query.isFetchNextPageError && (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            <RefreshCw />
+            {t("common.retry")}
+          </Button>
+        )}
+        {!query.hasNextPage && !query.isFetchNextPageError && (
+          <span className="text-xs text-muted-foreground">
+            {t("sessions.skillsList.allLoaded")}
+          </span>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -470,9 +569,6 @@ function DiscoverDetail({
   installedNames,
   installedSources,
   installingSlug,
-  scope,
-  onScope,
-  showAgentScope,
   onInstall,
   onBack,
 }: {
@@ -481,9 +577,6 @@ function DiscoverDetail({
   installedNames: Set<string>;
   installedSources: Set<string>;
   installingSlug: string | null;
-  scope: InstallScope;
-  onScope: (scope: InstallScope) => void;
-  showAgentScope: boolean;
   onInstall: (slug: string) => void;
   onBack: () => void;
 }) {
@@ -498,7 +591,7 @@ function DiscoverDetail({
   const files = data?.files ?? [];
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b p-5">
         <div className="flex items-start gap-3">
           <Button size="icon-sm" variant="ghost" aria-label={t("common.back")} onClick={onBack}>
@@ -574,15 +667,7 @@ function DiscoverDetail({
           </p>
         )}
       </div>
-      <div className="space-y-3 border-t p-4">
-        {!installed && (
-          <div className="space-y-1.5">
-            <span className="text-xs text-muted-foreground">
-              {t("sessions.discover.installTo")}
-            </span>
-            <InstallScopePicker scope={scope} onScope={onScope} showAgentScope={showAgentScope} />
-          </div>
-        )}
+      <div className="border-t p-4">
         <div className="flex items-center gap-2">
           {installed && (
             <Badge variant="success">
@@ -625,20 +710,16 @@ function DiscoverDetail({
   );
 }
 
-// Manual install: point at a GitHub repo or upload a ZIP. Both methods share the
+// Manual install: point at a GitHub repo or upload a ZIP. Both methods use the
 // sheet's install-scope choice, so a skill lands where the user picked once.
 function ManualInstallPanel({
   agentId,
   scope,
-  onScope,
-  showAgentScope,
   notify,
   onInstalled,
 }: {
   agentId: string;
   scope: InstallScope;
-  onScope: (scope: InstallScope) => void;
-  showAgentScope: boolean;
   notify: SkillNotify;
   onInstalled: () => void;
 }) {
@@ -650,15 +731,6 @@ function ManualInstallPanel({
 
   return (
     <div className="space-y-5">
-      <div className="space-y-1.5">
-        <span className="text-xs text-muted-foreground">{t("sessions.discover.installTo")}</span>
-        <InstallScopePicker
-          scope={scope}
-          onScope={onScope}
-          showAgentScope={showAgentScope}
-          size="sm"
-        />
-      </div>
       <GitHubInstallCard
         agentId={agentId}
         scope={scope}

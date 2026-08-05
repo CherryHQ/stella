@@ -1715,6 +1715,7 @@ const en = {
   "sessions.skillsList.upgradeDone": "Updated to {version}",
   "sessions.skillsList.upgradeUpToDate": "Already up to date",
   "sessions.skillsList.searchPlaceholder": "Search skills…",
+  "sessions.skillsList.allLoaded": "All loaded",
   "sessions.skillsList.stats":
     "{{total}} skills · {{callable}} auto-callable · {{readonly}} read-only",
   "sessions.skillsList.readonly": "read-only",
@@ -3746,6 +3747,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.skillsList.builtin": "系统内置",
   "sessions.skillsList.uploadZip": "上传 ZIP",
   "sessions.skillsList.searchPlaceholder": "搜索技能…",
+  "sessions.skillsList.allLoaded": "已全部加载",
   "sessions.skillsList.stats": "{{total}} 项技能 · {{callable}} 项可自动调用 · {{readonly}} 项只读",
   "sessions.skillsList.readonly": "只读",
   "sessions.skillsList.manual": "手动",
