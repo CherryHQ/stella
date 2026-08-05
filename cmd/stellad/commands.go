@@ -205,20 +205,23 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := homeRegistry.ValidateConfiguredStores(parent); err != nil {
 		return nil, err
 	}
-	// Record authority observation and adopt existing typed layouts before any
-	// runtime service can consume a Home attachment.
+	// Observe the legacy object authority before building any consumer. A pending
+	// offline cutover is a startup gate, not a best-effort background task.
 	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
 	if err != nil {
 		return nil, err
 	}
-	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
-	if err != nil {
+	if err := homeRegistry.ObserveMutableAssetObjectAuthority(parent, blobStore != nil); err != nil {
 		return nil, err
 	}
-	if err := homeRegistry.ObserveMutableAssetObjectAuthority(parent, assetStore.SharedAuthority()); err != nil {
+	if err := homeRegistry.ValidateMutableAssetMigrationGate(parent, blobStore != nil); err != nil {
 		return nil, err
 	}
 	if err := homeRegistry.RegisterLegacy(parent); err != nil {
+		return nil, err
+	}
+	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
+	if err != nil {
 		return nil, err
 	}
 

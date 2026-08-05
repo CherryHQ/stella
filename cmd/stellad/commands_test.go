@@ -31,6 +31,12 @@ func TestSetupRunsPhaseZeroGateBeforeHomeRegistration(t *testing.T) {
 	if gate < 0 || observe < 0 || register < 0 || gate > observe || gate > register {
 		t.Fatal("Phase 0 asset gate must precede Home observation and legacy registration")
 	}
+	validate := strings.Index(string(source), "ValidateConfiguredStores(parent)")
+	migrationGate := strings.Index(string(source), "ValidateMutableAssetMigrationGate(parent")
+	assetStore := strings.Index(string(source), "asset.NewStore(config.StellaHome()")
+	if validate < 0 || migrationGate < 0 || assetStore < 0 || validate > observe || observe > migrationGate || migrationGate > register || register > assetStore {
+		t.Fatal("mutable asset gate must run after Home validation and observation, before legacy registration and asset consumers")
+	}
 }
 
 type commandTestProvider struct{}

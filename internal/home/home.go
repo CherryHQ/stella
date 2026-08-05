@@ -516,21 +516,95 @@ func ownerLockStripe(key string) int {
 // object storage was configured. It deliberately stores no endpoint or secret
 // and changes no current asset mirror/hydrate behavior.
 func (r *Registry) ObserveMutableAssetObjectAuthority(ctx context.Context, configured bool) error {
-	state := "not_required"
-	if configured {
-		state = "pending"
-	}
-	marker, err := r.q.UpsertStorageMigrationObservation(ctx, sqlc.UpsertStorageMigrationObservationParams{Name: MutableAssetObjectAuthorityMigration, State: state, ObjectAuthorityConfigured: configured, Metadata: json.RawMessage(`{}`)})
+	marker, err := r.q.GetStorageMigration(ctx, MutableAssetObjectAuthorityMigration)
 	if errors.Is(err, pgx.ErrNoRows) {
-		marker, err = r.q.GetStorageMigration(ctx, MutableAssetObjectAuthorityMigration)
+		state := "not_required"
+		if configured {
+			state = "pending"
+		}
+		marker, err = r.q.CreateStorageMigrationObservation(ctx, sqlc.CreateStorageMigrationObservationParams{Name: MutableAssetObjectAuthorityMigration, State: state, ObjectAuthorityConfigured: configured, Metadata: json.RawMessage(`{}`)})
+		if errors.Is(err, pgx.ErrNoRows) {
+			marker, err = r.q.GetStorageMigration(ctx, MutableAssetObjectAuthorityMigration)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("home: record mutable asset authority: %w", err)
 	}
-	if marker.State == "completed" && !marker.ObjectAuthorityConfigured && configured {
-		return errors.New("home: completed mutable asset authority migration conflicts with configured object authority")
+	switch marker.State {
+	case "not_required":
+		if marker.ObjectAuthorityConfigured {
+			return errors.New("home: malformed mutable asset migration marker")
+		}
+		if !configured {
+			return nil
+		}
+		_, err = r.q.TransitionStorageMigrationObservation(ctx, sqlc.TransitionStorageMigrationObservationParams{
+			Name: MutableAssetObjectAuthorityMigration, ExpectedState: "not_required", ExpectedObjectAuthorityConfigured: false,
+			NextState: "pending", NextObjectAuthorityConfigured: true,
+		})
+		if err == nil {
+			return nil
+		}
+	case "pending":
+		if !marker.ObjectAuthorityConfigured {
+			return errors.New("home: malformed mutable asset migration marker")
+		}
+		if configured {
+			return nil
+		}
+		return errors.New("home: mutable asset migration is pending; retain legacy STELLA_BLOB_S3_* configuration and run `stellad storage migrate-assets`")
+	case "completed":
+		if configured && !marker.ObjectAuthorityConfigured {
+			return errors.New("home: completed mutable asset authority migration conflicts with configured object authority")
+		}
+		return nil
+	default:
+		return fmt.Errorf("home: malformed mutable asset migration state %q", marker.State)
 	}
-	return nil
+	// A concurrent observer won a transition. Reload rather than overwrite its
+	// marker or completion metadata, then validate the only safe outcomes.
+	marker, reloadErr := r.q.GetStorageMigration(ctx, MutableAssetObjectAuthorityMigration)
+	if reloadErr != nil {
+		return fmt.Errorf("home: reload mutable asset authority: %w", reloadErr)
+	}
+	if marker.State == "pending" && marker.ObjectAuthorityConfigured && configured {
+		return nil
+	}
+	return errors.New("home: mutable asset authority observation raced with an incompatible migration state")
+}
+
+// ValidateMutableAssetMigrationGate prevents consumers from hydrating or
+// writing the new authority until an observed legacy authority was copied.
+func (r *Registry) ValidateMutableAssetMigrationGate(ctx context.Context, configured bool) error {
+	marker, err := r.q.GetStorageMigration(ctx, MutableAssetObjectAuthorityMigration)
+	if err != nil {
+		return fmt.Errorf("home: load mutable asset migration gate: %w", err)
+	}
+	switch marker.State {
+	case "not_required":
+		if marker.ObjectAuthorityConfigured || configured {
+			return errors.New("home: malformed mutable asset migration marker")
+		}
+		return nil
+	case "pending":
+		if !marker.ObjectAuthorityConfigured {
+			return errors.New("home: malformed mutable asset migration marker")
+		}
+		if !configured {
+			return errors.New("home: mutable asset migration is pending; restore legacy STELLA_BLOB_S3_* configuration and run `stellad storage migrate-assets`")
+		}
+		return errors.New("home: mutable asset migration is pending; stop old writers and run `stellad storage migrate-assets`")
+	case "completed":
+		if configured && !marker.ObjectAuthorityConfigured {
+			return errors.New("home: completed mutable asset migration conflicts with configured object authority")
+		}
+		if marker.ObjectAuthorityConfigured && !validMutableAssetMetadata(marker.Metadata) {
+			return errors.New("home: completed mutable asset migration metadata is malformed")
+		}
+		return nil
+	default:
+		return fmt.Errorf("home: malformed mutable asset migration state %q", marker.State)
+	}
 }
 
 // ValidateConfiguredStores fails startup before a dormant Home reaches a later

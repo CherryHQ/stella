@@ -256,6 +256,8 @@ Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL
 
 上传的用户资产同样需要持久化。未配置 `STELLA_BLOB_S3_*` 时，`STELLA_HOME` 下的文件系统是单节点权威，必须挂载持久卷；配置 S3 兼容对象存储后，它成为共享权威，本地文件只作为 materialization。Stella 当前只开放单副本 Helm 拓扑；未来唯一的多副本拓扑会直接要求共享权威，而不是再引入一个可能与实际存储冲突的模式开关。
 
+配置了 `STELLA_BLOB_S3_*` 的部署必须先通过离线可变资产迁移门槛，服务器才能启动；bucket 为空时也不例外。停止所有旧资产 writer，保留原有 S3 与数据库配置，并按 `stellad storage migrate-assets --help` 操作。该命令把仅存在于对象存储的资产复制并校验到类型化 Principal Home，不会删除远端对象。升级步骤见 [S3 资产迁移门槛](/docs/start-here/storage#s3-资产迁移门槛)。
+
 loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl port-forward` 访问 Stella 时它是合法的——但当配置了 OAuth/OIDC 登录时 Stella 会发出响亮警告，因为登录跳转会指回 pod 自身。部署 chart 应将 `STELLA_BASE_URL` 作为必填值：那一层才知道自己位于 ingress 之后。
 
 ### 受管部署所需的环境变量
@@ -372,7 +374,7 @@ terminationGracePeriodSeconds: 200
 
 ‡ 仅当 agent 使用 `docker` 沙箱后端时需要。stellad 在宿主机上运行用 `host`；stellad 在 Docker 内且使用 host bind mount 用 `bind`；stellad 在 Docker 内且使用 named volume 用 `volume`。
 
-§ 四个必需的 S3 镜像变量必须同时设置，或全部不设置。部分设置会导致启动失败。
+§ 四个必需的 S3 镜像变量必须同时设置，或全部不设置。部分设置会导致启动失败；完整 S3 配置还会启用上文所述的离线资产迁移门槛。
 
 ¶ 受管部署所必需，以及在使用 OAuth 登录或频道外链时必需。参见[受管部署](#受管部署)。
 

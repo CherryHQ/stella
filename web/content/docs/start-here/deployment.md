@@ -267,6 +267,8 @@ The Docker image sets `STELLA_REQUIRE_EXTERNAL_DB=1`: startup fails with an acti
 
 Uploaded user assets also need durable storage. Without `STELLA_BLOB_S3_*`, the filesystem under `STELLA_HOME` is the single-node authority and must be persisted. Configuring an S3-compatible object store makes it the shared authority and treats local files as materializations. Stella currently exposes only the single-replica Helm topology; the future multi-replica topology will require the shared authority directly rather than introducing a second mode switch.
 
+A deployment with `STELLA_BLOB_S3_*` configured must pass the offline mutable-asset migration gate before the server starts, even for an empty bucket. Stop all old asset writers, retain the original S3 and database configuration, and follow `stellad storage migrate-assets --help`. The command copies and verifies object-only assets into typed Principal Homes without deleting remote objects. See [S3 asset migration gate](/docs/start-here/storage#s3-asset-migration-gate) for the upgrade sequence.
+
 A loopback base URL is never a startup error — it is legitimate when you reach Stella via `localhost` or `kubectl port-forward` — but Stella logs a loud warning when OAuth/OIDC login is configured against one, because login redirects would point back at the pod. Deployment charts should make `STELLA_BASE_URL` a required value; that layer knows it sits behind an ingress.
 
 ### Required environment for a managed deployment
@@ -383,7 +385,7 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 
 ‡ Required only when agents use the `docker` sandbox backend. Use `host` when stellad runs on the host, `bind` when stellad runs in Docker with a host bind mount, and `volume` when stellad runs in Docker with a named volume.
 
-§ Set all four required S3 mirror variables together, or leave all unset. Partial blob-store configuration fails startup.
+§ Set all four required S3 mirror variables together, or leave all unset. Partial blob-store configuration fails startup. A complete S3 configuration also activates the offline asset migration gate described above.
 
 ¶ Required for managed deployments, and whenever OAuth login or channel deep links are used. See [Managed Deployment](#managed-deployment).
 

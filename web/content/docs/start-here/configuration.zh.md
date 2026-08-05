@@ -112,6 +112,8 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | `STELLA_HOME_VOLUME`          | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
 | `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |
 
+完整配置 `STELLA_BLOB_S3_*` 后，服务器会在仅存在于对象存储的可变资产校验进入 Principal Home 前阻止启动。请保留这些变量并按 `stellad storage migrate-assets --help` 操作；不要通过删除 S3 配置绕过 pending marker。迁移不会删除远端对象。
+
 Structured Reflect 是唯一写入器。升级前请删除已经废弃的 `STELLA_REFLECT_MODE` 环境变量；过渡版本遇到显式 `legacy` 值时会拒绝启动，而不会静默改变行为。Curator 模式在服务启动时读取，修改后需要重启 Stella；非法值会阻止启动。运行检查见[部署](/docs/start-here/deployment#structured-reflect-与-curator)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)。
 
 有关如何选择沙箱后端和配置 Docker 沙箱模式，请参阅[沙箱指南](/docs/guides/sandbox)。

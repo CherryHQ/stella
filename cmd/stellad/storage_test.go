@@ -71,6 +71,61 @@ func TestStorageRetryPurgeCommandJSONAndErrors(t *testing.T) {
 	}
 }
 
+func TestStorageMigrateAssetsCommandOutputProgressAndConfirmation(t *testing.T) {
+	var calls int
+	command := migrateAssetsCommand(func(_ context.Context, dsn string, dryRun bool) (home.MutableAssetMigrationSummary, error) {
+		calls++
+		if dsn == "error" {
+			return home.MutableAssetMigrationSummary{}, errors.New("injected migration failure")
+		}
+		if dsn != "postgres://test" {
+			t.Fatalf("dsn = %q", dsn)
+		}
+		return home.MutableAssetMigrationSummary{DryRun: true, Status: "planned", MarkerState: "pending", Count: 2, Bytes: 7, SHA256: "abc"}, nil
+	})
+	for _, tt := range []struct {
+		name   string
+		args   []string
+		stdout string
+		stderr string
+		fail   bool
+	}{
+		{name: "confirmation missing", args: []string{"storage", "migrate-assets", "--dry-run"}, stdout: "", stderr: "", fail: true},
+		{name: "confirmation false", args: []string{"storage", "migrate-assets", "--confirm-writers-stopped=false", "--dry-run"}, stdout: "", stderr: "", fail: true},
+		{name: "json dry run", args: []string{"storage", "migrate-assets", "--confirm-writers-stopped", "--dry-run", "--database-url", "postgres://test", "--json"}, stdout: `{"dry_run":true,"status":"planned","marker_state":"pending","count":2,"bytes":7,"sha256":"abc"}` + "\n", stderr: "Verifying legacy mutable assets...\n"},
+		{name: "human real run", args: []string{"storage", "migrate-assets", "--confirm-writers-stopped", "--database-url", "postgres://test"}, stdout: "planned\tpending\t2\t7\tabc\n", stderr: "Migrating legacy mutable assets...\n"},
+		{name: "migration error", args: []string{"storage", "migrate-assets", "--confirm-writers-stopped", "--dry-run", "--database-url", "error"}, stdout: "", stderr: "Verifying legacy mutable assets...\n", fail: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			app := &ucli.App{Writer: &out, ErrWriter: &errOut, Commands: []*ucli.Command{{Name: "storage", Subcommands: []*ucli.Command{command}}}}
+			err := app.Run(append([]string{"stellad"}, tt.args...))
+			if tt.fail {
+				if err == nil {
+					t.Fatalf("error = %v", err)
+				}
+				if strings.Contains(strings.Join(tt.args, " "), "confirm-writers-stopped") && strings.Contains(strings.Join(tt.args, " "), "error") {
+					if !strings.Contains(err.Error(), "injected migration failure") {
+						t.Fatalf("error = %v", err)
+					}
+				} else if !strings.Contains(err.Error(), "--confirm-writers-stopped is required") {
+					t.Fatalf("error = %v", err)
+				}
+				if out.String() != tt.stdout || errOut.String() != tt.stderr {
+					t.Fatalf("stdout=%q stderr=%q", out.String(), errOut.String())
+				}
+				return
+			}
+			if err != nil || out.String() != tt.stdout || errOut.String() != tt.stderr {
+				t.Fatalf("stdout=%q stderr=%q err=%v", out.String(), errOut.String(), err)
+			}
+		})
+	}
+	if calls != 3 {
+		t.Fatalf("migration calls = %d, want 3", calls)
+	}
+}
+
 func TestRetryFailedPurgeUsesConfiguredLocalStore(t *testing.T) {
 	ctx := context.Background()
 	stellaHome := t.TempDir()

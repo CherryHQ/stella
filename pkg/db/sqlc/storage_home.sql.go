@@ -132,6 +132,33 @@ func (q *Queries) ClaimStorageHomeFailedPurgeRetry(ctx context.Context, id strin
 	return i, err
 }
 
+const completeMutableAssetStorageMigration = `-- name: CompleteMutableAssetStorageMigration :one
+UPDATE storage_migration
+SET state = 'completed', metadata = $2, completed_at = now(), updated_at = now()
+WHERE name = $1 AND state = 'pending' AND object_authority_configured = true
+RETURNING name, state, object_authority_configured, metadata, completed_at, created_at, updated_at
+`
+
+type CompleteMutableAssetStorageMigrationParams struct {
+	Name     string          `json:"name"`
+	Metadata json.RawMessage `json:"metadata"`
+}
+
+func (q *Queries) CompleteMutableAssetStorageMigration(ctx context.Context, arg CompleteMutableAssetStorageMigrationParams) (StorageMigration, error) {
+	row := q.db.QueryRow(ctx, completeMutableAssetStorageMigration, arg.Name, arg.Metadata)
+	var i StorageMigration
+	err := row.Scan(
+		&i.Name,
+		&i.State,
+		&i.ObjectAuthorityConfigured,
+		&i.Metadata,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const completeStorageMigration = `-- name: CompleteStorageMigration :one
 UPDATE storage_migration SET state = 'completed', completed_at = now(), updated_at = now()
 WHERE name = $1 AND state = $2
@@ -230,6 +257,40 @@ type CreateStorageMigrationParams struct {
 
 func (q *Queries) CreateStorageMigration(ctx context.Context, arg CreateStorageMigrationParams) (StorageMigration, error) {
 	row := q.db.QueryRow(ctx, createStorageMigration, arg.Name, arg.Metadata)
+	var i StorageMigration
+	err := row.Scan(
+		&i.Name,
+		&i.State,
+		&i.ObjectAuthorityConfigured,
+		&i.Metadata,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createStorageMigrationObservation = `-- name: CreateStorageMigrationObservation :one
+INSERT INTO storage_migration (name, state, object_authority_configured, metadata)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (name) DO NOTHING
+RETURNING name, state, object_authority_configured, metadata, completed_at, created_at, updated_at
+`
+
+type CreateStorageMigrationObservationParams struct {
+	Name                      string          `json:"name"`
+	State                     string          `json:"state"`
+	ObjectAuthorityConfigured bool            `json:"object_authority_configured"`
+	Metadata                  json.RawMessage `json:"metadata"`
+}
+
+func (q *Queries) CreateStorageMigrationObservation(ctx context.Context, arg CreateStorageMigrationObservationParams) (StorageMigration, error) {
+	row := q.db.QueryRow(ctx, createStorageMigrationObservation,
+		arg.Name,
+		arg.State,
+		arg.ObjectAuthorityConfigured,
+		arg.Metadata,
+	)
 	var i StorageMigration
 	err := row.Scan(
 		&i.Name,
@@ -929,31 +990,30 @@ func (q *Queries) TombstoneStorageHome(ctx context.Context, arg TombstoneStorage
 	return i, err
 }
 
-const upsertStorageMigrationObservation = `-- name: UpsertStorageMigrationObservation :one
-INSERT INTO storage_migration (name, state, object_authority_configured, metadata)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (name) DO UPDATE
-SET state = excluded.state,
-    object_authority_configured = excluded.object_authority_configured,
-    metadata = excluded.metadata,
-    updated_at = now()
-WHERE storage_migration.state <> 'completed'
+const transitionStorageMigrationObservation = `-- name: TransitionStorageMigrationObservation :one
+UPDATE storage_migration
+SET state = $1, object_authority_configured = $2, updated_at = now()
+WHERE name = $3
+  AND state = $4
+  AND object_authority_configured = $5
 RETURNING name, state, object_authority_configured, metadata, completed_at, created_at, updated_at
 `
 
-type UpsertStorageMigrationObservationParams struct {
-	Name                      string          `json:"name"`
-	State                     string          `json:"state"`
-	ObjectAuthorityConfigured bool            `json:"object_authority_configured"`
-	Metadata                  json.RawMessage `json:"metadata"`
+type TransitionStorageMigrationObservationParams struct {
+	NextState                         string `json:"next_state"`
+	NextObjectAuthorityConfigured     bool   `json:"next_object_authority_configured"`
+	Name                              string `json:"name"`
+	ExpectedState                     string `json:"expected_state"`
+	ExpectedObjectAuthorityConfigured bool   `json:"expected_object_authority_configured"`
 }
 
-func (q *Queries) UpsertStorageMigrationObservation(ctx context.Context, arg UpsertStorageMigrationObservationParams) (StorageMigration, error) {
-	row := q.db.QueryRow(ctx, upsertStorageMigrationObservation,
+func (q *Queries) TransitionStorageMigrationObservation(ctx context.Context, arg TransitionStorageMigrationObservationParams) (StorageMigration, error) {
+	row := q.db.QueryRow(ctx, transitionStorageMigrationObservation,
+		arg.NextState,
+		arg.NextObjectAuthorityConfigured,
 		arg.Name,
-		arg.State,
-		arg.ObjectAuthorityConfigured,
-		arg.Metadata,
+		arg.ExpectedState,
+		arg.ExpectedObjectAuthorityConfigured,
 	)
 	var i StorageMigration
 	err := row.Scan(

@@ -55,6 +55,8 @@ Tags: `latest` (stable), `vX.Y.Z` (specific release).
 - Refresh the model cache from the Web UI if new models are available
 - Builtin skills update with the binary through its immutable release bundle
 
+If `STELLA_BLOB_S3_*` is configured, stop every old asset-writing binary, service, pod, and job before starting the new server. Keep the original S3 and database configuration, back up the bucket and Home storage, then follow `stellad storage migrate-assets --help`. The server fails closed until that command has copied and digest-verified object-only mutable assets into Principal Homes. The migration is idempotent and never deletes remote objects.
+
 ## Skill upgrade and downgrade checks
 
 Before upgrading, inspect legacy `$STELLA_HOME/.agents/skills`. Using the old working binary, import each custom Skill root through **Settings → Skills** as a managed global (`system`) Skill. Back up, verify, and remove other residual paths. The new binary lists every blocking path and stops without deleting or changing anything. Paths owned by the current release manifest are inert even when their contents or modes are stale; every other Skill root or residual path blocks startup.

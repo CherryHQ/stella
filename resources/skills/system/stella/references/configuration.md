@@ -161,6 +161,12 @@ Session, and uninstalling Helm do not delete Homes. A physical-purge failure is
 retained as `purge_failed` for operator retry; use `stellad storage retry-purge --help`
 for syntax.
 
+When legacy `STELLA_BLOB_S3_*` asset authority is configured, startup fails
+closed until object-only mutable assets are present and verified in their typed
+Principal Homes. Stop all old asset writers, retain the original S3 and database
+configuration, and follow `stellad storage migrate-assets --help`. The command
+is idempotent and leaves every remote object untouched.
+
 ## Environment variables
 
 Provider credentials and base URLs are stored in explicit provider rows managed through the Web UI or API; they are not read from the server environment.

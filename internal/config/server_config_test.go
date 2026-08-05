@@ -68,6 +68,25 @@ func TestLoadHomeMaintenanceConfig(t *testing.T) {
 	}
 }
 
+func TestLoadAssetMigrationConfigReadsOnlyMigrationDependencies(t *testing.T) {
+	cfg, err := LoadAssetMigrationConfig(lookupFrom(map[string]string{
+		databaseURLEnv:     "postgres://db/stella",
+		homeStoreIDEnv:     "migration-local",
+		blobS3EndpointEnv:  "s3.example.test",
+		blobS3BucketEnv:    "assets",
+		blobS3AccessKeyEnv: "access",
+		blobS3SecretKeyEnv: "secret",
+		blobS3RegionEnv:    "test-1",
+		blobS3UseSSLEnv:    "no",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DatabaseURL != "postgres://db/stella" || cfg.HomeStoreID != "migration-local" || cfg.Blob.Endpoint != "s3.example.test" || cfg.Blob.UseSSL != "no" {
+		t.Fatalf("config = %#v", cfg)
+	}
+}
+
 func TestLoadServerConfigHappy(t *testing.T) {
 	cfg, err := LoadServerConfig(lookupFrom(map[string]string{
 		requireExternalDBEnv:    "true",

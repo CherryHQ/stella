@@ -118,15 +118,18 @@ RETURNING *;
 -- name: GetStorageMigration :one
 SELECT * FROM storage_migration WHERE name = $1;
 
--- name: UpsertStorageMigrationObservation :one
+-- name: CreateStorageMigrationObservation :one
 INSERT INTO storage_migration (name, state, object_authority_configured, metadata)
 VALUES ($1, $2, $3, $4)
-ON CONFLICT (name) DO UPDATE
-SET state = excluded.state,
-    object_authority_configured = excluded.object_authority_configured,
-    metadata = excluded.metadata,
-    updated_at = now()
-WHERE storage_migration.state <> 'completed'
+ON CONFLICT (name) DO NOTHING
+RETURNING *;
+
+-- name: TransitionStorageMigrationObservation :one
+UPDATE storage_migration
+SET state = sqlc.arg(next_state), object_authority_configured = sqlc.arg(next_object_authority_configured), updated_at = now()
+WHERE name = sqlc.arg(name)
+  AND state = sqlc.arg(expected_state)
+  AND object_authority_configured = sqlc.arg(expected_object_authority_configured)
 RETURNING *;
 
 -- name: CreateStorageMigration :one
@@ -138,4 +141,10 @@ RETURNING *;
 -- name: CompleteStorageMigration :one
 UPDATE storage_migration SET state = 'completed', completed_at = now(), updated_at = now()
 WHERE name = $1 AND state = $2
+RETURNING *;
+
+-- name: CompleteMutableAssetStorageMigration :one
+UPDATE storage_migration
+SET state = 'completed', metadata = $2, completed_at = now(), updated_at = now()
+WHERE name = $1 AND state = 'pending' AND object_authority_configured = true
 RETURNING *;

@@ -121,6 +121,8 @@ Only a small set of environment variables is recognized:
 | `STELLA_HOME_VOLUME`          | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                     |
 | `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |
 
+When the full `STELLA_BLOB_S3_*` group is configured, server startup is blocked until object-only mutable assets have been verified into Principal Homes. Keep those values available and follow `stellad storage migrate-assets --help`; do not remove the S3 configuration to bypass a pending marker. The migration never deletes remote objects.
+
 Structured Reflect is the only writer. Remove the obsolete `STELLA_REFLECT_MODE` variable before upgrading; the transition release rejects an explicit `legacy` value instead of silently changing behavior. Curator mode is read at server startup, so restart Stella after changing it. Invalid curator modes stop startup. See [Deployment](/docs/start-here/deployment#structured-reflect-and-curator) for operational checks and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator) for the detailed mechanism.
 
 See the [Sandbox guide](/docs/guides/sandbox) for how to choose a sandbox backend and configure Docker sandbox modes.

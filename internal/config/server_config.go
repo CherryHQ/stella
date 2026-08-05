@@ -118,6 +118,15 @@ type HomeMaintenanceConfig struct {
 	HomeStoreID string
 }
 
+// AssetMigrationConfig is the deliberately narrow input to the offline mutable
+// asset cutover. Blob keeps its raw values because it owns their grouped
+// validation and boolean dialect.
+type AssetMigrationConfig struct {
+	DatabaseURL string
+	HomeStoreID string
+	Blob        BlobS3Config
+}
+
 // LoadHomeMaintenanceConfig reads only the database and Home Store selection
 // shared by standalone Home maintenance commands.
 func LoadHomeMaintenanceConfig(lookup func(string) (string, bool)) (HomeMaintenanceConfig, error) {
@@ -128,6 +137,29 @@ func LoadHomeMaintenanceConfig(lookup func(string) (string, bool)) (HomeMaintena
 		return HomeMaintenanceConfig{}, err
 	}
 	return HomeMaintenanceConfig{DatabaseURL: databaseURL, HomeStoreID: homeStoreID}, nil
+}
+
+// LoadAssetMigrationConfig reads only the dependencies of `storage
+// migrate-assets`; parsing unrelated daemon configuration would make an
+// offline repair command fail for irrelevant vault or provider settings.
+func LoadAssetMigrationConfig(lookup func(string) (string, bool)) (AssetMigrationConfig, error) {
+	maintenance, err := LoadHomeMaintenanceConfig(lookup)
+	if err != nil {
+		return AssetMigrationConfig{}, err
+	}
+	get := func(name string) string { value, _ := lookup(name); return value }
+	return AssetMigrationConfig{
+		DatabaseURL: maintenance.DatabaseURL,
+		HomeStoreID: maintenance.HomeStoreID,
+		Blob: BlobS3Config{
+			Endpoint:  get(blobS3EndpointEnv),
+			Bucket:    get(blobS3BucketEnv),
+			AccessKey: get(blobS3AccessKeyEnv),
+			SecretKey: get(blobS3SecretKeyEnv),
+			Region:    get(blobS3RegionEnv),
+			UseSSL:    get(blobS3UseSSLEnv),
+		},
+	}, nil
 }
 
 // VaultConfig carries the vault master key (STELLA_VAULT_KEY). The key is a
