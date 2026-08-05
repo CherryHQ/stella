@@ -209,6 +209,7 @@ The `delegate` tool enables the agent to delegate focused subtasks to isolated c
 | Tool        | Condition                         | Description                                                         |
 | ----------- | --------------------------------- | ------------------------------------------------------------------- |
 | `memory`    | Always                            | Auto-generated memory tool (actions adapt to provider capabilities) |
+| `session`   | One-to-one agent sessions         | Read-only session discovery and transcript inspection               |
 | `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)        |
 | `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                               |
 | `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                                   |

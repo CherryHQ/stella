@@ -582,9 +582,11 @@ func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionF
 }
 
 // allowSessionList is the collection-level Session decision: admin and any
-// user-role actor may list; every other actor is denied.
+// user-role actor may list. A durable agent may list because List derives the
+// owner and executor from its immutable Authority and still filters every row
+// through the exact Session read rule. Group and system actors remain denied.
 func (a *Access) allowSessionList() bool {
-	return a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser
+	return a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser || a.authority.Kind() == authz.ActorAgent
 }
 
 // allowSession decides one non-list action against a durable Session's facts.

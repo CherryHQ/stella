@@ -13,6 +13,10 @@ import (
 const (
 	defaultToolPageSize = 20
 	maxToolPageSize     = 100
+	maxToolAttempts     = 20
+	maxToolErrorText    = 4_000
+	maxToolIntentText   = 12_000
+	maxToolDetailText   = 64_000
 )
 
 type Tool struct {
@@ -109,7 +113,15 @@ func (h goalHandler) Get(ctx context.Context, in GetInput) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return goalSummary(row), nil
+	children, err := acc.ListChildren(ctx, row.ID)
+	if err != nil {
+		return nil, err
+	}
+	attempts, err := acc.ListAttemptSummaries(ctx, row.ID, maxToolAttempts+1)
+	if err != nil {
+		return nil, err
+	}
+	return goalDetail(row, children, attempts), nil
 }
 
 func (h goalHandler) List(ctx context.Context, in ListInput) (any, error) {
@@ -175,13 +187,53 @@ func (h goalHandler) Cancel(ctx context.Context, in CancelInput) (any, error) {
 }
 
 type goalResponse struct {
-	ID              string `json:"id"`
-	Title           string `json:"title"`
-	Lifecycle       string `json:"lifecycle"`
-	AcceptanceState string `json:"acceptance_state"`
-	Kind            string `json:"kind"`
-	Priority        string `json:"priority"`
-	UpdatedAt       string `json:"updated_at"`
+	ID              string  `json:"id"`
+	Title           string  `json:"title"`
+	Lifecycle       string  `json:"lifecycle"`
+	AcceptanceState string  `json:"acceptance_state"`
+	Kind            string  `json:"kind"`
+	Priority        string  `json:"priority"`
+	BlockReason     string  `json:"block_reason,omitempty"`
+	DoneReason      string  `json:"done_reason,omitempty"`
+	ProjectID       *string `json:"project_id,omitempty"`
+	ParentID        *string `json:"parent_id,omitempty"`
+	RootID          string  `json:"root_id"`
+	AttemptCount    int64   `json:"attempt_count"`
+	ActiveAttemptID *string `json:"active_attempt_id,omitempty"`
+	NeedsAttention  bool    `json:"needs_attention"`
+	UpdatedAt       string  `json:"updated_at"`
+}
+
+type goalDetailResponse struct {
+	goalResponse
+	Intent          string                `json:"intent"`
+	ReviewPolicy    string                `json:"review_policy"`
+	Children        []goalResponse        `json:"children"`
+	ChildProgress   goalChildProgress     `json:"child_progress"`
+	Attempts        []goalAttemptResponse `json:"attempts"`
+	AttemptsHasMore bool                  `json:"attempts_has_more"`
+}
+
+type goalChildProgress struct {
+	Total     int `json:"total"`
+	Accepted  int `json:"accepted"`
+	Active    int `json:"active"`
+	Blocked   int `json:"blocked"`
+	Failed    int `json:"failed"`
+	Cancelled int `json:"cancelled"`
+}
+
+type goalAttemptResponse struct {
+	ID           string  `json:"id"`
+	Purpose      string  `json:"purpose"`
+	AttemptNo    int64   `json:"attempt_no"`
+	Status       string  `json:"status"`
+	SessionID    string  `json:"session_id"`
+	Error        string  `json:"error,omitempty"`
+	FailureClass string  `json:"failure_class,omitempty"`
+	StartedAt    *string `json:"started_at,omitempty"`
+	FinishedAt   *string `json:"finished_at,omitempty"`
+	UpdatedAt    string  `json:"updated_at"`
 }
 type listResponse[T any] struct {
 	Items         []T    `json:"items"`
@@ -190,5 +242,77 @@ type listResponse[T any] struct {
 }
 
 func goalSummary(row Goal) goalResponse {
-	return goalResponse{ID: row.ID, Title: row.Title, Lifecycle: row.Lifecycle, AcceptanceState: row.AcceptanceState, Kind: row.Kind, Priority: row.Priority, UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339)}
+	return goalResponse{
+		ID: row.ID, Title: row.Title, Lifecycle: row.Lifecycle, AcceptanceState: row.AcceptanceState,
+		Kind: row.Kind, Priority: row.Priority, BlockReason: row.BlockReason, DoneReason: row.DoneReason,
+		ProjectID: row.ProjectID, ParentID: row.ParentID, RootID: row.RootID, AttemptCount: row.AttemptCount,
+		ActiveAttemptID: row.ActiveAttemptID, NeedsAttention: NeedsAttention(row.Lifecycle, row.BlockReason),
+		UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func goalDetail(row Goal, children []Goal, attempts []AttemptSummary) goalDetailResponse {
+	remainingText := maxToolDetailText
+	intent, _ := truncateGoalToolText(row.Intent, maxToolIntentText, &remainingText)
+	response := goalDetailResponse{
+		goalResponse: goalSummary(row),
+		Intent:       intent,
+		ReviewPolicy: row.ReviewPolicy,
+		Children:     make([]goalResponse, 0, len(children)),
+		Attempts:     make([]goalAttemptResponse, 0, len(attempts)),
+	}
+	for _, child := range children {
+		summary := goalSummary(child)
+		summary.Title, _ = truncateGoalToolText(summary.Title, maxToolErrorText, &remainingText)
+		response.Children = append(response.Children, summary)
+		response.ChildProgress.Total++
+		switch {
+		case child.Lifecycle == LifecycleDone && child.DoneReason == DoneReasonAccepted:
+			response.ChildProgress.Accepted++
+		case child.Lifecycle == LifecycleDone && child.DoneReason == DoneReasonFailed:
+			response.ChildProgress.Failed++
+		case child.Lifecycle == LifecycleDone && child.DoneReason == DoneReasonCancelled:
+			response.ChildProgress.Cancelled++
+		case child.Lifecycle == LifecycleBlocked:
+			response.ChildProgress.Blocked++
+		case !IsTerminalLifecycle(child.Lifecycle):
+			response.ChildProgress.Active++
+		}
+	}
+	if len(attempts) > maxToolAttempts {
+		response.AttemptsHasMore = true
+		attempts = attempts[:maxToolAttempts]
+	}
+	for _, attempt := range attempts {
+		response.Attempts = append(response.Attempts, goalAttemptSummary(attempt, &remainingText))
+	}
+	return response
+}
+
+func goalAttemptSummary(attempt AttemptSummary, remainingText *int) goalAttemptResponse {
+	errorText, _ := truncateGoalToolText(attempt.Error, maxToolErrorText, remainingText)
+	return goalAttemptResponse{
+		ID: attempt.ID, Purpose: attempt.Purpose, AttemptNo: attempt.AttemptNo, Status: attempt.Status,
+		SessionID: attempt.SessionID, Error: errorText, FailureClass: attempt.FailureClass,
+		StartedAt: formatToolTime(attempt.StartedAt), FinishedAt: formatToolTime(attempt.FinishedAt),
+		UpdatedAt: attempt.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func truncateGoalToolText(text string, perFieldLimit int, remaining *int) (string, bool) {
+	limit := min(perFieldLimit, *remaining)
+	if limit <= 0 {
+		return "", text != ""
+	}
+	value, truncated := tools.TruncateText(text, limit)
+	*remaining -= len(value)
+	return value, truncated
+}
+
+func formatToolTime(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+	formatted := value.UTC().Format(time.RFC3339)
+	return &formatted
 }
