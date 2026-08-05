@@ -23,7 +23,7 @@ Before you start, make sure you have:
 
 2. Open the Web UI at `http://localhost:25678`.
 3. Go to the **Channels** page and click **New Channel**.
-4. Select **Weixin**, enter a name, leave the fixed channel ID as `weixin`, and choose the agent that should receive messages from this bot.
+4. Select **Weixin**, keep or edit the suggested name, and choose the agent that should receive messages from this bot. WeChat is singleton-only: the channel ID is always `weixin`.
 5. Click **Scan to create WeChat bot**.
 6. Open WeChat on your phone, scan the QR code, and confirm bot creation.
 7. Once confirmed, Stella saves the returned iLink credentials and starts the channel.

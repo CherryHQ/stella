@@ -22,7 +22,7 @@ Before you start, make sure you have:
 
 2. Open the Web UI at `http://localhost:25678`.
 3. Go to **Channels** and add a new Feishu channel instance.
-4. Enter a channel ID and name.
+4. Keep or edit the suggested name. Stella generates the channel ID for you.
 5. Select the agent this bot should represent.
 6. Click **Scan to create Feishu bot**.
 7. Scan the QR code with the Feishu mobile app and confirm the app creation request.

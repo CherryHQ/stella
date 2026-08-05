@@ -606,8 +606,12 @@ components:
       properties:
         id:
           type: string
+          description: >-
+            Channel id. Optional on create — the server mints a uuid when it is omitted (weixin is singleton-only and always gets the id "weixin"). Ignored on update; the path id wins.
         name:
           type: string
+          description: >-
+            Display name. Optional on create — the server defaults it to "{type}-{random suffix}" when it is omitted.
         type:
           type: string
           nullable: true
@@ -677,12 +681,14 @@ components:
           type: integer
     FeishuRegistrationPollRequest:
       type: object
-      required: [device_code, channel_id, agent_id]
+      required: [device_code, agent_id]
       properties:
         device_code:
           type: string
         channel_id:
           type: string
+          description: >-
+            Optional. The server mints a uuid for the channel it creates when this is omitted.
         agent_id:
           type: string
         name:

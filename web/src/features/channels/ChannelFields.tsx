@@ -98,10 +98,26 @@ export function normalizeChannel(ch: Channel): NormalizedChannel {
   };
 }
 
-export function newInstanceDraft(type = defaultChannelType, id = ""): Record<string, unknown> {
+/**
+ * A ready-to-use display name for a new channel: `{type}-{4 hex chars}`. The id
+ * is minted by the server and is a uuid nobody wants to read, so the name is the
+ * only handle a user has on a channel — prefilling it means they can click
+ * straight through, and it stays editable. The server applies the same default.
+ */
+export function suggestChannelName(type: string): string {
+  const bytes = new Uint8Array(2);
+  crypto.getRandomValues(bytes);
+  const suffix = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${type}-${suffix}`;
+}
+
+export function newInstanceDraft(
+  type = defaultChannelType,
+  name = suggestChannelName(type),
+): Record<string, unknown> {
   return {
-    id: type === "weixin" ? "weixin" : id,
     type,
+    name,
     ...platformConfigDefaults(type),
   };
 }

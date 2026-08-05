@@ -146,9 +146,15 @@ func (s *Server) PollFeishuRegistration(w http.ResponseWriter, r *http.Request) 
 	req.DeviceCode = strings.TrimSpace(req.DeviceCode)
 	req.ChannelID = strings.TrimSpace(req.ChannelID)
 	req.AgentID = strings.TrimSpace(req.AgentID)
-	if req.DeviceCode == "" || req.ChannelID == "" {
-		writeError(w, http.StatusBadRequest, "device_code and channel_id are required")
+	if req.DeviceCode == "" {
+		writeError(w, http.StatusBadRequest, "device_code is required")
 		return
+	}
+	// The client no longer invents channel ids, so an omitted channel_id is the
+	// normal case: mint one here exactly as CreateChannel does. Only the poll that
+	// returns credentials writes a row, so a fresh id per pending poll is inert.
+	if req.ChannelID == "" {
+		req.ChannelID = generateChannelID(pkgchannel.PlatformFeishu)
 	}
 	if req.AgentID == "" {
 		writeError(w, http.StatusBadRequest, "agent_id is required; bind this Feishu channel to an agent")

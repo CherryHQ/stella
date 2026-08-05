@@ -1,9 +1,14 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strings"
+
+	"github.com/google/uuid"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/config"
@@ -321,12 +326,20 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channelType := requestChannelType(req)
-	if req.ID == "" || channelType == "" {
-		writeError(w, http.StatusBadRequest, "id and type are required")
+	if channelType == "" {
+		writeError(w, http.StatusBadRequest, "type is required")
 		return
 	}
+	// The id is the server's to mint: a channel is identified by the platform it
+	// speaks and the agent it answers for, never by a string a human invents. A
+	// client may still pin one (import, scripted setup), and that stays validated
+	// exactly as before.
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id = generateChannelID(channelType)
+	}
 	if channelType == pkgchannel.PlatformWeixin {
-		if err := validateWeixinChannelID(req.ID); err != nil {
+		if err := validateWeixinChannelID(id); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -338,9 +351,14 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = generateChannelName(channelType)
+	}
+
 	ch := config.Channel{
-		ID:      req.ID,
-		Name:    req.Name,
+		ID:      id,
+		Name:    name,
 		Type:    channelType,
 		AgentID: requestAgentID(req),
 		Enabled: false,
@@ -353,6 +371,28 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeData(w, http.StatusCreated, channelToView(saved))
+}
+
+// generateChannelID mints the id for a create that did not pin one. WeChat is
+// singleton-only (one iLink account cannot back multiple bots), so its id is the
+// fixed platform id; every other platform gets the same uuidv7 the rest of the
+// deployment's rows use.
+func generateChannelID(channelType string) string {
+	if channelType == pkgchannel.PlatformWeixin {
+		return pkgchannel.PlatformWeixin
+	}
+	return uuid.Must(uuid.NewV7()).String()
+}
+
+// generateChannelName is the display name for a create that did not pin one:
+// "{type}-{4 hex chars}". The id is a uuid nobody wants to read, so a row must
+// never fall back to showing it — this keeps the list legible without asking.
+func generateChannelName(channelType string) string {
+	suffix := make([]byte, 2)
+	if _, err := rand.Read(suffix); err != nil {
+		panic("server: crypto/rand failed: " + err.Error())
+	}
+	return channelType + "-" + hex.EncodeToString(suffix)
 }
 
 func requestChannelType(req channelWriteRequest) string {

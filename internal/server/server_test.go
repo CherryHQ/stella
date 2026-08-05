@@ -719,6 +719,80 @@ func TestChannelCreateIsInsertOnlyAndPatchIsUpdateOnly(t *testing.T) {
 	}
 }
 
+// A create without an id is the normal path: the client never invents one.
+func TestChannelCreateGeneratesIDAndName(t *testing.T) {
+	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
+	enableChannelPlugin(t, env, pkgchannel.PlatformWeixin)
+
+	createChannel := func(t *testing.T, body map[string]any) channelPayload {
+		t.Helper()
+		rr := doRequest(t, env, http.MethodPost, "/api/channels", body)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("create = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+		}
+		var saved channelPayload
+		if err := json.Unmarshal(parseResponse(t, rr).Data, &saved); err != nil {
+			t.Fatalf("unmarshal channel: %v", err)
+		}
+		return saved
+	}
+
+	t.Run("id is generated when omitted", func(t *testing.T) {
+		saved := createChannel(t, map[string]any{"type": "telegram", "name": "Explicit Name"})
+		if saved.ID == "" || saved.ID == "telegram" {
+			t.Fatalf("generated id = %q, want a non-empty id distinct from the type", saved.ID)
+		}
+		if saved.Name != "Explicit Name" {
+			t.Fatalf("name = %q, want the supplied name", saved.Name)
+		}
+		// The generated id must address the row it created.
+		if rr := doRequest(t, env, http.MethodGet, "/api/channels/"+saved.ID, nil); rr.Code != http.StatusOK {
+			t.Fatalf("get generated channel = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("name defaults to type-suffix", func(t *testing.T) {
+		saved := createChannel(t, map[string]any{"type": "telegram"})
+		if !strings.HasPrefix(saved.Name, "telegram-") || saved.Name == "telegram-" {
+			t.Fatalf("default name = %q, want a %q prefix plus a suffix", saved.Name, "telegram-")
+		}
+	})
+
+	t.Run("weixin without an id gets the singleton id", func(t *testing.T) {
+		saved := createChannel(t, map[string]any{"type": "weixin"})
+		if saved.ID != pkgchannel.PlatformWeixin {
+			t.Fatalf("weixin id = %q, want %q", saved.ID, pkgchannel.PlatformWeixin)
+		}
+	})
+
+	t.Run("an explicit id is still honored and still conflicts", func(t *testing.T) {
+		saved := createChannel(t, map[string]any{"type": "telegram", "id": "telegram-pinned"})
+		if saved.ID != "telegram-pinned" {
+			t.Fatalf("id = %q, want the supplied id", saved.ID)
+		}
+		rr := doRequest(t, env, http.MethodPost, "/api/channels", map[string]any{
+			"type": "telegram", "id": "telegram-pinned",
+		})
+		if rr.Code != http.StatusConflict {
+			t.Fatalf("duplicate create = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("type is still required", func(t *testing.T) {
+		rr := doRequest(t, env, http.MethodPost, "/api/channels", map[string]any{"name": "nameless"})
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("create without type = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+		}
+	})
+}
+
+type channelPayload struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 func TestUpdateTelegramChannelUsesPluginHostRuntime(t *testing.T) {
 	env := setupAdmin(t)
 	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)

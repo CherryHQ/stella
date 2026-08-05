@@ -31,6 +31,7 @@ import {
   newInstanceDraft,
   normalizeChannel,
   serializePlatformConfig,
+  suggestChannelName,
   type NormalizedChannel,
 } from "./ChannelFields";
 
@@ -42,9 +43,7 @@ type Translate = ReturnType<typeof useI18n>["t"];
  * same drafts with the same words. Returns the message to show, or null.
  */
 export function newChannelDraftError(draft: Record<string, unknown>, t: Translate): string | null {
-  const id = ((draft.id as string) || "").trim();
-  if (!id || !draft.type) return t("channels.idAndPlatformRequired");
-  if (id === draft.type && draft.type !== "weixin") return t("channels.idMustNotMatchPlatform");
+  if (!draft.type) return t("channels.platformRequired");
   if ((draft.type === "feishu" || draft.type === "weixin") && !draft.agent_id) {
     return t("channels.scanNeedsAgent");
   }
@@ -88,9 +87,11 @@ export function NewChannelForm({
 }: NewChannelFormProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState<Record<string, unknown>>(() => ({
-    ...newInstanceDraft(fallbackChannelType, ""),
+    ...newInstanceDraft(fallbackChannelType),
     agent_id: initialAgentId,
   }));
+  // The suggested name follows the platform until the user makes it theirs.
+  const [nameIsSuggested, setNameIsSuggested] = useState(true);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanQrUrl, setScanQrUrl] = useState("");
   const [scanStatus, setScanStatus] = useState("");
@@ -121,29 +122,34 @@ export function NewChannelForm({
 
   const updateField = (key: string, value: unknown) => {
     if (key === "type") {
+      const type = value as string;
       // Switching platform resets the credential fields but keeps the chosen
-      // agent — it is platform-independent.
+      // agent — it is platform-independent — and re-suggests the name unless the
+      // user already wrote their own.
       setDraft({
-        ...newInstanceDraft(value as string, draft.id as string),
+        ...newInstanceDraft(
+          type,
+          nameIsSuggested ? suggestChannelName(type) : ((draft.name as string) ?? ""),
+        ),
         agent_id: draft.agent_id,
       });
     } else if (key === "agent_id" && lockAgent) {
       // The entry point owns the binding here.
-    } else if (key !== "id" || draft.type !== "weixin") {
+    } else {
+      if (key === "name") setNameIsSuggested(false);
       setDraft((prev) => ({ ...prev, [key]: value }));
     }
   };
 
   const pollFeishuScan = useCallback(
     async (deviceCode: string, intervalSeconds: number) => {
-      const channelId = ((draft.id as string) || "").trim();
       const agentId = ((draft.agent_id as string) || "").trim();
-      if (!deviceCode || !channelId || !agentId) return;
+      if (!deviceCode || !agentId) return;
       try {
+        // No channel_id: the server mints it, the same way a plain create does.
         const { data: result } = await pollFeishuRegistration({
           body: {
             device_code: deviceCode,
-            channel_id: channelId,
             agent_id: agentId,
             name: (draft.name as string) || "Feishu",
             enabled: true,
@@ -174,14 +180,13 @@ export function NewChannelForm({
   );
 
   async function pollWeixinScan(qrCode: string) {
-    const channelId = ((draft.id as string) || "").trim();
     const agentId = ((draft.agent_id as string) || "").trim();
-    if (!qrCode || !channelId || !agentId) return;
+    if (!qrCode || !agentId) return;
     try {
+      // WeChat is singleton-only; the server pins the id to "weixin".
       const { data: result } = await pollWeixinRegistration({
         body: {
           qrcode: qrCode,
-          channel_id: channelId,
           agent_id: agentId,
           name: (draft.name as string) || "WeChat",
           config: serializePlatformConfig("weixin", draft),
@@ -234,14 +239,8 @@ export function NewChannelForm({
 
   const startFeishuScan = async () => {
     const channelName = ((draft.name as string) || "").trim();
-    const channelId = ((draft.id as string) || "").trim();
     if (!channelName) {
       setScanError(t("channels.scanNeedsName"));
-      setScanOpen(true);
-      return;
-    }
-    if (!channelId) {
-      setScanError(t("channels.scanNeedsId"));
       setScanOpen(true);
       return;
     }
@@ -276,14 +275,8 @@ export function NewChannelForm({
 
   const startWeixinScan = async () => {
     const channelName = ((draft.name as string) || "").trim();
-    const channelId = ((draft.id as string) || "").trim();
     if (!channelName) {
       setScanError(t("channels.scanNeedsName"));
-      setScanOpen(true);
-      return;
-    }
-    if (!channelId) {
-      setScanError(t("channels.scanNeedsId"));
       setScanOpen(true);
       return;
     }
@@ -306,12 +299,10 @@ export function NewChannelForm({
   );
 
   const canStartRegistrationScan = Boolean(
-    ((draft.name as string) || "").trim() &&
-    ((draft.id as string) || "").trim() &&
-    ((draft.agent_id as string) || "").trim(),
+    ((draft.name as string) || "").trim() && ((draft.agent_id as string) || "").trim(),
   );
 
-  const canSubmit = !creating && !!draft.id && !!draft.type;
+  const canSubmit = !creating && !!draft.type;
 
   const isWeixin = draft.type === "weixin";
 
@@ -365,23 +356,12 @@ export function NewChannelForm({
               placeholder={t("channels.namePlaceholder")}
               className="w-full text-sm"
             />
+            <p className="text-xs text-muted-foreground">{t("channels.nameDesc")}</p>
           </div>
 
-          <div className="w-full space-y-1.5">
-            <label className="text-sm font-medium font-mono">{t("channels.channelId")}</label>
-            <Input
-              nativeInput
-              type="text"
-              value={(draft.id as string) || ""}
-              onChange={(e) => updateField("id", e.target.value)}
-              placeholder={t("channels.channelIdPlaceholder")}
-              disabled={isWeixin}
-              className="w-full text-sm font-mono"
-            />
-            <p className="text-xs text-muted-foreground">
-              {isWeixin ? t("channels.weixinChannelIdDesc") : t("channels.channelIdDesc")}
-            </p>
-          </div>
+          {isWeixin && (
+            <p className="text-xs text-muted-foreground">{t("channels.weixinSingletonDesc")}</p>
+          )}
 
           {lockAgent ? (
             <p className="text-xs text-muted-foreground">{t("channels.boundToThisAgent")}</p>

@@ -36,6 +36,10 @@ paths:
     post:
       tags: [channels]
       summary: Create a deployment channel (admin only)
+      description: >-
+        `type` is required. `id` is optional: the server mints a uuid when it is
+        omitted, except for the singleton weixin channel, which always gets the
+        id "weixin". `name` is optional and defaults to "{type}-{random suffix}".
       operationId: createChannel
       requestBody:
         required: true

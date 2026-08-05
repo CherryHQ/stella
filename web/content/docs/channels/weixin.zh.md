@@ -23,7 +23,7 @@ Stella 内置了一个通过 iLink Bot API 长轮询连接的微信机器人 —
 
 2. 打开Web UI `http://localhost:25678`。
 3. 进入 **Channels** 页面，点击 **New Channel**。
-4. 选择 **Weixin**，填写名称，保留固定频道 ID `weixin`，并选择接收这个机器人消息的 Agent。
+4. 选择 **Weixin**，沿用或修改自动填好的名称，并选择接收这个机器人消息的 Agent。微信是单例频道：频道 ID 始终是 `weixin`。
 5. 点击 **扫码创建微信机器人**。
 6. 在手机上打开微信，扫描二维码并确认创建机器人。
 7. 确认后，Stella 会保存返回的 iLink 凭据并启动频道。

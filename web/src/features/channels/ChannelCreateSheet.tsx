@@ -82,7 +82,7 @@ function CreateForm({
     mutationFn: (draft: Record<string, unknown>) =>
       createChannel({
         body: {
-          id: ((draft.id as string) || "").trim(),
+          // No id: the server mints it (and pins weixin to its singleton id).
           name: (draft.name as string) || "",
           type: draft.type as string,
           agent_id: (draft.agent_id as string) || "",

@@ -57,7 +57,12 @@ interface ChannelDetailProps {
   wxQrPolling: boolean;
   onUpdate: (key: string, value: unknown) => void;
   onSave: (ch: NormalizedChannel) => void;
-  onDelete: (id: string) => void;
+  /**
+   * Ask the page to confirm the delete. The confirmation is an overlay and this
+   * detail renders inside a Sheet, so the page owns it — nesting overlays is a
+   * bug (`web-ui.md`).
+   */
+  onRequestDelete: (ch: NormalizedChannel) => void;
   onGenerateCode: (platform: string) => void;
   onStartWeixinQR: () => void;
   onUnlink: (id: string | undefined) => void;
@@ -77,7 +82,7 @@ function ChannelDetail({
   wxQrPolling,
   onUpdate,
   onSave,
-  onDelete,
+  onRequestDelete,
   onGenerateCode,
   onStartWeixinQR,
   onUnlink,
@@ -87,11 +92,9 @@ function ChannelDetail({
 }: ChannelDetailProps) {
   const { t } = useI18n();
   const [channel, setChannel] = useState<NormalizedChannel>(initialChannel);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
     setChannel(initialChannel);
-    setConfirmDeleteOpen(false);
   }, [initialChannel]);
 
   const updateField = (key: string, value: unknown) => {
@@ -105,7 +108,7 @@ function ChannelDetail({
   return (
     <DetailPanel
       onSave={() => onSave(channel)}
-      onDelete={!isDefaultInstance ? () => setConfirmDeleteOpen(true) : undefined}
+      onDelete={!isDefaultInstance ? () => onRequestDelete(channel) : undefined}
       saveLabel={t("common.save")}
       deleteLabel={t("common.delete")}
     >
@@ -191,14 +194,6 @@ function ChannelDetail({
           </div>
         )}
       </div>
-
-      <ConfirmDialog
-        open={confirmDeleteOpen}
-        onOpenChange={setConfirmDeleteOpen}
-        title={t("channels.deleteChannel")}
-        message={t("channels.deleteChannelMsg", { id: channel.id })}
-        onConfirm={() => onDelete(channel.id)}
-      />
     </DetailPanel>
   );
 }
@@ -353,6 +348,9 @@ export function ChannelsPage() {
   const [loadingInstances, setLoadingInstances] = useState(false);
 
   const [creatingInstance, setCreatingInstance] = useState(false);
+  // The delete confirmation lives here, not in the detail: the detail renders
+  // inside the Sheet and an overlay may not nest inside another (`web-ui.md`).
+  const [pendingDelete, setPendingDelete] = useState<NormalizedChannel | null>(null);
 
   const { toasts, showToast } = useToast();
 
@@ -523,12 +521,11 @@ export function ChannelsPage() {
       showToast(invalid, "error");
       return;
     }
-    const id = ((draft.id as string) || "").trim();
     setCreatingInstance(true);
     try {
       const { data: saved } = await createChannelRequest({
+        // No id: the server mints it (and pins weixin to its singleton id).
         body: {
-          id,
           name: (draft.name as string) || "",
           type: draft.type as string,
           agent_id: (draft.agent_id as string) || "",
@@ -585,7 +582,7 @@ export function ChannelsPage() {
           wxQrPolling={link.qrPolling}
           onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
           onSave={saveInstance}
-          onDelete={doDeleteChannel}
+          onRequestDelete={setPendingDelete}
           onGenerateCode={(platform) => void link.generateCode(platform)}
           onStartWeixinQR={() => void link.startQr()}
           onUnlink={unlinkIdentity}
@@ -731,6 +728,17 @@ export function ChannelsPage() {
       <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>
         {detail}
       </SettingsDetailSheet>
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title={t("channels.deleteChannel")}
+        message={pendingDelete ? t("channels.deleteChannelMsg", { id: pendingDelete.id }) : ""}
+        onConfirm={() => {
+          if (pendingDelete) void doDeleteChannel(pendingDelete.id);
+          setPendingDelete(null);
+        }}
+      />
 
       <ToastContainer messages={toasts} />
     </>
