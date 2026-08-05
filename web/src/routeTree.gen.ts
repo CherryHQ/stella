@@ -350,11 +350,7 @@ const AppAgentsAgentIdSkillsIndexRoute =
     id: '/skills/',
     path: '/skills/',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/skills/index.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdGoalsIndexRoute =
   AppAgentsAgentIdGoalsIndexRouteImport.update({
     id: '/goals/',
@@ -386,11 +382,7 @@ const AppAgentsAgentIdSkillsSkillIdRoute =
     id: '/skills/$skillId',
     path: '/skills/$skillId',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/skills/$skillId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdSessionsSessionIdRoute =
   AppAgentsAgentIdSessionsSessionIdRouteImport.update({
     id: '/sessions/$sessionId',
@@ -442,11 +434,7 @@ const AppAgentsAgentIdSkillsScopeSkillIdRoute =
     id: '/skills/$scope/$skillId',
     path: '/skills/$scope/$skillId',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/skills/$scope.$skillId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdProjectsProjectIdTasksRoute =
   AppAgentsAgentIdProjectsProjectIdTasksRouteImport.update({
     id: '/projects/$projectId/tasks',
@@ -484,11 +472,7 @@ const AppAgentsAgentIdProjectsProjectIdSkillsIndexRoute =
     id: '/projects/$projectId/skills/',
     path: '/projects/$projectId/skills/',
     getParentRoute: () => AppAgentsAgentIdRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/agents.$agentId/projects.$projectId/skills/index.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRoute =
   AppAgentsAgentIdProjectsProjectIdSessionsSessionIdRouteImport.update({
     id: '/projects/$projectId/sessions/$sessionId',

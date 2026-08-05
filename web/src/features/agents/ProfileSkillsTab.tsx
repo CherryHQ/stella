@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Lock, Plus, Store, Trash2, Upload, Wand2 } from "lucide-react";
+import { Lock, Plus, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -13,26 +12,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPopup,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/menu";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { deleteAgentSkill, updateAgentSkill, uploadAgentSkill } from "@/lib/api-client/sdk.gen";
-import { apiErrorMessage } from "@/lib/api-error";
+import { SkillInstallSheet } from "@/features/skills/SkillInstallSheet";
+import { deleteAgentSkill, updateAgentSkill } from "@/lib/api-client/sdk.gen";
 import { agentSkillsOptions } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
 import {
@@ -67,20 +50,23 @@ function groupOf(scope: string): GroupKey {
 const GROUP_ORDER: GroupKey[] = ["mine", "project", "system"];
 
 /**
- * Every skill this agent can reach, grouped by who owns it, and manageable in
- * place: the row's switch is the model-invocation gate the skill actually
- * carries, and the trailing actions mirror the backend write rules
- * (`isSkillReadOnly`) so the list never offers an edit that would 403 —
- * read-only rows explain themselves through the scope's own description
- * instead. Adding a skill is an action reachable from here — the market and the
- * content editor stay on the skills page, which this tab links into.
+ * Every skill this agent can reach, grouped by who owns it, and fully managed
+ * here: the row's switch is the model-invocation gate the skill actually
+ * carries, the trailing actions mirror the backend write rules
+ * (`isSkillReadOnly`) so the list never offers an edit that would 403, the
+ * detail sheet edits a skill's metadata and file contents, and the install
+ * sheet is the single place a new skill is added.
+ *
+ * Ceiling: the list is the non-paginated skill set with no search box, so a very
+ * large install count renders one long page. Upgrade trigger — if agents
+ * routinely carry more skills than fit a scroll, add client-side filtering over
+ * this list, and only then reach for the paginated query.
  */
 export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; projectId?: string }) {
   const { t } = useI18n();
   const { toasts, showToast } = useToast();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const [uploadOpen, setUploadOpen] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
   const [selected, setSelected] = useState<Skill | null>(null);
   const { data: me } = useQuery(meQueryOptions);
   const { data: skills = [], isPending } = useQuery(agentSkillsOptions(agentId));
@@ -116,87 +102,41 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
     onError: () => showToast(t("profile.skillDeleteFailed"), "error"),
   });
 
-  const upload = useMutation({
-    mutationFn: (file: File) =>
-      // Uploads land in the user's own profile scope: the agent-wide and
-      // admin scopes need the picker the skills page already owns.
-      uploadAgentSkill({
-        path: { id: agentId },
-        body: { file, scope: "user_agent" },
-        throwOnError: true,
-      }),
-    onSuccess: () => {
-      setUploadOpen(false);
-      showToast(t("profile.skillUploaded"), "success");
-      void invalidate();
-    },
-    onError: (error) => showToast(apiErrorMessage(error, t("profile.skillUploadFailed")), "error"),
-  });
-
   const groups = useMemo(() => {
     const buckets: Record<GroupKey, Skill[]> = { mine: [], project: [], system: [] };
     for (const skill of skills) buckets[groupOf(skill.scope)].push(skill);
     return buckets;
   }, [skills]);
 
-  // Browsing surfaces (create-from-source, market) stay on the skills page,
-  // which drives both from its `new` / `source` search params.
-  const goToSkillsPage = (search: { new?: boolean; source?: "market" }) =>
-    projectId
-      ? navigate({
-          to: "/agents/$agentId/projects/$projectId/skills",
-          params: { agentId, projectId },
-          search,
-        })
-      : navigate({ to: "/agents/$agentId/skills", params: { agentId }, search });
-
   return (
     <div className="flex flex-col gap-6">
       <ToastContainer messages={toasts} />
       <div className="flex items-center justify-between gap-2">
         <p className="min-w-0 text-sm text-muted-foreground">{t("profile.skillsDesc")}</p>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="shrink-0"
-                aria-label={t("profile.addSkill")}
-                title={t("profile.addSkill")}
-              />
-            }
-          >
-            <Plus />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" sideOffset={6}>
-            <DropdownMenuItem onClick={() => void goToSkillsPage({ new: true })}>
-              <Wand2 />
-              {t("profile.skillMenuNew")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setUploadOpen(true)}>
-              <Upload />
-              {t("profile.skillMenuUpload")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => void goToSkillsPage({ source: "market" })}>
-              <Store />
-              {t("profile.skillMenuMarket")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0"
+          aria-label={t("profile.addSkill")}
+          title={t("profile.addSkill")}
+          onClick={() => setInstallOpen(true)}
+        >
+          <Plus />
+        </Button>
       </div>
 
-      <UploadSkillDialog
-        open={uploadOpen}
-        busy={upload.isPending}
-        onOpenChange={setUploadOpen}
-        onUpload={(file) => upload.mutate(file)}
+      <SkillInstallSheet
+        agentId={agentId}
+        open={installOpen}
+        onOpenChange={setInstallOpen}
+        notify={showToast}
       />
 
       <ProfileSkillDetailSheet
         agentId={agentId}
         projectId={projectId}
         skill={selected}
+        notify={showToast}
         onClose={() => setSelected(null)}
       />
 
@@ -349,58 +289,5 @@ function SkillRow({
         </>
       )}
     </li>
-  );
-}
-
-/**
- * Upload is the one install path with nothing to browse, so it stays in the
- * profile instead of bouncing the user to the skills page for a file picker.
- */
-function UploadSkillDialog({
-  open,
-  busy,
-  onOpenChange,
-  onUpload,
-}: {
-  open: boolean;
-  busy: boolean;
-  onOpenChange: (open: boolean) => void;
-  onUpload: (file: File) => void;
-}) {
-  const { t } = useI18n();
-  const [file, setFile] = useState<File | null>(null);
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) setFile(null);
-        onOpenChange(next);
-      }}
-    >
-      <DialogPopup className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t("profile.uploadSkillTitle")}</DialogTitle>
-          <DialogDescription>{t("profile.uploadSkillDesc")}</DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-2 px-6">
-          <Input
-            nativeInput
-            type="file"
-            accept=".zip"
-            aria-label={t("profile.uploadSkillTitle")}
-            onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
-          />
-          <p className="text-xs text-muted-foreground">{t("profile.uploadSkillTarget")}</p>
-        </div>
-        <DialogFooter>
-          <DialogClose render={<Button variant="ghost" />}>{t("common.cancel")}</DialogClose>
-          <Button disabled={!file || busy} loading={busy} onClick={() => file && onUpload(file)}>
-            <Upload />
-            {t("profile.uploadSkillAction")}
-          </Button>
-        </DialogFooter>
-      </DialogPopup>
-    </Dialog>
   );
 }
