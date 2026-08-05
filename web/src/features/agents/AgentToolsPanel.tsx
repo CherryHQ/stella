@@ -18,6 +18,7 @@ import type { Tool } from "@/lib/types";
 import { ToastContainer, useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { ProfilePanelSection, ProfileSectionMessage } from "./ProfilePanelSection";
 
 const SOURCE_ORDER: Record<string, number> = { core: 0, builtin: 1, plugin: 2, mcp: 3 };
 const SOURCE_LABEL_KEY = {
@@ -78,10 +79,10 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
   });
 
   if (!agentId) {
-    return <p className="text-sm text-muted-foreground">{t("agents.tools.createFirst")}</p>;
+    return <ProfileSectionMessage>{t("agents.tools.createFirst")}</ProfileSectionMessage>;
   }
   if (query.isLoading) {
-    return <p className="text-sm text-muted-foreground">{t("agents.tools.loading")}</p>;
+    return <ProfileSectionMessage>{t("agents.tools.loading")}</ProfileSectionMessage>;
   }
 
   const scopeOptions = TOOL_SCOPE_ORDER.filter(
@@ -100,23 +101,22 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <ToastContainer messages={toasts} />
-      <div className="grid gap-3">
-        <div>
-          <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
-            {t("agents.tools.title")}
-          </p>
-          <p className="text-xs text-muted-foreground">{t("agents.tools.description")}</p>
-        </div>
-        {canEdit && (
-          <div className="grid max-w-xs gap-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("agents.tools.scope.label")}
-            </label>
+      {/* The write scope is an attribute of the whole catalog, so it sits in the
+          panel heading's action slot rather than in a form block of its own. */}
+      <ProfilePanelSection
+        title={t("agents.tools.title")}
+        description={
+          canEdit
+            ? `${t("agents.tools.description")} ${t("agents.tools.scope.description")}`
+            : t("agents.tools.description")
+        }
+        action={
+          canEdit && (
             <Select
               value={selectedScope}
               onValueChange={(value) => setSelectedScope(value as ToolOverrideScope)}
             >
-              <SelectTrigger>
+              <SelectTrigger size="sm" aria-label={t("agents.tools.scope.label")}>
                 <SelectValue>
                   {(value) =>
                     t(TOOL_SCOPE_LABEL_KEY[(value as ToolOverrideScope) || selectedScope])
@@ -131,40 +131,45 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                 ))}
               </SelectPopup>
             </Select>
-            <p className="text-xs text-muted-foreground">{t("agents.tools.scope.description")}</p>
-          </div>
-        )}
-      </div>
-      <div className="grid gap-4">
-        {Object.entries(groups).map(([source, items]) => (
-          <section key={source} className="grid gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-foreground">
-                {t(
-                  SOURCE_LABEL_KEY[source as keyof typeof SOURCE_LABEL_KEY] ??
-                    "agents.tools.source.builtin",
-                )}
-              </h3>
-              {source === "mcp" && canEdit && (
-                <Button variant="link" size="sm" render={<Link to="/settings/plugins" />}>
-                  {t("agents.tools.manageMcp")}
-                </Button>
+          )
+        }
+      />
+      {tools.length === 0 ? (
+        <ProfileSectionMessage>{t("agents.tools.empty")}</ProfileSectionMessage>
+      ) : (
+        <div className="flex flex-col gap-6">
+          {Object.entries(groups).map(([source, items]) => (
+            <ProfilePanelSection
+              key={source}
+              title={t(
+                SOURCE_LABEL_KEY[source as keyof typeof SOURCE_LABEL_KEY] ??
+                  "agents.tools.source.builtin",
               )}
-            </div>
-            <div className="grid gap-2">
-              {items.map((tool) => (
-                <ToolRow
-                  key={`${tool.source}:${tool.name}`}
-                  tool={tool}
-                  canEdit={canEdit}
-                  busy={mutation.isPending && mutation.variables?.tool.name === tool.name}
-                  onToggle={(enabled) => mutation.mutate({ tool, enabled })}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
+              count={items.length}
+              action={
+                source === "mcp" &&
+                canEdit && (
+                  <Button variant="ghost" size="sm" render={<Link to="/settings/plugins" />}>
+                    {t("agents.tools.manageMcp")}
+                  </Button>
+                )
+              }
+            >
+              <div className="flex flex-col gap-2">
+                {items.map((tool) => (
+                  <ToolRow
+                    key={`${tool.source}:${tool.name}`}
+                    tool={tool}
+                    canEdit={canEdit}
+                    busy={mutation.isPending && mutation.variables?.tool.name === tool.name}
+                    onToggle={(enabled) => mutation.mutate({ tool, enabled })}
+                  />
+                ))}
+              </div>
+            </ProfilePanelSection>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

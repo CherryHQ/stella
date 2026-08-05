@@ -16,7 +16,7 @@ import { meQueryOptions } from "@/lib/queries/me";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { ThemeAppearanceControl } from "@/components/ThemeControls";
 import { useGlobalSearch } from "@/components/GlobalSearch";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -191,7 +191,11 @@ export function AppChromeFooter() {
   }
 
   const nextLocaleLabel = locale === "en" ? t("locale.zh") : t("locale.en");
-  const initial = me.username.trim()[0]?.toUpperCase() ?? "?";
+  // The display name is what a human recognises; the username stays reachable in
+  // the menu header because it is the identity you actually sign in with.
+  const name = me.name?.trim();
+  const displayName = name || me.username;
+  const initial = displayName.trim()[0]?.toUpperCase() ?? "?";
 
   return (
     <DropdownMenu>
@@ -199,20 +203,28 @@ export function AppChromeFooter() {
         render={<Button variant="ghost" size="sm" className="w-full min-w-0 justify-start" />}
       >
         <Avatar className="size-6">
+          {me.avatar_url && <AvatarImage src={me.avatar_url} alt="" />}
           {/* Not font-mono: a mono capital O is indistinguishable from a zero. */}
           <AvatarFallback className="text-xs font-semibold">{initial}</AvatarFallback>
         </Avatar>
         {/* Usernames can be opaque provider IDs — one line, ellipsis. */}
-        <span className="min-w-0 flex-1 truncate text-left">{me.username}</span>
+        <span className="min-w-0 flex-1 truncate text-left" title={displayName}>
+          {displayName}
+        </span>
         <ChevronsUpDown />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-64">
         <DropdownMenuGroup>
           <DropdownMenuLabel>
             <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-sm font-medium text-foreground" title={me.username}>
-                {me.username}
+              <span className="truncate text-sm font-medium text-foreground" title={displayName}>
+                {displayName}
               </span>
+              {name && (
+                <span className="truncate text-xs text-muted-foreground" title={me.username}>
+                  {me.username}
+                </span>
+              )}
               {me.is_admin && <span className="text-xs text-muted-foreground">admin</span>}
             </div>
           </DropdownMenuLabel>

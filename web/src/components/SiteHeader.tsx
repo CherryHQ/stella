@@ -6,7 +6,7 @@ import { useState } from "react";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -296,21 +296,33 @@ export function UserMenu() {
   }
 
   const nextLocaleLabel = locale === "en" ? t("locale.zh") : t("locale.en");
+  // Same identity treatment as the sidebar footer: show the human name, keep the
+  // username as the secondary line so the login identity stays discoverable.
+  const name = me.name?.trim();
+  const displayName = name || me.username;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="cursor-pointer flex items-center p-1 rounded-lg hover:bg-accent transition-colors outline-none ml-1">
         <Avatar className="size-7">
+          {me.avatar_url && <AvatarImage src={me.avatar_url} alt="" />}
           <AvatarFallback className="text-xs font-mono font-semibold">
-            {me.username[0]?.toUpperCase()}
+            {displayName[0]?.toUpperCase()}
           </AvatarFallback>
         </Avatar>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} className="w-52">
         <DropdownMenuGroup>
           <DropdownMenuLabel>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium text-foreground">{me.username}</span>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-sm font-medium text-foreground" title={displayName}>
+                {displayName}
+              </span>
+              {name && (
+                <span className="truncate text-xs text-muted-foreground" title={me.username}>
+                  {me.username}
+                </span>
+              )}
               {me.is_admin && <span className="text-xs text-muted-foreground">admin</span>}
             </div>
           </DropdownMenuLabel>
