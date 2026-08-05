@@ -489,18 +489,6 @@ func bufferedAssistantMessage(text, reasoning string) ai.AssistantMessage {
 	return ai.AssistantMessage{Content: blocks}
 }
 
-func autoTitle(msgText string) string {
-	title := msgText
-	if len(title) > 60 {
-		if idx := strings.LastIndex(title[:60], " "); idx > 20 {
-			title = title[:idx] + "…"
-		} else {
-			title = title[:60] + "…"
-		}
-	}
-	return title
-}
-
 // --- context helpers --------------------------------------------------------
 
 func withSystemOverride(ctx context.Context, system string) context.Context {
