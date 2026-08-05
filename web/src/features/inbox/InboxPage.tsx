@@ -114,7 +114,7 @@ function InboxRow({ item }: { item: InboxItem }) {
   const { t } = useI18n();
   const icon =
     item.kind === "failed" ? (
-      <CircleAlert className="size-4 text-destructive" />
+      <CircleAlert className="size-4 text-destructive-foreground" />
     ) : (
       <AlertCircle className="size-4 text-primary" />
     );

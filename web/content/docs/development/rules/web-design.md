@@ -70,31 +70,48 @@ full-strength icon or line of copy.
 
 _Read_ is a measured claim: each lightness clears 4.5:1 as text on `muted`, the
 darkest neutral surface in the theme, so every lighter surface inherits the
-margin. `theme.test.ts` recomputes it from `tokens.css`. Reaching for a chart
-token instead is the failure this guards — `chart-4` as 12px copy measures
-2.19:1, and nothing on screen says so.
+margin. `theme.test.ts` recomputes it from `tokens.css`.
 
-**`destructive` is the exception: it is a fill, not a text color.** CossUI
-hardcodes white on `bg-destructive` (button, badge), so it answers to the fill
-gate rather than the text gate. When you want red _text_, use
-`destructive-foreground` — that is what the `destructive-outline` button and the
-soft badge use.
+Reaching for a chart token instead is the failure this guards, and it fails
+twice. In light mode `chart-4` as 12px copy measures 2.19:1 against the 4.5:1
+text floor, and as a status dot it measures 2.19:1 against the 3:1 _non-text_
+floor (WCAG 1.4.11) — a dot is a shape, and the shape has to be visible too.
+Nothing on screen says either number.
+
+#### `destructive` is a fill; `destructive-foreground` is the word
+
+This is the one status color that is also a solid background, because CossUI
+hardcodes `text-white` on `bg-destructive` (button, badge). That pins it from
+both sides, and the two sides disagree in dark mode: text on a dark canvas wants
+a light value, a white label wants a dark one. No single value serves both.
+
+So they are split by job, and dark inverts the usual direction:
+
+| Token                    | Job                            | Light                 | Dark                 |
+| ------------------------ | ------------------------------ | --------------------- | -------------------- |
+| `destructive`            | fills, borders, dots, bars     | `oklch(0.58 0.2 25)`  | `oklch(0.55 0.2 25)` |
+| `destructive-foreground` | every red word, every red icon | `oklch(0.55 0.21 25)` | `oklch(0.7 0.18 25)` |
+
+**Write `text-destructive-foreground`, never `text-destructive`.** The shorter
+name is the wrong one and reads as correct, which is why 61 call sites had it;
+`color-tokens.test.ts` now fails the build on it. Dark mode is where it showed:
+5.66:1 versus 3.2:1.
+
+Dark `destructive` was `oklch(0.64 0.2 25)` — tuned as though it were text, so
+the white label on the app's most dangerous button measured **3.70:1**. At 0.55
+the label reads at 5.38:1 and the fill still separates from the canvas at 3.49:1
+(WCAG 1.4.11). `theme.test.ts` holds both gates.
 
 **Never pair a solid `bg-*` status fill with its own `-foreground`.** Both halves
 share a hue and a lightness, so the text vanishes into the fill — `bg-destructive
 text-destructive-foreground` shipped exactly that, at ~1.1:1 contrast. Status
 surfaces are a tint over the page, or an opaque `bg-popover` with a colored icon.
 
-`chart-1..5` stay for plotted and categorical data — goal canvases, timelines,
-scope grouping — where the value is a _category_, not a verdict. Much of the
-goals feature still maps run and lifecycle states to `chart-*`; migrating the
-rest is open work.
-
-**Open:** dark `--destructive` is `oklch(0.64 0.2 25)`, and the white label
-CossUI hardcodes on it measures 3.70:1 — below AA on the app's highest-stakes
-button. Both gates can be met at once (`oklch(0.55 0.2 25)` gives 5.38:1 on the
-label and 3.49:1 against the canvas), but it visibly deepens every destructive
-button and badge in dark mode, so it is a direction call rather than a fix.
+`chart-1..5` stay for plotted and categorical data — the goal canvas, agent
+identity, scope grouping — where the value is a _category_, not a verdict. The
+goals feature used to color run and lifecycle states with them; that is migrated,
+and `GoalCanvas.css` is what legitimately remains, because it draws an actual
+graph.
 
 ### Why the teal sits where it does
 

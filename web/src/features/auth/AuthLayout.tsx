@@ -29,7 +29,7 @@ export function AuthLayout({ subtitle, error, children }: AuthLayoutProps) {
         </div>
 
         {error && (
-          <div className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-start gap-3 animate-shake">
+          <div className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive-foreground text-sm flex items-start gap-3 animate-shake">
             <AlertCircle className="size-4 mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>

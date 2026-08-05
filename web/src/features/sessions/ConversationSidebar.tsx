@@ -355,7 +355,7 @@ function CreateProjectDialog({
             <p className="text-xs text-muted-foreground">{t("sessions.sidebar.noActiveSession")}</p>
           )}
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-xs text-destructive-foreground">{error}</p>}
         </DialogPanel>
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onClose}>

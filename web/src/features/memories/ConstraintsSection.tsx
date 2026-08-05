@@ -77,7 +77,7 @@ export function ConstraintsSection({ agentId }: Props) {
           <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
         </div>
       ) : error ? (
-        <p className="text-sm text-destructive">{t("memories.constraints.error")}</p>
+        <p className="text-sm text-destructive-foreground">{t("memories.constraints.error")}</p>
       ) : constraints.length === 0 ? (
         <p className="text-sm text-muted-foreground italic mb-3">
           {t("memories.constraints.empty")}
@@ -96,7 +96,7 @@ export function ConstraintsSection({ agentId }: Props) {
                 size="icon-xs"
                 onClick={() => void handleDelete(c.id)}
                 disabled={deletingId === c.id}
-                className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive-foreground"
               >
                 <Trash2 className="size-3.5" />
               </Button>

@@ -528,7 +528,7 @@ function Row({
           <div className="flex items-center gap-2">
             <span className="truncate text-[15px] font-semibold">{d.title}</span>
             {d.priority === "urgent" && (
-              <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-4">
+              <span className="rounded-md border border-warning/25 bg-warning/10 px-1.5 py-0.5 font-mono text-xs font-medium text-warning-foreground">
                 {priorityLabel(t, d.priority)}
               </span>
             )}
@@ -619,7 +619,7 @@ function Board({ rows, onOpen, selected, onSelect }: ViewProps) {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <StatusPill status={s} label={statusLabel(t, s)} />
                       {d.priority === "urgent" && (
-                        <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-4">
+                        <span className="rounded-md border border-warning/25 bg-warning/10 px-1.5 py-0.5 font-mono text-xs font-medium text-warning-foreground">
                           {priorityLabel(t, d.priority)}
                         </span>
                       )}
@@ -702,11 +702,11 @@ function Table({ rows, onOpen, selected, onSelect }: ViewProps) {
                       {blockReasonLabel(t, d)}
                     </span>
                   ) : d.lifecycle === "done" && d.done_reason === "accepted" ? (
-                    <span className="rounded-md border border-chart-3/25 bg-chart-3/10 px-2 py-0.5 font-mono text-xs font-medium text-chart-3">
+                    <span className="rounded-md border border-success/25 bg-success/10 px-2 py-0.5 font-mono text-xs font-medium text-success-foreground">
                       {t("goals.hookAccepted")}
                     </span>
                   ) : d.priority === "urgent" ? (
-                    <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-2 py-0.5 font-mono text-xs font-medium text-chart-4">
+                    <span className="rounded-md border border-warning/25 bg-warning/10 px-2 py-0.5 font-mono text-xs font-medium text-warning-foreground">
                       {priorityLabel(t, d.priority)}
                     </span>
                   ) : (

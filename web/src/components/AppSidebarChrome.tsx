@@ -305,7 +305,10 @@ export function AppChromeFooter() {
           </div>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={logout}>
+            <DropdownMenuItem
+              className="text-destructive-foreground focus:text-destructive-foreground"
+              onClick={logout}
+            >
               <LogOut className="size-4" />
               {t("header.logout")}
             </DropdownMenuItem>

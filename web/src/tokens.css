@@ -52,25 +52,35 @@
   --sidebar-ring: oklch(0.5 0.12 190);
   /* Destructive *foreground text* (red), not on-destructive-bg text. CossUI uses
      this token for destructive-outline buttons, field errors, and menu items —
-     all red text on light surfaces. Filled destructive variants hardcode white. */
+     all red text on light surfaces, and every red word in this app now routes
+     here too.
+
+     The split matters because --destructive and this token want opposite things
+     in dark mode. --destructive is a fill under a white label CossUI hardcodes,
+     so it has to stay dark enough for white to read on it. This one is text on
+     the page, so it has to stay light enough to read on a dark canvas. One token
+     cannot do both, and trying is how dark --destructive ended up at 0.64:
+     bright enough to half-work as text, too bright for its own label at 3.70:1.
+     Use --destructive for fills and borders, this one for words. */
   --destructive-foreground: oklch(0.55 0.21 25);
-  /* Status hues. Same contract as --destructive above: the base token is a
-     *text-weight* color, not a fill. CossUI uses it three ways at once — a 4-16%
-     tint, a 20-36% border, and a full-strength icon or line of copy (alert.tsx,
-     toast.tsx) — so it carries the chart hue at a lightness that stays legible
-     as text on a light surface. The chart tokens themselves sit ~0.15L brighter
-     because they are plotted, not read: as 12px copy on the canvas they measure
-     2.2-2.5:1. "Legible" is a number here, not an intention — each L sits below
-     the point where the token clears 4.5:1 as text on --muted, the darkest
-     neutral surface in this theme and therefore the binding one; anything
-     lighter (canvas, card) has margin. All three had been on the wrong side of
-     that line by 0.01-0.02L, which is exactly the kind of miss no reviewer sees
-     and no screenshot shows, so theme.test.ts recomputes it from these values.
-     Unlike --destructive these are never a solid fill — CossUI tints them at
-     4-16% — so the text gate is the only one they answer to.
-     The -foreground pair is text on that tint. Never pair
-     a solid `bg-*` fill with its own `-foreground`: they share a hue and a
-     lightness, so the text disappears into the fill. */
+  /* Status hues. Unlike --destructive these are never a solid fill — CossUI only
+     ever tints them (a 4-16% wash, a 20-36% border, a full-strength icon or line
+     of copy in alert.tsx and toast.tsx) — so the text gate is the only one they
+     answer to, and the base token is a *text-weight* color.
+
+     The chart tokens carry the same hues ~0.2L brighter because they are
+     plotted, not read: as 12px copy on the canvas they measure 2.2-2.5:1, and as
+     a status dot they miss the 3:1 non-text gate too. Reaching for one of those
+     instead of these is the mistake this pairing exists to prevent.
+
+     "Text-weight" is a number, not an intention: each L sits below the point
+     where the token clears 4.5:1 as text on --muted, the darkest neutral surface
+     in this theme and therefore the binding one; anything lighter has margin.
+     All three had been on the wrong side of that line by 0.01-0.02L — the kind
+     of miss no reviewer sees and no screenshot shows — so theme.test.ts
+     recomputes it from these values. The -foreground pair is text on the token's
+     own tint. Never pair a solid `bg-*` fill with its own `-foreground`: they
+     share a hue and a lightness, so the text disappears into the fill. */
   --success: oklch(0.51 0.13 150); /* chart-3 hue, text-weight */
   --success-foreground: oklch(0.5 0.12 150);
   --warning: oklch(0.53 0.12 78); /* chart-4 hue, text-weight */
@@ -121,7 +131,10 @@
   --muted-foreground: oklch(0.7 0.018 200);
   --accent: oklch(0.3 0.055 190); /* dark teal tint */
   --accent-foreground: oklch(0.82 0.12 190);
-  --destructive: oklch(0.64 0.2 25);
+  /* Deeper than the light value, not lighter, because this is a fill carrying a
+     white label — see the light-theme note. It was 0.64, tuned as though it were
+     text, and the white on it measured 3.70:1. */
+  --destructive: oklch(0.55 0.2 25);
   --border: oklch(0.28 0.016 210);
   --input: oklch(0.28 0.016 210);
   --ring: oklch(0.72 0.13 190);

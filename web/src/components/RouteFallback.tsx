@@ -36,7 +36,7 @@ export function ErrorState({
     <Empty>
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <AlertTriangle className="text-destructive" />
+          <AlertTriangle className="text-destructive-foreground" />
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
         {description && <EmptyDescription>{description}</EmptyDescription>}

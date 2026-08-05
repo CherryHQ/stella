@@ -259,7 +259,9 @@ export function KnowledgeSection({ agentId, state, onStateChange }: Props) {
           {query.isLoading ? (
             <KnowledgeListSkeleton />
           ) : query.isError ? (
-            <p className="py-6 text-sm text-destructive">{t("memories.knowledge.loadError")}</p>
+            <p className="py-6 text-sm text-destructive-foreground">
+              {t("memories.knowledge.loadError")}
+            </p>
           ) : items.length === 0 ? (
             <p className="py-6 text-sm text-muted-foreground">
               {t(

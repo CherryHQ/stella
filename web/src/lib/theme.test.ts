@@ -112,9 +112,8 @@ describe.each([
 ] as const)("%s status tokens stay readable as text", (_theme, declared) => {
   const surface = declared.get("muted");
 
-  // `--destructive` is absent because it is the one status token that is also a
-  // solid fill, and CossUI hardcodes white on it. It answers to the fill gate,
-  // not this one; `--destructive-foreground` is its text half.
+  // `--destructive` is absent because it is a fill, not a word. It answers to
+  // the fill gates below; `--destructive-foreground` is its text half.
   it.each([
     "success",
     "success-foreground",
@@ -129,6 +128,36 @@ describe.each([
     const ratio = contrast(toSrgb(color!), toSrgb(surface!));
     expect(ratio, `--${name} as text on --muted is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
       4.5,
+    );
+  });
+});
+
+/**
+ * `--destructive` is the one status color that is also a solid fill, and CossUI
+ * hardcodes `text-white` on it (button.tsx, badge.tsx). That pins it from both
+ * sides, and the two sides disagree in dark mode: text wants a light value on a
+ * dark canvas, a white label wants a dark one. Tuning it as though it were text
+ * is how dark mode reached 3.70:1 on the app's most dangerous button.
+ */
+describe.each([
+  ["light", blocks.light],
+  ["dark", blocks.dark],
+] as const)("%s destructive works as a fill", (_theme, declared) => {
+  const fill = declared.get("destructive")!;
+  const canvas = declared.get("background")!;
+  const white: [number, number, number] = [1, 0, 0];
+
+  it("carries the white label CossUI hardcodes on it (1.4.3)", () => {
+    const ratio = contrast(toSrgb(fill), toSrgb(white));
+    expect(ratio, `white on --destructive is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("stays visible as a shape against the canvas (1.4.11)", () => {
+    // Dots, bars and borders use it with no text at all, so the fill itself has
+    // to clear the non-text threshold. This is the gate that darkening breaks.
+    const ratio = contrast(toSrgb(fill), toSrgb(canvas));
+    expect(ratio, `--destructive on --background is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
+      3,
     );
   });
 });

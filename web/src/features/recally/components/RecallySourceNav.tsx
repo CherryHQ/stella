@@ -196,7 +196,7 @@ export function RecallySourceNav({
                       {pollFeedMut.isPending && pollFeedMut.variables?.path.id === feed.id ? (
                         <RefreshCw className="size-2.5 animate-spin" />
                       ) : feedPollResults[feed.id]?.error ? (
-                        <span className="text-destructive font-semibold">
+                        <span className="text-destructive-foreground font-semibold">
                           {t("recally.article.err")}
                         </span>
                       ) : feedPollResults[feed.id] ? (

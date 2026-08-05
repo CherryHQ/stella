@@ -930,7 +930,7 @@ export function CredentialsPage() {
           <Button
             size="sm"
             variant="destructive-outline"
-            className="text-destructive hover:bg-destructive/10"
+            className="text-destructive-foreground hover:bg-destructive/10"
             onClick={() => confirmDisconnectOAuth(sp.provider)}
           >
             {t("credentials.oauth.disconnect")}

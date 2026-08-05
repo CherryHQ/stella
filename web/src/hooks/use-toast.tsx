@@ -74,7 +74,7 @@ export function ToastContainer() {
           className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-popover px-3.5 py-2.5 text-sm text-popover-foreground shadow-lg"
         >
           {m.kind === "error" ? (
-            <AlertCircle size={16} className="shrink-0 text-destructive" />
+            <AlertCircle size={16} className="shrink-0 text-destructive-foreground" />
           ) : (
             <CheckCircle2 size={16} className="shrink-0 text-success" />
           )}

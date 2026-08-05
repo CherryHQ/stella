@@ -66,6 +66,23 @@ describe("semantic color pairs resolve to defined theme tokens", () => {
     expect([...offenders]).toEqual([]);
   });
 
+  it("keeps red words off the red fill token", () => {
+    // `--destructive` is a fill under a white label CossUI hardcodes, so it is
+    // tuned dark; `--destructive-foreground` is the red you read on the page.
+    // Writing `text-destructive` looks right and is the more obvious name, which
+    // is why 61 call sites had it. Nothing on screen reports the difference —
+    // in dark mode it is the gap between 5.66:1 and 3.2:1.
+    const offenders: string[] = [];
+    for (const file of walk(SRC)) {
+      if (file.includes(join("components", "ui"))) continue; // vendored, read-only
+      const source = readFileSync(file, "utf8");
+      for (const m of source.matchAll(/\btext-destructive(?!-foreground)\b/g)) {
+        offenders.push(`${file.slice(SRC.length + 1)}: ${m[0]} (use text-destructive-foreground)`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it("defines the status pairs the vendored CossUI variants consume", () => {
     const defined = definedColorTokens();
     // badge.tsx, alert.tsx and toast.tsx ship success/warning/info variants that

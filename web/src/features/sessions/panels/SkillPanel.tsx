@@ -259,7 +259,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
                 size="sm"
                 onClick={() => void remove()}
                 disabled={deleting}
-                className="text-destructive hover:text-destructive"
+                className="text-destructive-foreground hover:text-destructive-foreground"
               >
                 {deleting ? t("sessions.skill.deleting") : t("common.delete")}
               </Button>

@@ -703,8 +703,8 @@ function HeaderActions({
   return (
     <>
       {d.active_attempt_id && (lc === "active" || lc === "pending") && (
-        <span className="inline-flex items-center gap-1.5 self-center font-mono text-xs text-chart-2">
-          <span className="size-1.5 animate-pulse rounded-full bg-chart-2" />
+        <span className="inline-flex items-center gap-1.5 self-center font-mono text-xs text-info">
+          <span className="size-1.5 animate-pulse rounded-full bg-info" />
           {t("goals.attemptRunning")}
         </span>
       )}
@@ -1055,7 +1055,7 @@ function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }
       <span
         className={cn(
           "font-mono text-xs font-semibold",
-          readiness.dispatchable ? "text-chart-3" : "text-chart-4",
+          readiness.dispatchable ? "text-success" : "text-warning",
         )}
       >
         {t(stateKey[readiness.state] ?? "goals.readinessUnknown")}
@@ -1156,7 +1156,7 @@ function AttemptItem({ a }: { a: ComponentsAttempt }) {
       </button>
       {open && canExpand && (
         <div className="space-y-3 border-t border-border px-3.5 py-3">
-          {a.error && <p className="text-[12px] text-destructive">{a.error}</p>}
+          {a.error && <p className="text-[12px] text-destructive-foreground">{a.error}</p>}
           {hasOutput && (
             <div>
               <div className="mb-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1273,7 +1273,7 @@ function AcceptanceTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean;
                         <span
                           className={cn(
                             "font-semibold",
-                            ev.result === "pass" ? "text-chart-3" : "text-destructive",
+                            ev.result === "pass" ? "text-success" : "text-destructive-foreground",
                           )}
                         >
                           {t(ev.result === "pass" ? "goals.resultPass" : "goals.resultFail")}
@@ -1417,7 +1417,7 @@ function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean
                   <FieldDescription>{t("goals.contractJsonHelp")}</FieldDescription>
                   {/* Base UI Field.Error only renders on control validity failure;
                       server/parse errors are manual state, so render a plain element. */}
-                  {error && <p className="text-xs text-destructive">{error}</p>}
+                  {error && <p className="text-xs text-destructive-foreground">{error}</p>}
                 </Field>
               </DialogPanel>
               <DialogFooter>
@@ -1489,7 +1489,7 @@ function VerdictForm({
           size="sm"
           variant="outline"
           loading={acting}
-          className="text-destructive"
+          className="text-destructive-foreground"
           onClick={() => submit("fail")}
         >
           {t("goals.verdictFail")}
@@ -1778,7 +1778,7 @@ function PlanDecisionActions({
         size="sm"
         variant="outline"
         loading={acting}
-        className="text-destructive"
+        className="text-destructive-foreground"
         onClick={() => act(() => rejectPlan({ path, body: {}, throwOnError: true }))}
       >
         {t("goals.revReject")}
