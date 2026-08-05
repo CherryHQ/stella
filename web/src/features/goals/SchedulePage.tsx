@@ -5,7 +5,7 @@ import { triggerSchedulerJob, updateSchedulerJob } from "@/lib/api-client";
 import type { SchedulerJob } from "@/lib/types";
 import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
 import { useI18n } from "@/lib/i18n";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { schedulerJobRunsOptions } from "@/lib/queries/scheduler";
@@ -26,7 +26,7 @@ export function SchedulePage() {
   const [editOpen, setEditOpen] = useState(false);
   const [acting, setActing] = useState(false);
 
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const { data: jobs = [], isSuccess } = useQuery(agentSchedulerJobsOptions(agentId));
   const job = useMemo(
     () => (jobs as SchedulerJob[]).find((j) => j.id === scheduleId) ?? null,
@@ -177,7 +177,6 @@ export function SchedulePage() {
         agentId={agentId}
         onDeleted={() => navigate({ to: "/agents/$agentId/goals", params: { agentId } })}
       />
-      <ToastContainer messages={toasts} />
     </DetailShell>
   );
 }

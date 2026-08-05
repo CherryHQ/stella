@@ -30,7 +30,7 @@ import { agentMcpServersOptions, MCP_SCOPE_PRECEDENCE } from "@/lib/queries/mcp"
 import { meQueryOptions } from "@/lib/queries/me";
 import { SCOPE_LABEL_KEY } from "@/lib/skill-scope";
 import type { Tool } from "@/lib/types";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import { AgentMcpServerSheet } from "./AgentMcpServerSheet";
 import { ProfilePanelSection, ProfileSectionMessage } from "./ProfilePanelSection";
@@ -79,7 +79,7 @@ interface Props {
  */
 export function AgentToolsPanel({ agentId, canEdit }: Props) {
   const { t } = useI18n();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
@@ -206,7 +206,6 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
 
   return (
     <div className="flex flex-col gap-6">
-      <ToastContainer messages={toasts} />
       <ProfilePanelSection
         title={t("agents.tools.title")}
         description={t("agents.tools.description")}

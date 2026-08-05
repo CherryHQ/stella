@@ -39,7 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { SettingsGridPage, SettingsDetailSheet } from "@/features/settings/SettingsCardGrid";
 import { meQueryOptions } from "@/lib/queries/me";
@@ -75,7 +75,7 @@ export function PluginsPage() {
     Record<string, Record<string, unknown>>
   >({});
 
-  const { toasts, showToast } = useToast(4000);
+  const { showToast } = useToast(4000);
 
   const toolPlugins = semanticPlugins("tool", plugins, manifestPlugins);
   const hookPlugins = semanticPlugins("hook", plugins, manifestPlugins);
@@ -467,8 +467,6 @@ export function PluginsPage() {
       <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>
         {detail}
       </SettingsDetailSheet>
-
-      <ToastContainer messages={toasts} />
     </>
   );
 }

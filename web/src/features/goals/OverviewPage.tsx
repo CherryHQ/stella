@@ -38,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { jobNextRunAt } from "@/features/goals/types";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   ProgressBar,
   blockReasonLabel,
@@ -85,7 +85,7 @@ export function OverviewPage() {
   const projectFilter = (useSearch({ strict: false }) as { project_id?: string }).project_id ?? "";
   const navigate = useNavigate();
   const { setHeaderActions } = useAppShell();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
 
   const { data: allGoals = [] } = useQuery(goalsOptions(agentId));
   const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
@@ -371,7 +371,6 @@ export function OverviewPage() {
           </section>
         )}
       </div>
-      <ToastContainer messages={toasts} />
     </div>
   );
 }

@@ -1,41 +1,83 @@
-import { useCallback, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 
-interface ToastMsg {
+export interface ToastMsg {
   id: number;
   text: string;
   kind: "success" | "error";
 }
 
-let toastSeq = 0;
+/**
+ * Toasts live in a module store, not in component state, and exactly one
+ * {@link ToastContainer} renders them (mounted at the router root).
+ *
+ * The per-component `useState` this replaces meant a child's `showToast` wrote
+ * to a different instance than the parent's container read from, so every toast
+ * raised by a detail panel while its list page held the container was silently
+ * dropped — providers, users, and the new-provider form never showed one.
+ */
+let toasts: ToastMsg[] = [];
+let seq = 0;
+const listeners = new Set<() => void>();
+
+function emit() {
+  for (const l of listeners) l();
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function dismiss(id: number) {
+  toasts = toasts.filter((t) => t.id !== id);
+  emit();
+}
 
 export function useToast(timeout = 3000) {
-  const [toasts, setToasts] = useState<ToastMsg[]>([]);
-
   const showToast = useCallback(
-    (text: string, kind: "success" | "error" = "success") => {
-      const id = ++toastSeq;
-      setToasts((prev) => [...prev, { id, text, kind }]);
-      setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), timeout);
+    (text: string, kind: ToastMsg["kind"] = "success") => {
+      const id = ++seq;
+      toasts = [...toasts, { id, text, kind }];
+      emit();
+      setTimeout(() => dismiss(id), timeout);
     },
     [timeout],
   );
 
-  return { toasts, showToast } as const;
+  return { showToast } as const;
 }
 
-export function ToastContainer({ messages }: { messages: ToastMsg[] }) {
+/**
+ * Mounted once, at the root. Elevation carries the surface and the icon carries
+ * the status, so severity survives both a color-blind reader and a screen
+ * reader. A solid `bg-*` fill is deliberately not used: a status token and its
+ * `-foreground` share a hue, so filling with one and writing in the other makes
+ * the text vanish — which is exactly what this component used to do.
+ */
+export function ToastContainer() {
+  const messages = useSyncExternalStore(
+    subscribe,
+    () => toasts,
+    () => toasts,
+  );
   if (messages.length === 0) return null;
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none fixed bottom-4 right-4 z-[9999] flex flex-col gap-2"
+    >
       {messages.map((m) => (
         <div
           key={m.id}
-          className={`px-4 py-2.5 rounded-lg text-sm font-medium pointer-events-auto ${
-            m.kind === "error"
-              ? "bg-destructive text-destructive-foreground"
-              : "bg-success text-success-foreground"
-          }`}
+          className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-popover px-3.5 py-2.5 text-sm text-popover-foreground shadow-lg"
         >
+          {m.kind === "error" ? (
+            <AlertCircle size={16} className="shrink-0 text-destructive" />
+          ) : (
+            <CheckCircle2 size={16} className="shrink-0 text-success" />
+          )}
           {m.text}
         </div>
       ))}

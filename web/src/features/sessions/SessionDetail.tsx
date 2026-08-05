@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   downloadTextFile,
   exportFileName,
@@ -74,7 +74,7 @@ export function SessionDetail({
 }: Props) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const { data: agentsList = [] } = useQuery(agentsQueryOptions);
@@ -662,7 +662,6 @@ export function SessionDetail({
             {composer}
           </div>
         </div>
-        <ToastContainer messages={toasts} />
       </>
     );
   }
@@ -714,7 +713,6 @@ export function SessionDetail({
         notice={<ChatErrorNotice error={chatError} />}
         composer={composer}
       />
-      <ToastContainer messages={toasts} />
     </>
   );
 }

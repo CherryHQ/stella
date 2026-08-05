@@ -11,7 +11,7 @@ import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import type { Session } from "@/lib/types";
 import { useAppShell } from "@/layouts/AppShell";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -65,7 +65,7 @@ export function ThreadsPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
 
   const { data: agents = [] } = useQuery(agentsQueryOptions);
@@ -371,8 +371,6 @@ export function ThreadsPage() {
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-
-      <ToastContainer messages={toasts} />
     </div>
   );
 }

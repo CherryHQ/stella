@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
 import { buildOAuthScopeDraft, ScopeEditor } from "@/features/credentials/ScopeEditor";
@@ -214,7 +214,7 @@ export function CredentialsPage() {
     onConfirm: () => void;
   } | null>(null);
 
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const pollAbortRef = useRef<Record<string, boolean>>({});
 
   // Fetch every scope the caller can see and merge into one flat list. Agent
@@ -1242,8 +1242,6 @@ export function CredentialsPage() {
         confirmLabel={confirm?.confirmLabel}
         onConfirm={() => confirm?.onConfirm()}
       />
-
-      <ToastContainer messages={toasts} />
     </>
   );
 }

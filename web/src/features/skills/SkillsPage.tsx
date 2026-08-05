@@ -37,7 +37,7 @@ import {
 import { useI18n } from "@/lib/i18n";
 import { SCOPE_DESC_KEY, SCOPE_LABEL_KEY, isSkillReadOnly } from "@/lib/skill-scope";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { ScopedSkillScope } from "@/lib/queries/skills";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
@@ -113,7 +113,7 @@ export function SkillsPage() {
   // its target, so there is no need for a dialog instance per row.
   const [pendingDelete, setPendingDelete] = useState<Skill | null>(null);
 
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
 
   const openAddSheet = useCallback(() => {
     setAddMode("install");
@@ -653,8 +653,6 @@ export function SkillsPage() {
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-
-      <ToastContainer messages={toasts} />
     </>
   );
 }

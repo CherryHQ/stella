@@ -120,6 +120,14 @@ const en = {
   "profile.files": "Files",
   "profile.openFiles": "Open files",
 
+  // Route-level failure and not-found states
+  "route.error.title": "Something went wrong",
+  "route.error.desc": "This page could not be loaded. The server may be unreachable.",
+  "route.notFound.title": "Page not found",
+  "route.notFound.desc": "This URL does not point anywhere in Stella.",
+  "route.notFound.home": "Go to Agents",
+  "route.loadFailed": "Could not load this list.",
+
   // Common actions
   "common.cancel": "Cancel",
   "common.save": "Save",
@@ -2273,6 +2281,14 @@ const zh: Record<MessageKey, string> = {
   "profile.configurationDesc": "该智能体的模型、提示词、工具与沙箱。",
   "profile.files": "文件",
   "profile.openFiles": "打开文件",
+
+  // Route-level failure and not-found states
+  "route.error.title": "出错了",
+  "route.error.desc": "此页面无法加载，服务端可能不可达。",
+  "route.notFound.title": "页面不存在",
+  "route.notFound.desc": "该地址在 Stella 中没有对应页面。",
+  "route.notFound.home": "前往智能体",
+  "route.loadFailed": "无法加载该列表。",
 
   // Common actions
   "common.cancel": "取消",

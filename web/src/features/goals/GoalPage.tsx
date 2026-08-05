@@ -73,7 +73,10 @@ import { AgentChip, DetailSection, DetailShell, MetaSep } from "@/features/goals
 import { GoalCanvas } from "@/features/goals/GoalCanvas";
 import { GoalTimeline } from "@/features/goals/GoalTimeline";
 import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
+import { ErrorState, RoutePending } from "@/components/RouteFallback";
+// Generic HTTP-status reader; it lives in auth-error.ts but is not auth-specific.
+import { authErrorStatus } from "@/lib/auth-error";
 
 // A done goal never changes again, so every query on this page polls while the
 // goal is live and stops at done. Polling pauses automatically when the page
@@ -90,10 +93,15 @@ export function GoalPage() {
   const { node } = useSearch({ strict: false }) as { node?: string; tab?: string };
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const [acting, setActing] = useState(false);
 
-  const { data: d, isError } = useQuery({
+  const {
+    data: d,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     ...goalOptions(goalId),
     refetchInterval: (q) => {
       const data = q.state.data;
@@ -155,13 +163,28 @@ export function GoalPage() {
   );
 
   if (isError) {
+    // A deleted goal and an unreachable server used to render the same
+    // "not found" dead end. Only the first one is terminal.
+    const missing = authErrorStatus(error) === 404;
     return (
-      <DetailShell agentId={agentId} kindLabel={t("goals.kindLeaf")} title={t("goals.notFound")}>
-        <div />
+      <DetailShell
+        agentId={agentId}
+        kindLabel={t("goals.kindLeaf")}
+        title={missing ? t("goals.notFound") : t("route.error.title")}
+      >
+        {missing ? (
+          <ErrorState title={t("goals.notFound")} />
+        ) : (
+          <ErrorState
+            title={t("route.error.title")}
+            description={t("route.error.desc")}
+            onRetry={() => void refetch()}
+          />
+        )}
       </DetailShell>
     );
   }
-  if (!d) return null;
+  if (!d) return <RoutePending />;
 
   const isComposite = d.kind === "composite";
   const path = { id: d.id };
@@ -290,7 +313,6 @@ export function GoalPage() {
         act={act}
         onClose={() => setNode(null)}
       />
-      <ToastContainer messages={toasts} />
     </DetailShell>
   );
 }

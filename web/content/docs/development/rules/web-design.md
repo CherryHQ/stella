@@ -14,7 +14,7 @@ Stella reads as a **friendly, calm, software-native assistant**: clean neutral c
 - **Tinted neutrals, not pure gray.** Every neutral — background, surface, border, muted text — carries a faint teal undertone (hue ~200, low chroma). This is what makes the theme read as one piece: the grays look related to the teal accent, not pasted next to it. Never use pure hueless gray (`oklch(L 0 0)`) for surfaces or borders.
 - **Light canvas is the native medium.** A calm tinted near-white canvas with **pure white** raised surfaces; the white card lifts off the tinted canvas. Dark mode is a soft teal-tinted near-black, never pure `#000`. No gradient hero, no animated blob, no decorative illustration in the app chrome.
 - **Layered, not flat.** Backgrounds stack canvas → surface → elevated with a visible lightness step at each level (≥1.5% L), and overlays carry a soft shadow so menus, popovers, and dialogs lift off the page. A flat white-on-white void leaves the accent with nothing to anchor to.
-- **Single chromatic accent.** Teal (`--primary`) carries primary actions, the focus ring, the active tab, and selection. Status colors map to `chart-*`. Everything else stays neutral. Color leads the eye to the one thing that matters per view.
+- **Single chromatic accent.** Teal (`--primary`) carries primary actions, the focus ring, the active tab, and selection. Status colors have their own tokens (see below). Everything else stays neutral. Color leads the eye to the one thing that matters per view.
 - **Calm motion.** Transitions exist to soften state changes, not to perform. Short, ease-out, no bounce or overshoot.
 - **Dense & functional.** Short paragraphs, lists for options, 55–70 char body line length. Wall-of-text answers are a bug. No hero sections or marketing layouts in the app shell.
 
@@ -52,14 +52,32 @@ Token values live in `src/tokens.css` (`:root` light / `.dark` dark). These tabl
 
 ### Status colors
 
-Map semantic status to the `chart-*` tokens — never invent one-off color aliases.
+Status has its own token pairs. Use them for anything a user reads as a verdict —
+badges, alerts, toasts, inline warnings.
 
-| Status         | Token         | oklch (light)          |
-| -------------- | ------------- | ---------------------- |
-| Info / running | `chart-2`     | `oklch(0.6 0.13 230)`  |
-| Success        | `chart-3`     | `oklch(0.68 0.15 150)` |
-| Warning        | `chart-4`     | `oklch(0.74 0.15 78)`  |
-| Error          | `destructive` | `oklch(0.58 0.2 25)`   |
+| Status  | Token         | oklch (light)          | Foreground pair          |
+| ------- | ------------- | ---------------------- | ------------------------ |
+| Info    | `info`        | `oklch(0.53 0.14 230)` | `info-foreground`        |
+| Success | `success`     | `oklch(0.55 0.13 150)` | `success-foreground`     |
+| Warning | `warning`     | `oklch(0.56 0.12 78)`  | `warning-foreground`     |
+| Error   | `destructive` | `oklch(0.58 0.2 25)`   | `destructive-foreground` |
+
+Each carries the hue of its `chart-*` sibling (info→`chart-2`, success→`chart-3`,
+warning→`chart-4`) but sits ~0.15L darker in light mode and lighter in dark. The
+chart tokens are tuned to be _plotted_; these are tuned to be _read_, because
+CossUI uses one token three ways at once — a 4–16% tint, a 20–36% border, and a
+full-strength icon or line of copy.
+
+**Never pair a solid `bg-*` status fill with its own `-foreground`.** Both halves
+share a hue and a lightness, so the text vanishes into the fill — `bg-destructive
+text-destructive-foreground` shipped exactly that, at ~1.1:1 contrast. Status
+surfaces are a tint over the page, or an opaque `bg-popover` with a colored icon.
+
+`chart-1..5` stay for plotted and categorical data — goal canvases, timelines,
+scope grouping — where the value is a _category_, not a verdict. The goals feature
+still maps run states to `chart-*`; migrating those to the status tokens is open
+work, and `RunsTimeline.tsx` currently contradicts this table by giving `running`
+the warning hue.
 
 ### Accent usage rules
 

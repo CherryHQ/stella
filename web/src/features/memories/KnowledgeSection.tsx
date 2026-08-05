@@ -35,7 +35,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import {
   flattenKnowledgePages,
@@ -139,7 +139,7 @@ function KnowledgeEditor({
 export function KnowledgeSection({ agentId, state, onStateChange }: Props) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const query = useInfiniteQuery(knowledgeInfiniteQueryOptions(agentId, state));
   const items = useMemo(() => flattenKnowledgePages(query.data?.pages), [query.data?.pages]);
   const total = query.data?.pages[0]?.total_size ?? 0;
@@ -409,8 +409,6 @@ export function KnowledgeSection({ agentId, state, onStateChange }: Props) {
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-
-      <ToastContainer messages={toasts} />
     </MemorySection>
   );
 }

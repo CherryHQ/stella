@@ -3,7 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { addProfileConstraint, deleteProfileConstraint } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import { constraintsQueryOptions } from "@/lib/queries/memories";
@@ -21,7 +21,7 @@ interface ConstraintEntry {
 
 export function ConstraintsSection({ agentId }: Props) {
   const { t } = useI18n();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const { data: constraints = [], isLoading, error } = useQuery(constraintsQueryOptions(agentId));
   const [newText, setNewText] = useState("");
@@ -72,7 +72,6 @@ export function ConstraintsSection({ agentId }: Props) {
       description={t("memories.constraints.description")}
       count={constraints.length}
     >
-      <ToastContainer messages={toasts} />
       {isLoading ? (
         <div className="flex items-center justify-center py-6">
           <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />

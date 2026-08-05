@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { providersQueryOptions, providerTypesQueryOptions } from "@/lib/queries/providers";
 import { useI18n } from "@/lib/i18n";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
   SettingsCard,
@@ -17,7 +16,6 @@ import { NewProviderForm } from "./NewProviderForm";
 
 export function ProvidersPage() {
   const { t } = useI18n();
-  const { toasts } = useToast();
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { providerId?: string };
   const providerId = params.providerId;
@@ -154,8 +152,6 @@ export function ProvidersPage() {
       >
         {detail}
       </SettingsDetailSheet>
-
-      <ToastContainer messages={toasts} />
     </>
   );
 }

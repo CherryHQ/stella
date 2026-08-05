@@ -13,7 +13,9 @@ The token pipeline: `web/src/tokens.css` defines values → `globals.css` `@them
 - Never hardcode color values: no `text-[#abc]`, no `bg-[oklch(...)]`, no inline `style={{ color }}`, no palette classes like `bg-violet-500`.
 - Never reference `var(--some-color)` directly in JSX when a Tailwind utility exists.
 - Never use arbitrary spacing values like `p-[13px]`. Stick to the 4px grid; prefer `gap-*` on flex/grid parents over margin on children.
-- Do not add project-specific color aliases for one-off states or surfaces. If shadcn lacks an exact semantic name, use the closest existing token; status colors map to `chart-3` success, `chart-4` warning, `chart-2` info/running, and `destructive` error.
+- Do not add project-specific color aliases for one-off states or surfaces. If shadcn lacks an exact semantic name, use the closest existing token.
+- Status verdicts use `success` / `warning` / `info` / `destructive` and their `-foreground` pairs; `chart-1..5` are for plotted and categorical data. Values and the reasoning: [`web-design.md`](./web-design.md).
+- **Every semantic color a component references must be bridged in `globals.css`.** A class naming a token that `@theme inline` never defined is not a style bug that review catches — Tailwind emits no rule at all, so it looks correct in the source and renders as nothing. `src/lib/color-tokens.test.ts` fails the build on it; that guard exists because `bg-success`, `bg-info`, and `bg-warning` shipped undefined across three vendored primitives and thirteen call sites, and every success toast rendered as text on no background.
 
 ## Dark mode
 
@@ -64,10 +66,10 @@ On mobile, replace side panels with Sheet (bottom or right), not Dialog. Prefer 
 
 ## Feedback patterns
 
-- **Toasts:** use `useToast()` from `@/hooks/use-toast` (not a shadcn toast). Kinds: `"success" | "error"`, default 3000ms.
-- **Loading:** TanStack Query's `isLoading` with a Spinner or brief text — never a full-page skeleton unless the page is data-heavy.
+- **Toasts:** use `useToast()` from `@/hooks/use-toast` (not a shadcn toast). Kinds: `"success" | "error"`, default 3000ms. The container is mounted once, at the router root — never render your own. It used to be per-component state, so a detail panel's toast wrote to a different instance than its list page rendered and was dropped silently.
+- **Loading:** TanStack Query's `isLoading` with a Spinner or brief text — never a full-page skeleton unless the page is data-heavy. Route-level pending and error fall back to `RoutePending` / `RouteError` (`@/components/RouteFallback`), wired in `app.tsx`.
 - **Empty states:** the shared `SettingsEmptyState` (`@/features/settings/SettingsEmptyState`).
-- **Errors:** display inline, direct tone, no apology.
+- **Errors:** display inline, direct tone, no apology. **A failed request must never fall through to the empty state** — "no webhooks yet" and "the server is unreachable" are different sentences, and rendering the first for the second tells the user their data is gone. Branch on `isError` before `length === 0` and render `ErrorState` (`@/components/RouteFallback`) with a retry. Never swallow a rejection into `[]`.
 
 ## Form validation
 

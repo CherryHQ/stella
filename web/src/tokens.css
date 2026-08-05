@@ -49,6 +49,20 @@
      this token for destructive-outline buttons, field errors, and menu items —
      all red text on light surfaces. Filled destructive variants hardcode white. */
   --destructive-foreground: oklch(0.55 0.21 25);
+  /* Status hues. Same contract as --destructive above: the base token is a
+     *text-weight* color, not a fill. CossUI uses it three ways at once — a 4-16%
+     tint, a 20-36% border, and a full-strength icon or line of copy (alert.tsx,
+     toast.tsx) — so it carries the chart hue at a lightness that stays legible
+     as text on a light surface. The chart tokens themselves sit ~0.15L brighter
+     because they are plotted, not read. The -foreground pair is text on that
+     tint. Never pair a solid `bg-*` fill with its own `-foreground`: they share
+     a hue and a lightness, so the text disappears into the fill. */
+  --success: oklch(0.55 0.13 150); /* chart-3 hue, text-weight */
+  --success-foreground: oklch(0.5 0.12 150);
+  --warning: oklch(0.56 0.12 78); /* chart-4 hue, text-weight */
+  --warning-foreground: oklch(0.51 0.11 78);
+  --info: oklch(0.53 0.14 230); /* chart-2 hue, text-weight */
+  --info-foreground: oklch(0.48 0.13 230);
   --font-sans:
     "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
   --font-serif:
@@ -111,6 +125,13 @@
   --sidebar-ring: oklch(0.7 0.14 174);
   /* See light-theme note: red foreground text, lifted for dark surfaces. */
   --destructive-foreground: oklch(0.7 0.18 25);
+  /* See light-theme note. Lifted above the dark canvas rather than pulled down. */
+  --success: oklch(0.76 0.14 150);
+  --success-foreground: oklch(0.8 0.13 150);
+  --warning: oklch(0.8 0.14 78);
+  --warning-foreground: oklch(0.84 0.12 78);
+  --info: oklch(0.74 0.13 230);
+  --info-foreground: oklch(0.78 0.12 230);
   --radius: 0.75rem;
   --font-sans:
     "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
