@@ -34,7 +34,17 @@ func (f *fakeStore) GetPATByPublicID(_ context.Context, publicID string) (PATRec
 func (f *fakeStore) ListPATByUser(_ context.Context, userID string) ([]PATRecord, error) {
 	var out []PATRecord
 	for _, r := range f.byPublicID {
-		if r.UserID == userID {
+		if r.UserID == userID && r.TokenUse == TokenUsePersonal {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) ListProvisioningTokenByUser(_ context.Context, userID string) ([]PATRecord, error) {
+	var out []PATRecord
+	for _, r := range f.byPublicID {
+		if r.UserID == userID && r.TokenUse == TokenUseProvisioning {
 			out = append(out, r)
 		}
 	}
@@ -43,7 +53,19 @@ func (f *fakeStore) ListPATByUser(_ context.Context, userID string) ([]PATRecord
 
 func (f *fakeStore) RevokePAT(_ context.Context, id, userID string) (int64, error) {
 	for k, r := range f.byPublicID {
-		if r.ID == id && r.UserID == userID && r.RevokedAt == nil {
+		if r.ID == id && r.UserID == userID && r.TokenUse == TokenUsePersonal && r.RevokedAt == nil {
+			now := time.Now()
+			r.RevokedAt = &now
+			f.byPublicID[k] = r
+			return 1, nil
+		}
+	}
+	return 0, nil
+}
+
+func (f *fakeStore) RevokeProvisioningToken(_ context.Context, id, userID string) (int64, error) {
+	for k, r := range f.byPublicID {
+		if r.ID == id && r.UserID == userID && r.TokenUse == TokenUseProvisioning && r.RevokedAt == nil {
 			now := time.Now()
 			r.RevokedAt = &now
 			f.byPublicID[k] = r
@@ -235,5 +257,112 @@ func TestResolveRefreshTokenHardRejected(t *testing.T) {
 	p, err := svc.Resolve(context.Background(), "Bearer stella_ort_refreshtoken")
 	if p != nil || err == nil {
 		t.Fatalf("refresh token must be hard-rejected at the API boundary; got p=%v err=%v", p, err)
+	}
+}
+
+func TestProvisioningTokenRequiresActiveAdminAndCarriesCredentialID(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+	store.users["u1"] = Identity{UserID: "u1", Email: "u1@x", IsActive: true, Role: "admin", IsAdmin: true}
+
+	plaintext, rec, err := svc.CreateProvisioningToken(ctx, "u1", "scim", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("create provisioning token: %v", err)
+	}
+	p, err := svc.Resolve(ctx, "Bearer "+plaintext)
+	if err != nil {
+		t.Fatalf("resolve provisioning token: %v", err)
+	}
+	if p.Kind != KindProvisioning || p.CredentialID != rec.ID || len(p.Scopes) != 0 {
+		t.Fatalf("provisioning principal = %+v, want kind, credential ID, and no scopes", p)
+	}
+
+	store.users["u1"] = Identity{UserID: "u1", Email: "u1@x", IsActive: true, Role: "user"}
+	if _, err := svc.Resolve(ctx, "Bearer "+plaintext); err == nil {
+		t.Fatal("demoted provisioning owner must be denied")
+	}
+	if _, _, err := svc.CreateProvisioningToken(ctx, "u1", "after-demotion", time.Now().Add(time.Hour)); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("demoted owner create error = %v, want ErrForbidden", err)
+	}
+	store.users["u1"] = Identity{UserID: "u1", Email: "u1@x", IsActive: false, Role: "admin", IsAdmin: true}
+	if _, err := svc.Resolve(ctx, "Bearer "+plaintext); err == nil {
+		t.Fatal("deactivated provisioning owner must be denied")
+	}
+}
+
+func TestProvisioningTokenActiveLimit(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+	store.users["u1"] = Identity{UserID: "u1", Email: "u1@x", IsActive: true, Role: "admin", IsAdmin: true}
+
+	for _, name := range []string{"current", "rotation-overlap"} {
+		if _, _, err := svc.CreateProvisioningToken(ctx, "u1", name, time.Now().Add(time.Hour)); err != nil {
+			t.Fatalf("create %s provisioning token: %v", name, err)
+		}
+	}
+	if _, _, err := svc.CreateProvisioningToken(ctx, "u1", "third", time.Now().Add(time.Hour)); !errors.Is(err, ErrProvisioningTokenLimit) {
+		t.Fatalf("third active provisioning token error = %v, want ErrProvisioningTokenLimit", err)
+	}
+}
+
+func TestProvisioningTokenRejectsPurposeMismatchExpiryAndRevocation(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+	store.users["u1"] = Identity{UserID: "u1", Email: "u1@x", IsActive: true, Role: "admin", IsAdmin: true}
+
+	plaintext, rec, err := svc.CreateProvisioningToken(ctx, "u1", "scim", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("create provisioning token: %v", err)
+	}
+	mismatch := store.byPublicID[rec.PublicID]
+	mismatch.TokenUse = TokenUsePersonal
+	store.byPublicID[rec.PublicID] = mismatch
+	if _, err := svc.Resolve(ctx, "Bearer "+plaintext); err == nil {
+		t.Fatal("provisioning prefix with personal stored use must be denied")
+	}
+
+	expired, expiredRec, err := svc.CreateProvisioningToken(ctx, "u1", "expired", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("create expired fixture: %v", err)
+	}
+	r := store.byPublicID[expiredRec.PublicID]
+	past := time.Now().Add(-time.Hour)
+	r.ExpiresAt = &past
+	store.byPublicID[expiredRec.PublicID] = r
+	if _, err := svc.Resolve(ctx, "Bearer "+expired); err == nil {
+		t.Fatal("expired provisioning token must be denied")
+	}
+
+	revoked, revokedRec, err := svc.CreateProvisioningToken(ctx, "u1", "revoked", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("create revoked fixture: %v", err)
+	}
+	if ok, err := svc.RevokeProvisioningToken(ctx, revokedRec.ID, "u1"); err != nil || !ok {
+		t.Fatalf("revoke provisioning token = %v, %v", ok, err)
+	}
+	if _, err := svc.Resolve(ctx, "Bearer "+revoked); err == nil {
+		t.Fatal("revoked provisioning token must be denied")
+	}
+}
+
+func TestTokenUseValidationHasOneAuthority(t *testing.T) {
+	for _, tc := range []struct {
+		use  TokenUse
+		want bool
+	}{
+		{TokenUsePersonal, true},
+		{TokenUseProvisioning, true},
+		{TokenUse("unknown"), false},
+	} {
+		if got := tc.use.Valid(); got != tc.want {
+			t.Errorf("TokenUse(%q).Valid() = %v, want %v", tc.use, got, tc.want)
+		}
+	}
+	svc, store := newTestService(t)
+	if _, _, err := svc.createToken(context.Background(), KindPAT, TokenUse("unknown"), "u1", "bad", nil); err == nil {
+		t.Fatal("invalid token use must not reach persistence")
+	}
+	if len(store.byPublicID) != 0 {
+		t.Fatal("invalid token use persisted a record")
 	}
 }

@@ -16,6 +16,9 @@ import (
 const (
 	// PATPrefix identifies a personal access token presented to the API.
 	PATPrefix = "stella_pat_"
+	// ProvisioningPrefix identifies a restricted provisioning token presented to
+	// the API. Its distinct wire namespace must match the stored token use.
+	ProvisioningPrefix = "stella_prv_"
 	// OAuthAccessPrefix identifies an OAuth2 access token. Reserved for #613.
 	OAuthAccessPrefix = "stella_oat_"
 	// OAuthRefreshPrefix identifies an OAuth2 refresh token. Valid only at the
@@ -89,6 +92,8 @@ func opaquePrefix(kind Kind) (string, error) {
 	switch kind {
 	case KindPAT:
 		return PATPrefix, nil
+	case KindProvisioning:
+		return ProvisioningPrefix, nil
 	case KindOAuth:
 		return OAuthAccessPrefix, nil
 	default:

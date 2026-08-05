@@ -40,6 +40,8 @@ func TestEnforcePATCredentialRouteFence(t *testing.T) {
 	for _, path := range []string{
 		"/api/users/me/tokens",
 		"/api/users/me/tokens/token-1",
+		"/api/admin/provisioning-tokens",
+		"/api/admin/provisioning-tokens/token-1",
 		"/api/users/me/oauth-clients",
 		"/api/users/me/oauth-clients/client-1/rotate-secret",
 		"/api/users/me/authorized-apps",
@@ -71,6 +73,29 @@ func TestEnforcePATCredentialRouteFence(t *testing.T) {
 	} {
 		if err := Enforce(p, "GET", path); err != nil {
 			t.Errorf("admin PAT GET %s must remain outside the fence: %v", path, err)
+		}
+	}
+}
+
+func TestEnforceProvisioningTokenStrictAllowlist(t *testing.T) {
+	p := &Principal{Kind: KindProvisioning, UserID: "admin", CredentialID: "token-1"}
+	for _, path := range []string{
+		"/api/provisioned-users",
+		"/api/provisioned-users/user-1",
+		"/api/provisioned-users/user-1/rotate",
+	} {
+		if err := Enforce(p, "POST", path); err != nil {
+			t.Errorf("provisioning token POST %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{
+		"/api/provisioned-users-extra",
+		"/api/admin/provisioning-tokens",
+		"/api/agents",
+		"/agents",
+	} {
+		if err := Enforce(p, "GET", path); err == nil {
+			t.Errorf("provisioning token GET %s must be denied", path)
 		}
 	}
 }

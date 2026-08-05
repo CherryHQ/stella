@@ -1,0 +1,56 @@
+paths:
+  /api/admin/provisioning-tokens:
+    get:
+      tags: [provisioning]
+      summary: List the current admin's provisioning tokens
+      operationId: listProvisioningTokens
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/ProvisioningTokenList"
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+    post:
+      tags: [provisioning]
+      summary: Create a provisioning token
+      operationId: createProvisioningToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../../components.yaml#/components/schemas/CreateProvisioningTokenRequest"
+      responses:
+        "201":
+          description: created; plaintext token returned once
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/CreateProvisioningTokenResponse"
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/admin/provisioning-tokens/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [provisioning]
+      summary: Revoke a provisioning token
+      operationId: revokeProvisioningToken
+      responses:
+        "204": { description: revoked }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

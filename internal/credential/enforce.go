@@ -65,6 +65,11 @@ func Enforce(p *Principal, method, path string) error {
 			return fmt.Errorf("%w: PAT may not manage authentication credentials", ErrForbidden)
 		}
 		return nil
+	case KindProvisioning:
+		if !provisionedUserRouteAllowed(path) {
+			return fmt.Errorf("%w: provisioning credentials may only access provisioned users", ErrForbidden)
+		}
+		return nil
 	case KindOAuth:
 		// OAuth access tokens are delegated capabilities, not account credentials.
 		// Preserve the existing route-to-scope and OAuth-exposability policy.
@@ -100,6 +105,7 @@ func patCredentialRouteDenied(path string) bool {
 	rest := apiSegments(path)
 	switch {
 	case hasSegmentPrefix(rest, "users", "me", "tokens"),
+		hasSegmentPrefix(rest, "admin", "provisioning-tokens"),
 		hasSegmentPrefix(rest, "users", "me", "oauth-clients"),
 		hasSegmentPrefix(rest, "users", "me", "authorized-apps"),
 		hasSegmentPrefix(rest, "auth", "sessions"),
@@ -114,6 +120,13 @@ func patCredentialRouteDenied(path string) bool {
 	default:
 		return false
 	}
+}
+
+// provisionedUserRouteAllowed is deliberately an allowlist: a provisioning
+// credential has no implicit owner authority, and future routes stay denied
+// until they are placed under this resource family on purpose.
+func provisionedUserRouteAllowed(path string) bool {
+	return hasSegmentPrefix(apiSegments(path), "provisioned-users")
 }
 
 func hasSegmentPrefix(got []string, want ...string) bool {

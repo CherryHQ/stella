@@ -175,6 +175,25 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) *AuthInfo {
 	return info
 }
 
+// requireInteractiveAdmin is the sole gate for lifecycle actions that mint or
+// manage bearer credentials. A bearer may resolve to an admin account, but it
+// is not an interactive session and must never create its own replacement.
+func requireInteractiveAdmin(w http.ResponseWriter, r *http.Request) *AuthInfo {
+	info := requireAuth(w, r)
+	if info == nil {
+		return nil
+	}
+	if info.principal != nil {
+		writeError(w, http.StatusForbidden, "interactive admin session required")
+		return nil
+	}
+	if !info.IsAdmin {
+		writeError(w, http.StatusForbidden, "admin access required")
+		return nil
+	}
+	return info
+}
+
 // Public auth API paths that don't require a session.
 var publicAuthAPIPaths = []string{
 	"/api/auth/logout",

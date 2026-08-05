@@ -6,37 +6,45 @@ import (
 )
 
 func TestMintOpaqueFormatAndChecksum(t *testing.T) {
-	m, err := MintOpaque(KindPAT)
-	if err != nil {
-		t.Fatalf("mint: %v", err)
-	}
-	if !strings.HasPrefix(m.Plaintext, PATPrefix) {
-		t.Fatalf("plaintext missing family prefix: %q", m.Plaintext)
-	}
-	if m.Last4 != m.Plaintext[len(m.Plaintext)-4:] {
-		t.Fatal("last4 must be the plaintext suffix")
-	}
+	for _, tc := range []struct {
+		kind   Kind
+		prefix string
+	}{
+		{KindPAT, PATPrefix},
+		{KindProvisioning, ProvisioningPrefix},
+	} {
+		m, err := MintOpaque(tc.kind)
+		if err != nil {
+			t.Fatalf("mint %s: %v", tc.kind, err)
+		}
+		if !strings.HasPrefix(m.Plaintext, tc.prefix) {
+			t.Fatalf("%s plaintext missing family prefix: %q", tc.kind, m.Plaintext)
+		}
+		if m.Last4 != m.Plaintext[len(m.Plaintext)-4:] {
+			t.Fatal("last4 must be the plaintext suffix")
+		}
 
-	publicID, secret, err := parseOpaqueToken(PATPrefix, m.Plaintext)
-	if err != nil {
-		t.Fatalf("parse minted token: %v", err)
-	}
-	if publicID != m.PublicID {
-		t.Fatalf("public id mismatch: %q vs %q", publicID, m.PublicID)
-	}
-	if hashSecret(secret) != m.TokenHash {
-		t.Fatal("hash of parsed secret must equal stored token hash")
-	}
+		publicID, secret, err := parseOpaqueToken(tc.prefix, m.Plaintext)
+		if err != nil {
+			t.Fatalf("parse minted %s token: %v", tc.kind, err)
+		}
+		if publicID != m.PublicID {
+			t.Fatalf("public id mismatch: %q vs %q", publicID, m.PublicID)
+		}
+		if hashSecret(secret) != m.TokenHash {
+			t.Fatal("hash of parsed secret must equal stored token hash")
+		}
 
-	// Flip the last checksum char: parsing must fail (leak detection integrity).
-	bad := m.Plaintext[:len(m.Plaintext)-1]
-	if last := m.Plaintext[len(m.Plaintext)-1]; last == 'a' {
-		bad += "b"
-	} else {
-		bad += "a"
-	}
-	if _, _, err := parseOpaqueToken(PATPrefix, bad); err == nil {
-		t.Fatal("checksum tampering must be rejected")
+		// Flip the last checksum char: parsing must fail (leak detection integrity).
+		bad := m.Plaintext[:len(m.Plaintext)-1]
+		if last := m.Plaintext[len(m.Plaintext)-1]; last == 'a' {
+			bad += "b"
+		} else {
+			bad += "a"
+		}
+		if _, _, err := parseOpaqueToken(tc.prefix, bad); err == nil {
+			t.Fatal("checksum tampering must be rejected")
+		}
 	}
 }
 

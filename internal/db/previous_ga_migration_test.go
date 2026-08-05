@@ -21,7 +21,7 @@ const (
 	previousGAVersion = int64(20260725161331)
 	// Knowledge V1 is the first post-anchor migration. The assertions below
 	// exercise its file, ChunkSet, chunk, and active-publication schema.
-	currentMigrationVersion = sequentialAnchor + 1
+	currentMigrationVersion = sequentialAnchor + 2
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -131,6 +131,8 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 	}
 
 	exec("user", `INSERT INTO auth_user (id, email, created_at, updated_at) VALUES ($1, 'previous-ga@test.invalid', $2, $2)`, previousGAUserID, previousGATime)
+	exec("personal access token", `INSERT INTO personal_access_token (id, public_id, user_id, name, token_hash, last4, scopes, created_at, updated_at)
+		VALUES ('00000000-0000-0000-0000-000000000014', 'previous-ga-pat', $1, 'previous GA PAT', 'previous-ga-hash', '1234', ARRAY['goals:read'], $2, $2)`, previousGAUserID, previousGATime)
 	exec("agents", `INSERT INTO agent (id, name, workspace, created_at, updated_at) VALUES
 		($1, 'Previous GA Agent', '/tmp', $3, $3),
 		($2, 'Previous GA Cascade Agent', '/tmp', $3, $3)`, previousGAAgentID, previousGACascadeAgentID, previousGATime)
@@ -184,6 +186,13 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 			t.Fatalf("count %s: %v", name, err)
 		}
 		return got
+	}
+	var tokenUse string
+	if err := db.QueryRow(ctx, `SELECT token_use FROM personal_access_token WHERE public_id = 'previous-ga-pat'`).Scan(&tokenUse); err != nil {
+		t.Fatalf("read migrated personal access token use: %v", err)
+	}
+	if tokenUse != "personal" {
+		t.Fatalf("migrated personal access token use = %q, want personal", tokenUse)
 	}
 	if got := count("retired vault entries", `SELECT count(*) FROM vault_entry WHERE name IN ('LARK_CLI_OAUTH', 'FEISHU_CLI_OAUTH')`); got != 0 {
 		t.Fatalf("retired vault entries = %d, want 0", got)
