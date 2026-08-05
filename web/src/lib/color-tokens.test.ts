@@ -72,15 +72,34 @@ describe("semantic color pairs resolve to defined theme tokens", () => {
     // Writing `text-destructive` looks right and is the more obvious name, which
     // is why 61 call sites had it. Nothing on screen reports the difference —
     // in dark mode it is the gap between 5.66:1 and 3.2:1.
+    //
+    // CossUI is vendored and regenerated, so its three remaining uses are named
+    // here rather than skipped wholesale: an exception the next `coss add` can
+    // reintroduce silently is not an exception, it is a blind spot. All three
+    // are icons, which owe 3:1 and clear it — they are a naming inconsistency
+    // with the docs, not a failure. Pinning the count is what makes the docs'
+    // "every red word in this app" claim checkable.
+    const VENDORED_ALLOWANCE = new Map([
+      [join("components", "ui", "alert.tsx"), 1],
+      [join("components", "ui", "toast.tsx"), 2],
+    ]);
+
     const offenders: string[] = [];
+    const seen = new Map<string, number>();
     for (const file of walk(SRC)) {
-      if (file.includes(join("components", "ui"))) continue; // vendored, read-only
+      const where = file.slice(SRC.length + 1);
       const source = readFileSync(file, "utf8");
-      for (const m of source.matchAll(/\btext-destructive(?!-foreground)\b/g)) {
-        offenders.push(`${file.slice(SRC.length + 1)}: ${m[0]} (use text-destructive-foreground)`);
-      }
+      const hits = [...source.matchAll(/\btext-destructive(?!-foreground)\b/g)].length;
+      if (!hits) continue;
+      seen.set(where, hits);
+      if (VENDORED_ALLOWANCE.get(where) === hits) continue;
+      offenders.push(`${where}: ${hits}x text-destructive (use text-destructive-foreground)`);
     }
     expect(offenders).toEqual([]);
+
+    // And the allowance itself has to stay honest: a vendored file that stopped
+    // using it should drop off the list rather than sit here forever.
+    expect([...seen.keys()].sort()).toEqual([...VENDORED_ALLOWANCE.keys()].sort());
   });
 
   it("defines the status pairs the vendored CossUI variants consume", () => {

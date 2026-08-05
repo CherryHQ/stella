@@ -62,7 +62,7 @@
      cannot do both, and trying is how dark --destructive ended up at 0.64:
      bright enough to half-work as text, too bright for its own label at 3.70:1.
      Use --destructive for fills and borders, this one for words. */
-  --destructive-foreground: oklch(0.55 0.21 25);
+  --destructive-foreground: oklch(0.52 0.21 25);
   /* Status hues. Unlike --destructive these are never a solid fill — CossUI only
      ever tints them (a 4-16% wash, a 20-36% border, a full-strength icon or line
      of copy in alert.tsx and toast.tsx) — so the text gate is the only one they
@@ -75,16 +75,22 @@
 
      "Text-weight" is a number, not an intention: each L sits below the point
      where the token clears 4.5:1 as text on --muted, the darkest neutral surface
-     in this theme and therefore the binding one; anything lighter has margin.
-     All three had been on the wrong side of that line by 0.01-0.02L — the kind
-     of miss no reviewer sees and no screenshot shows — so theme.test.ts
-     recomputes it from these values. The -foreground pair is text on the token's
-     own tint. Never pair a solid `bg-*` fill with its own `-foreground`: they
-     share a hue and a lightness, so the text disappears into the fill. */
+     in this theme and therefore the binding one for a bare `text-*`; anything
+     lighter has margin. All three had been on the wrong side of that line by
+     0.01-0.02L — the kind of miss no reviewer sees and no screenshot shows — so
+     theme.test.ts recomputes it from these values.
+
+     The -foreground pair is text on the token's own tint, and *that* surface is
+     the darker one: `bg-success/10` over --muted composites to something below
+     --muted, so a bare-token pass says nothing about the pill it sits in. Tuned
+     against that composite (the 8% and 10% washes this app actually paints), it
+     is what pushed these three below their base token rather than beside it.
+     Never pair a solid `bg-*` fill with its own `-foreground`: they share a hue
+     and a lightness, so the text disappears into the fill. */
   --success: oklch(0.51 0.13 150); /* chart-3 hue, text-weight */
-  --success-foreground: oklch(0.5 0.12 150);
+  --success-foreground: oklch(0.48 0.12 150);
   --warning: oklch(0.53 0.12 78); /* chart-4 hue, text-weight */
-  --warning-foreground: oklch(0.51 0.11 78);
+  --warning-foreground: oklch(0.5 0.11 78);
   --info: oklch(0.5 0.14 230); /* chart-2 hue, text-weight */
   --info-foreground: oklch(0.48 0.13 230);
   /* Two families, and the second one means something. `--font-serif` used to be

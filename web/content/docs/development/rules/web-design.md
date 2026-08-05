@@ -68,9 +68,19 @@ chart tokens are tuned to be _plotted_; these are tuned to be _read_, because
 CossUI uses one token three ways at once — a 4–16% tint, a 20–36% border, and a
 full-strength icon or line of copy.
 
-_Read_ is a measured claim: each lightness clears 4.5:1 as text on `muted`, the
-darkest neutral surface in the theme, so every lighter surface inherits the
-margin. `theme.test.ts` recomputes it from `tokens.css`.
+_Read_ is a measured claim, and it is measured on two surfaces because a status
+color is almost never used on a bare one:
+
+- The base token as text on `muted`, the darkest neutral in the theme, so every
+  lighter surface inherits the margin.
+- The `-foreground` half on its own tint — `bg-X/10` (CossUI's badges use `/8`)
+  composited over `background`, `card`, or `muted`.
+
+The second is the binding one, and reasoning replaced it once already: a 10%
+wash of a status color over `muted` lands _below_ `muted`, so passing on the bare
+token says nothing about the pill. `destructive-foreground` shipped a green suite
+at 4.08:1 on exactly that surface. `theme.test.ts` recomputes both from
+`tokens.css`, including the alpha composite.
 
 Reaching for a chart token instead is the failure this guards, and it fails
 twice. In light mode `chart-4` as 12px copy measures 2.19:1 against the 4.5:1
@@ -90,12 +100,17 @@ So they are split by job, and dark inverts the usual direction:
 | Token                    | Job                            | Light                 | Dark                 |
 | ------------------------ | ------------------------------ | --------------------- | -------------------- |
 | `destructive`            | fills, borders, dots, bars     | `oklch(0.58 0.2 25)`  | `oklch(0.55 0.2 25)` |
-| `destructive-foreground` | every red word, every red icon | `oklch(0.55 0.21 25)` | `oklch(0.7 0.18 25)` |
+| `destructive-foreground` | every red word, every red icon | `oklch(0.52 0.21 25)` | `oklch(0.7 0.18 25)` |
 
 **Write `text-destructive-foreground`, never `text-destructive`.** The shorter
 name is the wrong one and reads as correct, which is why 61 call sites had it;
 `color-tokens.test.ts` now fails the build on it. Dark mode is where it showed:
 5.66:1 versus 3.2:1.
+
+Three uses survive in vendored CossUI (`alert.tsx`, `toast.tsx`), all of them
+icons, which owe 3:1 and clear it. They are listed by name and count in
+`color-tokens.test.ts` rather than skipped, so the next `coss add` cannot quietly
+add a fourth.
 
 Dark `destructive` was `oklch(0.64 0.2 25)` — tuned as though it were text, so
 the white label on the app's most dangerous button measured **3.70:1**. At 0.55
