@@ -448,7 +448,39 @@ export function ConversationSidebar() {
   return (
     <div className="flex min-h-0 w-full flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-2">
-        <div className="grid min-w-0 gap-0.5">
+        {/* The list gets the same muted anchor row as Projects and Recent
+            threads, and creating a target is that row's action rather than a
+            labelled button stranded at the bottom of the panel. */}
+        <SidebarSection
+          title={t("nav.agents")}
+          className="mt-0"
+          action={
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("sidebar.addTarget")}
+                    title={t("sidebar.addTarget")}
+                  />
+                }
+              >
+                <Plus />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6}>
+                <DropdownMenuItem render={<Link to="/settings/agents" />}>
+                  <Bot className="size-4" />
+                  {t("sidebar.newAgent")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowGroupDialog(true)}>
+                  <Users className="size-4" />
+                  {t("sidebar.newGroup")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          }
+        >
           {targets.map((target) => {
             const expanded =
               target.kind === "agent"
@@ -489,29 +521,7 @@ export function ConversationSidebar() {
               {t("sessions.sidebar.noAgents")}
             </p>
           )}
-
-          {/* Last row of the list, not a pinned footer: creating a target is the
-              same kind of action as picking one, and it belongs where the list
-              ends rather than across a dead gap at the bottom of the panel. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="ghost" size="sm" className="w-full justify-start" />}
-            >
-              <Plus />
-              {t("sidebar.addTarget")}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={6}>
-              <DropdownMenuItem render={<Link to="/settings/agents" />}>
-                <Bot className="size-4" />
-                {t("sidebar.newAgent")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowGroupDialog(true)}>
-                <Users className="size-4" />
-                {t("sidebar.newGroup")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        </SidebarSection>
       </div>
 
       <CreateGroupDialog open={showGroupDialog} onClose={() => setShowGroupDialog(false)} />

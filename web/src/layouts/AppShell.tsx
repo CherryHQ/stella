@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useMemo,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -10,29 +11,26 @@ import {
   SidebarProvider,
   Sidebar,
   SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
   SidebarInset,
   SidebarTrigger,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
-import { AppHeaderLeadColumn, AppHeaderSlotContent } from "@/layouts/AppHeaderSlot";
+import { AppChromeFooter, AppChromeHeader } from "@/components/AppSidebarChrome";
 
-/**
- * The sidebar column's width, owned here rather than by CossUI's default so the
- * top bar's left segment and the sidebar are driven by one number.
- */
+/** The sidebar column's width, owned here rather than by CossUI's default. */
 const SIDEBAR_COLUMN_WIDTH = "16rem";
-
-/** Publishes the live sidebar geometry to the bar above the provider. */
-function SidebarColumnBridge() {
-  const { open, isMobile } = useSidebar();
-  // Mobile's sidebar is an overlay sheet, so it owns no column in the layout.
-  return <AppHeaderLeadColumn width={!isMobile && open ? SIDEBAR_COLUMN_WIDTH : null} />;
-}
 
 interface AppShellContextType {
   setHeaderTitle: (title: ReactNode) => void;
   setHeaderActions: (actions: ReactNode) => void;
+  /**
+   * The page's right-panel toggle, if it has one. Kept apart from
+   * `setHeaderActions` because it is a layout control, not a page action: it
+   * sits at the header's outer edge, mirroring the sidebar trigger.
+   */
+  setHeaderPanelToggle: (toggle: ReactNode) => void;
 }
 
 const AppShellContext = createContext<AppShellContextType | null>(null);
@@ -43,6 +41,7 @@ export function useAppShell(): AppShellContextType {
     return {
       setHeaderTitle: () => {},
       setHeaderActions: () => {},
+      setHeaderPanelToggle: () => {},
     };
   }
   return context;
@@ -57,17 +56,17 @@ interface AppShellProps {
 }
 
 /**
- * The per-app sidebar and the content pane under the single top bar.
+ * The app's frame: a full-height sidebar and the content column beside it.
  *
- * This shell has no header row of its own: its contextual header content
- * (sidebar trigger, breadcrumb, page actions) is portalled into the top bar's
- * slot, so the app shows one h-14 bar instead of two stacked ones. The same
- * slot carries the sidebar's live width up to the bar (`SidebarColumnBridge`),
- * which is what keeps the bar's segments aligned with these two columns.
+ * The sidebar owns the global chrome — app switcher, search and inbox in its
+ * header, the signed-in account pinned to its footer — so those controls follow
+ * the sidebar on mobile (where it is a sheet) instead of needing a bar of their
+ * own. Every app mounts through this shell, so every app inherits them.
  *
- * The desktop sidebar is `position: fixed`, so it has to be told where the top
- * bar ends — hence the h-14 offset here. Everything else (width, collapse,
- * mobile offcanvas) stays CossUI's.
+ * The content column owns exactly one slim header: the sidebar trigger at its
+ * outer edge (so a collapsed sidebar is always reopenable), the breadcrumb, the
+ * page's actions, and — when the page has a right panel — its toggle at the far
+ * edge.
  */
 export function AppShell({
   sidebar,
@@ -78,9 +77,15 @@ export function AppShell({
 }: AppShellProps) {
   const [dynamicTitle, setDynamicTitle] = useState<ReactNode>(null);
   const [dynamicActions, setDynamicActions] = useState<ReactNode>(null);
+  const [panelToggle, setPanelToggle] = useState<ReactNode>(null);
 
   const setHeaderTitle = useCallback((t: ReactNode) => setDynamicTitle(t), []);
   const setHeaderActions = useCallback((a: ReactNode) => setDynamicActions(a), []);
+  const setHeaderPanelToggle = useCallback((p: ReactNode) => setPanelToggle(p), []);
+  const shellContext = useMemo(
+    () => ({ setHeaderTitle, setHeaderActions, setHeaderPanelToggle }),
+    [setHeaderTitle, setHeaderActions, setHeaderPanelToggle],
+  );
 
   // The static `title` (breadcrumb spine) always renders; a page's dynamic
   // title appends as the trailing crumb instead of replacing it — replacing is
@@ -89,46 +94,51 @@ export function AppShell({
   const showTailSeparator = title != null && dynamicTitle != null;
 
   return (
-    <AppShellContext.Provider value={{ setHeaderTitle, setHeaderActions }}>
+    <AppShellContext.Provider value={shellContext}>
       <SidebarProvider
         defaultOpen={defaultSidebarOpen}
         className="min-h-0 flex-1"
         style={{ "--sidebar-width": SIDEBAR_COLUMN_WIDTH } as CSSProperties}
       >
-        <SidebarColumnBridge />
-        {/* inset-y-auto/h-auto undo CossUI's viewport-height fixed placement so
-            the fixed sidebar starts below the h-14 global bar instead of under it. */}
-        <Sidebar
-          side="left"
-          collapsible="offcanvas"
-          className="inset-y-auto bottom-0 top-14 h-auto"
-        >
+        <Sidebar side="left" collapsible="offcanvas">
+          {/* shrink-0: SidebarContent's scroll area is sized at 100% of the
+              column, so without this the header and footer would give up a few
+              pixels each to it instead of the scroller absorbing the overflow. */}
+          <SidebarHeader className="shrink-0">
+            <AppChromeHeader />
+          </SidebarHeader>
           <SidebarContent>{sidebar}</SidebarContent>
+          <SidebarFooter className="shrink-0">
+            <AppChromeFooter />
+          </SidebarFooter>
         </Sidebar>
-        {/* This is the content column's own header: the trigger sits at the
-            column's left edge, the breadcrumb next to it, page actions in one
-            cluster at the far end, and a rule closing the column off from the
-            bar's global controls. */}
-        <AppHeaderSlotContent>
-          <SidebarTrigger className="shrink-0" />
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            {title != null && <div className="flex min-w-0 shrink-0 items-center">{title}</div>}
-            {showTailSeparator && (
-              <span aria-hidden className="shrink-0 text-muted-foreground">
-                /
-              </span>
-            )}
-            {dynamicTitle != null && <div className="min-w-0 flex-1 truncate">{dynamicTitle}</div>}
-          </div>
-          {(dynamicActions || headerActions) && (
-            <div className="flex shrink-0 items-center gap-1">
-              {dynamicActions}
-              {headerActions}
-            </div>
-          )}
-          <Separator orientation="vertical" className="h-4" />
-        </AppHeaderSlotContent>
         <SidebarInset className="min-w-0 overflow-hidden">
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2">
+            <SidebarTrigger className="shrink-0" />
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              {title != null && <div className="flex min-w-0 shrink-0 items-center">{title}</div>}
+              {showTailSeparator && (
+                <span aria-hidden className="shrink-0 text-muted-foreground">
+                  /
+                </span>
+              )}
+              {dynamicTitle != null && (
+                <div className="min-w-0 flex-1 truncate">{dynamicTitle}</div>
+              )}
+            </div>
+            {(dynamicActions || headerActions) && (
+              <div className="flex shrink-0 items-center gap-1">
+                {dynamicActions}
+                {headerActions}
+              </div>
+            )}
+            {panelToggle && (
+              <>
+                <Separator orientation="vertical" className="h-4" />
+                <div className="flex shrink-0 items-center">{panelToggle}</div>
+              </>
+            )}
+          </header>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
         </SidebarInset>
       </SidebarProvider>

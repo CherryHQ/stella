@@ -1,27 +1,24 @@
-import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Bell,
+  ChevronsUpDown,
   ChevronDown,
   FileText,
   LogOut,
-  MessagesSquare,
   Search,
   Settings,
   UserCog,
 } from "lucide-react";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
-import { cn } from "@/lib/utils";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { ThemeAppearanceControl } from "@/components/ThemeControls";
-import { GlobalSearchDialog } from "@/components/GlobalSearchDialog";
+import { useGlobalSearch } from "@/components/GlobalSearch";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,7 +30,6 @@ import {
 } from "@/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { AppHeaderSlotTarget, useAppHeaderLeadWidth } from "@/layouts/AppHeaderSlot";
 
 const INBOX_KIND_LABELS = {
   blocked: "inbox.kind.blocked",
@@ -41,14 +37,14 @@ const INBOX_KIND_LABELS = {
   failed: "inbox.kind.failed",
 } as const;
 
-interface AppTab {
+interface AppEntry {
   key: string;
   label: string;
   to: string;
   prefixes: string[];
 }
 
-function useAppTabs(): AppTab[] {
+function useApps(): AppEntry[] {
   const { t } = useI18n();
   return [
     { key: "agents", label: t("nav.agents"), to: "/agents", prefixes: ["/agents", "/groups"] },
@@ -56,124 +52,57 @@ function useAppTabs(): AppTab[] {
   ];
 }
 
-function isActive(tab: AppTab, pathname: string): boolean {
-  return tab.prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+function isActive(app: AppEntry, pathname: string): boolean {
+  return app.prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 /**
- * The app's only bar, and a projection of the columns below it.
- *
- * The left segment tracks the sidebar column exactly (width + border), so its
- * right edge is the same seam the panes below share; it carries the brand and
- * which app you are in. The right segment is the content column's header: the
- * shell's trigger and breadcrumb at its left edge, then page actions, then the
- * global controls (search, inbox, account) at the far right.
- *
- * When there is no column below (sidebar collapsed, mobile, shell-less route)
- * the left segment falls back to its content width. That switch snaps rather
- * than animates — CSS cannot transition to `auto` — while the sidebar slides.
+ * The sidebar's top row: which app you are in, plus the two global controls that
+ * belong to no page (search, inbox). The app switcher is a menu rather than a
+ * tab strip because the sidebar column has no room for one, and because the set
+ * of apps is small and rarely switched.
  */
-export function GlobalTopBar() {
+export function AppChromeHeader() {
   const { t } = useI18n();
-  const { data: me } = useQuery(meQueryOptions);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const tabs = useAppTabs();
-  const leadWidth = useAppHeaderLeadWidth();
-  const [searchOpen, setSearchOpen] = useState(false);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        setSearchOpen((open) => !open);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  if (!me) return null;
-
-  const activeTab = tabs.find((tab) => isActive(tab, pathname));
+  const apps = useApps();
+  const openSearch = useGlobalSearch();
+  const activeApp = apps.find((app) => isActive(app, pathname)) ?? apps[0];
 
   return (
-    <header className="relative z-30 flex h-14 shrink-0 items-center border-b border-border bg-background">
-      {/* Left segment — the sidebar column's head. Only the monogram rides here:
-          the wordmark plus both tabs do not fit 16rem, and the tabs are what
-          this column is for. */}
-      <div
-        className={cn(
-          "flex h-full shrink-0 items-center gap-1 pl-4 pr-2",
-          leadWidth && "border-r border-border",
-        )}
-        style={leadWidth ? { width: leadWidth } : undefined}
-      >
-        <Link to="/agents" aria-label="stella" className="flex shrink-0 items-center">
-          <img src="/stella-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
-        </Link>
+    <div className="flex min-w-0 items-center gap-1">
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={<Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start" />}
+        >
+          <img src="/stella-monogram.svg" alt="" width={20} height={20} className="rounded-sm" />
+          <span className="min-w-0 truncate">{activeApp.label}</span>
+          <ChevronDown />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" sideOffset={6} className="w-52">
+          <DropdownMenuGroup>
+            {apps.map((app) => (
+              <DropdownMenuItem key={app.key} render={<Link to={app.to as never} />}>
+                {app.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-        {/* Desktop: app tabs inline. Mobile: the same set behind one menu. */}
-        {/* `secondary` is the active affordance: it reads as a filled tab in both
-            light and dark, where a ghost hover tint does not. */}
-        <nav className="ml-1 hidden min-w-0 items-center gap-1 sm:flex">
-          {tabs.map((tab) => (
-            <Button
-              key={tab.key}
-              variant={isActive(tab, pathname) ? "secondary" : "ghost"}
-              size="sm"
-              render={<Link to={tab.to as never} />}
-            >
-              {tab.label}
-            </Button>
-          ))}
-        </nav>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" size="sm" className="ml-1 sm:hidden" />}
-          >
-            {activeTab?.label ?? t("nav.agents")}
-            <ChevronDown />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" sideOffset={6}>
-            <DropdownMenuGroup>
-              {tabs.map((tab) => (
-                <DropdownMenuItem key={tab.key} render={<Link to={tab.to as never} />}>
-                  <MessagesSquare className="size-4" />
-                  {tab.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={openSearch}
+          aria-label={t("search.open")}
+          title={t("search.open")}
+        >
+          <Search />
+        </Button>
+        <InboxBell />
       </div>
-
-      {/* Right segment — the content column's head. The shell portals its
-          trigger, breadcrumb, page actions and the closing rule into the slot;
-          on shell-less routes the slot is empty and only the global cluster
-          shows. */}
-      <div className="flex h-full min-w-0 flex-1 items-center gap-2 pl-2 pr-4">
-        <AppHeaderSlotTarget className="flex min-w-0 flex-1 items-center gap-2" />
-
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSearchOpen(true)}
-            aria-label={t("search.open")}
-          >
-            <Search />
-            {/* Search is this cluster's one labelled anchor; below xl even that
-                yields the row to the breadcrumb. */}
-            <span className="max-xl:hidden">{t("search.open")}</span>
-            <Kbd className="max-xl:hidden">⌘K</Kbd>
-          </Button>
-          <InboxBell />
-          <AppUserMenu />
-        </div>
-      </div>
-
-      <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
-    </header>
+    </div>
   );
 }
 
@@ -193,6 +122,7 @@ function InboxBell() {
             size="icon-sm"
             className="relative"
             aria-label={t("inbox.title")}
+            title={t("inbox.title")}
           />
         }
       >
@@ -203,7 +133,7 @@ function InboxBell() {
           </Badge>
         )}
       </PopoverTrigger>
-      <PopoverPopup align="end" sideOffset={8} className="w-80 p-2">
+      <PopoverPopup align="start" sideOffset={8} className="w-80 p-2">
         <div className="flex items-center justify-between px-2 py-1">
           <span className="text-xs text-muted-foreground">{t("inbox.title")}</span>
           <Button variant="ghost" size="xs" render={<Link to="/inbox" />}>
@@ -240,10 +170,13 @@ function InboxBell() {
   );
 }
 
-// Identity, personal settings, appearance, and sign-out. The appearance switch
-// lives inline here rather than behind its own trigger — nesting a popover
-// inside a menu is a bug — and stays a single row so the menu fits the viewport.
-function AppUserMenu() {
+/**
+ * The sidebar's pinned bottom row: who you are signed in as, and everything that
+ * hangs off that — personal settings, appearance, sign-out. The appearance
+ * switch lives inline in the menu rather than behind its own trigger (nesting a
+ * popover inside a menu is a bug) and stays a single row so the menu fits.
+ */
+export function AppChromeFooter() {
   const { data: me } = useQuery(meQueryOptions);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -262,18 +195,21 @@ function AppUserMenu() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="ml-1 flex cursor-pointer items-center rounded-lg p-1 outline-none transition-colors hover:bg-accent">
-        <Avatar className="size-7">
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="sm" className="w-full min-w-0 justify-start" />}
+      >
+        <Avatar className="size-6">
           {/* Not font-mono: a mono capital O is indistinguishable from a zero. */}
           <AvatarFallback className="text-xs font-semibold">{initial}</AvatarFallback>
         </Avatar>
+        {/* Usernames can be opaque provider IDs — one line, ellipsis. */}
+        <span className="min-w-0 flex-1 truncate text-left">{me.username}</span>
+        <ChevronsUpDown />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="w-64">
+      <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-64">
         <DropdownMenuGroup>
           <DropdownMenuLabel>
             <div className="flex min-w-0 flex-col gap-0.5">
-              {/* Usernames can be opaque provider IDs — one line, ellipsis, so the
-                  menu never grows a horizontal scrollbar. */}
               <span className="truncate text-sm font-medium text-foreground" title={me.username}>
                 {me.username}
               </span>

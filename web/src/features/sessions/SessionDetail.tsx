@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
 import { Link } from "@tanstack/react-router";
-import { AlertCircle, Download, FolderTree, MessageSquarePlus } from "lucide-react";
+import { AlertCircle, Download, MessageSquarePlus, PanelRight } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getSession, getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
 import { agentSkillsOptions, agentsQueryOptions } from "@/lib/queries/agents";
@@ -475,7 +475,7 @@ export function SessionDetail({
     [session, exporting, isStreaming, agentsList, showToast, t],
   );
 
-  const { setHeaderTitle, setHeaderActions } = useAppShell();
+  const { setHeaderTitle, setHeaderActions, setHeaderPanelToggle } = useAppShell();
 
   // A main session *is* the agent (or project) conversation, so its title only
   // repeats the breadcrumb — "Anna / Anna". Only a branched thread earns a tail.
@@ -559,18 +559,6 @@ export function SessionDetail({
             </Tooltip>
           )}
           <SessionInfoPopover session={session} />
-          {onToggleWorkspace && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onToggleWorkspace}
-              aria-pressed={workspaceOpen}
-              aria-label={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
-            >
-              <FolderTree />
-              {t("sessions.inspector.files")}
-            </Button>
-          )}
         </div>
       ) : null,
     );
@@ -578,8 +566,6 @@ export function SessionDetail({
   }, [
     session,
     onNewSession,
-    onToggleWorkspace,
-    workspaceOpen,
     setHeaderActions,
     exporting,
     exportSessionAs,
@@ -587,6 +573,34 @@ export function SessionDetail({
     exportMenuOpen,
     t,
   ]);
+
+  // The workspace toggle is a layout control, not a page action: it rides at the
+  // header's far edge, mirroring the sidebar trigger on the other side.
+  useEffect(() => {
+    if (!onToggleWorkspace) {
+      setHeaderPanelToggle(null);
+      return;
+    }
+    setHeaderPanelToggle(
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onToggleWorkspace}
+              aria-pressed={workspaceOpen}
+              aria-label={t("sessions.inspector.files")}
+            >
+              <PanelRight />
+            </Button>
+          }
+        />
+        <TooltipPopup side="bottom">{t("sessions.inspector.files")}</TooltipPopup>
+      </Tooltip>,
+    );
+    return () => setHeaderPanelToggle(null);
+  }, [onToggleWorkspace, workspaceOpen, setHeaderPanelToggle, t]);
 
   if (!session) {
     return (

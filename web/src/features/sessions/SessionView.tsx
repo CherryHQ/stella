@@ -16,6 +16,28 @@ const RIGHT_MAX_RATIO = 0.45;
 const RIGHT_DEFAULT = 360;
 const RIGHT_AUTO_HIDE_WIDTH = 1180;
 
+/**
+ * Whether the workspace panel is open is a lasting user preference, not part of
+ * the address of anything, so it lives in localStorage rather than the URL.
+ */
+const WORKSPACE_OPEN_KEY = "stella-session-workspace-open";
+
+function readWorkspaceOpen(): boolean {
+  try {
+    return window.localStorage.getItem(WORKSPACE_OPEN_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeWorkspaceOpen(open: boolean) {
+  try {
+    window.localStorage.setItem(WORKSPACE_OPEN_KEY, String(open));
+  } catch {
+    // Private-mode storage failures must not break the toggle.
+  }
+}
+
 function defaultRightWidth(viewportWidth: number): number {
   if (viewportWidth >= 1800) return 440;
   if (viewportWidth >= 1440) return 400;
@@ -59,7 +81,9 @@ export function SessionView() {
     const compact = viewportWidth < RIGHT_AUTO_HIDE_WIDTH;
     setCompactWorkspace(compact);
     setRightWidth(defaultRightWidth(viewportWidth));
-    setRightOpen(false);
+    // A narrow viewport hides the panel regardless; the stored preference is
+    // left untouched so it comes back on a wider screen.
+    setRightOpen(!compact && readWorkspaceOpen());
   }, []);
 
   useEffect(() => {
@@ -186,8 +210,10 @@ export function SessionView() {
       setMobileSheetOpen(true);
       return;
     }
-    setRightOpen((v) => !v);
-  }, [compactWorkspace]);
+    const next = !rightOpen;
+    setRightOpen(next);
+    writeWorkspaceOpen(next);
+  }, [compactWorkspace, rightOpen]);
 
   return (
     <div ref={containerRef} className="relative flex h-full min-w-0 overflow-hidden bg-background">
