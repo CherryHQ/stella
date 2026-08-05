@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { agentsQueryOptions } from "@/lib/queries/agents";
-import { getAgentColor } from "@/lib/agent-colors";
+import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { useI18n } from "@/lib/i18n";
 import { avatarInitials } from "@/features/goals/lib";
 
@@ -96,7 +96,7 @@ export function AgentChip({ agentId }: { agentId: string }) {
     <span className="inline-flex items-center gap-1.5">
       <span
         className="grid size-4 place-items-center rounded-full text-xs font-semibold text-background"
-        style={{ backgroundColor: getAgentColor(agentId) }}
+        style={getAgentAvatarStyle(agentId)}
       >
         {avatarInitials(name)}
       </span>

@@ -29,7 +29,7 @@ import {
   updateSession as sdkUpdateSession,
 } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
-import { getAgentColor } from "@/lib/agent-colors";
+import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 import { agentsQueryOptions } from "@/lib/queries/agents";
@@ -552,7 +552,7 @@ function AgentNode({
         icon={
           <span
             className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
-            style={{ background: getAgentColor(target.id, target.colorIndex) }}
+            style={getAgentAvatarStyle(target.id, target.colorIndex)}
           >
             {target.label[0]?.toUpperCase()}
           </span>

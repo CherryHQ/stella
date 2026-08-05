@@ -20,7 +20,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { getAgentColor } from "@/lib/agent-colors";
+import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { RenderableReferenceList } from "./references";
@@ -51,7 +51,7 @@ export function AssistantMessage({
   sameRoleAsPrev,
   agentSessionId,
 }: AssistantMessageProps) {
-  const color = getAgentColor(agentId);
+  const avatarStyle = getAgentAvatarStyle(agentId);
   const grouped = groupBlocks(blocks);
   const copyText = blocks
     .filter((b) => b.type === "text")
@@ -64,7 +64,7 @@ export function AssistantMessage({
         <div className="mb-1.5 flex items-center gap-2">
           <span
             className="grid size-5 place-items-center rounded-full text-xs font-semibold text-primary-foreground shrink-0"
-            style={{ background: color }}
+            style={avatarStyle}
           >
             {agentName[0]?.toUpperCase()}
           </span>

@@ -42,6 +42,60 @@ describe.each([
   });
 });
 
+/**
+ * `getAgentAvatarStyle` picks a monogram color from the fill's own lightness,
+ * flipping at 0.56 L. The chart tokens are tuned for plotting, so a future tweak
+ * that parks one near the flip point silently drops its avatar toward the 4.27:1
+ * floor — and nothing on screen says so. This recomputes the pairing from the
+ * real token values.
+ */
+const AVATAR_FLIP_L = 0.56;
+
+function toSrgb([L, C, H]: [number, number, number]): [number, number, number] {
+  const h = (H * Math.PI) / 180;
+  const a = C * Math.cos(h);
+  const b = C * Math.sin(h);
+  const [l, m, s] = [
+    (L + 0.3963377774 * a + 0.2158037573 * b) ** 3,
+    (L - 0.1055613458 * a - 0.0638541728 * b) ** 3,
+    (L - 0.0894841775 * a - 1.291485548 * b) ** 3,
+  ];
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  ].map((v) => (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.max(v, 0) ** (1 / 2.4) - 0.055)) as [
+    number,
+    number,
+    number,
+  ];
+}
+
+function contrast(a: [number, number, number], b: [number, number, number]): number {
+  const lum = (c: [number, number, number]) => {
+    const [r, g, bl] = c.map((v) => {
+      const x = Math.min(1, Math.max(0, v));
+      return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [la, lb] = [lum(a), lum(b)];
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+describe.each([
+  ["light", blocks.light],
+  ["dark", blocks.dark],
+] as const)("%s avatar monograms stay legible", (_theme, declared) => {
+  it.each(["chart-1", "chart-2", "chart-3", "chart-4", "chart-5"])("%s", (name) => {
+    const fill = declared.get(name);
+    expect(fill, `--${name} missing`).toBeDefined();
+    const label: [number, number, number] = [fill![0] < AVATAR_FLIP_L ? 0.99 : 0.16, 0, 0];
+    const ratio = contrast(toSrgb(fill!), toSrgb(label));
+    expect(ratio, `monogram on --${name} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 describe("accent rotation invariants", () => {
   it("keeps both themes over the same token names", () => {
     // applyAccent clears overrides using the light names only, so a dark-only
