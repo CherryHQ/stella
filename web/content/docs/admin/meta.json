@@ -1,4 +1,4 @@
 {
   "title": "Admin",
-  "pages": ["index", "kubernetes"]
+  "pages": ["index", "provisioned-users", "provisioned-users-reference", "kubernetes"]
 }

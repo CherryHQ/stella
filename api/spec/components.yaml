@@ -3031,6 +3031,132 @@ components:
           type: string
         provisioning_token:
           $ref: "#/components/schemas/ProvisioningToken"
+    ProvisionedUserToken:
+      type: object
+      required: [id, name, last4, created_at]
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        last4:
+          type: string
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_used_at:
+          type: string
+          format: date-time
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    ProvisionedUser:
+      type: object
+      required: [
+        id,
+        external_id,
+        email,
+        name,
+        role,
+        is_active,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        external_id:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        role:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+        active_token:
+          allOf: [{ $ref: "#/components/schemas/ProvisionedUserToken" }]
+          nullable: true
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    ProvisionedUserList:
+      type: object
+      required: [provisioned_users]
+      properties:
+        provisioned_users:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProvisionedUser"
+        next_page_token:
+          type: string
+          nullable: true
+          readOnly: true
+    CreateProvisionedUserRequest:
+      type: object
+      required: [external_id, email, name]
+      properties:
+        external_id:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        token_name:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          description: Defaults to 90 days; cannot exceed 365 days.
+    CreateProvisionedUserResponse:
+      type: object
+      required: [provisioned_user, token]
+      properties:
+        provisioned_user:
+          $ref: "#/components/schemas/ProvisionedUser"
+        token:
+          type: string
+          description: Plaintext bearer token returned exactly once.
+    RotateProvisionedUserTokenRequest:
+      type: object
+      properties:
+        token_name:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          description: Defaults to 90 days; cannot exceed 365 days.
+    RotateProvisionedUserTokenResponse:
+      type: object
+      required: [provisioned_user, token]
+      properties:
+        provisioned_user:
+          $ref: "#/components/schemas/ProvisionedUser"
+        token:
+          type: string
+          description: Plaintext replacement bearer token returned exactly once.
     # ── Recally ────────────────────────────────────────────────────────────────
     ArticleStatus:
       type: string

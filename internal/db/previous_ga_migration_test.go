@@ -21,7 +21,7 @@ const (
 	previousGAVersion = int64(20260725161331)
 	// Knowledge V1 is the first post-anchor migration. The assertions below
 	// exercise its file, ChunkSet, chunk, and active-publication schema.
-	currentMigrationVersion = sequentialAnchor + 2
+	currentMigrationVersion = sequentialAnchor + 3
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -188,11 +188,23 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		return got
 	}
 	var tokenUse string
-	if err := db.QueryRow(ctx, `SELECT token_use FROM personal_access_token WHERE public_id = 'previous-ga-pat'`).Scan(&tokenUse); err != nil {
+	var issuedByProvisioning bool
+	if err := db.QueryRow(ctx, `SELECT token_use, issued_by_provisioning FROM personal_access_token WHERE public_id = 'previous-ga-pat'`).Scan(&tokenUse, &issuedByProvisioning); err != nil {
 		t.Fatalf("read migrated personal access token use: %v", err)
 	}
-	if tokenUse != "personal" {
-		t.Fatalf("migrated personal access token use = %q, want personal", tokenUse)
+	if tokenUse != "personal" || issuedByProvisioning {
+		t.Fatalf("migrated personal access token use=%q issued_by_provisioning=%v, want personal/false", tokenUse, issuedByProvisioning)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO auth_provisioned_user (id, external_id, user_id, created_by_user_id, created_by_token_id)
+		VALUES ('00000000-0000-0000-0000-000000000015', 'previous-ga-external', $1, $1, '00000000-0000-0000-0000-000000000014')`, previousGAUserID); err != nil {
+		t.Fatalf("insert provisioned-user migration fixture: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE personal_access_token SET issued_by_token_id = id, issued_by_provisioning = true WHERE public_id = 'previous-ga-pat'`); err != nil {
+		t.Fatalf("set provisioned PAT issuer migration fixture: %v", err)
+	}
+	if got := count("provisioned-user migration fixture", `SELECT count(*) FROM auth_provisioned_user WHERE external_id = 'previous-ga-external'`); got != 1 {
+		t.Fatalf("provisioned-user rows = %d, want 1", got)
 	}
 	if got := count("retired vault entries", `SELECT count(*) FROM vault_entry WHERE name IN ('LARK_CLI_OAUTH', 'FEISHU_CLI_OAUTH')`); got != 0 {
 		t.Fatalf("retired vault entries = %d, want 0", got)

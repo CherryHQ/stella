@@ -22,7 +22,7 @@ INSERT INTO personal_access_token (
     expires_at,
     token_use
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use
+RETURNING id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use, issued_by_token_id, issued_by_provisioning
 `
 
 type CreatePersonalAccessTokenParams struct {
@@ -62,12 +62,14 @@ func (q *Queries) CreatePersonalAccessToken(ctx context.Context, arg CreatePerso
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TokenUse,
+		&i.IssuedByTokenID,
+		&i.IssuedByProvisioning,
 	)
 	return i, err
 }
 
 const getPersonalAccessTokenByPublicID = `-- name: GetPersonalAccessTokenByPublicID :one
-SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use FROM personal_access_token
+SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use, issued_by_token_id, issued_by_provisioning FROM personal_access_token
 WHERE public_id = $1
 `
 
@@ -91,12 +93,14 @@ func (q *Queries) GetPersonalAccessTokenByPublicID(ctx context.Context, publicID
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.TokenUse,
+		&i.IssuedByTokenID,
+		&i.IssuedByProvisioning,
 	)
 	return i, err
 }
 
 const listPersonalAccessTokenByUser = `-- name: ListPersonalAccessTokenByUser :many
-SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use FROM personal_access_token
+SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use, issued_by_token_id, issued_by_provisioning FROM personal_access_token
 WHERE user_id = $1
   AND token_use = 'personal'
 ORDER BY created_at DESC, id DESC
@@ -125,6 +129,8 @@ func (q *Queries) ListPersonalAccessTokenByUser(ctx context.Context, userID stri
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.TokenUse,
+			&i.IssuedByTokenID,
+			&i.IssuedByProvisioning,
 		); err != nil {
 			return nil, err
 		}
@@ -137,7 +143,7 @@ func (q *Queries) ListPersonalAccessTokenByUser(ctx context.Context, userID stri
 }
 
 const listProvisioningTokenByUser = `-- name: ListProvisioningTokenByUser :many
-SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use FROM personal_access_token
+SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use, issued_by_token_id, issued_by_provisioning FROM personal_access_token
 WHERE user_id = $1
   AND token_use = 'provisioning'
 ORDER BY created_at DESC, id DESC
@@ -166,6 +172,8 @@ func (q *Queries) ListProvisioningTokenByUser(ctx context.Context, userID string
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.TokenUse,
+			&i.IssuedByTokenID,
+			&i.IssuedByProvisioning,
 		); err != nil {
 			return nil, err
 		}

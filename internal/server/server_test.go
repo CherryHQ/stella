@@ -42,6 +42,7 @@ import (
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
+	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/server"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -252,6 +253,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	}
 	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
+	provisioningSvc := provisioning.New(db, accountSvc, nil, slog.With("component", "provisioning-test"))
 	memoryManagement := memorywrite.NewManagementService(db, mem)
 	profileSvc := memprofile.NewService(db, mem, mem, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	webhookSvc, err := webhook.NewService(webhook.Config{Store: webhook.NewPostgresStore(db), Users: webhook.NewUserState(credPATStore), Access: webhook.NewUserAgentAccess(agentAccess)})
@@ -284,6 +286,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
+		Provisioning:        provisioningSvc,
 		OIDC: server.OIDCDeps{
 			AuthSvc:    authSvc,
 			SessionMgr: sessionMgr,

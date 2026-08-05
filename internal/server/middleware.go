@@ -194,6 +194,21 @@ func requireInteractiveAdmin(w http.ResponseWriter, r *http.Request) *AuthInfo {
 	return info
 }
 
+// requireProvisioningBearer is the one entry gate for the provisioned-user
+// family. A session or a personal/admin PAT may have broad account authority,
+// but neither is the deliberately constrained provisioning capability.
+func requireProvisioningBearer(w http.ResponseWriter, r *http.Request) *AuthInfo {
+	info := requireAuth(w, r)
+	if info == nil {
+		return nil
+	}
+	if info.principal == nil || info.principal.Kind != credential.KindProvisioning || info.principal.CredentialID == "" {
+		writeError(w, http.StatusForbidden, "provisioning token required")
+		return nil
+	}
+	return info
+}
+
 // Public auth API paths that don't require a session.
 var publicAuthAPIPaths = []string{
 	"/api/auth/logout",
