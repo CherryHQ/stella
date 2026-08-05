@@ -13,7 +13,7 @@ icon: History
 
 ### ✨ 功能
 
-- 企业集成现在可通过受限且会过期的开通令牌创建无密码、仅 API 可用的受管用户。创建和轮换只返回一次 bearer secret，会保留无关的个人令牌；停用则通过正常账户锁定流程撤销 session 和全部令牌。([#891](https://github.com/CherryHQ/stella/issues/891))
+- 企业集成现在可通过受限且会过期的开通令牌创建无密码、仅 API 可用的受管用户。管理员可在设置中创建、复制、撤销开通凭据并完成计划轮换；用户创建和轮换只返回一次 bearer secret，会保留无关的个人令牌；停用则通过正常账户锁定流程撤销 session 和全部令牌。([#891](https://github.com/CherryHQ/stella/issues/891))
 - 个人访问令牌现在继承所属账户的当前权限，包括管理员权限。创建令牌不再需要选择 API scope，现有令牌会自动采用新行为，账户页面也简化为命名并创建令牌。为避免凭证扩散或账户接管，PAT 不能管理认证凭证、浏览器 session、身份、角色或账户启用状态；OAuth access token 仍按 scope 授权。([#889](https://github.com/CherryHQ/stella/issues/889))
 
 ## [0.62.0] - 2026-08-05

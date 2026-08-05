@@ -6,7 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useSidebar } from "@/components/ui/sidebar";
 import { AppShell } from "@/layouts/AppShell";
-import { Webhook as WebhookIcon } from "lucide-react";
+import { KeyRound, Webhook as WebhookIcon } from "lucide-react";
 
 const settingsNav: {
   section: string;
@@ -202,6 +202,13 @@ const settingsNav: {
   {
     section: "Admin",
     items: [
+      {
+        id: "provisioning",
+        label: "settings.nav.provisioning",
+        href: "/settings/provisioning",
+        adminOnly: true,
+        icon: <KeyRound className="size-4 shrink-0 opacity-50 group-[.active]/item:opacity-80" />,
+      },
       {
         id: "users",
         label: "settings.nav.users",

@@ -7,7 +7,9 @@ Use this API when your identity or employee system needs to create Stella users 
 
 ## Create a provisioning token
 
-Sign in to the Web UI as an administrator, then create a token from your interactive admin session:
+Sign in to the Web UI as an administrator, open **Settings → Provisioning**, and select **Create token**. Name the integration, choose an expiry, and copy the returned `stella_prv_…` value into your integration's secret manager. Stella shows it once.
+
+The Web UI uses your interactive administrator session. The equivalent API request is:
 
 ```sh
 curl -X POST https://stella.example/api/admin/provisioning-tokens \
@@ -16,7 +18,7 @@ curl -X POST https://stella.example/api/admin/provisioning-tokens \
   -d '{"name":"hr-provisioner"}'
 ```
 
-Store the returned `stella_prv_…` value in your integration's secret manager. Stella shows it once. It defaults to a 90-day expiry and cannot live longer than 365 days. Keep two tokens briefly during a planned rotation, verify the new integration deployment, then revoke the old token.
+Tokens default to a 90-day expiry and cannot live longer than 365 days. Keep two tokens briefly during a planned rotation, verify the new integration deployment, then revoke the old token from **Settings → Provisioning**.
 
 Provisioning tokens can only call the provisioned-user API. They cannot sign in to the Web UI, manage ordinary accounts, or mint more provisioning tokens.
 
