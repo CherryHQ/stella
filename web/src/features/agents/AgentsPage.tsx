@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLoaderData, useNavigate, useParams, useRouter } from "@tanstack/react-router";
+import { useLoaderData, useNavigate, useRouter } from "@tanstack/react-router";
 import type { AgentDetail } from "@/lib/types";
 import type { AgentsSettingsLoaderData } from "@/lib/queries/agent-settings";
 import { canEditAgent } from "./agent-detail-state";
@@ -10,41 +10,40 @@ import { Bot, Plus } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 
 /**
- * The agent fleet: a grid of every agent, plus creation. Editing one agent is
- * {@link AgentDetailPanel}'s job — the same panel the agent's profile page
- * embeds — so both surfaces stay behaviorally identical.
+ * The agent fleet: a grid of every agent, plus creation. Editing an existing
+ * agent belongs to that agent's profile page, so rows link there; creation
+ * stays here because the profile needs an agent that already exists.
  */
 export function AgentsPage() {
   const navigate = useNavigate();
   const router = useRouter();
-  const params = useParams({ strict: false }) as { agentId?: string };
-  const routeAgentId = params.agentId ?? "";
   const data = useLoaderData({ strict: false }) as AgentsSettingsLoaderData | undefined;
   const [creating, setCreating] = useState(false);
   const { t } = useI18n();
 
-  const editing = routeAgentId && data?.selectedAgent ? routeAgentId : "";
-  const showPanel = !!data && (!!editing || creating);
-
   const modelLabel = (value: string) =>
     data?.cachedModels.find((m) => m.value === value)?.label ?? value;
 
-  if (showPanel) {
+  if (data && creating) {
     return (
       <AgentDetailPanel
-        key={editing || "new"}
+        key="new"
         data={data}
-        agentId={editing}
+        agentId=""
         onClose={() => {
           setCreating(false);
           void navigate({ to: "/settings/agents" });
         }}
         onSaved={(agentId) => {
           void router.invalidate();
-          if (!editing) {
-            setCreating(false);
-            void navigate({ to: "/settings/agents/$agentId", params: { agentId } });
-          }
+          setCreating(false);
+          // A brand-new agent has nothing to review in the fleet grid, so hand
+          // the user straight to the surface that owns it from here on.
+          void navigate({
+            to: "/agents/$agentId/profile",
+            params: { agentId },
+            search: { tab: "config" as const },
+          });
         }}
         onDeleted={() => {
           setCreating(false);
@@ -73,9 +72,9 @@ export function AgentsPage() {
               key={a.id}
               icon={<Bot className="size-4" />}
               title={a.name || a.id}
-              active={routeAgentId === a.id}
-              to={canEdit ? "/settings/agents/$agentId" : undefined}
+              to={canEdit ? "/agents/$agentId/profile" : undefined}
               params={canEdit ? { agentId: a.id } : undefined}
+              search={canEdit ? { tab: "config" } : undefined}
               footer={
                 <>
                   <span
