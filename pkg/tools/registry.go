@@ -1,8 +1,10 @@
 package tools
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -37,12 +39,15 @@ func (r *Registry) Register(t Tool) {
 	r.tools[t.Definition().Name] = t
 }
 
-// Definitions returns all tool definitions for passing to the LLM.
+// Definitions returns all tool definitions in stable name order for passing to the LLM.
 func (r *Registry) Definitions() []Definition {
 	defs := make([]Definition, 0, len(r.tools))
 	for _, t := range r.tools {
 		defs = append(defs, t.Definition())
 	}
+	slices.SortFunc(defs, func(a, b Definition) int {
+		return cmp.Compare(a.Name, b.Name)
+	})
 	return defs
 }
 
