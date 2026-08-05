@@ -13,7 +13,7 @@ import (
 // authority builds the trusted UserActor Authority for an authenticated HTTP
 // caller. The mint happens inside internal/auth; the server never constructs an
 // Authority from request fields. IsAdmin is the credential/session gate's
-// effective privilege, so a bearer for an admin account remains non-admin.
+// effective privilege: PATs inherit the current owner role, OAuth tokens do not.
 func (info *AuthInfo) authority() (authz.Authority, error) {
 	role := auth.RoleUser
 	if info.IsAdmin {

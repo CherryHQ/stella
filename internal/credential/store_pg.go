@@ -7,6 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/auth"
+
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -88,7 +90,7 @@ func (p *PostgresStore) LookupUser(ctx context.Context, userID string) (Identity
 		Name:      u.Name,
 		AvatarURL: u.AvatarUrl,
 		Role:      u.Role,
-		IsAdmin:   false,
+		IsAdmin:   u.Role == auth.RoleAdmin,
 		IsActive:  u.IsActive,
 	}, nil
 }

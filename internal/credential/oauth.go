@@ -21,8 +21,8 @@ type OAuthAccessStore interface {
 // resolveOAuth is the OAuth2 access-token sub-resolver. It mirrors resolvePAT:
 // parse + checksum, indexed public_id lookup, constant-time hash compare,
 // expiry/revocation, active-user check, throttled last_used touch. The result is
-// a Principal{Kind:oauth} that Enforce treats exactly like a PAT (scope-checked,
-// never admin, ordinary user ownership at the handler). Crucially the token is
+// a Principal{Kind:oauth} that Enforce scope-checks and never treats as admin;
+// ordinary user ownership remains at the handler. Crucially the token is
 // OPAQUE and resolved from storage -- no JWT is ever JWKS-validated here.
 func (s *Service) resolveOAuth(ctx context.Context, raw string) (*Principal, error) {
 	if s.oauth == nil || s.users == nil {
@@ -68,8 +68,8 @@ func (s *Service) resolveOAuth(ctx context.Context, raw string) (*Principal, err
 		Name:      ident.Name,
 		AvatarURL: ident.AvatarURL,
 		Role:      ident.Role,
-		// OAuth tokens act on behalf of a user but never carry admin: least
-		// privilege, identical to PATs. Handler admin gates fail closed.
+		// OAuth tokens act on behalf of a user but never carry admin. Handler
+		// admin gates therefore fail closed even when the owner is an admin.
 		IsAdmin: false,
 	}, nil
 }

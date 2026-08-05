@@ -2,18 +2,11 @@ package credential
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 )
-
-// ErrPATScopeInvalid marks a caller-fixable PAT-creation error (empty or
-// non-grantable scope). CreatePAT wraps such errors with it so the HTTP layer
-// can answer 400 for these and 500 for genuine store/mint failures, instead of
-// mapping every failure to 400 and echoing internal error text to the client.
-var ErrPATScopeInvalid = errors.New("credential: invalid pat scope")
 
 // PATStore is the storage backend for the personal_access_token table. It is the
 // only storage the credential package touches directly; OAuth access tokens use
@@ -99,18 +92,11 @@ func (s *Service) Resolve(ctx context.Context, header string) (*Principal, error
 	}
 }
 
-// CreatePAT validates the requested scopes against the exposability policy,
-// mints an opaque token, and persists it. The plaintext is returned exactly once
-// and is never recoverable afterwards.
-func (s *Service) CreatePAT(ctx context.Context, userID, name string, scopes []string, expiresAt *time.Time) (plaintext string, rec PATRecord, err error) {
+// CreatePAT mints an opaque token for its owner's current authority and persists
+// it. The plaintext is returned exactly once and is never recoverable afterwards.
+func (s *Service) CreatePAT(ctx context.Context, userID, name string, expiresAt *time.Time) (plaintext string, rec PATRecord, err error) {
 	if s.pats == nil {
 		return "", PATRecord{}, fmt.Errorf("credential: PAT store not configured")
-	}
-	if bad, ok := ValidatePATScopes(scopes); !ok {
-		if bad == "" {
-			return "", PATRecord{}, fmt.Errorf("%w: at least one scope is required", ErrPATScopeInvalid)
-		}
-		return "", PATRecord{}, fmt.Errorf("%w: %q is not grantable to a PAT", ErrPATScopeInvalid, bad)
 	}
 	minted, err := MintOpaque(KindPAT)
 	if err != nil {
@@ -122,7 +108,9 @@ func (s *Service) CreatePAT(ctx context.Context, userID, name string, scopes []s
 		Name:      name,
 		TokenHash: minted.TokenHash,
 		Last4:     minted.Last4,
-		Scopes:    scopes,
+		// Retain the legacy NOT NULL column without granting a second authority
+		// model. Existing non-empty scope sets are ignored when resolving a PAT.
+		Scopes:    []string{},
 		ExpiresAt: expiresAt,
 	})
 	if err != nil {

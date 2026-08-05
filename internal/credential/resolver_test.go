@@ -92,7 +92,7 @@ func TestResolvePATRoundTrip(t *testing.T) {
 	svc, store := newTestService(t)
 	ctx := context.Background()
 
-	plaintext, rec, err := svc.CreatePAT(ctx, "u1", "ci", []string{"goals:read"}, nil)
+	plaintext, rec, err := svc.CreatePAT(ctx, "u1", "ci", nil)
 	if err != nil {
 		t.Fatalf("create PAT: %v", err)
 	}
@@ -107,11 +107,43 @@ func TestResolvePATRoundTrip(t *testing.T) {
 	if p == nil || p.Kind != KindPAT || p.UserID != "u1" {
 		t.Fatalf("unexpected principal: %+v", p)
 	}
-	if p.IsAdmin {
-		t.Fatal("PATs must never carry admin in phase 1")
+	if len(rec.Scopes) != 0 {
+		t.Fatalf("new PAT scopes = %v, want empty legacy storage value", rec.Scopes)
+	}
+	legacy := store.byPublicID[rec.PublicID]
+	legacy.Scopes = []string{"goals:read"}
+	store.byPublicID[rec.PublicID] = legacy
+	p, err = svc.Resolve(ctx, "Bearer "+plaintext)
+	if err != nil {
+		t.Fatalf("resolve legacy PAT: %v", err)
+	}
+	if err := Enforce(p, "GET", "/api/users"); err != nil {
+		t.Fatalf("legacy PAT scopes must not restrict API entry: %v", err)
 	}
 	if len(store.touched) == 0 {
 		t.Fatal("resolve should throttle-touch last_used")
+	}
+}
+
+func TestResolvePATUsesCurrentOwnerAuthority(t *testing.T) {
+	svc, store := newTestService(t)
+	ctx := context.Background()
+
+	plaintext, _, err := svc.CreatePAT(ctx, "u1", "admin", nil)
+	if err != nil {
+		t.Fatalf("create PAT: %v", err)
+	}
+
+	store.users["u1"] = Identity{UserID: "u1", Email: "u1@x", IsActive: true, Role: "admin", IsAdmin: true}
+	p, err := svc.Resolve(ctx, "Bearer "+plaintext)
+	if err != nil || !p.IsAdmin {
+		t.Fatalf("promoted owner PAT = %+v, %v; want current admin authority", p, err)
+	}
+
+	store.users["u1"] = Identity{UserID: "u1", Email: "u1@x", IsActive: true, Role: "user"}
+	p, err = svc.Resolve(ctx, "Bearer "+plaintext)
+	if err != nil || p.IsAdmin {
+		t.Fatalf("demoted owner PAT = %+v, %v; must lose admin authority", p, err)
 	}
 }
 
@@ -156,7 +188,7 @@ func TestResolveRevokedAndExpiredPAT(t *testing.T) {
 	ctx := context.Background()
 
 	// Revoked.
-	plaintext, rec, _ := svc.CreatePAT(ctx, "u1", "r", []string{"goals:read"}, nil)
+	plaintext, rec, _ := svc.CreatePAT(ctx, "u1", "r", nil)
 	now := time.Now()
 	r := store.byPublicID[rec.PublicID]
 	r.RevokedAt = &now
@@ -167,7 +199,7 @@ func TestResolveRevokedAndExpiredPAT(t *testing.T) {
 
 	// Expired.
 	past := time.Now().Add(-time.Hour)
-	plaintext2, _, _ := svc.CreatePAT(ctx, "u1", "e", []string{"goals:read"}, &past)
+	plaintext2, _, _ := svc.CreatePAT(ctx, "u1", "e", &past)
 	if _, err := svc.Resolve(ctx, "Bearer "+plaintext2); err == nil {
 		t.Fatal("expired PAT must be denied")
 	}

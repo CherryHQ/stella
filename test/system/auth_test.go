@@ -57,17 +57,14 @@ func (h *harness) testStartupAndAuth(t *testing.T) {
 }
 
 // testPersonalAccessToken proves the PAT bearer lifecycle end to end over the
-// wire: a session mints a scoped token, that token alone (no cookie)
-// authenticates a scope-reachable route, and revoking it makes the same bearer
-// fail closed. It runs inside startup_and_auth because it reuses the bootstrap
-// session already established above.
+// wire: a session mints a token, that token alone (no cookie) authenticates an
+// API route, and revoking it makes the same bearer fail closed. It runs inside
+// startup_and_auth because it reuses the bootstrap session already established
+// above.
 //
-// The probe route is GET /api/agents, not GET /api/auth/me: bearer credentials
-// are barred from the "auth" resource by design (credential.Enforce's
-// deniedResources), so /api/auth/me would answer 403 for any token regardless of
-// its scopes and prove nothing about the credential. /api/agents requires the
-// grantable "agent:read" scope, so its 200 vs 401 directly reflects whether the
-// bearer authenticated.
+// The probe route is GET /api/agents. Its 200 vs 401 directly reflects whether
+// the API-only bearer authenticated; domain authorization still applies to the
+// caller after the credential boundary.
 //
 // Failure messages never echo the token or the Authorization header: only the
 // PAT id (a non-secret handle) and status codes appear, so test output can never
@@ -75,19 +72,12 @@ func (h *harness) testStartupAndAuth(t *testing.T) {
 func (h *harness) testPersonalAccessToken(t *testing.T, ctx context.Context) {
 	t.Helper()
 
-	// The grantable-scope catalog must advertise the scope the probe relies on;
-	// if it stops being grantable, PAT creation below would fail with a muddier
-	// error, so assert the catalog contract first.
-	if !h.tokenScopeOffered(t, ctx, "agent:read") {
-		t.Fatalf("GET /api/token-scopes does not offer agent:read; the probe scope is not grantable\n%s", h.proc.logTail(40))
-	}
-
-	token, id := h.createPAT(t, ctx, []string{"agent:read"})
+	token, id := h.createPAT(t, ctx)
 
 	// The token alone — carried on a jar-less client so only the Authorization
-	// header can authenticate — must reach the scope-matched route.
+	// header can authenticate — must reach the API route.
 	if code := h.bearerProbeStatus(t, ctx, token); code != http.StatusOK {
-		t.Fatalf("GET /api/agents with PAT %s = %d, want %d (a valid scoped bearer must authenticate on its own)\n%s",
+		t.Fatalf("GET /api/agents with PAT %s = %d, want %d (a valid bearer must authenticate on its own)\n%s",
 			id, code, http.StatusOK, h.proc.logTail(40))
 	}
 
@@ -101,48 +91,14 @@ func (h *harness) testPersonalAccessToken(t *testing.T, ctx context.Context) {
 	}
 }
 
-// tokenScopeOffered reports whether GET /api/token-scopes lists the given scope
-// id as grantable to a PAT. It uses the session client (the endpoint is
-// session-only).
-func (h *harness) tokenScopeOffered(t *testing.T, ctx context.Context, scopeID string) bool {
-	t.Helper()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, h.baseURL+"/api/token-scopes", nil)
-	if err != nil {
-		t.Fatalf("build token-scopes request: %v", err)
-	}
-	resp, err := h.client.Do(req)
-	if err != nil {
-		t.Fatalf("GET /api/token-scopes: %v\n%s", err, h.proc.logTail(40))
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/token-scopes = %d, want %d\n%s", resp.StatusCode, http.StatusOK, h.proc.logTail(40))
-	}
-	var body struct {
-		Scopes []struct {
-			Id string `json:"id"`
-		} `json:"scopes"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatalf("decode token-scopes response: %v", err)
-	}
-	for _, sc := range body.Scopes {
-		if sc.Id == scopeID {
-			return true
-		}
-	}
-	return false
-}
-
-// createPAT mints a personal access token with the given scopes through the
-// session-authenticated endpoint and returns its one-time plaintext and its id.
+// createPAT mints a personal access token through the session-authenticated
+// endpoint and returns its one-time plaintext and its id.
 // The plaintext is returned only here and never again, matching the production
 // contract; callers must not log it.
-func (h *harness) createPAT(t *testing.T, ctx context.Context, scopes []string) (token, id string) {
+func (h *harness) createPAT(t *testing.T, ctx context.Context) (token, id string) {
 	t.Helper()
 	body := map[string]any{
-		"name":   "system-test-pat-" + h.runID,
-		"scopes": scopes,
+		"name": "system-test-pat-" + h.runID,
 	}
 	resp := h.postJSON(t, ctx, "/api/users/me/tokens", body)
 	defer func() { _ = resp.Body.Close() }()

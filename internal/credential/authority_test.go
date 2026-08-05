@@ -39,12 +39,12 @@ func TestPrincipalAuthorityAdmin(t *testing.T) {
 	}
 }
 
-// TestScopeEnforcementStaysAtEnforce proves route scopes gate at credential.Enforce
-// and are not represented in the Authority: a principal scoped only to goals:read
-// still mints a valid Authority, and Enforce is the boundary that permits the
-// mapped route and denies an unscoped one.
+// TestScopeEnforcementStaysAtEnforce proves OAuth route scopes are not
+// represented in Authority: a principal scoped only to goals:read still mints a
+// valid Authority, while Enforce permits the mapped route and denies an
+// unscoped one.
 func TestScopeEnforcementStaysAtEnforce(t *testing.T) {
-	p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"goals:read"}}
+	p := &Principal{Kind: KindOAuth, UserID: "u1", Scopes: []string{"goals:read"}}
 	if _, err := p.Authority(); err != nil {
 		t.Fatalf("Authority: %v", err)
 	}

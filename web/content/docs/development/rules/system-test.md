@@ -94,8 +94,8 @@ and one shared database serve them all in sequence:
   Runs last, since it consumes the shared server.
 
 `startup_and_auth` also covers the personal-access-token bearer lifecycle: a
-session mints a scoped PAT, the token alone authenticates a scope-reachable
-route, and revoking it makes the same bearer fail closed.
+session mints a PAT, the token alone authenticates an API route with its owner's
+current authority, and revoking it makes the same bearer fail closed.
 
 Every fixture (provider, agent, user, goal) is scoped by the harness `runID`, so
 no journey depends on another's business data — a shared bootstrap user and cookie

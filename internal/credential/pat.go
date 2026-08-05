@@ -53,9 +53,8 @@ func (s *Service) resolvePAT(ctx context.Context, raw string) (*Principal, error
 		Name:      ident.Name,
 		AvatarURL: ident.AvatarURL,
 		Role:      ident.Role,
-		// Phase 1: PATs never carry admin. Least privilege -- handler admin gates
-		// (requireAdmin) fail closed for PATs, and admin routes are not exposed to
-		// bearer credentials anyway.
-		IsAdmin: false,
+		// PATs are a revocable API-only credential for their owner, so current
+		// account authority (including role changes) applies on every request.
+		IsAdmin: ident.IsAdmin,
 	}, nil
 }
