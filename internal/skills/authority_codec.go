@@ -2,19 +2,17 @@ package skills
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"math/big"
-	"path"
 	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 const (
@@ -195,19 +193,13 @@ func digestSkillTree(tree skillTree) (string, error) {
 	if err := validateSkillTreeFiles(tree.Files); err != nil {
 		return "", err
 	}
-	files := make([]skillTreeEntry, 0, len(tree.Files)+1)
-	files = append(files, tree.Files...)
-	files = append(files, skillTreeEntry{Path: skillMetadataFile, Content: metadata, Mode: 0o644})
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-
-	h := sha256.New()
-	_, _ = h.Write([]byte("stella.skill.tree.digest.v1\x00"))
+	files := append(append([]skillTreeEntry(nil), tree.Files...), skillTreeEntry{Path: skillMetadataFile, Content: metadata, Mode: 0o644})
+	entries := make([]sandbox.ManagedSkillTreeEntry, 0, len(files))
 	for _, file := range files {
-		writeDigestField(h, []byte(file.Path))
-		writeDigestUint(h, uint64(file.Mode.Perm()))
-		writeDigestField(h, file.Content)
+		content := file.Content
+		entries = append(entries, sandbox.ManagedSkillTreeEntry{Path: file.Path, Mode: file.Mode, Length: int64(len(content)), Open: func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(content)), nil }})
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return sandbox.DigestManagedSkillTreeV1(entries)
 }
 
 func validateSkillTreeFiles(files []skillTreeEntry) error {
@@ -238,9 +230,8 @@ func validateSkillTreeFiles(files []skillTreeEntry) error {
 }
 
 func validateSkillTreePath(raw string) error {
-	clean := path.Clean(raw)
-	if raw == "" || strings.ContainsRune(raw, '\x00') || strings.Contains(raw, "\\") || path.IsAbs(raw) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || clean != raw {
-		return fmt.Errorf("invalid skill tree path %q", raw)
+	if err := sandbox.ValidateManagedSkillTreePath(raw); err != nil {
+		return err
 	}
 	if raw == skillMetadataFile {
 		return fmt.Errorf("skill tree path %q is Stella-owned", raw)
@@ -249,17 +240,6 @@ func validateSkillTreePath(raw string) error {
 		return fmt.Errorf("skill tree path %q is in the reserved revisions namespace", raw)
 	}
 	return nil
-}
-
-func writeDigestField(dst interface{ Write([]byte) (int, error) }, value []byte) {
-	writeDigestUint(dst, uint64(len(value)))
-	_, _ = dst.Write(value)
-}
-
-func writeDigestUint(dst interface{ Write([]byte) (int, error) }, value uint64) {
-	var buf [binary.MaxVarintLen64]byte
-	n := binary.PutUvarint(buf[:], value)
-	_, _ = dst.Write(buf[:n])
 }
 
 func decodeStrictJSON(src []byte) (any, error) {

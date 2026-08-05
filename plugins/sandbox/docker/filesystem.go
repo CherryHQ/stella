@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 
@@ -31,8 +32,9 @@ func (s *dockerSession) Filesystem() (sandboxpkg.Filesystem, error) {
 type dockerFilesystem struct{ session *dockerSession }
 
 var (
-	_ sandboxpkg.FilesystemSession = (*dockerSession)(nil)
-	_ sandboxpkg.Filesystem        = (*dockerFilesystem)(nil)
+	_ sandboxpkg.FilesystemSession     = (*dockerSession)(nil)
+	_ sandboxpkg.Filesystem            = (*dockerFilesystem)(nil)
+	_ sandboxpkg.ManagedSkillPublisher = (*dockerFilesystem)(nil)
 )
 
 func (f *dockerFilesystem) Close() error { return nil }
@@ -116,6 +118,164 @@ func (f *dockerFilesystem) InspectManagedSkillTarget(ctx context.Context, p stri
 		return sandboxpkg.ManagedSkillTarget{}, err
 	}
 	return sandboxpkg.ManagedSkillTarget{Digest: response.Digest, Managed: response.Managed}, nil
+}
+
+// PublishManagedSkill is one helper exec: the sorted bounded manifest frame is
+// followed by lazy, exact file streams in the identical order.
+func (f *dockerFilesystem) PublishManagedSkill(ctx context.Context, catalogRoot, name, digest string, publication sandboxpkg.ManagedSkillPublication) error {
+	cwd, relative, err := f.mount(catalogRoot, true)
+	if err != nil {
+		return err
+	}
+	if relative == "" {
+		relative = "."
+	}
+	files := append([]sandboxpkg.ManagedSkillTreeEntry(nil), publication.Files...)
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	publication.Files = files
+	if err := fsops.ValidateManagedSkillPublication(publication); err != nil {
+		return err
+	}
+	var total int64
+	wire := make([]fsops.ManagedSkillWireFile, 0, len(files))
+	for _, file := range files {
+		if total > 32<<20-file.Length {
+			return errors.New("docker filesystem: invalid managed skill publication")
+		}
+		total += file.Length
+		wire = append(wire, fsops.ManagedSkillWireFile{Path: file.Path, Mode: file.Mode, Length: file.Length})
+	}
+	payload, err := fsops.EncodeRequest(fsops.Request{Version: fsops.ProtocolVersion, Operation: "publish_managed_skill", Path: name, CatalogRoot: relative, Digest: digest, Files: wire, BodyLength: total})
+	if err != nil {
+		return err
+	}
+	body := &managedPublicationBody{files: files}
+	handle, err := f.session.client.StartExec(ctx, dockerclient.ExecOptions{ContainerID: f.session.containerID, Command: []string{"/opt/stella/bin/stella-fs"}, Cwd: cwd})
+	if err != nil {
+		_ = body.Close()
+		return f.transportError(true, err)
+	}
+	stderr := newStderrDrain(handle.Stderr)
+	fail := func(e error) error {
+		_ = body.Close()
+		_ = handle.Stdin.Close()
+		_ = handle.Kill()
+		_ = handle.Stdout.Close()
+		_ = handle.Stderr.Close()
+		stderr.wait()
+		return f.transportError(true, e)
+	}
+	if _, err = handle.Stdin.Write(payload); err != nil {
+		return fail(err)
+	}
+	if _, err = io.Copy(handle.Stdin, body); err != nil {
+		return fail(err)
+	}
+	if err = body.Close(); err != nil {
+		return fail(err)
+	}
+	if err = handle.Stdin.Close(); err != nil {
+		return fail(err)
+	}
+	response, err := fsops.DecodeResponse(handle.Stdout, fsops.KindMutation)
+	if err != nil {
+		return fail(err)
+	}
+	responseErr := fsops.ResponseError(response)
+	code, err := handle.Wait()
+	_ = handle.Release()
+	_ = handle.Stdout.Close()
+	_ = handle.Stderr.Close()
+	stderr.wait()
+	if err != nil {
+		return f.transportError(true, err)
+	}
+	if code != 0 {
+		return f.transportError(true, fmt.Errorf("helper exit %d: %s", code, stderr.text()))
+	}
+	return responseErr
+}
+
+type managedPublicationBody struct {
+	files   []sandboxpkg.ManagedSkillTreeEntry
+	index   int
+	current io.ReadCloser
+	remain  int64
+	zeros   int
+	closed  bool
+}
+
+func (b *managedPublicationBody) Close() error {
+	if b.closed {
+		return nil
+	}
+	b.closed = true
+	if b.current == nil {
+		return nil
+	}
+	err := b.current.Close()
+	b.current = nil
+	return err
+}
+
+func (b *managedPublicationBody) Read(p []byte) (int, error) {
+	if b.closed {
+		return 0, io.EOF
+	}
+	for {
+		if b.current == nil {
+			if b.index == len(b.files) {
+				return 0, io.EOF
+			}
+			file := b.files[b.index]
+			r, err := file.Open()
+			if err != nil {
+				return 0, err
+			}
+			b.current = r
+			b.remain = file.Length
+		}
+		if int64(len(p)) > b.remain {
+			p = p[:b.remain]
+		}
+		n, err := b.current.Read(p)
+		b.remain -= int64(n)
+		if b.remain == 0 {
+			var one [1]byte
+			extra, probe := b.current.Read(one[:])
+			closeErr := b.current.Close()
+			b.current = nil
+			b.index++
+			if extra != 0 {
+				return n, errors.New("docker filesystem: managed skill stream exceeds declared length")
+			}
+			if probe != io.EOF && probe != nil {
+				return n, probe
+			}
+			if closeErr != nil {
+				return n, closeErr
+			}
+			if n > 0 {
+				b.zeros = 0
+				return n, nil
+			}
+			continue
+		}
+		if err != nil {
+			if err == io.EOF {
+				return n, io.ErrUnexpectedEOF
+			}
+			return n, err
+		}
+		if n > 0 {
+			b.zeros = 0
+			return n, nil
+		}
+		b.zeros++
+		if b.zeros > 16 {
+			return 0, io.ErrNoProgress
+		}
+	}
 }
 
 func (f *dockerFilesystem) Mkdir(ctx context.Context, p string, perm fs.FileMode) error {

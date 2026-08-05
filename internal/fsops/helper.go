@@ -38,17 +38,20 @@ const (
 // the wire fail closed. "opaque" is the deliberate catch-all for errors that map
 // to no sentinel.
 const (
-	ErrorCodeNotExist   = "not_exist"
-	ErrorCodePermission = "permission"
-	ErrorCodeExist      = "exist"
-	ErrorCodeReadLimit  = "read_limit"
-	ErrorCodeOpaque     = "opaque"
+	ErrorCodeNotExist       = "not_exist"
+	ErrorCodePermission     = "permission"
+	ErrorCodeExist          = "exist"
+	ErrorCodeReadLimit      = "read_limit"
+	ErrorCodeOutcomeUnknown = "outcome_unknown"
+	ErrorCodeOpaque         = "opaque"
 )
 
 // classifyErrorCode maps a helper error to its stable wire code. read_limit is
 // checked first because it is the one non-fs sentinel we surface.
 func classifyErrorCode(err error) string {
 	switch {
+	case errors.Is(err, sandbox.ErrOutcomeUnknown):
+		return ErrorCodeOutcomeUnknown
 	case errors.Is(err, sandbox.ErrReadLimit):
 		return ErrorCodeReadLimit
 	case errors.Is(err, fs.ErrNotExist):
@@ -66,6 +69,8 @@ func classifyErrorCode(err error) string {
 // in-process providers, or nil for opaque/unmapped codes.
 func sentinelForCode(code string) error {
 	switch code {
+	case ErrorCodeOutcomeUnknown:
+		return sandbox.ErrOutcomeUnknown
 	case ErrorCodeNotExist:
 		return fs.ErrNotExist
 	case ErrorCodePermission:
@@ -81,7 +86,7 @@ func sentinelForCode(code string) error {
 
 func isKnownErrorCode(code string) bool {
 	switch code {
-	case "", ErrorCodeNotExist, ErrorCodePermission, ErrorCodeExist, ErrorCodeReadLimit, ErrorCodeOpaque:
+	case "", ErrorCodeNotExist, ErrorCodePermission, ErrorCodeExist, ErrorCodeReadLimit, ErrorCodeOutcomeUnknown, ErrorCodeOpaque:
 		return true
 	default:
 		return false
@@ -100,6 +105,8 @@ func KindForOperation(op string) string {
 		return KindList
 	case "managed_skill_target":
 		return KindManagedSkillTarget
+	case "publish_managed_skill":
+		return KindMutation
 	default: // write, upload, mkdir, remove, rename
 		return KindMutation
 	}
@@ -108,14 +115,25 @@ func KindForOperation(op string) string {
 // Request metadata is one bounded frame followed, for write/upload only, by
 // exactly BodyLength raw bytes. Bodies never enter JSON or helper memory.
 type Request struct {
-	Version    int         `json:"version"`
-	Operation  string      `json:"operation"`
-	Path       string      `json:"path,omitempty"`
-	NewPath    string      `json:"new_path,omitempty"`
-	Recursive  bool        `json:"recursive,omitempty"`
-	Perm       fs.FileMode `json:"perm,omitempty"`
-	MaxBytes   int64       `json:"max_bytes,omitempty"`
-	BodyLength int64       `json:"body_length,omitempty"`
+	Version     int                    `json:"version"`
+	Operation   string                 `json:"operation"`
+	Path        string                 `json:"path,omitempty"`
+	NewPath     string                 `json:"new_path,omitempty"`
+	Recursive   bool                   `json:"recursive,omitempty"`
+	Perm        fs.FileMode            `json:"perm,omitempty"`
+	MaxBytes    int64                  `json:"max_bytes,omitempty"`
+	BodyLength  int64                  `json:"body_length,omitempty"`
+	CatalogRoot string                 `json:"catalog_root,omitempty"`
+	Digest      string                 `json:"digest,omitempty"`
+	Files       []ManagedSkillWireFile `json:"files,omitempty"`
+}
+
+// ManagedSkillWireFile is metadata only; all file bytes follow the request
+// frame in manifest order and are never decoded into helper memory.
+type ManagedSkillWireFile struct {
+	Path   string      `json:"path"`
+	Mode   fs.FileMode `json:"mode"`
+	Length int64       `json:"length"`
 }
 
 type Response struct {
@@ -180,6 +198,25 @@ func Serve(ctx context.Context, cwd string, in io.Reader, out io.Writer) error {
 	case "write", "upload":
 		bodyErr := root.Write(ctx, req.Path, &exactReader{reader: in, remaining: req.BodyLength}, sandbox.WriteOptions{Perm: req.Perm})
 		setResponseError(&response, bodyErr)
+	case "publish_managed_skill":
+		body := &exactReader{reader: in, remaining: req.BodyLength}
+		publication := sandbox.ManagedSkillPublication{Files: make([]sandbox.ManagedSkillTreeEntry, 0, len(req.Files))}
+		for i, wire := range req.Files {
+			last := i == len(req.Files)-1
+			publication.Files = append(publication.Files, sandbox.ManagedSkillTreeEntry{Path: wire.Path, Mode: wire.Mode, Length: wire.Length, Open: func() (io.ReadCloser, error) {
+				if last {
+					return io.NopCloser(body), nil
+				}
+				return io.NopCloser(io.LimitReader(body, wire.Length)), nil
+			}})
+		}
+		err = root.PublishManagedSkillAt(ctx, req.CatalogRoot, req.Path, req.Digest, publication)
+		if err == nil {
+			_, err = io.Copy(io.Discard, body) // idempotent reuse does not open caller streams.
+			if err == nil {
+				err = requireEOF(body)
+			}
+		}
 	case "stat":
 		err = requireEOF(in)
 		if err != nil {
@@ -236,6 +273,22 @@ func validateRequest(req Request) error {
 		return errors.New("fsops: invalid size")
 	}
 	switch req.Operation {
+	case "publish_managed_skill":
+		if req.Path == "" || !validCatalogRoot(req.CatalogRoot) || !validManagedSkillName(req.Path) || !validManagedSkillDigest(req.Digest) || req.Perm != 0 || req.MaxBytes != 0 || req.NewPath != "" {
+			return errors.New("fsops: invalid managed skill publication request")
+		}
+		var total int64
+		previous := ""
+		for _, file := range req.Files {
+			if file.Mode&^0o777 != 0 || file.Length < 0 || previous >= file.Path || total > 32<<20-file.Length {
+				return errors.New("fsops: invalid managed skill publication body")
+			}
+			total += file.Length
+			previous = file.Path
+		}
+		if total != req.BodyLength {
+			return errors.New("fsops: managed skill publication body length mismatch")
+		}
 	case "read":
 		if req.MaxBytes <= 0 || req.BodyLength != 0 {
 			return errors.New("fsops: invalid read request")

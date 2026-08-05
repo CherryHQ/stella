@@ -2,8 +2,6 @@ package skills
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -264,28 +262,37 @@ func verifyManagedRevision(ctx context.Context, filesystem sandbox.Filesystem, r
 		return errors.New("managed revision metadata is not canonical v1")
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
-	h := sha256.New()
-	_, _ = h.Write([]byte("stella.skill.tree.digest.v1\x00"))
 	var total int64
+	digestEntries := make([]sandbox.ManagedSkillTreeEntry, 0, len(files))
 	for _, file := range files {
+		if file.path != skillMetadataFile {
+			if file.size > maxManagedFileBytes || total > maxManagedTreeBytes-file.size {
+				return errors.New("managed revision exceeds content limit")
+			}
+			total += file.size
+		}
+
 		if file.path == skillMetadataFile {
-			writeDigestField(h, []byte(file.path))
-			writeDigestUint(h, uint64(0o644))
-			writeDigestField(h, canonical)
+			digestEntries = append(digestEntries, sandbox.ManagedSkillTreeEntry{Path: file.path, Mode: 0o644, Length: int64(len(canonical)), Open: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(string(canonical))), nil }})
 			continue
 		}
-		if file.size > maxManagedFileBytes || total > maxManagedTreeBytes-file.size {
-			return errors.New("managed revision exceeds content limit")
-		}
-		total += file.size
-		writeDigestField(h, []byte(file.path))
-		writeDigestUint(h, uint64(file.mode.Perm()))
-		writeDigestUint(h, uint64(file.size))
-		if err := streamCatalogFileTo(ctx, filesystem, file.absolute, file.mode, file.size, maxManagedFileBytes, h); err != nil {
-			return err
-		}
+		digestEntries = append(digestEntries, sandbox.ManagedSkillTreeEntry{Path: file.path, Mode: file.mode, Length: file.size, Open: func() (io.ReadCloser, error) {
+			reader, info, err := filesystem.Read(ctx, file.absolute, sandbox.ReadOptions{MaxBytes: maxManagedFileBytes})
+			if err != nil {
+				return nil, err
+			}
+			if info.Size != file.size || info.Mode != file.mode || info.Mode&fs.ModeType != 0 {
+				_ = reader.Close()
+				return nil, errors.New("managed revision file changed during read")
+			}
+			return reader, nil
+		}})
 	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != wantDigest {
+	got, err := sandbox.DigestManagedSkillTreeV1(digestEntries)
+	if err != nil {
+		return err
+	}
+	if got != wantDigest {
 		return fmt.Errorf("managed revision digest %q does not match target %q", got, wantDigest)
 	}
 	return nil
@@ -356,29 +363,6 @@ func collectManagedTree(ctx context.Context, filesystem sandbox.Filesystem, root
 		files = append(files, managedTreeFile{path: rel, mode: entry.Mode, size: entry.Size, absolute: path.Join(root, rel)})
 	}
 	return files, nil
-}
-
-func streamCatalogFileTo(ctx context.Context, filesystem sandbox.Filesystem, filename string, mode fs.FileMode, size, limit int64, dst io.Writer) error {
-	reader, info, err := filesystem.Read(ctx, filename, sandbox.ReadOptions{MaxBytes: limit})
-	if err != nil {
-		return err
-	}
-	if info.Size != size || info.Mode != mode || info.Mode&fs.ModeType != 0 || info.Size > limit {
-		_ = reader.Close()
-		return errors.New("managed revision file changed or exceeds limit")
-	}
-	n, readErr := io.Copy(dst, reader)
-	closeErr := reader.Close()
-	if readErr != nil {
-		return readErr
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if n != size {
-		return errors.New("managed revision file size changed during read")
-	}
-	return nil
 }
 
 func readCatalogFile(ctx context.Context, filesystem sandbox.Filesystem, filename string, limit int64) ([]byte, error) {

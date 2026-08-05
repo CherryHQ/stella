@@ -102,10 +102,12 @@ func writeOne(t *testing.T, api dockerclient.API) error {
 
 type filesystemExecAPI struct {
 	noopAPI
-	creates   int
-	attachErr error
-	response  []byte
-	request   chan []byte
+	creates     int
+	attachErr   error
+	response    []byte
+	request     chan []byte
+	fullRequest chan []byte
+	wait        <-chan struct{}
 }
 
 func (a *filesystemExecAPI) ExecCreate(_ context.Context, _ string, _ mobyclient.ExecCreateOptions) (mobyclient.ExecCreateResult, error) {
@@ -127,11 +129,158 @@ func (a *filesystemExecAPI) ExecAttach(_ context.Context, _ string, _ mobyclient
 		if a.request != nil {
 			a.request <- data
 		}
+		var req fsops.Request
+		_ = json.Unmarshal(data[4:], &req)
+		body := make([]byte, req.BodyLength)
+		if req.BodyLength > 0 {
+			_, _ = io.ReadFull(s, body)
+		}
+		if a.fullRequest != nil {
+			a.fullRequest <- append(data, body...)
+		}
+		if a.wait != nil {
+			<-a.wait
+		}
 		_, _ = s.Write(a.response)
 		_ = s.Close()
 	}()
 	return mobyclient.ExecAttachResult{HijackedResponse: mobyclient.NewHijackedResponse(c, "application/vnd.docker.raw-stream")}, nil
 }
+
+func TestDockerFilesystemPublishManagedSkillUsesSortedManifestAndFullBody(t *testing.T) {
+	api := &filesystemExecAPI{response: frameStdout(fsFrame([]byte(`{"version":1,"kind":"mutation"}`))), fullRequest: make(chan []byte, 1)}
+	fsys := testDockerFilesystem(api)
+	files := []sandboxpkg.ManagedSkillTreeEntry{
+		{Path: "SKILL.md", Mode: 0o644, Length: 1, Open: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("s")), nil }},
+		{Path: ".stella-skill.json", Mode: 0o644, Length: 1, Open: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("m")), nil }},
+	}
+	if err := fsys.PublishManagedSkill(context.Background(), "/workspace/nested/catalog", "skill", strings.Repeat("a", 64), sandboxpkg.ManagedSkillPublication{Files: files}); err != nil {
+		t.Fatal(err)
+	}
+	wire := <-api.fullRequest
+	n := int(binary.BigEndian.Uint32(wire[:4]))
+	var req fsops.Request
+	if err := json.Unmarshal(wire[4:4+n], &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.CatalogRoot != "nested/catalog" || len(req.Files) != 2 || req.Files[0].Path != ".stella-skill.json" || string(wire[4+n:]) != "ms" {
+		t.Fatalf("publication wire = %+v body=%q", req, wire[4+n:])
+	}
+}
+
+func TestDockerFilesystemPublishRejectsNilOpenBeforeExec(t *testing.T) {
+	api := &filesystemExecAPI{}
+	files := []sandboxpkg.ManagedSkillTreeEntry{
+		{Path: ".stella-skill.json", Mode: 0o644, Length: 2, Open: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("{}")), nil }},
+		{Path: "SKILL.md", Mode: 0o644, Length: 1, Open: nil},
+	}
+	if err := testDockerFilesystem(api).PublishManagedSkill(context.Background(), "/workspace", "skill", strings.Repeat("a", 64), sandboxpkg.ManagedSkillPublication{Files: files}); err == nil || api.creates != 0 {
+		t.Fatalf("err=%v ExecCreate=%d; nil Open must fail before exec", err, api.creates)
+	}
+}
+
+func TestDockerFilesystemPublishShortAndLongReadersCloseOnceAndFailUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		length     int64
+	}{{"short", "x", 2}, {"long", "xyz", 2}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ready := make(chan struct{})
+			api := &filesystemExecAPI{wait: ready}
+			var opens, closes int32
+			files := []sandboxpkg.ManagedSkillTreeEntry{
+				{Path: ".stella-skill.json", Mode: 0o644, Length: 2, Open: func() (io.ReadCloser, error) {
+					atomic.AddInt32(&opens, 1)
+					return &countedReadCloser{Reader: strings.NewReader("{}"), closes: &closes}, nil
+				}},
+				{Path: "SKILL.md", Mode: 0o644, Length: tc.length, Open: func() (io.ReadCloser, error) {
+					atomic.AddInt32(&opens, 1)
+					close(ready)
+					return &countedReadCloser{Reader: strings.NewReader(tc.body), closes: &closes}, nil
+				}},
+			}
+			err := testDockerFilesystem(api).PublishManagedSkill(context.Background(), "/workspace", "skill", strings.Repeat("a", 64), sandboxpkg.ManagedSkillPublication{Files: files})
+			if !sandboxpkg.IsOutcomeUnknown(err) || api.creates != 1 || atomic.LoadInt32(&opens) != 2 || atomic.LoadInt32(&closes) != 2 {
+				t.Fatalf("err=%v creates=%d opens=%d closes=%d", err, api.creates, opens, closes)
+			}
+		})
+	}
+}
+
+func TestDockerFilesystemPublishTransportErrorClosesCurrentStreamWithoutRetry(t *testing.T) {
+	ready := make(chan struct{})
+	api := &filesystemExecAPI{response: []byte{1, 0, 0, 0, 0, 0, 0, 4, 'x'}, wait: ready}
+	var opens, closes int32
+	files := []sandboxpkg.ManagedSkillTreeEntry{
+		{Path: ".stella-skill.json", Mode: 0o644, Length: 2, Open: func() (io.ReadCloser, error) {
+			atomic.AddInt32(&opens, 1)
+			return &countedReadCloser{Reader: strings.NewReader("{}"), closes: &closes}, nil
+		}},
+		{Path: "SKILL.md", Mode: 0o644, Length: 1, Open: func() (io.ReadCloser, error) {
+			atomic.AddInt32(&opens, 1)
+			close(ready)
+			return &countedReadCloser{Reader: strings.NewReader("x"), closes: &closes}, nil
+		}},
+	}
+	err := testDockerFilesystem(api).PublishManagedSkill(context.Background(), "/workspace", "skill", strings.Repeat("a", 64), sandboxpkg.ManagedSkillPublication{Files: files})
+	if !sandboxpkg.IsOutcomeUnknown(err) || api.creates != 1 || atomic.LoadInt32(&opens) != 2 || atomic.LoadInt32(&closes) != 2 {
+		t.Fatalf("err=%v creates=%d opens=%d closes=%d", err, api.creates, opens, closes)
+	}
+}
+
+func TestDockerFilesystemPublishCancellationClosesCurrentStreamWithoutRetry(t *testing.T) {
+	ready := make(chan struct{})
+	api := &filesystemExecAPI{wait: ready}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var opens, closes int32
+	files := []sandboxpkg.ManagedSkillTreeEntry{
+		{Path: ".stella-skill.json", Mode: 0o644, Length: 2, Open: func() (io.ReadCloser, error) {
+			atomic.AddInt32(&opens, 1)
+			return &countedReadCloser{Reader: strings.NewReader("{}"), closes: &closes}, nil
+		}},
+		{Path: "SKILL.md", Mode: 0o644, Length: 1, Open: func() (io.ReadCloser, error) {
+			atomic.AddInt32(&opens, 1)
+			cancel()
+			close(ready)
+			return &countedReadCloser{Reader: strings.NewReader("x"), closes: &closes}, nil
+		}},
+	}
+	err := testDockerFilesystem(api).PublishManagedSkill(ctx, "/workspace", "skill", strings.Repeat("a", 64), sandboxpkg.ManagedSkillPublication{Files: files})
+	if !sandboxpkg.IsOutcomeUnknown(err) || api.creates != 1 || atomic.LoadInt32(&opens) != 2 || atomic.LoadInt32(&closes) != 2 {
+		t.Fatalf("err=%v creates=%d opens=%d closes=%d", err, api.creates, opens, closes)
+	}
+}
+
+func TestManagedPublicationBodyNoProgressAndIdempotentClose(t *testing.T) {
+	var closes int32
+	b := &managedPublicationBody{files: []sandboxpkg.ManagedSkillTreeEntry{{Path: "x", Length: 1, Open: func() (io.ReadCloser, error) { return &countedReadCloser{Reader: zeroReader{}, closes: &closes}, nil }}}}
+	buf := make([]byte, 1)
+	_, err := b.Read(buf)
+	if !errors.Is(err, io.ErrNoProgress) {
+		t.Fatalf("err=%v, want io.ErrNoProgress", err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&closes); got != 1 {
+		t.Fatalf("closes=%d, want 1", got)
+	}
+}
+
+type countedReadCloser struct {
+	io.Reader
+	closes *int32
+}
+
+func (r *countedReadCloser) Close() error { atomic.AddInt32(r.closes, 1); return nil }
+
+type zeroReader struct{}
+
+func (zeroReader) Read([]byte) (int, error) { return 0, nil }
 
 func TestDockerFilesystemInspectManagedSkillTargetKeepsNestedRelativePath(t *testing.T) {
 	payload, err := json.Marshal(fsops.Response{Version: fsops.ProtocolVersion, Kind: fsops.KindManagedSkillTarget})

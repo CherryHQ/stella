@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -26,6 +27,7 @@ type Root struct {
 	syncRootDirectory              func(*os.File) error
 	afterManagedSkillTemporaryLink func(string)
 	afterManagedSkillRename        func()
+	syncManagedDirectory           func(string)
 }
 
 // Mount binds one canonical sandbox root to a provider-authorized directory.
@@ -112,6 +114,20 @@ func (f *Filesystem) List(ctx context.Context, p string) ([]sandbox.DirEntry, er
 // InspectManagedSkillTarget is the only managed-link inspection exposed through
 // the provider-neutral boundary. It accepts a direct canonical entry path, not
 // an arbitrary link target.
+// PublishManagedSkill publishes a complete revision beneath the canonical catalog root.
+func (f *Filesystem) PublishManagedSkill(ctx context.Context, catalogRoot, name, digest string, publication sandbox.ManagedSkillPublication) error {
+	m, rel, err := f.mount(catalogRoot, true)
+	if err != nil {
+		return err
+	}
+	if rel == "" {
+		rel = "."
+	}
+	publication.Files = append([]sandbox.ManagedSkillTreeEntry(nil), publication.Files...)
+	sort.Slice(publication.Files, func(i, j int) bool { return publication.Files[i].Path < publication.Files[j].Path })
+	return m.root.PublishManagedSkillAt(ctx, rel, name, digest, publication)
+}
+
 func (f *Filesystem) InspectManagedSkillTarget(ctx context.Context, p string) (sandbox.ManagedSkillTarget, error) {
 	m, rel, err := f.mount(p, false)
 	if err != nil {
