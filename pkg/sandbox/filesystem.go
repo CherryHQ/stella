@@ -45,6 +45,20 @@ type WriteOptions struct {
 	ContentLength *int64
 }
 
+// ManagedSkillTarget is the opaque result of inspecting one canonical Skill
+// entry. It deliberately exposes neither a symlink target nor provider path.
+type ManagedSkillTarget struct {
+	Digest  string
+	Managed bool
+}
+
+// ManagedSkillTargetInspector is an optional, narrowly scoped capability for
+// the managed Skill revision layout. path must name the direct canonical Skill
+// entry; ordinary directories and absent entries are unmanaged.
+type ManagedSkillTargetInspector interface {
+	InspectManagedSkillTarget(context.Context, string) (ManagedSkillTarget, error)
+}
+
 // Filesystem is the provider-neutral filesystem operation boundary. Paths are
 // canonical sandbox paths; implementations never return a host coordinate.
 type Filesystem interface {

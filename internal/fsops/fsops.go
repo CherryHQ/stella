@@ -109,6 +109,25 @@ func (f *Filesystem) List(ctx context.Context, p string) ([]sandbox.DirEntry, er
 	return m.root.List(ctx, rel)
 }
 
+// InspectManagedSkillTarget is the only managed-link inspection exposed through
+// the provider-neutral boundary. It accepts a direct canonical entry path, not
+// an arbitrary link target.
+func (f *Filesystem) InspectManagedSkillTarget(ctx context.Context, p string) (sandbox.ManagedSkillTarget, error) {
+	m, rel, err := f.mount(p, false)
+	if err != nil {
+		return sandbox.ManagedSkillTarget{}, err
+	}
+	parent, name := path.Dir(rel), path.Base(rel)
+	if rel == "." || name == "." {
+		return sandbox.ManagedSkillTarget{}, fmt.Errorf("fsops: managed skill target %q is not a direct entry", p)
+	}
+	digest, managed, err := m.root.ManagedSkillTargetAt(ctx, parent, name)
+	if err != nil {
+		return sandbox.ManagedSkillTarget{}, err
+	}
+	return sandbox.ManagedSkillTarget{Digest: digest, Managed: managed}, nil
+}
+
 func (f *Filesystem) Mkdir(ctx context.Context, p string, perm fs.FileMode) error {
 	m, rel, err := f.mount(p, true)
 	if err != nil {
@@ -268,7 +287,7 @@ func (r *Root) List(ctx context.Context, name string) ([]sandbox.DirEntry, error
 		if err != nil {
 			return nil, fmt.Errorf("fsops: entry %q: %w", entry.Name(), err)
 		}
-		out = append(out, sandbox.DirEntry{Name: entry.Name(), IsDir: info.IsDir(), Size: info.Size()})
+		out = append(out, sandbox.DirEntry{Name: entry.Name(), IsDir: info.IsDir(), Size: info.Size(), Mode: info.Mode()})
 	}
 	return out, nil
 }

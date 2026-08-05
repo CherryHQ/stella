@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"io"
+	"io/fs"
 	"time"
 )
 
@@ -77,6 +78,9 @@ type DirEntry struct {
 	Name  string
 	IsDir bool
 	Size  int64
+	// Mode describes the entry itself, not a symlink target. Catalog callers
+	// must not infer a regular directory from IsDir alone.
+	Mode fs.FileMode
 }
 
 // NopSession returns a no-op session for testing.

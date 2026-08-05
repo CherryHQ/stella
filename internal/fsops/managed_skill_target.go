@@ -20,6 +20,18 @@ const managedSkillRevisionsDir = ".stella-revisions"
 // ManagedSkillTarget reports the digest selected by a managed Skill link. An
 // absent name or ordinary directory remains an ordinary POSIX Skill, not an error.
 func (r *Root) ManagedSkillTarget(ctx context.Context, name string) (digest string, managed bool, err error) {
+	return r.ManagedSkillTargetAt(ctx, ".", name)
+}
+
+// ManagedSkillTargetAt inspects a direct entry under a canonical relative
+// catalog root. It remains intentionally specific to the managed Skill layout.
+func (r *Root) ManagedSkillTargetAt(ctx context.Context, catalogRoot, name string) (digest string, managed bool, err error) {
+	if catalogRoot == "" {
+		catalogRoot = "."
+	}
+	if path.Clean(catalogRoot) != catalogRoot || path.IsAbs(catalogRoot) || catalogRoot == ".." || strings.HasPrefix(catalogRoot, "../") {
+		return "", false, fmt.Errorf("fsops: invalid managed skill catalog root %q", catalogRoot)
+	}
 	if err := managedSkillPlatformSupported(); err != nil {
 		return "", false, err
 	}
@@ -29,7 +41,8 @@ func (r *Root) ManagedSkillTarget(ctx context.Context, name string) (digest stri
 	if !validManagedSkillName(name) {
 		return "", false, fmt.Errorf("fsops: invalid managed skill name %q", name)
 	}
-	info, err := r.root.Lstat(name)
+	entry := path.Join(catalogRoot, name)
+	info, err := r.root.Lstat(entry)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", false, nil
 	}
@@ -42,7 +55,7 @@ func (r *Root) ManagedSkillTarget(ctx context.Context, name string) (digest stri
 	if info.Mode()&fs.ModeSymlink == 0 {
 		return "", false, fmt.Errorf("fsops: managed skill target %q is not a directory or symlink", name)
 	}
-	digest, err = r.validManagedSkillLink(name)
+	digest, err = r.validManagedSkillLinkAt(catalogRoot, name)
 	if err != nil {
 		return "", false, err
 	}
@@ -131,7 +144,12 @@ func (r *Root) validateManagedSkillOccupant(name string) error {
 }
 
 func (r *Root) validManagedSkillLink(name string) (string, error) {
-	info, err := r.root.Lstat(name)
+	return r.validManagedSkillLinkAt(".", name)
+}
+
+func (r *Root) validManagedSkillLinkAt(catalogRoot, name string) (string, error) {
+	entry := path.Join(catalogRoot, name)
+	info, err := r.root.Lstat(entry)
 	if err != nil {
 		return "", fmt.Errorf("fsops: lstat managed skill target: %w", err)
 	}
@@ -141,7 +159,7 @@ func (r *Root) validManagedSkillLink(name string) (string, error) {
 	var target string
 	err = nil
 	for range 4 {
-		target, err = r.root.Readlink(name)
+		target, err = r.root.Readlink(entry)
 		if !errors.Is(err, syscall.EINVAL) {
 			break
 		}
@@ -157,14 +175,19 @@ func (r *Root) validManagedSkillLink(name string) (string, error) {
 	if target != managedSkillRevisionPath(name, digest) || !validManagedSkillDigest(digest) {
 		return "", fmt.Errorf("fsops: managed skill target %q has an invalid link", name)
 	}
-	if err := r.validManagedSkillRevision(name, digest); err != nil {
+	if err := r.validManagedSkillRevisionAt(catalogRoot, name, digest); err != nil {
 		return "", err
 	}
 	return digest, nil
 }
 
 func (r *Root) validManagedSkillRevision(name, digest string) error {
+	return r.validManagedSkillRevisionAt(".", name, digest)
+}
+
+func (r *Root) validManagedSkillRevisionAt(catalogRoot, name, digest string) error {
 	for _, component := range []string{managedSkillRevisionsDir, path.Join(managedSkillRevisionsDir, name), managedSkillRevisionPath(name, digest)} {
+		component = path.Join(catalogRoot, component)
 		info, err := r.root.Lstat(component)
 		if err != nil {
 			return fmt.Errorf("fsops: lstat managed skill revision: %w", err)

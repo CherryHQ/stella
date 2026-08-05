@@ -105,6 +105,7 @@ type filesystemExecAPI struct {
 	creates   int
 	attachErr error
 	response  []byte
+	request   chan []byte
 }
 
 func (a *filesystemExecAPI) ExecCreate(_ context.Context, _ string, _ mobyclient.ExecCreateOptions) (mobyclient.ExecCreateResult, error) {
@@ -118,11 +119,41 @@ func (a *filesystemExecAPI) ExecAttach(_ context.Context, _ string, _ mobyclient
 	}
 	c, s := net.Pipe()
 	go func() {
-		go func() { _, _ = io.Copy(io.Discard, s) }() // drain request so stdin copy never blocks
+		var header [4]byte
+		_, _ = io.ReadFull(s, header[:])
+		data := make([]byte, 4+binary.BigEndian.Uint32(header[:]))
+		copy(data, header[:])
+		_, _ = io.ReadFull(s, data[4:])
+		if a.request != nil {
+			a.request <- data
+		}
 		_, _ = s.Write(a.response)
 		_ = s.Close()
 	}()
 	return mobyclient.ExecAttachResult{HijackedResponse: mobyclient.NewHijackedResponse(c, "application/vnd.docker.raw-stream")}, nil
+}
+
+func TestDockerFilesystemInspectManagedSkillTargetKeepsNestedRelativePath(t *testing.T) {
+	payload, err := json.Marshal(fsops.Response{Version: fsops.ProtocolVersion, Kind: fsops.KindManagedSkillTarget})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := &filesystemExecAPI{response: frameStdout(fsFrame(payload)), request: make(chan []byte, 1)}
+	fsys := testDockerFilesystem(api)
+	if _, err := fsys.InspectManagedSkillTarget(context.Background(), "/workspace/skills/foo"); err != nil {
+		t.Fatal(err)
+	}
+	request := <-api.request
+	if len(request) < 4 {
+		t.Fatal("missing helper request")
+	}
+	var got fsops.Request
+	if err := json.Unmarshal(request[4:], &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Operation != "managed_skill_target" || got.Path != "skills/foo" {
+		t.Fatalf("request = %+v", got)
+	}
 }
 
 func (a *filesystemExecAPI) ExecInspect(context.Context, string, mobyclient.ExecInspectOptions) (mobyclient.ExecInspectResult, error) {

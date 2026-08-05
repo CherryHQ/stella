@@ -81,7 +81,7 @@ func readPromptDir(ctx context.Context, filesystem sandbox.Filesystem, path stri
 		if err != nil {
 			continue
 		}
-		result = append(result, sandbox.DirEntry{Name: e.Name(), IsDir: e.IsDir(), Size: info.Size()})
+		result = append(result, sandbox.DirEntry{Name: e.Name(), IsDir: e.IsDir(), Size: info.Size(), Mode: info.Mode()})
 	}
 	return result, nil
 }

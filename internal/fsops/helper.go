@@ -10,6 +10,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
+	"strings"
 
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -23,10 +25,11 @@ const (
 // mutation success schemas are disjoint: an empty list is not confusable with a
 // mutation, and a helper that returns the wrong shape fails closed.
 const (
-	KindRead     = "read"
-	KindStat     = "stat"
-	KindList     = "list"
-	KindMutation = "mutation"
+	KindRead               = "read"
+	KindStat               = "stat"
+	KindList               = "list"
+	KindMutation           = "mutation"
+	KindManagedSkillTarget = "managed_skill_target"
 )
 
 // Error codes are a closed, stable set carried on error replies so a remote
@@ -95,6 +98,8 @@ func KindForOperation(op string) string {
 		return KindStat
 	case "list":
 		return KindList
+	case "managed_skill_target":
+		return KindManagedSkillTarget
 	default: // write, upload, mkdir, remove, rename
 		return KindMutation
 	}
@@ -121,6 +126,8 @@ type Response struct {
 	BodyLength int64              `json:"body_length,omitempty"`
 	ErrorCode  string             `json:"error_code,omitempty"`
 	Error      string             `json:"error,omitempty"`
+	Managed    bool               `json:"managed,omitempty"`
+	Digest     string             `json:"digest,omitempty"`
 }
 
 func Serve(ctx context.Context, cwd string, in io.Reader, out io.Writer) error {
@@ -185,6 +192,12 @@ func Serve(ctx context.Context, cwd string, in io.Reader, out io.Writer) error {
 			break
 		}
 		response.Entries, err = root.List(ctx, req.Path)
+	case "managed_skill_target":
+		err = requireEOF(in)
+		if err != nil {
+			break
+		}
+		response.Digest, response.Managed, err = root.ManagedSkillTargetAt(ctx, path.Dir(req.Path), path.Base(req.Path))
 	case "mkdir":
 		err = requireEOF(in)
 		if err != nil {
@@ -231,9 +244,12 @@ func validateRequest(req Request) error {
 		if req.MaxBytes != 0 {
 			return errors.New("fsops: invalid write request")
 		}
-	case "stat", "list", "mkdir", "remove":
+	case "stat", "list", "managed_skill_target", "mkdir", "remove":
 		if req.BodyLength != 0 || req.MaxBytes != 0 || req.NewPath != "" {
 			return errors.New("fsops: invalid operation fields")
+		}
+		if req.Operation == "managed_skill_target" && (req.Path == "" || path.IsAbs(req.Path) || path.Clean(req.Path) != req.Path || req.Path == "." || req.Path == ".." || strings.HasPrefix(req.Path, "../")) {
+			return errors.New("fsops: invalid managed skill target path")
 		}
 	case "rename":
 		if req.BodyLength != 0 || req.MaxBytes != 0 || req.NewPath == "" {
@@ -393,13 +409,16 @@ func validateResponse(response Response, expected string) error {
 	// An error reply carries a classified non-limit code, a message, and no
 	// success payload.
 	if response.Error != "" {
-		if response.Info != (sandbox.FileInfo{}) || len(response.Entries) != 0 || response.BodyLength != 0 {
+		if response.Info != (sandbox.FileInfo{}) || len(response.Entries) != 0 || response.BodyLength != 0 || response.Managed || response.Digest != "" {
 			return errors.New("fsops: invalid error response payload")
 		}
 		if response.ErrorCode == "" || response.ErrorCode == ErrorCodeReadLimit {
 			return errors.New("fsops: error reply must carry a non-limit error code")
 		}
 		return nil
+	}
+	if expected != KindManagedSkillTarget && (response.Managed || response.Digest != "") {
+		return errors.New("fsops: non-managed response carries managed target fields")
 	}
 	// A success reply carries no code except read_limit, a read-kind partial
 	// success delivered with a body.
@@ -427,6 +446,17 @@ func validateResponse(response Response, expected string) error {
 	case KindMutation:
 		if response.Info != (sandbox.FileInfo{}) || len(response.Entries) != 0 || response.BodyLength != 0 || response.ErrorCode != "" {
 			return errors.New("fsops: invalid mutation response")
+		}
+	case KindManagedSkillTarget:
+		if response.Info != (sandbox.FileInfo{}) || len(response.Entries) != 0 || response.BodyLength != 0 || response.ErrorCode != "" {
+			return errors.New("fsops: invalid managed skill target response")
+		}
+		if response.Managed {
+			if !validManagedSkillDigest(response.Digest) {
+				return errors.New("fsops: invalid managed skill target digest")
+			}
+		} else if response.Digest != "" {
+			return errors.New("fsops: unmanaged skill target carries digest")
 		}
 	default:
 		return fmt.Errorf("fsops: unknown response kind %q", expected)

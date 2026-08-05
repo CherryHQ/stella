@@ -87,6 +87,37 @@ func (f *dockerFilesystem) List(ctx context.Context, p string) ([]sandboxpkg.Dir
 	return response.Entries, err
 }
 
+// InspectManagedSkillTarget asks the restricted helper to validate the exact
+// managed layout; Docker never resolves or returns a host link target.
+func (f *dockerFilesystem) InspectManagedSkillTarget(ctx context.Context, p string) (sandboxpkg.ManagedSkillTarget, error) {
+	cwd, relative, err := f.mount(p, false)
+	if err != nil {
+		return sandboxpkg.ManagedSkillTarget{}, err
+	}
+	if relative == "" || relative == "." {
+		return sandboxpkg.ManagedSkillTarget{}, fmt.Errorf("docker filesystem: managed skill target %q is not a direct entry", p)
+	}
+	payload, err := fsops.EncodeRequest(fsops.Request{Version: fsops.ProtocolVersion, Operation: "managed_skill_target", Path: relative})
+	if err != nil {
+		return sandboxpkg.ManagedSkillTarget{}, err
+	}
+	result, err := f.session.client.Exec(ctx, dockerclient.ExecOptions{ContainerID: f.session.containerID, Command: []string{"/opt/stella/bin/stella-fs"}, Cwd: cwd, Stdin: bytes.NewReader(payload)})
+	if err != nil {
+		return sandboxpkg.ManagedSkillTarget{}, f.transportError(false, err)
+	}
+	if result.ExitCode != 0 {
+		return sandboxpkg.ManagedSkillTarget{}, f.transportError(false, fmt.Errorf("helper exit %d: %s", result.ExitCode, result.Stderr))
+	}
+	response, err := fsops.DecodeResponse(bytes.NewReader(result.Stdout), fsops.KindManagedSkillTarget)
+	if err != nil {
+		return sandboxpkg.ManagedSkillTarget{}, f.transportError(false, err)
+	}
+	if err := fsops.ResponseError(response); err != nil {
+		return sandboxpkg.ManagedSkillTarget{}, err
+	}
+	return sandboxpkg.ManagedSkillTarget{Digest: response.Digest, Managed: response.Managed}, nil
+}
+
 func (f *dockerFilesystem) Mkdir(ctx context.Context, p string, perm fs.FileMode) error {
 	_, err := f.call(ctx, p, fsops.Request{Operation: "mkdir", Perm: perm}, true)
 	return err
