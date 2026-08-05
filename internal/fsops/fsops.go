@@ -21,7 +21,12 @@ import (
 // and any path — symlink or not — that would escape the mount fails closed.
 // Stricter contained-relative-link rules (e.g. managed Skill publication) are a
 // later dedicated module, not this generic boundary.
-type Root struct{ root *os.Root }
+type Root struct {
+	root                           *os.Root
+	syncRootDirectory              func(*os.File) error
+	afterManagedSkillTemporaryLink func(string)
+	afterManagedSkillRename        func()
+}
 
 // Mount binds one canonical sandbox root to a provider-authorized directory.
 // Directory is consumed here and never exposed by the Filesystem interface.
