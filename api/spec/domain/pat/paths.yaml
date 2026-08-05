@@ -71,20 +71,3 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
-
-  /api/token-scopes:
-    get:
-      tags: [pat]
-      summary: List the scopes grantable to a personal access token
-      operationId: listTokenScopes
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: {
-                $ref: "../../components.yaml#/components/schemas/PersonalAccessTokenScopeList",
-              }
-        "401": {
-          $ref: "../../components.yaml#/components/responses/Unauthorized",
-        }

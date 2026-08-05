@@ -9,9 +9,9 @@ import (
 // ErrForbidden is returned by Enforce when a principal may not perform a request.
 var ErrForbidden = errors.New("permission denied")
 
-// deniedResources are top-level /api resources that bearer credentials (PAT /
-// OAuth) may never reach. They are session- or admin-only. They
-// are listed EXPLICITLY -- an unlisted, unmapped resource is treated as a
+// deniedResources are top-level /api resources OAuth access tokens may never
+// reach. They are session- or admin-only. They are listed EXPLICITLY -- an
+// unlisted, unmapped resource is treated as a
 // registration gap (see RequiredScope's registered=false), which a test flags,
 // so a new route can never silently default into being reachable or unreachable.
 var deniedResources = map[string]bool{
@@ -29,21 +29,22 @@ var deniedResources = map[string]bool{
 	"plugins":            true,
 	"provider-types":     true,
 	"providers":          true,
-	"token-scopes":       true,
 	"tools":              true,
 	"vision-settings":    true,
 }
 
-// Enforce covers bearer kind + scope. Object-level ownership (this user owns
-// this task/agent/session) is NOT done here -- it remains a per-handler
-// responsibility for PAT/OAuth, exactly as for cookie sessions. It runs three
-// explicit layers:
+// Enforce covers bearer kind + route scope. Object-level ownership (this user
+// owns this task/agent/session) is NOT done here -- it remains a per-handler
+// responsibility for PAT/OAuth, exactly as for cookie sessions. PATs are
+// API-only credentials for their owner's current authority and pass this gate;
+// OAuth access tokens additionally run through route-to-scope enforcement.
 //
-//  1. kind policy   -- pat/oauth are the only accepted bearer kinds.
-//  2. method+path -> required scope -- RequiredScope classifies every /api route
+// OAuth enforcement runs three explicit layers:
+//
+//  1. method+path -> required scope -- RequiredScope classifies every /api route
 //     to a scope; an unregistered route is deny (fail-closed).
-//  3. reachability by kind -- PAT/OAuth use the catalog's PAT-exposable surface
-//     (patReachable).
+//  2. OAuth reachability -- the catalog's OAuth-exposable surface.
+//  3. granted scope match.
 //
 // Cookie/OIDC sessions have no Principal and are never passed here.
 func Enforce(p *Principal, method, path string) error {
@@ -51,38 +52,84 @@ func Enforce(p *Principal, method, path string) error {
 		return fmt.Errorf("%w: no principal", ErrForbidden)
 	}
 
-	// Bearer credentials are API-only; they may not fetch page routes.
-	// One deliberate exception lives outside this gate: POST /webhooks/{id} is
-	// auth-exempt in the server middleware and re-checks kind + ScopeAgentWrite
-	// itself (internal/server/webhook_ingress.go). Account for it when changing
-	// PAT policy here.
+	// Bearer credentials are API-only; they may not fetch page routes. Public
+	// capability routes such as POST /webhooks/{id} use their own authentication
+	// boundary and never pass through this resolver.
 	if !strings.HasPrefix(path, "/api/") {
 		return fmt.Errorf("%w: bearer credential may only call /api routes", ErrForbidden)
 	}
 
-	// Layer 2: route -> required scope.
-	scope, registered := RequiredScope(method, path)
-	if !registered {
-		return fmt.Errorf("%w: route %s %s has no registered scope", ErrForbidden, method, path)
-	}
-	if scope == "" {
-		return fmt.Errorf("%w: route %s %s is not available to bearer credentials", ErrForbidden, method, path)
-	}
-
-	// Layer 3: reachability by kind.
 	switch p.Kind {
-	case KindPAT, KindOAuth:
-		if !patReachable(scope) {
+	case KindPAT:
+		if patCredentialRouteDenied(path) {
+			return fmt.Errorf("%w: PAT may not manage authentication credentials", ErrForbidden)
+		}
+		return nil
+	case KindOAuth:
+		// OAuth access tokens are delegated capabilities, not account credentials.
+		// Preserve the existing route-to-scope and OAuth-exposability policy.
+		scope, registered := RequiredScope(method, path)
+		if !registered {
+			return fmt.Errorf("%w: route %s %s has no registered scope", ErrForbidden, method, path)
+		}
+		if scope == "" {
+			return fmt.Errorf("%w: route %s %s is not available to bearer credentials", ErrForbidden, method, path)
+		}
+		if !oauthReachable(scope) {
 			return fmt.Errorf("%w: route %s %s is not available to this token", ErrForbidden, method, path)
 		}
+		if !MatchScope(p.Scopes, scope) {
+			return fmt.Errorf("%w: missing scope %q", ErrForbidden, scope)
+		}
+		return nil
 	default:
 		return fmt.Errorf("%w: unknown credential kind %q", ErrForbidden, p.Kind)
 	}
+}
 
-	if !MatchScope(p.Scopes, scope) {
-		return fmt.Errorf("%w: missing scope %q", ErrForbidden, scope)
+// patCredentialRouteDenied is the parent-layer fence for PATs. A PAT inherits
+// its owner's business and admin authority, but it must not create or control
+// authentication credentials, browser sessions, or identities: a stolen bearer
+// must neither reproduce itself nor become an account-takeover primitive.
+//
+// Keep this policy here, before handlers, rather than duplicating it across
+// self-service and admin endpoints. The patterns deliberately compare complete
+// path segments: family rules include their root and descendants, while exact
+// rules do not grow to future sub-routes by accident.
+func patCredentialRouteDenied(path string) bool {
+	rest := apiSegments(path)
+	switch {
+	case hasSegmentPrefix(rest, "users", "me", "tokens"),
+		hasSegmentPrefix(rest, "users", "me", "oauth-clients"),
+		hasSegmentPrefix(rest, "users", "me", "authorized-apps"),
+		hasSegmentPrefix(rest, "auth", "sessions"),
+		hasSegmentPrefix(rest, "users", "me", "identities"):
+		return true
+	case len(rest) >= 3 && rest[0] == "users" && rest[2] == "identities":
+		return true
+	case hasExactSegments(rest, "users", "me", "password"),
+		hasExactSegments(rest, "users", "me", "link-code"),
+		len(rest) == 3 && rest[0] == "users" && (rest[2] == "role" || rest[2] == "active"):
+		return true
+	default:
+		return false
 	}
-	return nil
+}
+
+func hasSegmentPrefix(got []string, want ...string) bool {
+	if len(got) < len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func hasExactSegments(got []string, want ...string) bool {
+	return len(got) == len(want) && hasSegmentPrefix(got, want...)
 }
 
 // apiSegments returns the path segments after the leading /api (e.g.
@@ -96,21 +143,20 @@ func apiSegments(path string) []string {
 	return parts[1:]
 }
 
-// patReachable reports whether a PAT/OAuth token may reach a route requiring the
-// given scope. Reachability is the catalog's PAT-exposable policy: vault/oauth
-// are sandbox-internal and never reachable by an external token; everything else
-// in the catalog is. Object ownership is still checked by the handler.
-func patReachable(scope string) bool {
+// oauthReachable reports whether an OAuth token may reach a route requiring the
+// given scope. Vault/oauth are sandbox-internal and never delegated to an OAuth
+// client. Object ownership is still checked by the handler.
+func oauthReachable(scope string) bool {
 	resource, _, _ := strings.Cut(scope, ":")
 	entry, ok := catalogByResource[resource]
-	return ok && entry.ExposableToPAT
+	return ok && entry.ExposableToOAuth
 }
 
 // RequiredScope maps an HTTP method + /api path to the scope needed to reach it.
 // It returns:
 //
-//   - scope:      the required resource:action; "" for a known-but-token-denied
-//     route (admin/auth/self-management), which Enforce rejects for every kind.
+//   - scope:      the required resource:action; "" for a known OAuth-token-denied
+//     route (admin/auth/self-management).
 //   - registered: whether the route was classified at all.
 //
 // registered=false means a route exists that nobody classified -- Enforce treats

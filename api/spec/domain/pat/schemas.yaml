@@ -7,11 +7,10 @@ components:
   schemas:
     PersonalAccessToken:
       type: object
-      required: [id, name, scopes, last4, created_at]
+      required: [id, name, last4, created_at]
       properties:
         id: { type: string }
         name: { type: string }
-        scopes: { type: array, items: { type: string } }
         last4: { type: string }
         expires_at: { type: string, format: date-time }
         last_used_at: { type: string, format: date-time }
@@ -28,10 +27,9 @@ components:
 
     CreatePersonalAccessTokenRequest:
       type: object
-      required: [name, scopes]
+      required: [name]
       properties:
         name: { type: string }
-        scopes: { type: array, items: { type: string } }
         # Explicit expiry. Omit for the server default expiry.
         expires_at: { type: string, format: date-time }
         # Opt in to a token that never expires. Overrides expires_at.
@@ -46,18 +44,3 @@ components:
         personal_access_token: {
           $ref: "#/components/schemas/PersonalAccessToken",
         }
-
-    PersonalAccessTokenScope:
-      type: object
-      required: [id, description]
-      properties:
-        id: { type: string }
-        description: { type: string }
-
-    PersonalAccessTokenScopeList:
-      type: object
-      required: [scopes]
-      properties:
-        scopes:
-          type: array
-          items: { $ref: "#/components/schemas/PersonalAccessTokenScope" }

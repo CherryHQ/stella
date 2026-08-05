@@ -30,6 +30,18 @@ func TestOAuthPATSmoke_E2E(t *testing.T) {
 	if rr := doBearerRequest(t, env.srv, first.AccessToken, http.MethodGet, "/api/agents", nil); rr.Code != http.StatusOK {
 		t.Fatalf("oauth access token GET /api/agents: status = %d, body = %s", rr.Code, rr.Body.String())
 	}
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/goals"},
+		{http.MethodPost, "/api/agents"},
+		{http.MethodGet, "/api/users"},
+	} {
+		if rr := doBearerRequest(t, env.srv, first.AccessToken, tc.method, tc.path, nil); rr.Code != http.StatusForbidden {
+			t.Fatalf("oauth access token %s %s: status = %d, want 403 (body = %s)", tc.method, tc.path, rr.Code, rr.Body.String())
+		}
+	}
 
 	rotated := exchangeOAuthToken(t, env.srv, url.Values{
 		"grant_type":    {"refresh_token"},

@@ -10,10 +10,10 @@ import (
 )
 
 // OAuth2 client-management and authorized-apps API (issue #613). These are
-// session-only self-service routes under /api/users/me: a user manages their own
-// clients and the apps they have authorized. Scoped bearers (PAT / OAuth) are
-// denied here by the enforce route map (usersRouteScope), which is deliberate --
-// a third-party token must not manage OAuth clients.
+// self-service routes under /api/users/me: a user manages their own clients and
+// the apps they have authorized. Account-equivalent PATs may use them; delegated
+// OAuth tokens are denied by usersRouteScope so a third-party token cannot
+// manage OAuth clients.
 
 // ListOAuthClients handles GET /api/users/me/oauth-clients.
 func (s *Server) ListOAuthClients(w http.ResponseWriter, r *http.Request) {

@@ -2,11 +2,10 @@
 // presented to the HTTP API into an authenticated Principal, and for enforcing
 // what that principal may do.
 //
-// Anti-scatter rule: all credential resolution and authorization lives here.
-// Per-kind differences are thin sub-resolvers (pat.go, scoped.go, internal.go),
-// not logic sprinkled across handlers. Adding a scope touches scopes.go;
-// changing the token format touches mint.go; changing authz touches enforce.go;
-// adding a token kind adds one sub-resolver and leaves the front door intact.
+// Anti-scatter rule: all credential resolution and entry authorization lives
+// here. Per-kind differences are thin sub-resolvers, not logic sprinkled across
+// handlers. OAuth scopes live in scopes.go; token formats live in mint.go; entry
+// policy lives in enforce.go.
 package credential
 
 import "time"
@@ -28,7 +27,8 @@ const (
 type Principal struct {
 	Kind   Kind
 	UserID string
-	// Scopes is the granted API-permission scope set (resource:action / resource:*).
+	// Scopes is populated only for delegated OAuth access tokens. PAT authority
+	// comes from the owner's current account and ignores legacy stored scopes.
 	Scopes []string
 
 	// Identity snapshot.

@@ -1,94 +1,123 @@
 package credential
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-func TestEnforceRequiresMappedScope(t *testing.T) {
-	p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"goals:read"}}
+func TestEnforcePATInheritsOwnerAuthorityForAPIRoutes(t *testing.T) {
+	p := &Principal{Kind: KindPAT, UserID: "u1"}
 
-	if err := Enforce(p, "GET", "/api/goals"); err != nil {
-		t.Fatalf("goals read should be allowed: %v", err)
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/goals"},
+		{"POST", "/api/goals"},
+		{"GET", "/api/auth/me"},
+		{"GET", "/api/users"},
+		{"GET", "/api/users/user-1"},
+		{"GET", "/api/users/user-1/default-agent"},
+		{"GET", "/api/users/user-1/notify-identity"},
+		{"GET", "/api/users/user-1/agents"},
+		{"GET", "/api/users/me/memories"},
+		{"GET", "/api/users/me/oauth-client-scopes"},
+		{"GET", "/api/users/me/oauth/github/connected"},
+		{"GET", "/api/vault/EMAIL_CONFIG"},
+		{"GET", "/api/providers"},
+		{"GET", "/api/nonexistent-xyz"},
+	} {
+		if err := Enforce(p, tc.method, tc.path); err != nil {
+			t.Errorf("PAT %s %s: %v", tc.method, tc.path, err)
+		}
 	}
-	if err := Enforce(p, "POST", "/api/goals"); err == nil {
-		t.Fatal("goals write must be denied without goals:write")
-	}
-	if err := Enforce(p, "GET", "/api/users/me"); err == nil {
-		t.Fatal("unmapped users/me profile must be denied")
+
+	if err := Enforce(p, "GET", "/agents"); err == nil {
+		t.Fatal("PAT must not call non-API routes")
 	}
 }
 
-// A PAT with no matching scope must be DENIED, not silently full-access. This
-// locks CRITICAL #1 (enforcement gated on kind/scopes, not info.Scoped != nil).
-func TestEnforcePATWithoutScopeIsDenied(t *testing.T) {
-	p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"goals:read"}}
+func TestEnforcePATCredentialRouteFence(t *testing.T) {
+	p := &Principal{Kind: KindPAT, UserID: "u1", IsAdmin: true}
 
-	if err := Enforce(p, "GET", "/api/goals"); err != nil {
-		t.Fatalf("PAT with goals:read should reach goals read: %v", err)
-	}
-	if err := Enforce(p, "GET", "/api/workflows"); err == nil {
-		t.Fatal("PAT without workflows scope must be denied on /api/workflows")
-	}
-	empty := &Principal{Kind: KindPAT, UserID: "u1", Scopes: nil}
-	if err := Enforce(empty, "GET", "/api/goals"); err == nil {
-		t.Fatal("PAT with no scopes must be denied, not granted full access")
-	}
-}
-
-func TestEnforceRejectsRetiredLegacyKind(t *testing.T) {
-	p := &Principal{Kind: Kind("legacy_stella_token"), UserID: "u1"}
-	for _, path := range []string{"/api/workflows", "/api/goals", "/api/anything-unmapped"} {
+	for _, path := range []string{
+		"/api/users/me/tokens",
+		"/api/users/me/tokens/token-1",
+		"/api/users/me/oauth-clients",
+		"/api/users/me/oauth-clients/client-1/rotate-secret",
+		"/api/users/me/authorized-apps",
+		"/api/users/me/authorized-apps/client-1",
+		"/api/auth/sessions",
+		"/api/auth/sessions/session-1",
+		"/api/users/me/identities",
+		"/api/users/me/identities/identity-1",
+		"/api/users/user-1/identities/login",
+		"/api/users/me/password",
+		"/api/users/me/link-code",
+		"/api/users/user-1/role",
+		"/api/users/user-1/active",
+	} {
 		if err := Enforce(p, "POST", path); err == nil {
-			t.Fatalf("retired legacy token kind must not bypass API-scope checks for %s", path)
+			t.Errorf("admin PAT POST %s must be denied", path)
+		}
+	}
+
+	// These look similar but are intentionally outside the fence. Exact rules
+	// must not grow descendants, and family matching must stay segment-aware.
+	for _, path := range []string{
+		"/api/auth/session",
+		"/api/users/me/oauth-client-scopes",
+		"/api/users/me/oauth/github/connected",
+		"/api/users/me/password/reset",
+		"/api/users/user-1/roles",
+		"/api/users/user-1/active/history",
+	} {
+		if err := Enforce(p, "GET", path); err != nil {
+			t.Errorf("admin PAT GET %s must remain outside the fence: %v", path, err)
 		}
 	}
 }
 
-// Unregistered routes fail closed for bearer credentials.
-func TestEnforceUnregisteredRouteDenied(t *testing.T) {
-	p := &Principal{Kind: KindPAT, Scopes: []string{"goals:*", "channels:*"}}
-	if err := Enforce(p, "GET", "/api/channels"); err == nil {
-		t.Fatal("a resource not exposed to bearer credentials must be denied")
+func TestEnforceOAuthRetainsRouteScopeEnforcement(t *testing.T) {
+	p := &Principal{Kind: KindOAuth, UserID: "u1", Scopes: []string{"agent:read"}}
+
+	if err := Enforce(p, "GET", "/api/agents"); err != nil {
+		t.Fatalf("OAuth agent:read must reach agent reads: %v", err)
 	}
-	if err := Enforce(p, "GET", "/agents"); err == nil {
-		t.Fatal("non-API page routes must be denied for bearer credentials")
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{"POST", "/api/agents"},
+		{"GET", "/api/goals"},
+		{"GET", "/api/users"},
+		{"GET", "/api/vault/EMAIL_CONFIG"},
+		{"GET", "/api/nonexistent-xyz"},
+		{"GET", "/agents"},
+	} {
+		if err := Enforce(p, tc.method, tc.path); err == nil {
+			t.Errorf("OAuth %s %s must be denied", tc.method, tc.path)
+		}
 	}
 }
 
-// A PAT reaches the top-level external APIs but must never reach the
-// sandbox-internal vault/oauth surface, even if it somehow presented those
-// scopes.
-func TestEnforcePATReachesExternalButNotSandboxInternal(t *testing.T) {
-	p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"email:*", "skills:*", "vault:*", "oauth:*"}}
-
-	if err := Enforce(p, "POST", "/api/email/send"); err != nil {
-		t.Fatalf("PAT with email:* must reach /api/email/send: %v", err)
-	}
-	if err := Enforce(p, "GET", "/api/skills"); err != nil {
-		t.Fatalf("PAT with skills:* must reach /api/skills: %v", err)
-	}
-	if err := Enforce(p, "GET", "/api/vault/EMAIL_CONFIG"); err == nil {
-		t.Fatal("PAT must never reach vault even with vault:* present")
-	}
-	if err := Enforce(p, "POST", "/api/users/me/oauth/github/start"); err == nil {
-		t.Fatal("PAT must never reach oauth even with oauth:* present")
+func TestEnforceRejectsUnknownKind(t *testing.T) {
+	p := &Principal{Kind: Kind("legacy_stella_token"), UserID: "u1"}
+	if err := Enforce(p, "GET", "/api/goals"); err == nil {
+		t.Fatal("unknown credential kind must be denied")
 	}
 }
 
-func TestSaveAsWorkflowRequiresWorkflowWrite(t *testing.T) {
+func TestSaveAsWorkflowRequiresOAuthWorkflowWrite(t *testing.T) {
 	scope, registered := RequiredScope("POST", "/api/goals/goal-1/save-as-workflow")
 	if !registered || scope != "workflows:write" {
 		t.Fatalf("scope=%q registered=%v want workflows:write true", scope, registered)
 	}
-	goalsOnly := &Principal{Kind: KindPAT, UserID: "u1", Scopes: []string{"goals:write"}}
+	goalsOnly := &Principal{Kind: KindOAuth, UserID: "u1", Scopes: []string{"goals:write"}}
 	if err := Enforce(goalsOnly, "POST", "/api/goals/goal-1/save-as-workflow"); err == nil {
-		t.Fatal("goals:write alone must not allow save-as-workflow")
+		t.Fatal("OAuth goals:write alone must not allow save-as-workflow")
 	}
 	for _, scopes := range [][]string{{"workflows:write"}, {"workflows:*"}} {
-		p := &Principal{Kind: KindPAT, UserID: "u1", Scopes: scopes}
+		p := &Principal{Kind: KindOAuth, UserID: "u1", Scopes: scopes}
 		if err := Enforce(p, "POST", "/api/goals/goal-1/save-as-workflow"); err != nil {
-			t.Fatalf("%v should allow save-as-workflow: %v", scopes, err)
+			t.Fatalf("OAuth %v should allow save-as-workflow: %v", scopes, err)
 		}
 	}
 }
@@ -97,7 +126,6 @@ func TestRequiredScopeUnknownAgentSubResourceFailsClosed(t *testing.T) {
 	if _, registered := RequiredScope("POST", "/api/agents/a1/secrets"); registered {
 		t.Fatal("unknown agent sub-resource must be registered=false (fail-closed)")
 	}
-	// Known sub-resources stay registered.
 	for _, path := range []string{
 		"/api/agents/a1/sessions",
 		"/api/agents/a1/skills",
@@ -110,47 +138,5 @@ func TestRequiredScopeUnknownAgentSubResourceFailsClosed(t *testing.T) {
 		if _, registered := RequiredScope("GET", path); !registered {
 			t.Errorf("known route %s must be registered", path)
 		}
-	}
-}
-
-func TestValidatePATScopes(t *testing.T) {
-	if _, ok := ValidatePATScopes(nil); ok {
-		t.Fatal("empty scope set must be rejected")
-	}
-	if _, ok := ValidatePATScopes([]string{"workflows:read", "goals:*"}); !ok {
-		t.Fatal("valid exposable scopes should pass")
-	}
-	if bad, ok := ValidatePATScopes([]string{"vault:read"}); ok || bad != "vault:read" {
-		t.Fatalf("vault must not be grantable to a PAT; got bad=%q ok=%v", bad, ok)
-	}
-	if bad, ok := ValidatePATScopes([]string{"oauth:*"}); ok || bad != "oauth:*" {
-		t.Fatalf("oauth must not be grantable to a PAT; got bad=%q ok=%v", bad, ok)
-	}
-	if _, ok := ValidatePATScopes([]string{"goals"}); ok {
-		t.Fatal("malformed scope (no action) must be rejected")
-	}
-	if _, ok := ValidatePATScopes([]string{"nope:read"}); ok {
-		t.Fatal("unknown resource must be rejected")
-	}
-}
-
-func TestExposableScopesExcludeSandboxInternal(t *testing.T) {
-	for _, s := range ExposableScopes() {
-		if strings.HasPrefix(s, "vault:") || strings.HasPrefix(s, "oauth:") {
-			t.Fatalf("sandbox-internal scope %q must not be exposable to PATs", s)
-		}
-	}
-}
-
-// TestScopeAgentWriteMatchesRouteMapping pins the exported constant the
-// auth-exempt webhook ingress checks to the scope Enforce derives for the
-// equivalent /api agent-write routes. If this fails, the webhook surface has
-// drifted from PAT policy.
-func TestScopeAgentWriteMatchesRouteMapping(t *testing.T) {
-	if got := scopeForMethod("agent", "POST"); got != ScopeAgentWrite {
-		t.Fatalf("ScopeAgentWrite = %q, but scopeForMethod(agent, POST) = %q", ScopeAgentWrite, got)
-	}
-	if !patReachable(ScopeAgentWrite) {
-		t.Fatal("agent:write must remain PAT-reachable while the webhook ingress depends on it")
 	}
 }

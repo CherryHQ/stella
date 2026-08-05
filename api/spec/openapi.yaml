@@ -278,8 +278,6 @@ paths:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens"
   /api/users/me/tokens/{id}:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens~1{id}"
-  /api/token-scopes:
-    $ref: "./domain/pat/paths.yaml#/paths/~1api~1token-scopes"
 
   # ── OAuth2 clients & authorized apps ─────────────────────────────────────────
   /api/users/me/oauth-clients:

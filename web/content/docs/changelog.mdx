@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ✨ Features
+
+- Personal access tokens now inherit their owner's current account permissions, including admin authority. Creating a token no longer requires API scopes, existing tokens adopt the new behavior automatically, and the account UI is reduced to naming and creating the token. To prevent credential multiplication or account takeover, PATs cannot manage authentication credentials, browser sessions, identities, roles, or account activation. OAuth access tokens remain scoped. ([#889](https://github.com/CherryHQ/stella/issues/889))
+
 ## [0.62.0] - 2026-08-05
 
 ### ✨ Features

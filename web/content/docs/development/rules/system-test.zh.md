@@ -80,8 +80,8 @@ Ubuntu runner，并调用 `mise run system-test`；若该 runner 将来变得不
   订阅被 drain 取消，被钉住的轮次仍在其流上完整收尾（全文、finish、[DONE]），进程以 0 退出。
   它最后运行，因为会消费掉共享服务器。
 
-`startup_and_auth` 还覆盖个人访问令牌（PAT）的 bearer 生命周期：一个 session 铸造出带 scope 的
-PAT，仅凭该令牌即可认证一条 scope 可达的路由，撤销后同一个 bearer 会 fail closed。
+`startup_and_auth` 还覆盖个人访问令牌（PAT）的 bearer 生命周期：一个 session 铸造出一个
+PAT，仅凭该令牌即可用其所有者当前的权限认证普通 API 路由，撤销后同一个 bearer 会 fail closed。
 
 每个 fixture（provider、agent、user、goal）都以 harness 的 `runID` 作用域隔离，因此没有任何
 journey 依赖另一个 journey 的业务数据 —— 唯一的复用是共享的 bootstrap 用户与 cookie jar。
