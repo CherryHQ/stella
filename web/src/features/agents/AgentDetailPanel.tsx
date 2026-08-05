@@ -57,13 +57,11 @@ export interface AgentDetailPanelProps {
   data: AgentsSettingsLoaderData;
   /** Empty string means "create a new agent". */
   agentId: string;
-  activeTab: string;
-  onTabChange: (tab: string) => void;
   /** Dismissed without saving — also fired when the template picker is closed. */
   onClose?: () => void;
   onSaved?: (agentId: string) => void;
   onDeleted?: () => void;
-  /** Tabs a host surface already covers elsewhere (e.g. the profile's skills section). */
+  /** Sections a host surface already covers elsewhere (e.g. the profile's skills tab). */
   hiddenTabs?: readonly string[];
   layout?: AgentFormLayout;
 }
@@ -79,17 +77,13 @@ export interface AgentDetailPanelProps {
 export function AgentDetailPanel({
   data,
   agentId,
-  activeTab,
-  onTabChange,
   onClose,
   onSaved,
   onDeleted,
   hiddenTabs,
   layout = "page",
 }: AgentDetailPanelProps) {
-  const [state, setState] = useState<AgentsPageState>(() =>
-    initialAgentDetailState(data, agentId, activeTab),
-  );
+  const [state, setState] = useState<AgentsPageState>(() => initialAgentDetailState(data, agentId));
   const [creating] = useState(() => !agentId);
   const { toasts, showToast } = useToast();
   const { t } = useI18n();
@@ -108,11 +102,6 @@ export function AgentDetailPanel({
         : { ...prev, showForm: true },
     );
   }, [creating]);
-
-  // The host owns the tab in the URL; mirror it rather than duplicating truth.
-  useEffect(() => {
-    setState((prev) => (prev.activeTab === activeTab ? prev : { ...prev, activeTab }));
-  }, [activeTab]);
 
   const invalidateAgent = useCallback(
     (id: string) => {
@@ -189,6 +178,14 @@ export function AgentDetailPanel({
       setState((prev) => ({ ...prev, assignedUsers: [] }));
     }
   }, []);
+
+  // The user list used to load when its tab was opened; as a section it is
+  // always one scroll away, so an admin editing an existing agent fetches it
+  // up front. Non-admins never see the section and never pay for it.
+  useEffect(() => {
+    if (!agentId || !data.isAdmin) return;
+    void loadAssignedUsers(agentId);
+  }, [agentId, data.isAdmin, loadAssignedUsers]);
 
   const dedicatedChannelsForAgent = useCallback((id: string, channels: Channel[]) => {
     return channels.filter((ch) => ch.id !== ch.type && ch.agent_id === id);
@@ -654,7 +651,6 @@ export function AgentDetailPanel({
           },
           showTemplateModal: false,
           showForm: true,
-          activeTab: "config",
         }));
       } catch (e) {
         showToast(apiErrorMessage(e, t("common.error")), "error");
@@ -671,11 +667,6 @@ export function AgentDetailPanel({
           layout={layout}
           hiddenTabs={hiddenTabs}
           onSetState={set}
-          onTabChange={(tab) => {
-            set({ activeTab: tab });
-            onTabChange(tab);
-            if (tab === "users" && state.editingId) void loadAssignedUsers(state.editingId);
-          }}
           onSave={() => saveAgent(state)}
           onCancel={onClose}
           onAddUser={() => addUser(state)}
@@ -715,7 +706,6 @@ export function AgentDetailPanel({
               ...prev,
               showTemplateModal: false,
               showForm: true,
-              activeTab: "config",
             }))
           }
           onClose={() => {

@@ -60,7 +60,6 @@ export interface AgentsPageState {
   allUsers: User[];
   showForm: boolean;
   editingId: string | null;
-  activeTab: string;
   showTemplateModal: boolean;
   form: Omit<AgentDetail, "id">;
   selectedSoulID: string;
@@ -111,7 +110,6 @@ export interface AgentsPageState {
 export function initialAgentDetailState(
   data: AgentsSettingsLoaderData,
   agentId: string,
-  activeTab: string,
 ): AgentsPageState {
   const selectedAgent = agentId ? data.agents.find((a) => a.id === agentId) : undefined;
   return {
@@ -123,7 +121,6 @@ export function initialAgentDetailState(
     allUsers: data.allUsers,
     showForm: !!selectedAgent,
     editingId: selectedAgent?.id ?? null,
-    activeTab,
     showTemplateModal: false,
     form: selectedAgent
       ? {

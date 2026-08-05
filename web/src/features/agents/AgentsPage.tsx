@@ -17,9 +17,8 @@ import { useI18n } from "@/lib/i18n";
 export function AgentsPage() {
   const navigate = useNavigate();
   const router = useRouter();
-  const params = useParams({ strict: false }) as { agentId?: string; tab?: string };
+  const params = useParams({ strict: false }) as { agentId?: string };
   const routeAgentId = params.agentId ?? "";
-  const routeTab = params.tab ?? "config";
   const data = useLoaderData({ strict: false }) as AgentsSettingsLoaderData | undefined;
   const [creating, setCreating] = useState(false);
   const { t } = useI18n();
@@ -36,14 +35,6 @@ export function AgentsPage() {
         key={editing || "new"}
         data={data}
         agentId={editing}
-        activeTab={routeTab}
-        onTabChange={(tab) => {
-          if (!editing) return;
-          void navigate({
-            to: "/settings/agents/$agentId/$tab",
-            params: { agentId: editing, tab },
-          });
-        }}
         onClose={() => {
           setCreating(false);
           void navigate({ to: "/settings/agents" });
@@ -52,10 +43,7 @@ export function AgentsPage() {
           void router.invalidate();
           if (!editing) {
             setCreating(false);
-            void navigate({
-              to: "/settings/agents/$agentId/$tab",
-              params: { agentId, tab: "config" },
-            });
+            void navigate({ to: "/settings/agents/$agentId", params: { agentId } });
           }
         }}
         onDeleted={() => {
@@ -86,8 +74,8 @@ export function AgentsPage() {
               icon={<Bot className="size-4" />}
               title={a.name || a.id}
               active={routeAgentId === a.id}
-              to={canEdit ? "/settings/agents/$agentId/$tab" : undefined}
-              params={canEdit ? { agentId: a.id, tab: "config" } : undefined}
+              to={canEdit ? "/settings/agents/$agentId" : undefined}
+              params={canEdit ? { agentId: a.id } : undefined}
               footer={
                 <>
                   <span

@@ -12,7 +12,7 @@ import { meQueryOptions } from "@/lib/queries/me";
 import { modelsQueryOptions } from "@/lib/queries/models";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { formatTime } from "@/lib/time";
-import type { AgentConfigTab, MemorySearch, ProfileTab } from "@/lib/route-search";
+import type { MemorySearch, ProfileTab } from "@/lib/route-search";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs";
@@ -52,11 +52,6 @@ export function ProfilePage() {
   };
   const search = useSearch({ strict: false }) as MemorySearch;
   const knowledgeState = search.knowledge === "removed" ? "removed" : "active";
-  // A `ctab` naming a tab this host hides (a link from the settings page, where
-  // the editor still owns skills and tools) would leave the editor with no
-  // visible selection, so it falls back to the editor's own landing tab.
-  const configTab: AgentConfigTab =
-    search.ctab && !PROFILE_HIDDEN_CONFIG_TABS.includes(search.ctab) ? search.ctab : "config";
 
   const { data: agents = [] } = useQuery(agentsQueryOptions);
   const { data: me } = useQuery(meQueryOptions);
@@ -248,8 +243,6 @@ export function ProfilePage() {
                   hiddenTabs={PROFILE_HIDDEN_CONFIG_TABS}
                   data={settings.data}
                   agentId={agentId}
-                  activeTab={configTab}
-                  onTabChange={(next) => updateSearch({ ctab: next as AgentConfigTab })}
                   onDeleted={() => void navigate({ to: "/agents" })}
                 />
               ) : (
