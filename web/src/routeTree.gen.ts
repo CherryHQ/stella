@@ -149,7 +149,9 @@ const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppAgentsRoute,
-} as any)
+} as any).lazy(() =>
+  import('./routes/_app/agents.index.lazy').then((d) => d.Route),
+)
 const AppTasksTaskIdRoute = AppTasksTaskIdRouteImport.update({
   id: '/$taskId',
   path: '/$taskId',

@@ -38,6 +38,7 @@ import {
 } from "@/lib/chat-transport";
 import { useAppShell } from "@/layouts/AppShell";
 import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
+import { takePendingMessage } from "./pendingMessage";
 import { SessionInfoPopover } from "./SessionInfoPopover";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
@@ -436,6 +437,18 @@ export function SessionDetail({
     [isStreaming, session, attachments, buildMessageParts, clearAttachments, chatSendMessage],
   );
 
+  // A thread started from the home composer arrives with its first message
+  // parked in memory. Claim it once the session is loaded; `takePendingMessage`
+  // hands it out exactly once, so a reload never re-sends it.
+  const pendingSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!session || pendingSentRef.current === session.id) return;
+    const text = takePendingMessage(session.id);
+    if (!text) return;
+    pendingSentRef.current = session.id;
+    void sendMessage(text);
+  }, [session, sendMessage]);
+
   const exportSessionAs = useCallback(
     async (format: "jsonl" | "md") => {
       if (!session || exporting || isStreaming) return;
@@ -614,6 +627,46 @@ export function SessionDetail({
       </div>
     );
   }
+  const composer =
+    session.user_id === currentUserID ? (
+      <ChatComposer
+        onSend={(text) => void sendMessage(text)}
+        onStop={() => chatStop()}
+        isStreaming={isStreaming}
+        placeholder={t("sessions.composer.placeholder")}
+        attachments={attachments}
+        onFileSelect={(files) => void selectFiles(files)}
+        onRemoveAttachment={removeAttachment}
+        skills={composerSkills}
+      />
+    ) : null;
+
+  // A brand-new thread has nothing to scroll: show the agent and the composer
+  // in the middle of the column instead of an empty transcript with a composer
+  // docked to the bottom. Gated on the history query having settled so the
+  // centered state can never flash while messages are still loading, and
+  // limited to hand-started threads — a "main" conversation is never empty in
+  // spirit even when it has no rows yet.
+  const isBlankThread =
+    session.kind === "chat" && historyReady && messages.length === 0 && !!composer;
+
+  if (isBlankThread) {
+    const agentName = agentsList.find((a) => a.id === session.agent_id)?.name ?? "";
+    return (
+      <>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto bg-background">
+          <div className="w-full max-w-3xl">
+            {agentName && (
+              <h2 className="px-4 pb-4 text-center text-xl font-semibold sm:px-8">{agentName}</h2>
+            )}
+            {composer}
+          </div>
+        </div>
+        <ToastContainer messages={toasts} />
+      </>
+    );
+  }
+
   return (
     <>
       <ChatPane
@@ -659,20 +712,7 @@ export function SessionDetail({
           />
         }
         notice={<ChatErrorNotice error={chatError} />}
-        composer={
-          session.user_id === currentUserID ? (
-            <ChatComposer
-              onSend={(text) => void sendMessage(text)}
-              onStop={() => chatStop()}
-              isStreaming={isStreaming}
-              placeholder={t("sessions.composer.placeholder")}
-              attachments={attachments}
-              onFileSelect={(files) => void selectFiles(files)}
-              onRemoveAttachment={removeAttachment}
-              skills={composerSkills}
-            />
-          ) : null
-        }
+        composer={composer}
       />
       <ToastContainer messages={toasts} />
     </>

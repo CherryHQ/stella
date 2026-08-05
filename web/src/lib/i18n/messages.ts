@@ -49,6 +49,10 @@ const en = {
   "search.chats": "Chats",
   "search.scopeHint": "Chat search covers the agent you are in.",
 
+  // Home
+  "home.greeting": "What can I do for you today?",
+  "home.selectAgent": "Select agent",
+
   // Conversation sidebar
   "sidebar.goals": "Goals",
   "sidebar.projects": "Projects",
@@ -2106,6 +2110,10 @@ const zh: Record<MessageKey, string> = {
   "search.projects": "项目",
   "search.chats": "对话",
   "search.scopeHint": "对话搜索范围为当前智能体。",
+
+  // Home
+  "home.greeting": "今天想让谁做点什么？",
+  "home.selectAgent": "选择智能体",
 
   // Conversation sidebar
   "sidebar.goals": "目标",
