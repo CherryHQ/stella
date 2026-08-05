@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Bot, Folder, MessageSquare, Users } from "lucide-react";
+import { Bot, Folder, MessageSquare, Search, Users } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupsQueryOptions } from "@/lib/queries/groups";
@@ -113,13 +113,21 @@ export function GlobalSearchDialog({
           <DialogTitle>{t("search.open")}</DialogTitle>
           <DialogDescription>{t("search.placeholder")}</DialogDescription>
         </DialogHeader>
-        <DialogPanel className="flex flex-col gap-3 p-3">
+        {/* Palette anatomy: a flush borderless input separated by a hairline,
+            not a boxed Input floating inside the popup. */}
+        <div className="flex items-center gap-2 border-b px-4">
+          <Search size={16} className="shrink-0 text-muted-foreground" />
           <Input
+            unstyled
+            size="lg"
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("search.placeholder")}
+            className="flex-1"
           />
+        </div>
+        <DialogPanel className="flex flex-col gap-3 p-2" scrollFade={false}>
           <div className="flex max-h-96 flex-col gap-3 overflow-y-auto">
             {sections.length === 0 ? (
               <p className="px-2 py-6 text-center text-sm text-muted-foreground">
@@ -149,10 +157,12 @@ export function GlobalSearchDialog({
               ))
             )}
           </div>
-          {agentId && (
-            <p className="px-2 pb-1 text-xs text-muted-foreground">{t("search.scopeHint")}</p>
-          )}
         </DialogPanel>
+        {agentId && (
+          <p className="border-t px-4 py-2.5 text-xs text-muted-foreground">
+            {t("search.scopeHint")}
+          </p>
+        )}
       </DialogPopup>
     </Dialog>
   );
