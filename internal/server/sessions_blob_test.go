@@ -28,6 +28,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -797,9 +798,18 @@ func TestUploadWorkspaceFileReturnsRelativePathAndScope(t *testing.T) {
 	if !strings.HasPrefix(rel, "assets/") || !strings.HasSuffix(rel, "-photo.png") {
 		t.Fatalf("relative_path=%q, want assets/...-photo.png", rel)
 	}
-	// The sandbox-view path is the scope root joined with the relative path, so
-	// the relative path is always its suffix regardless of sandbox backend.
-	if !strings.HasSuffix(filepath.ToSlash(body.Path), rel) {
-		t.Fatalf("path=%q does not end with relative_path=%q", body.Path, rel)
+	if want := "$" + pkgsandbox.EnvStellaAssetsDir + "/" + strings.TrimPrefix(rel, "assets/"); body.Path != want {
+		t.Fatalf("path=%q, want portable agent path %q", body.Path, want)
+	}
+	if strings.HasPrefix(body.Path, home) || strings.Contains(body.Path, filepath.ToSlash(home)) {
+		t.Fatalf("path=%q leaked STELLA_HOME %q", body.Path, home)
+	}
+	raw := true
+	agentScope := apitypes.WorkspaceScopeAgent
+	readReq := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	readRR := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(readRR, readReq, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: body.Path, Scope: &agentScope, Raw: &raw})
+	if readRR.Code != http.StatusOK || readRR.Body.String() != "upload" {
+		t.Fatalf("raw read status=%d body=%q", readRR.Code, readRR.Body.String())
 	}
 }

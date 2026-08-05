@@ -4103,7 +4103,7 @@ components:
         path:
           type: string
           description: >-
-            Sandbox-view path of the uploaded file (e.g. /user/assets/...), embedded in the message text the agent reads.
+            Portable agent path expression of the uploaded file (for example, $STELLA_ASSETS_DIR/202608/file.png), embedded in the message text the agent reads.
         relative_path:
           type: string
           description: >-

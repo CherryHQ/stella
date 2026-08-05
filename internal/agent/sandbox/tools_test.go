@@ -267,6 +267,62 @@ func TestToolPathsExpandSandboxViewAndRemainConfined(t *testing.T) {
 	}
 }
 
+func TestToolPathVariableProjectsHostAssetPathToCanonicalFilesystemPath(t *testing.T) {
+	workspace := t.TempDir()
+	userData := t.TempDir()
+	assets := filepath.Join(userData, "assets")
+	if err := os.MkdirAll(assets, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assets, "upload.txt"), []byte("uploaded"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	session := &toolTestSession{
+		Session: pkgsandbox.NopSession(),
+		workDir: pkgsandbox.PathWorkspace,
+		policy: pkgsandbox.Policy{
+			Filesystem: pkgsandbox.FilesystemPolicy{
+				WorkspaceRoot: workspace,
+				WorkingDir:    workspace,
+				Mounts: []pkgsandbox.Mount{
+					{HostPath: workspace, SandboxPath: pkgsandbox.PathWorkspace, Access: pkgsandbox.MountReadWrite},
+					{HostPath: userData, SandboxPath: pkgsandbox.PathUser, Access: pkgsandbox.MountReadWrite},
+				},
+			},
+			Env: map[string]string{pkgsandbox.EnvStellaAssetsDir: assets},
+		},
+		mounts: []fsops.Mount{
+			{Path: pkgsandbox.PathWorkspace, Directory: workspace},
+			{Path: pkgsandbox.PathUser, Directory: userData},
+		},
+	}
+
+	got, err := resolveToolPath(session, "$STELLA_ASSETS_DIR/upload.txt")
+	if err != nil || got != "/user/assets/upload.txt" {
+		t.Fatalf("resolve variable path = %q, %v; want /user/assets/upload.txt", got, err)
+	}
+	read, err := newReadTool(session).Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
+	if err != nil || read != "uploaded" {
+		t.Fatalf("read variable path = %q, %v; want uploaded", read, err)
+	}
+
+	if _, err := newReadTool(session).Execute(context.Background(), map[string]any{"path": filepath.Join(assets, "upload.txt")}); err == nil {
+		t.Fatal("literal host asset path was accepted by Filesystem")
+	}
+}
+
+func TestToolPathVariableKeepsCanonicalSandboxPath(t *testing.T) {
+	session := &toolTestSession{
+		Session: pkgsandbox.NopSession(),
+		workDir: pkgsandbox.PathWorkspace,
+		policy:  pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvStellaAssetsDir: "/user/assets"}},
+	}
+	got, err := resolveToolPath(session, "$STELLA_ASSETS_DIR/upload.txt")
+	if err != nil || got != "/user/assets/upload.txt" {
+		t.Fatalf("resolve canonical variable path = %q, %v; want /user/assets/upload.txt", got, err)
+	}
+}
+
 // TestToolPathsResolveRelativeAgainstWorkingDir proves a leading variable is
 // expanded to its canonical root, while a bare relative path joins the session
 // working directory rather than being treated as a literal variable directory.

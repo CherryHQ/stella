@@ -51,10 +51,23 @@ func resolveToolPath(session pkgsandbox.Session, input string) (string, error) {
 	}
 	resolved := input
 	if strings.HasPrefix(input, "$") {
+		policy := session.Policy()
 		var err error
-		resolved, err = pkgsandbox.ExpandPathVariables(input, session.Policy().Env)
+		resolved, err = pkgsandbox.ExpandPathVariables(input, policy.Env)
 		if err != nil {
 			return "", err
+		}
+		// Variables are trusted session-policy aliases. A non-isolating backend
+		// expands them to a host path, which must be projected back into the
+		// Filesystem's canonical mount view. Literal host paths never take this
+		// branch and remain forbidden at the Filesystem boundary.
+		resolver := pkgsandbox.NewPathResolver(pkgsandbox.PathResolverConfig{
+			WorkspaceRoot: policy.Filesystem.WorkspaceRoot,
+			WorkingDir:    policy.Filesystem.WorkingDir,
+			Mounts:        policy.Filesystem.Mounts,
+		})
+		if sandboxPath, ok := resolver.ToSandboxPath(resolved); ok {
+			resolved = sandboxPath
 		}
 	}
 	if !strings.HasPrefix(resolved, "/") {

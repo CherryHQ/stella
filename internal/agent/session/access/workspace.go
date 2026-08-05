@@ -117,8 +117,8 @@ type WorkspaceUploadInput struct {
 }
 
 type WorkspaceUploadResult struct {
-	// Path is the sandbox-view path the agent reads (e.g. /user/assets/... on
-	// isolating backends, the absolute host path otherwise).
+	// Path is the portable agent path expression the agent reads (e.g.
+	// $STELLA_ASSETS_DIR/202608/file.png), independent of host coordinates.
 	Path string `json:"path"`
 	// RelativePath is the upload location relative to its workspace root.
 	// Combine with Scope to build a workspace file-content read URL.
@@ -213,12 +213,19 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		return WorkspaceReadResult{}, ErrInvalid
 	}
 	scope, path := in.Scope, in.Path
+	relative, isAlias, err := workspaceAssetAlias(path)
+	if isAlias {
+		if err != nil {
+			return WorkspaceReadResult{}, ErrInvalid
+		}
+		scope, path = WorkspaceScopeUser, relative
+	}
 	// An absolute path is self-describing (e.g. a host path embedded in a chat
 	// message by a non-isolating backend, or a sandbox-view mount path). Resolve
 	// which authorized workspace root contains it and read under that root's
 	// scope, ignoring the requested scope. This never widens authority: the file
 	// must already be reachable via one of the two roots the caller may read.
-	if filepath.IsAbs(filepath.FromSlash(path)) {
+	if !isAlias && filepath.IsAbs(filepath.FromSlash(path)) {
 		resolvedScope, rel, err := a.canonicalizeAbsPath(ctx, in.AgentID, in.SessionID, path)
 		if err != nil {
 			return WorkspaceReadResult{}, err
@@ -272,6 +279,29 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		return WorkspaceReadResult{}, ErrBinary
 	}
 	return WorkspaceReadResult{Path: path, Content: string(data), Language: DetectLanguage(path)}, nil
+}
+
+// workspaceAssetAlias recognizes the portable upload path embedded in agent
+// messages. It maps only the assets alias to a user-root-relative path without
+// consulting the host environment or admitting other variable expressions.
+func workspaceAssetAlias(input string) (relative string, isAlias bool, err error) {
+	if !strings.HasPrefix(input, "$") {
+		return "", false, nil
+	}
+	name, suffix, _, err := pkgsandbox.SplitLeadingPathVariable(input)
+	if err != nil || name != pkgsandbox.EnvStellaAssetsDir || suffix == "" {
+		return "", true, ErrInvalid
+	}
+	suffix = strings.TrimPrefix(filepath.ToSlash(suffix), "/")
+	if suffix == "" {
+		return "", true, ErrInvalid
+	}
+	for segment := range strings.SplitSeq(suffix, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return "", true, ErrInvalid
+		}
+	}
+	return "assets/" + suffix, true, nil
 }
 
 // readRootFile enforces MaxBytes while reading as well as before it. The second
@@ -448,18 +478,8 @@ func (a *Access) UploadWorkspacePath(ctx context.Context, in WorkspaceUploadInpu
 	}
 	rel, _ := filepath.Rel(root, abs)
 	relSlash := filepath.ToSlash(rel)
-	sandboxRoot := sandbox.UserDataViewFor(config.ActiveSandboxBackend(), root)
-	viewPath := filepath.Join(sandboxRoot, rel)
-	// Non-isolating backends expose host paths. Resolve aliases such as macOS
-	// /var -> /private/var so the path matches the sandbox mount authority.
-	// Never resolve /user in host space for an isolating backend.
-	if sandboxRoot == root {
-		if resolved, err := filepath.EvalSymlinks(viewPath); err == nil {
-			viewPath = resolved
-		}
-	}
 	return WorkspaceUploadResult{
-		Path:         filepath.ToSlash(viewPath),
+		Path:         "$" + pkgsandbox.EnvStellaAssetsDir + "/" + strings.TrimPrefix(relSlash, "assets/"),
 		RelativePath: relSlash,
 		Scope:        WorkspaceScopeUser,
 	}, nil
