@@ -214,20 +214,62 @@ func (s *Service) SetActive(ctx context.Context, authority authz.Authority, targ
 		return AccountView{}, fmt.Errorf("%w: update active: %w", ErrUnavailable, err)
 	}
 	if !active {
-		var errs []error
-		if err := s.sessions.DeleteUserSessions(ctx, targetID); err != nil {
-			errs = append(errs, fmt.Errorf("revoke sessions: %w", err))
-		}
-		if s.pats != nil {
-			if _, err := s.pats.RevokeUserPATs(ctx, targetID); err != nil {
-				errs = append(errs, fmt.Errorf("revoke PATs: %w", err))
-			}
-		}
-		if len(errs) > 0 {
-			return AccountView{}, fmt.Errorf("%w: lock down deactivated account: %w", ErrUnavailable, errors.Join(errs...))
+		if err := s.lockDown(ctx, targetID); err != nil {
+			return AccountView{}, err
 		}
 	}
 	return s.loadView(ctx, targetID)
+}
+
+// DeactivateUserIfUserRole is the narrow conditional lifecycle operation for
+// integrations that may deactivate ordinary accounts but must never deactivate
+// an administrator. Its UPDATE is the linearization point against promotion;
+// lockdown only follows a successful conditional write.
+func (s *Service) DeactivateUserIfUserRole(ctx context.Context, authority authz.Authority, targetID string) (AccountView, error) {
+	if err := gateAdmin(authority); err != nil {
+		return AccountView{}, err
+	}
+	if string(authority.UserID()) == targetID {
+		return AccountView{}, ErrSelfDeactivate
+	}
+	conditional, ok := s.users.(auth.UserRoleConditionalDeactivator)
+	if !ok {
+		return AccountView{}, fmt.Errorf("%w: conditional deactivation is unsupported", ErrUnavailable)
+	}
+	updated, err := conditional.DeactivateUserIfUserRole(ctx, targetID)
+	if err != nil {
+		return AccountView{}, fmt.Errorf("%w: conditionally deactivate user: %w", ErrUnavailable, err)
+	}
+	if !updated {
+		view, err := s.loadView(ctx, targetID)
+		if err != nil {
+			return AccountView{}, err
+		}
+		if view.User.Role != auth.RoleUser {
+			return AccountView{}, ErrForbidden
+		}
+		return AccountView{}, fmt.Errorf("%w: conditional deactivation did not update user", ErrUnavailable)
+	}
+	if err := s.lockDown(ctx, targetID); err != nil {
+		return AccountView{}, err
+	}
+	return s.loadView(ctx, targetID)
+}
+
+func (s *Service) lockDown(ctx context.Context, targetID string) error {
+	var errs []error
+	if err := s.sessions.DeleteUserSessions(ctx, targetID); err != nil {
+		errs = append(errs, fmt.Errorf("revoke sessions: %w", err))
+	}
+	if s.pats != nil {
+		if _, err := s.pats.RevokeUserPATs(ctx, targetID); err != nil {
+			errs = append(errs, fmt.Errorf("revoke PATs: %w", err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%w: lock down deactivated account: %w", ErrUnavailable, errors.Join(errs...))
+	}
+	return nil
 }
 
 // ListUserAgents returns the agent IDs assigned to a user. Admin-only.

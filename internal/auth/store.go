@@ -22,6 +22,13 @@ type UserStore interface {
 	UpdateUserActive(ctx context.Context, userID string, isActive bool) error
 }
 
+// UserRoleConditionalDeactivator atomically deactivates only a standard user.
+// It prevents a read-then-write role race at callers that must never deactivate
+// an administrator.
+type UserRoleConditionalDeactivator interface {
+	DeactivateUserIfUserRole(ctx context.Context, userID string) (bool, error)
+}
+
 // LoginIdentityStore provides CRUD for auth_identity (OIDC login identities).
 type LoginIdentityStore interface {
 	CreateLoginIdentity(ctx context.Context, i LoginIdentity) (LoginIdentity, error)

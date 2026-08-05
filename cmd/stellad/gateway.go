@@ -40,6 +40,7 @@ import (
 	"github.com/CherryHQ/stella/internal/observability"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -391,6 +392,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		as, credFrontDoor,
 		slog.With("component", "account"),
 	)
+	provisioningSvc := provisioning.New(s.db, accountSvc, vaultRecipient, slog.With("component", "provisioning"))
 
 	// The Profile service owns the per-(user, agent) memory boundary. The Provider
 	// is viewed through its ProfileStore/ChangelogReader capabilities (nil when the
@@ -450,6 +452,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Scheduler:           s.schedulerSvc,
 		Goal:                s.goalSvc,
 		Workflow:            s.workflowSvc,
+		Provisioning:        provisioningSvc,
 		OIDC: server.OIDCDeps{
 			Providers:  oidcResult.Providers,
 			AuthSvc:    oidcResult.AuthSvc,

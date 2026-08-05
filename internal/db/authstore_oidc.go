@@ -68,11 +68,12 @@ var _ auth.Transactioner = (*OIDCStore)(nil)
 
 // Ensure OIDCStore satisfies all store interfaces at compile time.
 var (
-	_ auth.UserStore            = (*OIDCStore)(nil)
-	_ auth.LoginIdentityStore   = (*OIDCStore)(nil)
-	_ auth.ChannelIdentityStore = (*OIDCStore)(nil)
-	_ auth.SessionStore         = (*OIDCStore)(nil)
-	_ auth.CredentialStore      = (*OIDCStore)(nil)
+	_ auth.UserStore                      = (*OIDCStore)(nil)
+	_ auth.UserRoleConditionalDeactivator = (*OIDCStore)(nil)
+	_ auth.LoginIdentityStore             = (*OIDCStore)(nil)
+	_ auth.ChannelIdentityStore           = (*OIDCStore)(nil)
+	_ auth.SessionStore                   = (*OIDCStore)(nil)
+	_ auth.CredentialStore                = (*OIDCStore)(nil)
 )
 
 // ---- Agent assignments ----
@@ -276,6 +277,18 @@ func (s *OIDCStore) UpdateUserActive(ctx context.Context, userID string, isActiv
 	const q = `UPDATE auth_user SET is_active = $1, updated_at = now() WHERE id = $2`
 	_, err := s.db.Exec(ctx, q, isActive, userID)
 	return err
+}
+
+// DeactivateUserIfUserRole is the conditional write used when a caller must
+// never deactivate an administrator. PostgreSQL serializes this UPDATE with a
+// concurrent role promotion on the same row.
+func (s *OIDCStore) DeactivateUserIfUserRole(ctx context.Context, userID string) (bool, error) {
+	const q = `UPDATE auth_user SET is_active = false, updated_at = now() WHERE id = $1 AND role = 'user'`
+	tag, err := s.db.Exec(ctx, q, userID)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }
 
 // scanUser reads a single auth_user row from a *sql.Row or *sql.Rows.

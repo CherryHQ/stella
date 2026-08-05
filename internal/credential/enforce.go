@@ -29,6 +29,7 @@ var deniedResources = map[string]bool{
 	"plugins":            true,
 	"provider-types":     true,
 	"providers":          true,
+	"provisioned-users":  true,
 	"tools":              true,
 	"vision-settings":    true,
 }
@@ -106,6 +107,7 @@ func patCredentialRouteDenied(path string) bool {
 	switch {
 	case hasSegmentPrefix(rest, "users", "me", "tokens"),
 		hasSegmentPrefix(rest, "admin", "provisioning-tokens"),
+		hasSegmentPrefix(rest, "provisioned-users"),
 		hasSegmentPrefix(rest, "users", "me", "oauth-clients"),
 		hasSegmentPrefix(rest, "users", "me", "authorized-apps"),
 		hasSegmentPrefix(rest, "auth", "sessions"),

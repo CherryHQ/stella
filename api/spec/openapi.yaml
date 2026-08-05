@@ -285,6 +285,14 @@ paths:
     $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1admin~1provisioning-tokens"
   /api/admin/provisioning-tokens/{id}:
     $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1admin~1provisioning-tokens~1{id}"
+  /api/provisioned-users:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users"
+  /api/provisioned-users/{id}:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users~1{id}"
+  /api/provisioned-users/{id}/rotate-token:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users~1{id}~1rotate-token"
+  /api/provisioned-users/{id}/deactivate:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users~1{id}~1deactivate"
 
   # ── OAuth2 clients & authorized apps ─────────────────────────────────────────
   /api/users/me/oauth-clients:

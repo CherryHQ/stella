@@ -1147,6 +1147,7 @@ var resourceAuthHelperAllowlist = map[string]bool{
 	"requireAuth":               true, // middleware.go — authentication (not resource authz)
 	"requireAdmin":              true, // middleware.go — admin gate
 	"requireInteractiveAdmin":   true, // middleware.go — sole session-only credential-lifecycle gate
+	"requireProvisioningBearer": true, // middleware.go — sole KindProvisioning gate for provisioned users
 	"requireAgentAccess":        true, // skills_scoped.go — agent access gate
 	"requireAgentUse":           true, // skills_scoped.go — agent execute gate
 	"requireAgentManage":        true, // skills_scoped.go — agent manage gate
