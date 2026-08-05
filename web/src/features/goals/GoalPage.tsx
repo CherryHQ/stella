@@ -1732,7 +1732,7 @@ function AcceptanceContractView({ contract }: { contract: ComponentsAcceptanceCo
                 <span className="font-mono text-[10px]">{it.authority}</span>
               )}
               {it.required === false && (
-                <span className="font-mono text-[10px]">{t("goals.planOptional")}</span>
+                <span className="text-[10px]">{t("goals.planOptional")}</span>
               )}
             </span>
             {it.command && (

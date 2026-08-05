@@ -10,7 +10,7 @@
  * Notion). Neutrals are tinted toward the teal accent (hue ~200) so the grays
  * feel related to the brand, not pasted next to it. See web-design.md.
  */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300..600&family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300..600&family=JetBrains+Mono:wght@400;500&display=swap");
 
 :root {
   --radius: 0.75rem;
@@ -20,31 +20,36 @@
   --card-foreground: oklch(0.2 0.022 220);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.2 0.022 220);
-  --primary: oklch(0.55 0.14 172); /* teal — slightly purer for presence */
-  --primary-foreground: oklch(0.99 0.01 172);
+  /* Teal at hue 190 — one brand hue, two lightnesses (see .dark). Held at L .5
+     because the light accent has to clear two gates at once: white label on the
+     fill (5.2:1, AA text) and the fill itself against the canvas (5.0:1, 1.4.11
+     non-text contrast). Brightening it toward a more vivid teal passes the first
+     and fails the second — the button stops separating from the page. */
+  --primary: oklch(0.5 0.12 190);
+  --primary-foreground: oklch(0.99 0.01 190);
   --secondary: oklch(0.95 0.012 198); /* tinted chip / button surface */
   --secondary-foreground: oklch(0.2 0.022 220);
   --muted: oklch(0.95 0.012 198);
   --muted-foreground: oklch(0.48 0.025 205); /* tinted captions, labels */
-  --accent: oklch(0.93 0.05 178); /* teal tint — selected / active / hover */
-  --accent-foreground: oklch(0.43 0.11 178);
+  --accent: oklch(0.93 0.045 190); /* teal tint — selected / active / hover */
+  --accent-foreground: oklch(0.4 0.09 190);
   --destructive: oklch(0.58 0.2 25);
   --border: oklch(0.9 0.012 200); /* tinted hairline, a touch more visible */
   --input: oklch(0.9 0.012 200);
-  --ring: oklch(0.55 0.14 172);
-  --chart-1: oklch(0.55 0.14 172); /* teal — primary */
+  --ring: oklch(0.5 0.12 190);
+  --chart-1: oklch(0.5 0.12 190); /* teal — primary */
   --chart-2: oklch(0.6 0.13 230); /* blue — info / running */
   --chart-3: oklch(0.68 0.15 150); /* green — success */
   --chart-4: oklch(0.74 0.15 78); /* amber — warning */
   --chart-5: oklch(0.62 0.18 35); /* coral */
   --sidebar: oklch(0.965 0.01 198); /* recessed panel, clearly off-canvas */
   --sidebar-foreground: oklch(0.2 0.022 220);
-  --sidebar-primary: oklch(0.55 0.14 172);
-  --sidebar-primary-foreground: oklch(0.99 0.01 172);
-  --sidebar-accent: oklch(0.93 0.05 178);
-  --sidebar-accent-foreground: oklch(0.43 0.11 178);
+  --sidebar-primary: oklch(0.5 0.12 190);
+  --sidebar-primary-foreground: oklch(0.99 0.01 190);
+  --sidebar-accent: oklch(0.93 0.045 190);
+  --sidebar-accent-foreground: oklch(0.4 0.09 190);
   --sidebar-border: oklch(0.9 0.012 200);
-  --sidebar-ring: oklch(0.55 0.14 172);
+  --sidebar-ring: oklch(0.5 0.12 190);
   /* Destructive *foreground text* (red), not on-destructive-bg text. CossUI uses
      this token for destructive-outline buttons, field errors, and menu items —
      all red text on light surfaces. Filled destructive variants hardcode white. */
@@ -63,11 +68,12 @@
   --warning-foreground: oklch(0.51 0.11 78);
   --info: oklch(0.53 0.14 230); /* chart-2 hue, text-weight */
   --info-foreground: oklch(0.48 0.13 230);
+  /* Two families, and the second one means something. `--font-serif` used to be
+     a third that resolved to Inter, so `font-serif` was a no-op that read as an
+     intent nobody could see. If this theme ever wants a display face, add it
+     here as a real one. */
   --font-sans:
     "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  --font-serif:
-    "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial,
-    sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
   --shadow-color: oklch(0.5 0.03 220);
   --shadow-opacity: 0.07;
@@ -98,31 +104,31 @@
   --card-foreground: oklch(0.95 0.006 200);
   --popover: oklch(0.24 0.018 215); /* +0.06 L — elevated */
   --popover-foreground: oklch(0.95 0.006 200);
-  --primary: oklch(0.7 0.14 174); /* brighter teal for dark */
+  --primary: oklch(0.72 0.13 190); /* same hue as light, lifted for dark */
   --primary-foreground: oklch(0.18 0.04 200);
   --secondary: oklch(0.24 0.018 215);
   --secondary-foreground: oklch(0.95 0.006 200);
   --muted: oklch(0.24 0.018 215);
   --muted-foreground: oklch(0.7 0.018 200);
-  --accent: oklch(0.3 0.06 178); /* dark teal tint */
-  --accent-foreground: oklch(0.8 0.13 174);
+  --accent: oklch(0.3 0.055 190); /* dark teal tint */
+  --accent-foreground: oklch(0.82 0.12 190);
   --destructive: oklch(0.64 0.2 25);
   --border: oklch(0.28 0.016 210);
   --input: oklch(0.28 0.016 210);
-  --ring: oklch(0.7 0.14 174);
-  --chart-1: oklch(0.7 0.14 174);
+  --ring: oklch(0.72 0.13 190);
+  --chart-1: oklch(0.72 0.13 190);
   --chart-2: oklch(0.68 0.13 230);
   --chart-3: oklch(0.72 0.16 150);
   --chart-4: oklch(0.78 0.15 78);
   --chart-5: oklch(0.68 0.18 35);
   --sidebar: oklch(0.2 0.016 215); /* between bg and card */
   --sidebar-foreground: oklch(0.95 0.006 200);
-  --sidebar-primary: oklch(0.7 0.14 174);
+  --sidebar-primary: oklch(0.72 0.13 190);
   --sidebar-primary-foreground: oklch(0.18 0.04 200);
-  --sidebar-accent: oklch(0.3 0.06 178);
-  --sidebar-accent-foreground: oklch(0.8 0.13 174);
+  --sidebar-accent: oklch(0.3 0.055 190);
+  --sidebar-accent-foreground: oklch(0.82 0.12 190);
   --sidebar-border: oklch(0.28 0.016 210);
-  --sidebar-ring: oklch(0.7 0.14 174);
+  --sidebar-ring: oklch(0.72 0.13 190);
   /* See light-theme note: red foreground text, lifted for dark surfaces. */
   --destructive-foreground: oklch(0.7 0.18 25);
   /* See light-theme note. Lifted above the dark canvas rather than pulled down. */
@@ -135,9 +141,6 @@
   --radius: 0.75rem;
   --font-sans:
     "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  --font-serif:
-    "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial,
-    sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
   --shadow-color: oklch(0 0 0);
   --shadow-opacity: 0;

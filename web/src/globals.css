@@ -49,7 +49,6 @@
   --radius-4xl: calc(var(--radius) * 2.6);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --font-serif: var(--font-serif);
   /* Bare `rounded` utility resolves this at build time — kept here, not in
      tokens.css, because Tailwind inlines it. 1.125rem matches CossUI. */
   --radius: 1.125rem;

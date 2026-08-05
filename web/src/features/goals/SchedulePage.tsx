@@ -126,7 +126,7 @@ export function SchedulePage() {
       }
     >
       <div className="mt-2.5 flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-[12.5px] text-muted-foreground">
-        <span className="font-mono">{humanScheduleText(t, job)}</span>
+        <span>{humanScheduleText(t, job)}</span>
         {next && (
           <>
             <MetaSep />

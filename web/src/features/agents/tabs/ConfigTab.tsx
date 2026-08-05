@@ -76,7 +76,7 @@ function ModelComboField({
           {label}
         </label>
         {optional && (
-          <span className="text-xs font-mono text-muted-foreground">({t("common.optional")})</span>
+          <span className="text-xs text-muted-foreground">({t("common.optional")})</span>
         )}
       </div>
       <Input

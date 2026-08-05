@@ -24,9 +24,7 @@ export function AuthLayout({ subtitle, error, children }: AuthLayoutProps) {
               className="rounded-lg animate-pulse"
             />
           </div>
-          <h1 className="font-serif italic text-primary text-4xl tracking-tight select-none">
-            stella
-          </h1>
+          <h1 className="font-semibold text-primary text-4xl tracking-tight select-none">stella</h1>
           <p className="text-muted-foreground text-sm mt-2">{subtitle}</p>
         </div>
 

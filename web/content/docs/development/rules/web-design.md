@@ -33,9 +33,9 @@ Token values live in `src/tokens.css` (`:root` light / `.dark` dark). These tabl
 | Divider, input border   | `border-border`               | `oklch(0.9 0.012 200)`   |
 | Body copy, headings     | `text-foreground`             | `oklch(0.2 0.022 220)`   |
 | Meta, captions, labels  | `text-muted-foreground`       | `oklch(0.48 0.025 205)`  |
-| Primary CTA, focus ring | `bg-primary` / `text-primary` | `oklch(0.55 0.14 172)`   |
-| Accent tint background  | `bg-accent`                   | `oklch(0.93 0.05 178)`   |
-| Accent tint text        | `text-accent-foreground`      | `oklch(0.43 0.11 178)`   |
+| Primary CTA, focus ring | `bg-primary` / `text-primary` | `oklch(0.5 0.12 190)`    |
+| Accent tint background  | `bg-accent`                   | `oklch(0.93 0.045 190)`  |
+| Accent tint text        | `text-accent-foreground`      | `oklch(0.4 0.09 190)`    |
 | Recessed sidebar panel  | `bg-sidebar`                  | `oklch(0.965 0.01 198)`  |
 | Error state             | `bg-destructive`              | `oklch(0.58 0.2 25)`     |
 
@@ -48,7 +48,7 @@ Token values live in `src/tokens.css` (`:root` light / `.dark` dark). These tabl
 | Elevated        | `bg-popover`      | `oklch(0.24 0.018 215)` |
 | Border          | `border-border`   | `oklch(0.28 0.016 210)` |
 | Body copy       | `text-foreground` | `oklch(0.95 0.006 200)` |
-| Accent (teal)   | `bg-primary`      | `oklch(0.7 0.14 174)`   |
+| Accent (teal)   | `bg-primary`      | `oklch(0.72 0.13 190)`  |
 
 ### Status colors
 
@@ -79,6 +79,27 @@ still maps run states to `chart-*`; migrating those to the status tokens is open
 work, and `RunsTimeline.tsx` currently contradicts this table by giving `running`
 the warning hue.
 
+### Why the teal sits where it does
+
+One hue (190) at two lightnesses, and the light value is pinned by two gates at
+once, not one:
+
+| Gate                                             | Requirement | Light `oklch(0.5 0.12 190)` | Dark `oklch(0.72 0.13 190)` |
+| ------------------------------------------------ | ----------- | --------------------------- | --------------------------- |
+| Button label on the fill (WCAG 1.4.3)            | 4.5:1       | 5.2:1                       | 8.0:1                       |
+| The fill itself against the canvas (WCAG 1.4.11) | 3:1         | 5.0:1                       | 8.1:1                       |
+| Teal as text on the canvas (1.4.3)               | 4.5:1       | 5.0:1                       | 7.6:1                       |
+
+The second gate is the one that gets forgotten. A more vivid teal clears the
+label test easily and then dissolves into a near-white page — at `oklch(0.72 0.13
+180)` the light button separates from the canvas by only 2.18:1. The previous
+`oklch(0.55 0.14 172)` failed the other direction: 4.2:1 for a white label and
+4.0:1 for teal-as-text, both under AA.
+
+Move `--primary` and every token that shadows it together — `--ring`, `--chart-1`,
+`--sidebar-primary`, `--sidebar-ring`, plus the `--accent` tint pair. `theme.ts`
+mirrors all of them for hue rotation, and `theme.test.ts` fails the build on drift.
+
 ### Accent usage rules
 
 - Accent (teal) leads to the primary action, active state, and focus per view — keep it from being decorative wallpaper.
@@ -89,11 +110,26 @@ the warning hue.
 
 ### Families
 
-| Role                    | Family         | Tailwind              |
-| ----------------------- | -------------- | --------------------- |
-| UI / body / display     | Inter          | `font-sans` (default) |
-| Code / citations        | JetBrains Mono | `font-mono`           |
-| Brand wordmark "stella" | Inter          | `font-serif italic`   |
+| Role                    | Family         | Tailwind                |
+| ----------------------- | -------------- | ----------------------- |
+| UI / body / display     | Inter          | `font-sans` (default)   |
+| Machine-emitted fact    | JetBrains Mono | `font-mono`             |
+| Brand wordmark "stella" | Inter 600      | `font-semibold` + tight |
+
+Two families, and there is no third. `--font-serif` used to exist and resolved to
+Inter, so `font-serif` was a no-op that read in review as an intent nobody could
+see; it is gone. If this theme ever wants a display face, add a real one.
+
+**`font-mono` marks a machine-emitted fact, not a mood.** Timestamps, durations,
+counts, token usage, exit codes, IDs, paths, model names, scopes, cron
+expressions, hashes — anything the system produced verbatim, where the reader
+scans and compares rather than reads. Human-authored prose stays in Inter, and a
+translated string is human-authored by definition: a column header, a status
+label, `(optional)`, or a sentence explaining what went wrong is never mono.
+
+The tell is that both often sit in the same row — `Runs 128` puts the label in
+Inter and the number in mono. Reaching for mono to make a UI feel technical is
+what got this codebase to 42% of its rendered type in a monospace face.
 
 Inter is loaded from Google Fonts (`@import` in `src/tokens.css`). Do not substitute with Helvetica or Arial — weight rendering differs.
 
@@ -113,7 +149,7 @@ Inter is loaded from Google Fonts (`@import` in `src/tokens.css`). Do not substi
 - Use weight 600 for display and headings; reserve 700 for tight, deliberate weight contrast on small display moments. Avoid 700 across long headings.
 - Line length: 55–70 characters for body copy. Wider than 80 chars breaks comprehension in dense reading layouts.
 - `text-sm` is the baseline for UI labels, table cells, sidebar items — not `text-base`.
-- Brand wordmark: `font-serif italic text-xl tracking-tight select-none`.
+- Brand wordmark: `font-semibold text-xl tracking-tight select-none`. Upright, not italic — a slanted grotesque reads as a stand-in for a logotype the product does not have.
 
 ## Spacing & density
 
