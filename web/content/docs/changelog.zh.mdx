@@ -11,13 +11,34 @@ icon: History
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-08-05
+
 ### ✨ 功能
 
+- Web UI：移除叠放的顶栏和分散的能力页面，改为由侧边栏承载全局导航，并新增跨 Agent 首页、聚焦的 Agent 档案，以及统一管理每个 Agent 的技能、工具和配置的入口。([#885](https://github.com/CherryHQ/stella/pull/885), [#884](https://github.com/CherryHQ/stella/issues/884))
 - `stellad postgres prune` 会列出当前二进制不再使用的内嵌 PostgreSQL runtime，加 `--force` 才真正删除。此前每次 runtime 版本更新都会在旧版本旁新装一份且从不清理，升级过的主机因此每个版本多占数百 MB。清理刻意保持手动：回滚后的二进制、或仍在使用旧 runtime 运行的另一个服务进程，都会因自动删除而中断。([#881](https://github.com/CherryHQ/stella/pull/881), [#878](https://github.com/CherryHQ/stella/issues/878))
+
+### ⚡ 性能
+
+- Agent：固定工具定义顺序，使内容相同的请求能够复用 provider 的 prompt cache。([#887](https://github.com/CherryHQ/stella/pull/887), [#801](https://github.com/CherryHQ/stella/issues/801))
+
+### 🔐 安全
+
+- MCP：在凭证可能被重新附加前拒绝跨源重定向，并清理工具因名称冲突而全部被遮蔽的客户端。([#876](https://github.com/CherryHQ/stella/pull/876), [#835](https://github.com/CherryHQ/stella/issues/835))
+- 诊断：从 OpenTelemetry 和 MCP 端点错误中移除凭证，同时保留有用的端点信息和可检查的错误原因。([#883](https://github.com/CherryHQ/stella/pull/883), [#835](https://github.com/CherryHQ/stella/issues/835))
 
 ### 🐛 修复
 
 - 内嵌 PostgreSQL：runtime 包携带了所需的全部动态库，却没有给这些库设置各自的 rpath，因此在没有匹配系统 libicu 的主机上数据库会以 `exit status 127` 直接启动失败。Stella 现在使用重新构建的 `-r2` runtime，并在失败时给出可读的原因。内嵌安装执行 `stellad upgrade` 会自动获取新 runtime；其他安装方式需要在下次启动前运行一次 `stellad postgres download`。([#877](https://github.com/CherryHQ/stella/pull/877), [#866](https://github.com/CherryHQ/stella/issues/866))
+- Embedding：调用方取消请求后会立即停止，不再触发 fallback，也不会计入 provider 熔断器。([#869](https://github.com/CherryHQ/stella/pull/869), [#835](https://github.com/CherryHQ/stella/issues/835))
+
+### 🔧 CI
+
+- 发布覆盖：Linux 沙箱和已构建 PWA 契约不再静默跳过，并新增上一正式版迁移、崩溃恢复、provider 协议、持久清理和诊断脱敏的确定性检查。([#845](https://github.com/CherryHQ/stella/pull/845), [#858](https://github.com/CherryHQ/stella/pull/858), [#863](https://github.com/CherryHQ/stella/pull/863), [#867](https://github.com/CherryHQ/stella/pull/867), [#868](https://github.com/CherryHQ/stella/pull/868), [#871](https://github.com/CherryHQ/stella/pull/871), [#882](https://github.com/CherryHQ/stella/pull/882), [#835](https://github.com/CherryHQ/stella/issues/835), [#866](https://github.com/CherryHQ/stella/issues/866))
+- 数据库：后续 Goose migration 改用连续版本号，并由普通 CI 和 merge queue 强制检查，避免并发分支静默产生无效的升级顺序。([#875](https://github.com/CherryHQ/stella/pull/875), [#873](https://github.com/CherryHQ/stella/issues/873))
+- 构建：所有内嵌 Web 构建统一固定 Node 和 pnpm 版本，并确保跨平台 Docker 构建时生成器仍在原生架构执行。([#881](https://github.com/CherryHQ/stella/pull/881), [#880](https://github.com/CherryHQ/stella/issues/880))
+
+**完整变更记录**：[v0.61.0...v0.62.0](https://github.com/CherryHQ/stella/compare/v0.61.0...v0.62.0)
 
 ## [0.61.0] - 2026-08-04
 

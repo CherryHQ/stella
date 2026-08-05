@@ -11,13 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-08-05
+
 ### ✨ Features
 
+- Web UI: replace the stacked top bars and scattered capability pages with sidebar-owned navigation, a cross-agent home page, focused agent profiles, and one consistent place to manage each agent's skills, tools, and configuration. ([#885](https://github.com/CherryHQ/stella/pull/885), [#884](https://github.com/CherryHQ/stella/issues/884))
 - `stellad postgres prune` reports the embedded-PostgreSQL runtimes this binary no longer uses and, with `--force`, removes them. Every runtime revision installed alongside the old one and nothing cleaned up, so an upgraded host was carrying a few hundred megabytes per version. Pruning stays manual on purpose: a rolled-back binary or a second server still running from the old runtime would both break. ([#881](https://github.com/CherryHQ/stella/pull/881), [#878](https://github.com/CherryHQ/stella/issues/878))
+
+### ⚡ Performance
+
+- Agents: keep tool definitions in a stable order so identical requests can reuse provider prompt caches. ([#887](https://github.com/CherryHQ/stella/pull/887), [#801](https://github.com/CherryHQ/stella/issues/801))
+
+### 🔐 Security
+
+- MCP: reject cross-origin redirects before credentials can be reattached, and clean up clients whose tools are all shadowed by name collisions. ([#876](https://github.com/CherryHQ/stella/pull/876), [#835](https://github.com/CherryHQ/stella/issues/835))
+- Diagnostics: redact credentials from OpenTelemetry and MCP endpoint errors while preserving useful endpoint details and inspectable error causes. ([#883](https://github.com/CherryHQ/stella/pull/883), [#835](https://github.com/CherryHQ/stella/issues/835))
 
 ### 🐛 Bug Fixes
 
 - Embedded PostgreSQL: the runtime bundle shipped every library it needed but gave those libraries no rpath of their own, so on a host without a matching system libicu the database failed to start with a bare `exit status 127`. Stella now uses the rebuilt `-r2` runtime and explains the failure when it happens. `stellad upgrade` fetches the replacement automatically for embedded installs; other install paths need `stellad postgres download` once before the next start. ([#877](https://github.com/CherryHQ/stella/pull/877), [#866](https://github.com/CherryHQ/stella/issues/866))
+- Embeddings: caller cancellation now stops immediately instead of triggering fallback or counting against the provider circuit breaker. ([#869](https://github.com/CherryHQ/stella/pull/869), [#835](https://github.com/CherryHQ/stella/issues/835))
+
+### 🔧 CI
+
+- Release coverage: fail rather than silently skip Linux sandbox and built-PWA contracts, and add deterministic checks for previous-release migrations, crash recovery, provider protocols, durable cleanup, and diagnostic redaction. ([#845](https://github.com/CherryHQ/stella/pull/845), [#858](https://github.com/CherryHQ/stella/pull/858), [#863](https://github.com/CherryHQ/stella/pull/863), [#867](https://github.com/CherryHQ/stella/pull/867), [#868](https://github.com/CherryHQ/stella/pull/868), [#871](https://github.com/CherryHQ/stella/pull/871), [#882](https://github.com/CherryHQ/stella/pull/882), [#835](https://github.com/CherryHQ/stella/issues/835), [#866](https://github.com/CherryHQ/stella/issues/866))
+- Database: future Goose migrations use contiguous versions, enforced in normal and merge-queue CI, so concurrent branches cannot silently produce an invalid upgrade order. ([#875](https://github.com/CherryHQ/stella/pull/875), [#873](https://github.com/CherryHQ/stella/issues/873))
+- Builds: pin every embedded-Web build to the same Node and pnpm versions and keep code generators native during cross-platform Docker builds. ([#881](https://github.com/CherryHQ/stella/pull/881), [#880](https://github.com/CherryHQ/stella/issues/880))
+
+**Full Changelog**: [v0.61.0...v0.62.0](https://github.com/CherryHQ/stella/compare/v0.61.0...v0.62.0)
 
 ## [0.61.0] - 2026-08-04
 
