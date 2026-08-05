@@ -415,7 +415,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - verify key count, byte size, and content digest; record the migration marker by PostgreSQL CAS;
   - be idempotent and never delete remote objects.
 - [x] Fail server startup when the durable metadata/config says legacy mutable object authority requires migration but the completion marker is absent. No-authority deployments record/observe `not_required` and continue normally.
-- [ ] After the marker gate, make `$STELLA_ASSETS_DIR` ordinary PrincipalHome data; migrate upload/share/channel consumers; remove mutable `asset.Store` object mirroring, hydrate, rollback, and object-version fencing while retaining immutable session media and share snapshots.
+- [x] After the marker gate, make `$STELLA_ASSETS_DIR` ordinary PrincipalHome data; migrate upload/share/channel consumers; remove mutable `asset.Store` object mirroring, hydrate, rollback, and object-version fencing while retaining immutable session media and share snapshots.
 - [ ] Extend canonical filesystem Skill metadata to preserve active/deprecated status, `disable_model_invocation`, nested metadata/`created_by`, source/install timestamps, and legacy lifecycle version; scope remains attachment-derived and rename remains delete+create.
 - [ ] Add operator-only `stellad storage migrate-skills --dry-run|--json` and a fail-closed Skill authority marker:
   - require maintenance mode, old writers stopped, and complete PG backup;
@@ -434,7 +434,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 - [ ] After the marker, fail startup on residual PG-only mutable current state; remove PG SkillStore/materializer/changelog writers and all runtime readers. Drop obsolete rows/tables only in a later explicit migration after backup retention and last dependency removal.
 - [ ] Delete public `ResolvePath`, `ResolveWritePath`, `HostPath` policy leakage, sessionless host `os.*` shortcuts, and obsolete resilient file retry paths.
 - [x] Add one Filesystem conformance suite and run it against local, `none`, and Docker adapters, including permissions, rename, symlink escape, concurrent writes, helper termination, and outcome-unknown writes.
-- [ ] Update user/developer docs and built-in skills in English and Chinese for Workspace paths, mutable assets, and removed host-path behavior.
+- [x] Update user/developer docs and built-in skills in English and Chinese for Workspace paths, mutable assets, and removed host-path behavior.
 
 **Acceptance:**
 
@@ -446,7 +446,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 - [x] Workspace list/read/write/upload succeeds through an exact Session with no warm Sandbox using the current single-process lifecycle; no Workspace path or response exposes a host coordinate.
 - [ ] `rg "ResolvePath|ResolveWritePath|HostPath" pkg/sandbox internal/agent internal/server plugins/sandbox` shows no public/caller dependency; any Provider-private resolver is explicitly scoped and tested.
 - [x] A fixture containing assets only in the configured S3-compatible authority fails server startup before migration; dry-run changes nothing; the real migration materializes and digest-verifies every fixture into the correct UserHome/GroupHome, records the marker, is idempotent, and leaves remote objects intact.
-- [ ] After cutover, mutable assets written by bash are immediately visible to Workspace/share without an object-store commit or hydrate step; immutable media/share tests remain green.
+- [x] After cutover, mutable assets written by bash are immediately visible to Workspace/share without an object-store commit or hydrate step; immutable media/share tests remain green.
 - [ ] Skill migration fixtures cover active, deprecated, manual, Reflect, metadata-rich, binary, colliding, invalid-path, and unsupported-status rows. Dry-run changes nothing; real migration verifies every disposition; marker-before/after has exactly one authority; residual PG-only state blocks startup.
 - [ ] Reflect filesystem tests cover expected-digest conflict, exact retry/outcome unknown, manual concurrent edit, runtime usage touch, pair-activity delete refusal, logical usage migration, and no PG changelog write after cutover.
 - [ ] A checked architecture-boundary test proves post-marker production wiring cannot construct/use PG SkillStore, `materializeDBSkill`, or changelog writers; migration/archive-only code is isolated behind the pre-marker operator path.
@@ -688,6 +688,16 @@ Every completed phase must replace its pending entry with the concrete handoff r
 - **What changed from this plan:** `stella-exec` stays with the Phase 5 provider environment-delivery work already specified below. Phase 2.1 needs only `stella-fs`; adding another helper now would create an unused public mechanism. No authority, consumer, API, or phase-order change occurred.
 - **What remains open:** Phase 2.2 must migrate non-Skill consumers and mutable assets. `Session.ResolvePath`, host parsing, current mutable asset authority, PostgreSQL mutable Skill authority, managed Skill publication, and shared Skill execution views remain intentionally unchanged.
 - **What Phase 2.2 must read or verify first:** `pkg/sandbox/filesystem.go`, `internal/fsops/{fsops,helper}.go`, `plugins/sandbox/{local,none,docker}`, the shared conformance suite, `internal/home.WorkspaceView`, every current `ResolvePath` caller, and the asset migration/startup-marker Acceptance contract above.
+
+### Handoff after Phase 2.2
+
+- **What landed:** Draft PR #888 moves active core file consumers, channel attachment ingress, the public Project path contract, exact-Session Workspace API/UI, Share artifact reads, and mutable assets onto provider-neutral Filesystem and typed Home authority. It includes the offline asset migration/startup gate, portable `$STELLA_ASSETS_DIR` paths, atomic no-replace Workspace moves on Darwin/Linux, and a narrowed immutable-only session-media Store.
+- **Acceptance results:** generation determinism, DB validation, format, build, full tests, supported-host system tests, repeated filesystem tests, focused race suites, cross-target compilation, and two independent blocker reviews passed. A real contained Filesystem fixture proves a direct PrincipalHome asset write is immediately visible to Workspace and Share while the published PostgreSQL share remains immutable.
+- **Decisions made during implementation:** each Workspace or Share source operation owns one exact-Session Filesystem callback lease. Share has a separate owner/executor policy so a bound AgentActor may publish from its own user-owned Session without widening the public Workspace API. Legacy object configuration remains for read-only migration and immutable session media; remote mutable objects are never deleted or used as runtime fallback.
+- **Surprises / gotchas:** Workspace authority could not switch before object-only assets were materialized. Runner cleanup originally raced counted callbacks. Public move needed provider-level atomic no-replace rather than `Stat` plus rename. Updating the built-in Stella reference required regenerating the deterministic builtin manifest.
+- **What changed from this plan:** Windows Workspace move fails closed until an atomic handle-relative no-replace rename is implemented; Darwin and Linux use native atomic flags. No new authority, activation table, controller, or dual-read/write path was added.
+- **What remains open:** Phase 2.3 owns mutable Skill/Reflect Home authority and managed publication. Phase 2.4 owns final public host-path cleanup. SessionSandbox, multi-replica, Compose, and Kubernetes remain closed.
+- **What Phase 2.3 must read or verify first:** the completed asset migration marker and Home authority boundary, `pkg/sandbox.Filesystem`, `internal/fsops`, immutable builtin Registry/manifests, current PostgreSQL Skill/Reflect metadata, and the offline Skill migration/observability acceptance contract above.
 
 ### Handoff after Phase 2 — pending
 
