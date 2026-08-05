@@ -1,5 +1,11 @@
 package channel
 
+// DiscordConfig is the persisted Discord channel plugin configuration.
+type DiscordConfig struct {
+	InstanceID string `json:"-"`
+	Token      string `json:"token"`
+}
+
 // TelegramConfig is the persisted Telegram channel plugin configuration.
 type TelegramConfig struct {
 	InstanceID   string `json:"-"`

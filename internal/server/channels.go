@@ -49,6 +49,7 @@ type channelWriteRequest struct {
 
 var channelLinkLabels = map[string]string{
 	pkgchannel.PlatformTelegram: "Telegram",
+	pkgchannel.PlatformDiscord:  "Discord",
 	pkgchannel.PlatformQQ:       "QQ",
 	pkgchannel.PlatformFeishu:   "Feishu",
 	pkgchannel.PlatformWeixin:   "Weixin",
@@ -56,6 +57,7 @@ var channelLinkLabels = map[string]string{
 
 var channelLinkOrder = []string{
 	pkgchannel.PlatformTelegram,
+	pkgchannel.PlatformDiscord,
 	pkgchannel.PlatformQQ,
 	pkgchannel.PlatformFeishu,
 	pkgchannel.PlatformWeixin,

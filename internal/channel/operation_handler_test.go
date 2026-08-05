@@ -43,7 +43,9 @@ func (h *fullSurfaceHandler) SwitchAgent(ctx context.Context, _ pkgchannel.Incom
 	return nil
 }
 func (h *fullSurfaceHandler) RegisterBotIdentity(string, string, string)    {}
+func (h *fullSurfaceHandler) UnregisterBotIdentity(string, string, string)  {}
 func (h *fullSurfaceHandler) RegisterGroupPublisher(string, GroupPublisher) {}
+func (h *fullSurfaceHandler) UnregisterGroupPublisher(string)               {}
 func (h *fullSurfaceHandler) ProvisionUser(context.Context, pkgchannel.ProvisionRequest) error {
 	return nil
 }

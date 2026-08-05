@@ -62,6 +62,8 @@ Channels are stored in the `channel` table. Each row is a channel instance with 
 
 Channel access is enforced by Stella's trusted Authority-based domain services; notification targets are resolved from linked identities.
 
+**Discord config field:** `token`
+
 **QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 
 **Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`

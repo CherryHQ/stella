@@ -48,6 +48,17 @@ type botManagedRuntime[T any] struct {
 	pollCancel  context.CancelFunc
 	snapshot    RuntimeStatus
 	channelName string
+	channel     pkgchannel.Channel
+}
+
+type runtimeFinalizer interface {
+	Finalize()
+}
+
+func finalizeChannel(ch pkgchannel.Channel) {
+	if finalizer, ok := ch.(runtimeFinalizer); ok {
+		finalizer.Finalize()
+	}
 }
 
 func NewBotManagedRuntime[T any](deps BotRuntimeDeps[T]) *botManagedRuntime[T] {
@@ -109,11 +120,14 @@ func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginStat
 	r.generation++
 	generation := r.generation
 	cancel := r.opCancel
+	oldChannel := r.channel
+	r.channel = nil
 	r.opCancel = nil
 	r.pollCancel = nil
 	if cancel != nil {
 		cancel()
 	}
+	finalizeChannel(oldChannel)
 	if r.deps.Notifier != nil {
 		r.deps.Notifier.Unregister(desired.ID)
 		if r.channelName != "" && r.channelName != desired.ID {
@@ -162,6 +176,7 @@ func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginStat
 	r.opCancel = opCancel
 	r.pollCancel = pollCancel
 	r.channelName = ch.Name()
+	r.channel = ch
 	r.snapshot = r.deps.Snapshot(r.deps.Now(), RuntimeStateRunning, r.deps.Platform+" running", cfg)
 	r.mu.Unlock()
 
@@ -178,12 +193,14 @@ func (r *botManagedRuntime[T]) Reconcile(ctx context.Context, desired PluginStat
 		if r.deps.Notifier != nil {
 			r.deps.Notifier.Unregister(ch.Name())
 		}
+		finalizeChannel(ch)
 		if r.opCancel != nil {
 			r.opCancel()
 		}
 		r.opCancel = nil
 		r.pollCancel = nil
 		r.channelName = ""
+		r.channel = nil
 		message := r.deps.Platform + " stopped"
 		state := RuntimeStateStopped
 		if err != nil && pollCtx.Err() == nil {
@@ -236,6 +253,8 @@ func (r *botManagedRuntime[T]) Stop(ctx context.Context) error {
 		r.opCancel()
 		r.opCancel = nil
 	}
+	finalizeChannel(r.channel)
+	r.channel = nil
 	r.pollCancel = nil
 	if r.deps.Notifier != nil {
 		if r.channelName != "" {

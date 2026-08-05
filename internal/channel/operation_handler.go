@@ -15,7 +15,9 @@ import (
 type operationHandlerSurface interface {
 	pkgchannel.Handler
 	RegisterBotIdentity(platform, platformBotID, channelID string)
+	UnregisterBotIdentity(platform, platformBotID, channelID string)
 	RegisterGroupPublisher(channelID string, publisher GroupPublisher)
+	UnregisterGroupPublisher(channelID string)
 	ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error
 	ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error)
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error

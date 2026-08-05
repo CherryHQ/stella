@@ -2,6 +2,7 @@ package main
 
 import (
 	// Plugin channels.
+	_ "github.com/CherryHQ/stella/plugins/channels/discord"
 	_ "github.com/CherryHQ/stella/plugins/channels/feishu"
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	_ "github.com/CherryHQ/stella/plugins/channels/telegram"

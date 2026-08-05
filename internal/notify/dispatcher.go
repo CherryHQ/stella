@@ -335,6 +335,7 @@ func identityForPlatform(identities []pkgplugins.LinkedIdentity, platform string
 func notifyWithChatID(ctx context.Context, entry channelEntry, n pkgchannel.Notification, chatID string) error {
 	nn := n
 	nn.ChatID = chatID
+	nn.RecipientID = chatID
 	return entry.channel.Notify(ctx, nn)
 }
 

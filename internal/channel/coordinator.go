@@ -271,11 +271,25 @@ func (c *Coordinator) RegisterBotIdentity(platform, platformBotID, channelID str
 	c.botRegistry.Register(platform, platformBotID, channelID)
 }
 
+func (c *Coordinator) UnregisterBotIdentity(platform, platformBotID, channelID string) {
+	if c.botRegistry == nil {
+		return
+	}
+	c.botRegistry.Unregister(platform, platformBotID, channelID)
+}
+
 func (c *Coordinator) RegisterGroupPublisher(channelID string, publisher GroupPublisher) {
 	if c.publisherRegistry == nil {
 		return
 	}
 	c.publisherRegistry.Register(channelID, publisher)
+}
+
+func (c *Coordinator) UnregisterGroupPublisher(channelID string) {
+	if c.publisherRegistry == nil {
+		return
+	}
+	c.publisherRegistry.Unregister(channelID)
 }
 
 // resolve performs the full user -> agent -> pool -> session key resolution.

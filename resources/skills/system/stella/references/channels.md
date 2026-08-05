@@ -64,6 +64,23 @@ Channel access is enforced by Stella's Authority-based services. Use the Web UI 
 
 Set `enable_notify: true` for proactive messages (scheduler results, notify tool). Notification targets are resolved automatically from auth_identities.
 
+## Discord bot
+
+1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications)
+2. Enable the **Message Content Intent** on the bot page
+3. Invite the bot with permission to view channels, send messages, read message history, and attach files
+4. Open the Web UI, add a Discord channel, and paste the bot token
+
+Discord channel config (JSON):
+
+```json
+{
+  "token": "BOT_TOKEN"
+}
+```
+
+The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, `/agent` in direct messages, and shared channel commands. Bind the channel instance to an agent before using it in guild channels; mention the bot for deterministic routing. `/model` and guild-channel `/agent` are not yet supported. Use a Discord channel ID as an explicit notification target; do not invent one.
+
 ## QQ bot
 
 1. Register at https://q.qq.com/
