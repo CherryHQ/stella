@@ -19,9 +19,9 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// The sequential anchor is intentionally a no-op, so crossing it changes
-	// only Goose's ledger; the schema assertions below remain complete.
-	currentMigrationVersion = sequentialAnchor
+	// Knowledge V1 is the first post-anchor migration. The assertions below
+	// exercise its file, ChunkSet, chunk, and active-publication schema.
+	currentMigrationVersion = sequentialAnchor + 1
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -32,6 +32,9 @@ const (
 	previousGAPartID         = "00000000-0000-0000-0000-000000000006"
 	previousGAMediaID        = "00000000-0000-0000-0000-000000000007"
 	previousGAWebhookID      = "00000000-0000-0000-0000-000000000008"
+	previousGAKnowledgeFile  = "00000000-0000-0000-0000-000000000041"
+	previousGAChunkSet       = "00000000-0000-0000-0000-000000000042"
+	previousGAChunk          = "00000000-0000-0000-0000-000000000043"
 	previousGAAgentID        = "previous-ga-agent"
 	previousGACascadeAgentID = "previous-ga-cascade-agent"
 	previousGAProviderID     = "previous-ga-provider"
@@ -310,6 +313,46 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if got := count("credentials after Provider cascade", `SELECT count(*) FROM agent_provider_credential WHERE provider_id = $1`, previousGAProviderID); got != 0 {
 		t.Fatalf("credential rows after Provider delete = %d, want 0", got)
+	}
+
+	// Exercise the complete Knowledge snapshot publication relationship after
+	// upgrading the previous GA database, rather than checking table names only.
+	if _, err := db.Exec(ctx, `
+		INSERT INTO knowledge_file (
+			id, scope, user_id, agent_id, file_name, media_type,
+			size_bytes, raw_sha256, status
+		) VALUES ($1, 'user_agent', $2, $3, 'previous-ga.txt', 'text/plain', 1, $4, 'ready')
+	`, previousGAKnowledgeFile, previousGAUserID, previousGAAgentID, hash); err != nil {
+		t.Fatalf("insert knowledge file after previous-GA upgrade: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO knowledge_chunk_set (
+			id, file_id, derivation_key, processor_key, raw_sha256,
+			status, chunk_count, content_digest, completed_at
+		) VALUES ($1, $2, 'previous-ga-derivation', 'previous-ga-processor', $3, 'ready', 1, $3, $4)
+	`, previousGAChunkSet, previousGAKnowledgeFile, hash, previousGATime); err != nil {
+		t.Fatalf("insert knowledge ChunkSet after previous-GA upgrade: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO knowledge_chunk (
+			id, chunk_set_id, ordinal, content, content_sha256
+		) VALUES ($1, $2, 0, 'previous GA knowledge', $3)
+	`, previousGAChunk, previousGAChunkSet, hash); err != nil {
+		t.Fatalf("insert knowledge chunk after previous-GA upgrade: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		UPDATE knowledge_file SET active_chunk_set_id = $1 WHERE id = $2
+	`, previousGAChunkSet, previousGAKnowledgeFile); err != nil {
+		t.Fatalf("publish knowledge ChunkSet after previous-GA upgrade: %v", err)
+	}
+	if got := count("published knowledge chunks", `
+		SELECT count(*)
+		FROM knowledge_file AS file
+		JOIN knowledge_chunk_set AS chunk_set ON chunk_set.id = file.active_chunk_set_id
+		JOIN knowledge_chunk AS chunk ON chunk.chunk_set_id = chunk_set.id
+		WHERE file.id = $1
+	`, previousGAKnowledgeFile); got != 1 {
+		t.Fatalf("published knowledge chunks = %d, want 1", got)
 	}
 
 	var latest int64

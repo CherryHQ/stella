@@ -265,7 +265,7 @@ func (s *Service) commitSnapshot(
 }
 
 func (s *Service) beginBoundedTx(ctx context.Context) (pgx.Tx, *sqlc.Queries, error) {
-	statementTimeout, lockTimeout, err := s.remainingDatabaseTimeouts(ctx)
+	statementTimeout, lockTimeout, err := s.databaseTimeouts(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -284,19 +284,14 @@ func (s *Service) beginBoundedTx(ctx context.Context) (pgx.Tx, *sqlc.Queries, er
 	return tx, s.q.WithTx(tx), nil
 }
 
-func (s *Service) remainingDatabaseTimeouts(ctx context.Context) (time.Duration, time.Duration, error) {
-	statementTimeout := s.databaseStatementTimeout
-	if deadline, ok := ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return 0, 0, context.DeadlineExceeded
-		}
-		if remaining < statementTimeout {
-			statementTimeout = remaining
-		}
+func (s *Service) databaseTimeouts(ctx context.Context) (time.Duration, time.Duration, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
 	}
-	lockTimeout := min(statementTimeout, s.databaseLockTimeout)
-	return statementTimeout, lockTimeout, nil
+	// Keep PostgreSQL's independent limits at their configured values. Clamping
+	// them to an earlier request deadline makes the server timeout race the Go
+	// context and can leak SQLSTATE 57014 instead of the caller's context error.
+	return s.databaseStatementTimeout, s.databaseLockTimeout, nil
 }
 
 func (s *Service) verifyRawSnapshot(
