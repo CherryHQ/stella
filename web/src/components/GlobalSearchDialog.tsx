@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Bot, Folder, MessageSquare, Search, Users } from "lucide-react";
+import { BookOpen, Bot, Folder, MessageSquare, Search, Settings, Users } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupsQueryOptions } from "@/lib/queries/groups";
@@ -59,6 +59,19 @@ export function GlobalSearchDialog({
 
   const sections = useMemo(() => {
     const limit = (items: Result[]) => (needle ? items.slice(0, 8) : items.slice(0, 5));
+    // The three top-level destinations, so the palette can also answer
+    // "take me to X" and not just "find me X".
+    const pageResults: Result[] = [
+      { key: "page:agents", icon: Bot, label: t("nav.agents"), to: "/agents", params: {} },
+      { key: "page:recally", icon: BookOpen, label: t("nav.recally"), to: "/recally", params: {} },
+      {
+        key: "page:settings",
+        icon: Settings,
+        label: t("nav.settings"),
+        to: "/settings",
+        params: {},
+      },
+    ].filter((page) => !needle || match(page.label, needle));
     const agentResults: Result[] = agents
       .filter((agent) => !needle || match(agent.name, needle))
       .map((agent) => ({
@@ -99,6 +112,7 @@ export function GlobalSearchDialog({
       }));
 
     return [
+      { key: "pages", label: t("search.pages"), items: pageResults },
       { key: "agents", label: t("search.agents"), items: limit(agentResults) },
       { key: "groups", label: t("search.groups"), items: limit(groupResults) },
       { key: "projects", label: t("search.projects"), items: limit(projectResults) },

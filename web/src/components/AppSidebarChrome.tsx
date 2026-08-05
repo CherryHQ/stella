@@ -1,16 +1,8 @@
 import { useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import {
-  Bell,
-  ChevronsUpDown,
-  ChevronDown,
-  FileText,
-  LogOut,
-  Search,
-  Settings,
-  UserCog,
-} from "lucide-react";
+import { Bell, ChevronsUpDown, FileText, LogOut, Search, Settings, UserCog } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
@@ -58,10 +50,11 @@ function isActive(app: AppEntry, pathname: string): boolean {
 }
 
 /**
- * The sidebar's top row: which app you are in, plus the two global controls that
- * belong to no page (search, inbox). The app switcher is a menu rather than a
- * tab strip because the sidebar column has no room for one, and because the set
- * of apps is small and rarely switched.
+ * The sidebar's top row: where you can work, plus the two global controls that
+ * belong to no page (search, inbox). With only two workspaces, both stay
+ * visible as a segmented switch — a menu hides the other destination behind an
+ * extra click for no gain. If the set outgrows this row, the upgrade is an
+ * icon rail, not a longer strip.
  */
 export function AppChromeHeader() {
   const { t } = useI18n();
@@ -71,29 +64,36 @@ export function AppChromeHeader() {
   const activeApp = apps.find((app) => isActive(app, pathname)) ?? apps[0];
 
   return (
-    <div className="flex min-w-0 items-center gap-1">
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={<Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start" />}
-        >
-          <img src="/stella-monogram.svg" alt="" width={20} height={20} className="rounded-sm" />
-          {/* The sidebar's only semibold at rest: the brand row anchors the
-              column's hierarchy, so nothing else competes at this weight. */}
-          <span className="min-w-0 truncate font-semibold">{activeApp.label}</span>
-          <ChevronDown />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" sideOffset={6} className="w-52">
-          <DropdownMenuGroup>
-            {apps.map((app) => (
-              <DropdownMenuItem key={app.key} render={<Link to={app.to as never} />}>
-                {app.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
+    <div className="flex min-w-0 items-center gap-2">
+      <img
+        src="/stella-monogram.svg"
+        alt="Stella"
+        width={20}
+        height={20}
+        className="shrink-0 rounded-sm"
+      />
+      <nav className="flex min-w-0 items-center gap-0.5 rounded-lg bg-muted p-0.5">
+        {apps.map((app) => {
+          const active = app.key === activeApp.key;
+          return (
+            <Link
+              key={app.key}
+              to={app.to as never}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "min-w-0 truncate whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                active
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {app.label}
+            </Link>
+          );
+        })}
+      </nav>
 
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="ms-auto flex shrink-0 items-center gap-0.5">
         <Button
           variant="ghost"
           size="icon-sm"
