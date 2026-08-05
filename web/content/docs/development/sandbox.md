@@ -31,6 +31,16 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 
 File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePath` to obtain the host path and then uses `os.ReadFile` / `os.WriteFile` / `os.MkdirAll` directly. `Session` carries no file read/write methods.
 
+## Provider filesystem boundary
+
+`pkg/sandbox.Filesystem` is the provider-neutral boundary for persistent file operations. Callers use only canonical sandbox paths under `/workspace`, `/user`, or `/tmp`; the interface never exposes a host path. It supports bounded streaming reads, streaming writes and uploads, stat/list, mkdir, remove, and rename.
+
+`local` and unsafe-gated `none` implement the boundary directly with root-contained filesystem operations. Docker runs one `stella-fs` helper process per operation inside the sandbox container. The protocol has strict request and response framing, preserves stable `io/fs` errors across the process boundary, and rejects malformed or oversized read responses.
+
+An interrupted mutation returns `sandbox.ErrOutcomeUnknown`. Callers must report that state and must not retry automatically because the first operation may have completed. Docker preflight also requires the image's filesystem-helper revision to match the running `stellad` binary.
+
+This boundary currently coexists with `Session.ResolvePath`: `FilesystemSession` exposes the new implementation while existing runtime consumers still use the legacy host-path contract. Subsequent migration changes move those consumers before the host-path methods are removed. There is no production fallback from the provider boundary to `ResolvePath`.
+
 ## Typed Home registry and attachments
 
 Phase 1 gives persistent Homes typed identity separate from a machine path. The registry records an immutable Store ID and opaque locator for each user or group Principal Home, per-principal Agent Home, and narrow system or system-Agent Skill root. `sandbox.HomeAttachment` is the stable contract for compute-facing consumers. `internal/home.WorkspaceView` temporarily carries local root projections for migrated current consumers until Phase 2. A user and a group with the same raw ID are distinct principals.
@@ -91,6 +101,10 @@ Stella prefers explicit denial over silent downgrade:
 The abstraction is covered by:
 
 - session/host contract tests
+- shared local, `none`, and Docker filesystem conformance tests
+- strict helper protocol and cancellation tests
+- a real-image Docker filesystem conformance test
+- Docker binary/image helper-revision preflight tests
 - policy compatibility tests
 - core tool parity tests
 - Docker backend integration tests

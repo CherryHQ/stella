@@ -26,3 +26,26 @@ func TestSandboxImageWorkflowPassesBuiltinBundleRevision(t *testing.T) {
 		}
 	}
 }
+
+// TestSandboxImageBuildsPassVersion asserts every build path (CI workflow and
+// the local mise task) forwards a VERSION build arg, so the fs-helper-revision
+// label the Dockerfile derives from it is populated coherently everywhere.
+func TestSandboxImageBuildsPassVersion(t *testing.T) {
+	workflowPath := filepath.Join("..", "..", "..", ".github", "workflows", "sandbox-docker.yml")
+	workflow, err := os.ReadFile(workflowPath)
+	if err != nil {
+		t.Fatalf("read sandbox image workflow: %v", err)
+	}
+	if !strings.Contains(string(workflow), "VERSION=${{") {
+		t.Error("sandbox image workflow must pass a VERSION build arg")
+	}
+
+	misePath := filepath.Join("..", "..", "..", "mise.toml")
+	mise, err := os.ReadFile(misePath)
+	if err != nil {
+		t.Fatalf("read mise.toml: %v", err)
+	}
+	if !strings.Contains(string(mise), "--build-arg VERSION=$VERSION_ARG") {
+		t.Error("sandbox:docker:build task must pass a VERSION build arg")
+	}
+}

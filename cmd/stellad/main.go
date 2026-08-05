@@ -4,12 +4,21 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/cli"
+	"github.com/CherryHQ/stella/internal/fsops"
 	"github.com/CherryHQ/stella/internal/observability"
 )
 
 func main() {
+	if filepath.Base(os.Args[0]) == "stella-fs" {
+		if err := fsops.RunHelper(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	cli.LoadDotEnv()
 
 	// The trace-context wrapper stamps trace_id/span_id onto records logged

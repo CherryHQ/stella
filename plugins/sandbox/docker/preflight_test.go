@@ -9,11 +9,25 @@ import (
 	"testing"
 
 	"github.com/containerd/errdefs"
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
+	mobyimage "github.com/moby/moby/api/types/image"
 	jsonstream "github.com/moby/moby/api/types/jsonstream"
 	mobyclient "github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
+
+// labelledImage builds an ImageInspect result carrying the given config labels,
+// so preflight's revision checks can read them. Config is a promoted field, so
+// it must be set through the embedded InspectResponse.
+func labelledImage(labels map[string]string) func(string) (mobyclient.ImageInspectResult, error) {
+	return func(string) (mobyclient.ImageInspectResult, error) {
+		return mobyclient.ImageInspectResult{InspectResponse: mobyimage.InspectResponse{
+			Config: &dockerspec.DockerOCIImageConfig{ImageConfig: ocispec.ImageConfig{Labels: labels}},
+		}}, nil
+	}
+}
 
 // fakePreflightAPI is a minimal dockerclient.API stub that satisfies the
 // interface while letting each test override the handful of methods Preflight
@@ -127,5 +141,33 @@ func TestPreflightRejectsBuiltinBundleRevisionMismatch(t *testing.T) {
 	err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test", ExpectedBundleRevision: "expected"}}, client)
 	if err == nil || !strings.Contains(err.Error(), "expected expected, image has ") || !strings.Contains(err.Error(), "mise run sandbox:docker:build") {
 		t.Fatalf("preflight mismatch error = %v", err)
+	}
+}
+
+func TestPreflightRejectsHelperRevisionMismatch(t *testing.T) {
+	api := &fakePreflightAPI{inspectFn: labelledImage(map[string]string{fsHelperRevisionLabel: "v2"})}
+	client := dockerclient.NewWithAPI(api)
+	err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test", ExpectedHelperRevision: "v1"}}, client)
+	if err == nil || !strings.Contains(err.Error(), "filesystem helper revision mismatch") || !strings.Contains(err.Error(), "expected v1, image has v2") {
+		t.Fatalf("helper revision mismatch error = %v", err)
+	}
+}
+
+func TestPreflightRejectsMissingHelperRevision(t *testing.T) {
+	// No label at all reads as an empty revision and must fail closed against a
+	// non-empty expectation.
+	api := &fakePreflightAPI{inspectFn: labelledImage(nil)}
+	client := dockerclient.NewWithAPI(api)
+	err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test", ExpectedHelperRevision: "v1"}}, client)
+	if err == nil || !strings.Contains(err.Error(), "filesystem helper revision mismatch") || !strings.Contains(err.Error(), "expected v1, image has ") {
+		t.Fatalf("missing helper revision error = %v", err)
+	}
+}
+
+func TestPreflightAcceptsMatchingHelperRevision(t *testing.T) {
+	api := &fakePreflightAPI{inspectFn: labelledImage(map[string]string{fsHelperRevisionLabel: "v1"})}
+	client := dockerclient.NewWithAPI(api)
+	if err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test", ExpectedHelperRevision: "v1"}}, client); err != nil {
+		t.Fatalf("matching helper revision rejected: %v", err)
 	}
 }

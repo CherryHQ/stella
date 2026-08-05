@@ -31,6 +31,16 @@ title: 沙箱后端抽象
 
 文件 I/O（`read`、`write`、`edit`）由 runner 拥有：runner 调用 `ResolvePath` 获取宿主机路径，然后直接使用 `os.ReadFile`/`os.WriteFile`/`os.MkdirAll`。`Session` 不包含文件读写方法。
 
+## Provider 文件系统边界
+
+`pkg/sandbox.Filesystem` 是持久文件操作的 provider 中立边界。调用方只能使用 `/workspace`、`/user` 或 `/tmp` 下的规范沙箱路径；该接口不会暴露宿主机路径。它支持有界流式读取、流式写入与上传，以及 stat/list、mkdir、remove 和 rename。
+
+`local` 与受不安全开关约束的 `none` 后端直接使用根目录内受约束的文件操作实现该边界。Docker 则在沙箱容器内为每次操作启动一个 `stella-fs` helper 进程。该协议严格验证请求与响应 framing，在进程边界两端保留稳定的 `io/fs` 错误，并拒绝格式错误或超过上限的读取响应。
+
+写操作被中断时会返回 `sandbox.ErrOutcomeUnknown`。调用方必须报告该状态且不得自动重试，因为第一次操作可能已经完成。Docker preflight 还要求镜像中的文件系统 helper revision 与正在运行的 `stellad` 二进制匹配。
+
+该边界目前与 `Session.ResolvePath` 并存：`FilesystemSession` 暴露新实现，而现有运行时消费者仍使用旧的宿主机路径契约。后续迁移会先移动这些消费者，再删除宿主机路径方法。provider 边界不会在生产环境回退到 `ResolvePath`。
+
 ## 类型化 Home registry 与 attachment
 
 Phase 1 将持久 Home 的类型化身份与机器路径分离。registry 为每个用户或群组 Principal Home、每 Principal 的 Agent Home，以及窄范围 system 或 system-Agent Skill 根记录不可变 Store ID 与不透明 locator。`sandbox.HomeAttachment` 是面向计算消费者的稳定契约。`internal/home.WorkspaceView` 会暂时为已迁移的当前消费者携带 local root projection，直到 Phase 2。原始 ID 相同的用户和群组仍是不同 Principal。
@@ -91,6 +101,10 @@ Stella 优先选择显式拒绝而非静默降级：
 该抽象由以下测试覆盖：
 
 - 会话/宿主机契约测试
+- `local`、`none` 与 Docker 共享的文件系统一致性测试
+- 严格的 helper 协议与取消测试
+- 使用真实镜像的 Docker 文件系统一致性测试
+- Docker 二进制/镜像 helper revision preflight 测试
 - 策略兼容性测试
 - 核心工具一致性测试
 - Docker 后端集成测试

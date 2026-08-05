@@ -50,6 +50,33 @@ func TestFactory_createSession(t *testing.T) {
 	}
 }
 
+func TestFilesystemUsesCanonicalPath(t *testing.T) {
+	workspace := t.TempDir()
+	session, err := NewFactory().CreateSession(context.Background(), sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
+		WorkingDir: workspace,
+		Mounts:     []sandboxpkg.Mount{{HostPath: workspace, SandboxPath: sandboxpkg.PathWorkspace, Access: sandboxpkg.MountReadWrite}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close() //nolint:errcheck
+	fsSession, ok := session.(sandboxpkg.FilesystemSession)
+	if !ok {
+		t.Fatal("none session does not expose Filesystem")
+	}
+	filesystem, err := fsSession.Filesystem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer filesystem.Close() //nolint:errcheck
+	if err := filesystem.Write(context.Background(), "/workspace/file", strings.NewReader("ok"), sandboxpkg.WriteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(workspace, "file")); err != nil || string(got) != "ok" {
+		t.Fatalf("file = %q, %v", got, err)
+	}
+}
+
 func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
 	workspace := t.TempDir()
 	userData := t.TempDir()

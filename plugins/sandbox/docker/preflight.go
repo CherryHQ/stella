@@ -8,7 +8,10 @@ import (
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
-const builtinBundleRevisionLabel = "org.cherryhq.stella.builtin-bundle-revision"
+const (
+	builtinBundleRevisionLabel = "org.cherryhq.stella.builtin-bundle-revision"
+	fsHelperRevisionLabel      = "org.cherryhq.stella.fs-helper-revision"
+)
 
 // PreflightConfig configures a Preflight check.
 type PreflightConfig struct {
@@ -68,6 +71,20 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 		}
 		if actual != expected {
 			return fmt.Errorf("docker preflight: builtin bundle revision mismatch (expected %s, image has %s); run `mise run sandbox:docker:build` for the local image or rebuild your custom sandbox image from this Stella revision", expected, actual)
+		}
+	}
+
+	// Independent of the bundle check: the stella-fs helper baked into the image
+	// must be the exact same build as the running stellad, or the mediated file
+	// boundary could speak a mismatched wire protocol. A missing label reads as
+	// an empty revision and fails closed against a non-empty expectation.
+	if expected := cfg.Docker.ExpectedHelperRevision; expected != "" {
+		actual, err := client.ImageLabel(ctx, cfg.Docker.Image, fsHelperRevisionLabel)
+		if err != nil {
+			return fmt.Errorf("docker preflight: inspect filesystem helper revision: %w", err)
+		}
+		if actual != expected {
+			return fmt.Errorf("docker preflight: filesystem helper revision mismatch (expected %s, image has %s); run `mise run sandbox:docker:build` for the local image or rebuild your custom sandbox image from this Stella revision", expected, actual)
 		}
 	}
 

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/CherryHQ/stella/internal/fsops"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -37,6 +38,8 @@ type Config struct {
 type Factory struct {
 	cfg Config
 }
+
+var _ sandboxpkg.FilesystemSession = (*localSession)(nil)
 
 // NewFactory returns a Factory for the local backend.
 func NewFactory(cfg ...Config) sandboxpkg.Factory {
@@ -293,6 +296,22 @@ func (s *localSession) WorkingDir() string {
 		}
 	}
 	return wd
+}
+
+// Filesystem creates a contained, provider-private adapter for the session's
+// mounted roots. The legacy host resolver remains until its callers migrate.
+func (s *localSession) Filesystem() (sandboxpkg.Filesystem, error) {
+	mounts := make([]fsops.Mount, 0, len(s.policy.Filesystem.Mounts))
+	for _, mount := range s.policy.Filesystem.Mounts {
+		if mount.SandboxPath != sandboxpkg.PathWorkspace && mount.SandboxPath != sandboxpkg.PathUser && mount.SandboxPath != sandboxpkg.PathTemp {
+			continue
+		}
+		mounts = append(mounts, fsops.Mount{Path: mount.SandboxPath, Directory: mount.HostPath, ReadOnly: mount.Access == sandboxpkg.MountReadOnly})
+	}
+	if len(mounts) == 0 {
+		mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathWorkspace, Directory: s.realRoot})
+	}
+	return fsops.NewFilesystem(mounts)
 }
 
 func (s *localSession) Alive() bool {
