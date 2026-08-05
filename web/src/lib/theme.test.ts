@@ -96,6 +96,43 @@ describe.each([
   });
 });
 
+/**
+ * The status tokens exist to be *read* — an icon, a badge label, a run status in
+ * 12px mono. That is a number, and nothing on screen reports it: a token 0.02L
+ * too bright still looks like the right color and still fails AA. `RunsTimeline`
+ * reached 2.19:1 by reaching for `chart-4` instead, which looked entirely
+ * plausible in review.
+ *
+ * Measured against `--muted`, the darkest neutral surface in the theme, so every
+ * lighter surface it renders on inherits the margin.
+ */
+describe.each([
+  ["light", blocks.light],
+  ["dark", blocks.dark],
+] as const)("%s status tokens stay readable as text", (_theme, declared) => {
+  const surface = declared.get("muted");
+
+  // `--destructive` is absent because it is the one status token that is also a
+  // solid fill, and CossUI hardcodes white on it. It answers to the fill gate,
+  // not this one; `--destructive-foreground` is its text half.
+  it.each([
+    "success",
+    "success-foreground",
+    "warning",
+    "warning-foreground",
+    "info",
+    "info-foreground",
+    "destructive-foreground",
+  ])("--%s", (name) => {
+    const color = declared.get(name);
+    expect(color, `--${name} missing from tokens.css`).toBeDefined();
+    const ratio = contrast(toSrgb(color!), toSrgb(surface!));
+    expect(ratio, `--${name} as text on --muted is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
+      4.5,
+    );
+  });
+});
+
 describe("accent rotation invariants", () => {
   it("keeps both themes over the same token names", () => {
     // applyAccent clears overrides using the light names only, so a dark-only

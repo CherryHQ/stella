@@ -14,11 +14,24 @@ export interface TimelineRun {
   output?: string;
 }
 
+/**
+ * A run status is a verdict, so it takes the status tokens, not the chart ones.
+ *
+ * This used to plot: success on `chart-3` and running on `chart-4`. Two things
+ * were wrong with that. The hue said "warning" about a run that is merely still
+ * going — nothing is wrong with it — while the goal lifecycle right next door
+ * already reads in-progress as blue. And the chart tokens are tuned to be
+ * *plotted*: as 12px text on the page they measured 2.53:1 and 2.19:1.
+ *
+ * Failure takes `destructive-foreground`, not `destructive`. The bare token is
+ * the solid fill CossUI puts white on; its `-foreground` half is the one meant
+ * to be read on the page, which is what a status word is.
+ */
 function statusTone(status: string): string {
-  if (status === "success" || status === "completed" || status === "done") return "text-chart-3";
+  if (status === "success" || status === "completed" || status === "done") return "text-success";
   if (status === "failed" || status === "error" || status === "timed_out")
-    return "text-destructive";
-  if (status === "running") return "text-chart-4";
+    return "text-destructive-foreground";
+  if (status === "running") return "text-info";
   return "text-muted-foreground";
 }
 
@@ -69,7 +82,7 @@ export function RunsTimeline({ runs }: { runs: TimelineRun[] }) {
               <span
                 className={cn(
                   "min-w-0 flex-1 truncate text-xs",
-                  hasError ? "text-destructive" : "text-muted-foreground",
+                  hasError ? "text-destructive-foreground" : "text-muted-foreground",
                 )}
               >
                 {run.error || run.output || ""}
@@ -86,7 +99,7 @@ export function RunsTimeline({ runs }: { runs: TimelineRun[] }) {
             {isOpen && expandable && (
               <div className="space-y-2 px-3.5 pb-3.5 sm:pl-[90px]">
                 {run.error && (
-                  <div className="whitespace-pre-wrap rounded-lg border border-destructive/25 bg-destructive/[0.06] px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-destructive">
+                  <div className="whitespace-pre-wrap rounded-lg border border-destructive/25 bg-destructive/[0.06] px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-destructive-foreground">
                     {run.error}
                   </div>
                 )}

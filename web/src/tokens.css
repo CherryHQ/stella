@@ -59,14 +59,23 @@
      tint, a 20-36% border, and a full-strength icon or line of copy (alert.tsx,
      toast.tsx) — so it carries the chart hue at a lightness that stays legible
      as text on a light surface. The chart tokens themselves sit ~0.15L brighter
-     because they are plotted, not read. The -foreground pair is text on that
-     tint. Never pair a solid `bg-*` fill with its own `-foreground`: they share
-     a hue and a lightness, so the text disappears into the fill. */
-  --success: oklch(0.55 0.13 150); /* chart-3 hue, text-weight */
+     because they are plotted, not read: as 12px copy on the canvas they measure
+     2.2-2.5:1. "Legible" is a number here, not an intention — each L sits below
+     the point where the token clears 4.5:1 as text on --muted, the darkest
+     neutral surface in this theme and therefore the binding one; anything
+     lighter (canvas, card) has margin. All three had been on the wrong side of
+     that line by 0.01-0.02L, which is exactly the kind of miss no reviewer sees
+     and no screenshot shows, so theme.test.ts recomputes it from these values.
+     Unlike --destructive these are never a solid fill — CossUI tints them at
+     4-16% — so the text gate is the only one they answer to.
+     The -foreground pair is text on that tint. Never pair
+     a solid `bg-*` fill with its own `-foreground`: they share a hue and a
+     lightness, so the text disappears into the fill. */
+  --success: oklch(0.51 0.13 150); /* chart-3 hue, text-weight */
   --success-foreground: oklch(0.5 0.12 150);
-  --warning: oklch(0.56 0.12 78); /* chart-4 hue, text-weight */
+  --warning: oklch(0.53 0.12 78); /* chart-4 hue, text-weight */
   --warning-foreground: oklch(0.51 0.11 78);
-  --info: oklch(0.53 0.14 230); /* chart-2 hue, text-weight */
+  --info: oklch(0.5 0.14 230); /* chart-2 hue, text-weight */
   --info-foreground: oklch(0.48 0.13 230);
   /* Two families, and the second one means something. `--font-serif` used to be
      a third that resolved to Inter, so `font-serif` was a no-op that read as an

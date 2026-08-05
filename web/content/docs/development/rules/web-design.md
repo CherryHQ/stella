@@ -57,16 +57,28 @@ badges, alerts, toasts, inline warnings.
 
 | Status  | Token         | oklch (light)          | Foreground pair          |
 | ------- | ------------- | ---------------------- | ------------------------ |
-| Info    | `info`        | `oklch(0.53 0.14 230)` | `info-foreground`        |
-| Success | `success`     | `oklch(0.55 0.13 150)` | `success-foreground`     |
-| Warning | `warning`     | `oklch(0.56 0.12 78)`  | `warning-foreground`     |
+| Info    | `info`        | `oklch(0.5 0.14 230)`  | `info-foreground`        |
+| Success | `success`     | `oklch(0.51 0.13 150)` | `success-foreground`     |
+| Warning | `warning`     | `oklch(0.53 0.12 78)`  | `warning-foreground`     |
 | Error   | `destructive` | `oklch(0.58 0.2 25)`   | `destructive-foreground` |
 
 Each carries the hue of its `chart-*` sibling (info→`chart-2`, success→`chart-3`,
-warning→`chart-4`) but sits ~0.15L darker in light mode and lighter in dark. The
+warning→`chart-4`) but sits ~0.2L darker in light mode and lighter in dark. The
 chart tokens are tuned to be _plotted_; these are tuned to be _read_, because
 CossUI uses one token three ways at once — a 4–16% tint, a 20–36% border, and a
 full-strength icon or line of copy.
+
+_Read_ is a measured claim: each lightness clears 4.5:1 as text on `muted`, the
+darkest neutral surface in the theme, so every lighter surface inherits the
+margin. `theme.test.ts` recomputes it from `tokens.css`. Reaching for a chart
+token instead is the failure this guards — `chart-4` as 12px copy measures
+2.19:1, and nothing on screen says so.
+
+**`destructive` is the exception: it is a fill, not a text color.** CossUI
+hardcodes white on `bg-destructive` (button, badge), so it answers to the fill
+gate rather than the text gate. When you want red _text_, use
+`destructive-foreground` — that is what the `destructive-outline` button and the
+soft badge use.
 
 **Never pair a solid `bg-*` status fill with its own `-foreground`.** Both halves
 share a hue and a lightness, so the text vanishes into the fill — `bg-destructive
@@ -74,10 +86,15 @@ text-destructive-foreground` shipped exactly that, at ~1.1:1 contrast. Status
 surfaces are a tint over the page, or an opaque `bg-popover` with a colored icon.
 
 `chart-1..5` stay for plotted and categorical data — goal canvases, timelines,
-scope grouping — where the value is a _category_, not a verdict. The goals feature
-still maps run states to `chart-*`; migrating those to the status tokens is open
-work, and `RunsTimeline.tsx` currently contradicts this table by giving `running`
-the warning hue.
+scope grouping — where the value is a _category_, not a verdict. Much of the
+goals feature still maps run and lifecycle states to `chart-*`; migrating the
+rest is open work.
+
+**Open:** dark `--destructive` is `oklch(0.64 0.2 25)`, and the white label
+CossUI hardcodes on it measures 3.70:1 — below AA on the app's highest-stakes
+button. Both gates can be met at once (`oklch(0.55 0.2 25)` gives 5.38:1 on the
+label and 3.49:1 against the canvas), but it visibly deepens every destructive
+button and badge in dark mode, so it is a direction call rather than a fix.
 
 ### Why the teal sits where it does
 
