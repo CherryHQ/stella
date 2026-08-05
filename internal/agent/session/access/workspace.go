@@ -1,33 +1,33 @@
 package access
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"mime"
-	"os"
-	"path/filepath"
+	"path"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/agent/sandbox"
-	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/home"
-	sharepkg "github.com/CherryHQ/stella/internal/share"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 var (
-	ErrInvalid  = errors.New("invalid workspace request")
-	ErrIsDir    = errors.New("workspace path is a directory")
-	ErrBinary   = errors.New("workspace file appears to be binary")
-	ErrTooLarge = errors.New("workspace file exceeds read limit")
+	ErrInvalid       = errors.New("invalid workspace request")
+	ErrIsDir         = errors.New("workspace path is a directory")
+	ErrBinary        = errors.New("workspace file appears to be binary")
+	ErrTooLarge      = errors.New("workspace file exceeds read limit")
+	ErrAlreadyExists = errors.New("workspace destination already exists")
 )
+
+const workspaceReadMaxBytes int64 = 32 << 20
 
 type WorkspaceScope string
 
@@ -37,12 +37,10 @@ const (
 )
 
 type WorkspaceInfo struct {
-	Root        string   `json:"root"`
-	SandboxRoot string   `json:"sandbox_root"`
-	Paths       []string `json:"paths"`
-	TotalFiles  int      `json:"total_files"`
-	TotalDirs   int      `json:"total_dirs"`
-	TotalBytes  int64    `json:"total_bytes"`
+	Paths      []string `json:"paths"`
+	TotalFiles int      `json:"total_files"`
+	TotalDirs  int      `json:"total_dirs"`
+	TotalBytes int64    `json:"total_bytes"`
 }
 
 type WorkspaceListInput struct {
@@ -84,8 +82,8 @@ type WorkspaceReadInput struct {
 	Scope     WorkspaceScope
 	Path      string
 	Raw       bool
-	// MaxBytes bounds allocation at the authorized file boundary. Zero leaves
-	// existing workspace read behavior unchanged.
+	// MaxBytes bounds allocation at the provider Filesystem boundary. Zero uses
+	// the workspace API ceiling; callers needing a smaller bound may set it.
 	MaxBytes int64
 }
 
@@ -109,26 +107,25 @@ type WorkspaceWriteInput struct {
 }
 
 type WorkspaceUploadInput struct {
-	AgentID   string
-	SessionID string
-	Filename  string
-	Reader    io.Reader
-	Now       time.Time
+	AgentID       string
+	SessionID     string
+	Filename      string
+	Reader        io.Reader
+	ContentLength *int64
+	Now           time.Time
 }
 
 type WorkspaceUploadResult struct {
-	// Path is the portable agent path expression the agent reads (e.g.
-	// $STELLA_ASSETS_DIR/202608/file.png), independent of host coordinates.
+	// Path is the portable agent path expression the agent reads (for example,
+	// $STELLA_ASSETS_DIR/202608/file.png), never a provider or host coordinate.
 	Path string `json:"path"`
-	// RelativePath is the upload location relative to its workspace root.
-	// Combine with Scope to build a workspace file-content read URL.
-	RelativePath string `json:"relative_path"`
-	// Scope is the workspace root the file was written to.
-	Scope WorkspaceScope `json:"scope"`
+	// RelativePath is the upload location relative to the /user workspace root.
+	RelativePath string         `json:"relative_path"`
+	Scope        WorkspaceScope `json:"scope"`
 }
 
 func (a *Access) ListWorkspace(ctx context.Context, in WorkspaceListInput) (WorkspaceInfo, error) {
-	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionList)
+	scope, root, listPath, err := workspacePath(in.Scope, in.Path, true)
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
@@ -136,458 +133,424 @@ func (a *Access) ListWorkspace(ctx context.Context, in WorkspaceListInput) (Work
 	if depth <= 0 {
 		depth = 2
 	}
-	info, err := collectWorkspaceInfo(root, in.ShowHidden, in.Path, depth)
-	if err != nil {
-		return WorkspaceInfo{}, err
-	}
-	info.SandboxRoot = scopeSandboxView(config.ActiveSandboxBackend(), root, in.Scope)
-	return info, nil
+	var result WorkspaceInfo
+	err = a.useWorkspaceFilesystem(ctx, in.AgentID, in.SessionID, scope, authz.ActionList, func(filesystem pkgsandbox.Filesystem) error {
+		result, err = collectWorkspaceInfo(ctx, filesystem, root, listPath, in.ShowHidden, depth)
+		return err
+	})
+	return result, err
 }
 
 func (a *Access) CreateWorkspacePath(ctx context.Context, in WorkspaceCreateInput) (WorkspaceInfo, error) {
-	if in.Path == "" {
-		return WorkspaceInfo{}, ErrInvalid
-	}
-	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionCreate)
+	scope, root, name, err := workspacePath(in.Scope, in.Path, false)
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	abs, err := sharepkg.SafePath(root, in.Path)
-	if err != nil {
-		return WorkspaceInfo{}, ErrInvalid
-	}
-	if in.IsDir {
-		rootFS, name, err := sharepkg.OpenSafeRoot(root, in.Path)
-		if err != nil {
-			return WorkspaceInfo{}, ErrInvalid
+	var result WorkspaceInfo
+	err = a.useWorkspaceFilesystem(ctx, in.AgentID, in.SessionID, scope, authz.ActionCreate, func(filesystem pkgsandbox.Filesystem) error {
+		if in.IsDir {
+			if err := filesystem.Mkdir(ctx, name, 0o755); err != nil {
+				return err
+			}
+		} else {
+			if err := mkdirWorkspaceParent(ctx, filesystem, name); err != nil {
+				return err
+			}
+			content := []byte(in.Content)
+			length := int64(len(content))
+			if err := filesystem.Write(ctx, name, bytes.NewReader(content), pkgsandbox.WriteOptions{Perm: 0o644, ContentLength: &length}); err != nil {
+				return err
+			}
 		}
-		defer func() { _ = rootFS.Close() }()
-		if err := rootFS.MkdirAll(name, 0o755); err != nil {
-			return WorkspaceInfo{}, err
-		}
-	} else if err := a.svc.assets.CreateFile(ctx, abs, []byte(in.Content), 0o644); err != nil {
-		return WorkspaceInfo{}, err
-	}
-	return collectWorkspaceInfo(root, false, "", 0)
+		result, err = collectWorkspaceInfo(ctx, filesystem, root, root, false, 0)
+		return err
+	})
+	return result, err
 }
 
 func (a *Access) DeleteWorkspacePath(ctx context.Context, in WorkspacePathInput) error {
-	if in.Path == "" {
-		return ErrInvalid
-	}
-	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionDelete)
+	scope, _, name, err := workspacePath(in.Scope, in.Path, false)
 	if err != nil {
 		return err
 	}
-	abs, err := sharepkg.SafePath(root, in.Path)
-	if err != nil {
-		return ErrInvalid
-	}
-	return a.svc.assets.RemoveFile(ctx, abs)
+	return a.useWorkspaceFilesystem(ctx, in.AgentID, in.SessionID, scope, authz.ActionDelete, func(filesystem pkgsandbox.Filesystem) error {
+		return filesystem.Remove(ctx, name, true)
+	})
 }
 
 func (a *Access) MoveWorkspacePath(ctx context.Context, in WorkspaceMoveInput) (WorkspaceInfo, error) {
-	if in.Path == "" || in.NewPath == "" {
-		return WorkspaceInfo{}, ErrInvalid
-	}
-	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionWrite)
+	scope, root, source, err := workspacePath(in.Scope, in.Path, false)
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	src, err := sharepkg.SafePath(root, in.Path)
+	destinationScope, _, destination, err := workspacePath(in.Scope, in.NewPath, false)
 	if err != nil {
-		return WorkspaceInfo{}, ErrInvalid
-	}
-	dst, err := sharepkg.SafePath(root, in.NewPath)
-	if err != nil {
-		return WorkspaceInfo{}, ErrInvalid
-	}
-	if err := a.svc.assets.MoveFile(ctx, src, dst); err != nil {
 		return WorkspaceInfo{}, err
 	}
-	return collectWorkspaceInfo(root, false, "", 0)
+	if destinationScope != scope {
+		return WorkspaceInfo{}, ErrInvalid
+	}
+	var result WorkspaceInfo
+	err = a.useWorkspaceFilesystem(ctx, in.AgentID, in.SessionID, scope, authz.ActionWrite, func(filesystem pkgsandbox.Filesystem) error {
+		if _, err := filesystem.Stat(ctx, destination); err == nil {
+			return ErrAlreadyExists
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		if err := mkdirWorkspaceParent(ctx, filesystem, destination); err != nil {
+			return err
+		}
+		if err := filesystem.Rename(ctx, source, destination); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				return ErrAlreadyExists
+			}
+			return err
+		}
+		result, err = collectWorkspaceInfo(ctx, filesystem, root, root, false, 0)
+		return err
+	})
+	return result, err
 }
 
 func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (WorkspaceReadResult, error) {
-	if in.Path == "" {
-		return WorkspaceReadResult{}, ErrInvalid
-	}
-	scope, path := in.Scope, in.Path
-	relative, isAlias, err := workspaceAssetAlias(path)
-	if isAlias {
-		if err != nil {
-			return WorkspaceReadResult{}, ErrInvalid
-		}
-		scope, path = WorkspaceScopeUser, relative
-	}
-	// An absolute path is self-describing (e.g. a host path embedded in a chat
-	// message by a non-isolating backend, or a sandbox-view mount path). Resolve
-	// which authorized workspace root contains it and read under that root's
-	// scope, ignoring the requested scope. This never widens authority: the file
-	// must already be reachable via one of the two roots the caller may read.
-	if !isAlias && filepath.IsAbs(filepath.FromSlash(path)) {
-		resolvedScope, rel, err := a.canonicalizeAbsPath(ctx, in.AgentID, in.SessionID, path)
-		if err != nil {
-			return WorkspaceReadResult{}, err
-		}
-		scope, path = resolvedScope, rel
-	}
-	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionRead)
+	scope, _, name, err := workspacePath(in.Scope, in.Path, false)
 	if err != nil {
 		return WorkspaceReadResult{}, err
 	}
-	rootFS, name, err := sharepkg.OpenSafeRoot(root, path)
-	if err != nil {
-		return WorkspaceReadResult{}, ErrInvalid
-	}
-	defer func() { _ = rootFS.Close() }()
-	abs := filepath.Join(root, name)
-	info, err := rootFS.Stat(name)
-	if err != nil {
-		if os.IsNotExist(err) && a.svc.assets.Restore(ctx, abs) == nil {
-			info, err = rootFS.Stat(name)
-		}
-		if err != nil {
-			return WorkspaceReadResult{}, ErrNotFound
-		}
-	}
-	if info.IsDir() {
-		return WorkspaceReadResult{}, ErrIsDir
-	}
-	if in.MaxBytes > 0 && info.Size() > in.MaxBytes {
-		return WorkspaceReadResult{}, ErrTooLarge
-	}
-	data, err := readRootFile(rootFS, name, in.MaxBytes)
-	if err != nil {
-		return WorkspaceReadResult{}, err
-	}
-	if in.Raw {
-		mediaType := mime.TypeByExtension(filepath.Ext(path))
-		if mediaType == "" {
-			mediaType = "application/octet-stream"
-		}
-		return WorkspaceReadResult{
-			Path: path, Raw: true, RawName: filepath.Base(path),
-			RawMediaType: mediaType, RawContent: data, RawModTime: info.ModTime(),
-		}, nil
-	}
-	probe := data
-	if len(probe) > 512 {
-		probe = probe[:512]
-	}
-	if slices.Contains(probe, 0) {
-		return WorkspaceReadResult{}, ErrBinary
-	}
-	return WorkspaceReadResult{Path: path, Content: string(data), Language: DetectLanguage(path)}, nil
-}
-
-// workspaceAssetAlias recognizes the portable upload path embedded in agent
-// messages. It maps only the assets alias to a user-root-relative path without
-// consulting the host environment or admitting other variable expressions.
-func workspaceAssetAlias(input string) (relative string, isAlias bool, err error) {
-	if !strings.HasPrefix(input, "$") {
-		return "", false, nil
-	}
-	name, suffix, _, err := pkgsandbox.SplitLeadingPathVariable(input)
-	if err != nil || name != pkgsandbox.EnvStellaAssetsDir || suffix == "" {
-		return "", true, ErrInvalid
-	}
-	suffix = strings.TrimPrefix(filepath.ToSlash(suffix), "/")
-	if suffix == "" {
-		return "", true, ErrInvalid
-	}
-	for segment := range strings.SplitSeq(suffix, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return "", true, ErrInvalid
-		}
-	}
-	return "assets/" + suffix, true, nil
-}
-
-// readRootFile enforces MaxBytes while reading as well as before it. The second
-// check closes the stat/read race if a concurrently writable file grows after
-// ReadWorkspacePath inspected it.
-func readRootFile(root *os.Root, name string, maxBytes int64) ([]byte, error) {
+	maxBytes := in.MaxBytes
 	if maxBytes <= 0 {
-		return root.ReadFile(name)
+		maxBytes = workspaceReadMaxBytes
 	}
-	file, err := root.Open(name)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = file.Close() }()
-	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > maxBytes {
-		return nil, ErrTooLarge
-	}
-	return data, nil
-}
-
-// canonicalizeAbsPath maps an absolute request path to the (scope, relative
-// path) pair under whichever authorized workspace root the endpoint may read.
-// Both roots are resolved through the same ActionRead authorization the endpoint
-// applies for an explicit scope, so an absolute path can only ever resolve to
-// content already reachable via (scope, relative path) — no new roots, no
-// widening.
-//
-// Resolution order is deliberate:
-//  1. Host-root containment. A path that physically lives inside a workspace
-//     root is served from that root. This wins so a genuine host path that
-//     happens to sit under a /workspace-like STELLA_HOME is served from the root
-//     that actually contains it, never mistaken for a sandbox mount view.
-//  2. Sandbox mount mapping. A path under neither host root may still be a
-//     sandbox-view mount path (/user, /workspace) that an isolating backend
-//     embedded in a chat message. It maps to the owning scope; the mapped
-//     relative path flows through the same ActionRead authz and OpenSafeRoot
-//     containment as any relative request, so a ".."-escaping mount path is
-//     rejected and mount mapping can only reach content (scope, rel) already
-//     could.
-//
-// A path matched by neither step is ErrNotFound, identical to a missing relative
-// file. The two host roots are disjoint siblings (users/<id>/data vs
-// users/<id>/agents/<id>), so the containment check order is immaterial.
-func (a *Access) canonicalizeAbsPath(ctx context.Context, agentID, sessionID, absPath string) (WorkspaceScope, string, error) {
-	for _, scope := range []WorkspaceScope{WorkspaceScopeUser, WorkspaceScopeAgent} {
-		root, err := a.workspaceRoot(ctx, agentID, sessionID, scope, authz.ActionRead)
+	var result WorkspaceReadResult
+	err = a.useWorkspaceFilesystem(ctx, in.AgentID, in.SessionID, scope, authz.ActionRead, func(filesystem pkgsandbox.Filesystem) error {
+		reader, readInfo, err := filesystem.Read(ctx, name, pkgsandbox.ReadOptions{MaxBytes: maxBytes})
 		if err != nil {
-			return "", "", err
+			if reader != nil {
+				err = errors.Join(err, reader.Close())
+			}
+			return workspaceFilesystemError(err)
 		}
-		if rel, ok := containedRel(root, absPath); ok {
-			return scope, rel, nil
+		if reader == nil {
+			return ErrInvalid
 		}
-	}
-	if scope, rel, ok := mountScopeRel(absPath); ok {
-		return scope, rel, nil
-	}
-	return "", "", ErrNotFound
+		// A provider normally enforces MaxBytes too, but retain a local limit so
+		// a faulty remote implementation cannot turn this into an unbounded
+		// allocation. The extra byte distinguishes an exact-size file from an
+		// over-limit stream without buffering either whole oversized payload.
+		data, readErr := io.ReadAll(io.LimitReader(reader, maxBytes+1))
+		closeErr := reader.Close()
+		if err := errors.Join(readErr, closeErr); err != nil {
+			return workspaceFilesystemError(err)
+		}
+		if readInfo.IsDir {
+			return ErrIsDir
+		}
+		if !readInfo.Mode.IsRegular() || readInfo.Size < 0 {
+			return ErrInvalid
+		}
+		if readInfo.Size > maxBytes || int64(len(data)) > maxBytes {
+			return ErrTooLarge
+		}
+		if int64(len(data)) != readInfo.Size {
+			return ErrInvalid
+		}
+		if in.Raw {
+			mediaType := mime.TypeByExtension(path.Ext(name))
+			if mediaType == "" {
+				mediaType = "application/octet-stream"
+			}
+			return assignWorkspaceRawResult(&result, workspaceRelativePath(scope, name), path.Base(name), mediaType, data, readInfo.ModTime)
+		}
+		probe := data
+		if len(probe) > 512 {
+			probe = probe[:512]
+		}
+		if slices.Contains(probe, 0) {
+			return ErrBinary
+		}
+		result = WorkspaceReadResult{Path: workspaceRelativePath(scope, name), Content: string(data), Language: DetectLanguage(name)}
+		return nil
+	})
+	return result, err
 }
 
-// mountScopeRel maps a sandbox mount-view absolute path to the workspace scope
-// that mount belongs to and the path relative to the mount. It matches only on a
-// full path-segment boundary — exactly the mount, or the mount followed by "/" —
-// so /userdata never matches the /user mount. The remainder is returned
-// uncleaned; the caller runs it through OpenSafeRoot, which rejects any
-// non-local (".."-escaping) result. That boundary means /workspace/../user/...
-// maps to the agent scope with a "../user/..." remainder and is rejected, never
-// crossing into the user root.
-func mountScopeRel(absPath string) (WorkspaceScope, string, bool) {
-	p := filepath.ToSlash(absPath)
-	for _, m := range []struct {
-		mount string
-		scope WorkspaceScope
-	}{
-		{pkgsandbox.MountUserData, WorkspaceScopeUser},
-		{pkgsandbox.MountWorkspace, WorkspaceScopeAgent},
-	} {
-		if p == m.mount {
-			return m.scope, ".", true
-		}
-		if rel, ok := strings.CutPrefix(p, m.mount+"/"); ok {
-			return m.scope, rel, true
-		}
-	}
-	return "", "", false
-}
-
-// containedRel reports whether absPath resolves to a location strictly inside
-// root and, if so, returns the cleaned root-relative path. It resolves symlinks
-// on both sides — matching macOS realities like /var → /private/var — the same
-// way agent.ValidateProjectDir does, then requires the relative result to be
-// local (filepath.IsLocal rejects any ".." escape). A path equal to or outside
-// root yields ok=false, so authority is never widened.
-func containedRel(root, absPath string) (string, bool) {
-	cleanRoot := resolveExistingSymlinks(filepath.Clean(root))
-	cleanPath := resolveExistingSymlinks(filepath.Clean(filepath.FromSlash(absPath)))
-	rel, err := filepath.Rel(cleanRoot, cleanPath)
-	if err != nil {
-		return "", false
-	}
-	if rel == "." || !filepath.IsLocal(rel) {
-		return "", false
-	}
-	return rel, true
-}
-
-// resolveExistingSymlinks returns path with symlinks resolved, falling back to
-// the longest existing ancestor so a symlinked parent cannot mask an escape
-// even when the leaf does not exist yet. Mirrors agent.ValidateProjectDir.
-func resolveExistingSymlinks(path string) string {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
-	}
-	dir := path
-	for dir != string(filepath.Separator) && dir != "." {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Fixed point (e.g. a Windows drive root that itself fails to
-			// resolve); the request path is attacker-controlled, so never spin.
-			break
-		}
-		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
-			tail, _ := filepath.Rel(parent, path)
-			return filepath.Join(resolved, tail)
-		}
-		dir = parent
-	}
-	return path
+func assignWorkspaceRawResult(result *WorkspaceReadResult, relative, name, mediaType string, data []byte, modTime time.Time) error {
+	*result = WorkspaceReadResult{Path: relative, Raw: true, RawName: name, RawMediaType: mediaType, RawContent: data, RawModTime: modTime}
+	return nil
 }
 
 func (a *Access) WriteWorkspacePath(ctx context.Context, in WorkspaceWriteInput) (WorkspaceReadResult, error) {
-	if in.Path == "" {
-		return WorkspaceReadResult{}, ErrInvalid
-	}
-	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, in.Scope, authz.ActionWrite)
+	scope, _, name, err := workspacePath(in.Scope, in.Path, false)
 	if err != nil {
 		return WorkspaceReadResult{}, err
 	}
-	abs, err := sharepkg.SafePath(root, in.Path)
-	if err != nil {
-		return WorkspaceReadResult{}, ErrInvalid
-	}
-	if err := a.svc.assets.WriteFile(ctx, abs, []byte(in.Content), 0o644); err != nil {
-		return WorkspaceReadResult{}, err
-	}
-	return WorkspaceReadResult{Path: in.Path, Content: in.Content, Language: DetectLanguage(in.Path)}, nil
+	var result WorkspaceReadResult
+	err = a.useWorkspaceFilesystem(ctx, in.AgentID, in.SessionID, scope, authz.ActionWrite, func(filesystem pkgsandbox.Filesystem) error {
+		if err := mkdirWorkspaceParent(ctx, filesystem, name); err != nil {
+			return err
+		}
+		content := []byte(in.Content)
+		length := int64(len(content))
+		if err := filesystem.Write(ctx, name, bytes.NewReader(content), pkgsandbox.WriteOptions{Perm: 0o644, ContentLength: &length}); err != nil {
+			return err
+		}
+		result = WorkspaceReadResult{Path: workspaceRelativePath(scope, name), Content: in.Content, Language: DetectLanguage(name)}
+		return nil
+	})
+	return result, err
 }
 
 func (a *Access) UploadWorkspacePath(ctx context.Context, in WorkspaceUploadInput) (WorkspaceUploadResult, error) {
-	if in.Filename == "" || in.Reader == nil {
+	if in.Reader == nil {
 		return WorkspaceUploadResult{}, ErrInvalid
 	}
-	root, err := a.workspaceRoot(ctx, in.AgentID, in.SessionID, WorkspaceScopeUser, authz.ActionCreate)
-	if err != nil {
-		return WorkspaceUploadResult{}, err
-	}
-	data, err := io.ReadAll(in.Reader)
-	if err != nil {
-		return WorkspaceUploadResult{}, err
+	filename := path.Base(strings.ReplaceAll(in.Filename, "\\", "/"))
+	if filename == "" || filename == "." || filename == "/" {
+		return WorkspaceUploadResult{}, ErrInvalid
 	}
 	now := in.Now
 	if now.IsZero() {
-		now = time.Now()
+		now = time.Now().UTC()
 	}
-	hash := fmt.Sprintf("%06x", now.UnixNano()&0xFFFFFF)
-	dir := filepath.Join(root, "assets", now.Format("200601"))
-	name := fmt.Sprintf("%s-%s-%s", now.Format("20060102"), hash, filepath.Base(in.Filename))
-	abs := filepath.Join(dir, name)
-	if err := a.svc.assets.WriteFile(ctx, abs, data, 0o644); err != nil {
-		return WorkspaceUploadResult{}, err
-	}
-	rel, _ := filepath.Rel(root, abs)
-	relSlash := filepath.ToSlash(rel)
-	return WorkspaceUploadResult{
-		Path:         "$" + pkgsandbox.EnvStellaAssetsDir + "/" + strings.TrimPrefix(relSlash, "assets/"),
-		RelativePath: relSlash,
-		Scope:        WorkspaceScopeUser,
-	}, nil
-}
-
-func (a *Access) workspaceRoot(ctx context.Context, agentID, sessionID string, scope WorkspaceScope, action authz.Action) (string, error) {
-	info, err := a.Workspace(ctx, agentID, sessionID, action)
+	uploadID, err := uuid.NewV7()
 	if err != nil {
-		return "", err
+		return WorkspaceUploadResult{}, fmt.Errorf("%w: generate upload ID: %w", ErrUnavailable, err)
 	}
-	if info.AgentID == "" || (info.UserID == "" && info.GroupID == "") {
-		return "", ErrNotFound
-	}
-	return resolveWorkspaceRoot(ctx, a.svc.homes, info, scope)
-}
-
-func resolveWorkspaceRoot(ctx context.Context, viewer home.WorkspaceViewer, info agentsession.Info, scope WorkspaceScope) (string, error) {
-	if viewer == nil {
-		return "", fmt.Errorf("%w: Home workspace resolver not configured", ErrUnavailable)
-	}
-	view, err := viewer.WorkspaceView(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID})
-	if err != nil {
-		return "", fmt.Errorf("%w: resolve Home workspace: %w", ErrUnavailable, err)
-	}
-	if scope == WorkspaceScopeUser {
-		return view.DataRoot, nil
-	}
-	return view.AgentRoot, nil
-}
-
-func scopeSandboxView(backend, root string, scope WorkspaceScope) string {
-	if scope == WorkspaceScopeUser {
-		return sandbox.UserDataViewFor(backend, root)
-	}
-	return sandbox.WorkspaceViewFor(backend, root)
-}
-
-func pathDepth(path string) int {
-	return len(strings.Split(filepath.ToSlash(path), "/"))
-}
-
-func collectWorkspaceInfo(root string, showHidden bool, listPath string, depth int) (WorkspaceInfo, error) {
-	info := WorkspaceInfo{Root: root, Paths: []string{}}
-	rootFS, listName, err := sharepkg.OpenSafeRoot(root, strings.TrimSuffix(listPath, "/"))
-	if err != nil {
-		return WorkspaceInfo{}, ErrInvalid
-	}
-	defer func() { _ = rootFS.Close() }()
-	if stat, statErr := rootFS.Stat(listName); statErr != nil {
-		// A listed subdirectory can vanish between renders (deleted by the
-		// agent or a peer session); that is a 404, not a server fault.
-		if os.IsNotExist(statErr) {
-			return WorkspaceInfo{}, ErrNotFound
+	relative := path.Join("assets", now.Format("200601"), fmt.Sprintf("%s-%s-%s", now.Format("20060102"), uploadID, filename))
+	name := path.Join(pkgsandbox.PathUser, relative)
+	var result WorkspaceUploadResult
+	err = a.useWorkspaceFilesystem(ctx, in.AgentID, in.SessionID, WorkspaceScopeUser, authz.ActionCreate, func(filesystem pkgsandbox.Filesystem) error {
+		if err := filesystem.Mkdir(ctx, path.Dir(name), 0o755); err != nil {
+			return err
 		}
-		return WorkspaceInfo{}, statErr
-	} else if !stat.IsDir() {
-		return WorkspaceInfo{}, ErrInvalid
-	}
-	err = fs.WalkDir(rootFS.FS(), filepath.ToSlash(listName), func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil //nolint:nilerr
+		if err := filesystem.Upload(ctx, name, in.Reader, pkgsandbox.WriteOptions{Perm: 0o644, ContentLength: in.ContentLength}); err != nil {
+			return err
 		}
-		scopeRel, scopeRelErr := filepath.Rel(listName, filepath.FromSlash(path))
-		if scopeRelErr != nil || scopeRel == "." {
-			return nil //nolint:nilerr
+		result = WorkspaceUploadResult{
+			Path:         "$" + pkgsandbox.EnvStellaAssetsDir + "/" + strings.TrimPrefix(relative, "assets/"),
+			RelativePath: relative,
+			Scope:        WorkspaceScopeUser,
 		}
-		if depth > 0 && pathDepth(scopeRel) > depth {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel := filepath.FromSlash(path)
-		if rel == "." {
-			return nil
-		}
-		name := d.Name()
-		isDot := strings.HasPrefix(name, ".") || strings.Contains(rel, string(filepath.Separator)+".")
-		if isDot && !showHidden {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() {
-			info.TotalDirs++
-			info.Paths = append(info.Paths, filepath.ToSlash(rel)+"/")
-			return nil
-		}
-		entryInfo, statErr := d.Info()
-		if statErr != nil {
-			return nil //nolint:nilerr
-		}
-		info.TotalFiles++
-		if entryInfo.Mode().IsRegular() {
-			info.TotalBytes += entryInfo.Size()
-		}
-		info.Paths = append(info.Paths, filepath.ToSlash(rel))
 		return nil
 	})
-	if err != nil {
-		return WorkspaceInfo{}, err
-	}
-	return info, nil
+	return result, err
 }
 
-func DetectLanguage(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
+// useWorkspaceFilesystem authorizes the exact durable Session before obtaining
+// its exact runtime and making one callback-only Filesystem lease. The callback
+// owns all filesystem work for one HTTP workspace operation; it receives no
+// host path and cannot escape the provider's canonical mount contract.
+func (a *Access) useWorkspaceFilesystem(ctx context.Context, agentID, sessionID string, scope WorkspaceScope, action authz.Action, use func(pkgsandbox.Filesystem) error) error {
+	if !validWorkspaceScope(scope) || use == nil {
+		return ErrInvalid
+	}
+	info, err := a.Workspace(ctx, agentID, sessionID, action)
+	if err != nil {
+		return err
+	}
+	if info.AgentID == "" || (info.UserID == "" && info.GroupID == "") {
+		return ErrNotFound
+	}
+	runtime, err := a.svc.runtimeFor(info.AgentID)
+	if err != nil {
+		return err
+	}
+	filesystemRuntime, ok := runtime.(FilesystemRuntimeService)
+	if !ok {
+		return fmt.Errorf("%w: runtime lacks filesystem capability", ErrUnavailable)
+	}
+	return filesystemRuntime.UseFilesystem(ctx, info, use)
+}
+
+func workspacePath(scope WorkspaceScope, input string, allowRoot bool) (WorkspaceScope, string, string, error) {
+	if !validWorkspaceScope(scope) {
+		return "", "", "", ErrInvalid
+	}
+	root := workspaceCanonicalRoot(scope)
+	if input == "" {
+		if !allowRoot {
+			return "", "", "", ErrInvalid
+		}
+		return scope, root, root, nil
+	}
+	if strings.HasPrefix(input, "/") {
+		for _, mount := range []struct {
+			scope WorkspaceScope
+			root  string
+		}{
+			{WorkspaceScopeAgent, pkgsandbox.PathWorkspace},
+			{WorkspaceScopeUser, pkgsandbox.PathUser},
+		} {
+			if input == mount.root && allowRoot {
+				return mount.scope, mount.root, mount.root, nil
+			}
+			if relative, ok := strings.CutPrefix(input, mount.root+"/"); ok && strictWorkspaceRelative(relative) {
+				return mount.scope, mount.root, path.Join(mount.root, relative), nil
+			}
+		}
+		return "", "", "", ErrInvalid
+	}
+	name, suffix, hasVariable, err := pkgsandbox.SplitLeadingPathVariable(input)
+	if err != nil {
+		return "", "", "", ErrInvalid
+	}
+	if hasVariable {
+		switch name {
+		case pkgsandbox.EnvHome:
+			scope, root = WorkspaceScopeAgent, pkgsandbox.PathWorkspace
+		case pkgsandbox.EnvStellaAssetsDir:
+			scope, root = WorkspaceScopeUser, path.Join(pkgsandbox.PathUser, "assets")
+		default:
+			return "", "", "", ErrInvalid
+		}
+		input = strings.TrimPrefix(suffix, "/")
+	}
+	if input == "" {
+		if !allowRoot {
+			return "", "", "", ErrInvalid
+		}
+		return scope, workspaceCanonicalRoot(scope), root, nil
+	}
+	if !strictWorkspaceRelative(input) {
+		return "", "", "", ErrInvalid
+	}
+	return scope, workspaceCanonicalRoot(scope), path.Join(root, input), nil
+}
+
+func validWorkspaceScope(scope WorkspaceScope) bool {
+	return scope == WorkspaceScopeAgent || scope == WorkspaceScopeUser
+}
+
+func workspaceCanonicalRoot(scope WorkspaceScope) string {
+	if scope == WorkspaceScopeUser {
+		return pkgsandbox.PathUser
+	}
+	return pkgsandbox.PathWorkspace
+}
+
+func strictWorkspaceRelative(value string) bool {
+	if value == "" || strings.Contains(value, "\\") || strings.HasPrefix(value, "/") || strings.ContainsRune(value, 0) || windowsAbsolutePath(value) {
+		return false
+	}
+	for segment := range strings.SplitSeq(value, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return path.Clean(value) == value
+}
+
+func windowsAbsolutePath(value string) bool {
+	return len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && value[2] == '/'
+}
+
+func workspaceRelativePath(scope WorkspaceScope, name string) string {
+	root := workspaceCanonicalRoot(scope)
+	relative, ok := strings.CutPrefix(name, root+"/")
+	if ok {
+		return relative
+	}
+	return ""
+}
+
+func mkdirWorkspaceParent(ctx context.Context, filesystem pkgsandbox.Filesystem, name string) error {
+	parent := path.Dir(name)
+	if parent == workspaceCanonicalRoot(WorkspaceScopeAgent) || parent == workspaceCanonicalRoot(WorkspaceScopeUser) {
+		return nil
+	}
+	return filesystem.Mkdir(ctx, parent, 0o755)
+}
+
+func workspaceFilesystemError(err error) error {
+	switch {
+	case errors.Is(err, pkgsandbox.ErrReadLimit):
+		return ErrTooLarge
+	case errors.Is(err, fs.ErrNotExist):
+		return ErrNotFound
+	default:
+		return err
+	}
+}
+
+func collectWorkspaceInfo(ctx context.Context, filesystem pkgsandbox.Filesystem, root, listPath string, showHidden bool, depth int) (WorkspaceInfo, error) {
+	info, err := filesystem.Stat(ctx, listPath)
+	if err != nil {
+		return WorkspaceInfo{}, workspaceFilesystemError(err)
+	}
+	if !info.IsDir {
+		return WorkspaceInfo{}, ErrInvalid
+	}
+	result := WorkspaceInfo{Paths: []string{}}
+	var walk func(string, int) error
+	walk = func(directory string, level int) error {
+		entries, err := filesystem.List(ctx, directory)
+		if err != nil {
+			return workspaceFilesystemError(err)
+		}
+		entries = slices.Clone(entries)
+		slices.SortFunc(entries, func(left, right pkgsandbox.DirEntry) int { return strings.Compare(left.Name, right.Name) })
+		for _, entry := range entries {
+			if entry.Name == "" || !strictWorkspaceRelative(entry.Name) {
+				return ErrInvalid
+			}
+			entryPath := path.Join(directory, entry.Name)
+			relative := workspaceRelativePathForRoot(root, entryPath)
+			if relative == "" {
+				return ErrInvalid
+			}
+			if !showHidden && hiddenWorkspacePath(relative) {
+				continue
+			}
+			if depth > 0 && level > depth {
+				continue
+			}
+			if entry.IsDir {
+				result.TotalDirs++
+				result.Paths = append(result.Paths, relative+"/")
+				if depth <= 0 || level < depth {
+					if err := walk(entryPath, level+1); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			entryInfo, err := filesystem.Stat(ctx, entryPath)
+			if err != nil {
+				return workspaceFilesystemError(err)
+			}
+			result.TotalFiles++
+			if entryInfo.Mode.IsRegular() {
+				result.TotalBytes += entryInfo.Size
+			}
+			result.Paths = append(result.Paths, relative)
+		}
+		return nil
+	}
+	if err := walk(listPath, 1); err != nil {
+		return WorkspaceInfo{}, err
+	}
+	return result, nil
+}
+
+func workspaceRelativePathForRoot(root, name string) string {
+	if name == root {
+		return ""
+	}
+	relative, _ := strings.CutPrefix(name, root+"/")
+	return relative
+}
+
+func hiddenWorkspacePath(relative string) bool {
+	for segment := range strings.SplitSeq(relative, "/") {
+		if strings.HasPrefix(segment, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+func DetectLanguage(name string) string {
+	ext := strings.ToLower(path.Ext(name))
 	switch ext {
 	case ".go":
 		return "go"

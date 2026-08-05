@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,12 +34,17 @@ func (m fakeRuntimeManager) GetService(string) RuntimeService { return m.svc }
 func (m fakeRuntimeManager) Default() RuntimeService          { return m.svc }
 
 type fakeRuntimeService struct {
-	chatCalls      int
-	stopCalls      int
-	subscribeCalls int
-	live           bool
-	events         chan agent.Event
-	chatCtx        context.Context
+	filesystemMu    sync.Mutex
+	chatCalls       int
+	stopCalls       int
+	subscribeCalls  int
+	filesystemCalls int
+	filesystemInfo  agentsession.Info
+	filesystem      sandbox.Filesystem
+	filesystemErr   error
+	live            bool
+	events          chan agent.Event
+	chatCtx         context.Context
 }
 
 func (s *fakeRuntimeService) Chat(ctx context.Context, _ agent.ChatRequest) <-chan agent.Event {
@@ -68,8 +74,18 @@ func (s *fakeRuntimeService) CompactAuthorizedSession(context.Context, agentsess
 	return "", errors.New("not used")
 }
 
-func (s *fakeRuntimeService) UseFilesystem(context.Context, agentsession.Info, func(sandbox.Filesystem) error) error {
-	return errors.New("not used")
+func (s *fakeRuntimeService) UseFilesystem(ctx context.Context, info agentsession.Info, use func(sandbox.Filesystem) error) error {
+	s.filesystemMu.Lock()
+	defer s.filesystemMu.Unlock()
+	s.filesystemCalls++
+	s.filesystemInfo = info
+	if s.filesystemErr != nil {
+		return s.filesystemErr
+	}
+	if s.filesystem == nil {
+		return errors.New("filesystem not configured")
+	}
+	return use(s.filesystem)
 }
 
 func TestMain(m *testing.M) { dbtest.Main(m) }

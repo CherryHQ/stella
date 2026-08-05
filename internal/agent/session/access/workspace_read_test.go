@@ -1,56 +1,50 @@
 package access
 
 import (
-	"bytes"
 	"errors"
-	"os"
 	"testing"
 
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-func TestReadRootFileEnforcesLimitDuringRead(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/large.bin", bytes.Repeat([]byte("x"), 17), 0o600); err != nil {
-		t.Fatal(err)
+func TestWorkspacePathCanonicalizesAliasesAndCanonicalMounts(t *testing.T) {
+	tests := []struct {
+		input     string
+		scope     WorkspaceScope
+		allowRoot bool
+		wantScope WorkspaceScope
+		wantRoot  string
+		wantPath  string
+		wantErr   error
+	}{
+		{"notes/todo.md", WorkspaceScopeAgent, false, WorkspaceScopeAgent, "/workspace", "/workspace/notes/todo.md", nil},
+		{"$HOME/notes/todo.md", WorkspaceScopeUser, false, WorkspaceScopeAgent, "/workspace", "/workspace/notes/todo.md", nil},
+		{"$STELLA_ASSETS_DIR/202608/file.png", WorkspaceScopeAgent, false, WorkspaceScopeUser, "/user", "/user/assets/202608/file.png", nil},
+		{"$STELLA_ASSETS_DIR", WorkspaceScopeAgent, true, WorkspaceScopeUser, "/user", "/user/assets", nil},
+		{"/workspace/notes/todo.md", WorkspaceScopeUser, false, WorkspaceScopeAgent, "/workspace", "/workspace/notes/todo.md", nil},
+		{"/user/assets/202608/file.png", WorkspaceScopeAgent, false, WorkspaceScopeUser, "/user", "/user/assets/202608/file.png", nil},
+		{"/workspace", WorkspaceScopeUser, true, WorkspaceScopeAgent, "/workspace", "/workspace", nil},
+		{"/user", WorkspaceScopeAgent, false, "", "", "", ErrInvalid},
+		{"/workspace/../user/assets/file.png", WorkspaceScopeAgent, false, "", "", "", ErrInvalid},
+		{"/private/stella/secret", WorkspaceScopeUser, false, "", "", "", ErrInvalid},
+		{"C:/private/stella/secret", WorkspaceScopeUser, false, "", "", "", ErrInvalid},
+		{"../secret", WorkspaceScopeUser, false, "", "", "", ErrInvalid},
+		{"assets//secret", WorkspaceScopeUser, false, "", "", "", ErrInvalid},
+		{"$UNKNOWN/secret", WorkspaceScopeUser, false, "", "", "", ErrInvalid},
+		{"${STELLA_ASSETS_DIR", WorkspaceScopeUser, false, "", "", "", ErrInvalid},
 	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = root.Close() }()
-
-	if _, err := readRootFile(root, "large.bin", 16); !errors.Is(err, ErrTooLarge) {
-		t.Fatalf("read error = %v, want ErrTooLarge", err)
-	}
-	got, err := readRootFile(root, "large.bin", 17)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 17 {
-		t.Fatalf("read bytes = %d, want 17", len(got))
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			scope, root, got, err := workspacePath(tt.scope, tt.input, tt.allowRoot)
+			if !errors.Is(err, tt.wantErr) || scope != tt.wantScope || root != tt.wantRoot || got != tt.wantPath {
+				t.Fatalf("workspacePath(%q) = (%q, %q, %q, %v), want (%q, %q, %q, %v)", tt.input, scope, root, got, err, tt.wantScope, tt.wantRoot, tt.wantPath, tt.wantErr)
+			}
+		})
 	}
 }
 
-func TestWorkspaceAssetAlias(t *testing.T) {
-	valid := "$" + pkgsandbox.EnvStellaAssetsDir + "/202608/file.png"
-	got, isAlias, err := workspaceAssetAlias(valid)
-	if err != nil || !isAlias || got != "assets/202608/file.png" {
-		t.Fatalf("workspaceAssetAlias(%q) = %q, %t, %v", valid, got, isAlias, err)
-	}
-
-	for _, input := range []string{
-		"$" + pkgsandbox.EnvStellaAssetsDir,
-		"$" + pkgsandbox.EnvStellaAssetsDir + "/../secret.txt",
-		"$" + pkgsandbox.EnvStellaAssetsDir + "/assets/./file.png",
-		"$HOME/file.png",
-		"${STELLA_ASSETS_DIR",
-	} {
-		t.Run(input, func(t *testing.T) {
-			_, isAlias, err := workspaceAssetAlias(input)
-			if !isAlias || !errors.Is(err, ErrInvalid) {
-				t.Fatalf("workspaceAssetAlias(%q) = isAlias=%t, err=%v; want invalid alias", input, isAlias, err)
-			}
-		})
+func TestWorkspaceFilesystemErrorMapsReadLimitsAndMisses(t *testing.T) {
+	if !errors.Is(workspaceFilesystemError(pkgsandbox.ErrReadLimit), ErrTooLarge) {
+		t.Fatal("read limit did not map to ErrTooLarge")
 	}
 }

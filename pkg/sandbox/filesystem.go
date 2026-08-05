@@ -56,6 +56,8 @@ type Filesystem interface {
 	List(context.Context, string) ([]DirEntry, error)
 	Mkdir(context.Context, string, fs.FileMode) error
 	Remove(context.Context, string, bool) error
+	// Rename atomically moves a path only when the destination does not exist.
+	// Existing destinations return an error matching fs.ErrExist.
 	Rename(context.Context, string, string) error
 }
 

@@ -3,8 +3,6 @@ package access
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -261,7 +259,7 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 		})
 	}
 
-	t.Run("workspace path traversal is rejected", func(t *testing.T) {
+	t.Run("workspace path traversal is rejected before runtime acquisition", func(t *testing.T) {
 		access, err := m.svc.Begin(ctx, user(m.owner))
 		if err != nil {
 			t.Fatal(err)
@@ -272,31 +270,6 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 		})
 		if !errors.Is(err, ErrInvalid) {
 			t.Fatalf("CreateWorkspacePath error=%v, want ErrInvalid", err)
-		}
-		root := workspaceRootForScope(m.owner, m.agent, WorkspaceScopeUser)
-		if _, err := os.Stat(filepath.Join(filepath.Dir(root), "escaped.txt")); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("path escaped workspace: stat error=%v, want not exist", err)
-		}
-	})
-
-	t.Run("workspace read cannot follow a symlink outside its root", func(t *testing.T) {
-		access, err := m.svc.Begin(ctx, user(m.owner))
-		if err != nil {
-			t.Fatal(err)
-		}
-		root := workspaceRootForScope(m.owner, m.agent, WorkspaceScopeUser)
-		outside := filepath.Join(t.TempDir(), "secret.txt")
-		if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Symlink(outside, filepath.Join(root, "escape-link")); err != nil {
-			t.Skipf("symlink unavailable: %v", err)
-		}
-		_, err = access.ReadWorkspacePath(ctx, WorkspaceReadInput{
-			AgentID: m.agent, SessionID: m.private, Scope: WorkspaceScopeUser, Path: "escape-link",
-		})
-		if !errors.Is(err, ErrNotFound) {
-			t.Fatalf("ReadWorkspacePath error=%v, want ErrNotFound", err)
 		}
 	})
 
@@ -446,7 +419,7 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 		t.Fatal(err)
 	}
 	agentAccess := agentaccess.NewService(store, appdb.NewAuthStore(pool))
-	svc, err := NewService(mem, pool, store, assets, agentAccess, WithHomeWorkspace(testWorkspaceViewer{}))
+	svc, err := NewService(mem, pool, store, assets, agentAccess)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

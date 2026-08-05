@@ -103,14 +103,8 @@ components:
 
     SessionWorkspace:
       type: object
-      required: [root, paths, total_files, total_dirs, total_bytes]
+      required: [paths, total_files, total_dirs, total_bytes]
       properties:
-        root:
-          type: string
-          description: Absolute host path of the workspace root, used to resolve relative file operations
-        sandbox_root:
-          type: string
-          description: Path the agent sees for this directory inside its sandbox (e.g. /workspace on isolating backends; equals root otherwise). For display.
         paths:
           type: array
           items: { type: string }

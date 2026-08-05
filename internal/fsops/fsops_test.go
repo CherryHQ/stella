@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -77,6 +78,40 @@ func TestFilesystemDoesNotRetryWrite(t *testing.T) {
 	err = f.Write(context.Background(), "/workspace/write", reader, sandbox.WriteOptions{})
 	if err == nil || reader.calls != 1 {
 		t.Fatalf("err = %v, reader calls = %d", err, reader.calls)
+	}
+}
+
+func TestHelperRenameDoesNotReplaceExistingDestination(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("atomic no-replace rename is unsupported on this platform")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "source"), []byte("source"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "destination"), []byte("destination"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request, err := EncodeRequest(Request{Version: ProtocolVersion, Operation: "rename", Path: "source", NewPath: "destination"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := Serve(context.Background(), root, bytes.NewReader(request), &output); err != nil {
+		t.Fatal(err)
+	}
+	response, err := DecodeResponse(&output, KindMutation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ResponseError(response); !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("helper rename error = %v, want fs.ErrExist", err)
+	}
+	for name, want := range map[string]string{"source": "source", "destination": "destination"} {
+		got, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil || string(got) != want {
+			t.Fatalf("%s after rejected rename = %q, %v; want %q", name, got, err, want)
+		}
 	}
 }
 

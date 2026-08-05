@@ -32,11 +32,9 @@ export function basename(path: string): string {
 }
 
 // workspaceFileURL builds a raw file-content read URL for a message-embedded
-// file path. The path is passed verbatim: an absolute sandbox-view (/user/...,
-// /workspace/...) or host path is self-describing, and the server resolves which
-// authorized workspace root contains it (host containment first, then sandbox
-// mount mapping). The client cannot disambiguate mount views from real host
-// paths, so it must not guess a scope — that decision belongs to the server.
+// file path. The path is passed verbatim: the server accepts only canonical
+// sandbox views (/user/... or /workspace/...), portable aliases, or relative
+// paths. Host paths are rejected; scope resolution remains server-owned.
 export function workspaceFileURL(agentId: string, sessionId: string, path: string): string {
   return `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(
     sessionId,

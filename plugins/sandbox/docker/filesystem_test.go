@@ -85,6 +85,14 @@ func TestDockerFilesystemWriteSucceedsOnFramedResponse(t *testing.T) {
 	}
 }
 
+func TestDockerFilesystemRenameMapsExistingDestination(t *testing.T) {
+	api := &filesystemExecAPI{response: frameStdout(fsFrame([]byte(`{"version":1,"kind":"mutation","error_code":"exist","error":"destination exists"}`)))}
+	err := testDockerFilesystem(api).Rename(context.Background(), "/workspace/source", "/workspace/destination")
+	if !errors.Is(err, iofs.ErrExist) || sandboxpkg.IsOutcomeUnknown(err) {
+		t.Fatalf("rename error = %v, want typed definite iofs.ErrExist", err)
+	}
+}
+
 func writeOne(t *testing.T, api dockerclient.API) error {
 	t.Helper()
 	fs := testDockerFilesystem(api)

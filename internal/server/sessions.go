@@ -81,6 +81,10 @@ const (
 	// maxSessionMessageParts caps workspace reads per send while leaving room
 	// for eight images, their file markers, text, and ordinary attachments.
 	maxSessionMessageParts = 32
+	// Workspace uploads spool temporarily so Docker receives an exact
+	// ContentLength. The body allowance includes bounded multipart framing.
+	workspaceUploadMaxFileBytes      int64 = 100 << 20
+	workspaceUploadMultipartOverhead int64 = 1 << 20
 )
 
 // lifecycleValueContext takes cancellation and deadlines from the server
@@ -921,7 +925,11 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 		listPath = *params.Path
 	}
 	depth := 2
-	if params.Depth != nil && *params.Depth > 0 {
+	if params.Depth != nil {
+		if *params.Depth <= 0 {
+			writeError(w, http.StatusBadRequest, "depth must be positive")
+			return
+		}
 		depth = *params.Depth
 	}
 	info, err := access.ListWorkspace(r.Context(), sessionaccess.WorkspaceListInput{
@@ -958,6 +966,10 @@ func (s *Server) writeWorkspaceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "path is a directory")
 	case errors.Is(err, sessionaccess.ErrBinary):
 		writeError(w, http.StatusBadRequest, "file appears to be binary")
+	case errors.Is(err, sessionaccess.ErrTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds read limit")
+	case errors.Is(err, sessionaccess.ErrAlreadyExists):
+		writeError(w, http.StatusConflict, "destination already exists")
 	case errors.Is(err, sessionaccess.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, sessionaccess.ErrForbidden), errors.Is(err, sessionaccess.ErrUnavailable):
@@ -1095,8 +1107,18 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, workspaceUploadMaxFileBytes+workspaceUploadMultipartOverhead)
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid multipart form")
+		if workspaceUploadBodyTooLarge(err) {
+			writeError(w, http.StatusRequestEntityTooLarge, "file exceeds upload limit")
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid multipart form")
+		}
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -1104,13 +1126,27 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusBadRequest, "missing file field")
 		return
 	}
+	if !validWorkspaceUploadSize(header.Size) {
+		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds upload limit")
+		return
+	}
 	defer func() { _ = file.Close() }()
-	result, err := access.UploadWorkspacePath(r.Context(), sessionaccess.WorkspaceUploadInput{AgentID: agentID, SessionID: sessionID, Filename: header.Filename, Reader: file, Now: time.Now()})
+	contentLength := header.Size
+	result, err := access.UploadWorkspacePath(r.Context(), sessionaccess.WorkspaceUploadInput{AgentID: agentID, SessionID: sessionID, Filename: header.Filename, Reader: file, ContentLength: &contentLength, Now: time.Now().UTC()})
 	if err != nil {
 		s.writeWorkspaceError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, result)
+}
+
+func validWorkspaceUploadSize(size int64) bool {
+	return size >= 0 && size <= workspaceUploadMaxFileBytes
+}
+
+func workspaceUploadBodyTooLarge(err error) bool {
+	var tooLarge *http.MaxBytesError
+	return errors.As(err, &tooLarge)
 }
 
 func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {

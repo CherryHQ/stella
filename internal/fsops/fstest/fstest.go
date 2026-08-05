@@ -16,6 +16,8 @@ import (
 	"errors"
 	"io"
 	iofs "io/fs"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -111,6 +113,13 @@ func Run(t *testing.T, h Harness) {
 	t.Run("RenameRemove", func(t *testing.T) {
 		mkdir(t, fs, "/workspace/mv", 0o755)
 		writeFile(t, fs, "/workspace/mv/a", "x", 0o644)
+		if !supportsNoReplaceRename() {
+			err := fs.Rename(ctx, "/workspace/mv/a", "/workspace/mv/b")
+			if err == nil || !strings.Contains(err.Error(), "atomic no-replace rename is unsupported") {
+				t.Fatalf("unsupported rename = %v, want clear no-replace rejection", err)
+			}
+			return
+		}
 		if err := fs.Rename(ctx, "/workspace/mv/a", "/workspace/mv/b"); err != nil {
 			t.Fatal(err)
 		}
@@ -125,6 +134,96 @@ func Run(t *testing.T, h Harness) {
 		}
 		if _, err := fs.Stat(ctx, "/workspace/mv/b"); err == nil {
 			t.Fatal("removed file still present")
+		}
+	})
+
+	t.Run("RenameNeverReplacesDestination", func(t *testing.T) {
+		if !supportsNoReplaceRename() {
+			t.Skip("atomic no-replace rename is unsupported on this platform")
+		}
+		mkdir(t, fs, "/workspace/no-replace", 0o755)
+		writeFile(t, fs, "/workspace/no-replace/source", "source", 0o644)
+		writeFile(t, fs, "/workspace/no-replace/destination", "destination", 0o644)
+		err := fs.Rename(ctx, "/workspace/no-replace/source", "/workspace/no-replace/destination")
+		if !errors.Is(err, iofs.ErrExist) {
+			t.Fatalf("rename existing destination = %v, want iofs.ErrExist", err)
+		}
+		if got := readAll(t, fs, "/workspace/no-replace/source", 16); got != "source" {
+			t.Fatalf("source after rejected rename = %q, want preserved source", got)
+		}
+		if got := readAll(t, fs, "/workspace/no-replace/destination", 16); got != "destination" {
+			t.Fatalf("destination after rejected rename = %q, want preserved destination", got)
+		}
+	})
+
+	t.Run("RenameFileAndDirectoryToAbsentDestination", func(t *testing.T) {
+		if !supportsNoReplaceRename() {
+			t.Skip("atomic no-replace rename is unsupported on this platform")
+		}
+		mkdir(t, fs, "/workspace/rename-absent", 0o755)
+		writeFile(t, fs, "/workspace/rename-absent/file-source", "file", 0o644)
+		if err := fs.Rename(ctx, "/workspace/rename-absent/file-source", "/workspace/rename-absent/file-destination"); err != nil {
+			t.Fatalf("rename file to absent destination: %v", err)
+		}
+		mkdir(t, fs, "/workspace/rename-absent/directory-source", 0o755)
+		writeFile(t, fs, "/workspace/rename-absent/directory-source/child", "child", 0o644)
+		if err := fs.Rename(ctx, "/workspace/rename-absent/directory-source", "/workspace/rename-absent/directory-destination"); err != nil {
+			t.Fatalf("rename directory to absent destination: %v", err)
+		}
+		if _, err := fs.Stat(ctx, "/workspace/rename-absent/directory-source"); !errors.Is(err, iofs.ErrNotExist) {
+			t.Fatalf("source directory after rename = %v, want iofs.ErrNotExist", err)
+		}
+		if got := readAll(t, fs, "/workspace/rename-absent/directory-destination/child", 16); got != "child" {
+			t.Fatalf("moved directory child = %q, want child", got)
+		}
+	})
+
+	t.Run("ConcurrentDestinationCreatorNeverGetsOverwritten", func(t *testing.T) {
+		if !supportsNoReplaceRename() {
+			t.Skip("atomic no-replace rename is unsupported on this platform")
+		}
+		mkdir(t, fs, "/workspace/rename-race", 0o755)
+		// The two operations start together. Exactly one owns the destination;
+		// every result is checked, so this remains a regression test regardless
+		// of scheduler choice. The pre-created-destination case above separately
+		// makes the creator-wins path deterministic.
+		for attempt := range 128 {
+			suffix := strconv.Itoa(attempt)
+			source := "/workspace/rename-race/source-" + suffix
+			destination := "/workspace/rename-race/destination-" + suffix
+			writeFile(t, fs, source, "source", 0o644)
+			start := make(chan struct{})
+			renamed := make(chan error, 1)
+			created := make(chan error, 1)
+			go func() {
+				<-start
+				renamed <- fs.Rename(ctx, source, destination)
+			}()
+			go func() {
+				<-start
+				created <- fs.Mkdir(ctx, destination, 0o755)
+			}()
+			close(start)
+			renameErr, createErr := <-renamed, <-created
+			switch {
+			case createErr == nil && errors.Is(renameErr, iofs.ErrExist):
+				info, err := fs.Stat(ctx, destination)
+				if err != nil || !info.IsDir {
+					t.Fatalf("attempt %d creator destination = %#v, %v; want directory", attempt, info, err)
+				}
+				if got := readAll(t, fs, source, 16); got != "source" {
+					t.Fatalf("attempt %d source after creator won = %q, want preserved source", attempt, got)
+				}
+			case renameErr == nil && createErr != nil:
+				if got := readAll(t, fs, destination, 16); got != "source" {
+					t.Fatalf("attempt %d destination after rename won = %q, want source", attempt, got)
+				}
+				if _, err := fs.Stat(ctx, source); !errors.Is(err, iofs.ErrNotExist) {
+					t.Fatalf("attempt %d source after rename won = %v, want iofs.ErrNotExist", attempt, err)
+				}
+			default:
+				t.Fatalf("attempt %d rename=%v creator=%v, want exactly one success", attempt, renameErr, createErr)
+			}
 		}
 	})
 
@@ -239,6 +338,10 @@ func Run(t *testing.T, h Harness) {
 			t.Fatalf("read-only rejection must be definite, got outcome-unknown: %v", err)
 		}
 	})
+}
+
+func supportsNoReplaceRename() bool {
+	return runtime.GOOS == "darwin" || runtime.GOOS == "linux"
 }
 
 func mkdir(t *testing.T, fs sandbox.Filesystem, p string, perm uint32) {

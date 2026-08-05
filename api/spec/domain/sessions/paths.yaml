@@ -464,6 +464,8 @@ paths:
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
+        "409":
+          description: A file or directory already exists at new_path
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -484,14 +486,10 @@ paths:
           required: true
           schema: { type: string }
           description: >-
-            Either a workspace-relative path (paired with scope) or a
-            sandbox-view/host absolute path that resolves inside one of the
-            session's workspace roots. When the path is absolute it is
-            self-describing and the scope parameter is ignored: the server first
-            checks host-root containment (a real host path is served from the
-            root that physically contains it), then falls back to sandbox mount
-            mapping (/user and /workspace map to the user-data and agent roots).
-            An absolute path that matches neither is rejected.
+            Slash-relative path within scope. $HOME selects the agent workspace
+            and $STELLA_ASSETS_DIR selects the shared user assets directory.
+            Canonical /workspace/... and /user/... markers are accepted; other
+            absolute paths and unknown or malformed variables are rejected.
         - name: raw
           in: query
           required: false
@@ -516,6 +514,8 @@ paths:
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
+        "413":
+          description: File exceeds the workspace read limit
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
@@ -575,7 +575,7 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: The file to upload
+                  description: The file to upload (maximum 100 MiB)
       responses:
         "201":
           description: uploaded
@@ -587,6 +587,8 @@ paths:
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
+        "413":
+          description: File exceeds the 100 MiB upload limit
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

@@ -304,10 +304,21 @@ func (r *Root) Rename(ctx context.Context, oldName, newName string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if clean(oldName) == "." || clean(newName) == "." {
+	oldName, newName = clean(oldName), clean(newName)
+	if oldName == "." || newName == "." {
 		return errors.New("fsops: cannot rename root")
 	}
-	if err := r.root.Rename(clean(oldName), clean(newName)); err != nil {
+	oldParent, err := r.root.Open(path.Dir(oldName))
+	if err != nil {
+		return fmt.Errorf("fsops: open rename source parent: %w", err)
+	}
+	defer func() { _ = oldParent.Close() }()
+	newParent, err := r.root.Open(path.Dir(newName))
+	if err != nil {
+		return fmt.Errorf("fsops: open rename destination parent: %w", err)
+	}
+	defer func() { _ = newParent.Close() }()
+	if err := renameNoReplace(oldParent, path.Base(oldName), newParent, path.Base(newName)); err != nil {
 		return fmt.Errorf("fsops: rename: %w", err)
 	}
 	return nil
