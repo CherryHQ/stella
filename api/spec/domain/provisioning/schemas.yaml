@@ -1,0 +1,43 @@
+openapi: 3.0.3
+info:
+  title: Provisioning Token Components
+  version: "1"
+paths: {}
+components:
+  schemas:
+    ProvisioningToken:
+      type: object
+      required: [id, name, last4, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        last4: { type: string }
+        expires_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    ProvisioningTokenList:
+      type: object
+      required: [provisioning_tokens]
+      properties:
+        provisioning_tokens:
+          type: array
+          items: { $ref: "#/components/schemas/ProvisioningToken" }
+
+    CreateProvisioningTokenRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        # Omit for the server's 90-day default. Provisioning tokens always expire.
+        expires_at: { type: string, format: date-time }
+
+    CreateProvisioningTokenResponse:
+      type: object
+      required: [token, provisioning_token]
+      properties:
+        # Plaintext token, returned exactly once at creation and never again.
+        token: { type: string }
+        provisioning_token:
+          $ref: "#/components/schemas/ProvisioningToken"

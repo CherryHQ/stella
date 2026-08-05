@@ -54,6 +54,7 @@ tags:
   - name: auth-users
   - name: profile
   - name: pat
+  - name: provisioning
   - name: oauth-clients
   - name: auth
   - name: plugins
@@ -278,6 +279,12 @@ paths:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens"
   /api/users/me/tokens/{id}:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens~1{id}"
+
+  # ── Admin: Provisioning tokens ────────────────────────────────────────────
+  /api/admin/provisioning-tokens:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1admin~1provisioning-tokens"
+  /api/admin/provisioning-tokens/{id}:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1admin~1provisioning-tokens~1{id}"
 
   # ── OAuth2 clients & authorized apps ─────────────────────────────────────────
   /api/users/me/oauth-clients:

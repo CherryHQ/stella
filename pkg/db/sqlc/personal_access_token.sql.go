@@ -19,9 +19,10 @@ INSERT INTO personal_access_token (
     token_hash,
     last4,
     scopes,
-    expires_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at
+    expires_at,
+    token_use
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use
 `
 
 type CreatePersonalAccessTokenParams struct {
@@ -32,6 +33,7 @@ type CreatePersonalAccessTokenParams struct {
 	Last4     string             `json:"last4"`
 	Scopes    []string           `json:"scopes"`
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+	TokenUse  string             `json:"token_use"`
 }
 
 func (q *Queries) CreatePersonalAccessToken(ctx context.Context, arg CreatePersonalAccessTokenParams) (PersonalAccessToken, error) {
@@ -43,6 +45,7 @@ func (q *Queries) CreatePersonalAccessToken(ctx context.Context, arg CreatePerso
 		arg.Last4,
 		arg.Scopes,
 		arg.ExpiresAt,
+		arg.TokenUse,
 	)
 	var i PersonalAccessToken
 	err := row.Scan(
@@ -58,12 +61,13 @@ func (q *Queries) CreatePersonalAccessToken(ctx context.Context, arg CreatePerso
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TokenUse,
 	)
 	return i, err
 }
 
 const getPersonalAccessTokenByPublicID = `-- name: GetPersonalAccessTokenByPublicID :one
-SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at FROM personal_access_token
+SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use FROM personal_access_token
 WHERE public_id = $1
 `
 
@@ -86,13 +90,15 @@ func (q *Queries) GetPersonalAccessTokenByPublicID(ctx context.Context, publicID
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TokenUse,
 	)
 	return i, err
 }
 
 const listPersonalAccessTokenByUser = `-- name: ListPersonalAccessTokenByUser :many
-SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at FROM personal_access_token
+SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use FROM personal_access_token
 WHERE user_id = $1
+  AND token_use = 'personal'
 ORDER BY created_at DESC, id DESC
 `
 
@@ -118,6 +124,48 @@ func (q *Queries) ListPersonalAccessTokenByUser(ctx context.Context, userID stri
 			&i.RevokedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.TokenUse,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProvisioningTokenByUser = `-- name: ListProvisioningTokenByUser :many
+SELECT id, public_id, user_id, name, token_hash, last4, scopes, expires_at, last_used_at, revoked_at, created_at, updated_at, token_use FROM personal_access_token
+WHERE user_id = $1
+  AND token_use = 'provisioning'
+ORDER BY created_at DESC, id DESC
+`
+
+func (q *Queries) ListProvisioningTokenByUser(ctx context.Context, userID string) ([]PersonalAccessToken, error) {
+	rows, err := q.db.Query(ctx, listProvisioningTokenByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PersonalAccessToken{}
+	for rows.Next() {
+		var i PersonalAccessToken
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.UserID,
+			&i.Name,
+			&i.TokenHash,
+			&i.Last4,
+			&i.Scopes,
+			&i.ExpiresAt,
+			&i.LastUsedAt,
+			&i.RevokedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TokenUse,
 		); err != nil {
 			return nil, err
 		}
@@ -135,6 +183,7 @@ SET revoked_at = now(),
     updated_at = now()
 WHERE id = $1
   AND user_id = $2
+  AND token_use = 'personal'
   AND revoked_at IS NULL
 `
 
@@ -162,6 +211,29 @@ WHERE user_id = $1
 // Cascade-revoke all of a user's PATs (e.g. on account deactivation).
 func (q *Queries) RevokePersonalAccessTokenByUser(ctx context.Context, userID string) (int64, error) {
 	result, err := q.db.Exec(ctx, revokePersonalAccessTokenByUser, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const revokeProvisioningToken = `-- name: RevokeProvisioningToken :execrows
+UPDATE personal_access_token
+SET revoked_at = now(),
+    updated_at = now()
+WHERE id = $1
+  AND user_id = $2
+  AND token_use = 'provisioning'
+  AND revoked_at IS NULL
+`
+
+type RevokeProvisioningTokenParams struct {
+	ID     string `json:"id"`
+	UserID string `json:"user_id"`
+}
+
+func (q *Queries) RevokeProvisioningToken(ctx context.Context, arg RevokeProvisioningTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeProvisioningToken, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}

@@ -16,17 +16,41 @@ type Kind string
 const (
 	// KindPAT is a user-owned personal access token (stella_pat_).
 	KindPAT Kind = "pat"
+	// KindProvisioning is an admin-owned, API-only credential restricted to the
+	// provisioned-user resource family (stella_prv_).
+	KindProvisioning Kind = "provisioning"
 	// KindOAuth is an OAuth2 access token (stella_oat_). Reserved for #613.
 	KindOAuth Kind = "oauth"
 )
+
+// TokenUse identifies the intended authority model for a row in
+// personal_access_token. Keep this extensible enum validated here, at the one
+// persistence boundary, rather than freezing it in a database CHECK constraint.
+type TokenUse string
+
+const (
+	TokenUsePersonal     TokenUse = "personal"
+	TokenUseProvisioning TokenUse = "provisioning"
+)
+
+// Valid reports whether token use is recognized by this credential version.
+func (u TokenUse) Valid() bool {
+	switch u {
+	case TokenUsePersonal, TokenUseProvisioning:
+		return true
+	default:
+		return false
+	}
+}
 
 // Principal is the single output type of Resolve: the authenticated identity
 // plus the authorization inputs Enforce needs. Identity fields are a snapshot
 // taken at resolve time so callers can build their request context without a
 // second user lookup.
 type Principal struct {
-	Kind   Kind
-	UserID string
+	Kind         Kind
+	UserID       string
+	CredentialID string // provisioning row ID for future request attribution
 	// Scopes is populated only for delegated OAuth access tokens. PAT authority
 	// comes from the owner's current account and ignores legacy stored scopes.
 	Scopes []string
@@ -61,6 +85,7 @@ type PATRecord struct {
 	TokenHash  string
 	Last4      string
 	Scopes     []string
+	TokenUse   TokenUse
 	ExpiresAt  *time.Time
 	LastUsedAt *time.Time
 	RevokedAt  *time.Time

@@ -1146,6 +1146,7 @@ var resourceAuthHelperAllowlist = map[string]bool{
 	"authorizeDBSkillRead":      true, // skills_scoped.go — routes a single DB-skill read through the skillaccess PEP
 	"requireAuth":               true, // middleware.go — authentication (not resource authz)
 	"requireAdmin":              true, // middleware.go — admin gate
+	"requireInteractiveAdmin":   true, // middleware.go — sole session-only credential-lifecycle gate
 	"requireAgentAccess":        true, // skills_scoped.go — agent access gate
 	"requireAgentUse":           true, // skills_scoped.go — agent execute gate
 	"requireAgentManage":        true, // skills_scoped.go — agent manage gate

@@ -723,6 +723,7 @@ type PersonalAccessToken struct {
 	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
 	CreatedAt  time.Time          `json:"created_at"`
 	UpdatedAt  time.Time          `json:"updated_at"`
+	TokenUse   string             `json:"token_use"`
 }
 
 type Plugin struct {
