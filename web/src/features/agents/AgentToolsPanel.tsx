@@ -253,29 +253,8 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
         <ProfileSectionMessage>{t("agents.tools.empty")}</ProfileSectionMessage>
       ) : (
         <div className="flex flex-col gap-6">
-          {Object.entries(groups).map(([source, items]) => (
-            <ProfilePanelSection
-              key={source}
-              title={t(
-                SOURCE_LABEL_KEY[source as keyof typeof SOURCE_LABEL_KEY] ??
-                  "agents.tools.source.builtin",
-              )}
-              count={items.length}
-            >
-              <div className="flex flex-col gap-2">
-                {items.map((tool) => (
-                  <ToolRow
-                    key={`${tool.source}:${tool.name}`}
-                    tool={tool}
-                    canEdit={canEdit}
-                    isAdmin={isAdmin}
-                    busy={mutation.isPending && mutation.variables?.tool.name === tool.name}
-                    onToggle={(enabled, scope) => mutation.mutate({ tool, enabled, scope })}
-                  />
-                ))}
-              </div>
-            </ProfilePanelSection>
-          ))}
+          {/* MCP leads: it is the only group the user configures rather than
+              toggles, so it sits above the built-in catalog. */}
           {showMcp && (
             <ProfilePanelSection
               title={t(SOURCE_LABEL_KEY.mcp)}
@@ -312,6 +291,29 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
               </div>
             </ProfilePanelSection>
           )}
+          {Object.entries(groups).map(([source, items]) => (
+            <ProfilePanelSection
+              key={source}
+              title={t(
+                SOURCE_LABEL_KEY[source as keyof typeof SOURCE_LABEL_KEY] ??
+                  "agents.tools.source.builtin",
+              )}
+              count={items.length}
+            >
+              <div className="flex flex-col gap-2">
+                {items.map((tool) => (
+                  <ToolRow
+                    key={`${tool.source}:${tool.name}`}
+                    tool={tool}
+                    canEdit={canEdit}
+                    isAdmin={isAdmin}
+                    busy={mutation.isPending && mutation.variables?.tool.name === tool.name}
+                    onToggle={(enabled, scope) => mutation.mutate({ tool, enabled, scope })}
+                  />
+                ))}
+              </div>
+            </ProfilePanelSection>
+          ))}
         </div>
       )}
     </div>
