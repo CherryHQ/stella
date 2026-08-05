@@ -124,7 +124,6 @@ type setupResult struct {
 	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
-	assetStore               *asset.Store
 	homeRegistry             *home.Registry
 	homeDeletion             *home.OwnerDeletion
 	workflowSvc              *workflowpkg.Service
@@ -220,7 +219,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := homeRegistry.RegisterLegacy(parent); err != nil {
 		return nil, err
 	}
-	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
+	assetStore, err := asset.NewStore(config.StellaHome(), blobStore)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +325,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry))
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore.SessionMedia(), agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
@@ -435,7 +434,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())
-	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL, sharepkg.WithHomeWorkspace(homeRegistry))
+	shareSvc := sharepkg.NewServiceForPool(db, sessionAccess, recallySvc, baseURL)
 
 	// MCP registration service: one instance shared by the HTTP API and the agent
 	// runtime. Built here (before StartAll) so its tool provider can be bound into
@@ -465,12 +464,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	// The agent domain owns project resolution/ensuring and tool-override
 	// fetching; the composition root passes the pool, not raw queries.
-	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
+	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
-		agent.WithAssetStorePM(assetStore),
 		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
@@ -596,7 +594,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,
 		recallySvc:               recallySvc,
-		assetStore:               assetStore,
 		homeRegistry:             homeRegistry,
 		homeDeletion:             homeDeletion,
 		workflowSvc:              workflowSvc,

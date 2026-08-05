@@ -10,8 +10,7 @@ import (
 	"fmt"
 	"mime"
 	"net/url"
-	"os"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 
@@ -19,10 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/asset"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/home"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -30,7 +27,6 @@ import (
 const MaxShareSize = 25 * 1024 * 1024
 
 var (
-	ErrPathEscapes         = errors.New("path escapes workspace root")
 	ErrTooLarge            = errors.New("file is too large to share")
 	ErrUnsupportedType     = errors.New("unsupported artifact type")
 	ErrDirectory           = errors.New("path is a directory")
@@ -39,23 +35,19 @@ var (
 	ErrInvalidArtifactPath = fmt.Errorf("invalid artifact path: %w", ErrInvalidInput)
 )
 
+// Service creates immutable PostgreSQL snapshots. Artifact bytes come only from
+// session access; article bytes come only from Recally's owner-scoped Access.
 type Service struct {
-	q          *sqlc.Queries
-	mem        memory.Provider
-	store      *recally.Store
-	recallySvc *recally.Service
-	assets     *asset.Store
-	stellaHome string
-	baseURL    string
-	homes      home.WorkspaceViewer
+	q        *sqlc.Queries
+	sessions *sessionaccess.Service
+	recally  *recally.Service
+	baseURL  string
 }
 
 // Share is the transport-neutral view of one share row. Content carries the
 // stored bytes for a freshly created share and the public token view; it is nil
 // for list summaries, whose query does not select the payload. Times are UTC;
-// ExpiresAt is nil for a share that never expires. This is the only share shape
-// that crosses the package boundary — callers never see sqlc rows or pgtype
-// nulls.
+// ExpiresAt is nil for a share that never expires.
 type Share struct {
 	ID        string
 	Title     string
@@ -76,27 +68,12 @@ type ListResult struct {
 	NextPageToken string
 }
 
-// shareFromRow maps the full share row (including content) to the domain value.
 func shareFromRow(r sqlc.Share) Share {
-	return Share{
-		ID:        r.ID,
-		Title:     r.Title,
-		MediaType: r.MediaType,
-		Content:   r.Content,
-		ExpiresAt: timePtr(r.ExpiresAt),
-		CreatedAt: r.CreatedAt.UTC(),
-	}
+	return Share{ID: r.ID, Title: r.Title, MediaType: r.MediaType, Content: r.Content, ExpiresAt: timePtr(r.ExpiresAt), CreatedAt: r.CreatedAt.UTC()}
 }
 
-// summaryFromRow maps a list row (no content) to the domain value.
 func summaryFromRow(r sqlc.ListSharesByUserRow) Share {
-	return Share{
-		ID:        r.ID,
-		Title:     r.Title,
-		MediaType: r.MediaType,
-		ExpiresAt: timePtr(r.ExpiresAt),
-		CreatedAt: r.CreatedAt.UTC(),
-	}
+	return Share{ID: r.ID, Title: r.Title, MediaType: r.MediaType, ExpiresAt: timePtr(r.ExpiresAt), CreatedAt: r.CreatedAt.UTC()}
 }
 
 func timePtr(n pgtype.Timestamptz) *time.Time {
@@ -107,24 +84,14 @@ func timePtr(n pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
-type Option func(*Service)
-
-func WithHomeWorkspace(viewer home.WorkspaceViewer) Option {
-	return func(s *Service) { s.homes = viewer }
+func NewService(q *sqlc.Queries, sessions *sessionaccess.Service, recallySvc *recally.Service, baseURL string) *Service {
+	return &Service{q: q, sessions: sessions, recally: recallySvc, baseURL: strings.TrimRight(baseURL, "/")}
 }
 
-func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, opts ...Option) *Service {
-	s := &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), assets: assets, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
-}
-
-// NewServiceForPool creates a share service that owns the sqlc query set for the
-// share tables, so callers pass only the pgx pool.
-func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, opts ...Option) *Service {
-	return NewService(sqlc.New(pool), mem, store, assets, stellaHome, baseURL, opts...)
+// NewServiceForPool creates a share service that owns the sqlc query set for
+// share tables, while source reads stay behind their application services.
+func NewServiceForPool(pool *pgxpool.Pool, sessions *sessionaccess.Service, recallySvc *recally.Service, baseURL string) *Service {
+	return NewService(sqlc.New(pool), sessions, recallySvc, baseURL)
 }
 
 func (s *Service) PublicURL(token string) string {
@@ -150,12 +117,8 @@ func (s *Service) create(ctx context.Context, userID, title, mediaType string, c
 	return Created{Share: shareFromRow(row), Token: token, URL: s.PublicURL(token)}, nil
 }
 
-// PublicContent resolves a public share by its capability token. It hashes the
-// token, looks the row up by hash, and returns the share with its content. This
-// is the capability-URL view served without a session (see Access), so it does
-// not authorize against a user; possession of the unguessable token is the
-// grant. An unknown token (or any lookup failure) is authz.ErrNotFound, so the
-// transport surfaces a uniform 404 and never distinguishes missing from expired.
+// PublicContent resolves a public share by its capability token. An unknown
+// token (or any lookup failure) is authz.ErrNotFound to preserve uniform 404s.
 func (s *Service) PublicContent(ctx context.Context, token string) (Share, error) {
 	if s == nil || token == "" {
 		return Share{}, authz.ErrNotFound
@@ -167,81 +130,8 @@ func (s *Service) PublicContent(ctx context.Context, token string) (Share, error
 	return shareFromRow(row), nil
 }
 
-func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident authz.Identity, sessionID, scope string) (string, error) {
-	sm, ok := s.mem.(memory.SessionManager)
-	if !ok {
-		return "", authz.ErrNotFound
-	}
-	loadCtx := authz.WithUserID(ctx, ident.UserID)
-	if ident.AgentID != "" {
-		loadCtx = authz.WithAgentID(loadCtx, ident.AgentID)
-	}
-	si, err := sm.LoadInfo(loadCtx, sessionID)
-	if err != nil {
-		return "", authz.ErrNotFound
-	}
-	if si.UserID != ident.UserID {
-		return "", authz.ErrForbidden
-	}
-	if ident.AgentID != "" && si.AgentID != ident.AgentID {
-		if ident.AgentScoped {
-			return "", authz.ErrForbidden
-		}
-		return "", authz.ErrNotFound
-	}
-	if (si.UserID == "" && si.GroupID == "") || si.AgentID == "" {
-		return "", authz.ErrNotFound
-	}
-	// Artifact shares are user-owned capabilities. Group sessions are intentionally
-	// not shareable until a group-specific authorization policy exists.
-	if si.GroupID != "" {
-		return "", authz.ErrNotFound
-	}
-	if s.homes == nil {
-		return "", fmt.Errorf("home workspace resolver not configured")
-	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: si.UserID, GroupID: si.GroupID, AgentID: si.AgentID})
-	if err != nil {
-		return "", err
-	}
-	if scope == "user" {
-		return view.DataRoot, nil
-	}
-	return view.AgentRoot, nil
-}
-
-func SafePath(root, rel string) (string, error) {
-	name, err := safePathName(rel)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, name), nil
-}
-
-// OpenSafeRoot returns an os.Root and root-relative name. Security-sensitive
-// operations use Root methods so symlink swaps cannot escape the workspace.
-func OpenSafeRoot(root, rel string) (*os.Root, string, error) {
-	name, err := safePathName(rel)
-	if err != nil {
-		return nil, "", err
-	}
-	r, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, "", err
-	}
-	return r, name, nil
-}
-
-func safePathName(rel string) (string, error) {
-	name := filepath.Clean(filepath.FromSlash(rel))
-	if !filepath.IsLocal(name) {
-		return "", ErrPathEscapes
-	}
-	return name, nil
-}
-
-func ArtifactMediaType(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
+func ArtifactMediaType(name string) string {
+	ext := strings.ToLower(path.Ext(name))
 	switch ext {
 	case ".html", ".htm":
 		return "text/html; charset=utf-8"

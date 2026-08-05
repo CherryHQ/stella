@@ -3,7 +3,7 @@
 // materialization, and the policy enforcement point for those resources.
 //
 // Transport code passes a trusted authz.Authority and typed input; it never
-// receives a sqlc query handle, memory.SessionManager, config.Store, or asset
+// receives a sqlc query handle, memory.SessionManager, config.Store, or media
 // store. Session and Workspace decisions are direct, domain-owned rules; every
 // Agent gate is delegated to the Agent PEP so those rules live in one place.
 package access
@@ -42,7 +42,7 @@ type Service struct {
 	q        *sqlc.Queries
 	store    config.Store
 	agents   *agentaccess.Service
-	assets   *asset.Store
+	media    asset.SessionMediaStore
 	runtime  RuntimeManager
 	prompts  SystemPromptBuilder
 	homes    home.WorkspaceViewer
@@ -61,8 +61,8 @@ func WithHomeWorkspace(viewer home.WorkspaceViewer) Option {
 // NewService constructs the only Session/Workspace PEP. The registry remains the
 // canonical lifecycle owner; this service owns its policy-scoped use and routes
 // every Agent decision through the shared Agent PEP.
-func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *asset.Store, agents *agentaccess.Service, opts ...Option) (*Service, error) {
-	if mem == nil || db == nil || store == nil || assets == nil || agents == nil {
+func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, media asset.SessionMediaStore, agents *agentaccess.Service, opts ...Option) (*Service, error) {
+	if mem == nil || db == nil || store == nil || media == nil || agents == nil {
 		return nil, fmt.Errorf("session access: missing dependency")
 	}
 	sm, ok := mem.(memory.SessionManager)
@@ -73,7 +73,7 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 	if err != nil {
 		return nil, fmt.Errorf("session access: registry: %w", err)
 	}
-	svc := &Service{registry: registry, memory: sm, q: sqlc.New(db), store: store, agents: agents, assets: assets}
+	svc := &Service{registry: registry, memory: sm, q: sqlc.New(db), store: store, agents: agents, media: media}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(svc)

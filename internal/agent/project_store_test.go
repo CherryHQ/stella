@@ -60,7 +60,7 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	ps := NewProjectStore(db, store.NewDBStore(db), nil, nil, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
+	ps := NewProjectStore(db, store.NewDBStore(db), nil, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
 
 	// Resolve returns the base_dir of an existing project.
 	var resolve ProjectResolverFunc = ps.Resolve
@@ -138,7 +138,7 @@ func TestProjectStoreEnsurePersistsWorkspaceAgentRoot(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	wantRoot := filepath.Join(t.TempDir(), "exact", "agent-root")
-	ps := NewProjectStore(db, store.NewDBStore(db), nil, nil, WithProjectHomeWorkspace(&projectWorkspaceViewer{view: home.WorkspaceView{AgentRoot: wantRoot}}))
+	ps := NewProjectStore(db, store.NewDBStore(db), nil, WithProjectHomeWorkspace(&projectWorkspaceViewer{view: home.WorkspaceView{AgentRoot: wantRoot}}))
 
 	projectID, err := ps.Ensure(ctx, agentID, user.ID)
 	if err != nil {
@@ -167,7 +167,7 @@ func TestProjectStoreCreateAndUpdateForwardContextAndFailClosedOnWorkspaceError(
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	viewer := &projectWorkspaceViewer{expectedCtx: ctx, err: errors.New("home unavailable")}
-	ps := NewProjectStore(db, store.NewDBStore(db), nil, &fakeProjectAuth{}, WithProjectHomeWorkspace(viewer))
+	ps := NewProjectStore(db, store.NewDBStore(db), &fakeProjectAuth{}, WithProjectHomeWorkspace(viewer))
 	authority := projectUserAuthority(t, user.ID)
 
 	if _, err := ps.Create(ctx, authority, agentID, "new", "anywhere", nil); !errors.Is(err, ErrWorkspaceSetup) {
@@ -212,7 +212,7 @@ func TestProjectStoreGateFailsClosed(t *testing.T) {
 	ctx := context.Background()
 	denied := errors.New("denied")
 	fa := &fakeProjectAuth{err: denied}
-	ps := NewProjectStore(nil, nil, nil, fa, WithProjectHomeWorkspace(testWorkspaceViewer{root: t.TempDir()})) // nil db: any query before the gate panics
+	ps := NewProjectStore(nil, nil, fa, WithProjectHomeWorkspace(testWorkspaceViewer{root: t.TempDir()})) // nil db: any query before the gate panics
 	auth := projectUserAuthority(t, "u1")
 
 	if _, err := ps.List(ctx, auth, "a", false); !errors.Is(err, denied) {
@@ -270,7 +270,7 @@ func TestProjectStoreCRUDOwnershipAndTraversal(t *testing.T) {
 	mkAgent(agentID)
 	mkAgent(otherAgentID)
 
-	ps := NewProjectStore(db, store.NewDBStore(db), nil, &fakeProjectAuth{}, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
+	ps := NewProjectStore(db, store.NewDBStore(db), &fakeProjectAuth{}, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
 	auth := projectUserAuthority(t, user.ID)
 
 	// Absolute host coordinates are rejected.
@@ -361,7 +361,7 @@ func TestProjectFromRowFailsClosedOutsideCurrentAgentRoot(t *testing.T) {
 	if err := os.MkdirAll(viewer.view.AgentRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	ps := NewProjectStore(nil, nil, nil, nil, WithProjectHomeWorkspace(viewer))
+	ps := NewProjectStore(nil, nil, nil, WithProjectHomeWorkspace(viewer))
 	if _, err := ps.projectFromRow(context.Background(), sqlc.Project{AgentID: "a", UserID: "u", BaseDir: filepath.Join(filepath.Dir(viewer.view.AgentRoot), "outside")}); !errors.Is(err, ErrInvalidBaseDir) {
 		t.Fatalf("outside historical base_dir = %v, want invalid path", err)
 	}

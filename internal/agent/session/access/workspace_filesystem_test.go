@@ -21,15 +21,16 @@ import (
 // canonical /workspace and /user coordinates, so these tests cannot pass via a
 // host-path fallback.
 type workspaceFakeFilesystem struct {
-	files        map[string][]byte
-	dirs         map[string]bool
-	err          error
-	reads        []string
-	renames      int
-	renameErr    error
-	unsorted     bool
-	readInfo     *pkgsandbox.FileInfo
-	readCloseErr error
+	files           map[string][]byte
+	dirs            map[string]bool
+	err             error
+	reads           []string
+	renames         int
+	renameErr       error
+	unsorted        bool
+	readInfo        *pkgsandbox.FileInfo
+	readCloseErr    error
+	ignoreReadLimit bool
 }
 
 type workspaceReadCloser struct {
@@ -53,7 +54,7 @@ func (f *workspaceFakeFilesystem) Read(_ context.Context, name string, options p
 	if !ok {
 		return nil, pkgsandbox.FileInfo{}, fs.ErrNotExist
 	}
-	if int64(len(data)) > options.MaxBytes {
+	if int64(len(data)) > options.MaxBytes && !f.ignoreReadLimit {
 		return workspaceReadCloser{Reader: bytes.NewReader(data[:options.MaxBytes]), err: f.readCloseErr}, pkgsandbox.FileInfo{Name: path.Base(name), Size: int64(len(data))}, pkgsandbox.ErrReadLimit
 	}
 	info := pkgsandbox.FileInfo{Name: path.Base(name), Size: int64(len(data)), Mode: 0o644, ModTime: time.Unix(1, 0).UTC()}

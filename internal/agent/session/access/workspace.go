@@ -223,36 +223,9 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 	}
 	var result WorkspaceReadResult
 	err = a.useWorkspaceFilesystem(ctx, in.AgentID, in.SessionID, scope, authz.ActionRead, func(filesystem pkgsandbox.Filesystem) error {
-		reader, readInfo, err := filesystem.Read(ctx, name, pkgsandbox.ReadOptions{MaxBytes: maxBytes})
+		data, readInfo, err := readFilesystemRaw(ctx, filesystem, name, maxBytes)
 		if err != nil {
-			if reader != nil {
-				err = errors.Join(err, reader.Close())
-			}
-			return workspaceFilesystemError(err)
-		}
-		if reader == nil {
-			return ErrInvalid
-		}
-		// A provider normally enforces MaxBytes too, but retain a local limit so
-		// a faulty remote implementation cannot turn this into an unbounded
-		// allocation. The extra byte distinguishes an exact-size file from an
-		// over-limit stream without buffering either whole oversized payload.
-		data, readErr := io.ReadAll(io.LimitReader(reader, maxBytes+1))
-		closeErr := reader.Close()
-		if err := errors.Join(readErr, closeErr); err != nil {
-			return workspaceFilesystemError(err)
-		}
-		if readInfo.IsDir {
-			return ErrIsDir
-		}
-		if !readInfo.Mode.IsRegular() || readInfo.Size < 0 {
-			return ErrInvalid
-		}
-		if readInfo.Size > maxBytes || int64(len(data)) > maxBytes {
-			return ErrTooLarge
-		}
-		if int64(len(data)) != readInfo.Size {
-			return ErrInvalid
+			return err
 		}
 		if in.Raw {
 			mediaType := mime.TypeByExtension(path.Ext(name))
@@ -272,6 +245,54 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		return nil
 	})
 	return result, err
+}
+
+// readFilesystemRaw is the one hardened framing for provider-neutral file
+// reads. Provider-side limits are honored, then local bounds and exact metadata
+// matching protect callers from faulty or dishonest implementations.
+func readFilesystemRaw(ctx context.Context, filesystem pkgsandbox.Filesystem, name string, maxBytes int64) ([]byte, pkgsandbox.FileInfo, error) {
+	if filesystem == nil || maxBytes < 0 {
+		return nil, pkgsandbox.FileInfo{}, ErrInvalid
+	}
+	reader, info, err := filesystem.Read(ctx, name, pkgsandbox.ReadOptions{MaxBytes: maxBytes})
+	if err != nil {
+		if reader != nil {
+			err = errors.Join(err, reader.Close())
+		}
+		return nil, pkgsandbox.FileInfo{}, workspaceFilesystemError(err)
+	}
+	if reader == nil {
+		return nil, pkgsandbox.FileInfo{}, ErrInvalid
+	}
+	finish := func(result error) ([]byte, pkgsandbox.FileInfo, error) {
+		if closeErr := reader.Close(); closeErr != nil {
+			result = errors.Join(result, closeErr)
+		}
+		return nil, pkgsandbox.FileInfo{}, workspaceFilesystemError(result)
+	}
+	if info.IsDir {
+		return finish(ErrIsDir)
+	}
+	if !info.Mode.IsRegular() || info.Size < 0 {
+		return finish(ErrInvalid)
+	}
+	if info.Size > maxBytes {
+		return finish(ErrTooLarge)
+	}
+	// A provider normally enforces MaxBytes too, but retain a local limit so a
+	// faulty remote implementation cannot turn this into an unbounded allocation.
+	data, readErr := io.ReadAll(io.LimitReader(reader, maxBytes+1))
+	closeErr := reader.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return nil, pkgsandbox.FileInfo{}, workspaceFilesystemError(err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, pkgsandbox.FileInfo{}, ErrTooLarge
+	}
+	if int64(len(data)) != info.Size {
+		return nil, pkgsandbox.FileInfo{}, ErrInvalid
+	}
+	return data, info, nil
 }
 
 func assignWorkspaceRawResult(result *WorkspaceReadResult, relative, name, mediaType string, data []byte, modTime time.Time) error {

@@ -55,7 +55,7 @@ Tags: `latest` (stable), `vX.Y.Z` (specific release).
 - Refresh the model cache from the Web UI if new models are available
 - Builtin skills update with the binary through its immutable release bundle
 
-If `STELLA_BLOB_S3_*` is configured, stop every old asset-writing binary, service, pod, and job before starting the new server. Keep the original S3 and database configuration, back up the bucket and Home storage, then follow `stellad storage migrate-assets --help`. The server fails closed until that command has copied and digest-verified object-only mutable assets into Principal Homes. The migration is idempotent and never deletes remote objects.
+If `STELLA_BLOB_S3_*` is configured, stop every old asset-writing binary, service, pod, and job before starting the new server. Keep the original S3 and database configuration, back up the bucket and Home storage, then follow `stellad storage migrate-assets --help`. The server fails closed until that command has copied and digest-verified object-only mutable assets into Principal Homes. The migration is idempotent and never deletes remote objects. After the marker is complete, mutable assets are live only in Principal Homes and remote legacy objects are not a fallback. Keep the configuration because the Store remains the authority for immutable content-addressed session media.
 
 ## Skill upgrade and downgrade checks
 

@@ -143,7 +143,7 @@ func seedSessionImage(t *testing.T, env *testEnv, agentID string) (mediaID, sess
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := env.deps.Assets.SessionMedia().PutSessionMedia(ctx, userID, digest, data); err != nil {
+	if err := env.media.PutSessionMedia(ctx, userID, digest, data); err != nil {
 		t.Fatal(err)
 	}
 	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: userID.String(), Sha256: digest[:], MimeType: "image/png", SizeBytes: int64(len(data))})

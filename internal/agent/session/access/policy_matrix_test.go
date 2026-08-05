@@ -414,12 +414,12 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assets, err := asset.NewStore(t.TempDir(), blobStore, nil)
+	assets, err := asset.NewStore(t.TempDir(), blobStore)
 	if err != nil {
 		t.Fatal(err)
 	}
 	agentAccess := agentaccess.NewService(store, appdb.NewAuthStore(pool))
-	svc, err := NewService(mem, pool, store, assets, agentAccess)
+	svc, err := NewService(mem, pool, store, assets.SessionMedia(), agentAccess)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

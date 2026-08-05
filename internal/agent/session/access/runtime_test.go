@@ -287,12 +287,12 @@ func newRuntimeTestService(t *testing.T) (*Service, *fakeRuntimeService, config.
 	if err != nil {
 		t.Fatalf("blob.NewFSStore: %v", err)
 	}
-	assets, err := asset.NewStore(t.TempDir(), blobStore, nil)
+	assets, err := asset.NewStore(t.TempDir(), blobStore)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
 	agentAccess := agentaccess.NewService(store, appdb.NewAuthStore(db))
-	svc, err := NewService(mem, db, store, assets, agentAccess)
+	svc, err := NewService(mem, db, store, assets.SessionMedia(), agentAccess)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}

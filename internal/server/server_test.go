@@ -143,6 +143,7 @@ type testEnv struct {
 	// the server via rebuild() with a mutated copy rather than mutating srv.
 	deps    server.Deps
 	credSvc *connections.Service
+	media   asset.SessionMediaStore
 }
 
 // rebuild constructs a fresh server from a copy of the base deps with mutate
@@ -254,7 +255,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	poolManager := agent.NewPoolManager(store, mem)
 	recallyStore := recally.NewStore(db)
 	assetHome := t.TempDir()
-	assetStore, err := asset.NewStore(assetHome, nil, nil)
+	assetStore, err := asset.NewStore(assetHome, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
@@ -280,7 +281,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
 	}
 	agentAccess := agentaccess.NewService(store, as)
-	sessionSvc, err := sessionaccess.NewService(mem, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	sessionSvc, err := sessionaccess.NewService(mem, db, store, assetStore.SessionMedia(), agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
@@ -293,12 +294,13 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("webhook.NewService: %v", err)
 	}
+	recallySvc := recally.NewService(recallyStore, t.TempDir())
 	deps := server.Deps{
 		Pinger:              db,
 		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
 		Account:             accountSvc,
 		Profile:             profileSvc,
-		ProjectStore:        agent.NewProjectStore(db, store, assetStore, agentAccess),
+		ProjectStore:        agent.NewProjectStore(db, store, agentAccess),
 		Inbox:               inbox.NewService(db),
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
@@ -315,9 +317,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		ControlPlane:        controlplane.NewService(store, phost, poolManager, credSvc, slog.With("component", "controlplane-test")),
 		Webhooks:            webhookSvc,
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()})),
-		Assets:              assetStore,
-		Recally:             recally.NewService(recallyStore, t.TempDir()),
+		Share:               sharepkg.NewService(sqlc.New(db), sessionSvc, recallySvc, baseURL),
+		Recally:             recallySvc,
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
 		Provisioning:        provisioningSvc,
@@ -359,6 +360,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		bearerToken: bearerToken,
 		deps:        deps,
 		credSvc:     credSvc,
+		media:       assetStore.SessionMedia(),
 	}
 }
 

@@ -453,7 +453,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,
-		Assets:              s.assetStore,
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
 		Group:               groupSvc,

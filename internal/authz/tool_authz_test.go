@@ -3,8 +3,6 @@ package authz_test
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,21 +11,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/agent"
-
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
-	homepkg "github.com/CherryHQ/stella/internal/home"
-	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -233,24 +225,8 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("oauth unauthenticated err=%v, want no user identity", err)
 	}
 
-	mem := memorytest.New()
 	home := t.TempDir()
-	ownerSession := "owner-session"
-	foreignSession := "foreign-session"
-	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: ownerSession, UserID: ownerUser, AgentID: agentID}); err != nil {
-		t.Fatal(err)
-	}
-	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: foreignSession, UserID: foreignUser, AgentID: agentID}); err != nil {
-		t.Fatal(err)
-	}
-	root := agent.UserAgentDir(home, foreignUser, agentID)
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}))
+	shareSvc := sharepkg.NewService(q, nil, recally.NewService(recally.NewStore(db), home), "http://stella.test")
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
@@ -263,12 +239,6 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 	if out, err := shareTool.Execute(foreignCtx, map[string]any{"action": "revoke", "id": ownerShare.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
 		t.Fatalf("share foreign revoke out=%q err=%v, want not found", out, err)
-	}
-	shareCtx := memory.WithSessionID(foreignCtx, foreignSession)
-	if out, err := shareTool.Execute(shareCtx, map[string]any{"action": "artifact", "path": "report.html"}); err != nil {
-		t.Fatalf("share artifact err=%v", err)
-	} else if !strings.Contains(out, "http://stella.test/s/") || strings.Contains(out, "<p>ok</p>") {
-		t.Fatalf("share artifact bad response/leaked content: %s", out)
 	}
 	if _, err := shareTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("share unauthenticated err=%v, want no user identity", err)
@@ -351,32 +321,4 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 		}
 	}
 	return svc
-}
-
-func mustAssetStore(t *testing.T, home string) *asset.Store {
-	t.Helper()
-	a, err := asset.NewStore(home, nil, nil)
-	if err != nil {
-		t.Fatalf("asset.NewStore: %v", err)
-	}
-	return a
-}
-
-// toolAuthzWorkspaceViewer maps this fixture's legacy user/Agent directories;
-// production wiring must provide the authoritative Home registry instead.
-type toolAuthzWorkspaceViewer struct{ root string }
-
-func (w toolAuthzWorkspaceViewer) WorkspaceView(_ context.Context, req homepkg.WorkspaceRequest) (homepkg.WorkspaceView, error) {
-	principal := filepath.Join(w.root, "users", req.UserID)
-	if req.GroupID != "" {
-		principal = filepath.Join(w.root, "users", "group-"+req.GroupID)
-	}
-	data, agentRoot := filepath.Join(principal, "data"), filepath.Join(principal, "agents", req.AgentID)
-	if err := os.MkdirAll(filepath.Join(data, "assets"), 0o755); err != nil {
-		return homepkg.WorkspaceView{}, err
-	}
-	if err := os.MkdirAll(agentRoot, 0o755); err != nil {
-		return homepkg.WorkspaceView{}, err
-	}
-	return homepkg.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agentRoot}, nil
 }

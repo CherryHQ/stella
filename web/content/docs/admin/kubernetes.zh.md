@@ -16,7 +16,7 @@ Stella 在 `deploy/helm/stella` 提供了一个 Helm chart，用于在 Kubernete
 - **一个 vault key。** 用 `stellad vault keygen`（或 `age-keygen`）生成。它加密密钥、
   OAuth token 和 bearer token；每次重启都必须使用同一个 key。
 - **一个 ingress**（或其他暴露 Service 的方式）以及客户端将访问的公网 URL。
-- 可选：一个 S3 兼容存储桶用于持久化用户附件镜像，以及一个用于登录的 OIDC provider。
+- 可选：一个 S3 兼容对象存储 用于遗留可变资产迁移和不可变 session media，以及一个用于登录的 OIDC provider。
   两者都通过 `extraEnv` 传入（见下文）。
 
 ### 创建 Secret
@@ -116,7 +116,7 @@ kubectl -n stella port-forward svc/stella 25678:25678
 ### 通过 `extraEnv` 接入可选集成
 
 chart 刻意保持 values 面最小；可选集成走 `extraEnv`（`name`/`value` 列表），密钥类
-值放进你引用的 Secret。例如 S3 附件镜像和 OIDC 登录：
+值放进你引用的 Secret。例如遗留迁移和 session media 的 S3 配置以及 OIDC 登录：
 
 ```yaml
 extraEnv:
@@ -176,9 +176,8 @@ chart 写死了 `replicaCount: 1` 与 `strategy: Recreate`。Stella 不是无状
 - **实时推送与 per-session 串行化是进程内存态。** “同一 session 只有一个进行中
   turn” 的保证，以及把 turn 输出推给浏览器的 SSE hub，都只存在于跑该 turn 的那个
   pod 的内存里。第二个 pod 会对同一 session 并发跑 turn，且无法推送它没在跑的 turn。
-- **`STELLA_HOME` 被当作持久的、pod 本地的数据。** 用户工作区、上传与通道附件、
-  Recally 文章正文都写在 `STELLA_HOME` 文件里（数据库只存相对路径）。带独立卷的
-  第二个 pod 看不到这些文件。
+- **Principal 和 Agent Home 是持久的、pod 本地的数据。** 用户工作区、可变资产和项目文件
+  都保留在其所有者 Home 中。带独立卷的第二个 pod 看不到这些文件。
 
 `Recreate` 保证干净滚动：新 pod 启动前旧 pod 已完全消失，所以升级期间永不重叠。
 （节点故障或驱逐这类**非自愿中断**仍可能短暂让两个 pod 重叠；见 [存储](#存储) 的
@@ -231,6 +230,8 @@ terminationGracePeriodSeconds >=
 `helm.sh/resource-policy: keep`，所以 `helm uninstall` 会保留卷 —— 以及你的数据。
 确实要删时手动删：
 
+S3 兼容对象存储 用于遗留可变资产迁移和不可变 session media。它不会取代 PVC，也不会让 Principal 和 Agent Home 变为无状态。
+
 ```bash
 kubectl -n stella delete pvc stella-data
 ```
@@ -253,7 +254,7 @@ Stella 需要出站访问：
 - **PostgreSQL** —— 你的外部数据库（通常 `5432`）。
 - **LLM provider API** —— Anthropic、OpenAI，或你配置的任意 provider。
 - **IM 平台 API** —— 你启用的通道对应的 Telegram、Discord、QQ、Feishu、微信。
-- **S3 / 对象存储** —— 仅当你配置了 `STELLA_BLOB_S3_*` 附件镜像时。
+- **S3 / 对象存储** —— 仅当你为遗留迁移或不可变 session media 配置了 `STELLA_BLOB_S3_*` 时。
 
 若集群限制出站，请放行这些目标。chart 不提供 NetworkPolicy。
 

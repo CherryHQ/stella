@@ -32,7 +32,7 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 func TestPipelineEnrichAndLoadRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	assets, err := asset.NewStore(t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	home := t.TempDir()
-	assets, err := asset.NewStore(home, nil, nil)
+	assets, err := asset.NewStore(home, nil)
 	if err != nil {
 		t.Fatalf("new asset store: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	assets, err := asset.NewStore(t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 func TestLoadPreparesProviderPayloadWithoutMutatingStoredOriginal(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	assets, err := asset.NewStore(t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
-	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	assets, err := asset.NewStore(t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("new asset store: %v", err)
 	}

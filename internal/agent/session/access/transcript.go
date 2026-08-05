@@ -188,7 +188,7 @@ func (a *Access) ReadMedia(ctx context.Context, agentID, sessionID, mediaID stri
 	}
 	var digest [sha256.Size]byte
 	copy(digest[:], row.Sha256)
-	data, err := a.svc.assets.SessionMedia().OpenSessionMedia(ctx, userID, digest, row.SizeBytes)
+	data, err := a.svc.media.OpenSessionMedia(ctx, userID, digest, row.SizeBytes)
 	if err != nil {
 		return Media{}, fmt.Errorf("%w: open session media: %w", ErrUnavailable, err)
 	}

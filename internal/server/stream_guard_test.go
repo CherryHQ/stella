@@ -108,11 +108,11 @@ func TestStreamSessionEventsHidesEventsAfterDurableRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("blob.NewFSStore: %v", err)
 	}
-	assets, err := asset.NewStore(t.TempDir(), blobStore, nil)
+	assets, err := asset.NewStore(t.TempDir(), blobStore)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
-	svc, err := sessionaccess.NewService(mem, db, store, assets, agentaccess.NewService(store, appdb.NewAuthStore(db)))
+	svc, err := sessionaccess.NewService(mem, db, store, assets.SessionMedia(), agentaccess.NewService(store, appdb.NewAuthStore(db)))
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}

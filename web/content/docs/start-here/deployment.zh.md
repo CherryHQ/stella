@@ -196,7 +196,7 @@ docker run -d \
   stellad server
 ```
 
-容器以 `nonroot` 用户运行。挂载 `$STELLA_HOME`（通常为 `~/.stella`）以保留 Agent 工作树和 Project Skill、未镜像资产及缓存；数据库支持的可变 Skill 仍位于外部 PostgreSQL。发行版自带 builtin 来自镜像中的不可变 bundle，而不是宿主机。你可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
+容器以 `nonroot` 用户运行。挂载 `$STELLA_HOME`（通常为 `~/.stella`）以保留持久 Principal 和 Agent Home，包括可变资产和 Project Skill。数据库支持的可变 Skill 仍位于外部 PostgreSQL。发行版自带 builtin 来自镜像中的不可变 bundle，而不是宿主机。你可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
 
 ### Docker Compose
 
@@ -254,7 +254,7 @@ Stella 使用三个不同的地址，务必区分：
 
 Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL` 未设置时，启动会以可操作的错误快速失败，而不是在容器的临时文件系统上静默启动内嵌 PostgreSQL 集群——多副本时每个 pod 甚至会各建一套数据库。请将 `STELLA_DATABASE_URL` 指向带 `pgvector` 与 `pg_search` 的外部 PostgreSQL。若要有意在挂载持久卷的单容器中运行内嵌 PostgreSQL，设置 `STELLA_REQUIRE_EXTERNAL_DB=0`。
 
-上传的用户资产同样需要持久化。未配置 `STELLA_BLOB_S3_*` 时，`STELLA_HOME` 下的文件系统是单节点权威，必须挂载持久卷；配置 S3 兼容对象存储后，它成为共享权威，本地文件只作为 materialization。Stella 当前只开放单副本 Helm 拓扑；未来唯一的多副本拓扑会直接要求共享权威，而不是再引入一个可能与实际存储冲突的模式开关。
+上传的用户资产是持久 Principal Home 文件，必须与其他 Home 数据一起持久化。配置 `STELLA_BLOB_S3_*` 不会改变其运行时权威。已配置的对象存储是遗留可变资产迁移来源，也是不可变、内容寻址 session media 的权威。Stella 当前只开放单副本 Helm 拓扑。Principal Home 和 Agent Home 存储在后续 Compose 或 Kubernetes 拓扑门槛之前仍是单副本。
 
 配置了 `STELLA_BLOB_S3_*` 的部署必须先通过离线可变资产迁移门槛，服务器才能启动；bucket 为空时也不例外。停止所有旧资产 writer，保留原有 S3 与数据库配置，并按 `stellad storage migrate-assets --help` 操作。该命令把仅存在于对象存储的资产复制并校验到类型化 Principal Home，不会删除远端对象。升级步骤见 [S3 资产迁移门槛](/docs/start-here/storage#s3-资产迁移门槛)。
 
@@ -343,7 +343,7 @@ terminationGracePeriodSeconds: 200
 | `~/.stella/agents/{agent-id}/SOUL.md`         | 可选的每个 agent 的灵魂/身份覆盖                                                |
 | `~/.stella/cache/sandbox-tmp/`                | Docker 沙箱临时目录；属于临时数据，启动时删除遗留目录                           |
 
-必须保留 PostgreSQL、包含 Project Skill 的持久 Agent/项目工作树，以及未镜像资产树。PostgreSQL 包含配置、消息历史、摘要、调度器任务和可变的 `system`、`system_agent`、`user`、`user_agent` Skill。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/`；`~/.stella/pg-runtime/`、`~/.stella/bundles/{revision}/` 和 Skill 执行缓存都是派生数据，可重新生成。使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。
+必须保留 PostgreSQL 和每个持久 Principal、Agent Home，包括可变资产树和 Project Skill。PostgreSQL 包含配置、消息历史、摘要、调度器任务和可变的 `system`、`system_agent`、`user`、`user_agent` Skill。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/`；`~/.stella/pg-runtime/`、`~/.stella/bundles/{revision}/` 和 Skill 执行缓存都是派生数据，可重新生成。使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。保留并备份已配置的 object store，因为它保存不可变、内容寻址 session media。
 
 关于哪些目录属于持久数据、派生缓存或临时数据——以及各自在 Kubernetes 或临时磁盘上所需的卷与备份处理方式——完整说明参见[存储与持久化](/docs/start-here/storage)。
 
@@ -359,10 +359,10 @@ terminationGracePeriodSeconds: 200
 | `STELLA_REQUIRE_EXTERNAL_DB`     | 否                        | `STELLA_DATABASE_URL` 未设置时快速失败而非启动内嵌 PostgreSQL；Docker 镜像默认设为 `1`，设 `0` 可在持久卷上运行内嵌 PG |
 | `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | 否                        | 优雅停机时排空进行中 HTTP 请求的预算（Go duration，默认 `60s`，`> 0`）                                                 |
 | `STELLA_RIVER_SOFT_STOP_TIMEOUT` | 否                        | 优雅停机时排空进行中后台任务的预算（Go duration，默认 `120s`，`> 0`）                                                  |
-| `STELLA_BLOB_S3_ENDPOINT`        | 否§                       | 持久化用户资产镜像使用的 S3 兼容 endpoint                                                                              |
-| `STELLA_BLOB_S3_BUCKET`          | 否§                       | 镜像用户上传资产的 bucket                                                                                              |
-| `STELLA_BLOB_S3_ACCESS_KEY`      | 否§                       | 资产镜像使用的 access key                                                                                              |
-| `STELLA_BLOB_S3_SECRET_KEY`      | 否§                       | 资产镜像使用的 secret key                                                                                              |
+| `STELLA_BLOB_S3_ENDPOINT`        | 否§                       | 遗留可变资产迁移来源和不可变 session media 使用的 S3 兼容 endpoint                                                     |
+| `STELLA_BLOB_S3_BUCKET`          | 否§                       | 遗留迁移来源和不可变 session media 使用的 Object-store bucket                                                          |
+| `STELLA_BLOB_S3_ACCESS_KEY`      | 否§                       | 该对象存储 使用的 access key                                                                                           |
+| `STELLA_BLOB_S3_SECRET_KEY`      | 否§                       | 该对象存储 使用的 secret key                                                                                           |
 | `STELLA_BLOB_S3_REGION`          | 否                        | 可选 S3 region                                                                                                         |
 | `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
 | `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
@@ -374,7 +374,7 @@ terminationGracePeriodSeconds: 200
 
 ‡ 仅当 agent 使用 `docker` 沙箱后端时需要。stellad 在宿主机上运行用 `host`；stellad 在 Docker 内且使用 host bind mount 用 `bind`；stellad 在 Docker 内且使用 named volume 用 `volume`。
 
-§ 四个必需的 S3 镜像变量必须同时设置，或全部不设置。部分设置会导致启动失败；完整 S3 配置还会启用上文所述的离线资产迁移门槛。
+§ 四个必需的 S3 变量必须同时设置，或全部不设置。部分设置会导致启动失败；完整配置会启用上文所述的离线资产迁移门槛。切换后，可变资产只以 Principal Home 为运行时权威；远端遗留对象保持不变且不是回退来源。该对象存储 仍用于不可变、内容寻址 session media。
 
 ¶ 受管部署所必需，以及在使用 OAuth 登录或频道外链时必需。参见[受管部署](#受管部署)。
 

@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"path"
 	"path/filepath"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
@@ -38,14 +36,11 @@ type ProjectAgentAuthorizer interface {
 type ProjectStore struct {
 	q      *sqlc.Queries
 	store  config.Store
-	assets *asset.Store
 	agents ProjectAgentAuthorizer
 	homes  home.WorkspaceViewer
 }
 
 // NewProjectStore builds a ProjectStore over the given pool and config store.
-// assets is the authoritative asset store used to hydrate a cold pod's asset
-// tree when a project is first created; it may be nil (hydration is skipped).
 // agents is the Agent PEP the CRUD use cases gate on; it may be nil for the
 // runtime-only Resolve/Ensure paths (which perform no authorization).
 type ProjectStoreOption func(*ProjectStore)
@@ -54,8 +49,8 @@ func WithProjectHomeWorkspace(viewer home.WorkspaceViewer) ProjectStoreOption {
 	return func(s *ProjectStore) { s.homes = viewer }
 }
 
-func NewProjectStore(db *pgxpool.Pool, store config.Store, assets *asset.Store, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
-	s := &ProjectStore{q: sqlc.New(db), store: store, assets: assets, agents: agents}
+func NewProjectStore(db *pgxpool.Pool, store config.Store, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
+	s := &ProjectStore{q: sqlc.New(db), store: store, agents: agents}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -370,18 +365,6 @@ func (s *ProjectStore) Ensure(ctx context.Context, agentID, userID string) (stri
 	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
 	if err != nil {
 		return "", err
-	}
-	// Restore the user's assets subtree from the shared asset authority in the
-	// background, so a cold pod fills its empty assets tree without blocking
-	// project setup. No-op when no asset store is configured or there is no shared
-	// authority (single-node, where the local tree is already the authority).
-	if s.assets != nil {
-		assets := s.assets
-		go func() {
-			if err := assets.HydrateUser(context.Background(), filepath.Join(view.DataRoot, "assets")); err != nil {
-				slog.Warn("hydrate user assets failed", "home", view.PrincipalRoot, "error", err)
-			}
-		}()
 	}
 	// The default project's working tree is the agent's private area under the
 	// user home (a project is owned by the agent, #442).

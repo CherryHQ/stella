@@ -219,11 +219,11 @@ func workspaceServer(t *testing.T) (*Server, *workspaceTestRuntime) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assets, err := asset.NewStore(t.TempDir(), blobStore, nil)
+	assets, err := asset.NewStore(t.TempDir(), blobStore)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sessions, err := sessionaccess.NewService(mem, db, store, assets, agentaccess.NewService(store, appdb.NewAuthStore(db)))
+	sessions, err := sessionaccess.NewService(mem, db, store, assets.SessionMedia(), agentaccess.NewService(store, appdb.NewAuthStore(db)))
 	if err != nil {
 		t.Fatal(err)
 	}

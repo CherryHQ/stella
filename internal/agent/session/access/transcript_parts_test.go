@@ -91,12 +91,12 @@ func TestListMessagesLoadsPartsInTwoBatchesAndFallsBackToBaseline(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	assets, err := asset.NewStore(t.TempDir(), nil, nil)
+	assets, err := asset.NewStore(t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	counting := &countingDB{db: db}
-	svc, err := NewService(mem, counting, store, assets, agentaccess.NewService(store, appdb.NewAuthStore(db)))
+	svc, err := NewService(mem, counting, store, assets.SessionMedia(), agentaccess.NewService(store, appdb.NewAuthStore(db)))
 	if err != nil {
 		t.Fatal(err)
 	}

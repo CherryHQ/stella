@@ -44,7 +44,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	out, err := Dispatch(ctx, shareHandler{svc: t.svc, authority: authority}, action, args)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrPathEscapes), errors.Is(err, ErrInvalidArtifactPath):
+		case errors.Is(err, ErrInvalidArtifactPath):
 			return "", fmt.Errorf("artifact path must be relative or start with $HOME or $STELLA_ASSETS_DIR")
 		case errors.Is(err, ErrTooLarge):
 			return "", fmt.Errorf("file is too large to share — create a smaller export and retry")
@@ -70,8 +70,9 @@ func (h shareHandler) Artifact(ctx context.Context, in ArtifactInput) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	// An agent tool is confined to its own workspace: the bound agent selects it.
-	created, err := acc.ShareArtifact(ctx, memory.SessionIDFromContext(ctx), in.Path, in.Scope, acc.agentID, in.ExpiresIn)
+	// The runtime authority binds delegated agents; the exact session reader
+	// enforces that the requested agent matches it.
+	created, err := acc.ShareArtifact(ctx, memory.SessionIDFromContext(ctx), in.Path, in.Scope, string(h.authority.AgentID()), in.ExpiresIn)
 	if err != nil {
 		return nil, err
 	}

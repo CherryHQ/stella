@@ -917,6 +917,42 @@ func TestSessionTransportHasNoBroadDomainCapabilities(t *testing.T) {
 	})
 }
 
+// TestServerHasNoMutableAssetCapability freezes the post-migration boundary:
+// workspace bytes are Home-owned and immutable media is reached only through
+// SessionAccess, never by handing the HTTP server an asset aggregate.
+func TestServerHasNoMutableAssetCapability(t *testing.T) {
+	for _, sf := range parseServerPackage(t) {
+		for _, imp := range sf.file.Imports {
+			if strings.Trim(imp.Path.Value, "`\"") == "github.com/CherryHQ/stella/internal/asset" {
+				t.Errorf("%s imports internal/asset; server must use SessionAccess only", sf.rel)
+			}
+		}
+		for _, decl := range sf.file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || (ts.Name.Name != "Server" && ts.Name.Name != "Deps") {
+					continue
+				}
+				st, ok := ts.Type.(*ast.StructType)
+				if !ok {
+					continue
+				}
+				for _, field := range st.Fields.List {
+					for _, name := range field.Names {
+						if name.Name == "assets" || name.Name == "Assets" {
+							t.Errorf("%s.%s retains mutable asset capability", ts.Name.Name, name.Name)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Tripwire 5: Send/SSE handlers stay transport-only.
 //
