@@ -275,7 +275,9 @@ export function ConfigTab({ state, onSetState }: Props) {
           </span>
         </p>
         <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* All tier rows share one template — the trailing 1.5rem column holds
+              the clear button (or stays empty), so the field seams line up. */}
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-x-4 gap-y-4">
             <ModelComboField
               label={t("agents.form.modelDefault")}
               field="model"
@@ -289,9 +291,10 @@ export function ConfigTab({ state, onSetState }: Props) {
               value={form.model_thinking ?? ""}
               onChange={(v) => setForm({ model_thinking: v })}
             />
+            <span aria-hidden className="hidden sm:block" />
           </div>
           {visibleTiers.strong && (
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-4 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-x-4 gap-y-4 items-end">
               <ModelComboField
                 label={t("agents.form.modelStrong")}
                 field="model_strong"
@@ -321,7 +324,7 @@ export function ConfigTab({ state, onSetState }: Props) {
             </div>
           )}
           {visibleTiers.fast && (
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-4 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-x-4 gap-y-4 items-end">
               <ModelComboField
                 label={t("agents.form.modelFast")}
                 field="model_fast"
