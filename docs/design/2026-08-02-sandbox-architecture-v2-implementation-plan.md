@@ -394,7 +394,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 - [ ] Migrate Agent `read`, `write`, `edit`, prompt file reads, filesystem Skill catalogs/loaders, and every `ResolvePath`/`ResolveWritePath` caller to Filesystem. Catalog parsing accepts ordinary directories and managed symlinks while skipping `.stella-revisions`.
 - [ ] For isolating Providers, mount exact read-only sources at `/opt/stella/skills/builtin`, `/opt/stella/skills/system`, and `/opt/stella/skills/system-agent`; these are execution views, not authority. Managed descriptors resolve/pin the contained exact revision path so a symlink flip affects only a later Turn/Run. `none`/non-isolating local returns exact Provider paths through `SkillView`.
 - [ ] Add trusted structured admin writes for SystemSkillRoot/SystemAgentSkillRoot through one-shot Home access. The provisioner accepts validated paths/content and expected digest, never model-authored commands, arbitrary shell, or AgentRun secrets.
-- [ ] Route Workspace requests for the exact URL Session through the existing single-process Session lifecycle so it creates/reuses a Sandbox and invokes only Filesystem/`stella-fs`, with no direct host path and no AgentRun secrets. Durable generation, `BeginUse + Open`, keepalive renewal, and cross-replica linearization remain Phase 3 work.
+- [x] Route Workspace requests for the exact URL Session through the existing single-process Session lifecycle so it creates/reuses a Sandbox and invokes only Filesystem/`stella-fs`, with no direct host path and no AgentRun secrets. Durable generation, `BeginUse + Open`, keepalive renewal, and cross-replica linearization remain Phase 3 work.
 
 > Make Workspace requests execute `BeginUse + Open` on the exact URL Session generation in Phase 2.
 
@@ -402,7 +402,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 
 **Resolved:** Phase 2 now cuts only the file-operation boundary using the current lifecycle; all durable lifecycle and cross-instance acceptance moved to Phase 3.
 
-- [ ] Update the Session OpenAPI first:
+- [x] Update the Session OpenAPI first:
   - remove host `root` from Workspace responses;
   - document canonical sandbox paths;
   - keep `scope=user` as a compatibility alias for shared PrincipalHome;
@@ -438,12 +438,12 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 
 **Acceptance:**
 
-- [ ] `mise run generate:check` exits 0 after the spec-first API/client change.
-- [ ] The shared Filesystem conformance suite passes for local, `none`, and Docker; a helper killed during write returns outcome unknown and the caller does not retry.
+- [x] `mise run generate:check` exits 0 after the spec-first API/client change.
+- [x] The shared Filesystem conformance suite passes for local, `none`, and Docker; a helper killed during write returns outcome unknown and the caller does not retry.
 - [ ] Managed Skill publication tests prove concurrent readers see complete old or new trees without ENOENT/mixed files; unsupported symlink/Store behavior fails conformance. Ordinary CLI mutation retains documented POSIX behavior.
 - [ ] A fixture publishes known-size revisions into multiple roots: the collector reports exact aggregate count/bytes/oldest-age, a configured low threshold emits the expected opaque-root warning, and alert/capacity-response documentation is executable without high-cardinality metric labels.
 - [ ] Isolating-provider tests prove the three exact `/opt/stella/skills/*` views are read-only and disjoint; a pinned managed descriptor continues reading its old revision after a flip while the next catalog snapshot reads the new revision.
-- [ ] Workspace list/read/write/upload succeeds through an exact Session with no warm Sandbox using the current single-process lifecycle; no Workspace path or response exposes a host coordinate.
+- [x] Workspace list/read/write/upload succeeds through an exact Session with no warm Sandbox using the current single-process lifecycle; no Workspace path or response exposes a host coordinate.
 - [ ] `rg "ResolvePath|ResolveWritePath|HostPath" pkg/sandbox internal/agent internal/server plugins/sandbox` shows no public/caller dependency; any Provider-private resolver is explicitly scoped and tested.
 - [x] A fixture containing assets only in the configured S3-compatible authority fails server startup before migration; dry-run changes nothing; the real migration materializes and digest-verifies every fixture into the correct UserHome/GroupHome, records the marker, is idempotent, and leaves remote objects intact.
 - [ ] After cutover, mutable assets written by bash are immediately visible to Workspace/share without an object-store commit or hydrate step; immutable media/share tests remain green.
