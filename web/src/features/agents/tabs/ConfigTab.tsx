@@ -101,7 +101,9 @@ function ModelComboField({
         id={`model-field-${field}`}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
+        // w-max lets the list size to the longest model id instead of the
+        // (possibly narrow) trigger; min-w keeps it never smaller than it.
+        <div className="absolute z-20 mt-1 w-max min-w-full max-w-[26rem] max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
           {filtered.map((m) => (
             <button
               key={m.value}
@@ -110,7 +112,7 @@ function ModelComboField({
                 setOpen(false);
               }}
               type="button"
-              className={`w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/80 cursor-pointer transition-colors duration-120 ${
+              className={`block w-full truncate text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/80 cursor-pointer transition-colors duration-120 ${
                 value === m.value ? "text-primary font-semibold" : "text-muted-foreground"
               }`}
             >
@@ -264,7 +266,9 @@ export function ConfigTab({ state, onSetState }: Props) {
             — {t("agents.form.modelProvider")}
           </span>
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {/* Viewport breakpoints, but the host column is capped at 3xl — more
+            than two columns squeezes the model combobox below a readable width. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded-lg border border-border p-4 space-y-4">
             <ModelComboField
               label={t("agents.form.modelDefault")}
