@@ -117,6 +117,8 @@ export function GlobalSearchDialog({
             not a boxed Input floating inside the popup. */}
         <div className="flex items-center gap-2 border-b px-4">
           <Search size={16} className="shrink-0 text-muted-foreground" />
+          {/* `unstyled` drops the wrapper's border and its text tokens with it,
+              so the type styles come back explicitly. */}
           <Input
             unstyled
             size="lg"
@@ -124,7 +126,7 @@ export function GlobalSearchDialog({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("search.placeholder")}
-            className="flex-1"
+            className="flex-1 text-base text-foreground sm:text-sm"
           />
         </div>
         <DialogPanel className="flex flex-col gap-3 p-2" scrollFade={false}>
