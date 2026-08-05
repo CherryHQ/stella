@@ -36,6 +36,10 @@ paths:
     post:
       tags: [channels]
       summary: Create a deployment channel (admin only)
+      description: >-
+        `type` is required. `id` is optional: the server mints a uuid when it is
+        omitted, except for the singleton weixin channel, which always gets the
+        id "weixin". `name` is optional and defaults to "{type}-{random suffix}".
       operationId: createChannel
       requestBody:
         required: true
@@ -121,6 +125,41 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/channels/{id}/bind:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [channels]
+      summary: Bind or unbind a channel's agent (any authenticated user)
+      description: >-
+        Binds the channel to an agent the caller may use, or unbinds it when
+        agent_id is empty. Unlike updateChannel this never touches the channel
+        config, and it returns the secret-free public channel projection.
+      operationId: bindChannelAgent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/BindChannelRequest",
+            }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/PublicChannel",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
   /api/channels/feishu/register/init:
     post:

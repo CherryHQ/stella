@@ -1,6 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { loadAgentsSettingsData } from "@/features/agents/AgentsPage";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+// The tab segment was never read by the settings detail panel; every variant
+// now lands on the profile's config sections.
 export const Route = createFileRoute("/_app/settings/agents/$agentId/$tab")({
-  loader: ({ params: { agentId } }) => loadAgentsSettingsData(agentId),
+  beforeLoad: ({ params: { agentId } }) => {
+    throw redirect({
+      to: "/agents/$agentId/profile",
+      params: { agentId },
+      search: { tab: "config" as const },
+      replace: true,
+    });
+  },
 });

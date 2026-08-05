@@ -18,7 +18,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectItem,
@@ -26,6 +25,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  McpServerFields,
+  transportLabel,
+  type McpAuthType,
+  type McpTransport,
+} from "@/features/mcp/McpServerFields";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import {
   SettingsCard,
@@ -36,8 +41,8 @@ import {
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 
 type MCPScope = McpServer["scope"];
-type MCPTransport = McpServer["transport"];
-type MCPAuthType = McpServer["auth_type"];
+type MCPTransport = McpTransport;
+type MCPAuthType = McpAuthType;
 
 type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
@@ -58,10 +63,6 @@ function isAgentScope(scope: MCPScope) {
 function toScope(owner: ScopeOwner, range: ScopeRange): MCPScope {
   if (range === "specific") return owner === "global" ? "system_agent" : "user_agent";
   return owner === "global" ? "system" : "user";
-}
-
-function transportLabel(transport: MCPTransport) {
-  return transport === "streamable_http" ? "Streamable HTTP" : "SSE";
 }
 
 export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
@@ -382,72 +383,19 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
           </Field>
         )}
 
-        <Field>
-          <FieldLabel>{t("mcp.name")}</FieldLabel>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="github"
-            nativeInput
-          />
-          <FieldDescription>{t("mcp.name.description")}</FieldDescription>
-        </Field>
-
-        <Field>
-          <FieldLabel>{t("mcp.url")}</FieldLabel>
-          <Input
-            value={url}
-            onChange={(e) => setURL(e.target.value)}
-            placeholder="https://mcp.example.com/mcp"
-            nativeInput
-          />
-        </Field>
-
-        <Field>
-          <FieldLabel>{t("mcp.transport")}</FieldLabel>
-          <Select value={transport} onValueChange={(value) => setTransport(value as MCPTransport)}>
-            <SelectTrigger>
-              <SelectValue>
-                {(value) => transportLabel((value as MCPTransport) || transport)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value="streamable_http">Streamable HTTP</SelectItem>
-              <SelectItem value="sse">SSE</SelectItem>
-            </SelectPopup>
-          </Select>
-        </Field>
-
-        <Field>
-          <FieldLabel>{t("mcp.auth")}</FieldLabel>
-          <Select value={authType} onValueChange={(value) => setAuthType(value as MCPAuthType)}>
-            <SelectTrigger>
-              <SelectValue>
-                {(value) => (value === "bearer" ? t("mcp.auth.bearer") : t("mcp.auth.none"))}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value="none">{t("mcp.auth.none")}</SelectItem>
-              <SelectItem value="bearer">{t("mcp.auth.bearer")}</SelectItem>
-            </SelectPopup>
-          </Select>
-        </Field>
-
-        {authType === "bearer" && (
-          <Field>
-            <FieldLabel>{t("mcp.token")}</FieldLabel>
-            <Input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              autoComplete="off"
-              nativeInput
-            />
-            <FieldDescription>
-              {editingServer ? t("mcp.token.editDescription") : t("mcp.token.description")}
-            </FieldDescription>
-          </Field>
-        )}
+        <McpServerFields
+          name={name}
+          onNameChange={setName}
+          url={url}
+          onUrlChange={setURL}
+          transport={transport}
+          onTransportChange={setTransport}
+          authType={authType}
+          onAuthTypeChange={setAuthType}
+          token={token}
+          onTokenChange={setToken}
+          editing={!!editingServer}
+        />
       </div>
     </DetailPanel>
   );

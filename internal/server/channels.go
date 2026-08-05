@@ -1,9 +1,14 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strings"
+
+	"github.com/google/uuid"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/config"
@@ -37,7 +42,9 @@ type channelWriteRequest struct {
 	Type    *string `json:"type"`
 	AgentID *string `json:"agent_id"`
 	Enabled *bool   `json:"enabled"`
-	Config  string  `json:"config"`
+	// Config is tri-state like AgentID: nil keeps the stored config, an explicit
+	// "" or "{}" clears it, and a non-empty JSON object replaces it.
+	Config *string `json:"config"`
 }
 
 var channelLinkLabels = map[string]string{
@@ -177,6 +184,70 @@ func sortPublicChannels(channels []publicChannelView) {
 	})
 }
 
+// BindChannelAgent points a channel at an agent, or unbinds it when agent_id is
+// empty. It is the one channel write open to a non-admin, so it is deliberately
+// separate from the admin PATCH: it never accepts (or returns) the channel
+// config, and it answers with the same secret-free projection the public channel
+// list serves.
+func (s *Server) BindChannelAgent(w http.ResponseWriter, r *http.Request, id string) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	var body struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	ctx := r.Context()
+	binding, err := s.controlPlane.BeginChannelBinding(ctx, authority, id)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	// A non-admin may only bind an agent they can use, and may only take a channel
+	// away from an agent they can use — a channel they cannot reach is not theirs
+	// to repoint. Both are Agent PEP decisions, made before the channel write.
+	if !info.IsAdmin {
+		for _, agentID := range []string{binding.CurrentAgentID(), body.AgentID} {
+			if agentID == "" {
+				continue
+			}
+			if _, code, msg := s.requireAgentUse(ctx, agentID); code != 0 {
+				writeError(w, code, msg)
+				return
+			}
+		}
+	}
+
+	saved, err := binding.Bind(ctx, body.AgentID)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	agentNames, err := s.accessibleAgentNames(r, info)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, publicChannelView{
+		ID:        saved.ID,
+		Type:      saved.Type,
+		Label:     channelLabel(saved.Type),
+		AgentID:   saved.AgentID,
+		AgentName: agentNames[saved.AgentID],
+		Enabled:   saved.Enabled,
+	})
+}
+
 func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 	access, ok := s.beginControlPlane(w, r)
 	if !ok {
@@ -225,13 +296,17 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	// already 403'd a non-admin before any state is observed — so the transport never
 	// holds the aggregate config store.
 	existing, existingErr := access.GetChannel(ctx, id)
-	cfgMap, err := parseChannelConfig(req.Config)
+	hasExisting := existingErr == nil
+	// Save overwrites the stored config unconditionally, so an omitted config must
+	// resolve to the current row's config or a PATCH of an unrelated field would
+	// wipe the channel's credentials.
+	cfgMap, err := parseChannelConfig(requestConfig(req, existing, hasExisting))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON")
 		return
 	}
 
-	ch := s.channelFromWriteRequest(r, req, existing, existingErr == nil)
+	ch := s.channelFromWriteRequest(r, req, existing, hasExisting)
 	saved, err := access.SaveChannel(ctx, ch, cfgMap, false)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
@@ -251,26 +326,39 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channelType := requestChannelType(req)
-	if req.ID == "" || channelType == "" {
-		writeError(w, http.StatusBadRequest, "id and type are required")
+	if channelType == "" {
+		writeError(w, http.StatusBadRequest, "type is required")
 		return
 	}
+	// The id is the server's to mint: a channel is identified by the platform it
+	// speaks and the agent it answers for, never by a string a human invents. A
+	// client may still pin one (import, scripted setup), and that stays validated
+	// exactly as before.
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id = generateChannelID(channelType)
+	}
 	if channelType == pkgchannel.PlatformWeixin {
-		if err := validateWeixinChannelID(req.ID); err != nil {
+		if err := validateWeixinChannelID(id); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 
-	cfgMap, err := parseChannelConfig(req.Config)
+	cfgMap, err := parseChannelConfig(requestConfig(req, config.Channel{}, false))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON")
 		return
 	}
 
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = generateChannelName(channelType)
+	}
+
 	ch := config.Channel{
-		ID:      req.ID,
-		Name:    req.Name,
+		ID:      id,
+		Name:    name,
 		Type:    channelType,
 		AgentID: requestAgentID(req),
 		Enabled: false,
@@ -285,6 +373,28 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusCreated, channelToView(saved))
 }
 
+// generateChannelID mints the id for a create that did not pin one. WeChat is
+// singleton-only (one iLink account cannot back multiple bots), so its id is the
+// fixed platform id; every other platform gets the same uuidv7 the rest of the
+// deployment's rows use.
+func generateChannelID(channelType string) string {
+	if channelType == pkgchannel.PlatformWeixin {
+		return pkgchannel.PlatformWeixin
+	}
+	return uuid.Must(uuid.NewV7()).String()
+}
+
+// generateChannelName is the display name for a create that did not pin one:
+// "{type}-{4 hex chars}". The id is a uuid nobody wants to read, so a row must
+// never fall back to showing it — this keeps the list legible without asking.
+func generateChannelName(channelType string) string {
+	suffix := make([]byte, 2)
+	if _, err := rand.Read(suffix); err != nil {
+		panic("server: crypto/rand failed: " + err.Error())
+	}
+	return channelType + "-" + hex.EncodeToString(suffix)
+}
+
 func requestChannelType(req channelWriteRequest) string {
 	if req.Type != nil {
 		return *req.Type
@@ -295,6 +405,18 @@ func requestChannelType(req channelWriteRequest) string {
 func requestAgentID(req channelWriteRequest) string {
 	if req.AgentID != nil {
 		return *req.AgentID
+	}
+	return ""
+}
+
+// requestConfig resolves the raw config JSON a write request should persist:
+// an absent config keeps the existing row's config, an explicit value replaces it.
+func requestConfig(req channelWriteRequest, existing config.Channel, hasExisting bool) string {
+	if req.Config != nil {
+		return *req.Config
+	}
+	if hasExisting {
+		return existing.Config
 	}
 	return ""
 }

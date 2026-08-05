@@ -209,14 +209,14 @@ export function RecallyPage() {
 
       {/* Mobile digest detail overlay */}
       {showDigestDetail && (
-        <div className="fixed inset-x-0 bottom-0 top-12 z-40 flex flex-col bg-background md:hidden">
+        <div className="fixed inset-x-0 bottom-0 top-14 z-40 flex flex-col bg-background md:hidden">
           <DigestDetail t={t} digest={filters.selectedDigest!} onSelectArticle={setSelectedId} />
         </div>
       )}
 
       {/* Mobile reader / Chat overlay */}
       {selectedId && (
-        <div className="fixed inset-x-0 bottom-0 top-12 z-50 flex flex-col bg-background md:hidden">
+        <div className="fixed inset-x-0 bottom-0 top-14 z-50 flex flex-col bg-background md:hidden">
           {chatOpen ? (
             <div className="flex-1 min-h-0 flex flex-col w-full bg-background">
               <RecallyChat articleId={selectedId} onClose={() => setChatOpen(false)} />

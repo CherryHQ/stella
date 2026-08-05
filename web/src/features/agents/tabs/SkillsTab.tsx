@@ -1,5 +1,5 @@
 import type { Skill } from "@/lib/types";
-import type { AgentsPageState } from "../AgentsPage";
+import type { AgentsPageState } from "../agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";

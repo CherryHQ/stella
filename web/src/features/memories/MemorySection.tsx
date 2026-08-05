@@ -26,12 +26,12 @@ export function MemorySection({
           <CollapsibleTrigger className="flex flex-1 items-center gap-2 py-1 text-left cursor-pointer group">
             <ChevronRight className="size-3.5 text-muted-foreground transition-transform duration-150 ease-out group-data-[panel-open]:rotate-90" />
             <div className="min-w-0">
+              {/* Same heading grammar as the other profile tabs
+                  (`ProfilePanelSection`): title, then a muted count. */}
               <span className="text-sm font-semibold">
                 {title}
                 {count != null && count > 0 && (
-                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    ({count})
-                  </span>
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">{count}</span>
                 )}
               </span>
               {description && (

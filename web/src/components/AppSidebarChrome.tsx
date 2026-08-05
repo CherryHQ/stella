@@ -1,0 +1,317 @@
+import { useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Bell, ChevronsUpDown, FileText, LogOut, Search, Settings, UserCog } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
+import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
+import { meQueryOptions } from "@/lib/queries/me";
+import { inboxQueryOptions } from "@/lib/queries/inbox";
+import { ThemeAccentControl, ThemeAppearanceControl } from "@/components/ThemeControls";
+import { useGlobalSearch } from "@/components/GlobalSearch";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/menu";
+import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
+
+const INBOX_KIND_LABELS = {
+  blocked: "inbox.kind.blocked",
+  review: "inbox.kind.review",
+  failed: "inbox.kind.failed",
+} as const;
+
+interface AppEntry {
+  key: string;
+  label: string;
+  to: string;
+  prefixes: string[];
+}
+
+function useApps(): AppEntry[] {
+  const { t } = useI18n();
+  return [
+    { key: "agents", label: t("nav.agents"), to: "/agents", prefixes: ["/agents", "/groups"] },
+    { key: "recally", label: t("nav.recally"), to: "/recally", prefixes: ["/recally"] },
+  ];
+}
+
+function isActive(app: AppEntry, pathname: string): boolean {
+  return app.prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+/**
+ * The sidebar's top row: where you can work, plus the two global controls that
+ * belong to no page (search, inbox). With only two workspaces, both stay
+ * visible as a segmented switch — a menu hides the other destination behind an
+ * extra click for no gain. If the set outgrows this row, the upgrade is an
+ * icon rail, not a longer strip.
+ */
+export function AppChromeHeader() {
+  const { t } = useI18n();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const apps = useApps();
+  const openSearch = useGlobalSearch();
+  const activeApp = apps.find((app) => isActive(app, pathname)) ?? apps[0];
+
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <img
+        src="/stella-monogram.svg"
+        alt="Stella"
+        width={20}
+        height={20}
+        className="shrink-0 rounded-sm"
+      />
+      <nav className="flex min-w-0 items-center gap-0.5 rounded-lg bg-muted p-0.5">
+        {apps.map((app) => {
+          const active = app.key === activeApp.key;
+          return (
+            <Link
+              key={app.key}
+              to={app.to as never}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "min-w-0 truncate whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                active
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {app.label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="ms-auto flex shrink-0 items-center gap-0.5">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={openSearch}
+          aria-label={t("search.open")}
+          title={t("search.open")}
+        >
+          <Search />
+        </Button>
+        <InboxBell />
+      </div>
+    </div>
+  );
+}
+
+// The old sidebar's "Needs you" section, relocated: one bell, one count, one
+// popover that deep-links straight at the blocked goal or failed run.
+function InboxBell() {
+  const { t } = useI18n();
+  const { data: inbox } = useQuery(inboxQueryOptions(undefined, 20));
+  const items = inbox?.items ?? [];
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="relative"
+            aria-label={t("inbox.title")}
+            title={t("inbox.title")}
+          />
+        }
+      >
+        <Bell />
+        {items.length > 0 && (
+          <Badge size="sm" className="absolute -end-1 -top-1">
+            {items.length}
+          </Badge>
+        )}
+      </PopoverTrigger>
+      <PopoverPopup align="start" sideOffset={8} className="w-80 p-2">
+        <div className="flex items-center justify-between px-2 py-1">
+          <span className="text-xs text-muted-foreground">{t("inbox.title")}</span>
+          <Button variant="ghost" size="xs" render={<Link to="/inbox" />}>
+            {t("inbox.viewAll")}
+          </Button>
+        </div>
+        <Separator />
+        <div className="mt-1 flex max-h-80 flex-col gap-0.5 overflow-y-auto">
+          {items.length === 0 ? (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+              {t("inbox.empty")}
+            </p>
+          ) : (
+            items.map((item) => (
+              <Button
+                key={item.id}
+                variant="ghost"
+                size="sm"
+                className="h-auto w-full justify-start py-2"
+                render={<Link to={item.target_path} />}
+              >
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+                  <span className="truncate text-sm">{item.title}</span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {item.detail || t(INBOX_KIND_LABELS[item.kind])}
+                  </span>
+                </span>
+              </Button>
+            ))
+          )}
+        </div>
+      </PopoverPopup>
+    </Popover>
+  );
+}
+
+/**
+ * The sidebar's pinned bottom row: who you are signed in as, and everything that
+ * hangs off that — personal settings, appearance, sign-out. The appearance
+ * switch lives inline in the menu rather than behind its own trigger (nesting a
+ * popover inside a menu is a bug) and stays a single row so the menu fits.
+ */
+export function AppChromeFooter() {
+  const { data: me } = useQuery(meQueryOptions);
+  // The menu anchors to the whole footer row, not the trigger button, so its
+  // width tracks the sidebar column instead of drifting past its edge.
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { t, locale, setLocale } = useI18n();
+
+  if (!me) return null;
+
+  async function logout() {
+    await logoutRequest({ throwOnError: true });
+    queryClient.clear();
+    void navigate({ to: "/login" });
+  }
+
+  const nextLocaleLabel = locale === "en" ? t("locale.zh") : t("locale.en");
+  // The display name is what a human recognises; the username stays reachable in
+  // the menu header because it is the identity you actually sign in with.
+  const name = me.name?.trim();
+  const displayName = name || me.username;
+  const initial = displayName.trim()[0]?.toUpperCase() ?? "?";
+
+  return (
+    // Two stacked full-width rows: a lone icon beside a stretched pill reads as
+    // two unrelated widths, so Settings gets the same row shape as the user.
+    // Settings is a secondary entry, so it sits in muted; the identity row keeps
+    // full foreground as the anchor of the footer.
+    <div ref={anchorRef} className="flex min-w-0 flex-col gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full min-w-0 justify-start text-muted-foreground"
+        render={<Link to="/settings" />}
+      >
+        {/* The leading slot matches the avatar's box so both rows' labels share
+            one left edge. */}
+        <span className="flex size-6 shrink-0 items-center justify-center">
+          <Settings />
+        </span>
+        {t("nav.settings")}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={<Button variant="ghost" size="sm" className="w-full min-w-0 justify-start" />}
+        >
+          <Avatar className="size-6">
+            {me.avatar_url && <AvatarImage src={me.avatar_url} alt="" />}
+            {/* Not font-mono: a mono capital O is indistinguishable from a zero. */}
+            <AvatarFallback className="text-xs font-semibold">{initial}</AvatarFallback>
+          </Avatar>
+          {/* Usernames can be opaque provider IDs — one line, ellipsis. */}
+          <span className="min-w-0 flex-1 truncate text-left" title={displayName}>
+            {displayName}
+          </span>
+          <ChevronsUpDown />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          anchor={anchorRef}
+          align="start"
+          side="top"
+          sideOffset={8}
+          className="w-(--anchor-width)"
+        >
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>
+              {/* The identity card mirrors the trigger: avatar, human name, an
+                  admin badge — and the sign-in username demoted to fine print. */}
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Avatar className="size-8 shrink-0">
+                  {me.avatar_url && <AvatarImage src={me.avatar_url} alt="" />}
+                  <AvatarFallback className="text-xs font-semibold">{initial}</AvatarFallback>
+                </Avatar>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span
+                      className="truncate text-sm font-medium text-foreground"
+                      title={displayName}
+                    >
+                      {displayName}
+                    </span>
+                    {me.is_admin && (
+                      <Badge variant="secondary" size="sm">
+                        admin
+                      </Badge>
+                    )}
+                  </div>
+                  {name && (
+                    <span className="truncate text-xs text-muted-foreground" title={me.username}>
+                      {me.username}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </DropdownMenuLabel>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem render={<Link to="/settings/account" />}>
+              <UserCog className="size-4" />
+              {t("settings.nav.account")}
+            </DropdownMenuItem>
+            <DropdownMenuItem render={<Link to={"/docs" as never} />}>
+              <FileText className="size-4" />
+              {t("nav.docs")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => void setLocale(SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale)}
+            >
+              <span className="flex size-4 items-center justify-center text-xs font-medium">
+                文
+              </span>
+              {nextLocaleLabel}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          {/* The full theme block (appearance + accent): this menu is the one
+              always-reachable home for personalization, so hiding accent on the
+              account page made it effectively lost. */}
+          <div className="flex flex-col gap-3 p-2">
+            <ThemeAppearanceControl layout="inline" />
+            <ThemeAccentControl />
+          </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={logout}>
+              <LogOut className="size-4" />
+              {t("header.logout")}
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}

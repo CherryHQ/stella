@@ -1,42 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
-import QRCode from "qrcode";
 import {
-  beginFeishuRegistration,
-  beginWeixinRegistration,
   createChannel as createChannelRequest,
   deleteChannel,
-  generateLinkCode,
   listAgents,
   listChannels,
   listProfileIdentities,
   listPublicChannels,
-  pollFeishuRegistration,
-  pollWeixinQrStatus,
-  pollWeixinRegistration,
-  startWeixinQr,
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
 import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
 import type { Agent, Channel, Identity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Dialog,
-  DialogClose,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogPopup,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useI18n } from "@/lib/i18n";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import {
@@ -51,212 +31,18 @@ import {
   SettingsGridPage,
 } from "@/features/settings/SettingsCardGrid";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { MessageCircle, Plus } from "lucide-react";
-import { siQq, siTelegram, siWechat } from "simple-icons";
-
-// ─── platform metadata ────────────────────────────────────────────────────────
-
-type PlatformDefaults = Record<string, string | boolean>;
-
-const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; icon?: string }> = {
-  telegram: {
-    label: "Telegram",
-    defaults: { token: "", channel_id: "" },
-  },
-  qq: {
-    label: "QQ",
-    defaults: { app_id: "", app_secret: "" },
-  },
-  feishu: {
-    label: "Feishu",
-    defaults: {
-      app_id: "",
-      app_secret: "",
-      encrypt_key: "",
-      verification_token: "",
-      tenant_key: "",
-      auto_provision: false,
-    },
-  },
-  weixin: {
-    label: "Weixin",
-    defaults: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
-  },
-};
-
-const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({
-  id,
-  label: meta.label,
-}));
-const defaultChannelType = channelTypes[0]?.id || "";
-
-const PLATFORM_ICON_PATHS: Record<string, string> = {
-  telegram: siTelegram.path,
-  qq: siQq.path,
-  weixin: siWechat.path,
-};
-
-// PlatformIcon shows a brand mark for known chat platforms, else a generic
-// message glyph (e.g. Feishu, which simple-icons doesn't carry).
-function PlatformIcon({ type }: { type: string }) {
-  const path = PLATFORM_ICON_PATHS[type];
-  if (!path) return <MessageCircle className="size-4" />;
-  return (
-    <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true">
-      <path d={path} />
-    </svg>
-  );
-}
-
-function parseConfig(raw: string): Record<string, unknown> {
-  try {
-    return JSON.parse(raw || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function platformConfigDefaults(type: string): PlatformDefaults {
-  return { ...platformMeta[type]?.defaults };
-}
-
-function normalizeConfigValue(defaultValue: string | boolean, value: unknown): string | boolean {
-  if (typeof defaultValue === "boolean") return Boolean(value);
-  return (value as string) || "";
-}
-
-function serializePlatformConfig(
-  type: string,
-  data: Record<string, unknown>,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => [
-      key,
-      normalizeConfigValue(defaultValue, data[key]),
-    ]),
-  );
-}
-
-function hasConfig(type: string, data: Record<string, unknown>): boolean {
-  return Object.values(serializePlatformConfig(type, data)).some((v) => {
-    if (typeof v === "boolean") return v;
-    return String(v).trim() !== "";
-  });
-}
-
-// ─── types ────────────────────────────────────────────────────────────────────
-
-interface NormalizedChannel extends Record<string, unknown> {
-  id: string;
-  name: string;
-  type: string;
-  label?: string;
-  agent_id: string;
-  agent_name?: string;
-  enabled: boolean;
-}
-
-function normalizeChannel(ch: Channel): NormalizedChannel {
-  const type = ch.type || ch.id;
-  return {
-    ...ch,
-    name: ch.name || "",
-    type,
-    agent_id: ch.agent_id || "",
-    ...platformConfigDefaults(type),
-    ...parseConfig(ch.config),
-  };
-}
-
-function newInstanceDraft(type = defaultChannelType, id = ""): Record<string, unknown> {
-  return {
-    id: type === "weixin" ? "weixin" : id,
-    type,
-    ...platformConfigDefaults(type),
-  };
-}
-
-function channelConfig(ch: Record<string, unknown>): string {
-  return JSON.stringify(serializePlatformConfig(ch.type as string, ch));
-}
-
-// ─── sub-components ───────────────────────────────────────────────────────────
-
-const selectClassName =
-  "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8 sm:text-sm";
-
-function InstanceFields({
-  ch,
-  onChange,
-}: {
-  ch: Record<string, unknown>;
-  onChange: (key: string, value: unknown) => void;
-}) {
-  const type = ch.type as string;
-  const field = (key: string, label: string, inputType = "text", placeholder = "") => (
-    <div className="w-full space-y-1.5">
-      <label className="text-sm font-medium font-mono">{label}</label>
-      <Input
-        nativeInput
-        type={inputType}
-        value={(ch[key] as string) || ""}
-        onChange={(e) => onChange(key, e.target.value)}
-        placeholder={placeholder}
-        className="w-full text-sm font-mono"
-      />
-    </div>
-  );
-
-  return (
-    <div className="space-y-4">
-      {type === "telegram" && (
-        <div className="space-y-4">
-          {field("token", "Bot Token", "password", "From @BotFather")}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            {field("channel_id", "Channel ID", "text", "Default channel")}
-          </div>
-        </div>
-      )}
-
-      {type === "qq" && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            {field("app_id", "App ID", "text", "QQ Bot App ID")}
-            {field("app_secret", "App Secret", "password")}
-          </div>
-        </div>
-      )}
-
-      {type === "feishu" && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            {field("app_id", "App ID")}
-            {field("app_secret", "App Secret", "password")}
-            {field("encrypt_key", "Encrypt Key", "password", "optional")}
-            {field("verification_token", "Verification Token", "password", "optional")}
-            {field("tenant_key", "Tenant Key", "text", "optional, auto-detected at startup")}
-          </div>
-          <div className="flex items-center gap-3">
-            <Switch
-              checked={Boolean(ch.auto_provision)}
-              onCheckedChange={(v) => onChange("auto_provision", v)}
-            />
-            <span className="text-sm">Auto-provision accounts for tenant members</span>
-          </div>
-        </div>
-      )}
-
-      {type === "weixin" && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-          {field("bot_token", "Bot Token", "password")}
-          {field("base_url", "Base URL", "text", "https://ilinkai.weixin.qq.com")}
-          {field("bot_id", "Bot ID", "text", "optional")}
-          {field("user_id", "User ID", "text", "optional")}
-        </div>
-      )}
-    </div>
-  );
-}
+import { Plus } from "lucide-react";
+import { PlatformIcon, platformLabel } from "@/components/PlatformIcon";
+import {
+  ChannelFields,
+  channelConfig,
+  defaultChannelType,
+  hasConfig,
+  normalizeChannel,
+  type NormalizedChannel,
+} from "./ChannelFields";
+import { NewChannelForm, newChannelDraftError } from "./NewChannelForm";
+import { useAccountLink, weixinQrStatusVariant } from "./use-account-link";
 
 // ─── ChannelDetail ────────────────────────────────────────────────────────────
 
@@ -271,7 +57,12 @@ interface ChannelDetailProps {
   wxQrPolling: boolean;
   onUpdate: (key: string, value: unknown) => void;
   onSave: (ch: NormalizedChannel) => void;
-  onDelete: (id: string) => void;
+  /**
+   * Ask the page to confirm the delete. The confirmation is an overlay and this
+   * detail renders inside a Sheet, so the page owns it — nesting overlays is a
+   * bug (`web-ui.md`).
+   */
+  onRequestDelete: (ch: NormalizedChannel) => void;
   onGenerateCode: (platform: string) => void;
   onStartWeixinQR: () => void;
   onUnlink: (id: string | undefined) => void;
@@ -291,7 +82,7 @@ function ChannelDetail({
   wxQrPolling,
   onUpdate,
   onSave,
-  onDelete,
+  onRequestDelete,
   onGenerateCode,
   onStartWeixinQR,
   onUnlink,
@@ -301,11 +92,9 @@ function ChannelDetail({
 }: ChannelDetailProps) {
   const { t } = useI18n();
   const [channel, setChannel] = useState<NormalizedChannel>(initialChannel);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
     setChannel(initialChannel);
-    setConfirmDeleteOpen(false);
   }, [initialChannel]);
 
   const updateField = (key: string, value: unknown) => {
@@ -314,52 +103,23 @@ function ChannelDetail({
   };
 
   const isDefaultInstance = channel.id === channel.type;
-  const platformLabel = platformMeta[channel.type]?.label || channel.type;
+  const label = platformLabel(channel.type);
 
   return (
     <DetailPanel
       onSave={() => onSave(channel)}
-      onDelete={!isDefaultInstance ? () => setConfirmDeleteOpen(true) : undefined}
+      onDelete={!isDefaultInstance ? () => onRequestDelete(channel) : undefined}
       saveLabel={t("common.save")}
       deleteLabel={t("common.delete")}
     >
       <DetailPanelHeader
-        title={channel.name || platformLabel}
+        title={channel.name || label}
         subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.type}</p>}
-        action={
-          <>
-            <Switch
-              checked={Boolean(channel.enabled)}
-              onCheckedChange={(checked) => updateField("enabled", checked)}
-            />
-            <span className="text-sm">Enabled</span>
-          </>
-        }
       />
 
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium">Name</label>
-        <Input
-          nativeInput
-          type="text"
-          value={(channel.name as string) || ""}
-          onChange={(e) => updateField("name", (e.target as HTMLInputElement).value)}
-          placeholder={platformLabel}
-          className="w-full text-sm"
-        />
-      </div>
-
-      {/* Config section */}
-      {Object.keys(platformConfigDefaults(channel.type)).length > 0 && (
-        <div className="space-y-4">
-          <FormSectionTitle>Configuration</FormSectionTitle>
-          <InstanceFields ch={channel} onChange={(key, value) => updateField(key, value)} />
-          {hasConfig(channel.type, channel) && (
-            <p className="text-xs text-muted-foreground">
-              This page stores the channel config only. Agent selection belongs on the agent page.
-            </p>
-          )}
-        </div>
+      <ChannelFields channel={channel} onChange={updateField} />
+      {hasConfig(channel.type, channel) && (
+        <p className="text-xs text-muted-foreground">{t("channels.configOnlyNote")}</p>
       )}
 
       {/* Identity / account section. */}
@@ -391,7 +151,7 @@ function ChannelDetail({
                 loading={generating && linkPlatform === channel.type}
                 size="sm"
               >
-                Link {platformLabel}
+                Link {label}
               </Button>
             )}
             {channel.type === "weixin" && (
@@ -405,7 +165,7 @@ function ChannelDetail({
         {/* Link code */}
         {linkCode && linkPlatform === channel.type && (
           <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-            <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
+            <p className="text-sm font-medium">Send this command to Stella on {label}:</p>
             <div className="flex items-center gap-2 flex-wrap">
               <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
                 /link {linkCode}
@@ -434,426 +194,6 @@ function ChannelDetail({
           </div>
         )}
       </div>
-
-      <ConfirmDialog
-        open={confirmDeleteOpen}
-        onOpenChange={setConfirmDeleteOpen}
-        title={t("channels.deleteChannel")}
-        message={t("channels.deleteChannelMsg", { id: channel.id })}
-        onConfirm={() => onDelete(channel.id)}
-      />
-    </DetailPanel>
-  );
-}
-
-// ─── NewChannelForm ───────────────────────────────────────────────────────────
-
-interface NewChannelFormProps {
-  fallbackChannelType: string;
-  agents: Agent[];
-  channels: NormalizedChannel[];
-  onAdd: (channel: Record<string, unknown>) => Promise<void>;
-  onRegistered: (channel: NormalizedChannel) => Promise<void>;
-  onCancel: () => void;
-  creating: boolean;
-}
-
-function NewChannelForm({
-  fallbackChannelType,
-  agents,
-  channels,
-  onAdd,
-  onRegistered,
-  onCancel,
-  creating,
-}: NewChannelFormProps) {
-  const { t } = useI18n();
-  const [draft, setDraft] = useState<Record<string, unknown>>(
-    newInstanceDraft(fallbackChannelType, ""),
-  );
-  const [scanOpen, setScanOpen] = useState(false);
-  const [scanQrUrl, setScanQrUrl] = useState("");
-  const [scanStatus, setScanStatus] = useState("");
-  const [scanError, setScanError] = useState("");
-  const [scanning, setScanning] = useState(false);
-  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const weixinScanRefreshesRef = useRef(0);
-
-  const stopScanPolling = useCallback(() => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-    setScanning(false);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
-    },
-    [],
-  );
-
-  const updateField = (key: string, value: unknown) => {
-    if (key === "type") {
-      setDraft(newInstanceDraft(value as string, draft.id as string));
-    } else if (key !== "id" || draft.type !== "weixin") {
-      setDraft((prev) => ({ ...prev, [key]: value }));
-    }
-  };
-
-  const pollFeishuScan = useCallback(
-    async (deviceCode: string, intervalSeconds: number) => {
-      const channelId = ((draft.id as string) || "").trim();
-      const agentId = ((draft.agent_id as string) || "").trim();
-      if (!deviceCode || !channelId || !agentId) return;
-      try {
-        const { data: result } = await pollFeishuRegistration({
-          body: {
-            device_code: deviceCode,
-            channel_id: channelId,
-            agent_id: agentId,
-            name: (draft.name as string) || "Feishu",
-            enabled: true,
-            config: serializePlatformConfig("feishu", draft),
-          },
-          throwOnError: true,
-        });
-        setScanStatus(result.status);
-        if (result.status === "slow_down") {
-          stopScanPolling();
-          scanIntervalRef.current = setInterval(
-            () => void pollFeishuScan(deviceCode, result.interval || intervalSeconds + 5),
-            (result.interval || intervalSeconds + 5) * 1000,
-          );
-          setScanning(true);
-        }
-        if (result.status === "created" && result.channel) {
-          stopScanPolling();
-          setScanOpen(false);
-          await onRegistered(normalizeChannel(result.channel as Channel));
-        }
-      } catch (e) {
-        stopScanPolling();
-        setScanError((e as Error).message);
-      }
-    },
-    [draft, onRegistered, stopScanPolling],
-  );
-
-  async function pollWeixinScan(qrCode: string) {
-    const channelId = ((draft.id as string) || "").trim();
-    const agentId = ((draft.agent_id as string) || "").trim();
-    if (!qrCode || !channelId || !agentId) return;
-    try {
-      const { data: result } = await pollWeixinRegistration({
-        body: {
-          qrcode: qrCode,
-          channel_id: channelId,
-          agent_id: agentId,
-          name: (draft.name as string) || "WeChat",
-          config: serializePlatformConfig("weixin", draft),
-        },
-        throwOnError: true,
-      });
-      setScanStatus(result.status);
-      if (result.status === "expired") {
-        stopScanPolling();
-        if (weixinScanRefreshesRef.current < 3) {
-          weixinScanRefreshesRef.current += 1;
-          await beginWeixinScanPolling();
-        } else {
-          setScanError(t("channels.scanExpired"));
-        }
-      }
-      if (result.status === "created" && result.channel) {
-        stopScanPolling();
-        setScanOpen(false);
-        await onRegistered(normalizeChannel(result.channel as Channel));
-      }
-    } catch (e) {
-      stopScanPolling();
-      setScanError((e as Error).message);
-    }
-  }
-
-  async function beginWeixinScanPolling() {
-    setScanQrUrl("");
-    setScanStatus("waiting");
-    setScanError("");
-    stopScanPolling();
-    setScanning(true);
-    try {
-      const { data: result } = await beginWeixinRegistration({
-        throwOnError: true,
-      });
-      setScanQrUrl(await QRCode.toDataURL(result.qr_image_url, { width: 256, margin: 2 }));
-      const intervalSeconds = result.poll_interval || 2;
-      scanIntervalRef.current = setInterval(
-        () => void pollWeixinScan(result.qrcode),
-        intervalSeconds * 1000,
-      );
-      setScanning(true);
-    } catch (e) {
-      setScanError((e as Error).message);
-      setScanning(false);
-    }
-  }
-
-  const startFeishuScan = async () => {
-    const channelName = ((draft.name as string) || "").trim();
-    const channelId = ((draft.id as string) || "").trim();
-    if (!channelName) {
-      setScanError(t("channels.scanNeedsName"));
-      setScanOpen(true);
-      return;
-    }
-    if (!channelId) {
-      setScanError(t("channels.scanNeedsId"));
-      setScanOpen(true);
-      return;
-    }
-    if (!draft.agent_id) {
-      setScanError(t("channels.scanNeedsAgent"));
-      setScanOpen(true);
-      return;
-    }
-    setScanOpen(true);
-    setScanQrUrl("");
-    setScanStatus("waiting");
-    setScanError("");
-    stopScanPolling();
-    setScanning(true);
-    try {
-      const { data: result } = await beginFeishuRegistration({
-        body: {},
-        throwOnError: true,
-      });
-      setScanQrUrl(await QRCode.toDataURL(result.qr_url, { width: 256, margin: 2 }));
-      const intervalSeconds = result.interval || 5;
-      scanIntervalRef.current = setInterval(
-        () => void pollFeishuScan(result.device_code, intervalSeconds),
-        intervalSeconds * 1000,
-      );
-      setScanning(true);
-    } catch (e) {
-      setScanError((e as Error).message);
-      setScanning(false);
-    }
-  };
-
-  const startWeixinScan = async () => {
-    const channelName = ((draft.name as string) || "").trim();
-    const channelId = ((draft.id as string) || "").trim();
-    if (!channelName) {
-      setScanError(t("channels.scanNeedsName"));
-      setScanOpen(true);
-      return;
-    }
-    if (!channelId) {
-      setScanError(t("channels.scanNeedsId"));
-      setScanOpen(true);
-      return;
-    }
-    if (!draft.agent_id) {
-      setScanError(t("channels.scanNeedsAgent"));
-      setScanOpen(true);
-      return;
-    }
-    setScanOpen(true);
-    weixinScanRefreshesRef.current = 0;
-    await beginWeixinScanPolling();
-  };
-
-  const requiresBoundAgent = draft.type === "feishu" || draft.type === "weixin";
-
-  const availableAgents = agents.filter(
-    (agent) =>
-      agent.enabled !== false &&
-      !channels.some((channel) => channel.type === draft.type && channel.agent_id === agent.id),
-  );
-
-  const canStartRegistrationScan = Boolean(
-    ((draft.name as string) || "").trim() &&
-    ((draft.id as string) || "").trim() &&
-    ((draft.agent_id as string) || "").trim(),
-  );
-
-  const canSubmit = !creating && !!draft.id && !!draft.type;
-
-  return (
-    <DetailPanel
-      onSave={() => onAdd(draft)}
-      onCancel={onCancel}
-      saveLabel={t("channels.addChannel")}
-      cancelLabel={t("common.cancel")}
-      isSaving={creating}
-      isSavingLabel={t("channels.adding")}
-      canSave={canSubmit}
-    >
-      <DetailPanelHeader
-        title={t("channels.newChannel")}
-        subtitle={<p className="text-sm text-muted-foreground">{t("channels.connectDesc")}</p>}
-      />
-
-      <div className="space-y-4">
-        <div className="w-full space-y-1.5">
-          <label className="text-sm font-medium">{t("channels.platform")}</label>
-          <select
-            value={(draft.type as string) || ""}
-            onChange={(e) => updateField("type", e.target.value)}
-            className={selectClassName}
-          >
-            <option value="" disabled>
-              {t("channels.selectPlatform")}
-            </option>
-            {channelTypes.map((ct) => (
-              <option key={ct.id} value={ct.id}>
-                {ct.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="w-full space-y-1.5">
-          <label className="text-sm font-medium">{t("common.name")}</label>
-          <Input
-            nativeInput
-            type="text"
-            value={(draft.name as string) || ""}
-            onChange={(e) => updateField("name", e.target.value)}
-            placeholder={t("channels.namePlaceholder")}
-            className="w-full text-sm"
-          />
-        </div>
-
-        <div className="w-full space-y-1.5">
-          <label className="text-sm font-medium font-mono">{t("channels.channelId")}</label>
-          <Input
-            nativeInput
-            type="text"
-            value={(draft.id as string) || ""}
-            onChange={(e) => updateField("id", e.target.value)}
-            placeholder={t("channels.channelIdPlaceholder")}
-            disabled={draft.type === "weixin"}
-            className="w-full text-sm font-mono"
-          />
-          <p className="text-xs text-muted-foreground">
-            {draft.type === "weixin"
-              ? t("channels.weixinChannelIdDesc")
-              : t("channels.channelIdDesc")}
-          </p>
-        </div>
-
-        {requiresBoundAgent && (
-          <div className="w-full space-y-1.5">
-            <label className="text-sm font-medium">{t("channels.boundAgent")}</label>
-            <select
-              value={(draft.agent_id as string) || ""}
-              onChange={(e) => updateField("agent_id", e.target.value)}
-              className={selectClassName}
-            >
-              <option value="">{t("channels.selectAgent")}</option>
-              {availableAgents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name || agent.id}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">{t("channels.boundAgentDesc")}</p>
-            {availableAgents.length === 0 && (
-              <p className="text-xs text-muted-foreground">{t("channels.noAvailableAgents")}</p>
-            )}
-          </div>
-        )}
-
-        {!!draft.type && (
-          <div className="space-y-4">
-            <FormSectionTitle>{t("channels.configuration")}</FormSectionTitle>
-            {(draft.type === "feishu" || draft.type === "weixin") && (
-              <div className="space-y-2">
-                <Button
-                  type="button"
-                  onClick={draft.type === "weixin" ? startWeixinScan : startFeishuScan}
-                  loading={scanning}
-                  disabled={scanning || !canStartRegistrationScan}
-                  size="sm"
-                >
-                  {draft.type === "weixin"
-                    ? t("channels.scanCreateWeixin")
-                    : t("channels.scanCreateFeishu")}
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  {draft.type === "weixin"
-                    ? t("channels.scanCreateWeixinDesc")
-                    : t("channels.scanCreateFeishuDesc")}
-                </p>
-              </div>
-            )}
-            {draft.type === "feishu" || draft.type === "weixin" ? (
-              <details className="space-y-4">
-                <summary className="cursor-pointer text-sm font-medium">
-                  {draft.type === "weixin"
-                    ? t("channels.manualWeixinSetup")
-                    : t("channels.manualFeishuSetup")}
-                </summary>
-                <div className="pt-4">
-                  <InstanceFields ch={draft} onChange={updateField} />
-                </div>
-              </details>
-            ) : (
-              <InstanceFields ch={draft} onChange={updateField} />
-            )}
-          </div>
-        )}
-      </div>
-
-      <Dialog open={scanOpen} onOpenChange={setScanOpen}>
-        <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>
-              {draft.type === "weixin"
-                ? t("channels.scanWeixinTitle")
-                : t("channels.scanFeishuTitle")}
-            </DialogTitle>
-            <DialogDescription>
-              {draft.type === "weixin"
-                ? t("channels.scanWeixinDesc")
-                : t("channels.scanFeishuDesc")}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel>
-            <div className="flex flex-col items-center gap-4 text-center">
-              {scanQrUrl && (
-                <img
-                  src={scanQrUrl}
-                  alt={
-                    draft.type === "weixin"
-                      ? t("channels.scanWeixinQrAlt")
-                      : t("channels.scanFeishuQrAlt")
-                  }
-                  className="size-48 max-w-full"
-                />
-              )}
-              {!scanQrUrl && !scanError && <Spinner className="size-4" />}
-              <Badge
-                size="sm"
-                variant={scanError ? "error" : scanStatus === "created" ? "success" : "warning"}
-                className="max-w-full whitespace-normal"
-              >
-                {scanError || scanStatus || t("channels.waiting")}
-              </Badge>
-            </div>
-          </DialogPanel>
-          <DialogFooter>
-            <DialogClose
-              render={<Button type="button" variant="ghost" onClick={stopScanPolling} />}
-            >
-              {t("common.cancel")}
-            </DialogClose>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
     </DetailPanel>
   );
 }
@@ -895,12 +235,12 @@ function PublicChannelDetail({
   wxQrStatusVariant,
   onRefreshWxQr,
 }: PublicChannelDetailProps) {
-  const platformLabel = platformMeta[channel.type]?.label || channel.label || channel.type;
+  const label = platformLabel(channel.type, channel.label);
 
   return (
     <DetailPanel>
       <DetailPanelHeader
-        title={platformLabel}
+        title={label}
         subtitle={
           <Badge size="sm" variant={linked ? "success" : "secondary"}>
             {linked ? "linked" : "not linked"}
@@ -932,7 +272,7 @@ function PublicChannelDetail({
             <p className="text-sm text-muted-foreground">
               {channel.type === "weixin"
                 ? "Link your Weixin account by scanning a QR code."
-                : `Link your ${platformLabel} account once to chat with Stella on this platform.`}
+                : `Link your ${label} account once to chat with Stella on this platform.`}
             </p>
             {channel.type !== "weixin" && (
               <Button
@@ -941,7 +281,7 @@ function PublicChannelDetail({
                 loading={generating && linkPlatform === channel.type}
                 size="sm"
               >
-                Link {platformLabel}
+                Link {label}
               </Button>
             )}
             {channel.type === "weixin" && (
@@ -955,7 +295,7 @@ function PublicChannelDetail({
         {/* Link code */}
         {linkCode && linkPlatform === channel.type && (
           <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-            <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
+            <p className="text-sm font-medium">Send this command to Stella on {label}:</p>
             <div className="flex items-center gap-2 flex-wrap">
               <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
                 /link {linkCode}
@@ -997,6 +337,9 @@ export function ChannelsPage() {
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { channelId?: string };
   const channelId = params.channelId;
+  // Creation opened from an agent's profile already knows the agent.
+  const search = useSearch({ strict: false }) as { agent?: string };
+  const initialAgentId = search.agent ?? "";
 
   const [publicChannels, setPublicChannels] = useState<ComponentsPublicChannel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
@@ -1004,17 +347,10 @@ export function ChannelsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loadingInstances, setLoadingInstances] = useState(false);
 
-  const [linkCode, setLinkCode] = useState("");
-  const [linkPlatform, setLinkPlatform] = useState("");
-  const [generating, setGenerating] = useState(false);
-
-  const [wxQrUrl, setWxQrUrl] = useState("");
-  const [wxQrStatus, setWxQrStatus] = useState("");
-  const wxQrCodeRef = useRef("");
-  const [wxQrPolling, setWxQrPolling] = useState(false);
-  const wxQrIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   const [creatingInstance, setCreatingInstance] = useState(false);
+  // The delete confirmation lives here, not in the detail: the detail renders
+  // inside the Sheet and an overlay may not nest inside another (`web-ui.md`).
+  const [pendingDelete, setPendingDelete] = useState<NormalizedChannel | null>(null);
 
   const { toasts, showToast } = useToast();
 
@@ -1105,98 +441,11 @@ export function ChannelsPage() {
     } else {
       void Promise.all([loadPublicChannels(), loadIdentities()]);
     }
-    return () => {
-      if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
-    };
   }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances, loadAgents]);
 
-  // ── link code ──
+  // ── account linking ──
 
-  const generateCode = async (platform: string) => {
-    setGenerating(true);
-    setLinkPlatform(platform);
-    setLinkCode("");
-    setWxQrUrl("");
-    setWxQrStatus("");
-    wxQrCodeRef.current = "";
-    try {
-      const { data: result } = await generateLinkCode({
-        body: { platform },
-        throwOnError: true,
-      });
-      setLinkCode(result.code);
-    } catch (e) {
-      showToast((e as Error).message, "error");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const copyLinkCode = () => {
-    void navigator.clipboard.writeText("/link " + linkCode);
-    showToast("Copied");
-  };
-
-  // ── weixin QR ──
-
-  const stopWeixinQRPolling = () => {
-    if (wxQrIntervalRef.current) {
-      clearInterval(wxQrIntervalRef.current);
-      wxQrIntervalRef.current = null;
-    }
-    setWxQrPolling(false);
-  };
-
-  const pollWeixinQRStatus = async (qrCode: string) => {
-    if (!qrCode) return;
-    try {
-      const { data: result } = await pollWeixinQrStatus({
-        query: { qrcode: qrCode },
-        throwOnError: true,
-      });
-      if (result.status) setWxQrStatus(result.status);
-      if (result.status === "confirmed") {
-        stopWeixinQRPolling();
-        setWxQrUrl("");
-        showToast("Weixin account linked successfully");
-        await loadIdentities();
-      } else if (result.status === "expired") {
-        stopWeixinQRPolling();
-      }
-    } catch (e) {
-      console.error("QR status poll error:", e);
-    }
-  };
-
-  const startWeixinQR = async () => {
-    setLinkCode("");
-    setWxQrUrl("");
-    setWxQrStatus("");
-    wxQrCodeRef.current = "";
-    setWxQrPolling(true);
-    if (wxQrIntervalRef.current) {
-      clearInterval(wxQrIntervalRef.current);
-      wxQrIntervalRef.current = null;
-    }
-    try {
-      const { data: result } = await startWeixinQr({ throwOnError: true });
-      const qrCode = result.qrcode || "";
-      wxQrCodeRef.current = qrCode;
-      const imgContent = result.qrcode_img_content || "";
-      if (imgContent) {
-        const dataUrl = await QRCode.toDataURL(imgContent, {
-          width: 256,
-          margin: 2,
-        });
-        setWxQrUrl(dataUrl);
-      }
-      setWxQrStatus("waiting");
-      wxQrIntervalRef.current = setInterval(() => pollWeixinQRStatus(qrCode), 3000);
-    } catch (e) {
-      showToast("QR request failed: " + (e as Error).message, "error");
-      setWxQrPolling(false);
-    }
-  };
+  const link = useAccountLink({ notify: showToast, onLinked: () => void loadIdentities() });
 
   // ── identity management ──
 
@@ -1267,24 +516,16 @@ export function ChannelsPage() {
   };
 
   const createNewChannel = async (draft: Record<string, unknown>) => {
-    const id = ((draft.id as string) || "").trim();
-    if (!id || !draft.type) {
-      showToast("ID and platform are required", "error");
-      return;
-    }
-    if (id === draft.type && draft.type !== "weixin") {
-      showToast("Dedicated instance ID must not match the platform ID", "error");
-      return;
-    }
-    if ((draft.type === "feishu" || draft.type === "weixin") && !draft.agent_id) {
-      showToast(t("channels.scanNeedsAgent"), "error");
+    const invalid = newChannelDraftError(draft, t);
+    if (invalid) {
+      showToast(invalid, "error");
       return;
     }
     setCreatingInstance(true);
     try {
       const { data: saved } = await createChannelRequest({
+        // No id: the server mints it (and pins weixin to its singleton id).
         body: {
-          id,
           name: (draft.name as string) || "",
           type: draft.type as string,
           agent_id: (draft.agent_id as string) || "",
@@ -1307,16 +548,6 @@ export function ChannelsPage() {
 
   // ── render ──
 
-  const wxQrStatusVariant = (
-    status: string,
-  ): "warning" | "info" | "success" | "error" | "secondary" => {
-    if (status === "waiting") return "warning";
-    if (status === "scaned") return "info";
-    if (status === "confirmed") return "success";
-    if (status === "expired") return "error";
-    return "secondary";
-  };
-
   const isLoading = isAdmin && loadingInstances;
 
   // ── build detail pane ──
@@ -1328,6 +559,7 @@ export function ChannelsPage() {
       detail = (
         <NewChannelForm
           fallbackChannelType={defaultChannelType}
+          initialAgentId={initialAgentId}
           agents={agents}
           channels={instances}
           onAdd={createNewChannel}
@@ -1342,21 +574,21 @@ export function ChannelsPage() {
           key={selectedChannel.id}
           channel={selectedChannel}
           identity={identityFor(selectedChannel.type)}
-          generating={generating}
-          linkPlatform={linkPlatform}
-          linkCode={linkCode}
-          wxQrUrl={wxQrUrl}
-          wxQrStatus={wxQrStatus}
-          wxQrPolling={wxQrPolling}
+          generating={link.generating}
+          linkPlatform={link.platform}
+          linkCode={link.code}
+          wxQrUrl={link.qrUrl}
+          wxQrStatus={link.qrStatus}
+          wxQrPolling={link.qrPolling}
           onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
           onSave={saveInstance}
-          onDelete={doDeleteChannel}
-          onGenerateCode={generateCode}
-          onStartWeixinQR={startWeixinQR}
+          onRequestDelete={setPendingDelete}
+          onGenerateCode={(platform) => void link.generateCode(platform)}
+          onStartWeixinQR={() => void link.startQr()}
           onUnlink={unlinkIdentity}
-          onCopyLinkCode={copyLinkCode}
-          wxQrStatusVariant={wxQrStatusVariant}
-          onRefreshWxQr={startWeixinQR}
+          onCopyLinkCode={link.copyCode}
+          wxQrStatusVariant={weixinQrStatusVariant}
+          onRefreshWxQr={() => void link.startQr()}
         />
       );
     }
@@ -1367,18 +599,18 @@ export function ChannelsPage() {
         channel={selectedPublicChannel}
         identity={identityFor(selectedPublicChannel.type)}
         linked={isLinked(selectedPublicChannel.type)}
-        generating={generating}
-        linkPlatform={linkPlatform}
-        linkCode={linkCode}
-        wxQrUrl={wxQrUrl}
-        wxQrStatus={wxQrStatus}
-        wxQrPolling={wxQrPolling}
-        onGenerateCode={generateCode}
-        onStartWeixinQR={startWeixinQR}
+        generating={link.generating}
+        linkPlatform={link.platform}
+        linkCode={link.code}
+        wxQrUrl={link.qrUrl}
+        wxQrStatus={link.qrStatus}
+        wxQrPolling={link.qrPolling}
+        onGenerateCode={(platform) => void link.generateCode(platform)}
+        onStartWeixinQR={() => void link.startQr()}
         onUnlink={unlinkIdentity}
-        onCopyLinkCode={copyLinkCode}
-        wxQrStatusVariant={wxQrStatusVariant}
-        onRefreshWxQr={startWeixinQR}
+        onCopyLinkCode={link.copyCode}
+        wxQrStatusVariant={weixinQrStatusVariant}
+        onRefreshWxQr={() => void link.startQr()}
       />
     );
   }
@@ -1395,7 +627,7 @@ export function ChannelsPage() {
       (acc, ch) => {
         (acc[ch.type] ??= {
           type: ch.type,
-          label: platformMeta[ch.type]?.label || ch.type,
+          label: platformLabel(ch.type),
           items: [],
         }).items.push(ch);
         return acc;
@@ -1435,13 +667,13 @@ export function ChannelsPage() {
                 count={group.items.length}
               >
                 {group.items.map((ch) => {
-                  const platformLabel = platformMeta[ch.type]?.label || ch.type;
+                  const label = platformLabel(ch.type);
                   const isDefault = ch.id === ch.type;
                   return (
                     <SettingsCard
                       key={ch.id}
                       icon={<PlatformIcon type={ch.type} />}
-                      title={ch.name || platformLabel}
+                      title={ch.name || label}
                       badge={
                         isDefault ? (
                           <Badge variant="secondary" size="sm">
@@ -1471,13 +703,13 @@ export function ChannelsPage() {
         ) : (
           <SettingsCardSection title={t("channels.title")} count={publicChannels.length}>
             {publicChannels.map((ch) => {
-              const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
+              const label = platformLabel(ch.type, ch.label);
               const linked = isLinked(ch.type);
               return (
                 <SettingsCard
                   key={ch.type}
                   icon={<PlatformIcon type={ch.type} />}
-                  title={platformLabel}
+                  title={label}
                   active={channelId === ch.type}
                   to="/settings/channels/$channelId"
                   params={{ channelId: ch.type }}
@@ -1496,6 +728,17 @@ export function ChannelsPage() {
       <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>
         {detail}
       </SettingsDetailSheet>
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title={t("channels.deleteChannel")}
+        message={pendingDelete ? t("channels.deleteChannelMsg", { id: pendingDelete.id }) : ""}
+        onConfirm={() => {
+          if (pendingDelete) void doDeleteChannel(pendingDelete.id);
+          setPendingDelete(null);
+        }}
+      />
 
       <ToastContainer messages={toasts} />
     </>

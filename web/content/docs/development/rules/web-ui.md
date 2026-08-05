@@ -41,7 +41,15 @@ Read `web/.agents/skills/coss/SKILL.md` for imports, composition, and particle e
 
 ## Layout shell
 
-SiteHeader (h-14, border-b) over Sidebar (16rem desktop, 18rem mobile, 3rem collapsed icon-only, offcanvas modal on mobile) + content inset with sub-header (h-12, backdrop-blur). Split-pane views use CSS `flex` with a draggable divider (not Grid), min-width constraints, and fall back to Sheet on mobile. Mobile breakpoint: `max-md` (< 768px); multi-column layouts collapse to single column.
+There is no global top bar. `AppShell` (`src/layouts/AppShell.tsx`) is the only frame: a full-height sidebar (16rem desktop, 18rem mobile, offcanvas sheet on mobile) plus the content inset beside it. Every app mounts through it, so every app inherits the same chrome.
+
+**The sidebar owns the global chrome.** Its header carries the app switcher (monogram + current app + menu) and the two controls that belong to no page — search and the inbox bell; its footer pins the signed-in account and its menu (settings, appearance, locale, sign-out). Both come from `AppSidebarChrome` and are rendered by `AppShell`, never by a per-app sidebar: an app's sidebar component supplies the body only. The ⌘K search dialog and its key listener live at app level (`GlobalSearchProvider` in `AppLayout`), because the sidebar is collapsible and sheet-based on mobile while the shortcut must work everywhere.
+
+**The content column owns exactly one header** (h-12, border-b), rendered by `AppShell` — never add a second header row inside a page. In order: sidebar trigger at the outer edge, the breadcrumb spine (`title`) then `/` then the page's tail (`setHeaderTitle` — the tail appends, it never replaces the spine), the action cluster (`setHeaderActions` + static `headerActions`), and finally the page's right-panel toggle (`setHeaderPanelToggle`) behind a separator at the far edge.
+
+**Layout toggles are icons at the header's outer edges**, mirrored — sidebar trigger left, panel toggle right — with `aria-label` + tooltip and `aria-pressed`, never labelled buttons inside the action cluster. Persist a panel's open state as a user preference (localStorage), not in the URL.
+
+**Cluster rhythm.** Group header controls, never run them flat: `gap-1` inside a cluster, `gap-2` plus a vertical `Separator` between clusters, page actions before layout toggles. One labelled anchor per cluster (the rest icon-only), and labelled actions come last within their cluster. Split-pane views use CSS `flex` with a draggable divider (not Grid), min-width constraints, and fall back to Sheet on mobile. Mobile breakpoint: `max-md` (< 768px); multi-column layouts collapse to single column.
 
 ## Overlay decision tree
 

@@ -1,6 +1,5 @@
-import { useRef, useState } from "react";
-import type { Channel } from "@/lib/api-client";
-import type { AgentsPageState, ModelOption } from "../AgentsPage";
+import { useState } from "react";
+import type { AgentsPageState, ModelOption } from "../agent-detail-state";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
@@ -101,7 +100,9 @@ function ModelComboField({
         id={`model-field-${field}`}
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
+        // w-max lets the list size to the longest model id instead of the
+        // (possibly narrow) trigger; min-w keeps it never smaller than it.
+        <div className="absolute z-20 mt-1 w-max min-w-full max-w-[26rem] max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
           {filtered.map((m) => (
             <button
               key={m.value}
@@ -110,7 +111,7 @@ function ModelComboField({
                 setOpen(false);
               }}
               type="button"
-              className={`w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/80 cursor-pointer transition-colors duration-120 ${
+              className={`block w-full truncate text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/80 cursor-pointer transition-colors duration-120 ${
                 value === m.value ? "text-primary font-semibold" : "text-muted-foreground"
               }`}
             >
@@ -123,125 +124,19 @@ function ModelComboField({
   );
 }
 
-const platformLabels: Record<string, string> = {
-  telegram: "Telegram",
-  qq: "QQ",
-  feishu: "Feishu",
-  weixin: "Weixin",
-};
-
-function channelDisplayName(ch: Channel): string {
-  return ch.name || platformLabels[ch.type] || ch.type;
-}
-
-function ChannelSelector({
-  channels,
-  selectedIds,
-  onToggle,
-  onRemove,
-}: {
-  channels: Channel[];
-  selectedIds: string[];
-  onToggle: (id: string) => void;
-  onRemove: (id: string) => void;
-}) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const unselected = channels.filter((ch) => !selectedIds.includes(ch.id));
-  const selected = channels.filter((ch) => selectedIds.includes(ch.id));
-
-  return (
-    <div>
-      <label className="block text-xs font-semibold text-muted-foreground mb-1">
-        {t("agents.form.channels")}
-      </label>
-      <p className="text-xs text-muted-foreground mb-2">{t("agents.form.channelsDesc")}</p>
-      <div ref={containerRef} className="relative">
-        <div
-          className="min-h-9 w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm cursor-pointer flex flex-wrap gap-1.5 items-center"
-          onClick={() => setOpen((v) => !v)}
-          onKeyDown={(e) => e.key === "Enter" && setOpen((v) => !v)}
-          role="combobox"
-          aria-expanded={open}
-          tabIndex={0}
-        >
-          {selected.length === 0 && (
-            <span className="text-muted-foreground">{t("agents.form.selectChannels")}</span>
-          )}
-          {selected.map((ch) => (
-            <span
-              key={ch.id}
-              className="inline-flex items-center gap-1 rounded-md bg-muted border border-border px-2 py-0.5 text-xs font-mono text-foreground"
-            >
-              {channelDisplayName(ch)}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(ch.id);
-                }}
-                className="text-muted-foreground hover:text-foreground ml-0.5 cursor-pointer font-semibold"
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
-              {unselected.length === 0 && (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
-                  No more channels available.
-                </div>
-              )}
-              {unselected.map((ch) => (
-                <button
-                  key={ch.id}
-                  type="button"
-                  onMouseDown={() => {
-                    onToggle(ch.id);
-                  }}
-                  className="w-full text-left px-3 py-1.5 hover:bg-muted/80 cursor-pointer flex items-center justify-between transition-colors duration-120"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">
-                      {channelDisplayName(ch)}
-                    </p>
-                    <p className="text-xs text-muted-foreground font-mono truncate">{ch.type}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function ConfigTab({ state, onSetState }: Props) {
   const { t } = useI18n();
-  const { form, cachedModels, isAdmin, editingId, channels, selectedChannelIDs } = state;
+  const { form, cachedModels, isAdmin } = state;
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
-  const availableChannels = channels.filter(
-    (ch) => ch.enabled && (!ch.agent_id || ch.agent_id === editingId),
-  );
-
-  const toggleChannel = (chId: string) => {
-    const ids = selectedChannelIDs.includes(chId)
-      ? selectedChannelIDs.filter((id) => id !== chId)
-      : [...selectedChannelIDs, chId];
-    onSetState({ selectedChannelIDs: ids });
-  };
-
-  const removeChannel = (chId: string) => {
-    onSetState({ selectedChannelIDs: selectedChannelIDs.filter((id) => id !== chId) });
-  };
+  // The strong/fast tiers are optional overrides that fall back to the default
+  // model, so an unconfigured tier is a "+" affordance, not an empty card.
+  // Local state keeps a freshly added (still empty) tier visible.
+  const [visibleTiers, setVisibleTiers] = useState<{ strong: boolean; fast: boolean }>(() => ({
+    strong: !!(form.model_strong || form.model_strong_thinking),
+    fast: !!(form.model_fast || form.model_fast_thinking),
+  }));
 
   return (
     <div className="space-y-6">
@@ -264,8 +159,10 @@ export function ConfigTab({ state, onSetState }: Props) {
             — {t("agents.form.modelProvider")}
           </span>
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className="rounded-lg border border-border p-4 space-y-4">
+        <div className="space-y-4">
+          {/* All tier rows share one template — the trailing 1.5rem column holds
+              the clear button (or stays empty), so the field seams line up. */}
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-x-4 gap-y-4">
             <ModelComboField
               label={t("agents.form.modelDefault")}
               field="model"
@@ -279,39 +176,90 @@ export function ConfigTab({ state, onSetState }: Props) {
               value={form.model_thinking ?? ""}
               onChange={(v) => setForm({ model_thinking: v })}
             />
+            <span aria-hidden className="hidden sm:block" />
           </div>
-          <div className="rounded-lg border border-border p-4 space-y-4">
-            <ModelComboField
-              label={t("agents.form.modelStrong")}
-              field="model_strong"
-              value={form.model_strong ?? ""}
-              placeholder={t("agents.form.modelFallback")}
-              optional
-              cachedModels={cachedModels}
-              onChange={(v) => setForm({ model_strong: v })}
-            />
-            <ThinkingField
-              label={t("agents.form.modelStrongThinking")}
-              value={form.model_strong_thinking ?? ""}
-              onChange={(v) => setForm({ model_strong_thinking: v })}
-            />
-          </div>
-          <div className="rounded-lg border border-border p-4 space-y-4">
-            <ModelComboField
-              label={t("agents.form.modelFast")}
-              field="model_fast"
-              value={form.model_fast ?? ""}
-              placeholder={t("agents.form.modelFallback")}
-              optional
-              cachedModels={cachedModels}
-              onChange={(v) => setForm({ model_fast: v })}
-            />
-            <ThinkingField
-              label={t("agents.form.modelFastThinking")}
-              value={form.model_fast_thinking ?? ""}
-              onChange={(v) => setForm({ model_fast_thinking: v })}
-            />
-          </div>
+          {visibleTiers.strong && (
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-x-4 gap-y-4 items-end">
+              <ModelComboField
+                label={t("agents.form.modelStrong")}
+                field="model_strong"
+                value={form.model_strong ?? ""}
+                placeholder={t("agents.form.modelFallback")}
+                optional
+                cachedModels={cachedModels}
+                onChange={(v) => setForm({ model_strong: v })}
+              />
+              <ThinkingField
+                label={t("agents.form.modelStrongThinking")}
+                value={form.model_strong_thinking ?? ""}
+                onChange={(v) => setForm({ model_strong_thinking: v })}
+              />
+              <button
+                type="button"
+                aria-label={t("common.remove")}
+                title={t("common.remove")}
+                onClick={() => {
+                  setForm({ model_strong: "", model_strong_thinking: "" });
+                  setVisibleTiers((prev) => ({ ...prev, strong: false }));
+                }}
+                className="mb-2 text-muted-foreground hover:text-foreground cursor-pointer text-sm font-semibold"
+              >
+                ×
+              </button>
+            </div>
+          )}
+          {visibleTiers.fast && (
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1.5rem] gap-x-4 gap-y-4 items-end">
+              <ModelComboField
+                label={t("agents.form.modelFast")}
+                field="model_fast"
+                value={form.model_fast ?? ""}
+                placeholder={t("agents.form.modelFallback")}
+                optional
+                cachedModels={cachedModels}
+                onChange={(v) => setForm({ model_fast: v })}
+              />
+              <ThinkingField
+                label={t("agents.form.modelFastThinking")}
+                value={form.model_fast_thinking ?? ""}
+                onChange={(v) => setForm({ model_fast_thinking: v })}
+              />
+              <button
+                type="button"
+                aria-label={t("common.remove")}
+                title={t("common.remove")}
+                onClick={() => {
+                  setForm({ model_fast: "", model_fast_thinking: "" });
+                  setVisibleTiers((prev) => ({ ...prev, fast: false }));
+                }}
+                className="mb-2 text-muted-foreground hover:text-foreground cursor-pointer text-sm font-semibold"
+              >
+                ×
+              </button>
+            </div>
+          )}
+          {(!visibleTiers.strong || !visibleTiers.fast) && (
+            <div className="flex gap-2">
+              {!visibleTiers.strong && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleTiers((prev) => ({ ...prev, strong: true }))}
+                  className="rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/40 cursor-pointer transition-colors"
+                >
+                  ＋ {t("agents.form.modelStrong")}
+                </button>
+              )}
+              {!visibleTiers.fast && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleTiers((prev) => ({ ...prev, fast: true }))}
+                  className="rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/40 cursor-pointer transition-colors"
+                >
+                  ＋ {t("agents.form.modelFast")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
       {isAdmin && (
@@ -328,14 +276,6 @@ export function ConfigTab({ state, onSetState }: Props) {
             <option value="restricted">{t("agents.form.scopeRestricted")}</option>
           </select>
         </div>
-      )}
-      {isAdmin && editingId && (
-        <ChannelSelector
-          channels={availableChannels}
-          selectedIds={selectedChannelIDs}
-          onToggle={toggleChannel}
-          onRemove={removeChannel}
-        />
       )}
       <div className="pt-4 border-t border-border">
         <label className="flex items-center gap-3 cursor-pointer">

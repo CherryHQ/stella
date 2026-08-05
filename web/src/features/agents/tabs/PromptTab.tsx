@@ -1,4 +1,4 @@
-import type { AgentsPageState } from "../AgentsPage";
+import type { AgentsPageState } from "../agent-detail-state";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/lib/i18n";

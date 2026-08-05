@@ -12,8 +12,18 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import { formatTime } from "@/lib/time";
 import type { Agent, Skill } from "@/lib/types";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
@@ -25,7 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
-import type { MessageKey } from "@/lib/i18n/messages";
+import { SCOPE_DESC_KEY, SCOPE_LABEL_KEY, isSkillReadOnly } from "@/lib/skill-scope";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
@@ -39,7 +49,7 @@ import {
   SettingsSection,
 } from "@/features/settings/SettingsCardGrid";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
-import { Plus, Puzzle } from "lucide-react";
+import { Lock, Plus, Puzzle } from "lucide-react";
 
 type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
@@ -72,20 +82,6 @@ const SCOPE_ORDER: ScopedSkillScope[] = ["user", "user_agent", "system", "system
 // visible.
 const SCOPE_PRIORITY: ScopedSkillScope[] = ["user_agent", "user", "system_agent", "system"];
 
-const SCOPE_LABEL_KEY: Record<ScopedSkillScope, MessageKey> = {
-  user: "skills.scope.user.label",
-  user_agent: "skills.scope.userAgent.label",
-  system: "skills.scope.system.label",
-  system_agent: "skills.scope.systemAgent.label",
-};
-
-const SCOPE_DESC_KEY: Record<ScopedSkillScope, MessageKey> = {
-  user: "skills.scope.user.desc",
-  user_agent: "skills.scope.userAgent.desc",
-  system: "skills.scope.system.desc",
-  system_agent: "skills.scope.systemAgent.desc",
-};
-
 export function SkillsPage() {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
@@ -112,6 +108,10 @@ export function SkillsPage() {
   const [detailFileContent, setDetailFileContent] = useState("");
   const [detailFileEncoding, setDetailFileEncoding] = useState<string | undefined>(undefined);
   const [detailFileLoading, setDetailFileLoading] = useState(false);
+
+  // One confirm dialog serves the whole list: a row menu item only has to name
+  // its target, so there is no need for a dialog instance per row.
+  const [pendingDelete, setPendingDelete] = useState<Skill | null>(null);
 
   const { toasts, showToast } = useToast();
 
@@ -254,7 +254,6 @@ export function SkillsPage() {
 
   const deleteSkill = useCallback(
     async (skill: Skill) => {
-      if (!window.confirm(t("skills.deleteConfirm", { name: skill.name }))) return;
       try {
         await deleteScopedSkillRequest({ path: { id: skill.id }, throwOnError: true });
         showToast(t("skills.deleted"));
@@ -529,50 +528,86 @@ export function SkillsPage() {
                     <span className="text-xs text-muted-foreground">{group.items.length}</span>
                   </div>
                   <SettingsList>
-                    {group.items.map((skill) => (
-                      <SettingsRow
-                        key={`${skill.scope}:${skill.agent_id ?? ""}:${skill.id}`}
-                        icon={
-                          <span className={color.text}>
-                            <Puzzle className="size-4" />
-                          </span>
-                        }
-                        title={<span className="font-mono">{skill.name}</span>}
-                        chip={
-                          skill.agent_id ? (
-                            <Badge variant="outline" size="sm">
-                              {agentName(skill.agent_id)}
-                            </Badge>
-                          ) : undefined
-                        }
-                        subtitle={
-                          skill.description ||
-                          t("skills.updatedCreated", {
-                            updated: formatTime(skill.updated_at ?? ""),
-                            created: formatTime(skill.created_at ?? ""),
-                          })
-                        }
-                        status={
-                          <Switch
-                            checked={!skill.disable_model_invocation}
-                            onCheckedChange={() => void toggleModelInvocation(skill)}
-                            title={
-                              skill.disable_model_invocation
-                                ? t("skills.enable")
-                                : t("skills.disable")
-                            }
-                          />
-                        }
-                        onClick={() => void openDetail(skill)}
-                        menu={[
-                          {
-                            label: t("common.delete"),
-                            destructive: true,
-                            onClick: () => void deleteSkill(skill),
-                          },
-                        ]}
-                      />
-                    ))}
+                    {group.items.map((skill) => {
+                      // Mirror the backend write rules instead of offering a
+                      // toggle or a delete that comes back 403.
+                      const readOnly = isSkillReadOnly(skill.scope, isAdmin);
+                      return (
+                        <SettingsRow
+                          key={`${skill.scope}:${skill.agent_id ?? ""}:${skill.id}`}
+                          icon={
+                            <span className={color.text}>
+                              <Puzzle className="size-4" />
+                            </span>
+                          }
+                          title={<span className="font-mono">{skill.name}</span>}
+                          chip={
+                            skill.agent_id ? (
+                              <Badge variant="outline" size="sm">
+                                {agentName(skill.agent_id)}
+                              </Badge>
+                            ) : undefined
+                          }
+                          subtitle={
+                            skill.description ||
+                            t("skills.updatedCreated", {
+                              updated: formatTime(skill.updated_at ?? ""),
+                              created: formatTime(skill.created_at ?? ""),
+                            })
+                          }
+                          status={
+                            // Read-only scopes still show their state — the flag
+                            // lives in the skill's frontmatter — but it cannot be
+                            // changed from here.
+                            <Switch
+                              checked={!skill.disable_model_invocation}
+                              disabled={readOnly}
+                              onCheckedChange={() => void toggleModelInvocation(skill)}
+                              title={
+                                skill.disable_model_invocation
+                                  ? t("skills.enable")
+                                  : t("skills.disable")
+                              }
+                            />
+                          }
+                          primary={
+                            readOnly ? (
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    // Focusable on purpose: the lock is the only
+                                    // explanation a read-only row carries.
+                                    <span
+                                      tabIndex={0}
+                                      role="note"
+                                      className="flex size-8 shrink-0 items-center justify-center text-muted-foreground"
+                                      aria-label={t("skills.readOnly")}
+                                    />
+                                  }
+                                >
+                                  <Lock size={16} />
+                                </TooltipTrigger>
+                                <TooltipPopup side="top" className="max-w-56">
+                                  {t(SCOPE_DESC_KEY[skill.scope as ScopedSkillScope])}
+                                </TooltipPopup>
+                              </Tooltip>
+                            ) : undefined
+                          }
+                          onClick={() => void openDetail(skill)}
+                          menu={
+                            readOnly
+                              ? undefined
+                              : [
+                                  {
+                                    label: t("common.delete"),
+                                    destructive: true,
+                                    onClick: () => setPendingDelete(skill),
+                                  },
+                                ]
+                          }
+                        />
+                      );
+                    })}
                   </SettingsList>
                 </div>
               );
@@ -592,6 +627,32 @@ export function SkillsPage() {
       <SettingsDetailSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)}>
         {addPanel}
       </SettingsDetailSheet>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("skills.deleteConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("skills.deleteConfirmDesc", { name: pendingDelete?.name ?? "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="ghost" />}>
+              {t("common.cancel")}
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const skill = pendingDelete;
+                setPendingDelete(null);
+                if (skill) void deleteSkill(skill);
+              }}
+            >
+              {t("common.delete")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
 
       <ToastContainer messages={toasts} />
     </>

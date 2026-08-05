@@ -1,11 +1,10 @@
 import { useMemo } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink } from "lucide-react";
-import { AgentAppSidebar } from "@/features/sessions/AgentAppSidebar";
+import { ConversationSidebar } from "@/features/sessions/ConversationSidebar";
 import { AppShell } from "@/layouts/AppShell";
 import { useI18n } from "@/lib/i18n";
-import { agentsQueryOptions } from "@/lib/queries/agents";
 import { inboxInfiniteQueryOptions } from "@/lib/queries/inbox";
 import type { InboxItem } from "@/lib/api-client/types.gen";
 import { Button } from "@/components/ui/button";
@@ -23,9 +22,6 @@ const sourceLabels = {
 
 export function InboxPage() {
   const { t } = useI18n();
-  const navigate = useNavigate();
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
-  const activeAgent = agents[0];
   const inboxQuery = useInfiniteQuery(inboxInfiniteQueryOptions());
   const isLoading = inboxQuery.isLoading;
   const items = useMemo(
@@ -41,21 +37,9 @@ export function InboxPage() {
     [items],
   );
 
-  const handleAgentChange = (agentId: string) => {
-    void navigate({ to: "/agents/$agentId", params: { agentId } });
-  };
-
   return (
     <AppShell
-      sidebar={
-        activeAgent ? (
-          <AgentAppSidebar
-            agents={agents}
-            agentId={activeAgent.id}
-            onAgentChange={handleAgentChange}
-          />
-        ) : null
-      }
+      sidebar={<ConversationSidebar />}
       title={
         <div className="min-w-0">
           <h1 className="truncate text-[15px] font-semibold">{t("inbox.title")}</h1>
