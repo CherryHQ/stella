@@ -21,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/fsops"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -194,6 +195,59 @@ func TestShareArticleUsesRecallyOwnerAccess(t *testing.T) {
 	foreign, _ := svc.Access(foreignAuthority)
 	if _, err := foreign.ShareArticle(context.Background(), saved.Article.ID, "7d"); !errors.Is(err, authz.ErrNotFound) {
 		t.Fatalf("foreign ShareArticle=%v, want not found", err)
+	}
+}
+
+func TestFilesystemMutationIsImmediatelyWorkspaceReadableAndShareable(t *testing.T) {
+	ctx := context.Background()
+	svc, authority, _, runtime := newShareService(t)
+	workspaceRoot, userRoot := t.TempDir(), t.TempDir()
+	filesystem, err := fsops.NewFilesystem([]fsops.Mount{
+		{Path: pkgsandbox.PathWorkspace, Directory: workspaceRoot},
+		{Path: pkgsandbox.PathUser, Directory: userRoot},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = filesystem.Close() }()
+	runtime.filesystem = filesystem
+
+	if err := filesystem.Mkdir(ctx, "/user/assets", 0o755); err != nil {
+		t.Fatalf("create provider assets directory: %v", err)
+	}
+	live := []byte("written through the provider filesystem")
+	length := int64(len(live))
+	if err := filesystem.Write(ctx, "/user/assets/live.html", bytes.NewReader(live), pkgsandbox.WriteOptions{Perm: 0o644, ContentLength: &length}); err != nil {
+		t.Fatalf("provider filesystem write: %v", err)
+	}
+
+	sessionAccess, err := svc.sessions.Begin(ctx, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceRead, err := sessionAccess.ReadWorkspacePath(ctx, access.WorkspaceReadInput{AgentID: "a1", SessionID: "s1", Scope: access.WorkspaceScopeUser, Path: "assets/live.html"})
+	if err != nil || workspaceRead.Content != string(live) {
+		t.Fatalf("workspace read = %#v, %v", workspaceRead, err)
+	}
+	shareAccess, err := svc.Access(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := shareAccess.ShareArtifact(ctx, "s1", "$STELLA_ASSETS_DIR/live.html", "agent", "a1", "never")
+	if err != nil {
+		t.Fatalf("ShareArtifact: %v", err)
+	}
+	if created.Share.Title != "live.html" || created.Share.MediaType != "text/html; charset=utf-8" || !bytes.Equal(created.Share.Content, live) {
+		t.Fatalf("share snapshot = %+v", created.Share)
+	}
+	mutated := []byte("later provider mutation")
+	length = int64(len(mutated))
+	if err := filesystem.Write(ctx, "/user/assets/live.html", bytes.NewReader(mutated), pkgsandbox.WriteOptions{Perm: 0o644, ContentLength: &length}); err != nil {
+		t.Fatalf("provider filesystem mutation: %v", err)
+	}
+	public, err := svc.PublicContent(ctx, created.Token)
+	if err != nil || !bytes.Equal(public.Content, live) {
+		t.Fatalf("immutable public snapshot = %q, %v", public.Content, err)
 	}
 }
 
