@@ -23,6 +23,42 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
+func TestKnowledgeFilesMigrationUpgradesDatabaseAtMainLatest(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+
+	// newTestDB starts fully migrated. Rolling back only the unpublished
+	// Knowledge migration leaves the exact schema an existing current-main
+	// deployment has before this PR is installed.
+	if _, err := provider.DownTo(ctx, 20260804120000); err != nil {
+		t.Fatalf("goose down knowledge migration: %v", err)
+	}
+	if tableExists(t, db, "knowledge_file") ||
+		tableExists(t, db, "knowledge_chunk_set") ||
+		tableExists(t, db, "knowledge_chunk") {
+		t.Fatal("knowledge tables should not exist after down")
+	}
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("goose up knowledge migration: %v", err)
+	}
+	if !tableExists(t, db, "knowledge_file") ||
+		!tableExists(t, db, "knowledge_chunk_set") ||
+		!tableExists(t, db, "knowledge_chunk") {
+		t.Fatal("knowledge tables should exist after up")
+	}
+}
+
 func TestGoalAttemptRepairRoundsMigrationDownUp(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()

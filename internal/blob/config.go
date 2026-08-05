@@ -19,13 +19,9 @@ const (
 	envS3UseSSL    = "STELLA_BLOB_S3_USE_SSL"
 )
 
-// NewStoreFromConfig builds the blob store from the raw S3 settings on the
-// server config snapshot. It owns the group semantics the config layer
-// deliberately does not: none set => no store (nil, nil); any set => the four
-// core fields are required together; and the USE_SSL bool dialect
-// (1/true/t/yes/y/on vs 0/false/f/no/n/off, default true) is preserved exactly
-// rather than narrowed to strconv.ParseBool.
-func NewStoreFromConfig(c config.BlobS3Config) (Store, error) {
+// ResolveS3Config validates the raw deployment-S3 settings shared by all blob
+// backed domains. A nil result means this deployment uses local storage.
+func ResolveS3Config(c config.BlobS3Config) (*S3Config, error) {
 	if c.Endpoint == "" && c.Bucket == "" && c.AccessKey == "" &&
 		c.SecretKey == "" && c.Region == "" && c.UseSSL == "" {
 		return nil, nil
@@ -52,12 +48,22 @@ func NewStoreFromConfig(c config.BlobS3Config) (Store, error) {
 			return nil, fmt.Errorf("%s must be a boolean", envS3UseSSL)
 		}
 	}
-	return NewS3Store(S3Config{
+	return &S3Config{
 		Endpoint:  c.Endpoint,
 		Bucket:    c.Bucket,
 		AccessKey: c.AccessKey,
 		SecretKey: c.SecretKey,
 		Region:    c.Region,
 		UseSSL:    useSSL,
-	})
+	}, nil
+}
+
+// NewStoreFromConfig builds the mutable asset blob store from deployment S3.
+// It preserves the historical nil result when no S3 group is configured.
+func NewStoreFromConfig(c config.BlobS3Config) (Store, error) {
+	cfg, err := ResolveS3Config(c)
+	if err != nil || cfg == nil {
+		return nil, err
+	}
+	return NewS3Store(*cfg)
 }
