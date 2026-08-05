@@ -30,13 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Radio, RadioGroup } from "@/components/ui/radio-group";
 import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
@@ -126,42 +120,96 @@ function AuthorChip({ handle, image }: { handle: string; image?: string }) {
   );
 }
 
-// The install destination is one sheet-level control, pinned to the bottom of
-// every view: whichever install button the user reaches, the scope that write
-// uses is on screen next to it. The selected scope's description sits under the
-// label so the compound names ("Mine · This agent only") explain themselves.
-function InstallScopeBar({
-  scope,
-  onScope,
+// One pending write, deferred until the user confirms a destination. `run`
+// owns the request (and its own error reporting) and reports success so the
+// confirmation step knows whether it may dismiss itself.
+type InstallRequest = {
+  name?: string;
+  confirmLabel: string;
+  run: (scope: InstallScope) => Promise<boolean>;
+};
+
+// The install destination is confirmed per install, never left standing: a step
+// inside the sheet with one row per scope, each showing its full description so
+// the compound names ("Mine · this agent") explain who else gets the skill
+// before the write happens.
+//
+// It covers the sheet body instead of replacing it (`absolute inset-0`) so the
+// view behind keeps its state — a cancelled confirmation returns the user to the
+// GitHub fields they typed or the ZIP file they picked, not to a blank form.
+function InstallScopeStep({
+  request,
+  defaultScope,
   showAgentScope,
+  onConfirmed,
+  onCancel,
 }: {
-  scope: InstallScope;
-  onScope: (scope: InstallScope) => void;
+  request: InstallRequest;
+  defaultScope: InstallScope;
   showAgentScope: boolean;
+  onConfirmed: (scope: InstallScope) => void;
+  onCancel: () => void;
 }) {
   const { t } = useI18n();
+  const [scope, setScope] = useState<InstallScope>(defaultScope);
+  const [busy, setBusy] = useState(false);
   const scopes = INSTALL_SCOPES.filter((s) => s !== "system_agent" || showAgentScope);
+
+  async function confirm() {
+    setBusy(true);
+    try {
+      // Stay open on failure — the caller's toast already said why.
+      if (await request.run(scope)) onConfirmed(scope);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="flex shrink-0 items-center gap-3 border-t p-4">
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-xs font-medium">{t("sessions.discover.installTo")}</span>
-        <span className="truncate text-xs text-muted-foreground">{t(SCOPE_DESC_KEY[scope])}</span>
+    <div className="absolute inset-0 z-10 flex flex-col bg-background">
+      <div className="flex shrink-0 items-center gap-2 border-b p-4">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={busy}
+          aria-label={t("common.back")}
+          onClick={onCancel}
+        >
+          <ChevronLeft size={16} />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{t("sessions.discover.installWhere")}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {request.name
+              ? t("sessions.discover.installingName", { name: request.name })
+              : t("sessions.discover.installWhereDesc")}
+          </p>
+        </div>
       </div>
-      <div className="w-44 shrink-0">
-        <Select value={scope} onValueChange={(value) => onScope(value as InstallScope)}>
-          <SelectTrigger size="sm" aria-label={t("sessions.discover.installTo")}>
-            <SelectValue>
-              {(value) => t(SCOPE_LABEL_KEY[(value as InstallScope) ?? scope])}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup>
-            {scopes.map((s) => (
-              <SelectItem key={s} value={s}>
-                {t(SCOPE_LABEL_KEY[s])}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <RadioGroup
+          value={scope}
+          onValueChange={(value) => setScope(value as InstallScope)}
+          aria-label={t("sessions.discover.installTo")}
+        >
+          {scopes.map((s) => (
+            <label key={s} className="flex cursor-pointer items-start gap-3">
+              <Radio value={s} disabled={busy} className="mt-0.5" />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-sm font-medium">{t(SCOPE_LABEL_KEY[s])}</span>
+                <span className="text-xs text-muted-foreground">{t(SCOPE_DESC_KEY[s])}</span>
+              </span>
+            </label>
+          ))}
+        </RadioGroup>
+      </div>
+      <div className="flex shrink-0 items-center justify-end gap-2 border-t p-4">
+        <Button variant="ghost" disabled={busy} onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button loading={busy} onClick={() => void confirm()}>
+          {request.confirmLabel}
+        </Button>
       </div>
     </div>
   );
@@ -170,8 +218,9 @@ function InstallScopeBar({
 /**
  * The single "add a skill to this agent" surface: a right-side sheet with a
  * marketplace mode (search, browse, per-card install, README detail) and a
- * manual mode (GitHub repo, ZIP upload). Both share one install-scope choice,
- * gated for admins exactly as the backend gates the scope itself.
+ * manual mode (GitHub repo, ZIP upload). Every install path funnels through
+ * InstallScopeStep, so no write happens without a just-confirmed destination;
+ * the scope is gated for admins exactly as the backend gates it.
  *
  * Market mode stays open after an install so more skills can be added in one
  * pass; a manual install closes the sheet because it installs exactly one.
@@ -193,7 +242,10 @@ export function SkillInstallSheet({
   const [mode, setMode] = useState<Mode>("market");
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
+  // Remembered default only: the last destination the user confirmed in this
+  // session seeds the next dialog, but never installs anything on its own.
   const [scope, setScope] = useState<InstallScope>("user_agent");
+  const [pending, setPending] = useState<InstallRequest | null>(null);
   const [installingSlug, setInstallingSlug] = useState<string | null>(null);
   const [detailSlug, setDetailSlug] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -268,24 +320,38 @@ export function SkillInstallSheet({
     void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
   }
 
-  async function install(skill: Pick<ClawhubSkill, "slug" | "name">) {
+  async function install(
+    skill: Pick<ClawhubSkill, "slug" | "name">,
+    target: InstallScope,
+  ): Promise<boolean> {
     setInstallingSlug(skill.slug);
     try {
       await installAgentSkill({
         path: { id: agentId },
-        body: { source: `clawhub:${skill.slug}`, scope },
+        body: { source: `clawhub:${skill.slug}`, scope: target },
         throwOnError: true,
       });
       notify(t("sessions.discover.installSuccess"), "success");
       invalidateSkills();
+      return true;
     } catch (error) {
       notify(apiErrorMessage(error, t("common.error")), "error");
+      return false;
     } finally {
       setInstallingSlug(null);
     }
   }
 
+  function requestMarketInstall(skill: Pick<ClawhubSkill, "slug" | "name">) {
+    setPending({
+      name: skill.name,
+      confirmLabel: t("common.install"),
+      run: (target) => install(skill, target),
+    });
+  }
+
   function close() {
+    setPending(null);
     setDetailSlug(null);
     onOpenChange(false);
   }
@@ -297,7 +363,7 @@ export function SkillInstallSheet({
         showCloseButton={false}
         className="w-full sm:w-[560px] sm:max-w-[560px]"
       >
-        <div className="flex h-full min-h-0 flex-col">
+        <div className="relative flex h-full min-h-0 flex-col">
           {detailSlug ? (
             <DiscoverDetail
               slug={detailSlug}
@@ -305,7 +371,7 @@ export function SkillInstallSheet({
               installedNames={installedNames}
               installedSources={installedSources}
               installingSlug={installingSlug}
-              onInstall={(slug) => void install({ slug, name: detailRow?.name ?? slug })}
+              onInstall={(slug) => requestMarketInstall({ slug, name: detailRow?.name ?? slug })}
               onBack={() => setDetailSlug(null)}
             />
           ) : (
@@ -368,7 +434,7 @@ export function SkillInstallSheet({
                     installingSlug={installingSlug}
                     sentinelRef={sentinelRef}
                     onOpen={setDetailSlug}
-                    onInstall={(s) => void install(s)}
+                    onInstall={requestMarketInstall}
                     onRetry={() =>
                       void (market.isFetchNextPageError ? market.fetchNextPage() : market.refetch())
                     }
@@ -376,7 +442,7 @@ export function SkillInstallSheet({
                 ) : (
                   <ManualInstallPanel
                     agentId={agentId}
-                    scope={scope}
+                    requestInstall={setPending}
                     notify={notify}
                     onInstalled={() => {
                       notify(t("sessions.discover.installSuccess"), "success");
@@ -388,7 +454,18 @@ export function SkillInstallSheet({
               </div>
             </>
           )}
-          <InstallScopeBar scope={scope} onScope={setScope} showAgentScope={!!me?.is_admin} />
+          {pending && (
+            <InstallScopeStep
+              request={pending}
+              defaultScope={scope}
+              showAgentScope={!!me?.is_admin}
+              onConfirmed={(target) => {
+                setScope(target);
+                setPending(null);
+              }}
+              onCancel={() => setPending(null)}
+            />
+          )}
         </div>
       </SheetPopup>
     </Sheet>
@@ -710,16 +787,16 @@ function DiscoverDetail({
   );
 }
 
-// Manual install: point at a GitHub repo or upload a ZIP. Both methods use the
-// sheet's install-scope choice, so a skill lands where the user picked once.
+// Manual install: point at a GitHub repo or upload a ZIP. Each card validates
+// its own inputs, then hands the write to the scope dialog rather than firing it.
 function ManualInstallPanel({
   agentId,
-  scope,
+  requestInstall,
   notify,
   onInstalled,
 }: {
   agentId: string;
-  scope: InstallScope;
+  requestInstall: (request: InstallRequest) => void;
   notify: SkillNotify;
   onInstalled: () => void;
 }) {
@@ -733,23 +810,28 @@ function ManualInstallPanel({
     <div className="space-y-5">
       <GitHubInstallCard
         agentId={agentId}
-        scope={scope}
+        requestInstall={requestInstall}
         onInstalled={onInstalled}
         onError={onError}
       />
-      <ZipUploadCard agentId={agentId} scope={scope} onInstalled={onInstalled} onError={onError} />
+      <ZipUploadCard
+        agentId={agentId}
+        requestInstall={requestInstall}
+        onInstalled={onInstalled}
+        onError={onError}
+      />
     </div>
   );
 }
 
 function GitHubInstallCard({
   agentId,
-  scope,
+  requestInstall,
   onInstalled,
   onError,
 }: {
   agentId: string;
-  scope: InstallScope;
+  requestInstall: (request: InstallRequest) => void;
   onInstalled: () => void;
   onError: (error: unknown) => void;
 }) {
@@ -757,27 +839,32 @@ function GitHubInstallCard({
   const [repo, setRepo] = useState("");
   const [skill, setSkill] = useState("");
   const [version, setVersion] = useState("");
-  const [busy, setBusy] = useState(false);
   const ready = repo.trim() !== "" && skill.trim() !== "";
 
-  async function install() {
+  function askInstall() {
     if (!ready) return;
-    setBusy(true);
-    try {
-      await installAgentSkill({
-        path: { id: agentId },
-        body: { source: githubSource(repo, skill, version), scope },
-        throwOnError: true,
-      });
-      setRepo("");
-      setSkill("");
-      setVersion("");
-      onInstalled();
-    } catch (error) {
-      onError(error);
-    } finally {
-      setBusy(false);
-    }
+    const source = githubSource(repo, skill, version);
+    requestInstall({
+      name: skill.trim(),
+      confirmLabel: t("common.install"),
+      run: async (scope) => {
+        try {
+          await installAgentSkill({
+            path: { id: agentId },
+            body: { source, scope },
+            throwOnError: true,
+          });
+          setRepo("");
+          setSkill("");
+          setVersion("");
+          onInstalled();
+          return true;
+        } catch (error) {
+          onError(error);
+          return false;
+        }
+      },
+    });
   }
 
   return (
@@ -817,7 +904,7 @@ function GitHubInstallCard({
         />
       </div>
       <p className="text-xs text-muted-foreground">{t("sessions.skillsList.githubHint")}</p>
-      <Button disabled={!ready || busy} loading={busy} onClick={() => void install()}>
+      <Button disabled={!ready} onClick={askInstall}>
         <GitFork size={16} />
         {t("common.install")}
       </Button>
@@ -827,35 +914,43 @@ function GitHubInstallCard({
 
 function ZipUploadCard({
   agentId,
-  scope,
+  requestInstall,
   onInstalled,
   onError,
 }: {
   agentId: string;
-  scope: InstallScope;
+  requestInstall: (request: InstallRequest) => void;
   onInstalled: () => void;
   onError: (error: unknown) => void;
 }) {
   const { t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  async function upload() {
+  function askUpload() {
     if (!file) return;
-    setBusy(true);
-    try {
-      await uploadAgentSkill({
-        path: { id: agentId },
-        body: { file, scope },
-        throwOnError: true,
-      });
-      setFile(null);
-      onInstalled();
-    } catch (error) {
-      onError(error);
-    } finally {
-      setBusy(false);
-    }
+    const picked = file;
+    requestInstall({
+      name: picked.name,
+      confirmLabel: t("sessions.skillsList.uploadZip"),
+      run: async (scope) => {
+        try {
+          await uploadAgentSkill({
+            path: { id: agentId },
+            body: { file: picked, scope },
+            throwOnError: true,
+          });
+          setFile(null);
+          // The file input keeps its own value; clear it so the cleared state shows.
+          if (inputRef.current) inputRef.current.value = "";
+          onInstalled();
+          return true;
+        } catch (error) {
+          onError(error);
+          return false;
+        }
+      },
+    });
   }
 
   return (
@@ -865,13 +960,14 @@ function ZipUploadCard({
         {t("sessions.skillsList.uploadZip")}
       </div>
       <Input
+        ref={inputRef}
         nativeInput
         type="file"
         accept=".zip"
         aria-label={t("sessions.skillsList.uploadZip")}
         onChange={(e) => setFile((e.target as HTMLInputElement).files?.[0] ?? null)}
       />
-      <Button disabled={!file || busy} loading={busy} onClick={() => void upload()}>
+      <Button disabled={!file} onClick={askUpload}>
         <Upload size={16} />
         {t("sessions.skillsList.uploadZip")}
       </Button>
