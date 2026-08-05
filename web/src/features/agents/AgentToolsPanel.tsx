@@ -1,23 +1,24 @@
-import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { MoreHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/menu";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { updateAgentTool } from "@/lib/api-client";
 import { agentToolsOptions } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
+import { SCOPE_LABEL_KEY } from "@/lib/skill-scope";
 import type { Tool } from "@/lib/types";
 import { ToastContainer, useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
-import type { MessageKey } from "@/lib/i18n/messages";
 import { ProfilePanelSection, ProfileSectionMessage } from "./ProfilePanelSection";
 
 const SOURCE_ORDER: Record<string, number> = { core: 0, builtin: 1, plugin: 2, mcp: 3 };
@@ -34,13 +35,12 @@ const LOCKED_LABEL_KEY = {
 
 type ToolOverrideScope = "user" | "user_agent" | "system" | "system_agent";
 
-const TOOL_SCOPE_ORDER: ToolOverrideScope[] = ["user", "user_agent", "system", "system_agent"];
-const TOOL_SCOPE_LABEL_KEY: Record<ToolOverrideScope, MessageKey> = {
-  user: "agents.tools.scope.user",
-  user_agent: "agents.tools.scope.userAgent",
-  system: "agents.tools.scope.system",
-  system_agent: "agents.tools.scope.systemAgent",
-};
+/**
+ * Scopes the row's ⋯ menu can write, widest intent first. `user_agent` is absent
+ * on purpose: it is what the row Switch already writes.
+ */
+const WIDER_SCOPES: ToolOverrideScope[] = ["user", "system_agent", "system"];
+const ADMIN_SCOPES = new Set<string>(["system", "system_agent"]);
 
 interface Props {
   agentId: string;
@@ -61,15 +61,22 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
   const { t } = useI18n();
   const { toasts, showToast } = useToast();
   const queryClient = useQueryClient();
-  const [selectedScope, setSelectedScope] = useState<ToolOverrideScope>("user_agent");
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
   const query = useQuery(agentToolsOptions(agentId));
   const mutation = useMutation({
-    mutationFn: ({ tool, enabled }: { tool: Tool; enabled: boolean }) =>
+    mutationFn: ({
+      tool,
+      enabled,
+      scope,
+    }: {
+      tool: Tool;
+      enabled: boolean;
+      scope: ToolOverrideScope;
+    }) =>
       updateAgentTool({
         path: { id: agentId, toolName: tool.name },
-        body: { enabled, scope: selectedScope },
+        body: { enabled, scope },
         throwOnError: true,
       }),
     onSuccess: async () => {
@@ -85,9 +92,6 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
     return <ProfileSectionMessage>{t("agents.tools.loading")}</ProfileSectionMessage>;
   }
 
-  const scopeOptions = TOOL_SCOPE_ORDER.filter(
-    (scope) => isAdmin || (scope !== "system" && scope !== "system_agent"),
-  );
   const tools = [...(query.data ?? [])].sort((a, b) => {
     const diff = (SOURCE_ORDER[a.source ?? ""] ?? 9) - (SOURCE_ORDER[b.source ?? ""] ?? 9);
     return diff !== 0 ? diff : a.name.localeCompare(b.name);
@@ -101,38 +105,9 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <ToastContainer messages={toasts} />
-      {/* The write scope is an attribute of the whole catalog, so it sits in the
-          panel heading's action slot rather than in a form block of its own. */}
       <ProfilePanelSection
         title={t("agents.tools.title")}
-        description={
-          canEdit
-            ? `${t("agents.tools.description")} ${t("agents.tools.scope.description")}`
-            : t("agents.tools.description")
-        }
-        action={
-          canEdit && (
-            <Select
-              value={selectedScope}
-              onValueChange={(value) => setSelectedScope(value as ToolOverrideScope)}
-            >
-              <SelectTrigger size="sm" aria-label={t("agents.tools.scope.label")}>
-                <SelectValue>
-                  {(value) =>
-                    t(TOOL_SCOPE_LABEL_KEY[(value as ToolOverrideScope) || selectedScope])
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                {scopeOptions.map((scope) => (
-                  <SelectItem key={scope} value={scope}>
-                    {t(TOOL_SCOPE_LABEL_KEY[scope])}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          )
-        }
+        description={t("agents.tools.description")}
       />
       {tools.length === 0 ? (
         <ProfileSectionMessage>{t("agents.tools.empty")}</ProfileSectionMessage>
@@ -161,8 +136,9 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
                     key={`${tool.source}:${tool.name}`}
                     tool={tool}
                     canEdit={canEdit}
+                    isAdmin={isAdmin}
                     busy={mutation.isPending && mutation.variables?.tool.name === tool.name}
-                    onToggle={(enabled) => mutation.mutate({ tool, enabled })}
+                    onToggle={(enabled, scope) => mutation.mutate({ tool, enabled, scope })}
                   />
                 ))}
               </div>
@@ -177,16 +153,23 @@ export function AgentToolsPanel({ agentId, canEdit }: Props) {
 function ToolRow({
   tool,
   canEdit,
+  isAdmin,
   busy,
   onToggle,
 }: {
   tool: Tool;
   canEdit: boolean;
+  isAdmin: boolean;
   busy: boolean;
-  onToggle: (enabled: boolean) => void;
+  onToggle: (enabled: boolean, scope: ToolOverrideScope) => void;
 }) {
   const { t } = useI18n();
   const togglable = tool.source === "builtin" || tool.source === "plugin";
+  // The backend resolves the winning layer per viewer and reports it as `origin`.
+  // An admin-scope "off" beats any user-layer row, so a non-admin's own toggle
+  // would silently do nothing — say so instead of offering a dead control.
+  const adminLocked = !tool.enabled && ADMIN_SCOPES.has(tool.origin) && !isAdmin;
+  const scopes = WIDER_SCOPES.filter((scope) => isAdmin || !ADMIN_SCOPES.has(scope));
   return (
     <div className="flex items-start justify-between gap-3 rounded-lg border border-border p-3">
       <div className="flex min-w-0 flex-col gap-1">
@@ -197,7 +180,14 @@ function ToolRow({
           <Badge variant={tool.enabled ? "success" : "outline"}>
             {tool.enabled ? t("agents.tools.enabled") : t("agents.tools.disabled")}
           </Badge>
-          <Badge variant="outline">{tool.origin}</Badge>
+          {/* Which layer decided the state above, in the same scope vocabulary
+              the ⋯ menu writes with. */}
+          <Badge variant="outline">
+            {t(
+              SCOPE_LABEL_KEY[tool.origin as keyof typeof SCOPE_LABEL_KEY] ??
+                "agents.tools.origin.default",
+            )}
+          </Badge>
         </div>
         <p className="text-xs text-muted-foreground">{tool.description}</p>
         {canEdit && !togglable && (
@@ -210,11 +200,48 @@ function ToolRow({
         )}
       </div>
       {canEdit && togglable && (
-        <Switch
-          checked={tool.enabled}
-          disabled={busy}
-          onCheckedChange={(checked) => onToggle(!!checked)}
-        />
+        <div className="flex shrink-0 items-center gap-1">
+          {adminLocked ? (
+            <Tooltip>
+              <TooltipTrigger render={<span className="inline-flex" />}>
+                <Switch checked={false} disabled />
+              </TooltipTrigger>
+              <TooltipPopup>{t("agents.tools.adminDisabled")}</TooltipPopup>
+            </Tooltip>
+          ) : (
+            <>
+              <Switch
+                checked={tool.enabled}
+                disabled={busy}
+                onCheckedChange={(checked) => onToggle(!!checked, "user_agent")}
+              />
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      disabled={busy}
+                      aria-label={t("agents.tools.moreScopes")}
+                    />
+                  }
+                >
+                  <MoreHorizontal />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" sideOffset={6}>
+                  <DropdownMenuLabel>
+                    {tool.enabled ? t("agents.tools.applyDisable") : t("agents.tools.applyEnable")}
+                  </DropdownMenuLabel>
+                  {scopes.map((scope) => (
+                    <DropdownMenuItem key={scope} onClick={() => onToggle(!tool.enabled, scope)}>
+                      {t(SCOPE_LABEL_KEY[scope])}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
