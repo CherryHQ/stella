@@ -1,7 +1,7 @@
 -- +goose Up
 
 CREATE TABLE "knowledge_file" (
-  "id" uuid NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "scope" text NOT NULL,
   "user_id" uuid NULL,
   "agent_id" text NULL,
@@ -27,6 +27,14 @@ CREATE TABLE "knowledge_file" (
   CONSTRAINT "knowledge_file_agent_id_fkey" FOREIGN KEY ("agent_id") REFERENCES "agent" ("id") ON DELETE CASCADE
 );
 
+-- These narrow indexes cover every non-null FK reference, including tombstones,
+-- so ON DELETE CASCADE does not degrade to a full table scan.
+CREATE INDEX "idx_knowledge_file_user_id" ON "knowledge_file" ("user_id")
+  WHERE "user_id" IS NOT NULL;
+
+CREATE INDEX "idx_knowledge_file_agent_id" ON "knowledge_file" ("agent_id")
+  WHERE "agent_id" IS NOT NULL;
+
 -- These partial indexes serve management lists and exact logical quota pools.
 -- Tombstoned files leave logical quota accounting immediately.
 CREATE INDEX "idx_knowledge_file_user_owner" ON "knowledge_file"
@@ -51,7 +59,7 @@ CREATE INDEX "idx_knowledge_file_tombstone" ON "knowledge_file" ("deleted_at", "
   WHERE "deleted_at" IS NOT NULL;
 
 CREATE TABLE "knowledge_chunk_set" (
-  "id" uuid NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "file_id" uuid NOT NULL,
   "derivation_key" text NOT NULL,
   "processor_key" text NOT NULL,
@@ -80,7 +88,7 @@ ALTER TABLE "knowledge_file"
   DEFERRABLE INITIALLY DEFERRED;
 
 CREATE TABLE "knowledge_chunk" (
-  "id" uuid NOT NULL,
+  "id" uuid NOT NULL DEFAULT uuidv7(),
   "chunk_set_id" uuid NOT NULL,
   "ordinal" bigint NOT NULL,
   "content" text NOT NULL,

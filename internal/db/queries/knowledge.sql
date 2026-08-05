@@ -18,21 +18,7 @@ INSERT INTO knowledge_file (
     sqlc.arg('size_bytes'),
     sqlc.arg('raw_sha256')
 )
-RETURNING
-    id,
-    scope,
-    user_id,
-    agent_id,
-    file_name,
-    media_type,
-    size_bytes,
-    raw_sha256,
-    status,
-    error_message,
-    active_chunk_set_id,
-    deleted_at,
-    created_at,
-    updated_at;
+RETURNING *;
 
 -- name: GetKnowledgeFile :one
 SELECT

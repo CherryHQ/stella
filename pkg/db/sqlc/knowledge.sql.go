@@ -31,21 +31,7 @@ INSERT INTO knowledge_file (
     $7,
     $8
 )
-RETURNING
-    id,
-    scope,
-    user_id,
-    agent_id,
-    file_name,
-    media_type,
-    size_bytes,
-    raw_sha256,
-    status,
-    error_message,
-    active_chunk_set_id,
-    deleted_at,
-    created_at,
-    updated_at
+RETURNING id, scope, user_id, agent_id, file_name, media_type, size_bytes, raw_sha256, status, error_message, active_chunk_set_id, deleted_at, created_at, updated_at
 `
 
 type CreateKnowledgeFileParams struct {
