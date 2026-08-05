@@ -380,9 +380,9 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 
 **Why after Phase 1:** Filesystem operations need typed attachments before host coordinates can be hidden.
 
-- [ ] Define canonical sandbox paths and `internal/fsops` operations for stat/list/read/write/mkdir/remove/rename/upload with root containment, symlink handling, permission preservation, bounded reads, and streaming payloads.
-- [ ] Add restricted multicall modes for `stella-fs` and `stella-exec` in the existing `stellad` binary; install digest-matched entry points in the sandbox image/system bundle.
-- [ ] Implement local/`none` direct-library adapters and Docker one-shot exec adapter; classify disconnects and writes as outcome unknown without transparent retry.
+- [x] Define canonical sandbox paths and `internal/fsops` operations for stat/list/read/write/mkdir/remove/rename/upload with root containment, symlink handling, permission preservation, bounded reads, and streaming payloads.
+- [x] Add the restricted `stella-fs` multicall mode to the existing `stellad` binary and install the revision-matched helper in the sandbox image. `stella-exec` remains the Phase 5 provider environment-delivery boundary and is not required for Phase 2 file operations.
+- [x] Implement local/`none` direct-library adapters and Docker one-shot exec adapter; classify disconnects and writes as outcome unknown without transparent retry.
 - [ ] Implement managed Skill publication in `stella-fs`:
   - write/fsync/verify immutable `.stella-revisions/<name>/<tree-digest>` content;
   - atomically flip one canonical contained relative symlink;
@@ -433,7 +433,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - make stale/manual concurrent edits conflict, outcome-unknown writes non-retryable, and remove-marker conversion explicit.
 - [ ] After the marker, fail startup on residual PG-only mutable current state; remove PG SkillStore/materializer/changelog writers and all runtime readers. Drop obsolete rows/tables only in a later explicit migration after backup retention and last dependency removal.
 - [ ] Delete public `ResolvePath`, `ResolveWritePath`, `HostPath` policy leakage, sessionless host `os.*` shortcuts, and obsolete resilient file retry paths.
-- [ ] Add one Filesystem conformance suite and run it against local, `none`, and Docker adapters, including permissions, rename, symlink escape, concurrent writes, helper termination, and outcome-unknown writes.
+- [x] Add one Filesystem conformance suite and run it against local, `none`, and Docker adapters, including permissions, rename, symlink escape, concurrent writes, helper termination, and outcome-unknown writes.
 - [ ] Update user/developer docs and built-in skills in English and Chinese for Workspace paths, mutable assets, and removed host-path behavior.
 
 **Acceptance:**
@@ -678,6 +678,16 @@ Every completed phase must replace its pending entry with the concrete handoff r
 - **What changed from this plan** — no scope or phase-order change. The one-replica compatibility ceiling is now explicit and cancellation-aware; Compose/Kubernetes and durable SessionSandbox fencing remain closed.
 - **What remains open** — Phase 2 must remove host-path filesystem access and route provider-native operations through opaque attachments; mutable asset contents, mutable Skill authority, SessionSandbox, multi-replica, and Kubernetes remain intentionally unchanged.
 - **What Phase 2 must read or verify first** — `internal/home/{home,workspace,local,deletion}.go`, `pkg/sandbox.HomeAttachment`, the live consumer AST guard, architecture §5.4/§9, and the invariant that shared Skill consumers cannot move Stores until readers and mounts derive coordinates from attachments.
+
+### Handoff after Phase 2.1
+
+- **What landed:** Draft PR #886 adds the provider-neutral `pkg/sandbox.Filesystem`, canonical sandbox paths, contained `internal/fsops`, direct local/unsafe-`none` adapters, and a strict one-shot Docker `stella-fs` adapter. The helper streams payloads, preserves stable `io/fs` errors, rejects malformed or oversized framing, and reports interrupted mutations as `ErrOutcomeUnknown` without retry.
+- **Acceptance results:** format, DB validation, generation determinism, build, full tests, and supported-host system tests exited 0 with a temporary Stella Home. Shared adapter conformance, Docker cancellation stress, aggregate blocker re-review, exact helper/image revision comparison, and all ten real-image Docker filesystem cases passed. GitHub Format and Test checks also passed.
+- **Decisions made during implementation:** ordinary contained POSIX symlinks remain valid; `os.Root` enforces the escape boundary atomically. Docker exec cancellation closes attach and demux pipes before returning. The image helper revision uses the existing build version, and Docker preflight rejects a missing or mismatched label.
+- **Surprises / gotchas:** blanket preflight symlink rejection was racy and stricter than the generic Filesystem contract; remote helper errors initially lost `io/fs` identity; Docker attach could wait forever on a silent peer after cancellation. Adversarial review found all three before acceptance.
+- **What changed from this plan:** `stella-exec` stays with the Phase 5 provider environment-delivery work already specified below. Phase 2.1 needs only `stella-fs`; adding another helper now would create an unused public mechanism. No authority, consumer, API, or phase-order change occurred.
+- **What remains open:** Phase 2.2 must migrate non-Skill consumers and mutable assets. `Session.ResolvePath`, host parsing, current mutable asset authority, PostgreSQL mutable Skill authority, managed Skill publication, and shared Skill execution views remain intentionally unchanged.
+- **What Phase 2.2 must read or verify first:** `pkg/sandbox/filesystem.go`, `internal/fsops/{fsops,helper}.go`, `plugins/sandbox/{local,none,docker}`, the shared conformance suite, `internal/home.WorkspaceView`, every current `ResolvePath` caller, and the asset migration/startup-marker Acceptance contract above.
 
 ### Handoff after Phase 2 — pending
 
