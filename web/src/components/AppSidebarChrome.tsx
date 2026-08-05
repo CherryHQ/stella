@@ -77,7 +77,9 @@ export function AppChromeHeader() {
           render={<Button variant="ghost" size="sm" className="min-w-0 flex-1 justify-start" />}
         >
           <img src="/stella-monogram.svg" alt="" width={20} height={20} className="rounded-sm" />
-          <span className="min-w-0 truncate">{activeApp.label}</span>
+          {/* The sidebar's only semibold at rest: the brand row anchors the
+              column's hierarchy, so nothing else competes at this weight. */}
+          <span className="min-w-0 truncate font-semibold">{activeApp.label}</span>
           <ChevronDown />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" sideOffset={6} className="w-52">
