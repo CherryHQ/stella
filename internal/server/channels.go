@@ -37,7 +37,9 @@ type channelWriteRequest struct {
 	Type    *string `json:"type"`
 	AgentID *string `json:"agent_id"`
 	Enabled *bool   `json:"enabled"`
-	Config  string  `json:"config"`
+	// Config is tri-state like AgentID: nil keeps the stored config, an explicit
+	// "" or "{}" clears it, and a non-empty JSON object replaces it.
+	Config *string `json:"config"`
 }
 
 var channelLinkLabels = map[string]string{
@@ -225,13 +227,17 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	// already 403'd a non-admin before any state is observed — so the transport never
 	// holds the aggregate config store.
 	existing, existingErr := access.GetChannel(ctx, id)
-	cfgMap, err := parseChannelConfig(req.Config)
+	hasExisting := existingErr == nil
+	// Save overwrites the stored config unconditionally, so an omitted config must
+	// resolve to the current row's config or a PATCH of an unrelated field would
+	// wipe the channel's credentials.
+	cfgMap, err := parseChannelConfig(requestConfig(req, existing, hasExisting))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON")
 		return
 	}
 
-	ch := s.channelFromWriteRequest(r, req, existing, existingErr == nil)
+	ch := s.channelFromWriteRequest(r, req, existing, hasExisting)
 	saved, err := access.SaveChannel(ctx, ch, cfgMap, false)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
@@ -262,7 +268,7 @@ func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cfgMap, err := parseChannelConfig(req.Config)
+	cfgMap, err := parseChannelConfig(requestConfig(req, config.Channel{}, false))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid config JSON")
 		return
@@ -295,6 +301,18 @@ func requestChannelType(req channelWriteRequest) string {
 func requestAgentID(req channelWriteRequest) string {
 	if req.AgentID != nil {
 		return *req.AgentID
+	}
+	return ""
+}
+
+// requestConfig resolves the raw config JSON a write request should persist:
+// an absent config keeps the existing row's config, an explicit value replaces it.
+func requestConfig(req channelWriteRequest, existing config.Channel, hasExisting bool) string {
+	if req.Config != nil {
+		return *req.Config
+	}
+	if hasExisting {
+		return existing.Config
 	}
 	return ""
 }

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1072,6 +1073,80 @@ func TestUpdateChannelEnabledState(t *testing.T) {
 	}
 	if !plugin.Enabled {
 		t.Fatal("channel plugin should remain enabled")
+	}
+}
+
+// channelConfigEquals compares stored config JSON by value: the server round-trips
+// config through a map, so key order is not stable.
+func channelConfigEquals(t *testing.T, got, want string) bool {
+	t.Helper()
+	var gotMap, wantMap map[string]any
+	if err := json.Unmarshal([]byte(got), &gotMap); err != nil {
+		t.Fatalf("unmarshal stored config %q: %v", got, err)
+	}
+	if err := json.Unmarshal([]byte(want), &wantMap); err != nil {
+		t.Fatalf("unmarshal want config %q: %v", want, err)
+	}
+	return reflect.DeepEqual(gotMap, wantMap)
+}
+
+// A PATCH that omits config must not wipe the channel's stored credentials:
+// config is tri-state like agent_id (absent keeps, explicit value replaces).
+func TestUpdateChannelConfigIsTriState(t *testing.T) {
+	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
+	octx := context.Background()
+
+	const original = `{"token":"tg-token","enable_notify":true}`
+	rr := doRequest(t, env, http.MethodPost, "/api/channels", map[string]any{
+		"id": "telegram", "type": "telegram", "config": original,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+
+	agentID := findStellaID(t, env)
+	rr = doRequest(t, env, http.MethodPatch, "/api/channels/telegram", map[string]any{"agent_id": agentID})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agent-only patch status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	ch, err := env.store.GetChannel(octx, pkgchannel.PlatformTelegram)
+	if err != nil {
+		t.Fatalf("GetChannel telegram: %v", err)
+	}
+	if ch.AgentID != agentID {
+		t.Fatalf("agent_id = %q, want %q", ch.AgentID, agentID)
+	}
+	if !channelConfigEquals(t, ch.Config, original) {
+		t.Fatalf("omitted config was overwritten: got %q, want %q", ch.Config, original)
+	}
+
+	const replacement = `{"token":"tg-token-2"}`
+	rr = doRequest(t, env, http.MethodPatch, "/api/channels/telegram", map[string]any{"config": replacement})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("config patch status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	ch, err = env.store.GetChannel(octx, pkgchannel.PlatformTelegram)
+	if err != nil {
+		t.Fatalf("GetChannel telegram: %v", err)
+	}
+	if !channelConfigEquals(t, ch.Config, replacement) {
+		t.Fatalf("config = %q, want %q", ch.Config, replacement)
+	}
+	if ch.AgentID != agentID {
+		t.Fatalf("config patch dropped agent_id: got %q, want %q", ch.AgentID, agentID)
+	}
+
+	rr = doRequest(t, env, http.MethodPatch, "/api/channels/telegram", map[string]any{"config": ""})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("clear config status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	ch, err = env.store.GetChannel(octx, pkgchannel.PlatformTelegram)
+	if err != nil {
+		t.Fatalf("GetChannel telegram: %v", err)
+	}
+	if ch.Config != `{}` {
+		t.Fatalf("explicit empty config = %q, want {}", ch.Config)
 	}
 }
 

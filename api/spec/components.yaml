@@ -619,7 +619,8 @@ components:
           nullable: true
         config:
           type: string
-          description: "JSON string of the channel config"
+          description: >-
+            JSON string of the channel config. Omit to keep the current config; pass an object to replace it.
     FeishuRegistrationInitRequest:
       type: object
       properties:

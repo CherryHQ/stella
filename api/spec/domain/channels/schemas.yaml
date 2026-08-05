@@ -55,10 +55,11 @@ components:
         type: { type: string, nullable: true }
         agent_id: { type: string, nullable: true }
         enabled: { type: boolean, nullable: true }
-        config: {
-          type: string,
-          description: "JSON string of the channel config",
-        }
+        config:
+          type: string
+          description: >-
+            JSON string of the channel config. Omit to keep the current config;
+            pass an object to replace it.
 
     FeishuRegistrationInitRequest:
       type: object
