@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { ScopeConfirmStep } from "@/components/ScopeConfirmStep";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
-import { Radio, RadioGroup } from "@/components/ui/radio-group";
 import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
@@ -129,14 +129,9 @@ type InstallRequest = {
   run: (scope: InstallScope) => Promise<boolean>;
 };
 
-// The install destination is confirmed per install, never left standing: a step
-// inside the sheet with one row per scope, each showing its full description so
-// the compound names ("Mine · this agent") explain who else gets the skill
-// before the write happens.
-//
-// It covers the sheet body instead of replacing it (`absolute inset-0`) so the
-// view behind keeps its state — a cancelled confirmation returns the user to the
-// GitHub fields they typed or the ZIP file they picked, not to a blank form.
+// The install destination is confirmed per install, never left standing. The
+// step itself is shared with the MCP server sheet (`ScopeConfirmStep`); what
+// belongs here is the deferred write it confirms.
 function InstallScopeStep({
   request,
   defaultScope,
@@ -166,52 +161,25 @@ function InstallScopeStep({
   }
 
   return (
-    <div className="absolute inset-0 z-10 flex flex-col bg-background">
-      <div className="flex shrink-0 items-center gap-2 border-b p-4">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          disabled={busy}
-          aria-label={t("common.back")}
-          onClick={onCancel}
-        >
-          <ChevronLeft size={16} />
-        </Button>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{t("sessions.discover.installWhere")}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {request.name
-              ? t("sessions.discover.installingName", { name: request.name })
-              : t("sessions.discover.installWhereDesc")}
-          </p>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
-        <RadioGroup
-          value={scope}
-          onValueChange={(value) => setScope(value as InstallScope)}
-          aria-label={t("sessions.discover.installTo")}
-        >
-          {scopes.map((s) => (
-            <label key={s} className="flex cursor-pointer items-start gap-3">
-              <Radio value={s} disabled={busy} className="mt-0.5" />
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-sm font-medium">{t(SCOPE_LABEL_KEY[s])}</span>
-                <span className="text-xs text-muted-foreground">{t(SCOPE_DESC_KEY[s])}</span>
-              </span>
-            </label>
-          ))}
-        </RadioGroup>
-      </div>
-      <div className="flex shrink-0 items-center justify-end gap-2 border-t p-4">
-        <Button variant="ghost" disabled={busy} onClick={onCancel}>
-          {t("common.cancel")}
-        </Button>
-        <Button loading={busy} onClick={() => void confirm()}>
-          {request.confirmLabel}
-        </Button>
-      </div>
-    </div>
+    <ScopeConfirmStep
+      title={t("sessions.discover.installWhere")}
+      subtitle={
+        request.name
+          ? t("sessions.discover.installingName", { name: request.name })
+          : t("sessions.discover.installWhereDesc")
+      }
+      options={scopes.map((s) => ({
+        value: s,
+        label: t(SCOPE_LABEL_KEY[s]),
+        description: t(SCOPE_DESC_KEY[s]),
+      }))}
+      value={scope}
+      onValueChange={setScope}
+      confirmLabel={request.confirmLabel}
+      busy={busy}
+      onConfirm={() => void confirm()}
+      onCancel={onCancel}
+    />
   );
 }
 

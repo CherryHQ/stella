@@ -305,6 +305,8 @@ const en = {
   "mcp.scope": "Scope",
   "mcp.scope.description":
     "More specific scopes override broader registrations with the same name.",
+  "mcp.scopeWhere": "Where does this server live",
+  "mcp.scopeWhereDesc": "Adding {{name}}",
   "mcp.scope.user.label": "My agents",
   "mcp.scope.userAgent.label": "One of my agents",
   "mcp.scope.system.label": "All users and agents",
@@ -2369,6 +2371,8 @@ const zh: Record<MessageKey, string> = {
   "mcp.sectionDescription": "暴露给智能体的外部 MCP 工具",
   "mcp.scope": "作用域",
   "mcp.scope.description": "同名注册里，更具体的作用域会覆盖更宽泛的注册。",
+  "mcp.scopeWhere": "这台服务器装在哪",
+  "mcp.scopeWhereDesc": "将添加 {{name}}",
   "mcp.scope.user.label": "我的所有智能体",
   "mcp.scope.userAgent.label": "我的某个智能体",
   "mcp.scope.system.label": "所有用户和智能体",

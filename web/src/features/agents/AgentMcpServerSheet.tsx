@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
+import { ScopeConfirmStep } from "@/components/ScopeConfirmStep";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { Radio, RadioGroup } from "@/components/ui/radio-group";
 import { Sheet, SheetPopup } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -103,6 +103,10 @@ function ServerForm({
   const editing = !!server;
 
   const [scope, setScope] = useState<McpScope>(server?.scope ?? "user_agent");
+  // Creating asks for the destination in a second step, the same way a skill
+  // install does: the choice decides who else gets this server, so it is a
+  // deliberate confirmation rather than a field passed on the way down.
+  const [confirming, setConfirming] = useState(false);
   const [name, setName] = useState(server?.name ?? "");
   const [url, setUrl] = useState(server?.url ?? "");
   const [transport, setTransport] = useState<McpTransport>(server?.transport ?? "streamable_http");
@@ -157,6 +161,8 @@ function ServerForm({
       ]);
       onDone();
     },
+    // Stay on the step on failure — the toast already said why, and the chosen
+    // destination is still there to retry with.
     onError: (error) => notify(apiErrorMessage(error, t("mcp.saveFailed")), "error"),
   });
 
@@ -164,7 +170,7 @@ function ServerForm({
   const canSave = name.trim() !== "" && url.trim() !== "" && tokenReady;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-3 border-b p-5">
         <h2 className="min-w-0 flex-1 truncate text-base font-semibold">
           {editing ? t("mcp.editTitle") : t("mcp.addTitle")}
@@ -175,27 +181,15 @@ function ServerForm({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
-        <Field>
-          <FieldLabel>{t("mcp.scope")}</FieldLabel>
-          <RadioGroup
-            value={scope}
-            onValueChange={(value) => setScope(value as McpScope)}
-            aria-label={t("mcp.scope")}
-          >
-            {scopes.map((s) => (
-              <label key={s} className="flex cursor-pointer items-start gap-3">
-                <Radio value={s} disabled={editing || save.isPending} className="mt-0.5" />
-                <span className="flex min-w-0 flex-col gap-0.5">
-                  <span className="text-sm font-medium">{t(SCOPE_LABEL_KEY[s])}</span>
-                  <span className="text-xs text-muted-foreground">{t(SCOPE_DESC_KEY[s])}</span>
-                </span>
-              </label>
-            ))}
-          </RadioGroup>
-          <FieldDescription>
-            {editing ? t("mcp.scope.lockedDescription") : t("mcp.scope.description")}
-          </FieldDescription>
-        </Field>
+        {/* Editing never moves a server between scopes — that is the settings
+            page's job — so its destination is stated, not offered. */}
+        {editing && server && (
+          <Field>
+            <FieldLabel>{t("mcp.scope")}</FieldLabel>
+            <p className="text-sm">{t(SCOPE_LABEL_KEY[server.scope])}</p>
+            <FieldDescription>{t("mcp.scope.lockedDescription")}</FieldDescription>
+          </Field>
+        )}
 
         <McpServerFields
           name={name}
@@ -230,10 +224,32 @@ function ServerForm({
         <Button variant="ghost" disabled={save.isPending} onClick={onDone}>
           {t("common.cancel")}
         </Button>
-        <Button loading={save.isPending} disabled={!canSave} onClick={() => save.mutate()}>
-          {editing ? t("common.save") : t("mcp.add")}
+        <Button
+          loading={save.isPending && editing}
+          disabled={!canSave}
+          onClick={() => (editing ? save.mutate() : setConfirming(true))}
+        >
+          {editing ? t("common.save") : t("common.next")}
         </Button>
       </div>
+
+      {confirming && (
+        <ScopeConfirmStep
+          title={t("mcp.scopeWhere")}
+          subtitle={t("mcp.scopeWhereDesc", { name: name.trim() })}
+          options={scopes.map((s) => ({
+            value: s,
+            label: t(SCOPE_LABEL_KEY[s]),
+            description: t(SCOPE_DESC_KEY[s]),
+          }))}
+          value={scope}
+          onValueChange={setScope}
+          confirmLabel={t("mcp.add")}
+          busy={save.isPending}
+          onConfirm={() => save.mutate()}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 }
