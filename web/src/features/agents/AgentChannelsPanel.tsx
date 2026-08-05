@@ -211,7 +211,14 @@ export function AgentChannelsPanel({ agentId }: Props) {
             <Button
               variant="outline"
               size="sm"
-              render={<Link to="/settings/channels/$channelId" params={{ channelId: "new" }} />}
+              render={
+                <Link
+                  to="/settings/channels/$channelId"
+                  params={{ channelId: "new" }}
+                  // Creation started here already knows which agent it serves.
+                  search={{ agent: agentId }}
+                />
+              }
             >
               <Plus size={16} />
               {t("channels.addChannel")}

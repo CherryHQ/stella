@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { meQueryOptions } from "@/lib/queries/me";
 import QRCode from "qrcode";
@@ -231,6 +231,8 @@ function ChannelDetail({
 
 interface NewChannelFormProps {
   fallbackChannelType: string;
+  /** Preselected bound agent when creation starts from an agent's profile. */
+  initialAgentId?: string;
   agents: Agent[];
   channels: NormalizedChannel[];
   onAdd: (channel: Record<string, unknown>) => Promise<void>;
@@ -241,6 +243,7 @@ interface NewChannelFormProps {
 
 function NewChannelForm({
   fallbackChannelType,
+  initialAgentId = "",
   agents,
   channels,
   onAdd,
@@ -249,9 +252,10 @@ function NewChannelForm({
   creating,
 }: NewChannelFormProps) {
   const { t } = useI18n();
-  const [draft, setDraft] = useState<Record<string, unknown>>(
-    newInstanceDraft(fallbackChannelType, ""),
-  );
+  const [draft, setDraft] = useState<Record<string, unknown>>(() => ({
+    ...newInstanceDraft(fallbackChannelType, ""),
+    agent_id: initialAgentId,
+  }));
   const [scanOpen, setScanOpen] = useState(false);
   const [scanQrUrl, setScanQrUrl] = useState("");
   const [scanStatus, setScanStatus] = useState("");
@@ -277,7 +281,12 @@ function NewChannelForm({
 
   const updateField = (key: string, value: unknown) => {
     if (key === "type") {
-      setDraft(newInstanceDraft(value as string, draft.id as string));
+      // Switching platform resets the credential fields but keeps the chosen
+      // agent — it is platform-independent.
+      setDraft({
+        ...newInstanceDraft(value as string, draft.id as string),
+        agent_id: draft.agent_id,
+      });
     } else if (key !== "id" || draft.type !== "weixin") {
       setDraft((prev) => ({ ...prev, [key]: value }));
     }
@@ -778,6 +787,9 @@ export function ChannelsPage() {
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { channelId?: string };
   const channelId = params.channelId;
+  // Creation opened from an agent's profile already knows the agent.
+  const search = useSearch({ strict: false }) as { agent?: string };
+  const initialAgentId = search.agent ?? "";
 
   const [publicChannels, setPublicChannels] = useState<ComponentsPublicChannel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
@@ -1002,6 +1014,7 @@ export function ChannelsPage() {
       detail = (
         <NewChannelForm
           fallbackChannelType={defaultChannelType}
+          initialAgentId={initialAgentId}
           agents={agents}
           channels={instances}
           onAdd={createNewChannel}
