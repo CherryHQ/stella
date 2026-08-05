@@ -24,9 +24,15 @@ function emit() {
   for (const l of listeners) l();
 }
 
-function subscribe(listener: () => void) {
+/** Subscribe to the queue. Exported for {@link ToastContainer} and for tests. */
+export function subscribeToasts(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** Current queue, by reference — stable between emits, as `useSyncExternalStore` requires. */
+export function getToasts(): ToastMsg[] {
+  return toasts;
 }
 
 function dismiss(id: number) {
@@ -34,18 +40,32 @@ function dismiss(id: number) {
   emit();
 }
 
-export function useToast(timeout = 3000) {
-  const showToast = useCallback(
-    (text: string, kind: ToastMsg["kind"] = "success") => {
-      const id = ++seq;
-      toasts = [...toasts, { id, text, kind }];
-      emit();
-      setTimeout(() => dismiss(id), timeout);
-    },
+/**
+ * Publish a toast. This is the store, and it is plain — no React — so the thing
+ * the app depends on can be tested without a DOM, and so a caller outside a
+ * component (an error handler, a query callback) can raise one at all.
+ */
+export function showToast(
+  text: string,
+  kind: ToastMsg["kind"] = "success",
+  timeout = TOAST_TIMEOUT_MS,
+) {
+  const id = ++seq;
+  toasts = [...toasts, { id, text, kind }];
+  emit();
+  setTimeout(() => dismiss(id), timeout);
+}
+
+const TOAST_TIMEOUT_MS = 3000;
+
+/** Component-facing sugar over {@link showToast}, keeping the existing call shape. */
+export function useToast(timeout = TOAST_TIMEOUT_MS) {
+  const show = useCallback(
+    (text: string, kind: ToastMsg["kind"] = "success") => showToast(text, kind, timeout),
     [timeout],
   );
 
-  return { showToast } as const;
+  return { showToast: show } as const;
 }
 
 /**
@@ -56,11 +76,7 @@ export function useToast(timeout = 3000) {
  * the text vanish — which is exactly what this component used to do.
  */
 export function ToastContainer() {
-  const messages = useSyncExternalStore(
-    subscribe,
-    () => toasts,
-    () => toasts,
-  );
+  const messages = useSyncExternalStore(subscribeToasts, getToasts, getToasts);
   if (messages.length === 0) return null;
   return (
     <div

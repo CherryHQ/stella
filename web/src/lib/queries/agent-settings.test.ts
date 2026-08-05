@@ -19,12 +19,15 @@ const sdk = vi.hoisted(() => ({
   listProfileMemories: vi.fn(),
 }));
 
+const authUsers = vi.hoisted(() => ({ fetchAllAuthUsers: vi.fn() }));
+
 vi.mock("@/lib/api-client/sdk.gen", () => sdk);
-vi.mock("@/lib/auth-users", () => ({ fetchAllAuthUsers: vi.fn(() => Promise.resolve([])) }));
+vi.mock("@/lib/auth-users", () => authUsers);
 
 const { loadAgentsSettingsData } = await import("./agent-settings");
 
 beforeEach(() => {
+  vi.clearAllMocks();
   sdk.listAgents.mockReturnValue(ok({ agents: [{ id: "a1", name: "Ada" }] }));
   sdk.listModels.mockReturnValue(ok({ models: [] }));
   sdk.getMe.mockReturnValue(ok({ id: "u1", is_admin: false }));
@@ -33,6 +36,7 @@ beforeEach(() => {
   sdk.listProfileMemories.mockReturnValue(
     ok({ memories: [{ agent_id: "a1", soul: "be kind", content: "prefers Go" }] }),
   );
+  authUsers.fetchAllAuthUsers.mockResolvedValue([{ id: "u1", name: "Ada" }]);
 });
 
 describe("loadAgentsSettingsData", () => {
@@ -56,5 +60,34 @@ describe("loadAgentsSettingsData", () => {
   it("rejects rather than handing the editor a blank memory draft", async () => {
     sdk.listProfileMemories.mockRejectedValue(new Error("network down"));
     await expect(loadAgentsSettingsData("a1")).rejects.toThrow("network down");
+  });
+
+  /**
+   * The user list is fetched only for admins, so a suite that runs entirely as a
+   * non-admin never executes that call — the `.catch(() => [])` this loader used
+   * to carry could be put back and every test above would still pass. These two
+   * are the ones that walk the branch.
+   */
+  describe("as an admin", () => {
+    beforeEach(() => {
+      sdk.getMe.mockReturnValue(ok({ id: "u1", is_admin: true }));
+    });
+
+    it("loads the users an admin can assign", async () => {
+      const data = await loadAgentsSettingsData("a1");
+      expect(authUsers.fetchAllAuthUsers).toHaveBeenCalled();
+      expect(data.allUsers).toHaveLength(1);
+    });
+
+    it("rejects instead of showing an admin an empty user list", async () => {
+      authUsers.fetchAllAuthUsers.mockRejectedValue(new Error("network down"));
+      await expect(loadAgentsSettingsData("a1")).rejects.toThrow("network down");
+    });
+  });
+
+  it("does not fetch the user list for a non-admin", async () => {
+    const data = await loadAgentsSettingsData("a1");
+    expect(authUsers.fetchAllAuthUsers).not.toHaveBeenCalled();
+    expect(data.allUsers).toEqual([]);
   });
 });
