@@ -4,7 +4,6 @@ import {
   listAgents,
   listAgentSkills,
   listBuiltinResources,
-  listChannels,
   listModels,
   listProfileMemories,
 } from "@/lib/api-client/sdk.gen";
@@ -12,7 +11,6 @@ import type {
   AgentDetail,
   AgentSandbox,
   BuiltinItem,
-  Channel,
   Personalisation,
   Skill,
   User,
@@ -48,22 +46,6 @@ export function normalizeSandbox(sandbox: unknown): AgentSandbox {
   return { network: { mode, allowlist } };
 }
 
-export function normalizeChannel(ch: Channel): Channel {
-  return {
-    ...ch,
-    type: ch.type || ch.id,
-    agent_id: ch.agent_id || "",
-    config: ch.config || "{}",
-    _config: (() => {
-      try {
-        return JSON.parse(ch.config || "{}") as Record<string, unknown>;
-      } catch {
-        return {};
-      }
-    })(),
-  };
-}
-
 /**
  * Everything the agent editor needs, in one payload. Both the settings routes
  * (via their loader) and the agent profile page (via {@link
@@ -71,7 +53,6 @@ export function normalizeChannel(ch: Channel): Channel {
  */
 export interface AgentsSettingsLoaderData {
   agents: AgentDetail[];
-  channels: Channel[];
   cachedModels: ModelOption[];
   isAdmin: boolean;
   currentUserId: string;
@@ -79,7 +60,6 @@ export interface AgentsSettingsLoaderData {
   builtinTemplates: BuiltinItem[];
   builtinSouls: BuiltinItem[];
   agentSkills: Skill[];
-  selectedChannelIDs: string[];
   personalisation: Personalisation;
   selectedAgent?: AgentDetail;
 }
@@ -111,13 +91,6 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     _highlight: a.id === agentId,
   })) as AgentDetail[];
   const selectedAgent = agentId ? agents.find((a) => a.id === agentId) : undefined;
-  const channels = isAdmin
-    ? (
-        (await listChannels({ throwOnError: true })
-          .then(({ data }) => data?.channels ?? [])
-          .catch(() => [])) ?? []
-      ).map(normalizeChannel)
-    : [];
   const allUsers = isAdmin ? await fetchAllAuthUsers().catch(() => []) : [];
   const agentSkills = (
     agentId
@@ -146,7 +119,6 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   const [builtinTemplates, builtinSouls] = catalog as [BuiltinItem[], BuiltinItem[]];
   return {
     agents,
-    channels,
     cachedModels: (modelsRaw ?? []).map((m) => ({
       value: `${m.provider}/${m.model}`,
       label: `${m.provider_name || m.provider}/${m.model}`,
@@ -158,9 +130,6 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     builtinSouls: builtinSouls ?? [],
     agentSkills,
     selectedAgent,
-    selectedChannelIDs: agentId
-      ? channels.filter((ch) => ch.id !== ch.type && ch.agent_id === agentId).map((c) => c.id)
-      : [],
     personalisation,
   };
 }

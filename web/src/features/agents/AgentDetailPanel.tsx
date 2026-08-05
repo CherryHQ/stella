@@ -12,12 +12,10 @@ import {
   installAgentSkill,
   listAgentSkills,
   listAgentUsers,
-  listChannels,
   listProfileMemories,
   removeAgentUser,
   updateAgent,
   updateAgentSkill,
-  updateChannel,
   uploadAgentSkill,
 } from "@/lib/api-client/sdk.gen";
 import type {
@@ -25,13 +23,9 @@ import type {
   UpdateAgentData,
   UpdateAgentSkillData,
 } from "@/lib/api-client/types.gen";
-import type { BuiltinItem, Channel, Skill, User } from "@/lib/types";
+import type { BuiltinItem, Skill, User } from "@/lib/types";
 import { apiErrorMessage } from "@/lib/api-error";
-import {
-  normalizeChannel,
-  normalizeSandbox,
-  type AgentsSettingsLoaderData,
-} from "@/lib/queries/agent-settings";
+import { normalizeSandbox, type AgentsSettingsLoaderData } from "@/lib/queries/agent-settings";
 import {
   agentRequestBody,
   initialAgentDetailState,
@@ -111,18 +105,6 @@ export function AgentDetailPanel({
     [queryClient],
   );
 
-  const loadChannels = useCallback(async () => {
-    try {
-      const { data: res } = await listChannels({ throwOnError: true });
-      const channels = ((res?.channels ?? []) as Channel[]).map(normalizeChannel);
-      setState((prev) => ({ ...prev, channels }));
-      return channels;
-    } catch {
-      setState((prev) => ({ ...prev, channels: [] }));
-      return [];
-    }
-  }, []);
-
   const loadAgentSkills = useCallback(async (id: string | null) => {
     if (!id) {
       setState((prev) => ({ ...prev, agentSkills: [] }));
@@ -187,36 +169,6 @@ export function AgentDetailPanel({
     void loadAssignedUsers(agentId);
   }, [agentId, data.isAdmin, loadAssignedUsers]);
 
-  const dedicatedChannelsForAgent = useCallback((id: string, channels: Channel[]) => {
-    return channels.filter((ch) => ch.id !== ch.type && ch.agent_id === id);
-  }, []);
-
-  const saveChannelBindings = useCallback(
-    async (agentID: string, currentState: AgentsPageState) => {
-      if (!currentState.isAdmin) return;
-      const selected = new Set(currentState.selectedChannelIDs);
-      const available = currentState.channels.filter(
-        (ch) => ch.id !== ch.type && ch.enabled && (!ch.agent_id || ch.agent_id === agentID),
-      );
-      for (const ch of available) {
-        const wantsAgent = selected.has(ch.id);
-        const nextAgentID = wantsAgent ? agentID : "";
-        if ((ch.agent_id || "") === nextAgentID) continue;
-        await updateChannel({
-          path: { id: ch.id },
-          body: {
-            type: ch.type,
-            agent_id: nextAgentID,
-            config: JSON.stringify(ch._config || {}),
-          },
-          throwOnError: true,
-        });
-      }
-      await loadChannels();
-    },
-    [loadChannels],
-  );
-
   const saveAgent = useCallback(
     async (currentState: AgentsPageState) => {
       try {
@@ -234,7 +186,6 @@ export function AgentDetailPanel({
             body: agentRequestBody(payload) as UpdateAgentData["body"],
             throwOnError: true,
           });
-          await saveChannelBindings(currentState.editingId, currentState);
           invalidateAgent(currentState.editingId);
           showToast(t("common.saved"));
           onSaved?.(currentState.editingId);
@@ -245,14 +196,7 @@ export function AgentDetailPanel({
           });
           const newId = created!.id!;
           setState((prev) => ({ ...prev, editingId: newId }));
-          await Promise.all([
-            saveChannelBindings(newId, { ...currentState, editingId: newId }),
-            loadAgentSkills(newId),
-            loadPersonalisation(newId),
-          ]);
-          const channels = await loadChannels();
-          const selectedChannelIDs = dedicatedChannelsForAgent(newId, channels).map((c) => c.id);
-          setState((prev) => ({ ...prev, selectedChannelIDs }));
+          await Promise.all([loadAgentSkills(newId), loadPersonalisation(newId)]);
           invalidateAgent(newId);
           showToast(t("common.saved"));
           onSaved?.(newId);
@@ -261,17 +205,7 @@ export function AgentDetailPanel({
         showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
-    [
-      saveChannelBindings,
-      loadChannels,
-      loadAgentSkills,
-      loadPersonalisation,
-      dedicatedChannelsForAgent,
-      invalidateAgent,
-      showToast,
-      onSaved,
-      t,
-    ],
+    [loadAgentSkills, loadPersonalisation, invalidateAgent, showToast, onSaved, t],
   );
 
   const doDeleteAgent = useCallback(

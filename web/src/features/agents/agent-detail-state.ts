@@ -1,5 +1,5 @@
 import type { CreateAgentData } from "@/lib/api-client/types.gen";
-import type { AgentDetail, BuiltinItem, Channel, Personalisation, Skill, User } from "@/lib/types";
+import type { AgentDetail, BuiltinItem, Personalisation, Skill, User } from "@/lib/types";
 import {
   normalizeSandbox,
   type AgentsSettingsLoaderData,
@@ -53,7 +53,6 @@ export function agentRequestBody(form: Omit<AgentDetail, "id">): CreateAgentData
  */
 export interface AgentsPageState {
   agents: AgentDetail[];
-  channels: Channel[];
   cachedModels: ModelOption[];
   isAdmin: boolean;
   currentUserId: string;
@@ -68,7 +67,6 @@ export interface AgentsPageState {
   builtinSkills: BuiltinItem[];
   assignedUsers: User[];
   addUserId: string;
-  selectedChannelIDs: string[];
   confirmMsg: string;
   confirmAction: () => void;
   agentSkills: Skill[];
@@ -114,7 +112,6 @@ export function initialAgentDetailState(
   const selectedAgent = agentId ? data.agents.find((a) => a.id === agentId) : undefined;
   return {
     agents: data.agents,
-    channels: data.channels,
     cachedModels: data.cachedModels,
     isAdmin: data.isAdmin,
     currentUserId: data.currentUserId,
@@ -136,7 +133,6 @@ export function initialAgentDetailState(
     builtinSkills: [],
     assignedUsers: [],
     addUserId: "",
-    selectedChannelIDs: data.selectedChannelIDs,
     confirmMsg: "",
     confirmAction: () => {},
     agentSkills: data.agentSkills,

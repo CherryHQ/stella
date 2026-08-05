@@ -1,7 +1,15 @@
 import { useCallback, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { Brain, ChevronRight, ListTodo, Puzzle, SlidersHorizontal, Wrench } from "lucide-react";
+import {
+  Brain,
+  ChevronRight,
+  ListTodo,
+  MessageCircle,
+  Puzzle,
+  SlidersHorizontal,
+  Wrench,
+} from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getAgentColor } from "@/lib/agent-colors";
 import { agentsQueryOptions, agentSkillsOptions, agentToolsOptions } from "@/lib/queries/agents";
@@ -18,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs";
 import { Spinner } from "@/components/ui/spinner";
 import { canEditAgent } from "./agent-detail-state";
+import { AgentChannelsPanel } from "./AgentChannelsPanel";
 import { AgentDetailPanel } from "./AgentDetailPanel";
 import { AgentToolsPanel } from "./AgentToolsPanel";
 import { ProfileSkillsTab } from "./ProfileSkillsTab";
@@ -73,7 +82,7 @@ export function ProfilePage() {
     "overview",
     "memory",
     "skills",
-    ...(projectId ? [] : (["tools"] as const)),
+    ...(projectId ? [] : (["tools", "channels"] as const)),
     ...(canConfigure ? (["config"] as const) : []),
   ];
   // Derived, never stored: an unavailable tab (a config link opened by someone
@@ -126,6 +135,7 @@ export function ProfilePage() {
     memory: t("profile.memory"),
     skills: t("profile.skills"),
     tools: t("profile.tools"),
+    channels: t("profile.channels"),
     config: t("profile.configuration"),
   };
 
@@ -227,6 +237,12 @@ export function ProfilePage() {
           {!projectId && (
             <TabsPanel value="tools" className="pt-4">
               <AgentToolsPanel agentId={agentId} canEdit={canConfigure} />
+            </TabsPanel>
+          )}
+
+          {!projectId && (
+            <TabsPanel value="channels" className="pt-4">
+              <AgentChannelsPanel agentId={agentId} />
             </TabsPanel>
           )}
 
@@ -340,6 +356,14 @@ function OverviewTab({
             title={t("profile.tools")}
             detail={t("profile.toolCount", { enabled: enabledTools, total: tools.length })}
             onClick={() => onSelectTab("tools")}
+          />
+        )}
+        {!projectId && (
+          <SummaryCard
+            icon={<MessageCircle size={16} />}
+            title={t("profile.channels")}
+            detail={t("profile.channelsDesc")}
+            onClick={() => onSelectTab("channels")}
           />
         )}
         {!projectId && (

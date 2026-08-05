@@ -8,9 +8,16 @@ export interface MemorySearch {
   tab?: ProfileTab;
 }
 
-export type ProfileTab = "overview" | "memory" | "skills" | "tools" | "config";
+export type ProfileTab = "overview" | "memory" | "skills" | "tools" | "channels" | "config";
 
-const PROFILE_TABS = new Set<string>(["overview", "memory", "skills", "tools", "config"]);
+const PROFILE_TABS = new Set<string>([
+  "overview",
+  "memory",
+  "skills",
+  "tools",
+  "channels",
+  "config",
+]);
 
 export interface ThreadsSearch {
   /**

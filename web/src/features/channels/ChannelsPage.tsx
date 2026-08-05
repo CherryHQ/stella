@@ -8,15 +8,12 @@ import {
   beginWeixinRegistration,
   createChannel as createChannelRequest,
   deleteChannel,
-  generateLinkCode,
   listAgents,
   listChannels,
   listProfileIdentities,
   listPublicChannels,
   pollFeishuRegistration,
-  pollWeixinQrStatus,
   pollWeixinRegistration,
-  startWeixinQr,
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
@@ -51,62 +48,35 @@ import {
   SettingsGridPage,
 } from "@/features/settings/SettingsCardGrid";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { MessageCircle, Plus } from "lucide-react";
-import { siQq, siTelegram, siWechat } from "simple-icons";
+import { Plus } from "lucide-react";
+import { PlatformIcon, platformLabel } from "@/components/PlatformIcon";
+import { useAccountLink, weixinQrStatusVariant } from "./use-account-link";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
 type PlatformDefaults = Record<string, string | boolean>;
 
-const platformMeta: Record<string, { label: string; defaults: PlatformDefaults; icon?: string }> = {
-  telegram: {
-    label: "Telegram",
-    defaults: { token: "", channel_id: "" },
-  },
-  qq: {
-    label: "QQ",
-    defaults: { app_id: "", app_secret: "" },
-  },
+// The credential fields each platform stores on a channel row. Labels and icons
+// are shared with the rest of the app (see components/PlatformIcon).
+const platformDefaults: Record<string, PlatformDefaults> = {
+  telegram: { token: "", channel_id: "" },
+  qq: { app_id: "", app_secret: "" },
   feishu: {
-    label: "Feishu",
-    defaults: {
-      app_id: "",
-      app_secret: "",
-      encrypt_key: "",
-      verification_token: "",
-      tenant_key: "",
-      auto_provision: false,
-    },
+    app_id: "",
+    app_secret: "",
+    encrypt_key: "",
+    verification_token: "",
+    tenant_key: "",
+    auto_provision: false,
   },
-  weixin: {
-    label: "Weixin",
-    defaults: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
-  },
+  weixin: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
 };
 
-const channelTypes = Object.entries(platformMeta).map(([id, meta]) => ({
+const channelTypes = Object.keys(platformDefaults).map((id) => ({
   id,
-  label: meta.label,
+  label: platformLabel(id),
 }));
 const defaultChannelType = channelTypes[0]?.id || "";
-
-const PLATFORM_ICON_PATHS: Record<string, string> = {
-  telegram: siTelegram.path,
-  qq: siQq.path,
-  weixin: siWechat.path,
-};
-
-// PlatformIcon shows a brand mark for known chat platforms, else a generic
-// message glyph (e.g. Feishu, which simple-icons doesn't carry).
-function PlatformIcon({ type }: { type: string }) {
-  const path = PLATFORM_ICON_PATHS[type];
-  if (!path) return <MessageCircle className="size-4" />;
-  return (
-    <svg viewBox="0 0 24 24" className="size-4" fill="currentColor" aria-hidden="true">
-      <path d={path} />
-    </svg>
-  );
-}
 
 function parseConfig(raw: string): Record<string, unknown> {
   try {
@@ -117,7 +87,7 @@ function parseConfig(raw: string): Record<string, unknown> {
 }
 
 function platformConfigDefaults(type: string): PlatformDefaults {
-  return { ...platformMeta[type]?.defaults };
+  return { ...platformDefaults[type] };
 }
 
 function normalizeConfigValue(defaultValue: string | boolean, value: unknown): string | boolean {
@@ -314,7 +284,7 @@ function ChannelDetail({
   };
 
   const isDefaultInstance = channel.id === channel.type;
-  const platformLabel = platformMeta[channel.type]?.label || channel.type;
+  const label = platformLabel(channel.type);
 
   return (
     <DetailPanel
@@ -324,7 +294,7 @@ function ChannelDetail({
       deleteLabel={t("common.delete")}
     >
       <DetailPanelHeader
-        title={channel.name || platformLabel}
+        title={channel.name || label}
         subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.type}</p>}
         action={
           <>
@@ -344,7 +314,7 @@ function ChannelDetail({
           type="text"
           value={(channel.name as string) || ""}
           onChange={(e) => updateField("name", (e.target as HTMLInputElement).value)}
-          placeholder={platformLabel}
+          placeholder={label}
           className="w-full text-sm"
         />
       </div>
@@ -391,7 +361,7 @@ function ChannelDetail({
                 loading={generating && linkPlatform === channel.type}
                 size="sm"
               >
-                Link {platformLabel}
+                Link {label}
               </Button>
             )}
             {channel.type === "weixin" && (
@@ -405,7 +375,7 @@ function ChannelDetail({
         {/* Link code */}
         {linkCode && linkPlatform === channel.type && (
           <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-            <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
+            <p className="text-sm font-medium">Send this command to Stella on {label}:</p>
             <div className="flex items-center gap-2 flex-wrap">
               <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
                 /link {linkCode}
@@ -895,12 +865,12 @@ function PublicChannelDetail({
   wxQrStatusVariant,
   onRefreshWxQr,
 }: PublicChannelDetailProps) {
-  const platformLabel = platformMeta[channel.type]?.label || channel.label || channel.type;
+  const label = platformLabel(channel.type, channel.label);
 
   return (
     <DetailPanel>
       <DetailPanelHeader
-        title={platformLabel}
+        title={label}
         subtitle={
           <Badge size="sm" variant={linked ? "success" : "secondary"}>
             {linked ? "linked" : "not linked"}
@@ -932,7 +902,7 @@ function PublicChannelDetail({
             <p className="text-sm text-muted-foreground">
               {channel.type === "weixin"
                 ? "Link your Weixin account by scanning a QR code."
-                : `Link your ${platformLabel} account once to chat with Stella on this platform.`}
+                : `Link your ${label} account once to chat with Stella on this platform.`}
             </p>
             {channel.type !== "weixin" && (
               <Button
@@ -941,7 +911,7 @@ function PublicChannelDetail({
                 loading={generating && linkPlatform === channel.type}
                 size="sm"
               >
-                Link {platformLabel}
+                Link {label}
               </Button>
             )}
             {channel.type === "weixin" && (
@@ -955,7 +925,7 @@ function PublicChannelDetail({
         {/* Link code */}
         {linkCode && linkPlatform === channel.type && (
           <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-            <p className="text-sm font-medium">Send this command to Stella on {platformLabel}:</p>
+            <p className="text-sm font-medium">Send this command to Stella on {label}:</p>
             <div className="flex items-center gap-2 flex-wrap">
               <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
                 /link {linkCode}
@@ -1003,16 +973,6 @@ export function ChannelsPage() {
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loadingInstances, setLoadingInstances] = useState(false);
-
-  const [linkCode, setLinkCode] = useState("");
-  const [linkPlatform, setLinkPlatform] = useState("");
-  const [generating, setGenerating] = useState(false);
-
-  const [wxQrUrl, setWxQrUrl] = useState("");
-  const [wxQrStatus, setWxQrStatus] = useState("");
-  const wxQrCodeRef = useRef("");
-  const [wxQrPolling, setWxQrPolling] = useState(false);
-  const wxQrIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [creatingInstance, setCreatingInstance] = useState(false);
 
@@ -1105,98 +1065,11 @@ export function ChannelsPage() {
     } else {
       void Promise.all([loadPublicChannels(), loadIdentities()]);
     }
-    return () => {
-      if (wxQrIntervalRef.current) clearInterval(wxQrIntervalRef.current);
-    };
   }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances, loadAgents]);
 
-  // ── link code ──
+  // ── account linking ──
 
-  const generateCode = async (platform: string) => {
-    setGenerating(true);
-    setLinkPlatform(platform);
-    setLinkCode("");
-    setWxQrUrl("");
-    setWxQrStatus("");
-    wxQrCodeRef.current = "";
-    try {
-      const { data: result } = await generateLinkCode({
-        body: { platform },
-        throwOnError: true,
-      });
-      setLinkCode(result.code);
-    } catch (e) {
-      showToast((e as Error).message, "error");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const copyLinkCode = () => {
-    void navigator.clipboard.writeText("/link " + linkCode);
-    showToast("Copied");
-  };
-
-  // ── weixin QR ──
-
-  const stopWeixinQRPolling = () => {
-    if (wxQrIntervalRef.current) {
-      clearInterval(wxQrIntervalRef.current);
-      wxQrIntervalRef.current = null;
-    }
-    setWxQrPolling(false);
-  };
-
-  const pollWeixinQRStatus = async (qrCode: string) => {
-    if (!qrCode) return;
-    try {
-      const { data: result } = await pollWeixinQrStatus({
-        query: { qrcode: qrCode },
-        throwOnError: true,
-      });
-      if (result.status) setWxQrStatus(result.status);
-      if (result.status === "confirmed") {
-        stopWeixinQRPolling();
-        setWxQrUrl("");
-        showToast("Weixin account linked successfully");
-        await loadIdentities();
-      } else if (result.status === "expired") {
-        stopWeixinQRPolling();
-      }
-    } catch (e) {
-      console.error("QR status poll error:", e);
-    }
-  };
-
-  const startWeixinQR = async () => {
-    setLinkCode("");
-    setWxQrUrl("");
-    setWxQrStatus("");
-    wxQrCodeRef.current = "";
-    setWxQrPolling(true);
-    if (wxQrIntervalRef.current) {
-      clearInterval(wxQrIntervalRef.current);
-      wxQrIntervalRef.current = null;
-    }
-    try {
-      const { data: result } = await startWeixinQr({ throwOnError: true });
-      const qrCode = result.qrcode || "";
-      wxQrCodeRef.current = qrCode;
-      const imgContent = result.qrcode_img_content || "";
-      if (imgContent) {
-        const dataUrl = await QRCode.toDataURL(imgContent, {
-          width: 256,
-          margin: 2,
-        });
-        setWxQrUrl(dataUrl);
-      }
-      setWxQrStatus("waiting");
-      wxQrIntervalRef.current = setInterval(() => pollWeixinQRStatus(qrCode), 3000);
-    } catch (e) {
-      showToast("QR request failed: " + (e as Error).message, "error");
-      setWxQrPolling(false);
-    }
-  };
+  const link = useAccountLink({ notify: showToast, onLinked: () => void loadIdentities() });
 
   // ── identity management ──
 
@@ -1307,16 +1180,6 @@ export function ChannelsPage() {
 
   // ── render ──
 
-  const wxQrStatusVariant = (
-    status: string,
-  ): "warning" | "info" | "success" | "error" | "secondary" => {
-    if (status === "waiting") return "warning";
-    if (status === "scaned") return "info";
-    if (status === "confirmed") return "success";
-    if (status === "expired") return "error";
-    return "secondary";
-  };
-
   const isLoading = isAdmin && loadingInstances;
 
   // ── build detail pane ──
@@ -1342,21 +1205,21 @@ export function ChannelsPage() {
           key={selectedChannel.id}
           channel={selectedChannel}
           identity={identityFor(selectedChannel.type)}
-          generating={generating}
-          linkPlatform={linkPlatform}
-          linkCode={linkCode}
-          wxQrUrl={wxQrUrl}
-          wxQrStatus={wxQrStatus}
-          wxQrPolling={wxQrPolling}
+          generating={link.generating}
+          linkPlatform={link.platform}
+          linkCode={link.code}
+          wxQrUrl={link.qrUrl}
+          wxQrStatus={link.qrStatus}
+          wxQrPolling={link.qrPolling}
           onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
           onSave={saveInstance}
           onDelete={doDeleteChannel}
-          onGenerateCode={generateCode}
-          onStartWeixinQR={startWeixinQR}
+          onGenerateCode={(platform) => void link.generateCode(platform)}
+          onStartWeixinQR={() => void link.startQr()}
           onUnlink={unlinkIdentity}
-          onCopyLinkCode={copyLinkCode}
-          wxQrStatusVariant={wxQrStatusVariant}
-          onRefreshWxQr={startWeixinQR}
+          onCopyLinkCode={link.copyCode}
+          wxQrStatusVariant={weixinQrStatusVariant}
+          onRefreshWxQr={() => void link.startQr()}
         />
       );
     }
@@ -1367,18 +1230,18 @@ export function ChannelsPage() {
         channel={selectedPublicChannel}
         identity={identityFor(selectedPublicChannel.type)}
         linked={isLinked(selectedPublicChannel.type)}
-        generating={generating}
-        linkPlatform={linkPlatform}
-        linkCode={linkCode}
-        wxQrUrl={wxQrUrl}
-        wxQrStatus={wxQrStatus}
-        wxQrPolling={wxQrPolling}
-        onGenerateCode={generateCode}
-        onStartWeixinQR={startWeixinQR}
+        generating={link.generating}
+        linkPlatform={link.platform}
+        linkCode={link.code}
+        wxQrUrl={link.qrUrl}
+        wxQrStatus={link.qrStatus}
+        wxQrPolling={link.qrPolling}
+        onGenerateCode={(platform) => void link.generateCode(platform)}
+        onStartWeixinQR={() => void link.startQr()}
         onUnlink={unlinkIdentity}
-        onCopyLinkCode={copyLinkCode}
-        wxQrStatusVariant={wxQrStatusVariant}
-        onRefreshWxQr={startWeixinQR}
+        onCopyLinkCode={link.copyCode}
+        wxQrStatusVariant={weixinQrStatusVariant}
+        onRefreshWxQr={() => void link.startQr()}
       />
     );
   }
@@ -1395,7 +1258,7 @@ export function ChannelsPage() {
       (acc, ch) => {
         (acc[ch.type] ??= {
           type: ch.type,
-          label: platformMeta[ch.type]?.label || ch.type,
+          label: platformLabel(ch.type),
           items: [],
         }).items.push(ch);
         return acc;
@@ -1435,13 +1298,13 @@ export function ChannelsPage() {
                 count={group.items.length}
               >
                 {group.items.map((ch) => {
-                  const platformLabel = platformMeta[ch.type]?.label || ch.type;
+                  const label = platformLabel(ch.type);
                   const isDefault = ch.id === ch.type;
                   return (
                     <SettingsCard
                       key={ch.id}
                       icon={<PlatformIcon type={ch.type} />}
-                      title={ch.name || platformLabel}
+                      title={ch.name || label}
                       badge={
                         isDefault ? (
                           <Badge variant="secondary" size="sm">
@@ -1471,13 +1334,13 @@ export function ChannelsPage() {
         ) : (
           <SettingsCardSection title={t("channels.title")} count={publicChannels.length}>
             {publicChannels.map((ch) => {
-              const platformLabel = platformMeta[ch.type]?.label || ch.label || ch.type;
+              const label = platformLabel(ch.type, ch.label);
               const linked = isLinked(ch.type);
               return (
                 <SettingsCard
                   key={ch.type}
                   icon={<PlatformIcon type={ch.type} />}
-                  title={platformLabel}
+                  title={label}
                   active={channelId === ch.type}
                   to="/settings/channels/$channelId"
                   params={{ channelId: ch.type }}
