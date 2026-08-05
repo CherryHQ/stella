@@ -61,12 +61,14 @@ import {
   serializePlatformConfig,
   type NormalizedChannel,
 } from "./ChannelFields";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAccountLink, weixinQrStatusVariant } from "./use-account-link";
-
-// ─── sub-components ───────────────────────────────────────────────────────────
-
-const selectClassName =
-  "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8 sm:text-sm";
 
 // ─── ChannelDetail ────────────────────────────────────────────────────────────
 
@@ -489,20 +491,25 @@ function NewChannelForm({
       <div className="space-y-4">
         <div className="w-full space-y-1.5">
           <label className="text-sm font-medium">{t("channels.platform")}</label>
-          <select
-            value={(draft.type as string) || ""}
-            onChange={(e) => updateField("type", e.target.value)}
-            className={selectClassName}
+          <Select
+            value={(draft.type as string) || null}
+            onValueChange={(value) => updateField("type", (value as string | null) ?? "")}
           >
-            <option value="" disabled>
-              {t("channels.selectPlatform")}
-            </option>
-            {channelTypes.map((ct) => (
-              <option key={ct.id} value={ct.id}>
-                {ct.label}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={t("channels.selectPlatform")}>
+                {(value) =>
+                  value ? (channelTypes.find((ct) => ct.id === value)?.label ?? value) : null
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {channelTypes.map((ct) => (
+                <SelectItem key={ct.id} value={ct.id}>
+                  {ct.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
         </div>
 
         <div className="w-full space-y-1.5">
@@ -538,18 +545,28 @@ function NewChannelForm({
         {requiresBoundAgent && (
           <div className="w-full space-y-1.5">
             <label className="text-sm font-medium">{t("channels.boundAgent")}</label>
-            <select
-              value={(draft.agent_id as string) || ""}
-              onChange={(e) => updateField("agent_id", e.target.value)}
-              className={selectClassName}
+            <Select
+              value={(draft.agent_id as string) || null}
+              onValueChange={(value) => updateField("agent_id", (value as string | null) ?? "")}
             >
-              <option value="">{t("channels.selectAgent")}</option>
-              {availableAgents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name || agent.id}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("channels.selectAgent")}>
+                  {(value) =>
+                    value
+                      ? (availableAgents.find((agent) => agent.id === value)?.name ??
+                        (value as string))
+                      : null
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                {availableAgents.map((agent) => (
+                  <SelectItem key={agent.id} value={agent.id}>
+                    {agent.name || agent.id}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
             <p className="text-xs text-muted-foreground">{t("channels.boundAgentDesc")}</p>
             {availableAgents.length === 0 && (
               <p className="text-xs text-muted-foreground">{t("channels.noAvailableAgents")}</p>
