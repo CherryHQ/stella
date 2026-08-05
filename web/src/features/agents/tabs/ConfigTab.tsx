@@ -230,6 +230,14 @@ export function ConfigTab({ state, onSetState }: Props) {
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
+  // The strong/fast tiers are optional overrides that fall back to the default
+  // model, so an unconfigured tier is a "+" affordance, not an empty card.
+  // Local state keeps a freshly added (still empty) tier visible.
+  const [visibleTiers, setVisibleTiers] = useState<{ strong: boolean; fast: boolean }>(() => ({
+    strong: !!(form.model_strong || form.model_strong_thinking),
+    fast: !!(form.model_fast || form.model_fast_thinking),
+  }));
+
   const availableChannels = channels.filter(
     (ch) => ch.enabled && (!ch.agent_id || ch.agent_id === editingId),
   );
@@ -266,10 +274,8 @@ export function ConfigTab({ state, onSetState }: Props) {
             — {t("agents.form.modelProvider")}
           </span>
         </p>
-        {/* Viewport breakpoints, but the host column is capped at 3xl — more
-            than two columns squeezes the model combobox below a readable width. */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-lg border border-border p-4 space-y-4">
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <ModelComboField
               label={t("agents.form.modelDefault")}
               field="model"
@@ -284,38 +290,88 @@ export function ConfigTab({ state, onSetState }: Props) {
               onChange={(v) => setForm({ model_thinking: v })}
             />
           </div>
-          <div className="rounded-lg border border-border p-4 space-y-4">
-            <ModelComboField
-              label={t("agents.form.modelStrong")}
-              field="model_strong"
-              value={form.model_strong ?? ""}
-              placeholder={t("agents.form.modelFallback")}
-              optional
-              cachedModels={cachedModels}
-              onChange={(v) => setForm({ model_strong: v })}
-            />
-            <ThinkingField
-              label={t("agents.form.modelStrongThinking")}
-              value={form.model_strong_thinking ?? ""}
-              onChange={(v) => setForm({ model_strong_thinking: v })}
-            />
-          </div>
-          <div className="rounded-lg border border-border p-4 space-y-4">
-            <ModelComboField
-              label={t("agents.form.modelFast")}
-              field="model_fast"
-              value={form.model_fast ?? ""}
-              placeholder={t("agents.form.modelFallback")}
-              optional
-              cachedModels={cachedModels}
-              onChange={(v) => setForm({ model_fast: v })}
-            />
-            <ThinkingField
-              label={t("agents.form.modelFastThinking")}
-              value={form.model_fast_thinking ?? ""}
-              onChange={(v) => setForm({ model_fast_thinking: v })}
-            />
-          </div>
+          {visibleTiers.strong && (
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-4 items-end">
+              <ModelComboField
+                label={t("agents.form.modelStrong")}
+                field="model_strong"
+                value={form.model_strong ?? ""}
+                placeholder={t("agents.form.modelFallback")}
+                optional
+                cachedModels={cachedModels}
+                onChange={(v) => setForm({ model_strong: v })}
+              />
+              <ThinkingField
+                label={t("agents.form.modelStrongThinking")}
+                value={form.model_strong_thinking ?? ""}
+                onChange={(v) => setForm({ model_strong_thinking: v })}
+              />
+              <button
+                type="button"
+                aria-label={t("common.remove")}
+                title={t("common.remove")}
+                onClick={() => {
+                  setForm({ model_strong: "", model_strong_thinking: "" });
+                  setVisibleTiers((prev) => ({ ...prev, strong: false }));
+                }}
+                className="mb-2 text-muted-foreground hover:text-foreground cursor-pointer text-sm font-semibold"
+              >
+                ×
+              </button>
+            </div>
+          )}
+          {visibleTiers.fast && (
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-4 items-end">
+              <ModelComboField
+                label={t("agents.form.modelFast")}
+                field="model_fast"
+                value={form.model_fast ?? ""}
+                placeholder={t("agents.form.modelFallback")}
+                optional
+                cachedModels={cachedModels}
+                onChange={(v) => setForm({ model_fast: v })}
+              />
+              <ThinkingField
+                label={t("agents.form.modelFastThinking")}
+                value={form.model_fast_thinking ?? ""}
+                onChange={(v) => setForm({ model_fast_thinking: v })}
+              />
+              <button
+                type="button"
+                aria-label={t("common.remove")}
+                title={t("common.remove")}
+                onClick={() => {
+                  setForm({ model_fast: "", model_fast_thinking: "" });
+                  setVisibleTiers((prev) => ({ ...prev, fast: false }));
+                }}
+                className="mb-2 text-muted-foreground hover:text-foreground cursor-pointer text-sm font-semibold"
+              >
+                ×
+              </button>
+            </div>
+          )}
+          {(!visibleTiers.strong || !visibleTiers.fast) && (
+            <div className="flex gap-2">
+              {!visibleTiers.strong && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleTiers((prev) => ({ ...prev, strong: true }))}
+                  className="rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/40 cursor-pointer transition-colors"
+                >
+                  ＋ {t("agents.form.modelStrong")}
+                </button>
+              )}
+              {!visibleTiers.fast && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleTiers((prev) => ({ ...prev, fast: true }))}
+                  className="rounded-md border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/40 cursor-pointer transition-colors"
+                >
+                  ＋ {t("agents.form.modelFast")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
       {isAdmin && (
