@@ -408,13 +408,13 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - keep `scope=user` as a compatibility alias for shared PrincipalHome;
   - regenerate Go and TypeScript clients before server/Web changes.
 - [ ] Move host-side parsing of untrusted Sandbox files behind the Sandbox/Filesystem boundary, including the current vision/xberg path, or prove the input is immutable trusted media and record that narrower boundary.
-- [ ] Implement the operator-only `stellad storage migrate-assets` command through the Home/blob service layer, following CLI rules:
+- [x] Implement the operator-only `stellad storage migrate-assets` command through the Home/blob service layer, following CLI rules:
   - require old writers to be stopped and retain the legacy blob configuration;
   - support dry-run and `--json`, progress on stderr, and actionable non-zero errors;
   - list only mutable user/group asset keys, validate typed principal/path mapping, and write missing content safely into PrincipalHome;
   - verify key count, byte size, and content digest; record the migration marker by PostgreSQL CAS;
   - be idempotent and never delete remote objects.
-- [ ] Fail server startup when the durable metadata/config says legacy mutable object authority requires migration but the completion marker is absent. No-authority deployments record/observe `not_required` and continue normally.
+- [x] Fail server startup when the durable metadata/config says legacy mutable object authority requires migration but the completion marker is absent. No-authority deployments record/observe `not_required` and continue normally.
 - [ ] After the marker gate, make `$STELLA_ASSETS_DIR` ordinary PrincipalHome data; migrate upload/share/channel consumers; remove mutable `asset.Store` object mirroring, hydrate, rollback, and object-version fencing while retaining immutable session media and share snapshots.
 - [ ] Extend canonical filesystem Skill metadata to preserve active/deprecated status, `disable_model_invocation`, nested metadata/`created_by`, source/install timestamps, and legacy lifecycle version; scope remains attachment-derived and rename remains delete+create.
 - [ ] Add operator-only `stellad storage migrate-skills --dry-run|--json` and a fail-closed Skill authority marker:
@@ -445,7 +445,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 - [ ] Isolating-provider tests prove the three exact `/opt/stella/skills/*` views are read-only and disjoint; a pinned managed descriptor continues reading its old revision after a flip while the next catalog snapshot reads the new revision.
 - [ ] Workspace list/read/write/upload succeeds through an exact Session with no warm Sandbox using the current single-process lifecycle; no Workspace path or response exposes a host coordinate.
 - [ ] `rg "ResolvePath|ResolveWritePath|HostPath" pkg/sandbox internal/agent internal/server plugins/sandbox` shows no public/caller dependency; any Provider-private resolver is explicitly scoped and tested.
-- [ ] A fixture containing assets only in the configured S3-compatible authority fails server startup before migration; dry-run changes nothing; the real migration materializes and digest-verifies every fixture into the correct UserHome/GroupHome, records the marker, is idempotent, and leaves remote objects intact.
+- [x] A fixture containing assets only in the configured S3-compatible authority fails server startup before migration; dry-run changes nothing; the real migration materializes and digest-verifies every fixture into the correct UserHome/GroupHome, records the marker, is idempotent, and leaves remote objects intact.
 - [ ] After cutover, mutable assets written by bash are immediately visible to Workspace/share without an object-store commit or hydrate step; immutable media/share tests remain green.
 - [ ] Skill migration fixtures cover active, deprecated, manual, Reflect, metadata-rich, binary, colliding, invalid-path, and unsupported-status rows. Dry-run changes nothing; real migration verifies every disposition; marker-before/after has exactly one authority; residual PG-only state blocks startup.
 - [ ] Reflect filesystem tests cover expected-digest conflict, exact retry/outcome unknown, manual concurrent edit, runtime usage touch, pair-activity delete refusal, logical usage migration, and no PG changelog write after cutover.
