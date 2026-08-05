@@ -69,9 +69,9 @@ interface Props {
  * an admin simply also sees disabled channels and the edit/create affordances
  * that lead to the settings page which owns channel credentials.
  *
- * Linking your own chat account is per platform, not per channel, so it rides
- * along as a secondary line under each platform's channels instead of a section
- * competing with them.
+ * Linking your own chat account is per platform, not per channel, so it lives
+ * in each platform's group header ("my account: …") instead of a section
+ * competing with the channel rows.
  */
 export function AgentChannelsPanel({ agentId }: Props) {
   const { t } = useI18n();
@@ -242,6 +242,47 @@ export function AgentChannelsPanel({ agentId }: Props) {
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {group.rows.length}
                     </span>
+                    {/* Your account is a platform-level fact, so it lives in the
+                        platform header with an explicit subject — dangling under
+                        the rows it read as belonging to nothing. */}
+                    {(canLinkCode || canScan) && (
+                      <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1">
+                        {identity ? (
+                          <>
+                            {/* The raw platform id is machine noise; it stays
+                                reachable on hover for support questions. */}
+                            <span
+                              className="max-w-48 truncate text-xs text-muted-foreground"
+                              title={identity.external_id}
+                            >
+                              {t("agents.channels.linkedAs", {
+                                name: identity.name || identity.external_id,
+                              })}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              disabled={unlink.isPending}
+                              onClick={() => setPendingUnlink(identity)}
+                            >
+                              {t("agents.channels.unlink")}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            title={t("agents.channels.linkPrompt")}
+                            loading={pending && (canScan ? link.qrPolling : link.generating)}
+                            onClick={() =>
+                              void (canScan ? link.startQr() : link.generateCode(group.type))
+                            }
+                          >
+                            {t("agents.channels.linkAccount", { platform: group.label })}
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {group.rows.map((row) => {
@@ -313,46 +354,6 @@ export function AgentChannelsPanel({ agentId }: Props) {
                       </div>
                     );
                   })}
-
-                  {(canLinkCode || canScan) &&
-                    (identity ? (
-                      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-                        {/* The raw platform id is machine noise on a row; it
-                            stays reachable on hover for support questions. */}
-                        <p
-                          className="min-w-0 truncate text-xs text-muted-foreground"
-                          title={identity.external_id}
-                        >
-                          {t("agents.channels.linkedAs", {
-                            name: identity.name || identity.external_id,
-                          })}
-                        </p>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          disabled={unlink.isPending}
-                          onClick={() => setPendingUnlink(identity)}
-                        >
-                          {t("agents.channels.unlink")}
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-                        <p className="min-w-0 text-xs text-muted-foreground">
-                          {t("agents.channels.linkPrompt")}
-                        </p>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          loading={pending && (canScan ? link.qrPolling : link.generating)}
-                          onClick={() =>
-                            void (canScan ? link.startQr() : link.generateCode(group.type))
-                          }
-                        >
-                          {t("agents.channels.linkAccount", { platform: group.label })}
-                        </Button>
-                      </div>
-                    ))}
 
                   {pending && link.code && (
                     <div className="flex flex-col gap-2 rounded-lg bg-muted p-3">

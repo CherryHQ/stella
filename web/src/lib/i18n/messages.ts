@@ -468,7 +468,7 @@ const en = {
   "agents.channels.desc": "Bind a channel and every message it receives is handled by this agent.",
   "agents.channels.empty": "No channels available yet.",
   "agents.channels.linkAccount": "Link my {{platform}} account",
-  "agents.channels.linkedAs": "Linked as {{name}}",
+  "agents.channels.linkedAs": "My account: {{name}}",
   "agents.channels.linkPrompt":
     "Link your account so your messages on this platform are recognized.",
   "agents.channels.linkHint": "Send this command to Stella on {{platform}}:",
@@ -2577,7 +2577,7 @@ const zh: Record<MessageKey, string> = {
   "agents.channels.desc": "绑定渠道后，该渠道收到的消息都由这个智能体处理。",
   "agents.channels.empty": "还没有可用的渠道。",
   "agents.channels.linkAccount": "链接我的 {{platform}} 账号",
-  "agents.channels.linkedAs": "已链接：{{name}}",
+  "agents.channels.linkedAs": "我的账号：{{name}}",
   "agents.channels.linkPrompt": "链接账号后，你在该平台的消息才会被识别。",
   "agents.channels.linkHint": "在 {{platform}} 上把这条命令发给 Stella：",
   "agents.channels.linkExpires": "该验证码 5 分钟内有效。",
