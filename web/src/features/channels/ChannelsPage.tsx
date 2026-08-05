@@ -22,7 +22,6 @@ import type { Agent, Channel, Identity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
 import {
   Dialog,
@@ -50,183 +49,24 @@ import {
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { Plus } from "lucide-react";
 import { PlatformIcon, platformLabel } from "@/components/PlatformIcon";
+import {
+  ChannelConfigFields,
+  ChannelFields,
+  channelConfig,
+  channelTypes,
+  defaultChannelType,
+  hasConfig,
+  newInstanceDraft,
+  normalizeChannel,
+  serializePlatformConfig,
+  type NormalizedChannel,
+} from "./ChannelFields";
 import { useAccountLink, weixinQrStatusVariant } from "./use-account-link";
-
-// ─── platform metadata ────────────────────────────────────────────────────────
-
-type PlatformDefaults = Record<string, string | boolean>;
-
-// The credential fields each platform stores on a channel row. Labels and icons
-// are shared with the rest of the app (see components/PlatformIcon).
-const platformDefaults: Record<string, PlatformDefaults> = {
-  telegram: { token: "", channel_id: "" },
-  qq: { app_id: "", app_secret: "" },
-  feishu: {
-    app_id: "",
-    app_secret: "",
-    encrypt_key: "",
-    verification_token: "",
-    tenant_key: "",
-    auto_provision: false,
-  },
-  weixin: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
-};
-
-const channelTypes = Object.keys(platformDefaults).map((id) => ({
-  id,
-  label: platformLabel(id),
-}));
-const defaultChannelType = channelTypes[0]?.id || "";
-
-function parseConfig(raw: string): Record<string, unknown> {
-  try {
-    return JSON.parse(raw || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function platformConfigDefaults(type: string): PlatformDefaults {
-  return { ...platformDefaults[type] };
-}
-
-function normalizeConfigValue(defaultValue: string | boolean, value: unknown): string | boolean {
-  if (typeof defaultValue === "boolean") return Boolean(value);
-  return (value as string) || "";
-}
-
-function serializePlatformConfig(
-  type: string,
-  data: Record<string, unknown>,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(platformConfigDefaults(type)).map(([key, defaultValue]) => [
-      key,
-      normalizeConfigValue(defaultValue, data[key]),
-    ]),
-  );
-}
-
-function hasConfig(type: string, data: Record<string, unknown>): boolean {
-  return Object.values(serializePlatformConfig(type, data)).some((v) => {
-    if (typeof v === "boolean") return v;
-    return String(v).trim() !== "";
-  });
-}
-
-// ─── types ────────────────────────────────────────────────────────────────────
-
-interface NormalizedChannel extends Record<string, unknown> {
-  id: string;
-  name: string;
-  type: string;
-  label?: string;
-  agent_id: string;
-  agent_name?: string;
-  enabled: boolean;
-}
-
-function normalizeChannel(ch: Channel): NormalizedChannel {
-  const type = ch.type || ch.id;
-  return {
-    ...ch,
-    name: ch.name || "",
-    type,
-    agent_id: ch.agent_id || "",
-    ...platformConfigDefaults(type),
-    ...parseConfig(ch.config),
-  };
-}
-
-function newInstanceDraft(type = defaultChannelType, id = ""): Record<string, unknown> {
-  return {
-    id: type === "weixin" ? "weixin" : id,
-    type,
-    ...platformConfigDefaults(type),
-  };
-}
-
-function channelConfig(ch: Record<string, unknown>): string {
-  return JSON.stringify(serializePlatformConfig(ch.type as string, ch));
-}
 
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 const selectClassName =
   "h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none sm:h-8 sm:text-sm";
-
-function InstanceFields({
-  ch,
-  onChange,
-}: {
-  ch: Record<string, unknown>;
-  onChange: (key: string, value: unknown) => void;
-}) {
-  const type = ch.type as string;
-  const field = (key: string, label: string, inputType = "text", placeholder = "") => (
-    <div className="w-full space-y-1.5">
-      <label className="text-sm font-medium font-mono">{label}</label>
-      <Input
-        nativeInput
-        type={inputType}
-        value={(ch[key] as string) || ""}
-        onChange={(e) => onChange(key, e.target.value)}
-        placeholder={placeholder}
-        className="w-full text-sm font-mono"
-      />
-    </div>
-  );
-
-  return (
-    <div className="space-y-4">
-      {type === "telegram" && (
-        <div className="space-y-4">
-          {field("token", "Bot Token", "password", "From @BotFather")}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            {field("channel_id", "Channel ID", "text", "Default channel")}
-          </div>
-        </div>
-      )}
-
-      {type === "qq" && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            {field("app_id", "App ID", "text", "QQ Bot App ID")}
-            {field("app_secret", "App Secret", "password")}
-          </div>
-        </div>
-      )}
-
-      {type === "feishu" && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            {field("app_id", "App ID")}
-            {field("app_secret", "App Secret", "password")}
-            {field("encrypt_key", "Encrypt Key", "password", "optional")}
-            {field("verification_token", "Verification Token", "password", "optional")}
-            {field("tenant_key", "Tenant Key", "text", "optional, auto-detected at startup")}
-          </div>
-          <div className="flex items-center gap-3">
-            <Switch
-              checked={Boolean(ch.auto_provision)}
-              onCheckedChange={(v) => onChange("auto_provision", v)}
-            />
-            <span className="text-sm">Auto-provision accounts for tenant members</span>
-          </div>
-        </div>
-      )}
-
-      {type === "weixin" && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-          {field("bot_token", "Bot Token", "password")}
-          {field("base_url", "Base URL", "text", "https://ilinkai.weixin.qq.com")}
-          {field("bot_id", "Bot ID", "text", "optional")}
-          {field("user_id", "User ID", "text", "optional")}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── ChannelDetail ────────────────────────────────────────────────────────────
 
@@ -296,40 +136,11 @@ function ChannelDetail({
       <DetailPanelHeader
         title={channel.name || label}
         subtitle={<p className="text-xs font-mono text-muted-foreground">{channel.type}</p>}
-        action={
-          <>
-            <Switch
-              checked={Boolean(channel.enabled)}
-              onCheckedChange={(checked) => updateField("enabled", checked)}
-            />
-            <span className="text-sm">Enabled</span>
-          </>
-        }
       />
 
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium">Name</label>
-        <Input
-          nativeInput
-          type="text"
-          value={(channel.name as string) || ""}
-          onChange={(e) => updateField("name", (e.target as HTMLInputElement).value)}
-          placeholder={label}
-          className="w-full text-sm"
-        />
-      </div>
-
-      {/* Config section */}
-      {Object.keys(platformConfigDefaults(channel.type)).length > 0 && (
-        <div className="space-y-4">
-          <FormSectionTitle>Configuration</FormSectionTitle>
-          <InstanceFields ch={channel} onChange={(key, value) => updateField(key, value)} />
-          {hasConfig(channel.type, channel) && (
-            <p className="text-xs text-muted-foreground">
-              This page stores the channel config only. Agent selection belongs on the agent page.
-            </p>
-          )}
-        </div>
+      <ChannelFields channel={channel} onChange={updateField} />
+      {hasConfig(channel.type, channel) && (
+        <p className="text-xs text-muted-foreground">{t("channels.configOnlyNote")}</p>
       )}
 
       {/* Identity / account section. */}
@@ -768,11 +579,11 @@ function NewChannelForm({
                     : t("channels.manualFeishuSetup")}
                 </summary>
                 <div className="pt-4">
-                  <InstanceFields ch={draft} onChange={updateField} />
+                  <ChannelConfigFields channel={draft} onChange={updateField} />
                 </div>
               </details>
             ) : (
-              <InstanceFields ch={draft} onChange={updateField} />
+              <ChannelConfigFields channel={draft} onChange={updateField} />
             )}
           </div>
         )}

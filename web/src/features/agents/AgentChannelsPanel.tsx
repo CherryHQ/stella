@@ -26,6 +26,8 @@ import { meQueryOptions } from "@/lib/queries/me";
 import type { Identity } from "@/lib/types";
 import { ToastContainer, useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
+import { ChannelEditSheet } from "@/features/channels/ChannelEditSheet";
+import { normalizeChannel, type NormalizedChannel } from "@/features/channels/ChannelFields";
 import {
   LINK_CODE_PLATFORMS,
   QR_PLATFORM,
@@ -88,6 +90,17 @@ export function AgentChannelsPanel({ agentId }: Props) {
 
   const [pendingUnlink, setPendingUnlink] = useState<Identity | null>(null);
   const [pendingBind, setPendingBind] = useState<{ row: ChannelRow; target: string } | null>(null);
+  // Editing a channel happens here rather than on /settings/channels: leaving
+  // the profile to rename a channel loses the agent you were configuring.
+  const [editing, setEditing] = useState<NormalizedChannel | null>(null);
+  const [editKey, setEditKey] = useState(0);
+
+  const openEditor = (id: string) => {
+    const channel = (adminChannels.data ?? []).find((ch) => ch.id === id);
+    if (!channel) return;
+    setEditing(normalizeChannel(channel));
+    setEditKey((key) => key + 1);
+  };
 
   const invalidateIdentities = () =>
     void queryClient.invalidateQueries({ queryKey: ["profile-identities"] });
@@ -183,13 +196,6 @@ export function AgentChannelsPanel({ agentId }: Props) {
   const identityFor = (platform: string) =>
     (identities.data ?? []).find((identity) => identity.platform === platform) ?? null;
 
-  const routingLine = (row: ChannelRow) => {
-    if (row.agentId === agentId) return t("agents.channels.servesThisAgent");
-    if (row.agentId)
-      return t("agents.channels.servesAgent", { name: agentName(row.agentId, row.agentName) });
-    return t("agents.channels.routesToDefault");
-  };
-
   const isLoading = isAdmin ? adminChannels.isLoading : publicChannels.isLoading;
 
   return (
@@ -241,6 +247,15 @@ export function AgentChannelsPanel({ agentId }: Props) {
                   {group.rows.map((row) => {
                     const boundHere = row.agentId === agentId;
                     const busy = bind.isPending && bind.variables?.row.id === row.id;
+                    // The id only earns a line when it says something the name
+                    // doesn't; the badge already carries the binding, so the
+                    // subtitle never repeats it.
+                    const subtitle = [
+                      row.id !== row.name ? row.id : "",
+                      isAdmin && !row.enabled ? t("channels.disabled") : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
                     return (
                       <div
                         key={row.id}
@@ -251,21 +266,21 @@ export function AgentChannelsPanel({ agentId }: Props) {
                             <span className="truncate text-sm font-medium text-foreground">
                               {row.name}
                             </span>
-                            {boundHere && (
+                            {boundHere ? (
                               <Badge variant="success" size="sm">
-                                {t("agents.channels.servesThisAgent")}
+                                {t("agents.channels.boundHere")}
                               </Badge>
-                            )}
-                            {isAdmin && !row.enabled && (
-                              <Badge variant="outline" size="sm">
-                                {t("channels.disabled")}
+                            ) : row.agentId ? (
+                              <Badge variant="secondary" size="sm">
+                                {t("agents.channels.boundElsewhere", {
+                                  name: agentName(row.agentId, row.agentName),
+                                })}
                               </Badge>
-                            )}
+                            ) : null}
                           </div>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {row.id !== row.type ? `${row.id} · ` : ""}
-                            {routingLine(row)}
-                          </p>
+                          {subtitle && (
+                            <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+                          )}
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
                           {isAdmin && (
@@ -273,12 +288,7 @@ export function AgentChannelsPanel({ agentId }: Props) {
                               variant="ghost"
                               size="icon-sm"
                               aria-label={t("common.edit")}
-                              render={
-                                <Link
-                                  to="/settings/channels/$channelId"
-                                  params={{ channelId: row.id }}
-                                />
-                              }
+                              onClick={() => openEditor(row.id)}
                             >
                               <Pencil size={16} />
                             </Button>
@@ -307,12 +317,15 @@ export function AgentChannelsPanel({ agentId }: Props) {
                   {(canLinkCode || canScan) &&
                     (identity ? (
                       <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-                        <p className="min-w-0 truncate text-xs text-muted-foreground">
-                          {t("channels.linked")} ·{" "}
-                          <span className="font-mono">
-                            {identity.name ? `${identity.name} · ` : ""}
-                            {identity.external_id}
-                          </span>
+                        {/* The raw platform id is machine noise on a row; it
+                            stays reachable on hover for support questions. */}
+                        <p
+                          className="min-w-0 truncate text-xs text-muted-foreground"
+                          title={identity.external_id}
+                        >
+                          {t("agents.channels.linkedAs", {
+                            name: identity.name || identity.external_id,
+                          })}
                         </p>
                         <Button
                           variant="ghost"
@@ -336,7 +349,7 @@ export function AgentChannelsPanel({ agentId }: Props) {
                             void (canScan ? link.startQr() : link.generateCode(group.type))
                           }
                         >
-                          {t("agents.channels.linkAccount")}
+                          {t("agents.channels.linkAccount", { platform: group.label })}
                         </Button>
                       </div>
                     ))}
@@ -389,6 +402,14 @@ export function AgentChannelsPanel({ agentId }: Props) {
           )}
         </div>
       </ProfilePanelSection>
+
+      <ChannelEditSheet
+        open={!!editing}
+        channel={editing}
+        formKey={editKey}
+        onOpenChange={(open) => !open && setEditing(null)}
+        notify={showToast}
+      />
 
       {/* Both confirmations live at page level: an overlay nested inside another
           overlay is a bug (see web-ui.md). */}
