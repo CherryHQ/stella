@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -28,7 +29,11 @@ func (a *Access) ManageChannel(id string) (*ChannelManagement, error) {
 // enrollment flow performs an external handshake. Save repeats the check and the
 // database unique index closes the concurrent-write race.
 func (m *ChannelManagement) ValidateBinding(ctx context.Context, ch config.Channel) error {
-	conflict, err := m.access.svc.channelAgentPlatformBindingConflict(ctx, ch)
+	return m.access.svc.validateBinding(ctx, ch)
+}
+
+func (s *Service) validateBinding(ctx context.Context, ch config.Channel) error {
+	conflict, err := s.channelAgentPlatformBindingConflict(ctx, ch)
 	if err != nil {
 		return err
 	}
@@ -81,15 +86,22 @@ func (m *ChannelManagement) Channel(ctx context.Context, id string) (config.Chan
 // Save persists the already-authorized channel and applies its plugin as one
 // control-plane operation. It intentionally makes no further authorization call.
 func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error) {
-	a := m.access
+	return m.access.svc.saveChannel(ctx, ch, cfgMap, create)
+}
+
+// saveChannel is the shared, already-authorized channel write: validate the
+// binding invariant and config, persist, enable the plugin, apply the runtime,
+// and return the reloaded row. Every authorization gate (the admin Access or the
+// per-user ChannelBinding) runs before this and none runs inside it.
+func (s *Service) saveChannel(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error) {
 	// POST is create-only and PATCH is update-only. The store uses INSERT/UPDATE,
 	// rather than a read-then-upsert, so concurrent creates cannot overwrite an
 	// existing channel and a missing PATCH target cannot be created by accident.
-	if err := m.ValidateBinding(ctx, ch); err != nil {
+	if err := s.validateBinding(ctx, ch); err != nil {
 		return config.Channel{}, err
 	}
 	pluginID := config.PluginID(config.PluginKindChannel, ch.Type)
-	if err := a.svc.plugins.ValidateConfig(pluginID, cfgMap); err != nil {
+	if err := s.plugins.ValidateConfig(pluginID, cfgMap); err != nil {
 		return config.Channel{}, invalid("invalid request")
 	}
 	cfgJSON, err := json.Marshal(cfgMap)
@@ -99,9 +111,9 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 	ch.Config = string(cfgJSON)
 	var saveErr error
 	if create {
-		saveErr = a.svc.store.CreateChannel(ctx, ch)
+		saveErr = s.store.CreateChannel(ctx, ch)
 	} else {
-		saveErr = a.svc.store.UpdateChannel(ctx, ch)
+		saveErr = s.store.UpdateChannel(ctx, ch)
 	}
 	if saveErr != nil {
 		var conflict *config.ChannelBindingConflictError
@@ -116,17 +128,112 @@ func (m *ChannelManagement) Save(ctx context.Context, ch config.Channel, cfgMap 
 			return config.Channel{}, saveErr
 		}
 	}
-	if err := a.svc.ensureChannelPluginEnabled(ctx, ch.Type, cfgMap); err != nil {
+	if err := s.ensureChannelPluginEnabled(ctx, ch.Type, cfgMap); err != nil {
 		return config.Channel{}, err
 	}
-	if err := a.svc.plugins.ApplyChannel(ctx, ch); err != nil {
-		a.svc.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
+	if err := s.plugins.ApplyChannel(ctx, ch); err != nil {
+		s.log.Error("failed to apply channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
 	}
-	saved, err := a.svc.store.GetChannel(ctx, ch.ID)
+	saved, err := s.store.GetChannel(ctx, ch.ID)
 	if err != nil {
 		return config.Channel{}, err
 	}
 	return saved, nil
+}
+
+// ChannelBinding is one authorized channel→agent binding operation.
+//
+// Channel administration — credentials, naming, enablement, deletion — stays
+// admin-only behind Begin. Choosing which agent answers on a channel is a
+// per-user action instead, so it gets its own narrow gate here rather than
+// widening the admin Access or letting the transport write the row directly. The
+// operation only ever moves AgentID: the stored config (channel credentials) is
+// carried through untouched, and it reuses the same persist + plugin-apply path
+// as an admin save, including the (agent, platform) binding invariant.
+type ChannelBinding struct {
+	svc *Service
+	ch  config.Channel
+}
+
+// BeginChannelBinding authorizes rebinding one channel's agent for a signed-in
+// caller and loads the target row. Any valid user principal may bind, but a
+// non-admin may only touch an enabled channel; a disabled channel is as opaque to
+// them as a missing one, so both fail as 404.
+//
+// The Agent decisions are deliberately not made here: the caller must clear the
+// Agent PEP for CurrentAgentID (when set) and for the agent it binds, so the
+// "which agents may this user use" rule stays in the one domain that owns it.
+func (s *Service) BeginChannelBinding(ctx context.Context, authority authz.Authority, channelID string) (*ChannelBinding, error) {
+	if s == nil {
+		return nil, ErrUnavailable
+	}
+	if err := requireCatalogReader(authority); err != nil {
+		return nil, err
+	}
+	ch, err := s.store.GetChannel(ctx, channelID)
+	if err != nil {
+		return nil, notFound("channel not found")
+	}
+	if !authority.IsAdmin() && !ch.Enabled {
+		return nil, notFound("channel not found")
+	}
+	return &ChannelBinding{svc: s, ch: ch}, nil
+}
+
+// CurrentAgentID is the agent this channel is bound to right now, empty when it
+// is unbound. The caller needs it to authorize taking the channel away from its
+// current owner.
+func (b *ChannelBinding) CurrentAgentID() string { return b.ch.AgentID }
+
+// Bind points the channel at agentID, or unbinds it when agentID is empty, and
+// returns the secret-free projection of the saved row. A bound agent must exist
+// and be enabled; the caller's authority over that agent was already decided.
+func (b *ChannelBinding) Bind(ctx context.Context, agentID string) (PublicChannel, error) {
+	if agentID != "" {
+		agent, err := b.svc.store.GetAgent(ctx, agentID)
+		if err != nil {
+			return PublicChannel{}, invalid("agent not found")
+		}
+		if !agent.Enabled {
+			return PublicChannel{}, invalid("agent is disabled")
+		}
+	}
+	ch := b.ch
+	// Legacy singleton rows store the type in the id; resolve it so the binding
+	// invariant and the plugin lookup both see a real platform.
+	ch.Type = effectiveChannelType(ch)
+	ch.AgentID = agentID
+	cfgMap, err := decodeChannelConfig(ch.Config)
+	if err != nil {
+		return PublicChannel{}, invalid("invalid config JSON")
+	}
+	saved, err := b.svc.saveChannel(ctx, ch, cfgMap, false)
+	if err != nil {
+		return PublicChannel{}, err
+	}
+	return PublicChannel{
+		ID:      saved.ID,
+		Type:    effectiveChannelType(saved),
+		AgentID: saved.AgentID,
+		Enabled: saved.Enabled,
+	}, nil
+}
+
+// decodeChannelConfig parses a stored channel config JSON blob back into the map
+// shape saveChannel round-trips, so a binding write re-persists the existing
+// credentials byte-equivalently instead of clearing them.
+func decodeChannelConfig(raw string) (map[string]any, error) {
+	cfgMap := map[string]any{}
+	if raw == "" {
+		return cfgMap, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &cfgMap); err != nil {
+		return nil, err
+	}
+	if cfgMap == nil {
+		cfgMap = map[string]any{}
+	}
+	return cfgMap, nil
 }
 
 // DeleteChannel stops a channel's runtime and removes it.

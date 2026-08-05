@@ -179,6 +179,70 @@ func sortPublicChannels(channels []publicChannelView) {
 	})
 }
 
+// BindChannelAgent points a channel at an agent, or unbinds it when agent_id is
+// empty. It is the one channel write open to a non-admin, so it is deliberately
+// separate from the admin PATCH: it never accepts (or returns) the channel
+// config, and it answers with the same secret-free projection the public channel
+// list serves.
+func (s *Server) BindChannelAgent(w http.ResponseWriter, r *http.Request, id string) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	var body struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	ctx := r.Context()
+	binding, err := s.controlPlane.BeginChannelBinding(ctx, authority, id)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	// A non-admin may only bind an agent they can use, and may only take a channel
+	// away from an agent they can use — a channel they cannot reach is not theirs
+	// to repoint. Both are Agent PEP decisions, made before the channel write.
+	if !info.IsAdmin {
+		for _, agentID := range []string{binding.CurrentAgentID(), body.AgentID} {
+			if agentID == "" {
+				continue
+			}
+			if _, code, msg := s.requireAgentUse(ctx, agentID); code != 0 {
+				writeError(w, code, msg)
+				return
+			}
+		}
+	}
+
+	saved, err := binding.Bind(ctx, body.AgentID)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	agentNames, err := s.accessibleAgentNames(r, info)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, publicChannelView{
+		ID:        saved.ID,
+		Type:      saved.Type,
+		Label:     channelLabel(saved.Type),
+		AgentID:   saved.AgentID,
+		AgentName: agentNames[saved.AgentID],
+		Enabled:   saved.Enabled,
+	})
+}
+
 func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 	access, ok := s.beginControlPlane(w, r)
 	if !ok {

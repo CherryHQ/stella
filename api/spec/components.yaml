@@ -621,6 +621,14 @@ components:
           type: string
           description: >-
             JSON string of the channel config. Omit to keep the current config; pass an object to replace it.
+    BindChannelRequest:
+      type: object
+      required: [agent_id]
+      properties:
+        agent_id:
+          type: string
+          description: >-
+            Agent to bind this channel to. An empty string unbinds the channel.
     FeishuRegistrationInitRequest:
       type: object
       properties:

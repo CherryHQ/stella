@@ -1469,3 +1469,191 @@ func TestSaveManifestPluginsRejectsDisablingEssential(t *testing.T) {
 		t.Fatal("rejected save must not write an override row")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// POST /api/channels/{id}/bind — the one channel write open to a non-admin.
+// ---------------------------------------------------------------------------
+
+// bindTestEnv seeds a telegram channel plus a system-scope agent (usable by any
+// signed-in user) and a restricted agent (usable by nobody but an admin), and
+// returns a regular user's session token.
+func setupChannelBindEnv(t *testing.T, channelID string, enabled bool) (*testEnv, string) {
+	t.Helper()
+	env := setupAdmin(t)
+	enableChannelPlugin(t, env, pkgchannel.PlatformTelegram)
+	ctx := context.Background()
+	for _, agent := range []config.Agent{
+		{ID: "bind-open", Name: "Open", Model: "test", Scope: config.AgentScopeSystem, Enabled: true},
+		{ID: "bind-open-2", Name: "Open Two", Model: "test", Scope: config.AgentScopeSystem, Enabled: true},
+		{ID: "bind-private", Name: "Private", Model: "test", Scope: config.AgentScopeRestricted, Enabled: true},
+		{ID: "bind-disabled", Name: "Disabled", Model: "test", Scope: config.AgentScopeSystem, Enabled: false},
+	} {
+		if err := env.store.CreateAgent(ctx, agent); err != nil {
+			t.Fatalf("CreateAgent(%s): %v", agent.ID, err)
+		}
+	}
+	if err := env.store.CreateChannel(ctx, config.Channel{
+		ID: channelID, Name: "Bind Target", Type: pkgchannel.PlatformTelegram,
+		Enabled: enabled, Config: `{"token":"bind-secret"}`,
+	}); err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	_, token := createTestUserWithToken(t, env.authStore, env.oidcStore, "bind-regular", auth.RoleUser)
+	return env, token
+}
+
+func storedChannel(t *testing.T, env *testEnv, id string) config.Channel {
+	t.Helper()
+	ch, err := env.store.GetChannel(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetChannel(%s): %v", id, err)
+	}
+	return ch
+}
+
+func TestBindChannelAgentNonAdminBindsAndUnbinds(t *testing.T) {
+	env, token := setupChannelBindEnv(t, "bind-tg", true)
+
+	rr := doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/channels/bind-tg/bind", map[string]any{"agent_id": "bind-open"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("bind status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	var view struct {
+		ID        string `json:"id"`
+		Type      string `json:"type"`
+		Label     string `json:"label"`
+		AgentID   string `json:"agent_id"`
+		AgentName string `json:"agent_name"`
+		Enabled   bool   `json:"enabled"`
+		Config    string `json:"config"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &view); err != nil {
+		t.Fatalf("unmarshal bind response: %v", err)
+	}
+	if view.AgentID != "bind-open" || view.ID != "bind-tg" || !view.Enabled {
+		t.Fatalf("bind response = %#v", view)
+	}
+	if view.AgentName != "Open" || view.Label != "Telegram" {
+		t.Fatalf("bind response projection = %#v", view)
+	}
+	// The public projection must never carry the channel's credentials.
+	if view.Config != "" || strings.Contains(rr.Body.String(), "bind-secret") {
+		t.Fatalf("bind response leaked channel config: %s", rr.Body.String())
+	}
+
+	stored := storedChannel(t, env, "bind-tg")
+	if stored.AgentID != "bind-open" {
+		t.Fatalf("stored agent_id = %q, want bind-open", stored.AgentID)
+	}
+	if stored.Config != `{"token":"bind-secret"}` {
+		t.Fatalf("bind rewrote channel config: %q", stored.Config)
+	}
+	if stored.Name != "Bind Target" || !stored.Enabled || stored.Type != pkgchannel.PlatformTelegram {
+		t.Fatalf("bind changed non-binding fields: %#v", stored)
+	}
+
+	rr = doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/channels/bind-tg/bind", map[string]any{"agent_id": ""})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unbind status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if stored := storedChannel(t, env, "bind-tg"); stored.AgentID != "" {
+		t.Fatalf("unbind left agent_id = %q", stored.AgentID)
+	}
+	if stored := storedChannel(t, env, "bind-tg"); stored.Config != `{"token":"bind-secret"}` {
+		t.Fatalf("unbind rewrote channel config: %q", stored.Config)
+	}
+}
+
+func TestBindChannelAgentNonAdminDeniedForInaccessibleAgents(t *testing.T) {
+	env, token := setupChannelBindEnv(t, "bind-tg", true)
+	ctx := context.Background()
+
+	// Binding an agent the caller cannot use.
+	rr := doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/channels/bind-tg/bind", map[string]any{"agent_id": "bind-private"})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("bind private agent = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if got := storedChannel(t, env, "bind-tg").AgentID; got != "" {
+		t.Fatalf("denied bind wrote agent_id = %q", got)
+	}
+
+	// Taking a channel away from an agent the caller cannot use.
+	ch := storedChannel(t, env, "bind-tg")
+	ch.AgentID = "bind-private"
+	if err := env.store.UpdateChannel(ctx, ch); err != nil {
+		t.Fatalf("UpdateChannel: %v", err)
+	}
+	rr = doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/channels/bind-tg/bind", map[string]any{"agent_id": "bind-open"})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("rebind away from private agent = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if got := storedChannel(t, env, "bind-tg").AgentID; got != "bind-private" {
+		t.Fatalf("denied rebind changed agent_id to %q", got)
+	}
+}
+
+func TestBindChannelAgentNonAdminCannotSeeDisabledChannel(t *testing.T) {
+	env, token := setupChannelBindEnv(t, "bind-off", false)
+
+	rr := doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/channels/bind-off/bind", map[string]any{"agent_id": "bind-open"})
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("disabled channel = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if got := storedChannel(t, env, "bind-off").AgentID; got != "" {
+		t.Fatalf("disabled channel bind wrote agent_id = %q", got)
+	}
+	if rr := doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/channels/missing/bind", map[string]any{"agent_id": "bind-open"}); rr.Code != http.StatusNotFound {
+		t.Fatalf("missing channel = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
+	// An admin may bind a channel that is not enabled yet.
+	if rr := doRequest(t, env, http.MethodPost, "/api/channels/bind-off/bind", map[string]any{"agent_id": "bind-open"}); rr.Code != http.StatusOK {
+		t.Fatalf("admin bind of disabled channel = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if got := storedChannel(t, env, "bind-off").AgentID; got != "bind-open" {
+		t.Fatalf("admin bind stored agent_id = %q, want bind-open", got)
+	}
+}
+
+func TestBindChannelAgentEnforcesAgentPlatformUniqueness(t *testing.T) {
+	env, token := setupChannelBindEnv(t, "bind-tg", true)
+	ctx := context.Background()
+	if err := env.store.CreateChannel(ctx, config.Channel{
+		ID: "bind-tg-other", Name: "Other", Type: pkgchannel.PlatformTelegram,
+		AgentID: "bind-open", Enabled: true, Config: `{"token":"other-secret"}`,
+	}); err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+
+	rr := doRequestWithSession(t, env.srv, token, http.MethodPost, "/api/channels/bind-tg/bind", map[string]any{"agent_id": "bind-open"})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("conflicting bind = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if want := "agent is already bound to telegram channel bind-tg-other"; parseResponse(t, rr).Error != want {
+		t.Fatalf("conflict message = %q, want %q", parseResponse(t, rr).Error, want)
+	}
+	if got := storedChannel(t, env, "bind-tg").AgentID; got != "" {
+		t.Fatalf("conflicting bind wrote agent_id = %q", got)
+	}
+}
+
+func TestBindChannelAgentRejectsDisabledAndMissingAgents(t *testing.T) {
+	env, _ := setupChannelBindEnv(t, "bind-tg", true)
+
+	for _, agentID := range []string{"bind-disabled", "bind-missing"} {
+		rr := doRequest(t, env, http.MethodPost, "/api/channels/bind-tg/bind", map[string]any{"agent_id": agentID})
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("bind %q = %d, want 400 (body: %s)", agentID, rr.Code, rr.Body.String())
+		}
+	}
+	if got := storedChannel(t, env, "bind-tg").AgentID; got != "" {
+		t.Fatalf("rejected bind wrote agent_id = %q", got)
+	}
+}
+
+func TestBindChannelAgentRequiresAuthentication(t *testing.T) {
+	env, _ := setupChannelBindEnv(t, "bind-tg", true)
+	rr := doUnauthRequest(t, env.srv, http.MethodPost, "/api/channels/bind-tg/bind", map[string]any{"agent_id": "bind-open"})
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated bind = %d, want 401 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
