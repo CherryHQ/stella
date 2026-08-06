@@ -52,6 +52,89 @@ func TestFilesystemRejectsEscapesButResolvesContainedLinks(t *testing.T) {
 	}
 }
 
+func TestSkillFilesystemRejectsAliasesAndPinsVerifiedDirectory(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("trusted Skill roots intentionally fail closed on this platform")
+	}
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target", filepath.Join(base, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewSkillFilesystem(base, "alias/catalog"); err == nil {
+		t.Fatal("same-base symlink alias was accepted")
+	}
+
+	if err := os.MkdirAll(filepath.Join(base, "stable", "catalog"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	filesystem, err := NewSkillFilesystem(base, "stable/catalog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = filesystem.Close() })
+	if err := os.Rename(filepath.Join(base, "stable", "catalog"), filepath.Join(base, "stable", "original")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../target", filepath.Join(base, "stable", "catalog")); err != nil {
+		t.Fatal(err)
+	}
+	if err := filesystem.Write(context.Background(), sandbox.PathWorkspace+"/pinned", strings.NewReader("ok"), sandbox.WriteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(base, "stable", "original", "pinned")); err != nil || string(got) != "ok" {
+		t.Fatalf("pinned directory bytes = %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(base, "target", "pinned")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replacement alias received bytes: %v", err)
+	}
+}
+
+func TestSkillFilesystemFailsWhenExistingParentCannotSync(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("trusted Skill roots intentionally fail closed on this platform")
+	}
+	base := t.TempDir()
+	if err := os.Mkdir(filepath.Join(base, "locator"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	syncErr := errors.New("parent sync failed")
+	calls := 0
+	filesystem, err := newSkillFilesystem(base, "locator/catalog", func(int) error {
+		calls++
+		return syncErr
+	})
+	if filesystem != nil || !errors.Is(err, syncErr) || calls != 1 {
+		t.Fatalf("filesystem=%v err=%v sync calls=%d; want no filesystem, sync failure, one call", filesystem, err, calls)
+	}
+	if _, err := os.Stat(filepath.Join(base, "locator", "catalog")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("later Skill root component was created after failed existing-parent sync: %v", err)
+	}
+}
+
+func TestSkillFilesystemSyncsEveryParentOnce(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("trusted Skill roots intentionally fail closed on this platform")
+	}
+	base := t.TempDir()
+	if err := os.Mkdir(filepath.Join(base, "locator"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	filesystem, err := newSkillFilesystem(base, "locator/catalog", func(int) error {
+		calls++
+		return nil
+	})
+	if err != nil || filesystem == nil || calls != 2 {
+		t.Fatalf("filesystem=%v err=%v sync calls=%d; want filesystem, nil, two calls", filesystem, err, calls)
+	}
+	if err := filesystem.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestFilesystemRejectsReadOnlyAndDuplicateMounts(t *testing.T) {
 	root := t.TempDir()
 	if _, err := NewFilesystem([]Mount{{Path: sandbox.PathWorkspace, Directory: root}, {Path: sandbox.PathWorkspace, Directory: root}}); err == nil {

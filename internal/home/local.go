@@ -137,18 +137,44 @@ func (s *LocalStore) Attachment(home Record, readOnly bool) sandbox.HomeAttachme
 	return sandbox.HomeAttachment{HomeID: home.ID, StoreID: home.StoreID, Locator: home.Locator, ReadOnly: readOnly}
 }
 
-// openSharedSkillFilesystem creates the short-lived trusted server-side view
-// for one validated shared Skill root. Its only caller is Registry, which owns
-// the record lifecycle and closes the filesystem before returning to callers.
-func (s *LocalStore) openSharedSkillFilesystem(home Record) (sandbox.Filesystem, error) {
-	if home.Key.Kind != SystemSkillRoot && home.Key.Kind != SystemAgentSkillRoot {
-		return nil, errors.New("home: shared Skill filesystem requires a shared Skill root")
+// openSkillFilesystem creates the short-lived trusted server-side view for a
+// validated catalog. Its only caller is Registry, which owns record lifecycle
+// revalidation and closes the filesystem before returning to callers.
+func (s *LocalStore) openSkillFilesystem(home Record, skill *SkillRoot) (sandbox.Filesystem, error) {
+	if skill == nil || home.Key != skill.key {
+		return nil, errors.New("home: Skill catalog does not match Home identity")
 	}
-	directory, err := s.pathFor(home)
+	relative, err := s.skillCatalogRelative(home, skill.key)
 	if err != nil {
 		return nil, err
 	}
-	return fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: directory}})
+	return fsops.NewSkillFilesystem(s.base, relative)
+}
+
+// skillCatalogRelative owns every catalog-to-Home mapping. No caller provides
+// a subpath; fsops creates and opens each fixed component below the trusted
+// Store base with no-follow handle-relative operations.
+func (s *LocalStore) skillCatalogRelative(home Record, key Key) (string, error) {
+	if home.StoreID != s.id {
+		return "", errors.New("home belongs to another Store")
+	}
+	if err := s.ValidateLocator(home.Key, home.Locator); err != nil {
+		return "", fmt.Errorf("invalid persisted locator: %w", err)
+	}
+	catalog := ""
+	switch key.Kind {
+	case SystemSkillRoot, SystemAgentSkillRoot:
+	case PrincipalHome:
+		catalog = path.Join("data", ".agents", "skills")
+	case AgentHome:
+		catalog = path.Join(".agents", "skills")
+	default:
+		return "", errors.New("home: unsupported Skill catalog scope")
+	}
+	if catalog == "" {
+		return home.Locator, nil
+	}
+	return path.Join(home.Locator, catalog), nil
 }
 
 // pathFor validates the persisted relative locator before resolving this

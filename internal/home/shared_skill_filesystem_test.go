@@ -60,9 +60,9 @@ type countingSharedSkillStore struct {
 	opened atomic.Int32
 }
 
-func (s *countingSharedSkillStore) openSharedSkillFilesystem(record Record) (sandbox.Filesystem, error) {
+func (s *countingSharedSkillStore) openSkillFilesystem(record Record, root *SkillRoot) (sandbox.Filesystem, error) {
 	s.opened.Add(1)
-	return s.local.openSharedSkillFilesystem(record)
+	return s.local.openSkillFilesystem(record, root)
 }
 
 func TestUseSharedSkillFilesystemRejectsInvalidInputsBeforeOpening(t *testing.T) {
@@ -169,7 +169,7 @@ type fixedFilesystemStore struct {
 	opens      int
 }
 
-func (s *fixedFilesystemStore) openSharedSkillFilesystem(Record) (sandbox.Filesystem, error) {
+func (s *fixedFilesystemStore) openSkillFilesystem(Record, *SkillRoot) (sandbox.Filesystem, error) {
 	s.opens++
 	return s.filesystem, nil
 }

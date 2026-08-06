@@ -24,6 +24,7 @@ import (
 // later dedicated module, not this generic boundary.
 type Root struct {
 	root                           *os.Root
+	pinned                         *os.File
 	syncRootDirectory              func(*os.File) error
 	afterManagedSkillTemporaryLink func(string)
 	afterManagedSkillRename        func()
@@ -217,7 +218,12 @@ func Open(dir string) (*Root, error) {
 	return &Root{root: r}, nil
 }
 
-func (r *Root) Close() error { return r.root.Close() }
+func (r *Root) Close() error {
+	if r.pinned == nil {
+		return r.root.Close()
+	}
+	return errors.Join(r.root.Close(), r.pinned.Close())
+}
 
 func (r *Root) Read(ctx context.Context, name string, opts sandbox.ReadOptions) (io.ReadCloser, sandbox.FileInfo, error) {
 	if opts.MaxBytes <= 0 {
