@@ -35,6 +35,7 @@ var (
 	_ memory.KnowledgeUsageTracker = (*Provider)(nil)
 	_ memory.GroupEventIngestor    = (*Provider)(nil)
 	_ memory.GroupCursorCommitter  = (*Provider)(nil)
+	_ memory.GroupFactStore        = (*Provider)(nil)
 )
 
 // Provider implements memory.Provider and all six capability interfaces

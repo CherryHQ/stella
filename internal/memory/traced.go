@@ -158,6 +158,33 @@ func (t *tracedProvider) AppendGroupTurn(
 	return err
 }
 
+// ListActiveGroupFacts preserves GroupFactStore through the tracing wrapper.
+// Group Fact reads do not map to a legacy memory hook operation, so they are
+// forwarded without inventing misleading hook metadata.
+func (t *tracedProvider) ListActiveGroupFacts(ctx context.Context, groupID string) ([]GroupFact, error) {
+	store, ok := t.inner.(GroupFactStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("GroupFactStore")
+	}
+	return store.ListActiveGroupFacts(ctx, groupID)
+}
+
+func (t *tracedProvider) GetGroupFactVersion(ctx context.Context, groupID string) (int64, error) {
+	store, ok := t.inner.(GroupFactStore)
+	if !ok {
+		return 0, errCapabilityNotSupported("GroupFactStore")
+	}
+	return store.GetGroupFactVersion(ctx, groupID)
+}
+
+func (t *tracedProvider) ListGroupActorDisplayNames(ctx context.Context, groupID string) ([]GroupActorDisplayName, error) {
+	store, ok := t.inner.(GroupFactStore)
+	if !ok {
+		return nil, errCapabilityNotSupported("GroupFactStore")
+	}
+	return store.ListGroupActorDisplayNames(ctx, groupID)
+}
+
 func (t *tracedProvider) Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error) {
 	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAssemble, SessionID: session.ID}
 	ctx, start := t.begin(ctx, hctx)

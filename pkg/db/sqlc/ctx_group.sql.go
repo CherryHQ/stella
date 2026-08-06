@@ -567,6 +567,44 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 	return items, nil
 }
 
+const listLatestGroupActorDisplayNames = `-- name: ListLatestGroupActorDisplayNames :many
+SELECT DISTINCT ON (actor_type, actor_id)
+  actor_type,
+  actor_id,
+  actor_display_name
+FROM ctx_group_message
+WHERE group_id = $1
+  AND actor_display_name IS NOT NULL
+  AND btrim(actor_display_name) <> ''
+ORDER BY actor_type, actor_id, seq DESC
+`
+
+type ListLatestGroupActorDisplayNamesRow struct {
+	ActorType        string      `json:"actor_type"`
+	ActorID          string      `json:"actor_id"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+}
+
+func (q *Queries) ListLatestGroupActorDisplayNames(ctx context.Context, groupID string) ([]ListLatestGroupActorDisplayNamesRow, error) {
+	rows, err := q.db.Query(ctx, listLatestGroupActorDisplayNames, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLatestGroupActorDisplayNamesRow{}
+	for rows.Next() {
+		var i ListLatestGroupActorDisplayNamesRow
+		if err := rows.Scan(&i.ActorType, &i.ActorID, &i.ActorDisplayName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
 
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, actor_display_name FROM ctx_group_message

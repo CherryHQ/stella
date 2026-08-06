@@ -402,6 +402,31 @@ type CtxGroupDispatch struct {
 	UpdatedAt       time.Time          `json:"updated_at"`
 }
 
+type CtxGroupFact struct {
+	ID        string      `json:"id"`
+	GroupID   string      `json:"group_id"`
+	Subject   string      `json:"subject"`
+	SubjectID pgtype.Text `json:"subject_id"`
+	Content   string      `json:"content"`
+	Status    string      `json:"status"`
+	Source    string      `json:"source"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
+}
+
+type CtxGroupFactChangelog struct {
+	ID                 string    `json:"id"`
+	GroupID            string    `json:"group_id"`
+	FactID             string    `json:"fact_id"`
+	Action             string    `json:"action"`
+	Source             string    `json:"source"`
+	GroupVersionBefore int64     `json:"group_version_before"`
+	GroupVersionAfter  int64     `json:"group_version_after"`
+	BeforeState        []byte    `json:"before_state"`
+	AfterState         []byte    `json:"after_state"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
 type CtxGroupIngestCursor struct {
 	GroupID   string    `json:"group_id"`
 	Pipeline  string    `json:"pipeline"`

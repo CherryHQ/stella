@@ -21,7 +21,7 @@ const (
 	previousGAVersion = int64(20260725161331)
 	// Knowledge V1 is the first post-anchor migration. The assertions below
 	// exercise its file, ChunkSet, chunk, and active-publication schema.
-	currentMigrationVersion = sequentialAnchor + 6
+	currentMigrationVersion = sequentialAnchor + 7
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"

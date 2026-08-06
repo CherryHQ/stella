@@ -9,6 +9,17 @@ INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
+-- name: ListLatestGroupActorDisplayNames :many
+SELECT DISTINCT ON (actor_type, actor_id)
+  actor_type,
+  actor_id,
+  actor_display_name
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND actor_display_name IS NOT NULL
+  AND btrim(actor_display_name) <> ''
+ORDER BY actor_type, actor_id, seq DESC;
+
 -- name: GetGroupStateByID :one
 SELECT * FROM ctx_group_state WHERE id = $1;
 

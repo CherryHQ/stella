@@ -63,6 +63,25 @@ type groupCapabilityProvider struct {
 	committed    int64
 }
 
+type groupFactReadProvider struct {
+	memory.Provider
+	facts   []memory.GroupFact
+	version int64
+	names   []memory.GroupActorDisplayName
+}
+
+func (p *groupFactReadProvider) ListActiveGroupFacts(context.Context, string) ([]memory.GroupFact, error) {
+	return append([]memory.GroupFact(nil), p.facts...), nil
+}
+
+func (p *groupFactReadProvider) GetGroupFactVersion(context.Context, string) (int64, error) {
+	return p.version, nil
+}
+
+func (p *groupFactReadProvider) ListGroupActorDisplayNames(context.Context, string) ([]memory.GroupActorDisplayName, error) {
+	return append([]memory.GroupActorDisplayName(nil), p.names...), nil
+}
+
 func (p *groupCapabilityProvider) SyncGroupEventsBefore(_ context.Context, _ memory.Session, triggerSeq int64) error {
 	p.syncedBefore = triggerSeq
 	return nil
@@ -138,6 +157,42 @@ func TestTracedProviderForwardsGroupLCMCapabilities(t *testing.T) {
 	}
 	if inner.syncedBefore != 40 || inner.appendedID != "group-message-1" || inner.committed != 42 {
 		t.Fatalf("forwarded values = sync:%d append:%q commit:%d", inner.syncedBefore, inner.appendedID, inner.committed)
+	}
+}
+
+func TestTracedProviderForwardsGroupFactReads(t *testing.T) {
+	inner := &groupFactReadProvider{
+		Provider: memorytest.New(),
+		facts: []memory.GroupFact{{
+			ID:      "fact-1",
+			GroupID: "group-1",
+			Subject: memory.GroupFactSubjectHuman,
+			Content: "Coordinates release review.",
+		}},
+		version: 7,
+		names: []memory.GroupActorDisplayName{{
+			Subject:     memory.GroupFactSubjectHuman,
+			SubjectID:   "alice",
+			DisplayName: "Alice",
+		}},
+	}
+	traced := memory.WithTracing(inner, nil)
+	store, ok := traced.(memory.GroupFactStore)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupFactStore")
+	}
+
+	facts, err := store.ListActiveGroupFacts(context.Background(), "group-1")
+	if err != nil || len(facts) != 1 || facts[0].ID != "fact-1" {
+		t.Fatalf("facts = %#v, err = %v", facts, err)
+	}
+	version, err := store.GetGroupFactVersion(context.Background(), "group-1")
+	if err != nil || version != 7 {
+		t.Fatalf("version = %d, err = %v", version, err)
+	}
+	names, err := store.ListGroupActorDisplayNames(context.Background(), "group-1")
+	if err != nil || len(names) != 1 || names[0].DisplayName != "Alice" {
+		t.Fatalf("names = %#v, err = %v", names, err)
 	}
 }
 
