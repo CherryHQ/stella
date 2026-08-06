@@ -78,7 +78,7 @@ func TestScopedSkills_CrossUserIsolation(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("B get status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
-	rr = doRequestWithSession(t, env.srv, sidB, "DELETE", "/api/skills/"+id, nil)
+	rr = doRequestWithSession(t, env.srv, sidB, "DELETE", "/api/skills/"+id+"?expected_digest="+legacyTestSkillDigest, nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("B delete status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -122,7 +122,7 @@ func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 		{name: "system_agent", sid: env.bearerToken, id: systemAgentID, scope: "system_agent", agent: agentID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rr := doRequestWithSession(t, env.srv, tc.sid, "DELETE", "/api/skills/"+tc.id, nil)
+			rr := doRequestWithSession(t, env.srv, tc.sid, "DELETE", "/api/skills/"+tc.id+"?expected_digest="+legacyTestSkillDigest, nil)
 			if rr.Code != http.StatusNoContent {
 				t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 			}
@@ -138,11 +138,11 @@ func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 	}
 
 	// A system row is never a mutable lifecycle row, even for a non-admin.
-	rr := doRequestWithSession(t, env.srv, sid, "DELETE", "/api/skills/"+systemID, nil)
+	rr := doRequestWithSession(t, env.srv, sid, "DELETE", "/api/skills/"+systemID+"?expected_digest="+legacyTestSkillDigest, nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("system delete status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
-	rr = doRequest(t, env, "DELETE", "/api/skills/"+systemID, nil)
+	rr = doRequest(t, env, "DELETE", "/api/skills/"+systemID+"?expected_digest="+legacyTestSkillDigest, nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("admin system delete status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}

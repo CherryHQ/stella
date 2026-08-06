@@ -22,6 +22,7 @@ import (
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -265,6 +266,7 @@ func resolvedSkillToView(rs skills.ResolvedSkill) skillView {
 		Source:                 skillSource(rs.Metadata),
 		Version:                skillVersion(rs.Metadata),
 		LifecycleVersion:       rs.Version,
+		ContentDigest:          rs.ContentDigest,
 		CreatedBy:              skillCreatedBy(rs.Metadata),
 		CreatedAt:              rs.CreatedAt.UTC(),
 		UpdatedAt:              rs.UpdatedAt.UTC(),
@@ -742,11 +744,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	}
 	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, files)
 	if err != nil {
-		if errors.Is(err, skills.ErrInvalidSkillFilePath) {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		s.writeInternalError(w, err)
+		s.writeConflictOrInternal(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, committedSkillView(snapshot))
@@ -844,7 +842,7 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	s.applySkillUpdate(w, r, &sk)
 }
 
-// UpgradeAgentSkill re-fetches a DB-backed skill from its recorded install source
+// UpgradeAgentSkill re-fetches a Home-managed skill from its recorded install source
 // and updates it in place when the source has a newer version. It is the
 // check-and-update behind the inspector's "check for updates" button.
 func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.UpgradeAgentSkillParams) {
@@ -864,9 +862,18 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 
-	if _, err := acc.AuthorizeManageByID(r.Context(), rs.ID, authz.ActionWrite); err != nil {
+	sk, err := acc.AuthorizeManageByID(r.Context(), rs.ID, authz.ActionWrite)
+	if err != nil {
 		code, msg := skillAccessError(err)
 		writeError(w, code, msg)
+		return
+	}
+	if !validManagedSkillDigest(params.ExpectedDigest) {
+		writeError(w, http.StatusBadRequest, "expected_digest must be a lowercase SHA-256 digest")
+		return
+	}
+	if sk.ContentDigest != params.ExpectedDigest {
+		writeError(w, http.StatusConflict, "skill changed; refresh before trying again")
 		return
 	}
 	actingUserID := ""
@@ -881,10 +888,18 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		}
 	}
 
-	res, err := skills.UpgradeInStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), rs.Skill)
+	res, err := skills.UpgradeInStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), dbSkillToPluginSkill(sk))
 	if err != nil {
 		if errors.Is(err, skills.ErrNoUpgradeSource) {
 			writeError(w, http.StatusBadRequest, "skill was not installed from an upgradable source")
+			return
+		}
+		if errors.Is(err, skills.ErrHomeSkillConflict) || errors.Is(err, sandbox.ErrManagedSkillConflict) {
+			writeError(w, http.StatusConflict, "skill changed; refresh before trying again")
+			return
+		}
+		if errors.Is(err, sandbox.ErrOutcomeUnknown) {
+			s.writeInternalError(w, err)
 			return
 		}
 		s.writeBadGatewayError(w, err)
@@ -923,7 +938,11 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkill(w, r, &sk)
+	if !validManagedSkillDigest(digestOrEmpty(params.ExpectedDigest)) {
+		writeError(w, http.StatusBadRequest, "expected_digest must be a lowercase SHA-256 digest")
+		return
+	}
+	s.doDeleteSkill(w, r, &sk, digestOrEmpty(params.ExpectedDigest))
 }
 
 func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
@@ -983,7 +1002,11 @@ func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkillFile(w, r, &sk, params.Path)
+	if !validManagedSkillDigest(digestOrEmpty(params.ExpectedDigest)) {
+		writeError(w, http.StatusBadRequest, "expected_digest must be a lowercase SHA-256 digest")
+		return
+	}
+	s.doDeleteSkillFile(w, r, &sk, params.Path, digestOrEmpty(params.ExpectedDigest))
 }
 
 func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
@@ -1018,11 +1041,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	}
 	snapshot, err := skills.InstallToStore(ctx, s.skillStore(), req.Source, scope, storeUserID, agentID)
 	if err != nil {
-		if isUniqueViolation(err) {
-			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")
-			return
-		}
-		s.writeInternalError(w, err)
+		s.writeConflictOrInternal(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, committedSkillView(snapshot))

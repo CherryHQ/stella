@@ -8,6 +8,9 @@ import {
 } from "@/lib/api-client";
 import type { UpdateAgentSkillData } from "@/lib/api-client/types.gen";
 import { useI18n } from "@/lib/i18n";
+import { useToast } from "@/hooks/use-toast";
+import { apiErrorStatus } from "@/lib/api-error";
+import { managedSkillDigest } from "@/lib/skill-scope";
 import type { Skill } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +52,7 @@ function scopeBadgeVariant(scope: string): "outline" | "secondary" | "default" {
 
 export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Props) {
   const { t } = useI18n();
+  const { showToast } = useToast();
   const isNew = skillId === null;
   const [skill, setSkill] = useState<Skill | null>(null);
   const [savedForm, setSavedForm] = useState<Form>(emptyForm());
@@ -108,6 +112,11 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       setForm(f);
       setEditing(false);
     } catch (e) {
+      if (apiErrorStatus(e) === 409) {
+        showToast(t("skills.conflict"), "error");
+        void load();
+        return;
+      }
       console.error(e);
     } finally {
       setLoading(false);
@@ -170,6 +179,8 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
           throwOnError: true,
         });
       } else if (skillId) {
+        const expectedDigest = managedSkillDigest(skill ?? { scope: scope ?? "" });
+        if (expectedDigest === "") return showToast(t("skills.digestUnavailable"), "error");
         await updateAgentSkill({
           path: { id: agentId, skillId },
           query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
@@ -177,6 +188,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
             description: form.description,
             disable_model_invocation: form.disable_model_invocation,
             files: { "SKILL.md": form.content },
+            ...(expectedDigest === null ? {} : { expected_digest: expectedDigest }),
           },
           throwOnError: true,
         });
@@ -185,6 +197,11 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
       setEditing(false);
       onSaved();
     } catch (e) {
+      if (apiErrorStatus(e) === 409) {
+        showToast(t("skills.conflict"), "error");
+        void load();
+        return;
+      }
       console.error(e);
     } finally {
       setSaving(false);
@@ -193,20 +210,30 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
 
   const remove = useCallback(async () => {
     if (!skillId) return;
+    const expectedDigest = managedSkillDigest(skill ?? { scope: scope ?? "" });
+    if (expectedDigest === "") return showToast(t("skills.digestUnavailable"), "error");
     setDeleting(true);
     try {
       await deleteAgentSkill({
         path: { id: agentId, skillId },
-        query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
+        query: {
+          scope: scope as UpdateAgentSkillData["query"]["scope"],
+          ...(expectedDigest === null ? {} : { expected_digest: expectedDigest }),
+        },
         throwOnError: true,
       });
       onDeleted();
     } catch (e) {
+      if (apiErrorStatus(e) === 409) {
+        showToast(t("skills.conflict"), "error");
+        void load();
+        return;
+      }
       console.error(e);
     } finally {
       setDeleting(false);
     }
-  }, [skillId, scope, agentId, onDeleted]);
+  }, [skill, skillId, scope, agentId, load, onDeleted, showToast, t]);
 
   const cancelEdit = () => {
     setForm(savedForm);

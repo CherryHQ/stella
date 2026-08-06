@@ -61,6 +61,8 @@ import (
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 )
 
+const legacyTestSkillDigest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 // externalServerTestWorkspace maps each server fixture's temporary legacy Home
 // layout. It is explicit test composition, never a production fallback.
 type externalServerTestWorkspace struct{ root string }

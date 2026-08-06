@@ -33,7 +33,12 @@ const sqlcImportPath = "github.com/CherryHQ/stella/pkg/db/sqlc"
 // channel.NewDBGroupMemberLister). No composition-root file may reference the raw
 // sqlc query layer; a new sqlc.<Symbol> reference in any cmd/stellad file fails
 // here — route the query behind a service the root merely wires.
-var cmdSQLCRefCounts = map[string]int{}
+// The Home Skill authority cutover is the narrow exception: setup_skills.go
+// constructs the identity-only catalog inventory, and commands.go combines the
+// exact same usage telemetry object with Reflect's Home curator adapter. Both
+// calls are composition, not application queries; any additional raw sqlc use
+// remains a test failure.
+var cmdSQLCRefCounts = map[string]int{"commands.go": 1, "setup_skills.go": 1}
 
 // localImportName returns the identifier a file uses for importPath, honoring an
 // explicit alias; "" if the file does not import it. This defeats trivial alias

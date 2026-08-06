@@ -8,3 +8,8 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error && err.message) return err.message;
   return fallback;
 }
+
+export function apiErrorStatus(err: unknown): number | undefined {
+  const status = (err as { error?: { code?: unknown } })?.error?.code;
+  return typeof status === "number" ? status : undefined;
+}

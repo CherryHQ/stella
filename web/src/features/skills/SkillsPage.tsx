@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
 import { SCOPE_DESC_KEY, SCOPE_LABEL_KEY, isSkillReadOnly } from "@/lib/skill-scope";
-import { apiErrorMessage } from "@/lib/api-error";
+import { apiErrorMessage, apiErrorStatus } from "@/lib/api-error";
 import { useToast } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { ScopedSkillScope } from "@/lib/queries/skills";
@@ -240,10 +240,14 @@ export function SkillsPage() {
 
   const toggleModelInvocation = useCallback(
     async (skill: Skill) => {
+      if (!skill.content_digest) return showToast(t("skills.digestUnavailable"), "error");
       try {
         await updateScopedSkill({
           path: { id: skill.id },
-          body: { disable_model_invocation: !skill.disable_model_invocation },
+          body: {
+            disable_model_invocation: !skill.disable_model_invocation,
+            expected_digest: skill.content_digest,
+          },
           throwOnError: true,
         });
         await reloadScope(
@@ -251,6 +255,16 @@ export function SkillsPage() {
           isAgentScope(skill.scope as ScopedSkillScope) ? (skill.agent_id ?? undefined) : undefined,
         );
       } catch (e) {
+        if (apiErrorStatus(e) === 409) {
+          showToast(t("skills.conflict"), "error");
+          await reloadScope(
+            skill.scope as ScopedSkillScope,
+            isAgentScope(skill.scope as ScopedSkillScope)
+              ? (skill.agent_id ?? undefined)
+              : undefined,
+          );
+          return;
+        }
         showToast(apiErrorMessage(e, t("skills.updateFailed")), "error");
       }
     },
@@ -259,8 +273,14 @@ export function SkillsPage() {
 
   const deleteSkill = useCallback(
     async (skill: Skill) => {
+      if (!window.confirm(t("skills.deleteConfirm", { name: skill.name }))) return;
+      if (!skill.content_digest) return showToast(t("skills.digestUnavailable"), "error");
       try {
-        await deleteScopedSkillRequest({ path: { id: skill.id }, throwOnError: true });
+        await deleteScopedSkillRequest({
+          path: { id: skill.id },
+          query: { expected_digest: skill.content_digest },
+          throwOnError: true,
+        });
         showToast(t("skills.deleted"));
         if (detailSkill?.id === skill.id) setDetailSkill(null);
         await reloadScope(
@@ -268,6 +288,16 @@ export function SkillsPage() {
           isAgentScope(skill.scope as ScopedSkillScope) ? (skill.agent_id ?? undefined) : undefined,
         );
       } catch (e) {
+        if (apiErrorStatus(e) === 409) {
+          showToast(t("skills.conflict"), "error");
+          await reloadScope(
+            skill.scope as ScopedSkillScope,
+            isAgentScope(skill.scope as ScopedSkillScope)
+              ? (skill.agent_id ?? undefined)
+              : undefined,
+          );
+          return;
+        }
         showToast(apiErrorMessage(e, t("skills.deleteFailed")), "error");
       }
     },

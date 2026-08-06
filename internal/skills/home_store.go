@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"sort"
 )
 
@@ -27,6 +28,12 @@ func NewHomeStore(catalog *HomeCatalog, manager *HomeSkillManager) (*HomeStore, 
 }
 
 func (s *HomeStore) Get(ctx context.Context, id string) (*Skill, error) {
+	// Agent routes first probe a stable ID, then resolve a user-supplied name
+	// (including project filesystem Skills). A noncanonical reference is not a
+	// Home row; returning a miss preserves that resolver order without a DB fallback.
+	if _, _, _, _, err := decodeFilesystemSkillID(id); err != nil {
+		return nil, fs.ErrNotExist
+	}
 	item, err := s.catalog.Get(ctx, id)
 	if err != nil {
 		return nil, err

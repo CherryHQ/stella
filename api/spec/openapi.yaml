@@ -598,8 +598,11 @@ components:
     InstallSkillRequest: {
       $ref: "./components.yaml#/components/schemas/InstallSkillRequest",
     }
-    UpdateSkillRequest: {
-      $ref: "./components.yaml#/components/schemas/UpdateSkillRequest",
+    UpdateManagedSkillRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateManagedSkillRequest",
+    }
+    UpdateAgentSkillRequest: {
+      $ref: "./components.yaml#/components/schemas/UpdateAgentSkillRequest",
     }
     CreateSkillRequest: {
       $ref: "./components.yaml#/components/schemas/CreateSkillRequest",

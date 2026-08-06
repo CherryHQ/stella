@@ -542,7 +542,7 @@ paths:
         content:
           application/json:
             schema: {
-              $ref: "../../components.yaml#/components/schemas/UpdateSkillRequest",
+              $ref: "../../components.yaml#/components/schemas/UpdateAgentSkillRequest",
             }
       responses:
         "200":
@@ -577,14 +577,22 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: expected_digest
+          in: query
+          required: false
+          schema: { type: string, pattern: "^[0-9a-f]{64}$" }
       responses:
         "204":
           description: deleted
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/agents/{id}/skills/{skillId}/upgrade:
     parameters:
@@ -609,6 +617,10 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: expected_digest
+          in: query
+          required: true
+          schema: { type: string, pattern: "^[0-9a-f]{64}$" }
       responses:
         "200":
           description: ok
@@ -625,6 +637,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/agents/{id}/skills/{skillId}/file:
     parameters:
@@ -687,14 +700,22 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: expected_digest
+          in: query
+          required: false
+          schema: { type: string, pattern: "^[0-9a-f]{64}$" }
       responses:
         "204":
           description: deleted
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
   /api/agents/{id}/skills/{skillRef}/activation:
     parameters:

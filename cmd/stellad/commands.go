@@ -57,6 +57,7 @@ import (
 	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -224,9 +225,20 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, err
 	}
 
-	skillStore := setupSkillStore(db)
+	// The completed-marker verifier is a hard startup boundary: no plugin,
+	// access, prompt, runtime, or Reflect consumer can observe legacy Skill
+	// current state after this point.
+	if err := skills.EnsureSkillHomeAuthority(parent, db, homeRegistry); err != nil {
+		return nil, err
+	}
+	skillAuthority, err := setupHomeSkillAuthority(db, homeRegistry)
+	if err != nil {
+		return nil, fmt.Errorf("build Home Skill authority: %w", err)
+	}
+	skillStore := skillAuthority.store
 	// The Skill domain shares the Agent read gate with the other execution
-	// domains and reads the same authoritative PostgreSQL rows as the transports.
+	// domains while its scope and owner facts come from the same Home authority
+	// every transport and runtime consumer receives.
 	skillAccess := skillaccess.NewService(skillStore, agentAccess)
 
 	dispatcher := notify.NewDispatcher()
@@ -330,13 +342,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
 
+	usageCuratorStore, err := reflect.NewHomeUsageCuratorStore(sqlc.New(db), skillAuthority.usage)
+	if err != nil {
+		return nil, fmt.Errorf("build Home Skill usage curator: %w", err)
+	}
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
 		Memory:            memProvider,
 		Store:             store,
 		Snapshots:         snapshotLoader,
 		SkillStore:        skillStoreAdapter,
 		SkillAuthorizer:   skillAccess,
-		UsageCuratorStore: reflect.NewSQLUsageCuratorStoreForPool(db),
+		UsageCuratorStore: usageCuratorStore,
 		StateStore:        pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
 		Providers:         providerStreamBuilder,
 		Services:          &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},

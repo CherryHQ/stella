@@ -106,6 +106,15 @@ func TestHomeCatalogGetReadsExactCanonicalRoot(t *testing.T) {
 	}
 }
 
+func TestHomeStoreGetTreatsNoncanonicalIDsAsNotFound(t *testing.T) {
+	store, _, _, ctx, _, _, _, _ := newHomeStoreFixture(t)
+	for _, id := range []string{"project-skill", "skill-v2-demo", "skill-v2-invalid"} {
+		if _, err := store.Get(ctx, id); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("Get(%q) error = %v, want fs.ErrNotExist", id, err)
+		}
+	}
+}
+
 func TestHomeStoreListsReadyHomesWithoutSkillCatalogAsEmpty(t *testing.T) {
 	db, ctx, base, migration := newSkillMigrationFixture(t)
 	userID, agentID := seedFixtures(t, db)

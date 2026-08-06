@@ -284,6 +284,11 @@ components:
         lifecycle_version:
           type: integer
           format: int64
+        content_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          readOnly: true
+          description: Immutable Home-managed content revision. Absent for filesystem and legacy Skills.
         created_by:
           type: string
           enum: [manual, reflect]
@@ -376,8 +381,9 @@ components:
           type: object
           additionalProperties:
             type: string
-    UpdateSkillRequest:
+    UpdateManagedSkillRequest:
       type: object
+      required: [expected_digest]
       properties:
         description:
           type: string
@@ -385,8 +391,6 @@ components:
         disable_model_invocation:
           type: boolean
           nullable: true
-        # Overwrites only the "version" key in the skill's metadata; source and
-        # install timestamps are preserved by a read-modify-write on the server.
         version:
           type: string
           nullable: true
@@ -396,6 +400,32 @@ components:
           type: object
           additionalProperties:
             type: string
+        expected_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: Observed Home-managed content revision required for mutation.
+    UpdateAgentSkillRequest:
+      type: object
+      properties:
+        description:
+          type: string
+          nullable: true
+        disable_model_invocation:
+          type: boolean
+          nullable: true
+        version:
+          type: string
+          nullable: true
+        convert_to_manual:
+          type: boolean
+        files:
+          type: object
+          additionalProperties:
+            type: string
+        expected_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: Required when the resolved Skill is Home-managed; omitted for project filesystem Skills.
     InstallSkillRequest:
       type: object
       required: [source]

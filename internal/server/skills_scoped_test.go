@@ -358,8 +358,9 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	createTestSkill(t, env, "system_agent", "", agentID, "skill-ud")
 
 	rr = doRequest(t, env, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=system_agent", map[string]any{
-		"description": "updated",
-		"files":       map[string]string{"SKILL.md": "# updated body"},
+		"expected_digest": legacyTestSkillDigest,
+		"description":     "updated",
+		"files":           map[string]string{"SKILL.md": "# updated body"},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("admin update status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
@@ -367,18 +368,19 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 
 	// Non-admin creator cannot update the admin-managed system_agent skill.
 	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=system_agent", map[string]any{
-		"description": "creator edit",
+		"expected_digest": legacyTestSkillDigest,
+		"description":     "creator edit",
 	})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("creator system_agent update status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=reference.md", nil)
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=reference.md&expected_digest="+legacyTestSkillDigest, nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("admin delete file status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=SKILL.md", nil)
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=SKILL.md&expected_digest="+legacyTestSkillDigest, nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("admin delete SKILL.md status = %d, want 400", rr.Code)
 	}
@@ -392,7 +394,7 @@ func TestAgentSkills_DeleteRemovesUserAgentSkill(t *testing.T) {
 	agentID := createAgentAsUser(t, env, sid, "agent-delete-lifecycle-agent")
 	id := createTestSkill(t, env, "user_agent", user.ID, agentID, "agent-delete-lifecycle-skill")
 
-	rr := doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/agent-delete-lifecycle-skill?scope=user_agent", nil)
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/agent-delete-lifecycle-skill?scope=user_agent&expected_digest="+legacyTestSkillDigest, nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}

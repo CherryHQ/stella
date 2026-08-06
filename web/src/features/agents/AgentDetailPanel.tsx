@@ -26,7 +26,8 @@ import type {
   UpdateAgentSkillData,
 } from "@/lib/api-client/types.gen";
 import type { BuiltinItem, Skill, User } from "@/lib/types";
-import { apiErrorMessage } from "@/lib/api-error";
+import { apiErrorMessage, apiErrorStatus } from "@/lib/api-error";
+import { managedSkillDigest } from "@/lib/skill-scope";
 import { normalizeSandbox, type AgentsSettingsLoaderData } from "@/lib/queries/agent-settings";
 import {
   agentRequestBody,
@@ -439,6 +440,8 @@ export function AgentDetailPanel({
       // binary file's base64 transport form would corrupt it.
       const activeFileEditable =
         currentState.selectedSkillFileLoaded && currentState.selectedSkillFileEncoding !== "base64";
+      const expectedDigest = managedSkillDigest(selectedSkill);
+      if (expectedDigest === "") return showToast(t("skills.digestUnavailable"), "error");
       setState((prev) => ({ ...prev, selectedSkillSaving: true }));
       try {
         await updateAgentSkill({
@@ -450,6 +453,7 @@ export function AgentDetailPanel({
             ...(activeFileEditable
               ? { files: { [selectedSkillActiveFile]: selectedSkillFileContent } }
               : {}),
+            ...(expectedDigest === null ? {} : { expected_digest: expectedDigest }),
           } as UpdateAgentSkillData["body"],
           throwOnError: true,
         });
@@ -476,6 +480,11 @@ export function AgentDetailPanel({
         await loadAgentSkills(currentState.editingId);
         showToast(t("common.saved"));
       } catch (e) {
+        if (apiErrorStatus(e) === 409) {
+          showToast(t("skills.conflict"), "error");
+          await loadAgentSkills(currentState.editingId);
+          return;
+        }
         showToast(apiErrorMessage(e, t("common.error")), "error");
         setState((prev) => ({ ...prev, selectedSkillSaving: false }));
       }
@@ -487,10 +496,15 @@ export function AgentDetailPanel({
     async (sk: Skill, currentState: AgentsPageState) => {
       if (sk.scope === "system") return;
       if (!confirm(t("agents.detail.confirmDeleteSkill", { name: sk.name }))) return;
+      const expectedDigest = managedSkillDigest(sk);
+      if (expectedDigest === "") return showToast(t("skills.digestUnavailable"), "error");
       try {
         await deleteAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: sk.name },
-          query: { scope: sk.scope as UpdateAgentSkillData["query"]["scope"] },
+          query: {
+            scope: sk.scope as UpdateAgentSkillData["query"]["scope"],
+            ...(expectedDigest === null ? {} : { expected_digest: expectedDigest }),
+          },
           throwOnError: true,
         });
         setState((prev) => {
@@ -505,6 +519,11 @@ export function AgentDetailPanel({
         await loadAgentSkills(currentState.editingId);
         showToast(t("agents.detail.skillRemoved"));
       } catch (e) {
+        if (apiErrorStatus(e) === 409) {
+          showToast(t("skills.conflict"), "error");
+          await loadAgentSkills(currentState.editingId);
+          return;
+        }
         showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },
@@ -576,12 +595,15 @@ export function AgentDetailPanel({
       const { selectedSkill, selectedSkillActiveFile, editingId } = currentState;
       if (!selectedSkill || selectedSkill.scope === "system") return;
       if (!confirm(t("agents.detail.confirmDeleteFile", { name: selectedSkillActiveFile }))) return;
+      const expectedDigest = managedSkillDigest(selectedSkill);
+      if (expectedDigest === "") return showToast(t("skills.digestUnavailable"), "error");
       try {
         await deleteAgentSkillFile({
           path: { id: editingId ?? "", skillId: selectedSkill.name },
           query: {
             path: selectedSkillActiveFile,
             scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"],
+            ...(expectedDigest === null ? {} : { expected_digest: expectedDigest }),
           },
           throwOnError: true,
         });
@@ -607,6 +629,11 @@ export function AgentDetailPanel({
           false,
         );
       } catch (e) {
+        if (apiErrorStatus(e) === 409) {
+          showToast(t("skills.conflict"), "error");
+          await loadAgentSkills(editingId);
+          return;
+        }
         showToast(apiErrorMessage(e, t("common.error")), "error");
       }
     },

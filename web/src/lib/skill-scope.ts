@@ -37,3 +37,11 @@ export function isSkillReadOnly(scope: string, isAdmin: boolean): boolean {
   if (scope === "system_agent") return !isAdmin;
   return !WRITABLE.has(scope as SkillScope);
 }
+
+export function managedSkillDigest(skill: {
+  scope: string;
+  content_digest?: string;
+}): string | null {
+  if (skill.scope === "project") return null;
+  return skill.content_digest ?? "";
+}

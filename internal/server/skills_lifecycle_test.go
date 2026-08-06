@@ -159,13 +159,13 @@ func TestAgentSkillsLifecycleDeleteUsesStableIDAndActiveName(t *testing.T) {
 	}
 
 	stableID := createTestSkill(t, env, "user_agent", user.ID, agentID, "delete-by-id")
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+stableID+"?scope=user_agent", nil)
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+stableID+"?scope=user_agent&expected_digest="+legacyTestSkillDigest, nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("stable ID delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	replacementID := createTestSkill(t, env, "user_agent", user.ID, agentID, "delete-by-id")
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/delete-by-id?scope=user_agent", nil)
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/delete-by-id?scope=user_agent&expected_digest="+legacyTestSkillDigest, nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("active-name delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -219,7 +219,7 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	}
 	path := "/api/agents/" + agentID + "/skills/" + created.ID + "?scope=user_agent"
 	rr := doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
-		"description": "must not commit", "files": map[string]string{"../escape.md": "invalid"},
+		"expected_digest": legacyTestSkillDigest, "description": "must not commit", "files": map[string]string{"../escape.md": "invalid"},
 	})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("invalid file patch status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
@@ -228,7 +228,7 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 
 	// An ordinary edit keeps Reflect ownership while committing metadata and files together.
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
-		"description": "ordinary edit", "files": map[string]string{"SKILL.md": "ordinary body"},
+		"expected_digest": legacyTestSkillDigest, "description": "ordinary edit", "files": map[string]string{"SKILL.md": "ordinary body"},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ordinary reflect patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
@@ -237,7 +237,7 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	assertManagedSkillState(t, env, created.ID, "reflect", "ordinary edit", "ordinary body")
 
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
-		"description": "manual edit", "convert_to_manual": true,
+		"expected_digest": legacyTestSkillDigest, "description": "manual edit", "convert_to_manual": true,
 		"files": map[string]string{"SKILL.md": "manual body", "references/note.md": "note"},
 	})
 	if rr.Code != http.StatusOK {
@@ -247,7 +247,7 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	assertManagedSkillState(t, env, created.ID, "manual", "manual edit", "manual body")
 
 	// Conversion is one-way; a second conversion request is an explicit conflict.
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{"convert_to_manual": true})
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{"expected_digest": legacyTestSkillDigest, "convert_to_manual": true})
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("second conversion status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -277,7 +277,7 @@ func TestSkillMutationResponseUsesCommittedSnapshotWhenListFilesFails(t *testing
 	}
 	id, _ := got["id"].(string)
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, "/api/agents/"+agentID+"/skills/"+id+"?scope=user_agent", map[string]any{
-		"files": map[string]string{"scripts/run.sh": "#!/bin/sh\n"},
+		"expected_digest": legacyTestSkillDigest, "files": map[string]string{"scripts/run.sh": "#!/bin/sh\n"},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update with failing ListFiles status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())

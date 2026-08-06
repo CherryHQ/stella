@@ -10,7 +10,27 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
+
+func validManagedSkillDigest(digest string) bool {
+	if len(digest) != 64 {
+		return false
+	}
+	for _, c := range digest {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func digestOrEmpty(digest *string) string {
+	if digest == nil {
+		return ""
+	}
+	return *digest
+}
 
 // skillFileResponse shapes a stored skill file for JSON transport. Binary
 // content is base64-encoded and flagged via "encoding" — JSON marshalling
@@ -30,7 +50,11 @@ func skillFileResponse(path, content string) map[string]string {
 // the shared internal-error response for storage failures.
 func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
 	if errors.Is(err, skills.ErrInvalidSkillFilePath) {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid skill input")
+		return
+	}
+	if errors.Is(err, skills.ErrHomeSkillConflict) || errors.Is(err, sandbox.ErrManagedSkillConflict) {
+		writeError(w, http.StatusConflict, "skill already exists or changed")
 		return
 	}
 	if isUniqueViolation(err) {
@@ -332,12 +356,17 @@ func (s *Server) UpdateScopedSkill(w http.ResponseWriter, r *http.Request, id st
 }
 
 // DeleteScopedSkill handles DELETE /api/skills/{id}.
-func (s *Server) DeleteScopedSkill(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) DeleteScopedSkill(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteScopedSkillParams) {
 	sk := s.scopedSkillByID(w, r, id, authz.ActionDelete)
 	if sk == nil {
 		return
 	}
-	s.doDeleteSkill(w, r, sk)
+	expectedDigest := params.ExpectedDigest
+	if !validManagedSkillDigest(expectedDigest) {
+		writeError(w, http.StatusBadRequest, "expected_digest must be a lowercase SHA-256 digest")
+		return
+	}
+	s.doDeleteSkill(w, r, sk, expectedDigest)
 }
 
 // GetScopedSkillFile handles GET /api/skills/{id}/file.
@@ -360,5 +389,10 @@ func (s *Server) DeleteScopedSkillFile(w http.ResponseWriter, r *http.Request, i
 	if sk == nil {
 		return
 	}
-	s.doDeleteSkillFile(w, r, sk, params.Path)
+	expectedDigest := params.ExpectedDigest
+	if !validManagedSkillDigest(expectedDigest) {
+		writeError(w, http.StatusBadRequest, "expected_digest must be a lowercase SHA-256 digest")
+		return
+	}
+	s.doDeleteSkillFile(w, r, sk, params.Path, expectedDigest)
 }

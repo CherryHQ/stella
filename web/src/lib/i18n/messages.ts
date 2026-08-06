@@ -1705,6 +1705,10 @@ const en = {
   "skills.deleteConfirmDesc": "“{{name}}” and its files are removed. This cannot be undone.",
   "skills.readOnly": "Read-only",
   "skills.updateFailed": "Failed to update skill",
+  "skills.digestUnavailable":
+    "This skill has no managed revision. Refresh it before making changes.",
+  "skills.conflict":
+    "This skill changed elsewhere. Refreshed the latest version; review it before trying again.",
   "skills.sourceRequired": "A source is required",
   "skills.fileRequired": "Select a skill zip to upload",
   "skills.updatedCreated": "updated {{updated}} · created {{created}}",
@@ -3870,6 +3874,8 @@ const zh: Record<MessageKey, string> = {
   "skills.deleteConfirmDesc": "“{{name}}”及其文件将被移除，此操作无法撤销。",
   "skills.readOnly": "只读",
   "skills.updateFailed": "更新技能失败",
+  "skills.digestUnavailable": "此技能没有受管理的修订版本。请刷新后再修改。",
+  "skills.conflict": "此技能已在别处变更。已刷新最新版本，请确认后再试。",
   "skills.sourceRequired": "请填写来源",
   "skills.fileRequired": "请选择要上传的技能压缩包",
   "skills.updatedCreated": "更新于 {{updated}} · 创建于 {{created}}",
