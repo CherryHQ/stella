@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"sort"
+	"strings"
 
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -37,6 +39,16 @@ type HomeCatalogSkill struct {
 	Skill   Skill
 	Digest  string
 	Managed bool
+}
+
+// HomeManagedSkillSnapshot is an immutable-revision read suitable as the
+// starting point for one managed mutation. Files deliberately retain opaque
+// bytes and modes; callers never need a Home locator or host path to build the
+// next complete revision.
+type HomeManagedSkillSnapshot struct {
+	Skill         Skill
+	ContentDigest string
+	Files         []HomeSkillFile
 }
 
 // HomeCatalog is a read-only catalog over ready Homes. It does not fall back
@@ -193,6 +205,201 @@ func (c *HomeCatalog) ListFilesWithContent(ctx context.Context, id string) (map[
 		return nil, err
 	}
 	return files, err
+}
+
+// LoadManagedSnapshot opens the exact typed catalog once, inspects the direct
+// entry once, and reads only the immutable revision selected by that inspection.
+// It never follows the mutable direct link while loading content.
+func (c *HomeCatalog) LoadManagedSnapshot(ctx context.Context, id string) (HomeManagedSkillSnapshot, error) {
+	scope, userID, agentID, name, err := decodeFilesystemSkillID(id)
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, err
+	}
+	coordinate := HomeCatalogRoot{Scope: scope, UserID: userID, AgentID: agentID}
+	root, err := homeCatalogSkillRoot(coordinate)
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, err
+	}
+	var out HomeManagedSkillSnapshot
+	exists, err := c.homes.UseExistingSkillFilesystem(ctx, root, func(filesystem sandbox.Filesystem) error {
+		inspector, ok := filesystem.(sandbox.ManagedSkillTargetInspector)
+		if !ok {
+			return errors.New("skills: filesystem does not support managed Skill inspection")
+		}
+		entry := path.Join(sandbox.PathWorkspace, name)
+		target, err := inspector.InspectManagedSkillTarget(ctx, entry)
+		if err != nil {
+			return fmt.Errorf("skills: inspect managed Skill %q: %w", name, err)
+		}
+		if !target.Managed {
+			if _, err := filesystem.Stat(ctx, entry); err != nil {
+				return err
+			}
+			return ErrSkillNotMutable
+		}
+		revision := path.Join(sandbox.PathWorkspace, ".stella-revisions", name, target.Digest)
+		captured, err := captureManagedRevision(ctx, filesystem, revision)
+		if err != nil {
+			return fmt.Errorf("skills: capture managed Skill %q: %w", name, err)
+		}
+		snapshot, err := managedSnapshotFromCapture(id, scope, userID, agentID, name, target.Digest, captured)
+		if err != nil {
+			return err
+		}
+		out = snapshot
+		return nil
+	})
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, fmt.Errorf("skills: open Home catalog: %w", err)
+	}
+	if !exists {
+		return HomeManagedSkillSnapshot{}, fs.ErrNotExist
+	}
+	return out, nil
+}
+
+type capturedManagedRevision struct{ files []HomeSkillFile }
+
+func homeSkillTreeEntries(files []HomeSkillFile) []skillTreeEntry {
+	entries := make([]skillTreeEntry, len(files))
+	for i, file := range files {
+		entries[i] = skillTreeEntry(file)
+	}
+	return entries
+}
+
+// captureManagedRevision collects one bounded immutable-revision manifest then
+// reads every manifest file once. The direct link has already been inspected;
+// this function receives only its pinned revision path.
+func captureManagedRevision(ctx context.Context, filesystem sandbox.Filesystem, root string) (capturedManagedRevision, error) {
+	entriesSeen := 0
+	manifest, err := collectManagedTree(ctx, filesystem, root, "", 0, &entriesSeen, nil)
+	if err != nil {
+		return capturedManagedRevision{}, err
+	}
+	if len(manifest) < 2 { // Avoid a negative capacity below and require both control files.
+		return capturedManagedRevision{}, invalidManagedRevision(errors.New("managed revision lacks required control files"))
+	}
+	sort.Slice(manifest, func(i, j int) bool { return manifest[i].path < manifest[j].path })
+	seen := make(map[string]struct{}, len(manifest))
+	var total int64
+	main, metadata := false, false
+	for _, file := range manifest {
+		if _, duplicate := seen[file.path]; duplicate {
+			return capturedManagedRevision{}, invalidManagedRevision(fmt.Errorf("managed revision repeats file %q", file.path))
+		}
+		seen[file.path] = struct{}{}
+		if file.size < 0 || file.size > maxManagedFileBytes || file.mode&^fs.FileMode(0o777) != 0 {
+			return capturedManagedRevision{}, invalidManagedRevision(fmt.Errorf("managed revision file %q has invalid size or mode", file.path))
+		}
+		if total > maxManagedTreeBytes-file.size {
+			return capturedManagedRevision{}, invalidManagedRevision(errors.New("managed revision exceeds content limit"))
+		}
+		total += file.size
+		switch file.path {
+		case MainFile:
+			if file.mode != 0o644 {
+				return capturedManagedRevision{}, invalidManagedRevision(errors.New("managed revision SKILL.md mode is not regular 0644"))
+			}
+			main = true
+		case skillMetadataFile:
+			if file.mode != 0o644 || file.size > maxCatalogMetadataBytes {
+				return capturedManagedRevision{}, invalidManagedRevision(errors.New("managed revision metadata is not regular 0644 within catalog limit"))
+			}
+			metadata = true
+		}
+	}
+	if !main || !metadata {
+		return capturedManagedRevision{}, invalidManagedRevision(errors.New("managed revision lacks required control files"))
+	}
+	files := make([]HomeSkillFile, 0, len(manifest))
+	for _, file := range manifest {
+		data, err := readCapturedManagedFile(ctx, filesystem, file)
+		if err != nil {
+			return capturedManagedRevision{}, err
+		}
+		files = append(files, HomeSkillFile{Path: file.path, Content: data, Mode: file.mode})
+	}
+	return capturedManagedRevision{files: files}, nil
+}
+
+func readCapturedManagedFile(ctx context.Context, filesystem sandbox.Filesystem, file managedTreeFile) ([]byte, error) {
+	limit := file.size
+	if limit == 0 {
+		limit = 1 // Filesystems require a positive ceiling even for empty regular files.
+	}
+	reader, info, err := filesystem.Read(ctx, file.absolute, sandbox.ReadOptions{MaxBytes: limit})
+	if err != nil {
+		return nil, err
+	}
+	data, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	if info.Size != file.size || info.Mode != file.mode || info.Mode&^fs.FileMode(0o777) != 0 || int64(len(data)) != file.size {
+		return nil, errors.New("managed revision file changed during capture")
+	}
+	return data, nil
+}
+
+func managedSnapshotFromCapture(id, scope, userID, agentID, name, digest string, captured capturedManagedRevision) (HomeManagedSkillSnapshot, error) {
+	var main, metadata []byte
+	files := make([]HomeSkillFile, 0, len(captured.files)-1)
+	for _, file := range captured.files {
+		switch file.Path {
+		case MainFile:
+			main = file.Content
+			files = append(files, file)
+		case skillMetadataFile:
+			metadata = file.Content
+		default:
+			files = append(files, file)
+		}
+	}
+	if main == nil || metadata == nil {
+		return HomeManagedSkillSnapshot{}, errors.New("skills: captured managed revision lacks required control files")
+	}
+	envelope, err := decodeSkillMetadataEnvelope(metadata)
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, fmt.Errorf("skills: decode managed Skill metadata: %w", err)
+	}
+	canonicalMetadata, err := encodeSkillMetadataEnvelope(envelope)
+	if err != nil || string(canonicalMetadata) != string(metadata) {
+		return HomeManagedSkillSnapshot{}, errors.New("skills: managed Skill metadata is not canonical v1")
+	}
+	frontmatter, err := parseFrontmatter(string(main)) // main is bounded by maxManagedFileBytes above.
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, fmt.Errorf("skills: parse %s frontmatter: %w", name, err)
+	}
+	if frontmatter.Name == "" {
+		frontmatter.Name = name
+	}
+	if err := skillNameValidationError(frontmatter.Name, name); err != nil {
+		return HomeManagedSkillSnapshot{}, fmt.Errorf("skills: %s frontmatter: %w", name, err)
+	}
+	if strings.TrimSpace(frontmatter.Description) == "" {
+		return HomeManagedSkillSnapshot{}, fmt.Errorf("skills: %s frontmatter description is required", name)
+	}
+	metadataJSON, err := canonicalJSON(envelope.Metadata)
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, fmt.Errorf("skills: encode managed Skill metadata: %w", err)
+	}
+	treeFiles := make([]skillTreeEntry, 0, len(files))
+	for _, file := range files {
+		treeFiles = append(treeFiles, skillTreeEntry(file))
+	}
+	got, err := digestSkillTree(skillTree{Metadata: envelope, Files: treeFiles})
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, fmt.Errorf("skills: digest captured managed Skill %q: %w", name, err)
+	}
+	if got != digest {
+		return HomeManagedSkillSnapshot{}, errors.New("skills: managed revision changed during capture")
+	}
+	return HomeManagedSkillSnapshot{Skill: Skill{ID: id, Scope: scope, UserID: userID, AgentID: agentID, Name: name, Description: frontmatter.Description, Status: envelope.Status, DisableModelInvocation: envelope.DisableModelInvocation, Metadata: metadataJSON, CreatedAt: envelope.CreatedAt, UpdatedAt: envelope.UpdatedAt, Version: envelope.LegacyLifecycleVersion, ContentDigest: digest}, ContentDigest: digest, Files: files}, nil
 }
 
 func (c *HomeCatalog) useSkillByID(ctx context.Context, id string, use func(sandbox.Filesystem, FilesystemSkillDescriptor) error) error {
