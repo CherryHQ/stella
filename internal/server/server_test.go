@@ -53,6 +53,7 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	_ "github.com/CherryHQ/stella/plugins/channels/discord"
 	feishuplugin "github.com/CherryHQ/stella/plugins/channels/feishu"
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	telegramplugin "github.com/CherryHQ/stella/plugins/channels/telegram"
@@ -607,12 +608,13 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 	env := setupAdmin(t)
 
 	tests := []struct {
-		path         string
-		propertyName string
+		path          string
+		propertyNames []string
 	}{
-		{path: "/api/plugins/channel/qq/config-schema", propertyName: "app_id"},
-		{path: "/api/plugins/channel/feishu/config-schema", propertyName: "app_id"},
-		{path: "/api/plugins/channel/weixin/config-schema", propertyName: "bot_token"},
+		{path: "/api/plugins/channel/discord/config-schema", propertyNames: []string{"token", "allowed_guild_ids", "allow_dm", "require_mention"}},
+		{path: "/api/plugins/channel/qq/config-schema", propertyNames: []string{"app_id"}},
+		{path: "/api/plugins/channel/feishu/config-schema", propertyNames: []string{"app_id"}},
+		{path: "/api/plugins/channel/weixin/config-schema", propertyNames: []string{"bot_token"}},
 	}
 
 	for _, tt := range tests {
@@ -631,8 +633,10 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 			if !ok {
 				t.Fatalf("schema properties = %#v", schema["properties"])
 			}
-			if _, ok := props[tt.propertyName]; !ok {
-				t.Fatalf("expected %q property in schema: %#v", tt.propertyName, schema)
+			for _, propertyName := range tt.propertyNames {
+				if _, ok := props[propertyName]; !ok {
+					t.Fatalf("expected %q property in schema: %#v", propertyName, schema)
+				}
 			}
 		})
 	}
