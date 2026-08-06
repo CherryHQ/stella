@@ -293,7 +293,7 @@ func scanRetainedRevisions(ctx context.Context, filesystem sandbox.Filesystem, r
 			if err := ctx.Err(); err != nil {
 				return revisionObservation{}, err
 			}
-			if !validSharedSkillDigest(digest.Name) || !digest.IsDir || digest.Mode&fs.ModeSymlink != 0 || digest.Mode&fs.ModeType != fs.ModeDir {
+			if !validHomeSkillDigest(digest.Name) || !digest.IsDir || digest.Mode&fs.ModeSymlink != 0 || digest.Mode&fs.ModeType != fs.ModeDir {
 				return revisionObservation{}, errors.New("invalid managed revision digest directory")
 			}
 			revisionPath := path.Join(namePath, digest.Name)

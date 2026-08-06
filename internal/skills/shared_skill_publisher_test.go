@@ -114,6 +114,18 @@ func TestSharedSkillPublisherRejectsInvalidRequestsBeforeHomeAccess(t *testing.T
 	}
 }
 
+func TestSharedSkillPublisherRetainsSharedRootBoundary(t *testing.T) {
+	publisher, homes, _ := testSharedSkillPublisher(t)
+	request := validSharedSkillRequest()
+	request.Root = home.Principal(home.UserPrincipal, "user-a")
+	if _, err := publisher.Publish(context.Background(), request); err == nil {
+		t.Fatal("user Skill root succeeded through shared publisher")
+	}
+	if len(homes.keys) != 0 {
+		t.Fatalf("non-shared root opened Home: %#v", homes.keys)
+	}
+}
+
 func TestSharedSkillPublisherConflictsAndSerializesCreate(t *testing.T) {
 	publisher, _, filesystem := testSharedSkillPublisher(t)
 	request := validSharedSkillRequest()
@@ -452,5 +464,16 @@ func TestSharedSkillPublisherTreatsPostPublishFailuresAsOutcomeUnknown(t *testin
 	publisher.homes = sharedSkillHomesFunc(func(_ context.Context, _ home.Key, use func(sandbox.Filesystem) error) error { return use(mismatch) })
 	if _, err := publisher.Publish(context.Background(), validSharedSkillRequest()); !errors.Is(err, sandbox.ErrOutcomeUnknown) || errors.Is(err, ErrSharedSkillConflict) || mismatch.publishes != 1 || mismatch.inspections != 2 {
 		t.Fatalf("selection mismatch = %v, publishes=%d inspections=%d; want unknown once and no clean conflict", err, mismatch.publishes, mismatch.inspections)
+	}
+}
+
+func TestSharedSkillPublisherReturnsCancellationFromInitialInspection(t *testing.T) {
+	publisher, _, filesystem := testSharedSkillPublisher(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	publisher.homes = sharedSkillHomesFunc(func(_ context.Context, _ home.Key, use func(sandbox.Filesystem) error) error {
+		return use(&cancelledInspectionFilesystem{Filesystem: filesystem, cancel: cancel})
+	})
+	if _, err := publisher.Publish(ctx, validSharedSkillRequest()); !errors.Is(err, context.Canceled) || errors.Is(err, ErrSharedSkillConflict) {
+		t.Fatalf("cancelled initial inspection = %v", err)
 	}
 }

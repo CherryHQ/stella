@@ -1,22 +1,16 @@
 package skills
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
-	"path"
-	"strings"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
-
-const sharedSkillPublishStripeCount = 257
 
 var ErrSharedSkillConflict = errors.New("skills: shared Skill publication conflict")
 
@@ -45,9 +39,9 @@ type SharedSkillFile struct {
 	Mode    fs.FileMode
 }
 
-// SharedSkillPublishRequest names one shared root entry. ExpectedDigest is an
-// optimistic concurrency token: empty creates only an absent direct entry;
-// otherwise it must be the exact current managed digest.
+// SharedSkillPublishRequest preserves the original shared-only contract.
+// ExpectedDigest is an optimistic concurrency token: empty creates only an
+// absent direct entry; otherwise it must be the exact current managed digest.
 type SharedSkillPublishRequest struct {
 	Root           home.Key
 	Name           string
@@ -56,27 +50,21 @@ type SharedSkillPublishRequest struct {
 	Files          []SharedSkillFile
 }
 
-// SharedSkillPublisher publishes complete, digest-pinned revisions to system
-// and system_agent Homes. Stripes are process-local for the Phase-1 single
-// replica ceiling; replace them with Phase-4 PG advisory locking when writers
-// can run in more than one replica.
+// SharedSkillPublisher preserves the shared system/system_agent publication
+// API. It adapts that strict legacy contract to the typed Home publisher; user
+// and user_agent roots are deliberately rejected before any Home access.
 type SharedSkillPublisher struct {
 	homes             SharedSkillFilesystemAccess
+	core              managedSkillPublicationCore
 	revisionTelemetry *RevisionTelemetry
 	catalogRoot       func(home.Key) (FilesystemCatalogRoot, error)
-	stripes           [sharedSkillPublishStripeCount]chan struct{}
 }
 
 func NewSharedSkillPublisher(homes SharedSkillFilesystemAccess) (*SharedSkillPublisher, error) {
 	if homes == nil {
 		return nil, errors.New("skills: shared Skill filesystem access is required")
 	}
-	p := &SharedSkillPublisher{homes: homes}
-	for i := range p.stripes {
-		p.stripes[i] = make(chan struct{}, 1)
-		p.stripes[i] <- struct{}{}
-	}
-	return p, nil
+	return &SharedSkillPublisher{homes: homes, core: newManagedSkillPublicationCore()}, nil
 }
 
 // NewSharedSkillPublisherWithRevisionTelemetry adds best-effort retained
@@ -96,104 +84,67 @@ func NewSharedSkillPublisherWithRevisionTelemetry(homes SharedSkillFilesystemAcc
 }
 
 // Publish validates and snapshots the complete caller-owned request before it
-// opens Home bytes, then publishes it at the fixed workspace root.
+// opens Home bytes, then publishes it at the fixed shared workspace root.
 func (p *SharedSkillPublisher) Publish(ctx context.Context, request SharedSkillPublishRequest) (string, error) {
 	if p == nil || p.homes == nil {
 		return "", errors.New("skills: shared Skill publisher is unavailable")
 	}
-	tree, err := snapshotSharedSkillRequest(request)
+	root, err := sharedSkillCatalogRoot(request.Root)
 	if err != nil {
 		return "", err
 	}
-	digest, err := digestSkillTree(tree)
-	if err != nil {
-		return "", fmt.Errorf("skills: validate shared Skill tree: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-
-	stripe := p.stripes[sharedSkillPublishStripe(request.Root, request.Name)]
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case <-stripe:
-	}
-	defer func() { stripe <- struct{}{} }()
-
-	err = p.homes.UseSharedSkillFilesystem(ctx, request.Root, func(filesystem sandbox.Filesystem) error {
-		inspector, ok := filesystem.(sandbox.ManagedSkillTargetInspector)
-		if !ok {
-			return errors.New("skills: filesystem does not support managed Skill inspection")
-		}
-		publisher, ok := filesystem.(sandbox.ManagedSkillPublisher)
-		if !ok {
-			return errors.New("skills: filesystem does not support managed Skill publication")
-		}
-		entry := path.Join(sandbox.PathWorkspace, request.Name)
-		target, err := inspector.InspectManagedSkillTarget(ctx, entry)
-		if err != nil {
-			if errors.Is(err, sandbox.ErrOutcomeUnknown) {
-				return err
-			}
-			// A malformed or foreign symlink is an ordinary occupant for this
-			// authority. It is never a candidate for replacement.
-			return fmt.Errorf("%w: inspect direct entry %q: %w", ErrSharedSkillConflict, request.Name, err)
-		}
-		if err := checkSharedSkillExpected(ctx, filesystem, entry, request.Name, request.ExpectedDigest, target); err != nil {
-			return err
-		}
-
-		if err := publisher.PublishManagedSkill(ctx, sandbox.PathWorkspace, request.Name, digest, skillTreePublication(tree)); err != nil {
-			// Once the publisher has been invoked, it may have selected a
-			// revision even when it reports an ordinary failure. A retry or
-			// clean conflict would therefore lie about the observable outcome.
-			return fmt.Errorf("%w: publish shared Skill %q: %w", sandbox.ErrOutcomeUnknown, request.Name, err)
-		}
-		selected, err := inspector.InspectManagedSkillTarget(ctx, entry)
-		if err != nil {
-			return fmt.Errorf("%w: verify selected shared Skill %q: %w", sandbox.ErrOutcomeUnknown, request.Name, err)
-		}
-		if !selected.Managed || selected.Digest != digest {
-			return fmt.Errorf("%w: selected digest %q, want %q", sandbox.ErrOutcomeUnknown, selected.Digest, digest)
-		}
-		if p.revisionTelemetry != nil {
-			root, rootErr := p.catalogRoot(request.Root)
-			if rootErr != nil {
-				slog.Warn("shared Skill revision telemetry failed after publication", "reason", "root_unavailable")
-			} else {
-				// Observe logs path-safe collection failures itself. A verified
-				// publication remains successful regardless.
-				_ = p.revisionTelemetry.Observe(ctx, filesystem, root)
-			}
-		}
-		return nil
+	homeRequest := sharedSkillHomeRequest(root, request)
+	digest, err := p.core.publish(ctx, homeRequest, func(ctx context.Context, _ *home.SkillRoot, use func(sandbox.Filesystem) error) error {
+		return p.homes.UseSharedSkillFilesystem(ctx, request.Root, use)
+	}, func(ctx context.Context, _ *home.SkillRoot, filesystem sandbox.Filesystem) {
+		p.observeVerifiedPublication(ctx, request.Root, filesystem)
 	})
+	if errors.Is(err, ErrHomeSkillConflict) {
+		return "", fmt.Errorf("%w: %w", ErrSharedSkillConflict, err)
+	}
 	if err != nil {
 		return "", err
 	}
 	return digest, nil
 }
 
-func snapshotSharedSkillRequest(request SharedSkillPublishRequest) (skillTree, error) {
-	if err := validateSharedSkillRoot(request.Root); err != nil {
-		return skillTree{}, err
-	}
-	if err := skillNameValidationError(request.Name, request.Name); err != nil {
-		return skillTree{}, err
-	}
-	if request.ExpectedDigest != "" && !validSharedSkillDigest(request.ExpectedDigest) {
-		return skillTree{}, errors.New("skills: expected digest must be empty or a lowercase SHA-256 digest")
-	}
-	metadata, err := snapshotSharedSkillMetadata(request.Metadata)
-	if err != nil {
-		return skillTree{}, err
-	}
-	files := make([]skillTreeEntry, len(request.Files))
+func sharedSkillHomeRequest(root *home.SkillRoot, request SharedSkillPublishRequest) HomeSkillPublishRequest {
+	files := make([]HomeSkillFile, len(request.Files))
 	for i, file := range request.Files {
-		files[i] = skillTreeEntry{Path: file.Path, Content: append([]byte(nil), file.Content...), Mode: file.Mode}
+		files[i] = HomeSkillFile(file)
 	}
-	return skillTree{Metadata: metadata, Files: files}, nil
+	return HomeSkillPublishRequest{
+		Root: root, Name: request.Name, ExpectedDigest: request.ExpectedDigest,
+		Metadata: HomeSkillMetadata(request.Metadata), Files: files,
+	}
+}
+
+func sharedSkillCatalogRoot(key home.Key) (*home.SkillRoot, error) {
+	if err := validateSharedSkillRoot(key); err != nil {
+		return nil, err
+	}
+	switch key.Kind {
+	case home.SystemSkillRoot:
+		return home.SystemSkillCatalog(), nil
+	case home.SystemAgentSkillRoot:
+		return home.SystemAgentSkillCatalog(key.AgentID)
+	default:
+		panic("validated shared Skill root has unsupported kind")
+	}
+}
+
+func (p *SharedSkillPublisher) observeVerifiedPublication(ctx context.Context, key home.Key, filesystem sandbox.Filesystem) {
+	if p.revisionTelemetry == nil {
+		return
+	}
+	root, err := p.catalogRoot(key)
+	if err != nil {
+		slog.Warn("shared Skill revision telemetry failed after publication", "reason", "root_unavailable")
+		return
+	}
+	// Observe logs path-safe collection failures itself. A verified publication
+	// remains successful regardless.
+	_ = p.revisionTelemetry.Observe(ctx, filesystem, root)
 }
 
 func validateSharedSkillRoot(key home.Key) error {
@@ -213,84 +164,4 @@ func validateSharedSkillRoot(key home.Key) error {
 		return errors.New("skills: shared Skill root must be SystemSkills or SystemAgentSkills")
 	}
 	return nil
-}
-
-func snapshotSharedSkillMetadata(metadata SharedSkillMetadata) (skillMetadataEnvelope, error) {
-	encoded, err := canonicalJSON(metadata.Metadata)
-	if err != nil {
-		return skillMetadataEnvelope{}, fmt.Errorf("skills: invalid shared Skill metadata: %w", err)
-	}
-	value, err := decodeStrictJSON(encoded)
-	if err != nil {
-		return skillMetadataEnvelope{}, fmt.Errorf("skills: copy shared Skill metadata: %w", err)
-	}
-	copied, ok := value.(map[string]any)
-	if !ok {
-		return skillMetadataEnvelope{}, errors.New("skills: shared Skill metadata must be an object")
-	}
-	createdBy, ok := copied["created_by"].(string)
-	if !ok || strings.TrimSpace(createdBy) == "" {
-		return skillMetadataEnvelope{}, errors.New("skills: shared Skill metadata.created_by is required")
-	}
-	envelope := skillMetadataEnvelope{Status: metadata.Status, DisableModelInvocation: metadata.DisableModelInvocation, Metadata: copied, CreatedAt: metadata.CreatedAt, UpdatedAt: metadata.UpdatedAt, LegacyLifecycleVersion: metadata.LegacyLifecycleVersion}
-	if err := validateSkillMetadataEnvelope(envelope); err != nil {
-		return skillMetadataEnvelope{}, fmt.Errorf("skills: invalid shared Skill metadata: %w", err)
-	}
-	return envelope, nil
-}
-
-func checkSharedSkillExpected(ctx context.Context, filesystem sandbox.Filesystem, entry, name, expected string, target sandbox.ManagedSkillTarget) error {
-	if expected != "" {
-		if !target.Managed || target.Digest != expected {
-			return fmt.Errorf("%w: shared Skill %q does not match expected digest", ErrSharedSkillConflict, name)
-		}
-		return nil
-	}
-	if target.Managed {
-		return fmt.Errorf("%w: shared Skill %q already exists", ErrSharedSkillConflict, name)
-	}
-	_, err := filesystem.Stat(ctx, entry)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("skills: stat shared Skill %q: %w", name, err)
-	}
-	return fmt.Errorf("%w: shared Skill %q has an ordinary occupant", ErrSharedSkillConflict, name)
-}
-
-func skillTreePublication(tree skillTree) sandbox.ManagedSkillPublication {
-	metadata, _ := encodeSkillMetadataEnvelope(tree.Metadata) // digest validated it before Home access.
-	files := make([]sandbox.ManagedSkillTreeEntry, 0, len(tree.Files)+1)
-	for _, file := range tree.Files {
-		files = append(files, sandbox.ManagedSkillTreeEntry{Path: file.Path, Mode: file.Mode, Length: int64(len(file.Content)), Open: func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(file.Content)), nil
-		}})
-	}
-	files = append(files, sandbox.ManagedSkillTreeEntry{Path: skillMetadataFile, Mode: 0o644, Length: int64(len(metadata)), Open: func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(metadata)), nil
-	}})
-	return sandbox.ManagedSkillPublication{Files: files}
-}
-
-func validSharedSkillDigest(digest string) bool {
-	if len(digest) != 64 {
-		return false
-	}
-	for _, c := range digest {
-		if (c < 'a' || c > 'f') && (c < '0' || c > '9') {
-			return false
-		}
-	}
-	return true
-}
-
-func sharedSkillPublishStripe(key home.Key, name string) int {
-	value := string(key.Kind) + "\x00" + key.AgentID + "\x00" + name
-	hash := uint32(2166136261)
-	for i := 0; i < len(value); i++ {
-		hash ^= uint32(value[i])
-		hash *= 16777619
-	}
-	return int(hash % sharedSkillPublishStripeCount)
 }
