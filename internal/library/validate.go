@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"archive/zip"

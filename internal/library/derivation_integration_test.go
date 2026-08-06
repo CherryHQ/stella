@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"bytes"
@@ -32,7 +32,7 @@ func TestChunkWorkerStagesAndAtomicallyPublishesGeneration(t *testing.T) {
 		{Content: "Flights require approval.", Locator: ChunkLocator{ByteStart: 16, ByteEnd: 41}},
 		{Content: "Hotels are capped at 800 yuan.", Locator: ChunkLocator{ByteStart: 42, ByteEnd: 72}},
 	}
-	service, client := newWorkingKnowledgeService(t, database, store, parserFunc(func(
+	service, client := newWorkingLibraryService(t, database, store, parserFunc(func(
 		context.Context,
 		string,
 		string,
@@ -51,15 +51,15 @@ func TestChunkWorkerStagesAndAtomicallyPublishesGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateManagedUpload: %v", err)
 	}
-	ready := waitForKnowledgeFile(t, service, file.ID, func(current File) bool {
+	ready := waitForLibraryFile(t, service, file.ID, func(current LibraryFile) bool {
 		return current.Status == FileStatusReady && current.ActiveChunkSetID != ""
 	})
 
-	set, err := sqlc.New(database).GetKnowledgeChunkSetByDerivation(
+	set, err := sqlc.New(database).GetLibraryChunkSetByDerivation(
 		t.Context(),
-		sqlc.GetKnowledgeChunkSetByDerivationParams{
+		sqlc.GetLibraryChunkSetByDerivationParams{
 			FileID:        file.ID,
-			DerivationKey: mustKnowledgeDerivationKey(t, file.RawSHA256, file.MediaType),
+			DerivationKey: mustLibraryDerivationKey(t, file.RawSHA256, file.MediaType),
 		},
 	)
 	if err != nil {
@@ -75,9 +75,9 @@ func TestChunkWorkerStagesAndAtomicallyPublishesGeneration(t *testing.T) {
 	if set.ChunkCount.Int64 != int64(len(staged)) || !bytes.Equal(set.ContentDigest, digest) {
 		t.Fatalf("ChunkSet integrity = count %d digest %x; want %d %x", set.ChunkCount.Int64, set.ContentDigest, len(staged), digest)
 	}
-	rows, err := sqlc.New(database).ListKnowledgeChunkByOrdinals(
+	rows, err := sqlc.New(database).ListLibraryChunkByOrdinals(
 		t.Context(),
-		sqlc.ListKnowledgeChunkByOrdinalsParams{
+		sqlc.ListLibraryChunkByOrdinalsParams{
 			ChunkSetID: set.ID,
 			Ordinals:   []int64{0, 1, 2},
 		},
@@ -88,12 +88,12 @@ func TestChunkWorkerStagesAndAtomicallyPublishesGeneration(t *testing.T) {
 	if err := verifyStagedBatch(staged, rows); err != nil {
 		t.Fatalf("persisted chunks differ from parser output: %v", err)
 	}
-	assertLatestKnowledgeJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
+	assertLatestLibraryJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
 }
 
 func TestChunkStagingIsIdempotentAndInvisibleUntilPublication(t *testing.T) {
 	database := dbtest.New(t)
-	store, service := newKnowledgeService(t, database)
+	store, service := newLibraryService(t, database)
 	file, err := service.CreateManagedUpload(
 		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "partial.txt", stringsReader("source"),
 	)
@@ -114,9 +114,9 @@ func TestChunkStagingIsIdempotentAndInvisibleUntilPublication(t *testing.T) {
 	if err := service.stageChunkBatch(t.Context(), target, chunks); err != nil {
 		t.Fatal(err)
 	}
-	restarted := newKnowledgeServiceWithConfig(t, database, ServiceConfig{
+	restarted := newLibraryServiceWithConfig(t, database, ServiceConfig{
 		RawStore: store,
-		Parser:   staticKnowledgeParser{},
+		Parser:   staticLibraryParser{},
 	})
 	restartedTarget, restartedAction, err := restarted.prepareChunkGeneration(t.Context(), file.ID)
 	if err != nil || restartedAction != generationBuild {
@@ -132,9 +132,9 @@ func TestChunkStagingIsIdempotentAndInvisibleUntilPublication(t *testing.T) {
 	var activeSetID *string
 	if err := database.QueryRow(t.Context(), `
 		SELECT
-			(SELECT count(*) FROM knowledge_chunk WHERE chunk_set_id = $1),
+			(SELECT count(*) FROM library_chunk WHERE chunk_set_id = $1),
 			active_chunk_set_id
-		FROM knowledge_file
+		FROM library_file
 		WHERE id = $2
 	`, target.ChunkSetID, file.ID).Scan(&count, &activeSetID); err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestDeterministicParseFailurePublishesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, client := newWorkingKnowledgeService(t, database, store, parserFunc(func(
+	service, client := newWorkingLibraryService(t, database, store, parserFunc(func(
 		context.Context,
 		string,
 		string,
@@ -172,16 +172,16 @@ func TestDeterministicParseFailurePublishesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	failed := waitForKnowledgeFile(t, service, file.ID, func(current File) bool {
+	failed := waitForLibraryFile(t, service, file.ID, func(current LibraryFile) bool {
 		return current.Status == FileStatusFailed
 	})
 	if failed.ActiveChunkSetID != "" || failed.ErrorMessage == "" {
 		t.Fatalf("failed file exposed a generation: %+v", failed)
 	}
-	set, err := sqlc.New(database).GetKnowledgeChunkSetByDerivation(
+	set, err := sqlc.New(database).GetLibraryChunkSetByDerivation(
 		t.Context(),
-		sqlc.GetKnowledgeChunkSetByDerivationParams{
-			FileID: file.ID, DerivationKey: mustKnowledgeDerivationKey(t, file.RawSHA256, file.MediaType),
+		sqlc.GetLibraryChunkSetByDerivationParams{
+			FileID: file.ID, DerivationKey: mustLibraryDerivationKey(t, file.RawSHA256, file.MediaType),
 		},
 	)
 	if err != nil {
@@ -192,14 +192,14 @@ func TestDeterministicParseFailurePublishesNothing(t *testing.T) {
 	}
 	var chunks int
 	if err := database.QueryRow(
-		t.Context(), `SELECT count(*) FROM knowledge_chunk WHERE chunk_set_id = $1`, set.ID,
+		t.Context(), `SELECT count(*) FROM library_chunk WHERE chunk_set_id = $1`, set.ID,
 	).Scan(&chunks); err != nil {
 		t.Fatal(err)
 	}
 	if chunks != 0 {
 		t.Fatalf("failed generation retained %d published candidates", chunks)
 	}
-	assertLatestKnowledgeJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
+	assertLatestLibraryJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
 }
 
 func TestInactiveReadyChunkSetDoesNotChangePublishedGeneration(t *testing.T) {
@@ -208,19 +208,19 @@ func TestInactiveReadyChunkSetDoesNotChangePublishedGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, _ := newWorkingKnowledgeService(t, database, store, staticKnowledgeParser{})
+	service, _ := newWorkingLibraryService(t, database, store, staticLibraryParser{})
 	file, err := service.CreateManagedUpload(
 		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "active.txt", stringsReader("source"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ready := waitForKnowledgeFile(t, service, file.ID, func(current File) bool {
+	ready := waitForLibraryFile(t, service, file.ID, func(current LibraryFile) bool {
 		return current.Status == FileStatusReady && current.ActiveChunkSetID != ""
 	})
 	inactiveID := uuid.NewString()
 	if _, err := database.Exec(t.Context(), `
-		INSERT INTO knowledge_chunk_set (
+		INSERT INTO library_chunk_set (
 			id, file_id, derivation_key, processor_key, raw_sha256,
 			status, chunk_count, content_digest, completed_at
 		) VALUES ($1, $2, 'future-derivation', 'future-parser', $3, 'ready', 1, $4, now())
@@ -228,7 +228,7 @@ func TestInactiveReadyChunkSetDoesNotChangePublishedGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(t.Context(), `
-		INSERT INTO knowledge_chunk (id, chunk_set_id, ordinal, content, locator, content_sha256)
+		INSERT INTO library_chunk (id, chunk_set_id, ordinal, content, locator, content_sha256)
 		VALUES ($1, $2, 0, 'inactive content', '{}', $3)
 	`, uuid.NewString(), inactiveID, bytes.Repeat([]byte{3}, sha256.Size)); err != nil {
 		t.Fatal(err)
@@ -240,9 +240,9 @@ func TestInactiveReadyChunkSetDoesNotChangePublishedGeneration(t *testing.T) {
 			file.active_chunk_set_id,
 			count(chunk.id) FILTER (WHERE chunk.chunk_set_id = file.active_chunk_set_id),
 			count(chunk.id) FILTER (WHERE chunk.chunk_set_id = $2)
-		FROM knowledge_file AS file
-		LEFT JOIN knowledge_chunk_set AS chunk_set ON chunk_set.file_id = file.id
-		LEFT JOIN knowledge_chunk AS chunk ON chunk.chunk_set_id = chunk_set.id
+		FROM library_file AS file
+		LEFT JOIN library_chunk_set AS chunk_set ON chunk_set.file_id = file.id
+		LEFT JOIN library_chunk AS chunk ON chunk.chunk_set_id = chunk_set.id
 		WHERE file.id = $1
 		GROUP BY file.active_chunk_set_id
 	`, file.ID, inactiveID).Scan(&activeID, &activeChunkCount, &inactiveChunkCount); err != nil {
@@ -262,7 +262,7 @@ func (f parserFunc) Parse(ctx context.Context, path, mediaType string) ([]Parsed
 	return f(ctx, path, mediaType)
 }
 
-func newWorkingKnowledgeService(
+func newWorkingLibraryService(
 	t *testing.T,
 	database *pgxpool.Pool,
 	store RawStore,
@@ -307,15 +307,15 @@ func newWorkingKnowledgeService(
 	return service, client
 }
 
-func waitForKnowledgeFile(
+func waitForLibraryFile(
 	t *testing.T,
 	service *Service,
 	fileID string,
-	condition func(File) bool,
-) File {
+	condition func(LibraryFile) bool,
+) LibraryFile {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
-	var last File
+	var last LibraryFile
 	var lastErr error
 	for time.Now().Before(deadline) {
 		last, lastErr = service.Get(t.Context(), fileID)
@@ -324,11 +324,11 @@ func waitForKnowledgeFile(
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("knowledge file %s did not converge: last=%+v error=%v", fileID, last, lastErr)
-	return File{}
+	t.Fatalf("library file %s did not converge: last=%+v error=%v", fileID, last, lastErr)
+	return LibraryFile{}
 }
 
-func assertLatestKnowledgeJobState(
+func assertLatestLibraryJobState(
 	t *testing.T,
 	client *river.Client[pgx.Tx],
 	kind string,
@@ -341,7 +341,7 @@ func assertLatestKnowledgeJobState(
 	var found bool
 	var err error
 	for time.Now().Before(deadline) {
-		state, found, err = latestKnowledgeJobState(t.Context(), client, kind, fileID)
+		state, found, err = latestLibraryJobState(t.Context(), client, kind, fileID)
 		if err == nil && found && state == want {
 			return
 		}
@@ -350,9 +350,9 @@ func assertLatestKnowledgeJobState(
 	t.Fatalf("latest %s job for %s = %q, found=%t, error=%v; want %q", kind, fileID, state, found, err, want)
 }
 
-func mustKnowledgeDerivationKey(t *testing.T, rawSHA256 []byte, mediaType string) string {
+func mustLibraryDerivationKey(t *testing.T, rawSHA256 []byte, mediaType string) string {
 	t.Helper()
-	key, err := knowledgeDerivationKey(rawSHA256, mediaType)
+	key, err := libraryDerivationKey(rawSHA256, mediaType)
 	if err != nil {
 		t.Fatal(err)
 	}

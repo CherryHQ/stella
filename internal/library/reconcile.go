@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver"
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -46,34 +47,36 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 	if client == nil {
 		return ErrServiceUnavailable
 	}
-	rows, err := s.q.ListStaleKnowledgeDerivation(ctx, sqlc.ListStaleKnowledgeDerivationParams{
-		StaleBefore: time.Now().UTC().Add(-s.staleDerivationAfter),
+	staleBefore := time.Now().UTC().Add(-s.staleDerivationAfter)
+	rows, err := s.q.ListStaleLibraryDerivation(ctx, sqlc.ListStaleLibraryDerivationParams{
+		StaleBefore: staleBefore,
 		Limit:       reconciliationBatchSize,
 	})
 	if err != nil {
-		return fmt.Errorf("list stale knowledge derivations: %w", err)
+		return fmt.Errorf("list stale library derivations: %w", err)
 	}
 	for _, row := range rows {
-		state, found, err := latestKnowledgeJobState(ctx, client, chunkArgs{}.Kind(), row.ID)
+		job, found, err := latestLibraryJob(ctx, client, chunkArgs{}.Kind(), row.ID)
 		if err != nil {
-			return fmt.Errorf("load knowledge chunk job for %s: %w", row.ID, err)
+			return fmt.Errorf("load library chunk job for %s: %w", row.ID, err)
 		}
-		if found && slices.Contains(activeKnowledgeJobStates, state) {
-			if state != rivertype.JobStateRunning {
+		if found && slices.Contains(activeLibraryJobStates, job.State) {
+			if job.State != rivertype.JobStateRunning {
+				continue
+			}
+			if job.AttemptedAt == nil || !job.AttemptedAt.Before(staleBefore) {
 				continue
 			}
 			// The query only returns files whose derivation heartbeat is stale.
 			// Since Xberg and every database statement are independently bounded,
 			// a still-running row here is a crashed or wedged worker, not healthy work.
-			if err := s.cancelActiveChunkJobs(ctx, row.ID); err != nil {
-				return fmt.Errorf("cancel stale knowledge derivation %s: %w", row.ID, err)
+			if err := finalizeStaleRunningLibraryJob(ctx, client, job); err != nil {
+				return fmt.Errorf("cancel stale library derivation %s: %w", row.ID, err)
 			}
-			// A running River row remains running until its worker observes the
-			// cancellation (or River's stuck-job rescuer does). The next bounded
-			// reconciliation pass re-enqueues after that durable transition.
-			continue
+			// The stale row no longer occupies River uniqueness, so the idempotent
+			// replacement below can take over without changing the global rescuer.
 		}
-		if found && state == rivertype.JobStateDiscarded {
+		if found && job.State == rivertype.JobStateDiscarded {
 			if err := s.failStaleGeneration(ctx, row.ID); err != nil {
 				return err
 			}
@@ -82,7 +85,7 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 		args := chunkArgs{FileID: row.ID}
 		options := args.InsertOpts()
 		if _, err := client.Insert(ctx, args, &options); err != nil {
-			return fmt.Errorf("re-enqueue stale knowledge derivation %s: %w", row.ID, err)
+			return fmt.Errorf("re-enqueue stale library derivation %s: %w", row.ID, err)
 		}
 	}
 	return nil
@@ -91,46 +94,46 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 func (s *Service) failStaleGeneration(ctx context.Context, fileID string) error {
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin stale knowledge failure: %w", err)
+		return fmt.Errorf("begin stale library failure: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	file, err := queries.LockKnowledgeFileLifecycle(ctx, fileID)
+	file, err := queries.LockLibraryFileLifecycle(ctx, fileID)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("lock stale knowledge file: %w", err)
+		return fmt.Errorf("lock stale library file: %w", err)
 	}
-	derivationKey, err := knowledgeDerivationKey(file.RawSha256, file.MediaType)
+	derivationKey, err := libraryDerivationKey(file.RawSha256, file.MediaType)
 	if err != nil {
 		return err
 	}
-	set, err := queries.GetKnowledgeChunkSetByDerivation(ctx, sqlc.GetKnowledgeChunkSetByDerivationParams{
+	set, err := queries.GetLibraryChunkSetByDerivation(ctx, sqlc.GetLibraryChunkSetByDerivationParams{
 		FileID: file.ID, DerivationKey: derivationKey,
 	})
 	if err == nil {
-		locked, lockErr := queries.LockKnowledgeChunkSetLifecycle(ctx, set.ID)
+		locked, lockErr := queries.LockLibraryChunkSetLifecycle(ctx, set.ID)
 		if lockErr != nil {
-			return fmt.Errorf("lock stale KnowledgeChunkSet: %w", lockErr)
+			return fmt.Errorf("lock stale LibraryChunkSet: %w", lockErr)
 		}
 		if ChunkSetStatus(locked.Status) == ChunkSetStatusBuilding {
-			if _, err := queries.MarkKnowledgeChunkSetFailed(ctx, sqlc.MarkKnowledgeChunkSetFailedParams{
+			if _, err := queries.MarkLibraryChunkSetFailed(ctx, sqlc.MarkLibraryChunkSetFailedParams{
 				ErrorMessage: nullableText("Document parsing failed after multiple attempts."),
 				ID:           locked.ID,
 			}); err != nil {
-				return fmt.Errorf("mark stale KnowledgeChunkSet failed: %w", err)
+				return fmt.Errorf("mark stale LibraryChunkSet failed: %w", err)
 			}
 		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("load stale KnowledgeChunkSet: %w", err)
+		return fmt.Errorf("load stale LibraryChunkSet: %w", err)
 	}
-	if _, err := queries.MarkKnowledgeFileFailedWithoutActiveSet(ctx, sqlc.MarkKnowledgeFileFailedWithoutActiveSetParams{
+	if _, err := queries.MarkLibraryFileFailedWithoutActiveSet(ctx, sqlc.MarkLibraryFileFailedWithoutActiveSetParams{
 		ErrorMessage: nullableText("Document parsing failed after multiple attempts."),
 		ID:           file.ID,
 	}); err != nil {
-		return fmt.Errorf("mark stale knowledge file failed: %w", err)
+		return fmt.Errorf("mark stale library file failed: %w", err)
 	}
-	return commitKnowledgeTransaction(ctx, tx)
+	return commitLibraryTransaction(ctx, tx)
 }
 
 func (s *Service) reconcileTombstones(ctx context.Context) error {
@@ -138,31 +141,66 @@ func (s *Service) reconcileTombstones(ctx context.Context) error {
 	if client == nil {
 		return ErrServiceUnavailable
 	}
-	rows, err := s.q.ListKnowledgeTombstone(ctx, reconciliationBatchSize)
+	rows, err := s.q.ListLibraryTombstone(ctx, reconciliationBatchSize)
 	if err != nil {
-		return fmt.Errorf("list knowledge tombstones: %w", err)
+		return fmt.Errorf("list library tombstones: %w", err)
 	}
+	staleBefore := time.Now().UTC().Add(-s.staleDerivationAfter)
 	for _, row := range rows {
-		state, found, err := latestKnowledgeJobState(ctx, client, cleanupArgs{}.Kind(), row.ID)
+		job, found, err := latestLibraryJob(ctx, client, cleanupArgs{}.Kind(), row.ID)
 		if err != nil {
-			return fmt.Errorf("load knowledge cleanup job for %s: %w", row.ID, err)
+			return fmt.Errorf("load library cleanup job for %s: %w", row.ID, err)
 		}
-		if found && slices.Contains(activeKnowledgeJobStates, state) {
-			if state != rivertype.JobStateRunning ||
+		if found && slices.Contains(activeLibraryJobStates, job.State) {
+			if job.State != rivertype.JobStateRunning ||
 				!row.DeletedAt.Valid ||
-				row.DeletedAt.Time.After(time.Now().UTC().Add(-s.staleDerivationAfter)) {
+				row.DeletedAt.Time.After(staleBefore) ||
+				job.AttemptedAt == nil ||
+				!job.AttemptedAt.Before(staleBefore) {
 				continue
 			}
-			if err := s.cancelActiveKnowledgeJobs(ctx, cleanupArgs{}.Kind(), row.ID); err != nil {
-				return fmt.Errorf("cancel stale knowledge cleanup %s: %w", row.ID, err)
+			if err := finalizeStaleRunningLibraryJob(ctx, client, job); err != nil {
+				return fmt.Errorf("cancel stale library cleanup %s: %w", row.ID, err)
 			}
-			continue
 		}
 		args := cleanupArgs{FileID: row.ID}
 		options := args.InsertOpts()
 		if _, err := client.Insert(ctx, args, &options); err != nil {
-			return fmt.Errorf("re-enqueue knowledge cleanup %s: %w", row.ID, err)
+			return fmt.Errorf("re-enqueue library cleanup %s: %w", row.ID, err)
 		}
+	}
+	return nil
+}
+
+func finalizeStaleRunningLibraryJob(
+	ctx context.Context,
+	client *river.Client[pgx.Tx],
+	job *rivertype.JobRow,
+) error {
+	if job == nil || job.State != rivertype.JobStateRunning {
+		return fmt.Errorf("library stale-job finalization requires a running job")
+	}
+	if _, err := client.JobCancel(ctx, job.ID); err != nil {
+		return fmt.Errorf("request River job %d cancellation: %w", job.ID, err)
+	}
+	now := time.Now().UTC()
+	params := riverdriver.JobSetStateCancelled(job.ID, now, nil, nil)
+	rows, err := client.Driver().GetExecutor().JobSetStateIfRunningMany(ctx, &riverdriver.JobSetStateIfRunningManyParams{
+		ID:              []int64{params.ID},
+		Attempt:         []*int{params.Attempt},
+		ErrData:         [][]byte{params.ErrData},
+		FinalizedAt:     []*time.Time{params.FinalizedAt},
+		MetadataDoMerge: []bool{params.MetadataDoMerge},
+		MetadataUpdates: [][]byte{params.MetadataUpdates},
+		Now:             &now,
+		ScheduledAt:     []*time.Time{params.ScheduledAt},
+		State:           []rivertype.JobState{params.State},
+	})
+	if err != nil {
+		return fmt.Errorf("finalize stale River job %d: %w", job.ID, err)
+	}
+	if len(rows) != 1 || rows[0].State == rivertype.JobStateRunning {
+		return fmt.Errorf("stale River job %d remained running", job.ID)
 	}
 	return nil
 }
@@ -176,7 +214,7 @@ func (s *Service) reconcileOrphanPages(
 	for range orphanPagesPerJob {
 		page, err := s.rawStore.ListPage(ctx, RawPrefix, cursor, orphanPageSize)
 		if err != nil {
-			return "", false, fmt.Errorf("list knowledge raw page: %w", err)
+			return "", false, fmt.Errorf("list library raw page: %w", err)
 		}
 		deleted, err := s.reconcileOrphanPage(ctx, page.Objects, cutoff)
 		if err != nil {
@@ -221,9 +259,9 @@ func (s *Service) reconcileOrphanPage(
 	if len(candidates) == 0 {
 		return false, nil
 	}
-	owners, err := s.q.GetKnowledgeRawOwners(ctx, ids)
+	owners, err := s.q.GetLibraryRawOwners(ctx, ids)
 	if err != nil {
-		return false, fmt.Errorf("resolve knowledge raw ownership: %w", err)
+		return false, fmt.Errorf("resolve library raw ownership: %w", err)
 	}
 	owned := make(map[string]struct{}, len(owners))
 	for _, owner := range owners {
@@ -235,7 +273,7 @@ func (s *Service) reconcileOrphanPage(
 			continue // both live files and tombstones own their raw until hard delete
 		}
 		if err := s.rawStore.Delete(ctx, candidate.object.Key); err != nil {
-			return deleted, fmt.Errorf("delete orphan knowledge raw: %w", err)
+			return deleted, fmt.Errorf("delete orphan library raw: %w", err)
 		}
 		deleted = true
 	}
@@ -253,7 +291,7 @@ func (s *Service) handoffReconcileJob(
 	}
 	tx, _, err := s.beginBoundedTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin knowledge reconciliation handoff: %w", err)
+		return fmt.Errorf("begin library reconciliation handoff: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	// Complete first inside the same transaction so kind-wide uniqueness sees no
@@ -264,7 +302,7 @@ func (s *Service) handoffReconcileJob(
 	}
 	options := next.InsertOpts()
 	if _, err := client.InsertTx(ctx, tx, next, &options); err != nil {
-		return fmt.Errorf("enqueue knowledge reconciliation continuation: %w", err)
+		return fmt.Errorf("enqueue library reconciliation continuation: %w", err)
 	}
-	return commitKnowledgeTransaction(ctx, tx)
+	return commitLibraryTransaction(ctx, tx)
 }

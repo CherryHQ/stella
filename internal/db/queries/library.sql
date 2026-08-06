@@ -1,5 +1,5 @@
--- name: CreateKnowledgeFile :one
-INSERT INTO knowledge_file (
+-- name: CreateLibraryFile :one
+INSERT INTO library_file (
     id,
     scope,
     user_id,
@@ -20,7 +20,7 @@ INSERT INTO knowledge_file (
 )
 RETURNING *;
 
--- name: GetKnowledgeFile :one
+-- name: GetLibraryFile :one
 SELECT
     id,
     scope,
@@ -36,11 +36,11 @@ SELECT
     deleted_at,
     created_at,
     updated_at
-FROM knowledge_file
+FROM library_file
 WHERE id = sqlc.arg('id')
   AND deleted_at IS NULL;
 
--- name: LockKnowledgeFileLifecycle :one
+-- name: LockLibraryFileLifecycle :one
 SELECT
     id,
     media_type,
@@ -51,11 +51,11 @@ SELECT
     active_chunk_set_id,
     deleted_at,
     updated_at
-FROM knowledge_file
+FROM library_file
 WHERE id = sqlc.arg('id')
 FOR UPDATE;
 
--- name: GetKnowledgeFileLifecycle :one
+-- name: GetLibraryFileLifecycle :one
 SELECT
     id,
     media_type,
@@ -66,11 +66,11 @@ SELECT
     active_chunk_set_id,
     deleted_at,
     updated_at
-FROM knowledge_file
+FROM library_file
 WHERE id = sqlc.arg('id');
 
--- name: CreateKnowledgeChunkSet :execrows
-INSERT INTO knowledge_chunk_set (
+-- name: CreateLibraryChunkSet :execrows
+INSERT INTO library_chunk_set (
     id,
     file_id,
     derivation_key,
@@ -85,7 +85,7 @@ INSERT INTO knowledge_chunk_set (
 )
 ON CONFLICT (file_id, derivation_key) DO NOTHING;
 
--- name: GetKnowledgeChunkSetByDerivation :one
+-- name: GetLibraryChunkSetByDerivation :one
 SELECT
     id,
     file_id,
@@ -99,11 +99,11 @@ SELECT
     created_at,
     updated_at,
     completed_at
-FROM knowledge_chunk_set
+FROM library_chunk_set
 WHERE file_id = sqlc.arg('file_id')
   AND derivation_key = sqlc.arg('derivation_key');
 
--- name: LockKnowledgeChunkSetLifecycle :one
+-- name: LockLibraryChunkSetLifecycle :one
 SELECT
     id,
     file_id,
@@ -117,12 +117,12 @@ SELECT
     created_at,
     updated_at,
     completed_at
-FROM knowledge_chunk_set
+FROM library_chunk_set
 WHERE id = sqlc.arg('id')
 FOR UPDATE;
 
--- name: InsertKnowledgeChunkBatch :execrows
-INSERT INTO knowledge_chunk (
+-- name: InsertLibraryChunkBatch :execrows
+INSERT INTO library_chunk (
     id,
     chunk_set_id,
     ordinal,
@@ -146,20 +146,20 @@ FROM ROWS FROM (
 ) AS input(id, ordinal, content, locator, content_sha256)
 ON CONFLICT (chunk_set_id, ordinal) DO NOTHING;
 
--- name: ListKnowledgeChunkByOrdinals :many
+-- name: ListLibraryChunkByOrdinals :many
 SELECT ordinal, content, locator, content_sha256
-FROM knowledge_chunk
+FROM library_chunk
 WHERE chunk_set_id = sqlc.arg('chunk_set_id')
   AND ordinal = ANY(sqlc.arg('ordinals')::bigint[])
 ORDER BY ordinal ASC;
 
--- name: TouchKnowledgeFileDerivation :execrows
-UPDATE knowledge_file
+-- name: TouchLibraryFileDerivation :execrows
+UPDATE library_file
 SET updated_at = now()
 WHERE id = sqlc.arg('id')
   AND deleted_at IS NULL;
 
--- name: GetKnowledgeChunkSetIntegrity :one
+-- name: GetLibraryChunkSetIntegrity :one
 SELECT
     count(*)::bigint AS chunk_count,
     coalesce(min(ordinal), -1)::bigint AS min_ordinal,
@@ -168,11 +168,11 @@ SELECT
         lpad(to_hex(ordinal), 16, '0') || encode(content_sha256, 'hex'),
         '' ORDER BY ordinal
     ), ''), 'hex')) AS content_digest
-FROM knowledge_chunk
+FROM library_chunk
 WHERE chunk_set_id = sqlc.arg('chunk_set_id');
 
--- name: MarkKnowledgeChunkSetReady :execrows
-UPDATE knowledge_chunk_set
+-- name: MarkLibraryChunkSetReady :execrows
+UPDATE library_chunk_set
 SET status = 'ready',
     chunk_count = sqlc.arg('chunk_count'),
     content_digest = sqlc.arg('content_digest'),
@@ -181,8 +181,8 @@ SET status = 'ready',
 WHERE id = sqlc.arg('id')
   AND status = 'building';
 
--- name: PublishKnowledgeFileChunkSet :execrows
-UPDATE knowledge_file
+-- name: PublishLibraryFileChunkSet :execrows
+UPDATE library_file
 SET status = 'ready',
     error_message = NULL,
     active_chunk_set_id = sqlc.arg('chunk_set_id'),
@@ -190,16 +190,16 @@ SET status = 'ready',
 WHERE id = sqlc.arg('id')
   AND deleted_at IS NULL;
 
--- name: MarkKnowledgeChunkSetFailed :execrows
-UPDATE knowledge_chunk_set
+-- name: MarkLibraryChunkSetFailed :execrows
+UPDATE library_chunk_set
 SET status = 'failed',
     error_message = sqlc.arg('error_message'),
     completed_at = now()
 WHERE id = sqlc.arg('id')
   AND status = 'building';
 
--- name: MarkKnowledgeFileFailedWithoutActiveSet :execrows
-UPDATE knowledge_file
+-- name: MarkLibraryFileFailedWithoutActiveSet :execrows
+UPDATE library_file
 SET status = 'failed',
     error_message = sqlc.arg('error_message'),
     updated_at = now()
@@ -207,28 +207,28 @@ WHERE id = sqlc.arg('id')
   AND active_chunk_set_id IS NULL
   AND deleted_at IS NULL;
 
--- name: TombstoneKnowledgeFile :execrows
-UPDATE knowledge_file
+-- name: TombstoneLibraryFile :execrows
+UPDATE library_file
 SET deleted_at = now(),
     updated_at = now()
 WHERE id = sqlc.arg('id')
   AND deleted_at IS NULL;
 
--- name: HardDeleteKnowledgeFile :execrows
-DELETE FROM knowledge_file
+-- name: HardDeleteLibraryFile :execrows
+DELETE FROM library_file
 WHERE id = sqlc.arg('id')
   AND deleted_at IS NOT NULL;
 
--- name: ListStaleKnowledgeDerivation :many
+-- name: ListStaleLibraryDerivation :many
 SELECT f.id, f.status, f.updated_at
-FROM knowledge_file AS f
+FROM library_file AS f
 WHERE f.deleted_at IS NULL
   AND f.updated_at < sqlc.arg('stale_before')
   AND (
     f.status = 'processing'
     OR EXISTS (
       SELECT 1
-      FROM knowledge_chunk_set AS chunk_set
+      FROM library_chunk_set AS chunk_set
       WHERE chunk_set.file_id = f.id
         AND chunk_set.status = 'building'
     )
@@ -236,43 +236,43 @@ WHERE f.deleted_at IS NULL
 ORDER BY f.updated_at ASC, f.id ASC
 LIMIT sqlc.arg('limit');
 
--- name: ListKnowledgeTombstone :many
+-- name: ListLibraryTombstone :many
 SELECT id, deleted_at
-FROM knowledge_file
+FROM library_file
 WHERE deleted_at IS NOT NULL
 ORDER BY deleted_at ASC, id ASC
 LIMIT sqlc.arg('limit');
 
--- name: GetKnowledgeRawOwners :many
+-- name: GetLibraryRawOwners :many
 SELECT id, deleted_at
-FROM knowledge_file
+FROM library_file
 WHERE id = ANY(sqlc.arg('ids')::uuid[]);
 
--- name: LockKnowledgeQuotaPool :exec
+-- name: LockLibraryQuotaPool :exec
 SELECT pg_advisory_xact_lock(sqlc.arg('lock_key')::bigint);
 
--- name: GetSystemKnowledgeQuotaUsage :one
+-- name: GetSystemLibraryQuotaUsage :one
 SELECT
     count(*)::bigint AS used_files,
     coalesce(sum(size_bytes), 0)::bigint AS used_bytes
-FROM knowledge_file
+FROM library_file
 WHERE scope = 'system'
   AND deleted_at IS NULL;
 
--- name: GetSystemAgentKnowledgeQuotaUsage :one
+-- name: GetSystemAgentLibraryQuotaUsage :one
 SELECT
     count(*)::bigint AS used_files,
     coalesce(sum(size_bytes), 0)::bigint AS used_bytes
-FROM knowledge_file
+FROM library_file
 WHERE scope = 'system_agent'
   AND agent_id = sqlc.arg('agent_id')
   AND deleted_at IS NULL;
 
--- name: GetPersonalKnowledgeQuotaUsage :one
+-- name: GetPersonalLibraryQuotaUsage :one
 SELECT
     count(*)::bigint AS used_files,
     coalesce(sum(size_bytes), 0)::bigint AS used_bytes
-FROM knowledge_file
+FROM library_file
 WHERE scope IN ('user', 'user_agent')
   AND user_id = sqlc.arg('user_id')
   AND deleted_at IS NULL;

@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"context"
@@ -36,48 +36,48 @@ func (s *Service) tombstoneManagedFile(ctx context.Context, id string) error {
 	}
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin knowledge tombstone: %w", err)
+		return fmt.Errorf("begin library tombstone: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	file, err := queries.LockKnowledgeFileLifecycle(ctx, id)
+	file, err := queries.LockLibraryFileLifecycle(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
 		return ErrNotFound
 	}
 	if err != nil {
-		return fmt.Errorf("lock knowledge file for deletion: %w", err)
+		return fmt.Errorf("lock library file for deletion: %w", err)
 	}
-	if affected, err := queries.TombstoneKnowledgeFile(ctx, id); err != nil {
-		return fmt.Errorf("tombstone knowledge file: %w", err)
+	if affected, err := queries.TombstoneLibraryFile(ctx, id); err != nil {
+		return fmt.Errorf("tombstone library file: %w", err)
 	} else if affected != 1 {
 		return ErrNotFound
 	}
 	args := cleanupArgs{FileID: id}
 	options := args.InsertOpts()
 	if _, err := client.InsertTx(ctx, tx, args, &options); err != nil {
-		return fmt.Errorf("enqueue knowledge cleanup: %w", err)
+		return fmt.Errorf("enqueue library cleanup: %w", err)
 	}
-	if err := commitKnowledgeTransaction(ctx, tx); err != nil {
+	if err := commitLibraryTransaction(ctx, tx); err != nil {
 		return err
 	}
 
 	cancelContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), lifecycleBestEffortTimeout)
 	defer cancel()
 	if err := s.cancelActiveChunkJobs(cancelContext, id); err != nil {
-		s.logger.Warn("cancel tombstoned knowledge parse jobs", "file_id", id, "error", err)
+		s.logger.Warn("cancel tombstoned library parse jobs", "file_id", id, "error", err)
 	}
 	return nil
 }
 
 func (s *Service) processCleanupJob(ctx context.Context, job *river.Job[cleanupArgs]) error {
 	if err := s.cancelActiveChunkJobs(ctx, job.Args.FileID); err != nil {
-		s.logger.Warn("cancel knowledge jobs before raw cleanup", "file_id", job.Args.FileID, "error", err)
+		s.logger.Warn("cancel library jobs before raw cleanup", "file_id", job.Args.FileID, "error", err)
 	}
-	file, err := s.q.GetKnowledgeFileLifecycle(ctx, job.Args.FileID)
+	file, err := s.q.GetLibraryFileLifecycle(ctx, job.Args.FileID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s.completeCleanupJob(ctx, job)
 	}
 	if err != nil {
-		return fmt.Errorf("load knowledge tombstone for cleanup: %w", err)
+		return fmt.Errorf("load library tombstone for cleanup: %w", err)
 	}
 	if !file.DeletedAt.Valid {
 		return s.completeCleanupJob(ctx, job)
@@ -87,35 +87,35 @@ func (s *Service) processCleanupJob(ctx context.Context, job *river.Job[cleanupA
 		return err
 	}
 	if err := s.rawStore.Delete(ctx, rawKey); err != nil {
-		return fmt.Errorf("delete tombstoned knowledge raw: %w", err)
+		return fmt.Errorf("delete tombstoned library raw: %w", err)
 	}
 
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin knowledge hard deletion: %w", err)
+		return fmt.Errorf("begin library hard deletion: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	locked, err := queries.LockKnowledgeFileLifecycle(ctx, job.Args.FileID)
+	locked, err := queries.LockLibraryFileLifecycle(ctx, job.Args.FileID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if err := completeRiverJobTx(ctx, tx, job); err != nil {
 			return err
 		}
-		return commitKnowledgeTransaction(ctx, tx)
+		return commitLibraryTransaction(ctx, tx)
 	}
 	if err != nil {
-		return fmt.Errorf("lock knowledge tombstone for hard deletion: %w", err)
+		return fmt.Errorf("lock library tombstone for hard deletion: %w", err)
 	}
 	if locked.DeletedAt.Valid {
-		if affected, err := queries.HardDeleteKnowledgeFile(ctx, job.Args.FileID); err != nil {
-			return fmt.Errorf("hard-delete knowledge metadata: %w", err)
+		if affected, err := queries.HardDeleteLibraryFile(ctx, job.Args.FileID); err != nil {
+			return fmt.Errorf("hard-delete library metadata: %w", err)
 		} else if affected != 1 {
-			return fmt.Errorf("hard-delete knowledge metadata: unexpected rows affected %d", affected)
+			return fmt.Errorf("hard-delete library metadata: unexpected rows affected %d", affected)
 		}
 	}
 	if err := completeRiverJobTx(ctx, tx, job); err != nil {
 		return err
 	}
-	return commitKnowledgeTransaction(ctx, tx)
+	return commitLibraryTransaction(ctx, tx)
 }
 
 func (s *Service) completeCleanupJob(ctx context.Context, job *river.Job[cleanupArgs]) error {
@@ -127,14 +127,14 @@ func (s *Service) completeCleanupJob(ctx context.Context, job *river.Job[cleanup
 	if err := completeRiverJobTx(ctx, tx, job); err != nil {
 		return err
 	}
-	return commitKnowledgeTransaction(ctx, tx)
+	return commitLibraryTransaction(ctx, tx)
 }
 
 func (s *Service) cancelActiveChunkJobs(ctx context.Context, fileID string) error {
-	return s.cancelActiveKnowledgeJobs(ctx, chunkArgs{}.Kind(), fileID)
+	return s.cancelActiveLibraryJobs(ctx, chunkArgs{}.Kind(), fileID)
 }
 
-func (s *Service) cancelActiveKnowledgeJobs(ctx context.Context, kind, fileID string) error {
+func (s *Service) cancelActiveLibraryJobs(ctx context.Context, kind, fileID string) error {
 	client := s.riverClient()
 	if client == nil {
 		return ErrServiceUnavailable
@@ -143,7 +143,7 @@ func (s *Service) cancelActiveKnowledgeJobs(ctx context.Context, kind, fileID st
 		ctx,
 		river.NewJobListParams().
 			Kinds(kind).
-			States(activeKnowledgeJobStates...).
+			States(activeLibraryJobStates...).
 			Where("args ->> 'file_id' = @file_id", river.NamedArgs{"file_id": fileID}).
 			OrderBy(river.JobListOrderByID, river.SortOrderDesc).
 			First(100),
@@ -160,12 +160,25 @@ func (s *Service) cancelActiveKnowledgeJobs(ctx context.Context, kind, fileID st
 	return errors.Join(failures...)
 }
 
-func latestKnowledgeJobState(
+func latestLibraryJobState(
 	ctx context.Context,
 	client *river.Client[pgx.Tx],
 	kind string,
 	fileID string,
 ) (rivertype.JobState, bool, error) {
+	job, found, err := latestLibraryJob(ctx, client, kind, fileID)
+	if err != nil || !found {
+		return "", found, err
+	}
+	return job.State, true, nil
+}
+
+func latestLibraryJob(
+	ctx context.Context,
+	client *river.Client[pgx.Tx],
+	kind string,
+	fileID string,
+) (*rivertype.JobRow, bool, error) {
 	result, err := client.JobList(
 		ctx,
 		river.NewJobListParams().
@@ -176,10 +189,10 @@ func latestKnowledgeJobState(
 			First(1),
 	)
 	if err != nil {
-		return "", false, err
+		return nil, false, err
 	}
 	if len(result.Jobs) == 0 {
-		return "", false, nil
+		return nil, false, nil
 	}
-	return result.Jobs[0].State, true, nil
+	return result.Jobs[0], true, nil
 }

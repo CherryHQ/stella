@@ -1,5 +1,5 @@
-// Package knowledge implements file-backed knowledge ingestion and retrieval.
-package knowledge
+// Package library implements file-backed library ingestion and retrieval.
+package library
 
 import (
 	"bytes"
@@ -20,7 +20,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/manifestplugins"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 const (
@@ -37,6 +36,8 @@ const (
 	DefaultMaxChunkBytes   = 48 << 20
 	DefaultMaxChunks       = 50_000
 	DefaultMaxStderrBytes  = 1 << 10
+	managedXbergPluginID   = "tool/kreuzberg"
+	managedXbergScope      = "library"
 )
 
 var (
@@ -46,7 +47,7 @@ var (
 	ErrParseResultLimit = errors.New("xberg parse result exceeds the configured limit")
 )
 
-// ParsedChunk is the normalized parser result persisted as a knowledge chunk.
+// ParsedChunk is the normalized parser result persisted as a library chunk.
 type ParsedChunk struct {
 	Content string
 	Locator ChunkLocator
@@ -76,7 +77,7 @@ type XbergParserConfig struct {
 }
 
 // DefaultXbergParserConfig returns the V1 parser limits from the approved
-// Knowledge Base solution.
+// Library V1 design.
 func DefaultXbergParserConfig(binary string) XbergParserConfig {
 	return XbergParserConfig{
 		Binary:          binary,
@@ -89,18 +90,61 @@ func DefaultXbergParserConfig(binary string) XbergParserConfig {
 	}
 }
 
-// NewManagedXbergParser resolves the manifest-installed shim and supplies the
-// same isolated mise runtime environment used by other daemon-owned tools.
-func NewManagedXbergParser(stellaHome string) (*XbergParser, error) {
-	binary := filepath.Join(pkgsandbox.MiseShimsDir(stellaHome), "xberg")
-	if runtime.GOOS == "windows" {
-		binary += ".exe"
+// NewManagedXbergParser synchronously provisions and probes the daemon-owned
+// Xberg runtime. Its mise scope and shims are independent from the optional
+// Agent plugin, while the package downloads and installed versions remain in
+// Stella's shared mise data tree.
+func NewManagedXbergParser(ctx context.Context, stellaHome string) (*XbergParser, error) {
+	manifestBinary, err := managedXbergManifestBinary()
+	if err != nil {
+		return nil, err
 	}
-	environment := manifestplugins.RuntimeMiseEnv(stellaHome, "", "")
-	environment["MISE_STATE_DIR"] = filepath.Join(os.TempDir(), "stella-mise-state")
+	binary, environment, err := manifestplugins.ProvisionRuntimeBinary(
+		ctx,
+		stellaHome,
+		managedXbergScope,
+		manifestBinary,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("provision managed Xberg runtime: %w", err)
+	}
 	config := DefaultXbergParserConfig(binary)
 	config.Environment = environment
-	return NewXbergParser(config)
+	parser, err := NewXbergParser(config)
+	if err != nil {
+		return nil, err
+	}
+	if err := parser.Available(ctx); err != nil {
+		return nil, fmt.Errorf("probe managed Xberg runtime: %w", err)
+	}
+	return parser, nil
+}
+
+func managedXbergManifestBinary() (manifestplugins.ManifestBinary, error) {
+	manifest, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		return manifestplugins.ManifestBinary{}, fmt.Errorf("load builtin tool manifest: %w", err)
+	}
+	for _, plugin := range manifest.Plugins {
+		if plugin.ID != managedXbergPluginID {
+			continue
+		}
+		for _, binary := range plugin.Binaries {
+			if binary.Name != "xberg" {
+				continue
+			}
+			if binary.Version != XbergVersion {
+				return manifestplugins.ManifestBinary{}, fmt.Errorf(
+					"managed Xberg manifest version %q does not match parser version %q",
+					binary.Version,
+					XbergVersion,
+				)
+			}
+			return binary, nil
+		}
+		return manifestplugins.ManifestBinary{}, fmt.Errorf("managed Xberg binary is missing from plugin %q", managedXbergPluginID)
+	}
+	return manifestplugins.ManifestBinary{}, fmt.Errorf("managed Xberg plugin %q is missing", managedXbergPluginID)
 }
 
 // XbergParser invokes the managed Xberg CLI and validates its JSON response.

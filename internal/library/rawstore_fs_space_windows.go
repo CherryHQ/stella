@@ -1,6 +1,6 @@
 //go:build windows
 
-package knowledge
+package library
 
 import "golang.org/x/sys/windows"
 

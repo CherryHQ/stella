@@ -521,7 +521,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Idempotent stop-once ingress closures. Each halts a source of NEW work; they
 	// are invoked by stopIngress at the start of a graceful drain AND deferred for
 	// the crash / startup-error teardown path, so double invocation is safe.
-	var quiesceChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce, stopKnowledgeOnce sync.Once
+	var quiesceChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce, stopLibraryOnce sync.Once
 	// quiesceChannelIngress stops channel polling but preserves work already
 	// accepted and the notifier senders that deliver it; the SEPARATE final Stop
 	// defer below (not sharing this once) tears the runtimes down fully.
@@ -577,18 +577,18 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		defer stopEmbeddingBackfill()
 	}
 
-	// Knowledge reconciliation is an internal single-leader periodic. It is
+	// Library reconciliation is an internal single-leader periodic. It is
 	// started only after all workers and the shared River client are live.
-	stopKnowledgeReconciliation := func() {}
-	if s.knowledgeSvc != nil && s.riverClient != nil {
-		handle, err := s.knowledgeSvc.StartReconciliation()
+	stopLibraryReconciliation := func() {}
+	if s.librarySvc != nil && s.riverClient != nil {
+		handle, err := s.librarySvc.StartReconciliation()
 		if err != nil {
-			return fmt.Errorf("start knowledge reconciliation: %w", err)
+			return fmt.Errorf("start library reconciliation: %w", err)
 		}
-		stopKnowledgeReconciliation = func() {
-			stopKnowledgeOnce.Do(func() { s.knowledgeSvc.StopReconciliation(handle) })
+		stopLibraryReconciliation = func() {
+			stopLibraryOnce.Do(func() { s.librarySvc.StopReconciliation(handle) })
 		}
-		defer stopKnowledgeReconciliation()
+		defer stopLibraryReconciliation()
 	}
 
 	// ---- Ingress (starts only now, with every backend + callback ready) -----
@@ -642,12 +642,12 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		// workers then drain in-flight jobs with outbound deps still alive; no
 		// periodic or new dispatch runs after this point.
 		stopIngress: func() {
-			stopGroupDispatch()           // group-dispatch acceptance
-			quiesceChannelIngress()       // channel / plugin runtimes (polling only)
-			stopSchedulerDispatch()       // scheduler periodic + one-time dispatch
-			stopGoalDispatch()            // goal tick + dispatcher claims
-			stopEmbeddingBackfill()       // embedding backfill periodic
-			stopKnowledgeReconciliation() // Knowledge recovery periodic
+			stopGroupDispatch()         // group-dispatch acceptance
+			quiesceChannelIngress()     // channel / plugin runtimes (polling only)
+			stopSchedulerDispatch()     // scheduler periodic + one-time dispatch
+			stopGoalDispatch()          // goal tick + dispatcher claims
+			stopEmbeddingBackfill()     // embedding backfill periodic
+			stopLibraryReconciliation() // Library recovery periodic
 		},
 		httpTimeout:  s.cfg.Lifecycle.HTTPShutdownTimeout,
 		shutdownHTTP: httpSrv.Shutdown,

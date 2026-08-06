@@ -36,7 +36,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
-	"github.com/CherryHQ/stella/internal/knowledge"
+	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -125,7 +125,7 @@ type setupResult struct {
 	assetStore               *asset.Store
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
-	knowledgeSvc             *knowledge.Service
+	librarySvc               *library.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []agent.BuiltinTool
 	notifier                 *notify.Dispatcher
@@ -282,29 +282,29 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, err
 	}
-	knowledgeRaw, err := knowledge.NewRawStoreFromConfig(config.StellaHome(), cfg.Blob, knowledge.RawStoreOptions{
+	libraryRaw, err := library.NewRawStoreFromConfig(config.StellaHome(), cfg.Blob, library.RawStoreOptions{
 		TempDir:        os.TempDir(),
-		FSMinFreeBytes: knowledge.DefaultFSMinFreeBytes,
+		FSMinFreeBytes: library.DefaultFSMinFreeBytes,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("build knowledge RawStore: %w", err)
+		return nil, fmt.Errorf("build library RawStore: %w", err)
 	}
-	knowledgeParser, err := knowledge.NewManagedXbergParser(config.StellaHome())
+	libraryParser, err := library.NewManagedXbergParser(parent, config.StellaHome())
 	if err != nil {
-		return nil, fmt.Errorf("build knowledge parser: %w", err)
+		return nil, fmt.Errorf("build library parser: %w", err)
 	}
-	knowledgeSvc, err := knowledge.NewService(knowledge.ServiceConfig{
+	librarySvc, err := library.NewService(library.ServiceConfig{
 		DB:                   db,
-		RawStore:             knowledgeRaw,
-		Parser:               knowledgeParser,
-		Logger:               slog.With("component", "knowledge"),
+		RawStore:             libraryRaw,
+		Parser:               libraryParser,
+		Logger:               slog.With("component", "library"),
 		TempDir:              os.TempDir(),
 		MaxConcurrentUploads: 4,
-		MaxSpoolBytes:        4 * knowledge.MaxFileBytes,
+		MaxSpoolBytes:        4 * library.MaxFileBytes,
 		AgentAccess:          agentAccess,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("build knowledge service: %w", err)
+		return nil, fmt.Errorf("build library service: %w", err)
 	}
 	sessionImages, err := sessionmedia.NewPipeline(assetStore.SessionMedia(), db, snapshotLoader, vision.StreamBuilder(providerStreamBuilder), sessionmedia.PipelineOptions{})
 	if err != nil {
@@ -542,7 +542,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, knowledgeSvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +593,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		assetStore:               assetStore,
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
-		knowledgeSvc:             knowledgeSvc,
+		librarySvc:               librarySvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
@@ -654,7 +654,7 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, knowledgeSvc *knowledge.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
@@ -674,9 +674,9 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 		en, ec := embeddingSvc.BackfillQueueConfig()
 		queues[en] = ec
 	}
-	if knowledgeSvc != nil {
-		knowledgeSvc.RegisterRiverWorkers(workers)
-		kn, kc := knowledgeSvc.QueueConfig()
+	if librarySvc != nil {
+		librarySvc.RegisterRiverWorkers(workers)
+		kn, kc := librarySvc.QueueConfig()
 		queues[kn] = kc
 	}
 
@@ -704,8 +704,8 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 			return nil, err
 		}
 	}
-	if knowledgeSvc != nil {
-		if err := knowledgeSvc.BindRiverClient(client); err != nil {
+	if librarySvc != nil {
+		if err := librarySvc.BindRiverClient(client); err != nil {
 			return nil, err
 		}
 	}

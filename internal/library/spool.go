@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"context"
@@ -24,10 +24,10 @@ type spoolBudget struct {
 
 func newSpoolBudget(maxConcurrent int, maxBytes int64) (*spoolBudget, error) {
 	if maxConcurrent < 1 {
-		return nil, fmt.Errorf("knowledge max concurrent uploads must be positive")
+		return nil, fmt.Errorf("library max concurrent uploads must be positive")
 	}
 	if maxBytes < MaxFileBytes {
-		return nil, fmt.Errorf("knowledge spool budget must be at least %d bytes", MaxFileBytes)
+		return nil, fmt.Errorf("library spool budget must be at least %d bytes", MaxFileBytes)
 	}
 	return &spoolBudget{maxConcurrent: maxConcurrent, maxBytes: maxBytes}, nil
 }
@@ -120,7 +120,7 @@ func prepareUpload(
 		}
 	}()
 
-	temp, err := os.CreateTemp(tempDir, ".stella-knowledge-upload-*")
+	temp, err := os.CreateTemp(tempDir, ".stella-library-upload-*")
 	if err != nil {
 		return nil, fmt.Errorf("create upload spool: %w", err)
 	}
@@ -161,11 +161,11 @@ func prepareUpload(
 		}
 		if err != nil {
 			_ = temp.Close()
-			return nil, fmt.Errorf("read knowledge upload: %w", err)
+			return nil, fmt.Errorf("read library upload: %w", err)
 		}
 		if read == 0 {
 			_ = temp.Close()
-			return nil, fmt.Errorf("read knowledge upload: reader made no progress")
+			return nil, fmt.Errorf("read library upload: reader made no progress")
 		}
 	}
 	if err = temp.Sync(); err != nil {

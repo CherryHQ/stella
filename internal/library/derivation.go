@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"crypto/sha256"
@@ -25,15 +25,15 @@ type stagedChunk struct {
 	ContentSHA256 [sha256.Size]byte
 }
 
-// knowledgeDerivationKey binds every parser input that can change persisted
+// libraryDerivationKey binds every parser input that can change persisted
 // chunks: immutable raw bytes, trusted media type, and exact parser profile.
 // The key is opaque; callers compare it but never parse it.
-func knowledgeDerivationKey(rawSHA256 []byte, mediaType string) (string, error) {
+func libraryDerivationKey(rawSHA256 []byte, mediaType string) (string, error) {
 	if len(rawSHA256) != sha256.Size {
-		return "", fmt.Errorf("invalid knowledge raw SHA-256 length %d", len(rawSHA256))
+		return "", fmt.Errorf("invalid library raw SHA-256 length %d", len(rawSHA256))
 	}
 	if mediaType == "" {
-		return "", fmt.Errorf("knowledge media type is required for derivation")
+		return "", fmt.Errorf("library media type is required for derivation")
 	}
 	hash := sha256.New()
 	_, _ = hash.Write(rawSHA256)
@@ -83,7 +83,7 @@ func normalizeParsedChunks(chunks []ParsedChunk) ([]stagedChunk, []byte, error) 
 	return staged, stagedContentDigest(staged), nil
 }
 
-// stagedContentDigest matches GetKnowledgeChunkSetIntegrity: each row adds an
+// stagedContentDigest matches GetLibraryChunkSetIntegrity: each row adds an
 // eight-byte big-endian ordinal followed by its 32-byte content hash.
 func stagedContentDigest(chunks []stagedChunk) []byte {
 	hash := sha256.New()

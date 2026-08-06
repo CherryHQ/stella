@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"bytes"
@@ -29,12 +29,12 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 const (
 	testUserA  = "10000000-0000-0000-0000-000000000001"
 	testUserB  = "10000000-0000-0000-0000-000000000002"
-	testAgentA = "knowledge-agent-a"
+	testAgentA = "library-agent-a"
 )
 
-func TestKnowledgeSchemaEnforcesOwnerAndActivePointer(t *testing.T) {
+func TestLibrarySchemaEnforcesOwnerAndActivePointer(t *testing.T) {
 	database := dbtest.New(t)
-	seedKnowledgePrincipals(t, database)
+	seedLibraryPrincipals(t, database)
 	valid := []Owner{
 		{Scope: ScopeSystem},
 		{Scope: ScopeSystemAgent, AgentID: testAgentA},
@@ -42,7 +42,7 @@ func TestKnowledgeSchemaEnforcesOwnerAndActivePointer(t *testing.T) {
 		{Scope: ScopeUserAgent, UserID: testUserA, AgentID: testAgentA},
 	}
 	for index, owner := range valid {
-		if _, err := insertKnowledgeFile(t.Context(), database, owner, int64(index), "processing", nil); err != nil {
+		if _, err := insertLibraryFile(t.Context(), database, owner, int64(index), "processing", nil); err != nil {
 			t.Fatalf("valid owner %+v: %v", owner, err)
 		}
 	}
@@ -57,30 +57,30 @@ func TestKnowledgeSchemaEnforcesOwnerAndActivePointer(t *testing.T) {
 		{Scope: "future_scope"},
 	}
 	for _, owner := range invalid {
-		if _, err := insertKnowledgeFile(t.Context(), database, owner, 1, "processing", nil); err == nil {
+		if _, err := insertLibraryFile(t.Context(), database, owner, 1, "processing", nil); err == nil {
 			t.Fatalf("invalid owner %+v passed database CHECK", owner)
 		}
 	}
-	if _, err := insertKnowledgeFile(
+	if _, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, -1, "processing", nil,
 	); err == nil {
 		t.Fatal("negative size passed database CHECK")
 	}
 	// Status is deliberately a Go-validated evolvable value, not a database
 	// enum; adding a lifecycle state should not require dropping a CHECK first.
-	if _, err := insertKnowledgeFile(
+	if _, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "future_status", nil,
 	); err != nil {
 		t.Fatalf("evolvable status was rejected: %v", err)
 	}
 
-	fileA, err := insertKnowledgeFile(
+	fileA, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fileB, err := insertKnowledgeFile(
+	fileB, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
 	)
 	if err != nil {
@@ -90,7 +90,7 @@ func TestKnowledgeSchemaEnforcesOwnerAndActivePointer(t *testing.T) {
 	setB := uuid.NewString()
 	for _, value := range []struct{ setID, fileID string }{{setA, fileA}, {setB, fileB}} {
 		if _, err := database.Exec(t.Context(), `
-			INSERT INTO knowledge_chunk_set
+			INSERT INTO library_chunk_set
 				(id, file_id, derivation_key, processor_key, raw_sha256)
 			VALUES ($1, $2, $3, 'xberg:test', $4)
 		`, value.setID, value.fileID, "derivation:"+value.setID, bytes.Repeat([]byte{1}, sha256.Size)); err != nil {
@@ -98,23 +98,23 @@ func TestKnowledgeSchemaEnforcesOwnerAndActivePointer(t *testing.T) {
 		}
 	}
 	if _, err := database.Exec(
-		t.Context(), `UPDATE knowledge_file SET active_chunk_set_id = $1 WHERE id = $2`, setB, fileA,
+		t.Context(), `UPDATE library_file SET active_chunk_set_id = $1 WHERE id = $2`, setB, fileA,
 	); err == nil {
 		t.Fatal("active pointer accepted another file's ChunkSet")
 	}
 	if _, err := database.Exec(
-		t.Context(), `UPDATE knowledge_file SET active_chunk_set_id = $1 WHERE id = $2`, setA, fileA,
+		t.Context(), `UPDATE library_file SET active_chunk_set_id = $1 WHERE id = $2`, setA, fileA,
 	); err != nil {
 		t.Fatalf("same-file active pointer was rejected: %v", err)
 	}
-	if _, err := database.Exec(t.Context(), `DELETE FROM knowledge_file WHERE id = $1`, fileA); err != nil {
+	if _, err := database.Exec(t.Context(), `DELETE FROM library_file WHERE id = $1`, fileA); err != nil {
 		t.Fatalf("file deletion did not cascade through its active ChunkSet: %v", err)
 	}
 }
 
 func TestCreateManagedUploadCommitsRawMetadataAndUniqueJob(t *testing.T) {
 	database := dbtest.New(t)
-	store, service := newKnowledgeService(t, database)
+	store, service := newLibraryService(t, database)
 	content := []byte("travel reimbursement limit is 800 yuan")
 	file, err := service.CreateManagedUpload(
 		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "travel.txt", bytes.NewReader(content),
@@ -150,7 +150,7 @@ func TestCreateManagedUploadCommitsRawMetadataAndUniqueJob(t *testing.T) {
 	if err := database.QueryRow(t.Context(), `
 		SELECT kind, args ->> 'file_id'
 		FROM river_job
-		WHERE kind = 'stella_knowledge_chunk'
+		WHERE kind = 'stella_library_chunk'
 	`).Scan(&kind, &fileID); err != nil {
 		t.Fatalf("load River job: %v", err)
 	}
@@ -161,18 +161,18 @@ func TestCreateManagedUploadCommitsRawMetadataAndUniqueJob(t *testing.T) {
 	if err := database.QueryRow(t.Context(), `
 		SELECT count(*)
 		FROM information_schema.columns
-		WHERE table_name = 'knowledge_file' AND column_name = 'raw_content'
+		WHERE table_name = 'library_file' AND column_name = 'raw_content'
 	`).Scan(&rawColumnCount); err != nil {
 		t.Fatal(err)
 	}
 	if rawColumnCount != 0 {
-		t.Fatal("raw_content BYTEA still exists in knowledge_file")
+		t.Fatal("raw_content BYTEA still exists in library_file")
 	}
 }
 
 func TestCreateManagedUploadAuthorizesBeforeReadingBody(t *testing.T) {
 	database := dbtest.New(t)
-	_, service := newKnowledgeService(t, database)
+	_, service := newLibraryService(t, database)
 	reader := &countingReader{reader: stringsReader("secret")}
 	_, err := service.CreateManagedUpload(
 		t.Context(), testAuthority(t, testUserA, false), ScopeSystem, "", "secret.txt", reader,
@@ -199,7 +199,7 @@ func TestRawStoreIOCompletesBeforeDatabaseTransactionBegins(t *testing.T) {
 		t.Fatal(err)
 	}
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: blocking, Parser: staticKnowledgeParser{}, River: client,
+		DB: database, RawStore: blocking, Parser: staticLibraryParser{}, River: client,
 		TempDir: t.TempDir(), MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
 	if err != nil {
@@ -355,16 +355,16 @@ func TestSnapshotCommitRespectsEarlierRequestDeadline(t *testing.T) {
 func TestSnapshotCommitStatementTimeoutIsBoundedAndCompensated(t *testing.T) {
 	database := dbtest.New(t)
 	if _, err := database.Exec(t.Context(), `
-		CREATE FUNCTION test_slow_knowledge_insert() RETURNS trigger
+		CREATE FUNCTION test_slow_library_insert() RETURNS trigger
 		LANGUAGE plpgsql AS $$
 		BEGIN
 			PERFORM pg_sleep(0.2);
 			RETURN NEW;
 		END;
 		$$;
-		CREATE TRIGGER test_slow_knowledge_insert
-		BEFORE INSERT ON knowledge_file
-		FOR EACH ROW EXECUTE FUNCTION test_slow_knowledge_insert();
+		CREATE TRIGGER test_slow_library_insert
+		BEFORE INSERT ON library_file
+		FOR EACH ROW EXECUTE FUNCTION test_slow_library_insert();
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestSnapshotCommitStatementTimeoutIsBoundedAndCompensated(t *testing.T) {
 
 func TestCreateSnapshotCompensatesKnownPreCommitFailure(t *testing.T) {
 	database := dbtest.New(t)
-	store, service := newKnowledgeService(t, database)
+	store, service := newLibraryService(t, database)
 	// River insertion occurs after metadata insertion but in the same
 	// transaction. Removing its table makes that pre-commit phase fail.
 	if _, err := database.Exec(t.Context(), `ALTER TABLE river_job RENAME TO river_job_unavailable`); err != nil {
@@ -412,11 +412,11 @@ func TestCreateSnapshotCompensatesKnownPreCommitFailure(t *testing.T) {
 		t.Fatal("createSnapshot unexpectedly succeeded without river_job")
 	}
 	var fileCount int
-	if err := database.QueryRow(t.Context(), `SELECT count(*) FROM knowledge_file`).Scan(&fileCount); err != nil {
+	if err := database.QueryRow(t.Context(), `SELECT count(*) FROM library_file`).Scan(&fileCount); err != nil {
 		t.Fatal(err)
 	}
 	if fileCount != 0 {
-		t.Fatalf("knowledge_file count = %d after transaction rollback", fileCount)
+		t.Fatalf("library_file count = %d after transaction rollback", fileCount)
 	}
 	page, err := store.ListPage(t.Context(), RawPrefix, "", 10)
 	if err != nil {
@@ -429,7 +429,7 @@ func TestCreateSnapshotCompensatesKnownPreCommitFailure(t *testing.T) {
 
 func TestCommitOutcomeUnknownRetainsPotentiallyOwnedRaw(t *testing.T) {
 	database := dbtest.New(t)
-	store, service := newKnowledgeService(t, database)
+	store, service := newLibraryService(t, database)
 	service.commitTx = func(ctx context.Context, transaction pgx.Tx) error {
 		if err := transaction.Commit(ctx); err != nil {
 			return err
@@ -443,7 +443,7 @@ func TestCommitOutcomeUnknownRetainsPotentiallyOwnedRaw(t *testing.T) {
 		t.Fatal("createSnapshot did not surface the uncertain commit result")
 	}
 	var fileID string
-	if err := database.QueryRow(t.Context(), `SELECT id FROM knowledge_file`).Scan(&fileID); err != nil {
+	if err := database.QueryRow(t.Context(), `SELECT id FROM library_file`).Scan(&fileID); err != nil {
 		t.Fatalf("committed metadata was lost: %v", err)
 	}
 	key, err := RawKey(fileID)
@@ -459,9 +459,9 @@ func TestCommitOutcomeUnknownRetainsPotentiallyOwnedRaw(t *testing.T) {
 
 func TestPersonalQuotaSerializesUserAndUserAgent(t *testing.T) {
 	database := dbtest.New(t)
-	seedKnowledgePrincipals(t, database)
-	store, service := newKnowledgeService(t, database)
-	if _, err := insertKnowledgeFile(
+	seedLibraryPrincipals(t, database)
+	store, service := newLibraryService(t, database)
+	if _, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeUser, UserID: testUserA},
 		PersonalMaxBytes-1, "processing", nil,
 	); err != nil {
@@ -511,20 +511,20 @@ func TestPersonalQuotaSerializesUserAndUserAgent(t *testing.T) {
 
 func TestRawOwnershipQueryIncludesLiveAndTombstonedFiles(t *testing.T) {
 	database := dbtest.New(t)
-	liveID, err := insertKnowledgeFile(
+	liveID, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	deletedAt := time.Now().UTC()
-	deletedID, err := insertKnowledgeFile(
+	deletedID, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", &deletedAt,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, err := sqlc.New(database).GetKnowledgeRawOwners(t.Context(), []string{liveID, deletedID, uuid.NewString()})
+	rows, err := sqlc.New(database).GetLibraryRawOwners(t.Context(), []string{liveID, deletedID, uuid.NewString()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +569,7 @@ func (r *countingReader) Read(buffer []byte) (int, error) {
 
 func stringsReader(value string) io.Reader { return bytes.NewBufferString(value) }
 
-func newKnowledgeService(t *testing.T, database *pgxpool.Pool) (*FSRawStore, *Service) {
+func newLibraryService(t *testing.T, database *pgxpool.Pool) (*FSRawStore, *Service) {
 	t.Helper()
 	store, err := NewFSRawStore(t.TempDir(), 0)
 	if err != nil {
@@ -591,7 +591,7 @@ func newSnapshotServiceWithConfig(
 	}
 	config.DB = database
 	config.River = client
-	config.Parser = staticKnowledgeParser{}
+	config.Parser = staticLibraryParser{}
 	config.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	config.TempDir = t.TempDir()
 	config.MaxConcurrentUploads = 4
@@ -603,10 +603,10 @@ func newSnapshotServiceWithConfig(
 	return service
 }
 
-type staticKnowledgeParser struct{}
+type staticLibraryParser struct{}
 
-func (staticKnowledgeParser) Parse(context.Context, string, string) ([]ParsedChunk, error) {
-	return []ParsedChunk{{Content: "test knowledge"}}, nil
+func (staticLibraryParser) Parse(context.Context, string, string) ([]ParsedChunk, error) {
+	return []ParsedChunk{{Content: "test library"}}, nil
 }
 
 func testAuthority(t *testing.T, userID string, admin bool) authz.Authority {
@@ -618,11 +618,11 @@ func testAuthority(t *testing.T, userID string, admin bool) authz.Authority {
 	return authority
 }
 
-func seedKnowledgePrincipals(t *testing.T, database *pgxpool.Pool) {
+func seedLibraryPrincipals(t *testing.T, database *pgxpool.Pool) {
 	t.Helper()
 	if _, err := database.Exec(t.Context(), `
 		INSERT INTO auth_user (id, email)
-		VALUES ($1, 'knowledge-a@test.local'), ($2, 'knowledge-b@test.local')
+		VALUES ($1, 'library-a@test.local'), ($2, 'library-b@test.local')
 	`, testUserA, testUserB); err != nil {
 		t.Fatalf("seed users: %v", err)
 	}
@@ -635,7 +635,7 @@ func seedKnowledgePrincipals(t *testing.T, database *pgxpool.Pool) {
 	}
 }
 
-func insertKnowledgeFile(
+func insertLibraryFile(
 	ctx context.Context,
 	database *pgxpool.Pool,
 	owner Owner,
@@ -652,7 +652,7 @@ func insertKnowledgeFile(
 		agentID = owner.AgentID
 	}
 	_, err := database.Exec(ctx, `
-		INSERT INTO knowledge_file (
+		INSERT INTO library_file (
 			id, scope, user_id, agent_id, file_name, media_type,
 			size_bytes, raw_sha256, status, deleted_at
 		) VALUES ($1, $2, $3, $4, 'fixture.txt', 'text/plain', $5, $6, $7, $8)

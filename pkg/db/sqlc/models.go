@@ -598,7 +598,15 @@ type Fact struct {
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
-type KnowledgeChunk struct {
+type KnowledgeUsage struct {
+	FactID     string    `json:"fact_id"`
+	UserID     string    `json:"user_id"`
+	AgentID    string    `json:"agent_id"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type LibraryChunk struct {
 	ID            string          `json:"id"`
 	ChunkSetID    string          `json:"chunk_set_id"`
 	Ordinal       int64           `json:"ordinal"`
@@ -609,7 +617,7 @@ type KnowledgeChunk struct {
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
-type KnowledgeChunkSet struct {
+type LibraryChunkSet struct {
 	ID            string             `json:"id"`
 	FileID        string             `json:"file_id"`
 	DerivationKey string             `json:"derivation_key"`
@@ -624,7 +632,7 @@ type KnowledgeChunkSet struct {
 	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
 }
 
-type KnowledgeFile struct {
+type LibraryFile struct {
 	ID               string             `json:"id"`
 	Scope            string             `json:"scope"`
 	UserID           pgtype.Text        `json:"user_id"`
@@ -639,14 +647,6 @@ type KnowledgeFile struct {
 	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
 	CreatedAt        time.Time          `json:"created_at"`
 	UpdatedAt        time.Time          `json:"updated_at"`
-}
-
-type KnowledgeUsage struct {
-	FactID     string    `json:"fact_id"`
-	UserID     string    `json:"user_id"`
-	AgentID    string    `json:"agent_id"`
-	LastUsedAt time.Time `json:"last_used_at"`
-	CreatedAt  time.Time `json:"created_at"`
 }
 
 type McpServer struct {

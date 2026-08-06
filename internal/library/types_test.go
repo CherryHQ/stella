@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"bytes"
@@ -182,7 +182,7 @@ func TestRawKeyRoundTrip(t *testing.T) {
 	if got != fileID {
 		t.Fatalf("file ID = %q, want %q", got, fileID)
 	}
-	if _, err := FileIDFromRawKey("knowledge/files/not-a-uuid/source"); err == nil {
+	if _, err := FileIDFromRawKey("library/files/not-a-uuid/source"); err == nil {
 		t.Fatal("malformed raw key was accepted")
 	}
 }

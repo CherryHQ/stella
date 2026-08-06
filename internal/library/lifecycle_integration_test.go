@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"bytes"
@@ -36,7 +36,7 @@ func TestDeleteTombstonesBeforeRawCleanupAndEventuallyHardDeletes(t *testing.T) 
 		started:  make(chan struct{}),
 		release:  make(chan struct{}),
 	}
-	service, client := newWorkingKnowledgeService(t, database, store, staticKnowledgeParser{})
+	service, client := newWorkingLibraryService(t, database, store, staticLibraryParser{})
 	authority := testAuthority(t, testUserA, true)
 	file, err := service.CreateManagedUpload(
 		t.Context(), authority, ScopeSystem, "", "delete.txt", stringsReader("delete source"),
@@ -44,7 +44,7 @@ func TestDeleteTombstonesBeforeRawCleanupAndEventuallyHardDeletes(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForKnowledgeFile(t, service, file.ID, func(current File) bool {
+	waitForLibraryFile(t, service, file.ID, func(current LibraryFile) bool {
 		return current.Status == FileStatusReady
 	})
 
@@ -68,7 +68,7 @@ func TestDeleteTombstonesBeforeRawCleanupAndEventuallyHardDeletes(t *testing.T) 
 	}
 	var deletedAt *time.Time
 	if err := database.QueryRow(
-		t.Context(), `SELECT deleted_at FROM knowledge_file WHERE id = $1`, file.ID,
+		t.Context(), `SELECT deleted_at FROM library_file WHERE id = $1`, file.ID,
 	).Scan(&deletedAt); err != nil || deletedAt == nil {
 		t.Fatalf("durable tombstone missing while raw cleanup is blocked: deleted_at=%v error=%v", deletedAt, err)
 	}
@@ -83,11 +83,11 @@ func TestDeleteTombstonesBeforeRawCleanupAndEventuallyHardDeletes(t *testing.T) 
 	_ = raw.Close()
 
 	close(store.release)
-	waitForKnowledgeMetadataAbsent(t, database, file.ID)
+	waitForLibraryMetadataAbsent(t, database, file.ID)
 	if _, err := baseStore.Open(t.Context(), rawKey); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("raw exists after hard deletion: %v", err)
 	}
-	assertLatestKnowledgeJobState(t, client, cleanupArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
+	assertLatestLibraryJobState(t, client, cleanupArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
 }
 
 func TestDeleteCancelsInFlightParsingWithoutResurrection(t *testing.T) {
@@ -105,7 +105,7 @@ func TestDeleteCancelsInFlightParsingWithoutResurrection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, _ := newWorkingKnowledgeService(t, database, store, parser)
+	service, _ := newWorkingLibraryService(t, database, store, parser)
 	authority := testAuthority(t, testUserA, true)
 	file, err := service.CreateManagedUpload(
 		t.Context(), authority, ScopeSystem, "", "in-flight.txt", stringsReader("source"),
@@ -121,12 +121,12 @@ func TestDeleteCancelsInFlightParsingWithoutResurrection(t *testing.T) {
 	if err := service.DeleteManaged(t.Context(), authority, file.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitForKnowledgeMetadataAbsent(t, database, file.ID)
+	waitForLibraryMetadataAbsent(t, database, file.ID)
 	var chunks int
 	if err := database.QueryRow(t.Context(), `
 		SELECT count(*)
-		FROM knowledge_chunk AS chunk
-		JOIN knowledge_chunk_set AS chunk_set ON chunk_set.id = chunk.chunk_set_id
+		FROM library_chunk AS chunk
+		JOIN library_chunk_set AS chunk_set ON chunk_set.id = chunk.chunk_set_id
 		WHERE chunk_set.file_id = $1
 	`, file.ID).Scan(&chunks); err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func TestDeleteCancelsInFlightParsingWithoutResurrection(t *testing.T) {
 
 func TestDeleteCancelsQueuedChunkWork(t *testing.T) {
 	database := dbtest.New(t)
-	store, service := newKnowledgeService(t, database)
+	store, service := newLibraryService(t, database)
 	client := service.riverClient()
 	authority := testAuthority(t, testUserA, true)
 	file, err := service.CreateManagedUpload(
@@ -157,7 +157,7 @@ func TestDeleteCancelsQueuedChunkWork(t *testing.T) {
 	if err := service.DeleteManaged(t.Context(), authority, file.ID); err != nil {
 		t.Fatal(err)
 	}
-	state, found, err := latestKnowledgeJobState(t.Context(), client, chunkArgs{}.Kind(), file.ID)
+	state, found, err := latestLibraryJobState(t.Context(), client, chunkArgs{}.Kind(), file.ID)
 	if err != nil || !found || state != rivertype.JobStateCancelled {
 		t.Fatalf("queued chunk cancellation = state %q found=%t error=%v", state, found, err)
 	}
@@ -177,13 +177,13 @@ func TestCancellationFailureNeverReversesTombstone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := newInsertOnlyKnowledgeRiver(closedPool)
+	client, err := newInsertOnlyLibraryRiver(closedPool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: store, Parser: staticKnowledgeParser{}, River: client,
-		Logger: discardKnowledgeLogger(), TempDir: t.TempDir(),
+		DB: database, RawStore: store, Parser: staticLibraryParser{}, River: client,
+		Logger: discardLibraryLogger(), TempDir: t.TempDir(),
 		MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
 	if err != nil {
@@ -205,7 +205,7 @@ func TestCancellationFailureNeverReversesTombstone(t *testing.T) {
 	}
 	var tombstoned bool
 	if err := database.QueryRow(
-		t.Context(), `SELECT deleted_at IS NOT NULL FROM knowledge_file WHERE id = $1`, file.ID,
+		t.Context(), `SELECT deleted_at IS NOT NULL FROM library_file WHERE id = $1`, file.ID,
 	).Scan(&tombstoned); err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestCleanupRetriesAfterRawStoreFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &failOnceDeleteRawStore{RawStore: baseStore, failed: make(chan struct{})}
-	service, client := newWorkingKnowledgeService(t, database, store, staticKnowledgeParser{})
+	service, client := newWorkingLibraryService(t, database, store, staticLibraryParser{})
 	authority := testAuthority(t, testUserA, true)
 	file, err := service.CreateManagedUpload(
 		t.Context(), authority, ScopeSystem, "", "retry-delete.txt", stringsReader("source"),
@@ -229,7 +229,7 @@ func TestCleanupRetriesAfterRawStoreFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitForKnowledgeFile(t, service, file.ID, func(current File) bool {
+	waitForLibraryFile(t, service, file.ID, func(current LibraryFile) bool {
 		return current.Status == FileStatusReady
 	})
 	if err := service.DeleteManaged(t.Context(), authority, file.ID); err != nil {
@@ -242,30 +242,30 @@ func TestCleanupRetriesAfterRawStoreFailure(t *testing.T) {
 	}
 	var tombstoned bool
 	if err := database.QueryRow(
-		t.Context(), `SELECT deleted_at IS NOT NULL FROM knowledge_file WHERE id = $1`, file.ID,
+		t.Context(), `SELECT deleted_at IS NOT NULL FROM library_file WHERE id = $1`, file.ID,
 	).Scan(&tombstoned); err != nil || !tombstoned {
 		t.Fatalf("failed cleanup lost tombstone: tombstoned=%t error=%v", tombstoned, err)
 	}
-	waitForKnowledgeMetadataAbsent(t, database, file.ID)
+	waitForLibraryMetadataAbsent(t, database, file.ID)
 	if calls := store.calls.Load(); calls < 2 {
 		t.Fatalf("cleanup Delete calls = %d, want a retry", calls)
 	}
-	assertLatestKnowledgeJobState(t, client, cleanupArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
+	assertLatestLibraryJobState(t, client, cleanupArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
 }
 
 func TestOrphanReconciliationIsAgeBoundedAndFailClosed(t *testing.T) {
 	database := dbtest.New(t)
-	store, service := newKnowledgeService(t, database)
+	store, service := newLibraryService(t, database)
 	oldOrphanID := uuid.NewString()
 	youngOrphanID := uuid.NewString()
-	liveID, err := insertKnowledgeFile(
+	liveID, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	deletedAt := time.Now().UTC()
-	tombstoneID, err := insertKnowledgeFile(
+	tombstoneID, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", &deletedAt,
 	)
 	if err != nil {
@@ -346,9 +346,107 @@ func TestOrphanReconciliationIsAgeBoundedAndFailClosed(t *testing.T) {
 	assertRawObjectExists(t, store, uncertainID, true)
 }
 
+func TestOrphanReconciliationSurvivesUploaderProcessRestart(t *testing.T) {
+	database := dbtest.New(t)
+	baseStore, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const orphanMinAge = time.Second
+	config := ServiceConfig{
+		Parser:                   staticLibraryParser{},
+		SnapshotCommitTimeout:    500 * time.Millisecond,
+		DatabaseStatementTimeout: 200 * time.Millisecond,
+		DatabaseLockTimeout:      100 * time.Millisecond,
+		MaxClockSkew:             50 * time.Millisecond,
+		OrphanSafetyMargin:       50 * time.Millisecond,
+		OrphanMinAge:             orphanMinAge,
+	}
+	crashStore := &publishThenAbortRawStore{
+		RawStore:  baseStore,
+		published: make(chan string, 1),
+	}
+	config.RawStore = crashStore
+	uploader := newLibraryServiceWithConfig(t, database, config)
+	authority := testAuthority(t, testUserA, true)
+	uploadCtx, cancelUpload := context.WithCancel(t.Context())
+	uploadResult := make(chan error, 1)
+	go func() {
+		_, uploadErr := uploader.CreateManagedUpload(
+			uploadCtx,
+			authority,
+			ScopeSystem,
+			"",
+			"restart.txt",
+			stringsReader("raw published before uploader loss"),
+		)
+		uploadResult <- uploadErr
+	}()
+
+	var rawKey string
+	select {
+	case rawKey = <-crashStore.published:
+	case <-time.After(10 * time.Second):
+		t.Fatal("uploader did not publish the raw snapshot")
+	}
+	cancelUpload()
+	select {
+	case uploadErr := <-uploadResult:
+		if !errors.Is(uploadErr, context.Canceled) {
+			t.Fatalf("terminated uploader error = %v, want context cancellation", uploadErr)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("terminated uploader remained able to commit metadata")
+	}
+
+	fileID, err := FileIDFromRawKey(rawKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var owners int
+	if err := database.QueryRow(
+		t.Context(), `SELECT count(*) FROM library_file WHERE id = $1`, fileID,
+	).Scan(&owners); err != nil {
+		t.Fatal(err)
+	}
+	if owners != 0 {
+		t.Fatalf("terminated uploader committed %d metadata owner rows", owners)
+	}
+
+	// A new Service represents the process that starts after the uploader has
+	// terminated. It must retain the raw throughout the safe-age window.
+	config.RawStore = baseStore
+	restarted := newLibraryServiceWithConfig(t, database, config)
+	if _, _, err := restarted.reconcileOrphanPages(t.Context(), ""); err != nil {
+		t.Fatal(err)
+	}
+	assertRawObjectExists(t, baseStore, fileID, true)
+
+	path, err := baseStore.path(rawKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strictlyOld := time.Now().UTC().Add(-orphanMinAge - time.Second)
+	if err := os.Chtimes(path, strictlyOld, strictlyOld); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := restarted.reconcileOrphanPages(t.Context(), ""); err != nil {
+		t.Fatal(err)
+	}
+	assertRawObjectExists(t, baseStore, fileID, false)
+	if err := database.QueryRow(
+		t.Context(), `SELECT count(*) FROM library_file WHERE id = $1`, fileID,
+	).Scan(&owners); err != nil {
+		t.Fatal(err)
+	}
+	if owners != 0 {
+		t.Fatalf("old uploader committed metadata after GC: owners=%d", owners)
+	}
+}
+
 func TestOrphanReconciliationBoundsEachJob(t *testing.T) {
 	database := dbtest.New(t)
-	_, service := newKnowledgeService(t, database)
+	_, service := newLibraryService(t, database)
 	store := &endlessPagingRawStore{}
 	service.rawStore = store
 	nextCursor, continuation, err := service.reconcileOrphanPages(t.Context(), "")
@@ -371,7 +469,7 @@ func TestOrphanReconciliationBoundsEachJob(t *testing.T) {
 func TestReconciliationCursorHandoffConvergesThroughRiver(t *testing.T) {
 	database := dbtest.New(t)
 	store := &finitePagingRawStore{remainingPages: orphanPagesPerJob + 1}
-	_, client := newWorkingKnowledgeService(t, database, store, staticKnowledgeParser{})
+	_, client := newWorkingLibraryService(t, database, store, staticLibraryParser{})
 	args := reconcileArgs{}
 	options := args.InsertOpts()
 	if _, err := client.Insert(t.Context(), args, &options); err != nil {
@@ -396,29 +494,35 @@ func TestReconciliationCursorHandoffConvergesThroughRiver(t *testing.T) {
 
 func TestReconciliationRepairsMissingJobsAndFinalizesDiscardedGeneration(t *testing.T) {
 	database := dbtest.New(t)
-	_, service := newKnowledgeService(t, database)
+	store, service := newLibraryService(t, database)
 	client := service.riverClient()
-	missingID, err := insertKnowledgeFile(
+	missingID, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	discardedID, err := insertKnowledgeFile(
+	discardedID, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stuckID, err := insertKnowledgeFile(
+	stuckID, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{missingID, discardedID, stuckID} {
+	recentRunningID, err := insertLibraryFile(
+		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "processing", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{missingID, discardedID, stuckID, recentRunningID} {
 		if _, err := database.Exec(
-			t.Context(), `UPDATE knowledge_file SET updated_at = now() - interval '1 hour' WHERE id = $1`, id,
+			t.Context(), `UPDATE library_file SET updated_at = now() - interval '1 hour' WHERE id = $1`, id,
 		); err != nil {
 			t.Fatal(err)
 		}
@@ -449,10 +553,29 @@ func TestReconciliationRepairsMissingJobsAndFinalizesDiscardedGeneration(t *test
 	`, stuckJob.Job.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
+	recentArgs := chunkArgs{FileID: recentRunningID}
+	recentOptions := recentArgs.InsertOpts()
+	recentJob, err := client.Insert(t.Context(), recentArgs, &recentOptions)
+	if err != nil {
 		t.Fatal(err)
 	}
-	state, found, err := latestKnowledgeJobState(t.Context(), client, chunkArgs{}.Kind(), missingID)
+	if _, err := database.Exec(t.Context(), `
+		UPDATE river_job
+		SET state = 'running', attempt = 1, attempted_at = now()
+		WHERE id = $1
+	`, recentJob.Job.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A fresh Service models the durable state seen after the worker process that
+	// owned stuckJob was lost.
+	restarted := newLibraryServiceWithConfig(t, database, ServiceConfig{
+		RawStore: store,
+		Parser:   staticLibraryParser{},
+	})
+	if err := restarted.reconcileStaleDerivations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	state, found, err := latestLibraryJobState(t.Context(), client, chunkArgs{}.Kind(), missingID)
 	if err != nil || !found || state != rivertype.JobStateAvailable {
 		t.Fatalf("missing derivation repair = state %q found=%t error=%v", state, found, err)
 	}
@@ -472,38 +595,88 @@ func TestReconciliationRepairsMissingJobsAndFinalizesDiscardedGeneration(t *test
 	`, stuckJob.Job.ID).Scan(&stuckState, &cancellationMarked); err != nil {
 		t.Fatal(err)
 	}
-	if stuckState != string(rivertype.JobStateRunning) || !cancellationMarked {
+	if stuckState != string(rivertype.JobStateCancelled) || !cancellationMarked {
 		t.Fatalf("stuck running recovery = state %q cancellation_marked=%t", stuckState, cancellationMarked)
 	}
-	// Model River's durable stuck-job rescue after a crashed process. The next
-	// reconciliation pass must then create a fresh active job.
-	if _, err := database.Exec(t.Context(), `
-		UPDATE river_job
-		SET state = 'cancelled', finalized_at = now()
+	var recentState string
+	var recentCancellationMarked bool
+	if err := database.QueryRow(t.Context(), `
+		SELECT state::text, metadata ? 'cancel_attempted_at'
+		FROM river_job
 		WHERE id = $1
-	`, stuckJob.Job.ID); err != nil {
+	`, recentJob.Job.ID).Scan(&recentState, &recentCancellationMarked); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
-		t.Fatal(err)
+	if recentState != string(rivertype.JobStateRunning) || recentCancellationMarked {
+		t.Fatalf(
+			"recent running job was taken over = state %q cancellation_marked=%t",
+			recentState,
+			recentCancellationMarked,
+		)
 	}
-	state, found, err = latestKnowledgeJobState(t.Context(), client, chunkArgs{}.Kind(), stuckID)
+	state, found, err = latestLibraryJobState(t.Context(), client, chunkArgs{}.Kind(), stuckID)
 	if err != nil || !found || state != rivertype.JobStateAvailable {
-		t.Fatalf("rescued derivation repair = state %q found=%t error=%v", state, found, err)
+		t.Fatalf("local derivation takeover = state %q found=%t error=%v", state, found, err)
 	}
 
-	tombstoneID, err := insertKnowledgeFile(
+	tombstoneID, err := insertLibraryFile(
 		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "ready", &time.Time{},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.reconcileTombstones(t.Context()); err != nil {
+	stuckTombstoneID, err := insertLibraryFile(
+		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "ready", &time.Time{},
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
-	state, found, err = latestKnowledgeJobState(t.Context(), client, cleanupArgs{}.Kind(), tombstoneID)
+	cleanup := cleanupArgs{FileID: stuckTombstoneID}
+	cleanupOptions := cleanup.InsertOpts()
+	stuckCleanupJob, err := client.Insert(t.Context(), cleanup, &cleanupOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		UPDATE river_job
+		SET state = 'running', attempt = 1, attempted_at = now() - interval '1 hour'
+		WHERE id = $1
+	`, stuckCleanupJob.Job.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_file
+		SET deleted_at = now() - interval '1 hour', updated_at = now() - interval '1 hour'
+		WHERE id = $1
+	`, stuckTombstoneID); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.reconcileTombstones(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	state, found, err = latestLibraryJobState(t.Context(), client, cleanupArgs{}.Kind(), tombstoneID)
 	if err != nil || !found || state != rivertype.JobStateAvailable {
 		t.Fatalf("tombstone repair = state %q found=%t error=%v", state, found, err)
+	}
+	state, found, err = latestLibraryJobState(t.Context(), client, cleanupArgs{}.Kind(), stuckTombstoneID)
+	if err != nil || !found || state != rivertype.JobStateAvailable {
+		t.Fatalf("local cleanup takeover = state %q found=%t error=%v", state, found, err)
+	}
+	var stuckCleanupState string
+	var cleanupCancellationMarked bool
+	if err := database.QueryRow(t.Context(), `
+		SELECT state::text, metadata ? 'cancel_attempted_at'
+		FROM river_job
+		WHERE id = $1
+	`, stuckCleanupJob.Job.ID).Scan(&stuckCleanupState, &cleanupCancellationMarked); err != nil {
+		t.Fatal(err)
+	}
+	if stuckCleanupState != string(rivertype.JobStateCancelled) || !cleanupCancellationMarked {
+		t.Fatalf(
+			"stuck cleanup recovery = state %q cancellation_marked=%t",
+			stuckCleanupState,
+			cleanupCancellationMarked,
+		)
 	}
 }
 
@@ -513,9 +686,9 @@ func TestChunkStagingRowLockWaitIsBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := newKnowledgeServiceWithConfig(t, database, ServiceConfig{
+	service := newLibraryServiceWithConfig(t, database, ServiceConfig{
 		RawStore:                 store,
-		Parser:                   staticKnowledgeParser{},
+		Parser:                   staticLibraryParser{},
 		SnapshotCommitTimeout:    500 * time.Millisecond,
 		DatabaseStatementTimeout: 200 * time.Millisecond,
 		DatabaseLockTimeout:      100 * time.Millisecond,
@@ -543,7 +716,7 @@ func TestChunkStagingRowLockWaitIsBounded(t *testing.T) {
 	}
 	defer func() { _ = lockTx.Rollback(context.Background()) }()
 	if _, err := lockTx.Exec(
-		t.Context(), `SELECT id FROM knowledge_file WHERE id = $1 FOR UPDATE`, file.ID,
+		t.Context(), `SELECT id FROM library_file WHERE id = $1 FOR UPDATE`, file.ID,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +730,7 @@ func TestChunkStagingRowLockWaitIsBounded(t *testing.T) {
 	}
 	var count int
 	if err := database.QueryRow(
-		t.Context(), `SELECT count(*) FROM knowledge_chunk WHERE chunk_set_id = $1`, target.ChunkSetID,
+		t.Context(), `SELECT count(*) FROM library_chunk WHERE chunk_set_id = $1`, target.ChunkSetID,
 	).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +748,7 @@ func TestOrphanMinimumAgeMustExceedCommitUncertaintyWindow(t *testing.T) {
 	_, err = NewService(ServiceConfig{
 		DB:                       database,
 		RawStore:                 store,
-		Parser:                   staticKnowledgeParser{},
+		Parser:                   staticLibraryParser{},
 		MaxConcurrentUploads:     1,
 		MaxSpoolBytes:            MaxFileBytes,
 		SnapshotCommitTimeout:    5 * time.Second,
@@ -595,6 +768,11 @@ type gatedDeleteRawStore struct {
 	started chan struct{}
 	release chan struct{}
 	once    sync.Once
+}
+
+type publishThenAbortRawStore struct {
+	RawStore
+	published chan string
 }
 
 type failOnceDeleteRawStore struct {
@@ -671,6 +849,15 @@ func (s *gatedDeleteRawStore) Delete(ctx context.Context, key string) error {
 	return s.RawStore.Delete(ctx, key)
 }
 
+func (s *publishThenAbortRawStore) Create(ctx context.Context, key string, reader io.Reader) error {
+	if err := s.RawStore.Create(ctx, key, reader); err != nil {
+		return err
+	}
+	s.published <- key
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 type cancellableXbergRunner struct {
 	started chan struct{}
 	once    sync.Once
@@ -699,21 +886,21 @@ func (*cancellableXbergRunner) Probe(
 	return err
 }
 
-func waitForKnowledgeMetadataAbsent(t *testing.T, database *pgxpool.Pool, fileID string) {
+func waitForLibraryMetadataAbsent(t *testing.T, database *pgxpool.Pool, fileID string) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	var count int
 	var err error
 	for time.Now().Before(deadline) {
 		err = database.QueryRow(
-			t.Context(), `SELECT count(*) FROM knowledge_file WHERE id = $1`, fileID,
+			t.Context(), `SELECT count(*) FROM library_file WHERE id = $1`, fileID,
 		).Scan(&count)
 		if err == nil && count == 0 {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("knowledge metadata %s remains: count=%d error=%v", fileID, count, err)
+	t.Fatalf("library metadata %s remains: count=%d error=%v", fileID, count, err)
 }
 
 func assertRawObjectExists(t *testing.T, store *FSRawStore, fileID string, want bool) {
@@ -734,19 +921,19 @@ func assertRawObjectExists(t *testing.T, store *FSRawStore, fileID string, want 
 	}
 }
 
-func newKnowledgeServiceWithConfig(
+func newLibraryServiceWithConfig(
 	t *testing.T,
 	database *pgxpool.Pool,
 	config ServiceConfig,
 ) *Service {
 	t.Helper()
-	client, err := newInsertOnlyKnowledgeRiver(database)
+	client, err := newInsertOnlyLibraryRiver(database)
 	if err != nil {
 		t.Fatal(err)
 	}
 	config.DB = database
 	config.River = client
-	config.Logger = discardKnowledgeLogger()
+	config.Logger = discardLibraryLogger()
 	config.TempDir = t.TempDir()
 	config.MaxConcurrentUploads = 1
 	config.MaxSpoolBytes = MaxFileBytes
@@ -757,10 +944,10 @@ func newKnowledgeServiceWithConfig(
 	return service
 }
 
-func newInsertOnlyKnowledgeRiver(database *pgxpool.Pool) (*river.Client[pgx.Tx], error) {
+func newInsertOnlyLibraryRiver(database *pgxpool.Pool) (*river.Client[pgx.Tx], error) {
 	return river.NewClient(riverpgxv5.New(database), &river.Config{})
 }
 
-func discardKnowledgeLogger() *slog.Logger {
+func discardLibraryLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

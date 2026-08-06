@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func (s *Service) ResolveManageOwner(
 			return Owner{}, ErrServiceUnavailable
 		}
 		if _, err := s.agentAccess.Read(ctx, authority, owner.AgentID); err != nil {
-			return Owner{}, knowledgeAgentAccessError(err)
+			return Owner{}, libraryAgentAccessError(err)
 		}
 	}
 	if err := owner.Validate(); err != nil {
@@ -77,26 +77,26 @@ func (s *Service) GetManaged(
 	ctx context.Context,
 	authority authz.Authority,
 	id string,
-) (File, error) {
+) (LibraryFile, error) {
 	file, err := s.Get(ctx, id)
 	if err != nil {
-		return File{}, err
+		return LibraryFile{}, err
 	}
 	owner, err := s.ResolveManageOwner(ctx, authority, file.Owner.Scope, file.Owner.AgentID)
 	switch {
 	case err == nil:
 	case errors.Is(err, ErrServiceUnavailable):
-		return File{}, err
+		return LibraryFile{}, err
 	default:
-		return File{}, ErrNotFound
+		return LibraryFile{}, ErrNotFound
 	}
 	if owner != file.Owner {
-		return File{}, ErrNotFound
+		return LibraryFile{}, ErrNotFound
 	}
 	return file, nil
 }
 
-func knowledgeAgentAccessError(err error) error {
+func libraryAgentAccessError(err error) error {
 	switch {
 	case errors.Is(err, agentaccess.ErrNotFound):
 		return ErrNotFound

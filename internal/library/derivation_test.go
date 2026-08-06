@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"errors"
@@ -6,17 +6,17 @@ import (
 	"testing"
 )
 
-func TestKnowledgeDerivationKeyIsDeterministic(t *testing.T) {
+func TestLibraryDerivationKeyIsDeterministic(t *testing.T) {
 	t.Parallel()
 	raw := make([]byte, 32)
 	for index := range raw {
 		raw[index] = byte(index)
 	}
-	first, err := knowledgeDerivationKey(raw, MediaTypePDF)
+	first, err := libraryDerivationKey(raw, MediaTypePDF)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := knowledgeDerivationKey(append([]byte(nil), raw...), MediaTypePDF)
+	second, err := libraryDerivationKey(append([]byte(nil), raw...), MediaTypePDF)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,24 +24,24 @@ func TestKnowledgeDerivationKeyIsDeterministic(t *testing.T) {
 		t.Fatalf("derivation keys = %q and %q", first, second)
 	}
 	raw[0]++
-	changed, err := knowledgeDerivationKey(raw, MediaTypePDF)
+	changed, err := libraryDerivationKey(raw, MediaTypePDF)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if changed == first {
 		t.Fatal("derivation key did not change with the raw snapshot")
 	}
-	changedType, err := knowledgeDerivationKey(append([]byte(nil), raw...), MediaTypeDOCX)
+	changedType, err := libraryDerivationKey(append([]byte(nil), raw...), MediaTypeDOCX)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if changedType == changed {
 		t.Fatal("derivation key did not change with the media type")
 	}
-	if _, err := knowledgeDerivationKey([]byte("short"), MediaTypePDF); err == nil {
+	if _, err := libraryDerivationKey([]byte("short"), MediaTypePDF); err == nil {
 		t.Fatal("short raw hash was accepted")
 	}
-	if _, err := knowledgeDerivationKey(raw, ""); err == nil {
+	if _, err := libraryDerivationKey(raw, ""); err == nil {
 		t.Fatal("empty media type was accepted")
 	}
 }

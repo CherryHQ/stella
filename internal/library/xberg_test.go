@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"archive/zip"
@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -127,6 +128,58 @@ func TestXbergParserAvailability(t *testing.T) {
 	}
 	if err := parser.Available(t.Context()); err != nil {
 		t.Fatalf("Available() error = %v", err)
+	}
+}
+
+func TestNewManagedXbergParserProvisionsDaemonOwnedRuntime(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake mise script uses POSIX shell")
+	}
+
+	stellaHome := t.TempDir()
+	binDir := filepath.Join(stellaHome, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeMise := filepath.Join(binDir, "mise")
+	fake := fmt.Sprintf(`#!/bin/sh
+set -eu
+case "$1" in
+  trust|install)
+    exit 0
+    ;;
+  reshim)
+    mkdir -p "$MISE_SHIMS_DIR"
+    printf '#!/bin/sh\nprintf "xberg %s\\n"\n' > "$MISE_SHIMS_DIR/xberg"
+    chmod 700 "$MISE_SHIMS_DIR/xberg"
+    ;;
+  *)
+    echo "unexpected command: $*" >&2
+    exit 9
+    ;;
+esac
+`, XbergVersion)
+	if err := os.WriteFile(fakeMise, []byte(fake), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	parser, err := NewManagedXbergParser(t.Context(), stellaHome)
+	if err != nil {
+		t.Fatalf("NewManagedXbergParser: %v", err)
+	}
+	wantBinary := filepath.Join(stellaHome, ".mise-tools", "runtime-shims", managedXbergScope, "xberg")
+	if parser.config.Binary != wantBinary {
+		t.Fatalf("managed binary = %q, want %q", parser.config.Binary, wantBinary)
+	}
+	wantConfig := manifestplugins.ScopeConfigPath(stellaHome, managedXbergScope)
+	if got := parser.config.Environment["MISE_GLOBAL_CONFIG_FILE"]; got != wantConfig {
+		t.Fatalf("managed runtime config = %q, want %q", got, wantConfig)
+	}
+	if got := parser.config.Environment["MISE_SHIMS_DIR"]; got != filepath.Dir(wantBinary) {
+		t.Fatalf("managed runtime shims = %q, want %q", got, filepath.Dir(wantBinary))
+	}
+	if err := parser.Available(t.Context()); err != nil {
+		t.Fatalf("provisioned runtime unavailable: %v", err)
 	}
 }
 

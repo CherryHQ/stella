@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"context"
@@ -89,7 +89,7 @@ func (s *Service) processChunkJob(ctx context.Context, job *river.Job[chunkArgs]
 	return nil
 }
 
-var errGenerationStopped = errors.New("knowledge generation stopped")
+var errGenerationStopped = errors.New("library generation stopped")
 
 func (s *Service) prepareChunkGeneration(
 	ctx context.Context,
@@ -97,16 +97,16 @@ func (s *Service) prepareChunkGeneration(
 ) (generationTarget, generationAction, error) {
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("begin knowledge generation: %w", err)
+		return generationTarget{}, generationComplete, fmt.Errorf("begin library generation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
-	file, err := queries.LockKnowledgeFileLifecycle(ctx, fileID)
+	file, err := queries.LockLibraryFileLifecycle(ctx, fileID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return generationTarget{}, generationComplete, nil
 	}
 	if err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("lock knowledge file for generation: %w", err)
+		return generationTarget{}, generationComplete, fmt.Errorf("lock library file for generation: %w", err)
 	}
 	if file.DeletedAt.Valid || FileStatus(file.Status) == FileStatusFailed {
 		return generationTarget{}, generationComplete, nil
@@ -114,7 +114,7 @@ func (s *Service) prepareChunkGeneration(
 	if FileStatus(file.Status) != FileStatusProcessing && FileStatus(file.Status) != FileStatusReady {
 		return generationTarget{}, generationComplete, fmt.Errorf("%w: unsupported file status %q", ErrGenerationChanged, file.Status)
 	}
-	derivationKey, err := knowledgeDerivationKey(file.RawSha256, file.MediaType)
+	derivationKey, err := libraryDerivationKey(file.RawSha256, file.MediaType)
 	if err != nil {
 		return generationTarget{}, generationComplete, err
 	}
@@ -128,28 +128,28 @@ func (s *Service) prepareChunkGeneration(
 
 	setID, err := uuid.NewV7()
 	if err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("generate knowledge ChunkSet ID: %w", err)
+		return generationTarget{}, generationComplete, fmt.Errorf("generate library ChunkSet ID: %w", err)
 	}
-	if _, err := queries.CreateKnowledgeChunkSet(ctx, sqlc.CreateKnowledgeChunkSetParams{
+	if _, err := queries.CreateLibraryChunkSet(ctx, sqlc.CreateLibraryChunkSetParams{
 		ID:            setID.String(),
 		FileID:        file.ID,
 		DerivationKey: derivationKey,
 		ProcessorKey:  XbergProcessorKey,
 		RawSha256:     append([]byte(nil), file.RawSha256...),
 	}); err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("create knowledge ChunkSet: %w", err)
+		return generationTarget{}, generationComplete, fmt.Errorf("create library ChunkSet: %w", err)
 	}
-	set, err := queries.GetKnowledgeChunkSetByDerivation(ctx, sqlc.GetKnowledgeChunkSetByDerivationParams{
+	set, err := queries.GetLibraryChunkSetByDerivation(ctx, sqlc.GetLibraryChunkSetByDerivationParams{
 		FileID: file.ID, DerivationKey: derivationKey,
 	})
 	if err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("load knowledge ChunkSet: %w", err)
+		return generationTarget{}, generationComplete, fmt.Errorf("load library ChunkSet: %w", err)
 	}
 	if err := validateGenerationIdentity(set, target); err != nil {
 		return generationTarget{}, generationComplete, err
 	}
 	target.ChunkSetID = set.ID
-	if err := commitKnowledgeTransaction(ctx, tx); err != nil {
+	if err := commitLibraryTransaction(ctx, tx); err != nil {
 		return generationTarget{}, generationComplete, err
 	}
 
@@ -165,7 +165,7 @@ func (s *Service) prepareChunkGeneration(
 	}
 }
 
-func validateGenerationIdentity(set sqlc.KnowledgeChunkSet, target generationTarget) error {
+func validateGenerationIdentity(set sqlc.LibraryChunkSet, target generationTarget) error {
 	if set.FileID != target.FileID || set.DerivationKey != target.DerivationKey || set.ProcessorKey != XbergProcessorKey {
 		return fmt.Errorf("%w: ChunkSet identity mismatch", ErrGenerationConflict)
 	}
@@ -185,23 +185,23 @@ func (s *Service) parseRawSnapshot(ctx context.Context, target generationTarget)
 	}
 	raw, err := s.rawStore.Open(ctx, rawKey)
 	if err != nil {
-		return nil, fmt.Errorf("open knowledge raw snapshot: %w", err)
+		return nil, fmt.Errorf("open library raw snapshot: %w", err)
 	}
 	defer func() { _ = raw.Close() }()
 
-	directory, err := os.MkdirTemp(s.tempDir, "stella-knowledge-parse-*")
+	directory, err := os.MkdirTemp(s.tempDir, "stella-library-parse-*")
 	if err != nil {
-		return nil, fmt.Errorf("create knowledge parse directory: %w", err)
+		return nil, fmt.Errorf("create library parse directory: %w", err)
 	}
 	defer func() {
 		if removeErr := os.RemoveAll(directory); removeErr != nil {
-			s.logger.Warn("remove knowledge parse directory", "file_id", target.FileID, "error", removeErr)
+			s.logger.Warn("remove library parse directory", "file_id", target.FileID, "error", removeErr)
 		}
 	}()
 	path := filepath.Join(directory, "source"+extensionForMediaType(target.MediaType))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("create knowledge parse input: %w", err)
+		return nil, fmt.Errorf("create library parse input: %w", err)
 	}
 	hash := sha256.New()
 	written, copyErr := io.CopyBuffer(
@@ -211,10 +211,10 @@ func (s *Service) parseRawSnapshot(ctx context.Context, target generationTarget)
 	)
 	closeErr := file.Close()
 	if copyErr != nil {
-		return nil, fmt.Errorf("stage knowledge raw snapshot: %w", copyErr)
+		return nil, fmt.Errorf("stage library raw snapshot: %w", copyErr)
 	}
 	if closeErr != nil {
-		return nil, fmt.Errorf("close knowledge parse input: %w", closeErr)
+		return nil, fmt.Errorf("close library parse input: %w", closeErr)
 	}
 	if written != target.SizeBytes || written > MaxFileBytes || subtle.ConstantTimeCompare(hash.Sum(nil), target.RawSHA256) != 1 {
 		return nil, fmt.Errorf("%w: size or SHA-256 mismatch", ErrRawIntegrity)
@@ -226,24 +226,24 @@ func (s *Service) parseRawSnapshot(ctx context.Context, target generationTarget)
 }
 
 func (s *Service) ensureGenerationLive(ctx context.Context, target generationTarget) error {
-	file, err := s.q.GetKnowledgeFile(ctx, target.FileID)
+	file, err := s.q.GetLibraryFile(ctx, target.FileID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errGenerationStopped
 	}
 	if err != nil {
-		return fmt.Errorf("reload knowledge file generation: %w", err)
+		return fmt.Errorf("reload library file generation: %w", err)
 	}
 	if subtle.ConstantTimeCompare(file.RawSha256, target.RawSHA256) != 1 {
 		return ErrGenerationChanged
 	}
-	set, err := s.q.GetKnowledgeChunkSetByDerivation(ctx, sqlc.GetKnowledgeChunkSetByDerivationParams{
+	set, err := s.q.GetLibraryChunkSetByDerivation(ctx, sqlc.GetLibraryChunkSetByDerivationParams{
 		FileID: target.FileID, DerivationKey: target.DerivationKey,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrGenerationChanged
 	}
 	if err != nil {
-		return fmt.Errorf("reload knowledge ChunkSet: %w", err)
+		return fmt.Errorf("reload library ChunkSet: %w", err)
 	}
 	if err := validateGenerationIdentity(set, target); err != nil {
 		return err
@@ -261,22 +261,22 @@ func (s *Service) stageChunkBatch(
 ) error {
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin knowledge chunk staging: %w", err)
+		return fmt.Errorf("begin library chunk staging: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	file, err := queries.LockKnowledgeFileLifecycle(ctx, target.FileID)
+	file, err := queries.LockLibraryFileLifecycle(ctx, target.FileID)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
 		return errGenerationStopped
 	}
 	if err != nil {
-		return fmt.Errorf("lock knowledge file for staging: %w", err)
+		return fmt.Errorf("lock library file for staging: %w", err)
 	}
-	set, err := queries.LockKnowledgeChunkSetLifecycle(ctx, target.ChunkSetID)
+	set, err := queries.LockLibraryChunkSetLifecycle(ctx, target.ChunkSetID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrGenerationChanged
 	}
 	if err != nil {
-		return fmt.Errorf("lock KnowledgeChunkSet for staging: %w", err)
+		return fmt.Errorf("lock LibraryChunkSet for staging: %w", err)
 	}
 	if err := validateGenerationIdentity(set, target); err != nil {
 		return err
@@ -285,7 +285,7 @@ func (s *Service) stageChunkBatch(
 		return ErrGenerationChanged
 	}
 
-	params := sqlc.InsertKnowledgeChunkBatchParams{ChunkSetID: target.ChunkSetID}
+	params := sqlc.InsertLibraryChunkBatchParams{ChunkSetID: target.ChunkSetID}
 	params.Ids = make([]string, 0, len(batch))
 	params.Ordinals = make([]int64, 0, len(batch))
 	params.Contents = make([]string, 0, len(batch))
@@ -294,7 +294,7 @@ func (s *Service) stageChunkBatch(
 	for _, chunk := range batch {
 		id, err := uuid.NewV7()
 		if err != nil {
-			return fmt.Errorf("generate knowledge chunk ID: %w", err)
+			return fmt.Errorf("generate library chunk ID: %w", err)
 		}
 		params.Ids = append(params.Ids, id.String())
 		params.Ordinals = append(params.Ordinals, chunk.Ordinal)
@@ -302,27 +302,27 @@ func (s *Service) stageChunkBatch(
 		params.Locators = append(params.Locators, chunk.LocatorJSON)
 		params.ContentSha256s = append(params.ContentSha256s, append([]byte(nil), chunk.ContentSHA256[:]...))
 	}
-	if _, err := queries.InsertKnowledgeChunkBatch(ctx, params); err != nil {
-		return fmt.Errorf("stage knowledge chunk batch: %w", err)
+	if _, err := queries.InsertLibraryChunkBatch(ctx, params); err != nil {
+		return fmt.Errorf("stage library chunk batch: %w", err)
 	}
-	rows, err := queries.ListKnowledgeChunkByOrdinals(ctx, sqlc.ListKnowledgeChunkByOrdinalsParams{
+	rows, err := queries.ListLibraryChunkByOrdinals(ctx, sqlc.ListLibraryChunkByOrdinalsParams{
 		ChunkSetID: target.ChunkSetID, Ordinals: params.Ordinals,
 	})
 	if err != nil {
-		return fmt.Errorf("verify knowledge chunk batch: %w", err)
+		return fmt.Errorf("verify library chunk batch: %w", err)
 	}
 	if err := verifyStagedBatch(batch, rows); err != nil {
 		return err
 	}
-	if affected, err := queries.TouchKnowledgeFileDerivation(ctx, target.FileID); err != nil {
-		return fmt.Errorf("touch knowledge derivation: %w", err)
+	if affected, err := queries.TouchLibraryFileDerivation(ctx, target.FileID); err != nil {
+		return fmt.Errorf("touch library derivation: %w", err)
 	} else if affected != 1 {
 		return errGenerationStopped
 	}
-	return commitKnowledgeTransaction(ctx, tx)
+	return commitLibraryTransaction(ctx, tx)
 }
 
-func verifyStagedBatch(batch []stagedChunk, rows []sqlc.ListKnowledgeChunkByOrdinalsRow) error {
+func verifyStagedBatch(batch []stagedChunk, rows []sqlc.ListLibraryChunkByOrdinalsRow) error {
 	if len(rows) != len(batch) {
 		return fmt.Errorf("%w: staged row count %d, want %d", ErrGenerationConflict, len(rows), len(batch))
 	}
@@ -354,22 +354,22 @@ func (s *Service) publishChunkSet(
 ) error {
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin knowledge ChunkSet publication: %w", err)
+		return fmt.Errorf("begin library ChunkSet publication: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	file, err := queries.LockKnowledgeFileLifecycle(ctx, target.FileID)
+	file, err := queries.LockLibraryFileLifecycle(ctx, target.FileID)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
 		if err := completeRiverJobTx(ctx, tx, job); err != nil {
 			return err
 		}
-		return commitKnowledgeTransaction(ctx, tx)
+		return commitLibraryTransaction(ctx, tx)
 	}
 	if err != nil {
-		return fmt.Errorf("lock knowledge file for publication: %w", err)
+		return fmt.Errorf("lock library file for publication: %w", err)
 	}
-	set, err := queries.LockKnowledgeChunkSetLifecycle(ctx, target.ChunkSetID)
+	set, err := queries.LockLibraryChunkSetLifecycle(ctx, target.ChunkSetID)
 	if err != nil {
-		return fmt.Errorf("lock KnowledgeChunkSet for publication: %w", err)
+		return fmt.Errorf("lock LibraryChunkSet for publication: %w", err)
 	}
 	if err := validateGenerationIdentity(set, target); err != nil {
 		return err
@@ -380,19 +380,19 @@ func (s *Service) publishChunkSet(
 	if ChunkSetStatus(set.Status) != ChunkSetStatusBuilding {
 		return ErrGenerationChanged
 	}
-	integrity, err := queries.GetKnowledgeChunkSetIntegrity(ctx, target.ChunkSetID)
+	integrity, err := queries.GetLibraryChunkSetIntegrity(ctx, target.ChunkSetID)
 	if err != nil {
-		return fmt.Errorf("validate knowledge ChunkSet integrity: %w", err)
+		return fmt.Errorf("validate library ChunkSet integrity: %w", err)
 	}
 	if integrity.ChunkCount != chunkCount || integrity.MinOrdinal != 0 || integrity.MaxOrdinal != chunkCount-1 || subtle.ConstantTimeCompare(integrity.ContentDigest, expectedDigest) != 1 {
 		return fmt.Errorf("%w: staged generation integrity mismatch", ErrGenerationConflict)
 	}
-	if affected, err := queries.MarkKnowledgeChunkSetReady(ctx, sqlc.MarkKnowledgeChunkSetReadyParams{
+	if affected, err := queries.MarkLibraryChunkSetReady(ctx, sqlc.MarkLibraryChunkSetReadyParams{
 		ChunkCount:    pgtype.Int8{Int64: chunkCount, Valid: true},
 		ContentDigest: append([]byte(nil), expectedDigest...),
 		ID:            target.ChunkSetID,
 	}); err != nil {
-		return fmt.Errorf("mark knowledge ChunkSet ready: %w", err)
+		return fmt.Errorf("mark library ChunkSet ready: %w", err)
 	} else if affected != 1 {
 		return ErrGenerationChanged
 	}
@@ -410,19 +410,19 @@ func (s *Service) publishExistingChunkSet(
 		return fmt.Errorf("begin existing ChunkSet publication: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	file, err := queries.LockKnowledgeFileLifecycle(ctx, target.FileID)
+	file, err := queries.LockLibraryFileLifecycle(ctx, target.FileID)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
 		if err := completeRiverJobTx(ctx, tx, job); err != nil {
 			return err
 		}
-		return commitKnowledgeTransaction(ctx, tx)
+		return commitLibraryTransaction(ctx, tx)
 	}
 	if err != nil {
-		return fmt.Errorf("lock knowledge file for existing publication: %w", err)
+		return fmt.Errorf("lock library file for existing publication: %w", err)
 	}
-	set, err := queries.LockKnowledgeChunkSetLifecycle(ctx, target.ChunkSetID)
+	set, err := queries.LockLibraryChunkSetLifecycle(ctx, target.ChunkSetID)
 	if err != nil {
-		return fmt.Errorf("lock existing KnowledgeChunkSet: %w", err)
+		return fmt.Errorf("lock existing LibraryChunkSet: %w", err)
 	}
 	if err := validateGenerationIdentity(set, target); err != nil {
 		return err
@@ -438,23 +438,23 @@ func (s *Service) publishLockedReadySet(
 	tx pgx.Tx,
 	queries *sqlc.Queries,
 	job *river.Job[chunkArgs],
-	file sqlc.LockKnowledgeFileLifecycleRow,
-	set sqlc.KnowledgeChunkSet,
+	file sqlc.LockLibraryFileLifecycleRow,
+	set sqlc.LibraryChunkSet,
 ) error {
 	if file.DeletedAt.Valid {
 		return errGenerationStopped
 	}
-	if affected, err := queries.PublishKnowledgeFileChunkSet(ctx, sqlc.PublishKnowledgeFileChunkSetParams{
+	if affected, err := queries.PublishLibraryFileChunkSet(ctx, sqlc.PublishLibraryFileChunkSetParams{
 		ChunkSetID: pgtype.Text{String: set.ID, Valid: true}, ID: file.ID,
 	}); err != nil {
-		return fmt.Errorf("publish knowledge ChunkSet: %w", err)
+		return fmt.Errorf("publish library ChunkSet: %w", err)
 	} else if affected != 1 {
 		return errGenerationStopped
 	}
 	if err := completeRiverJobTx(ctx, tx, job); err != nil {
 		return err
 	}
-	return commitKnowledgeTransaction(ctx, tx)
+	return commitLibraryTransaction(ctx, tx)
 }
 
 func (s *Service) finishChangedGeneration(
@@ -462,7 +462,7 @@ func (s *Service) finishChangedGeneration(
 	job *river.Job[chunkArgs],
 	target generationTarget,
 ) error {
-	set, err := s.q.GetKnowledgeChunkSetByDerivation(ctx, sqlc.GetKnowledgeChunkSetByDerivationParams{
+	set, err := s.q.GetLibraryChunkSetByDerivation(ctx, sqlc.GetLibraryChunkSetByDerivationParams{
 		FileID: target.FileID, DerivationKey: target.DerivationKey,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -488,39 +488,39 @@ func (s *Service) failChunkJob(
 ) error {
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
-		return fmt.Errorf("begin knowledge generation failure: %w", err)
+		return fmt.Errorf("begin library generation failure: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	file, err := queries.LockKnowledgeFileLifecycle(ctx, target.FileID)
+	file, err := queries.LockLibraryFileLifecycle(ctx, target.FileID)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
 		if err := completeRiverJobTx(ctx, tx, job); err != nil {
 			return err
 		}
-		return commitKnowledgeTransaction(ctx, tx)
+		return commitLibraryTransaction(ctx, tx)
 	}
 	if err != nil {
-		return fmt.Errorf("lock failed knowledge file: %w", err)
+		return fmt.Errorf("lock failed library file: %w", err)
 	}
-	set, err := queries.LockKnowledgeChunkSetLifecycle(ctx, target.ChunkSetID)
+	set, err := queries.LockLibraryChunkSetLifecycle(ctx, target.ChunkSetID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("lock failed KnowledgeChunkSet: %w", err)
+		return fmt.Errorf("lock failed LibraryChunkSet: %w", err)
 	}
 	if err == nil && ChunkSetStatus(set.Status) == ChunkSetStatusBuilding {
-		if _, err := queries.MarkKnowledgeChunkSetFailed(ctx, sqlc.MarkKnowledgeChunkSetFailedParams{
+		if _, err := queries.MarkLibraryChunkSetFailed(ctx, sqlc.MarkLibraryChunkSetFailedParams{
 			ErrorMessage: nullableText(cleanErrorMessage(message)), ID: set.ID,
 		}); err != nil {
-			return fmt.Errorf("mark KnowledgeChunkSet failed: %w", err)
+			return fmt.Errorf("mark LibraryChunkSet failed: %w", err)
 		}
 	}
-	if _, err := queries.MarkKnowledgeFileFailedWithoutActiveSet(ctx, sqlc.MarkKnowledgeFileFailedWithoutActiveSetParams{
+	if _, err := queries.MarkLibraryFileFailedWithoutActiveSet(ctx, sqlc.MarkLibraryFileFailedWithoutActiveSetParams{
 		ErrorMessage: nullableText(cleanErrorMessage(message)), ID: file.ID,
 	}); err != nil {
-		return fmt.Errorf("mark knowledge file failed: %w", err)
+		return fmt.Errorf("mark library file failed: %w", err)
 	}
 	if err := completeRiverJobTx(ctx, tx, job); err != nil {
 		return err
 	}
-	return commitKnowledgeTransaction(ctx, tx)
+	return commitLibraryTransaction(ctx, tx)
 }
 
 func (s *Service) completeChunkJob(ctx context.Context, job *river.Job[chunkArgs]) error {
@@ -532,12 +532,12 @@ func (s *Service) completeChunkJob(ctx context.Context, job *river.Job[chunkArgs
 	if err := completeRiverJobTx(ctx, tx, job); err != nil {
 		return err
 	}
-	return commitKnowledgeTransaction(ctx, tx)
+	return commitLibraryTransaction(ctx, tx)
 }
 
-func commitKnowledgeTransaction(ctx context.Context, tx pgx.Tx) error {
+func commitLibraryTransaction(ctx context.Context, tx pgx.Tx) error {
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit knowledge transaction: %w", err)
+		return fmt.Errorf("commit library transaction: %w", err)
 	}
 	return nil
 }
