@@ -637,6 +637,48 @@ func (q *Queries) InitializeEmptySkillAuthorityStorageMigration(ctx context.Cont
 	return i, err
 }
 
+const listReadyStorageHomeCatalogRoots = `-- name: ListReadyStorageHomeCatalogRoots :many
+SELECT home_kind, principal_kind, principal_id, agent_id
+FROM storage_home
+WHERE state = 'ready'
+  AND home_kind IN ('system_skill', 'system_agent_skill', 'principal', 'agent')
+ORDER BY home_kind, COALESCE(principal_kind, ''), COALESCE(principal_id, ''), COALESCE(agent_id, '')
+`
+
+type ListReadyStorageHomeCatalogRootsRow struct {
+	HomeKind      string      `json:"home_kind"`
+	PrincipalKind pgtype.Text `json:"principal_kind"`
+	PrincipalID   pgtype.Text `json:"principal_id"`
+	AgentID       pgtype.Text `json:"agent_id"`
+}
+
+// ListReadyStorageHomeCatalogRoots is the identity-only inventory for the
+// Home Skill catalog. Content and lifecycle state never enter this query.
+func (q *Queries) ListReadyStorageHomeCatalogRoots(ctx context.Context) ([]ListReadyStorageHomeCatalogRootsRow, error) {
+	rows, err := q.db.Query(ctx, listReadyStorageHomeCatalogRoots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReadyStorageHomeCatalogRootsRow{}
+	for rows.Next() {
+		var i ListReadyStorageHomeCatalogRootsRow
+		if err := rows.Scan(
+			&i.HomeKind,
+			&i.PrincipalKind,
+			&i.PrincipalID,
+			&i.AgentID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStorageHomeByAgentForUpdate = `-- name: ListStorageHomeByAgentForUpdate :many
 SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purged_at, purged_by, created_at, updated_at FROM storage_home
 WHERE agent_id = $1 AND home_kind IN ('agent', 'system_agent_skill')

@@ -70,10 +70,13 @@ type ManagedSkillCursor struct {
 
 // ManagedSkillUpdate applies one atomic metadata/file lifecycle mutation.
 type ManagedSkillUpdate struct {
-	ID              string
-	UserID          string
-	AgentID         string
-	Scope           string
+	ID      string
+	UserID  string
+	AgentID string
+	Scope   string
+	// ExpectedDigest is the exact Home content revision the caller inspected.
+	// PGStore deliberately ignores it until Home authority is composed.
+	ExpectedDigest  string
 	Patch           UpdatePatch
 	Files           map[string]string
 	ConvertToManual bool

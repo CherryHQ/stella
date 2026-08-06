@@ -17,6 +17,15 @@ SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
 -- name: ListStorageHomeStoreID :many
 SELECT DISTINCT store_id FROM storage_home WHERE state <> 'purged' ORDER BY store_id;
 
+-- ListReadyStorageHomeCatalogRoots is the identity-only inventory for the
+-- Home Skill catalog. Content and lifecycle state never enter this query.
+-- name: ListReadyStorageHomeCatalogRoots :many
+SELECT home_kind, principal_kind, principal_id, agent_id
+FROM storage_home
+WHERE state = 'ready'
+  AND home_kind IN ('system_skill', 'system_agent_skill', 'principal', 'agent')
+ORDER BY home_kind, COALESCE(principal_kind, ''), COALESCE(principal_id, ''), COALESCE(agent_id, '');
+
 -- name: ListStorageLegacyUserID :many
 SELECT id FROM auth_user ORDER BY id;
 

@@ -65,6 +65,18 @@ func NewHomeCatalog(homes HomeCatalogFilesystem, inventory HomeCatalogInventory)
 	return &HomeCatalog{homes: homes, inventory: inventory}, nil
 }
 
+// Get reads one exact canonical filesystem Skill ID. It opens only that typed
+// root and takes one catalog snapshot, so managed metadata remains bound to
+// the inspected immutable revision without scanning unrelated Homes.
+func (c *HomeCatalog) Get(ctx context.Context, id string) (HomeCatalogSkill, error) {
+	var out HomeCatalogSkill
+	err := c.useSkillByID(ctx, id, func(_ sandbox.Filesystem, descriptor FilesystemSkillDescriptor) error {
+		out = homeCatalogSkill(descriptor)
+		return nil
+	})
+	return out, err
+}
+
 func (c *HomeCatalog) List(ctx context.Context, vc ViewContext) ([]HomeCatalogSkill, error) {
 	roots := []HomeCatalogRoot{{Scope: "user_agent", UserID: vc.UserID, AgentID: vc.AgentID}, {Scope: "user", UserID: vc.UserID}, {Scope: "system_agent", AgentID: vc.AgentID}, {Scope: "system"}}
 	seen := map[string]struct{}{}
@@ -458,7 +470,13 @@ func (c *HomeCatalog) useRoot(ctx context.Context, coordinate HomeCatalogRoot, u
 		return err
 	}
 	exists, err := c.homes.UseExistingSkillFilesystem(ctx, root, use)
+	// A ready owner Home can predate its optional Skill catalog directory.
+	// Registry opening reports that exact absence before invoking use; lists
+	// treat it as an empty root, while ID-addressed reads keep fs.ErrNotExist.
 	if err != nil {
+		if !exists && errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		return fmt.Errorf("skills: open Home catalog: %w", err)
 	}
 	if !exists {
