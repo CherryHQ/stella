@@ -43,12 +43,34 @@ func TestGoalDetailProjectsExistingExecutionState(t *testing.T) {
 func TestGoalDetailBoundsNewTextProjection(t *testing.T) {
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	large := strings.Repeat("x", maxToolDetailText)
+	children := make([]Goal, 64)
+	for i := range children {
+		children[i] = Goal{ID: "child", RootID: "root", Title: large, UpdatedAt: now}
+	}
+	attempts := make([]AttemptSummary, maxToolAttempts)
+	for i := range attempts {
+		attempts[i] = AttemptSummary{ID: "attempt", Error: large, Status: AttemptFailed, UpdatedAt: now}
+	}
 	got := goalDetail(
 		Goal{ID: "root", RootID: "root", Intent: large, UpdatedAt: now},
-		[]Goal{{ID: "child", RootID: "root", Title: large, UpdatedAt: now}},
-		[]AttemptSummary{{ID: "attempt", Error: large, UpdatedAt: now}},
+		children,
+		attempts,
 	)
-	if len(got.Intent) != maxToolIntentText || len(got.Children[0].Title)+len(got.Attempts[0].Error)+len(got.Intent) > maxToolDetailText {
-		t.Fatalf("detail text was not bounded: intent=%d title=%d error=%d", len(got.Intent), len(got.Children[0].Title), len(got.Attempts[0].Error))
+	var total int
+	for _, child := range got.Children {
+		total += len(child.Title)
+		if child.Title == "" || !child.TitleTruncated {
+			t.Fatalf("child title should receive a bounded fair share: %#v", child)
+		}
+	}
+	for _, attempt := range got.Attempts {
+		total += len(attempt.Error)
+		if attempt.Error == "" || !attempt.ErrorTruncated {
+			t.Fatalf("attempt error should remain visible and signal truncation: %#v", attempt)
+		}
+	}
+	total += len(got.Intent)
+	if !got.IntentTruncated || len(got.Intent) != maxToolIntentText || total > maxToolDetailText {
+		t.Fatalf("detail text was not bounded: total=%d intent=%d", total, len(got.Intent))
 	}
 }

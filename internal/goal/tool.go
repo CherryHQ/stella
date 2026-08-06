@@ -16,7 +16,10 @@ const (
 	maxToolAttempts     = 20
 	maxToolErrorText    = 4_000
 	maxToolIntentText   = 12_000
-	maxToolDetailText   = 64_000
+	maxToolChildTitle   = 1_000
+	maxToolChildText    = 20_000
+	maxToolAttemptText  = 32_000
+	maxToolDetailText   = maxToolIntentText + maxToolChildText + maxToolAttemptText
 )
 
 type Tool struct {
@@ -189,6 +192,7 @@ func (h goalHandler) Cancel(ctx context.Context, in CancelInput) (any, error) {
 type goalResponse struct {
 	ID              string  `json:"id"`
 	Title           string  `json:"title"`
+	TitleTruncated  bool    `json:"title_truncated,omitempty"`
 	Lifecycle       string  `json:"lifecycle"`
 	AcceptanceState string  `json:"acceptance_state"`
 	Kind            string  `json:"kind"`
@@ -207,6 +211,7 @@ type goalResponse struct {
 type goalDetailResponse struct {
 	goalResponse
 	Intent          string                `json:"intent"`
+	IntentTruncated bool                  `json:"intent_truncated,omitempty"`
 	ReviewPolicy    string                `json:"review_policy"`
 	Children        []goalResponse        `json:"children"`
 	ChildProgress   goalChildProgress     `json:"child_progress"`
@@ -224,16 +229,17 @@ type goalChildProgress struct {
 }
 
 type goalAttemptResponse struct {
-	ID           string  `json:"id"`
-	Purpose      string  `json:"purpose"`
-	AttemptNo    int64   `json:"attempt_no"`
-	Status       string  `json:"status"`
-	SessionID    string  `json:"session_id"`
-	Error        string  `json:"error,omitempty"`
-	FailureClass string  `json:"failure_class,omitempty"`
-	StartedAt    *string `json:"started_at,omitempty"`
-	FinishedAt   *string `json:"finished_at,omitempty"`
-	UpdatedAt    string  `json:"updated_at"`
+	ID             string  `json:"id"`
+	Purpose        string  `json:"purpose"`
+	AttemptNo      int64   `json:"attempt_no"`
+	Status         string  `json:"status"`
+	SessionID      string  `json:"session_id"`
+	Error          string  `json:"error,omitempty"`
+	ErrorTruncated bool    `json:"error_truncated,omitempty"`
+	FailureClass   string  `json:"failure_class,omitempty"`
+	StartedAt      *string `json:"started_at,omitempty"`
+	FinishedAt     *string `json:"finished_at,omitempty"`
+	UpdatedAt      string  `json:"updated_at"`
 }
 type listResponse[T any] struct {
 	Items         []T    `json:"items"`
@@ -252,18 +258,20 @@ func goalSummary(row Goal) goalResponse {
 }
 
 func goalDetail(row Goal, children []Goal, attempts []AttemptSummary) goalDetailResponse {
-	remainingText := maxToolDetailText
-	intent, _ := truncateGoalToolText(row.Intent, maxToolIntentText, &remainingText)
+	intentBudget := maxToolIntentText
+	intent, intentTruncated := truncateGoalToolText(row.Intent, maxToolIntentText, &intentBudget)
 	response := goalDetailResponse{
-		goalResponse: goalSummary(row),
-		Intent:       intent,
-		ReviewPolicy: row.ReviewPolicy,
-		Children:     make([]goalResponse, 0, len(children)),
-		Attempts:     make([]goalAttemptResponse, 0, len(attempts)),
+		goalResponse:    goalSummary(row),
+		Intent:          intent,
+		IntentTruncated: intentTruncated,
+		ReviewPolicy:    row.ReviewPolicy,
+		Children:        make([]goalResponse, 0, len(children)),
+		Attempts:        make([]goalAttemptResponse, 0, len(attempts)),
 	}
-	for _, child := range children {
+	childTextBudget := maxToolChildText
+	for i, child := range children {
 		summary := goalSummary(child)
-		summary.Title, _ = truncateGoalToolText(summary.Title, maxToolErrorText, &remainingText)
+		summary.Title, summary.TitleTruncated = truncateGoalToolTextFair(summary.Title, maxToolChildTitle, len(children)-i, &childTextBudget)
 		response.Children = append(response.Children, summary)
 		response.ChildProgress.Total++
 		switch {
@@ -283,20 +291,28 @@ func goalDetail(row Goal, children []Goal, attempts []AttemptSummary) goalDetail
 		response.AttemptsHasMore = true
 		attempts = attempts[:maxToolAttempts]
 	}
-	for _, attempt := range attempts {
-		response.Attempts = append(response.Attempts, goalAttemptSummary(attempt, &remainingText))
+	attemptTextBudget := maxToolAttemptText
+	for i, attempt := range attempts {
+		response.Attempts = append(response.Attempts, goalAttemptSummary(attempt, len(attempts)-i, &attemptTextBudget))
 	}
 	return response
 }
 
-func goalAttemptSummary(attempt AttemptSummary, remainingText *int) goalAttemptResponse {
-	errorText, _ := truncateGoalToolText(attempt.Error, maxToolErrorText, remainingText)
+func goalAttemptSummary(attempt AttemptSummary, remainingItems int, remainingText *int) goalAttemptResponse {
+	errorText, errorTruncated := truncateGoalToolTextFair(attempt.Error, maxToolErrorText, remainingItems, remainingText)
 	return goalAttemptResponse{
 		ID: attempt.ID, Purpose: attempt.Purpose, AttemptNo: attempt.AttemptNo, Status: attempt.Status,
-		SessionID: attempt.SessionID, Error: errorText, FailureClass: attempt.FailureClass,
+		SessionID: attempt.SessionID, Error: errorText, ErrorTruncated: errorTruncated, FailureClass: attempt.FailureClass,
 		StartedAt: formatToolTime(attempt.StartedAt), FinishedAt: formatToolTime(attempt.FinishedAt),
 		UpdatedAt: attempt.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+}
+
+func truncateGoalToolTextFair(text string, perFieldLimit, remainingItems int, remaining *int) (string, bool) {
+	if remainingItems > 0 {
+		perFieldLimit = min(perFieldLimit, *remaining/remainingItems)
+	}
+	return truncateGoalToolText(text, perFieldLimit, remaining)
 }
 
 func truncateGoalToolText(text string, perFieldLimit int, remaining *int) (string, bool) {

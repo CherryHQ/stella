@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -124,6 +125,22 @@ func TestSessionToolPreservesLogicalAssistantTurnsAndHidesBaselines(t *testing.T
 	}
 	if strings.Contains(string(encoded), "private model baseline") || !strings.Contains(string(encoded), "visible text") {
 		t.Fatalf("unsafe transcript projection: %s", encoded)
+	}
+}
+
+func TestSessionToolMessageBudgetPreservesNewestContent(t *testing.T) {
+	messages := make([]Message, 0, 7)
+	for i := range 6 {
+		messages = append(messages, Message{ID: fmt.Sprintf("old-%d", i), Content: strings.Repeat("x", maxSessionToolMessageText)})
+	}
+	messages = append(messages, Message{ID: "newest", Content: "latest result"})
+
+	items := sessionToolMessagesFrom(messages)
+	if got := items[len(items)-1].Content; got != "latest result" {
+		t.Fatalf("newest content=%q, want latest result", got)
+	}
+	if !items[0].Truncated {
+		t.Fatal("oldest content should yield budget to newer messages")
 	}
 }
 

@@ -215,11 +215,7 @@ func executeSessionMessages(ctx context.Context, access *Access, agentID string,
 		groups = groups[len(groups)-in.Limit:]
 	}
 	messages = flattenMessageGroups(groups)
-	items := make([]sessionToolMessage, 0, len(messages))
-	remainingText := maxSessionToolResultText
-	for _, message := range messages {
-		items = append(items, sessionToolMessageFrom(message, &remainingText))
-	}
+	items := sessionToolMessagesFrom(messages)
 	response := map[string]any{"messages": items, "has_more": hasMore}
 	if hasMore {
 		response["next_skip"] = in.Skip + in.Limit
@@ -243,6 +239,9 @@ func validSessionToolKind(kind agentsession.Kind) bool {
 	}
 }
 
+// Keep this logical-message boundary in sync with ListMessagesByLogicalPage in
+// internal/db/queries/ctx_message.sql and serializeDBMessages in
+// internal/server/sessions.go.
 func groupLogicalMessages(messages []Message) [][]Message {
 	groups := make([][]Message, 0, len(messages))
 	for _, message := range messages {
@@ -271,6 +270,17 @@ func flattenMessageGroups(groups [][]Message) []Message {
 		messages = append(messages, group...)
 	}
 	return messages
+}
+
+func sessionToolMessagesFrom(messages []Message) []sessionToolMessage {
+	items := make([]sessionToolMessage, len(messages))
+	remainingText := maxSessionToolResultText
+	// The query returns chronological rows for display, but recent context is
+	// more valuable when the aggregate output budget cannot hold the whole page.
+	for i := len(messages) - 1; i >= 0; i-- {
+		items[i] = sessionToolMessageFrom(messages[i], &remainingText)
+	}
+	return items
 }
 
 func visibleSessionPartText(parts []MessagePart) string {
