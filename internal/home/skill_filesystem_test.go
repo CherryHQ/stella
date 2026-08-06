@@ -2,6 +2,8 @@ package home
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -178,6 +181,47 @@ func TestUseSkillFilesystemFailsClosedWithoutPrivateStoreCapability(t *testing.T
 	}
 }
 
+func TestUseExistingSkillFilesystemDoesNotCreateAndOpensReadyCatalog(t *testing.T) {
+	r, local := newRegistry(t)
+	root, err := UserSkillCatalog("existing-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exists, err := r.UseExistingSkillFilesystem(context.Background(), root, func(sandbox.Filesystem) error {
+		t.Fatal("missing Home called callback")
+		return nil
+	})
+	if err != nil || exists {
+		t.Fatalf("missing Home = (%t, %v)", exists, err)
+	}
+	if _, err := r.get(context.Background(), root.key); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("missing catalog created storage_home: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(local.base, ".agents")); !os.IsNotExist(err) {
+		t.Fatalf("missing Home created catalog bytes: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(local.base, "users", "existing-user")); !os.IsNotExist(err) {
+		t.Fatalf("missing Home created user path: %v", err)
+	}
+	if _, err := r.Ensure(context.Background(), root.key); err != nil {
+		t.Fatal(err)
+	}
+	exists, err = r.UseExistingSkillFilesystem(context.Background(), root, func(sandbox.Filesystem) error { t.Fatal("missing catalog called callback"); return nil })
+	if !errors.Is(err, fs.ErrNotExist) || exists {
+		t.Fatalf("missing catalog = (%t, %v)", exists, err)
+	}
+	if err := r.UseSkillFilesystem(context.Background(), root, func(sandbox.Filesystem) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	exists, err = r.UseExistingSkillFilesystem(context.Background(), root, func(fsys sandbox.Filesystem) error {
+		_, err := fsys.Stat(context.Background(), sandbox.PathWorkspace)
+		return err
+	})
+	if err != nil || !exists {
+		t.Fatalf("ready Home = (%t, %v)", exists, err)
+	}
+}
+
 type blockingSkillStore struct {
 	Store
 	local   *LocalStore
@@ -311,4 +355,7 @@ func TestUseSkillFilesystemDoesNotRetainDBTransactionDuringFilesystemIO(t *testi
 
 // Compile-time boundary check: callers get only the bounded Filesystem. The
 // public root is opaque and cannot expose a Home, attachment, locator, or path.
-var _ func(*Registry, context.Context, *SkillRoot, func(sandbox.Filesystem) error) error = (*Registry).UseSkillFilesystem
+var (
+	_ func(*Registry, context.Context, *SkillRoot, func(sandbox.Filesystem) error) error         = (*Registry).UseSkillFilesystem
+	_ func(*Registry, context.Context, *SkillRoot, func(sandbox.Filesystem) error) (bool, error) = (*Registry).UseExistingSkillFilesystem
+)

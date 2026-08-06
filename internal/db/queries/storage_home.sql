@@ -148,3 +148,15 @@ UPDATE storage_migration
 SET state = 'completed', metadata = $2, completed_at = now(), updated_at = now()
 WHERE name = $1 AND state = 'pending' AND object_authority_configured = true
 RETURNING *;
+
+-- name: CreateSkillAuthorityStorageMigration :one
+INSERT INTO storage_migration (name, state, metadata)
+VALUES ($1, 'pending', $2)
+ON CONFLICT (name) DO NOTHING
+RETURNING *;
+
+-- name: CompleteSkillAuthorityStorageMigration :one
+UPDATE storage_migration
+SET state = 'completed', metadata = $2, completed_at = now(), updated_at = now()
+WHERE name = $1 AND state = 'pending' AND metadata = $3
+RETURNING *;

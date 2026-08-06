@@ -8,6 +8,8 @@ package sqlc
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteKnowledgeUsage = `-- name: DeleteKnowledgeUsage :exec
@@ -59,7 +61,7 @@ func (q *Queries) GetKnowledgeUsageForUpdate(ctx context.Context, arg GetKnowled
 }
 
 const getSkillUsageForUpdate = `-- name: GetSkillUsageForUpdate :one
-SELECT skill_id, user_id, agent_id, use_count, last_used_at, created_at
+SELECT skill_id, user_id, agent_id, use_count, last_used_at, created_at, scope, name, last_content_digest
 FROM skill_usage
 WHERE skill_id = $1
   AND user_id = $2::uuid
@@ -83,6 +85,9 @@ func (q *Queries) GetSkillUsageForUpdate(ctx context.Context, arg GetSkillUsageF
 		&i.UseCount,
 		&i.LastUsedAt,
 		&i.CreatedAt,
+		&i.Scope,
+		&i.Name,
+		&i.LastContentDigest,
 	)
 	return i, err
 }
@@ -139,6 +144,41 @@ func (q *Queries) ListReflectUsagePairs(ctx context.Context) ([]ListReflectUsage
 	for rows.Next() {
 		var i ListReflectUsagePairsRow
 		if err := rows.Scan(&i.UserID, &i.AgentID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSkillUsageForMigration = `-- name: ListSkillUsageForMigration :many
+SELECT skill_id, user_id, agent_id, use_count, last_used_at, created_at, scope, name, last_content_digest FROM skill_usage
+ORDER BY skill_id
+`
+
+func (q *Queries) ListSkillUsageForMigration(ctx context.Context) ([]SkillUsage, error) {
+	rows, err := q.db.Query(ctx, listSkillUsageForMigration)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SkillUsage{}
+	for rows.Next() {
+		var i SkillUsage
+		if err := rows.Scan(
+			&i.SkillID,
+			&i.UserID,
+			&i.AgentID,
+			&i.UseCount,
+			&i.LastUsedAt,
+			&i.CreatedAt,
+			&i.Scope,
+			&i.Name,
+			&i.LastContentDigest,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -394,6 +434,42 @@ type TouchReflectSkillRuntimeUseParams struct {
 
 func (q *Queries) TouchReflectSkillRuntimeUse(ctx context.Context, arg TouchReflectSkillRuntimeUseParams) (int64, error) {
 	result, err := q.db.Exec(ctx, touchReflectSkillRuntimeUse, arg.SkillID, arg.UserID, arg.AgentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateSkillUsageHomeIdentity = `-- name: UpdateSkillUsageHomeIdentity :execrows
+UPDATE skill_usage
+SET scope = $1,
+    name = $2,
+    last_content_digest = $3
+WHERE skill_id = $4
+  AND user_id = $5::uuid
+  AND agent_id = $6::text
+`
+
+type UpdateSkillUsageHomeIdentityParams struct {
+	Scope             pgtype.Text `json:"scope"`
+	Name              pgtype.Text `json:"name"`
+	LastContentDigest pgtype.Text `json:"last_content_digest"`
+	SkillID           string      `json:"skill_id"`
+	UserID            string      `json:"user_id"`
+	AgentID           string      `json:"agent_id"`
+}
+
+// UpdateSkillUsageHomeIdentity records only the derived logical Home identity
+// after the corresponding immutable target has been verified.
+func (q *Queries) UpdateSkillUsageHomeIdentity(ctx context.Context, arg UpdateSkillUsageHomeIdentityParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateSkillUsageHomeIdentity,
+		arg.Scope,
+		arg.Name,
+		arg.LastContentDigest,
+		arg.SkillID,
+		arg.UserID,
+		arg.AgentID,
+	)
 	if err != nil {
 		return 0, err
 	}

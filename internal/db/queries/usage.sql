@@ -89,6 +89,21 @@ FOR UPDATE;
 DELETE FROM skill_usage
 WHERE skill_id = sqlc.arg(skill_id);
 
+-- UpdateSkillUsageHomeIdentity records only the derived logical Home identity
+-- after the corresponding immutable target has been verified.
+-- name: UpdateSkillUsageHomeIdentity :execrows
+UPDATE skill_usage
+SET scope = sqlc.arg(scope),
+    name = sqlc.arg(name),
+    last_content_digest = sqlc.arg(last_content_digest)
+WHERE skill_id = sqlc.arg(skill_id)
+  AND user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)::text;
+
+-- name: ListSkillUsageForMigration :many
+SELECT * FROM skill_usage
+ORDER BY skill_id;
+
 -- name: ListReflectUsagePairs :many
 SELECT DISTINCT owned.user_id, owned.agent_id
 FROM (

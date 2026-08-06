@@ -14,7 +14,74 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/skills"
 )
+
+func TestStorageMigrateSkillsRequiresOfflineProofAndKeepsStdoutClean(t *testing.T) {
+	var calls int
+	command := migrateSkillsCommand(func(_ context.Context, dsn string, dryRun bool) (skills.SkillMigrationSummary, error) {
+		calls++
+		if dsn != "postgres://test" || !dryRun {
+			t.Fatalf("args = %q, %t", dsn, dryRun)
+		}
+		return skills.SkillMigrationSummary{DryRun: true, Status: "planned", MarkerState: "pending", SourceCount: 2, Bytes: 7, SHA256: "abc"}, nil
+	})
+	for _, tt := range []struct {
+		args []string
+		want string
+		fail bool
+	}{
+		{args: []string{"storage", "migrate-skills", "--confirm-writers-stopped", "--dry-run"}, want: "--confirm-backup-created is required", fail: true},
+		{args: []string{"storage", "migrate-skills", "--confirm-backup-created", "--dry-run"}, want: "--confirm-writers-stopped is required", fail: true},
+		{args: []string{"storage", "migrate-skills", "--confirm-writers-stopped", "--confirm-backup-created", "--dry-run"}, want: "--confirm-maintenance-mode is required", fail: true},
+		{args: []string{"storage", "migrate-skills", "--confirm-writers-stopped", "--confirm-backup-created", "--confirm-maintenance-mode=false", "--dry-run"}, want: "--confirm-maintenance-mode is required", fail: true},
+		{args: []string{"storage", "migrate-skills", "--confirm-writers-stopped", "--confirm-backup-created", "--confirm-maintenance-mode", "--dry-run", "--database-url", "postgres://test", "--json"}, want: `{"dry_run":true,"status":"planned","marker_state":"pending","source_count":2,"files":0,"bytes":7,"sha256":"abc","active_count":0,"archive_count":0,"usage_count":0,"unsupported_count":0,"conflict_count":0}` + "\n"},
+	} {
+		var out, errOut bytes.Buffer
+		app := &ucli.App{Writer: &out, ErrWriter: &errOut, Commands: []*ucli.Command{{Name: "storage", Subcommands: []*ucli.Command{command}}}}
+		err := app.Run(append([]string{"stellad"}, tt.args...))
+		if tt.fail {
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v", err)
+			}
+			if out.Len() != 0 || errOut.Len() != 0 {
+				t.Fatalf("output=%q stderr=%q", out.String(), errOut.String())
+			}
+			continue
+		}
+		if err != nil || out.String() != tt.want || errOut.String() != "Verifying legacy PostgreSQL Skills...\n" {
+			t.Fatalf("out=%q stderr=%q err=%v", out.String(), errOut.String(), err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d", calls)
+	}
+}
+
+func TestStorageMigrateSkillsWritesBlockedReportBeforeReturningError(t *testing.T) {
+	blocked := skills.SkillMigrationSummary{Status: "blocked", MarkerState: "pending", SourceCount: 1, Issues: []skills.SkillMigrationIssue{{SkillID: "bad", Kind: "unsupported", Reason: "missing SKILL.md"}}}
+	command := migrateSkillsCommand(func(context.Context, string, bool) (skills.SkillMigrationSummary, error) {
+		return blocked, &skills.SkillMigrationBlockedError{Summary: blocked}
+	})
+	for _, tt := range []struct {
+		json bool
+		want string
+	}{
+		{true, `{"dry_run":false,"status":"blocked","marker_state":"pending","source_count":1,"files":0,"bytes":0,"sha256":"","active_count":0,"archive_count":0,"usage_count":0,"unsupported_count":0,"conflict_count":0,"issues":[{"skill_id":"bad","kind":"unsupported","reason":"missing SKILL.md"}]}` + "\n"},
+		{false, "blocked\tpending\t1\t0\t\nbad\tunsupported\tmissing SKILL.md\n"},
+	} {
+		var out bytes.Buffer
+		app := &ucli.App{Writer: &out, Commands: []*ucli.Command{{Name: "storage", Subcommands: []*ucli.Command{command}}}}
+		args := []string{"stellad", "storage", "migrate-skills", "--confirm-writers-stopped", "--confirm-backup-created", "--confirm-maintenance-mode"}
+		if tt.json {
+			args = append(args, "--json")
+		}
+		err := app.Run(args)
+		if err == nil || !strings.Contains(err.Error(), "preflight blocked") || out.String() != tt.want {
+			t.Fatalf("json=%t out=%q err=%v", tt.json, out.String(), err)
+		}
+	}
+}
 
 func TestStorageRetryPurgeCommandShapeAndOutput(t *testing.T) {
 	t.Setenv("STELLA_HOME", t.TempDir())

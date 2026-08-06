@@ -226,6 +226,14 @@ type managedTreeFile struct {
 	absolute string
 }
 
+// managedRevisionInvalidError distinguishes deterministic corrupt-tree facts
+// from filesystem and transport failures while preflighting an existing target.
+type managedRevisionInvalidError struct{ err error }
+
+func (e *managedRevisionInvalidError) Error() string { return e.err.Error() }
+func (e *managedRevisionInvalidError) Unwrap() error { return e.err }
+func invalidManagedRevision(err error) error         { return &managedRevisionInvalidError{err: err} }
+
 func verifyManagedRevision(ctx context.Context, filesystem sandbox.Filesystem, root, wantDigest string) error {
 	entries := 0
 	files, err := collectManagedTree(ctx, filesystem, root, "", 0, &entries, nil)
@@ -244,10 +252,10 @@ func verifyManagedRevision(ctx context.Context, filesystem sandbox.Filesystem, r
 		}
 	}
 	if metadata.absolute == "" || !main {
-		return errors.New("managed revision lacks required control files")
+		return invalidManagedRevision(errors.New("managed revision lacks required control files"))
 	}
 	if metadata.mode != 0o644 {
-		return errors.New("managed revision metadata mode is not regular 0644")
+		return invalidManagedRevision(errors.New("managed revision metadata mode is not regular 0644"))
 	}
 	metadataBytes, err := readManagedMetadata(ctx, filesystem, metadata)
 	if err != nil {
@@ -255,11 +263,14 @@ func verifyManagedRevision(ctx context.Context, filesystem sandbox.Filesystem, r
 	}
 	envelope, err := decodeSkillMetadataEnvelope(metadataBytes)
 	if err != nil {
-		return err
+		return invalidManagedRevision(err)
 	}
 	canonical, err := encodeSkillMetadataEnvelope(envelope)
-	if err != nil || string(canonical) != string(metadataBytes) {
-		return errors.New("managed revision metadata is not canonical v1")
+	if err != nil {
+		return invalidManagedRevision(err)
+	}
+	if string(canonical) != string(metadataBytes) {
+		return invalidManagedRevision(errors.New("managed revision metadata is not canonical v1"))
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
 	var total int64
@@ -267,7 +278,7 @@ func verifyManagedRevision(ctx context.Context, filesystem sandbox.Filesystem, r
 	for _, file := range files {
 		if file.path != skillMetadataFile {
 			if file.size > maxManagedFileBytes || total > maxManagedTreeBytes-file.size {
-				return errors.New("managed revision exceeds content limit")
+				return invalidManagedRevision(errors.New("managed revision exceeds content limit"))
 			}
 			total += file.size
 		}
@@ -293,7 +304,7 @@ func verifyManagedRevision(ctx context.Context, filesystem sandbox.Filesystem, r
 		return err
 	}
 	if got != wantDigest {
-		return fmt.Errorf("managed revision digest %q does not match target %q", got, wantDigest)
+		return invalidManagedRevision(fmt.Errorf("managed revision digest %q does not match target %q", got, wantDigest))
 	}
 	return nil
 }
@@ -319,7 +330,7 @@ func readManagedMetadata(ctx context.Context, filesystem sandbox.Filesystem, met
 
 func collectManagedTree(ctx context.Context, filesystem sandbox.Filesystem, root, relative string, depth int, entriesSeen *int, files []managedTreeFile) ([]managedTreeFile, error) {
 	if depth > maxManagedTreeDepth {
-		return nil, errors.New("managed revision exceeds directory depth")
+		return nil, invalidManagedRevision(errors.New("managed revision exceeds directory depth"))
 	}
 	directory := root
 	if relative != "" {
@@ -333,21 +344,21 @@ func collectManagedTree(ctx context.Context, filesystem sandbox.Filesystem, root
 		// Count every discovered entry before descending or reading it. The root
 		// itself is not an entry, so it deliberately does not consume the budget.
 		if *entriesSeen >= maxManagedTreeEntries {
-			return nil, errors.New("managed revision exceeds entry limit")
+			return nil, invalidManagedRevision(errors.New("managed revision exceeds entry limit"))
 		}
 		*entriesSeen++
 		if entry.Name == "" || strings.Contains(entry.Name, "/") || entry.Name == "." || entry.Name == ".." {
-			return nil, errors.New("managed revision has invalid entry name")
+			return nil, invalidManagedRevision(errors.New("managed revision has invalid entry name"))
 		}
 		rel := entry.Name
 		if relative != "" {
 			rel = path.Join(relative, entry.Name)
 		}
 		if rel == ".stella-revisions" || strings.HasPrefix(rel, ".stella-revisions/") {
-			return nil, errors.New("managed revision uses reserved control namespace")
+			return nil, invalidManagedRevision(errors.New("managed revision uses reserved control namespace"))
 		}
 		if entry.Mode&fs.ModeSymlink != 0 || entry.Mode&fs.ModeType != 0 && !entry.Mode.IsDir() {
-			return nil, fmt.Errorf("managed revision entry %q is not a regular file or directory", rel)
+			return nil, invalidManagedRevision(fmt.Errorf("managed revision entry %q is not a regular file or directory", rel))
 		}
 		if entry.IsDir {
 			var nestedErr error
@@ -358,7 +369,7 @@ func collectManagedTree(ctx context.Context, filesystem sandbox.Filesystem, root
 			continue
 		}
 		if err := validateSkillTreePath(rel); err != nil && rel != skillMetadataFile {
-			return nil, err
+			return nil, invalidManagedRevision(err)
 		}
 		files = append(files, managedTreeFile{path: rel, mode: entry.Mode, size: entry.Size, absolute: path.Join(root, rel)})
 	}

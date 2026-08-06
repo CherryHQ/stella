@@ -205,6 +205,14 @@ SELECT * FROM skill_file WHERE skill_id = $1 AND path = $2;
 -- name: ListSkillFiles :many
 SELECT * FROM skill_file WHERE skill_id = $1 ORDER BY path;
 
+-- GetSkillMigrationFileBounds lets the offline migration reject oversized
+-- source payloads before materializing any file bodies.
+-- name: GetSkillMigrationFileBounds :one
+SELECT COUNT(*)::bigint AS file_count,
+       COALESCE(MAX(octet_length(content)), 0)::bigint AS max_content_bytes,
+       COALESCE(SUM(octet_length(content)), 0)::bigint AS total_content_bytes
+FROM skill_file WHERE skill_id = $1;
+
 -- name: ListSkillFilePaths :many
 SELECT path FROM skill_file WHERE skill_id = $1 ORDER BY path;
 
@@ -226,6 +234,26 @@ WHERE scope = 'user_agent'
 
 -- name: ListAllSkills :many
 SELECT * FROM skill ORDER BY scope, created_at;
+
+-- ListSkillMigrationSource returns the immutable legacy rows in the precise
+-- offline-migration order. Owner IDs are validated again by the migration
+-- service before they become typed Home keys.
+-- name: ListSkillMigrationSource :many
+SELECT * FROM skill
+ORDER BY scope, COALESCE(user_id::text, ''), COALESCE(agent_id, ''), name, id;
+
+-- name: ListSkillMigrationChangelog :many
+SELECT * FROM skill_changelog
+WHERE skill_id = $1
+ORDER BY version_after, created_at, id;
+
+-- GetSkillMigrationChangelogBounds rejects oversized archive provenance before
+-- materializing variable text or JSON bodies.
+-- name: GetSkillMigrationChangelogBounds :one
+SELECT COUNT(*)::bigint AS changelog_count,
+       COALESCE(MAX(octet_length(id::text) + octet_length(skill_id) + octet_length(COALESCE(user_id::text, '')) + octet_length(COALESCE(agent_id, '')) + octet_length(scope) + octet_length(action) + octet_length(metadata::text)), 0)::bigint AS max_content_bytes,
+       COALESCE(SUM(octet_length(id::text) + octet_length(skill_id) + octet_length(COALESCE(user_id::text, '')) + octet_length(COALESCE(agent_id, '')) + octet_length(scope) + octet_length(action) + octet_length(metadata::text)), 0)::bigint AS total_content_bytes
+FROM skill_changelog WHERE skill_id = $1;
 
 -- name: UpdateManagedSkill :one
 UPDATE skill

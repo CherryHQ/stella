@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -60,12 +62,35 @@ func UserAgentSkillCatalog(userID, agentID string) (*SkillRoot, error) {
 type skillFilesystemStore interface {
 	openSkillFilesystem(Record, *SkillRoot) (sandbox.Filesystem, error)
 }
+type existingSkillFilesystemStore interface {
+	openExistingSkillFilesystem(Record, *SkillRoot) (sandbox.Filesystem, error)
+}
 
 // UseSkillFilesystem grants one callback a short-lived read-write filesystem
 // rooted at sandbox.PathWorkspace. /workspace is exactly the selected Skill
 // catalog, never the surrounding Home. The filesystem is closed before this
 // method returns, including when the callback panics.
 func (r *Registry) UseSkillFilesystem(ctx context.Context, root *SkillRoot, use func(sandbox.Filesystem) error) (err error) {
+	return r.useSkillFilesystem(ctx, root, use, true)
+}
+
+// UseExistingSkillFilesystem is UseSkillFilesystem without creating a Home.
+// It returns exists=false when the catalog does not have a ready Home yet.
+func (r *Registry) UseExistingSkillFilesystem(ctx context.Context, root *SkillRoot, use func(sandbox.Filesystem) error) (exists bool, err error) {
+	if use == nil {
+		return false, errors.New("home: Skill filesystem callback is required")
+	}
+	err = r.useSkillFilesystem(ctx, root, func(filesystem sandbox.Filesystem) error {
+		exists = true
+		return use(filesystem)
+	}, false)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return exists, err
+}
+
+func (r *Registry) useSkillFilesystem(ctx context.Context, root *SkillRoot, use func(sandbox.Filesystem) error, ensure bool) (err error) {
 	if root == nil {
 		return errors.New("home: Skill filesystem root is required")
 	}
@@ -74,6 +99,9 @@ func (r *Registry) UseSkillFilesystem(ctx context.Context, root *SkillRoot, use 
 	}
 	if _, err := newSkillRoot(root.key); err != nil {
 		return err
+	}
+	if ctx == nil {
+		return errors.New("home: Skill filesystem context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -88,15 +116,39 @@ func (r *Registry) UseSkillFilesystem(ctx context.Context, root *SkillRoot, use 
 	// Ensure and all catalog I/O stay outside transactions and advisory locks.
 	// The bounded owner stripes span Ensure, open, callback, and close so an
 	// owner deletion cannot purge a catalog while it is in use.
-	record, err := r.Ensure(ctx, root.key)
-	if err != nil {
-		return fmt.Errorf("home: ensure Skill catalog: %w", err)
+	var record Record
+	if ensure {
+		record, err = r.Ensure(ctx, root.key)
+		if err != nil {
+			return fmt.Errorf("home: ensure Skill catalog: %w", err)
+		}
+	} else {
+		row, getErr := r.get(ctx, root.key)
+		if getErr != nil {
+			return getErr
+		}
+		record, err = r.decode(row)
+		if err != nil {
+			return err
+		}
+		if record.Key != root.key || record.State != StateReady {
+			return errors.New("home: stale or unavailable Skill filesystem")
+		}
 	}
 	store, err := r.skillFilesystemStore(ctx, record, root)
 	if err != nil {
 		return err
 	}
-	filesystem, err := store.openSkillFilesystem(record, root)
+	var filesystem sandbox.Filesystem
+	if ensure {
+		filesystem, err = store.openSkillFilesystem(record, root)
+	} else {
+		existing, ok := store.(existingSkillFilesystemStore)
+		if !ok {
+			return errors.New("home: Store does not support existing Skill filesystems")
+		}
+		filesystem, err = existing.openExistingSkillFilesystem(record, root)
+	}
 	if err != nil {
 		return fmt.Errorf("home: open Skill filesystem: %w", err)
 	}

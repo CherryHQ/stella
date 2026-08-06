@@ -159,6 +159,34 @@ func (q *Queries) CompleteMutableAssetStorageMigration(ctx context.Context, arg 
 	return i, err
 }
 
+const completeSkillAuthorityStorageMigration = `-- name: CompleteSkillAuthorityStorageMigration :one
+UPDATE storage_migration
+SET state = 'completed', metadata = $2, completed_at = now(), updated_at = now()
+WHERE name = $1 AND state = 'pending' AND metadata = $3
+RETURNING name, state, object_authority_configured, metadata, completed_at, created_at, updated_at
+`
+
+type CompleteSkillAuthorityStorageMigrationParams struct {
+	Name       string          `json:"name"`
+	Metadata   json.RawMessage `json:"metadata"`
+	Metadata_2 json.RawMessage `json:"metadata_2"`
+}
+
+func (q *Queries) CompleteSkillAuthorityStorageMigration(ctx context.Context, arg CompleteSkillAuthorityStorageMigrationParams) (StorageMigration, error) {
+	row := q.db.QueryRow(ctx, completeSkillAuthorityStorageMigration, arg.Name, arg.Metadata, arg.Metadata_2)
+	var i StorageMigration
+	err := row.Scan(
+		&i.Name,
+		&i.State,
+		&i.ObjectAuthorityConfigured,
+		&i.Metadata,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const completeStorageMigration = `-- name: CompleteStorageMigration :one
 UPDATE storage_migration SET state = 'completed', completed_at = now(), updated_at = now()
 WHERE name = $1 AND state = $2
@@ -172,6 +200,33 @@ type CompleteStorageMigrationParams struct {
 
 func (q *Queries) CompleteStorageMigration(ctx context.Context, arg CompleteStorageMigrationParams) (StorageMigration, error) {
 	row := q.db.QueryRow(ctx, completeStorageMigration, arg.Name, arg.State)
+	var i StorageMigration
+	err := row.Scan(
+		&i.Name,
+		&i.State,
+		&i.ObjectAuthorityConfigured,
+		&i.Metadata,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createSkillAuthorityStorageMigration = `-- name: CreateSkillAuthorityStorageMigration :one
+INSERT INTO storage_migration (name, state, metadata)
+VALUES ($1, 'pending', $2)
+ON CONFLICT (name) DO NOTHING
+RETURNING name, state, object_authority_configured, metadata, completed_at, created_at, updated_at
+`
+
+type CreateSkillAuthorityStorageMigrationParams struct {
+	Name     string          `json:"name"`
+	Metadata json.RawMessage `json:"metadata"`
+}
+
+func (q *Queries) CreateSkillAuthorityStorageMigration(ctx context.Context, arg CreateSkillAuthorityStorageMigrationParams) (StorageMigration, error) {
+	row := q.db.QueryRow(ctx, createSkillAuthorityStorageMigration, arg.Name, arg.Metadata)
 	var i StorageMigration
 	err := row.Scan(
 		&i.Name,

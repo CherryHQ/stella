@@ -14,17 +14,19 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/skills"
 )
 
 type (
 	retryPurgeFunc    func(context.Context, string, string) (home.Record, error)
 	migrateAssetsFunc func(context.Context, string, bool) (home.MutableAssetMigrationSummary, error)
+	migrateSkillsFunc func(context.Context, string, bool) (skills.SkillMigrationSummary, error)
 )
 
 func storageCommand() *ucli.Command {
 	return &ucli.Command{
 		Name: "storage", Usage: "Maintain durable storage", Category: "Admin",
-		Subcommands: []*ucli.Command{retryPurgeCommand(retryFailedPurge), migrateAssetsCommand(migrateAssets)},
+		Subcommands: []*ucli.Command{retryPurgeCommand(retryFailedPurge), migrateAssetsCommand(migrateAssets), migrateSkillsCommand(migrateSkills)},
 	}
 }
 
@@ -62,6 +64,65 @@ func migrateAssetsAction(migrate migrateAssetsFunc) ucli.ActionFunc {
 		_, err = fmt.Fprintf(c.App.Writer, "%s\t%s\t%d\t%d\t%s\n", summary.Status, summary.MarkerState, summary.Count, summary.Bytes, summary.SHA256)
 		return err
 	}
+}
+
+func migrateSkillsCommand(migrate migrateSkillsFunc) *ucli.Command {
+	return &ucli.Command{
+		Name: "migrate-skills", Usage: "Copy legacy PostgreSQL Skills into Home catalogs",
+		Description: "Publishes immutable Home revisions and a hidden migration archive without deleting PostgreSQL Skills. Stop every legacy Skill writer and retain a verified PostgreSQL backup before running this command.",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{Name: "database-url", Usage: "PostgreSQL URL (overrides STELLA_DATABASE_URL)"},
+			&ucli.BoolFlag{Name: "dry-run", Usage: "Verify and report the planned migration without writing Homes, usage, or the marker"},
+			&ucli.BoolFlag{Name: "json", Usage: "Emit JSON"},
+			&ucli.BoolFlag{Name: "confirm-writers-stopped", Usage: "Confirm all legacy Skill writers are stopped"},
+			&ucli.BoolFlag{Name: "confirm-backup-created", Usage: "Confirm a verified PostgreSQL backup was created"},
+			&ucli.BoolFlag{Name: "confirm-maintenance-mode", Usage: "Confirm the deployment is in maintenance mode"},
+		}, Action: migrateSkillsAction(migrate),
+	}
+}
+
+func migrateSkillsAction(migrate migrateSkillsFunc) ucli.ActionFunc {
+	return func(c *ucli.Context) error {
+		if !c.IsSet("confirm-writers-stopped") || !c.Bool("confirm-writers-stopped") {
+			return errors.New("storage migrate-skills: --confirm-writers-stopped is required; stop all legacy Skill writers first")
+		}
+		if !c.IsSet("confirm-backup-created") || !c.Bool("confirm-backup-created") {
+			return errors.New("storage migrate-skills: --confirm-backup-created is required; create and verify a PostgreSQL backup first")
+		}
+		if !c.IsSet("confirm-maintenance-mode") || !c.Bool("confirm-maintenance-mode") {
+			return errors.New("storage migrate-skills: --confirm-maintenance-mode is required; enter maintenance mode first")
+		}
+		if c.Bool("dry-run") {
+			_, _ = fmt.Fprintln(c.App.ErrWriter, "Verifying legacy PostgreSQL Skills...")
+		} else {
+			_, _ = fmt.Fprintln(c.App.ErrWriter, "Migrating legacy PostgreSQL Skills...")
+		}
+		summary, err := migrate(c.Context, c.String("database-url"), c.Bool("dry-run"))
+		if err != nil {
+			if blocked, ok := skills.BlockedSkillMigrationSummary(err); ok {
+				if writeErr := writeSkillMigrationSummary(c, blocked); writeErr != nil {
+					return writeErr
+				}
+			}
+			return fmt.Errorf("storage migrate-skills: %w", err)
+		}
+		return writeSkillMigrationSummary(c, summary)
+	}
+}
+
+func writeSkillMigrationSummary(c *ucli.Context, summary skills.SkillMigrationSummary) error {
+	if c.Bool("json") {
+		return json.NewEncoder(c.App.Writer).Encode(summary)
+	}
+	if _, err := fmt.Fprintf(c.App.Writer, "%s\t%s\t%d\t%d\t%s\n", summary.Status, summary.MarkerState, summary.SourceCount, summary.Bytes, summary.SHA256); err != nil {
+		return err
+	}
+	for _, issue := range summary.Issues {
+		if _, err := fmt.Fprintf(c.App.Writer, "%s\t%s\t%s\n", issue.SkillID, issue.Kind, issue.Reason); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func retryPurgeCommand(retry retryPurgeFunc) *ucli.Command {
@@ -128,6 +189,44 @@ func retryFailedPurge(ctx context.Context, id, databaseURL string) (home.Record,
 		return home.Record{}, fmt.Errorf("build Home registry: %w", err)
 	}
 	return registry.RetryFailedPurge(ctx, id, "stellad storage retry-purge")
+}
+
+func migrateSkills(ctx context.Context, databaseURL string, dryRun bool) (skills.SkillMigrationSummary, error) {
+	cfg, err := config.LoadHomeMaintenanceConfig(os.LookupEnv)
+	if err != nil {
+		return skills.SkillMigrationSummary{}, fmt.Errorf("load configuration: %w", err)
+	}
+	dsn := databaseURL
+	if dsn == "" {
+		dsn = cfg.DatabaseURL
+	}
+	var embedded *appdb.Embedded
+	if dsn == "" {
+		embedded, err = appdb.StartEmbedded(filepath.Join(config.StellaHome(), "postgres"), 0)
+		if err != nil {
+			return skills.SkillMigrationSummary{}, fmt.Errorf("start embedded postgres: %w", err)
+		}
+		defer func() { _ = embedded.Stop() }()
+		dsn = embedded.DSN()
+	}
+	db, err := appdb.OpenDB(dsn)
+	if err != nil {
+		return skills.SkillMigrationSummary{}, fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+	store, err := home.NewLocalStore(cfg.HomeStoreID, config.StellaHome())
+	if err != nil {
+		return skills.SkillMigrationSummary{}, fmt.Errorf("configure Home Store: %w", err)
+	}
+	registry, err := home.NewRegistry(db, cfg.HomeStoreID, store)
+	if err != nil {
+		return skills.SkillMigrationSummary{}, fmt.Errorf("build Home registry: %w", err)
+	}
+	service, err := skills.NewSkillHomeMigrationService(db, registry)
+	if err != nil {
+		return skills.SkillMigrationSummary{}, err
+	}
+	return service.MigrateSkillHomeAuthority(ctx, skills.SkillMigrationOptions{DryRun: dryRun})
 }
 
 func migrateAssets(ctx context.Context, databaseURL string, dryRun bool) (home.MutableAssetMigrationSummary, error) {

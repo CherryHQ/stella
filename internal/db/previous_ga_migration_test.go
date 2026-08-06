@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,9 +24,9 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// Knowledge V1 and channel guest sessions/indexes are the post-anchor migrations
-	// exercised by the assertions below.
-	currentMigrationVersion = sequentialAnchor + 6
+	// Knowledge V1, provisioning, channel guest sessions/indexes, channel
+	// allowlists, and Home-backed Skill usage identity are exercised below.
+	currentMigrationVersion = sequentialAnchor + 7
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -211,6 +212,14 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if got := count("provisioned-user migration fixture", `SELECT count(*) FROM auth_provisioned_user WHERE external_id = 'previous-ga-external'`); got != 1 {
 		t.Fatalf("provisioned-user rows = %d, want 1", got)
+	}
+	var usageColumns int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_name = 'skill_usage' AND is_nullable = 'YES' AND (column_name, data_type) IN (('scope','text'),('name','text'),('last_content_digest','text'))`).Scan(&usageColumns); err != nil || usageColumns != 3 {
+		t.Fatalf("skill_usage staging columns = %d, %v; want three nullable text columns", usageColumns, err)
+	}
+	var indexDef string
+	if err := db.QueryRow(ctx, `SELECT pg_get_indexdef(indexrelid) FROM pg_index WHERE indexrelid = 'idx_skill_usage_home_user_agent_identity'::regclass`).Scan(&indexDef); err != nil || !strings.Contains(indexDef, "UNIQUE INDEX idx_skill_usage_home_user_agent_identity ON public.skill_usage USING btree (user_id, agent_id, scope, name) WHERE (scope = 'user_agent'::text)") {
+		t.Fatalf("skill_usage identity index = %q, %v", indexDef, err)
 	}
 	if got := count("retired vault entries", `SELECT count(*) FROM vault_entry WHERE name IN ('LARK_CLI_OAUTH', 'FEISHU_CLI_OAUTH')`); got != 0 {
 		t.Fatalf("retired vault entries = %d, want 0", got)

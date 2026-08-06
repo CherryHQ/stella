@@ -10,6 +10,10 @@ func NewSkillFilesystem(base, relative string) (*Filesystem, error) {
 	return nil, errors.New("fsops: trusted Skill filesystem roots are unsupported on this platform")
 }
 
+func OpenExistingSkillFilesystem(base, relative string) (*Filesystem, error) {
+	return NewSkillFilesystem(base, relative)
+}
+
 func newSkillFilesystem(base, relative string, syncParent func(int) error) (*Filesystem, error) {
 	return NewSkillFilesystem(base, relative)
 }

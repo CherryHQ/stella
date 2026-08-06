@@ -997,12 +997,15 @@ type SkillFile struct {
 }
 
 type SkillUsage struct {
-	SkillID    string    `json:"skill_id"`
-	UserID     string    `json:"user_id"`
-	AgentID    string    `json:"agent_id"`
-	UseCount   int64     `json:"use_count"`
-	LastUsedAt time.Time `json:"last_used_at"`
-	CreatedAt  time.Time `json:"created_at"`
+	SkillID           string      `json:"skill_id"`
+	UserID            string      `json:"user_id"`
+	AgentID           string      `json:"agent_id"`
+	UseCount          int64       `json:"use_count"`
+	LastUsedAt        time.Time   `json:"last_used_at"`
+	CreatedAt         time.Time   `json:"created_at"`
+	Scope             pgtype.Text `json:"scope"`
+	Name              pgtype.Text `json:"name"`
+	LastContentDigest pgtype.Text `json:"last_content_digest"`
 }
 
 type StorageHome struct {

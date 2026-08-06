@@ -246,6 +246,50 @@ func (q *Queries) GetSkillForUpdate(ctx context.Context, id string) (Skill, erro
 	return i, err
 }
 
+const getSkillMigrationChangelogBounds = `-- name: GetSkillMigrationChangelogBounds :one
+SELECT COUNT(*)::bigint AS changelog_count,
+       COALESCE(MAX(octet_length(id::text) + octet_length(skill_id) + octet_length(COALESCE(user_id::text, '')) + octet_length(COALESCE(agent_id, '')) + octet_length(scope) + octet_length(action) + octet_length(metadata::text)), 0)::bigint AS max_content_bytes,
+       COALESCE(SUM(octet_length(id::text) + octet_length(skill_id) + octet_length(COALESCE(user_id::text, '')) + octet_length(COALESCE(agent_id, '')) + octet_length(scope) + octet_length(action) + octet_length(metadata::text)), 0)::bigint AS total_content_bytes
+FROM skill_changelog WHERE skill_id = $1
+`
+
+type GetSkillMigrationChangelogBoundsRow struct {
+	ChangelogCount    int64 `json:"changelog_count"`
+	MaxContentBytes   int64 `json:"max_content_bytes"`
+	TotalContentBytes int64 `json:"total_content_bytes"`
+}
+
+// GetSkillMigrationChangelogBounds rejects oversized archive provenance before
+// materializing variable text or JSON bodies.
+func (q *Queries) GetSkillMigrationChangelogBounds(ctx context.Context, skillID string) (GetSkillMigrationChangelogBoundsRow, error) {
+	row := q.db.QueryRow(ctx, getSkillMigrationChangelogBounds, skillID)
+	var i GetSkillMigrationChangelogBoundsRow
+	err := row.Scan(&i.ChangelogCount, &i.MaxContentBytes, &i.TotalContentBytes)
+	return i, err
+}
+
+const getSkillMigrationFileBounds = `-- name: GetSkillMigrationFileBounds :one
+SELECT COUNT(*)::bigint AS file_count,
+       COALESCE(MAX(octet_length(content)), 0)::bigint AS max_content_bytes,
+       COALESCE(SUM(octet_length(content)), 0)::bigint AS total_content_bytes
+FROM skill_file WHERE skill_id = $1
+`
+
+type GetSkillMigrationFileBoundsRow struct {
+	FileCount         int64 `json:"file_count"`
+	MaxContentBytes   int64 `json:"max_content_bytes"`
+	TotalContentBytes int64 `json:"total_content_bytes"`
+}
+
+// GetSkillMigrationFileBounds lets the offline migration reject oversized
+// source payloads before materializing any file bodies.
+func (q *Queries) GetSkillMigrationFileBounds(ctx context.Context, skillID string) (GetSkillMigrationFileBoundsRow, error) {
+	row := q.db.QueryRow(ctx, getSkillMigrationFileBounds, skillID)
+	var i GetSkillMigrationFileBoundsRow
+	err := row.Scan(&i.FileCount, &i.MaxContentBytes, &i.TotalContentBytes)
+	return i, err
+}
+
 const getSystemAgentSkillByName = `-- name: GetSystemAgentSkillByName :one
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill WHERE scope = 'system_agent' AND agent_id = $1 AND name = $2
 `
@@ -590,6 +634,84 @@ func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFi
 	for rows.Next() {
 		var i SkillFile
 		if err := rows.Scan(&i.SkillID, &i.Path, &i.Content); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSkillMigrationChangelog = `-- name: ListSkillMigrationChangelog :many
+SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at FROM skill_changelog
+WHERE skill_id = $1
+ORDER BY version_after, created_at, id
+`
+
+func (q *Queries) ListSkillMigrationChangelog(ctx context.Context, skillID string) ([]SkillChangelog, error) {
+	rows, err := q.db.Query(ctx, listSkillMigrationChangelog, skillID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SkillChangelog{}
+	for rows.Next() {
+		var i SkillChangelog
+		if err := rows.Scan(
+			&i.ID,
+			&i.SkillID,
+			&i.UserID,
+			&i.AgentID,
+			&i.Scope,
+			&i.Action,
+			&i.VersionBefore,
+			&i.VersionAfter,
+			&i.Metadata,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSkillMigrationSource = `-- name: ListSkillMigrationSource :many
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill
+ORDER BY scope, COALESCE(user_id::text, ''), COALESCE(agent_id, ''), name, id
+`
+
+// ListSkillMigrationSource returns the immutable legacy rows in the precise
+// offline-migration order. Owner IDs are validated again by the migration
+// service before they become typed Home keys.
+func (q *Queries) ListSkillMigrationSource(ctx context.Context) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, listSkillMigrationSource)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Skill{}
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.Description,
+			&i.Status,
+			&i.DisableModelInvocation,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -151,6 +151,17 @@ func (s *LocalStore) openSkillFilesystem(home Record, skill *SkillRoot) (sandbox
 	return fsops.NewSkillFilesystem(s.base, relative)
 }
 
+func (s *LocalStore) openExistingSkillFilesystem(home Record, skill *SkillRoot) (sandbox.Filesystem, error) {
+	if skill == nil || home.Key != skill.key {
+		return nil, errors.New("home: Skill catalog does not match Home identity")
+	}
+	relative, err := s.skillCatalogRelative(home, skill.key)
+	if err != nil {
+		return nil, err
+	}
+	return fsops.OpenExistingSkillFilesystem(s.base, relative)
+}
+
 // skillCatalogRelative owns every catalog-to-Home mapping. No caller provides
 // a subpath; fsops creates and opens each fixed component below the trusted
 // Store base with no-follow handle-relative operations.

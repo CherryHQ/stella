@@ -24,6 +24,25 @@ func NewSkillFilesystem(base, relative string) (*Filesystem, error) {
 	return newSkillFilesystem(base, relative, unix.Fsync)
 }
 
+// OpenExistingSkillFilesystem opens an already-materialized catalog without
+// creating or syncing any path component.
+func OpenExistingSkillFilesystem(base, relative string) (*Filesystem, error) {
+	if base == "" || !cleanRelativeDirectory(relative) {
+		return nil, errors.New("fsops: invalid Skill filesystem root")
+	}
+	fd, err := openExistingNoFollowDirectoryTree(base, relative)
+	if err != nil {
+		return nil, err
+	}
+	pinned := os.NewFile(uintptr(fd), "skill-filesystem-root")
+	root, err := os.OpenRoot(skillRootFDPath(fd))
+	if err != nil {
+		_ = pinned.Close()
+		return nil, fmt.Errorf("fsops: open pinned Skill root: %w", err)
+	}
+	return &Filesystem{mounts: []mountedRoot{{path: sandbox.PathWorkspace, root: &Root{root: root, pinned: pinned}}}}, nil
+}
+
 // newSkillFilesystem accepts a per-call durability seam so tests can fail a
 // newly-created parent sync without mutable package-global state.
 func newSkillFilesystem(base, relative string, syncParent func(int) error) (*Filesystem, error) {
@@ -78,6 +97,26 @@ func openNoFollowDirectoryTree(base, relative string, syncParent func(int) error
 			_ = unix.Close(next)
 			_ = unix.Close(fd)
 			return -1, fmt.Errorf("fsops: sync Skill root parent: %w", err)
+		}
+		if err := unix.Close(fd); err != nil {
+			_ = unix.Close(next)
+			return -1, fmt.Errorf("fsops: close Skill root parent: %w", err)
+		}
+		fd = next
+	}
+	return fd, nil
+}
+
+func openExistingNoFollowDirectoryTree(base, relative string) (int, error) {
+	fd, err := unix.Open(base, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, fmt.Errorf("fsops: open Skill Store base: %w", err)
+	}
+	for component := range strings.SplitSeq(relative, "/") {
+		next, err := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if err != nil {
+			_ = unix.Close(fd)
+			return -1, fmt.Errorf("fsops: open existing Skill root component %q: %w", component, err)
 		}
 		if err := unix.Close(fd); err != nil {
 			_ = unix.Close(next)
