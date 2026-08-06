@@ -77,6 +77,12 @@ jobs:
       - name: Build web assets
         run: mise run build:web
 
+      # `test:coverage:race` is `go test` only, so until this step existed the
+      # frontend suite was gated at tag time and nowhere else — a PR could merge
+      # green with every vitest guard failing.
+      - name: Run frontend tests
+        run: mise run test:web
+
       - name: Run tests with race detection and coverage
         run: mise run test:coverage:race
         env:

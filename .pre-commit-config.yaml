@@ -8,6 +8,19 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
+      # The frontend suite is where the token and contrast guards live, and they
+      # are the kind that only ever fail on a line someone just wrote. Running
+      # them here — not only in CI — means a `bg-chart-*` used as a word, or a
+      # status token retuned past its floor, cannot become a commit at all.
+      # Pure node, no browser, no network: ~1s.
+      - id: web-tests
+        name: mise run test:web
+        entry: sh -c 'if [ "$PRE_COMMIT_HOOK_STAGE" = "post-checkout" ]; then exit 0; fi; mise run test:web'
+        language: system
+        pass_filenames: false
+        files: ^web/
+        stages: [pre-commit]
+
       - id: post-checkout-build
         name: mise trust and build after branch switch
         entry: ./scripts/post-checkout.sh
