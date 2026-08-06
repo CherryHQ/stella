@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	credentialsFilename = "agent-test-credentials.json"
+	credentialsFilename = "testbed-credentials.json"
 	readyPollInterval   = 100 * time.Millisecond
 	provisioningTTL     = 5 * time.Minute
 )
@@ -106,11 +106,11 @@ func bootstrap(ctx context.Context, cfg bootstrapConfig) (path string, reused bo
 	if err != nil {
 		return "", false, fmt.Errorf("generate administrator password: %w", err)
 	}
-	adminEmail := "agent-test-admin-" + runID + "@stella.test"
-	userEmail := "agent-test-user-" + runID + "@stella.test"
+	adminEmail := "testbed-admin-" + runID + "@stella.test"
+	userEmail := "testbed-user-" + runID + "@stella.test"
 
 	if err := postJSON(ctx, client, baseURL, "/api/auth/local/register", map[string]string{
-		"name": "Agent Test Admin " + runID, "email": adminEmail, "password": password, "confirm_password": password,
+		"name": "Testbed Admin " + runID, "email": adminEmail, "password": password, "confirm_password": password,
 	}, http.StatusOK, nil); err != nil {
 		return "", false, fmt.Errorf("register first local administrator: %w", err)
 	}
@@ -125,7 +125,7 @@ func bootstrap(ctx context.Context, cfg bootstrapConfig) (path string, reused bo
 	var adminPAT struct {
 		Token string `json:"token"`
 	}
-	if err := postJSON(ctx, client, baseURL, "/api/users/me/tokens", map[string]string{"name": "agent-test-admin-" + runID}, http.StatusCreated, &adminPAT); err != nil {
+	if err := postJSON(ctx, client, baseURL, "/api/users/me/tokens", map[string]string{"name": "testbed-admin-" + runID}, http.StatusCreated, &adminPAT); err != nil {
 		return "", false, fmt.Errorf("create administrator PAT: %w", err)
 	}
 	if adminPAT.Token == "" {
@@ -139,7 +139,7 @@ func bootstrap(ctx context.Context, cfg bootstrapConfig) (path string, reused bo
 		} `json:"provisioning_token"`
 	}
 	if err := postJSON(ctx, client, baseURL, "/api/admin/provisioning-tokens", map[string]string{
-		"name": "agent-test-provisioning-" + runID, "expires_at": now().UTC().Add(provisioningTTL).Format(time.RFC3339),
+		"name": "testbed-provisioning-" + runID, "expires_at": now().UTC().Add(provisioningTTL).Format(time.RFC3339),
 	}, http.StatusCreated, &provisioning); err != nil {
 		return "", false, fmt.Errorf("create short-lived provisioning token: %w", err)
 	}
@@ -166,7 +166,7 @@ func bootstrap(ctx context.Context, cfg bootstrapConfig) (path string, reused bo
 	}
 	provisioningClient := &http.Client{}
 	if err := postJSONWithBearer(ctx, provisioningClient, baseURL, "/api/provisioned-users", provisioning.Token, map[string]string{
-		"external_id": "agent-test-user-" + runID, "email": userEmail, "name": "Agent Test User " + runID,
+		"external_id": "testbed-user-" + runID, "email": userEmail, "name": "Testbed User " + runID,
 	}, http.StatusCreated, &provisioned); err != nil {
 		return "", false, fmt.Errorf("create passwordless user: %w", err)
 	}
@@ -380,7 +380,7 @@ func writeCredentials(path string, creds credentials) error {
 		return fmt.Errorf("encode credentials: %w", err)
 	}
 	data = append(data, '\n')
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".agent-test-credentials-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".testbed-credentials-*")
 	if err != nil {
 		return fmt.Errorf("create credentials temp file: %w", err)
 	}

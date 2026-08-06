@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var errUnsupportedPlatform = errors.New("agent-test lifecycle is supported only on Linux and macOS")
+var errUnsupportedPlatform = errors.New("the Stella testbed is supported only on Linux and macOS")
 
 func currentIdentity() (processIdentity, error)      { return processIdentity{}, errUnsupportedPlatform }
 func identityFor(int) (processIdentity, error)       { return processIdentity{}, fs.ErrNotExist }

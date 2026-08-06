@@ -50,12 +50,12 @@ func statePath(repoRoot string) string {
 		repoRoot = abs
 	}
 	sum := sha256.Sum256([]byte(filepath.Clean(repoRoot)))
-	return filepath.Join(os.TempDir(), "stella-agent-test-"+hex.EncodeToString(sum[:8])+".json")
+	return filepath.Join(os.TempDir(), "stella-testbed-"+hex.EncodeToString(sum[:8])+".json")
 }
 
 func start(ctx context.Context, cfg config) (err error) {
 	if _, err := os.Stat(binaryPath(cfg.RepoRoot)); err != nil {
-		return fmt.Errorf("%s is missing (run via `mise run agent-test:start`)", binaryPath(cfg.RepoRoot))
+		return fmt.Errorf("%s is missing (run via `mise run testbed:start`)", binaryPath(cfg.RepoRoot))
 	}
 	owner, err := currentIdentity()
 	if err != nil {
@@ -65,7 +65,7 @@ func start(ctx context.Context, cfg config) (err error) {
 	if err != nil {
 		return fmt.Errorf("generate instance identity: %w", err)
 	}
-	root, err := os.MkdirTemp("", "stella-agent-test-")
+	root, err := os.MkdirTemp("", "stella-testbed-")
 	if err != nil {
 		return fmt.Errorf("create temporary test root: %w", err)
 	}
@@ -132,9 +132,9 @@ func start(ctx context.Context, cfg config) (err error) {
 	}
 
 	// stdout is deliberately limited to non-secret connection information.
-	fmt.Println("Stella agent test server:", baseURL)
-	fmt.Println("Credentials:", filepath.Join(home, "agent-test-credentials.json"))
-	fmt.Println("Stop and clean up: mise run agent-test:stop")
+	fmt.Println("Stella testbed:", baseURL)
+	fmt.Println("Credentials:", filepath.Join(home, credentialsFilename))
+	fmt.Println("Stop and clean up: mise run testbed:stop")
 	select {
 	case <-ctx.Done():
 		return nil
@@ -146,10 +146,10 @@ func start(ctx context.Context, cfg config) (err error) {
 func ensurePortAvailable(port int) error {
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 	if err != nil {
-		return fmt.Errorf("agent-test port %d is already in use; stop the existing server before starting an isolated test instance: %w", port, err)
+		return fmt.Errorf("testbed port %d is already in use; stop the existing server before starting an isolated testbed: %w", port, err)
 	}
 	if err := listener.Close(); err != nil {
-		return fmt.Errorf("release agent-test port %d preflight listener: %w", port, err)
+		return fmt.Errorf("release testbed port %d preflight listener: %w", port, err)
 	}
 	return nil
 }
@@ -214,7 +214,7 @@ func claimOrRecover(path string, state supervisorState) error {
 	}
 	live, err := identityFor(existing.Owner.PID)
 	if err == nil && sameIdentity(existing.Owner, live) {
-		return errors.New("an agent-test instance is already active for this checkout")
+		return errors.New("a testbed is already active for this checkout")
 	}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("validate existing supervisor: %w", err)
@@ -299,7 +299,7 @@ func publishState(path string, state supervisorState) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".stella-agent-test-state-")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".stella-testbed-state-")
 	if err != nil {
 		return err
 	}
@@ -328,7 +328,7 @@ func publishState(path string, state supervisorState) error {
 
 func safeInstanceRoot(root string) bool {
 	root, err := filepath.Abs(root)
-	if err != nil || !strings.HasPrefix(filepath.Base(root), "stella-agent-test-") {
+	if err != nil || !strings.HasPrefix(filepath.Base(root), "stella-testbed-") {
 		return false
 	}
 	temp, err := filepath.Abs(os.TempDir())

@@ -13,7 +13,7 @@ import (
 
 func testState(t *testing.T, pid int, instance string) supervisorState {
 	t.Helper()
-	root, err := os.MkdirTemp("", "stella-agent-test-test-")
+	root, err := os.MkdirTemp("", "stella-testbed-test-")
 	if err != nil {
 		t.Fatal(err)
 	}

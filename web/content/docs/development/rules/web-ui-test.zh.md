@@ -20,7 +20,7 @@ URL=${URL:-http://localhost:25678}
 
 ```bash
 # 终端 1：测试期间保持运行。
-mise run agent-test:start
+mise run testbed:start
 ```
 
 start 会打印服务 URL 和临时凭据路径。凭据文件权限为 `0600`，其中有两个账户的身份和角色、
@@ -29,7 +29,7 @@ start 会打印服务 URL 和临时凭据路径。凭据文件权限为 `0600`�
 结束后，请在启动它的 checkout 中停止。stop 负责优雅关闭，并删除临时服务、数据库和凭据。
 
 ```bash
-mise run agent-test:stop
+mise run testbed:stop
 ```
 
 不要使用 `~/.stella-dev`、手动创建 fixture，或用浏览器/CDP 自动化注册 fixture 账户。只有
@@ -38,7 +38,7 @@ mise run agent-test:stop
 读取凭据时不要把它们显示出来：
 
 ```bash
-CREDS="<agent-test:start 打印的凭据路径>"
+CREDS="<testbed:start 打印的凭据路径>"
 ADMIN_EMAIL="$(jq -r '.admin.email' "$CREDS")"
 ADMIN_PASSWORD="$(jq -r '.admin.password' "$CREDS")"
 ADMIN_PAT="$(jq -r '.admin.token' "$CREDS")"

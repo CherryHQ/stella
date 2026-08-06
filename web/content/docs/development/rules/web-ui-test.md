@@ -21,7 +21,7 @@ run it in a dedicated terminal or background task.
 
 ```bash
 # Terminal 1: leave this running while testing.
-mise run agent-test:start
+mise run testbed:start
 ```
 
 Start prints the server URL and a temporary credentials path. The credentials
@@ -33,7 +33,7 @@ When finished, stop it from the checkout that started it. Stop owns graceful
 shutdown and removes the temporary server, database, and credentials.
 
 ```bash
-mise run agent-test:stop
+mise run testbed:stop
 ```
 
 Do not use `~/.stella-dev`, manually create fixtures, or use browser/CDP
@@ -43,7 +43,7 @@ registration UI itself is the subject under test.
 Use the credentials without displaying them:
 
 ```bash
-CREDS="<credentials path printed by agent-test:start>"
+CREDS="<credentials path printed by testbed:start>"
 ADMIN_EMAIL="$(jq -r '.admin.email' "$CREDS")"
 ADMIN_PASSWORD="$(jq -r '.admin.password' "$CREDS")"
 ADMIN_PAT="$(jq -r '.admin.token' "$CREDS")"

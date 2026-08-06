@@ -119,18 +119,18 @@ description = "Start stella API server"
 depends = ["dev:log:init"]
 run = 'set -o pipefail; { mise run build && STELLA_HOME="$HOME/.stella-dev" $BINARY_D server; } 2>&1 | tee -a dist/logs/dev.log'
 
-[tasks."agent-test:start"]
-description = "Start an isolated, disposable Stella instance for agent and Web UI tests"
+[tasks."testbed:start"]
+description = "Start an isolated, disposable Stella testbed"
 depends = ["pg:runtime:download", "build:embedded"]
 run = """
 mise run build
-go build -o ./dist/bin/agenttest ./test/agenttest
-exec ./dist/bin/agenttest start
+go build -o ./dist/bin/testbed ./test/testbed
+exec ./dist/bin/testbed start
 """
 
-[tasks."agent-test:stop"]
-description = "Stop and clean up this checkout's agent-test instance"
-run = 'go run ./test/agenttest stop'
+[tasks."testbed:stop"]
+description = "Stop and clean up this checkout's Stella testbed"
+run = 'go run ./test/testbed stop'
 
 [tasks."dev:docker"]
 description = "Start the Docker dev stack: stellad + docker sandbox + otel-lgtm"
