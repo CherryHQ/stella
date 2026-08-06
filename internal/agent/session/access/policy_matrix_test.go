@@ -303,6 +303,9 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 		if _, err := access.List(ctx, "other-agent", agentsession.ListOptions{}); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("worker cross-agent List error=%v, want ErrNotFound", err)
 		}
+		if _, err := access.ListPage(ctx, "other-agent", agentsession.ListOptions{}, 20); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("worker cross-agent ListPage error=%v, want ErrNotFound", err)
+		}
 	})
 
 	t.Run("group actor cannot list sessions", func(t *testing.T) {

@@ -351,6 +351,9 @@ func (a *Access) List(ctx context.Context, agentID string, opts agentsession.Lis
 	if !a.allowSessionList() {
 		return nil, ErrNotFound
 	}
+	if err := a.allowSessionListAgent(agentID); err != nil {
+		return nil, err
+	}
 	userID := string(a.authority.UserID())
 	if userID == "" {
 		return nil, ErrForbidden
@@ -383,6 +386,9 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 	}
 	if !a.allowSessionList() {
 		return ListPage{}, ErrNotFound
+	}
+	if err := a.allowSessionListAgent(agentID); err != nil {
+		return ListPage{}, err
 	}
 	userID := string(a.authority.UserID())
 	if userID == "" {
@@ -587,6 +593,13 @@ func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionF
 // through the exact Session read rule. Group and system actors remain denied.
 func (a *Access) allowSessionList() bool {
 	return a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser || a.authority.Kind() == authz.ActorAgent
+}
+
+func (a *Access) allowSessionListAgent(agentID string) error {
+	if a.authority.Kind() == authz.ActorAgent && string(a.authority.AgentID()) != agentID {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // allowSession decides one non-list action against a durable Session's facts.
