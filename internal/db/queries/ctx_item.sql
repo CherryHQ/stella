@@ -7,6 +7,16 @@ SELECT * FROM ctx_item
 WHERE conversation_id = $1
 ORDER BY ordinal ASC;
 
+-- name: ListRecentGroupOriginOrdinals :many
+SELECT ci.ordinal
+FROM ctx_item ci
+JOIN ctx_message m ON m.id = ci.message_id
+WHERE ci.conversation_id = sqlc.arg(conversation_id)
+  AND ci.item_type = 'message'
+  AND m.origin_group_message_id IS NOT NULL
+ORDER BY ci.ordinal DESC
+LIMIT sqlc.arg(max_count);
+
 -- name: ListContextItemsPage :many
 SELECT
   ci.ordinal,

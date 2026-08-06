@@ -81,18 +81,54 @@ LIMIT sqlc.arg(max_count);
 
 -- name: ListRecentGroupMessagesBeforeSeq :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
-       platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
   AND seq < sqlc.arg(before_seq)
 ORDER BY seq DESC
 LIMIT sqlc.arg(max_count);
 
+-- name: ListGroupMessagesForLCM :many
+WITH eligible AS (
+  SELECT
+    gm.id,
+    gm.seq,
+    CAST(GREATEST((octet_length(gm.content) + 3) / 4, 1) AS BIGINT) AS estimated_tokens
+  FROM ctx_group_message gm
+  WHERE gm.group_id = sqlc.arg(group_id)
+    AND gm.seq > sqlc.arg(after_seq)
+    AND gm.seq < sqlc.arg(before_seq)
+    AND gm.content <> ''
+    AND NOT (gm.actor_type = 'agent' AND gm.actor_id = sqlc.arg(self_agent_id))
+    -- A single oversized public message is not useful as bootstrap context.
+    AND GREATEST((octet_length(gm.content) + 3) / 4, 1) <= sqlc.arg(token_budget)::bigint
+),
+bounded AS (
+  SELECT
+    id,
+    seq,
+    SUM(estimated_tokens) OVER (ORDER BY seq DESC) AS running_tokens
+  FROM eligible
+),
+selected AS (
+  SELECT id
+  FROM bounded
+  WHERE running_tokens <= sqlc.arg(token_budget)::bigint
+)
+SELECT gm.id, gm.group_id, gm.seq, gm.source_channel_id,
+       gm.actor_type, gm.actor_id, gm.actor_display_name,
+       gm.platform_message_id, gm.reply_to, gm.platform_timestamp,
+       gm.idempotency_key, gm.content, gm.reasoning,
+       gm.agent_session_id, gm.created_at
+FROM ctx_group_message gm
+WHERE gm.id IN (SELECT id FROM selected)
+ORDER BY gm.seq ASC;
+
 -- name: ListGroupMessagesPaginated :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
-       platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
 ORDER BY seq DESC
@@ -101,13 +137,15 @@ LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 -- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, content_blocks, reasoning, agent_session_id
+  actor_display_name, platform_message_id, reply_to, platform_timestamp,
+  idempotency_key, content, content_blocks, reasoning, agent_session_id
 )
 VALUES (
   sqlc.arg(id), sqlc.arg(group_id), sqlc.arg(seq), sqlc.arg(source_channel_id),
-  sqlc.arg(actor_type), sqlc.arg(actor_id), sqlc.arg(platform_message_id),
-  sqlc.arg(reply_to), sqlc.arg(platform_timestamp), sqlc.arg(idempotency_key),
-  sqlc.arg(content), COALESCE(sqlc.arg(content_blocks)::jsonb, '[]'::jsonb),
+  sqlc.arg(actor_type), sqlc.arg(actor_id), sqlc.arg(actor_display_name),
+  sqlc.arg(platform_message_id), sqlc.arg(reply_to),
+  sqlc.arg(platform_timestamp), sqlc.arg(idempotency_key), sqlc.arg(content),
+  COALESCE(sqlc.arg(content_blocks)::jsonb, '[]'::jsonb),
   sqlc.arg(reasoning), sqlc.arg(agent_session_id)
 )
 RETURNING *;

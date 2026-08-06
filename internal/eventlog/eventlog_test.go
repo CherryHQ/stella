@@ -37,6 +37,7 @@ func TestAppendInsertsFirstMessageWithSeqOne(t *testing.T) {
 
 	msg := humanMsg()
 	msg.PlatformMessageID = "m1"
+	msg.ActorDisplayName = "Alice"
 
 	res, err := s.AppendGroupMessage(ctx, msg)
 	if err != nil {
@@ -50,6 +51,9 @@ func TestAppendInsertsFirstMessageWithSeqOne(t *testing.T) {
 	}
 	if res.GroupID == "" {
 		t.Fatal("group id should be resolved")
+	}
+	if !res.Message.ActorDisplayName.Valid || res.Message.ActorDisplayName.String != "Alice" {
+		t.Fatalf("actor display name = %#v, want Alice", res.Message.ActorDisplayName)
 	}
 }
 
@@ -369,9 +373,10 @@ func TestAppendToGroup(t *testing.T) {
 
 	// Append agent response via AppendToGroup.
 	agentRes, err := s.AppendToGroup(ctx, res.GroupID, eventlog.GroupMessage{
-		ActorType: eventlog.ActorAgent,
-		ActorID:   "agent-1",
-		Content:   "Hello from agent!",
+		ActorType:        eventlog.ActorAgent,
+		ActorID:          "agent-1",
+		ActorDisplayName: "Support",
+		Content:          "Hello from agent!",
 	})
 	if err != nil {
 		t.Fatalf("append to group: %v", err)
@@ -387,6 +392,9 @@ func TestAppendToGroup(t *testing.T) {
 	}
 	if agentRes.Message.Content != "Hello from agent!" {
 		t.Fatalf("content = %q, want %q", agentRes.Message.Content, "Hello from agent!")
+	}
+	if !agentRes.Message.ActorDisplayName.Valid || agentRes.Message.ActorDisplayName.String != "Support" {
+		t.Fatalf("actor display name = %#v, want Support", agentRes.Message.ActorDisplayName)
 	}
 }
 

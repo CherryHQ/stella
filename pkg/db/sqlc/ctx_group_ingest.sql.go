@@ -80,8 +80,8 @@ func (q *Queries) IsIngestError(ctx context.Context, arg IsIngestErrorParams) (b
 const listGroupMessagesAfterSeq = `-- name: ListGroupMessagesAfterSeq :many
 
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
-       platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
 FROM ctx_group_message
 WHERE group_id = $1 AND seq > $2
 ORDER BY seq ASC
@@ -101,6 +101,7 @@ type ListGroupMessagesAfterSeqRow struct {
 	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
 	ActorType         string             `json:"actor_type"`
 	ActorID           string             `json:"actor_id"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
 	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
 	ReplyTo           pgtype.Text        `json:"reply_to"`
 	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
@@ -132,6 +133,7 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 			&i.SourceChannelID,
 			&i.ActorType,
 			&i.ActorID,
+			&i.ActorDisplayName,
 			&i.PlatformMessageID,
 			&i.ReplyTo,
 			&i.PlatformTimestamp,
@@ -153,8 +155,8 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 
 const listGroupMessagesBetweenSeqs = `-- name: ListGroupMessagesBetweenSeqs :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
-       platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       actor_display_name, platform_message_id, reply_to, platform_timestamp,
+       idempotency_key, content, reasoning, agent_session_id, created_at
 FROM ctx_group_message
 WHERE group_id = $1
   AND seq > $2
@@ -175,6 +177,7 @@ type ListGroupMessagesBetweenSeqsRow struct {
 	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
 	ActorType         string             `json:"actor_type"`
 	ActorID           string             `json:"actor_id"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
 	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
 	ReplyTo           pgtype.Text        `json:"reply_to"`
 	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
@@ -201,6 +204,7 @@ func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGrou
 			&i.SourceChannelID,
 			&i.ActorType,
 			&i.ActorID,
+			&i.ActorDisplayName,
 			&i.PlatformMessageID,
 			&i.ReplyTo,
 			&i.PlatformTimestamp,
@@ -260,7 +264,7 @@ const upsertIngestCursor = `-- name: UpsertIngestCursor :exec
 INSERT INTO ctx_group_ingest_cursor (group_id, pipeline, last_seq, updated_at)
 VALUES ($1, $2, $3, now())
 ON CONFLICT(group_id, pipeline) DO UPDATE SET
-    last_seq = excluded.last_seq,
+    last_seq = GREATEST(ctx_group_ingest_cursor.last_seq, excluded.last_seq),
     updated_at = now()
 `
 

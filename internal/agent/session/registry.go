@@ -488,8 +488,9 @@ func (r *Registry) ListForReview(ctx context.Context, req ReviewRequest) ([]Info
 // This is the ONLY authorised way to produce memory.Session for production agent
 // sessions; it delegates to the canonical Info.MemoryScope conversion. Private
 // read, write, and compaction resolve one partition; group read and write share
-// the durable canonical group scope (group compaction is unsupported, so
-// MemoryScope makes no claim about it). It fails closed on an invalid Info.
+// the durable canonical group scope. Group turns can compact their synchronized
+// per-Agent LCM automatically, while manual group compaction is unavailable.
+// It fails closed on an invalid Info.
 func (r *Registry) MemoryScope(info Info) (memory.Session, error) {
 	return info.MemoryScope()
 }

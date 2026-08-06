@@ -3,6 +3,8 @@ package channel
 import (
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -46,6 +48,17 @@ func TestPlatformGroupSpeaker_DisplayNameFallsBackToStored(t *testing.T) {
 	sp := platformGroupSpeaker(msg, "user-1", "Alice Stored")
 	if sp.DisplayName != "Alice Stored" {
 		t.Errorf("DisplayName = %q, want fallback Alice Stored", sp.DisplayName)
+	}
+}
+
+func TestWebGroupSpeakerUsesEventDisplayName(t *testing.T) {
+	speaker := webGroupSpeaker(sqlc.CtxGroupMessage{
+		ActorType:        string(eventlog.ActorHuman),
+		ActorID:          "user-1",
+		ActorDisplayName: pgtype.Text{String: "Alice Event", Valid: true},
+	})
+	if speaker.DisplayName != "Alice Event" {
+		t.Fatalf("DisplayName = %q, want persisted event name", speaker.DisplayName)
 	}
 }
 

@@ -119,6 +119,45 @@ func (t *tracedProvider) Append(ctx context.Context, session Session, msgs ...ai
 	return err
 }
 
+// SyncGroupEventsBefore traces the durable copy of public group events into a
+// per-Agent LCM while preserving the optional capability through this wrapper.
+func (t *tracedProvider) SyncGroupEventsBefore(ctx context.Context, session Session, triggerSeq int64) error {
+	ingestor, ok := t.inner.(GroupEventIngestor)
+	if !ok {
+		return errCapabilityNotSupported("GroupEventIngestor")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := ingestor.SyncGroupEventsBefore(ctx, session, triggerSeq)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("synchronized public group events before seq=%d", triggerSeq)
+	t.finish(ctx, start, hctx)
+	return err
+}
+
+// AppendGroupTurn traces the atomic append of the current public trigger and
+// its private assistant/tool continuation.
+func (t *tracedProvider) AppendGroupTurn(
+	ctx context.Context,
+	session Session,
+	groupMessageID string,
+	trigger ai.Message,
+	continuation ...ai.Message,
+) error {
+	ingestor, ok := t.inner.(GroupEventIngestor)
+	if !ok {
+		return errCapabilityNotSupported("GroupEventIngestor")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := ingestor.AppendGroupTurn(ctx, session, groupMessageID, trigger, continuation...)
+	hctx.Error = err
+	hctx.MessageCount = len(continuation) + 1
+	hctx.Detail = fmt.Sprintf("appended group turn origin=%s", groupMessageID)
+	t.finish(ctx, start, hctx)
+	return err
+}
+
 func (t *tracedProvider) Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error) {
 	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAssemble, SessionID: session.ID}
 	ctx, start := t.begin(ctx, hctx)
@@ -462,17 +501,20 @@ func (t *tracedProvider) RotateInfo(ctx context.Context, expectedSessionID strin
 	return err
 }
 
-// CommitGroupCursor forwards group event-log cursor movement to the inner
-// provider. The runtime reaches this capability by type assertion, so a wrapper
-// that did not carry it would silently freeze every group's ingest watermark and
-// make each turn re-read the log from seq 0. A provider without the capability
-// has no cursor to move, so the call is a no-op rather than an error.
+// CommitGroupCursor traces cursor movement and fails closed when the wrapped
+// provider cannot make the corresponding durable update.
 func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error {
 	committer, ok := t.inner.(GroupCursorCommitter)
 	if !ok {
-		return nil
+		return errCapabilityNotSupported("GroupCursorCommitter")
 	}
-	return committer.CommitGroupCursor(ctx, session, triggerSeq)
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := committer.CommitGroupCursor(ctx, session, triggerSeq)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("committed public group cursor through seq=%d", triggerSeq)
+	t.finish(ctx, start, hctx)
+	return err
 }
 
 func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error) {

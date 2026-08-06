@@ -56,6 +56,34 @@ type reviewHistoryProvider struct {
 	messages []memory.ReviewMessage
 }
 
+type groupCapabilityProvider struct {
+	memory.Provider
+	syncedBefore int64
+	appendedID   string
+	committed    int64
+}
+
+func (p *groupCapabilityProvider) SyncGroupEventsBefore(_ context.Context, _ memory.Session, triggerSeq int64) error {
+	p.syncedBefore = triggerSeq
+	return nil
+}
+
+func (p *groupCapabilityProvider) AppendGroupTurn(
+	_ context.Context,
+	_ memory.Session,
+	groupMessageID string,
+	_ ai.Message,
+	_ ...ai.Message,
+) error {
+	p.appendedID = groupMessageID
+	return nil
+}
+
+func (p *groupCapabilityProvider) CommitGroupCursor(_ context.Context, _ memory.Session, triggerSeq int64) error {
+	p.committed = triggerSeq
+	return nil
+}
+
 func (p *reviewHistoryProvider) LoadReviewHistory(context.Context, string) ([]memory.ReviewMessage, error) {
 	return append([]memory.ReviewMessage(nil), p.messages...), nil
 }
@@ -84,6 +112,32 @@ func TestTracedProvider_Unwrap(t *testing.T) {
 	inner := memory.Unwrap(traced)
 	if inner != fake {
 		t.Error("Unwrap should return inner provider")
+	}
+}
+
+func TestTracedProviderForwardsGroupLCMCapabilities(t *testing.T) {
+	inner := &groupCapabilityProvider{Provider: memorytest.New()}
+	traced := memory.WithTracing(inner, nil)
+	ingestor, ok := traced.(memory.GroupEventIngestor)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupEventIngestor")
+	}
+	committer, ok := traced.(memory.GroupCursorCommitter)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupCursorCommitter")
+	}
+
+	if err := ingestor.SyncGroupEventsBefore(context.Background(), testSession, 40); err != nil {
+		t.Fatalf("sync group events: %v", err)
+	}
+	if err := ingestor.AppendGroupTurn(context.Background(), testSession, "group-message-1", ai.UserMessage{Content: "hello"}); err != nil {
+		t.Fatalf("append group turn: %v", err)
+	}
+	if err := committer.CommitGroupCursor(context.Background(), testSession, 42); err != nil {
+		t.Fatalf("commit group cursor: %v", err)
+	}
+	if inner.syncedBefore != 40 || inner.appendedID != "group-message-1" || inner.committed != 42 {
+		t.Fatalf("forwarded values = sync:%d append:%q commit:%d", inner.syncedBefore, inner.appendedID, inner.committed)
 	}
 }
 

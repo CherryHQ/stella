@@ -442,6 +442,7 @@ type CtxGroupMessage struct {
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
 	ContentBlocks     json.RawMessage    `json:"content_blocks"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
 }
 
 type CtxGroupOutbox struct {
@@ -492,14 +493,15 @@ type CtxMedium struct {
 }
 
 type CtxMessage struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	Seq            int64     `json:"seq"`
-	Role           string    `json:"role"`
-	EventType      string    `json:"event_type"`
-	Content        string    `json:"content"`
-	TokenCount     int64     `json:"token_count"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID                   string      `json:"id"`
+	ConversationID       string      `json:"conversation_id"`
+	Seq                  int64       `json:"seq"`
+	Role                 string      `json:"role"`
+	EventType            string      `json:"event_type"`
+	Content              string      `json:"content"`
+	TokenCount           int64       `json:"token_count"`
+	CreatedAt            time.Time   `json:"created_at"`
+	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
 }
 
 type CtxMessageEmbedding struct {

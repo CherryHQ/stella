@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -13,191 +15,313 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+const (
+	groupLCMTokenBudget = 80_000
+	groupLCMFreshTail   = 6
+)
+
+// groupHistoryMessage is the lightweight Event Log projection copied into one
+// Agent's LCM. Historical scans omit image blobs; the current trigger carries
+// ContentBlocks because it is fetched by ID as one complete event.
+type groupHistoryMessage struct {
+	ID               string
+	Seq              int64
+	ActorType        string
+	ActorID          string
+	ActorDisplayName pgtype.Text
+	Content          string
+	ContentBlocks    []byte
+}
+
 func groupCursorPipeline(agentID string) string { return memory.GroupIngestPipeline(agentID) }
 
-// assembleGroup builds a hybrid context window for group sessions.
-//
-// Per-agent reasoning (tool calls, tool results, assistant responses) lives in
-// ctx_message/ctx_item — the standard LCM path. Cross-agent conversation lives
-// in the event log. This method merges both:
-//
-//  1. Standard LCM assembly from ctx_message (agent's own conversation history)
-//  2. Event log messages from other participants between the last watermark and
-//     the current triggering message's seq
-//
-// The watermark (stored in ctx_group_ingest_cursor, pipeline="lcm:<agentID>") tracks which
-// event log seq this agent has already incorporated. The triggering message's seq
-// comes from the context (set by group_dispatch) so it can be excluded from
-// injection — it enters via the normal Append + live userMsg path in chat.go.
+// assembleGroup reads the already-synchronized per-agent LCM. The runtime calls
+// SyncGroupEventsBefore before compaction so pending public events participate
+// in both compaction and final assembly.
 func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, budget, freshTail int) ([]ai.Message, error) {
-	groupID := session.GroupID
-	agentID := session.AgentID
-	triggerSeq := memory.GroupSeqFromContext(ctx)
-	pipeline := groupCursorPipeline(agentID)
-
-	// 1. Standard LCM assembly: agent's own conversation with tool use.
 	convID, err := p.getOrCreateConversation(ctx, session)
 	if err != nil {
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
-	agentHistory, err := p.assembler.assemble(ctx, convID, budget, freshTail)
+	return p.assembler.assemble(ctx, convID, budget, freshTail)
+}
+
+// SyncGroupEventsBefore copies the newest bounded public event window into this
+// agent's LCM without advancing the group cursor. Cursor movement remains tied
+// to a successful chat turn.
+func (p *Provider) SyncGroupEventsBefore(ctx context.Context, session memory.Session, triggerSeq int64) error {
+	if session.GroupID == "" || session.AgentID == "" || triggerSeq <= 0 {
+		return nil
+	}
+	watermark, err := p.getGroupCursor(ctx, session.GroupID, groupCursorPipeline(session.AgentID))
 	if err != nil {
-		return nil, fmt.Errorf("assemble agent history: %w", err)
+		return err
+	}
+	if triggerSeq <= watermark+1 {
+		return nil
 	}
 
-	// 2. Read watermark: last event log seq this agent incorporated.
-	watermark := p.getGroupCursor(ctx, groupID, pipeline)
-
-	// 3. Read between-turn messages from event log.
-	var injected []ai.Message
-	if triggerSeq > 0 && triggerSeq > watermark+1 {
-		rows, err := p.q.ListGroupMessagesBetweenSeqs(ctx, sqlc.ListGroupMessagesBetweenSeqsParams{
-			GroupID:   groupID,
-			AfterSeq:  watermark,
-			BeforeSeq: triggerSeq,
+	rows, err := p.q.ListGroupMessagesForLCM(ctx, sqlc.ListGroupMessagesForLCMParams{
+		GroupID:     session.GroupID,
+		AfterSeq:    watermark,
+		BeforeSeq:   triggerSeq,
+		SelfAgentID: session.AgentID,
+		TokenBudget: groupLCMTokenBudget,
+	})
+	if err != nil {
+		return fmt.Errorf("list group messages for lcm: %w", err)
+	}
+	publicRows := make([]groupHistoryMessage, 0, len(rows))
+	for _, row := range rows {
+		publicRows = append(publicRows, groupHistoryMessage{
+			ID:               row.ID,
+			Seq:              row.Seq,
+			ActorType:        row.ActorType,
+			ActorID:          row.ActorID,
+			ActorDisplayName: row.ActorDisplayName,
+			Content:          row.Content,
 		})
-		if err != nil {
-			return nil, fmt.Errorf("list between-turn messages: %w", err)
-		}
-		injected = groupRowsToMessages(rows, agentID)
 	}
+	if err := p.appendGroupHistory(ctx, session, publicRows, nil, false); err != nil {
+		return err
+	}
+	p.log.Debug("group lcm public events synchronized",
+		"group_id", session.GroupID,
+		"agent_id", session.AgentID,
+		"cursor_seq", watermark,
+		"trigger_seq", triggerSeq,
+		"selected_events", len(rows),
+	)
+	return nil
+}
 
-	// 3.5. Persist injected messages before the live user turn so future
-	// assemblies preserve event-log chronology. Cursor movement is intentionally
-	// deferred to CommitGroupCursor after the chat succeeds.
-	injected, err = p.filterAlreadyPersistedInjected(ctx, convID, injected)
+// AppendGroupTurn atomically persists the current public trigger and the
+// assistant/tool continuation. If the trigger was already persisted, the whole
+// turn is an idempotent no-op.
+func (p *Provider) AppendGroupTurn(
+	ctx context.Context,
+	session memory.Session,
+	groupMessageID string,
+	_ ai.Message,
+	continuation ...ai.Message,
+) error {
+	if session.GroupID == "" || groupMessageID == "" {
+		return errors.New("group session and message id are required")
+	}
+	row, err := p.q.GetGroupMessage(ctx, groupMessageID)
 	if err != nil {
-		return nil, fmt.Errorf("filter persisted injected messages: %w", err)
+		return fmt.Errorf("get triggering group message: %w", err)
 	}
-	if len(injected) > 0 {
-		if err := p.Append(ctx, session, injected...); err != nil {
-			return nil, fmt.Errorf("persist between-turn messages: %w", err)
+	if row.GroupID != session.GroupID {
+		return fmt.Errorf("group message %s does not belong to group %s", groupMessageID, session.GroupID)
+	}
+	publicRow := groupHistoryMessage{
+		ID:               row.ID,
+		Seq:              row.Seq,
+		ActorType:        row.ActorType,
+		ActorID:          row.ActorID,
+		ActorDisplayName: row.ActorDisplayName,
+		Content:          row.Content,
+		ContentBlocks:    row.ContentBlocks,
+	}
+	if err := p.appendGroupHistory(ctx, session, []groupHistoryMessage{publicRow}, continuation, true); err != nil {
+		return err
+	}
+	p.log.Debug("group lcm turn ensured",
+		"group_id", session.GroupID,
+		"agent_id", session.AgentID,
+		"trigger_seq", row.Seq,
+		"continuation_messages", len(continuation),
+	)
+	return nil
+}
+
+func (p *Provider) appendGroupHistory(
+	ctx context.Context,
+	session memory.Session,
+	publicRows []groupHistoryMessage,
+	continuation []ai.Message,
+	atomicTurn bool,
+) error {
+	if len(publicRows) == 0 && len(continuation) == 0 {
+		return nil
+	}
+
+	return p.withSessionLock(session.ID, func() error {
+		convID, err := p.getOrCreateConversation(ctx, session)
+		if err != nil {
+			return err
 		}
-		agentHistory = append(agentHistory, injected...)
-	}
 
-	// 4. Apply token budget: trim oldest messages first.
-	total := 0
-	for _, m := range agentHistory {
-		total += estimateMessageTokens(m)
-	}
-	cutIdx := 0
-	for total > budget && cutIdx < len(agentHistory) {
-		total -= estimateMessageTokens(agentHistory[cutIdx])
-		cutIdx++
-	}
+		tx, err := p.db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin group history tx: %w", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		qtx := p.q.WithTx(tx)
 
-	return sanitizeToolPairs(agentHistory[cutIdx:]), nil
+		// The database lock makes seq/ordinal allocation and origin idempotency
+		// safe across multiple Stella nodes.
+		if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
+			return fmt.Errorf("lock group conversation: %w", err)
+		}
+
+		if atomicTurn && len(publicRows) > 0 {
+			_, lookupErr := qtx.GetMessageByGroupOrigin(ctx, sqlc.GetMessageByGroupOriginParams{
+				ConversationID:       convID,
+				OriginGroupMessageID: pgtype.Text{String: publicRows[0].ID, Valid: true},
+			})
+			switch {
+			case lookupErr == nil:
+				return nil
+			case !errors.Is(lookupErr, pgx.ErrNoRows):
+				return fmt.Errorf("check existing group turn: %w", lookupErr)
+			}
+		}
+
+		seq, err := qtx.GetMaxSeq(ctx, convID)
+		if err != nil {
+			return fmt.Errorf("get max seq: %w", err)
+		}
+		ordinal, err := qtx.GetMaxContextOrdinal(ctx, convID)
+		if err != nil {
+			return fmt.Errorf("get max ordinal: %w", err)
+		}
+
+		appendMessage := func(msg ai.Message, originGroupMessageID string) error {
+			for rowIndex, row := range messageToRows(msg) {
+				seq++
+				var dbMsg sqlc.CtxMessage
+				if originGroupMessageID != "" && rowIndex == 0 {
+					dbMsg, err = qtx.CreateMessageWithGroupOrigin(ctx, sqlc.CreateMessageWithGroupOriginParams{
+						ID:                   uuid.Must(uuid.NewV7()).String(),
+						ConversationID:       convID,
+						Seq:                  seq,
+						Role:                 row.role,
+						EventType:            row.eventType,
+						Content:              row.content,
+						TokenCount:           int64(memory.EstimateTokens(row.content)),
+						OriginGroupMessageID: pgtype.Text{String: originGroupMessageID, Valid: true},
+					})
+				} else {
+					dbMsg, err = qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
+						ID:             uuid.Must(uuid.NewV7()).String(),
+						ConversationID: convID,
+						Seq:            seq,
+						Role:           row.role,
+						EventType:      row.eventType,
+						Content:        row.content,
+						TokenCount:     int64(memory.EstimateTokens(row.content)),
+					})
+				}
+				if err != nil {
+					return fmt.Errorf("create group history message: %w", err)
+				}
+
+				ordinal++
+				if err = qtx.AppendContextItem(ctx, sqlc.AppendContextItemParams{
+					ConversationID: convID,
+					Ordinal:        ordinal,
+					ItemType:       itemTypeMessage,
+					MessageID:      pgtype.Text{String: dbMsg.ID, Valid: true},
+					EventType:      row.eventType,
+					Role:           row.role,
+				}); err != nil {
+					return fmt.Errorf("append group context item: %w", err)
+				}
+			}
+			return nil
+		}
+
+		for _, publicRow := range publicRows {
+			if !atomicTurn {
+				_, lookupErr := qtx.GetMessageByGroupOrigin(ctx, sqlc.GetMessageByGroupOriginParams{
+					ConversationID:       convID,
+					OriginGroupMessageID: pgtype.Text{String: publicRow.ID, Valid: true},
+				})
+				switch {
+				case lookupErr == nil:
+					continue
+				case !errors.Is(lookupErr, pgx.ErrNoRows):
+					return fmt.Errorf("check existing group event: %w", lookupErr)
+				}
+			}
+			msg, ok := groupRowToMessage(publicRow)
+			if !ok {
+				continue
+			}
+			if err := appendMessage(msg, publicRow.ID); err != nil {
+				return err
+			}
+		}
+		for _, msg := range continuation {
+			if err := appendMessage(msg, ""); err != nil {
+				return err
+			}
+		}
+		return tx.Commit(ctx)
+	})
 }
 
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {
 	if session.GroupID == "" || session.AgentID == "" || triggerSeq <= 0 {
 		return nil
 	}
-	groupID := session.GroupID
 	pipeline := groupCursorPipeline(session.AgentID)
-	watermark := p.getGroupCursor(ctx, groupID, pipeline)
+	watermark, err := p.getGroupCursor(ctx, session.GroupID, pipeline)
+	if err != nil {
+		return err
+	}
 	if triggerSeq <= watermark {
 		return nil
 	}
 	if err := p.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
-		GroupID:  groupID,
+		GroupID:  session.GroupID,
 		Pipeline: pipeline,
 		LastSeq:  triggerSeq,
 	}); err != nil {
 		return fmt.Errorf("update group cursor: %w", err)
 	}
+	p.log.Debug("group lcm cursor committed",
+		"group_id", session.GroupID,
+		"agent_id", session.AgentID,
+		"previous_seq", watermark,
+		"committed_seq", triggerSeq,
+	)
 	return nil
 }
 
-func (p *Provider) filterAlreadyPersistedInjected(ctx context.Context, convID string, injected []ai.Message) ([]ai.Message, error) {
-	if len(injected) == 0 {
-		return injected, nil
-	}
-	contents := make([]string, 0, len(injected))
-	for _, msg := range injected {
-		um, ok := msg.(ai.UserMessage)
-		if !ok {
-			continue
-		}
-		contents = append(contents, flattenUserContent(um))
-	}
-	if len(contents) == 0 {
-		return injected, nil
-	}
-	seen := make(map[string]struct{})
-	for start := 0; start < len(contents); start += 500 {
-		end := min(start+500, len(contents))
-		existingRows, err := p.q.ListExistingUserMessageContent(ctx, sqlc.ListExistingUserMessageContentParams{
-			ConversationID: convID,
-			Contents:       contents[start:end],
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, content := range existingRows {
-			seen[content] = struct{}{}
-		}
-	}
-	out := injected[:0]
-	for _, msg := range injected {
-		um, ok := msg.(ai.UserMessage)
-		if !ok {
-			out = append(out, msg)
-			continue
-		}
-		if _, ok := seen[flattenUserContent(um)]; ok {
-			continue
-		}
-		out = append(out, msg)
-	}
-	return out, nil
-}
-
-func flattenUserContent(msg ai.UserMessage) string {
-	switch c := msg.Content.(type) {
-	case string:
-		return c
-	case []ai.ContentBlock:
-		return ai.FlattenText(c)
-	default:
-		return fmt.Sprintf("%v", c)
-	}
-}
-
-// getGroupCursor returns the last-seen event log seq for this agent, or 0.
-func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string) int64 {
+func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string) (int64, error) {
 	cursor, err := p.q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
 		GroupID:  groupID,
 		Pipeline: pipeline,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0
+		return 0, nil
 	}
 	if err != nil {
-		p.log.Warn("failed to read group cursor", "group_id", groupID, "error", err)
-		return 0
+		return 0, fmt.Errorf("read group cursor: %w", err)
 	}
-	return cursor.LastSeq
+	return cursor.LastSeq, nil
 }
 
-// groupRowsToMessages converts event log rows to ai.Messages.
-// The current agent's own messages are skipped (they're already in ctx_message).
-// All other messages become UserMessages with actor attribution.
-func groupRowsToMessages(rows []sqlc.ListGroupMessagesBetweenSeqsRow, selfAgentID string) []ai.Message {
-	msgs := make([]ai.Message, 0, len(rows))
-	for _, row := range rows {
-		if row.Content == "" {
-			continue
-		}
-		if row.ActorType == string(eventlog.ActorAgent) && row.ActorID == selfAgentID {
-			continue
-		}
-		label := row.ActorID
-		if row.ActorType == string(eventlog.ActorAgent) {
-			label = "agent:" + row.ActorID
-		}
-		msgs = append(msgs, ai.UserMessage{Content: fmt.Sprintf("[seq:%d %s]: %s", row.Seq, label, row.Content)})
+// groupRowToMessage renders public identity for model context while durable
+// deduplication remains based on the event row ID, never this display text.
+func groupRowToMessage(row groupHistoryMessage) (ai.Message, bool) {
+	label := row.ActorID
+	if row.ActorDisplayName.Valid && row.ActorDisplayName.String != "" {
+		label = row.ActorDisplayName.String
+	} else if row.ActorType == string(eventlog.ActorAgent) {
+		label = "agent:" + row.ActorID
 	}
-	return msgs
+	if blocks, err := ai.UnmarshalContentBlocks(row.ContentBlocks); err == nil && len(blocks) > 0 {
+		content := make([]ai.ContentBlock, 0, len(blocks)+1)
+		content = append(content, ai.TextContent{Text: fmt.Sprintf("[seq:%d %s]:", row.Seq, label)})
+		content = append(content, blocks...)
+		return ai.UserMessage{Content: content}, true
+	}
+	if row.Content == "" {
+		return nil, false
+	}
+	return ai.UserMessage{Content: fmt.Sprintf("[seq:%d %s]: %s", row.Seq, label, row.Content)}, true
 }

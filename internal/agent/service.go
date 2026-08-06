@@ -19,9 +19,9 @@ import (
 )
 
 // ErrGroupCompactionUnsupported is returned by CompactSession for a group
-// session. Group history lives in the group event log, not the LCM conversation,
-// so LCM compaction does not apply; callers surface this as a user-facing notice
-// rather than silently compacting an event-log conversation.
+// session. Group turns perform automatic compaction inside the runtime after
+// synchronizing public events; the standalone service cannot reproduce that
+// ordering safely, so callers receive an explicit notice.
 var ErrGroupCompactionUnsupported = errors.New("compaction is not supported for group sessions")
 
 // Service is a thin composition facade over session.Registry and runtime.Runtime.
@@ -610,11 +610,9 @@ func (s *Service) RotateMainSession(ctx context.Context, authority authz.Authori
 // CompactSession runs full compaction on the session identified by sessionID.
 // This is a best-effort operation: it returns the compaction summary or an error.
 //
-// Group sessions are unsupported: their history is assembled from the group event
-// log, not the LCM conversation, and NeedsCompaction already declines them. The
-// manual path rejects a group session up front (before touching the compactor)
-// with ErrGroupCompactionUnsupported rather than run a private-style compaction
-// over an event-log conversation.
+// Group sessions use a runtime-owned sync→compact→assemble sequence. The manual
+// path rejects a group session up front (before touching the compactor) with
+// ErrGroupCompactionUnsupported rather than bypass that event/cursor ordering.
 // CompactAuthorizedSession performs compaction after the caller has authorized
 // ActionExecute for info under its current Session Access evaluation.
 func (s *Service) CompactAuthorizedSession(ctx context.Context, info session.Info) (string, error) {
