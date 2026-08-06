@@ -27,13 +27,16 @@ const SRC = join(import.meta.dirname, "..");
 const FOREGROUND_UTILITY =
   /\b(?:bg|text|ring|fill|stroke|from|via|to|caret|accent|(?:border|divide)(?:-[trblxyse])?)-([a-z][a-z0-9-]*-foreground)(?:\/\d+)?\b/g;
 
-function walk(dir: string, out: string[] = []): string[] {
+const SOURCE = /\.tsx?$/;
+const STYLES = /\.css$/;
+
+function walk(dir: string, match: RegExp = SOURCE, out: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === "api-client") continue; // generated
-      walk(path, out);
-    } else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+      walk(path, match, out);
+    } else if (match.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
       out.push(path);
     }
   }
@@ -64,6 +67,38 @@ describe("semantic color pairs resolve to defined theme tokens", () => {
     }
 
     expect([...offenders]).toEqual([]);
+  });
+
+  it("keeps the plot palette out of anything that gets read", () => {
+    // `chart-*` is tuned to be plotted: filled areas, where lightness carries
+    // category rather than legibility. Light mode measures 2.35:1 for `chart-4`
+    // as copy on a card and 2.19:1 for the same token as a status dot, missing
+    // the 4.5:1 text floor and the 3:1 non-text floor respectively.
+    //
+    // `bg-chart-*` is deliberately still allowed: an agent avatar and a scope
+    // rail are categories, which is what these tokens mean, and both sit beside
+    // a text label that carries the same information. Coloring a *word* with
+    // one has no such out — the word is the content.
+    const offenders: string[] = [];
+    for (const file of walk(SRC)) {
+      const source = readFileSync(file, "utf8");
+      for (const m of source.matchAll(/\b(?:text|fill|stroke)-chart-\d\b/g)) {
+        offenders.push(
+          `${file.slice(SRC.length + 1)}: ${m[0]} (use a status token, or --foreground)`,
+        );
+      }
+    }
+
+    // The same mistake in plain CSS, where the class names do not apply. The
+    // lookbehind keeps `background-color:` out of it — a chart token as a fill
+    // is the correct use.
+    for (const file of walk(SRC, STYLES)) {
+      const source = readFileSync(file, "utf8");
+      for (const m of source.matchAll(/(?<![-\w])color:\s*var\(--chart-\d\)/g)) {
+        offenders.push(`${file.slice(SRC.length + 1)}: ${m[0]} (use a status token)`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("keeps red words off the red fill token", () => {

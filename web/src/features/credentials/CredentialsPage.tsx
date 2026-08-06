@@ -89,22 +89,19 @@ function sameScopeSet(a: string[], b: string[]) {
   return left.size === right.size && [...left].every((scope) => right.has(scope));
 }
 
-// One hue per scope, drawn from the chart palette tokens. Reused by the list
-// group rails, the row icon tint, and the precedence ladder so a scope reads as
-// the same color everywhere.
-const SCOPE_COLOR: Record<VaultScope, { dot: string; text: string; soft: string }> = {
-  user: { dot: "bg-chart-2", text: "text-chart-2", soft: "bg-chart-2/12" },
-  user_agent: {
-    dot: "bg-chart-1",
-    text: "text-chart-1",
-    soft: "bg-chart-1/12",
-  },
-  system: { dot: "bg-chart-4", text: "text-chart-4", soft: "bg-chart-4/12" },
-  system_agent: {
-    dot: "bg-chart-5",
-    text: "text-chart-5",
-    soft: "bg-chart-5/12",
-  },
+// One hue per scope, drawn from the chart palette tokens: a scope is a category,
+// which is what `chart-*` means. Reused by the list group rails, the row icon and
+// the precedence ladder so a scope reads as the same color everywhere.
+//
+// There is deliberately no `text` entry. These tokens are tuned to be plotted as
+// areas, and as words they run 2.4-3.8:1 — `chart-4` as a scope label measured
+// 2.35:1. The dot carries the hue; the label is read, so it stays on
+// `--foreground` and the active row is marked by weight and its own tint.
+const SCOPE_COLOR: Record<VaultScope, { dot: string; soft: string }> = {
+  user: { dot: "bg-chart-2", soft: "bg-chart-2/12" },
+  user_agent: { dot: "bg-chart-1", soft: "bg-chart-1/12" },
+  system: { dot: "bg-chart-4", soft: "bg-chart-4/12" },
+  system_agent: { dot: "bg-chart-5", soft: "bg-chart-5/12" },
 };
 
 // Render order for the grouped vault list.
@@ -691,11 +688,7 @@ export function CredentialsPage() {
                   }`}
                 >
                   <span className={`size-2.5 shrink-0 rounded-full ${SCOPE_COLOR[scope].dot}`} />
-                  <span
-                    className={
-                      active ? `font-semibold ${SCOPE_COLOR[scope].text}` : "text-foreground"
-                    }
-                  >
+                  <span className={active ? "font-semibold text-foreground" : "text-foreground"}>
                     {t(SCOPE_LABEL_KEY[scope])}
                   </span>
                   {active && (
@@ -1161,13 +1154,7 @@ export function CredentialsPage() {
                         <SettingsRow
                           key={`${entry.scope}:${entry.agent_id ?? ""}:${entry.name}`}
                           icon={
-                            <span className={color.text}>
-                              {reserved ? (
-                                <Lock className="size-4" />
-                              ) : (
-                                <KeyRound className="size-4" />
-                              )}
-                            </span>
+                            reserved ? <Lock className="size-4" /> : <KeyRound className="size-4" />
                           }
                           title={<span className="font-mono">{entry.name}</span>}
                           chip={

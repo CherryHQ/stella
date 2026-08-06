@@ -14,7 +14,7 @@ The token pipeline: `web/src/tokens.css` defines values → `globals.css` `@them
 - Never reference `var(--some-color)` directly in JSX when a Tailwind utility exists.
 - Never use arbitrary spacing values like `p-[13px]`. Stick to the 4px grid; prefer `gap-*` on flex/grid parents over margin on children.
 - Do not add project-specific color aliases for one-off states or surfaces. If shadcn lacks an exact semantic name, use the closest existing token.
-- Status verdicts use `success` / `warning` / `info` / `destructive` and their `-foreground` pairs; `chart-1..5` are for plotted and categorical data. Values and the reasoning: [`web-design.md`](./web-design.md).
+- Status verdicts use `success` / `warning` / `info` / `destructive` and their `-foreground` pairs; `chart-1..5` are fills for plotted and categorical data, so `bg-chart-*` only — never as a text, fill or stroke color. Values and the reasoning: [`web-design.md`](./web-design.md).
 - **Every semantic color a component references must be bridged in `globals.css`.** A class naming a token that `@theme inline` never defined is not a style bug that review catches — Tailwind emits no rule at all, so it looks correct in the source and renders as nothing. `src/lib/color-tokens.test.ts` fails the build on it; that guard exists because `bg-success`, `bg-info`, and `bg-warning` shipped undefined across three vendored primitives and thirteen call sites, and every success toast rendered as text on no background.
 
 ## Dark mode

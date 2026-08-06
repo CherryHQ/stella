@@ -929,8 +929,8 @@ function FooterCTA({ lang }: { lang: Lang }) {
             <button onClick={handleCopy} className="install-copy">
               {copied ? (
                 <>
-                  <Check aria-hidden className="size-3.5 text-chart-3" />
-                  <span className="text-chart-3">{isZh ? "已复制" : "Copied"}</span>
+                  <Check aria-hidden className="size-3.5 text-success" />
+                  <span className="text-success">{isZh ? "已复制" : "Copied"}</span>
                 </>
               ) : (
                 <>

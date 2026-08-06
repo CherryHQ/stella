@@ -71,7 +71,7 @@ export function AssistantMessage({
           <span className="text-xs font-semibold text-foreground">{agentName}</span>
           {streaming && (
             <span className="inline-flex items-center gap-1">
-              <span className="size-1.5 animate-pulse rounded-full bg-chart-2" />
+              <span className="size-1.5 animate-pulse rounded-full bg-info" />
             </span>
           )}
         </div>

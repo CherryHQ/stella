@@ -83,10 +83,35 @@ at 4.08:1 on exactly that surface. `theme.test.ts` recomputes both from
 `tokens.css`, including the alpha composite.
 
 Reaching for a chart token instead is the failure this guards, and it fails
-twice. In light mode `chart-4` as 12px copy measures 2.19:1 against the 4.5:1
+twice. In light mode `chart-4` as 12px copy measures 2.35:1 against the 4.5:1
 text floor, and as a status dot it measures 2.19:1 against the 3:1 _non-text_
 floor (WCAG 1.4.11) — a dot is a shape, and the shape has to be visible too.
 Nothing on screen says either number.
+
+#### Never write a word in a chart token
+
+`chart-*` is for _fills_. Lightness carries category there, not legibility, and
+in light mode the family reads 2.4–3.8:1 as text.
+
+| Use                                             | Allowed                        |
+| ----------------------------------------------- | ------------------------------ |
+| `bg-chart-*` — avatars, scope rails, plot areas | yes, this is what they are for |
+| `text-` / `fill-` / `stroke-chart-*`            | no                             |
+| `color: var(--chart-*)` in CSS                  | no                             |
+
+`color-tokens.test.ts` fails the build on all three of the second kind, in TSX
+and in plain CSS.
+
+A category still gets its hue — on the **dot**, next to a label on
+`--foreground`. That is what Credentials and Skills do for vault and skill
+scopes: the rail is `bg-chart-*`, the word is not. A small `bg-chart-*` marker
+sitting beside an always-visible text label carrying the same information is
+decoration under 1.4.11; a colored word has no such out, because the word _is_
+the content.
+
+Amber has one more job than its name suggests: `--warning` is the only
+text-weight amber in the theme, so Recally's starred marker uses it as a color,
+not as a verdict.
 
 #### `destructive` is a fill; `destructive-foreground` is the word
 

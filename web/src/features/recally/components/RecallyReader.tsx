@@ -269,7 +269,7 @@ export function RecallyReader({
                 <Star
                   className={cn(
                     "size-4",
-                    selectedArticle.starred ? "fill-chart-4 text-chart-4" : "",
+                    selectedArticle.starred ? "fill-warning text-warning" : "",
                   )}
                 />
               </Button>
