@@ -107,7 +107,8 @@ type UpgradeResult struct {
 // For github.com sources a token carried via WithGitHubToken authenticates the
 // fetch, exactly as during install. metadata is the skill's current metadata blob;
 // its created-at and source are preserved while version is bumped.
-func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID string, metadata json.RawMessage) (UpgradeResult, error) {
+func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, current pkgplugins.Skill) (UpgradeResult, error) {
+	skillID, metadata := current.ID, current.Metadata
 	meta := map[string]any{}
 	if len(metadata) > 0 {
 		_ = json.Unmarshal(metadata, &meta)
@@ -143,24 +144,14 @@ func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID st
 	if err != nil {
 		return UpgradeResult{}, fmt.Errorf("list installed files: %w", err)
 	}
-	// Write the new files before pruning stale ones (and bump metadata last) so a
-	// mid-upgrade failure leaves a still-loadable skill — old files plus whatever
-	// new files landed — rather than a half-deleted one. This is not atomic; a
-	// transactional store method would be the complete fix.
-	for path, content := range files {
-		if err := store.UpsertFile(ctx, skillID, path, content); err != nil {
-			return UpgradeResult{}, fmt.Errorf("write file %q: %w", path, err)
-		}
-	}
 	keep := make(map[string]bool, len(files))
 	for path := range files {
 		keep[path] = true
 	}
+	deleteFiles := make([]string, 0, len(existing))
 	for _, path := range existing {
 		if !keep[path] {
-			if err := store.DeleteFile(ctx, skillID, path); err != nil {
-				return UpgradeResult{}, fmt.Errorf("remove stale file %q: %w", path, err)
-			}
+			deleteFiles = append(deleteFiles, path)
 		}
 	}
 
@@ -174,11 +165,11 @@ func UpgradeInStore(ctx context.Context, store pkgplugins.SkillStore, skillID st
 		return UpgradeResult{}, fmt.Errorf("encode skill metadata: %w", err)
 	}
 	disable := fm.DisableModelInvocation
-	if err := store.Update(ctx, skillID, pkgplugins.SkillUpdatePatch{
+	if _, err := store.UpdateManagedSkill(ctx, managedPluginSkillUpdate(current, pkgplugins.SkillUpdatePatch{
 		Description:            &fm.Description,
 		DisableModelInvocation: &disable,
 		Metadata:               json.RawMessage(metaBytes),
-	}); err != nil {
+	}, files, deleteFiles)); err != nil {
 		return UpgradeResult{}, fmt.Errorf("update skill %q: %w", name, err)
 	}
 

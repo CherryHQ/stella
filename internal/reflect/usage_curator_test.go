@@ -488,7 +488,7 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 	`, selectedLastUsed, created.ID); err != nil {
 		t.Fatalf("seed stale skill usage: %v", err)
 	}
-	if err := skillStore.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID); err != nil {
+	if err := skillStore.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID, ""); err != nil {
 		t.Fatalf("TouchReflectSkillRuntimeUse: %v", err)
 	}
 

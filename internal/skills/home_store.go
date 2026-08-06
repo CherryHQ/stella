@@ -196,24 +196,24 @@ func (s *HomeStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdat
 	return s.manager.Update(ctx, request)
 }
 
-func (s *HomeStore) DeleteManagedSkill(ctx context.Context, id, expectedDigest string) error {
-	if err := validateHomeSkillDelete(id, expectedDigest); err != nil {
+func (s *HomeStore) DeleteManagedSkill(ctx context.Context, in ManagedSkillDelete) error {
+	if err := validateHomeManagedDelete(in); err != nil {
 		return err
 	}
-	return s.manager.Delete(ctx, id, expectedDigest)
+	return s.manager.Delete(ctx, in.ID, in.ExpectedDigest)
 }
 
-func (s *HomeStore) DeleteManagedSkillFile(ctx context.Context, id, filename, expectedDigest string) (SkillSnapshot, error) {
-	if err := validateHomeSkillDelete(id, expectedDigest); err != nil {
+func (s *HomeStore) DeleteManagedSkillFile(ctx context.Context, in ManagedSkillFileDelete) (SkillSnapshot, error) {
+	if err := validateHomeManagedDelete(in.ManagedSkillDelete); err != nil {
 		return SkillSnapshot{}, err
 	}
-	if err := validateHomeMutationPath(filename); err != nil {
+	if err := validateHomeMutationPath(in.Path); err != nil {
 		return SkillSnapshot{}, err
 	}
-	if filename == MainFile {
+	if in.Path == MainFile {
 		return SkillSnapshot{}, errors.New("skills: SKILL.md cannot be deleted")
 	}
-	return s.manager.DeleteFile(ctx, id, expectedDigest, filename)
+	return s.manager.DeleteFile(ctx, in.ID, in.ExpectedDigest, in.Path)
 }
 
 func (s *HomeStore) listActiveRoots(ctx context.Context, roots []HomeCatalogRoot) ([]Skill, error) {
@@ -245,11 +245,14 @@ func (s *HomeStore) listActiveRoots(ctx context.Context, roots []HomeCatalogRoot
 }
 
 func homeStoreUpdateRequest(in ManagedSkillUpdate) (HomeSkillUpdateRequest, error) {
+	if err := validateManagedSkillFileChanges(in.Files, in.DeleteFiles); err != nil {
+		return HomeSkillUpdateRequest{}, err
+	}
 	scope, userID, agentID, _, err := decodeFilesystemSkillID(in.ID)
 	if err != nil {
 		return HomeSkillUpdateRequest{}, err
 	}
-	if in.Scope != scope || in.UserID != userID || in.AgentID != agentID {
+	if !isMutableSkillScope(scope) || in.Scope != scope || in.UserID != userID || in.AgentID != agentID {
 		return HomeSkillUpdateRequest{}, ErrSkillNotMutable
 	}
 	if in.Patch.Status != nil && *in.Patch.Status != SkillStatusActive {
@@ -270,8 +273,20 @@ func homeStoreUpdateRequest(in ManagedSkillUpdate) (HomeSkillUpdateRequest, erro
 		DisableModelInvocation: in.Patch.DisableModelInvocation,
 		Metadata:               metadata,
 		FileUpserts:            homeStoreFileInputs(in.Files),
+		DeleteFiles:            append([]string(nil), in.DeleteFiles...),
 		ConvertToManual:        in.ConvertToManual,
 	}, nil
+}
+
+func validateHomeManagedDelete(in ManagedSkillDelete) error {
+	scope, userID, agentID, _, err := decodeFilesystemSkillID(in.ID)
+	if err != nil {
+		return err
+	}
+	if !isMutableSkillScope(scope) || in.Scope != scope || in.UserID != userID || in.AgentID != agentID {
+		return ErrSkillNotMutable
+	}
+	return validateHomeSkillDelete(in.ID, in.ExpectedDigest)
 }
 
 func homeStoreMetadataMap(raw []byte) (map[string]any, error) {

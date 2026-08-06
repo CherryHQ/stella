@@ -76,14 +76,37 @@ type ManagedSkillUpdate struct {
 	Scope   string
 	// ExpectedDigest is the exact Home content revision the caller inspected.
 	// PGStore deliberately ignores it until Home authority is composed.
-	ExpectedDigest  string
-	Patch           UpdatePatch
-	Files           map[string]string
+	ExpectedDigest string
+	Patch          UpdatePatch
+	Files          map[string]string
+	// DeleteFiles are removed in the same committed revision as Patch and Files.
+	DeleteFiles     []string
 	ConvertToManual bool
+}
+
+// ManagedSkillDelete withdraws one exact mutable Skill revision. Scope and
+// owner facts must be copied from the Skill the caller authorized.
+type ManagedSkillDelete struct {
+	ID             string
+	UserID         string
+	AgentID        string
+	Scope          string
+	ExpectedDigest string
+}
+
+// ManagedSkillFileDelete removes one companion file from an exact mutable
+// Skill revision. It returns the retained committed Skill snapshot.
+type ManagedSkillFileDelete struct {
+	ManagedSkillDelete
+	Path string
 }
 
 // Store is the persistence interface for skills.
 type Store interface {
+	// Get loads one exact durable Skill by ID. Callers authorize its returned
+	// scope and owner facts; an ID alone is never authority.
+	Get(ctx context.Context, id string) (*Skill, error)
+
 	// List returns all visible skills for the given context (metadata only, no file content).
 	List(ctx context.Context, vc ViewContext) ([]Skill, error)
 
@@ -100,6 +123,13 @@ type Store interface {
 	// UpdateManagedSkill atomically patches a live mutable skill and its files.
 	UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (SkillSnapshot, error)
 
+	// DeleteManagedSkill atomically withdraws an exact mutable Skill revision.
+	DeleteManagedSkill(ctx context.Context, in ManagedSkillDelete) error
+
+	// DeleteManagedSkillFile atomically removes one companion file and returns
+	// the retained committed Skill snapshot.
+	DeleteManagedSkillFile(ctx context.Context, in ManagedSkillFileDelete) (SkillSnapshot, error)
+
 	// CreateReflectOwnedUserAgentSkill creates an active user_agent skill whose
 	// lifecycle is owned by Reflect, including version and changelog records.
 	CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error)
@@ -114,10 +144,7 @@ type Store interface {
 
 	// TouchReflectSkillRuntimeUse records a successful runtime load of a
 	// Reflect-owned user_agent skill. Implementations recheck owner/status.
-	TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error
-
-	// ListSkillChangelogBySkill returns recent version changes for one skill.
-	ListSkillChangelogBySkill(ctx context.Context, skillID string, limit int) ([]SkillChangelog, error)
+	TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string, contentDigest string) error
 
 	// ListForAgentContext returns system, agent, and current-user skills for one agent.
 	ListForAgentContext(ctx context.Context, userID string, agentID string) ([]Skill, error)
@@ -144,16 +171,4 @@ type Store interface {
 
 	// ListFilesWithContent returns all files for a skill keyed by path.
 	ListFilesWithContent(ctx context.Context, skillID string) (map[string]string, error)
-
-	// Create inserts the skill row and all its files (must include "SKILL.md").
-	Create(ctx context.Context, s Skill, files map[string]string) (string, error)
-
-	// Update patches metadata fields. Use UpsertFile to change file content.
-	Update(ctx context.Context, id string, vc ViewContext, patch UpdatePatch) error
-
-	// UpsertFile creates or replaces a single file under a skill.
-	UpsertFile(ctx context.Context, skillID, path, content string) error
-
-	DeleteFile(ctx context.Context, skillID, path string) error
-	Delete(ctx context.Context, id string, vc ViewContext) error
 }

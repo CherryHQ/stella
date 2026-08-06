@@ -124,6 +124,15 @@ func (s *testSkillStore) LoadFile(ctx context.Context, skillID, path string) (st
 	return string(f.Content), nil
 }
 
+func (s *testSkillStore) Get(ctx context.Context, id string) (*pkgplugins.Skill, error) {
+	row, err := s.q.GetSkillByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	sk := tsMapRow(row)
+	return &sk, nil
+}
+
 func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files map[string]string) (string, error) {
 	if sk.ID == "" {
 		sk.ID = uuid.New().String()[:8]
@@ -173,6 +182,14 @@ func (s *testSkillStore) Create(ctx context.Context, sk pkgplugins.Skill, files 
 	return sk.ID, nil
 }
 
+func (s *testSkillStore) CreateManagedSkill(ctx context.Context, sk pkgplugins.Skill, files map[string]string) (pkgplugins.ManagedSkillSnapshot, error) {
+	snapshot, err := s.atomicStore().CreateManagedSkill(ctx, Skill{
+		ID: sk.ID, Scope: sk.Scope, UserID: sk.UserID, AgentID: sk.AgentID, Name: sk.Name, Description: sk.Description,
+		Status: sk.Status, DisableModelInvocation: sk.DisableModelInvocation, Metadata: sk.Metadata,
+	}, files)
+	return pluginSnapshot(snapshot), err
+}
+
 func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
 	row, err := s.q.GetSkill(ctx, sqlc.GetSkillParams{ID: id, AgentID: pgtype.Text{}, UserID: pgtype.Text{}})
 	if err != nil {
@@ -183,9 +200,6 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 		desc = *patch.Description
 	}
 	status := row.Status
-	if patch.Status != nil {
-		status = *patch.Status
-	}
 	disabled := row.DisableModelInvocation
 	if patch.DisableModelInvocation != nil {
 		disabled = *patch.DisableModelInvocation
@@ -207,6 +221,15 @@ func (s *testSkillStore) Update(ctx context.Context, id string, patch pkgplugins
 		params.AgentID = row.AgentID
 	}
 	return s.q.UpdateSkillMetadata(ctx, params)
+}
+
+func (s *testSkillStore) UpdateManagedSkill(ctx context.Context, in pkgplugins.ManagedSkillUpdate) (pkgplugins.ManagedSkillSnapshot, error) {
+	snapshot, err := s.atomicStore().UpdateManagedSkill(ctx, ManagedSkillUpdate{
+		ID: in.ID, UserID: in.UserID, AgentID: in.AgentID, Scope: in.Scope, ExpectedDigest: in.ExpectedDigest,
+		Patch: UpdatePatch{Description: in.Patch.Description, DisableModelInvocation: in.Patch.DisableModelInvocation, Metadata: in.Patch.Metadata},
+		Files: in.Files, DeleteFiles: in.DeleteFiles, ConvertToManual: in.ConvertToManual,
+	})
+	return pluginSnapshot(snapshot), err
 }
 
 func (s *testSkillStore) UpsertFile(ctx context.Context, skillID, path, content string) error {
@@ -235,25 +258,58 @@ func (s *testSkillStore) Delete(ctx context.Context, id string) error {
 	return s.q.DeleteSkill(ctx, params)
 }
 
+func (s *testSkillStore) DeleteManagedSkill(ctx context.Context, in pkgplugins.ManagedSkillDelete) error {
+	return s.atomicStore().DeleteManagedSkill(ctx, ManagedSkillDelete{ID: in.ID, UserID: in.UserID, AgentID: in.AgentID, Scope: in.Scope, ExpectedDigest: in.ExpectedDigest})
+}
+
+func (s *testSkillStore) DeleteManagedSkillFile(ctx context.Context, in pkgplugins.ManagedSkillFileDelete) (pkgplugins.ManagedSkillSnapshot, error) {
+	snapshot, err := s.atomicStore().DeleteManagedSkillFile(ctx, ManagedSkillFileDelete{ManagedSkillDelete: ManagedSkillDelete{ID: in.ID, UserID: in.UserID, AgentID: in.AgentID, Scope: in.Scope, ExpectedDigest: in.ExpectedDigest}, Path: in.Path})
+	return pluginSnapshot(snapshot), err
+}
+
+func (s *testSkillStore) atomicStore() *PGStore { return &PGStore{db: s.db, q: s.q} }
+
+func pluginSnapshot(snapshot SkillSnapshot) pkgplugins.ManagedSkillSnapshot {
+	return pkgplugins.ManagedSkillSnapshot{Skill: pkgplugins.Skill{
+		ID: snapshot.Skill.ID, Scope: snapshot.Skill.Scope, UserID: snapshot.Skill.UserID, AgentID: snapshot.Skill.AgentID,
+		Name: snapshot.Skill.Name, Description: snapshot.Skill.Description, Status: snapshot.Skill.Status,
+		DisableModelInvocation: snapshot.Skill.DisableModelInvocation, Metadata: snapshot.Skill.Metadata,
+		CreatedAt: snapshot.Skill.CreatedAt, UpdatedAt: snapshot.Skill.UpdatedAt, Version: snapshot.Skill.Version, ContentDigest: snapshot.Skill.ContentDigest,
+	}, Files: snapshot.Files}
+}
+
 // recordingSkillStore proves remove delegates lifecycle ownership to the
 // adapter Delete method instead of mutating status through Update.
 type recordingSkillStore struct {
 	*testSkillStore
 	deleteCalls int
 	updateCalls int
+	lastDelete  pkgplugins.ManagedSkillDelete
+	lastUpdate  pkgplugins.ManagedSkillUpdate
+	digest      string
 }
 
-func (s *recordingSkillStore) Delete(ctx context.Context, id string) error {
+func (s *recordingSkillStore) ListByScope(ctx context.Context, scope, userID, agentID string) ([]pkgplugins.Skill, error) {
+	rows, err := s.testSkillStore.ListByScope(ctx, scope, userID, agentID)
+	for i := range rows {
+		rows[i].ContentDigest = s.digest
+	}
+	return rows, err
+}
+
+func (s *recordingSkillStore) DeleteManagedSkill(ctx context.Context, in pkgplugins.ManagedSkillDelete) error {
 	s.deleteCalls++
+	s.lastDelete = in
 	return nil
 }
 
-func (s *recordingSkillStore) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
+func (s *recordingSkillStore) UpdateManagedSkill(ctx context.Context, in pkgplugins.ManagedSkillUpdate) (pkgplugins.ManagedSkillSnapshot, error) {
 	s.updateCalls++
-	return nil
+	s.lastUpdate = in
+	return pkgplugins.ManagedSkillSnapshot{}, nil
 }
 
-func (s *testSkillStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
+func (s *testSkillStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string, _ string) error {
 	result, err := s.db.Exec(ctx, `
 		UPDATE skill_usage
 		SET use_count = use_count + 1,
@@ -660,7 +716,7 @@ func TestInstallRejectsNonStringScope(t *testing.T) {
 // --- Store-backed tests ---
 
 // TestToolWriteAuthorizationEnforced proves the reflect reviewer tool's
-// create/patch/deprecate are each authorized against ResourceSkill before the
+// create/patch are each authorized against ResourceSkill before the
 // store mutation: a denial rejects the write (and the store is untouched), an
 // allowed actor succeeds, and a missing authorizer fails closed.
 func TestToolWriteAuthorizationEnforced(t *testing.T) {
@@ -686,30 +742,24 @@ func TestToolWriteAuthorizationEnforced(t *testing.T) {
 		}
 	})
 
-	t.Run("denied patch and deprecate are rejected", func(t *testing.T) {
+	t.Run("denied patch is rejected", func(t *testing.T) {
 		calls := 0
 		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(denySkillWrites{calls: &calls})
 		if _, err := tool.patch(ctx, map[string]any{"name": "existing", "description": "changed"}); err == nil {
 			t.Fatal("expected denied patch to fail")
 		}
-		if _, err := tool.deprecate(ctx, map[string]any{"name": "existing"}); err == nil {
-			t.Fatal("expected denied deprecate to fail")
-		}
-		if calls != 2 {
-			t.Fatalf("write PEP consulted %d times, want 2 patch/deprecate authorizations", calls)
+		if calls != 1 {
+			t.Fatalf("write PEP consulted %d times, want one patch authorization", calls)
 		}
 	})
 
-	t.Run("allowed create/patch/deprecate succeed", func(t *testing.T) {
+	t.Run("allowed create/patch succeed", func(t *testing.T) {
 		tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 		if _, err := tool.create(ctx, map[string]any{"name": "ok-skill", "description": "an allowed skill"}); err != nil {
 			t.Fatalf("allowed create: %v", err)
 		}
 		if _, err := tool.patch(ctx, map[string]any{"name": "ok-skill", "description": "updated"}); err != nil {
 			t.Fatalf("allowed patch: %v", err)
-		}
-		if _, err := tool.deprecate(ctx, map[string]any{"name": "ok-skill"}); err != nil {
-			t.Fatalf("allowed deprecate: %v", err)
 		}
 	})
 
@@ -1030,16 +1080,23 @@ func TestLoadReflectOwnedSkillFailsWhenUsageClaimFindsNoRow(t *testing.T) {
 
 type blockingSkillUsageStore struct {
 	*testSkillStore
-	deadline time.Time
-	resolves int
+	deadline      time.Time
+	resolves      int
+	contentDigest string
+	touchedDigest string
 }
 
 func (s *blockingSkillUsageStore) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
 	s.resolves++
-	return s.testSkillStore.Resolve(ctx, name, vc)
+	sk, err := s.testSkillStore.Resolve(ctx, name, vc)
+	if sk != nil {
+		sk.ContentDigest = s.contentDigest
+	}
+	return sk, err
 }
 
-func (s *blockingSkillUsageStore) TouchReflectSkillRuntimeUse(ctx context.Context, _ string, _ string, _ string) error {
+func (s *blockingSkillUsageStore) TouchReflectSkillRuntimeUse(ctx context.Context, _ string, _ string, _ string, digest string) error {
+	s.touchedDigest = digest
 	s.deadline, _ = ctx.Deadline()
 	select {
 	case <-ctx.Done():
@@ -1051,7 +1108,8 @@ func (s *blockingSkillUsageStore) TouchReflectSkillRuntimeUse(ctx context.Contex
 
 func TestLoadReflectOwnedSkillFailsClosedWhenUsageClaimTimesOut(t *testing.T) {
 	base, userID, agentID := newTestSkillStore(t)
-	store := &blockingSkillUsageStore{testSkillStore: base}
+	const digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	store := &blockingSkillUsageStore{testSkillStore: base, contentDigest: digest}
 	ctx := ctxWithUser(userID, agentID)
 	metadata, err := MarkReflectOwnedMetadata(nil)
 	if err != nil {
@@ -1081,6 +1139,9 @@ func TestLoadReflectOwnedSkillFailsClosedWhenUsageClaimTimesOut(t *testing.T) {
 	}
 	if store.resolves != 1 {
 		t.Fatalf("Resolve calls = %d, want one resolution shared by load and touch", store.resolves)
+	}
+	if store.touchedDigest != digest {
+		t.Fatalf("touch digest = %q, want resolved digest %q", store.touchedDigest, digest)
 	}
 }
 
@@ -1409,7 +1470,8 @@ func TestToolRemoveUsesAdapterDelete(t *testing.T) {
 	}, map[string]string{pkgplugins.SkillMainFile: "# lifecycle"}); err != nil {
 		t.Fatalf("create skill: %v", err)
 	}
-	store := &recordingSkillStore{testSkillStore: base}
+	const digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	store := &recordingSkillStore{testSkillStore: base, digest: digest}
 	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
 
 	if _, err := tool.Execute(ctx, map[string]any{"action": "remove", "name": "tool-remove-lifecycle"}); err != nil {
@@ -1417,6 +1479,29 @@ func TestToolRemoveUsesAdapterDelete(t *testing.T) {
 	}
 	if store.deleteCalls != 1 || store.updateCalls != 0 {
 		t.Fatalf("tool lifecycle calls = delete %d, update %d; want delete 1, update 0", store.deleteCalls, store.updateCalls)
+	}
+	if store.lastDelete.ExpectedDigest != digest {
+		t.Fatalf("remove digest = %q, want resolved digest %q", store.lastDelete.ExpectedDigest, digest)
+	}
+}
+
+func TestToolPatchUsesResolvedDigestInOneMutation(t *testing.T) {
+	base, userID, agentID := newTestSkillStore(t)
+	ctx := ctxWithUser(userID, agentID)
+	if _, err := base.Create(ctx, pkgplugins.Skill{Scope: "user", UserID: userID, Name: "tool-patch-digest", Status: "active"}, map[string]string{pkgplugins.SkillMainFile: "# before"}); err != nil {
+		t.Fatal(err)
+	}
+	const digest = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	store := &recordingSkillStore{testSkillStore: base, digest: digest}
+	tool := NewTool(store, "", "").WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
+	if _, err := tool.Execute(ctx, map[string]any{"action": "patch", "name": "tool-patch-digest", "description": "after", "content": "# after"}); err != nil {
+		t.Fatal(err)
+	}
+	if store.updateCalls != 1 || store.lastUpdate.ExpectedDigest != digest {
+		t.Fatalf("patch request = %+v, calls=%d", store.lastUpdate, store.updateCalls)
+	}
+	if got := store.lastUpdate.Files[pkgplugins.SkillMainFile]; got != "# after" {
+		t.Fatalf("patch did not retain content in atomic request: %q", got)
 	}
 }
 

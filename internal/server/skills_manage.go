@@ -337,7 +337,7 @@ func (s *Server) DeleteScopedSkill(w http.ResponseWriter, r *http.Request, id st
 	if sk == nil {
 		return
 	}
-	s.doDeleteSkill(w, r, sk.ID)
+	s.doDeleteSkill(w, r, sk)
 }
 
 // GetScopedSkillFile handles GET /api/skills/{id}/file.
@@ -360,5 +360,5 @@ func (s *Server) DeleteScopedSkillFile(w http.ResponseWriter, r *http.Request, i
 	if sk == nil {
 		return
 	}
-	s.doDeleteSkillFile(w, r, sk.ID, params.Path)
+	s.doDeleteSkillFile(w, r, sk, params.Path)
 }

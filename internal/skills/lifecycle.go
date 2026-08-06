@@ -28,7 +28,7 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 	if in.ID == "" {
 		return SkillSnapshot{}, fmt.Errorf("update managed skill: id is required")
 	}
-	if err := validateSkillFilePaths(in.Files); err != nil {
+	if err := validateManagedSkillFileChanges(in.Files, in.DeleteFiles); err != nil {
 		return SkillSnapshot{}, err
 	}
 	tx, err := s.db.Begin(ctx)
@@ -57,6 +57,11 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 	for path, content := range in.Files {
 		if err := qtx.UpsertSkillFile(ctx, sqlc.UpsertSkillFileParams{SkillID: before.ID, Path: path, Content: []byte(content)}); err != nil {
 			return SkillSnapshot{}, fmt.Errorf("update managed skill file %q: %w", path, err)
+		}
+	}
+	for _, path := range in.DeleteFiles {
+		if err := qtx.DeleteSkillFile(ctx, sqlc.DeleteSkillFileParams{SkillID: before.ID, Path: path}); err != nil {
+			return SkillSnapshot{}, fmt.Errorf("delete managed skill file %q: %w", path, err)
 		}
 	}
 	afterRow, err := qtx.UpdateManagedSkill(ctx, sqlc.UpdateManagedSkillParams{
@@ -93,11 +98,103 @@ func (s *PGStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate)
 	return SkillSnapshot{Skill: after, Files: files}, nil
 }
 
+// DeleteManagedSkill preserves the legacy PG delete semantics while proving
+// supplied scope and owner facts under one row lock. ExpectedDigest is ignored
+// until Home is the composed content authority.
+func (s *PGStore) DeleteManagedSkill(ctx context.Context, in ManagedSkillDelete) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin managed skill delete: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+	before, err := lockedManagedSkill(ctx, qtx, in.ID, in.Scope, in.UserID, in.AgentID)
+	if err != nil {
+		return err
+	}
+	userID, agentID := managedOwnerParams(before.UserID, before.AgentID)
+	if err := qtx.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: before.ID, UserID: userID, AgentID: agentID}); err != nil {
+		return fmt.Errorf("delete managed skill: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit managed skill delete: %w", err)
+	}
+	return nil
+}
+
+// DeleteManagedSkillFile removes one companion file under the same row lock as
+// its scope/owner validation and returns the retained committed snapshot.
+func (s *PGStore) DeleteManagedSkillFile(ctx context.Context, in ManagedSkillFileDelete) (SkillSnapshot, error) {
+	if err := validateSkillDeletePaths([]string{in.Path}); err != nil {
+		return SkillSnapshot{}, err
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return SkillSnapshot{}, fmt.Errorf("begin managed skill file delete: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := s.q.WithTx(tx)
+	before, err := lockedManagedSkill(ctx, qtx, in.ID, in.Scope, in.UserID, in.AgentID)
+	if err != nil {
+		return SkillSnapshot{}, err
+	}
+	if err := qtx.DeleteSkillFile(ctx, sqlc.DeleteSkillFileParams{SkillID: before.ID, Path: in.Path}); err != nil {
+		return SkillSnapshot{}, fmt.Errorf("delete managed skill file %q: %w", in.Path, err)
+	}
+	rows, err := qtx.ListSkillFiles(ctx, before.ID)
+	if err != nil {
+		return SkillSnapshot{}, fmt.Errorf("list committed managed skill files: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return SkillSnapshot{}, fmt.Errorf("commit managed skill file delete: %w", err)
+	}
+	files := make([]string, 0, len(rows))
+	for _, row := range rows {
+		files = append(files, row.Path)
+	}
+	sort.Strings(files)
+	return SkillSnapshot{Skill: before, Files: files}, nil
+}
+
 func validateSkillFilePaths(files map[string]string) error {
 	for raw := range files {
 		clean := path.Clean(raw)
 		if raw == "" || strings.ContainsRune(raw, '\x00') || strings.Contains(raw, "\\") || path.IsAbs(raw) || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || clean != raw {
 			return fmt.Errorf("%w: %q must be a canonical relative path", ErrInvalidSkillFilePath, raw)
+		}
+	}
+	return nil
+}
+
+func validateSkillDeletePaths(paths []string) error {
+	for _, path := range paths {
+		if path == MainFile {
+			return errors.New("skills: SKILL.md cannot be deleted")
+		}
+		if err := validateSkillFilePaths(map[string]string{path: ""}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var ErrInvalidManagedSkillFileMutation = errors.New("invalid managed skill file mutation")
+
+func validateManagedSkillFileChanges(files map[string]string, deleteFiles []string) error {
+	if err := validateSkillFilePaths(files); err != nil {
+		return err
+	}
+	if err := validateSkillDeletePaths(deleteFiles); err != nil {
+		return err
+	}
+	seen := make(map[string]struct{}, len(deleteFiles))
+	for _, path := range deleteFiles {
+		if _, duplicate := seen[path]; duplicate {
+			return fmt.Errorf("%w: duplicate delete path %q", ErrInvalidManagedSkillFileMutation, path)
+		}
+		seen[path] = struct{}{}
+		if _, both := files[path]; both {
+			return fmt.Errorf("%w: path %q is both upserted and deleted", ErrInvalidManagedSkillFileMutation, path)
 		}
 	}
 	return nil

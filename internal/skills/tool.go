@@ -25,8 +25,8 @@ var skillsInputSchema = func() map[string]any {
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["load", "search_installed", "search", "install", "list", "remove", "create", "patch", "deprecate"],
-      "description": "Action to perform: 'load' reads a skill's content by name, 'search_installed' searches installed visible skills, 'search' finds skills from the remote ecosystem, 'install' adds a skill, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new active skill, 'patch' updates an existing skill's fields, 'deprecate' marks a skill as deprecated"
+      "enum": ["load", "search_installed", "search", "install", "list", "remove", "create", "patch"],
+      "description": "Action to perform: 'load' reads a skill's content by name, 'search_installed' searches installed visible skills, 'search' finds skills from the remote ecosystem, 'install' adds a skill, 'list' shows installed skills, 'remove' deletes an installed skill, 'create' creates a new active skill, 'patch' updates an existing skill's fields"
     },
     "query": {
       "type": "string",
@@ -43,11 +43,11 @@ var skillsInputSchema = func() map[string]any {
     "scope": {
       "type": "string",
       "enum": ["user", "agent"],
-      "description": "Writable scope for install/remove/create/patch/deprecate. Defaults to 'user'. Set to 'agent' to target the current agent scope. Project skills are read-only (they live in {PROJECT_ROOT}/.agents/skills and come with the repo)."
+      "description": "Writable scope for install/remove/create/patch. Defaults to 'user'. Set to 'agent' to target the current agent scope. Project skills are read-only (they live in {PROJECT_ROOT}/.agents/skills and come with the repo)."
     },
     "name": {
       "type": "string",
-      "description": "Name of the skill (required for load, remove, create, patch, deprecate)"
+      "description": "Name of the skill (required for load, remove, create, patch)"
     },
     "description": {
       "type": "string",
@@ -89,7 +89,7 @@ type Tool struct {
 	// nil, DB-backed reads fail closed (the row is dropped or reported not-found).
 	readAuthz SkillReadAuthorizer
 	// writeAuthz enforces Skill write authorization on every DB-backed
-	// create/patch/deprecate. Only callers that expose write actions (the reflect
+	// create/patch. Only callers that expose write actions (the reflect
 	// reviewer) inject it; when a write action runs without it, the write fails closed.
 	writeAuthz SkillWriteAuthorizer
 }
@@ -103,7 +103,7 @@ var errSkillNotFound = errors.New("skill not found")
 var errSkillWriteUnauthorized = errors.New("skill write is not authorized in this context")
 
 type reflectSkillRuntimeUsageTracker interface {
-	TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error
+	TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string, contentDigest string) error
 }
 
 func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool {
@@ -223,8 +223,7 @@ func (t *Tool) authorizeLoadable(ctx context.Context, rs *ResolvedSkill) error {
 }
 
 // WithWriteAuthorizer injects the Skill write authorizer. Every DB-backed
-// create/patch/deprecate is authorized before the store mutation; a denial fails
-// the write.
+// create/patch is authorized before the store mutation; a denial fails the write.
 func (t *Tool) WithWriteAuthorizer(a SkillWriteAuthorizer) *Tool {
 	t.writeAuthz = a
 	return t
@@ -242,7 +241,7 @@ func (t *Tool) authorizeCreate(ctx context.Context, scope, agentID string) error
 	return dec.AllowCreate(ctx, scope, agentID)
 }
 
-// authorizeWrite authorizes mutating an existing DB skill by id (patch/deprecate).
+// authorizeWrite authorizes mutating an existing DB skill by id (patch/remove).
 func (t *Tool) authorizeWrite(ctx context.Context, id string) error {
 	if t.writeAuthz == nil {
 		return errSkillWriteUnauthorized
@@ -389,7 +388,7 @@ func (t *Tool) viewContext(ctx context.Context) pkgplugins.SkillViewContext {
 func pkgskillsToolDefinition() tools.Definition {
 	return tools.Definition{
 		Name:        "skills",
-		Description: "Manage agent skills. Use 'search_installed' to discover installed visible skills by task query, then 'load' to read a selected skill by name. Use 'search' only to find remote ecosystem skills for installation. Use 'install' to add a skill (scope=user by default, or scope=agent), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new active skill, 'patch' to update fields, and 'deprecate' to mark as deprecated. Project skills come with the repo and are read-only — edit their files in git directly.",
+		Description: "Manage agent skills. Use 'search_installed' to discover installed visible skills by task query, then 'load' to read a selected skill by name. Use 'search' only to find remote ecosystem skills for installation. Use 'install' to add a skill (scope=user by default, or scope=agent), 'list' to see installed skills, 'remove' to delete one, 'create' to create a new active skill, 'patch' to update fields. Project skills come with the repo and are read-only — edit their files in git directly.",
 		InputSchema: skillsInputSchema,
 	}
 }
@@ -426,10 +425,8 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		return t.create(ctx, args)
 	case "patch":
 		return t.patch(ctx, args)
-	case "deprecate":
-		return t.deprecate(ctx, args)
 	default:
-		return "", fmt.Errorf("unknown action %q, expected load/search_installed/search/install/list/remove/create/patch/deprecate", action)
+		return "", fmt.Errorf("unknown action %q, expected load/search_installed/search/install/list/remove/create/patch", action)
 	}
 }
 
@@ -446,8 +443,8 @@ func (t *Tool) restrictedInputSchema() map[string]any {
 		"query":       {"search_installed", "search"},
 		"limit":       {"search_installed", "search"},
 		"source":      {"install"},
-		"scope":       {"install", "remove", "create", "patch", "deprecate"},
-		"name":        {"load", "remove", "create", "patch", "deprecate"},
+		"scope":       {"install", "remove", "create", "patch"},
+		"name":        {"load", "remove", "create", "patch"},
 		"description": {"create", "patch"},
 		"content":     {"create", "patch"},
 		"path":        {"load"},
@@ -556,7 +553,7 @@ func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *Resolv
 	}
 	touchCtx, cancel := context.WithTimeout(ctx, runtimeUsageTouchTimeout)
 	defer cancel()
-	if err := tracker.TouchReflectSkillRuntimeUse(touchCtx, resolved.ID, vc.UserID, vc.AgentID); err != nil {
+	if err := tracker.TouchReflectSkillRuntimeUse(touchCtx, resolved.ID, vc.UserID, vc.AgentID, resolved.ContentDigest); err != nil {
 		return fmt.Errorf("claim runtime use for skill %q: %w", resolved.Name, err)
 	}
 	return nil
@@ -735,7 +732,7 @@ func (t *Tool) create(ctx context.Context, args map[string]any) (string, error) 
 	}
 
 	files := map[string]string{pkgplugins.SkillMainFile: mainContent}
-	if _, err := t.store.Create(ctx, sk, files); err != nil {
+	if _, err := t.store.CreateManagedSkill(ctx, sk, files); err != nil {
 		return "", fmt.Errorf("create skill %q: %w", name, err)
 	}
 
@@ -760,41 +757,18 @@ func (t *Tool) patch(ctx context.Context, args map[string]any) (string, error) {
 	if v, ok := args["description"].(string); ok && v != "" {
 		p.Description = &v
 	}
-	if err := t.store.Update(ctx, s.ID, p); err != nil {
-		return "", fmt.Errorf("patch skill %q: %w", name, err)
-	}
-
+	files := map[string]string(nil)
 	if content, ok := args["content"].(string); ok && content != "" {
-		if err := t.store.UpsertFile(ctx, s.ID, pkgplugins.SkillMainFile, content); err != nil {
-			return "", fmt.Errorf("patch skill %q content: %w", name, err)
-		}
+		files = map[string]string{pkgplugins.SkillMainFile: content}
+	}
+	if _, err := t.store.UpdateManagedSkill(ctx, managedPluginSkillUpdate(*s, p, files, nil)); err != nil {
+		return "", fmt.Errorf("patch skill %q: %w", name, err)
 	}
 
 	return fmt.Sprintf("Skill %q updated.", name), nil
 }
 
-func (t *Tool) deprecate(ctx context.Context, args map[string]any) (string, error) {
-	name, _ := args["name"].(string)
-	if name == "" {
-		return "", fmt.Errorf("name is required for deprecate action")
-	}
-
-	s, err := t.resolveWritableSkill(ctx, name, args)
-	if err != nil {
-		return "", err
-	}
-	if err := t.authorizeWrite(ctx, s.ID); err != nil {
-		return "", err
-	}
-
-	status := SkillStatusDeprecated
-	if err := t.store.Update(ctx, s.ID, pkgplugins.SkillUpdatePatch{Status: &status}); err != nil {
-		return "", fmt.Errorf("deprecate skill %q: %w", name, err)
-	}
-	return fmt.Sprintf("Skill %q deprecated.", name), nil
-}
-
-// resolveWritableSkill finds the skill a write action (remove/patch/deprecate)
+// resolveWritableSkill finds the skill a write action (remove/patch)
 // targets. Missing scope follows the tool schema and defaults to user. Same-name
 // skills across scopes are expected, so write actions always resolve one exact
 // writable bucket instead of using runtime precedence.
@@ -856,11 +830,22 @@ func (t *Tool) remove(ctx context.Context, args map[string]any) (string, error) 
 		return "", err
 	}
 
-	if err := t.store.Delete(ctx, s.ID); err != nil {
+	if err := t.store.DeleteManagedSkill(ctx, managedPluginSkillDelete(*s)); err != nil {
 		return "", fmt.Errorf("delete skill %q: %w", name, err)
 	}
 
 	return fmt.Sprintf("Skill %q removed (scope=%s).", name, s.Scope), nil
+}
+
+func managedPluginSkillUpdate(sk pkgplugins.Skill, patch pkgplugins.SkillUpdatePatch, files map[string]string, deleteFiles []string) pkgplugins.ManagedSkillUpdate {
+	return pkgplugins.ManagedSkillUpdate{
+		ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope, ExpectedDigest: sk.ContentDigest,
+		Patch: patch, Files: files, DeleteFiles: deleteFiles,
+	}
+}
+
+func managedPluginSkillDelete(sk pkgplugins.Skill) pkgplugins.ManagedSkillDelete {
+	return pkgplugins.ManagedSkillDelete{ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope, ExpectedDigest: sk.ContentDigest}
 }
 
 func scopeArg(args map[string]any) (string, error) {

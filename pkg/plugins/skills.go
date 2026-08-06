@@ -38,9 +38,42 @@ type SkillViewContext struct {
 // SkillUpdatePatch carries optional updates for a skill's metadata fields.
 type SkillUpdatePatch struct {
 	Description            *string
-	Status                 *string
 	DisableModelInvocation *bool
 	Metadata               json.RawMessage // optional; set to overwrite
+}
+
+// ManagedSkillSnapshot is the committed representation of an atomic plugin
+// Skill mutation.
+type ManagedSkillSnapshot struct {
+	Skill Skill
+	Files []string
+}
+
+// ManagedSkillUpdate applies metadata and file changes to the exact revision
+// the plugin previously resolved or authorized.
+type ManagedSkillUpdate struct {
+	ID              string
+	UserID          string
+	AgentID         string
+	Scope           string
+	ExpectedDigest  string
+	Patch           SkillUpdatePatch
+	Files           map[string]string
+	DeleteFiles     []string
+	ConvertToManual bool
+}
+
+type ManagedSkillDelete struct {
+	ID             string
+	UserID         string
+	AgentID        string
+	Scope          string
+	ExpectedDigest string
+}
+
+type ManagedSkillFileDelete struct {
+	ManagedSkillDelete
+	Path string
 }
 
 // SkillStore is the plugin-facing persistence interface for skills, available
@@ -64,15 +97,11 @@ type SkillStore interface {
 	// ListFiles returns all file paths for a skill (no content).
 	ListFiles(ctx context.Context, skillID string) ([]string, error)
 
-	// Create inserts the skill row and all its files (must include "SKILL.md").
-	Create(ctx context.Context, s Skill, files map[string]string) (string, error)
+	// CreateManagedSkill inserts the skill row and all its files atomically.
+	CreateManagedSkill(ctx context.Context, s Skill, files map[string]string) (ManagedSkillSnapshot, error)
 
-	// Update patches metadata fields. Use UpsertFile to change file content.
-	Update(ctx context.Context, id string, patch SkillUpdatePatch) error
-
-	// UpsertFile creates or replaces a single file under a skill.
-	UpsertFile(ctx context.Context, skillID, path, content string) error
-
-	DeleteFile(ctx context.Context, skillID, path string) error
-	Delete(ctx context.Context, id string) error
+	// UpdateManagedSkill atomically applies metadata and all file changes.
+	UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (ManagedSkillSnapshot, error)
+	DeleteManagedSkill(ctx context.Context, in ManagedSkillDelete) error
+	DeleteManagedSkillFile(ctx context.Context, in ManagedSkillFileDelete) (ManagedSkillSnapshot, error)
 }

@@ -121,7 +121,7 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 	}
 	updated, err := store.UpdateManagedSkill(r.Context(), skills.ManagedSkillUpdate{
 		ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
-		Patch: patch, Files: req.Files, ConvertToManual: req.ConvertToManual,
+		ExpectedDigest: sk.ContentDigest, Patch: patch, Files: req.Files, ConvertToManual: req.ConvertToManual,
 	})
 	if errors.Is(err, skills.ErrSkillNotMutable) || errors.Is(err, skills.ErrSkillNotReflectOwned) {
 		writeError(w, http.StatusConflict, err.Error())
@@ -157,28 +157,14 @@ func mergeMetadataVersion(metadata json.RawMessage, version string) (json.RawMes
 }
 
 // doDeleteSkill is the shared body for DELETE .../skills/{id}.
-func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, sk *skills.Skill) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
 		return
 	}
-	sk, err := s.findSkillByID(r.Context(), id)
-	if err != nil {
-		if isNotFound(err) {
-			writeError(w, http.StatusNotFound, "skill not found")
-		} else {
-			s.writeInternalError(w, err)
-		}
-		return
-	}
 	if sk.Scope == "system" {
 		writeError(w, http.StatusForbidden, "system skills are read-only")
-		return
-	}
-	info := UserFromContext(r.Context())
-	if info == nil || info.UserID == "" {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	if sk.Scope != "user" && sk.Scope != "user_agent" && sk.Scope != "system_agent" {
@@ -187,7 +173,9 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusBadRequest, "skill scope is not lifecycle-managed")
 		return
 	}
-	if err := store.Delete(r.Context(), id, skills.ViewContext{UserID: info.UserID, AgentID: sk.AgentID}); err != nil {
+	if err := store.DeleteManagedSkill(r.Context(), skills.ManagedSkillDelete{
+		ID: sk.ID, Scope: sk.Scope, UserID: sk.UserID, AgentID: sk.AgentID, ExpectedDigest: sk.ContentDigest,
+	}); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}
@@ -195,7 +183,7 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 }
 
 // doDeleteSkillFile is the shared body of DELETE .../skills/{id}/file?path=...
-func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, path string) {
+func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, sk *skills.Skill, path string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
@@ -209,7 +197,9 @@ func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, p
 		writeError(w, http.StatusBadRequest, "cannot delete SKILL.md")
 		return
 	}
-	if err := store.DeleteFile(r.Context(), id, path); err != nil {
+	if _, err := store.DeleteManagedSkillFile(r.Context(), skills.ManagedSkillFileDelete{
+		ManagedSkillDelete: skills.ManagedSkillDelete{ID: sk.ID, Scope: sk.Scope, UserID: sk.UserID, AgentID: sk.AgentID, ExpectedDigest: sk.ContentDigest}, Path: path,
+	}); err != nil {
 		s.writeInternalError(w, err)
 		return
 	}

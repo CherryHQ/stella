@@ -115,7 +115,19 @@ func (agentSkillStore) ListFiles(context.Context, string) ([]string, error)     
 func (agentSkillStore) Create(context.Context, pkgplugins.Skill, map[string]string) (string, error) {
 	return "", nil
 }
-func (agentSkillStore) Update(context.Context, string, pkgplugins.SkillUpdatePatch) error { return nil }
-func (agentSkillStore) UpsertFile(context.Context, string, string, string) error          { return nil }
-func (agentSkillStore) DeleteFile(context.Context, string, string) error                  { return nil }
-func (agentSkillStore) Delete(context.Context, string) error                              { return nil }
+func (agentSkillStore) Get(context.Context, string) (*pkgplugins.Skill, error) { return nil, nil }
+func (agentSkillStore) CreateManagedSkill(context.Context, pkgplugins.Skill, map[string]string) (pkgplugins.ManagedSkillSnapshot, error) {
+	return pkgplugins.ManagedSkillSnapshot{}, nil
+}
+
+func (agentSkillStore) UpdateManagedSkill(context.Context, pkgplugins.ManagedSkillUpdate) (pkgplugins.ManagedSkillSnapshot, error) {
+	return pkgplugins.ManagedSkillSnapshot{}, nil
+}
+
+func (agentSkillStore) DeleteManagedSkill(context.Context, pkgplugins.ManagedSkillDelete) error {
+	return nil
+}
+
+func (agentSkillStore) DeleteManagedSkillFile(context.Context, pkgplugins.ManagedSkillFileDelete) (pkgplugins.ManagedSkillSnapshot, error) {
+	return pkgplugins.ManagedSkillSnapshot{}, nil
+}

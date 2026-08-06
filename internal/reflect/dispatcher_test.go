@@ -61,19 +61,23 @@ func (stubPluginSkillStore) LoadFile(context.Context, string, string) (string, e
 
 func (stubPluginSkillStore) ListFiles(context.Context, string) ([]string, error) { return nil, nil }
 
-func (stubPluginSkillStore) Create(context.Context, pkgplugins.Skill, map[string]string) (string, error) {
-	return "", nil
+func (stubPluginSkillStore) Get(context.Context, string) (*pkgplugins.Skill, error) { return nil, nil }
+
+func (stubPluginSkillStore) CreateManagedSkill(context.Context, pkgplugins.Skill, map[string]string) (pkgplugins.ManagedSkillSnapshot, error) {
+	return pkgplugins.ManagedSkillSnapshot{}, nil
 }
 
-func (stubPluginSkillStore) Update(context.Context, string, pkgplugins.SkillUpdatePatch) error {
+func (stubPluginSkillStore) UpdateManagedSkill(context.Context, pkgplugins.ManagedSkillUpdate) (pkgplugins.ManagedSkillSnapshot, error) {
+	return pkgplugins.ManagedSkillSnapshot{}, nil
+}
+
+func (stubPluginSkillStore) DeleteManagedSkill(context.Context, pkgplugins.ManagedSkillDelete) error {
 	return nil
 }
 
-func (stubPluginSkillStore) UpsertFile(context.Context, string, string, string) error { return nil }
-
-func (stubPluginSkillStore) DeleteFile(context.Context, string, string) error { return nil }
-
-func (stubPluginSkillStore) Delete(context.Context, string) error { return nil }
+func (stubPluginSkillStore) DeleteManagedSkillFile(context.Context, pkgplugins.ManagedSkillFileDelete) (pkgplugins.ManagedSkillSnapshot, error) {
+	return pkgplugins.ManagedSkillSnapshot{}, nil
+}
 
 type stubStructuredMemory struct {
 	stubMemory

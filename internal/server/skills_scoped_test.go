@@ -58,14 +58,14 @@ func createTestSkill(t *testing.T, env *testEnv, scope string, userID string, ag
 		Status:      "active",
 	}
 	ctx := context.Background()
-	id, err := env.pluginHost.SkillStore().Create(ctx, sk, map[string]string{
+	snapshot, err := env.pluginHost.SkillStore().CreateManagedSkill(ctx, sk, map[string]string{
 		skills.MainFile: "# " + name,
 		"reference.md":  "reference content",
 	})
 	if err != nil {
 		t.Fatalf("Create skill: %v", err)
 	}
-	return id
+	return snapshot.Skill.ID
 }
 
 func createSkillZip(t *testing.T, files map[string]string) []byte {

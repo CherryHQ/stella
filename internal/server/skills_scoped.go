@@ -147,19 +147,8 @@ func (s *Server) skillService() *skills.Service {
 	return skills.NewService(pluginhost.NewSkillStoreAdapter(s.skillStore()), config.StellaHome())
 }
 
-// findSkillByID linear-scans ListAll. The store has no Get(ctx, id) yet —
-// see handoff.md "Blockers/Gotchas". Fine at current volumes.
 func (s *Server) findSkillByID(ctx context.Context, id string) (*skills.Skill, error) {
-	rows, err := s.skillStore().ListAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for i := range rows {
-		if rows[i].ID == id {
-			return &rows[i], nil
-		}
-	}
-	return nil, pgx.ErrNoRows
+	return s.skillStore().Get(ctx, id)
 }
 
 // requireAgentAccess authorizes read/use access to an agent through the agent
@@ -892,7 +881,7 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		}
 	}
 
-	res, err := skills.UpgradeInStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), rs.ID, rs.Metadata)
+	res, err := skills.UpgradeInStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), rs.Skill)
 	if err != nil {
 		if errors.Is(err, skills.ErrNoUpgradeSource) {
 			writeError(w, http.StatusBadRequest, "skill was not installed from an upgradable source")
@@ -928,12 +917,13 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
-	if _, err := acc.AuthorizeManageByID(r.Context(), rs.ID, authz.ActionDelete); err != nil {
+	sk, err := acc.AuthorizeManageByID(r.Context(), rs.ID, authz.ActionDelete)
+	if err != nil {
 		code, msg := skillAccessError(err)
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkill(w, r, rs.ID)
+	s.doDeleteSkill(w, r, &sk)
 }
 
 func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
@@ -987,12 +977,13 @@ func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	if err := acc.AuthorizeManage(r.Context(), resolvedToDBSkill(rs), authz.ActionWrite); err != nil {
+	sk, err := acc.AuthorizeManageByID(r.Context(), rs.ID, authz.ActionWrite)
+	if err != nil {
 		code, msg := skillAccessError(err)
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkillFile(w, r, rs.ID, params.Path)
+	s.doDeleteSkillFile(w, r, &sk, params.Path)
 }
 
 func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string) {

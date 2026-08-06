@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -192,19 +193,19 @@ func (a *Access) AuthorizeAgent(ctx context.Context, agentID string) error {
 	return a.authorizeAgent(ctx, agentID)
 }
 
-// load resolves a skill row by id, opaque on a miss. The store has no Get-by-id,
-// so it scans ListAll — correct at current volumes, matching the transports.
+// load resolves exact durable facts by ID and keeps a miss opaque.
 func (a *Access) load(ctx context.Context, id string) (skills.Skill, error) {
-	rows, err := a.svc.store.ListAll(ctx)
+	sk, err := a.svc.store.Get(ctx, id)
 	if err != nil {
-		return skills.Skill{}, fmt.Errorf("%w: list skills: %w", ErrUnavailable, err)
-	}
-	for i := range rows {
-		if rows[i].ID == id {
-			return rows[i], nil
+		if errors.Is(err, fs.ErrNotExist) {
+			return skills.Skill{}, ErrNotFound
 		}
+		return skills.Skill{}, fmt.Errorf("%w: get skill: %w", ErrUnavailable, err)
 	}
-	return skills.Skill{}, ErrNotFound
+	if sk == nil {
+		return skills.Skill{}, ErrNotFound
+	}
+	return *sk, nil
 }
 
 // decide applies Skill's direct rule for one scope/owner and maps a denial to the

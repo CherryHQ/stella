@@ -186,7 +186,7 @@ func (t *Tool) install(ctx context.Context, args map[string]any) (string, error)
 		return "", err
 	}
 
-	if _, err := t.store.Create(ctx, sk, files); err != nil {
+	if _, err := t.store.CreateManagedSkill(ctx, sk, files); err != nil {
 		return "", fmt.Errorf("store skill %q: %w", name, err)
 	}
 

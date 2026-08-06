@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 func TestGitHubSource(t *testing.T) {
@@ -68,7 +70,7 @@ func TestUpgradeInStoreNoSource(t *testing.T) {
 	// A skill with no recorded source can't be upgraded; the guard returns before
 	// any store call, so a nil store is safe here.
 	for _, md := range []json.RawMessage{nil, json.RawMessage(`{"created-at":"x"}`)} {
-		if _, err := UpgradeInStore(context.Background(), nil, "id", md); !errors.Is(err, ErrNoUpgradeSource) {
+		if _, err := UpgradeInStore(context.Background(), nil, pkgplugins.Skill{ID: "id", Metadata: md}); !errors.Is(err, ErrNoUpgradeSource) {
 			t.Errorf("UpgradeInStore(%s) error = %v, want ErrNoUpgradeSource", md, err)
 		}
 	}

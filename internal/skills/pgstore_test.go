@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"reflect"
 	"testing"
 
@@ -164,6 +165,60 @@ func TestUpdateManagedSkillReturnsSortedSnapshotFiles(t *testing.T) {
 	want := []string{MainFile, "references/note.md", "scripts/run.sh"}
 	if !reflect.DeepEqual(snapshot.Files, want) {
 		t.Fatalf("snapshot files = %v, want %v", snapshot.Files, want)
+	}
+}
+
+func TestManagedDeletePortsRejectForgedOwnerFacts(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	created, err := store.CreateManagedSkill(ctx, Skill{Scope: "user", UserID: userID, Name: "typed-delete", Description: "d"}, map[string]string{MainFile: "body", "note": "note"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := ManagedSkillDelete{ID: created.Skill.ID, Scope: "user", UserID: "forged", ExpectedDigest: "ignored-by-pg"}
+	if err := store.DeleteManagedSkill(ctx, forged); !errors.Is(err, ErrSkillNotMutable) {
+		t.Fatalf("forged delete = %v, want ErrSkillNotMutable", err)
+	}
+	if _, err := store.DeleteManagedSkillFile(ctx, ManagedSkillFileDelete{ManagedSkillDelete: forged, Path: "note"}); !errors.Is(err, ErrSkillNotMutable) {
+		t.Fatalf("forged file delete = %v, want ErrSkillNotMutable", err)
+	}
+	if _, err := store.Get(ctx, created.Skill.ID); err != nil {
+		t.Fatalf("forged delete changed row: %v", err)
+	}
+	updated, err := store.DeleteManagedSkillFile(ctx, ManagedSkillFileDelete{ManagedSkillDelete: ManagedSkillDelete{ID: created.Skill.ID, Scope: "user", UserID: userID}, Path: "note"})
+	if err != nil || !reflect.DeepEqual(updated.Files, []string{MainFile}) {
+		t.Fatalf("typed file delete = %+v, %v", updated, err)
+	}
+	if err := store.DeleteManagedSkill(ctx, ManagedSkillDelete{ID: created.Skill.ID, Scope: "user", UserID: userID}); err != nil {
+		t.Fatalf("typed delete = %v", err)
+	}
+}
+
+func TestManagedUpdateRejectsAmbiguousFileChangesBeforeDBEffect(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	created, err := store.CreateManagedSkill(ctx, Skill{Scope: "user", UserID: userID, Name: "file-parity", Description: "d"}, map[string]string{MainFile: "body", "note": "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, update := range []ManagedSkillUpdate{
+		{ID: created.Skill.ID, Scope: "user", UserID: userID, DeleteFiles: []string{"note", "note"}},
+		{ID: created.Skill.ID, Scope: "user", UserID: userID, Files: map[string]string{"note": "new"}, DeleteFiles: []string{"note"}},
+	} {
+		if _, err := store.UpdateManagedSkill(ctx, update); !errors.Is(err, ErrInvalidManagedSkillFileMutation) {
+			t.Fatalf("ambiguous file change = %v", err)
+		}
+		content, err := store.LoadFile(ctx, created.Skill.ID, "note")
+		if err != nil || content != "old" {
+			t.Fatalf("ambiguous mutation changed DB file = %q, %v", content, err)
+		}
+	}
+}
+
+func TestPGStoreGetMapsMissToNotExist(t *testing.T) {
+	store, _, ctx := newTestStore(t)
+	if _, err := store.Get(ctx, "missing"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Get missing = %v, want fs.ErrNotExist", err)
 	}
 }
 

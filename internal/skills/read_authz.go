@@ -22,10 +22,10 @@ type SkillReadDecision interface {
 	AllowRead(ctx context.Context, id, scope, ownerUserID, agentID string) (bool, error)
 }
 
-// SkillWriteAuthorizer authorizes DB-backed skill writes (create/patch/deprecate)
+// SkillWriteAuthorizer authorizes DB-backed skill writes (create/patch/remove)
 // for one skills-tool invocation. Like SkillReadAuthorizer it is consumer-owned
 // (no skills→skillaccess cycle) and injected from the composition root; the
-// reflect reviewer tool uses it so its prompt-driven create/patch/deprecate operations are
+// reflect reviewer tool uses it so its prompt-driven create/patch operations are
 // each authorized before the store mutation. The agent-facing tool has no write
 // actions and so is never given one. When nil, DB writes fail closed.
 type SkillWriteAuthorizer interface {

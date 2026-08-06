@@ -186,7 +186,7 @@ func TestAgentSkillsLifecycleExactScopeFallsBackAfterIDCollision(t *testing.T) {
 	agentID := createAgentAsUser(t, env, sid, "skill-id-name-collision-agent")
 	ctx := context.Background()
 
-	if _, err := env.pluginHost.SkillStore().Create(ctx, skills.Skill{
+	if _, err := env.pluginHost.SkillStore().CreateManagedSkill(ctx, skills.Skill{
 		ID: "deadbeef", Scope: "system_agent", AgentID: agentID,
 		Name: "system-collision", Description: "ID occupies the hexadecimal reference",
 	}, map[string]string{skills.MainFile: "# System collision\n"}); err != nil {

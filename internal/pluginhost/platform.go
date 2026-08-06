@@ -79,8 +79,8 @@ func (a skillStoreAdapter) DeleteReflectOwnedUserAgentSkill(ctx context.Context,
 	return a.s.DeleteReflectOwnedUserAgentSkill(ctx, in)
 }
 
-func (a skillStoreAdapter) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
-	return a.s.TouchReflectSkillRuntimeUse(ctx, skillID, userID, agentID)
+func (a skillStoreAdapter) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string, contentDigest string) error {
+	return a.s.TouchReflectSkillRuntimeUse(ctx, skillID, userID, agentID, contentDigest)
 }
 
 func (a skillStoreAdapter) LoadFile(ctx context.Context, skillID, path string) (string, error) {
@@ -91,60 +91,33 @@ func (a skillStoreAdapter) ListFiles(ctx context.Context, skillID string) ([]str
 	return a.s.ListFiles(ctx, skillID)
 }
 
-func (a skillStoreAdapter) Create(ctx context.Context, s pkgplugins.Skill, files map[string]string) (string, error) {
-	return a.s.Create(ctx, skillFromPlugin(s), files)
+func (a skillStoreAdapter) CreateManagedSkill(ctx context.Context, s pkgplugins.Skill, files map[string]string) (pkgplugins.ManagedSkillSnapshot, error) {
+	snapshot, err := a.s.CreateManagedSkill(ctx, skillFromPlugin(s), files)
+	return skillSnapshotToPlugin(snapshot), err
 }
 
-func (a skillStoreAdapter) Update(ctx context.Context, id string, patch pkgplugins.SkillUpdatePatch) error {
-	vc, err := a.viewContextForSkill(ctx, id)
-	if err != nil {
-		return err
-	}
-	return a.s.Update(ctx, id, vc, skills.UpdatePatch{
-		Description:            patch.Description,
-		Status:                 patch.Status,
-		DisableModelInvocation: patch.DisableModelInvocation,
-		Metadata:               patch.Metadata,
+func (a skillStoreAdapter) UpdateManagedSkill(ctx context.Context, in pkgplugins.ManagedSkillUpdate) (pkgplugins.ManagedSkillSnapshot, error) {
+	snapshot, err := a.s.UpdateManagedSkill(ctx, skills.ManagedSkillUpdate{
+		ID: in.ID, UserID: in.UserID, AgentID: in.AgentID, Scope: in.Scope, ExpectedDigest: in.ExpectedDigest,
+		Patch: skills.UpdatePatch{Description: in.Patch.Description, DisableModelInvocation: in.Patch.DisableModelInvocation, Metadata: in.Patch.Metadata},
+		Files: in.Files, DeleteFiles: in.DeleteFiles, ConvertToManual: in.ConvertToManual,
 	})
+	return skillSnapshotToPlugin(snapshot), err
 }
 
-func (a skillStoreAdapter) UpsertFile(ctx context.Context, skillID, path, content string) error {
-	return a.s.UpsertFile(ctx, skillID, path, content)
+func (a skillStoreAdapter) DeleteManagedSkill(ctx context.Context, in pkgplugins.ManagedSkillDelete) error {
+	return a.s.DeleteManagedSkill(ctx, skills.ManagedSkillDelete{ID: in.ID, UserID: in.UserID, AgentID: in.AgentID, Scope: in.Scope, ExpectedDigest: in.ExpectedDigest})
 }
 
-func (a skillStoreAdapter) DeleteFile(ctx context.Context, skillID, path string) error {
-	return a.s.DeleteFile(ctx, skillID, path)
+func (a skillStoreAdapter) DeleteManagedSkillFile(ctx context.Context, in pkgplugins.ManagedSkillFileDelete) (pkgplugins.ManagedSkillSnapshot, error) {
+	snapshot, err := a.s.DeleteManagedSkillFile(ctx, skills.ManagedSkillFileDelete{
+		ManagedSkillDelete: skills.ManagedSkillDelete{ID: in.ID, UserID: in.UserID, AgentID: in.AgentID, Scope: in.Scope, ExpectedDigest: in.ExpectedDigest}, Path: in.Path,
+	})
+	return skillSnapshotToPlugin(snapshot), err
 }
 
-func (a skillStoreAdapter) Delete(ctx context.Context, id string) error {
-	vc, err := a.viewContextForSkill(ctx, id)
-	if err != nil {
-		return err
-	}
-	return a.s.Delete(ctx, id, vc)
-}
-
-func (a skillStoreAdapter) viewContextForSkill(ctx context.Context, id string) (skills.ViewContext, error) {
-	rows, err := a.s.ListAll(ctx)
-	if err != nil {
-		return skills.ViewContext{}, err
-	}
-	for _, row := range rows {
-		if row.ID != id {
-			continue
-		}
-		switch row.Scope {
-		case "system_agent":
-			return skills.ViewContext{AgentID: row.AgentID}, nil
-		case "user":
-			return skills.ViewContext{UserID: row.UserID}, nil
-		case "user_agent":
-			return skills.ViewContext{UserID: row.UserID, AgentID: row.AgentID}, nil
-		default:
-			return skills.ViewContext{}, nil
-		}
-	}
-	return skills.ViewContext{}, nil
+func skillSnapshotToPlugin(snapshot skills.SkillSnapshot) pkgplugins.ManagedSkillSnapshot {
+	return pkgplugins.ManagedSkillSnapshot{Skill: skillToPlugin(snapshot.Skill), Files: snapshot.Files}
 }
 
 // NewSkillStoreAdapter wraps an internal/skills.Store as a pkgplugins.SkillStore.

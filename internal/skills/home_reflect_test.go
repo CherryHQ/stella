@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +51,57 @@ func newHomeReflectFixture(t *testing.T) (*HomeReflectStore, *HomeSkillManager, 
 		t.Fatal(err)
 	}
 	return store, manager, usage, db, ctx, migration, userID, agentID, &now
+}
+
+func TestHomeAuthorityStoreDelegatesOneAuthorityAndRejectsSplit(t *testing.T) {
+	reflectStore, manager, _, _, ctx, _, userID, agentID, _ := newHomeReflectFixture(t)
+	store, err := NewHomeAuthorityStore(reflectStore.home, reflectStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.CreateManagedSkill(ctx, Skill{Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "composite", Description: "before"}, map[string]string{MainFile: catalogBody("composite")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Get(ctx, created.Skill.ID); err != nil || got.ContentDigest != created.Skill.ContentDigest {
+		t.Fatalf("Get = %+v, %v", got, err)
+	}
+	after, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{ID: created.Skill.ID, Scope: created.Skill.Scope, UserID: userID, AgentID: agentID, ExpectedDigest: created.Skill.ContentDigest, Files: map[string]string{"note": "one"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DeleteManagedSkillFile(ctx, ManagedSkillFileDelete{ManagedSkillDelete: ManagedSkillDelete{ID: after.Skill.ID, Scope: after.Skill.Scope, UserID: userID, AgentID: agentID, ExpectedDigest: after.Skill.ContentDigest}, Path: "note"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{UserID: userID, AgentID: agentID, Name: "reflect-composite", Description: "reflect", MainFileContent: string(managedSkillMarkdown("reflect-composite", "reflect", "body"))}); err != nil {
+		t.Fatal(err)
+	}
+	other, err := NewHomeStore(reflectStore.home.catalog, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewHomeAuthorityStore(other, reflectStore); err == nil {
+		t.Fatal("composite accepted split HomeStore pointer")
+	}
+	if _, err := NewHomeAuthorityStore(nil, reflectStore); err == nil {
+		t.Fatal("composite accepted nil HomeStore")
+	}
+}
+
+func TestHomeAuthorityStoreHasNoLegacySkillStateDependency(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate test source")
+	}
+	source, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "home_authority_store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"PGStore", "skill_changelog", "sqlc", "GetSkillForUpdate"} {
+		if strings.Contains(string(source), forbidden) {
+			t.Fatalf("Home authority composite references legacy state %q", forbidden)
+		}
+	}
 }
 
 func TestHomeReflectCreatePatchRetriesAndRetainsRevisionProvenance(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 
 // TouchReflectSkillRuntimeUse records a successful runtime load of a
 // Reflect-owned user_agent skill. The SQL query rechecks ownership and status.
-func (s *PGStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error {
+func (s *PGStore) TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string, _ string) error {
 	rows, err := s.q.TouchReflectSkillRuntimeUse(ctx, sqlc.TouchReflectSkillRuntimeUseParams{
 		SkillID: skillID,
 		UserID:  userID,

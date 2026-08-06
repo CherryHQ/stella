@@ -326,14 +326,21 @@ func TestHomeStoreCurrentStateShapesAndSafeMutations(t *testing.T) {
 	if _, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{ID: mutable.Skill.ID, Scope: "user", UserID: userID, ExpectedDigest: mutable.Skill.ContentDigest}); !errors.Is(err, ErrHomeSkillConflict) {
 		t.Fatalf("stale update = %v", err)
 	}
-	afterFileDelete, err := store.DeleteManagedSkillFile(ctx, updated.Skill.ID, "note", updated.Skill.ContentDigest)
+	forgedDelete := ManagedSkillDelete{ID: updated.Skill.ID, Scope: updated.Skill.Scope, UserID: "forged", AgentID: updated.Skill.AgentID, ExpectedDigest: updated.Skill.ContentDigest}
+	if err := store.DeleteManagedSkill(ctx, forgedDelete); !errors.Is(err, ErrSkillNotMutable) {
+		t.Fatalf("forged Home delete = %v", err)
+	}
+	if _, err := store.DeleteManagedSkillFile(ctx, ManagedSkillFileDelete{ManagedSkillDelete: forgedDelete, Path: "note"}); !errors.Is(err, ErrSkillNotMutable) {
+		t.Fatalf("forged Home file delete = %v", err)
+	}
+	afterFileDelete, err := store.DeleteManagedSkillFile(ctx, ManagedSkillFileDelete{ManagedSkillDelete: ManagedSkillDelete{ID: updated.Skill.ID, Scope: updated.Skill.Scope, UserID: updated.Skill.UserID, AgentID: updated.Skill.AgentID, ExpectedDigest: updated.Skill.ContentDigest}, Path: "note"})
 	if err != nil || len(afterFileDelete.Files) != 2 {
 		t.Fatalf("safe file delete = %+v, %v", afterFileDelete, err)
 	}
-	if err := store.DeleteManagedSkill(ctx, afterFileDelete.Skill.ID, updated.Skill.ContentDigest); !errors.Is(err, ErrHomeSkillConflict) {
+	if err := store.DeleteManagedSkill(ctx, ManagedSkillDelete{ID: afterFileDelete.Skill.ID, Scope: afterFileDelete.Skill.Scope, UserID: afterFileDelete.Skill.UserID, AgentID: afterFileDelete.Skill.AgentID, ExpectedDigest: updated.Skill.ContentDigest}); !errors.Is(err, ErrHomeSkillConflict) {
 		t.Fatalf("stale delete = %v", err)
 	}
-	if err := store.DeleteManagedSkill(ctx, afterFileDelete.Skill.ID, afterFileDelete.Skill.ContentDigest); err != nil {
+	if err := store.DeleteManagedSkill(ctx, ManagedSkillDelete{ID: afterFileDelete.Skill.ID, Scope: afterFileDelete.Skill.Scope, UserID: afterFileDelete.Skill.UserID, AgentID: afterFileDelete.Skill.AgentID, ExpectedDigest: afterFileDelete.Skill.ContentDigest}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Get(ctx, afterFileDelete.Skill.ID); !errors.Is(err, fs.ErrNotExist) {
@@ -372,6 +379,32 @@ func TestHomeStoreRejectsInvalidRequestsBeforeHomeCallback(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("invalid requests opened Home %d times", calls)
+	}
+	system, err := store.CreateManagedSkill(ctx, Skill{Scope: "system", Name: "system", Description: "system"}, map[string]string{MainFile: catalogBody("system")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls = 0
+	request := ManagedSkillDelete{ID: system.Skill.ID, Scope: system.Skill.Scope, ExpectedDigest: system.Skill.ContentDigest}
+	if _, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{ID: request.ID, Scope: request.Scope, ExpectedDigest: request.ExpectedDigest}); !errors.Is(err, ErrSkillNotMutable) {
+		t.Fatalf("system update = %v", err)
+	}
+	if err := store.DeleteManagedSkill(ctx, request); !errors.Is(err, ErrSkillNotMutable) {
+		t.Fatalf("system delete = %v", err)
+	}
+	if _, err := store.DeleteManagedSkillFile(ctx, ManagedSkillFileDelete{ManagedSkillDelete: request, Path: "note"}); !errors.Is(err, ErrSkillNotMutable) {
+		t.Fatalf("system file delete = %v", err)
+	}
+	for _, update := range []ManagedSkillUpdate{
+		{ID: id, Scope: "user", UserID: userID, ExpectedDigest: strings.Repeat("a", 64), DeleteFiles: []string{"note", "note"}},
+		{ID: id, Scope: "user", UserID: userID, ExpectedDigest: strings.Repeat("a", 64), Files: map[string]string{"note": "new"}, DeleteFiles: []string{"note"}},
+	} {
+		if _, err := store.UpdateManagedSkill(ctx, update); !errors.Is(err, ErrInvalidManagedSkillFileMutation) {
+			t.Fatalf("invalid shared file mutation = %v", err)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("invalid system/file requests opened Home %d times", calls)
 	}
 }
 
@@ -442,6 +475,24 @@ func TestHomeStoreAndInventoryStayWithinAuthorityBoundary(t *testing.T) {
 	for _, forbidden := range []string{"skill_file", "skill_changelog", "skill_usage", "FROM skill", "JOIN skill"} {
 		if strings.Contains(query, forbidden) {
 			t.Errorf("inventory query reads mutable Skill table %q", forbidden)
+		}
+	}
+	storeSource, err := os.ReadFile(filepath.Join(repo, "internal/skills/store.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"\n\tUpdate(ctx", "\n\tUpsertFile(ctx", "\n\tDeleteFile(ctx", "\n\tDelete(ctx", "ListSkillChangelogBySkill"} {
+		if strings.Contains(string(storeSource), forbidden) {
+			t.Errorf("shared Skill store retains shallow port %q", forbidden)
+		}
+	}
+	adapterSource, err := os.ReadFile(filepath.Join(repo, "internal/pluginhost/platform.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"viewContextForSkill", "a.s.ListAll"} {
+		if strings.Contains(string(adapterSource), forbidden) {
+			t.Errorf("plugin Skill adapter recovers mutation facts unsafely through %q", forbidden)
 		}
 	}
 }

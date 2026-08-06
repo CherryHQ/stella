@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"sort"
 	"strings"
 
@@ -29,6 +30,20 @@ func New(db *pgxpool.Pool) *PGStore {
 
 func viewSQLParams(vc ViewContext) (pgtype.Text, pgtype.Text) {
 	return pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""}, pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""}
+}
+
+// Get loads one exact Skill row. Authorization deliberately happens above this
+// persistence boundary against the returned durable facts.
+func (s *PGStore) Get(ctx context.Context, id string) (*Skill, error) {
+	row, err := s.q.GetSkillByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fs.ErrNotExist
+	}
+	if err != nil {
+		return nil, fmt.Errorf("skills: get %s: %w", id, err)
+	}
+	sk := mapRow(row)
+	return &sk, nil
 }
 
 // List returns all visible skills for the given context.

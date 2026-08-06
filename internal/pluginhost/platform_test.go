@@ -52,12 +52,12 @@ func TestSkillStoreAdapterTouchesReflectSkillUsage(t *testing.T) {
 		t.Fatalf("read initial skill usage: %v", err)
 	}
 	tracker, ok := NewSkillStoreAdapter(store).(interface {
-		TouchReflectSkillRuntimeUse(context.Context, string, string, string) error
+		TouchReflectSkillRuntimeUse(context.Context, string, string, string, string) error
 	})
 	if !ok {
 		t.Fatal("skill store adapter does not expose runtime usage touch")
 	}
-	if err := tracker.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID); err != nil {
+	if err := tracker.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID, ""); err != nil {
 		t.Fatalf("TouchReflectSkillRuntimeUse: %v", err)
 	}
 

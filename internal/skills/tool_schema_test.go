@@ -16,6 +16,19 @@ func TestSkillsSchemaDoesNotExposeKnowledgeType(t *testing.T) {
 	}
 }
 
+func TestSkillsSchemaDoesNotExposeDeprecate(t *testing.T) {
+	definition := NewTool(nil, "", "").Definition()
+	action := definition.InputSchema["properties"].(map[string]any)["action"].(map[string]any)
+	for _, raw := range action["enum"].([]any) {
+		if raw == "deprecate" {
+			t.Fatal("skills tool must not advertise unsupported deprecate")
+		}
+	}
+	if _, err := NewTool(nil, "", "").Execute(context.Background(), map[string]any{"action": "deprecate"}); err == nil {
+		t.Fatal("skills tool accepted unsupported deprecate")
+	}
+}
+
 func TestToolWithActionsOnlyRestrictsSchemaAndExecution(t *testing.T) {
 	tool := NewTool(nil, "", "").WithActionsOnly("search_installed", "load")
 	definition := tool.Definition()
