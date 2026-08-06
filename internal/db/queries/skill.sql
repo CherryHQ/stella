@@ -242,6 +242,16 @@ SELECT * FROM skill ORDER BY scope, created_at;
 SELECT * FROM skill
 ORDER BY scope, COALESCE(user_id::text, ''), COALESCE(agent_id, ''), name, id;
 
+-- CountSkillMigrationSource is the cheap fail-closed startup check. The
+-- migration service still scans the authoritative rows before completion.
+-- name: CountSkillMigrationSource :one
+SELECT COUNT(*)::bigint FROM skill;
+
+-- LockSkillMigrationSource serializes the fresh-empty authority decision with
+-- legacy Skill writers. It is held only for the marker transaction.
+-- name: LockSkillMigrationSource :exec
+LOCK TABLE skill IN SHARE MODE;
+
 -- name: ListSkillMigrationChangelog :many
 SELECT * FROM skill_changelog
 WHERE skill_id = $1

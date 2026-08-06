@@ -12,6 +12,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countSkillMigrationSource = `-- name: CountSkillMigrationSource :one
+SELECT COUNT(*)::bigint FROM skill
+`
+
+// CountSkillMigrationSource is the cheap fail-closed startup check. The
+// migration service still scans the authoritative rows before completion.
+func (q *Queries) CountSkillMigrationSource(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countSkillMigrationSource)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createSkill = `-- name: CreateSkill :one
 INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -975,6 +988,17 @@ func (q *Queries) ListSkillsVisible(ctx context.Context, arg ListSkillsVisiblePa
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockSkillMigrationSource = `-- name: LockSkillMigrationSource :exec
+LOCK TABLE skill IN SHARE MODE
+`
+
+// LockSkillMigrationSource serializes the fresh-empty authority decision with
+// legacy Skill writers. It is held only for the marker transaction.
+func (q *Queries) LockSkillMigrationSource(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockSkillMigrationSource)
+	return err
 }
 
 const resolveSkill = `-- name: ResolveSkill :one

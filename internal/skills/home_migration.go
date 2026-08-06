@@ -117,27 +117,8 @@ func (s *skillMigrationService) MigrateSkillHomeAuthority(ctx context.Context, o
 	// Skills are published only after the mutable-asset migration has reached a
 	// durable safe gate. This applies to dry-runs too: a plan based on an unsafe
 	// predecessor is not useful operator evidence.
-	assetMarker, err := s.q.GetStorageMigration(ctx, home.MutableAssetObjectAuthorityMigration)
-	if err != nil {
-		return SkillMigrationSummary{}, fmt.Errorf("skills: load mutable asset migration prerequisite: %w", err)
-	}
-	switch assetMarker.State {
-	case "not_required":
-		if assetMarker.ObjectAuthorityConfigured {
-			return SkillMigrationSummary{}, errors.New("skills: malformed mutable asset migration prerequisite")
-		}
-		if err := s.homes.ValidateMutableAssetMigrationGate(ctx, false); err != nil {
-			return SkillMigrationSummary{}, fmt.Errorf("skills: validate mutable asset migration prerequisite: %w", err)
-		}
-	case "completed":
-		if !assetMarker.ObjectAuthorityConfigured {
-			return SkillMigrationSummary{}, errors.New("skills: malformed mutable asset migration prerequisite")
-		}
-		if err := s.homes.ValidateMutableAssetMigrationGate(ctx, true); err != nil {
-			return SkillMigrationSummary{}, fmt.Errorf("skills: validate mutable asset migration prerequisite: %w", err)
-		}
-	default:
-		return SkillMigrationSummary{}, fmt.Errorf("skills: mutable asset migration prerequisite is not safe (%s)", assetMarker.State)
+	if err := s.validateMutableAssetGate(ctx); err != nil {
+		return SkillMigrationSummary{}, err
 	}
 	marker, err := s.marker(ctx, options.DryRun)
 	if err != nil {
@@ -241,6 +222,34 @@ func (s *skillMigrationService) MigrateSkillHomeAuthority(ctx context.Context, o
 	}
 	summary.Status, summary.MarkerState = "completed", "completed"
 	return summary, nil
+}
+
+// validateMutableAssetGate is shared by the migration and startup authority
+// gate so they accept exactly the same safe predecessor states.
+func (s *skillMigrationService) validateMutableAssetGate(ctx context.Context) error {
+	assetMarker, err := s.q.GetStorageMigration(ctx, home.MutableAssetObjectAuthorityMigration)
+	if err != nil {
+		return fmt.Errorf("skills: load mutable asset migration prerequisite: %w", err)
+	}
+	switch assetMarker.State {
+	case "not_required":
+		if assetMarker.ObjectAuthorityConfigured {
+			return errors.New("skills: malformed mutable asset migration prerequisite")
+		}
+		if err := s.homes.ValidateMutableAssetMigrationGate(ctx, false); err != nil {
+			return fmt.Errorf("skills: validate mutable asset migration prerequisite: %w", err)
+		}
+	case "completed":
+		if !assetMarker.ObjectAuthorityConfigured {
+			return errors.New("skills: malformed mutable asset migration prerequisite")
+		}
+		if err := s.homes.ValidateMutableAssetMigrationGate(ctx, true); err != nil {
+			return fmt.Errorf("skills: validate mutable asset migration prerequisite: %w", err)
+		}
+	default:
+		return fmt.Errorf("skills: mutable asset migration prerequisite is not safe (%s)", assetMarker.State)
+	}
+	return nil
 }
 
 type skillMigrationRecord struct {

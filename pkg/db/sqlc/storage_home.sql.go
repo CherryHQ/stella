@@ -608,6 +608,35 @@ func (q *Queries) GetSystemSkillStorageHome(ctx context.Context) (StorageHome, e
 	return i, err
 }
 
+const initializeEmptySkillAuthorityStorageMigration = `-- name: InitializeEmptySkillAuthorityStorageMigration :one
+INSERT INTO storage_migration (name, state, object_authority_configured, metadata, completed_at, updated_at)
+VALUES ($1, 'completed', false, $2, now(), now())
+ON CONFLICT (name) DO NOTHING
+RETURNING name, state, object_authority_configured, metadata, completed_at, created_at, updated_at
+`
+
+type InitializeEmptySkillAuthorityStorageMigrationParams struct {
+	Name     string          `json:"name"`
+	Metadata json.RawMessage `json:"metadata"`
+}
+
+// InitializeEmptySkillAuthorityStorageMigration commits the only fresh-start
+// marker shape without ever entering the publishing migration state machine.
+func (q *Queries) InitializeEmptySkillAuthorityStorageMigration(ctx context.Context, arg InitializeEmptySkillAuthorityStorageMigrationParams) (StorageMigration, error) {
+	row := q.db.QueryRow(ctx, initializeEmptySkillAuthorityStorageMigration, arg.Name, arg.Metadata)
+	var i StorageMigration
+	err := row.Scan(
+		&i.Name,
+		&i.State,
+		&i.ObjectAuthorityConfigured,
+		&i.Metadata,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listStorageHomeByAgentForUpdate = `-- name: ListStorageHomeByAgentForUpdate :many
 SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purged_at, purged_by, created_at, updated_at FROM storage_home
 WHERE agent_id = $1 AND home_kind IN ('agent', 'system_agent_skill')

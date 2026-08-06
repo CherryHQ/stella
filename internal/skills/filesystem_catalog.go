@@ -34,7 +34,7 @@ type FilesystemCatalogRoot struct {
 	scope   string
 	userID  string
 	agentID string
-	homeID  string
+	homeID  string // telemetry-only opaque runtime identity; never a logical Skill ID.
 }
 
 func SystemFilesystemCatalogRoot(root string, attachment sandbox.HomeAttachment) (FilesystemCatalogRoot, error) {
@@ -174,8 +174,12 @@ func snapshotFilesystemSkill(ctx context.Context, filesystem sandbox.Filesystem,
 	if err != nil {
 		return FilesystemSkillDescriptor{}, false, fmt.Errorf("skills: encode %s metadata: %w", name, err)
 	}
+	logicalID, err := encodeFilesystemSkillID(scope.scope, scope.userID, scope.agentID, name)
+	if err != nil {
+		return FilesystemSkillDescriptor{}, false, err
+	}
 	descriptor := FilesystemSkillDescriptor{
-		Skill:        pkgplugins.Skill{ID: scope.scope + ":" + scope.homeID + ":" + name, Scope: scope.scope, UserID: scope.userID, AgentID: scope.agentID, Name: name, Description: frontmatter.Description, Status: envelope.Status, DisableModelInvocation: envelope.DisableModelInvocation, Metadata: pluginMetadata, CreatedAt: envelope.CreatedAt, UpdatedAt: envelope.UpdatedAt, Version: envelope.LegacyLifecycleVersion},
+		Skill:        pkgplugins.Skill{ID: logicalID, Scope: scope.scope, UserID: scope.userID, AgentID: scope.agentID, Name: name, Description: frontmatter.Description, Status: envelope.Status, DisableModelInvocation: envelope.DisableModelInvocation, Metadata: pluginMetadata, CreatedAt: envelope.CreatedAt, UpdatedAt: envelope.UpdatedAt, Version: envelope.LegacyLifecycleVersion},
 		RevisionPath: directory, Digest: target.Digest, Managed: managed,
 	}
 	return descriptor, envelope.Status == SkillStatusDeprecated, nil
@@ -188,7 +192,21 @@ func newFilesystemCatalogRoot(root string, attachment sandbox.HomeAttachment, sc
 	if attachment.HomeID == "" || attachment.StoreID == "" || attachment.Locator == "" {
 		return FilesystemCatalogRoot{}, errors.New("skills: filesystem catalog attachment is incomplete")
 	}
+	// The attachment remains an input for source compatibility and to retain the
+	// trusted call-site boundary. Catalog identity must not depend on the mutable
+	// Home record or its locator, however.
 	catalogRoot := FilesystemCatalogRoot{root: root, scope: scope, userID: userID, agentID: agentID, homeID: attachment.HomeID}
+	if err := validateFilesystemCatalogScope(catalogRoot); err != nil {
+		return FilesystemCatalogRoot{}, err
+	}
+	return catalogRoot, nil
+}
+
+// filesystemCatalogRoot is the attachment-free constructor used by the Home
+// catalog. Its caller has already selected a typed Home root; no attachment or
+// host coordinate is available at that boundary.
+func filesystemCatalogRoot(scope, userID, agentID string) (FilesystemCatalogRoot, error) {
+	catalogRoot := FilesystemCatalogRoot{root: sandbox.PathWorkspace, scope: scope, userID: userID, agentID: agentID}
 	if err := validateFilesystemCatalogScope(catalogRoot); err != nil {
 		return FilesystemCatalogRoot{}, err
 	}

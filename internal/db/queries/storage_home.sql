@@ -155,6 +155,14 @@ VALUES ($1, 'pending', $2)
 ON CONFLICT (name) DO NOTHING
 RETURNING *;
 
+-- InitializeEmptySkillAuthorityStorageMigration commits the only fresh-start
+-- marker shape without ever entering the publishing migration state machine.
+-- name: InitializeEmptySkillAuthorityStorageMigration :one
+INSERT INTO storage_migration (name, state, object_authority_configured, metadata, completed_at, updated_at)
+VALUES ($1, 'completed', false, $2, now(), now())
+ON CONFLICT (name) DO NOTHING
+RETURNING *;
+
 -- name: CompleteSkillAuthorityStorageMigration :one
 UPDATE storage_migration
 SET state = 'completed', metadata = $2, completed_at = now(), updated_at = now()
