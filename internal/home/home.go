@@ -152,6 +152,9 @@ type Registry struct {
 	stores       map[string]Store
 	defaultStore string
 	ownerLocks   [ownerLockStripeCount]chan struct{}
+	// beforeOwnerLockAcquire is a test-only synchronization seam. Production
+	// leaves it nil; tests install it before starting the contending goroutine.
+	beforeOwnerLockAcquire func()
 }
 
 // Phase 1 supports one replica. These bounded process-local stripes serialize
@@ -550,6 +553,9 @@ func (r *Registry) lockOwnerKeys(ctx context.Context, keys []string) (func(), er
 		}
 	}
 	for _, stripe := range unique {
+		if r.beforeOwnerLockAcquire != nil {
+			r.beforeOwnerLockAcquire()
+		}
 		select {
 		case <-ctx.Done():
 			release()

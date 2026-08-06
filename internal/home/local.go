@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/fsops"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -136,8 +137,22 @@ func (s *LocalStore) Attachment(home Record, readOnly bool) sandbox.HomeAttachme
 	return sandbox.HomeAttachment{HomeID: home.ID, StoreID: home.StoreID, Locator: home.Locator, ReadOnly: readOnly}
 }
 
-// pathFor is the sole Phase-1 local compatibility projection. It validates the
-// persisted relative locator before resolving it beneath this configured root.
+// openSharedSkillFilesystem creates the short-lived trusted server-side view
+// for one validated shared Skill root. Its only caller is Registry, which owns
+// the record lifecycle and closes the filesystem before returning to callers.
+func (s *LocalStore) openSharedSkillFilesystem(home Record) (sandbox.Filesystem, error) {
+	if home.Key.Kind != SystemSkillRoot && home.Key.Kind != SystemAgentSkillRoot {
+		return nil, errors.New("home: shared Skill filesystem requires a shared Skill root")
+	}
+	directory, err := s.pathFor(home)
+	if err != nil {
+		return nil, err
+	}
+	return fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: directory}})
+}
+
+// pathFor validates the persisted relative locator before resolving this
+// internal Store coordinate beneath the configured root.
 func (s *LocalStore) pathFor(home Record) (string, error) {
 	if home.StoreID != s.id {
 		return "", errors.New("home belongs to another Store")
