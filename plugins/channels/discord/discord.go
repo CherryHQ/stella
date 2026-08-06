@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 
@@ -108,6 +109,13 @@ func (b *Bot) activate(ctx context.Context) error {
 	}
 	if len(b.allowedGuilds) == 0 {
 		logger().Info("discord guild messages disabled; configure allowed_guild_ids to enable trusted servers")
+	} else {
+		guildIDs := make([]string, 0, len(b.allowedGuilds))
+		for guildID := range b.allowedGuilds {
+			guildIDs = append(guildIDs, guildID)
+		}
+		sort.Strings(guildIDs)
+		logger().Info("discord guild allowlist configured", "guild_ids", guildIDs)
 	}
 	// Publishing the context is the ingress activation point. Keep it last so
 	// event handlers cannot accept traffic before all routing state is ready.
