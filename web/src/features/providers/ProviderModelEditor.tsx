@@ -271,7 +271,7 @@ export function ProviderModelEditor({
                       onClick={() => onRemoveCustomModel(m.id)}
                       variant="ghost"
                       size="xs"
-                      className="text-destructive"
+                      className="text-destructive-foreground"
                     >
                       {t("common.delete")}
                     </Button>

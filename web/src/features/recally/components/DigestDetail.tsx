@@ -84,7 +84,7 @@ function ArticleGroup({
               onClick={() => onSelectArticle(a.id)}
               className="group flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors duration-120 hover:bg-muted cursor-pointer"
             >
-              {a.starred && <Star className="mt-0.5 size-3 shrink-0 fill-chart-4 text-chart-4" />}
+              {a.starred && <Star className="mt-0.5 size-3 shrink-0 fill-warning text-warning" />}
               <span className="line-clamp-2 text-sm leading-snug text-foreground">{a.title}</span>
             </button>
           </li>

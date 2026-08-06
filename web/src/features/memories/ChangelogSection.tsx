@@ -89,8 +89,8 @@ function DiffView({ before, after }: { before: string; after: string }) {
           key={i}
           className={cn(
             "flex gap-2 px-3 py-0.5",
-            line.type === "removed" && "bg-destructive/10 text-destructive",
-            line.type === "added" && "bg-chart-3/10 text-chart-3",
+            line.type === "removed" && "bg-destructive/10 text-destructive-foreground",
+            line.type === "added" && "bg-success/10 text-success-foreground",
             line.type === "context" && "text-muted-foreground",
           )}
         >
@@ -166,7 +166,7 @@ export function ChangelogSection({ agentId }: Props) {
           <Spinner />
         </div>
       ) : query.isError ? (
-        <p className="text-sm text-destructive">{t("memories.changelog.error")}</p>
+        <p className="text-sm text-destructive-foreground">{t("memories.changelog.error")}</p>
       ) : entries.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">{t("memories.changelog.empty")}</p>
       ) : (

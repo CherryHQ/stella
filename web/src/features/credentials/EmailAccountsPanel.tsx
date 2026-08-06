@@ -352,7 +352,9 @@ export function EmailAccountsPanel({
                   autoComplete="off"
                   nativeInput
                 />
-                {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
+                {errors.name && (
+                  <p className="text-xs text-destructive-foreground">{errors.name}</p>
+                )}
               </div>
             )}
 
@@ -374,7 +376,9 @@ export function EmailAccountsPanel({
                   autoComplete="off"
                   nativeInput
                 />
-                {errors.imapHost && <p className="text-xs text-destructive">{errors.imapHost}</p>}
+                {errors.imapHost && (
+                  <p className="text-xs text-destructive-foreground">{errors.imapHost}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -390,7 +394,9 @@ export function EmailAccountsPanel({
                     autoComplete="off"
                     nativeInput
                   />
-                  {errors.imapPort && <p className="text-xs text-destructive">{errors.imapPort}</p>}
+                  {errors.imapPort && (
+                    <p className="text-xs text-destructive-foreground">{errors.imapPort}</p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -428,7 +434,9 @@ export function EmailAccountsPanel({
                   autoComplete="off"
                   nativeInput
                 />
-                {errors.smtpHost && <p className="text-xs text-destructive">{errors.smtpHost}</p>}
+                {errors.smtpHost && (
+                  <p className="text-xs text-destructive-foreground">{errors.smtpHost}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -444,7 +452,9 @@ export function EmailAccountsPanel({
                     autoComplete="off"
                     nativeInput
                   />
-                  {errors.smtpPort && <p className="text-xs text-destructive">{errors.smtpPort}</p>}
+                  {errors.smtpPort && (
+                    <p className="text-xs text-destructive-foreground">{errors.smtpPort}</p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -483,7 +493,9 @@ export function EmailAccountsPanel({
                     autoComplete="off"
                     nativeInput
                   />
-                  {errors.username && <p className="text-xs text-destructive">{errors.username}</p>}
+                  {errors.username && (
+                    <p className="text-xs text-destructive-foreground">{errors.username}</p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -498,7 +510,9 @@ export function EmailAccountsPanel({
                     autoComplete="off"
                     nativeInput
                   />
-                  {errors.from && <p className="text-xs text-destructive">{errors.from}</p>}
+                  {errors.from && (
+                    <p className="text-xs text-destructive-foreground">{errors.from}</p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5 md:col-span-2">
@@ -513,7 +527,9 @@ export function EmailAccountsPanel({
                     autoComplete="new-password"
                     nativeInput
                   />
-                  {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
+                  {errors.password && (
+                    <p className="text-xs text-destructive-foreground">{errors.password}</p>
+                  )}
                 </div>
               </div>
             </div>

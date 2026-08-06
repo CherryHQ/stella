@@ -193,7 +193,7 @@ export function RecallyArticleList({
               </div>
             )}
             {articlesQuery.isError && (
-              <div className="flex items-center justify-center h-32 text-xs font-mono text-destructive">
+              <div className="flex items-center justify-center h-32 text-xs font-mono text-destructive-foreground">
                 {t("common.error")}
               </div>
             )}

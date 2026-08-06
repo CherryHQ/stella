@@ -38,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { jobNextRunAt } from "@/features/goals/types";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   ProgressBar,
   blockReasonLabel,
@@ -85,7 +85,7 @@ export function OverviewPage() {
   const projectFilter = (useSearch({ strict: false }) as { project_id?: string }).project_id ?? "";
   const navigate = useNavigate();
   const { setHeaderActions } = useAppShell();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
 
   const { data: allGoals = [] } = useQuery(goalsOptions(agentId));
   const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
@@ -371,7 +371,6 @@ export function OverviewPage() {
           </section>
         )}
       </div>
-      <ToastContainer messages={toasts} />
     </div>
   );
 }
@@ -381,14 +380,14 @@ function StatCard({ num, label, tone }: { num: number; label: string; tone?: "at
     <div
       className={cn(
         "rounded-xl border border-border px-4 py-3.5",
-        tone === "attn" && "border-chart-4/30 bg-chart-4/[0.07]",
+        tone === "attn" && "border-warning/30 bg-warning/[0.07]",
       )}
     >
       <div
         className={cn(
           "text-[26px] font-semibold tracking-tight",
-          tone === "attn" && "text-chart-4",
-          tone === "live" && num > 0 && "text-chart-3",
+          tone === "attn" && "text-warning-foreground",
+          tone === "live" && num > 0 && "text-success",
         )}
       >
         {num}
@@ -523,7 +522,7 @@ function NeedsYouCard({
       onKeyDown={(e) => e.target === e.currentTarget && e.key === "Enter" && onOpen()}
       className={cn(
         "cursor-pointer rounded-xl border border-border border-l-[3px] px-4 py-3.5 hover:bg-muted/40",
-        isReview ? "border-l-primary" : "border-l-chart-4",
+        isReview ? "border-l-primary" : "border-l-warning",
       )}
     >
       <div className="text-xs font-medium text-muted-foreground">{hookLabel(t, d)}</div>
@@ -730,10 +729,10 @@ function RunSparkline({ runs }: { runs: JobRun[] }) {
           className={cn(
             "size-2 rounded-sm",
             run.status === "running"
-              ? "animate-pulse bg-chart-4"
+              ? "animate-pulse bg-warning"
               : run.status === "failed" || run.status === "error"
                 ? "bg-destructive"
-                : "bg-chart-3/85",
+                : "bg-success/85",
           )}
         />
       ))}
@@ -776,7 +775,7 @@ function GoalCard({ goal: d, onOpen }: { goal: ComponentsGoal; onOpen: () => voi
           <span>{t("goals.requiredOf", { accepted: r.accepted, total: r.total })}</span>
         )}
         {r.blocked > 0 && (
-          <span className="text-chart-4">{t("goals.rollupBlocked", { count: r.blocked })}</span>
+          <span className="text-warning">{t("goals.rollupBlocked", { count: r.blocked })}</span>
         )}
         {r.active > 0 && <span>{t("goals.rollupActive", { count: r.active })}</span>}
         <span>{t("hub.updatedAt", { time: formatTime(d.updated_at) })}</span>

@@ -34,22 +34,26 @@ The schema is shadcn's, end to end. External sources (designer design-system pac
 
 The designer skill's design-system packages (`~/.claude/skills/designer/references/design-systems/<name>/`) share one uniform schema. Translate as follows:
 
-| designer token                                   | shadcn token(s)                                           |
-| ------------------------------------------------ | --------------------------------------------------------- |
-| `--bg`                                           | `--background`                                            |
-| `--surface`                                      | `--card`, `--secondary`, `--sidebar`                      |
-| elevated tier (see package notes)                | `--popover`, `--muted`                                    |
-| `--fg`                                           | `--foreground` and all `*-foreground` surface pairs       |
-| `--muted` (a text color!)                        | `--muted-foreground`                                      |
-| `--border`                                       | `--border`, `--input`, `--sidebar-border`                 |
-| `--accent` (brand color)                         | `--primary`, `--ring`, `--sidebar-primary`, `--chart-1`   |
-| `--accent-on`                                    | `--primary-foreground`                                    |
-| `--accent-hover`                                 | `--accent-foreground` (dark mode)                         |
-| accent tint (derive)                             | `--accent` (shadcn subtle background), `--sidebar-accent` |
-| `--danger` / `--warn` / `--success`              | `--destructive` / `--chart-4` / `--chart-3`               |
-| `--font-body` / `--font-display` / `--font-mono` | `--font-sans` / `--font-serif` / `--font-mono`            |
-| `--radius-md` (or `-lg`)                         | `--radius` (base; Tailwind scale derives sm–4xl from it)  |
-| `--elev-*`                                       | `--shadow-*` (keep `none` for flat themes)                |
+| designer token                      | shadcn token(s)                                           |
+| ----------------------------------- | --------------------------------------------------------- |
+| `--bg`                              | `--background`                                            |
+| `--surface`                         | `--card`, `--secondary`, `--sidebar`                      |
+| elevated tier (see package notes)   | `--popover`, `--muted`                                    |
+| `--fg`                              | `--foreground` and all `*-foreground` surface pairs       |
+| `--muted` (a text color!)           | `--muted-foreground`                                      |
+| `--border`                          | `--border`, `--input`, `--sidebar-border`                 |
+| `--accent` (brand color)            | `--primary`, `--ring`, `--sidebar-primary`, `--chart-1`   |
+| `--accent-on`                       | `--primary-foreground`                                    |
+| `--accent-hover`                    | `--accent-foreground` (dark mode)                         |
+| accent tint (derive)                | `--accent` (shadcn subtle background), `--sidebar-accent` |
+| `--danger` / `--warn` / `--success` | `--destructive` / `--chart-4` / `--chart-3`               |
+| `--font-body` / `--font-mono`       | `--font-sans` / `--font-mono` (there is no serif token)   |
+| `--radius-md` (or `-lg`)            | `--radius` (base; Tailwind scale derives sm–4xl from it)  |
+| `--elev-*`                          | `--shadow-*` (keep `none` for flat themes)                |
+
+A theme that ships a display face adds a real `--font-display` token and a
+utility for it; do not revive `--font-serif` pointing at the body face, which is
+what the previous theme did.
 
 Beware the same-name traps: designer `--accent` is the strong brand color (→ `--primary`), while shadcn `--accent` is a subtle tint background; designer `--muted` is a text color (→ `--muted-foreground`). Don't adopt the package's `--text-*` / `--space-*` scales — CossUI sizing assumes Tailwind's defaults.
 

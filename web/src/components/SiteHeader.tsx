@@ -44,7 +44,7 @@ export function SiteHeader() {
     <header className="border-b border-border h-14 flex items-center px-6 bg-background shrink-0 relative z-30">
       <Link to="/" className="flex items-center gap-2 shrink-0">
         <img src="/stella-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
-        <span className="font-serif italic text-xl tracking-tight select-none">stella</span>
+        <span className="font-semibold text-xl tracking-tight select-none">stella</span>
       </Link>
 
       {/* Desktop nav — app items first, then utility */}
@@ -119,7 +119,7 @@ export function SiteHeader() {
                   height={24}
                   className="rounded-sm"
                 />
-                <span className="font-serif italic text-xl tracking-tight select-none">stella</span>
+                <span className="font-semibold text-xl tracking-tight select-none">stella</span>
               </Link>
             </SheetHeader>
             <nav className="flex flex-col px-4 pb-4">
@@ -365,7 +365,10 @@ export function UserMenu() {
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={logout}>
+          <DropdownMenuItem
+            className="text-destructive-foreground focus:text-destructive-foreground"
+            onClick={logout}
+          >
             <LogOut className="size-4" />
             {t("header.logout")}
           </DropdownMenuItem>

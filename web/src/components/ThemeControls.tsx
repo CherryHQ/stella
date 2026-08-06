@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
+import { SegmentedField } from "@/components/SegmentedField";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
+import type { MessageKey } from "@/lib/i18n/messages";
 import {
   applyTheme,
   getStoredTheme,
@@ -22,6 +24,12 @@ export const APPEARANCE_ICONS: Record<ThemeAppearance, LucideIcon> = {
 };
 
 const APPEARANCES: ThemeAppearance[] = ["system", "light", "dark"];
+
+const APPEARANCE_LABELS: Record<ThemeAppearance, MessageKey> = {
+  system: "header.system",
+  light: "header.light",
+  dark: "header.dark",
+};
 
 /**
  * Theme settings live in localStorage, not in React state, so every control
@@ -60,51 +68,52 @@ export function ThemeAppearanceControl({ layout = "stacked" }: { layout?: "stack
     return () => media.removeEventListener("change", onChange);
   }, [theme]);
 
-  const inline = layout === "inline";
+  function select(appearance: ThemeAppearance) {
+    update({ ...getStoredTheme(), appearance });
+  }
+
+  // Inline is the menu row: one label, one segmented control, icon-only because
+  // three worded segments do not fit a 16rem dropdown in every locale.
+  if (layout === "inline") {
+    return (
+      <SegmentedField
+        label={t("header.appearance")}
+        value={theme.appearance}
+        onChange={select}
+        options={APPEARANCES.map((appearance) => ({
+          value: appearance,
+          label: t(APPEARANCE_LABELS[appearance]),
+          icon: APPEARANCE_ICONS[appearance],
+        }))}
+      />
+    );
+  }
 
   return (
-    // Inline is one row — label left, a compact segmented control right — so it
-    // reads as a menu row instead of a full-width slab of empty pill.
-    <div
-      className={cn(inline ? "flex items-center justify-between gap-3" : "flex flex-col gap-2.5")}
-    >
+    <div className="flex flex-col gap-2.5">
       <span className="px-0.5 text-xs font-medium text-muted-foreground">
         {t("header.appearance")}
       </span>
-      <div
-        className={cn(
-          "grid grid-cols-3 bg-muted",
-          inline ? "shrink-0 gap-0.5 rounded-lg p-0.5" : "gap-1.5 rounded-xl p-1.5",
-        )}
-      >
+      <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1.5">
         {APPEARANCES.map((appearance) => {
           const ItemIcon = APPEARANCE_ICONS[appearance];
           const active = theme.appearance === appearance;
-          const label =
-            appearance === "system"
-              ? t("header.system")
-              : appearance === "light"
-                ? t("header.light")
-                : t("header.dark");
+          const label = t(APPEARANCE_LABELS[appearance]);
           return (
             <button
               key={appearance}
               type="button"
-              onClick={() => update({ ...getStoredTheme(), appearance })}
-              // Inline lives inside a 16rem dropdown where three worded
-              // segments cannot fit in every locale, so it is icon-only.
-              aria-label={label}
-              title={inline ? label : undefined}
+              aria-pressed={active}
+              onClick={() => select(appearance)}
               className={cn(
-                "flex items-center justify-center whitespace-nowrap text-xs transition-colors",
-                inline ? "rounded-md px-2.5 py-1" : "flex-col gap-1.5 rounded-lg py-2.5",
+                "flex flex-col items-center justify-center gap-1.5 whitespace-nowrap rounded-lg py-2.5 text-xs transition-colors",
                 active
                   ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
               <ItemIcon className="size-4 shrink-0" />
-              {!inline && label}
+              {label}
             </button>
           );
         })}

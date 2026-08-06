@@ -338,13 +338,13 @@ export function ScheduleSheet({
             <Switch checked={form.enabled} onCheckedChange={(v) => up({ enabled: v })} />
             <span className="text-sm">{t("scheduler.enabled")}</span>
           </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-xs text-destructive-foreground">{error}</p>}
           {job && (
             <div className="border-t border-border pt-4">
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-destructive hover:text-destructive"
+                className="text-destructive-foreground hover:text-destructive-foreground"
                 onClick={() => setConfirmDelete(true)}
               >
                 {t("hub.deleteSchedule")}

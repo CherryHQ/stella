@@ -471,7 +471,7 @@ function ArtifactShareDialog({
               </div>
             </div>
           )}
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-sm text-destructive-foreground">{error}</p>}
         </DialogPanel>
         <DialogFooter>
           {share ? (
@@ -527,7 +527,7 @@ function CtxMenuItem({
   const className = cn(
     "flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-mono text-xs",
     "hover:bg-accent",
-    destructive && "text-destructive",
+    destructive && "text-destructive-foreground",
   );
   const icon = (
     <Icon className={cn("size-3.5 shrink-0", destructive ? "" : "text-muted-foreground")} />

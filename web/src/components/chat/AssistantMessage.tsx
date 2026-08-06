@@ -20,7 +20,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { getAgentColor } from "@/lib/agent-colors";
+import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { RenderableReferenceList } from "./references";
@@ -51,7 +51,7 @@ export function AssistantMessage({
   sameRoleAsPrev,
   agentSessionId,
 }: AssistantMessageProps) {
-  const color = getAgentColor(agentId);
+  const avatarStyle = getAgentAvatarStyle(agentId);
   const grouped = groupBlocks(blocks);
   const copyText = blocks
     .filter((b) => b.type === "text")
@@ -64,14 +64,14 @@ export function AssistantMessage({
         <div className="mb-1.5 flex items-center gap-2">
           <span
             className="grid size-5 place-items-center rounded-full text-xs font-semibold text-primary-foreground shrink-0"
-            style={{ background: color }}
+            style={avatarStyle}
           >
             {agentName[0]?.toUpperCase()}
           </span>
           <span className="text-xs font-semibold text-foreground">{agentName}</span>
           {streaming && (
             <span className="inline-flex items-center gap-1">
-              <span className="size-1.5 animate-pulse rounded-full bg-chart-2" />
+              <span className="size-1.5 animate-pulse rounded-full bg-info" />
             </span>
           )}
         </div>
@@ -418,7 +418,9 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
             <pre
               className={cn(
                 "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
-                block.result.is_error ? "text-destructive/80" : "text-muted-foreground/80",
+                block.result.is_error
+                  ? "text-destructive-foreground/80"
+                  : "text-muted-foreground/80",
               )}
             >
               {details!.outputText}
@@ -431,7 +433,9 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
                   key={`text-${index}`}
                   className={cn(
                     "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
-                    block.result?.is_error ? "text-destructive/80" : "text-muted-foreground/80",
+                    block.result?.is_error
+                      ? "text-destructive-foreground/80"
+                      : "text-muted-foreground/80",
                   )}
                 >
                   {output.text}
@@ -457,7 +461,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
             <div
               className={cn(
                 "mt-2 text-right text-muted-foreground/55",
-                block.result.is_error && "text-destructive/70",
+                block.result.is_error && "text-destructive-foreground/70",
               )}
             >
               {details!.exitOk ? "✓ Success" : "✕ Failed"}

@@ -7,6 +7,7 @@ import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupsQueryOptions } from "@/lib/queries/groups";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { agentLevelChats, allChatSessionsQueryOptions } from "@/lib/queries/sessions";
+import { sessionDisplayTitle } from "@/lib/session-title";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -102,11 +103,15 @@ export function GlobalSearchDialog({
     // Agent-level only: a project thread's home is its project, and the
     // threads page is where the two lists come back together.
     const chatResults: Result[] = agentLevelChats(chats)
-      .filter((session) => !needle || match(session.title || "", needle))
+      .filter(
+        (session) =>
+          !needle ||
+          match(`${session.title ?? ""} ${sessionDisplayTitle(session.title, "")}`, needle),
+      )
       .map((session) => ({
         key: `session:${session.id}`,
         icon: MessageSquare,
-        label: session.title || t("sessions.untitled"),
+        label: sessionDisplayTitle(session.title, t("sessions.untitled")),
         to: "/agents/$agentId/sessions/$sessionId",
         params: { agentId, sessionId: session.id },
       }));

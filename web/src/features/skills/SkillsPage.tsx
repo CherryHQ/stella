@@ -37,7 +37,7 @@ import {
 import { useI18n } from "@/lib/i18n";
 import { SCOPE_DESC_KEY, SCOPE_LABEL_KEY, isSkillReadOnly } from "@/lib/skill-scope";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { ScopedSkillScope } from "@/lib/queries/skills";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
@@ -64,14 +64,19 @@ function toScope(owner: ScopeOwner, range: ScopeRange): ScopedSkillScope {
   return owner === "global" ? "system" : "user";
 }
 
-// One hue per scope, drawn from the chart palette tokens. Reused by the list
-// group rails, the row icon tint, and the precedence ladder so a scope reads as
-// the same color everywhere.
-const SCOPE_COLOR: Record<ScopedSkillScope, { dot: string; text: string; soft: string }> = {
-  user: { dot: "bg-chart-2", text: "text-chart-2", soft: "bg-chart-2/12" },
-  user_agent: { dot: "bg-chart-1", text: "text-chart-1", soft: "bg-chart-1/12" },
-  system: { dot: "bg-chart-4", text: "text-chart-4", soft: "bg-chart-4/12" },
-  system_agent: { dot: "bg-chart-5", text: "text-chart-5", soft: "bg-chart-5/12" },
+// One hue per scope, drawn from the chart palette tokens: a scope is a category,
+// which is what `chart-*` means. Reused by the list group rails, the row icon and
+// the precedence ladder so a scope reads as the same color everywhere.
+//
+// There is deliberately no `text` entry. These tokens are tuned to be plotted as
+// areas, and as words they run 2.4-3.8:1 — `chart-4` as a scope label measured
+// 2.35:1. The dot carries the hue; the label is read, so it stays on
+// `--foreground` and the active row is marked by weight and its own tint.
+const SCOPE_COLOR: Record<ScopedSkillScope, { dot: string; soft: string }> = {
+  user: { dot: "bg-chart-2", soft: "bg-chart-2/12" },
+  user_agent: { dot: "bg-chart-1", soft: "bg-chart-1/12" },
+  system: { dot: "bg-chart-4", soft: "bg-chart-4/12" },
+  system_agent: { dot: "bg-chart-5", soft: "bg-chart-5/12" },
 };
 
 // Render order for the grouped skill list.
@@ -113,7 +118,7 @@ export function SkillsPage() {
   // its target, so there is no need for a dialog instance per row.
   const [pendingDelete, setPendingDelete] = useState<Skill | null>(null);
 
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
 
   const openAddSheet = useCallback(() => {
     setAddMode("install");
@@ -344,11 +349,7 @@ export function SkillsPage() {
                   }`}
                 >
                   <span className={`size-2.5 shrink-0 rounded-full ${SCOPE_COLOR[scope].dot}`} />
-                  <span
-                    className={
-                      active ? `font-semibold ${SCOPE_COLOR[scope].text}` : "text-foreground"
-                    }
-                  >
+                  <span className={active ? "font-semibold text-foreground" : "text-foreground"}>
                     {t(SCOPE_LABEL_KEY[scope])}
                   </span>
                   {active && (
@@ -535,11 +536,7 @@ export function SkillsPage() {
                       return (
                         <SettingsRow
                           key={`${skill.scope}:${skill.agent_id ?? ""}:${skill.id}`}
-                          icon={
-                            <span className={color.text}>
-                              <Puzzle className="size-4" />
-                            </span>
-                          }
+                          icon={<Puzzle className="size-4" />}
                           title={<span className="font-mono">{skill.name}</span>}
                           chip={
                             skill.agent_id ? (
@@ -653,8 +650,6 @@ export function SkillsPage() {
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-
-      <ToastContainer messages={toasts} />
     </>
   );
 }

@@ -14,7 +14,7 @@ Stella reads as a **friendly, calm, software-native assistant**: clean neutral c
 - **Tinted neutrals, not pure gray.** Every neutral — background, surface, border, muted text — carries a faint teal undertone (hue ~200, low chroma). This is what makes the theme read as one piece: the grays look related to the teal accent, not pasted next to it. Never use pure hueless gray (`oklch(L 0 0)`) for surfaces or borders.
 - **Light canvas is the native medium.** A calm tinted near-white canvas with **pure white** raised surfaces; the white card lifts off the tinted canvas. Dark mode is a soft teal-tinted near-black, never pure `#000`. No gradient hero, no animated blob, no decorative illustration in the app chrome.
 - **Layered, not flat.** Backgrounds stack canvas → surface → elevated with a visible lightness step at each level (≥1.5% L), and overlays carry a soft shadow so menus, popovers, and dialogs lift off the page. A flat white-on-white void leaves the accent with nothing to anchor to.
-- **Single chromatic accent.** Teal (`--primary`) carries primary actions, the focus ring, the active tab, and selection. Status colors map to `chart-*`. Everything else stays neutral. Color leads the eye to the one thing that matters per view.
+- **Single chromatic accent.** Teal (`--primary`) carries primary actions, the focus ring, the active tab, and selection. Status colors have their own tokens (see below). Everything else stays neutral. Color leads the eye to the one thing that matters per view.
 - **Calm motion.** Transitions exist to soften state changes, not to perform. Short, ease-out, no bounce or overshoot.
 - **Dense & functional.** Short paragraphs, lists for options, 55–70 char body line length. Wall-of-text answers are a bug. No hero sections or marketing layouts in the app shell.
 
@@ -33,9 +33,9 @@ Token values live in `src/tokens.css` (`:root` light / `.dark` dark). These tabl
 | Divider, input border   | `border-border`               | `oklch(0.9 0.012 200)`   |
 | Body copy, headings     | `text-foreground`             | `oklch(0.2 0.022 220)`   |
 | Meta, captions, labels  | `text-muted-foreground`       | `oklch(0.48 0.025 205)`  |
-| Primary CTA, focus ring | `bg-primary` / `text-primary` | `oklch(0.55 0.14 172)`   |
-| Accent tint background  | `bg-accent`                   | `oklch(0.93 0.05 178)`   |
-| Accent tint text        | `text-accent-foreground`      | `oklch(0.43 0.11 178)`   |
+| Primary CTA, focus ring | `bg-primary` / `text-primary` | `oklch(0.5 0.12 190)`    |
+| Accent tint background  | `bg-accent`                   | `oklch(0.93 0.045 190)`  |
+| Accent tint text        | `text-accent-foreground`      | `oklch(0.4 0.09 190)`    |
 | Recessed sidebar panel  | `bg-sidebar`                  | `oklch(0.965 0.01 198)`  |
 | Error state             | `bg-destructive`              | `oklch(0.58 0.2 25)`     |
 
@@ -48,18 +48,131 @@ Token values live in `src/tokens.css` (`:root` light / `.dark` dark). These tabl
 | Elevated        | `bg-popover`      | `oklch(0.24 0.018 215)` |
 | Border          | `border-border`   | `oklch(0.28 0.016 210)` |
 | Body copy       | `text-foreground` | `oklch(0.95 0.006 200)` |
-| Accent (teal)   | `bg-primary`      | `oklch(0.7 0.14 174)`   |
+| Accent (teal)   | `bg-primary`      | `oklch(0.72 0.13 190)`  |
 
 ### Status colors
 
-Map semantic status to the `chart-*` tokens — never invent one-off color aliases.
+Status has its own token pairs. Use them for anything a user reads as a verdict —
+badges, alerts, toasts, inline warnings.
 
-| Status         | Token         | oklch (light)          |
-| -------------- | ------------- | ---------------------- |
-| Info / running | `chart-2`     | `oklch(0.6 0.13 230)`  |
-| Success        | `chart-3`     | `oklch(0.68 0.15 150)` |
-| Warning        | `chart-4`     | `oklch(0.74 0.15 78)`  |
-| Error          | `destructive` | `oklch(0.58 0.2 25)`   |
+| Status  | Token         | oklch (light)          | Foreground pair          |
+| ------- | ------------- | ---------------------- | ------------------------ |
+| Info    | `info`        | `oklch(0.5 0.14 230)`  | `info-foreground`        |
+| Success | `success`     | `oklch(0.51 0.13 150)` | `success-foreground`     |
+| Warning | `warning`     | `oklch(0.53 0.12 78)`  | `warning-foreground`     |
+| Error   | `destructive` | `oklch(0.58 0.2 25)`   | `destructive-foreground` |
+
+Each carries the hue of its `chart-*` sibling (info→`chart-2`, success→`chart-3`,
+warning→`chart-4`) but sits ~0.2L darker in light mode and lighter in dark. The
+chart tokens are tuned to be _plotted_; these are tuned to be _read_, because
+CossUI uses one token three ways at once — a 4–16% tint, a 20–36% border, and a
+full-strength icon or line of copy.
+
+_Read_ is a measured claim, and it is measured on two surfaces because a status
+color is almost never used on a bare one:
+
+- The base token as text on `muted`, the darkest neutral in the theme, so every
+  lighter surface inherits the margin.
+- The `-foreground` half on its own tint — `bg-X/10` (CossUI's badges use `/8`)
+  composited over `background`, `card`, or `muted`.
+
+The second is the binding one, and reasoning replaced it once already: a 10%
+wash of a status color over `muted` lands _below_ `muted`, so passing on the bare
+token says nothing about the pill. `destructive-foreground` shipped a green suite
+at 4.08:1 on exactly that surface. `theme.test.ts` recomputes both from
+`tokens.css`, including the alpha composite.
+
+Reaching for a chart token instead is the failure this guards, and it fails
+twice. In light mode `chart-4` as 12px copy measures 2.35:1 against the 4.5:1
+text floor, and as a status dot it measures 2.19:1 against the 3:1 _non-text_
+floor (WCAG 1.4.11) — a dot is a shape, and the shape has to be visible too.
+Nothing on screen says either number.
+
+#### Never write a word in a chart token
+
+`chart-*` is for _fills_. Lightness carries category there, not legibility, and
+in light mode the family reads 2.4–3.8:1 as text.
+
+| Use                                             | Allowed                        |
+| ----------------------------------------------- | ------------------------------ |
+| `bg-chart-*` — avatars, scope rails, plot areas | yes, this is what they are for |
+| `text-` / `fill-` / `stroke-chart-*`            | no                             |
+| `color: var(--chart-*)` in CSS                  | no                             |
+
+`color-tokens.test.ts` fails the build on all three of the second kind, in TSX
+and in plain CSS.
+
+A category still gets its hue — on the **dot**, next to a label on
+`--foreground`. That is what Credentials and Skills do for vault and skill
+scopes: the rail is `bg-chart-*`, the word is not. A small `bg-chart-*` marker
+sitting beside an always-visible text label carrying the same information is
+decoration under 1.4.11; a colored word has no such out, because the word _is_
+the content.
+
+Amber has one more job than its name suggests: `--warning` is the only
+text-weight amber in the theme, so Recally's starred marker uses it as a color,
+not as a verdict.
+
+#### `destructive` is a fill; `destructive-foreground` is the word
+
+This is the one status color that is also a solid background, because CossUI
+hardcodes `text-white` on `bg-destructive` (button, badge). That pins it from
+both sides, and the two sides disagree in dark mode: text on a dark canvas wants
+a light value, a white label wants a dark one. No single value serves both.
+
+So they are split by job, and dark inverts the usual direction:
+
+| Token                    | Job                            | Light                 | Dark                 |
+| ------------------------ | ------------------------------ | --------------------- | -------------------- |
+| `destructive`            | fills, borders, dots, bars     | `oklch(0.58 0.2 25)`  | `oklch(0.55 0.2 25)` |
+| `destructive-foreground` | every red word, every red icon | `oklch(0.52 0.21 25)` | `oklch(0.7 0.18 25)` |
+
+**Write `text-destructive-foreground`, never `text-destructive`.** The shorter
+name is the wrong one and reads as correct, which is why 61 call sites had it;
+`color-tokens.test.ts` now fails the build on it. Dark mode is where it showed:
+5.66:1 versus 3.2:1.
+
+Three uses survive in vendored CossUI (`alert.tsx`, `toast.tsx`), all of them
+icons, which owe 3:1 and clear it. They are listed by name and count in
+`color-tokens.test.ts` rather than skipped, so the next `coss add` cannot quietly
+add a fourth.
+
+Dark `destructive` was `oklch(0.64 0.2 25)` — tuned as though it were text, so
+the white label on the app's most dangerous button measured **3.70:1**. At 0.55
+the label reads at 5.38:1 and the fill still separates from the canvas at 3.49:1
+(WCAG 1.4.11). `theme.test.ts` holds both gates.
+
+**Never pair a solid `bg-*` status fill with its own `-foreground`.** Both halves
+share a hue and a lightness, so the text vanishes into the fill — `bg-destructive
+text-destructive-foreground` shipped exactly that, at ~1.1:1 contrast. Status
+surfaces are a tint over the page, or an opaque `bg-popover` with a colored icon.
+
+`chart-1..5` stay for plotted and categorical data — the goal canvas, agent
+identity, scope grouping — where the value is a _category_, not a verdict. The
+goals feature used to color run and lifecycle states with them; that is migrated,
+and `GoalCanvas.css` is what legitimately remains, because it draws an actual
+graph.
+
+### Why the teal sits where it does
+
+One hue (190) at two lightnesses, and the light value is pinned by two gates at
+once, not one:
+
+| Gate                                             | Requirement | Light `oklch(0.5 0.12 190)` | Dark `oklch(0.72 0.13 190)` |
+| ------------------------------------------------ | ----------- | --------------------------- | --------------------------- |
+| Button label on the fill (WCAG 1.4.3)            | 4.5:1       | 5.2:1                       | 8.0:1                       |
+| The fill itself against the canvas (WCAG 1.4.11) | 3:1         | 5.0:1                       | 8.1:1                       |
+| Teal as text on the canvas (1.4.3)               | 4.5:1       | 5.0:1                       | 7.6:1                       |
+
+The second gate is the one that gets forgotten. A more vivid teal clears the
+label test easily and then dissolves into a near-white page — at `oklch(0.72 0.13
+180)` the light button separates from the canvas by only 2.18:1. The previous
+`oklch(0.55 0.14 172)` failed the other direction: 4.2:1 for a white label and
+4.0:1 for teal-as-text, both under AA.
+
+Move `--primary` and every token that shadows it together — `--ring`, `--chart-1`,
+`--sidebar-primary`, `--sidebar-ring`, plus the `--accent` tint pair. `theme.ts`
+mirrors all of them for hue rotation, and `theme.test.ts` fails the build on drift.
 
 ### Accent usage rules
 
@@ -71,11 +184,26 @@ Map semantic status to the `chart-*` tokens — never invent one-off color alias
 
 ### Families
 
-| Role                    | Family         | Tailwind              |
-| ----------------------- | -------------- | --------------------- |
-| UI / body / display     | Inter          | `font-sans` (default) |
-| Code / citations        | JetBrains Mono | `font-mono`           |
-| Brand wordmark "stella" | Inter          | `font-serif italic`   |
+| Role                    | Family         | Tailwind                |
+| ----------------------- | -------------- | ----------------------- |
+| UI / body / display     | Inter          | `font-sans` (default)   |
+| Machine-emitted fact    | JetBrains Mono | `font-mono`             |
+| Brand wordmark "stella" | Inter 600      | `font-semibold` + tight |
+
+Two families, and there is no third. `--font-serif` used to exist and resolved to
+Inter, so `font-serif` was a no-op that read in review as an intent nobody could
+see; it is gone. If this theme ever wants a display face, add a real one.
+
+**`font-mono` marks a machine-emitted fact, not a mood.** Timestamps, durations,
+counts, token usage, exit codes, IDs, paths, model names, scopes, cron
+expressions, hashes — anything the system produced verbatim, where the reader
+scans and compares rather than reads. Human-authored prose stays in Inter, and a
+translated string is human-authored by definition: a column header, a status
+label, `(optional)`, or a sentence explaining what went wrong is never mono.
+
+The tell is that both often sit in the same row — `Runs 128` puts the label in
+Inter and the number in mono. Reaching for mono to make a UI feel technical is
+what got this codebase to 42% of its rendered type in a monospace face.
 
 Inter is loaded from Google Fonts (`@import` in `src/tokens.css`). Do not substitute with Helvetica or Arial — weight rendering differs.
 
@@ -95,7 +223,7 @@ Inter is loaded from Google Fonts (`@import` in `src/tokens.css`). Do not substi
 - Use weight 600 for display and headings; reserve 700 for tight, deliberate weight contrast on small display moments. Avoid 700 across long headings.
 - Line length: 55–70 characters for body copy. Wider than 80 chars breaks comprehension in dense reading layouts.
 - `text-sm` is the baseline for UI labels, table cells, sidebar items — not `text-base`.
-- Brand wordmark: `font-serif italic text-xl tracking-tight select-none`.
+- Brand wordmark: `font-semibold text-xl tracking-tight select-none`. Upright, not italic — a slanted grotesque reads as a stand-in for a logotype the product does not have.
 
 ## Spacing & density
 

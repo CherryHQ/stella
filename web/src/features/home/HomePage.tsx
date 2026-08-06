@@ -6,7 +6,9 @@ import { createSession } from "@/lib/api-client/sdk.gen";
 import type { Agent, Session } from "@/lib/types";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { agentLevelChats, allChatSessionsQueryOptions } from "@/lib/queries/sessions";
-import { getAgentColor } from "@/lib/agent-colors";
+import { SessionOriginBadge } from "@/components/SessionOriginBadge";
+import { getAgentAvatarStyle } from "@/lib/agent-colors";
+import { sessionDisplayTitle } from "@/lib/session-title";
 import { readLastAgentId, writeLastAgentId } from "@/lib/last-agent";
 import { relativeTime } from "@/lib/relative-time";
 import { useI18n } from "@/lib/i18n";
@@ -27,7 +29,7 @@ function AgentAvatar({ agent, index }: { agent: Agent; index: number }) {
   return (
     <span
       className="grid size-5 shrink-0 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
-      style={{ background: getAgentColor(agent.id, index) }}
+      style={getAgentAvatarStyle(agent.id, index)}
     >
       {agent.name[0]?.toUpperCase()}
     </span>
@@ -163,8 +165,9 @@ export function HomePage() {
               >
                 <AgentAvatar agent={agent} index={index} />
                 <span className="min-w-0 flex-1 truncate text-sm">
-                  {session.title || t("sessions.untitled")}
+                  {sessionDisplayTitle(session.title, t("sessions.untitled"))}
                 </span>
+                <SessionOriginBadge session={session} />
                 <time className="shrink-0 font-mono text-xs text-muted-foreground">
                   {relativeTime(session.last_active)}
                 </time>

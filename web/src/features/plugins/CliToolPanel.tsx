@@ -449,7 +449,7 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
                   onClick={() => setEnvRows((prev) => prev.filter((r) => r.id !== row.id))}
                   variant="ghost"
                   size="xs"
-                  className="text-destructive hover:text-destructive"
+                  className="text-destructive-foreground hover:text-destructive-foreground"
                 >
                   {t("common.remove")}
                 </Button>

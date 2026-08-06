@@ -29,7 +29,7 @@ import {
   updateSession as sdkUpdateSession,
 } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
-import { getAgentColor } from "@/lib/agent-colors";
+import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 import { agentsQueryOptions } from "@/lib/queries/agents";
@@ -44,6 +44,7 @@ import {
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
+import { sessionDisplayTitle } from "@/lib/session-title";
 import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -354,7 +355,7 @@ function CreateProjectDialog({
             <p className="text-xs text-muted-foreground">{t("sessions.sidebar.noActiveSession")}</p>
           )}
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-xs text-destructive-foreground">{error}</p>}
         </DialogPanel>
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onClose}>
@@ -552,7 +553,7 @@ function AgentNode({
         icon={
           <span
             className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
-            style={{ background: getAgentColor(target.id, target.colorIndex) }}
+            style={getAgentAvatarStyle(target.id, target.colorIndex)}
           >
             {target.label[0]?.toUpperCase()}
           </span>
@@ -807,7 +808,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                     key={session.id}
                     active={activeSessionId === session.id}
                     icon={<MessageSquare className="size-4" />}
-                    label={session.title || t("sessions.untitled")}
+                    label={sessionDisplayTitle(session.title, t("sessions.untitled"))}
                     meta={
                       <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
                     }
@@ -846,7 +847,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
           }
         >
           {recentThreads.slice(0, visibleThreads).map((session: Session) => {
-            const label = session.title || t("sessions.untitled");
+            const label = sessionDisplayTitle(session.title, t("sessions.untitled"));
             return (
               <SidebarItem
                 key={session.id}

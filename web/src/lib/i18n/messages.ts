@@ -120,6 +120,14 @@ const en = {
   "profile.files": "Files",
   "profile.openFiles": "Open files",
 
+  // Route-level failure and not-found states
+  "route.error.title": "Something went wrong",
+  "route.error.desc": "This page could not be loaded. The server may be unreachable.",
+  "route.notFound.title": "Page not found",
+  "route.notFound.desc": "This URL does not point anywhere in Stella.",
+  "route.notFound.home": "Go to Agents",
+  "route.loadFailed": "Could not load this list.",
+
   // Common actions
   "common.cancel": "Cancel",
   "common.save": "Save",
@@ -1926,6 +1934,7 @@ const en = {
   // Header (additions)
   "header.openNavigation": "Open navigation",
   "header.appearance": "Appearance",
+  "header.language": "Language",
   "header.github": "GitHub",
   "header.system": "System",
   "header.light": "Light",
@@ -1965,6 +1974,18 @@ const en = {
 
   // Session detail (additions)
   "sessions.untitled": "Untitled session",
+  "sessions.origin.main": "Main thread",
+  "sessions.origin.scheduler": "Scheduled",
+  "sessions.origin.goal": "Goal",
+  "sessions.origin.delegate": "Delegated",
+  "sessions.origin.webhook": "Webhook",
+  "sessions.origin.telegram": "Telegram",
+  "sessions.origin.feishu": "Feishu",
+  "sessions.origin.qq": "QQ",
+  "sessions.origin.wechat": "WeChat",
+  "sessions.origin.slack": "Slack",
+  "sessions.origin.discord": "Discord",
+  "sessions.origin.email": "Email",
   "sessions.messagesChannel": "{{count}} messages · {{channel}}",
   "sessions.chat": "chat",
   "sessions.createNewHint": "or create a new one with + New",
@@ -2273,6 +2294,14 @@ const zh: Record<MessageKey, string> = {
   "profile.configurationDesc": "该智能体的模型、提示词、工具与沙箱。",
   "profile.files": "文件",
   "profile.openFiles": "打开文件",
+
+  // Route-level failure and not-found states
+  "route.error.title": "出错了",
+  "route.error.desc": "此页面无法加载，服务端可能不可达。",
+  "route.notFound.title": "页面不存在",
+  "route.notFound.desc": "该地址在 Stella 中没有对应页面。",
+  "route.notFound.home": "前往智能体",
+  "route.loadFailed": "无法加载该列表。",
 
   // Common actions
   "common.cancel": "取消",
@@ -4036,6 +4065,7 @@ const zh: Record<MessageKey, string> = {
   // Header (additions)
   "header.openNavigation": "打开导航",
   "header.appearance": "外观",
+  "header.language": "语言",
   "header.github": "GitHub",
   "header.system": "跟随系统",
   "header.light": "浅色",
@@ -4075,6 +4105,18 @@ const zh: Record<MessageKey, string> = {
 
   // Session detail (additions)
   "sessions.untitled": "未命名会话",
+  "sessions.origin.main": "主线程",
+  "sessions.origin.scheduler": "定时",
+  "sessions.origin.goal": "目标",
+  "sessions.origin.delegate": "委派",
+  "sessions.origin.webhook": "Webhook",
+  "sessions.origin.telegram": "Telegram",
+  "sessions.origin.feishu": "飞书",
+  "sessions.origin.qq": "QQ",
+  "sessions.origin.wechat": "微信",
+  "sessions.origin.slack": "Slack",
+  "sessions.origin.discord": "Discord",
+  "sessions.origin.email": "邮件",
   "sessions.messagesChannel": "{{count}} 条消息 · {{channel}}",
   "sessions.chat": "对话",
   "sessions.createNewHint": "或点击 + 新建创建一个",

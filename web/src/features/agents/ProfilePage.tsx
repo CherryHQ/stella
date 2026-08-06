@@ -11,7 +11,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { getAgentColor } from "@/lib/agent-colors";
+import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { agentsQueryOptions, agentSkillsOptions, agentToolsOptions } from "@/lib/queries/agents";
 import { agentSettingsQueryOptions } from "@/lib/queries/agent-settings";
 import { goalCountsOptions } from "@/lib/queries/goals";
@@ -145,7 +145,7 @@ export function ProfilePage() {
         <header className="flex items-center gap-3">
           <span
             className="grid size-10 place-items-center rounded-full text-sm font-semibold text-primary-foreground"
-            style={{ background: getAgentColor(agentId, agentIndex >= 0 ? agentIndex : undefined) }}
+            style={getAgentAvatarStyle(agentId, agentIndex >= 0 ? agentIndex : undefined)}
           >
             {title[0]?.toUpperCase()}
           </span>
