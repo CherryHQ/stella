@@ -62,6 +62,14 @@ type StructuredCaptureRunner struct {
 }
 
 func (r candidateLineReviewer) runFactLine(ctx context.Context, unit ReviewUnit) ([]factCandidate, error) {
+	decisions, err := r.runFactDecisionLine(ctx, unit)
+	if err != nil {
+		return nil, err
+	}
+	return factCandidatesFromDecisions(decisions), nil
+}
+
+func (r candidateLineReviewer) runFactDecisionLine(ctx context.Context, unit ReviewUnit) ([]factCandidateDecision, error) {
 	candidates, err := r.generateFactCandidates(ctx, unit)
 	if err != nil {
 		return nil, err
@@ -77,10 +85,18 @@ func (r candidateLineReviewer) runFactLine(ctx context.Context, unit ReviewUnit)
 		return nil, err
 	}
 	gated := gateFactCandidatesWithSettings(candidates, evaluations, factGateOptions{PrivateOneToOne: unit.PrivateOneToOne}, r.Gates)
-	return acceptedFactCandidates(candidates, gated.Accepted), nil
+	return acceptedFactCandidateDecisions(candidates, evaluations, gated.Accepted)
 }
 
 func (r candidateLineReviewer) runSkillLine(ctx context.Context, unit ReviewUnit) ([]skillCandidate, error) {
+	decisions, err := r.runSkillDecisionLine(ctx, unit)
+	if err != nil {
+		return nil, err
+	}
+	return skillCandidatesFromDecisions(decisions), nil
+}
+
+func (r candidateLineReviewer) runSkillDecisionLine(ctx context.Context, unit ReviewUnit) ([]skillCandidateDecision, error) {
 	candidates, err := r.generateSkillCandidates(ctx, unit)
 	if err != nil {
 		return nil, err
@@ -96,7 +112,7 @@ func (r candidateLineReviewer) runSkillLine(ctx context.Context, unit ReviewUnit
 		return nil, err
 	}
 	gated := gateSkillCandidatesWithSettings(candidates, evaluations, r.Gates)
-	return acceptedSkillCandidates(candidates, gated.Accepted), nil
+	return acceptedSkillCandidateDecisions(candidates, evaluations, gated.Accepted)
 }
 
 func (r candidateLineReviewer) generateFactCandidates(ctx context.Context, unit ReviewUnit) ([]factCandidate, error) {
@@ -532,34 +548,96 @@ func skillEvaluationRefs(evaluations []skillEvaluation) []CandidateRef {
 	return refs
 }
 
-func acceptedFactCandidates(candidates []factCandidate, decisions []CandidateGateDecision) []factCandidate {
-	accepted := acceptedRefSet(decisions)
+func acceptedFactCandidateDecisions(candidates []factCandidate, evaluations []factEvaluation, accepted []CandidateGateDecision) ([]factCandidateDecision, error) {
+	evaluationsByRef := make(map[CandidateRef]factEvaluation, len(evaluations))
+	for _, evaluation := range evaluations {
+		if _, exists := evaluationsByRef[evaluation.Ref]; exists {
+			return nil, fmt.Errorf("fact candidate decisions: duplicate evaluation for %q", evaluation.Ref)
+		}
+		evaluationsByRef[evaluation.Ref] = evaluation
+	}
+	gatesByRef := make(map[CandidateRef]CandidateGateDecision, len(accepted))
+	for _, gate := range accepted {
+		if _, exists := gatesByRef[gate.Ref]; exists {
+			return nil, fmt.Errorf("fact candidate decisions: duplicate gate decision for %q", gate.Ref)
+		}
+		gatesByRef[gate.Ref] = gate
+	}
+
+	out := make([]factCandidateDecision, 0, len(accepted))
+	for _, candidate := range candidates {
+		gate, ok := gatesByRef[candidate.Ref]
+		if !ok {
+			continue
+		}
+		evaluation, ok := evaluationsByRef[candidate.Ref]
+		if !ok {
+			return nil, fmt.Errorf("fact candidate decisions: missing evaluation for %q", candidate.Ref)
+		}
+		out = append(out, factCandidateDecision{
+			Candidate:  candidate,
+			Evaluation: evaluation,
+			Gate:       gate,
+		})
+	}
+	if len(out) != len(accepted) {
+		return nil, fmt.Errorf("fact candidate decisions: accepted gate references unknown candidate")
+	}
+	return out, nil
+}
+
+func acceptedSkillCandidateDecisions(candidates []skillCandidate, evaluations []skillEvaluation, accepted []CandidateGateDecision) ([]skillCandidateDecision, error) {
+	evaluationsByRef := make(map[CandidateRef]skillEvaluation, len(evaluations))
+	for _, evaluation := range evaluations {
+		if _, exists := evaluationsByRef[evaluation.Ref]; exists {
+			return nil, fmt.Errorf("skill candidate decisions: duplicate evaluation for %q", evaluation.Ref)
+		}
+		evaluationsByRef[evaluation.Ref] = evaluation
+	}
+	gatesByRef := make(map[CandidateRef]CandidateGateDecision, len(accepted))
+	for _, gate := range accepted {
+		if _, exists := gatesByRef[gate.Ref]; exists {
+			return nil, fmt.Errorf("skill candidate decisions: duplicate gate decision for %q", gate.Ref)
+		}
+		gatesByRef[gate.Ref] = gate
+	}
+
+	out := make([]skillCandidateDecision, 0, len(accepted))
+	for _, candidate := range candidates {
+		gate, ok := gatesByRef[candidate.Ref]
+		if !ok {
+			continue
+		}
+		evaluation, ok := evaluationsByRef[candidate.Ref]
+		if !ok {
+			return nil, fmt.Errorf("skill candidate decisions: missing evaluation for %q", candidate.Ref)
+		}
+		out = append(out, skillCandidateDecision{
+			Candidate:  candidate,
+			Evaluation: evaluation,
+			Gate:       gate,
+		})
+	}
+	if len(out) != len(accepted) {
+		return nil, fmt.Errorf("skill candidate decisions: accepted gate references unknown candidate")
+	}
+	return out, nil
+}
+
+func factCandidatesFromDecisions(decisions []factCandidateDecision) []factCandidate {
 	out := make([]factCandidate, 0, len(decisions))
-	for _, candidate := range candidates {
-		if _, ok := accepted[candidate.Ref]; ok {
-			out = append(out, candidate)
-		}
-	}
-	return out
-}
-
-func acceptedSkillCandidates(candidates []skillCandidate, decisions []CandidateGateDecision) []skillCandidate {
-	accepted := acceptedRefSet(decisions)
-	out := make([]skillCandidate, 0, len(decisions))
-	for _, candidate := range candidates {
-		if _, ok := accepted[candidate.Ref]; ok {
-			out = append(out, candidate)
-		}
-	}
-	return out
-}
-
-func acceptedRefSet(decisions []CandidateGateDecision) map[CandidateRef]struct{} {
-	accepted := make(map[CandidateRef]struct{}, len(decisions))
 	for _, decision := range decisions {
-		accepted[decision.Ref] = struct{}{}
+		out = append(out, decision.Candidate)
 	}
-	return accepted
+	return out
+}
+
+func skillCandidatesFromDecisions(decisions []skillCandidateDecision) []skillCandidate {
+	out := make([]skillCandidate, 0, len(decisions))
+	for _, decision := range decisions {
+		out = append(out, decision.Candidate)
+	}
+	return out
 }
 
 func renderEvaluationInput[T any](reviewText string, candidates []T) string {

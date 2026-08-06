@@ -11,6 +11,91 @@ icon: History
 
 ## [Unreleased]
 
+### ✨ 功能
+
+- 企业集成现在可通过受限且会过期的开通令牌创建无密码、仅 API 可用的受管用户。管理员可在设置中创建、复制、撤销开通凭据并完成计划轮换；用户创建和轮换只返回一次 bearer secret，会保留无关的个人令牌；停用则通过正常账户锁定流程撤销 session 和全部令牌。([#891](https://github.com/CherryHQ/stella/issues/891))
+- 个人访问令牌现在继承所属账户的当前权限，包括管理员权限。创建令牌不再需要选择 API scope，现有令牌会自动采用新行为，账户页面也简化为命名并创建令牌。为避免凭证扩散或账户接管，PAT 不能管理认证凭证、浏览器 session、身份、角色或账户启用状态；OAuth access token 仍按 scope 授权。([#889](https://github.com/CherryHQ/stella/issues/889))
+
+## [0.62.0] - 2026-08-05
+
+### ✨ 功能
+
+- Web UI：移除叠放的顶栏和分散的能力页面，改为由侧边栏承载全局导航，并新增跨 Agent 首页、聚焦的 Agent 档案，以及统一管理每个 Agent 的技能、工具和配置的入口。([#885](https://github.com/CherryHQ/stella/pull/885), [#884](https://github.com/CherryHQ/stella/issues/884))
+- `stellad postgres prune` 会列出当前二进制不再使用的内嵌 PostgreSQL runtime，加 `--force` 才真正删除。此前每次 runtime 版本更新都会在旧版本旁新装一份且从不清理，升级过的主机因此每个版本多占数百 MB。清理刻意保持手动：回滚后的二进制、或仍在使用旧 runtime 运行的另一个服务进程，都会因自动删除而中断。([#881](https://github.com/CherryHQ/stella/pull/881), [#878](https://github.com/CherryHQ/stella/issues/878))
+
+### ⚡ 性能
+
+- Agent：固定工具定义顺序，使内容相同的请求能够复用 provider 的 prompt cache。([#887](https://github.com/CherryHQ/stella/pull/887), [#801](https://github.com/CherryHQ/stella/issues/801))
+
+### 🔐 安全
+
+- MCP：在凭证可能被重新附加前拒绝跨源重定向，并清理工具因名称冲突而全部被遮蔽的客户端。([#876](https://github.com/CherryHQ/stella/pull/876), [#835](https://github.com/CherryHQ/stella/issues/835))
+- 诊断：从 OpenTelemetry 和 MCP 端点错误中移除凭证，同时保留有用的端点信息和可检查的错误原因。([#883](https://github.com/CherryHQ/stella/pull/883), [#835](https://github.com/CherryHQ/stella/issues/835))
+
+### 🐛 修复
+
+- 内嵌 PostgreSQL：runtime 包携带了所需的全部动态库，却没有给这些库设置各自的 rpath，因此在没有匹配系统 libicu 的主机上数据库会以 `exit status 127` 直接启动失败。Stella 现在使用重新构建的 `-r2` runtime，并在失败时给出可读的原因。内嵌安装执行 `stellad upgrade` 会自动获取新 runtime；其他安装方式需要在下次启动前运行一次 `stellad postgres download`。([#877](https://github.com/CherryHQ/stella/pull/877), [#866](https://github.com/CherryHQ/stella/issues/866))
+- Embedding：调用方取消请求后会立即停止，不再触发 fallback，也不会计入 provider 熔断器。([#869](https://github.com/CherryHQ/stella/pull/869), [#835](https://github.com/CherryHQ/stella/issues/835))
+
+### 🔧 CI
+
+- 发布覆盖：Linux 沙箱和已构建 PWA 契约不再静默跳过，并新增上一正式版迁移、崩溃恢复、provider 协议、持久清理和诊断脱敏的确定性检查。([#845](https://github.com/CherryHQ/stella/pull/845), [#858](https://github.com/CherryHQ/stella/pull/858), [#863](https://github.com/CherryHQ/stella/pull/863), [#867](https://github.com/CherryHQ/stella/pull/867), [#868](https://github.com/CherryHQ/stella/pull/868), [#871](https://github.com/CherryHQ/stella/pull/871), [#882](https://github.com/CherryHQ/stella/pull/882), [#835](https://github.com/CherryHQ/stella/issues/835), [#866](https://github.com/CherryHQ/stella/issues/866))
+- 数据库：后续 Goose migration 改用连续版本号，并由普通 CI 和 merge queue 强制检查，避免并发分支静默产生无效的升级顺序。([#875](https://github.com/CherryHQ/stella/pull/875), [#873](https://github.com/CherryHQ/stella/issues/873))
+- 构建：所有内嵌 Web 构建统一固定 Node 和 pnpm 版本，并确保跨平台 Docker 构建时生成器仍在原生架构执行。([#881](https://github.com/CherryHQ/stella/pull/881), [#880](https://github.com/CherryHQ/stella/issues/880))
+
+**完整变更记录**：[v0.61.0...v0.62.0](https://github.com/CherryHQ/stella/compare/v0.61.0...v0.62.0)
+
+## [0.61.0] - 2026-08-04
+
+### ⚠️ 重大变更
+
+- Webhook 现在是个人调用资源，使用一次性能力 URL。在设置中创建或轮换自己的 Webhook，并让调用方使用该 URL，且不发送 `Authorization` 请求头。旧的 `POST /webhooks/<channel-id>` 路由已不可用。([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+- 沙箱：`STELLA_SANDBOX_BACKEND` 成为选择沙箱后端的唯一方式，`/settings/sandbox` 页面已移除。请在部署时设置该环境变量。([#851](https://github.com/CherryHQ/stella/pull/851), [#850](https://github.com/CherryHQ/stella/issues/850))
+- 飞书：`lark-cli` 变为普通的用户自管理 CLI。Stella 仍负责安装和更新二进制，但不再配置应用或注入凭证——每位用户需自行授权一次。([#807](https://github.com/CherryHQ/stella/pull/807))
+
+### ✨ 新功能
+
+- 渠道：`/new` 不再等同于 `/compact`，而是真正开启新会话。私聊会话以事务方式轮换，群聊和私有渠道通过持久绑定解析会话，旧会话保留历史，新会话干净开始。([#798](https://github.com/CherryHQ/stella/pull/798), [#799](https://github.com/CherryHQ/stella/pull/799), [#797](https://github.com/CherryHQ/stella/pull/797), [#794](https://github.com/CherryHQ/stella/issues/794))
+- 多模态：会话图片只存储一次，作为用户所有的持久媒体，并附带 OCR 与场景描述基线。仅当前轮次新引入的图片会以像素形式发送，且只发给显式声明支持图片输入的模型。([#803](https://github.com/CherryHQ/stella/pull/803), [#788](https://github.com/CherryHQ/stella/issues/788))
+- Webhook：个人 Webhook 资源，具备一次性能力 URL、Agent 绑定、超时上限、轮换与撤销。([#825](https://github.com/CherryHQ/stella/pull/825), [#773](https://github.com/CherryHQ/stella/issues/773))
+- Agent：可为每个 Agent 配置不同的 provider API Key，同时沿用全局 provider 的地址、类型和模型列表。([#849](https://github.com/CherryHQ/stella/pull/849), [#844](https://github.com/CherryHQ/stella/issues/844))
+- 沙箱：local、Docker 和 none 后端统一文件系统契约——`$HOME` 是每个 Agent 的持久私有工作区，`$STELLA_ASSETS_DIR` 存放用户与群组共享的上传文件和交付物。([#810](https://github.com/CherryHQ/stella/pull/810), [#809](https://github.com/CherryHQ/stella/issues/809))
+- Web UI：会话文件面板重做为单一文件树，包含 **工作区** 和 **共享** 两个根目录，支持隐藏文件过滤、单击打开，以及新建、重命名、分享、下载、删除的完整右键菜单。([#815](https://github.com/CherryHQ/stella/pull/815), [#814](https://github.com/CherryHQ/stella/issues/814))
+- Web UI：可以安装为应用。新增带离线应用外壳的 Service Worker、iOS 独立窗口支持，以及服务端升级到新构建后的刷新提示。([#853](https://github.com/CherryHQ/stella/pull/853), [#846](https://github.com/CherryHQ/stella/issues/846))
+- 飞书：将 `lark-cli` 的配置和数据目录持久化到用户的共享沙箱目录，一次配置即可在该用户的所有 Agent 工作区中使用。([#807](https://github.com/CherryHQ/stella/pull/807))
+- Reflect：为每次提交的 Fact 和 Skill 变更记录来源——候选、评估与协调决策。([#778](https://github.com/CherryHQ/stella/pull/778))
+
+### ⚡ 性能
+
+- Web UI：聊天渲染不再逐 token 重渲染，并新增可复现的性能测量工具，覆盖长历史加载、流式帧时间和每次按键开销。([#824](https://github.com/CherryHQ/stella/pull/824), [#823](https://github.com/CherryHQ/stella/issues/823))
+
+### 🐛 修复
+
+- OpenAI：修复 SSE 流在返回任何模型输出前挂起的问题。([#813](https://github.com/CherryHQ/stella/pull/813))
+- 工具：将 xberg 升级到 v1.0.4，其 CLI 安装校验不再每次启动都失败。([#820](https://github.com/CherryHQ/stella/pull/820), [#819](https://github.com/CherryHQ/stella/issues/819))
+- Web UI：渲染期间被删除的工作区路径现在返回 404 而非 500。([#815](https://github.com/CherryHQ/stella/pull/815))
+- 测试：回收测试异常终止后残留的内嵌 PostgreSQL 目录。([#777](https://github.com/CherryHQ/stella/pull/777), [#772](https://github.com/CherryHQ/stella/issues/772))
+
+### ♻️ 重构
+
+- 沙箱：将后端选择改为部署期环境变量决定，移除数据库中的插件开关。([#851](https://github.com/CherryHQ/stella/pull/851), [#850](https://github.com/CherryHQ/stella/issues/850))
+
+### 🔧 CI
+
+- 发布：在 GoReleaser 和 Docker 发布任务启动前，先对打标签的确切 commit 执行源码、Go/Web、系统和发布检查。([#840](https://github.com/CherryHQ/stella/pull/840), [#834](https://github.com/CherryHQ/stella/issues/834))
+
+### 📦 依赖
+
+- 将内置 mise 升级到 2026.7.18，并刷新内置工具的固定版本。([#822](https://github.com/CherryHQ/stella/pull/822), [#821](https://github.com/CherryHQ/stella/issues/821))
+
+### 📝 文档
+
+- Webhook：说明如何将 GitHub 仓库 Webhook 直接配置到通用能力 URL。([#826](https://github.com/CherryHQ/stella/pull/826))
+- 项目跟踪：确立飞书规划 + GitHub 执行的工作流，新增 Issue 表单和 PR 模板，并补充可机读的飞书坐标。([#848](https://github.com/CherryHQ/stella/pull/848), [#854](https://github.com/CherryHQ/stella/pull/854), [#852](https://github.com/CherryHQ/stella/issues/852))
+- 市场：将营销规则和文档首页重新定位到自托管数字员工。([#796](https://github.com/CherryHQ/stella/pull/796))
+
+**完整变更记录**：[v0.60.4...v0.61.0](https://github.com/CherryHQ/stella/compare/v0.60.4...v0.61.0)
+
 ## [0.60.4] - 2026-07-28
 
 ### 🐛 修复
@@ -75,7 +160,7 @@ icon: History
 - 知识：引入基于事实的记忆、搜索优先的发现、结构化 Reflect 审核及其发布控制，并在 Web UI 中支持管理知识和已启用技能。([#593](https://github.com/CherryHQ/stella/pull/593), [#610](https://github.com/CherryHQ/stella/pull/610), [#661](https://github.com/CherryHQ/stella/pull/661), [#683](https://github.com/CherryHQ/stella/pull/683), [#732](https://github.com/CherryHQ/stella/pull/732), [#733](https://github.com/CherryHQ/stella/pull/733), [#734](https://github.com/CherryHQ/stella/pull/734))
 - 存储：将 Recally 文章正文持久化到 PostgreSQL，并为用户资产增加可选的 S3 兼容持久镜像，移除剩余的 Pod 本地持久状态。([#667](https://github.com/CherryHQ/stella/pull/667), [#673](https://github.com/CherryHQ/stella/pull/673), [#675](https://github.com/CherryHQ/stella/pull/675))
 - 密钥：完善工具覆盖的四级作用域，并为 Agent 自动注入环境密钥。([#688](https://github.com/CherryHQ/stella/pull/688), [#694](https://github.com/CherryHQ/stella/pull/694))
-- 自动化：新增入站 webhook channel，让 CI 系统和第三方服务可通过带作用域限制的个人访问令牌触发 Agent。([#691](https://github.com/CherryHQ/stella/pull/691))
+- 自动化：新增入站 Webhook，让 CI 系统和第三方服务触发 Agent。([#691](https://github.com/CherryHQ/stella/pull/691))
 - 部署：新增生产 Kubernetes 健康检查、优雅停机和 Helm chart。([#700](https://github.com/CherryHQ/stella/pull/700), [#704](https://github.com/CherryHQ/stella/pull/704))
 
 ### 🔐 安全

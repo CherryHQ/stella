@@ -6,8 +6,9 @@ INSERT INTO personal_access_token (
     token_hash,
     last4,
     scopes,
-    expires_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    expires_at,
+    token_use
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: GetPersonalAccessTokenByPublicID :one
@@ -20,6 +21,13 @@ WHERE public_id = $1;
 -- name: ListPersonalAccessTokenByUser :many
 SELECT * FROM personal_access_token
 WHERE user_id = $1
+  AND token_use = 'personal'
+ORDER BY created_at DESC, id DESC;
+
+-- name: ListProvisioningTokenByUser :many
+SELECT * FROM personal_access_token
+WHERE user_id = $1
+  AND token_use = 'provisioning'
 ORDER BY created_at DESC, id DESC;
 
 -- name: RevokePersonalAccessToken :execrows
@@ -28,6 +36,16 @@ SET revoked_at = now(),
     updated_at = now()
 WHERE id = $1
   AND user_id = $2
+  AND token_use = 'personal'
+  AND revoked_at IS NULL;
+
+-- name: RevokeProvisioningToken :execrows
+UPDATE personal_access_token
+SET revoked_at = now(),
+    updated_at = now()
+WHERE id = $1
+  AND user_id = $2
+  AND token_use = 'provisioning'
   AND revoked_at IS NULL;
 
 -- name: RevokePersonalAccessTokenByUser :execrows

@@ -129,6 +129,66 @@ components:
           type: boolean
         template_id:
           type: string
+        provider_credentials:
+          type: array
+          maxItems: 8
+          description: >-
+            Optional write-only API-key overrides for canonical global Providers. Omit to use deployment-global Provider keys.
+          items:
+            $ref: "#/components/schemas/AgentProviderCredentialInput"
+    AgentProviderCredentialInput:
+      type: object
+      required: [provider_id, api_key]
+      properties:
+        provider_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Canonical global Provider ID; type aliases are not accepted.
+        api_key:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          writeOnly: true
+          description: Write-only API key override. Use DELETE to restore the global key.
+    AgentProviderCredential:
+      type: object
+      required: [id, has_api_key, updated_at]
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: Canonical global Provider ID for this override.
+        has_api_key:
+          type: boolean
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    AgentProviderCredentialList:
+      type: object
+      required: [provider_credentials, next_page_token, total_size]
+      properties:
+        provider_credentials:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentProviderCredential"
+        next_page_token:
+          type: string
+          nullable: true
+        total_size:
+          type: integer
+    UpdateAgentProviderCredentialRequest:
+      type: object
+      required: [api_key]
+      properties:
+        api_key:
+          type: string
+          minLength: 1
+          maxLength: 16384
+          writeOnly: true
+          description: Write-only replacement API key. Use DELETE to restore the global key.
     AgentUser:
       type: object
       properties:
@@ -546,8 +606,12 @@ components:
       properties:
         id:
           type: string
+          description: >-
+            Channel id. Optional on create — the server mints a uuid when it is omitted (weixin is singleton-only and always gets the id "weixin"). Ignored on update; the path id wins.
         name:
           type: string
+          description: >-
+            Display name. Optional on create — the server defaults it to "{type}-{random suffix}" when it is omitted.
         type:
           type: string
           nullable: true
@@ -559,7 +623,16 @@ components:
           nullable: true
         config:
           type: string
-          description: "JSON string of the channel config"
+          description: >-
+            JSON string of the channel config. Omit to keep the current config; pass an object to replace it.
+    BindChannelRequest:
+      type: object
+      required: [agent_id]
+      properties:
+        agent_id:
+          type: string
+          description: >-
+            Agent to bind this channel to. An empty string unbinds the channel.
     FeishuRegistrationInitRequest:
       type: object
       properties:
@@ -608,12 +681,14 @@ components:
           type: integer
     FeishuRegistrationPollRequest:
       type: object
-      required: [device_code, channel_id, agent_id]
+      required: [device_code, agent_id]
       properties:
         device_code:
           type: string
         channel_id:
           type: string
+          description: >-
+            Optional. The server mints a uuid for the channel it creates when this is omitted.
         agent_id:
           type: string
         name:
@@ -2256,16 +2331,12 @@ components:
             $ref: "#/components/schemas/AuthorizedApp"
     PersonalAccessToken:
       type: object
-      required: [id, name, scopes, last4, created_at]
+      required: [id, name, last4, created_at]
       properties:
         id:
           type: string
         name:
           type: string
-        scopes:
-          type: array
-          items:
-            type: string
         last4:
           type: string
         expires_at:
@@ -2290,14 +2361,10 @@ components:
             $ref: "#/components/schemas/PersonalAccessToken"
     CreatePersonalAccessTokenRequest:
       type: object
-      required: [name, scopes]
+      required: [name]
       properties:
         name:
           type: string
-        scopes:
-          type: array
-          items:
-            type: string
         # Explicit expiry. Omit for the server default expiry.
         expires_at:
           type: string
@@ -2315,22 +2382,6 @@ components:
           type: string
         personal_access_token:
           $ref: "#/components/schemas/PersonalAccessToken"
-    PersonalAccessTokenScope:
-      type: object
-      required: [id, description]
-      properties:
-        id:
-          type: string
-        description:
-          type: string
-    PersonalAccessTokenScopeList:
-      type: object
-      required: [scopes]
-      properties:
-        scopes:
-          type: array
-          items:
-            $ref: "#/components/schemas/PersonalAccessTokenScope"
     PluginView:
       type: object
       properties:
@@ -2365,8 +2416,6 @@ components:
           type: boolean
         persisted_id:
           type: string
-        env_locked:
-          type: boolean
     TogglePluginRequest:
       type: object
       required: [enabled]
@@ -2933,6 +2982,181 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProviderType"
+    ProvisioningToken:
+      type: object
+      required: [id, name, last4, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        last4:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    ProvisioningTokenList:
+      type: object
+      required: [provisioning_tokens]
+      properties:
+        provisioning_tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProvisioningToken"
+    CreateProvisioningTokenRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        # Omit for the server's 90-day default. Provisioning tokens always expire.
+        expires_at:
+          type: string
+          format: date-time
+    CreateProvisioningTokenResponse:
+      type: object
+      required: [token, provisioning_token]
+      properties:
+        # Plaintext token, returned exactly once at creation and never again.
+        token:
+          type: string
+        provisioning_token:
+          $ref: "#/components/schemas/ProvisioningToken"
+    ProvisionedUserToken:
+      type: object
+      required: [id, name, last4, created_at]
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        last4:
+          type: string
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_used_at:
+          type: string
+          format: date-time
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+    ProvisionedUser:
+      type: object
+      required: [
+        id,
+        external_id,
+        email,
+        name,
+        role,
+        is_active,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        external_id:
+          type: string
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        role:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+        active_token:
+          allOf: [{ $ref: "#/components/schemas/ProvisionedUserToken" }]
+          nullable: true
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+    ProvisionedUserList:
+      type: object
+      required: [provisioned_users]
+      properties:
+        provisioned_users:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProvisionedUser"
+        next_page_token:
+          type: string
+          nullable: true
+          readOnly: true
+    CreateProvisionedUserRequest:
+      type: object
+      required: [external_id, email, name]
+      properties:
+        external_id:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        token_name:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          description: Defaults to 90 days; cannot exceed 365 days.
+    CreateProvisionedUserResponse:
+      type: object
+      required: [provisioned_user, token]
+      properties:
+        provisioned_user:
+          $ref: "#/components/schemas/ProvisionedUser"
+        token:
+          type: string
+          description: Plaintext bearer token returned exactly once.
+    RotateProvisionedUserTokenRequest:
+      type: object
+      properties:
+        token_name:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          description: Defaults to 90 days; cannot exceed 365 days.
+    RotateProvisionedUserTokenResponse:
+      type: object
+      required: [provisioned_user, token]
+      properties:
+        provisioned_user:
+          $ref: "#/components/schemas/ProvisionedUser"
+        token:
+          type: string
+          description: Plaintext replacement bearer token returned exactly once.
     # ── Recally ────────────────────────────────────────────────────────────────
     ArticleStatus:
       type: string
@@ -3856,6 +4080,90 @@ components:
         next_page_token:
           type: string
           nullable: true
+    SessionMessageBlock:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [text, thinking, tool_call, image]
+        text:
+          type: string
+          description: Text content when type is "text".
+        thinking:
+          type: string
+          description: Reasoning content when type is "thinking".
+        id:
+          type: string
+          description: Tool call ID when type is "tool_call".
+        name:
+          type: string
+          description: Tool name when type is "tool_call".
+        arguments:
+          type: object
+          additionalProperties: {}
+          description: Tool arguments when type is "tool_call".
+        media_id:
+          type: string
+          description: Immutable session media ID when type is "image".
+        mime_type:
+          type: string
+          description: Detected MIME type when type is "image".
+        url:
+          type: string
+          description: Authenticated session-relative media URL when type is "image".
+    SessionMessageReference:
+      type: object
+      required: [v, type, id]
+      properties:
+        v:
+          type: integer
+        type:
+          type: string
+        id:
+          type: string
+        agent_id:
+          type: string
+        intent:
+          type: string
+        preview:
+          type: object
+          properties:
+            title:
+              type: string
+            status:
+              type: string
+    SessionMessage:
+      type: object
+      required: [id, role, timestamp, token_count]
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        content:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionMessageBlock"
+        tool_call_id:
+          type: string
+        tool_name:
+          type: string
+        is_error:
+          type: boolean
+        references:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionMessageReference"
+        timestamp:
+          type: string
+          format: date-time
+        token_count:
+          type: integer
+          format: int64
     SessionMessageList:
       type: object
       required: [messages]
@@ -3863,8 +4171,7 @@ components:
         messages:
           type: array
           items:
-            type: object
-            additionalProperties: {}
+            $ref: "#/components/schemas/SessionMessage"
     SessionContextMeta:
       type: object
       required: [
@@ -4389,6 +4696,169 @@ components:
           type: array
           items:
             type: string
+    VisionSettings:
+      type: object
+      description: >
+        Deployment-wide image-understanding configuration. model is a "provider/model" reference resolved against the configured providers; an empty string means no vision model is set and image understanding falls back to local text extraction.
+
+      required: [model]
+      properties:
+        model:
+          type: string
+    VisionSettingsUpdate:
+      type: object
+      description: >
+        Update payload for the vision settings. Send an empty model to clear the vision model.
+
+      required: [model]
+      properties:
+        model:
+          type: string
+    Webhook:
+      type: object
+      description: >-
+        A personal invocation capability. The URL is disclosed only by Create and Rotate and is never returned by stable reads.
+      required: [
+        id,
+        user_id,
+        name,
+        agent_id,
+        provider,
+        is_enabled,
+        wait_timeout_seconds,
+        max_run_timeout_seconds,
+        token_last4,
+        etag,
+        created_at,
+        updated_at,
+      ]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Output-only UUID v7 resource ID.
+        user_id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Output-only authenticated owner ID.
+        name:
+          type: string
+          minLength: 1
+          description: Human-readable webhook name.
+        agent_id:
+          type: string
+          minLength: 1
+          description: Agent the owner is authorized to invoke.
+        provider:
+          type: string
+          enum: [generic]
+          description: Immutable invocation provider selected at creation.
+        is_enabled:
+          type: boolean
+          description: Whether ingress admission is enabled.
+        wait_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+          description: Maximum synchronous reply wait in seconds.
+        max_run_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          description: Maximum admitted agent run duration in seconds.
+        token_last4:
+          type: string
+          readOnly: true
+          description: Output-only final four token characters for identification.
+        etag:
+          type: string
+          readOnly: true
+          description: Output-only opaque rotation precondition.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+        rotated_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+        url:
+          type: string
+          readOnly: true
+          description: One-time capability URL, returned only by Create and Rotate.
+    WebhookList:
+      type: object
+      required: [webhooks]
+      properties:
+        webhooks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Webhook"
+        next_page_token:
+          type: string
+          nullable: true
+    CreateWebhookRequest:
+      type: object
+      required: [name, agent_id]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        agent_id:
+          type: string
+          minLength: 1
+          description: Caller-accessible Agent ID.
+        provider:
+          type: string
+          enum: [generic]
+          default: generic
+          description: Immutable invocation provider; defaults to generic.
+        is_enabled:
+          type: boolean
+          default: true
+        wait_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+          default: 60
+        max_run_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        agent_id:
+          type: string
+          minLength: 1
+          description: Caller-accessible Agent ID.
+        is_enabled:
+          type: boolean
+        wait_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+        max_run_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+    RotateWebhookRequest:
+      type: object
+      required: [etag]
+      properties:
+        etag:
+          type: string
     WorkflowInputSpec:
       type: object
       required: [name]

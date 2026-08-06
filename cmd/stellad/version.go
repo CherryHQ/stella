@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	ucli "github.com/urfave/cli/v2"
 	"golang.org/x/term"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/version"
 	"github.com/CherryHQ/stella/pkg/httpclient"
 )
@@ -111,6 +113,7 @@ func upgradeCommand() *ucli.Command {
 
 			fmt.Printf("\n%s Upgraded stella %s -> %s\n", okMark(os.Stdout), result.CurrentVersion, result.LatestVersion)
 			fmt.Printf("  Installed to %s\n", installDir)
+			syncPostgresRuntime(c.Context, os.Stdout, installDir, config.StellaHome(), runtime.GOOS)
 			return nil
 		},
 	}
@@ -134,6 +137,45 @@ func resolveUpgradeDir(installDir string) (string, error) {
 		return "", fmt.Errorf("resolve executable symlink: %w", err)
 	}
 	return filepath.Dir(resolved), nil
+}
+
+// syncPostgresRuntime fetches the runtime the new binary needs, for a host that
+// was already running the embedded database. The binary and its runtime are
+// versioned together, so swapping the binary alone leaves a deployment that
+// starts up into "no PostgreSQL runtime" — the failure only shows at the next
+// restart, which is the worst moment to discover it.
+//
+// A host with no runtime installed is on the external-database path and is left
+// alone; a failure here is reported and not fatal, because the upgrade itself
+// has already committed and a missing runtime is recoverable by hand.
+func syncPostgresRuntime(ctx context.Context, out io.Writer, installDir, stellaHome, goos string) {
+	if !postgresRuntimeInstalled(stellaHome) {
+		return
+	}
+	fprintln(out, "\nUpdating the embedded PostgreSQL runtime for the new version...")
+	cmd := exec.CommandContext(ctx, filepath.Join(installDir, binariesToUpgrade(goos)[0]), "postgres", "download")
+	cmd.Stdout = out
+	cmd.Stderr = out
+	if err := cmd.Run(); err != nil {
+		fprintf(out, "\n  Could not update the PostgreSQL runtime: %v\n", err)
+		fprintln(out, "  Run `stellad postgres download` before starting the server.")
+	}
+}
+
+// postgresRuntimeInstalled reports whether this host runs the embedded database.
+// Any extracted runtime under the cache root counts, including one for a version
+// this binary no longer uses — that is precisely the host that needs the new one.
+func postgresRuntimeInstalled(stellaHome string) bool {
+	entries, err := os.ReadDir(filepath.Join(stellaHome, "pg-runtime"))
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 // binariesToUpgrade returns the binary names that must be present in a release

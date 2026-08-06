@@ -28,7 +28,9 @@ var invocationInventory = map[string]map[string]int{
 	"internal/channel/resolved_chat.go":    {"GetService": 1, "Chat": 1},
 	"internal/goal/session.go":             {"GetService": 1}, // session creation; execution is guarded in workerExecutor
 	"internal/reflect/loop.go":             {"GetService": 1}, // session listing only; no turn
-	"internal/server/webhook_ingress.go":   {"GetService": 1, "Chat": 1},
+	// Webhook admission completes user→Agent PEP checks before the transport
+	// resolves the runtime; ChatAdmitted preserves that trusted authority.
+	"internal/server/webhook_runtime.go": {"GetService": 1},
 }
 
 func TestAgentInvocationInventoryIsExact(t *testing.T) {

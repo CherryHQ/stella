@@ -140,7 +140,7 @@ export function CreateGroupDialog({ open, onClose }: Props) {
               )}
             </div>
           </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-xs text-destructive-foreground">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onClose}>

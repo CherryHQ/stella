@@ -63,7 +63,7 @@ pkg/
 plugins/
   tools/               插件工具注册表 + 插件工具（webfetch）
   hooks/               插件钩子注册表 + 插件钩子（rtk）
-  channels/            通道插件（telegram、qq、feishu、weixin、webhook）
+  channels/            通道插件（telegram、qq、feishu、weixin）
   providers/           供应商插件注册表 + LLM 适配器（anthropic、openai、openai-response）
   sandbox/             沙箱后端插件
 ```
@@ -129,11 +129,19 @@ LLM 提供商采用插件模式。Stella 内置三种提供商：
 | `openai`          | Chat Completions API | GPT 模型                                      |
 | `openai-response` | Responses API        | OpenAI 兼容服务（Perplexity、Together.ai 等） |
 
-每个提供商都实现 `ai.ProviderAdapter` 接口以进行流式响应，并可选实现 `ai.ModelLister` 以进行模型发现。所有提供商都通过 `ImageContent` 类型支持多模态输入（文本 + 图像），转换为其原生图像格式（Anthropic 的 base64 块、OpenAI 的数据 URI image_url）。
+每个提供商都实现 `ai.ProviderAdapter` 接口以进行流式响应，并可选实现 `ai.ModelLister` 以进行模型发现。提供商适配器可以把 `ImageContent` 编码成各自的原生图像格式（Anthropic 的 base64 块、OpenAI 的 data URI `image_url`），但 agent 边界只会在模型声明支持图片输入且图片处于引入它的当前回合时创建它。历史图片以文字基线的形式到达适配器。
 
 提供商位于 `plugins/providers/`，通过 `init()` 自注册。添加新的提供商只需在 `plugins/providers/` 下创建一个包——无需其他连接代码。详见[插件系统](/docs/development/plugin-system)。
 
 提供商管理（与设置、插件、通道一样）是一项控制面操作，直接经由 `internal/controlplane` 授权，而非裸角色检查。它仅限管理员：`Begin` 在铸造 Access 前要求 `IsAdmin()`。
+
+### Agent 提供商凭证覆盖
+
+提供商元数据与默认密钥仍是全局控制面状态。独立的 `agent_provider_credential` 关系为 `(agent_id, canonical provider_id)` 存储加密覆盖密钥。`providercred.Service` 是唯一接触明文的加密边界，并使用 Vault system cipher；`config.Agent` 与普通 Agent 投影都不包含凭证字段。
+
+凭证感知的 Snapshot loader 在 Agent 边界装饰全局 Snapshot。它只替换目标提供商全部 canonical 与 type-alias 条目的 API 密钥，并同步旧版默认凭证字段。提供商类型、base URL、模型目录和启用状态绝不进入 Agent scope。缺少或删除覆盖行时使用全局密钥；已引用但无法解密的行会 fail closed，不会静默回退。所有宿主侧 Agent 消费者共用这一 loader，包括 Runner、memory summarization、intent 与 semantic routing、Reflect 和 Vision。
+
+安全元数据遵循 Agent Read 权限。变更要求 Agent Manage，因此管理员与持久化的 Agent 创建者可以操作，被分配但不是创建者的用户不能操作。变更先提交，再定向调用 `SyncAgent`；它不会重载全局提供商。只写 HTTP 子资源提供分页 List、Get、PATCH 轮换和幂等 DELETE 回退。
 
 ## 工具
 

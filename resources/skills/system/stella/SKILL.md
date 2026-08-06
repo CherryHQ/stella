@@ -2,11 +2,11 @@
 name: stella
 description: >
   Self-knowledge about stella, the self-hosted AI assistant. Use when the user asks about
-  stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat),
+  stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat), webhooks,
   memory system (LCM), scheduled jobs, reusable workflows, goals (objectives that converge through acceptance), workers/decomposition/dependencies,
   skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does stella work" / "help me get started" questions.
-  Also triggers on "change my model", "set up telegram", "set up wechat", "configure provider", "update stella",
+  Also triggers on "change my model", "set up telegram", "set up wechat", "set up webhook", "configure provider", "update stella",
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
   Also triggers when the user wants to report a bug or file a GitHub issue about stella:
   "report this bug", "create an issue for this", "报告这个 issue", "帮我建个 issue".
@@ -28,7 +28,7 @@ Run mode:
 
 - **Server**: `stellad server` (Telegram, QQ, Feishu, WeChat bots + scheduler + Web UI)
 
-Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download-runtime` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
+Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
 
 ## Filesystem locations
 
@@ -42,7 +42,7 @@ Use semantic environment variables for Agent files, never host or sandbox litera
 
 ## Architecture
 
-- **Multi-agent**: Multiple agents can run simultaneously, each with its own provider, model, system prompt, and workspace. Managed via the Web UI.
+- **Multi-agent**: Multiple agents can run simultaneously, each with its own global Provider/model selection, optional API-key override, system prompt, and workspace. Provider endpoints, types, models, and enabled state remain administrator-controlled; per-Agent key overrides are API-only.
 - **Multi-user**: Users are auto-created from platform identity. Each user has per-agent memory that persists across sessions.
 - **Single bot per platform**: One Telegram/QQ/Feishu/WeChat bot serves all agents. Users switch agents via `/agent` command.
 - **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.
@@ -70,6 +70,7 @@ Read the relevant reference file for detailed guidance:
 | Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                          |
 | Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                         |
 | Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                                  |
+| Webhooks      | [references/webhooks.md](references/webhooks.md)           | Personal HTTP invocation capabilities, one-time URLs, options, and lifecycle                                 |
 | Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                                   |
 | Goals         | [references/goals.md](references/goals.md)                 | Goal model: root/child, leaf/composite, derived acceptance, convergence, worker `goal_control`, deps, blocks |
 | Report issue  | [references/report-issue.md](references/report-issue.md)   | User asks to report a bug / file a GitHub issue about stella                                                 |

@@ -40,6 +40,7 @@ import (
 	"github.com/CherryHQ/stella/internal/observability"
 	oauthserver "github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/server"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -332,10 +333,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	}
 	slog.Info("oidc: authentication configured")
 
-	intentClassifier := newIntentClassifier(s.store, s.pluginHost)
+	intentClassifier := newIntentClassifier(s.snapshotLoader, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
-	if semanticArbiter := newSemanticGroupArbiter(s.store, s.pluginHost); semanticArbiter != nil {
+	if semanticArbiter := newSemanticGroupArbiter(s.snapshotLoader, s.pluginHost); semanticArbiter != nil {
 		coordOpts = append(coordOpts, channel.WithSemanticGroupArbiter(semanticArbiter))
 	}
 
@@ -377,6 +378,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		s.poolManager,
 		userDirectory{users: oidcStore},
 		agent.NewAgentActivityStore(s.db),
+		s.credentialSvc,
+		s.credentialProviders,
 		slog.With("component", "agent-management"),
 	)
 
@@ -389,6 +392,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		as, credFrontDoor,
 		slog.With("component", "account"),
 	)
+	provisioningSvc := provisioning.New(s.db, accountSvc, vaultRecipient, slog.With("component", "provisioning"))
 
 	// The Profile service owns the per-(user, agent) memory boundary. The Provider
 	// is viewed through its ProfileStore/ChangelogReader capabilities (nil when the
@@ -417,7 +421,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	adminSrv, err := server.New(gctx, server.Deps{
 		Pinger:              s.db,
-		ChannelResolver:     channel.NewRuntimeResolver(s.store),
 		Account:             accountSvc,
 		Profile:             profileSvc,
 		ProjectStore:        s.projectStore,
@@ -435,6 +438,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		BaseURL:             baseURL,
 		Credentials:         s.credSvc,
 		ControlPlane:        s.controlPlane,
+		Webhooks:            s.webhooks,
 		Email:               s.emailSvc,
 		Share:               s.shareSvc,
 		Recally:             s.recallySvc,
@@ -448,6 +452,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Scheduler:           s.schedulerSvc,
 		Goal:                s.goalSvc,
 		Workflow:            s.workflowSvc,
+		Provisioning:        provisioningSvc,
 		OIDC: server.OIDCDeps{
 			Providers:  oidcResult.Providers,
 			AuthSvc:    oidcResult.AuthSvc,
@@ -584,15 +589,13 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	addr := ln.Addr().String()
 	slog.Info("starting Web UI", "addr", addr)
 	fmt.Printf("Web UI running at %s\n", adminURLForDisplay(adminHost, adminPort, addr))
-	// Root mux: the inbound webhook ingress (POST /webhooks/{id}) is mounted here,
-	// ahead of the admin handler, so it bypasses the admin middleware chain (it
-	// authenticates itself via the caller's PAT). It is wrapped in the same OTel
-	// instrumentation the admin handler uses so the webhook request still produces
-	// a server span. Everything else falls through to the admin handler.
-	rootMux := http.NewServeMux()
-	rootMux.Handle("POST /webhooks/{id}", observability.Handler(adminSrv.WebhookIngressHandler()))
-	rootMux.Handle("/", adminSrv.Handler())
-	httpSrv := &http.Server{Handler: rootMux}
+	// The capability reservation owns the entire /webhooks/ namespace ahead of
+	// all instrumentation. It sanitizes a disclosed capability into private
+	// context and dispatches only canonical POSTs to the ingress handler (itself
+	// OTel-wrapped with a sanitized URL); every other /webhooks/ shape gets an
+	// opaque 404. Everything else falls through to the admin handler.
+	capabilityIngress := observability.Handler(adminSrv.WebhookIngressHandler())
+	httpSrv := &http.Server{Handler: server.WebhookCapabilityReservation(capabilityIngress, adminSrv.Handler())}
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
@@ -895,13 +898,13 @@ func hostFromAddr(addr string) string {
 	return host
 }
 
-func newIntentClassifier(store config.Store, ph *pluginhost.Host) *channel.LLMIntentClassifier {
-	if store == nil || ph == nil {
+func newIntentClassifier(snapshots config.SnapshotLoader, ph *pluginhost.Host) *channel.LLMIntentClassifier {
+	if snapshots == nil || ph == nil {
 		return nil
 	}
 	return channel.NewLLMIntentClassifier(
 		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
-			return store.Snapshot(ctx, agentID)
+			return snapshots.Snapshot(ctx, agentID)
 		},
 		intentClassifierStreamFuncBuilder(ph),
 	)
@@ -916,13 +919,13 @@ func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBu
 	}
 }
 
-func newSemanticGroupArbiter(store config.Store, ph *pluginhost.Host) *channel.LLMSemanticGroupArbiter {
-	if store == nil || ph == nil {
+func newSemanticGroupArbiter(snapshots config.SnapshotLoader, ph *pluginhost.Host) *channel.LLMSemanticGroupArbiter {
+	if snapshots == nil || ph == nil {
 		return nil
 	}
 	return channel.NewLLMSemanticGroupArbiter(
 		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
-			return store.Snapshot(ctx, agentID)
+			return snapshots.Snapshot(ctx, agentID)
 		},
 		intentClassifierStreamFuncBuilder(ph),
 	)

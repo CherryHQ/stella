@@ -1,3 +1,5 @@
+import type { ContentBlock } from "@/lib/types";
+
 export const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 export function isImagePath(path: string): boolean {
@@ -35,6 +37,28 @@ export function parseFileRefs(input: string): { files: string[]; text: string } 
   return { files, text };
 }
 
+// userMessageRenderInput keeps canonical durable images ordered while still
+// exposing unrelated workspace markers for the legacy file-preview path.
+export function userMessageRenderInput(
+  msg: { content?: string; blocks?: ContentBlock[] },
+  agentNames?: Map<string, string>,
+) {
+  const canonicalBlocks = msg.blocks?.filter(
+    (block): block is Extract<ContentBlock, { type: "text" | "image" }> =>
+      block.type === "text" || block.type === "image",
+  );
+  const hasCanonicalImage = canonicalBlocks?.some((block) => block.type === "image") ?? false;
+  const displayContent = replaceUUIDMentions(extractUserText(msg), agentNames);
+  const { files, text } = parseFileRefs(displayContent);
+  return {
+    canonicalBlocks,
+    hasCanonicalImage,
+    text,
+    images: files.filter(isImagePath),
+    otherFiles: files.filter((file) => !isImagePath(file)),
+  };
+}
+
 export function replaceUUIDMentions(text: string, agentNames?: Map<string, string>): string {
   if (!agentNames || agentNames.size === 0) return text;
   return text.replace(
@@ -48,6 +72,9 @@ export function replaceUUIDMentions(text: string, agentNames?: Map<string, strin
 
 export function extractUserText(msg: { content?: string }): string {
   const raw = msg.content ?? "";
+  // Fast path: plain text (the common case). Without this, every render of
+  // every user bubble throws and catches a JSON.parse error.
+  if (!raw.startsWith("[")) return raw;
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (Array.isArray(parsed)) {

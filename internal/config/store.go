@@ -4,6 +4,15 @@ import (
 	"context"
 )
 
+// SnapshotLoader assembles the read-only per-Agent config Snapshot. DBStore is
+// the base implementation; a credential-aware decorator wraps it to overlay
+// per-Agent Provider key overrides without the runtime consumers knowing which
+// one they hold. Keeping this narrow lets exactly one decorated value be threaded
+// through every consumer.
+type SnapshotLoader interface {
+	Snapshot(ctx context.Context, agentID string) (*Snapshot, error)
+}
+
 // Store provides typed access to configuration stored in the database.
 type Store interface {
 	// Providers
@@ -33,6 +42,8 @@ type Store interface {
 	ListChannelsByType(ctx context.Context, channelType string) ([]Channel, error)
 	GetChannel(ctx context.Context, id string) (Channel, error)
 	UpsertChannel(ctx context.Context, ch Channel) error
+	CreateChannel(ctx context.Context, ch Channel) error
+	UpdateChannel(ctx context.Context, ch Channel) error
 	DeleteChannel(ctx context.Context, id string) error
 
 	// Manifest plugin overrides — tunables for manifest-declared plugins.

@@ -129,7 +129,9 @@ func statusName(status int) string {
 		return "NOT_FOUND"
 	case http.StatusConflict:
 		return "ABORTED"
-	case http.StatusTooManyRequests:
+	case http.StatusRequestTimeout, http.StatusGatewayTimeout:
+		return "DEADLINE_EXCEEDED"
+	case http.StatusRequestEntityTooLarge, http.StatusTooManyRequests:
 		return "RESOURCE_EXHAUSTED"
 	case http.StatusServiceUnavailable:
 		return "UNAVAILABLE"

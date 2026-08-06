@@ -7,7 +7,7 @@ info:
 
     - Agents, Skills, Sessions, Models, Providers
     - Auth, Auth-Users, Profile, OAuth
-    - Channels, Plugins, Manifest-Plugins
+    - Channels, Webhooks, Plugins, Manifest-Plugins
     - Recally (reading assistant), Scheduler (job scheduling)
     - Users, Vault, Builtin, Weixin
 
@@ -38,10 +38,12 @@ tags:
   - name: models
   - name: builtin
   - name: channels
+  - name: webhooks
   - name: groups
   - name: weixin
   - name: providers
   - name: embedding
+  - name: vision
   - name: sessions
   - name: shares
   - name: agents
@@ -52,6 +54,7 @@ tags:
   - name: auth-users
   - name: profile
   - name: pat
+  - name: provisioning
   - name: oauth-clients
   - name: auth
   - name: plugins
@@ -88,6 +91,10 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users"
   /api/agents/{id}/users/{userId}:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1users~1{userId}"
+  /api/agents/{id}/provider-credentials:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1provider-credentials"
+  /api/agents/{id}/provider-credentials/{providerId}:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1provider-credentials~1{providerId}"
   /api/agents/{id}/tools:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1tools"
   /api/agents/{id}/tools/{toolName}:
@@ -171,6 +178,15 @@ paths:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels"
   /api/channels/{id}:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}"
+  # ── Webhooks ───────────────────────────────────────────────────────────────
+  /api/webhooks:
+    $ref: "./domain/webhooks/paths.yaml#/paths/~1api~1webhooks"
+  /api/webhooks/{id}:
+    $ref: "./domain/webhooks/paths.yaml#/paths/~1api~1webhooks~1{id}"
+  /api/webhooks/{id}/rotate:
+    $ref: "./domain/webhooks/paths.yaml#/paths/~1api~1webhooks~1{id}~1rotate"
+  /api/channels/{id}/bind:
+    $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1{id}~1bind"
   /api/channels/feishu/register/init:
     $ref: "./domain/channels/paths.yaml#/paths/~1api~1channels~1feishu~1register~1init"
   /api/channels/feishu/register/begin:
@@ -197,6 +213,9 @@ paths:
   # ── Embedding ──────────────────────────────────────────────────────────────
   /api/embedding-settings:
     $ref: "./domain/embedding/paths.yaml#/paths/~1api~1embedding-settings"
+  # ── Vision ─────────────────────────────────────────────────────────────────
+  /api/vision-settings:
+    $ref: "./domain/vision/paths.yaml#/paths/~1api~1vision-settings"
   # ── Sessions ───────────────────────────────────────────────────────────────
   /api/agents/{agentId}/sessions:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions"
@@ -204,6 +223,8 @@ paths:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}"
   /api/agents/{agentId}/sessions/{sessionId}/messages:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1messages"
+  /api/agents/{agentId}/sessions/{sessionId}/media/{mediaId}:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1media~1{mediaId}"
   /api/agents/{agentId}/sessions/{sessionId}/events:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1events"
   /api/agents/{agentId}/sessions/{sessionId}/context-items:
@@ -258,8 +279,20 @@ paths:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens"
   /api/users/me/tokens/{id}:
     $ref: "./domain/pat/paths.yaml#/paths/~1api~1users~1me~1tokens~1{id}"
-  /api/token-scopes:
-    $ref: "./domain/pat/paths.yaml#/paths/~1api~1token-scopes"
+
+  # ── Admin: Provisioning tokens ────────────────────────────────────────────
+  /api/admin/provisioning-tokens:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1admin~1provisioning-tokens"
+  /api/admin/provisioning-tokens/{id}:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1admin~1provisioning-tokens~1{id}"
+  /api/provisioned-users:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users"
+  /api/provisioned-users/{id}:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users~1{id}"
+  /api/provisioned-users/{id}/rotate-token:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users~1{id}~1rotate-token"
+  /api/provisioned-users/{id}/deactivate:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users~1{id}~1deactivate"
 
   # ── OAuth2 clients & authorized apps ─────────────────────────────────────────
   /api/users/me/oauth-clients:

@@ -3,19 +3,40 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createSession, getSession, getSessionWorkspace } from "@/lib/api-client/sdk.gen";
 import type { Session, Workspace } from "@/lib/types";
-import { agentsQueryOptions } from "@/lib/queries/agents";
 import { meQueryOptions } from "@/lib/queries/me";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetPopup, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useI18n } from "@/lib/i18n";
-import { InspectorPanel } from "./InspectorPanel";
 import { SessionDetail } from "./SessionDetail";
+import { WorkspacePanel } from "./WorkspacePanel";
 
 const RIGHT_MIN = 360;
 const RIGHT_MAX_RATIO = 0.45;
 const RIGHT_DEFAULT = 360;
 const RIGHT_AUTO_HIDE_WIDTH = 1180;
+
+/**
+ * Whether the workspace panel is open is a lasting user preference, not part of
+ * the address of anything, so it lives in localStorage rather than the URL.
+ */
+const WORKSPACE_OPEN_KEY = "stella-session-workspace-open";
+
+function readWorkspaceOpen(): boolean {
+  try {
+    return window.localStorage.getItem(WORKSPACE_OPEN_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeWorkspaceOpen(open: boolean) {
+  try {
+    window.localStorage.setItem(WORKSPACE_OPEN_KEY, String(open));
+  } catch {
+    // Private-mode storage failures must not break the toggle.
+  }
+}
 
 function defaultRightWidth(viewportWidth: number): number {
   if (viewportWidth >= 1800) return 440;
@@ -33,10 +54,8 @@ export function SessionView() {
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: me } = useQuery(meQueryOptions);
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
   const currentUserID = me?.id ?? "";
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
-  const currentAgent = useMemo(() => agents.find((a) => a.id === agentId), [agents, agentId]);
   const project = useMemo(
     () => (projectId ? projects.find((p) => p.id === projectId) : undefined),
     [projects, projectId],
@@ -62,7 +81,9 @@ export function SessionView() {
     const compact = viewportWidth < RIGHT_AUTO_HIDE_WIDTH;
     setCompactWorkspace(compact);
     setRightWidth(defaultRightWidth(viewportWidth));
-    setRightOpen(false);
+    // A narrow viewport hides the panel regardless; the stored preference is
+    // left untouched so it comes back on a wider screen.
+    setRightOpen(!compact && readWorkspaceOpen());
   }, []);
 
   useEffect(() => {
@@ -168,21 +189,31 @@ export function SessionView() {
     });
     const session = data;
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+    // The new thread's home is wherever it was started from: a project thread
+    // opens under its project route, never at agent level.
+    if (projectId) {
+      void navigate({
+        to: "/agents/$agentId/projects/$projectId/sessions/$sessionId",
+        params: { agentId, projectId, sessionId: session.id },
+      });
+      return;
+    }
     void navigate({
       to: "/agents/$agentId/sessions/$sessionId",
       params: { agentId, sessionId: session.id },
     });
   }, [agentId, navigate, projectId, queryClient]);
 
-  const contextTitle = project?.name ?? currentAgent?.name ?? sessionDetail?.title;
   const showWorkspace = rightOpen && !compactWorkspace;
   const toggleInspector = useCallback(() => {
     if (compactWorkspace) {
       setMobileSheetOpen(true);
       return;
     }
-    setRightOpen((v) => !v);
-  }, [compactWorkspace]);
+    const next = !rightOpen;
+    setRightOpen(next);
+    writeWorkspaceOpen(next);
+  }, [compactWorkspace, rightOpen]);
 
   return (
     <div ref={containerRef} className="relative flex h-full min-w-0 overflow-hidden bg-background">
@@ -194,7 +225,6 @@ export function SessionView() {
           onSessionUpdate={(s) => setSessionDetail(s)}
           onToggleWorkspace={toggleInspector}
           workspaceOpen={showWorkspace}
-          contextTitle={contextTitle}
         />
       </div>
 
@@ -213,13 +243,12 @@ export function SessionView() {
             className="absolute top-0 bottom-0 left-0 z-10 w-1.5 -translate-x-[3px] cursor-col-resize transition-colors hover:bg-primary/20 active:bg-primary/35"
           />
         )}
-        <InspectorPanel
+        <WorkspacePanel
           agentID={agentId}
           sessionID={sessionDetail?.id ?? ""}
-          session={sessionDetail}
           workspace={workspace}
           workspaceLoading={workspaceLoading}
-          onReloadWorkspace={loadWorkspace}
+          onReload={loadWorkspace}
           projectDir={projectDir}
         />
       </div>
@@ -235,13 +264,12 @@ export function SessionView() {
             {t("sessions.inspector.sessionWorkspace")}
           </SheetDescription>
           <div className="flex h-full flex-col overflow-hidden">
-            <InspectorPanel
+            <WorkspacePanel
               agentID={agentId}
               sessionID={sessionDetail?.id ?? ""}
-              session={sessionDetail}
               workspace={workspace}
               workspaceLoading={workspaceLoading}
-              onReloadWorkspace={loadWorkspace}
+              onReload={loadWorkspace}
               projectDir={projectDir}
             />
           </div>

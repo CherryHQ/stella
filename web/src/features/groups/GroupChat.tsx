@@ -95,6 +95,8 @@ export function GroupChat({ groupId }: Props) {
   } = useChat({
     id: `group-${groupId}`,
     transport,
+    // Batch SSE deltas: without this every token re-renders the transcript.
+    experimental_throttle: 50,
     onFinish: () => {
       void loadMessages();
       void queryClient.invalidateQueries({ queryKey: ["groups"] });

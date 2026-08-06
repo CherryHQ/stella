@@ -2,7 +2,7 @@
 title: 配置
 ---
 
-所有配置都通过Web UI进行管理。使用 `stellad server` 启动服务器，然后在浏览器中打开 [http://localhost:25678](http://localhost:25678)。所有配置存储在 PostgreSQL 中——可以使用托管在 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果内嵌 PostgreSQL runtime 尚未安装，先运行一次 `stellad postgres download-runtime`。无需编辑任何配置文件。
+大多数配置都通过 Web UI 管理。使用 `stellad server` 启动服务器，然后在浏览器中打开 [http://localhost:25678](http://localhost:25678)。所有配置存储在 PostgreSQL 中——可以使用托管在 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果内嵌 PostgreSQL runtime 尚未安装，先运行一次 `stellad postgres download`。无需编辑任何配置文件。
 
 主目录默认为 `~/.stella`，可以通过设置 `STELLA_HOME` 环境变量来更改。
 
@@ -22,6 +22,27 @@ title: 配置
 - **沙箱设置** — 代理代码执行的网络访问策略
 
 你也可以在代理工作空间 `~/.stella/agents/{agent-id}/` 中放置 `SOUL.md` 文件来覆盖系统提示。
+
+### 每个代理独立的提供商 API 密钥
+
+提供商的类型、base URL、模型目录、启用状态和默认 API 密钥仍由管理员统一管理。企业集成可以通过 Agent API，按 canonical Provider ID 为某个代理写入不同的只写 API 密钥：
+
+```json
+{
+  "name": "Enterprise Coder",
+  "model": "openai-main/gpt-4.1",
+  "provider_credentials": [{ "provider_id": "openai-main", "api_key": "write-only" }]
+}
+```
+
+- 创建代理时传入 `provider_credentials`；
+- 调用 `PATCH /api/agents/{id}/provider-credentials/{providerId}`，以 `{ "api_key": "write-only" }` 设置或轮换覆盖密钥；
+- 对同一资源调用 `DELETE`，恢复使用提供商的全局密钥；
+- 通过 List 和 Get 端点读取安全元数据。密钥永远不会返回。
+
+代理覆盖密钥优先于全局密钥，并用于该代理通过该提供商发出的每一次调用；当 Vision 选择同一提供商时，图像理解调用也遵循这一规则。被分配的用户使用该代理时会消耗覆盖密钥对应的额度，但只有管理员和代理创建者可以修改密钥。
+
+这个 API 只覆盖密钥。提供商 endpoint、类型、模型和启用状态仍由管理员控制。目前 Web UI 尚未提供每代理凭证编辑器。
 
 ## 渠道
 
@@ -64,7 +85,7 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | 路径                                    | 用途                                                                                                        |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                   | 内嵌 PostgreSQL 数据（配置、记忆、调度器）— 请备份此目录。设置 `STELLA_DATABASE_URL` 指向外部服务器时不存在 |
-| `~/.stella/pg-runtime/`                 | 下载的内嵌 PostgreSQL runtime；删除后可用 `stellad postgres download-runtime` 重建                          |
+| `~/.stella/pg-runtime/`                 | 下载的内嵌 PostgreSQL runtime；删除后可用 `stellad postgres download` 重建                                  |
 | `~/.stella/agents/{agent-id}/`          | 每个代理的工作空间、技能和覆盖文件                                                                          |
 | `~/.stella/agents/{agent-id}/SOUL.md`   | 可选的代理人格覆盖                                                                                          |
 | `~/.stella/agents/{agent-id}/SYSTEM.md` | 可选的系统提示覆盖                                                                                          |

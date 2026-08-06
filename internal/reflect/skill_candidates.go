@@ -204,6 +204,8 @@ func (e skillEvidence) validate() RejectReason {
 }
 
 func (c skillCandidate) gateText() string {
+	// Keep every model-controlled string persisted from skillCandidate in this
+	// projection. The final provenance envelope is scanned again independently.
 	var b strings.Builder
 	b.WriteString(c.Learning.Summary)
 	b.WriteString("\n")
@@ -226,13 +228,33 @@ func (c skillCandidate) gateText() string {
 		b.WriteString("\n")
 		b.WriteString(value)
 	}
+	for _, value := range c.Procedure.Prerequisites {
+		b.WriteString("\n")
+		b.WriteString(value)
+	}
 	for _, value := range c.Procedure.Steps {
+		b.WriteString("\n")
+		b.WriteString(value)
+	}
+	for _, value := range c.Procedure.DecisionPoints {
+		b.WriteString("\n")
+		b.WriteString(value)
+	}
+	for _, value := range c.Procedure.Pitfalls {
 		b.WriteString("\n")
 		b.WriteString(value)
 	}
 	for _, value := range c.Procedure.Verification {
 		b.WriteString("\n")
 		b.WriteString(value)
+	}
+	if c.SessionSkillContext != nil {
+		for _, value := range c.SessionSkillContext.UsedSkillRefs {
+			b.WriteString("\n")
+			b.WriteString(value)
+		}
+		b.WriteString("\n")
+		b.WriteString(c.SessionSkillContext.ChangeAgainstLoadedSkill)
 	}
 	return b.String()
 }

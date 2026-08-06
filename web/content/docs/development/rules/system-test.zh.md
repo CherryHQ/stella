@@ -48,9 +48,10 @@ mise run system-test
   `trixie`；
 - **macOS arm64**。
 
-在不支持的主机上，可将 `STELLA_DATABASE_URL` 指向一个带 `pg_search` 与 `pgvector` 的外部
-PostgreSQL 来手动运行服务器，或为该平台提 issue。由于套件在非受支持平台上是跳过而非失败，
-它始终是一个本地 gate，不进 CI。
+在不支持的开发主机上，可将 `STELLA_DATABASE_URL` 指向一个带 `pg_search` 与 `pgvector` 的
+外部 PostgreSQL 来手动运行服务器，或为该平台提 issue。Tag Release workflow 固定使用受支持的
+Ubuntu runner，并调用 `mise run system-test`；若该 runner 将来变得不受支持，它的 runtime 下载
+依赖会在套件执行前失败，因此发布流程不会把“不支持平台”的 skip 误算成 pass。
 
 ## 套件架构
 
@@ -60,15 +61,27 @@ PostgreSQL 来手动运行服务器，或为该平台提 issue。由于套件在
 - `readiness` —— 子进程迁移了交给它的数据库、绑定了 TCP 监听、并报告 ready。
 - `startup_and_auth` —— bootstrap 注册与 session 认证后的访问。
 - `chat_sse` —— 一次端到端 chat 轮次，以实时 SSE 流的方式消费。
+- `image_history` —— 上传图片通过 fake provider 完成 baseline 渲染和当前回答，随后持久化为
+  canonical media 与该精确 baseline；下一次回答请求不含像素、只投影 baseline，并可通过鉴权
+  历史接口逐字节加载原图。
+- `read_tool_image_history` —— fake 回答模型调用生产 `read` tool 读取上传的 PNG；tool image 经由
+  fake baseline VLM，在同一 tool loop 的后续回答中仍携带 pixels，持久化为 canonical tool
+  history，并在下一用户回合只投影 baseline。
 - `chat_provider_error` —— 一次失败的模型调用以带内 error 帧的方式出现在发送流上，随后是
   finish 与 [DONE]——该轮次绝不挂起。
+- `webhook_sync_persistent` —— 两次无认证 capability 调用同步返回 fake-model 输出，并跨请求
+  复用同一个持久 Webhook session。
 - `goal_lifecycle` —— 一个 Goal 从创建被派发器的异步 worker 驱动到自主验收。
+- `github_webhook_compatibility` —— 一个 GitHub 风格的 JSON push 投递通过无 cookie jar 的普通个人 Webhook
+  发送，收到异步 `202`，并且其原始 payload 恰好一次、完整地抵达 fake model。
+- `scheduler_one_time_job_survives_forced_restart` —— 持久化一个未来触发的一次性 chat job，在到期前
+  强杀服务器，再由连接同一数据库的替代进程恰好执行并退役该 job 一次。
 - `graceful_drain` —— 在一个轮次仍在途中时发送 SIGTERM：`/readyz` 从 ready 翻转，一个 attach
   订阅被 drain 取消，被钉住的轮次仍在其流上完整收尾（全文、finish、[DONE]），进程以 0 退出。
   它最后运行，因为会消费掉共享服务器。
 
-`startup_and_auth` 还覆盖个人访问令牌（PAT）的 bearer 生命周期：一个 session 铸造出带 scope 的
-PAT，仅凭该令牌即可认证一条 scope 可达的路由，撤销后同一个 bearer 会 fail closed。
+`startup_and_auth` 还覆盖个人访问令牌（PAT）的 bearer 生命周期：一个 session 铸造出一个
+PAT，仅凭该令牌即可用其所有者当前的权限认证普通 API 路由，撤销后同一个 bearer 会 fail closed。
 
 每个 fixture（provider、agent、user、goal）都以 harness 的 `runID` 作用域隔离，因此没有任何
 journey 依赖另一个 journey 的业务数据 —— 唯一的复用是共享的 bootstrap 用户与 cookie jar。
@@ -88,8 +101,8 @@ journey 依赖另一个 journey 的业务数据 —— 唯一的复用是共享�
 fake **绝不根据 prompt 文案分支** —— 只有稳定的请求字段（model、tool 名、`goal_control` 的
 action 枚举）才选择响应，所以普通的 prompt 改动永远不会变成系统测试失败。它有两种脚本模式：
 
-- **FIFO 轮次**（`enqueueText`）—— 一个按到达顺序回放的有序队列；由 `chat_sse` 使用。
-  未脚本化的请求会让测试失败。
+- **FIFO 轮次**（`enqueueText`）—— 一个按到达顺序回放的有序队列；由 `chat_sse`、
+  `image_history` 和 `read_tool_image_history` 使用。未脚本化的请求会让测试失败。
 - **goal_control 变体匹配**（`enqueueGoalControl`）—— 响应按服务器在请求 tool schema 中广告
   的 `goal_control` action（`decompose`、`submit`）作键，按该稳定字段而非到达顺序匹配；由
   `goal_lifecycle` 使用。
@@ -108,9 +121,11 @@ action 枚举）才选择响应，所以普通的 prompt 改动永远不会变�
 
 ## 诊断
 
-服务器日志写到仓库内的 `dist/logs/system-test/server-<runid>-a<attempt>.log`（运行结束后仍
-保留），因此失败信息始终能指向一个真实文件。失败会附带该日志的尾部；goal journey 还会额外
-dump goal 树、它的 attempts 以及 fake 的请求日志，使卡住的异步运行无需重跑即可诊断。
+服务器日志写到仓库内的
+`dist/logs/system-test/server-<runid>-g<generation>-a<attempt>.log`（运行结束后仍保留），
+因此 restart journey 会保留每一代进程，失败信息也始终能指向一个真实文件。失败会附带相关日志
+的尾部；goal 与 scheduler restart journey 还会额外 dump 持久化行和 fake 请求日志，使卡住的
+异步任务无需重跑即可诊断。
 
 ## 何时新增一个系统测试 journey
 

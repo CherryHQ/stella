@@ -1,5 +1,10 @@
 import type { CustomModelForm, ModelConfig, Provider } from "@/lib/types";
 
+// A new model declares no input modality by default. `input` is no longer
+// advisory: an explicit list without "image" now means the model CANNOT see, so
+// seeding "text" would silently turn image understanding off for every custom
+// model an operator adds. Empty means "undeclared", which fails open. The field
+// placeholder ("text, image") carries the hint instead.
 export function createCustomModelForm(): CustomModelForm {
   return {
     original_id: "",
@@ -7,7 +12,7 @@ export function createCustomModelForm(): CustomModelForm {
     name: "",
     enabled: true,
     reasoning: false,
-    input: "text",
+    input: "",
     output: "text",
     context_window: "",
     max_tokens: "",

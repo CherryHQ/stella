@@ -848,6 +848,7 @@ func TestTranscriptHandlersStayTransportOnly(t *testing.T) {
 
 	handlers := map[string]bool{
 		"GetSessionMessages":     true,
+		"GetSessionMedia":        true,
 		"GetSessionContextItems": true,
 		"GetSessionSummary":      true,
 	}
@@ -1033,8 +1034,7 @@ func TestSystemPromptHandlerStaysTransportOnly(t *testing.T) {
 const pluginImplPrefix = "github.com/CherryHQ/stella/plugins/"
 
 // serverPluginImportAllowlist is empty: issue #712 Item 4 removed every
-// internal/server import of a platform plugin implementation. The webhook config
-// decode now routes through pluginhost.DecodeWebhookRunConfig, and the WeChat
+// internal/server import of a platform plugin implementation. The WeChat
 // QR/registration handlers route through the server.WeixinRegistrar port whose
 // concrete adapter lives in the composition root. A NEW plugins/* import in any
 // non-test internal/server file must not reappear — depend on the plugin port
@@ -1146,6 +1146,8 @@ var resourceAuthHelperAllowlist = map[string]bool{
 	"authorizeDBSkillRead":      true, // skills_scoped.go — routes a single DB-skill read through the skillaccess PEP
 	"requireAuth":               true, // middleware.go — authentication (not resource authz)
 	"requireAdmin":              true, // middleware.go — admin gate
+	"requireInteractiveAdmin":   true, // middleware.go — sole session-only credential-lifecycle gate
+	"requireProvisioningBearer": true, // middleware.go — sole KindProvisioning gate for provisioned users
 	"requireAgentAccess":        true, // skills_scoped.go — agent access gate
 	"requireAgentUse":           true, // skills_scoped.go — agent execute gate
 	"requireAgentManage":        true, // skills_scoped.go — agent manage gate

@@ -8,32 +8,30 @@ import {
   listProfileMemories,
   listSchedulerJobs,
 } from "@/lib/api-client/sdk.gen";
-import type { ComponentsSkillList, ListAgentSkillsData } from "@/lib/api-client/types.gen";
 import type { Agent, Skill, Tool, UserMemory } from "@/lib/types";
 
-type AgentSkillScopeGroup = NonNullable<ListAgentSkillsData["query"]>["scope_group"];
+const CLAWHUB_PAGE_SIZE = 30;
 
-export interface AgentSkillsPageFilters {
-  agentId: string;
-  projectId?: string;
-  sessionId?: string;
-  scopeGroup?: AgentSkillScopeGroup;
-  q?: string;
-}
-
-const AGENT_SKILLS_PAGE_SIZE = 12;
-
-export function clawhubSkillsOptions(query: string) {
+// The marketplace is browsed by scrolling, so it pages. The search term is part
+// of the key: a new term is a new list that starts from page one instead of
+// appending onto the previous term's pages.
+export function clawhubSkillsInfiniteQueryOptions(query: string) {
   const q = query.trim();
-  return queryOptions({
-    queryKey: ["clawhub-skills", q],
-    queryFn: async () => {
+  return infiniteQueryOptions({
+    queryKey: ["clawhub-skills", q, CLAWHUB_PAGE_SIZE],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
       const { data } = await listClawhubSkills({
-        query: { ...(q ? { q } : {}), page_size: 50 },
+        query: {
+          ...(q ? { q } : {}),
+          page_size: CLAWHUB_PAGE_SIZE,
+          ...(pageParam ? { page_token: pageParam } : {}),
+        },
         throwOnError: true,
       });
-      return data?.skills ?? [];
+      return data;
     },
+    getNextPageParam: (last) => last.next_page_token ?? undefined,
   });
 }
 
@@ -97,42 +95,6 @@ export function agentSkillsOptions(agentId: string) {
     },
     enabled: !!agentId,
   });
-}
-
-export function agentSkillsInfiniteQueryOptions(filters: AgentSkillsPageFilters) {
-  const q = filters.q?.trim() ?? "";
-  return infiniteQueryOptions({
-    queryKey: [
-      "agent-skills-management",
-      filters.agentId,
-      filters.projectId ?? "",
-      filters.sessionId ?? "",
-      filters.scopeGroup ?? "all",
-      q,
-      AGENT_SKILLS_PAGE_SIZE,
-    ],
-    initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) => {
-      const { data } = await listAgentSkills({
-        path: { id: filters.agentId },
-        query: {
-          ...(filters.scopeGroup ? { scope_group: filters.scopeGroup } : {}),
-          ...(q ? { q } : {}),
-          page_size: AGENT_SKILLS_PAGE_SIZE,
-          ...(filters.sessionId ? { session_id: filters.sessionId } : {}),
-          ...(pageParam ? { page_token: pageParam } : {}),
-        },
-        throwOnError: true,
-      });
-      return data;
-    },
-    getNextPageParam: (lastPage) => lastPage.next_page_token ?? undefined,
-    enabled: !!filters.agentId,
-  });
-}
-
-export function flattenAgentSkillPages(pages?: ComponentsSkillList[]) {
-  return pages?.flatMap((page) => page.skills) ?? [];
 }
 
 export function agentMemoriesOptions(agentId: string) {

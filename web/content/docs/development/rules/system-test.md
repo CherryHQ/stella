@@ -54,10 +54,12 @@ resource — it does not fail. Published platforms:
   `bookworm`, `noble`, and `trixie`;
 - **macOS arm64**.
 
-On an unsupported host, point `STELLA_DATABASE_URL` at an external PostgreSQL with
-`pg_search` and `pgvector` to run the server manually, or file an issue for the
-platform. Because the suite is skipped rather than failed off-platform, it stays a
-local gate and is not run in CI.
+On an unsupported development host, point `STELLA_DATABASE_URL` at an external
+PostgreSQL with `pg_search` and `pgvector` to run the server manually, or file an
+issue for the platform. The tag-triggered release workflow pins a supported
+Ubuntu runner and invokes `mise run system-test`; its runtime-download dependency
+fails before the suite if that runner ever becomes unsupported, so publication
+cannot treat an unsupported-platform skip as a pass.
 
 ## Suite architecture
 
@@ -69,18 +71,31 @@ and one shared database serve them all in sequence:
   listener, and reports ready.
 - `startup_and_auth` — bootstrap registration and session-authenticated access.
 - `chat_sse` — one chat turn end to end, consumed as a live SSE stream.
+- `agent_provider_credentials` — three Agents share one global fake Provider;
+  two send distinct encrypted overrides, one sends the global key, and live
+  rotation/delete changes the next request without changing Agent model state.
+- `image_history` — an uploaded image reaches the fake provider for baseline rendering and the active answer turn, persists as canonical media plus that exact baseline, projects as text with no pixels on the next answer request, and reloads byte-identically through the authenticated history endpoint.
+- `read_tool_image_history` — the fake answer model calls the production `read` tool on an uploaded PNG; the resulting tool image passes through the fake baseline VLM, remains pixel-active for the tool-loop follow-up, persists as canonical tool history, and becomes baseline-only on the next user turn.
 - `chat_provider_error` — a failed model call surfaced as an in-band error frame
   on the send stream, then finish and [DONE] — the turn never hangs.
+- `webhook_sync_persistent` — two unauthenticated capability calls return
+  synchronous fake-model output and reuse one durable Webhook session.
 - `goal_lifecycle` — a Goal driven from creation to autonomous acceptance by the
   dispatcher's async workers.
+- `github_webhook_compatibility` — a GitHub-shaped JSON push delivery, sent
+  without a cookie jar to an ordinary personal Webhook, receives async `202` and
+  reaches the fake model exactly once with its payload intact.
+- `scheduler_one_time_job_survives_forced_restart` — a future one-time chat job
+  is persisted, the server is force-killed before it is due, and a replacement
+  process on the same database executes and retires that exact job once.
 - `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
   from ready, an attach subscription is drain-cancelled, the pinned turn still
   completes on its stream (full text, finish, [DONE]), and the process exits 0.
   Runs last, since it consumes the shared server.
 
 `startup_and_auth` also covers the personal-access-token bearer lifecycle: a
-session mints a scoped PAT, the token alone authenticates a scope-reachable
-route, and revoking it makes the same bearer fail closed.
+session mints a PAT, the token alone authenticates an ordinary API route with
+its owner's current authority, and revoking it makes the same bearer fail closed.
 
 Every fixture (provider, agent, user, goal) is scoped by the harness `runID`, so
 no journey depends on another's business data — a shared bootstrap user and cookie
@@ -105,7 +120,7 @@ tool names, the `goal_control` action enum) select a response, so ordinary promp
 edits can never turn into a system-test failure. It has two scripting modes:
 
 - **FIFO turns** (`enqueueText`) — an ordered queue replayed in arrival order;
-  used by `chat_sse`. An unscripted request fails the test.
+  used by `chat_sse`, `image_history`, and `read_tool_image_history`. An unscripted request fails the test.
 - **goal_control variant match** (`enqueueGoalControl`) — responses keyed by the
   `goal_control` action the server advertises in the request's tool schema
   (`decompose`, `submit`), matched on that stable field rather than arrival order;
@@ -127,11 +142,13 @@ and no unscripted request," never an exact call count.
 
 ## Diagnostics
 
-Server logs are written to `dist/logs/system-test/server-<runid>-a<attempt>.log`
-in the repo (they survive the run), so a failure message can always point at a
-live file. Failures attach a tail of that log; the goal journey additionally dumps
-the goal tree, its attempts, and the fake's request log, so a stuck async run is
-diagnosable without a rerun.
+Server logs are written to
+`dist/logs/system-test/server-<runid>-g<generation>-a<attempt>.log` in the repo
+(they survive the run), so restart journeys retain every process generation and
+a failure message can always point at a live file. Failures attach a tail of the
+relevant log; the goal and scheduler-restart journeys additionally dump their
+durable rows and fake request logs, so stuck async work is diagnosable without a
+rerun.
 
 ## When to add a system-test journey
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { queryOptions, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
   abandonGoal,
   listSchedulerJobRuns,
@@ -12,6 +12,7 @@ import type { SchedulerJob } from "@/lib/types";
 import { goalChildrenOptions, goalsOptions } from "@/lib/queries/goals";
 import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
 import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
+import { agentProjectsOptions } from "@/lib/queries/projects";
 import { workflowsOptions, workflowRunsOptions } from "@/lib/queries/workflows";
 import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
@@ -22,6 +23,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -30,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { jobNextRunAt } from "@/features/goals/types";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   ProgressBar,
   blockReasonLabel,
@@ -74,16 +82,52 @@ export function OverviewPage() {
     agentId: string;
     projectId?: string;
   };
+  const projectFilter = (useSearch({ strict: false }) as { project_id?: string }).project_id ?? "";
   const navigate = useNavigate();
   const { setHeaderActions } = useAppShell();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
 
-  const { data: goals = [] } = useQuery(goalsOptions(agentId));
+  const { data: allGoals = [] } = useQuery(goalsOptions(agentId));
   const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
+  const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
+
+  // Goals already carry a project scope, so the agent-level hub can narrow to
+  // one project without a second endpoint. Inside a project route the scope is
+  // fixed by the URL and the picker would be noise.
+  const scopeProjectId = projectId ?? projectFilter;
+  const goals = useMemo(
+    () =>
+      scopeProjectId ? allGoals.filter((goal) => goal.project_id === scopeProjectId) : allGoals,
+    [allGoals, scopeProjectId],
+  );
 
   useEffect(() => {
     setHeaderActions(
       <div className="flex items-center gap-1">
+        {!projectId && projects.length > 0 && (
+          <Select
+            value={projectFilter}
+            onValueChange={(value) =>
+              void navigate({
+                to: "/agents/$agentId/goals",
+                params: { agentId },
+                search: { project_id: (value as string) || undefined },
+              })
+            }
+          >
+            <SelectTrigger size="sm" className="w-40">
+              <SelectValue placeholder={t("goals.allProjects")} />
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="">{t("goals.allProjects")}</SelectItem>
+              {projects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        )}
         <Button
           render={
             <Link
@@ -103,7 +147,7 @@ export function OverviewPage() {
     return () => {
       setHeaderActions(null);
     };
-  }, [setHeaderActions, t, agentId, projectId]);
+  }, [setHeaderActions, t, agentId, navigate, projectFilter, projectId, projects]);
 
   const needsYou = useMemo(
     () =>
@@ -327,7 +371,6 @@ export function OverviewPage() {
           </section>
         )}
       </div>
-      <ToastContainer messages={toasts} />
     </div>
   );
 }
@@ -337,14 +380,14 @@ function StatCard({ num, label, tone }: { num: number; label: string; tone?: "at
     <div
       className={cn(
         "rounded-xl border border-border px-4 py-3.5",
-        tone === "attn" && "border-chart-4/30 bg-chart-4/[0.07]",
+        tone === "attn" && "border-warning/30 bg-warning/[0.07]",
       )}
     >
       <div
         className={cn(
           "text-[26px] font-semibold tracking-tight",
-          tone === "attn" && "text-chart-4",
-          tone === "live" && num > 0 && "text-chart-3",
+          tone === "attn" && "text-warning-foreground",
+          tone === "live" && num > 0 && "text-success",
         )}
       >
         {num}
@@ -479,7 +522,7 @@ function NeedsYouCard({
       onKeyDown={(e) => e.target === e.currentTarget && e.key === "Enter" && onOpen()}
       className={cn(
         "cursor-pointer rounded-xl border border-border border-l-[3px] px-4 py-3.5 hover:bg-muted/40",
-        isReview ? "border-l-primary" : "border-l-chart-4",
+        isReview ? "border-l-primary" : "border-l-warning",
       )}
     >
       <div className="text-xs font-medium text-muted-foreground">{hookLabel(t, d)}</div>
@@ -686,10 +729,10 @@ function RunSparkline({ runs }: { runs: JobRun[] }) {
           className={cn(
             "size-2 rounded-sm",
             run.status === "running"
-              ? "animate-pulse bg-chart-4"
+              ? "animate-pulse bg-warning"
               : run.status === "failed" || run.status === "error"
                 ? "bg-destructive"
-                : "bg-chart-3/85",
+                : "bg-success/85",
           )}
         />
       ))}
@@ -732,7 +775,7 @@ function GoalCard({ goal: d, onOpen }: { goal: ComponentsGoal; onOpen: () => voi
           <span>{t("goals.requiredOf", { accepted: r.accepted, total: r.total })}</span>
         )}
         {r.blocked > 0 && (
-          <span className="text-chart-4">{t("goals.rollupBlocked", { count: r.blocked })}</span>
+          <span className="text-warning">{t("goals.rollupBlocked", { count: r.blocked })}</span>
         )}
         {r.active > 0 && <span>{t("goals.rollupActive", { count: r.active })}</span>}
         <span>{t("hub.updatedAt", { time: formatTime(d.updated_at) })}</span>

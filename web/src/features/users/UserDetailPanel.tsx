@@ -245,7 +245,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
               variant="ghost"
               size="xs"
               onClick={() => activeMutation.mutate(!user.is_active)}
-              className={user.is_active ? "text-destructive" : "text-success-foreground"}
+              className={user.is_active ? "text-destructive-foreground" : "text-success-foreground"}
             >
               {user.is_active ? t("users.deactivate") : t("users.activate")}
             </Button>
@@ -274,7 +274,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
                   onClick={() => roleMutation.mutate("user")}
                   disabled={user.id === currentUserId}
                   title={user.id === currentUserId ? t("users.cannotDemoteSelf") : undefined}
-                  className="text-destructive"
+                  className="text-destructive-foreground"
                 >
                   {t("users.demoteUser")}
                 </Button>
@@ -312,7 +312,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
                           onConfirm: () => unlinkMutation.mutate(ident.id),
                         })
                       }
-                      className="text-destructive"
+                      className="text-destructive-foreground"
                     >
                       {t("common.remove")}
                     </Button>
@@ -366,7 +366,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
                       agentsMutation.mutate(newIds);
                       showToast(t("users.agentRemoved"));
                     }}
-                    className="text-destructive"
+                    className="text-destructive-foreground"
                   >
                     {t("common.remove")}
                   </Button>
@@ -479,7 +479,7 @@ export function UserDetailPanel({ userId }: UserDetailPanelProps) {
                           onConfirm: () => deleteMemoryMutation.mutate(mem.agent_id),
                         })
                       }
-                      className="text-muted-foreground hover:text-destructive"
+                      className="text-muted-foreground hover:text-destructive-foreground"
                     >
                       {t("common.delete")}
                     </Button>

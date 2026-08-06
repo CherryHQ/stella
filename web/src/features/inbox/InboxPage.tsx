@@ -1,14 +1,14 @@
 import { useMemo } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink } from "lucide-react";
-import { AgentAppSidebar } from "@/features/sessions/AgentAppSidebar";
+import { ConversationSidebar } from "@/features/sessions/ConversationSidebar";
 import { AppShell } from "@/layouts/AppShell";
 import { useI18n } from "@/lib/i18n";
-import { agentsQueryOptions } from "@/lib/queries/agents";
 import { inboxInfiniteQueryOptions } from "@/lib/queries/inbox";
 import type { InboxItem } from "@/lib/api-client/types.gen";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/RouteFallback";
 
 const kindLabels = {
   blocked: "inbox.kind.blocked",
@@ -23,9 +23,6 @@ const sourceLabels = {
 
 export function InboxPage() {
   const { t } = useI18n();
-  const navigate = useNavigate();
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
-  const activeAgent = agents[0];
   const inboxQuery = useInfiniteQuery(inboxInfiniteQueryOptions());
   const isLoading = inboxQuery.isLoading;
   const items = useMemo(
@@ -41,21 +38,9 @@ export function InboxPage() {
     [items],
   );
 
-  const handleAgentChange = (agentId: string) => {
-    void navigate({ to: "/agents/$agentId", params: { agentId } });
-  };
-
   return (
     <AppShell
-      sidebar={
-        activeAgent ? (
-          <AgentAppSidebar
-            agents={agents}
-            agentId={activeAgent.id}
-            onAgentChange={handleAgentChange}
-          />
-        ) : null
-      }
+      sidebar={<ConversationSidebar />}
       title={
         <div className="min-w-0">
           <h1 className="truncate text-[15px] font-semibold">{t("inbox.title")}</h1>
@@ -74,6 +59,15 @@ export function InboxPage() {
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {isLoading ? (
             <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+          ) : inboxQuery.isError ? (
+            // A failed fetch must never reach the branch below: a green check
+            // over "Nothing needs attention." is the most dangerous thing this
+            // page can say when the server is down.
+            <ErrorState
+              title={t("route.error.title")}
+              description={t("route.loadFailed")}
+              onRetry={() => void inboxQuery.refetch()}
+            />
           ) : items.length === 0 ? (
             <div className="flex h-full items-center justify-center">
               <div className="text-center">
@@ -120,7 +114,7 @@ function InboxRow({ item }: { item: InboxItem }) {
   const { t } = useI18n();
   const icon =
     item.kind === "failed" ? (
-      <CircleAlert className="size-4 text-destructive" />
+      <CircleAlert className="size-4 text-destructive-foreground" />
     ) : (
       <AlertCircle className="size-4 text-primary" />
     );

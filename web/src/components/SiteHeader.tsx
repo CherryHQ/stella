@@ -1,20 +1,12 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  FileText,
-  LogOut,
-  Menu as MenuIcon,
-  Monitor,
-  Moon,
-  Sun,
-  type LucideIcon,
-} from "lucide-react";
+import { FileText, LogOut, Menu as MenuIcon } from "lucide-react";
 import { siGithub } from "simple-icons";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { meQueryOptions } from "@/lib/queries/me";
 import { Separator } from "@/components/ui/separator";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -27,19 +19,9 @@ import {
 } from "@/components/ui/menu";
 import { Sheet, SheetTrigger, SheetPopup, SheetHeader } from "@/components/ui/sheet";
 import { Popover, PopoverTrigger, PopoverPopup } from "@/components/ui/popover";
-import { Slider } from "@/components/ui/slider";
-import { cn } from "@/lib/utils";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
-import {
-  applyTheme,
-  getStoredTheme,
-  setStoredTheme,
-  accentSwatch,
-  ACCENT_PRESETS,
-  DEFAULT_ACCENT_HUE,
-  type ThemeAppearance,
-  type ThemeSettings,
-} from "@/lib/theme";
+import { APPEARANCE_ICONS, ThemeControls } from "@/components/ThemeControls";
+import { getStoredTheme, type ThemeAppearance } from "@/lib/theme";
 
 export function SiteHeader() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -62,7 +44,7 @@ export function SiteHeader() {
     <header className="border-b border-border h-14 flex items-center px-6 bg-background shrink-0 relative z-30">
       <Link to="/" className="flex items-center gap-2 shrink-0">
         <img src="/stella-monogram.svg" alt="" width={24} height={24} className="rounded-sm" />
-        <span className="font-serif italic text-xl tracking-tight select-none">stella</span>
+        <span className="font-semibold text-xl tracking-tight select-none">stella</span>
       </Link>
 
       {/* Desktop nav — app items first, then utility */}
@@ -137,7 +119,7 @@ export function SiteHeader() {
                   height={24}
                   className="rounded-sm"
                 />
-                <span className="font-serif italic text-xl tracking-tight select-none">stella</span>
+                <span className="font-semibold text-xl tracking-tight select-none">stella</span>
               </Link>
             </SheetHeader>
             <nav className="flex flex-col px-4 pb-4">
@@ -182,49 +164,12 @@ export function SiteHeader() {
   );
 }
 
-const APPEARANCE_ICONS: Record<ThemeAppearance, LucideIcon> = {
-  system: Monitor,
-  light: Sun,
-  dark: Moon,
-};
-
 // Appearance (system / light / dark) and accent color in one popover — they're
 // both "how the app looks", so a single control beats two header buttons.
 export function ThemeMenu() {
   const { t } = useI18n();
-  const [theme, setTheme] = useState<ThemeSettings>(() => getStoredTheme());
-
-  useEffect(() => {
-    if (theme.appearance !== "system") return;
-
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    // Re-read full settings so a system-theme flip still honors the chosen accent.
-    const update = () => applyTheme(getStoredTheme());
-    media.addEventListener("change", update);
-
-    return () => media.removeEventListener("change", update);
-  }, [theme]);
-
-  function update(next: ThemeSettings) {
-    setTheme(next);
-    setStoredTheme(next);
-  }
-
-  function setAppearance(appearance: ThemeAppearance) {
-    update({ ...getStoredTheme(), appearance });
-  }
-
-  function setHue(next: number | undefined) {
-    // Treat the default teal hue as "unset" so we fall back to tokens.css and
-    // hide the reset affordance.
-    const norm = next === undefined ? undefined : ((next % 360) + 360) % 360;
-    const accentHue = norm === DEFAULT_ACCENT_HUE ? undefined : norm;
-    update({ ...getStoredTheme(), accentHue });
-  }
-
-  const TriggerIcon = APPEARANCE_ICONS[theme.appearance];
-  const current = theme.accentHue ?? DEFAULT_ACCENT_HUE;
-  const appearances: ThemeAppearance[] = ["system", "light", "dark"];
+  const [appearance] = useState<ThemeAppearance>(() => getStoredTheme().appearance);
+  const TriggerIcon = APPEARANCE_ICONS[appearance];
 
   return (
     <Popover>
@@ -236,81 +181,7 @@ export function ThemeMenu() {
         <TriggerIcon className="size-4" />
       </PopoverTrigger>
       <PopoverPopup align="end" sideOffset={8} className="w-68 space-y-4 p-4">
-        <div className="space-y-2.5">
-          <span className="px-0.5 text-xs font-medium text-muted-foreground">
-            {t("header.appearance")}
-          </span>
-          <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1.5">
-            {appearances.map((appearance) => {
-              const ItemIcon = APPEARANCE_ICONS[appearance];
-              const active = theme.appearance === appearance;
-              return (
-                <button
-                  key={appearance}
-                  type="button"
-                  onClick={() => setAppearance(appearance)}
-                  className={cn(
-                    "flex flex-col items-center gap-1.5 rounded-lg py-2.5 text-xs whitespace-nowrap transition-colors",
-                    active
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <ItemIcon className="size-4" />
-                  {appearance === "system"
-                    ? t("header.system")
-                    : appearance === "light"
-                      ? t("header.light")
-                      : t("header.dark")}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <Separator />
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between px-0.5">
-            <span className="text-xs font-medium text-muted-foreground">{t("header.accent")}</span>
-            {theme.accentHue !== undefined && (
-              <button
-                type="button"
-                onClick={() => setHue(undefined)}
-                className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {t("header.resetAccent")}
-              </button>
-            )}
-          </div>
-          <div className="grid grid-cols-7 gap-1.5">
-            {ACCENT_PRESETS.map((p) => {
-              const active = current === p.hue;
-              return (
-                <button
-                  key={p.hue}
-                  type="button"
-                  onClick={() => setHue(p.hue)}
-                  title={p.name}
-                  aria-label={p.name}
-                  className={cn(
-                    "size-6 rounded-full transition-transform hover:scale-110",
-                    active && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-popover",
-                  )}
-                  style={{ background: accentSwatch(p.hue) }}
-                />
-              );
-            })}
-          </div>
-          <div className="px-0.5 pt-1">
-            <Slider
-              min={0}
-              max={359}
-              value={current}
-              onValueChange={(v) => setHue(Array.isArray(v) ? v[0] : v)}
-            />
-          </div>
-        </div>
+        <ThemeControls />
       </PopoverPopup>
     </Popover>
   );
@@ -425,21 +296,33 @@ export function UserMenu() {
   }
 
   const nextLocaleLabel = locale === "en" ? t("locale.zh") : t("locale.en");
+  // Same identity treatment as the sidebar footer: show the human name, keep the
+  // username as the secondary line so the login identity stays discoverable.
+  const name = me.name?.trim();
+  const displayName = name || me.username;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger className="cursor-pointer flex items-center p-1 rounded-lg hover:bg-accent transition-colors outline-none ml-1">
         <Avatar className="size-7">
+          {me.avatar_url && <AvatarImage src={me.avatar_url} alt="" />}
           <AvatarFallback className="text-xs font-mono font-semibold">
-            {me.username[0]?.toUpperCase()}
+            {displayName[0]?.toUpperCase()}
           </AvatarFallback>
         </Avatar>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={8} className="w-52">
         <DropdownMenuGroup>
           <DropdownMenuLabel>
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium text-foreground">{me.username}</span>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-sm font-medium text-foreground" title={displayName}>
+                {displayName}
+              </span>
+              {name && (
+                <span className="truncate text-xs text-muted-foreground" title={me.username}>
+                  {me.username}
+                </span>
+              )}
               {me.is_admin && <span className="text-xs text-muted-foreground">admin</span>}
             </div>
           </DropdownMenuLabel>
@@ -482,7 +365,10 @@ export function UserMenu() {
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={logout}>
+          <DropdownMenuItem
+            className="text-destructive-foreground focus:text-destructive-foreground"
+            onClick={logout}
+          >
             <LogOut className="size-4" />
             {t("header.logout")}
           </DropdownMenuItem>

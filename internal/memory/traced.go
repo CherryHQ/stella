@@ -29,19 +29,14 @@ func Unwrap(p Provider) Provider {
 
 // WithTracing wraps a Provider to emit PostMemoryCall hooks after each operation.
 // hooksFn is called on each operation to get the current HookSet; it may return nil.
-// The returned Provider implements all optional capability interfaces, including
-// compaction, search, profile/session/review operations, group event ingestion,
-// cursor commits, and Group Fact reads. Methods for
-// capabilities not supported by the inner provider return sensible zero values or errors.
-// Use [Unwrap] to check the inner provider's actual capabilities.
+// The returned Provider implements optional capability interfaces. Unsupported
+// capabilities return sensible zero values or errors. Use [Unwrap] to check the
+// inner provider directly.
 //
 // The Detail field is always populated with content previews. The trace hook
 // decides whether to emit it based on log level (see [LevelTrace]).
 func WithTracing(provider Provider, hooksFn func() *hooks.HookSet) Provider {
-	return &tracedProvider{
-		inner:   provider,
-		hooksFn: hooksFn,
-	}
+	return &tracedProvider{inner: provider, hooksFn: hooksFn}
 }
 
 // tracedProvider wraps a Provider and emits PostMemoryCall hooks.

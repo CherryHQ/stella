@@ -12,8 +12,18 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import { formatTime } from "@/lib/time";
 import type { Agent, Skill } from "@/lib/types";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
@@ -25,9 +35,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n";
-import type { MessageKey } from "@/lib/i18n/messages";
+import { SCOPE_DESC_KEY, SCOPE_LABEL_KEY, isSkillReadOnly } from "@/lib/skill-scope";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { ScopedSkillScope } from "@/lib/queries/skills";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
@@ -39,7 +49,7 @@ import {
   SettingsSection,
 } from "@/features/settings/SettingsCardGrid";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
-import { Plus, Puzzle } from "lucide-react";
+import { Lock, Plus, Puzzle } from "lucide-react";
 
 type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
@@ -54,14 +64,19 @@ function toScope(owner: ScopeOwner, range: ScopeRange): ScopedSkillScope {
   return owner === "global" ? "system" : "user";
 }
 
-// One hue per scope, drawn from the chart palette tokens. Reused by the list
-// group rails, the row icon tint, and the precedence ladder so a scope reads as
-// the same color everywhere.
-const SCOPE_COLOR: Record<ScopedSkillScope, { dot: string; text: string; soft: string }> = {
-  user: { dot: "bg-chart-2", text: "text-chart-2", soft: "bg-chart-2/12" },
-  user_agent: { dot: "bg-chart-1", text: "text-chart-1", soft: "bg-chart-1/12" },
-  system: { dot: "bg-chart-4", text: "text-chart-4", soft: "bg-chart-4/12" },
-  system_agent: { dot: "bg-chart-5", text: "text-chart-5", soft: "bg-chart-5/12" },
+// One hue per scope, drawn from the chart palette tokens: a scope is a category,
+// which is what `chart-*` means. Reused by the list group rails, the row icon and
+// the precedence ladder so a scope reads as the same color everywhere.
+//
+// There is deliberately no `text` entry. These tokens are tuned to be plotted as
+// areas, and as words they run 2.4-3.8:1 — `chart-4` as a scope label measured
+// 2.35:1. The dot carries the hue; the label is read, so it stays on
+// `--foreground` and the active row is marked by weight and its own tint.
+const SCOPE_COLOR: Record<ScopedSkillScope, { dot: string; soft: string }> = {
+  user: { dot: "bg-chart-2", soft: "bg-chart-2/12" },
+  user_agent: { dot: "bg-chart-1", soft: "bg-chart-1/12" },
+  system: { dot: "bg-chart-4", soft: "bg-chart-4/12" },
+  system_agent: { dot: "bg-chart-5", soft: "bg-chart-5/12" },
 };
 
 // Render order for the grouped skill list.
@@ -71,20 +86,6 @@ const SCOPE_ORDER: ScopedSkillScope[] = ["user", "user_agent", "system", "system
 // specific one at runtime. Drives the precedence ladder so the override chain is
 // visible.
 const SCOPE_PRIORITY: ScopedSkillScope[] = ["user_agent", "user", "system_agent", "system"];
-
-const SCOPE_LABEL_KEY: Record<ScopedSkillScope, MessageKey> = {
-  user: "skills.scope.user.label",
-  user_agent: "skills.scope.userAgent.label",
-  system: "skills.scope.system.label",
-  system_agent: "skills.scope.systemAgent.label",
-};
-
-const SCOPE_DESC_KEY: Record<ScopedSkillScope, MessageKey> = {
-  user: "skills.scope.user.desc",
-  user_agent: "skills.scope.userAgent.desc",
-  system: "skills.scope.system.desc",
-  system_agent: "skills.scope.systemAgent.desc",
-};
 
 export function SkillsPage() {
   const { t } = useI18n();
@@ -113,7 +114,11 @@ export function SkillsPage() {
   const [detailFileEncoding, setDetailFileEncoding] = useState<string | undefined>(undefined);
   const [detailFileLoading, setDetailFileLoading] = useState(false);
 
-  const { toasts, showToast } = useToast();
+  // One confirm dialog serves the whole list: a row menu item only has to name
+  // its target, so there is no need for a dialog instance per row.
+  const [pendingDelete, setPendingDelete] = useState<Skill | null>(null);
+
+  const { showToast } = useToast();
 
   const openAddSheet = useCallback(() => {
     setAddMode("install");
@@ -254,7 +259,6 @@ export function SkillsPage() {
 
   const deleteSkill = useCallback(
     async (skill: Skill) => {
-      if (!window.confirm(t("skills.deleteConfirm", { name: skill.name }))) return;
       try {
         await deleteScopedSkillRequest({ path: { id: skill.id }, throwOnError: true });
         showToast(t("skills.deleted"));
@@ -345,11 +349,7 @@ export function SkillsPage() {
                   }`}
                 >
                   <span className={`size-2.5 shrink-0 rounded-full ${SCOPE_COLOR[scope].dot}`} />
-                  <span
-                    className={
-                      active ? `font-semibold ${SCOPE_COLOR[scope].text}` : "text-foreground"
-                    }
-                  >
+                  <span className={active ? "font-semibold text-foreground" : "text-foreground"}>
                     {t(SCOPE_LABEL_KEY[scope])}
                   </span>
                   {active && (
@@ -529,50 +529,82 @@ export function SkillsPage() {
                     <span className="text-xs text-muted-foreground">{group.items.length}</span>
                   </div>
                   <SettingsList>
-                    {group.items.map((skill) => (
-                      <SettingsRow
-                        key={`${skill.scope}:${skill.agent_id ?? ""}:${skill.id}`}
-                        icon={
-                          <span className={color.text}>
-                            <Puzzle className="size-4" />
-                          </span>
-                        }
-                        title={<span className="font-mono">{skill.name}</span>}
-                        chip={
-                          skill.agent_id ? (
-                            <Badge variant="outline" size="sm">
-                              {agentName(skill.agent_id)}
-                            </Badge>
-                          ) : undefined
-                        }
-                        subtitle={
-                          skill.description ||
-                          t("skills.updatedCreated", {
-                            updated: formatTime(skill.updated_at ?? ""),
-                            created: formatTime(skill.created_at ?? ""),
-                          })
-                        }
-                        status={
-                          <Switch
-                            checked={!skill.disable_model_invocation}
-                            onCheckedChange={() => void toggleModelInvocation(skill)}
-                            title={
-                              skill.disable_model_invocation
-                                ? t("skills.enable")
-                                : t("skills.disable")
-                            }
-                          />
-                        }
-                        onClick={() => void openDetail(skill)}
-                        menu={[
-                          {
-                            label: t("common.delete"),
-                            destructive: true,
-                            onClick: () => void deleteSkill(skill),
-                          },
-                        ]}
-                      />
-                    ))}
+                    {group.items.map((skill) => {
+                      // Mirror the backend write rules instead of offering a
+                      // toggle or a delete that comes back 403.
+                      const readOnly = isSkillReadOnly(skill.scope, isAdmin);
+                      return (
+                        <SettingsRow
+                          key={`${skill.scope}:${skill.agent_id ?? ""}:${skill.id}`}
+                          icon={<Puzzle className="size-4" />}
+                          title={<span className="font-mono">{skill.name}</span>}
+                          chip={
+                            skill.agent_id ? (
+                              <Badge variant="outline" size="sm">
+                                {agentName(skill.agent_id)}
+                              </Badge>
+                            ) : undefined
+                          }
+                          subtitle={
+                            skill.description ||
+                            t("skills.updatedCreated", {
+                              updated: formatTime(skill.updated_at ?? ""),
+                              created: formatTime(skill.created_at ?? ""),
+                            })
+                          }
+                          status={
+                            // Read-only scopes still show their state — the flag
+                            // lives in the skill's frontmatter — but it cannot be
+                            // changed from here.
+                            <Switch
+                              checked={!skill.disable_model_invocation}
+                              disabled={readOnly}
+                              onCheckedChange={() => void toggleModelInvocation(skill)}
+                              title={
+                                skill.disable_model_invocation
+                                  ? t("skills.enable")
+                                  : t("skills.disable")
+                              }
+                            />
+                          }
+                          primary={
+                            readOnly ? (
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    // Focusable on purpose: the lock is the only
+                                    // explanation a read-only row carries.
+                                    <span
+                                      tabIndex={0}
+                                      role="note"
+                                      className="flex size-8 shrink-0 items-center justify-center text-muted-foreground"
+                                      aria-label={t("skills.readOnly")}
+                                    />
+                                  }
+                                >
+                                  <Lock size={16} />
+                                </TooltipTrigger>
+                                <TooltipPopup side="top" className="max-w-56">
+                                  {t(SCOPE_DESC_KEY[skill.scope as ScopedSkillScope])}
+                                </TooltipPopup>
+                              </Tooltip>
+                            ) : undefined
+                          }
+                          onClick={() => void openDetail(skill)}
+                          menu={
+                            readOnly
+                              ? undefined
+                              : [
+                                  {
+                                    label: t("common.delete"),
+                                    destructive: true,
+                                    onClick: () => setPendingDelete(skill),
+                                  },
+                                ]
+                          }
+                        />
+                      );
+                    })}
                   </SettingsList>
                 </div>
               );
@@ -593,7 +625,31 @@ export function SkillsPage() {
         {addPanel}
       </SettingsDetailSheet>
 
-      <ToastContainer messages={toasts} />
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogPopup>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("skills.deleteConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("skills.deleteConfirmDesc", { name: pendingDelete?.name ?? "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="ghost" />}>
+              {t("common.cancel")}
+            </AlertDialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const skill = pendingDelete;
+                setPendingDelete(null);
+                if (skill) void deleteSkill(skill);
+              }}
+            >
+              {t("common.delete")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogPopup>
+      </AlertDialog>
     </>
   );
 }

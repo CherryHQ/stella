@@ -63,33 +63,36 @@ func withTestRunnerPaths(t *testing.T, cfg runnerConfig) runnerConfig {
 
 func TestFilterRunnerTools(t *testing.T) {
 	reg := tools.NewRegistry()
-	reg.Register(&stubTool{name: "bash"})
-	reg.Register(&stubTool{name: "notify"})
-	reg.Register(&stubTool{name: "scheduler"})
+	reg.Register(&stubTool{name: "zeta"})
+	reg.Register(&stubTool{name: "middle"})
+	reg.Register(&stubTool{name: "alpha"})
 
-	set, defs, err := filterRunnerTools(reg, []string{"notify", "scheduler"})
+	set, defs, err := filterRunnerTools(reg, []string{"middle", "not-registered"})
 	if err != nil {
 		t.Fatalf("filterRunnerTools: %v", err)
 	}
-	if len(defs) != 1 || defs[0].Name != "bash" {
-		t.Fatalf("defs = %#v, want only bash", defs)
+	if len(defs) != 2 || defs[0].Name != "alpha" || defs[1].Name != "zeta" {
+		t.Fatalf("defs = %#v, want alpha then zeta", defs)
 	}
-	if _, ok := set["notify"]; ok {
-		t.Fatal("notify should be excluded")
+	if len(set) != 2 {
+		t.Fatalf("tool set length = %d, want 2", len(set))
 	}
-	if _, ok := set["scheduler"]; ok {
-		t.Fatal("scheduler should be excluded")
+	if _, ok := set["middle"]; ok {
+		t.Fatal("middle should be excluded")
 	}
-	if _, ok := set["bash"]; !ok {
-		t.Fatal("bash should remain available")
+	if _, ok := set["alpha"]; !ok {
+		t.Fatal("alpha should remain available")
+	}
+	if _, ok := set["zeta"]; !ok {
+		t.Fatal("zeta should remain available")
 	}
 
-	result, err := set["bash"](context.Background(), ai.ToolCall{Name: "bash"})
+	result, err := set["alpha"](context.Background(), ai.ToolCall{Name: "alpha"})
 	if err != nil {
-		t.Fatalf("execute filtered bash tool: %v", err)
+		t.Fatalf("execute filtered alpha tool: %v", err)
 	}
-	if ai.FlattenText(result) != "bash" {
-		t.Fatalf("filtered bash result = %q, want bash", ai.FlattenText(result))
+	if ai.FlattenText(result) != "alpha" {
+		t.Fatalf("filtered alpha result = %q, want alpha", ai.FlattenText(result))
 	}
 }
 

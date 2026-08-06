@@ -76,6 +76,25 @@ func TestResolveOAuthAccessRoundTrip(t *testing.T) {
 	}
 }
 
+func TestResolveOAuthNeverInheritsOwnerAdmin(t *testing.T) {
+	svc, _ := newOAuthTestService()
+	svc.users.(*fakeStore).users["u1"] = Identity{
+		UserID: "u1", Email: "u1@x", IsActive: true, Role: "admin", IsAdmin: true,
+	}
+
+	plaintext, err := svc.IssueOAuthAccess(context.Background(), "u1", "client-1", []string{"goals:read"}, "fam-1", time.Hour)
+	if err != nil {
+		t.Fatalf("issue OAuth access: %v", err)
+	}
+	p, err := svc.Resolve(context.Background(), "Bearer "+plaintext)
+	if err != nil {
+		t.Fatalf("resolve OAuth access: %v", err)
+	}
+	if p.IsAdmin {
+		t.Fatal("OAuth access tokens must not inherit owner admin authority")
+	}
+}
+
 func TestResolveOAuthRevokedAndExpired(t *testing.T) {
 	svc, store := newOAuthTestService()
 	ctx := context.Background()

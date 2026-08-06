@@ -63,7 +63,7 @@ pkg/
 plugins/
   tools/               Plugin tool registry + plugin tools (webfetch)
   hooks/               Plugin hook registry + plugin hooks (rtk)
-  channels/            Channel plugins (telegram, qq, feishu, weixin, webhook)
+  channels/            Channel plugins (telegram, qq, feishu, weixin)
   providers/           Provider plugin registry + LLM adapters (anthropic, openai, openai-response)
   sandbox/             Sandbox backend plugins
 ```
@@ -129,11 +129,34 @@ LLM providers are plugin-based. Three built-in providers ship with Stella:
 | `openai`          | Chat Completions API | GPT models                                                 |
 | `openai-response` | Responses API        | OpenAI-compatible services (Perplexity, Together.ai, etc.) |
 
-Each provider implements the `ai.ProviderAdapter` interface for streaming responses and optionally `ai.ModelLister` for model discovery. All providers support multimodal input (text + images) via the `ImageContent` type, converting to their native image format (base64 blocks for Anthropic, data URI image_url for OpenAI).
+Each provider implements the `ai.ProviderAdapter` interface for streaming responses and optionally `ai.ModelLister` for model discovery. Provider adapters can encode `ImageContent` as their native image format (base64 blocks for Anthropic, data URI image_url for OpenAI), but the agent boundary creates it only for a model that declares image input and only during that image's active turn. Historical images arrive at adapters as text baselines.
 
 Providers live in `plugins/providers/` and self-register via `init()`. Adding a new provider requires creating a package under `plugins/providers/` -- no other wiring code is needed. See [plugin-system](/docs/development/plugin-system) for details.
 
 Managing providers (like settings, plugins, and channels) is a control-plane operation authorized through `internal/controlplane`, not a bare role check. It is admin-only: `Begin` requires `IsAdmin()` before minting an Access.
+
+### Agent Provider credential overrides
+
+Provider metadata and the default key remain global control-plane state. A
+separate `agent_provider_credential` relation stores an encrypted override for
+`(agent_id, canonical provider_id)`. `providercred.Service` is the only plaintext
+encryption boundary and uses the Vault system cipher; neither `config.Agent` nor
+ordinary Agent projections contain credential fields.
+
+The credential-aware Snapshot loader decorates the global Snapshot at the Agent
+boundary. It replaces only the API key on every canonical and type-alias entry
+for the referenced Provider, including the legacy default credential field.
+Provider type, base URL, model catalog, and enabled state never move into Agent
+scope. Missing or deleted rows use the global key; a referenced row that cannot
+be decrypted fails closed instead of silently falling back. All host-side Agent
+consumers share this loader, including Runner, memory summarization, intent and
+semantic routing, Reflect, and Vision.
+
+Safe metadata follows Agent Read access. Mutation requires Agent Manage, which
+allows administrators and the persisted Agent creator but not assigned
+non-creators. A mutation commits first and then calls targeted `SyncAgent`; it
+does not reload global Providers. The write-only HTTP subresource exposes
+paginated List, Get, PATCH rotation, and idempotent DELETE fallback.
 
 ## Tools
 

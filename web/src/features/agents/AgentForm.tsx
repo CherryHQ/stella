@@ -1,8 +1,7 @@
-import { useNavigate } from "@tanstack/react-router";
 import type { Skill, User } from "@/lib/types";
-import type { AgentsPageState } from "./AgentsPage";
+import type { AgentsPageState } from "./agent-detail-state";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { ProfilePanelSection } from "./ProfilePanelSection";
 import { useI18n } from "@/lib/i18n";
 import { ConfigTab } from "./tabs/ConfigTab";
 import { PromptTab } from "./tabs/PromptTab";
@@ -10,12 +9,21 @@ import { SkillsTab } from "./tabs/SkillsTab";
 import { ToolsTab } from "./tabs/ToolsTab";
 import { AdvancedTab } from "./tabs/AdvancedTab";
 import { UsersTab } from "./tabs/UsersTab";
+
+/**
+ * `page` fills a dedicated settings pane and scrolls internally; `embedded`
+ * sits inside a host page that owns the scroll.
+ */
+export type AgentFormLayout = "page" | "embedded";
+
 interface Props {
   state: AgentsPageState;
+  layout?: AgentFormLayout;
+  /** Sections a host surface already covers elsewhere (e.g. the profile's own skills tab). */
+  hiddenTabs?: readonly string[];
   onSetState: (patch: Partial<AgentsPageState>) => void;
   onSave: () => void;
-  onCancel: () => void;
-  onLoadAssignedUsers: (agentId: string) => void;
+  onCancel?: () => void;
   onAddUser: () => void;
   onRemoveUser: (userId: string) => void;
   onApplySoul: (soulID: string) => void;
@@ -30,10 +38,11 @@ interface Props {
 
 export function AgentForm({
   state,
+  layout = "page",
+  hiddenTabs,
   onSetState,
   onSave,
   onCancel,
-  onLoadAssignedUsers,
   onAddUser,
   onRemoveUser,
   onApplySoul,
@@ -45,9 +54,9 @@ export function AgentForm({
   onOpenSkillInstallModal,
   onDelete,
 }: Props) {
-  const navigate = useNavigate();
   const { t } = useI18n();
-  const { editingId, activeTab, isAdmin, form, currentUserId } = state;
+  const { editingId, isAdmin, form, currentUserId } = state;
+  const embedded = layout === "embedded";
 
   const canEdit = isAdmin || !editingId || (form.creator_id && form.creator_id === currentUserId);
 
@@ -55,46 +64,48 @@ export function AgentForm({
     (u: User) => !state.assignedUsers.some((a: User) => a.id === u.id),
   );
 
+  const hidden = new Set(hiddenTabs ?? []);
+  const shows = (tab: string) => !hidden.has(tab);
+
   return (
-    <div className="h-full min-h-0 min-w-0 flex flex-col bg-card">
-      <div className="border-b border-border px-6 py-4">
-        <span className="font-medium text-sm text-foreground">
-          {editingId ? t("agents.form.editAgent", { name: form.name }) : t("agents.form.newAgent")}
-        </span>
-      </div>
-      <Tabs
-        value={activeTab}
-        onValueChange={(tab) => {
-          onSetState({ activeTab: tab as string });
-          if (editingId) {
-            void navigate({
-              to: "/settings/agents/$agentId/$tab",
-              params: { agentId: editingId, tab: tab as string },
-            });
-          }
-          if (tab === "users" && editingId) onLoadAssignedUsers(editingId);
-        }}
-        className="flex-1 flex flex-col min-h-0"
+    <div
+      className={
+        embedded ? "flex min-w-0 flex-col" : "h-full min-h-0 min-w-0 flex flex-col bg-card"
+      }
+    >
+      {!embedded && (
+        <div className="border-b border-border px-6 py-4">
+          <span className="font-medium text-sm text-foreground">
+            {editingId
+              ? t("agents.form.editAgent", { name: form.name })
+              : t("agents.form.newAgent")}
+          </span>
+        </div>
+      )}
+      {/* One vertical column of sections, not a tab strip: the editor is
+          embedded in a page that already owns a tab strip, and a second one
+          inside it hid half the agent's settings behind a click. Everything
+          below the basics folds (same idiom as the memory tab) so the column
+          stays scannable; the basics stay expanded and uncollapsible because
+          their model and channel pickers open absolutely-positioned lists that
+          a collapsible panel's overflow clip would cut off. */}
+      <div
+        className={embedded ? "flex flex-col" : "flex-1 min-h-0 overflow-y-auto p-6 flex flex-col"}
       >
-        <TabsList
-          variant="underline"
-          className="w-full justify-start px-6 border-b border-border rounded-none bg-transparent gap-2 h-11"
-        >
-          <TabsTrigger value="config">{t("agents.tabs.config")}</TabsTrigger>
-          <TabsTrigger value="prompt">{t("agents.tabs.prompt")}</TabsTrigger>
-          <TabsTrigger value="skills">{t("agents.tabs.skills")}</TabsTrigger>
-          <TabsTrigger value="tools">{t("agents.tabs.tools")}</TabsTrigger>
-          <TabsTrigger value="advanced">{t("agents.tabs.advanced")}</TabsTrigger>
-          {isAdmin && <TabsTrigger value="users">{t("agents.tabs.users")}</TabsTrigger>}
-        </TabsList>
-        <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
-          <TabsContent value="config">
-            <ConfigTab state={state} onSetState={onSetState} />
-          </TabsContent>
-          <TabsContent value="prompt">
+        {shows("config") && (
+          <div className="pb-4">
+            <ProfilePanelSection title={t("agents.sections.basics")}>
+              <ConfigTab state={state} onSetState={onSetState} />
+            </ProfilePanelSection>
+          </div>
+        )}
+        {shows("prompt") && (
+          <ProfilePanelSection collapsible title={t("agents.tabs.prompt")}>
             <PromptTab state={state} onSetState={onSetState} onApplySoul={onApplySoul} />
-          </TabsContent>
-          <TabsContent value="skills">
+          </ProfilePanelSection>
+        )}
+        {shows("skills") && (
+          <ProfilePanelSection collapsible title={t("agents.tabs.skills")}>
             <SkillsTab
               state={state}
               onSetState={onSetState}
@@ -105,14 +116,20 @@ export function AgentForm({
               onDeleteSkillFile={onDeleteSkillFile}
               onOpenSkillInstallModal={onOpenSkillInstallModal}
             />
-          </TabsContent>
-          <TabsContent value="tools">
+          </ProfilePanelSection>
+        )}
+        {shows("tools") && (
+          <ProfilePanelSection collapsible title={t("agents.tabs.tools")}>
             <ToolsTab state={state} />
-          </TabsContent>
-          <TabsContent value="advanced">
+          </ProfilePanelSection>
+        )}
+        {shows("advanced") && (
+          <ProfilePanelSection collapsible title={t("agents.tabs.advanced")}>
             <AdvancedTab state={state} onSetState={onSetState} />
-          </TabsContent>
-          <TabsContent value="users">
+          </ProfilePanelSection>
+        )}
+        {isAdmin && shows("users") && (
+          <ProfilePanelSection collapsible title={t("agents.tabs.users")}>
             <UsersTab
               state={state}
               availableUsers={availableUsers}
@@ -120,26 +137,34 @@ export function AgentForm({
               onAddUser={onAddUser}
               onRemoveUser={onRemoveUser}
             />
-          </TabsContent>
-        </div>
-      </Tabs>
-      <div className="shrink-0 border-t border-border px-6 py-4 flex items-center justify-between gap-2">
+          </ProfilePanelSection>
+        )}
+      </div>
+      {/* One save for the whole column — the sections edit a single draft, so
+          the actions stay at its foot rather than inside the basics. */}
+      <div
+        className={`shrink-0 flex items-center justify-between gap-2 py-4 ${
+          embedded ? "" : "border-t border-border px-6"
+        }`}
+      >
         <div>
           {canEdit && editingId && onDelete && (
             <Button
               onClick={onDelete}
               variant="ghost"
               size="sm"
-              className="text-muted-foreground hover:text-destructive cursor-pointer duration-120"
+              className="text-muted-foreground hover:text-destructive-foreground cursor-pointer duration-120"
             >
               {t("common.delete")}
             </Button>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={onCancel} variant="ghost" size="sm" className="cursor-pointer">
-            {t("common.cancel")}
-          </Button>
+          {onCancel && (
+            <Button onClick={onCancel} variant="ghost" size="sm" className="cursor-pointer">
+              {t("common.cancel")}
+            </Button>
+          )}
           {canEdit && (
             <Button onClick={onSave} size="sm" className="cursor-pointer">
               {editingId ? t("common.update") : t("common.create")}

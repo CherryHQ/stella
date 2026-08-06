@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,10 +16,14 @@ import (
 // install or operate: the server binary is downloaded once and cached under the
 // user home, then started on demand. Start it, open the DSN with OpenDB, and
 // Stop it on shutdown.
+type embeddedServer interface {
+	Stop() error
+}
+
 type Embedded struct {
-	pg     *embeddedpostgres.EmbeddedPostgres
-	port   uint32
-	tmpDir string // per-instance scratch dir to remove on Stop (ephemeral mode only)
+	pg        embeddedServer
+	port      uint32
+	ephemeral *ephemeralOwner // nil for stable dataDir mode
 }
 
 // StartEmbedded boots a PostgreSQL server on the given TCP port and returns a
@@ -49,23 +54,34 @@ func startEmbeddedOnce(dataDir string, port uint32) (*Embedded, error) {
 		port = p
 	}
 
+	var ephemeral *ephemeralOwner
+	var err error
 	var tmpDir string
 	if dataDir == "" {
-		// Ephemeral mode: give each instance its own extraction and data dirs so
-		// parallel test binaries never share a runtime path (racing the binary
-		// extraction) or a cluster directory.
-		d, err := os.MkdirTemp("", "stella-pg-")
+		// Keep an exclusive, close-on-exec owner lock for this root before doing
+		// anything PostgreSQL-related. A later test process can safely reclaim a
+		// marked root only after its owner has died and released this lock.
+		ephemeral, err = createEphemeralOwner()
 		if err != nil {
 			return nil, fmt.Errorf("db: embedded postgres scratch dir: %w", err)
 		}
-		tmpDir = d
+		tmpDir = ephemeral.root
 	}
 	rt, err := newPostgresRuntimeInfo(dataDir, tmpDir)
 	if err != nil {
-		if tmpDir != "" {
-			_ = os.RemoveAll(tmpDir)
+		if ephemeral != nil {
+			ephemeral.release()
+			// Runtime resolution happens before PostgreSQL starts, so this root
+			// cannot own a live server and is safe to remove immediately.
+			_ = os.RemoveAll(ephemeral.root)
 		}
 		return nil, err
+	}
+	if ephemeral != nil {
+		// Best effort: an unavailable runtime or a suspicious candidate must never
+		// stop a new test from starting. The current root is skipped because its
+		// owner lock remains held.
+		runEphemeralJanitorOnce(filepath.Join(rt.BinariesPath, "bin", pgCtlName()))
 	}
 
 	// Pin PostgreSQL 18 explicitly: the schema baseline defaults ids with
@@ -93,13 +109,16 @@ func startEmbeddedOnce(dataDir string, port uint32) (*Embedded, error) {
 
 	pg := embeddedpostgres.NewDatabase(cfg)
 	if err := pg.Start(); err != nil {
-		if tmpDir != "" {
-			_ = os.RemoveAll(tmpDir)
+		// embedded-postgres may return after a partial start. Keep the marked root
+		// for a future janitor rather than guessing that it is safe to remove.
+		ephemeral.release()
+		if hint := rt.startupDiagnostic(err); hint != "" {
+			return nil, fmt.Errorf("db: start embedded postgres: %w — %s", err, hint)
 		}
 		return nil, fmt.Errorf("db: start embedded postgres: %w", err)
 	}
 
-	return &Embedded{pg: pg, port: port, tmpDir: tmpDir}, nil
+	return &Embedded{pg: pg, port: port, ephemeral: ephemeral}, nil
 }
 
 // DSN returns the libpq connection string for the server's default "stella"
@@ -117,8 +136,13 @@ func (e *Embedded) DSNFor(database string) string {
 // be restarted (create a new one with StartEmbedded).
 func (e *Embedded) Stop() error {
 	stopErr := e.pg.Stop()
-	if e.tmpDir != "" {
-		_ = os.RemoveAll(e.tmpDir)
+	if e.ephemeral != nil {
+		defer e.ephemeral.release()
+		if stopErr == nil {
+			if err := os.RemoveAll(e.ephemeral.root); err != nil {
+				return fmt.Errorf("db: remove embedded postgres scratch dir: %w", err)
+			}
+		}
 	}
 	if stopErr != nil {
 		return fmt.Errorf("db: stop embedded postgres: %w", stopErr)

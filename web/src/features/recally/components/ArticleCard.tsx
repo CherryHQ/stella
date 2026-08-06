@@ -30,7 +30,7 @@ export function ArticleCard({
         <h3 className="text-[12px] font-semibold leading-snug text-foreground line-clamp-2">
           {article.title}
         </h3>
-        {article.starred && <Star className="size-3 text-chart-4 fill-chart-4 shrink-0 mt-0.5" />}
+        {article.starred && <Star className="size-3 text-warning fill-warning shrink-0 mt-0.5" />}
       </div>
       {article.summary && (
         <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">

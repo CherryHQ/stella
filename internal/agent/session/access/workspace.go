@@ -22,9 +22,10 @@ import (
 )
 
 var (
-	ErrInvalid = errors.New("invalid workspace request")
-	ErrIsDir   = errors.New("workspace path is a directory")
-	ErrBinary  = errors.New("workspace file appears to be binary")
+	ErrInvalid  = errors.New("invalid workspace request")
+	ErrIsDir    = errors.New("workspace path is a directory")
+	ErrBinary   = errors.New("workspace file appears to be binary")
+	ErrTooLarge = errors.New("workspace file exceeds read limit")
 )
 
 type WorkspaceScope string
@@ -82,16 +83,20 @@ type WorkspaceReadInput struct {
 	Scope     WorkspaceScope
 	Path      string
 	Raw       bool
+	// MaxBytes bounds allocation at the authorized file boundary. Zero leaves
+	// existing workspace read behavior unchanged.
+	MaxBytes int64
 }
 
 type WorkspaceReadResult struct {
-	Path         string `json:"path"`
-	Content      string `json:"content,omitempty"`
-	Language     string `json:"language,omitempty"`
-	Raw          bool   `json:"-"`
-	RawName      string `json:"-"`
-	RawMediaType string `json:"-"`
-	RawContent   []byte `json:"-"`
+	Path         string    `json:"path"`
+	Content      string    `json:"content,omitempty"`
+	Language     string    `json:"language,omitempty"`
+	Raw          bool      `json:"-"`
+	RawName      string    `json:"-"`
+	RawMediaType string    `json:"-"`
+	RawContent   []byte    `json:"-"`
+	RawModTime   time.Time `json:"-"`
 }
 
 type WorkspaceWriteInput struct {
@@ -134,7 +139,7 @@ func (a *Access) ListWorkspace(ctx context.Context, in WorkspaceListInput) (Work
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	info.SandboxRoot = scopeSandboxView(a.svc.sandboxBackend(ctx), root, in.Scope)
+	info.SandboxRoot = scopeSandboxView(config.ActiveSandboxBackend(), root, in.Scope)
 	return info, nil
 }
 
@@ -241,7 +246,10 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 	if info.IsDir() {
 		return WorkspaceReadResult{}, ErrIsDir
 	}
-	data, err := rootFS.ReadFile(name)
+	if in.MaxBytes > 0 && info.Size() > in.MaxBytes {
+		return WorkspaceReadResult{}, ErrTooLarge
+	}
+	data, err := readRootFile(rootFS, name, in.MaxBytes)
 	if err != nil {
 		return WorkspaceReadResult{}, err
 	}
@@ -252,7 +260,7 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		}
 		return WorkspaceReadResult{
 			Path: path, Raw: true, RawName: filepath.Base(path),
-			RawMediaType: mediaType, RawContent: data,
+			RawMediaType: mediaType, RawContent: data, RawModTime: info.ModTime(),
 		}, nil
 	}
 	probe := data
@@ -263,6 +271,28 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		return WorkspaceReadResult{}, ErrBinary
 	}
 	return WorkspaceReadResult{Path: path, Content: string(data), Language: DetectLanguage(path)}, nil
+}
+
+// readRootFile enforces MaxBytes while reading as well as before it. The second
+// check closes the stat/read race if a concurrently writable file grows after
+// ReadWorkspacePath inspected it.
+func readRootFile(root *os.Root, name string, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		return root.ReadFile(name)
+	}
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, ErrTooLarge
+	}
+	return data, nil
 }
 
 // canonicalizeAbsPath maps an absolute request path to the (scope, relative
@@ -417,9 +447,18 @@ func (a *Access) UploadWorkspacePath(ctx context.Context, in WorkspaceUploadInpu
 	}
 	rel, _ := filepath.Rel(root, abs)
 	relSlash := filepath.ToSlash(rel)
-	sandboxRoot := sandbox.UserDataViewFor(a.svc.sandboxBackend(ctx), root)
+	sandboxRoot := sandbox.UserDataViewFor(config.ActiveSandboxBackend(), root)
+	viewPath := filepath.Join(sandboxRoot, rel)
+	// Non-isolating backends expose host paths. Resolve aliases such as macOS
+	// /var -> /private/var so the path matches the sandbox mount authority.
+	// Never resolve /user in host space for an isolating backend.
+	if sandboxRoot == root {
+		if resolved, err := filepath.EvalSymlinks(viewPath); err == nil {
+			viewPath = resolved
+		}
+	}
 	return WorkspaceUploadResult{
-		Path:         filepath.ToSlash(filepath.Join(sandboxRoot, rel)),
+		Path:         filepath.ToSlash(viewPath),
 		RelativePath: relSlash,
 		Scope:        WorkspaceScopeUser,
 	}, nil
@@ -444,11 +483,6 @@ func workspaceRootForScope(userID, agentID string, scope WorkspaceScope) string 
 		return agent.UserDataDir(agent.UserHomeDir(config.StellaHome(), userID))
 	}
 	return agent.UserAgentDir(config.StellaHome(), userID, agentID)
-}
-
-func (s *Service) sandboxBackend(ctx context.Context) string {
-	plugins, _ := s.store.ListPlugins(ctx)
-	return config.ActiveSandboxBackend(plugins)
 }
 
 func scopeSandboxView(backend, root string, scope WorkspaceScope) string {

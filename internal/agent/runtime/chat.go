@@ -235,11 +235,48 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	// duplicate it on the next attempt.
 	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now()}
 	modelMsg := userMsg
-	if memSess.GroupID != "" && co.hasSpeaker {
-		modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker, !rt.structuredGroupMemory)
-	}
-	if memSess.GroupID == "" {
+	if memSess.GroupID != "" {
+		// Group media stays in the public Event Log until group-owned canonical
+		// media receives its own authorization model. AppendGroupTurn persists the
+		// trigger atomically after the turn succeeds.
+		if co.hasSpeaker {
+			modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker, !rt.structuredGroupMemory)
+		}
+	} else {
+		// Direct internal callers may supply either one image block or the usual
+		// ordered block list. Existing canonical refs are not re-enriched.
+		var blocks []ai.ContentBlock
+		hasCanonicalImage := false
+		switch content := userMsg.Content.(type) {
+		case ai.ImageContent:
+			blocks = []ai.ContentBlock{content}
+		case ai.ImageRefContent:
+			blocks = []ai.ContentBlock{content}
+		case []ai.ContentBlock:
+			blocks = content
+		}
+		if blocks != nil {
+			if ai.HasImage(blocks) {
+				if rt.sessionImages == nil {
+					out <- Event{Err: errors.New("session image enrichment is not configured")}
+					return
+				}
+				enriched, err := rt.sessionImages.Enrich(ctx, info.UserID, info.AgentID, blocks)
+				if err != nil {
+					out <- Event{Err: fmt.Errorf("enrich user images: %w", err)}
+					return
+				}
+				blocks = enriched
+			}
+			hasCanonicalImage = ai.HasImageRef(blocks)
+			userMsg.Content = blocks
+			modelMsg = userMsg
+		}
 		if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
+			if hasCanonicalImage {
+				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
+				return
+			}
 			rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
 		}
 	}
@@ -495,18 +532,6 @@ func bufferedAssistantMessage(text, reasoning string) ai.AssistantMessage {
 		blocks = append(blocks, ai.TextContent{Text: text})
 	}
 	return ai.AssistantMessage{Content: blocks}
-}
-
-func autoTitle(msgText string) string {
-	title := msgText
-	if len(title) > 60 {
-		if idx := strings.LastIndex(title[:60], " "); idx > 20 {
-			title = title[:idx] + "…"
-		} else {
-			title = title[:60] + "…"
-		}
-	}
-	return title
 }
 
 // --- context helpers --------------------------------------------------------

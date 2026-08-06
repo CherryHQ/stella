@@ -10,7 +10,7 @@ title: Deployment
 brew install CherryHQ/tap/stella
 ```
 
-If you do not set `STELLA_DATABASE_URL`, run `stellad postgres download-runtime` once before starting the service.
+If you do not set `STELLA_DATABASE_URL`, run `stellad postgres download` once before starting the service.
 
 ### Linux packages (.deb / .rpm)
 
@@ -24,7 +24,7 @@ sudo apt install ./stella_*_linux_amd64.deb
 sudo dnf install ./stella_*_linux_amd64.rpm
 ```
 
-If you do not set `STELLA_DATABASE_URL`, run `stellad postgres download-runtime` once before starting the service.
+If you do not set `STELLA_DATABASE_URL`, run `stellad postgres download` once before starting the service.
 
 ### Binary
 
@@ -55,7 +55,7 @@ Start the server — the Web UI is available at `http://localhost:25678`:
 stellad server
 ```
 
-This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in PostgreSQL — either an embedded cluster under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. If the embedded runtime is missing, run `stellad postgres download-runtime` once before `stellad server`. No config files needed.
+This starts the server and the Web UI where you configure API keys, channels, and agent profiles. All configuration is stored in PostgreSQL — either an embedded cluster under `~/.stella`, or an external server when you set `STELLA_DATABASE_URL`. If the embedded runtime is missing, run `stellad postgres download` once before `stellad server`. No config files needed.
 
 ```bash
 stellad server --port 8080             # custom port
@@ -87,6 +87,31 @@ After deployment:
 If the entire release must be rolled back, deploy the previous binary rather than selecting a legacy writer in the new release. The cutover migration preserves old global watermark rows and initializes both structured line watermarks so the previous release can resume conservatively.
 
 See [Configuration](/docs/start-here/configuration#environment-variables) for accepted values. The [memory internals page](/docs/development/memory-internals#structured-reflect-and-curator) explains the watermark migration, Shadow behavior, and fail-closed wiring.
+
+## Install the Web UI as an App
+
+The Web UI is a progressive web app, so you can install it to your dock, taskbar,
+or home screen and open it in its own window without browser chrome.
+
+- **Chrome, Edge, Brave (desktop and Android)** — open the Web UI and choose the
+  install icon in the address bar, or **Menu → Install Stella**.
+- **Safari on iPhone and iPad** — open the Web UI and choose **Share → Add to Home Screen**.
+- **Safari on macOS** — choose **File → Add to Dock**.
+
+After you have opened the installed app a couple of times, it shows the interface
+instead of a browser error page when you launch it offline. Talking to your agents
+still needs the server, so anything beyond the interface itself waits for the
+connection to return.
+
+When you upgrade Stella, any app or tab left open offers to reload so it picks up
+the new version. You can dismiss the prompt and keep working; it comes back the
+next time you upgrade.
+
+Browsers only allow installation on a secure origin. If you reach Stella over
+plain `http://` on a LAN address, no install option appears and the app stays a
+normal browser tab. Put Stella behind HTTPS — see
+[the three URL roles](#the-three-url-roles) — or open it at `http://localhost`,
+which browsers treat as secure.
 
 ## Run as a Background Service
 
@@ -321,7 +346,7 @@ All data lives under the stella home directory (`~/.stella` by default, configur
 | Path                                  | Purpose                                                                                       |
 | ------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                 | Embedded PostgreSQL data (config, memory, scheduler); absent when using `STELLA_DATABASE_URL` |
-| `~/.stella/pg-runtime/`               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download-runtime`     |
+| `~/.stella/pg-runtime/`               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`             |
 | `~/.stella/agents/{agent-id}/skills/` | Per-agent installed skills                                                                    |
 | `~/.stella/agents/{agent-id}/SOUL.md` | Optional per-agent soul/identity override                                                     |
 | `~/.stella/cache/`                    | Model cache (regenerable, safe to delete)                                                     |

@@ -92,12 +92,8 @@ func (s *Server) CreatePersonalAccessToken(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	plaintext, rec, err := s.credResolver.CreatePAT(r.Context(), info.UserID, name, body.Scopes, expiresAt)
+	plaintext, rec, err := s.credResolver.CreatePAT(r.Context(), info.UserID, name, expiresAt)
 	if err != nil {
-		if errors.Is(err, credential.ErrPATScopeInvalid) {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
 		s.log.Error("create personal access token", "error", err, "user_id", info.UserID)
 		writeError(w, http.StatusInternalServerError, "create token failed")
 		return
@@ -130,32 +126,10 @@ func (s *Server) RevokePersonalAccessToken(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListTokenScopes handles GET /api/token-scopes. The grantable-scope catalog is
-// global metadata (identical for every user), so it lives at the top level. It
-// is the single source of truth for the PAT creation UI: server-side catalog +
-// exposability policy.
-func (s *Server) ListTokenScopes(w http.ResponseWriter, r *http.Request) {
-	if info := requireAuth(w, r); info == nil {
-		return
-	}
-	var scopes []apitypes.PersonalAccessTokenScope
-	for _, sc := range credential.Catalog() {
-		if !sc.ExposableToPAT {
-			continue
-		}
-		scopes = append(scopes,
-			apitypes.PersonalAccessTokenScope{Id: sc.Resource + ":*", Description: sc.Description + " (read and write)"},
-			apitypes.PersonalAccessTokenScope{Id: sc.Resource + ":read", Description: sc.Description + " (read only)"},
-		)
-	}
-	writeData(w, http.StatusOK, apitypes.PersonalAccessTokenScopeList{Scopes: scopes})
-}
-
 func patToAPI(rec credential.PATRecord) apitypes.PersonalAccessToken {
 	return apitypes.PersonalAccessToken{
 		Id:         rec.ID,
 		Name:       rec.Name,
-		Scopes:     rec.Scopes,
 		Last4:      rec.Last4,
 		ExpiresAt:  rec.ExpiresAt,
 		LastUsedAt: rec.LastUsedAt,

@@ -10,6 +10,7 @@
         "recally",
         "guides",
         "channels",
+        "webhooks",
         "extend-stella",
         "admin"
       ]

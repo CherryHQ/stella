@@ -93,9 +93,13 @@ SELECT COUNT(*) FROM ctx_message WHERE conversation_id = $1;
 -- name: GetMaxSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS BIGINT) FROM ctx_message WHERE conversation_id = $1;
 
--- name: CreateMessagePart :exec
-INSERT INTO ctx_message_part (id, message_id, part_type, ordinal, text_content, tool_call_id, tool_name, tool_input, tool_output, metadata)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
+-- name: CreateMessagePart :one
+INSERT INTO ctx_message_part (
+    id, message_id, part_type, ordinal, media_id, text_content,
+    tool_call_id, tool_name, tool_input, tool_output, metadata
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING *;
 
 -- name: ListMessagesByIDs :many
 SELECT * FROM ctx_message WHERE conversation_id = $1 AND id = ANY(sqlc.arg('message_ids')::uuid[]) ORDER BY seq ASC;
@@ -105,6 +109,16 @@ SELECT * FROM ctx_message_part WHERE message_id = $1 ORDER BY ordinal ASC;
 
 -- name: GetMessagePartsByMessages :many
 SELECT * FROM ctx_message_part WHERE message_id = ANY(sqlc.arg('message_ids')::uuid[]) ORDER BY message_id, ordinal ASC;
+
+-- name: ListMessagePartsWithMediaByMessages :many
+-- This returns media-backed parts only; GetMessagePartsByMessages remains the
+-- batch loader for text and tool parts. The stable order avoids an N+1 media
+-- lookup when Phase 3 reconstructs image-bearing messages.
+SELECT sqlc.embed(p), sqlc.embed(m)
+FROM ctx_message_part p
+JOIN ctx_media m ON m.id = p.media_id
+WHERE p.message_id = ANY(sqlc.arg('message_ids')::uuid[])
+ORDER BY p.message_id, p.ordinal;
 
 -- name: SearchMessages :many
 -- Spans every conversation of the current (user_id, agent_id) so memory recall

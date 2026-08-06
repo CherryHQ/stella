@@ -33,7 +33,7 @@ import {
   type ScheduleValue,
 } from "@/features/goals/SchedulePicker";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { useAppShell } from "@/layouts/AppShell";
 import { createSchedulerJob, deleteWorkflow, instantiateWorkflow } from "@/lib/api-client";
 import type {
@@ -71,7 +71,7 @@ export function WorkflowDetailPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { setHeaderTitle, setHeaderActions } = useAppShell();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const { data: workflow, isLoading } = useQuery(workflowOptions(workflowId));
   const [runLimit, setRunLimit] = useState(10);
   const { data: runList = { runs: [], total: 0 } } = useQuery(
@@ -92,7 +92,11 @@ export function WorkflowDetailPage() {
       </div>,
     );
     setHeaderActions(null);
-    return () => setHeaderActions(null);
+    // The shell outlives this page — leave no title or actions behind.
+    return () => {
+      setHeaderTitle(null);
+      setHeaderActions(null);
+    };
   }, [setHeaderActions, setHeaderTitle, t, workflow?.name]);
 
   const deleteCurrentWorkflow = async () => {
@@ -229,7 +233,6 @@ export function WorkflowDetailPage() {
         onConfirm={deleteCurrentWorkflow}
         confirmLabel={t("common.delete")}
       />
-      <ToastContainer messages={toasts} />
     </div>
   );
 }

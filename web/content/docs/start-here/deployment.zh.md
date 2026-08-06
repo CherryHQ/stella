@@ -10,7 +10,7 @@ title: 部署
 brew install CherryHQ/tap/stella
 ```
 
-如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download-runtime`。
+如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download`。
 
 ### Linux 软件包（.deb / .rpm）
 
@@ -24,7 +24,7 @@ sudo apt install ./stella_*_linux_amd64.deb
 sudo dnf install ./stella_*_linux_amd64.rpm
 ```
 
-如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download-runtime`。
+如果不设置 `STELLA_DATABASE_URL`，启动服务前先运行一次 `stellad postgres download`。
 
 ### 二进制文件
 
@@ -55,7 +55,7 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 stellad server
 ```
 
-这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 PostgreSQL 中——可以使用 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果缺少内嵌 runtime，先运行一次 `stellad postgres download-runtime` 再启动 `stellad server`。无需手动配置文件。
+这会启动服务器并提供Web UI，你可以在其中设置 API 密钥、渠道和代理配置。所有配置都存储在 PostgreSQL 中——可以使用 `~/.stella` 下的内嵌集群，也可以在设置 `STELLA_DATABASE_URL` 时使用外部服务器。如果缺少内嵌 runtime，先运行一次 `stellad postgres download` 再启动 `stellad server`。无需手动配置文件。
 
 ```bash
 stellad server --port 8080                  # 自定义端口
@@ -87,6 +87,20 @@ Structured Reflect 始终启用，生命周期 curator 默认使用 `armed`。�
 如果必须回滚整个版本，请部署上一版本二进制，而不是在新版本中选择 legacy writer。切换迁移会保留旧 global watermark，并初始化两条 structured line watermark，使上一版本能够保守地继续处理。
 
 可选值见[配置](/docs/start-here/configuration#环境变量)。[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)进一步说明 watermark 迁移、Shadow 行为和 fail-closed wiring。
+
+## 将 Web UI 安装为应用
+
+Web UI 是一个渐进式 Web 应用，你可以把它安装到程序坞、任务栏或主屏幕，在独立窗口中打开，不带浏览器界面。
+
+- **Chrome、Edge、Brave（桌面端和 Android）** — 打开 Web UI，点击地址栏中的安装图标，或选择**菜单 → 安装 Stella**。
+- **iPhone 和 iPad 上的 Safari** — 打开 Web UI，选择**分享 → 添加到主屏幕**。
+- **macOS 上的 Safari** — 选择**文件 → 添加到程序坞**。
+
+安装后打开过几次，之后即使离线启动，应用也会显示界面，而不是浏览器错误页。与 agent 对话仍然需要服务端，因此界面之外的功能会等待连接恢复。
+
+升级 Stella 后，仍然开着的应用或标签页会提示刷新以载入新版本。你可以忽略该提示继续工作，下次升级时它会再次出现。
+
+浏览器只允许在安全来源上安装。如果你通过局域网地址以纯 `http://` 访问 Stella，不会出现安装选项，应用会保持为普通浏览器标签页。请为 Stella 配置 HTTPS（见[三种 URL 角色](#三种-url-角色)），或使用浏览器视为安全来源的 `http://localhost` 访问。
 
 ## 作为后台服务运行
 
@@ -321,7 +335,7 @@ terminationGracePeriodSeconds: 200
 | 路径                                  | 用途                                                                            |
 | ------------------------------------- | ------------------------------------------------------------------------------- |
 | `~/.stella/postgres/`                 | 内嵌 PostgreSQL 数据（配置、记忆、调度器）；使用 `STELLA_DATABASE_URL` 时不存在 |
-| `~/.stella/pg-runtime/`               | 下载的内嵌 PostgreSQL runtime；可用 `stellad postgres download-runtime` 重建    |
+| `~/.stella/pg-runtime/`               | 下载的内嵌 PostgreSQL runtime；可用 `stellad postgres download` 重建            |
 | `~/.stella/agents/{agent-id}/skills/` | 每个 agent 安装的技能                                                           |
 | `~/.stella/agents/{agent-id}/SOUL.md` | 可选的每个 agent 的灵魂/身份覆盖                                                |
 | `~/.stella/cache/`                    | 模型缓存（可重新生成，安全删除）                                                |

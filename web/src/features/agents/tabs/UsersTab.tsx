@@ -1,5 +1,5 @@
 import type { User } from "@/lib/types";
-import type { AgentsPageState } from "../AgentsPage";
+import type { AgentsPageState } from "../agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 
@@ -29,7 +29,7 @@ export function UsersTab({ state, availableUsers, onSetState, onAddUser, onRemov
               onClick={() => onRemoveUser(u.id)}
               variant="ghost"
               size="xs"
-              className="text-destructive hover:bg-destructive/10 cursor-pointer"
+              className="text-destructive-foreground hover:bg-destructive/10 cursor-pointer"
             >
               {t("common.remove")}
             </Button>

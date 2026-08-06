@@ -51,13 +51,9 @@ func (a *Access) GetPluginConfigSchema(ctx context.Context, kind, name string) (
 	return a.svc.plugins.ConfigSchema(pluginRouteID(kind, name)), nil
 }
 
-// TogglePlugin enables/disables a plugin and hot-reloads its runtime. A sandbox
-// backend pinned by STELLA_SANDBOX_BACKEND cannot be toggled.
+// TogglePlugin enables/disables a plugin and hot-reloads its runtime.
 func (a *Access) TogglePlugin(ctx context.Context, kind, name string, enabled bool) (config.Plugin, error) {
 	id := pluginRouteID(kind, name)
-	if kind == config.PluginKindSandbox && config.SandboxBackendEnvOverride() != "" {
-		return config.Plugin{}, &ForbiddenError{Msg: "sandbox backend is locked by STELLA_SANDBOX_BACKEND environment variable"}
-	}
 	if err := a.svc.plugins.SetEnabled(ctx, id, enabled); err != nil {
 		return config.Plugin{}, err
 	}

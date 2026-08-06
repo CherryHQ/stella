@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
-import { createHighlighter, type Highlighter } from "shiki";
+import type { Highlighter } from "shiki";
 import {
   ArrowLeft,
   Pencil,
@@ -33,10 +33,14 @@ let highlighterPromise: Promise<Highlighter> | null = null;
 
 function getHighlighter(): Promise<Highlighter> {
   if (!highlighterPromise) {
-    highlighterPromise = createHighlighter({
-      themes: ["github-light", "github-dark"],
-      langs: [],
-    });
+    // Dynamic import keeps shiki (and its grammars) out of the main chunk;
+    // it only loads once someone actually opens a file.
+    highlighterPromise = import("shiki").then(({ createHighlighter }) =>
+      createHighlighter({
+        themes: ["github-light", "github-dark"],
+        langs: [],
+      }),
+    );
   }
   return highlighterPromise;
 }
@@ -342,7 +346,7 @@ export function FileViewer({
 
         {!loading && !isPdf(path) && isBinary(path) && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-            <span className="text-xs font-mono">{t("sessions.workspace.binaryFile")}</span>
+            <span className="text-xs">{t("sessions.workspace.binaryFile")}</span>
             <span className="text-xs font-mono">.{ext}</span>
             <a
               href={rawUrl}

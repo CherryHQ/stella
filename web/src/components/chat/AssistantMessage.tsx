@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import type { ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
@@ -20,7 +20,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { getAgentColor } from "@/lib/agent-colors";
+import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { RenderableReferenceList } from "./references";
@@ -51,7 +51,7 @@ export function AssistantMessage({
   sameRoleAsPrev,
   agentSessionId,
 }: AssistantMessageProps) {
-  const color = getAgentColor(agentId);
+  const avatarStyle = getAgentAvatarStyle(agentId);
   const grouped = groupBlocks(blocks);
   const copyText = blocks
     .filter((b) => b.type === "text")
@@ -64,27 +64,30 @@ export function AssistantMessage({
         <div className="mb-1.5 flex items-center gap-2">
           <span
             className="grid size-5 place-items-center rounded-full text-xs font-semibold text-primary-foreground shrink-0"
-            style={{ background: color }}
+            style={avatarStyle}
           >
             {agentName[0]?.toUpperCase()}
           </span>
           <span className="text-xs font-semibold text-foreground">{agentName}</span>
           {streaming && (
             <span className="inline-flex items-center gap-1">
-              <span className="size-1.5 animate-pulse rounded-full bg-chart-2" />
+              <span className="size-1.5 animate-pulse rounded-full bg-info" />
             </span>
           )}
         </div>
       )}
       <div className="min-w-0 space-y-3 ml-2.5 border-l border-border pl-4">
         {grouped.map((item, gi) => {
+          // Keys derive from the group's start offset in `blocks`: during a
+          // stream blocks are append-only, so existing groups keep their key
+          // and never remount (index keys shifted whenever a group appeared).
           if (item.type === "text") {
-            return <BlockRenderer key={gi} block={item.block} />;
+            return <BlockRenderer key={`g${item.start}`} block={item.block} />;
           } else {
             const hasFinalOutputAfter = grouped.slice(gi + 1).some((next) => next.type === "text");
             return (
               <StepsGroup
-                key={gi}
+                key={`g${item.start}`}
                 blocks={item.blocks}
                 active={Boolean(streaming && !hasFinalOutputAfter)}
               />
@@ -134,28 +137,33 @@ export function AssistantMessage({
   );
 }
 
+// `start` is the group's first index in the source blocks array — a
+// remount-stable React key, since blocks only append during a stream.
 type GroupedBlock =
-  | { type: "text"; block: ContentBlock }
-  | { type: "steps"; blocks: ContentBlock[] };
+  | { type: "text"; block: ContentBlock; start: number }
+  | { type: "steps"; blocks: ContentBlock[]; start: number };
 
 function groupBlocks(blocks: ContentBlock[]): GroupedBlock[] {
   const result: GroupedBlock[] = [];
   let currentSteps: ContentBlock[] = [];
+  let stepsStart = 0;
 
-  for (const block of blocks) {
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
     if (block.type === "thinking" || block.type === "tool_call") {
+      if (currentSteps.length === 0) stepsStart = i;
       currentSteps.push(block);
     } else {
       if (currentSteps.length > 0) {
-        result.push({ type: "steps", blocks: currentSteps });
+        result.push({ type: "steps", blocks: currentSteps, start: stepsStart });
         currentSteps = [];
       }
-      result.push({ type: "text", block });
+      result.push({ type: "text", block, start: i });
     }
   }
 
   if (currentSteps.length > 0) {
-    result.push({ type: "steps", blocks: currentSteps });
+    result.push({ type: "steps", blocks: currentSteps, start: stepsStart });
   }
 
   return result;
@@ -168,6 +176,22 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
         content={block.text}
         className="px-0.5 leading-relaxed text-[15px] text-foreground/90 font-sans"
       />
+    );
+  if (block.type === "image")
+    return (
+      <a
+        href={block.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block w-fit overflow-hidden rounded-lg border border-border hover:border-primary/40 transition-colors"
+      >
+        <img
+          src={block.url}
+          alt="Tool image output"
+          className="max-h-56 max-w-full object-cover"
+          loading="lazy"
+        />
+      </a>
     );
   return null;
 }
@@ -249,7 +273,7 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
             if (block.type === "thinking" && block.thinking) {
               return (
                 <div
-                  key={idx}
+                  key={`t${idx}`}
                   className="py-0.5 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-sans min-w-0"
                 >
                   {block.thinking}
@@ -257,7 +281,9 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
               );
             }
             if (block.type === "tool_call") {
-              return <ToolStepRow key={idx} block={block} />;
+              // Keyed by the stable tool-call id so an appended sibling never
+              // remounts an existing row (which would drop its open state).
+              return <ToolStepRow key={block.id || `i${idx}`} block={block} />;
             }
             return null;
           })}
@@ -323,22 +349,34 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
   }
   if (cmdPreview.length > 200) cmdPreview = cmdPreview.slice(0, 200) + "…";
 
-  const inputText = toolArgText(args.command ?? args.input ?? args.path ?? args.file_path ?? args);
-
-  // The runner appends a trailing "[exit:N | Xms]" line; lift it into the
-  // status footer instead of leaving it in the output body.
-  let outputText = block.result?.content ?? "";
-  let duration = "";
-  let exitOk = !block.result?.is_error;
-  const exitMatch = outputText.match(/\n?\[exit:(\d+) \| (\d+ms)\]\s*$/);
-  if (exitMatch) {
-    outputText = outputText.slice(0, exitMatch.index).replace(/\s+$/, "");
-    duration = exitMatch[2];
-    exitOk = exitMatch[1] === "0" && !block.result?.is_error;
-  }
+  // Input/output derivation (JSON.stringify of args, regex over the full tool
+  // output) is only needed once the row is expanded; collapsed rows on the
+  // streaming path must stay free of per-render serialization work.
+  const details = useMemo(() => {
+    if (!open) return null;
+    const inputText = toolArgText(
+      args.command ?? args.input ?? args.path ?? args.file_path ?? args,
+    );
+    // The runner appends a trailing "[exit:N | Xms]" line; lift it into the
+    // status footer instead of leaving it in the output body.
+    let outputText = block.result?.content ?? "";
+    const outputBlocks = block.result?.blocks ?? [];
+    if (outputBlocks.length > 0) outputText = "";
+    let duration = "";
+    let exitOk = !block.result?.is_error;
+    const exitMatch = outputText.match(/\n?\[exit:(\d+) \| (\d+ms)\]\s*$/);
+    if (exitMatch) {
+      outputText = outputText.slice(0, exitMatch.index).replace(/\s+$/, "");
+      duration = exitMatch[2];
+      exitOk = exitMatch[1] === "0" && !block.result?.is_error;
+    }
+    return { inputText, outputText, outputBlocks, duration, exitOk };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- args derives from block
+  }, [open, block]);
 
   const onCopy = () => {
-    void navigator.clipboard?.writeText(inputText);
+    if (!details) return;
+    void navigator.clipboard?.writeText(details.inputText);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
@@ -374,27 +412,60 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
             </button>
           </div>
           <pre className="whitespace-pre-wrap break-all leading-relaxed text-foreground/90">
-            {isBash ? `$ ${inputText}` : inputText}
+            {isBash ? `$ ${details!.inputText}` : details!.inputText}
           </pre>
-          {block.result && outputText && (
+          {block.result && details!.outputText && (
             <pre
               className={cn(
                 "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
-                block.result.is_error ? "text-destructive/80" : "text-muted-foreground/80",
+                block.result.is_error
+                  ? "text-destructive-foreground/80"
+                  : "text-muted-foreground/80",
               )}
             >
-              {outputText}
+              {details!.outputText}
             </pre>
           )}
+          {block.result &&
+            details!.outputBlocks.map((output, index) =>
+              output.type === "text" ? (
+                <pre
+                  key={`text-${index}`}
+                  className={cn(
+                    "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
+                    block.result?.is_error
+                      ? "text-destructive-foreground/80"
+                      : "text-muted-foreground/80",
+                  )}
+                >
+                  {output.text}
+                </pre>
+              ) : (
+                <a
+                  key={`image-${output.media_id}-${index}`}
+                  href={output.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 block w-fit overflow-hidden rounded-lg border border-border hover:border-primary/40 transition-colors"
+                >
+                  <img
+                    src={output.url}
+                    alt="Tool image output"
+                    className="max-h-56 max-w-full object-cover"
+                    loading="lazy"
+                  />
+                </a>
+              ),
+            )}
           {block.result && (
             <div
               className={cn(
                 "mt-2 text-right text-muted-foreground/55",
-                block.result.is_error && "text-destructive/70",
+                block.result.is_error && "text-destructive-foreground/70",
               )}
             >
-              {exitOk ? "✓ Success" : "✕ Failed"}
-              {duration && ` · ${duration}`}
+              {details!.exitOk ? "✓ Success" : "✕ Failed"}
+              {details!.duration && ` · ${details!.duration}`}
             </div>
           )}
         </div>

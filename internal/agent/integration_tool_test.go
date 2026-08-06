@@ -110,9 +110,9 @@ func TestIntegrationToolUseAllProviders(t *testing.T) {
 				ai.UserMessage{Content: "What's the weather in Tokyo?"},
 			}
 
-			history, err := runner.Run(ctx, messages, nil)
+			history, err := runner.RunWithActiveStart(ctx, messages, 0, nil)
 			if err != nil {
-				t.Fatalf("runner.Run error: %v", err)
+				t.Fatalf("runner.RunWithActiveStart error: %v", err)
 			}
 
 			// Verify tool was called.

@@ -99,6 +99,7 @@ export function SettingsCard({
   children,
   to,
   params,
+  search,
 }: {
   icon?: ReactNode;
   title: ReactNode;
@@ -111,10 +112,11 @@ export function SettingsCard({
   children?: ReactNode;
   to?: string;
   params?: Record<string, string>;
+  search?: Record<string, unknown>;
 }) {
   return (
     <Card
-      render={to ? <Link to={to} params={params as never} /> : undefined}
+      render={to ? <Link to={to} params={params as never} search={search as never} /> : undefined}
       onClick={onClick}
       className={`gap-3 p-4 transition-colors ${
         onClick || to ? "cursor-pointer hover:border-ring/40" : ""

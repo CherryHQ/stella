@@ -12,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -686,6 +687,52 @@ func TestSnapshotResolvesUniqueProviderTypeAlias(t *testing.T) {
 	}
 	if model.Provider != "anthropic" {
 		t.Fatalf("ResolveModel().Provider = %q, want %q", model.Provider, "anthropic")
+	}
+}
+
+func TestSnapshotCarriesDeclaredModelInput(t *testing.T) {
+	s := setupDBStore(t)
+	ctx := testCtx()
+
+	if err := s.CreateProvider(ctx, config.Provider{
+		ID:     "claude",
+		Type:   "anthropic",
+		Name:   "Claude",
+		APIKey: "sk-claude",
+		Models: map[string]config.ProviderModel{
+			"claude-sonnet-4-6": {ID: "claude-sonnet-4-6", Enabled: true, Input: []string{"text", "image"}},
+			"claude-text-only":  {ID: "claude-text-only", Enabled: true, Input: []string{"text"}},
+			"claude-undeclared": {ID: "claude-undeclared", Enabled: true},
+		},
+	}); err != nil {
+		t.Fatalf("CreateProvider: %v", err)
+	}
+	// Referenced by the unique-type alias, not the provider ID, so the snapshot
+	// must key model inputs the same way it keys credentials.
+	if err := s.CreateAgent(ctx, config.Agent{
+		ID:          "stella",
+		Name:        "Stella",
+		Model:       "anthropic/claude-sonnet-4-6",
+		ModelStrong: "anthropic/claude-text-only",
+		ModelFast:   "anthropic/claude-undeclared",
+		Enabled:     true,
+	}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+
+	snap, err := s.Snapshot(ctx, "stella")
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+
+	if got := snap.ResolveModelTier(config.ModelTierStrong).ImageCapability(); got != ai.ImageUnsupported {
+		t.Errorf("strong tier ImageCapability = %v, want ImageUnsupported", got)
+	}
+	if got := snap.ResolveModelTier(config.ModelTierFast).ImageCapability(); got != ai.ImageUnknown {
+		t.Errorf("fast tier ImageCapability = %v, want ImageUnknown", got)
+	}
+	if got := snap.ModelInput("anthropic", "claude-sonnet-4-6"); len(got) != 2 {
+		t.Errorf("ModelInput(anthropic, claude-sonnet-4-6) = %v, want [text image]", got)
 	}
 }
 

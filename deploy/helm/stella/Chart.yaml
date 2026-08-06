@@ -8,7 +8,7 @@ version: 0.1.1
 # against. It is NOT the default image tag: the chart defaults image.tag to
 # "latest" (see stella.image / values.yaml) so a fresh install tracks the newest
 # published release. Pin image.tag or image.digest for reproducible deploys.
-appVersion: "v0.60.4"
+appVersion: "v0.62.0"
 home: https://stella.cherryin.com
 sources:
   - https://github.com/CherryHQ/stella

@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/credential"
+	"github.com/CherryHQ/stella/web"
 )
 
 // contextKey is used for storing auth info in request context.
@@ -81,12 +82,11 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Bearer credentials (PAT / OAuth) carry a credential kind and go through
-		// the unified enforcement gate. Cookie/OIDC sessions have no kind and skip
-		// API-scope enforcement (handler ownership/admin checks still apply to
-		// them). /api/status is a public health endpoint (reachable anonymously
-		// above), so a valid but narrowly scoped bearer must not get a 403 there
-		// where an anonymous caller gets 200.
+		// Bearer credentials carry a credential kind and go through the unified
+		// entry gate. PATs inherit account authority; OAuth tokens additionally
+		// enforce delegated scopes. Cookie/OIDC sessions have no kind and skip this
+		// gate. /api/status is public, so a narrowly scoped OAuth bearer must not get
+		// a 403 where an anonymous caller gets 200.
 		if info.principal != nil && path != "/api/status" {
 			if err := credential.Enforce(info.principal, r.Method, path); err != nil {
 				writeError(w, http.StatusForbidden, "permission denied")
@@ -175,6 +175,40 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) *AuthInfo {
 	return info
 }
 
+// requireInteractiveAdmin is the sole gate for lifecycle actions that mint or
+// manage bearer credentials. A bearer may resolve to an admin account, but it
+// is not an interactive session and must never create its own replacement.
+func requireInteractiveAdmin(w http.ResponseWriter, r *http.Request) *AuthInfo {
+	info := requireAuth(w, r)
+	if info == nil {
+		return nil
+	}
+	if info.principal != nil {
+		writeError(w, http.StatusForbidden, "interactive admin session required")
+		return nil
+	}
+	if !info.IsAdmin {
+		writeError(w, http.StatusForbidden, "admin access required")
+		return nil
+	}
+	return info
+}
+
+// requireProvisioningBearer is the one entry gate for the provisioned-user
+// family. A session or a personal/admin PAT may have broad account authority,
+// but neither is the deliberately constrained provisioning capability.
+func requireProvisioningBearer(w http.ResponseWriter, r *http.Request) *AuthInfo {
+	info := requireAuth(w, r)
+	if info == nil {
+		return nil
+	}
+	if info.principal == nil || info.principal.Kind != credential.KindProvisioning || info.principal.CredentialID == "" {
+		writeError(w, http.StatusForbidden, "provisioning token required")
+		return nil
+	}
+	return info
+}
+
 // Public auth API paths that don't require a session.
 var publicAuthAPIPaths = []string{
 	"/api/auth/logout",
@@ -188,6 +222,12 @@ var publicAuthAPIPaths = []string{
 func isAuthExempt(method, path string) bool {
 	switch {
 	case path == "/login" || path == "/signup":
+		return true
+	case slices.Contains(web.PWARootFiles, path):
+		// The progressive-web-app manifest, worker, and icons. A browser fetches
+		// them with no session — redirect them to /login and it rejects the
+		// manifest and the worker on their content type, so the Web UI never
+		// becomes installable.
 		return true
 	case path == "/healthz" || path == "/readyz":
 		// Infrastructure probes for orchestrators (kubelet); no user session.
@@ -205,11 +245,6 @@ func isAuthExempt(method, path string) bool {
 		// OAuth2 token endpoint authenticates the client itself; it must NOT
 		// require a Stella user session. /oauth/authorize is deliberately NOT
 		// exempt -- it needs a logged-in user to render consent.
-		return true
-	case method == http.MethodPost && strings.HasPrefix(path, "/webhooks/"):
-		// Inbound webhook ingress authenticates itself via the caller's PAT and
-		// enforces the agent:write scope in the handler (it never reaches
-		// credential.Enforce). Only POST is exempt.
 		return true
 	case strings.HasPrefix(path, "/api/auth/"):
 		if slices.Contains(publicAuthAPIPaths, path) {

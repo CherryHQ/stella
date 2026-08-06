@@ -8,13 +8,6 @@ const (
 	ActionWrite = "write"
 )
 
-// ScopeAgentWrite guards posting messages / triggering an agent run. The
-// webhook ingress (POST /webhooks/{id}) is auth-exempt and bypasses Enforce,
-// so it checks this constant directly; defining it here ties that surface to
-// the same catalog mapping scopeForMethod applies to the equivalent /api
-// routes (see TestScopeAgentWriteMatchesRouteMapping).
-const ScopeAgentWrite = "agent:" + ActionWrite
-
 // Scope is one entry in the authoritative API-permission catalog. These are the
 // resource:action permissions checked at the HTTP boundary. They are a DIFFERENT
 // axis from skill/vault storage scopes (system / user / agent ownership) -- do
@@ -22,39 +15,30 @@ const ScopeAgentWrite = "agent:" + ActionWrite
 type Scope struct {
 	// Resource is the left side of resource:action (e.g. "goals").
 	Resource string
-	// Description is human-facing copy for the PAT creation UI / OAuth consent.
+	// Description is human-facing copy for OAuth consent.
 	Description string
-	// ExposableToPAT controls whether a PAT may be granted this resource.
-	// vault/oauth are sandbox-internal and default-denied to external tokens.
-	ExposableToPAT bool
 	// ExposableToOAuth controls whether a third-party OAuth2 client may be
-	// granted this resource via consent. Same default-deny policy as PATs:
-	// vault:* / oauth:* are never grantable to an OAuth client.
+	// granted this resource via consent. vault:* / oauth:* are never grantable
+	// to an OAuth client.
 	ExposableToOAuth bool
 }
 
 // catalog is the single authoritative scope registry. Wildcard resource:* is
 // derived from these entries (a granted "goals:*" covers goals:read/goals:write).
 var catalog = []Scope{
-	// NOTE: the "agent" scope is coarse. Read grants the full agent surface --
-	// config, sessions, conversation messages, and workspace file contents;
-	// write additionally allows deleting the agent, managing its members, posting
-	// messages, and writing workspace files. The Description states this so PAT
-	// consent is not misleading. Splitting sessions/workspace into finer scopes is
-	// a deferred product decision -- keep the copy honest until then.
-	{Resource: "agent", Description: "Full agent access: read config, sessions, messages, and workspace files; write can delete agents, manage members, post messages, and modify files", ExposableToPAT: true, ExposableToOAuth: true},
-	{Resource: "goals", Description: "Manage goals", ExposableToPAT: true, ExposableToOAuth: true},
-	{Resource: "workflows", Description: "Manage reusable workflows", ExposableToPAT: true, ExposableToOAuth: true},
-	{Resource: "scheduler", Description: "Manage scheduled jobs", ExposableToPAT: true, ExposableToOAuth: true},
-	{Resource: "skills", Description: "Manage skills, including installing and uploading skills that run as code in your sandbox", ExposableToPAT: true, ExposableToOAuth: true},
-	{Resource: "shares", Description: "Manage public shares", ExposableToPAT: true, ExposableToOAuth: true},
-	{Resource: "recally", Description: "Manage Recally articles, feeds, and digests", ExposableToPAT: true, ExposableToOAuth: true},
-	{Resource: "email", Description: "Read and send email", ExposableToPAT: true, ExposableToOAuth: true},
-	{Resource: "mcp", Description: "Manage MCP server registrations", ExposableToPAT: true, ExposableToOAuth: true},
-	// Sandbox-internal capabilities. Dangerous to hand a third party, so they are
-	// NOT exposable to PATs or OAuth clients by default (default-deny policy).
-	{Resource: "vault", Description: "Read and write encrypted secrets", ExposableToPAT: false, ExposableToOAuth: false},
-	{Resource: "oauth", Description: "Manage linked OAuth accounts", ExposableToPAT: false, ExposableToOAuth: false},
+	{Resource: "agent", Description: "Full agent access: read config, sessions, messages, and workspace files; write can delete agents, manage members, post messages, and modify files", ExposableToOAuth: true},
+	{Resource: "goals", Description: "Manage goals", ExposableToOAuth: true},
+	{Resource: "workflows", Description: "Manage reusable workflows", ExposableToOAuth: true},
+	{Resource: "webhooks", Description: "Manage personal webhook invocation capabilities", ExposableToOAuth: true},
+	{Resource: "scheduler", Description: "Manage scheduled jobs", ExposableToOAuth: true},
+	{Resource: "skills", Description: "Manage skills, including installing and uploading skills that run as code in your sandbox", ExposableToOAuth: true},
+	{Resource: "shares", Description: "Manage public shares", ExposableToOAuth: true},
+	{Resource: "recally", Description: "Manage Recally articles, feeds, and digests", ExposableToOAuth: true},
+	{Resource: "email", Description: "Read and send email", ExposableToOAuth: true},
+	{Resource: "mcp", Description: "Manage MCP server registrations", ExposableToOAuth: true},
+	// Sandbox-internal capabilities are never delegated to OAuth clients.
+	{Resource: "vault", Description: "Read and write encrypted secrets", ExposableToOAuth: false},
+	{Resource: "oauth", Description: "Manage linked OAuth accounts", ExposableToOAuth: false},
 }
 
 var catalogByResource = func() map[string]Scope {
@@ -65,48 +49,11 @@ var catalogByResource = func() map[string]Scope {
 	return m
 }()
 
-// Catalog returns the scope catalog (copy) for UI/consent surfaces.
+// Catalog returns the scope catalog (copy) for OAuth consent surfaces.
 func Catalog() []Scope {
 	out := make([]Scope, len(catalog))
 	copy(out, catalog)
 	return out
-}
-
-// ExposableScopes returns the concrete scope strings a PAT may be granted
-// (resource:read and resource:write for every exposable resource, plus the
-// resource:* wildcard).
-func ExposableScopes() []string {
-	var out []string
-	for _, s := range catalog {
-		if !s.ExposableToPAT {
-			continue
-		}
-		out = append(out, s.Resource+":"+ActionRead, s.Resource+":"+ActionWrite, s.Resource+":*")
-	}
-	return out
-}
-
-// ValidatePATScopes rejects unknown, malformed, or non-exposable scopes. It
-// returns the first offending scope. An empty scope set is rejected: a PAT with
-// no scope can do nothing and is almost always a mistake.
-func ValidatePATScopes(scopes []string) (string, bool) {
-	if len(scopes) == 0 {
-		return "", false
-	}
-	for _, sc := range scopes {
-		resource, action, ok := strings.Cut(sc, ":")
-		if !ok || resource == "" || action == "" {
-			return sc, false
-		}
-		entry, known := catalogByResource[resource]
-		if !known || !entry.ExposableToPAT {
-			return sc, false
-		}
-		if action != ActionRead && action != ActionWrite && action != "*" {
-			return sc, false
-		}
-	}
-	return "", true
 }
 
 // OAuthGrantableScopes returns the concrete scope strings an OAuth2 client may

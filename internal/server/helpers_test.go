@@ -86,7 +86,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
 	toolOverrides := agent.NewToolOverrideStore(db)
-	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), slog.With("component", "agent-management-test"))
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	memProfiles, _ := mem.(memory.ProfileStore)
 	memChangelog, _ := mem.(memory.ChangelogReader)
@@ -94,7 +94,6 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	profileSvc := memprofile.NewService(db, memProfiles, memChangelog, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
 	return Deps{
 		Pinger:              db,
-		ChannelResolver:     channel.NewRuntimeResolver(store),
 		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
 		Account:             accountSvc,
 		Profile:             profileSvc,

@@ -166,7 +166,7 @@ export function RecallyReader({
           <span>{t("common.loading")}</span>
         </div>
       ) : articleQuery.isError ? (
-        <div className="flex h-full items-center justify-center text-xs font-mono text-destructive">
+        <div className="flex h-full items-center justify-center text-xs font-mono text-destructive-foreground">
           {t("common.error")}
         </div>
       ) : selectedArticle ? (
@@ -269,7 +269,7 @@ export function RecallyReader({
                 <Star
                   className={cn(
                     "size-4",
-                    selectedArticle.starred ? "fill-chart-4 text-chart-4" : "",
+                    selectedArticle.starred ? "fill-warning text-warning" : "",
                   )}
                 />
               </Button>
@@ -297,12 +297,14 @@ export function RecallyReader({
                 </Button>
               )}
 
-              {shareError && <span className="text-xs text-destructive">{shareError}</span>}
+              {shareError && (
+                <span className="text-xs text-destructive-foreground">{shareError}</span>
+              )}
 
               {/* Delete / Destructive actions */}
               {confirmingDeleteId === selectedArticle.id ? (
                 <div className="flex items-center gap-1 bg-destructive/5 border border-destructive/20 rounded-lg p-1">
-                  <span className="text-xs font-medium text-destructive px-1.5">
+                  <span className="text-xs font-medium text-destructive-foreground px-1.5">
                     {t("common.confirm")}
                   </span>
                   <button
@@ -312,7 +314,7 @@ export function RecallyReader({
                       })
                     }
                     disabled={deleteArticleMut.isPending}
-                    className="rounded bg-destructive/10 border border-destructive/20 px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50 cursor-pointer"
+                    className="rounded bg-destructive/10 border border-destructive/20 px-2 py-0.5 text-xs text-destructive-foreground transition-colors hover:bg-destructive/20 disabled:opacity-50 cursor-pointer"
                   >
                     {t("common.yes")}
                   </button>

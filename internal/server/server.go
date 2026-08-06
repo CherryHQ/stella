@@ -30,17 +30,18 @@ import (
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/provisioning"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 )
 
 // Server provides HTTP handlers for the admin API and embedded web UI.
 type Server struct {
-	channelResolver *channel.RuntimeResolver
 	account         *account.Service
 	profileSvc      *memprofile.Service
 	projectStore    *agent.ProjectStore
@@ -58,25 +59,26 @@ type Server struct {
 	// pinger is the narrow database-liveness port backing the /healthz, /readyz,
 	// and admin status probes. It is the injected pool viewed as DBPinger, so the
 	// probes can never reach an application query.
-	pinger         DBPinger
-	mux            *http.ServeMux
-	log            *slog.Logger
-	vaultRecipient *age.X25519Recipient  // optional; if set, age keys are generated for new users
-	vaultSvc       *vault.Service        // optional; if nil, vault endpoints return 503
-	mcpSvc         *mcp.Service          // optional; if nil, MCP endpoints return 503
-	credResolver   *credential.Service   // unified bearer credential front door
-	oauthAS        *oidc.Service         // OAuth2 authorization server
-	controlPlane   *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
-	credSvc        *connections.Service  // shared credentials service
-	emailSvc       *email.Service        // shared email service
-	shareSvc       *sharepkg.Service     // shared share service
-	recallySvc     *recally.Service      // shared recally service
-	recally        *recallyHandlers      // recally HTTP API (articles, feeds, digest)
-	schedulerSvc   *scheduler.Service    // optional; if set, create/delete go through the live scheduler
-	goalSvc        *goal.Service         // optional; if nil, goal endpoints return 503
-	workflowSvc    *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
-	builtinTools   []agent.BuiltinTool
-	startedAt      time.Time
+	pinger          DBPinger
+	mux             *http.ServeMux
+	log             *slog.Logger
+	vaultRecipient  *age.X25519Recipient  // optional; if set, age keys are generated for new users
+	vaultSvc        *vault.Service        // optional; if nil, vault endpoints return 503
+	mcpSvc          *mcp.Service          // optional; if nil, MCP endpoints return 503
+	credResolver    *credential.Service   // unified bearer credential front door
+	oauthAS         *oidc.Service         // OAuth2 authorization server
+	controlPlane    *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
+	credSvc         *connections.Service  // shared credentials service
+	emailSvc        *email.Service        // shared email service
+	shareSvc        *sharepkg.Service     // shared share service
+	recallySvc      *recally.Service      // shared recally service
+	recally         *recallyHandlers      // recally HTTP API (articles, feeds, digest)
+	schedulerSvc    *scheduler.Service    // optional; if set, create/delete go through the live scheduler
+	goalSvc         *goal.Service         // optional; if nil, goal endpoints return 503
+	workflowSvc     *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
+	provisioningSvc *provisioning.Service // provisioned-user lifecycle boundary
+	builtinTools    []agent.BuiltinTool
+	startedAt       time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider
 	authSvc       *auth.AuthService
@@ -97,6 +99,12 @@ type Server struct {
 	runtimeCtx context.Context
 	// webhookLimiter throttles accepted webhook ingress calls per instance.
 	webhookLimiter *webhookLimiter
+	// webhookIngress is the deep capability-admission surface: candidate
+	// resolution before body read, then lifecycle-revalidating admission.
+	webhookIngress webhookIngressPort
+	webhooks       *webhook.Service
+	// webhookRun is the narrow agent-execution surface the ingress callback uses.
+	webhookRun webhookRunPort
 	// readiness backs the /healthz and /readyz infrastructure probes and carries
 	// the graceful-drain signal streaming handlers watch.
 	readiness *readiness
@@ -116,11 +124,6 @@ type Deps struct {
 	// narrow port so the transport can never reach an application query — every
 	// data access is routed through a domain service below.
 	Pinger DBPinger
-
-	// ChannelResolver is the narrow runtime read port for webhook/channel and
-	// agent-name lookups, replacing the aggregate config.Store on the transport.
-	ChannelResolver *channel.RuntimeResolver
-
 	// Account owns the user-account application boundary: admin/self user
 	// reads/mutations, login/channel identities, sessions, password credential,
 	// and agent assignments, with the role/deactivation revocation invariants.
@@ -174,8 +177,11 @@ type Deps struct {
 	// Shared domain services — single, fully-wired instances built by the
 	// composition root. The same instances back both the agent tools and the
 	// HTTP endpoints, so there is one source of truth per capability.
-	Credentials         *connections.Service
-	ControlPlane        *controlplane.Service
+	Credentials  *connections.Service
+	ControlPlane *controlplane.Service
+	// Webhooks is the personal invocation-capability domain used by both the
+	// authenticated resource API and unauthenticated capability ingress.
+	Webhooks            *webhook.Service
 	Email               *email.Service
 	Share               *sharepkg.Service
 	Recally             *recally.Service
@@ -202,6 +208,7 @@ type Deps struct {
 	Scheduler      *scheduler.Service
 	Goal           *goal.Service
 	Workflow       *workflowpkg.Service
+	Provisioning   *provisioning.Service
 }
 
 // OIDCDeps groups the login-authentication components produced by oidc.Setup.
@@ -231,7 +238,6 @@ func (d Deps) validate() error {
 		}
 	}
 	req(d.Pinger != nil, "Pinger")
-	req(d.ChannelResolver != nil, "ChannelResolver")
 	req(d.Group != nil, "Group")
 	req(d.Account != nil, "Account")
 	req(d.Profile != nil, "Profile")
@@ -275,7 +281,6 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 
 	log := slog.With("component", "admin")
 	s := &Server{
-		channelResolver: deps.ChannelResolver,
 		account:         deps.Account,
 		profileSvc:      deps.Profile,
 		projectStore:    deps.ProjectStore,
@@ -310,6 +315,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		schedulerSvc:    deps.Scheduler,
 		goalSvc:         deps.Goal,
 		workflowSvc:     deps.Workflow,
+		provisioningSvc: deps.Provisioning,
 		groupSvc:        deps.Group,
 		assets:          deps.Assets,
 		authProviders:   deps.OIDC.Providers,
@@ -320,6 +326,14 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		startedAt:       time.Now(),
 		runtimeCtx:      ctx,
 	}
+	// Assign the ingress port only when configured, so a nil *webhook.Service
+	// never becomes a non-nil interface whose methods would panic. Handlers treat
+	// a nil port as "capability ingress unavailable".
+	s.webhooks = deps.Webhooks
+	if deps.Webhooks != nil {
+		s.webhookIngress = deps.Webhooks
+	}
+	s.webhookRun = poolWebhookRunPort{pool: deps.PoolManager}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
 	// streaming handlers. The narrow DBPinger answers the /readyz liveness ping.
 	s.readiness = newReadiness(ctx, s.pinger)

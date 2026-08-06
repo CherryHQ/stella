@@ -13,12 +13,11 @@ import type { Agent } from "@/lib/types";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectItem,
@@ -26,7 +25,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  McpServerFields,
+  transportLabel,
+  type McpAuthType,
+  type McpTransport,
+} from "@/features/mcp/McpServerFields";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
+import { ErrorState } from "@/components/RouteFallback";
 import {
   SettingsCard,
   SettingsCardSection,
@@ -36,8 +42,8 @@ import {
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 
 type MCPScope = McpServer["scope"];
-type MCPTransport = McpServer["transport"];
-type MCPAuthType = McpServer["auth_type"];
+type MCPTransport = McpTransport;
+type MCPAuthType = McpAuthType;
 
 type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
@@ -60,19 +66,16 @@ function toScope(owner: ScopeOwner, range: ScopeRange): MCPScope {
   return owner === "global" ? "system" : "user";
 }
 
-function transportLabel(transport: MCPTransport) {
-  return transport === "streamable_http" ? "Streamable HTTP" : "SSE";
-}
-
 export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
 
   const [servers, setServers] = useState<McpServer[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServer | null>(null);
@@ -91,28 +94,22 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
     [agents],
   );
 
+  // These used to swallow into `[]`, so an unreachable server rendered as
+  // "no MCP servers configured" — indistinguishable from a clean install.
+  // Failures now surface through `loadError`.
   const fetchScope = useCallback(async (scope: MCPScope, agentID?: string) => {
-    try {
-      const { data } = await listScopedMcpServers({
-        query: { scope, agent_id: agentID },
-        throwOnError: true,
-      });
-      return data?.servers ?? [];
-    } catch {
-      return [];
-    }
+    const { data } = await listScopedMcpServers({
+      query: { scope, agent_id: agentID },
+      throwOnError: true,
+    });
+    return data?.servers ?? [];
   }, []);
 
   const loadAgents = useCallback(async () => {
-    try {
-      const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
-      const list = (data?.agents as Agent[]) ?? [];
-      setAgents(list);
-      return list;
-    } catch {
-      setAgents([]);
-      return [];
-    }
+    const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
+    const list = (data?.agents as Agent[]) ?? [];
+    setAgents(list);
+    return list;
   }, []);
 
   const loadServers = useCallback(
@@ -147,13 +144,21 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
     [fetchScope],
   );
 
-  useEffect(() => {
-    const init = async () => {
+  const init = useCallback(async () => {
+    setLoadError(false);
+    try {
       const agentList = await loadAgents();
       await loadServers(agentList);
-    };
-    void init();
+    } catch {
+      setAgents([]);
+      setServers([]);
+      setLoadError(true);
+    }
   }, [loadAgents, loadServers]);
+
+  useEffect(() => {
+    void init();
+  }, [init]);
 
   const openAddSheet = useCallback(() => {
     setEditingServer(null);
@@ -382,78 +387,31 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
           </Field>
         )}
 
-        <Field>
-          <FieldLabel>{t("mcp.name")}</FieldLabel>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="github"
-            nativeInput
-          />
-          <FieldDescription>{t("mcp.name.description")}</FieldDescription>
-        </Field>
-
-        <Field>
-          <FieldLabel>{t("mcp.url")}</FieldLabel>
-          <Input
-            value={url}
-            onChange={(e) => setURL(e.target.value)}
-            placeholder="https://mcp.example.com/mcp"
-            nativeInput
-          />
-        </Field>
-
-        <Field>
-          <FieldLabel>{t("mcp.transport")}</FieldLabel>
-          <Select value={transport} onValueChange={(value) => setTransport(value as MCPTransport)}>
-            <SelectTrigger>
-              <SelectValue>
-                {(value) => transportLabel((value as MCPTransport) || transport)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value="streamable_http">Streamable HTTP</SelectItem>
-              <SelectItem value="sse">SSE</SelectItem>
-            </SelectPopup>
-          </Select>
-        </Field>
-
-        <Field>
-          <FieldLabel>{t("mcp.auth")}</FieldLabel>
-          <Select value={authType} onValueChange={(value) => setAuthType(value as MCPAuthType)}>
-            <SelectTrigger>
-              <SelectValue>
-                {(value) => (value === "bearer" ? t("mcp.auth.bearer") : t("mcp.auth.none"))}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value="none">{t("mcp.auth.none")}</SelectItem>
-              <SelectItem value="bearer">{t("mcp.auth.bearer")}</SelectItem>
-            </SelectPopup>
-          </Select>
-        </Field>
-
-        {authType === "bearer" && (
-          <Field>
-            <FieldLabel>{t("mcp.token")}</FieldLabel>
-            <Input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              autoComplete="off"
-              nativeInput
-            />
-            <FieldDescription>
-              {editingServer ? t("mcp.token.editDescription") : t("mcp.token.description")}
-            </FieldDescription>
-          </Field>
-        )}
+        <McpServerFields
+          name={name}
+          onNameChange={setName}
+          url={url}
+          onUrlChange={setURL}
+          transport={transport}
+          onTransportChange={setTransport}
+          authType={authType}
+          onAuthTypeChange={setAuthType}
+          token={token}
+          onTokenChange={setToken}
+          editing={!!editingServer}
+        />
       </div>
     </DetailPanel>
   );
 
   const content = loading ? (
     <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+  ) : loadError ? (
+    <ErrorState
+      title={t("route.error.title")}
+      description={t("route.loadFailed")}
+      onRetry={() => void init()}
+    />
   ) : sortedServers.length === 0 ? (
     <SettingsEmptyState
       icon={<PlugZap className="size-5" />}
@@ -529,7 +487,6 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
       <SettingsDetailSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
         {addPanel}
       </SettingsDetailSheet>
-      <ToastContainer messages={toasts} />
     </>
   );
 }

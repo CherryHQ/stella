@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 )
@@ -20,13 +21,15 @@ import (
 // single owner for its mutating invariants (unique ID, creator auto-assignment
 // atomicity, scope rules).
 type Management struct {
-	pep      *Service
-	agents   AgentWriter
-	assign   AssignmentWriter
-	reloader AgentReloader
-	users    UserDirectory
-	activity ActivityReader
-	log      *slog.Logger
+	pep       *Service
+	agents    AgentWriter
+	assign    AssignmentWriter
+	reloader  AgentReloader
+	users     UserDirectory
+	activity  ActivityReader
+	creds     CredentialWriter
+	providers ProviderReader
+	log       *slog.Logger
 }
 
 // AgentWriter persists agent rows. config.Store satisfies it; the interface stays
@@ -51,6 +54,23 @@ type AssignmentWriter interface {
 // Management treats a failure as best-effort (see Create/Update/Delete).
 type AgentReloader interface {
 	SyncAgent(ctx context.Context, agentID string) error
+}
+
+// CredentialWriter is the Agent Provider credential encryption/persistence
+// boundary. *providercred.Service satisfies it. Management authorizes and
+// validates before delegating; it never sees plaintext after handing off.
+type CredentialWriter interface {
+	List(ctx context.Context, agentID string) ([]providercred.Metadata, error)
+	Set(ctx context.Context, agentID string, input providercred.Input) (providercred.Metadata, error)
+	Delete(ctx context.Context, agentID, providerID string) error
+	CreateAgentWithCredentials(ctx context.Context, agent config.Agent, inputs []providercred.Input) error
+}
+
+// ProviderReader lists only canonical Provider IDs so Management can reject an
+// alias or unconfigured Provider before encryption without reading global
+// Provider config or its API key.
+type ProviderReader interface {
+	ListProviderIDs(ctx context.Context) ([]string, error)
 }
 
 // UserRef is the account display data an assignment view needs. It is a domain
@@ -84,15 +104,23 @@ var (
 	ErrInvalidScope = errors.New("agent scope must be 'system' or 'restricted'")
 	// ErrUserNotFound reports an assignment target that does not exist.
 	ErrUserNotFound = errors.New("assignment target user not found")
+	// ErrInUse reports that a durable resource still references the Agent.
+	ErrInUse = errors.New("agent is still in use")
+	// ErrUnknownProvider reports a credential input whose provider_id is not an
+	// existing canonical Provider (an alias or an unconfigured ID). It is a
+	// validation error (400), raised before any encryption.
+	ErrUnknownProvider = errors.New("provider credential targets an unknown or non-canonical provider")
+	// ErrCredentialsUnavailable reports that credential support is not wired.
+	ErrCredentialsUnavailable = errors.New("agent provider credentials are unavailable")
 )
 
 // NewManagement builds the Agent management service over the Agent PEP and its
 // write/reload/lookup ports. log defaults to slog.Default() when nil.
-func NewManagement(pep *Service, agents AgentWriter, assign AssignmentWriter, reloader AgentReloader, users UserDirectory, activity ActivityReader, log *slog.Logger) *Management {
+func NewManagement(pep *Service, agents AgentWriter, assign AssignmentWriter, reloader AgentReloader, users UserDirectory, activity ActivityReader, creds CredentialWriter, providers ProviderReader, log *slog.Logger) *Management {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Management{pep: pep, agents: agents, assign: assign, reloader: reloader, users: users, activity: activity, log: log}
+	return &Management{pep: pep, agents: agents, assign: assign, reloader: reloader, users: users, activity: activity, creds: creds, providers: providers, log: log}
 }
 
 // Create authorizes and persists a new agent, enforcing the scope rules,
@@ -103,12 +131,51 @@ func NewManagement(pep *Service, agents AgentWriter, assign AssignmentWriter, re
 // caller supplies a fully transport-validated candidate whose ID is the base
 // slug; Management owns the scope decision, uniqueness, workspace, and creator.
 func (m *Management) Create(ctx context.Context, authority authz.Authority, candidate config.Agent) (config.Agent, error) {
-	acc, err := m.pep.Begin(ctx, authority)
+	candidate, isAdmin, err := m.prepareCreate(ctx, authority, candidate)
 	if err != nil {
 		return config.Agent{}, err
 	}
-	if err := acc.CanCreate(); err != nil {
+	if err := m.agents.CreateAgent(ctx, candidate); err != nil {
+		return config.Agent{}, fmt.Errorf("%w: create agent: %w", ErrUnavailable, err)
+	}
+	return m.finishCreate(ctx, isAdmin, candidate)
+}
+
+// CreateWithProviderCredentials creates an Agent together with per-Provider key
+// overrides in one atomic persist. It shares Create's authorization, scope, and
+// auto-assign compensation, adding canonical-Provider validation and encryption
+// before the composite write. An empty inputs slice is equivalent to Create.
+func (m *Management) CreateWithProviderCredentials(ctx context.Context, authority authz.Authority, candidate config.Agent, inputs []providercred.Input) (config.Agent, error) {
+	if len(inputs) == 0 {
+		return m.Create(ctx, authority, candidate)
+	}
+	if m.creds == nil {
+		return config.Agent{}, ErrCredentialsUnavailable
+	}
+	candidate, isAdmin, err := m.prepareCreate(ctx, authority, candidate)
+	if err != nil {
 		return config.Agent{}, err
+	}
+	if err := m.validateCredentialProviderIDs(ctx, inputs); err != nil {
+		return config.Agent{}, err
+	}
+	// The credential service encrypts every key, then inserts the Agent and all
+	// credential rows in one transaction: a failure at any step persists nothing.
+	if err := m.creds.CreateAgentWithCredentials(ctx, candidate, inputs); err != nil {
+		return config.Agent{}, mapCredentialError(err)
+	}
+	return m.finishCreate(ctx, isAdmin, candidate)
+}
+
+// prepareCreate authorizes the create and resolves the server-owned fields (scope,
+// workspace, creator, unique ID). It performs no persistence.
+func (m *Management) prepareCreate(ctx context.Context, authority authz.Authority, candidate config.Agent) (config.Agent, bool, error) {
+	acc, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return config.Agent{}, false, err
+	}
+	if err := acc.CanCreate(); err != nil {
+		return config.Agent{}, false, err
 	}
 
 	isAdmin := authority.IsAdmin()
@@ -120,7 +187,7 @@ func (m *Management) Create(ctx context.Context, authority authz.Authority, cand
 			candidate.Scope = config.AgentScopeSystem
 		}
 		if candidate.Scope != config.AgentScopeSystem && candidate.Scope != config.AgentScopeRestricted {
-			return config.Agent{}, ErrInvalidScope
+			return config.Agent{}, false, ErrInvalidScope
 		}
 	}
 
@@ -128,11 +195,13 @@ func (m *Management) Create(ctx context.Context, authority authz.Authority, cand
 	candidate.Workspace = ""
 	candidate.CreatorID = string(authority.UserID())
 	candidate.ID = m.uniqueAgentID(ctx, candidate.ID)
+	return candidate, isAdmin, nil
+}
 
-	if err := m.agents.CreateAgent(ctx, candidate); err != nil {
-		return config.Agent{}, fmt.Errorf("%w: create agent: %w", ErrUnavailable, err)
-	}
-
+// finishCreate runs the ordinary-creator auto-assign (with compensating delete on
+// failure) and the best-effort reload after the Agent — and any credentials — are
+// durably persisted. The compensating DeleteAgent cascades to credential rows.
+func (m *Management) finishCreate(ctx context.Context, isAdmin bool, candidate config.Agent) (config.Agent, error) {
 	if !isAdmin && candidate.Scope == config.AgentScopeRestricted {
 		if err := m.assign.AssignAgent(ctx, candidate.CreatorID, candidate.ID); err != nil {
 			// Compensate: without the assignment the creator cannot see their own
@@ -200,10 +269,132 @@ func (m *Management) Delete(ctx context.Context, authority authz.Authority, agen
 		return err
 	}
 	if err := m.agents.DeleteAgent(ctx, agentID); err != nil {
+		if errors.Is(err, config.ErrAgentInUse) {
+			return ErrInUse
+		}
 		return fmt.Errorf("%w: delete agent: %w", ErrUnavailable, err)
 	}
 	m.reload(ctx, agentID)
 	return nil
+}
+
+// ListProviderCredentials returns secret-free credential metadata for an Agent.
+// Read access is sufficient; only Set/Delete require Manage.
+func (m *Management) ListProviderCredentials(ctx context.Context, authority authz.Authority, agentID string) ([]providercred.Metadata, error) {
+	if m.creds == nil {
+		return nil, ErrCredentialsUnavailable
+	}
+	acc, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := acc.Read(ctx, agentID); err != nil {
+		return nil, err
+	}
+	metas, err := m.creds.List(ctx, agentID)
+	if err != nil {
+		return nil, mapCredentialError(err)
+	}
+	return metas, nil
+}
+
+// SetProviderCredential upserts (or rotates) one Agent Provider key override. It
+// requires Manage, validates the target is a canonical configured Provider before
+// any encryption, and reloads only the affected Agent's runners after commit.
+func (m *Management) SetProviderCredential(ctx context.Context, authority authz.Authority, agentID string, input providercred.Input) (providercred.Metadata, error) {
+	if m.creds == nil {
+		return providercred.Metadata{}, ErrCredentialsUnavailable
+	}
+	acc, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return providercred.Metadata{}, err
+	}
+	if _, err := acc.Manage(ctx, agentID); err != nil {
+		return providercred.Metadata{}, err
+	}
+	if err := m.validateProviderIDs(ctx, input.ProviderID); err != nil {
+		return providercred.Metadata{}, err
+	}
+	meta, err := m.creds.Set(ctx, agentID, input)
+	if err != nil {
+		return providercred.Metadata{}, mapCredentialError(err)
+	}
+	m.reload(ctx, agentID)
+	return meta, nil
+}
+
+// DeleteProviderCredential removes an Agent Provider key override, restoring the
+// global-key fallback. It requires Manage, is idempotent, and reloads only the
+// affected Agent's runners after commit.
+func (m *Management) DeleteProviderCredential(ctx context.Context, authority authz.Authority, agentID, providerID string) error {
+	if m.creds == nil {
+		return ErrCredentialsUnavailable
+	}
+	acc, err := m.pep.Begin(ctx, authority)
+	if err != nil {
+		return err
+	}
+	if _, err := acc.Manage(ctx, agentID); err != nil {
+		return err
+	}
+	if err := m.validateProviderIDs(ctx, providerID); err != nil {
+		return err
+	}
+	if err := m.creds.Delete(ctx, agentID, providerID); err != nil {
+		return mapCredentialError(err)
+	}
+	m.reload(ctx, agentID)
+	return nil
+}
+
+func (m *Management) validateCredentialProviderIDs(ctx context.Context, inputs []providercred.Input) error {
+	ids := make([]string, len(inputs))
+	for i, input := range inputs {
+		ids[i] = input.ProviderID
+	}
+	return m.validateProviderIDs(ctx, ids...)
+}
+
+// validateProviderIDs rejects IDs that are not existing canonical Providers. A
+// type alias and an unconfigured ID both fail here, before secret work.
+func (m *Management) validateProviderIDs(ctx context.Context, providerIDs ...string) error {
+	if m.providers == nil {
+		return ErrCredentialsUnavailable
+	}
+	ids, err := m.providers.ListProviderIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: list providers: %w", ErrUnavailable, err)
+	}
+	canonical := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		canonical[id] = struct{}{}
+	}
+	for _, providerID := range providerIDs {
+		if _, ok := canonical[providerID]; !ok {
+			return fmt.Errorf("%w: %s", ErrUnknownProvider, providerID)
+		}
+	}
+	return nil
+}
+
+// mapCredentialError surfaces providercred validation sentinels unchanged (they
+// map to 400/503 at the transport) and wraps anything else as unavailable.
+func mapCredentialError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, providercred.ErrEmptyProviderID),
+		errors.Is(err, providercred.ErrEmptyAPIKey),
+		errors.Is(err, providercred.ErrDuplicateProvider),
+		errors.Is(err, providercred.ErrTooManyCredentials),
+		errors.Is(err, providercred.ErrProviderIDTooLong),
+		errors.Is(err, providercred.ErrAPIKeyTooLong):
+		return err
+	case errors.Is(err, providercred.ErrUnavailable):
+		return fmt.Errorf("%w: %w", ErrCredentialsUnavailable, err)
+	default:
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
 }
 
 // ListAssignedUsers returns the account references for the users assigned to an

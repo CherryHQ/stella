@@ -7,8 +7,8 @@ import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
 import { Button } from "@/components/ui/button";
 import { AppShell } from "@/layouts/AppShell";
-import { AgentAppSidebar } from "@/features/sessions/AgentAppSidebar";
-import { FacetTabs } from "@/features/sessions/FacetTabs";
+import { ConversationSidebar } from "@/features/sessions/ConversationSidebar";
+import { GroupBreadcrumb } from "@/features/sessions/AppBreadcrumb";
 import { GroupChat } from "./GroupChat";
 import { GroupSettings } from "./GroupSettings";
 
@@ -30,33 +30,21 @@ export function GroupChatPage() {
 
   return (
     <AppShell
-      sidebar={
-        <AgentAppSidebar
-          agents={agents}
-          agentId={agents[0]?.id ?? ""}
-          onAgentChange={(id) => {
-            void navigate({ to: "/agents/$agentId", params: { agentId: id } });
-          }}
-        />
-      }
-      subnav={<FacetTabs kind="group" groupId={groupId} />}
+      sidebar={<ConversationSidebar />}
       title={
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">{group?.group_name || t("groups.group")}</span>
-          <span className="text-xs text-muted-foreground">
-            {t("groups.memberCount", { count: members.length })}
-          </span>
-        </div>
+        <GroupBreadcrumb
+          name={group?.group_name || t("groups.group")}
+          memberCount={members.length}
+        />
       }
       headerActions={
         <Button
           variant="ghost"
-          size="xs"
+          size="icon-sm"
           onClick={() => setSettingsOpen(true)}
-          className="h-7 w-7 rounded-full p-0 text-muted-foreground"
-          title={t("groups.settings")}
+          aria-label={t("groups.settings")}
         >
-          <Settings className="size-3.5" />
+          <Settings />
         </Button>
       }
     >

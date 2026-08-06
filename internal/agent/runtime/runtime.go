@@ -21,6 +21,13 @@ import (
 // Runtime executes agent conversations in already-resolved sessions.
 // It owns the runner cache, runner factory, and event streaming.
 // It does NOT own session creation, kind validation, or list/archive APIs.
+// SessionImages converts raw image blocks into canonical references at the
+// ordinary-session write chokepoint. The full pipeline also hydrates active
+// media for runners; Runtime only needs its enrichment operation.
+type SessionImages interface {
+	Enrich(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
+}
+
 type Runtime struct {
 	cache                 *runnerCache
 	mem                   memory.Provider
@@ -29,6 +36,7 @@ type Runtime struct {
 	beforeRun             BeforeRunFunc
 	snapshotPrompt        SnapshotPromptFunc
 	structuredGroupMemory bool
+	sessionImages         SessionImages
 	active                sync.Map // session ID → struct{}, tracks in-flight turns
 	turns                 turnTracker
 	hub                   *SessionHub
@@ -128,6 +136,7 @@ type Config struct {
 	// StructuredGroupMemory removes legacy current-speaker private Profile
 	// affordances from public group turns.
 	StructuredGroupMemory bool
+	SessionImages         SessionImages
 }
 
 // New creates a Runtime from the given config.
@@ -155,6 +164,7 @@ func New(cfg Config) (*Runtime, error) {
 		beforeRun:             cfg.BeforeRun,
 		snapshotPrompt:        cfg.SnapshotPrompt,
 		structuredGroupMemory: cfg.StructuredGroupMemory,
+		sessionImages:         cfg.SessionImages,
 		hub:                   NewSessionHub(),
 	}, nil
 }
@@ -277,14 +287,15 @@ func safeClose(ch chan Event) {
 	close(ch)
 }
 
-func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) <-chan Event {
-	out := make(chan Event, 100)
-
+// ChatAdmitted starts one turn only after synchronously acquiring the session's
+// busy guard. A nil error means the turn is admitted; every later runtime failure
+// is delivered on the returned stream. ErrSessionBusy means no turn was started,
+// so the caller can decide before any run/session/tool side effect is visible.
+func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) (<-chan Event, error) {
 	if _, loaded := rt.active.LoadOrStore(info.ID, struct{}{}); loaded {
-		out <- Event{Err: fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)}
-		close(out)
-		return out
+		return nil, fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)
 	}
+	out := make(chan Event, 100)
 
 	var co chatOptions
 	for _, o := range opts {
@@ -342,5 +353,23 @@ func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageConte
 			}
 		}
 	}()
+	return out, nil
+}
+
+// Chat preserves the historic stream-only API. A rejected admission surfaces as
+// the historic immediate error event; callers that must distinguish a rejected
+// admission from an admitted turn (e.g. webhook ingress) use ChatAdmitted.
+func (rt *Runtime) Chat(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) <-chan Event {
+	stream, err := rt.ChatAdmitted(ctx, info, msg, opts...)
+	if err != nil {
+		return errorStream(err)
+	}
+	return stream
+}
+
+func errorStream(err error) <-chan Event {
+	out := make(chan Event, 1)
+	out <- Event{Err: err}
+	close(out)
 	return out
 }

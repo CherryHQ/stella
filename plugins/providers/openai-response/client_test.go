@@ -113,7 +113,7 @@ func TestMapStopReason(t *testing.T) {
 		{responses.ResponseStatusCompleted, ai.StopReasonStop},
 		{responses.ResponseStatusIncomplete, ai.StopReasonLength},
 		{responses.ResponseStatusFailed, ai.StopReasonError},
-		{"unknown_status", ai.StopReasonStop},
+		{"unknown_status", ai.StopReasonUnknown},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.status), func(t *testing.T) {

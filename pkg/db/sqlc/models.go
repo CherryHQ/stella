@@ -144,6 +144,14 @@ type AgentGoalEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type AgentProviderCredential struct {
+	AgentID    string    `json:"agent_id"`
+	ProviderID string    `json:"provider_id"`
+	ApiKeyEnc  string    `json:"api_key_enc"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type AgentWorkflow struct {
 	ID                 string          `json:"id"`
 	OwnerKind          string          `json:"owner_kind"`
@@ -218,6 +226,16 @@ type AuthPolicy struct {
 	Enabled    bool      `json:"enabled"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type AuthProvisionedUser struct {
+	ID               string      `json:"id"`
+	ExternalID       string      `json:"external_id"`
+	UserID           string      `json:"user_id"`
+	CreatedByUserID  pgtype.Text `json:"created_by_user_id"`
+	CreatedByTokenID pgtype.Text `json:"created_by_token_id"`
+	CreatedAt        time.Time   `json:"created_at"`
+	UpdatedAt        time.Time   `json:"updated_at"`
 }
 
 type AuthSession struct {
@@ -489,6 +507,16 @@ type CtxItem struct {
 	CreatedAt      time.Time   `json:"created_at"`
 }
 
+type CtxMedium struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Sha256    []byte    `json:"sha256"`
+	MimeType  string    `json:"mime_type"`
+	SizeBytes int64     `json:"size_bytes"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type CtxMessage struct {
 	ID                   string      `json:"id"`
 	ConversationID       string      `json:"conversation_id"`
@@ -521,6 +549,9 @@ type CtxMessagePart struct {
 	ToolInput   pgtype.Text `json:"tool_input"`
 	ToolOutput  pgtype.Text `json:"tool_output"`
 	Metadata    pgtype.Text `json:"metadata"`
+	MediaID     pgtype.Text `json:"media_id"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
 type CtxSummary struct {
@@ -582,6 +613,49 @@ type Fact struct {
 	Source     string          `json:"source"`
 	CreatedAt  time.Time       `json:"created_at"`
 	UpdatedAt  time.Time       `json:"updated_at"`
+}
+
+type KnowledgeChunk struct {
+	ID            string          `json:"id"`
+	ChunkSetID    string          `json:"chunk_set_id"`
+	Ordinal       int64           `json:"ordinal"`
+	Content       string          `json:"content"`
+	Locator       json.RawMessage `json:"locator"`
+	ContentSha256 []byte          `json:"content_sha256"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
+type KnowledgeChunkSet struct {
+	ID            string             `json:"id"`
+	FileID        string             `json:"file_id"`
+	DerivationKey string             `json:"derivation_key"`
+	ProcessorKey  string             `json:"processor_key"`
+	RawSha256     []byte             `json:"raw_sha256"`
+	Status        string             `json:"status"`
+	ChunkCount    pgtype.Int8        `json:"chunk_count"`
+	ContentDigest []byte             `json:"content_digest"`
+	ErrorMessage  pgtype.Text        `json:"error_message"`
+	CreatedAt     time.Time          `json:"created_at"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
+}
+
+type KnowledgeFile struct {
+	ID               string             `json:"id"`
+	Scope            string             `json:"scope"`
+	UserID           pgtype.Text        `json:"user_id"`
+	AgentID          pgtype.Text        `json:"agent_id"`
+	FileName         string             `json:"file_name"`
+	MediaType        string             `json:"media_type"`
+	SizeBytes        int64              `json:"size_bytes"`
+	RawSha256        []byte             `json:"raw_sha256"`
+	Status           string             `json:"status"`
+	ErrorMessage     pgtype.Text        `json:"error_message"`
+	ActiveChunkSetID pgtype.Text        `json:"active_chunk_set_id"`
+	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
 type KnowledgeUsage struct {
@@ -674,18 +748,21 @@ type OauthRefreshToken struct {
 }
 
 type PersonalAccessToken struct {
-	ID         string             `json:"id"`
-	PublicID   string             `json:"public_id"`
-	UserID     string             `json:"user_id"`
-	Name       string             `json:"name"`
-	TokenHash  string             `json:"token_hash"`
-	Last4      string             `json:"last4"`
-	Scopes     []string           `json:"scopes"`
-	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
-	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
-	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt  time.Time          `json:"created_at"`
-	UpdatedAt  time.Time          `json:"updated_at"`
+	ID                   string             `json:"id"`
+	PublicID             string             `json:"public_id"`
+	UserID               string             `json:"user_id"`
+	Name                 string             `json:"name"`
+	TokenHash            string             `json:"token_hash"`
+	Last4                string             `json:"last4"`
+	Scopes               []string           `json:"scopes"`
+	ExpiresAt            pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt           pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt            pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt            time.Time          `json:"created_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
+	TokenUse             string             `json:"token_use"`
+	IssuedByTokenID      pgtype.Text        `json:"issued_by_token_id"`
+	IssuedByProvisioning bool               `json:"issued_by_provisioning"`
 }
 
 type Plugin struct {
@@ -966,4 +1043,22 @@ type VaultEntry struct {
 	CreatedAt   time.Time   `json:"created_at"`
 	UpdatedAt   time.Time   `json:"updated_at"`
 	Description pgtype.Text `json:"description"`
+}
+
+type Webhook struct {
+	ID                   string             `json:"id"`
+	UserID               string             `json:"user_id"`
+	AgentID              string             `json:"agent_id"`
+	Name                 string             `json:"name"`
+	Provider             string             `json:"provider"`
+	IsEnabled            bool               `json:"is_enabled"`
+	WaitTimeoutSeconds   int32              `json:"wait_timeout_seconds"`
+	MaxRunTimeoutSeconds int32              `json:"max_run_timeout_seconds"`
+	TokenPublicID        string             `json:"token_public_id"`
+	TokenHash            string             `json:"token_hash"`
+	TokenLast4           string             `json:"token_last4"`
+	Revision             int64              `json:"revision"`
+	CreatedAt            time.Time          `json:"created_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
+	RotatedAt            pgtype.Timestamptz `json:"rotated_at"`
 }

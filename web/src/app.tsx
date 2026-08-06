@@ -3,18 +3,30 @@ import { createRoot } from "react-dom/client";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { routeTree } from "./routeTree.gen";
+import { RouteError, RoutePending } from "@/components/RouteFallback";
 import { queryClient } from "@/lib/queryClient";
 import { I18nProvider } from "@/lib/i18n";
 import { applyTheme, getStoredTheme } from "@/lib/theme";
+import { recoverFromStaleChunks, registerServiceWorker } from "@/lib/pwa";
+import { watchBuild } from "@/lib/build-watch";
 import "./globals.css";
 
 if (typeof window !== "undefined") {
   applyTheme(getStoredTheme());
+  recoverFromStaleChunks();
+  registerServiceWorker();
+  watchBuild();
 }
 
 const router = createRouter({
   routeTree,
   context: { queryClient },
+  // Blocking loaders (agent detail awaits four queries; the settings agents
+  // route fans out six) and 35 lazy chunks used to freeze the previous screen
+  // with no signal. 200ms keeps the pulse off fast, cached navigations.
+  defaultPendingComponent: RoutePending,
+  defaultPendingMs: 200,
+  defaultErrorComponent: RouteError,
 });
 
 declare module "@tanstack/react-router" {

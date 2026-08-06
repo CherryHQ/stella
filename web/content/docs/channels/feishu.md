@@ -22,7 +22,7 @@ Before you start, make sure you have:
 
 2. Open the Web UI at `http://localhost:25678`.
 3. Go to **Channels** and add a new Feishu channel instance.
-4. Enter a channel ID and name.
+4. Keep or edit the suggested name. Stella generates the channel ID for you.
 5. Select the agent this bot should represent.
 6. Click **Scan to create Feishu bot**.
 7. Scan the QR code with the Feishu mobile app and confirm the app creation request.
@@ -268,7 +268,7 @@ Semantic routing may keep chatter silent, so users should @mention the bot for r
 
 **Images or files not being analyzed?**
 
-- Ensure you are using a vision-capable model for image analysis.
+- Configure **Settings -> Vision** for ordinary-session baselines. A model declaring `text, image` receives active-turn pixels; group history without a stored baseline uses the unavailable marker.
 - For file uploads, the Xberg skill must be enabled for the active agent.
 
 **Notifications not working?**

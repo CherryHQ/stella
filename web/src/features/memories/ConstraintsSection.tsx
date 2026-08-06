@@ -3,6 +3,8 @@ import { Plus, Trash2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { addProfileConstraint, deleteProfileConstraint } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import { constraintsQueryOptions } from "@/lib/queries/memories";
 import { MemorySection } from "./MemorySection";
@@ -19,6 +21,7 @@ interface ConstraintEntry {
 
 export function ConstraintsSection({ agentId }: Props) {
   const { t } = useI18n();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const { data: constraints = [], isLoading, error } = useQuery(constraintsQueryOptions(agentId));
   const [newText, setNewText] = useState("");
@@ -29,7 +32,6 @@ export function ConstraintsSection({ agentId }: Props) {
     if (!newText.trim()) return;
     setAdding(true);
     try {
-      const { addProfileConstraint } = await import("@/lib/api-client");
       await addProfileConstraint({
         path: { agentId },
         body: { text: newText.trim() },
@@ -38,31 +40,30 @@ export function ConstraintsSection({ agentId }: Props) {
       setNewText("");
       void queryClient.invalidateQueries({ queryKey: ["agent-constraints", agentId] });
       void queryClient.invalidateQueries({ queryKey: ["agent-changelog-pages", agentId] });
-    } catch (e) {
-      console.error(e);
+    } catch {
+      showToast(t("memories.constraints.addFailed"), "error");
     } finally {
       setAdding(false);
     }
-  }, [agentId, newText, queryClient]);
+  }, [agentId, newText, queryClient, showToast, t]);
 
   const handleDelete = useCallback(
     async (constraintId: string) => {
       setDeletingId(constraintId);
       try {
-        const { deleteProfileConstraint } = await import("@/lib/api-client");
         await deleteProfileConstraint({
           path: { agentId, constraintId },
           throwOnError: true,
         });
         void queryClient.invalidateQueries({ queryKey: ["agent-constraints", agentId] });
         void queryClient.invalidateQueries({ queryKey: ["agent-changelog-pages", agentId] });
-      } catch (e) {
-        console.error(e);
+      } catch {
+        showToast(t("memories.constraints.deleteFailed"), "error");
       } finally {
         setDeletingId(null);
       }
     },
-    [agentId, queryClient],
+    [agentId, queryClient, showToast, t],
   );
 
   return (
@@ -76,7 +77,7 @@ export function ConstraintsSection({ agentId }: Props) {
           <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
         </div>
       ) : error ? (
-        <p className="text-sm text-destructive">{t("memories.constraints.error")}</p>
+        <p className="text-sm text-destructive-foreground">{t("memories.constraints.error")}</p>
       ) : constraints.length === 0 ? (
         <p className="text-sm text-muted-foreground italic mb-3">
           {t("memories.constraints.empty")}
@@ -95,7 +96,7 @@ export function ConstraintsSection({ agentId }: Props) {
                 size="icon-xs"
                 onClick={() => void handleDelete(c.id)}
                 disabled={deletingId === c.id}
-                className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive-foreground"
               >
                 <Trash2 className="size-3.5" />
               </Button>

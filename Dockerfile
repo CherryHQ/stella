@@ -1,13 +1,26 @@
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=$BUILDPLATFORM ghcr.io/pnpm/pnpm:latest AS web-builder
-RUN pnpm runtime set node 24 -g
-WORKDIR /web
-COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
-COPY api/spec/ /api/spec/
-COPY web/ ./
-RUN pnpm openapi-ts && CI=true pnpm build
+# Built through mise rather than a pnpm base image so the Node and pnpm versions
+# come from mise.toml, the same place the local and CI builds read them from. An
+# image tag pinned here would be a fourth toolchain to keep in step.
+FROM --platform=$BUILDPLATFORM debian:13-slim AS web-builder
+RUN apt-get update \
+    && apt-get -y --no-install-recommends install ca-certificates curl git libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV MISE_INSTALL_PATH="/usr/local/bin/mise"
+RUN curl -fsSL https://mise.run | sh
+WORKDIR /src
+COPY mise.toml ./
+RUN mise trust && mise install node pnpm
+COPY api/spec/ ./api/spec/
+COPY web/ ./web/
+ENV CI=true
+# The SPA build needs Node and pnpm and nothing else; without this mise would
+# also fetch Go, sqlc, and GoReleaser here just to satisfy mise.toml.
+ENV MISE_TASK_RUN_AUTO_INSTALL=0
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    mise run build:web
 
 # Xberg's GNU release links libheif dynamically. Debian 13's packaged version
 # is too old, so build the upstream-supported 1.23.0 locally for each target.
@@ -48,7 +61,7 @@ RUN mise trust
 
 # Build app
 COPY . .
-COPY --from=web-builder /web/static/dist/ ./web/static/dist/
+COPY --from=web-builder /src/web/static/dist/ ./web/static/dist/
 
 ENV CGO_ENABLED=0
 ARG TARGETOS
@@ -60,7 +73,9 @@ RUN --mount=type=secret,id=github_token \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi; \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} mise run build
+    env -u GOOS -u GOARCH \
+      TARGET_GOOS=${TARGETOS} TARGET_GOARCH=${TARGETARCH} \
+      mise run build
 
 FROM debian:13-slim AS app
 

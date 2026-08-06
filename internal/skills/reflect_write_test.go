@@ -12,14 +12,16 @@ import (
 func TestCreateReflectOwnedUserAgentSkillRecordsVersionAndChangelog(t *testing.T) {
 	store, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)
+	changelogMetadata := json.RawMessage(`{"reflect_provenance":{"run_id":"run-1","operation_ref":"skill-0001"}}`)
 
 	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
-		UserID:          userID,
-		AgentID:         agentID,
-		Name:            "reflect-created",
-		Description:     "created by reflect",
-		MainFileContent: "# Reflect Created\n",
-		Metadata:        json.RawMessage(`{"created-at":"2026-07-06T00:00:00Z"}`),
+		UserID:            userID,
+		AgentID:           agentID,
+		Name:              "reflect-created",
+		Description:       "created by reflect",
+		MainFileContent:   "# Reflect Created\n",
+		Metadata:          json.RawMessage(`{"created-at":"2026-07-06T00:00:00Z"}`),
+		ChangelogMetadata: changelogMetadata,
 	})
 	if err != nil {
 		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
@@ -41,15 +43,26 @@ func TestCreateReflectOwnedUserAgentSkillRecordsVersionAndChangelog(t *testing.T
 
 	var action string
 	var versionAfter int64
+	var storedChangelogMetadata []byte
 	if err := db.QueryRow(ctx, `
-		SELECT action, version_after
+		SELECT action, version_after, metadata
 		FROM skill_changelog
 		WHERE skill_id = $1
-	`, created.ID).Scan(&action, &versionAfter); err != nil {
+	`, created.ID).Scan(&action, &versionAfter, &storedChangelogMetadata); err != nil {
 		t.Fatalf("read skill changelog: %v", err)
 	}
 	if action != "create" || versionAfter != 1 {
 		t.Fatalf("changelog = action:%s version_after:%d", action, versionAfter)
+	}
+	equal, err := semanticJSONEqual(storedChangelogMetadata, changelogMetadata)
+	if err != nil {
+		t.Fatalf("compare create changelog metadata: %v", err)
+	}
+	if !equal {
+		t.Fatalf("changelog metadata = %s, want %s", storedChangelogMetadata, changelogMetadata)
+	}
+	if string(created.Metadata) == string(changelogMetadata) {
+		t.Fatal("changelog provenance leaked into skill entity metadata")
 	}
 
 	var redundantColumnCount int
@@ -379,13 +392,15 @@ func TestPatchReflectOwnedUserAgentSkillUsesOptimisticVersionAndChangelog(t *tes
 
 	afterDescription := "after"
 	afterContent := "# After\n"
+	changelogMetadata := json.RawMessage(`{"reflect_provenance":{"run_id":"run-2","operation_ref":"skill-0002"}}`)
 	patched, err := store.PatchReflectOwnedUserAgentSkill(ctx, ReflectSkillPatch{
-		ID:              created.ID,
-		UserID:          userID,
-		AgentID:         agentID,
-		ExpectedVersion: created.Version,
-		Description:     &afterDescription,
-		MainFileContent: &afterContent,
+		ID:                created.ID,
+		UserID:            userID,
+		AgentID:           agentID,
+		ExpectedVersion:   created.Version,
+		Description:       &afterDescription,
+		MainFileContent:   &afterContent,
+		ChangelogMetadata: changelogMetadata,
 	})
 	if err != nil {
 		t.Fatalf("PatchReflectOwnedUserAgentSkill: %v", err)
@@ -426,6 +441,13 @@ func TestPatchReflectOwnedUserAgentSkillUsesOptimisticVersionAndChangelog(t *tes
 	if logs[0].Action != "patch" || logs[0].VersionAfter != 2 {
 		t.Fatalf("latest changelog = %#v, want patch v2", logs[0])
 	}
+	equal, err := semanticJSONEqual(logs[0].Metadata, changelogMetadata)
+	if err != nil {
+		t.Fatalf("compare patch changelog metadata: %v", err)
+	}
+	if !equal {
+		t.Fatalf("patch changelog metadata = %s, want %s", logs[0].Metadata, changelogMetadata)
+	}
 	if logs[1].Action != "create" || logs[1].VersionAfter != 1 {
 		t.Fatalf("oldest changelog = %#v, want create v1", logs[1])
 	}
@@ -442,6 +464,57 @@ func TestPatchReflectOwnedUserAgentSkillUsesOptimisticVersionAndChangelog(t *tes
 	}
 	if retried.Version != patched.Version {
 		t.Fatalf("exact stale retry version = %d, want %d", retried.Version, patched.Version)
+	}
+}
+
+func TestReflectSkillWritesRejectNonObjectChangelogMetadata(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+
+	_, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID:            userID,
+		AgentID:           agentID,
+		Name:              "invalid-create-provenance",
+		Description:       "must not be created",
+		MainFileContent:   "# Invalid\n",
+		ChangelogMetadata: json.RawMessage(`[]`),
+	})
+	if err == nil {
+		t.Fatal("expected invalid create changelog metadata error")
+	}
+	var invalidCreateCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM skill WHERE name = 'invalid-create-provenance'`).Scan(&invalidCreateCount); err != nil {
+		t.Fatalf("count invalid create skill: %v", err)
+	}
+	if invalidCreateCount != 0 {
+		t.Fatalf("invalid changelog metadata committed %d create rows", invalidCreateCount)
+	}
+
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "invalid-patch-provenance",
+		Description: "before", MainFileContent: "# Before\n",
+	})
+	if err != nil {
+		t.Fatalf("create patch target: %v", err)
+	}
+	afterContent := "# After\n"
+	_, err = store.PatchReflectOwnedUserAgentSkill(ctx, ReflectSkillPatch{
+		ID: created.ID, UserID: userID, AgentID: agentID, ExpectedVersion: created.Version,
+		MainFileContent: &afterContent, ChangelogMetadata: json.RawMessage(`null`),
+	})
+	if err == nil {
+		t.Fatal("expected invalid patch changelog metadata error")
+	}
+	var version int64
+	var changelogCount int
+	if err := db.QueryRow(ctx, `SELECT version FROM skill WHERE id = $1`, created.ID).Scan(&version); err != nil {
+		t.Fatalf("read patch target version: %v", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM skill_changelog WHERE skill_id = $1`, created.ID).Scan(&changelogCount); err != nil {
+		t.Fatalf("count patch target changelog: %v", err)
+	}
+	if version != created.Version || changelogCount != 1 {
+		t.Fatalf("invalid patch changed version/changelog to %d/%d, want %d/1", version, changelogCount, created.Version)
 	}
 }
 

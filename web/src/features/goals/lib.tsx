@@ -42,16 +42,21 @@ interface StatusMeta {
   bar: string;
 }
 
+// A goal's state is a verdict, so it takes the status tokens. It used to take
+// `chart-*`, which is for plotted and categorical data: those sit ~0.2L brighter
+// because a chart reads them as areas, and in light mode that put the pill text
+// at 2.2-2.5:1 and the dot itself under the 3:1 non-text floor. Pills carry the
+// `-foreground` half because their text sits on a tint of their own token.
 const STATUS_META: Record<DisplayStatus, StatusMeta> = {
   accepted: {
-    dot: "bg-chart-3",
-    pill: "bg-chart-3/10 text-chart-3 border-chart-3/25",
-    bar: "bg-chart-3",
+    dot: "bg-success",
+    pill: "bg-success/10 text-success-foreground border-success/25",
+    bar: "bg-success",
   },
   active: {
-    dot: "bg-chart-2",
-    pill: "bg-chart-2/10 text-chart-2 border-chart-2/25",
-    bar: "bg-chart-2",
+    dot: "bg-info",
+    pill: "bg-info/10 text-info-foreground border-info/25",
+    bar: "bg-info",
   },
   review: {
     dot: "bg-primary",
@@ -59,13 +64,13 @@ const STATUS_META: Record<DisplayStatus, StatusMeta> = {
     bar: "bg-primary",
   },
   blocked: {
-    dot: "bg-chart-4",
-    pill: "bg-chart-4/10 text-chart-4 border-chart-4/25",
-    bar: "bg-chart-4",
+    dot: "bg-warning",
+    pill: "bg-warning/10 text-warning-foreground border-warning/25",
+    bar: "bg-warning",
   },
   failed: {
     dot: "bg-destructive",
-    pill: "bg-destructive/10 text-destructive border-destructive/25",
+    pill: "bg-destructive/10 text-destructive-foreground border-destructive/25",
     bar: "bg-destructive",
   },
   cancelled: {

@@ -1,21 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
+import type { UIMessage } from "ai";
 import { Link } from "@tanstack/react-router";
-import {
-  AlertCircle,
-  Download,
-  MessageSquarePlus,
-  PanelRightClose,
-  PanelRightOpen,
-} from "lucide-react";
+import { AlertCircle, Download, MessageSquarePlus, PanelRight } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
+import { getSession, getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
 import { agentSkillsOptions, agentsQueryOptions } from "@/lib/queries/agents";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import { fetchAllSessionMessages } from "@/lib/paginated";
 import type { Message, Session } from "@/lib/types";
+import { sessionDisplayTitle } from "@/lib/session-title";
 import { ChatPane } from "@/components/chat/ChatPane";
 import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { Button } from "@/components/ui/button";
@@ -26,7 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   downloadTextFile,
   exportFileName,
@@ -37,12 +33,22 @@ import {
   createSessionTransport,
   mergeToolResults,
   messageToUIMessage,
+  reconcileHistoryUIMessages,
+  sessionMessagesToMessages,
   uiMessageToMessage,
 } from "@/lib/chat-transport";
 import { useAppShell } from "@/layouts/AppShell";
 import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
+import { takePendingMessage } from "./pendingMessage";
+import { SessionInfoPopover } from "./SessionInfoPopover";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
+
+const PAGE_SIZE = 50;
+// Auto-fill (below) pulls older pages until the transcript overflows; cap how
+// many it may pull so a pathological history can't trigger an unbounded fetch
+// loop on mount. Scroll-up paging remains unlimited.
+const MAX_AUTO_FILL_PAGES = 3;
 
 const inboxKindLabels = {
   blocked: "inbox.kind.blocked",
@@ -57,20 +63,19 @@ interface Props {
   onSessionUpdate: (s: Session) => void;
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
-  contextTitle?: string;
 }
 
 export function SessionDetail({
   session,
   currentUserID,
   onNewSession,
+  onSessionUpdate,
   onToggleWorkspace,
   workspaceOpen,
-  contextTitle,
 }: Props) {
   const { t } = useI18n();
-  const [userInput, setUserInput] = useState("");
-  const { toasts, showToast } = useToast();
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const { data: agentsList = [] } = useQuery(agentsQueryOptions);
@@ -78,6 +83,7 @@ export function SessionDetail({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const sessionIDRef = useRef<string | null>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
+  const autoFillPagesRef = useRef(0);
   const shouldAutoScrollRef = useRef(true);
 
   const sessionId = session?.id ?? "";
@@ -94,7 +100,7 @@ export function SessionDetail({
     },
     [agentId, sessionId],
   );
-  const { attachments, selectFiles, removeAttachment, clearAttachments, buildMessageText } =
+  const { attachments, selectFiles, removeAttachment, clearAttachments, buildMessageParts } =
     useFileAttachments(uploadFn);
 
   const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
@@ -127,10 +133,45 @@ export function SessionDetail({
   } = useChat({
     id: session?.id ?? "empty",
     transport,
+    // Batch SSE deltas: without this every token re-renders the transcript.
+    experimental_throttle: 50,
     onError: (err) => console.error("[session chat]", err),
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
+
+  // The server titles an untitled session from its first user message *during*
+  // the turn (internal/agent/runtime/chat.go), so nothing on the client knows
+  // the new title until the turn ends. Re-read the session and drop the cached
+  // session lists once streaming settles; without this the header and the
+  // sidebar both sit on "untitled" until a full reload.
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (isStreaming) {
+      wasStreamingRef.current = true;
+      return;
+    }
+    if (!wasStreamingRef.current) return;
+    wasStreamingRef.current = false;
+    if (!agentId || !sessionId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await getSession({
+          path: { agentId, sessionId },
+          throwOnError: true,
+        });
+        if (!cancelled) onSessionUpdate(data);
+      } catch (err) {
+        // A stale title is better than tearing down the transcript.
+        console.error("[session refresh]", err);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isStreaming, agentId, sessionId, onSessionUpdate, queryClient]);
 
   // Server-driven sessions (scheduler/task/delegate) run turns that carry no
   // HTTP request of their own, so the normal send-stream never sees them. Poll
@@ -176,13 +217,15 @@ export function SessionDetail({
     queryFn: async ({ pageParam }) => {
       const { data } = await getSessionMessages({
         path: { agentId: agentId, sessionId: sessionId },
-        query: { limit: 20, skip: pageParam },
+        query: { limit: PAGE_SIZE, skip: pageParam },
         throwOnError: true,
       });
-      return (data?.messages as unknown as Message[] | undefined) ?? [];
+      return sessionMessagesToMessages(data?.messages);
     },
     getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
+      lastPage.length === PAGE_SIZE
+        ? allPages.reduce((sum, page) => sum + page.length, 0)
+        : undefined,
   });
 
   // In a compacted session the live tail is the message-type context items;
@@ -207,7 +250,7 @@ export function SessionDetail({
         query: { seq_from: tailSeqRange!.from, seq_to: tailSeqRange!.to },
         throwOnError: true,
       });
-      return (data?.messages as unknown as Message[] | undefined) ?? [];
+      return sessionMessagesToMessages(data?.messages);
     },
   });
 
@@ -233,13 +276,35 @@ export function SessionDetail({
     // text copy forever (duplicated, un-collapsed tool output). Excluding
     // everything history has ever owned drops it.
     for (const m of uiMessages) historicalIDsRef.current.add(m.id);
-    setChatMessages((prev) => {
-      const liveSlice = prev.filter((m) => !historicalIDsRef.current.has(m.id));
-      return [...uiMessages, ...liveSlice];
-    });
+    setChatMessages((prev) =>
+      reconcileHistoryUIMessages(
+        uiMessages,
+        prev.filter((message) => !historicalIDsRef.current.has(message.id)),
+      ),
+    );
   }, [historyMessages, setChatMessages]);
 
-  const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
+  // Convert UIMessage -> Message with a per-object cache so unchanged messages
+  // keep their output identity across stream updates — that identity is what
+  // lets the memoized transcript rows below skip re-rendering. The entry
+  // revalidates on parts count + tail text length in case the SDK ever grows a
+  // message in place instead of replacing it.
+  const uiToMsgCache = useRef(
+    new WeakMap<UIMessage, { partsLen: number; tailLen: number; out: Message }>(),
+  );
+  const messages = useMemo(
+    () =>
+      chatMessages.map((m) => {
+        const tail = m.parts[m.parts.length - 1] as { text?: string } | undefined;
+        const tailLen = tail?.text?.length ?? 0;
+        const hit = uiToMsgCache.current.get(m);
+        if (hit && hit.partsLen === m.parts.length && hit.tailLen === tailLen) return hit.out;
+        const out = uiMessageToMessage(m);
+        uiToMsgCache.current.set(m, { partsLen: m.parts.length, tailLen, out });
+        return out;
+      }),
+    [chatMessages],
+  );
 
   useEffect(() => {
     if (!session) {
@@ -251,6 +316,7 @@ export function SessionDetail({
     initialScrollSessionRef.current = null;
     shouldAutoScrollRef.current = true;
     historicalIDsRef.current = new Set();
+    autoFillPagesRef.current = 0;
   }, [session?.id]);
 
   const historyReady = hasContextSummaries
@@ -280,6 +346,8 @@ export function SessionDetail({
     if (!messagesQuery.isSuccess || messagesQuery.isFetchingNextPage || !messagesQuery.hasNextPage)
       return;
     if (el.scrollHeight > el.clientHeight) return;
+    if (autoFillPagesRef.current >= MAX_AUTO_FILL_PAGES) return;
+    autoFillPagesRef.current += 1;
     void messagesQuery.fetchNextPage().then(() => {
       requestAnimationFrame(() => {
         if (transcriptRef.current)
@@ -295,7 +363,24 @@ export function SessionDetail({
     messagesQuery.fetchNextPage,
   ]);
 
-  // Auto-scroll to bottom as new messages stream in (if the user is already near the bottom)
+  // Auto-scroll to bottom as new messages stream in (if the user is already
+  // near the bottom). Keyed on length + tail content size rather than the
+  // array identity: the messages array is rebuilt on every stream update, and
+  // reading scrollHeight forces a reflow of the whole transcript.
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageSize = lastMessage
+    ? (lastMessage.content?.length ?? 0) +
+      (lastMessage.blocks?.reduce(
+        (sum, b) =>
+          sum +
+          (b.type === "text"
+            ? b.text.length
+            : b.type === "thinking"
+              ? (b.thinking?.length ?? 0)
+              : 1),
+        0,
+      ) ?? 0)
+    : 0;
   useEffect(() => {
     if (!transcriptRef.current) return;
     const el = transcriptRef.current;
@@ -304,7 +389,7 @@ export function SessionDetail({
         el.scrollTop = el.scrollHeight;
       });
     }
-  }, [messages]);
+  }, [messages.length, lastMessageSize]);
 
   const loadOlderMessages = useCallback(async () => {
     // Compacted sessions have no older pages to load: everything before the
@@ -336,13 +421,11 @@ export function SessionDetail({
   }, [loadOlderMessages]);
 
   const sendMessage = useCallback(
-    async (overrideText?: string) => {
-      const input = overrideText ?? userInput;
+    async (input: string) => {
       if ((!input.trim() && attachments.length === 0) || isStreaming || !session) return;
       if (attachments.some((a) => a.uploading)) return;
 
-      const text = buildMessageText(input);
-      setUserInput("");
+      const parts = buildMessageParts(input);
       clearAttachments();
       shouldAutoScrollRef.current = true;
       setTimeout(() => {
@@ -350,18 +433,22 @@ export function SessionDetail({
           transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
       }, 0);
 
-      void chatSendMessage({ text });
+      void chatSendMessage({ parts, metadata: { timestamp: new Date().toISOString() } });
     },
-    [
-      userInput,
-      isStreaming,
-      session,
-      attachments,
-      buildMessageText,
-      clearAttachments,
-      chatSendMessage,
-    ],
+    [isStreaming, session, attachments, buildMessageParts, clearAttachments, chatSendMessage],
   );
+
+  // A thread started from the home composer arrives with its first message
+  // parked in memory. Claim it once the session is loaded; `takePendingMessage`
+  // hands it out exactly once, so a reload never re-sends it.
+  const pendingSentRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!session || pendingSentRef.current === session.id) return;
+    const text = takePendingMessage(session.id);
+    if (!text) return;
+    pendingSentRef.current = session.id;
+    void sendMessage(text);
+  }, [session, sendMessage]);
 
   const exportSessionAs = useCallback(
     async (format: "jsonl" | "md") => {
@@ -402,15 +489,23 @@ export function SessionDetail({
     [session, exporting, isStreaming, agentsList, showToast, t],
   );
 
-  const { setHeaderTitle, setHeaderActions } = useAppShell();
+  const { setHeaderTitle, setHeaderActions, setHeaderPanelToggle } = useAppShell();
 
-  const titleText = session ? contextTitle || session.title || t("sessions.untitled") : "";
+  // A main session *is* the agent (or project) conversation, so its title only
+  // repeats the breadcrumb — "Anna / Anna". Only a branched thread earns a tail.
+  const titleText =
+    session && session.kind !== "main"
+      ? sessionDisplayTitle(session.title, t("sessions.untitled"))
+      : "";
   useEffect(() => {
     setHeaderTitle(
       titleText ? (
         <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{titleText}</h1>
       ) : null,
     );
+    // The shell outlives this page: leaving a stale title behind is what made a
+    // session's crumb linger on the profile page.
+    return () => setHeaderTitle(null);
   }, [titleText, setHeaderTitle]);
 
   const exportDisabled = exporting || isStreaming;
@@ -479,25 +574,14 @@ export function SessionDetail({
               <TooltipPopup side="bottom">{t("sessions.startThread")}</TooltipPopup>
             </Tooltip>
           )}
-          {onToggleWorkspace && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={onToggleWorkspace}
-              aria-label={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
-              title={workspaceOpen ? t("sessions.hideInspector") : t("sessions.showInspector")}
-            >
-              {workspaceOpen ? <PanelRightClose /> : <PanelRightOpen />}
-            </Button>
-          )}
+          <SessionInfoPopover session={session} />
         </div>
       ) : null,
     );
+    return () => setHeaderActions(null);
   }, [
     session,
     onNewSession,
-    onToggleWorkspace,
-    workspaceOpen,
     setHeaderActions,
     exporting,
     exportSessionAs,
@@ -505,6 +589,34 @@ export function SessionDetail({
     exportMenuOpen,
     t,
   ]);
+
+  // The workspace toggle is a layout control, not a page action: it rides at the
+  // header's far edge, mirroring the sidebar trigger on the other side.
+  useEffect(() => {
+    if (!onToggleWorkspace) {
+      setHeaderPanelToggle(null);
+      return;
+    }
+    setHeaderPanelToggle(
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onToggleWorkspace}
+              aria-pressed={workspaceOpen}
+              aria-label={t("sessions.inspector.files")}
+            >
+              <PanelRight />
+            </Button>
+          }
+        />
+        <TooltipPopup side="bottom">{t("sessions.inspector.files")}</TooltipPopup>
+      </Tooltip>,
+    );
+    return () => setHeaderPanelToggle(null);
+  }, [onToggleWorkspace, workspaceOpen, setHeaderPanelToggle, t]);
 
   if (!session) {
     return (
@@ -518,6 +630,45 @@ export function SessionDetail({
       </div>
     );
   }
+  const composer =
+    session.user_id === currentUserID ? (
+      <ChatComposer
+        onSend={(text) => void sendMessage(text)}
+        onStop={() => chatStop()}
+        isStreaming={isStreaming}
+        placeholder={t("sessions.composer.placeholder")}
+        attachments={attachments}
+        onFileSelect={(files) => void selectFiles(files)}
+        onRemoveAttachment={removeAttachment}
+        skills={composerSkills}
+      />
+    ) : null;
+
+  // A brand-new thread has nothing to scroll: show the agent and the composer
+  // in the middle of the column instead of an empty transcript with a composer
+  // docked to the bottom. Gated on the history query having settled so the
+  // centered state can never flash while messages are still loading, and
+  // limited to hand-started threads — a "main" conversation is never empty in
+  // spirit even when it has no rows yet.
+  const isBlankThread =
+    session.kind === "chat" && historyReady && messages.length === 0 && !!composer;
+
+  if (isBlankThread) {
+    const agentName = agentsList.find((a) => a.id === session.agent_id)?.name ?? "";
+    return (
+      <>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto bg-background">
+          <div className="w-full max-w-3xl">
+            {agentName && (
+              <h2 className="px-4 pb-4 text-center text-xl font-semibold sm:px-8">{agentName}</h2>
+            )}
+            {composer}
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <ChatPane
@@ -563,24 +714,8 @@ export function SessionDetail({
           />
         }
         notice={<ChatErrorNotice error={chatError} />}
-        composer={
-          session.user_id === currentUserID ? (
-            <ChatComposer
-              value={userInput}
-              onChange={setUserInput}
-              onSend={(text) => void sendMessage(text)}
-              onStop={() => chatStop()}
-              isStreaming={isStreaming}
-              placeholder={t("sessions.composer.placeholder")}
-              attachments={attachments}
-              onFileSelect={(files) => void selectFiles(files)}
-              onRemoveAttachment={removeAttachment}
-              skills={composerSkills}
-            />
-          ) : null
-        }
+        composer={composer}
       />
-      <ToastContainer messages={toasts} />
     </>
   );
 }

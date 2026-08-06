@@ -93,7 +93,7 @@ func TestExpiredTokenDenied(t *testing.T) {
 
 func TestBearerAuthSuccess(t *testing.T) {
 	env := setupAdmin(t)
-	token, _ := mintPAT(t, env, env.bearerToken, "status", []string{"agent:read"})
+	token, _ := mintPAT(t, env, env.bearerToken, "status")
 
 	rr := doBearerRequest(t, env.srv, token, "GET", "/api/status", nil)
 	if rr.Code != http.StatusOK {

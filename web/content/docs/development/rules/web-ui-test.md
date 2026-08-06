@@ -112,7 +112,9 @@ If an assertion fails, report what was expected vs what was found. Do not silent
 This covers the browser layer. To assert what a UI action actually wrote, pair it
 with the DB checks in `api-test.md` — browser drive here + DB assertions there is a
 full `browser -> API -> DB` e2e. For backend behavior alone, use `api-test.md`
-directly (no browser).
+directly (no browser). For performance measurement (frame times, keystroke cost,
+load/transfer cost) use the harness described in `web-perf-test.md` — functional
+checks here prove behavior, never speed.
 
 ## Notes
 

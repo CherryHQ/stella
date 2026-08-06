@@ -5,16 +5,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
 )
 
 const (
-	RuntimeVersion     = "pg18.4-pgvector0.8.2-pgsearch0.24.1"
+	// The -r2 suffix is a rebuild of the same upstream versions: the bundled
+	// libraries had no rpath of their own, so a host without a matching system
+	// libicu could not start the runtime. The suffix also renames the local
+	// cache directory, so an existing install stops using the broken extraction
+	// rather than silently keeping it — `stellad upgrade` fetches the
+	// replacement, and any other install path needs `postgres download`.
+	RuntimeVersion     = "pg18.4-pgvector0.8.2-pgsearch0.24.1-r2"
 	DefaultRuntimeRepo = "CherryHQ/stella-pg-runtime"
 
 	supportedLinuxRuntimeSources = "bookworm, noble, trixie"
@@ -27,19 +35,19 @@ func MissingRuntimeHint() string {
 	case "linux":
 		data, err := os.ReadFile("/etc/os-release")
 		if err != nil {
-			return fmt.Sprintf("Could not read /etc/os-release to select a Linux runtime. Supported Linux runtime sources: %s. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your OS details: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+			return fmt.Sprintf("Could not read /etc/os-release to select a Linux runtime. Supported Linux runtime sources: %s. Run `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your OS details: %s", supportedLinuxRuntimeSources, stellaIssueURL)
 		}
 		codename := linuxRuntimeCodenameFromOSRelease(string(data))
 		if codename == "" {
-			return fmt.Sprintf("Could not detect VERSION_CODENAME or UBUNTU_CODENAME from /etc/os-release. Supported Linux runtime sources: %s. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your /etc/os-release: %s", supportedLinuxRuntimeSources, stellaIssueURL)
+			return fmt.Sprintf("Could not detect VERSION_CODENAME or UBUNTU_CODENAME from /etc/os-release. Supported Linux runtime sources: %s. Run `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue with your /etc/os-release: %s", supportedLinuxRuntimeSources, stellaIssueURL)
 		}
 		if _, ok := supportedLinuxRuntimeSource(codename); !ok {
 			return fmt.Sprintf("Detected Linux runtime source %q, but Stella only publishes PostgreSQL runtimes for: %s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue requesting this distro: %s", codename, supportedLinuxRuntimeSources, stellaIssueURL)
 		}
-		return fmt.Sprintf("Detected supported Linux runtime source %q, but no PostgreSQL runtime is installed. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download-runtime fails: %s", codename, stellaIssueURL)
+		return fmt.Sprintf("Detected supported Linux runtime source %q, but no PostgreSQL runtime is installed. Run `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download fails: %s", codename, stellaIssueURL)
 	case "darwin":
 		if runtime.GOARCH == "arm64" {
-			return fmt.Sprintf("No PostgreSQL runtime is installed for darwin/arm64. Run `stellad postgres download-runtime`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download-runtime fails: %s", stellaIssueURL)
+			return fmt.Sprintf("No PostgreSQL runtime is installed for darwin/arm64. Run `stellad postgres download`, set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue if download fails: %s", stellaIssueURL)
 		}
 		return fmt.Sprintf("PostgreSQL runtime downloads are not published for darwin/%s. Set STELLA_DATABASE_URL to an external PostgreSQL with pg_search and pgvector, or file an issue for this platform: %s", runtime.GOARCH, stellaIssueURL)
 	default:
@@ -60,7 +68,78 @@ func DefaultRuntimeSource() (string, bool) {
 }
 
 func RuntimeRoot(stellaHome, source string) string {
-	return filepath.Join(stellaHome, "pg-runtime", RuntimeVersion+"-"+runtime.GOOS+"-"+runtime.GOARCH, "downloaded", source)
+	return filepath.Join(runtimesDir(stellaHome), CurrentRuntimeDir(), "downloaded", source)
+}
+
+// CurrentRuntimeDir names the directory holding the runtime this binary uses.
+// Every installed version gets its own sibling, so the name doubles as the
+// identity an operator sees when deciding what is safe to remove.
+func CurrentRuntimeDir() string {
+	return RuntimeVersion + "-" + runtime.GOOS + "-" + runtime.GOARCH
+}
+
+func runtimesDir(stellaHome string) string {
+	return filepath.Join(stellaHome, "pg-runtime")
+}
+
+// InstalledRuntime is one extracted runtime version found on disk.
+type InstalledRuntime struct {
+	// Name is the directory name, which encodes version, OS, and architecture.
+	Name string
+	Path string
+	// Bytes is the extracted size, best effort: entries that cannot be read are
+	// skipped rather than failing a report whose only purpose is disk space.
+	Bytes int64
+	// Current marks the runtime this binary would use. Removing it is not
+	// pruning, it is uninstalling, so callers keep the two apart.
+	Current bool
+}
+
+// InstalledRuntimes lists the runtime versions extracted under $STELLA_HOME,
+// sorted by name. A missing pg-runtime directory is not an error: it just means
+// nothing has been downloaded yet.
+func InstalledRuntimes(stellaHome string) ([]InstalledRuntime, error) {
+	dir := runtimesDir(stellaHome)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read PostgreSQL runtime dir %s: %w", dir, err)
+	}
+	current := CurrentRuntimeDir()
+	installed := make([]InstalledRuntime, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		installed = append(installed, InstalledRuntime{
+			Name:    entry.Name(),
+			Path:    path,
+			Bytes:   dirSize(path),
+			Current: entry.Name() == current,
+		})
+	}
+	slices.SortFunc(installed, func(a, b InstalledRuntime) int { return strings.Compare(a.Name, b.Name) })
+	return installed, nil
+}
+
+func dirSize(root string) int64 {
+	var total int64
+	_ = filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
+		// Only regular files consume space here; a symlink's target is either
+		// inside the tree already or outside it and not ours to count.
+		if err == nil && d.Type().IsRegular() {
+			if info, statErr := d.Info(); statErr == nil {
+				total += info.Size()
+			}
+		}
+		// Unreadable entries are skipped rather than aborting: this number only
+		// tells an operator roughly how much a prune would free.
+		return nil
+	})
+	return total
 }
 
 func RuntimeAssetName(version, goos, goarch, source string) string {

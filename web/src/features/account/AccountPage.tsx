@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { SettingsPageHeader } from "@/features/settings/SettingsPageHeader";
 import { TokensSection } from "@/features/account/TokensSection";
+import { ThemeAppearanceControl, ThemeAccentControl } from "@/components/ThemeControls";
 
 type Toast = { message: string; type: "success" | "error" } | null;
 
@@ -136,6 +137,18 @@ export function AccountPage() {
           </div>
         </section>
 
+        {/* Appearance — the full theme surface. The user menu only carries the
+            light/dark/system row; accent lives here where it has room. */}
+        <section>
+          <h2 className="text-base font-semibold text-foreground mb-3">
+            {t("account.appearance")}
+          </h2>
+          <div className="rounded-xl border border-border bg-card p-6 max-w-sm space-y-5">
+            <ThemeAppearanceControl />
+            <ThemeAccentControl />
+          </div>
+        </section>
+
         {/* Password change — only shown for users who have local credentials */}
         {me?.has_credentials && (
           <section>
@@ -226,7 +239,7 @@ export function AccountPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-destructive hover:bg-destructive/10 shrink-0 cursor-pointer"
+                      className="text-destructive-foreground hover:bg-destructive/10 shrink-0 cursor-pointer"
                       loading={revokeSession.isPending}
                       onClick={() => revokeSession.mutate(sess.id)}
                     >

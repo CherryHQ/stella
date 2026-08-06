@@ -10,9 +10,9 @@ Never create an issue without explicit confirmation, and never run the flow with
 2. **Draft the issue.** Summarize the problem from the conversation and recent errors. Ask clarifying questions only when required context is missing. Use the standard structure below.
 3. **Get explicit confirmation.** Show the user the drafted title and body. Do not create the issue until they approve.
 4. **Check GitHub link status:** use the `oauth` tool with `action=list`. If GitHub is not connected, run the OAuth flow (next section) before continuing. Do not ask the user to authenticate `gh` manually.
-5. **Create the issue** once approved and authenticated. Use a heredoc for the body — a literal `\n` inside a double-quoted `--body` is written verbatim, not as a newline. Add a `bug` label (or `docs`/`enhancement` if it fits better):
+5. **Create the issue** once approved and authenticated. Use a heredoc for the body — a literal `\n` inside a double-quoted `--body` is written verbatim, not as a newline. Add a `bug` label (or `documentation`/`enhancement` if it fits better):
    ```bash
-   gh issue create --repo CherryHQ/stella --label bug \
+   gh issue create --repo CherryHQ/stella --label bug --label status:needs-triage \
      --title "<title>" \
      --body "$(cat <<'EOF'
    ## What
@@ -25,7 +25,7 @@ Never create an issue without explicit confirmation, and never run the flow with
 
 ## Issue structure
 
-Follow the project's standard four-section format (the What/Why/How/Refs convention from the repo's issue template). A user-reported bug only needs the issue itself with a label — skip the milestone and project-board steps the full tracker workflow uses.
+Follow the project's standard four-section format (the What/Why/How/Refs convention from the repo's issue template). A user-reported bug remains GitHub-only with `status:needs-triage` until a maintainer accepts and schedules it. Do not create a Feishu task or assign a release milestone during this reporting flow.
 
 ```markdown
 ## What

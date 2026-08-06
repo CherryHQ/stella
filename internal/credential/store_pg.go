@@ -7,6 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/auth"
+
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -37,6 +39,7 @@ func (p *PostgresStore) CreatePAT(ctx context.Context, rec PATRecord) (PATRecord
 		Last4:     rec.Last4,
 		Scopes:    rec.Scopes,
 		ExpiresAt: timestamptzFromPtr(rec.ExpiresAt),
+		TokenUse:  string(rec.TokenUse),
 	})
 	if err != nil {
 		return PATRecord{}, err
@@ -64,8 +67,24 @@ func (p *PostgresStore) ListPATByUser(ctx context.Context, userID string) ([]PAT
 	return out, nil
 }
 
+func (p *PostgresStore) ListProvisioningTokenByUser(ctx context.Context, userID string) ([]PATRecord, error) {
+	rows, err := p.q.ListProvisioningTokenByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PATRecord, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, patRecordFromRow(r))
+	}
+	return out, nil
+}
+
 func (p *PostgresStore) RevokePAT(ctx context.Context, id, userID string) (int64, error) {
 	return p.q.RevokePersonalAccessToken(ctx, sqlc.RevokePersonalAccessTokenParams{ID: id, UserID: userID})
+}
+
+func (p *PostgresStore) RevokeProvisioningToken(ctx context.Context, id, userID string) (int64, error) {
+	return p.q.RevokeProvisioningToken(ctx, sqlc.RevokeProvisioningTokenParams{ID: id, UserID: userID})
 }
 
 func (p *PostgresStore) RevokePATByUser(ctx context.Context, userID string) (int64, error) {
@@ -88,7 +107,7 @@ func (p *PostgresStore) LookupUser(ctx context.Context, userID string) (Identity
 		Name:      u.Name,
 		AvatarURL: u.AvatarUrl,
 		Role:      u.Role,
-		IsAdmin:   false,
+		IsAdmin:   u.Role == auth.RoleAdmin,
 		IsActive:  u.IsActive,
 	}, nil
 }
@@ -102,6 +121,7 @@ func patRecordFromRow(r sqlc.PersonalAccessToken) PATRecord {
 		TokenHash:  r.TokenHash,
 		Last4:      r.Last4,
 		Scopes:     r.Scopes,
+		TokenUse:   TokenUse(r.TokenUse),
 		ExpiresAt:  ptrFromTimestamptz(r.ExpiresAt),
 		LastUsedAt: ptrFromTimestamptz(r.LastUsedAt),
 		RevokedAt:  ptrFromTimestamptz(r.RevokedAt),

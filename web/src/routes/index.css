@@ -319,8 +319,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--chart-3);
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--chart-3) 22%, transparent);
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--success) 22%, transparent);
 }
 
 .thread-body {
@@ -455,7 +455,7 @@
 }
 
 .thread-step.ok > svg {
-  color: var(--chart-3);
+  color: var(--success);
   flex-shrink: 0;
 }
 
@@ -464,7 +464,7 @@
 }
 
 .thread-step.warn > svg {
-  color: var(--chart-4);
+  color: var(--warning);
   flex-shrink: 0;
 }
 

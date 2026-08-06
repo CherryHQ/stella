@@ -2,7 +2,7 @@
 title: 沙箱
 ---
 
-Stella 在沙箱内运行 agent 代码。你可以为每个 agent 选择沙箱后端——不同后端提供不同的隔离级别、平台支持和权衡取舍。
+Stella 在沙箱内运行 agent 代码。沙箱后端由运维在部署时统一选定——不同后端提供不同的隔离级别、平台支持和权衡取舍。
 
 ## 选择后端
 
@@ -15,7 +15,13 @@ Stella 在沙箱内运行 agent 代码。你可以为每个 agent 选择沙箱�
 | 可信的单用户本地开发                | `none`   | 零依赖，无隔离                       |
 | 自定义工具链（特定 Python/Node/Go） | `docker` | 独立于宿主机的干净 Linux 用户空间    |
 
-在 Web UI 的 **Plugins** 页面切换活动沙箱后端。同一时间只有一个后端处于活动状态。
+部署时通过 `STELLA_SANDBOX_BACKEND` 环境变量指定后端，然后重启 `stellad`：
+
+```bash
+STELLA_SANDBOX_BACKEND=docker   # docker | local | none
+```
+
+默认值是 `local`。未设置或取值无法识别时同样回落到 `local`，因此拼错变量不会让 agent 失去隔离。没有 Web UI 开关，也没有 per-agent 覆盖——沙箱边界是运维决策，不是运行时决策。
 
 ## Docker 后端
 
@@ -102,6 +108,7 @@ volumes:
 
 | 变量                         | 描述                                                                |
 | ---------------------------- | ------------------------------------------------------------------- |
+| `STELLA_SANDBOX_BACKEND`     | 部署使用的沙箱后端：`docker`、`local`（默认）或 `none`              |
 | `STELLA_DOCKER_SANDBOX_MODE` | `docker` 沙箱后端必须设置：`host`、`bind` 或 `volume`               |
 | `STELLA_HOME_HOST`           | `STELLA_HOME` 的宿主机侧路径；仅 `bind` 模式需要                    |
 | `STELLA_HOME_VOLUME`         | `STELLA_HOME` 对应的 Docker named volume 名称；仅 `volume` 模式需要 |

@@ -1,4 +1,4 @@
 {
   "title": "渠道",
-  "pages": ["telegram", "qq", "feishu", "weixin", "webhook"]
+  "pages": ["telegram", "qq", "feishu", "weixin"]
 }

@@ -50,7 +50,7 @@ func (s *Service) runCycleWithReviewer(ctx context.Context, review reviewTargetF
 			s.recordNextReviewAgentCursor(ctx, agents, processedAgents)
 			return err
 		}
-		snap, err := s.store.Snapshot(ctx, agent.ID)
+		snap, err := s.snapshotLoader().Snapshot(ctx, agent.ID)
 		if err != nil {
 			s.log.Error("reflect: snapshot", "agent", agent.ID, "error", err)
 			processedAgents = i + 1

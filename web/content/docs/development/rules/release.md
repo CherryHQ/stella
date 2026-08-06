@@ -33,27 +33,33 @@ GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
    git log --oneline -1
    ```
    Stop if the release commit is not `HEAD`; never tag before the commit exists.
-7. Tag the release commit and verify the tag points at `HEAD`:
+7. Verify that the version milestone contains the exact release scope and has
+   no open issues. Stop and resolve any open issue before tagging:
+   ```bash
+   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state open
+   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state all
+   ```
+8. Tag the release commit and verify the tag points at `HEAD`:
    ```bash
    git tag vX.Y.Z
    test "$(git rev-parse vX.Y.Z)" = "$(git rev-parse HEAD)"
    ```
-8. Tag release issues with the release label so they are traceable on the GitHub Project board:
-
-   ```bash
-   # warn about any issue still open in the milestone before tagging
-   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state open
-
-   # label every issue in the milestone with release:vX.Y.Z (--add-label is idempotent)
-   gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state all \
-     --json number --jq '.[].number' \
-   | xargs -I{} gh issue edit {} --repo CherryHQ/stella --add-label "release:vX.Y.Z"
-   ```
-
-   Filter the project board by the `release:vX.Y.Z` label to confirm the release scope.
-
 9. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
-10. CI triggers `.github/workflows/release.yml` → GoReleaser binaries + Docker images.
+10. CI triggers `.github/workflows/release.yml`. Its validation job checks the
+    exact tagged commit before the GoReleaser or Docker publication jobs can
+    start.
+11. After CI succeeds and the GitHub Release is visible, close the version
+    milestone:
+    ```bash
+    MILESTONE_NUMBER=$(gh api 'repos/CherryHQ/stella/milestones?state=open' \
+      --jq '.[] | select(.title == "vX.Y.Z") | .number')
+    test -n "$MILESTONE_NUMBER"
+    gh api --method PATCH "repos/CherryHQ/stella/milestones/$MILESTONE_NUMBER" \
+      -f state=closed
+    ```
+
+The version milestone is the durable release record. Do not create a duplicate
+`release:vX.Y.Z` label.
 
 ## Update Changelog
 
@@ -86,10 +92,12 @@ test "$(jq -r '.version' web/package.json)" = "$VERSION"
 mise run release:validate
 ```
 
-The system suite (`system-test`) is a **local** release gate: it is skipped on
-hosts without a published embedded PostgreSQL runtime and is not run in CI, so it
-runs here as part of `release:validate` rather than in the release workflow. See
-`system-test.md`.
+The system suite (`system-test`) runs both in the local gate and in the
+tag-triggered validation job. Release CI pins a supported Ubuntu runner and
+uploads the suite's server logs before any snapshot build can clean `dist/`.
+GoReleaser and Docker publication jobs depend directly on the validation result,
+so a failed or unsupported System Test cannot publish partial release artifacts.
+See `system-test.md`.
 
 ## Artifacts
 

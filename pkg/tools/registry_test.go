@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -53,13 +54,42 @@ func TestRegistry_RegisterAndHas(t *testing.T) {
 	}
 }
 
-func TestRegistry_Definitions(t *testing.T) {
-	r := NewRegistry()
-	r.Register(&mockTool{name: "a"})
-	r.Register(&mockTool{name: "b"})
-	defs := r.Definitions()
-	if len(defs) != 2 {
-		t.Errorf("expected 2 definitions, got %d", len(defs))
+func TestRegistry_DefinitionsStableOrder(t *testing.T) {
+	registrationOrders := [][]string{
+		{"zeta", "alpha", "middle"},
+		{"middle", "zeta", "alpha"},
+	}
+	wantNames := []string{"alpha", "middle", "zeta"}
+	var wantJSON string
+
+	for _, order := range registrationOrders {
+		r := NewRegistry()
+		for _, name := range order {
+			r.Register(&mockTool{name: name})
+		}
+
+		// Materialize repeatedly so map iteration can never leak into provider-facing order.
+		for range 16 {
+			defs := r.Definitions()
+			if len(defs) != len(wantNames) {
+				t.Fatalf("Definitions() length = %d, want %d", len(defs), len(wantNames))
+			}
+			for i, wantName := range wantNames {
+				if defs[i].Name != wantName {
+					t.Fatalf("Definitions()[%d].Name = %q, want %q; definitions = %#v", i, defs[i].Name, wantName, defs)
+				}
+			}
+
+			encoded, err := json.Marshal(defs)
+			if err != nil {
+				t.Fatalf("json.Marshal(Definitions()) error: %v", err)
+			}
+			if wantJSON == "" {
+				wantJSON = string(encoded)
+			} else if string(encoded) != wantJSON {
+				t.Fatalf("serialized Definitions() = %s, want %s", encoded, wantJSON)
+			}
+		}
 	}
 }
 

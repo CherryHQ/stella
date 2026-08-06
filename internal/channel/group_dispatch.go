@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -68,6 +70,7 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 	if channelID == "" {
 		channelID = msg.Platform
 	}
+	content := legacyGroupContent(msg.Content)
 	return c.eventLog.AppendGroupMessage(ctx, eventlog.Message{
 		Platform:          msg.Platform,
 		PlatformGroupID:   msg.ChatID,
@@ -79,8 +82,8 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		PlatformMessageID: msg.MessageID,
 		PlatformTimestamp: msg.Timestamp,
 		ReplyTo:           msg.ReplyTo,
-		Content:           contentBlocksToText(msg.Content),
-		ContentBlocks:     marshalGroupContentBlocks(msg.Content),
+		Content:           contentBlocksToText(content),
+		ContentBlocks:     marshalGroupContentBlocks(content),
 	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
 		members, err := q.ListGroupMembers(ctx, result.GroupID)
 		if err != nil {
@@ -253,6 +256,28 @@ func firstMentionedAgent(mentions []pkgchannel.Mention) string {
 		}
 	}
 	return ""
+}
+
+// legacyGroupContent keeps the old inline group codec bounded at its storage
+// boundary. Producers do not need to know whether a message will become an
+// ordinary session or a deferred group event.
+func legacyGroupContent(blocks []ai.ContentBlock) []ai.ContentBlock {
+	out := ai.CloneContentBlocks(blocks)
+	for i, block := range out {
+		image, ok := block.(ai.ImageContent)
+		if !ok {
+			continue
+		}
+		if len(image.Data) > base64.StdEncoding.EncodedLen(vision.MaxRendererPayloadBytes) {
+			out[i] = ai.TextContent{Text: ai.UnavailableImageProjection}
+			continue
+		}
+		data, err := base64.StdEncoding.DecodeString(image.Data)
+		if err != nil || len(data) > vision.MaxRendererPayloadBytes {
+			out[i] = ai.TextContent{Text: ai.UnavailableImageProjection}
+		}
+	}
+	return out
 }
 
 // imageContentPlaceholder is the deterministic text projection stored for a

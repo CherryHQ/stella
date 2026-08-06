@@ -37,13 +37,83 @@ type ThinkingContent struct {
 
 func (ThinkingContent) contentBlockKind() string { return "thinking" }
 
-// ImageContent represents base64-encoded image data.
+const (
+	// MaxImageInputBytes is the largest original image accepted for canonical
+	// session ingestion before it is converted to a provider payload.
+	MaxImageInputBytes = 30 * 1024 * 1024
+	// MaxImagesPerMessage and MaxAggregateImageBytes bound one image-bearing
+	// message before decoding or persistence allocates its originals.
+	MaxImagesPerMessage    = 8
+	MaxAggregateImageBytes = 60 * 1024 * 1024
+)
+
+// ImageContent represents ephemeral, base64-encoded provider or tool input.
+// It must not be written to new ordinary-session history.
 type ImageContent struct {
 	Data     string // base64 encoded
 	MimeType string // e.g. "image/jpeg", "image/png"
 }
 
 func (ImageContent) contentBlockKind() string { return "image" }
+
+// UnavailableImageProjection is deliberately independent of a renderer,
+// timestamp, and error body. It is the only durable text for an image whose
+// original bytes persisted but whose baseline could not be produced.
+const UnavailableImageProjection = "[Image baseline unavailable.]"
+
+// ImageBaseline is the immutable provider projection for one session image.
+// The zero value is the stable unavailable marker; ready values use the sole
+// V1 text contract validated by Validate.
+type ImageBaseline struct {
+	Text string
+}
+
+func (b ImageBaseline) Validate() error {
+	if b.Text == "" {
+		return nil
+	}
+	return ValidateImageBaselineText(b.Text)
+}
+
+// Projection returns the bounded stable text used by durable history.
+func (b ImageBaseline) Projection() string {
+	if b.Text == "" {
+		return UnavailableImageProjection
+	}
+	return b.Text
+}
+
+// ParseImageBaseline reconstructs a baseline from its exact durable projection.
+func ParseImageBaseline(projection string) (ImageBaseline, error) {
+	if projection == UnavailableImageProjection {
+		return ImageBaseline{}, nil
+	}
+	baseline := ImageBaseline{Text: projection}
+	if err := baseline.Validate(); err != nil {
+		return ImageBaseline{}, err
+	}
+	return baseline, nil
+}
+
+// ImageRefContent is a canonical reference to immutable session media. MIME is
+// owned by the media row and resolved only during authorized hydration.
+type ImageRefContent struct {
+	MediaID  string
+	Baseline ImageBaseline
+}
+
+func (ImageRefContent) contentBlockKind() string { return "image_ref" }
+
+// Validate checks the storage invariants for a canonical image reference.
+func (r ImageRefContent) Validate() error {
+	if strings.TrimSpace(r.MediaID) == "" {
+		return fmt.Errorf("image ref requires media ID")
+	}
+	if err := r.Baseline.Validate(); err != nil {
+		return fmt.Errorf("image ref baseline: %w", err)
+	}
+	return nil
+}
 
 // DataURI returns the image as a data URI string (e.g. "data:image/jpeg;base64,...").
 func (ic ImageContent) DataURI() string {
@@ -66,7 +136,7 @@ type Message interface {
 }
 
 // UserMessage contains user-provided content.
-// Content is string or []ContentBlock (TextContent | ImageContent).
+// Content is string or []ContentBlock (TextContent | ImageContent | ImageRefContent).
 type UserMessage struct {
 	Content   any
 	Timestamp time.Time
@@ -119,7 +189,7 @@ func (AssistantMessage) messageRole() string { return "assistant" }
 type ToolResultMessage struct {
 	ToolCallID string
 	ToolName   string
-	Content    []ContentBlock // TextContent | ImageContent
+	Content    []ContentBlock // TextContent | ImageContent | ImageRefContent
 	Details    any
 	IsError    bool
 	Timestamp  time.Time
@@ -132,6 +202,16 @@ func (ToolResultMessage) messageRole() string { return "tool" }
 func HasImage(blocks []ContentBlock) bool {
 	for _, b := range blocks {
 		if _, ok := b.(ImageContent); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// HasImageRef reports whether content contains durable session media.
+func HasImageRef(blocks []ContentBlock) bool {
+	for _, block := range blocks {
+		if _, ok := block.(ImageRefContent); ok {
 			return true
 		}
 	}

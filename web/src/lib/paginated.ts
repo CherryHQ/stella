@@ -1,6 +1,7 @@
 import { getSessionMessages, listGoals, listSchedulerJobRuns } from "@/lib/api-client";
 import type { ComponentsGoal, JobRun } from "@/lib/api-client/types.gen";
 import type { Message } from "@/lib/types";
+import { sessionMessagesToMessages } from "@/lib/chat-transport";
 
 // offsetPageToken mirrors the server's AIP-158 offset token (encodeOffsetToken
 // in internal/server/response.go: base64url of the decimal row offset). It lets
@@ -62,7 +63,7 @@ export async function fetchAllSessionMessages(
       query: { limit, skip, ...(opts.before ? { before: opts.before } : {}) },
       throwOnError: true,
     });
-    const batch = (data?.messages as unknown as Message[] | undefined) ?? [];
+    const batch = sessionMessagesToMessages(data?.messages);
     if (batch.length === 0) break;
     pages.push(batch);
     total += batch.length;

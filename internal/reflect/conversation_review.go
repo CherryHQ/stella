@@ -31,13 +31,13 @@ func (s *Service) ReviewConversationReconciledCandidates(ctx context.Context, sn
 	factReviewer, factInstrumentation := instrumentCandidateReviewer(stream, model, s.candidateGates)
 	skillReviewer, skillInstrumentation := instrumentCandidateReviewer(stream, model, s.candidateGates)
 	result, err := s.runReconciliationPipeline(ctx, target, reconciliationPipelineOptions{
-		FactLine:  factReviewer.runFactLine,
-		SkillLine: skillReviewer.runSkillLine,
-		FactReconciler: func(ctx context.Context, target reviewTarget, unit ReviewUnit, candidates []factCandidate) (reconciliationWriteStats, error) {
-			return s.reconcileFactCandidates(ctx, target, unit, candidates, factReviewer)
+		FactLine:  factReviewer.runFactDecisionLine,
+		SkillLine: skillReviewer.runSkillDecisionLine,
+		FactReconciler: func(ctx context.Context, target reviewTarget, unit ReviewUnit, decisions []factCandidateDecision) (reconciliationWriteStats, error) {
+			return s.reconcileFactCandidates(ctx, target, unit, decisions, factReviewer)
 		},
-		SkillReconciler: func(ctx context.Context, target reviewTarget, unit ReviewUnit, candidates []skillCandidate) (reconciliationWriteStats, error) {
-			return s.reconcileSkillCandidates(ctx, target, unit, candidates, skillReviewer)
+		SkillReconciler: func(ctx context.Context, target reviewTarget, unit ReviewUnit, decisions []skillCandidateDecision) (reconciliationWriteStats, error) {
+			return s.reconcileSkillCandidates(ctx, target, unit, decisions, skillReviewer)
 		},
 	})
 	applyCandidateInstrumentation(&result, factInstrumentation, skillInstrumentation)

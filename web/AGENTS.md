@@ -8,13 +8,14 @@ React SPA embedded by Go. TanStack Router owns client-side routing.
 
 Detailed conventions live in `content/docs/development/rules/`. Read the relevant rule before designing or changing anything in that domain:
 
-| Domain            | Rule file        | Read before                                                           |
-| ----------------- | ---------------- | --------------------------------------------------------------------- |
-| UI engineering    | `web-ui.md`      | Building or reviewing any UI (tokens, CossUI, overlays, forms, icons) |
-| Current theme     | `web-design.md`  | Any visual/design decision                                            |
-| Theming / restyle | `web-theming.md` | Changing the visual style or editing `src/tokens.css`                 |
-| Web UI testing    | `web-ui-test.md` | Verifying the UI with browser automation                              |
-| Marketing copy    | `marketing.md`   | Building a landing page, hero, or any marketing-facing surface        |
+| Domain            | Rule file          | Read before                                                           |
+| ----------------- | ------------------ | --------------------------------------------------------------------- |
+| UI engineering    | `web-ui.md`        | Building or reviewing any UI (tokens, CossUI, overlays, forms, icons) |
+| Current theme     | `web-design.md`    | Any visual/design decision                                            |
+| Theming / restyle | `web-theming.md`   | Changing the visual style or editing `src/tokens.css`                 |
+| Web UI testing    | `web-ui-test.md`   | Verifying the UI with browser automation                              |
+| Web perf testing  | `web-perf-test.md` | Measuring or optimizing web UI performance                            |
+| Marketing copy    | `marketing.md`     | Building a landing page, hero, or any marketing-facing surface        |
 
 Also: `.agents/skills/coss/SKILL.md` for CossUI imports, composition rules, and particle examples.
 
@@ -51,7 +52,7 @@ Always use CossUI components before hand-writing primitives. Never override visu
 
 ### Theme tokens
 
-Do not hardcode palette utilities or raw colors in UI code (`bg-emerald-500`, `text-blue-600`, `bg-black/50`, `#fff`, `rgba(...)`, arbitrary color shadows, etc.). Use the existing shadcn tokens only: `background`, `foreground`, `card`, `popover`, `muted`, `accent`, `primary`, `destructive`, `border`, `ring`, `sidebar-*`, and `chart-1..5`. Map semantic status colors to chart tokens (`chart-3` success, `chart-4` warning, `chart-2` info/running) and `destructive` for errors. Do not add project-specific Tailwind color tokens for one-off states.
+Do not hardcode palette utilities or raw colors in UI code (`bg-emerald-500`, `text-blue-600`, `bg-black/50`, `#fff`, `rgba(...)`, arbitrary color shadows, etc.). Use the existing shadcn tokens only: `background`, `foreground`, `card`, `popover`, `muted`, `accent`, `primary`, `destructive`, `border`, `ring`, `sidebar-*`, and `chart-1..5`. Status verdicts use `success` / `warning` / `info` and their `-foreground` pairs; `chart-1..5` are fills for plotted and categorical data — `bg-chart-*` only, never `text-`/`fill-`/`stroke-chart-*` or `color: var(--chart-*)`, which fail contrast as words. For red text use `destructive-foreground` — bare `destructive` is the solid fill CossUI hardcodes white on. Do not add project-specific Tailwind color tokens for one-off states.
 
 ### I18n
 

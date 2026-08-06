@@ -6,6 +6,9 @@ on:
     tags-ignore: ["v*.*.*"]
   pull_request:
     branches: [main]
+  merge_group:
+    branches: [main]
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -53,13 +56,38 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install bubblewrap
-        run: sudo apt-get install -y bubblewrap
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor, so
+          # an installed bwrap still cannot create a sandbox. The local sandbox
+          # backend probes exactly this, and the System Test runs real agent
+          # turns through it — without the sysctl every turn fails at runtime.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          # Fail here, with the reason visible, rather than inside a test run.
+          bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
 
       - name: Generate code and check drift
         run: mise run generate:check
 
+      # go:embed snapshots web/static/dist at compile time, so this has to run
+      # before the test binaries are built. Without it the PWA build contract
+      # only gets checked at tag time, and a commit that breaks the Web UI's
+      # installability merges green.
+      - name: Build web assets
+        run: mise run build:web
+
+      # `test:coverage:race` is `go test` only, so until this step existed the
+      # frontend suite was gated at tag time and nowhere else — a PR could merge
+      # green with every vitest guard failing.
+      - name: Run frontend tests
+        run: mise run test:web
+
       - name: Run tests with race detection and coverage
         run: mise run test:coverage:race
+        env:
+          STELLA_TEST_REQUIRE_BWRAP: "1"
+          STELLA_TEST_REQUIRE_SPA: "1"
 
       - name: Prepare coverage report data
         run: |

@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { searchSkills } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { SkillSearchResult } from "@/lib/types";
-import type { AgentsPageState } from "./AgentsPage";
+import type { AgentsPageState } from "./agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogPopup, DialogTitle, DialogDescription } from "@/components/ui/dialog";

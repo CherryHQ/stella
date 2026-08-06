@@ -14,6 +14,7 @@ import type {
   ComponentsProvider,
   ComponentsProviderModelItem,
   ComponentsProviderType,
+  SessionMessage as SdkSessionMessage,
   ComponentsSkill,
   ComponentsSkillSearchResult,
   ComponentsUserMemory,
@@ -53,6 +54,7 @@ export type ProviderType = ComponentsProviderType;
 export type Provider = ComponentsProvider;
 export type ProviderModel = ComponentsProviderModelItem;
 export type Workspace = SessionWorkspace;
+export type SessionMessage = SdkSessionMessage;
 export type Project = SdkProject;
 export type OAuthFlow = ComponentsOAuthFlowStatus;
 
@@ -88,7 +90,6 @@ export type Plugin = ComponentsPluginView & {
   has_config: boolean;
   has_status: boolean;
   supports_notifications?: boolean;
-  env_locked?: boolean;
 };
 
 // ── Local types (no SDK equivalent) ───────────────────────────────────────────
@@ -107,13 +108,20 @@ export interface TextBlock {
   text: string;
 }
 
+export interface ImageBlock {
+  type: "image";
+  media_id: string;
+  mime_type: string;
+  url: string;
+}
+
 export interface ThinkingBlock {
   type: "thinking";
   thinking?: string;
   redacted?: boolean;
 }
 
-export type ContentBlock = TextBlock | ThinkingBlock | ToolBlock;
+export type ContentBlock = TextBlock | ImageBlock | ThinkingBlock | ToolBlock;
 
 /**
  * A renderable reference an agent emitted when it created (or referenced) a
@@ -125,6 +133,7 @@ export interface RenderableReference {
   v: 1;
   type: "task" | "goal" | "recally_article" | (string & {});
   id: string;
+  agent_id?: string;
   intent?: "created" | "referenced";
   preview?: { title?: string; status?: string };
 }
@@ -133,6 +142,7 @@ export interface ToolResult {
   tool_call_id: string;
   content: string;
   is_error: boolean;
+  blocks?: Array<TextBlock | ImageBlock>;
   references?: RenderableReference[];
 }
 
@@ -142,6 +152,8 @@ export interface Message {
   content?: string;
   blocks?: ContentBlock[];
   tool_call_id?: string;
+  tool_name?: string;
+  is_error?: boolean;
   references?: RenderableReference[];
   timestamp: string;
   token_count?: number;

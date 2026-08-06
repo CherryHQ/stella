@@ -24,14 +24,12 @@ export function AuthLayout({ subtitle, error, children }: AuthLayoutProps) {
               className="rounded-lg animate-pulse"
             />
           </div>
-          <h1 className="font-serif italic text-primary text-4xl tracking-tight select-none">
-            stella
-          </h1>
+          <h1 className="font-semibold text-primary text-4xl tracking-tight select-none">stella</h1>
           <p className="text-muted-foreground text-sm mt-2">{subtitle}</p>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm flex items-start gap-3 animate-shake">
+          <div className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive-foreground text-sm flex items-start gap-3 animate-shake">
             <AlertCircle className="size-4 mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>

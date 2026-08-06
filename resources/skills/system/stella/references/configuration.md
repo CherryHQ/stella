@@ -1,6 +1,6 @@
 # Configuration reference
 
-All configuration is stored in PostgreSQL. Stella can run an embedded PostgreSQL cluster whose data directory lives under `$STELLA_HOME`; run `stellad postgres download-runtime` first if the runtime is not installed. Set `STELLA_DATABASE_URL` to point at an external PostgreSQL server instead.
+All configuration is stored in PostgreSQL. Stella can run an embedded PostgreSQL cluster whose data directory lives under `$STELLA_HOME`; run `stellad postgres download` first if the runtime is not installed. Set `STELLA_DATABASE_URL` to point at an external PostgreSQL server instead.
 
 The easiest way to configure stella is to run `stellad server` and open `http://localhost:25678`. Use `--port` to change the port.
 
@@ -31,7 +31,7 @@ All config lives in normalized PostgreSQL tables:
 
 Each agent has:
 
-- A provider + model configuration
+- A global Provider + model selection, with an optional API-only key override
 - A system prompt (personality/identity)
 - A user-independent definition and administrator-managed skills area
 - A separate sandbox workspace for each user or channel group
@@ -40,6 +40,15 @@ Inside a sandbox, `$HOME` is that principal's per-agent workspace, not the
 operator's `$STELLA_HOME/agents/{agent_id}` directory.
 
 Create agents via the Web UI or directly in the database.
+
+Provider type, base URL, models, enabled state, and default key are global
+administrator configuration. Enterprise provisioning may set a write-only key
+override through `POST /api/agents` or the Agent Provider credential
+subresource. Override precedence is Agent key, then global Provider key;
+deleting the override restores fallback. Safe metadata follows Agent Read, while
+only administrators and the persisted Agent creator may mutate it. The same key
+resolution applies to every host-side Agent model call, including Vision when it
+uses that Provider. Do not place overrides in sandbox environment variables.
 
 ## Channel configuration
 
@@ -95,7 +104,7 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 | Operator path                               | Purpose                                                                                                         |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `postgres/`                                 | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
-| `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download-runtime`                       |
+| `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                               |
 | `cache/models.json`                         | Cached model list (safe to delete)                                                                              |
 | `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed area                                                |
 | `agents/{agent_id}/.agents/skills/`         | Administrator-managed, agent-bound skills                                                                       |

@@ -1,4 +1,4 @@
-import { forwardRef, useMemo, type ReactNode } from "react";
+import { forwardRef, memo, type ReactNode } from "react";
 import { useI18n } from "@/lib/i18n";
 import type { ContentBlock } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -30,20 +30,6 @@ interface Props {
   header?: ReactNode;
 }
 
-interface Annotated extends TranscriptMessage {
-  sameRoleAsPrev: boolean;
-  showTimestamp: boolean;
-}
-
-function annotate(messages: TranscriptMessage[]): Annotated[] {
-  return messages.map((msg, i) => ({
-    ...msg,
-    sameRoleAsPrev:
-      i > 0 && messages[i - 1].role === msg.role && messages[i - 1].agentId === msg.agentId,
-    showTimestamp: i === messages.length - 1 || messages[i + 1].role !== msg.role,
-  }));
-}
-
 interface MessageListProps {
   messages: TranscriptMessage[];
   fileAgentId?: string;
@@ -53,6 +39,62 @@ interface MessageListProps {
   className?: string;
 }
 
+// Memoized per-message row: with stable TranscriptMessage identities from the
+// upstream caches, a stream update re-renders only the tail row instead of the
+// whole history. Neighbor-derived flags are passed as primitives so the memo
+// comparison stays shallow.
+const MessageRow = memo(function MessageRow({
+  msg,
+  sameRoleAsPrev,
+  showTimestamp,
+  fileAgentId,
+  fileSessionId,
+  agentNames,
+}: {
+  msg: TranscriptMessage;
+  sameRoleAsPrev: boolean;
+  showTimestamp: boolean;
+  fileAgentId?: string;
+  fileSessionId?: string;
+  agentNames?: Map<string, string>;
+}) {
+  // content-visibility lets the browser skip layout/paint for rows far outside
+  // the viewport; contain-intrinsic-size keeps scrollHeight (and thus scroll
+  // restoration when paging in older history) stable while they're skipped.
+  return (
+    <div
+      className={cn(
+        "min-w-0 [content-visibility:auto] [contain-intrinsic-size:auto_80px]",
+        sameRoleAsPrev ? "-mt-3" : "",
+      )}
+    >
+      {msg.role === "user" ? (
+        <UserMessage
+          msg={{ content: msg.content, blocks: msg.blocks, timestamp: msg.timestamp }}
+          agentId={fileAgentId}
+          sessionId={fileSessionId}
+          agentNames={agentNames}
+          sameRoleAsPrev={sameRoleAsPrev}
+          showTimestamp={showTimestamp}
+        />
+      ) : (
+        <AssistantMessage
+          agentName={msg.agentName || "Agent"}
+          agentId={msg.agentId || "default"}
+          blocks={msg.blocks ?? []}
+          timestamp={msg.timestamp}
+          model={msg.model}
+          tokenCount={msg.tokenCount}
+          streaming={msg.streaming}
+          showTimestamp={showTimestamp}
+          sameRoleAsPrev={sameRoleAsPrev}
+          agentSessionId={msg.agentSessionId}
+        />
+      )}
+    </div>
+  );
+});
+
 /** The bare message column, reusable wherever a transcript needs to render (chat, epoch raw view). */
 export function MessageList({
   messages,
@@ -61,35 +103,20 @@ export function MessageList({
   agentNames,
   className,
 }: MessageListProps) {
-  const processed = useMemo(() => annotate(messages), [messages]);
   return (
     <div className={cn("min-w-0 space-y-6", className)}>
-      {processed.map((msg) => (
-        <div key={msg.id} className={cn("min-w-0", msg.sameRoleAsPrev ? "-mt-3" : "")}>
-          {msg.role === "user" ? (
-            <UserMessage
-              msg={{ content: msg.content, timestamp: msg.timestamp }}
-              agentId={fileAgentId}
-              sessionId={fileSessionId}
-              agentNames={agentNames}
-              sameRoleAsPrev={msg.sameRoleAsPrev}
-              showTimestamp={msg.showTimestamp}
-            />
-          ) : (
-            <AssistantMessage
-              agentName={msg.agentName || "Agent"}
-              agentId={msg.agentId || "default"}
-              blocks={msg.blocks ?? []}
-              timestamp={msg.timestamp}
-              model={msg.model}
-              tokenCount={msg.tokenCount}
-              streaming={msg.streaming}
-              showTimestamp={msg.showTimestamp}
-              sameRoleAsPrev={msg.sameRoleAsPrev}
-              agentSessionId={msg.agentSessionId}
-            />
-          )}
-        </div>
+      {messages.map((msg, i) => (
+        <MessageRow
+          key={msg.id}
+          msg={msg}
+          sameRoleAsPrev={
+            i > 0 && messages[i - 1].role === msg.role && messages[i - 1].agentId === msg.agentId
+          }
+          showTimestamp={i === messages.length - 1 || messages[i + 1].role !== msg.role}
+          fileAgentId={fileAgentId}
+          fileSessionId={fileSessionId}
+          agentNames={agentNames}
+        />
       ))}
     </div>
   );

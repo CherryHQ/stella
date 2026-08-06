@@ -263,7 +263,7 @@ function ScheduleForm({
         </>
       )}
 
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <p className="text-xs text-destructive-foreground">{error}</p>}
 
       <div className="flex items-center gap-2 pt-1">
         <Button size="sm" disabled={saving || !valid} onClick={() => void create()}>

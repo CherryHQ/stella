@@ -9,13 +9,13 @@ import { themeToTreeStyles, type TreeThemeInput } from "@pierre/trees";
 import {
   Copy,
   Download,
-  Eye,
-  EyeOff,
+  Ellipsis,
   FilePlus,
   FileText,
   FolderPlus,
   Globe,
   PenLine,
+  Plus,
   RefreshCw,
   Share2,
   Trash2,
@@ -43,6 +43,13 @@ import {
   DialogPopup,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/menu";
 import { FileViewer } from "./FileViewer";
 import { isNonTextFile, fetchBlobUrl, mimeTypeForPath } from "./fileUtils";
 import { useI18n } from "@/lib/i18n";
@@ -284,14 +291,14 @@ export function WorkspacePanel({
   if (!sessionID) {
     return (
       <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar/80">
-        <div className="flex h-12 flex-shrink-0 items-center justify-between border-b border-border/70 px-4">
-          <span className="text-xs font-mono text-muted-foreground">
+        <div className="flex min-h-9 flex-shrink-0 items-center justify-between border-b border-border/70 px-2 py-1.5">
+          <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
             {t("sessions.workspace.title")}
           </span>
         </div>
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs text-muted-foreground font-mono">
-            Select a session to see its workspace
+        <div className="flex-1 flex items-center justify-center p-4">
+          <p className="text-center text-xs text-muted-foreground">
+            {t("sessions.workspace.noSession")}
           </p>
         </div>
       </div>
@@ -464,7 +471,7 @@ function ArtifactShareDialog({
               </div>
             </div>
           )}
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-sm text-destructive-foreground">{error}</p>}
         </DialogPanel>
         <DialogFooter>
           {share ? (
@@ -520,7 +527,7 @@ function CtxMenuItem({
   const className = cn(
     "flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left font-mono text-xs",
     "hover:bg-accent",
-    destructive && "text-destructive",
+    destructive && "text-destructive-foreground",
   );
   const icon = (
     <Icon className={cn("size-3.5 shrink-0", destructive ? "" : "text-muted-foreground")} />
@@ -830,7 +837,6 @@ function UnifiedTree({
     : firstSelected && isDirectoryPath(firstSelected)
       ? selectedParsed.rel
       : selectedParsed.rel.split("/").slice(0, -1).join("/");
-  const deletableSelection = Boolean(selectedParsed?.rel);
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-sidebar/80">
@@ -842,60 +848,79 @@ function UnifiedTree({
         onClose={() => setSharePath(null)}
       />
 
-      {/* Toolbar */}
-      <div className="flex min-h-9 flex-shrink-0 items-center justify-end gap-0 border-b border-border/70 px-2 py-1.5">
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={onToggleHidden}
-          title={t(showHidden ? "sessions.workspace.hideHidden" : "sessions.workspace.showHidden")}
-          className="px-1 h-6"
-        >
-          {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-        </Button>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => setNewItem({ scope: newItemScope, type: "file", baseRel: newItemBaseRel })}
-          title={t("sessions.workspace.newFile")}
-          className="px-1 h-6"
-        >
-          <FilePlus className="w-3.5 h-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={() => setNewItem({ scope: newItemScope, type: "dir", baseRel: newItemBaseRel })}
-          title={t("sessions.workspace.newFolder")}
-          className="px-1 h-6"
-        >
-          <FolderPlus className="w-3.5 h-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="xs"
-          disabled={!deletableSelection}
-          onClick={() => firstSelected && deleteItem(firstSelected).catch(console.error)}
-          title={t("sessions.workspace.deleteSelected")}
-          className={cn(
-            "px-1 h-6",
-            deletableSelection
-              ? "text-destructive hover:bg-destructive/10"
-              : "opacity-30 cursor-not-allowed",
-          )}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={onReload}
-          disabled={loading}
-          title={t("sessions.workspace.refresh")}
-          className="px-1 h-6"
-        >
-          <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
-        </Button>
+      {/* Toolbar: the panel's name on the left, its three controls on the right.
+          Destructive actions live only in a row's own context menu, where the
+          target is unambiguous. */}
+      <div className="flex min-h-9 flex-shrink-0 items-center justify-between gap-2 border-b border-border/70 px-2 py-1.5">
+        <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
+          {t("sessions.workspace.title")}
+        </span>
+        <div className="flex shrink-0 items-center gap-0">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="px-1 h-6"
+                  title={t("sessions.workspace.newItem")}
+                  aria-label={t("sessions.workspace.newItem")}
+                />
+              }
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6} className="w-44">
+              <DropdownMenuItem
+                onClick={() =>
+                  setNewItem({ scope: newItemScope, type: "file", baseRel: newItemBaseRel })
+                }
+              >
+                <FilePlus className="size-4" />
+                {t("sessions.workspace.newFile")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() =>
+                  setNewItem({ scope: newItemScope, type: "dir", baseRel: newItemBaseRel })
+                }
+              >
+                <FolderPlus className="size-4" />
+                {t("sessions.workspace.newFolder")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={onReload}
+            disabled={loading}
+            title={t("sessions.workspace.refresh")}
+            aria-label={t("sessions.workspace.refresh")}
+            className="px-1 h-6"
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="px-1 h-6"
+                  title={t("sessions.workspace.more")}
+                  aria-label={t("sessions.workspace.more")}
+                />
+              }
+            >
+              <Ellipsis className="w-3.5 h-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6} className="w-52">
+              <DropdownMenuCheckboxItem checked={showHidden} onCheckedChange={onToggleHidden}>
+                {t("sessions.workspace.showHidden")}
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {/* New item form */}

@@ -56,7 +56,7 @@ export function GroupInspector({ members, messages, activeAgentIds, uploadContex
                   <span
                     className={cn(
                       "rounded-md px-1.5 py-0.5 font-mono text-xs",
-                      active ? "bg-chart-2/10 text-chart-2" : "bg-muted text-muted-foreground",
+                      active ? "bg-info/10 text-info-foreground" : "bg-muted text-muted-foreground",
                     )}
                   >
                     {active ? t("groups.inspector.active") : t("groups.inspector.idle")}

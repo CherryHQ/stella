@@ -21,11 +21,15 @@ import (
 // DBStore implements config.Store using sqlc queries backed by PostgreSQL.
 type DBStore struct {
 	q *sqlc.Queries
+	// pool is retained (not just wrapped by q) so composite writes that must be
+	// atomic — the Agent + its encrypted Provider credentials — can open one
+	// transaction via Queries.WithTx.
+	pool *pgxpool.Pool
 }
 
 // NewDBStore creates a new DBStore wrapping the given database connection.
 func NewDBStore(db *pgxpool.Pool) *DBStore {
-	return &DBStore{q: sqlc.New(db)}
+	return &DBStore{q: sqlc.New(db), pool: db}
 }
 
 // --- Providers (backed by provider) ---
@@ -40,6 +44,16 @@ func (s *DBStore) ListProviders(ctx context.Context) ([]config.Provider, error) 
 		out[i] = providerFromDB(r)
 	}
 	return out, nil
+}
+
+// ListProviderIDs returns canonical Provider row IDs without loading Provider
+// config, which contains the deployment-global API key.
+func (s *DBStore) ListProviderIDs(ctx context.Context) ([]string, error) {
+	ids, err := s.q.ListProviderIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list provider ids: %w", err)
+	}
+	return ids, nil
 }
 
 func (s *DBStore) GetProvider(ctx context.Context, id string) (config.Provider, error) {
@@ -191,6 +205,21 @@ func (s *DBStore) GetAgent(ctx context.Context, id string) (config.Agent, error)
 }
 
 func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
+	params, err := createAgentParams(a)
+	if err != nil {
+		return err
+	}
+	if _, err := s.q.CreateAgent(ctx, params); err != nil {
+		return fmt.Errorf("create agent %q: %w", params.ID, err)
+	}
+	return nil
+}
+
+// createAgentParams mints a missing ID, applies the default scope, and validates
+// and marshals the sandbox config into insert params. It is shared by the plain
+// CreateAgent and the atomic Agent+credentials create so both write identical
+// rows.
+func createAgentParams(a config.Agent) (sqlc.CreateAgentParams, error) {
 	if a.ID == "" {
 		a.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -199,13 +228,13 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 		scope = config.AgentScopeSystem
 	}
 	if err := a.Sandbox.Validate(); err != nil {
-		return fmt.Errorf("create agent %q: %w", a.ID, err)
+		return sqlc.CreateAgentParams{}, fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
 	sandboxJSON, err := marshalSandboxConfig(a.Sandbox)
 	if err != nil {
-		return fmt.Errorf("create agent %q: %w", a.ID, err)
+		return sqlc.CreateAgentParams{}, fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
-	_, err = s.q.CreateAgent(ctx, sqlc.CreateAgentParams{
+	return sqlc.CreateAgentParams{
 		ID:                   a.ID,
 		Name:                 a.Name,
 		Model:                a.Model,
@@ -222,11 +251,7 @@ func (s *DBStore) CreateAgent(ctx context.Context, a config.Agent) error {
 		Scope:                scope,
 		CreatorID:            a.CreatorID,
 		Enabled:              a.Enabled,
-	})
-	if err != nil {
-		return fmt.Errorf("create agent %q: %w", a.ID, err)
-	}
-	return nil
+	}, nil
 }
 
 func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
@@ -265,7 +290,12 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 }
 
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
-	return s.q.DeleteAgent(ctx, id)
+	err := s.q.DeleteAgent(ctx, id)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") && pgErr.ConstraintName == "webhook_agent_id_fkey" {
+		return config.ErrAgentInUse
+	}
+	return err
 }
 
 // --- Channels ---
@@ -306,10 +336,7 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 	if ch.ID == "" {
 		ch.ID = uuid.Must(uuid.NewV7()).String()
 	}
-	channelType := ch.Type
-	if channelType == "" {
-		channelType = ch.ID
-	}
+	channelType := effectiveStoredChannelType(ch)
 	err := s.q.UpsertChannel(ctx, sqlc.UpsertChannelParams{
 		ID:      ch.ID,
 		Name:    ch.Name,
@@ -318,6 +345,53 @@ func (s *DBStore) UpsertChannel(ctx context.Context, ch config.Channel) error {
 		Enabled: ch.Enabled,
 		Config:  ch.Config,
 	})
+	return s.channelWriteError(ctx, ch, channelType, err)
+}
+
+func (s *DBStore) CreateChannel(ctx context.Context, ch config.Channel) error {
+	if ch.ID == "" {
+		ch.ID = uuid.Must(uuid.NewV7()).String()
+	}
+	channelType := effectiveStoredChannelType(ch)
+	_, err := s.q.CreateChannel(ctx, sqlc.CreateChannelParams{
+		ID:      ch.ID,
+		Name:    ch.Name,
+		Type:    channelType,
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: ch.Enabled,
+		Config:  ch.Config,
+	})
+	return s.channelWriteError(ctx, ch, channelType, err)
+}
+
+func (s *DBStore) UpdateChannel(ctx context.Context, ch config.Channel) error {
+	channelType := effectiveStoredChannelType(ch)
+	_, err := s.q.UpdateChannel(ctx, sqlc.UpdateChannelParams{
+		ID:      ch.ID,
+		Name:    ch.Name,
+		Type:    channelType,
+		AgentID: pgtype.Text{String: ch.AgentID, Valid: ch.AgentID != ""},
+		Enabled: ch.Enabled,
+		Config:  ch.Config,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return config.ErrChannelNotFound
+	}
+	return s.channelWriteError(ctx, ch, channelType, err)
+}
+
+func effectiveStoredChannelType(ch config.Channel) string {
+	if ch.Type != "" {
+		return ch.Type
+	}
+	return ch.ID
+}
+
+func (s *DBStore) channelWriteError(ctx context.Context, ch config.Channel, channelType string, err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "channel_pkey" {
+		return config.ErrChannelExists
+	}
 	if !isChannelBindingViolation(err) {
 		return err
 	}
@@ -610,7 +684,15 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		return nil, fmt.Errorf("snapshot: list plugins: %w", err)
 	}
 
-	providers, defaultCreds, err := s.resolveProviders(ctx, ag.Model, ag.ModelStrong, ag.ModelFast)
+	// The vision model is deployment-wide rather than per-agent, so it is read
+	// from the singleton setting and then resolved alongside the agent's own
+	// tiers — its provider credentials must be in the snapshot like any other.
+	visionCfg, err := config.LoadVisionSettings(ctx, s)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: load vision settings: %w", err)
+	}
+
+	providers, modelInputs, defaultCreds, err := s.resolveProviders(ctx, ag.Model, ag.ModelStrong, ag.ModelFast, visionCfg.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -631,6 +713,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		ModelStrongThinking: ag.ModelStrongThinking,
 		ModelFast:           ag.ModelFast,
 		ModelFastThinking:   ag.ModelFastThinking,
+		ModelVision:         visionCfg.Model,
 		Workspace:           ag.Workspace,
 		Sandbox:             sandboxCfg,
 		APIKey:              defaultCreds.APIKey,
@@ -638,6 +721,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		SystemPrompt:        ag.SystemPrompt,
 		Soul:                ag.Soul,
 		Providers:           providers,
+		ModelInputs:         modelInputs,
 		Plugins:             plugins,
 	}
 
@@ -657,11 +741,14 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 	return snap, nil
 }
 
-func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[string]config.ProviderCreds, config.ProviderCreds, error) {
+// resolveProviders returns the credentials for every provider referenced by the
+// given model refs, the declared input modalities of those providers' models,
+// and the credentials of the first ref's provider.
+func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[string]config.ProviderCreds, map[config.ModelKey][]string, config.ProviderCreds, error) {
 	provIDs := collectProviderIDs(models...)
 	rows, err := s.q.ListProviders(ctx)
 	if err != nil {
-		return nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
+		return nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
 	}
 
 	byID := make(map[string]config.Provider, len(rows))
@@ -683,13 +770,27 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	}
 
 	creds := make(map[string]config.ProviderCreds, len(provIDs))
+	modelInputs := make(map[config.ModelKey][]string)
 	for _, pid := range provIDs {
-		if p, ok := byID[pid]; ok {
-			creds[pid] = config.ProviderCreds{
-				Type:    p.Type,
-				APIKey:  p.APIKey,
-				BaseURL: p.BaseURL,
-				Models:  normalizeProviderModels(p.Models),
+		p, ok := byID[pid]
+		if !ok {
+			continue
+		}
+		// p.ID is the canonical row ID even when pid is a type alias, so a per-Agent
+		// override keyed by canonical ID can later be applied to every alias entry
+		// that shares it.
+		creds[pid] = config.ProviderCreds{
+			Type:       p.Type,
+			APIKey:     p.APIKey,
+			BaseURL:    p.BaseURL,
+			ProviderID: p.ID,
+			Models:     normalizeProviderModels(p.Models),
+		}
+		// Key by the referenced provider ID, not p.ID, so type aliases resolve
+		// the same way the credentials above do.
+		for modelID, m := range p.Models {
+			if len(m.Input) > 0 {
+				modelInputs[config.ModelKey{Provider: pid, Model: modelID}] = append([]string(nil), m.Input...)
 			}
 		}
 	}
@@ -701,7 +802,7 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	defaultProvID, _ := config.ParseModelRef(defaultModel)
 	defaultCreds := creds[defaultProvID]
 
-	return creds, defaultCreds, nil
+	return creds, modelInputs, defaultCreds, nil
 }
 
 // --- Bootstrap ---

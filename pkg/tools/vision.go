@@ -6,23 +6,26 @@ import (
 	"strings"
 )
 
-type visionKey struct{}
+type imageResultModeKey struct{}
 
-// WithVision records whether the active model can accept image input, so tools
-// (e.g. read) can decide whether to return images inline or fall back to text.
-func WithVision(ctx context.Context, supported bool) context.Context {
-	return context.WithValue(ctx, visionKey{}, supported)
+// ImageResultMode tells image-producing tools which storage boundary will own
+// their result. It is one explicit state, not two independently configurable
+// booleans.
+type ImageResultMode uint8
+
+const (
+	// ImageResultLegacy preserves the old inline group codec and is the default.
+	ImageResultLegacy ImageResultMode = iota
+	ImageResultCanonical
+)
+
+func WithImageResultMode(ctx context.Context, mode ImageResultMode) context.Context {
+	return context.WithValue(ctx, imageResultModeKey{}, mode)
 }
 
-// VisionFromContext reports whether the active model accepts images. It defaults
-// to true (fail-open) when unset, so image-capable behavior is the default and
-// only models explicitly known to lack vision trigger text fallbacks.
-func VisionFromContext(ctx context.Context) bool {
-	v, ok := ctx.Value(visionKey{}).(bool)
-	if !ok {
-		return true
-	}
-	return v
+func ImageResultModeFromContext(ctx context.Context) ImageResultMode {
+	mode, _ := ctx.Value(imageResultModeKey{}).(ImageResultMode)
+	return mode
 }
 
 // DetectImageMime returns the canonical MIME type for image bytes the read tool

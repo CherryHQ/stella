@@ -19,10 +19,10 @@ func (m *recordingMux) HandleFunc(pattern string, _ func(http.ResponseWriter, *h
 
 func (m *recordingMux) ServeHTTP(http.ResponseWriter, *http.Request) {}
 
-// TestEveryAPIRouteHasRegisteredScope is the registration-discipline gate: every
-// generated /api route -- down to its sub-resource -- must be classified by
-// credential.RequiredScope (either a scope or an explicit token-deny). An
-// unclassified route is a security gap, so this fails the build. Because
+// TestEveryAPIRouteHasRegisteredScope is the OAuth registration-discipline gate:
+// every generated /api route -- down to its sub-resource -- must be classified
+// by credential.RequiredScope (either a delegated scope or an explicit deny).
+// An unclassified route is a security gap, so this fails the build. Because
 // RequiredScope now classifies at sub-resource granularity, a newly added
 // /api/agents/{id}/<new> that nobody mapped fails here rather than silently
 // inheriting the broad agent scope.

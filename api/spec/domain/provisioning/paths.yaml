@@ -1,0 +1,192 @@
+paths:
+  /api/admin/provisioning-tokens:
+    get:
+      tags: [provisioning]
+      summary: List the current admin's provisioning tokens
+      operationId: listProvisioningTokens
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/ProvisioningTokenList"
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+    post:
+      tags: [provisioning]
+      summary: Create a provisioning token
+      operationId: createProvisioningToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "../../components.yaml#/components/schemas/CreateProvisioningTokenRequest"
+      responses:
+        "201":
+          description: created; plaintext token returned once
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/CreateProvisioningTokenResponse"
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+
+  /api/admin/provisioning-tokens/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      tags: [provisioning]
+      summary: Revoke a provisioning token
+      operationId: revokeProvisioningToken
+      responses:
+        "204": { description: revoked }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/provisioned-users:
+    get:
+      tags: [provisioning]
+      summary: List provisioned users
+      operationId: listProvisionedUsers
+      parameters:
+        - { name: page_size, in: query, schema: { type: integer } }
+        - { name: page_token, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProvisionedUserList",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+    post:
+      tags: [provisioning]
+      summary: Create a passwordless provisioned user and one bearer token
+      operationId: createProvisionedUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/CreateProvisionedUserRequest",
+            }
+      responses:
+        "201":
+          description: created; plaintext token returned once
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/CreateProvisionedUserResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+
+  /api/provisioned-users/{id}:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    get:
+      tags: [provisioning]
+      summary: Get a provisioned user
+      operationId: getProvisionedUser
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProvisionedUser",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/provisioned-users/{id}/rotate-token:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    post:
+      tags: [provisioning]
+      summary: Rotate the provisioned user's bearer token
+      operationId: rotateProvisionedUserToken
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/RotateProvisionedUserTokenRequest",
+            }
+      responses:
+        "200":
+          description: rotated; plaintext token returned once
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/RotateProvisionedUserTokenResponse",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/provisioned-users/{id}/deactivate:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    post:
+      tags: [provisioning]
+      summary: Permanently deactivate a provisioned user
+      operationId: deactivateProvisionedUser
+      responses:
+        "200":
+          description: deactivated
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/ProvisionedUser",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }

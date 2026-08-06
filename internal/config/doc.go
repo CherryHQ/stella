@@ -8,7 +8,7 @@
 //   - server_config.go: ServerConfig, the boot-time env contract (issue #701)
 //   - lifecycle.go: graceful-shutdown drain budgets (nested in ServerConfig)
 //   - paths.go: STELLA_HOME bootstrap (pre-ServerConfig by necessity)
-//   - sandbox_env.go: per-call STELLA_SANDBOX_BACKEND override
+//   - sandbox_env.go: per-call STELLA_SANDBOX_BACKEND backend selection
 //
 // DB-backed application configuration — domain types persisted in PostgreSQL
 // and served through the Store interface (implemented by internal/store):

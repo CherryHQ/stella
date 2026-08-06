@@ -36,8 +36,8 @@ var envReadAllowlist = map[string]map[string]bool{
 	"internal/config/paths.go": {"STELLA_HOME": true},
 	"internal/cli/dotenv.go":   {"STELLA_HOME": true, nonLiteralRead: true},
 
-	// Per-call lenient selection: the sandbox backend is chosen per operation
-	// from the live plugin set, not fixed at boot.
+	// Per-call lenient selection: the sandbox backend is read where a sandbox is
+	// created, deep in the runtime, and never threaded through ServerConfig.
 	"internal/config/sandbox_env.go": {nonLiteralRead: true},
 
 	// Internal testing escape hatch (STELLA_POSTGRES_RUNTIME) for exercising a
@@ -89,6 +89,10 @@ var envReadAllowlist = map[string]map[string]bool{
 	// reads local to reusable packages.
 	"pkg/agent/llm_dump.go": {"STELLA_HOME": true, nonLiteralRead: true},
 	"pkg/tools/truncate.go": {"STELLA_TOOL_MAX_LINES": true, "STELLA_TOOL_MAX_BYTES": true},
+
+	// Standalone perf-harness fake model provider (test tooling, never linked
+	// into stellad); its pacing knobs are process-local by design.
+	"test/perf/fakeprovider/main.go": {nonLiteralRead: true},
 
 	// Plugins do not import internal/config. Per-message render read (feishu) and
 	// docker-sandbox host wiring stay local to their plugin.

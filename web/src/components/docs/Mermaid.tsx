@@ -33,7 +33,7 @@ export function Mermaid({ chart }: { chart: string }) {
 
   if (error) {
     return (
-      <pre className="bg-muted rounded-lg p-4 my-4 overflow-x-auto text-sm text-destructive">
+      <pre className="bg-muted rounded-lg p-4 my-4 overflow-x-auto text-sm text-destructive-foreground">
         {error}
         {"\n\n"}
         {chart}

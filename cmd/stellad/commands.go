@@ -19,6 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
+	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/authz"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
@@ -29,6 +30,7 @@ import (
 	"github.com/CherryHQ/stella/internal/connections"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/controlplane"
+	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
@@ -42,12 +44,15 @@ import (
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/reflect"
 	"github.com/CherryHQ/stella/internal/scheduler"
+	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/internal/version"
+	"github.com/CherryHQ/stella/internal/vision"
+	"github.com/CherryHQ/stella/internal/webhook"
 	workflowpkg "github.com/CherryHQ/stella/internal/workflow"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -87,11 +92,20 @@ type setupResult struct {
 	// cfg is the parsed boot-time server config, carried so runServer reads the
 	// injected values (base URL, vault key, lifecycle, OIDC) instead of the
 	// environment. A secret it holds (Vault.Key) must never be logged.
-	cfg                      config.ServerConfig
-	db                       *pgxpool.Pool
-	embedded                 *appdb.Embedded
-	mem                      memory.Provider
-	store                    config.Store
+	cfg      config.ServerConfig
+	db       *pgxpool.Pool
+	embedded *appdb.Embedded
+	mem      memory.Provider
+	store    config.Store
+	// snapshotLoader is the credential-aware Snapshot loader wrapping store: every
+	// runtime consumer that resolves per-Agent Provider credentials reads through
+	// it so Agent key overrides apply, while writes/other reads use store directly.
+	snapshotLoader config.SnapshotLoader
+	// credentialSvc is the Agent Provider credential write/encryption boundary.
+	credentialSvc *providercred.Service
+	// credentialProviders exposes canonical Provider IDs only; unlike the general
+	// config Store it cannot reveal deployment-global Provider keys.
+	credentialProviders      agentaccess.ProviderReader
 	authStore                *appdb.AuthStore
 	agentAccess              *agentaccess.Service
 	projectStore             *agent.ProjectStore
@@ -105,6 +119,7 @@ type setupResult struct {
 	vaultSvc                 *vault.Service
 	mcpSvc                   *mcp.Service
 	controlPlane             *controlplane.Service
+	webhooks                 *webhook.Service
 	credSvc                  *connections.Service
 	emailSvc                 *email.Service
 	shareSvc                 *sharepkg.Service
@@ -206,13 +221,38 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		})
 	}
 
+	// Vault is constructed here — before the memory/vision/reflect/pool consumers —
+	// so its system cipher can back the Agent Provider credential overlay every one
+	// of them reads through. It depends only on db + key + the Agent PEP, all ready.
+	var vaultSvc *vault.Service
+	if vaultKey := cfg.Vault.Key; vaultKey != "" {
+		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, agentAccess)
+		if err != nil {
+			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
+			vaultSvc = nil
+		}
+	}
+
+	// The credential cipher must be a true nil interface when the vault is absent —
+	// a typed-nil *vault.Service would read as a non-nil SecretCipher and defeat the
+	// loader's nil-cipher fail-closed guard.
+	var credentialCipher providercred.SecretCipher
+	if vaultSvc != nil {
+		credentialCipher = vaultSvc
+	}
+	credentialSvc := providercred.NewService(store, credentialCipher)
+	// The loader is always wired (even without a cipher) so a referenced override
+	// after a key drop fails closed instead of silently serving the global key;
+	// with no overrides present it returns the base Snapshot unchanged.
+	snapshotLoader := config.SnapshotLoader(providercred.NewCredentialLoader(store, store, credentialCipher))
+
 	// Semantic-search lane (config-driven via the web settings page). Always built:
 	// it reads its config from the DB at runtime and idles when disabled. Built
 	// before the memory provider so its query embedder can be injected, and before
 	// the shared River client so its backfill worker joins the single electable client.
 	embeddingSvc := setupEmbedding(db, store, slog.With("component", "embedding"))
 
-	memProvider, err := setupMemoryProvider(parent, db, store, providerStreamBuilder, embeddingSvc)
+	memProvider, err := setupMemoryProvider(parent, db, snapshotLoader, providerStreamBuilder, embeddingSvc)
 	if err != nil {
 		return nil, fmt.Errorf("memory provider: %w", err)
 	}
@@ -265,6 +305,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, err
 	}
+	sessionImages, err := sessionmedia.NewPipeline(assetStore.SessionMedia(), db, snapshotLoader, vision.StreamBuilder(providerStreamBuilder), sessionmedia.PipelineOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("build session image pipeline: %w", err)
+	}
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		StellaHome: config.StellaHome(),
@@ -288,6 +332,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
 		Memory:            memProvider,
 		Store:             store,
+		Snapshots:         snapshotLoader,
 		SkillStore:        skillStoreAdapter,
 		SkillAuthorizer:   skillAccess,
 		UsageCuratorStore: reflect.NewSQLUsageCuratorStoreForPool(db),
@@ -321,16 +366,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return phost.SessionPluginView(ctx)
 	}
 
-	var vaultSvc *vault.Service
-	if vaultKey := cfg.Vault.Key; vaultKey != "" {
-		var err error
-		vaultSvc, err = vault.NewServiceForPool(db, vaultKey, agentAccess)
-		if err != nil {
-			slog.Warn("vault service init failed; vault endpoints and vault tool will be unavailable", "error", err)
-			vaultSvc = nil
-		}
-	}
-
 	workerExcludedTools := []string{goal.ToolName, scheduler.ToolName, workflowpkg.ToolName}
 	goalSvc, err := goal.Boot(goal.BootConfig{
 		DB:            db,
@@ -338,11 +373,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		ExcludedTools: workerExcludedTools,
 		AgentAccess:   agentAccess,
 		Capabilities: goal.CapabilityProbeFunc(func() bool {
-			plugins, err := store.ListPlugins(context.Background())
-			if err != nil {
-				return false
-			}
-			return config.ActiveSandboxBackend(plugins) != config.SandboxBackendNone
+			return config.ActiveSandboxBackend() != config.SandboxBackendNone
 		}),
 		Chat: func(ctx context.Context, p goal.TaskChatParams) <-chan agent.Event {
 			var svc *agent.Service
@@ -429,8 +460,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess)
 
 	poolOptions := []agent.PoolManagerOption{
+		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithAssetStorePM(assetStore),
+		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
@@ -486,6 +519,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// handed to the admin server via Deps.
 	credSvc.SetInvalidator(poolMgr)
 
+	// Webhook resource domain. It owns the user→Agent binding, opaque capability
+	// verifier, and lifecycle independently from deployment channel management.
+	webhookSvc, err := webhook.NewService(webhook.Config{
+		Store:  webhook.NewPostgresStore(db),
+		Users:  webhook.NewUserState(credential.NewPostgresStore(db)),
+		Access: webhook.NewUserAgentAccess(agentAccess),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build webhook service: %w", err)
+	}
+
 	// Control-plane domain for the admin-only deployment resources
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
@@ -522,6 +566,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		embedded:                 embedded,
 		mem:                      memProvider,
 		store:                    store,
+		snapshotLoader:           snapshotLoader,
+		credentialSvc:            credentialSvc,
+		credentialProviders:      store,
 		authStore:                authStore,
 		agentAccess:              agentAccess,
 		projectStore:             projectStore,
@@ -535,6 +582,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		vaultSvc:                 vaultSvc,
 		mcpSvc:                   mcpSvc,
 		controlPlane:             controlPlaneSvc,
+		webhooks:                 webhookSvc,
 		credSvc:                  credSvc,
 		emailSvc:                 emailSvc,
 		shareSvc:                 shareSvc,
