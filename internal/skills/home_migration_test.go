@@ -383,16 +383,23 @@ func TestSkillMigrationCompletedUsageDriftIsReadOnly(t *testing.T) {
 	if _, err := migration.MigrateSkillHomeAuthority(ctx, SkillMigrationOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, statement := range []string{`UPDATE skill_usage SET last_content_digest = 'drift' WHERE skill_id = 'reflect'`, `UPDATE skill_usage SET use_count = use_count + 1 WHERE skill_id = 'reflect'`} {
-		if _, err := db.Exec(ctx, statement); err != nil {
+	driftDigest := strings.Repeat("d", 64)
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE skill_usage SET last_content_digest = $1 WHERE skill_id = 'reflect'`, []any{driftDigest}},
+		{`UPDATE skill_usage SET use_count = use_count + 1 WHERE skill_id = 'reflect'`, nil},
+	} {
+		if _, err := db.Exec(ctx, statement.query, statement.args...); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := migration.MigrateSkillHomeAuthority(ctx, SkillMigrationOptions{}); err == nil {
-			t.Fatalf("completed migration repaired drift after %s", statement)
+			t.Fatalf("completed migration repaired drift after %s", statement.query)
 		}
 	}
 	usage, err := q.ListSkillUsageForMigration(ctx)
-	if err != nil || len(usage) != 1 || usage[0].LastContentDigest.String != "drift" || usage[0].UseCount != 2 {
+	if err != nil || len(usage) != 1 || usage[0].LastContentDigest.String != driftDigest || usage[0].UseCount != 2 {
 		t.Fatalf("drifted usage = %+v, %v", usage, err)
 	}
 	marker, err := q.GetStorageMigration(ctx, SkillHomeAuthorityMigration)

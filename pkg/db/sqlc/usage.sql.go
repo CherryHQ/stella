@@ -22,6 +22,38 @@ func (q *Queries) DeleteKnowledgeUsage(ctx context.Context, factID string) error
 	return err
 }
 
+const deleteLogicalReflectSkillUsage = `-- name: DeleteLogicalReflectSkillUsage :execrows
+DELETE FROM skill_usage
+WHERE user_id = $1::uuid
+  AND agent_id = $2
+  AND scope = 'user_agent'
+  AND name = $3
+  AND last_content_digest = $4
+  AND last_used_at = $5
+`
+
+type DeleteLogicalReflectSkillUsageParams struct {
+	UserID             string      `json:"user_id"`
+	AgentID            string      `json:"agent_id"`
+	Name               pgtype.Text `json:"name"`
+	LastContentDigest  pgtype.Text `json:"last_content_digest"`
+	ExpectedLastUsedAt time.Time   `json:"expected_last_used_at"`
+}
+
+func (q *Queries) DeleteLogicalReflectSkillUsage(ctx context.Context, arg DeleteLogicalReflectSkillUsageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteLogicalReflectSkillUsage,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+		arg.LastContentDigest,
+		arg.ExpectedLastUsedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteSkillUsage = `-- name: DeleteSkillUsage :exec
 DELETE FROM skill_usage
 WHERE skill_id = $1
@@ -56,6 +88,45 @@ func (q *Queries) GetKnowledgeUsageForUpdate(ctx context.Context, arg GetKnowled
 		&i.AgentID,
 		&i.LastUsedAt,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getLogicalReflectSkillUsage = `-- name: GetLogicalReflectSkillUsage :one
+SELECT skill_id, user_id, agent_id, use_count, last_used_at, created_at, scope, name, last_content_digest
+FROM skill_usage
+WHERE user_id = $1::uuid
+  AND agent_id = $2
+  AND scope = 'user_agent'
+  AND name = $3
+  AND last_content_digest = $4
+`
+
+type GetLogicalReflectSkillUsageParams struct {
+	UserID            string      `json:"user_id"`
+	AgentID           string      `json:"agent_id"`
+	Name              pgtype.Text `json:"name"`
+	LastContentDigest pgtype.Text `json:"last_content_digest"`
+}
+
+func (q *Queries) GetLogicalReflectSkillUsage(ctx context.Context, arg GetLogicalReflectSkillUsageParams) (SkillUsage, error) {
+	row := q.db.QueryRow(ctx, getLogicalReflectSkillUsage,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+		arg.LastContentDigest,
+	)
+	var i SkillUsage
+	err := row.Scan(
+		&i.SkillID,
+		&i.UserID,
+		&i.AgentID,
+		&i.UseCount,
+		&i.LastUsedAt,
+		&i.CreatedAt,
+		&i.Scope,
+		&i.Name,
+		&i.LastContentDigest,
 	)
 	return i, err
 }
@@ -115,6 +186,42 @@ func (q *Queries) HasEligiblePairActivityAfter(ctx context.Context, arg HasEligi
 	var has_activity bool
 	err := row.Scan(&has_activity)
 	return has_activity, err
+}
+
+const insertLogicalReflectSkillUsage = `-- name: InsertLogicalReflectSkillUsage :execrows
+INSERT INTO skill_usage (
+  skill_id, user_id, agent_id, use_count, last_used_at,
+  scope, name, last_content_digest
+)
+VALUES (
+  $1, $2::uuid, $3, 1, now(),
+  'user_agent', $4, $5
+)
+ON CONFLICT DO NOTHING
+`
+
+type InsertLogicalReflectSkillUsageParams struct {
+	SkillID           string      `json:"skill_id"`
+	UserID            string      `json:"user_id"`
+	AgentID           string      `json:"agent_id"`
+	Name              pgtype.Text `json:"name"`
+	LastContentDigest pgtype.Text `json:"last_content_digest"`
+}
+
+// InsertLogicalReflectSkillUsage records the initial runtime use for a
+// Home-authoritative Reflect Skill. A retry never rewrites count or time.
+func (q *Queries) InsertLogicalReflectSkillUsage(ctx context.Context, arg InsertLogicalReflectSkillUsageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertLogicalReflectSkillUsage,
+		arg.SkillID,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+		arg.LastContentDigest,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const listReflectUsagePairs = `-- name: ListReflectUsagePairs :many
@@ -178,6 +285,100 @@ func (q *Queries) ListSkillUsageForMigration(ctx context.Context) ([]SkillUsage,
 			&i.Scope,
 			&i.Name,
 			&i.LastContentDigest,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStaleLogicalReflectSkillUsageForCurator = `-- name: ListStaleLogicalReflectSkillUsageForCurator :many
+WITH pair_activity AS (
+  SELECT MAX(c.last_active)::timestamptz AS latest
+  FROM ctx_conversation c
+  WHERE c.user_id = $2::text
+    AND c.agent_id = $3::text
+    AND c.archived = false
+    AND c.kind NOT IN ('task', 'delegate', 'scheduler')
+)
+SELECT
+  su.user_id::text AS user_id,
+  su.agent_id,
+  COALESCE(su.name, '') AS name,
+  COALESCE(su.last_content_digest, '') AS last_content_digest,
+  su.use_count,
+  su.last_used_at,
+  pair_activity.latest AS pair_latest_activity_at,
+  CASE
+    WHEN su.last_used_at < $1 THEN 'unused'
+    ELSE 'low_use'
+  END AS rule
+FROM skill_usage su
+CROSS JOIN pair_activity
+WHERE su.user_id = $2::uuid
+  AND su.agent_id = $3::text
+  AND su.scope = 'user_agent'
+  AND (
+    su.last_used_at < $1
+    OR (
+      su.last_used_at < $4
+      AND su.use_count < $5
+    )
+  )
+  AND pair_activity.latest > su.last_used_at
+ORDER BY su.last_used_at ASC, su.skill_id ASC
+`
+
+type ListStaleLogicalReflectSkillUsageForCuratorParams struct {
+	StaleBefore       time.Time `json:"stale_before"`
+	UserID            string    `json:"user_id"`
+	AgentID           string    `json:"agent_id"`
+	LowUseBefore      time.Time `json:"low_use_before"`
+	LowUseMaxUseCount int64     `json:"low_use_max_use_count"`
+}
+
+type ListStaleLogicalReflectSkillUsageForCuratorRow struct {
+	UserID               string    `json:"user_id"`
+	AgentID              string    `json:"agent_id"`
+	Name                 string    `json:"name"`
+	LastContentDigest    string    `json:"last_content_digest"`
+	UseCount             int64     `json:"use_count"`
+	LastUsedAt           time.Time `json:"last_used_at"`
+	PairLatestActivityAt time.Time `json:"pair_latest_activity_at"`
+	Rule                 string    `json:"rule"`
+}
+
+// The activity gate intentionally means "at least one non-archived conversation
+// had activity after this item was last used"; it does not assert recent
+// activity relative to the curator run time.
+func (q *Queries) ListStaleLogicalReflectSkillUsageForCurator(ctx context.Context, arg ListStaleLogicalReflectSkillUsageForCuratorParams) ([]ListStaleLogicalReflectSkillUsageForCuratorRow, error) {
+	rows, err := q.db.Query(ctx, listStaleLogicalReflectSkillUsageForCurator,
+		arg.StaleBefore,
+		arg.UserID,
+		arg.AgentID,
+		arg.LowUseBefore,
+		arg.LowUseMaxUseCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListStaleLogicalReflectSkillUsageForCuratorRow{}
+	for rows.Next() {
+		var i ListStaleLogicalReflectSkillUsageForCuratorRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.LastContentDigest,
+			&i.UseCount,
+			&i.LastUsedAt,
+			&i.PairLatestActivityAt,
+			&i.Rule,
 		); err != nil {
 			return nil, err
 		}
@@ -357,6 +558,41 @@ func (q *Queries) ListStaleReflectSkillsForCurator(ctx context.Context, arg List
 	return items, nil
 }
 
+const patchLogicalReflectSkillUsageDigest = `-- name: PatchLogicalReflectSkillUsageDigest :execrows
+UPDATE skill_usage
+SET last_content_digest = $1,
+    last_used_at = now()
+WHERE user_id = $2::uuid
+  AND agent_id = $3
+  AND scope = 'user_agent'
+  AND name = $4
+  AND last_content_digest = $5
+  AND last_content_digest <> $1
+`
+
+type PatchLogicalReflectSkillUsageDigestParams struct {
+	NewDigest      pgtype.Text `json:"new_digest"`
+	UserID         string      `json:"user_id"`
+	AgentID        string      `json:"agent_id"`
+	Name           pgtype.Text `json:"name"`
+	ExpectedDigest pgtype.Text `json:"expected_digest"`
+}
+
+// PatchLogicalReflectSkillUsageDigest changes only the selected Home revision.
+func (q *Queries) PatchLogicalReflectSkillUsageDigest(ctx context.Context, arg PatchLogicalReflectSkillUsageDigestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, patchLogicalReflectSkillUsageDigest,
+		arg.NewDigest,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+		arg.ExpectedDigest,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const refreshSkillUsageOnReflectPatch = `-- name: RefreshSkillUsageOnReflectPatch :exec
 INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
 SELECT s.id, s.user_id, s.agent_id, 0, now()
@@ -407,6 +643,37 @@ type TouchKnowledgeUsageParams struct {
 func (q *Queries) TouchKnowledgeUsage(ctx context.Context, arg TouchKnowledgeUsageParams) error {
 	_, err := q.db.Exec(ctx, touchKnowledgeUsage, arg.FactID, arg.UserID, arg.AgentID)
 	return err
+}
+
+const touchLogicalReflectSkillRuntimeUse = `-- name: TouchLogicalReflectSkillRuntimeUse :execrows
+UPDATE skill_usage
+SET use_count = use_count + 1,
+    last_used_at = now()
+WHERE user_id = $1::uuid
+  AND agent_id = $2
+  AND scope = 'user_agent'
+  AND name = $3
+  AND last_content_digest = $4
+`
+
+type TouchLogicalReflectSkillRuntimeUseParams struct {
+	UserID            string      `json:"user_id"`
+	AgentID           string      `json:"agent_id"`
+	Name              pgtype.Text `json:"name"`
+	LastContentDigest pgtype.Text `json:"last_content_digest"`
+}
+
+func (q *Queries) TouchLogicalReflectSkillRuntimeUse(ctx context.Context, arg TouchLogicalReflectSkillRuntimeUseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, touchLogicalReflectSkillRuntimeUse,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+		arg.LastContentDigest,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const touchReflectSkillRuntimeUse = `-- name: TouchReflectSkillRuntimeUse :execrows

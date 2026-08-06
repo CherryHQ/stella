@@ -117,11 +117,16 @@ WHERE id = sqlc.arg(id)
     OR (scope='user_agent'   AND user_id=sqlc.narg(user_id) AND agent_id=sqlc.narg(agent_id)));
 
 -- name: DeleteSkill :exec
-DELETE FROM skill
-WHERE id = sqlc.arg(id)
-  AND ((scope='system_agent' AND agent_id=sqlc.narg(agent_id))
-    OR (scope='user'         AND user_id=sqlc.narg(user_id))
-    OR (scope='user_agent'   AND user_id=sqlc.narg(user_id) AND agent_id=sqlc.narg(agent_id)));
+WITH deleted AS (
+  DELETE FROM skill AS s
+  WHERE s.id = sqlc.arg(id)
+    AND ((s.scope='system_agent' AND s.agent_id=sqlc.narg(agent_id))
+      OR (s.scope='user'         AND s.user_id=sqlc.narg(user_id))
+      OR (s.scope='user_agent'   AND s.user_id=sqlc.narg(user_id) AND s.agent_id=sqlc.narg(agent_id)))
+  RETURNING s.id
+)
+DELETE FROM skill_usage
+WHERE skill_id IN (SELECT id FROM deleted);
 
 -- name: UpdateSystemSkillMetadata :exec
 UPDATE skill
@@ -133,7 +138,13 @@ SET description              = sqlc.arg(description),
 WHERE id = sqlc.arg(id) AND scope = 'system';
 
 -- name: DeleteSystemSkill :exec
-DELETE FROM skill WHERE id = $1 AND scope = 'system';
+WITH deleted AS (
+  DELETE FROM skill AS s
+  WHERE s.id = $1 AND s.scope = 'system'
+  RETURNING s.id
+)
+DELETE FROM skill_usage
+WHERE skill_id IN (SELECT id FROM deleted);
 
 -- name: UpsertSkillFile :exec
 INSERT INTO skill_file (skill_id, path, content)

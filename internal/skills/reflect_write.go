@@ -494,6 +494,12 @@ func (s *PGStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Refle
 	if !hasActivity {
 		return Skill{}, ErrSkillUsageChanged
 	}
+	// skill_usage no longer cascades from skill: preserve the legacy PGStore
+	// deletion contract until the Home runtime takes authority. This remains in
+	// the transaction so a failed Skill CAS rolls the usage delete back.
+	if err := qtx.DeleteSkillUsage(ctx, in.ID); err != nil {
+		return Skill{}, fmt.Errorf("skills: delete reflect skill usage: %w", err)
+	}
 
 	deletedRow, err := qtx.DeleteReflectOwnedUserAgentSkill(ctx, sqlc.DeleteReflectOwnedUserAgentSkillParams{
 		ID:              in.ID,

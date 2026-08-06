@@ -118,11 +118,16 @@ func (q *Queries) DeleteReflectOwnedUserAgentSkill(ctx context.Context, arg Dele
 }
 
 const deleteSkill = `-- name: DeleteSkill :exec
-DELETE FROM skill
-WHERE id = $1
-  AND ((scope='system_agent' AND agent_id=$2)
-    OR (scope='user'         AND user_id=$3)
-    OR (scope='user_agent'   AND user_id=$3 AND agent_id=$2))
+WITH deleted AS (
+  DELETE FROM skill AS s
+  WHERE s.id = $1
+    AND ((s.scope='system_agent' AND s.agent_id=$2)
+      OR (s.scope='user'         AND s.user_id=$3)
+      OR (s.scope='user_agent'   AND s.user_id=$3 AND s.agent_id=$2))
+  RETURNING s.id
+)
+DELETE FROM skill_usage
+WHERE skill_id IN (SELECT id FROM deleted)
 `
 
 type DeleteSkillParams struct {
@@ -151,7 +156,13 @@ func (q *Queries) DeleteSkillFile(ctx context.Context, arg DeleteSkillFileParams
 }
 
 const deleteSystemSkill = `-- name: DeleteSystemSkill :exec
-DELETE FROM skill WHERE id = $1 AND scope = 'system'
+WITH deleted AS (
+  DELETE FROM skill AS s
+  WHERE s.id = $1 AND s.scope = 'system'
+  RETURNING s.id
+)
+DELETE FROM skill_usage
+WHERE skill_id IN (SELECT id FROM deleted)
 `
 
 func (q *Queries) DeleteSystemSkill(ctx context.Context, id string) error {

@@ -104,6 +104,98 @@ WHERE skill_id = sqlc.arg(skill_id)
 SELECT * FROM skill_usage
 ORDER BY skill_id;
 
+-- InsertLogicalReflectSkillUsage records the initial runtime use for a
+-- Home-authoritative Reflect Skill. A retry never rewrites count or time.
+-- name: InsertLogicalReflectSkillUsage :execrows
+INSERT INTO skill_usage (
+  skill_id, user_id, agent_id, use_count, last_used_at,
+  scope, name, last_content_digest
+)
+VALUES (
+  sqlc.arg(skill_id), sqlc.arg(user_id)::uuid, sqlc.arg(agent_id), 1, now(),
+  'user_agent', sqlc.arg(name), sqlc.arg(last_content_digest)
+)
+ON CONFLICT DO NOTHING;
+
+-- name: GetLogicalReflectSkillUsage :one
+SELECT *
+FROM skill_usage
+WHERE user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = 'user_agent'
+  AND name = sqlc.arg(name)
+  AND last_content_digest = sqlc.arg(last_content_digest);
+
+-- PatchLogicalReflectSkillUsageDigest changes only the selected Home revision.
+-- name: PatchLogicalReflectSkillUsageDigest :execrows
+UPDATE skill_usage
+SET last_content_digest = sqlc.arg(new_digest),
+    last_used_at = now()
+WHERE user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = 'user_agent'
+  AND name = sqlc.arg(name)
+  AND last_content_digest = sqlc.arg(expected_digest)
+  AND last_content_digest <> sqlc.arg(new_digest);
+
+-- name: TouchLogicalReflectSkillRuntimeUse :execrows
+UPDATE skill_usage
+SET use_count = use_count + 1,
+    last_used_at = now()
+WHERE user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = 'user_agent'
+  AND name = sqlc.arg(name)
+  AND last_content_digest = sqlc.arg(last_content_digest);
+
+-- name: DeleteLogicalReflectSkillUsage :execrows
+DELETE FROM skill_usage
+WHERE user_id = sqlc.arg(user_id)::uuid
+  AND agent_id = sqlc.arg(agent_id)
+  AND scope = 'user_agent'
+  AND name = sqlc.arg(name)
+  AND last_content_digest = sqlc.arg(last_content_digest)
+  AND last_used_at = sqlc.arg(expected_last_used_at);
+
+-- The activity gate intentionally means "at least one non-archived conversation
+-- had activity after this item was last used"; it does not assert recent
+-- activity relative to the curator run time.
+-- name: ListStaleLogicalReflectSkillUsageForCurator :many
+WITH pair_activity AS (
+  SELECT MAX(c.last_active)::timestamptz AS latest
+  FROM ctx_conversation c
+  WHERE c.user_id = sqlc.arg(user_id)::text
+    AND c.agent_id = sqlc.arg(agent_id)::text
+    AND c.archived = false
+    AND c.kind NOT IN ('task', 'delegate', 'scheduler')
+)
+SELECT
+  su.user_id::text AS user_id,
+  su.agent_id,
+  COALESCE(su.name, '') AS name,
+  COALESCE(su.last_content_digest, '') AS last_content_digest,
+  su.use_count,
+  su.last_used_at,
+  pair_activity.latest AS pair_latest_activity_at,
+  CASE
+    WHEN su.last_used_at < sqlc.arg(stale_before) THEN 'unused'
+    ELSE 'low_use'
+  END AS rule
+FROM skill_usage su
+CROSS JOIN pair_activity
+WHERE su.user_id = sqlc.arg(user_id)::uuid
+  AND su.agent_id = sqlc.arg(agent_id)::text
+  AND su.scope = 'user_agent'
+  AND (
+    su.last_used_at < sqlc.arg(stale_before)
+    OR (
+      su.last_used_at < sqlc.arg(low_use_before)
+      AND su.use_count < sqlc.arg(low_use_max_use_count)
+    )
+  )
+  AND pair_activity.latest > su.last_used_at
+ORDER BY su.last_used_at ASC, su.skill_id ASC;
+
 -- name: ListReflectUsagePairs :many
 SELECT DISTINCT owned.user_id, owned.agent_id
 FROM (

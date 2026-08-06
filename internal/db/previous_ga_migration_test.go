@@ -25,8 +25,8 @@ const (
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
 	// Knowledge V1, provisioning, channel guest sessions/indexes, channel
-	// allowlists, and Home-backed Skill usage identity are exercised below.
-	currentMigrationVersion = sequentialAnchor + 7
+	// allowlists, and Home-backed Skill usage and telemetry are exercised below.
+	currentMigrationVersion = sequentialAnchor + 8
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -220,6 +220,15 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	var indexDef string
 	if err := db.QueryRow(ctx, `SELECT pg_get_indexdef(indexrelid) FROM pg_index WHERE indexrelid = 'idx_skill_usage_home_user_agent_identity'::regclass`).Scan(&indexDef); err != nil || !strings.Contains(indexDef, "UNIQUE INDEX idx_skill_usage_home_user_agent_identity ON public.skill_usage USING btree (user_id, agent_id, scope, name) WHERE (scope = 'user_agent'::text)") {
 		t.Fatalf("skill_usage identity index = %q, %v", indexDef, err)
+	}
+	var logicalCheck, legacySkillFK bool
+	if err := db.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'skill_usage'::regclass AND conname = 'skill_usage_logical_fields_check'),
+		       EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'skill_usage'::regclass AND conname = 'skill_usage_skill_id_fkey')`).Scan(&logicalCheck, &legacySkillFK); err != nil {
+		t.Fatalf("inspect skill_usage logical constraints: %v", err)
+	}
+	if !logicalCheck || legacySkillFK {
+		t.Fatalf("skill_usage logical check/FK = %v/%v, want true/false", logicalCheck, legacySkillFK)
 	}
 	if got := count("retired vault entries", `SELECT count(*) FROM vault_entry WHERE name IN ('LARK_CLI_OAUTH', 'FEISHU_CLI_OAUTH')`); got != 0 {
 		t.Fatalf("retired vault entries = %d, want 0", got)

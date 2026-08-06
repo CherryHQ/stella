@@ -497,7 +497,7 @@ func TestUpsertFileAndDeleteFile(t *testing.T) {
 
 func TestDeleteCascadesSkillFiles(t *testing.T) {
 	store, db, ctx := newTestStore(t)
-	userID, _ := seedFixtures(t, db)
+	userID, agentID := seedFixtures(t, db)
 
 	id, err := store.Create(ctx, Skill{
 		Scope: "user", UserID: userID, Name: "cascade-test", Description: "d",
@@ -508,27 +508,87 @@ func TestDeleteCascadesSkillFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	if _, err := db.Exec(ctx, `INSERT INTO skill_usage (skill_id, user_id, agent_id) VALUES ($1, $2, $3)`, id, userID, agentID); err != nil {
+		t.Fatalf("seed skill usage: %v", err)
+	}
 
 	if err := store.Delete(ctx, id, ViewContext{UserID: userID}); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
+	assertPGSkillAndUsageRows(t, db, id, 0, 0)
 
-	// Skill row gone.
-	var skillCount int
-	if err := db.QueryRow(ctx, "SELECT COUNT(*) FROM skill WHERE id=$1", id).Scan(&skillCount); err != nil {
-		t.Fatalf("count skills: %v", err)
-	}
-	if skillCount != 0 {
-		t.Errorf("skills count = %d, want 0", skillCount)
-	}
-
-	// Skill files cascade-deleted.
 	var fileCount int
 	if err := db.QueryRow(ctx, "SELECT COUNT(*) FROM skill_file WHERE skill_id=$1", id).Scan(&fileCount); err != nil {
 		t.Fatalf("count skill_file: %v", err)
 	}
 	if fileCount != 0 {
 		t.Errorf("skill_file count = %d, want 0", fileCount)
+	}
+}
+
+func TestDeleteDoesNotRemoveUsageWhenUnauthorized(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	ownerID, agentID := seedFixtures(t, db)
+	other, err := appdb.NewOIDCStore(db).CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "other-delete@test.local", Name: "other-delete"})
+	if err != nil {
+		t.Fatalf("seed other user: %v", err)
+	}
+	id, err := store.Create(ctx, Skill{Scope: "user", UserID: ownerID, Name: "unauthorized-delete", Description: "d"}, map[string]string{MainFile: "body"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO skill_usage (skill_id, user_id, agent_id) VALUES ($1, $2, $3)`, id, ownerID, agentID); err != nil {
+		t.Fatalf("seed skill usage: %v", err)
+	}
+
+	if err := store.Delete(ctx, id, ViewContext{UserID: other.ID, AgentID: agentID}); err != nil {
+		t.Fatalf("unauthorized Delete: %v", err)
+	}
+	assertPGSkillAndUsageRows(t, db, id, 1, 1)
+}
+
+func TestDeleteSystemSkillRemovesSeededUsage(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	id, err := store.Create(ctx, Skill{Scope: "system", Name: "system-delete-usage", Description: "d"}, map[string]string{MainFile: "body"})
+	if err != nil {
+		t.Fatalf("Create system skill: %v", err)
+	}
+	// skill_usage retains user/agent FKs, but it permits a system Skill ID as a
+	// compatibility row. DeleteSystemSkill must clean such pre-cutover telemetry.
+	if _, err := db.Exec(ctx, `INSERT INTO skill_usage (skill_id, user_id, agent_id) VALUES ($1, $2, $3)`, id, userID, agentID); err != nil {
+		t.Fatalf("seed system skill usage: %v", err)
+	}
+	if err := store.DeleteSystemSkill(ctx, id); err != nil {
+		t.Fatalf("DeleteSystemSkill: %v", err)
+	}
+	assertPGSkillAndUsageRows(t, db, id, 0, 0)
+}
+
+func TestDeleteSkillWithoutUsageStillDeletes(t *testing.T) {
+	store, db, ctx := newTestStore(t)
+	userID, _ := seedFixtures(t, db)
+	id, err := store.Create(ctx, Skill{Scope: "user", UserID: userID, Name: "delete-without-usage", Description: "d"}, map[string]string{MainFile: "body"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := store.Delete(ctx, id, ViewContext{UserID: userID}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	assertPGSkillAndUsageRows(t, db, id, 0, 0)
+}
+
+func assertPGSkillAndUsageRows(t *testing.T, db *pgxpool.Pool, id string, wantSkill, wantUsage int) {
+	t.Helper()
+	var skillRows, usageRows int
+	if err := db.QueryRow(context.Background(), "SELECT COUNT(*) FROM skill WHERE id=$1", id).Scan(&skillRows); err != nil {
+		t.Fatalf("count skill: %v", err)
+	}
+	if err := db.QueryRow(context.Background(), "SELECT COUNT(*) FROM skill_usage WHERE skill_id=$1", id).Scan(&usageRows); err != nil {
+		t.Fatalf("count skill usage: %v", err)
+	}
+	if skillRows != wantSkill || usageRows != wantUsage {
+		t.Fatalf("skill/usage rows = %d/%d, want %d/%d", skillRows, usageRows, wantSkill, wantUsage)
 	}
 }
 

@@ -370,7 +370,7 @@ func (s *PGStore) DeleteFile(ctx context.Context, skillID, path string) error {
 	return nil
 }
 
-// Delete removes a skill and (via ON DELETE CASCADE) all its files.
+// Delete removes an authorized skill and its dependent files and usage.
 func (s *PGStore) Delete(ctx context.Context, id string, vc ViewContext) error {
 	agentID, userID := viewSQLParams(vc)
 	if err := s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: id, AgentID: agentID, UserID: userID}); err != nil {
