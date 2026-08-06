@@ -2030,6 +2030,11 @@ const en = {
   "channels.enabledDesc": "A disabled channel receives nothing, whatever it is bound to.",
   "channels.autoProvision": "Auto-provision accounts",
   "channels.autoProvisionDesc": "Create a Stella account for every member of the tenant.",
+  "channels.allowDm": "Allow direct messages",
+  "channels.allowDmDesc":
+    "Accept account linking and chat from linked users. Unlinked users cannot invoke an agent.",
+  "channels.requireMention": "Require a mention",
+  "channels.requireMentionDesc": "Ignore server-channel messages that do not mention this bot.",
   "channels.configOnlyNote":
     "This form stores the channel config only; binding lives on the agent.",
   "channels.saved": "Channel saved",
@@ -4139,6 +4144,10 @@ const zh: Record<MessageKey, string> = {
   "channels.enabledDesc": "停用后，无论绑定了谁，该渠道都不再接收消息。",
   "channels.autoProvision": "自动开通账号",
   "channels.autoProvisionDesc": "为企业内的每位成员自动创建 Stella 账号。",
+  "channels.allowDm": "允许私信",
+  "channels.allowDmDesc": "接受账号关联和已关联用户的聊天。未关联用户无法调用 Agent。",
+  "channels.requireMention": "必须 @机器人",
+  "channels.requireMentionDesc": "忽略服务器频道中未 @此机器人的消息。",
   "channels.configOnlyNote": "这里只保存渠道配置；绑定关系在智能体那边设置。",
   "channels.saved": "渠道已保存",
   "channels.saveFailed": "保存渠道失败",
