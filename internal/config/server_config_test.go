@@ -234,6 +234,7 @@ func TestLoadServerConfigRawPassthrough(t *testing.T) {
 		groupMemoryModeEnv:      "  structured  ",
 		groupReflectModelEnv:    "  openai/group-reflect  ",
 		groupReflectIntervalEnv: "  2h  ",
+		groupReflectGateEnv:     ` {"core_floor":2} `,
 	}))
 	if err != nil {
 		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
@@ -269,7 +270,8 @@ func TestLoadServerConfigRawPassthrough(t *testing.T) {
 	}
 	if cfg.GroupMemory.Mode != "  structured  " ||
 		cfg.GroupMemory.ReflectModel != "  openai/group-reflect  " ||
-		cfg.GroupMemory.ReflectInterval != "  2h  " {
+		cfg.GroupMemory.ReflectInterval != "  2h  " ||
+		cfg.GroupMemory.ReflectGate != ` {"core_floor":2} ` {
 		t.Errorf("GroupMemory raw fields not carried: %+v", cfg.GroupMemory)
 	}
 }

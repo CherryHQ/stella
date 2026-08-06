@@ -14,7 +14,7 @@
 
 ## 切换前检查
 
-1. 数据库迁移已经包含 `20260724090000_add_group_fact_memory.sql`。
+1. 数据库迁移已经包含连续版本 `90000000000004` 到 `90000000000006` 的 Group Memory migrations。
 2. 所有将要启动的实例都支持：
    - `STELLA_GROUP_MEMORY_MODE=structured`。
    - `STELLA_GROUP_REFLECT_MODEL=<provider>/<model>`。
@@ -90,7 +90,11 @@ WHERE c.group_id IS NULL
 ```text
 STELLA_GROUP_MEMORY_MODE=structured
 STELLA_GROUP_REFLECT_MODEL=<provider>/<model>
+# 可选；未设置时使用当前评测通过的默认门控。
+STELLA_GROUP_REFLECT_GATE={"weights":{"evidence_strength":0.2,"subject_fit":0.2,"durability":0.2,"future_utility":0.2,"atomicity":0.2},"core_floor":3,"threshold":0.8,"candidate_cap":5}
 ```
+
+`STELLA_GROUP_REFLECT_GATE` 设置后会在启动阶段严格校验；未知字段、缺失的权重维度和越界值都会阻止 structured Group Memory 启动。
 
 6. 启动全部 Stella 实例，确认日志出现：
    - structured Group Reflect builtin 已注册。

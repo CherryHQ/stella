@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	legacyMigrationMax = int64(20260804120000)
-	sequentialAnchor   = int64(90000000000000)
+	legacyMigrationMax   = int64(20260804120000)
+	legacyMigrationCount = 36
+	sequentialAnchor     = int64(90000000000000)
 )
 
 var canonicalMigrationName = regexp.MustCompile(`^([1-9][0-9]*)_.+\.sql$`)
@@ -22,6 +23,30 @@ var canonicalMigrationName = regexp.MustCompile(`^([1-9][0-9]*)_.+\.sql$`)
 func TestEmbeddedMigrationVersioning(t *testing.T) {
 	if err := validateMigrationVersioning(MigrationsFS); err != nil {
 		t.Fatal(err)
+	}
+
+	entries, err := fs.ReadDir(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("read embedded migrations: %v", err)
+	}
+	legacyCount := 0
+	for _, entry := range entries {
+		match := canonicalMigrationName.FindStringSubmatch(entry.Name())
+		if match == nil {
+			continue
+		}
+		version, err := strconv.ParseInt(match[1], 10, 64)
+		if err != nil {
+			t.Fatalf("parse embedded migration %q: %v", entry.Name(), err)
+		}
+		if version < sequentialAnchor {
+			legacyCount++
+		}
+	}
+	// Timestamped migration history is frozen; every new migration must use the
+	// contiguous sequential range at or above sequentialAnchor.
+	if legacyCount != legacyMigrationCount {
+		t.Fatalf("legacy migration count = %d, want frozen count %d", legacyCount, legacyMigrationCount)
 	}
 }
 

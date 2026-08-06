@@ -43,6 +43,7 @@ const (
 	groupMemoryModeEnv      = "STELLA_GROUP_MEMORY_MODE"
 	groupReflectModelEnv    = "STELLA_GROUP_REFLECT_MODEL"
 	groupReflectIntervalEnv = "STELLA_GROUP_REFLECT_INTERVAL"
+	groupReflectGateEnv     = "STELLA_GROUP_REFLECT_GATE"
 
 	oidcProviderNameEnv = "OIDC_PROVIDER_NAME"
 	oidcIssuerURLEnv    = "OIDC_ISSUER_URL"
@@ -160,6 +161,7 @@ type GroupMemoryConfig struct {
 	Mode            string
 	ReflectModel    string
 	ReflectInterval string
+	ReflectGate     string
 }
 
 // DiagnosticsConfig holds optional local debug-server settings.
@@ -299,6 +301,7 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 		Mode:            get(groupMemoryModeEnv),
 		ReflectModel:    get(groupReflectModelEnv),
 		ReflectInterval: get(groupReflectIntervalEnv),
+		ReflectGate:     get(groupReflectGateEnv),
 	}
 	cfg.Diagnostics.PprofAddr = get(pprofAddrEnv)
 	cfg.Observability.RecordToolIO = get(recordToolIOEnv) == "true"

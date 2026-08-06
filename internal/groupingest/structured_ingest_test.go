@@ -271,6 +271,51 @@ func TestStructuredGroupReflectRunOnceIsolatesGroupFailure(t *testing.T) {
 	assertGroupReflectCursor(t, q, goodID, good.Seq)
 }
 
+func TestStructuredGroupReflectPendingGroupsRotateByOldestCursor(t *testing.T) {
+	db, q := openTestDB(t)
+	store := eventlog.NewStore(db)
+	appendHuman(t, store, "g-never", "alice", "pending without a cursor")
+	appendHuman(t, store, "g-oldest", "bob", "pending with the oldest cursor")
+	appendHuman(t, store, "g-newer", "carol", "pending with a newer cursor")
+	neverID := resolveGroup(t, store, "test", "g-never", "")
+	oldestID := resolveGroup(t, store, "test", "g-oldest", "")
+	newerID := resolveGroup(t, store, "test", "g-newer", "")
+	ctx := context.Background()
+
+	for _, groupID := range []string{oldestID, newerID} {
+		if err := q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+			GroupID:  groupID,
+			Pipeline: groupingest.PipelineGroupReflect,
+			LastSeq:  0,
+		}); err != nil {
+			t.Fatalf("seed cursor for %s: %v", groupID, err)
+		}
+	}
+	if _, err := db.Exec(ctx, `
+		UPDATE ctx_group_ingest_cursor
+		SET updated_at = CASE group_id
+			WHEN $1 THEN '2026-01-01T00:00:00Z'::timestamptz
+			WHEN $2 THEN '2026-01-02T00:00:00Z'::timestamptz
+		END
+		WHERE pipeline = $3 AND group_id IN ($1, $2)
+	`, oldestID, newerID, groupingest.PipelineGroupReflect); err != nil {
+		t.Fatalf("set cursor ages: %v", err)
+	}
+
+	assertPendingGroupOrder(t, q, []string{neverID, oldestID, newerID})
+
+	// A successful window refreshes updated_at, so this previously unprocessed
+	// group moves behind groups that have waited longer on the next run.
+	if err := q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+		GroupID:  neverID,
+		Pipeline: groupingest.PipelineGroupReflect,
+		LastSeq:  0,
+	}); err != nil {
+		t.Fatalf("create cursor for previously unprocessed group: %v", err)
+	}
+	assertPendingGroupOrder(t, q, []string{oldestID, newerID, neverID})
+}
+
 func TestStructuredGroupReflectWindowTimeoutDoesNotAdvanceCursor(t *testing.T) {
 	db, q := openTestDB(t)
 	store := eventlog.NewStore(db)
@@ -358,6 +403,22 @@ func newStructuredIngester(
 		t.Fatalf("new structured ingester: %v", err)
 	}
 	return ing
+}
+
+func assertPendingGroupOrder(t *testing.T, q *sqlc.Queries, want []string) {
+	t.Helper()
+	got, err := q.ListGroupsWithPendingIngest(context.Background(), groupingest.PipelineGroupReflect)
+	if err != nil {
+		t.Fatalf("list pending groups: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("pending groups = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i].GroupID != want[i] {
+			t.Fatalf("pending group %d = %s, want %s", i, got[i].GroupID, want[i])
+		}
+	}
 }
 
 func scriptedGroupStream(

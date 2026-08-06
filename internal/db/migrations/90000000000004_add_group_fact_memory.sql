@@ -1,4 +1,6 @@
 -- +goose Up
+SET LOCAL lock_timeout = '5s';
+
 ALTER TABLE "ctx_group_message"
   ADD COLUMN "actor_display_name" text NULL;
 
@@ -8,11 +10,8 @@ ALTER TABLE "ctx_message"
     FOREIGN KEY ("origin_group_message_id")
     REFERENCES "ctx_group_message" ("id")
     ON UPDATE NO ACTION
-    ON DELETE SET NULL;
-
-CREATE UNIQUE INDEX "idx_ctx_message_conversation_group_origin"
-ON "ctx_message" ("conversation_id", "origin_group_message_id")
-WHERE "origin_group_message_id" IS NOT NULL;
+    ON DELETE SET NULL
+    NOT VALID;
 
 CREATE TABLE "ctx_group_fact" (
   "id" uuid NOT NULL DEFAULT uuidv7(),
@@ -83,10 +82,11 @@ CREATE INDEX "idx_ctx_group_fact_changelog_group_version"
 ON "ctx_group_fact_changelog" ("group_id", "group_version_after", "created_at", "id");
 
 -- +goose Down
+SET LOCAL lock_timeout = '5s';
+
 DROP TABLE "ctx_group_fact_changelog";
 DROP TABLE "ctx_group_fact";
 
-DROP INDEX "idx_ctx_message_conversation_group_origin";
 ALTER TABLE "ctx_message"
   DROP CONSTRAINT "ctx_message_origin_group_message_id_fkey",
   DROP COLUMN "origin_group_message_id";

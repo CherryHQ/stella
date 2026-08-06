@@ -53,6 +53,10 @@ func setupGroupMemory(
 	if schedulerSvc == nil || db == nil || store == nil || memProvider == nil || providerBuilder == nil {
 		return groupMemorySetup{}, fmt.Errorf("group memory: structured mode requires scheduler, database, config store, memory provider, and provider builder")
 	}
+	gates, err := groupingest.ParseGroupCandidateGateSettings(cfg.ReflectGate)
+	if err != nil {
+		return groupMemorySetup{}, fmt.Errorf("group memory: configure Group Reflect candidate gate: %w", err)
+	}
 
 	model, provider, err := resolveGroupReflectModel(ctx, store, cfg.ReflectModel)
 	if err != nil {
@@ -80,6 +84,7 @@ func setupGroupMemory(
 		Reviewer: groupingest.CandidateReviewer{
 			Stream: stream,
 			Model:  model,
+			Gates:  gates,
 		},
 		Reconciler: groupingest.ReconciliationRunner{
 			Stream: stream,
@@ -101,6 +106,10 @@ func setupGroupMemory(
 	slog.Info("group memory: structured Group Reflect registered",
 		"model", cfg.ReflectModel,
 		"schedule", resolveGroupReflectSchedule(cfg.ReflectInterval),
+		"gate_weights", gates.Weights,
+		"gate_core_floor", gates.CoreFloor,
+		"gate_threshold", gates.Threshold,
+		"gate_candidate_cap", gates.CandidateCap,
 	)
 	return groupMemorySetup{
 		structured:   true,

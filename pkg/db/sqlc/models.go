@@ -466,8 +466,8 @@ type CtxGroupMessage struct {
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
-	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
 	ContentBlocks     json.RawMessage    `json:"content_blocks"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
 }
 
 type CtxGroupOutbox struct {

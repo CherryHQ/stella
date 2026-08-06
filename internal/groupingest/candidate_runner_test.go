@@ -142,6 +142,60 @@ func TestGroupCandidateGateUsesConfiguredWeightsFloorThresholdAndCap(t *testing.
 	}
 }
 
+func TestParseGroupCandidateGateSettings(t *testing.T) {
+	settings, err := ParseGroupCandidateGateSettings(`{
+		"weights": {
+			"evidence_strength": 0.30,
+			"subject_fit": 0.20,
+			"durability": 0.20,
+			"future_utility": 0.20,
+			"atomicity": 0.10
+		},
+		"core_floor": 2,
+		"threshold": 0.75,
+		"candidate_cap": 3
+	}`)
+	if err != nil {
+		t.Fatalf("parse configured gate: %v", err)
+	}
+	if settings.CoreFloor != 2 || settings.Threshold != 0.75 || settings.CandidateCap != 3 {
+		t.Fatalf("configured gate = %#v", settings)
+	}
+	if settings.Weights[groupScoreEvidenceStrength] != 0.30 || settings.Weights[groupScoreAtomicity] != 0.10 {
+		t.Fatalf("configured weights = %#v", settings.Weights)
+	}
+
+	defaults, err := ParseGroupCandidateGateSettings("")
+	if err != nil {
+		t.Fatalf("parse default gate: %v", err)
+	}
+	if defaults.CoreFloor != 3 || defaults.Threshold != 0.80 || defaults.CandidateCap != 5 {
+		t.Fatalf("default gate = %#v", defaults)
+	}
+}
+
+func TestParseGroupCandidateGateSettingsRejectsInvalidOverrides(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "unknown field", raw: `{"unknown":1}`, want: "unknown field"},
+		{name: "partial weights", raw: `{"weights":{"evidence_strength":1}}`, want: "exactly 5"},
+		{name: "zero weights", raw: `{"weights":{"evidence_strength":0,"subject_fit":0,"durability":0,"future_utility":0,"atomicity":0}}`, want: "positive total"},
+		{name: "floor", raw: `{"core_floor":0}`, want: "between 1 and 4"},
+		{name: "threshold", raw: `{"threshold":1.1}`, want: "at most 1"},
+		{name: "cap", raw: `{"candidate_cap":6}`, want: "between 1 and 5"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ParseGroupCandidateGateSettings(test.raw)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestGroupGenerationContractUsesConfiguredCapAndResolvableSubjects(t *testing.T) {
 	const cap = 2
 	prompt := renderGroupFactGenerationPrompt(cap)

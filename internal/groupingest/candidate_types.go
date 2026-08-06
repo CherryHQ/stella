@@ -1,7 +1,9 @@
 package groupingest
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/memory"
@@ -38,6 +40,13 @@ type GroupCandidateGateSettings struct {
 	CandidateCap int
 }
 
+type groupCandidateGateJSON struct {
+	Weights      map[string]float64 `json:"weights"`
+	CoreFloor    *int               `json:"core_floor"`
+	Threshold    *float64           `json:"threshold"`
+	CandidateCap *int               `json:"candidate_cap"`
+}
+
 func defaultGroupCandidateGateSettings() GroupCandidateGateSettings {
 	return GroupCandidateGateSettings{
 		Weights: map[string]float64{
@@ -68,6 +77,68 @@ func (s GroupCandidateGateSettings) withDefaults() GroupCandidateGateSettings {
 		s.CandidateCap = defaults.CandidateCap
 	}
 	return s
+}
+
+// ParseGroupCandidateGateSettings parses the deployment override while keeping
+// the evaluator schema fixed. Blank input selects the evaluated V1 defaults.
+func ParseGroupCandidateGateSettings(raw string) (GroupCandidateGateSettings, error) {
+	settings := defaultGroupCandidateGateSettings()
+	if strings.TrimSpace(raw) == "" {
+		return settings, nil
+	}
+
+	var override groupCandidateGateJSON
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&override); err != nil {
+		return GroupCandidateGateSettings{}, fmt.Errorf("decode Group Reflect candidate gate: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return GroupCandidateGateSettings{}, fmt.Errorf("decode Group Reflect candidate gate: multiple JSON values")
+		}
+		return GroupCandidateGateSettings{}, fmt.Errorf("decode Group Reflect candidate gate: %w", err)
+	}
+
+	if override.Weights != nil {
+		if len(override.Weights) != len(groupScoreFields) {
+			return GroupCandidateGateSettings{}, fmt.Errorf("group Reflect candidate gate weights must contain exactly %d score fields", len(groupScoreFields))
+		}
+		totalWeight := 0.0
+		for _, field := range groupScoreFields {
+			weight, ok := override.Weights[field]
+			if !ok {
+				return GroupCandidateGateSettings{}, fmt.Errorf("group Reflect candidate gate weight %q is required", field)
+			}
+			if weight < 0 {
+				return GroupCandidateGateSettings{}, fmt.Errorf("group Reflect candidate gate weight %q must be non-negative", field)
+			}
+			totalWeight += weight
+		}
+		if totalWeight <= 0 {
+			return GroupCandidateGateSettings{}, fmt.Errorf("group Reflect candidate gate weights must have a positive total")
+		}
+		settings.Weights = override.Weights
+	}
+	if override.CoreFloor != nil {
+		if *override.CoreFloor < 1 || *override.CoreFloor > 4 {
+			return GroupCandidateGateSettings{}, fmt.Errorf("group Reflect candidate gate core_floor must be between 1 and 4")
+		}
+		settings.CoreFloor = *override.CoreFloor
+	}
+	if override.Threshold != nil {
+		if *override.Threshold <= 0 || *override.Threshold > 1 {
+			return GroupCandidateGateSettings{}, fmt.Errorf("group Reflect candidate gate threshold must be greater than 0 and at most 1")
+		}
+		settings.Threshold = *override.Threshold
+	}
+	if override.CandidateCap != nil {
+		if *override.CandidateCap < 1 || *override.CandidateCap > defaultMaxGroupFactCandidates {
+			return GroupCandidateGateSettings{}, fmt.Errorf("group Reflect candidate gate candidate_cap must be between 1 and %d", defaultMaxGroupFactCandidates)
+		}
+		settings.CandidateCap = *override.CandidateCap
+	}
+	return settings, nil
 }
 
 type GroupFactEvidence struct {

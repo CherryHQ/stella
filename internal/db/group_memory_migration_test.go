@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	groupMemoryBeforeMigration = 20260720091113
-	groupMemoryMigration       = 20260724090000
+	groupMemoryBeforeMigration = 90000000000003
+	groupMemoryMigration       = 90000000000006
 )
 
 func TestGroupMemoryMigrationLeavesLegacyRowsUnbackfilled(t *testing.T) {
@@ -88,6 +88,18 @@ func TestGroupMemoryMigrationLeavesLegacyRowsUnbackfilled(t *testing.T) {
 func TestGroupMemoryMigrationEnforcesOriginAndSubjectShape(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
+
+	var originFKValidated bool
+	if err := db.QueryRow(ctx, `
+		SELECT convalidated
+		FROM pg_constraint
+		WHERE conname = 'ctx_message_origin_group_message_id_fkey'
+	`).Scan(&originFKValidated); err != nil {
+		t.Fatalf("read origin foreign-key validation state: %v", err)
+	}
+	if !originFKValidated {
+		t.Fatal("origin foreign key remains NOT VALID after all group memory migrations")
+	}
 
 	groupID := uuid.NewString()
 	groupMessageID := uuid.NewString()
