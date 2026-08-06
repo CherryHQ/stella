@@ -351,6 +351,9 @@ func (a *Access) List(ctx context.Context, agentID string, opts agentsession.Lis
 	if !a.allowSessionList() {
 		return nil, ErrNotFound
 	}
+	if err := a.allowSessionListAgent(agentID); err != nil {
+		return nil, err
+	}
 	userID := string(a.authority.UserID())
 	if userID == "" {
 		return nil, ErrForbidden
@@ -383,6 +386,9 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 	}
 	if !a.allowSessionList() {
 		return ListPage{}, ErrNotFound
+	}
+	if err := a.allowSessionListAgent(agentID); err != nil {
+		return ListPage{}, err
 	}
 	userID := string(a.authority.UserID())
 	if userID == "" {
@@ -582,9 +588,18 @@ func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionF
 }
 
 // allowSessionList is the collection-level Session decision: admin and any
-// user-role actor may list; every other actor is denied.
+// user-role actor may list. A durable agent may list because List derives the
+// owner and executor from its immutable Authority and still filters every row
+// through the exact Session read rule. Group and system actors remain denied.
 func (a *Access) allowSessionList() bool {
-	return a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser
+	return a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser || a.authority.Kind() == authz.ActorAgent
+}
+
+func (a *Access) allowSessionListAgent(agentID string) error {
+	if a.authority.Kind() == authz.ActorAgent && string(a.authority.AgentID()) != agentID {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // allowSession decides one non-list action against a durable Session's facts.
