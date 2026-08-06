@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"testing"
 
@@ -68,6 +69,7 @@ func TestIsNotFound(t *testing.T) {
 		want bool
 	}{
 		{"no rows", pgx.ErrNoRows, true},
+		{"filesystem miss", fs.ErrNotExist, true},
 		{"invalid uuid text", &pgconn.PgError{Code: "22P02"}, true},
 		{"unique violation", &pgconn.PgError{Code: "23505"}, false},
 		{"nil", nil, false},

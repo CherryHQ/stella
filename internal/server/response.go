@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math"
 	"net/http"
@@ -20,7 +21,7 @@ import (
 // 22P02, invalid_text_representation). Mapping both to one predicate lets a
 // by-id handler answer 404 for a malformed id instead of leaking a 500.
 func isNotFound(err error) bool {
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
 	var pgErr *pgconn.PgError

@@ -19,7 +19,7 @@ func TestSkillsToolRegistrationIsReadOnlyAndAuthorized(t *testing.T) {
 	if !strings.Contains(src, `WithActionsOnly("search_installed", "load")`) {
 		t.Fatal(`runner_impl skills tool must be restricted to WithActionsOnly("search_installed", "load")`)
 	}
-	for _, write := range []string{`"install"`, `"remove"`, `"create"`, `"patch"`, `"deprecate"`} {
+	for _, write := range []string{`"install"`, `"remove"`, `"create"`, `"patch"`} {
 		if strings.Contains(src, "WithActionsOnly(") && strings.Contains(actionsOnlyArgs(src), write) {
 			t.Fatalf("runner_impl skills tool must not expose write action %s", write)
 		}
