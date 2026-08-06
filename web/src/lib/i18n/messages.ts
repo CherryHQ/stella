@@ -1934,6 +1934,7 @@ const en = {
   // Header (additions)
   "header.openNavigation": "Open navigation",
   "header.appearance": "Appearance",
+  "header.language": "Language",
   "header.github": "GitHub",
   "header.system": "System",
   "header.light": "Light",
@@ -4064,6 +4065,7 @@ const zh: Record<MessageKey, string> = {
   // Header (additions)
   "header.openNavigation": "打开导航",
   "header.appearance": "外观",
+  "header.language": "语言",
   "header.github": "GitHub",
   "header.system": "跟随系统",
   "header.light": "浅色",
