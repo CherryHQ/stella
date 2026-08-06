@@ -67,6 +67,7 @@ type ChatRequest struct {
 	// callers such as the scheduler (KindScheduler).
 	Kind    session.Kind
 	GroupID string // non-empty for group sessions; overlaid onto session.Info after Ensure
+	GuestID string // durable channel_guest UUID; runtime restriction plumbing
 	Message MessageContent
 	Model   string
 	// CurrentSpeaker is the human speaking this group turn. Personalization

@@ -26,7 +26,7 @@ type GuestDB interface {
 type guestStore struct{ q GuestDB }
 
 // NewGuestStore creates a PostgreSQL-backed GuestStore.
-func NewGuestStore(q GuestDB) GuestStore { return &guestStore{q: q} }
+func NewGuestStore(db sqlc.DBTX) GuestStore { return &guestStore{q: sqlc.New(db)} }
 
 func (s *guestStore) ResolveOrCreateGuest(ctx context.Context, channelID, platform, externalID string) (sqlc.ChannelGuest, error) {
 	key := sqlc.GetChannelGuestByExternalIDParams{ChannelID: channelID, Platform: platform, ExternalID: externalID}

@@ -11,6 +11,7 @@ const (
 	userIDKey  contextKey = "memory_user_id"
 	agentIDKey contextKey = "memory_agent_id"
 	groupIDKey contextKey = "memory_group_id"
+	guestIDKey contextKey = "memory_guest_id"
 )
 
 var (
@@ -51,6 +52,15 @@ func WithGroupID(ctx context.Context, groupID string) context.Context {
 // GroupIDFromContext extracts the group ID from context.
 func GroupIDFromContext(ctx context.Context) string {
 	s, _ := ctx.Value(groupIDKey).(string)
+	return s
+}
+
+func WithGuestID(ctx context.Context, guestID string) context.Context {
+	return context.WithValue(ctx, guestIDKey, guestID)
+}
+
+func GuestIDFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(guestIDKey).(string)
 	return s
 }
 

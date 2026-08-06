@@ -325,6 +325,7 @@ func (a *Access) authorizeChannelBinding(ctx context.Context, req agentsession.C
 	actor := a.authority
 	facts := sessionFacts{
 		isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == req.UserID,
+		isGuest:     req.GuestID != "" && string(actor.GuestID()) == req.GuestID && req.UserID == req.GuestID,
 		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == req.AgentID,
 		isGroup:     req.GroupID != "",
 		isSameGroup: req.GroupID != "" && string(actor.GroupID()) == req.GroupID,
@@ -338,7 +339,7 @@ func (a *Access) authorizeChannelBinding(ctx context.Context, req agentsession.C
 // assertChannelBinding fails closed when the registry hands back a session that
 // does not carry the binding that was authorized.
 func assertChannelBinding(req agentsession.ChannelRequest, info agentsession.Info) error {
-	if info.UserID != req.UserID || info.AgentID != req.AgentID || info.GroupID != req.GroupID {
+	if info.UserID != req.UserID || info.AgentID != req.AgentID || info.GroupID != req.GroupID || info.GuestID != req.GuestID {
 		return ErrForbidden
 	}
 	return nil
@@ -576,7 +577,7 @@ func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionF
 	actor := authority
 	return sessionFacts{
 		isOwner:     info.GuestID == "" && string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
-		isGuest:     info.GuestID != "",
+		isGuest:     info.GuestID != "" && string(actor.GuestID()) == info.GuestID,
 		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == info.AgentID,
 		isGroup:     info.GroupID != "",
 		isSameGroup: info.GroupID != "" && string(actor.GroupID()) == info.GroupID,
@@ -597,6 +598,9 @@ func (a *Access) allowSessionList() bool {
 func (a *Access) allowSession(action authz.Action, f sessionFacts) bool {
 	if !isSessionAction(action) {
 		return false
+	}
+	if f.isGuest || a.authority.Kind() == authz.ActorGuest {
+		return a.authority.Kind() == authz.ActorGuest && f.isGuest && isWorkerSessionAction(action)
 	}
 	if a.authority.IsAdmin() {
 		return true

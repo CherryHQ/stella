@@ -83,7 +83,7 @@ func (a *Access) Delete(ctx context.Context, agentID string) (config.Agent, erro
 // current DB binding from that channel to this exact agent. Either mismatch
 // fails closed; channel ID by itself is never an agent-use capability.
 func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (config.Agent, error) {
-	if channelID == "" || a.authority.Kind() != authz.ActorUser || a.authority.ChannelBindingID() != channelID {
+	if channelID == "" || (a.authority.Kind() != authz.ActorUser && a.authority.Kind() != authz.ActorGuest) || a.authority.ChannelBindingID() != channelID {
 		return config.Agent{}, ErrForbidden
 	}
 	channels, ok := a.svc.agents.(dedicatedChannelStore)
@@ -98,6 +98,9 @@ func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (c
 		return config.Agent{}, fmt.Errorf("%w: get channel: %w", ErrUnavailable, err)
 	}
 	if channel.AgentID != agentID {
+		return config.Agent{}, ErrForbidden
+	}
+	if a.authority.Kind() == authz.ActorGuest && !channel.Enabled {
 		return config.Agent{}, ErrForbidden
 	}
 	return a.decide(ctx, agentID, authz.ActionExecute, true)
@@ -296,6 +299,8 @@ func (a *Access) allowed(ctx context.Context, ag config.Agent, scope string, act
 				return true, nil
 			}
 			return a.assignedTo(ctx, ag.ID)
+		case authz.ActorGuest:
+			return dedicated, nil
 		case authz.ActorAgent, authz.ActorGroupAgent:
 			return string(a.authority.AgentID()) == ag.ID, nil
 		case authz.ActorSystem:
