@@ -62,7 +62,10 @@ Channels are stored in the `channel` table. Each row is a channel instance with 
 
 Channel access is enforced by Stella's trusted Authority-based domain services; notification targets are resolved from linked identities.
 
-**Discord config field:** `token`
+**Discord config fields:**
+
+- `token` -- Bot token
+- `allowed_guild_ids` -- Comma-separated trusted server IDs; empty disables all guild messages but not direct messages
 
 **QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 

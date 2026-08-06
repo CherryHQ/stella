@@ -106,6 +106,9 @@ func (b *Bot) activate(ctx context.Context) error {
 	}); ok {
 		r.RegisterGroupPublisher(b.Name(), b)
 	}
+	if len(b.allowedGuilds) == 0 {
+		logger().Info("discord guild messages disabled; configure allowed_guild_ids to enable trusted servers")
+	}
 	// Publishing the context is the ingress activation point. Keep it last so
 	// event handlers cannot accept traffic before all routing state is ready.
 	b.ctx = ctx
@@ -172,8 +175,15 @@ func (b *Bot) onMessageCreate(_ *discordgo.Session, event *discordgo.MessageCrea
 	}
 	if err := b.handleMessage(ctx, event.Message); err != nil {
 		logger().Warn("handle message failed", "error", err, "channel_id", event.ChannelID)
-		_ = b.sendText(context.WithoutCancel(ctx), event.ChannelID, "Error: "+err.Error(), event.ID)
+		_ = b.sendText(context.WithoutCancel(ctx), event.ChannelID, userFacingError(event.Message, err), event.ID)
 	}
+}
+
+func userFacingError(message *discordgo.Message, err error) string {
+	if message != nil && message.GuildID != "" {
+		return "Error: Stella could not process this server message."
+	}
+	return "Error: " + err.Error()
 }
 
 func (b *Bot) incomingMessage(m *discordgo.Message, content []channelContentBlock) channel.IncomingMessage {

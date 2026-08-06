@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -117,6 +118,16 @@ func TestChunkingAndAllowedMentions(t *testing.T) {
 	ref := softReference("channel", "message")
 	if ref == nil || ref.FailIfNotExists == nil || *ref.FailIfNotExists {
 		t.Fatalf("soft reference = %#v", ref)
+	}
+}
+
+func TestGuildErrorsDoNotExposeInternalDetails(t *testing.T) {
+	err := errors.New("database secret detail")
+	if got := userFacingError(&discordgo.Message{GuildID: "guild"}, err); strings.Contains(got, err.Error()) {
+		t.Fatalf("guild error exposed internal details: %q", got)
+	}
+	if got := userFacingError(&discordgo.Message{}, err); !strings.Contains(got, err.Error()) {
+		t.Fatalf("direct-message error lost useful detail: %q", got)
 	}
 }
 

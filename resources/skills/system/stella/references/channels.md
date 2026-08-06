@@ -67,19 +67,21 @@ Set `enable_notify: true` for proactive messages (scheduler results, notify tool
 ## Discord bot
 
 1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications)
-2. Enable the **Message Content Intent** on the bot page
+2. Enable the **Message Content Intent** on the bot page; turn off **Public Bot** for private deployments
 3. Invite the bot with permission to view channels, send messages, read message history, and attach files
-4. Open the Web UI, add a Discord channel, and paste the bot token
+4. Enable Discord Developer Mode and copy the server IDs that Stella should trust
+5. Open the Web UI, add a Discord channel, paste the bot token, and enter the trusted server IDs under **Allowed Guild IDs**
 
 Discord channel config (JSON):
 
 ```json
 {
-  "token": "BOT_TOKEN"
+  "token": "BOT_TOKEN",
+  "allowed_guild_ids": "SERVER_ID_1,SERVER_ID_2"
 }
 ```
 
-The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, `/agent` in direct messages, and shared channel commands. Bind the channel instance to an agent before using it in guild channels; mention the bot for deterministic routing. `/model` and guild-channel `/agent` are not yet supported. Use a Discord channel ID as an explicit notification target; do not invent one.
+The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, `/agent` in direct messages, and shared channel commands. `allowed_guild_ids` is comma-separated and fail-closed: leaving it empty disables all guild messages while direct messages continue to work. Every member of an allowed guild can send messages into its shared agent context, so allow only trusted guilds. Bind the channel instance to an agent before using it in guild channels; mention the bot for deterministic routing. `/model` and guild-channel `/agent` are not yet supported. Use a Discord channel ID as an explicit notification target; do not invent one.
 
 ## QQ bot
 
