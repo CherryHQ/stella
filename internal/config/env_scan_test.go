@@ -90,8 +90,10 @@ var envReadAllowlist = map[string]map[string]bool{
 	"pkg/agent/llm_dump.go": {"STELLA_HOME": true, nonLiteralRead: true},
 	"pkg/tools/truncate.go": {"STELLA_TOOL_MAX_LINES": true, "STELLA_TOOL_MAX_BYTES": true},
 
-	// Standalone perf-harness fake model provider (test tooling, never linked
-	// into stellad); its pacing knobs are process-local by design.
+	// Standalone test tooling, never linked into stellad. The agent-test
+	// supervisor copies a closed host-environment allowlist into its isolated
+	// server child; the perf provider's pacing knobs are process-local.
+	"test/agenttest/supervisor.go":   {nonLiteralRead: true},
 	"test/perf/fakeprovider/main.go": {nonLiteralRead: true},
 
 	// Plugins do not import internal/config. Per-message render read (feishu) and

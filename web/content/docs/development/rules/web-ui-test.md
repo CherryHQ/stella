@@ -15,33 +15,35 @@ URL=${URL:-http://localhost:25678}
 
 ## Fixture setup
 
-Start an isolated development instance whose `STELLA_HOME` has no users, then
-create its fixture accounts through the live HTTP API. The helper waits for
-`/readyz`; it does not start a server or write to the database directly.
+Start the disposable test instance, which starts its own embedded PostgreSQL,
+server, and fixture accounts through the live HTTP API. It is long-running, so
+run it in a dedicated terminal or background task.
 
 ```bash
-# Terminal 1: starts the normal dev server using ~/.stella-dev.
-mise run dev
-
-# Terminal 2: creates one local admin and one passwordless user.
-mise run agent-test:bootstrap
+# Terminal 1: leave this running while testing.
+mise run agent-test:start
 ```
 
-The helper writes `$STELLA_HOME/agent-test-credentials.json` (by default
-`~/.stella-dev/agent-test-credentials.json`) atomically with mode `0600`. It
-contains both identities and roles, the admin email/password/PAT, and the
-passwordless user's PAT. Treat it as a secret: do not commit it, print it, or
-paste it into shared logs.
+Start prints the server URL and a temporary credentials path. The credentials
+artifact is mode `0600`; it contains both identities and roles, the admin
+email/password/PAT, and the passwordless user's PAT. Treat it as a secret: do
+not commit it, print it, or paste it into shared logs.
 
-It safely reuses a valid artifact for the same base URL and never overwrites one.
-If bootstrap is interrupted before the artifact is written, discard that isolated
-`STELLA_HOME` and start a new instance; the first-user registration cannot be
-safely replayed on a partially initialized instance.
+When finished, stop it from the checkout that started it. Stop owns graceful
+shutdown and removes the temporary server, database, and credentials.
+
+```bash
+mise run agent-test:stop
+```
+
+Do not use `~/.stella-dev`, manually create fixtures, or use browser/CDP
+automation to register fixture accounts. Use browser registration only when the
+registration UI itself is the subject under test.
 
 Use the credentials without displaying them:
 
 ```bash
-CREDS="${STELLA_HOME:-$HOME/.stella-dev}/agent-test-credentials.json"
+CREDS="<credentials path printed by agent-test:start>"
 ADMIN_EMAIL="$(jq -r '.admin.email' "$CREDS")"
 ADMIN_PASSWORD="$(jq -r '.admin.password' "$CREDS")"
 ADMIN_PAT="$(jq -r '.admin.token' "$CREDS")"

@@ -117,11 +117,20 @@ run = 'set -o pipefail; cd web && vp dev 2>&1 | tee -a ../dist/logs/dev.log'
 [tasks."dev:api"]
 description = "Start stella API server"
 depends = ["dev:log:init"]
-run = 'set -o pipefail; { mise run build && STELLA_HOME="${STELLA_HOME:-$HOME/.stella-dev}" $BINARY_D server; } 2>&1 | tee -a dist/logs/dev.log'
+run = 'set -o pipefail; { mise run build && STELLA_HOME="$HOME/.stella-dev" $BINARY_D server; } 2>&1 | tee -a dist/logs/dev.log'
 
-[tasks."agent-test:bootstrap"]
-description = "Create agent-test credentials through an already-running local server"
-run = 'go run ./test/agentbootstrap --home "${STELLA_HOME:-$HOME/.stella-dev}" --base-url "${STELLA_SERVER_URL:-http://127.0.0.1:25678}"'
+[tasks."agent-test:start"]
+description = "Start an isolated, disposable Stella instance for agent and Web UI tests"
+depends = ["pg:runtime:download", "build:embedded"]
+run = """
+mise run build
+go build -o ./dist/bin/agenttest ./test/agenttest
+exec ./dist/bin/agenttest start
+"""
+
+[tasks."agent-test:stop"]
+description = "Stop and clean up this checkout's agent-test instance"
+run = 'go run ./test/agenttest stop'
 
 [tasks."dev:docker"]
 description = "Start the Docker dev stack: stellad + docker sandbox + otel-lgtm"

@@ -15,30 +15,30 @@ URL=${URL:-http://localhost:25678}
 
 ## Fixture 准备
 
-先启动一个隔离的开发实例，并确保所用 `STELLA_HOME` 中没有用户，再通过运行中的
-HTTP API 创建 fixture 账户。helper 会等待 `/readyz`；它不会启动服务，也不会直接写数据库。
+启动一次性测试实例；它会启动自己的 embedded PostgreSQL、服务，并通过运行中的 HTTP API
+创建 fixture 账户。这是长时间运行的命令，应在独立终端或后台任务中运行。
 
 ```bash
-# 终端 1：按常规方式启动开发服务，默认使用 ~/.stella-dev。
-mise run dev
-
-# 终端 2：创建一个本地管理员和一个无密码普通用户。
-mise run agent-test:bootstrap
+# 终端 1：测试期间保持运行。
+mise run agent-test:start
 ```
 
-helper 会原子写入 `$STELLA_HOME/agent-test-credentials.json`（默认是
-`~/.stella-dev/agent-test-credentials.json`），文件权限为 `0600`。其中有两个账户的
-身份和角色、管理员的邮箱/密码/PAT，以及无密码普通用户的 PAT。它是 secret：不要提交、
-打印或粘贴到共享日志。
+start 会打印服务 URL 和临时凭据路径。凭据文件权限为 `0600`，其中有两个账户的身份和角色、
+管理员的邮箱/密码/PAT，以及无密码普通用户的 PAT。它是 secret：不要提交、打印或粘贴到共享日志。
 
-同一基础 URL 下已有有效 artifact 时，helper 会安全复用，绝不会覆盖。如果 artifact
-写入前 bootstrap 中断，请丢弃该隔离的 `STELLA_HOME` 并重新启动实例；first-user 注册在
-部分初始化的实例上不能安全重放。
+结束后，请在启动它的 checkout 中停止。stop 负责优雅关闭，并删除临时服务、数据库和凭据。
+
+```bash
+mise run agent-test:stop
+```
+
+不要使用 `~/.stella-dev`、手动创建 fixture，或用浏览器/CDP 自动化注册 fixture 账户。只有
+注册 UI 本身是测试对象时，才使用浏览器注册。
 
 读取凭据时不要把它们显示出来：
 
 ```bash
-CREDS="${STELLA_HOME:-$HOME/.stella-dev}/agent-test-credentials.json"
+CREDS="<agent-test:start 打印的凭据路径>"
 ADMIN_EMAIL="$(jq -r '.admin.email' "$CREDS")"
 ADMIN_PASSWORD="$(jq -r '.admin.password' "$CREDS")"
 ADMIN_PAT="$(jq -r '.admin.token' "$CREDS")"

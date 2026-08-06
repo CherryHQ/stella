@@ -23,7 +23,7 @@ Stella is a single-tenant, multi-user, multi-agent AI assistant platform written
 - Do not run Go tests with `-race` locally by default.
 - Build with `mise run build` (outputs to `dist/bin/`) or specify `-o dist/bin/stellad` explicitly; never build the `stellad` binary into the repo root.
 - `mise run dev` writes combined UI/API output to `dist/logs/dev.log` and truncates that file on each startup; use it for agent-friendly debugging.
-- For a fresh agent-driven UI/API test instance, do **not** create fixture users through browser/CDP automation. After the server is running, bootstrap an admin + PAT and a passwordless normal user + PAT with the same home and URL: `STELLA_HOME=<server-home> STELLA_SERVER_URL=<server-url> mise run agent-test:bootstrap`. Read the resulting secrets from `$STELLA_HOME/agent-test-credentials.json` without printing them. Use browser registration only when the registration UI itself is under test; see `web-ui-test.md`.
+- For a fresh agent-driven UI/API test instance, use only `mise run agent-test:start` and `mise run agent-test:stop`. Start is long-running: run it in a dedicated terminal or background task, read the printed credentials path without displaying its contents, then let stop own all cleanup. Never use `~/.stella-dev`, manual fixtures, or browser/CDP registration for these tests; use browser registration only when registration itself is under test. See `web-ui-test.md`.
 
 ## Goose migrations
 
