@@ -366,6 +366,7 @@ Rules:
 - Do not modify support files.
 - Do not target skills outside the related bundle.
 - Do not patch non-Reflect-owned, manual, imported, system, or hand-written skills.
+- For a Home skill patch, copy its content_digest to expected_content_digest exactly; it is the only mutable-state precondition.
 - Do not patch only to cover a candidate or bump a version; use noop for no-op coverage.
 - Do not noop only because there is a single candidate.
 - Do not noop a distinct accepted workflow only because creating a new skill feels risky.

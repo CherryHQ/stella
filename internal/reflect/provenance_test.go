@@ -126,9 +126,11 @@ func TestBuildSkillPlanProvenanceUsesPlanIndexAndContentDigest(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{candidate},
 		RelatedRecords: []skillRelatedRecord{{
+			ContentDigest: strings.Repeat("a", 64),
 			Skill: pkgplugins.Skill{
-				ID:      "skill-old",
-				Version: 4,
+				ID:            "skill-old",
+				ContentDigest: strings.Repeat("a", 64),
+				Version:       4,
 			},
 			MainFileContent: "full old SKILL.md must not be copied",
 		}},
@@ -148,13 +150,13 @@ func TestBuildSkillPlanProvenanceUsesPlanIndexAndContentDigest(t *testing.T) {
 			Rationale:     "unrelated noop",
 		},
 		{
-			Operation:            skillOperationPatch,
-			CandidateRefs:        []CandidateRef{candidate.Ref},
-			TargetSkillID:        "skill-old",
-			ExpectedSkillVersion: 4,
-			Description:          "updated description",
-			MainFileContent:      mainFile,
-			Rationale:            "candidate closes the workflow gap",
+			Operation:             skillOperationPatch,
+			CandidateRefs:         []CandidateRef{candidate.Ref},
+			TargetSkillID:         "skill-old",
+			ExpectedContentDigest: strings.Repeat("a", 64),
+			Description:           "updated description",
+			MainFileContent:       mainFile,
+			Rationale:             "candidate closes the workflow gap",
 		},
 	}}
 
@@ -176,6 +178,9 @@ func TestBuildSkillPlanProvenanceUsesPlanIndexAndContentDigest(t *testing.T) {
 	if provenance.Reconciliation.MainFileBytes != len([]byte(mainFile)) ||
 		provenance.Reconciliation.MainFileSHA256 != "0ff2fffad4515625d37ba0f15b620371b8714eb9679ab4b66a58770064a321df" {
 		t.Fatalf("unexpected content digest: %#v", provenance.Reconciliation)
+	}
+	if provenance.Reconciliation.ExpectedContentDigest != strings.Repeat("a", 64) || len(provenance.RelatedRecords) != 1 || provenance.RelatedRecords[0].ContentDigest != strings.Repeat("a", 64) {
+		t.Fatalf("provenance lost Home content digest: %#v", provenance)
 	}
 	if strings.Contains(string(got[1]), mainFile) || strings.Contains(string(got[1]), "full old SKILL.md") {
 		t.Fatal("provenance copied full skill content")

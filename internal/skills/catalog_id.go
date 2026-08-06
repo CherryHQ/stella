@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"encoding/base64"
 	"errors"
 	"strconv"
 	"strings"
@@ -8,7 +9,10 @@ import (
 
 // A length-framed ID makes every accepted owner/name byte sequence
 // unambiguous without treating it as a filesystem path.
-const filesystemSkillIDPrefix = "skill/v1/"
+const (
+	filesystemSkillIDPrefix  = "skill-v2-"
+	maxFilesystemSkillIDSize = 512
+)
 
 func encodeFilesystemSkillID(scope, userID, agentID, name string) (string, error) {
 	// Constructing the typed Home root performs the durable owner grammar and
@@ -21,13 +25,16 @@ func encodeFilesystemSkillID(scope, userID, agentID, name string) (string, error
 	}
 	parts := []string{scope, userID, agentID, name}
 	var b strings.Builder
-	b.WriteString(filesystemSkillIDPrefix)
 	for _, part := range parts {
 		b.WriteString(strconv.Itoa(len(part)))
 		b.WriteByte(':')
 		b.WriteString(part)
 	}
-	return b.String(), nil
+	id := filesystemSkillIDPrefix + base64.RawURLEncoding.EncodeToString([]byte(b.String()))
+	if len(id) > maxFilesystemSkillIDSize {
+		return "", errors.New("skills: filesystem Skill ID exceeds maximum length")
+	}
+	return id, nil
 }
 
 func decodeFilesystemSkillID(id string) (scope, userID, agentID, name string, err error) {
@@ -35,7 +42,16 @@ func decodeFilesystemSkillID(id string) (scope, userID, agentID, name string, er
 		err = errors.New("skills: invalid filesystem Skill ID")
 		return
 	}
-	rest := strings.TrimPrefix(id, filesystemSkillIDPrefix)
+	if len(id) > maxFilesystemSkillIDSize {
+		err = errors.New("skills: invalid filesystem Skill ID")
+		return
+	}
+	payload, decodeErr := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(id, filesystemSkillIDPrefix))
+	if decodeErr != nil {
+		err = errors.New("skills: invalid filesystem Skill ID")
+		return
+	}
+	rest := string(payload)
 	parts := make([]string, 0, 4)
 	for range 4 {
 		i := strings.IndexByte(rest, ':')

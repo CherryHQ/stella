@@ -30,12 +30,14 @@ func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{validSkillCandidate("skill-0001"), validSkillCandidate("skill-0002")},
 		RelatedRecords: []skillRelatedRecord{{
+			ContentDigest: strings.Repeat("a", 64),
 			Skill: pkgplugins.Skill{
-				ID:       "old-skill",
-				Scope:    "user_agent",
-				Status:   "active",
-				Version:  4,
-				Metadata: []byte(`{"created_by":"reflect"}`),
+				ID:            "old-skill",
+				Scope:         "user_agent",
+				Status:        "active",
+				ContentDigest: strings.Repeat("a", 64),
+				Version:       4,
+				Metadata:      []byte(`{"created_by":"reflect"}`),
 			},
 			MainFileContent: "# Old skill\n",
 		}},
@@ -49,12 +51,12 @@ func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
 			MainFileContent: "# New skill\n",
 		},
 		{
-			Operation:            skillOperationPatch,
-			CandidateRefs:        []CandidateRef{"skill-0002"},
-			TargetSkillID:        "old-skill",
-			ExpectedSkillVersion: 4,
-			Description:          "Patch a reflect-maintained skill.",
-			MainFileContent:      "# Patched skill\n",
+			Operation:             skillOperationPatch,
+			CandidateRefs:         []CandidateRef{"skill-0002"},
+			TargetSkillID:         "old-skill",
+			ExpectedContentDigest: strings.Repeat("a", 64),
+			Description:           "Patch a reflect-maintained skill.",
+			MainFileContent:       "# Patched skill\n",
 		},
 	}}
 
@@ -102,7 +104,7 @@ func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
 	if writer.creates[0].UserID != "user-1" || writer.creates[0].AgentID != "agent-1" {
 		t.Fatalf("wrong create owner: %#v", writer.creates[0])
 	}
-	if len(writer.patches) != 1 || writer.patches[0].ID != "old-skill" || writer.patches[0].ExpectedVersion != 4 {
+	if len(writer.patches) != 1 || writer.patches[0].ID != "old-skill" || writer.patches[0].ExpectedDigest != strings.Repeat("a", 64) || writer.patches[0].ExpectedVersion != 0 {
 		t.Fatalf("unexpected patches: %#v", writer.patches)
 	}
 	if writer.patches[0].Description == nil || *writer.patches[0].Description != "Patch a reflect-maintained skill." {

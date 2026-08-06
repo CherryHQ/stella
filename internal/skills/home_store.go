@@ -136,7 +136,10 @@ func (s *HomeStore) ListActiveReflectOwnedUserAgentSkills(ctx context.Context, u
 	rows := make([]Skill, 0, len(items))
 	for _, item := range items {
 		sk := item.Skill
-		if sk.Status == SkillStatusActive && CreatedBy(sk) == ReflectSkillCreatedBy {
+		// Reflect can mutate only managed revisions. An ordinary directory may
+		// carry copied metadata, but it has no immutable catalog digest and must
+		// never enter a plan that could fall back to lifecycle versions.
+		if sk.Status == SkillStatusActive && CreatedBy(sk) == ReflectSkillCreatedBy && validHomeSkillDigest(sk.ContentDigest) {
 			rows = append(rows, sk)
 		}
 	}

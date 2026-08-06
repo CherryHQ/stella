@@ -82,15 +82,16 @@ func TestBuildSkillRelatedCatalogUsesReflectOwnedStoreView(t *testing.T) {
 	ctx := context.Background()
 	store := &fakeReflectSkillCatalogStore{
 		rows: []pkgplugins.Skill{{
-			ID:          "skill-1",
-			Scope:       "user_agent",
-			UserID:      "user-1",
-			AgentID:     "agent-1",
-			Name:        "reflect-review",
-			Description: "Review reflect candidates before writing them.",
-			Status:      "active",
-			Version:     7,
-			UpdatedAt:   time.Date(2026, 7, 6, 10, 0, 0, 0, time.UTC),
+			ID:            "skill-1",
+			Scope:         "user_agent",
+			UserID:        "user-1",
+			AgentID:       "agent-1",
+			Name:          "reflect-review",
+			Description:   "Review reflect candidates before writing them.",
+			Status:        "active",
+			ContentDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Version:       7,
+			UpdatedAt:     time.Date(2026, 7, 6, 10, 0, 0, 0, time.UTC),
 		}},
 	}
 
@@ -105,7 +106,7 @@ func TestBuildSkillRelatedCatalogUsesReflectOwnedStoreView(t *testing.T) {
 	if len(catalog) != 1 {
 		t.Fatalf("expected one skill catalog item, got %#v", catalog)
 	}
-	if catalog[0].ID != "skill-1" || catalog[0].Name != "reflect-review" || catalog[0].Version != 7 {
+	if catalog[0].ID != "skill-1" || catalog[0].Name != "reflect-review" || catalog[0].ContentDigest != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || catalog[0].Version != 7 {
 		t.Fatalf("unexpected skill catalog item: %#v", catalog[0])
 	}
 }

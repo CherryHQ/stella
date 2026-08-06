@@ -120,14 +120,17 @@ type usageCuratorKnowledgeCandidate struct {
 }
 
 type usageCuratorSkillCandidate struct {
-	SkillID              string
-	UserID               string
-	AgentID              string
-	Version              int64
-	UseCount             int64
-	LastUsedAt           time.Time
-	PairLatestActivityAt time.Time
-	Rule                 usageCuratorSkillRule
+	SkillID       string
+	UserID        string
+	AgentID       string
+	ContentDigest string
+	// LegacyExpectedVersion is used only by the SQL-only compatibility adapter.
+	// Home candidates always use ContentDigest and never inspect a lifecycle version.
+	LegacyExpectedVersion int64
+	UseCount              int64
+	LastUsedAt            time.Time
+	PairLatestActivityAt  time.Time
+	Rule                  usageCuratorSkillRule
 }
 
 type usageCuratorReport struct {
@@ -370,16 +373,22 @@ func deleteCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter, au
 			errs = append(errs, err)
 			break
 		}
+		if err := validateUsageCuratorSkillCandidate(candidate); err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		if err := authorizer.AuthorizeWorkerWrite(ctx, candidate.UserID, candidate.AgentID, candidate.SkillID, false); err != nil {
 			errs = append(errs, fmt.Errorf("usage curator: authorize delete skill %s: %w", candidate.SkillID, err))
 			continue
 		}
 		_, err := writer.DeleteReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillDelete{
-			ID:                      candidate.SkillID,
-			UserID:                  candidate.UserID,
-			AgentID:                 candidate.AgentID,
-			ExpectedVersion:         candidate.Version,
-			ExpectedUsageLastUsedAt: candidate.LastUsedAt,
+			ID:                           candidate.SkillID,
+			UserID:                       candidate.UserID,
+			AgentID:                      candidate.AgentID,
+			ExpectedDigest:               candidate.ContentDigest,
+			ExpectedVersion:              candidate.LegacyExpectedVersion,
+			ExpectedUsageLastUsedAt:      candidate.LastUsedAt,
+			ExpectedPairLatestActivityAt: candidate.PairLatestActivityAt,
 		})
 		if errors.Is(err, skills.ErrSkillUsageChanged) {
 			continue
@@ -391,4 +400,23 @@ func deleteCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter, au
 		deleted++
 	}
 	return deleted, errors.Join(errs...)
+}
+
+func validateUsageCuratorSkillCandidate(candidate usageCuratorSkillCandidate) error {
+	if candidate.SkillID == "" || candidate.UserID == "" || candidate.AgentID == "" {
+		return fmt.Errorf("usage curator: malformed skill candidate")
+	}
+	if candidate.Rule != usageCuratorSkillRuleUnused && candidate.Rule != usageCuratorSkillRuleLowUse {
+		return fmt.Errorf("usage curator: malformed skill candidate rule %q", candidate.Rule)
+	}
+	if candidate.ContentDigest != "" {
+		if !validSkillContentDigest(candidate.ContentDigest) || candidate.LegacyExpectedVersion != 0 || candidate.LastUsedAt.IsZero() || candidate.PairLatestActivityAt.IsZero() || !candidate.PairLatestActivityAt.After(candidate.LastUsedAt) {
+			return fmt.Errorf("usage curator: malformed skill candidate content digest")
+		}
+		return nil
+	}
+	if candidate.LegacyExpectedVersion <= 0 {
+		return fmt.Errorf("usage curator: malformed skill candidate")
+	}
+	return nil
 }

@@ -385,7 +385,7 @@ func TestHomeReflectDeleteUsesActivityCASAndConcurrentTouchHasOneWinner(t *testi
 }
 
 func TestHomeReflectRejectsOrdinaryAndOwnerMismatchesBeforeUsage(t *testing.T) {
-	store, manager, _, _, ctx, _, userID, agentID, _ := newHomeReflectFixture(t)
+	store, manager, usage, db, ctx, _, userID, agentID, _ := newHomeReflectFixture(t)
 	manual, err := manager.Create(ctx, HomeSkillCreateRequest{
 		Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "manual-home-reflect", Description: "manual",
 		Files: []HomeSkillFileInput{{Path: MainFile, Content: managedSkillMarkdown("manual-home-reflect", "manual", "body")}},
@@ -406,6 +406,33 @@ func TestHomeReflectRejectsOrdinaryAndOwnerMismatchesBeforeUsage(t *testing.T) {
 	wrongUser := uuid.NewString()
 	if err := store.TouchReflectSkillRuntimeUse(ctx, manual.Skill.ID, wrongUser, agentID, manual.Skill.ContentDigest); err == nil {
 		t.Fatal("runtime touch accepted mismatched canonical owner")
+	}
+	reflectOwned, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "converted-home-reflect", Description: "reflect owned",
+		MainFileContent: "---\ndescription: reflect owned\n---\nbody\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	usageBefore, err := usage.Get(ctx, homeReflectUsageIdentity(reflectOwned))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Update(ctx, HomeSkillUpdateRequest{ID: reflectOwned.ID, ExpectedDigest: reflectOwned.ContentDigest, ConvertToManual: true}); err != nil {
+		t.Fatalf("convert Reflect Home Skill to manual: %v", err)
+	}
+	activityAt := usageBefore.LastUsedAt.Add(time.Hour)
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id) VALUES ($1, $2, 'web', 'chat', false, $3, $4, $5)`, uuid.NewString(), "converted-home-reflect", activityAt, agentID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DeleteReflectOwnedUserAgentSkill(ctx, ReflectSkillDelete{
+		ID: reflectOwned.ID, UserID: userID, AgentID: agentID, ExpectedDigest: reflectOwned.ContentDigest,
+		ExpectedUsageLastUsedAt: usageBefore.LastUsedAt, ExpectedPairLatestActivityAt: activityAt,
+	}); !errors.Is(err, ErrSkillNotReflectOwned) {
+		t.Fatalf("manual conversion delete = %v, want owner rejection", err)
+	}
+	if _, err := usage.Get(ctx, homeReflectUsageIdentity(reflectOwned)); err != nil {
+		t.Fatalf("manual conversion deleted logical usage: %v", err)
 	}
 }
 

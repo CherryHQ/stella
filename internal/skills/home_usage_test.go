@@ -236,6 +236,33 @@ func TestHomeSkillUsageCuratorDeletePinsExactPairLatestActivity(t *testing.T) {
 	}
 }
 
+func TestHomeSkillUsageCuratorDeleteRejectsDigestChangedAfterListing(t *testing.T) {
+	_, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	store, err := NewHomeSkillUsageStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := testHomeUsageIdentity(t, userID, agentID, "digest-changed-after-listing", testDigest('a'))
+	if _, err := store.InitializeReflectCreate(ctx, identity); err != nil {
+		t.Fatal(err)
+	}
+	lastUsedAt := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Microsecond)
+	activityAt := lastUsedAt.Add(time.Hour)
+	if _, err := db.Exec(ctx, `UPDATE skill_usage SET last_used_at = $1 WHERE skill_id = $2`, lastUsedAt, identity.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id) VALUES ($1, $2, 'web', 'chat', false, $3, $4, $5)`, uuid.NewString(), "digest-changed-activity", activityAt, agentID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE skill_usage SET last_content_digest = $1 WHERE skill_id = $2`, testDigest('b'), identity.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteForCurator(ctx, identity, lastUsedAt, activityAt); !errors.Is(err, ErrSkillUsageChanged) {
+		t.Fatalf("digest-changed curator delete = %v, want ErrSkillUsageChanged", err)
+	}
+}
+
 func TestHomeSkillUsageCandidateRejectsMalformedLogicalIdentity(t *testing.T) {
 	_, err := homeSkillUsageCandidate(sqlc.ListStaleLogicalReflectSkillUsageForCuratorRow{
 		UserID:  uuid.NewString(),

@@ -348,6 +348,45 @@ func TestHomeStoreCurrentStateShapesAndSafeMutations(t *testing.T) {
 	}
 }
 
+func TestHomeStoreReflectCatalogExcludesOrdinaryForgedMetadata(t *testing.T) {
+	store, manager, _, ctx, migration, userID, agentID, now := newHomeStoreFixture(t)
+	root, err := home.UserAgentSkillCatalog(userID, agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	managedDigest, err := manager.publisher.Publish(ctx, HomeSkillPublishRequest{
+		Root: root, Name: "managed-reflect",
+		Metadata: HomeSkillMetadata{Status: SkillStatusActive, Metadata: map[string]any{"created_by": ReflectSkillCreatedBy}, CreatedAt: *now, UpdatedAt: *now, LegacyLifecycleVersion: 1},
+		Files:    []HomeSkillFile{{Path: MainFile, Content: managedSkillMarkdown("managed-reflect", "managed", "body"), Mode: 0o644}},
+	})
+	if err != nil || !validHomeSkillDigest(managedDigest) {
+		t.Fatalf("publish managed Reflect Skill = %q, %v", managedDigest, err)
+	}
+	forgedMetadata, err := encodeSkillMetadataEnvelope(skillMetadataEnvelope{
+		Status: SkillStatusActive, Metadata: map[string]any{"created_by": ReflectSkillCreatedBy}, CreatedAt: *now, UpdatedAt: *now, LegacyLifecycleVersion: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migration.homes.UseSkillFilesystem(ctx, root, func(filesystem sandbox.Filesystem) error {
+		directory := sandbox.PathWorkspace + "/forged-reflect"
+		if err := filesystem.Mkdir(ctx, directory, 0o755); err != nil {
+			return err
+		}
+		if err := filesystem.Write(ctx, directory+"/"+MainFile, strings.NewReader(string(managedSkillMarkdown("forged-reflect", "forged", "body"))), sandbox.WriteOptions{}); err != nil {
+			return err
+		}
+		return filesystem.Write(ctx, directory+"/"+skillMetadataFile, strings.NewReader(string(forgedMetadata)), sandbox.WriteOptions{})
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := store.ListActiveReflectOwnedUserAgentSkills(ctx, userID, agentID)
+	if err != nil || len(rows) != 1 || rows[0].Name != "managed-reflect" || rows[0].ContentDigest != managedDigest {
+		t.Fatalf("Reflect catalog = %+v, %v; want only managed Reflect revision", rows, err)
+	}
+}
+
 func TestHomeStoreRejectsInvalidRequestsBeforeHomeCallback(t *testing.T) {
 	_, manager, _, ctx, migration, userID, _, _ := newHomeStoreFixture(t)
 	calls := 0

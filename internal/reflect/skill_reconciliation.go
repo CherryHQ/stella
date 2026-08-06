@@ -25,6 +25,7 @@ type skillRelatedBundle struct {
 
 type skillRelatedRecord struct {
 	Skill           pkgplugins.Skill `json:"skill"`
+	ContentDigest   string           `json:"content_digest,omitempty"`
 	MainFileContent string           `json:"main_file_content"`
 }
 
@@ -33,15 +34,18 @@ type skillReconciliationPlan struct {
 }
 
 type skillWriteOperation struct {
-	Operation            skillWritePlanOperation `json:"operation"`
-	CandidateRefs        []CandidateRef          `json:"candidate_refs,omitempty"`
-	CoveredCandidateRefs []CandidateRef          `json:"covered_candidate_refs,omitempty"`
-	TargetSkillID        string                  `json:"target_skill_id,omitempty"`
-	ExpectedSkillVersion int64                   `json:"expected_skill_version,omitempty"`
-	Name                 string                  `json:"name,omitempty"`
-	Description          string                  `json:"description,omitempty"`
-	MainFileContent      string                  `json:"main_file_content,omitempty"`
-	Rationale            string                  `json:"rationale,omitempty"`
+	Operation             skillWritePlanOperation `json:"operation"`
+	CandidateRefs         []CandidateRef          `json:"candidate_refs,omitempty"`
+	CoveredCandidateRefs  []CandidateRef          `json:"covered_candidate_refs,omitempty"`
+	TargetSkillID         string                  `json:"target_skill_id,omitempty"`
+	ExpectedContentDigest string                  `json:"expected_content_digest,omitempty"`
+	// ExpectedSkillVersion keeps the legacy PostgreSQL writer compiling until
+	// Home authority is composed. Home records never consult this field.
+	ExpectedSkillVersion int64  `json:"expected_skill_version,omitempty"`
+	Name                 string `json:"name,omitempty"`
+	Description          string `json:"description,omitempty"`
+	MainFileContent      string `json:"main_file_content,omitempty"`
+	Rationale            string `json:"rationale,omitempty"`
 }
 
 func validateSkillReconciliationPlan(bundle skillRelatedBundle, plan skillReconciliationPlan) error {
@@ -60,11 +64,11 @@ func validateSkillReconciliationPlan(bundle skillRelatedBundle, plan skillReconc
 		}
 		switch op.Operation {
 		case skillOperationNoop:
-			if op.TargetSkillID != "" || op.Name != "" || op.Description != "" || op.MainFileContent != "" {
+			if op.TargetSkillID != "" || op.ExpectedContentDigest != "" || op.ExpectedSkillVersion != 0 || op.Name != "" || op.Description != "" || op.MainFileContent != "" {
 				return fmt.Errorf("skill reconciliation: noop cannot write")
 			}
 		case skillOperationCreate:
-			if op.TargetSkillID != "" {
+			if op.TargetSkillID != "" || op.ExpectedContentDigest != "" || op.ExpectedSkillVersion != 0 {
 				return fmt.Errorf("skill reconciliation: create_skill cannot target an existing skill")
 			}
 			if strings.TrimSpace(op.Name) == "" || strings.TrimSpace(op.Description) == "" || strings.TrimSpace(op.MainFileContent) == "" {
@@ -78,7 +82,11 @@ func validateSkillReconciliationPlan(bundle skillRelatedBundle, plan skillReconc
 			if !isReflectOwnedActiveUserAgentSkill(record.Skill) {
 				return fmt.Errorf("skill reconciliation: patch target %q is not active reflect-owned user_agent", op.TargetSkillID)
 			}
-			if op.ExpectedSkillVersion <= 0 || op.ExpectedSkillVersion != record.Skill.Version {
+			if record.ContentDigest != "" {
+				if !validSkillContentDigest(record.ContentDigest) || op.ExpectedContentDigest != record.ContentDigest || op.ExpectedSkillVersion != 0 {
+					return fmt.Errorf("skill reconciliation: stale expected content digest for %q", op.TargetSkillID)
+				}
+			} else if op.ExpectedContentDigest != "" || op.ExpectedSkillVersion <= 0 || op.ExpectedSkillVersion != record.Skill.Version {
 				return fmt.Errorf("skill reconciliation: stale expected version for %q", op.TargetSkillID)
 			}
 			if strings.TrimSpace(op.MainFileContent) == "" {
@@ -92,6 +100,18 @@ func validateSkillReconciliationPlan(bundle skillRelatedBundle, plan skillReconc
 		}
 	}
 	return coverage.requireComplete()
+}
+
+func validSkillContentDigest(digest string) bool {
+	if len(digest) != 64 {
+		return false
+	}
+	for _, c := range digest {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func skillPatchHasMaterialChange(record skillRelatedRecord, op skillWriteOperation) bool {

@@ -93,11 +93,12 @@ type factProvenanceRelatedRecord struct {
 }
 
 type skillProvenanceRelatedRecord struct {
-	CandidateRef CandidateRef      `json:"candidate_ref"`
-	SkillID      string            `json:"skill_id"`
-	Version      int64             `json:"version"`
-	Relation     skillRelationKind `json:"relation"`
-	Reason       string            `json:"reason,omitempty"`
+	CandidateRef  CandidateRef      `json:"candidate_ref"`
+	SkillID       string            `json:"skill_id"`
+	ContentDigest string            `json:"content_digest,omitempty"`
+	Version       int64             `json:"version,omitempty"`
+	Relation      skillRelationKind `json:"relation"`
+	Reason        string            `json:"reason,omitempty"`
 }
 
 type factProvenanceReconciliation struct {
@@ -109,16 +110,17 @@ type factProvenanceReconciliation struct {
 }
 
 type skillProvenanceReconciliation struct {
-	Operation            string         `json:"operation"`
-	CandidateRefs        []CandidateRef `json:"candidate_refs,omitempty"`
-	CoveredCandidateRefs []CandidateRef `json:"covered_candidate_refs,omitempty"`
-	TargetSkillID        string         `json:"target_skill_id,omitempty"`
-	ExpectedSkillVersion int64          `json:"expected_skill_version,omitempty"`
-	Name                 string         `json:"name,omitempty"`
-	Description          string         `json:"description,omitempty"`
-	MainFileSHA256       string         `json:"main_file_sha256"`
-	MainFileBytes        int            `json:"main_file_bytes"`
-	Rationale            string         `json:"rationale"`
+	Operation             string         `json:"operation"`
+	CandidateRefs         []CandidateRef `json:"candidate_refs,omitempty"`
+	CoveredCandidateRefs  []CandidateRef `json:"covered_candidate_refs,omitempty"`
+	TargetSkillID         string         `json:"target_skill_id,omitempty"`
+	ExpectedContentDigest string         `json:"expected_content_digest,omitempty"`
+	ExpectedSkillVersion  int64          `json:"expected_skill_version,omitempty"`
+	Name                  string         `json:"name,omitempty"`
+	Description           string         `json:"description,omitempty"`
+	MainFileSHA256        string         `json:"main_file_sha256"`
+	MainFileBytes         int            `json:"main_file_bytes"`
+	Rationale             string         `json:"rationale"`
 }
 
 type reflectProvenanceMetadata[T any] struct {
@@ -234,16 +236,17 @@ func buildSkillOperationProvenance(input skillProvenanceInput, bundle skillRelat
 		Evaluations:             evaluations,
 		RelatedRecords:          related,
 		Reconciliation: skillProvenanceReconciliation{
-			Operation:            string(operation.Operation),
-			CandidateRefs:        append([]CandidateRef(nil), operation.CandidateRefs...),
-			CoveredCandidateRefs: append([]CandidateRef(nil), operation.CoveredCandidateRefs...),
-			TargetSkillID:        operation.TargetSkillID,
-			ExpectedSkillVersion: operation.ExpectedSkillVersion,
-			Name:                 operation.Name,
-			Description:          operation.Description,
-			MainFileSHA256:       fmt.Sprintf("%x", contentHash),
-			MainFileBytes:        len([]byte(operation.MainFileContent)),
-			Rationale:            operation.Rationale,
+			Operation:             string(operation.Operation),
+			CandidateRefs:         append([]CandidateRef(nil), operation.CandidateRefs...),
+			CoveredCandidateRefs:  append([]CandidateRef(nil), operation.CoveredCandidateRefs...),
+			TargetSkillID:         operation.TargetSkillID,
+			ExpectedContentDigest: operation.ExpectedContentDigest,
+			ExpectedSkillVersion:  operation.ExpectedSkillVersion,
+			Name:                  operation.Name,
+			Description:           operation.Description,
+			MainFileSHA256:        fmt.Sprintf("%x", contentHash),
+			MainFileBytes:         len([]byte(operation.MainFileContent)),
+			Rationale:             operation.Rationale,
 		},
 	})
 }
@@ -380,11 +383,12 @@ func projectSkillProvenanceRelatedRecords(bundle skillRelatedBundle, selectedRef
 				return nil, fmt.Errorf("reflect provenance: related skill %q is missing from bundle", hint.SkillID)
 			}
 			out = append(out, skillProvenanceRelatedRecord{
-				CandidateRef: selection.CandidateRef,
-				SkillID:      hint.SkillID,
-				Version:      record.Skill.Version,
-				Relation:     hint.Relation,
-				Reason:       selection.Reason,
+				CandidateRef:  selection.CandidateRef,
+				SkillID:       hint.SkillID,
+				ContentDigest: record.ContentDigest,
+				Version:       record.Skill.Version,
+				Relation:      hint.Relation,
+				Reason:        selection.Reason,
 			})
 		}
 	}

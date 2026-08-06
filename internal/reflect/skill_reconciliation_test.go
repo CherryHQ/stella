@@ -1,6 +1,7 @@
 package reflect
 
 import (
+	"strings"
 	"testing"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
@@ -12,12 +13,14 @@ func TestValidateSkillReconciliationPlanAcceptsCreateAndPatch(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{first, second},
 		RelatedRecords: []skillRelatedRecord{{
+			ContentDigest: strings.Repeat("a", 64),
 			Skill: pkgplugins.Skill{
-				ID:       "old-skill",
-				Scope:    "user_agent",
-				Status:   "active",
-				Version:  3,
-				Metadata: []byte(`{"created_by":"reflect"}`),
+				ID:            "old-skill",
+				Scope:         "user_agent",
+				Status:        "active",
+				ContentDigest: strings.Repeat("a", 64),
+				Version:       3,
+				Metadata:      []byte(`{"created_by":"reflect"}`),
 			},
 			MainFileContent: "# Old skill\n",
 		}},
@@ -31,12 +34,12 @@ func TestValidateSkillReconciliationPlanAcceptsCreateAndPatch(t *testing.T) {
 			MainFileContent: "# New reflect skill\n",
 		},
 		{
-			Operation:            skillOperationPatch,
-			CandidateRefs:        []CandidateRef{"skill-0002"},
-			TargetSkillID:        "old-skill",
-			ExpectedSkillVersion: 3,
-			Description:          "Updated reusable reflect workflow.",
-			MainFileContent:      "# Updated skill\n",
+			Operation:             skillOperationPatch,
+			CandidateRefs:         []CandidateRef{"skill-0002"},
+			TargetSkillID:         "old-skill",
+			ExpectedContentDigest: strings.Repeat("a", 64),
+			Description:           "Updated reusable reflect workflow.",
+			MainFileContent:       "# Updated skill\n",
 		},
 	}}
 
@@ -60,19 +63,20 @@ func TestValidateSkillReconciliationPlanRejectsPatchTargetOutsideBundle(t *testi
 	}
 }
 
-func TestValidateSkillReconciliationPlanRejectsVersionMismatch(t *testing.T) {
+func TestValidateSkillReconciliationPlanRejectsDigestMismatch(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{validSkillCandidate("skill-0001")},
 		RelatedRecords: []skillRelatedRecord{{
-			Skill: pkgplugins.Skill{ID: "old-skill", Scope: "user_agent", Status: "active", Version: 3, Metadata: []byte(`{"created_by":"reflect"}`)},
+			ContentDigest: strings.Repeat("a", 64),
+			Skill:         pkgplugins.Skill{ID: "old-skill", Scope: "user_agent", Status: "active", ContentDigest: strings.Repeat("a", 64), Version: 3, Metadata: []byte(`{"created_by":"reflect"}`)},
 		}},
 	}
 	plan := skillReconciliationPlan{Operations: []skillWriteOperation{{
-		Operation:            skillOperationPatch,
-		CandidateRefs:        []CandidateRef{"skill-0001"},
-		TargetSkillID:        "old-skill",
-		ExpectedSkillVersion: 2,
-		MainFileContent:      "# Updated skill\n",
+		Operation:             skillOperationPatch,
+		CandidateRefs:         []CandidateRef{"skill-0001"},
+		TargetSkillID:         "old-skill",
+		ExpectedContentDigest: strings.Repeat("b", 64),
+		MainFileContent:       "# Updated skill\n",
 	}}}
 
 	if err := validateSkillReconciliationPlan(bundle, plan); err == nil {

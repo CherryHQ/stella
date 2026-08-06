@@ -2,9 +2,12 @@ package reflect
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +26,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestUsageCuratorSettingsDefaultArmed(t *testing.T) {
@@ -38,7 +42,7 @@ func TestUsageCuratorShadowReportsWithoutWriting(t *testing.T) {
 			FactID: "fact-1", UserID: "user-1", AgentID: "agent-1",
 		}},
 		skill: []usageCuratorSkillCandidate{{
-			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", Version: 3, Rule: usageCuratorSkillRuleLowUse,
+			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", LegacyExpectedVersion: 3, Rule: usageCuratorSkillRuleLowUse,
 		}},
 	}
 	factWriter := &fakeUsageCuratorFactWriter{}
@@ -109,7 +113,7 @@ func TestUsageCuratorArmedDeprecatesKnowledgeAndDeletesSkills(t *testing.T) {
 			{FactID: "fact-2", UserID: "user-1", AgentID: "agent-1"},
 		},
 		skill: []usageCuratorSkillCandidate{{
-			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", Version: 3, UseCount: 2, Rule: usageCuratorSkillRuleLowUse,
+			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", LegacyExpectedVersion: 3, UseCount: 2, Rule: usageCuratorSkillRuleLowUse,
 		}},
 	}
 	factWriter := &fakeUsageCuratorFactWriter{}
@@ -150,7 +154,7 @@ func TestUsageCuratorArmedDeprecatesKnowledgeAndDeletesSkills(t *testing.T) {
 		t.Fatalf("skill writes = %#v, want one", skillWriter.inputs)
 	}
 	if got := skillWriter.inputs[0]; got.ID != "skill-1" || got.ExpectedVersion != 3 {
-		t.Fatalf("skill delete input = %#v, want skill-1 v3", got)
+		t.Fatalf("skill delete input = %#v, want skill-1 legacy v3", got)
 	}
 }
 
@@ -493,13 +497,13 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 	}
 
 	deleted, err := deleteCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
-		SkillID:    created.ID,
-		UserID:     userID,
-		AgentID:    agentID,
-		Version:    created.Version,
-		UseCount:   2,
-		LastUsedAt: selectedLastUsed,
-		Rule:       usageCuratorSkillRuleLowUse,
+		SkillID:               created.ID,
+		UserID:                userID,
+		AgentID:               agentID,
+		LegacyExpectedVersion: created.Version,
+		UseCount:              2,
+		LastUsedAt:            selectedLastUsed,
+		Rule:                  usageCuratorSkillRuleLowUse,
 	}})
 	if err != nil {
 		t.Fatalf("deleteCuratorSkills: %v", err)
@@ -545,7 +549,7 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 	}
 
 	deleted, err := deleteCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
-		SkillID: created.ID, UserID: userID, AgentID: agentID, Version: created.Version,
+		SkillID: created.ID, UserID: userID, AgentID: agentID, LegacyExpectedVersion: created.Version,
 		UseCount: 2, LastUsedAt: lastUsed, PairLatestActivityAt: activityAt,
 		Rule: usageCuratorSkillRuleLowUse,
 	}})
@@ -691,6 +695,97 @@ func TestSQLUsageCuratorStoreListsOnlyStaleReflectRecordsWithActivity(t *testing
 	if len(skillCandidates) != 0 {
 		t.Fatalf("skill candidates = %#v, internal activity must not satisfy gate", skillCandidates)
 	}
+}
+
+func TestHomeUsageCuratorStoreListsLogicalCandidatesWithoutSkillRows(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	userID, agentID := seedUsageCuratorDB(t, ctx, db)
+	usage, err := skills.NewHomeSkillUsageStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewHomeUsageCuratorStore(q, usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := fixedUsageCuratorNow()
+	digest := strings.Repeat("a", 64)
+	identity := skills.HomeSkillUsageIdentity{
+		ID: homeUsageCuratorSkillID(userID, agentID, "home-curator"), UserID: userID, AgentID: agentID,
+		Name: "home-curator", LastContentDigest: digest,
+	}
+	if changed, err := usage.InitializeReflectCreate(ctx, identity); err != nil || !changed {
+		t.Fatalf("InitializeReflectCreate = (%v, %v)", changed, err)
+	}
+	lastUsed := now.Add(-72 * time.Hour)
+	if _, err := db.Exec(ctx, `UPDATE skill_usage SET use_count = 1, last_used_at = $1 WHERE skill_id = $2`, lastUsed, identity.ID); err != nil {
+		t.Fatal(err)
+	}
+	activity := now.Add(-time.Hour)
+	seedEligibleCuratorActivity(t, ctx, db, userID, agentID, activity)
+	var legacyRows int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM skill WHERE id = $1`, identity.ID).Scan(&legacyRows); err != nil || legacyRows != 0 {
+		t.Fatalf("Home candidate has legacy current state rows = %d, %v", legacyRows, err)
+	}
+
+	candidates, err := store.ListStaleReflectSkills(ctx, usageCuratorSkillQuery{
+		UserID: userID, AgentID: agentID, StaleBefore: now.Add(-60 * time.Hour), LowUseBefore: now.Add(-20 * time.Hour), LowUseMaxUseCount: 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].SkillID != identity.ID || candidates[0].ContentDigest != digest || candidates[0].LegacyExpectedVersion != 0 || !candidates[0].PairLatestActivityAt.Equal(activity) {
+		t.Fatalf("Home candidates = %#v", candidates)
+	}
+
+	writer := &fakeUsageCuratorSkillWriter{}
+	deleted, err := deleteCuratorSkills(ctx, writer, &stubSkillAuthorizer{}, candidates)
+	if err != nil || deleted != 1 || len(writer.inputs) != 1 {
+		t.Fatalf("delete Home candidate = (%d, %v), inputs=%#v", deleted, err, writer.inputs)
+	}
+	if got := writer.inputs[0]; got.ID != identity.ID || got.ExpectedDigest != digest || got.ExpectedVersion != 0 || !got.ExpectedUsageLastUsedAt.Equal(lastUsed) || !got.ExpectedPairLatestActivityAt.Equal(activity) {
+		t.Fatalf("Home delete CAS = %#v", got)
+	}
+}
+
+func TestDeleteCuratorHomeSkillsFailsClosedAndDoesNotRetryUnknownOutcome(t *testing.T) {
+	base := usageCuratorSkillCandidate{
+		SkillID: "skill-v2-valid", UserID: "user", AgentID: "agent", ContentDigest: strings.Repeat("a", 64),
+		LastUsedAt: fixedUsageCuratorNow().Add(-time.Hour), PairLatestActivityAt: fixedUsageCuratorNow(), Rule: usageCuratorSkillRuleUnused,
+	}
+	for _, tt := range []struct {
+		name        string
+		candidate   usageCuratorSkillCandidate
+		writerError error
+		wantDeleted int
+		wantError   bool
+	}{
+		{name: "exact candidate deletes once", candidate: base, wantDeleted: 1},
+		{name: "absent retry is ignored", candidate: base, writerError: skills.ErrSkillUsageChanged},
+		{name: "malformed digest fails closed", candidate: func() usageCuratorSkillCandidate { c := base; c.ContentDigest = "BAD"; return c }(), wantError: true},
+		{name: "outcome unknown is not retried", candidate: base, writerError: sandbox.ErrOutcomeUnknown, wantError: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			writer := &fakeUsageCuratorSkillWriter{err: tt.writerError}
+			deleted, err := deleteCuratorSkills(context.Background(), writer, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{tt.candidate})
+			if deleted != tt.wantDeleted || (err != nil) != tt.wantError {
+				t.Fatalf("delete = (%d, %v), want (%d, error=%v)", deleted, err, tt.wantDeleted, tt.wantError)
+			}
+			if tt.name == "malformed digest fails closed" && len(writer.inputs) != 0 {
+				t.Fatalf("malformed candidate reached writer: %#v", writer.inputs)
+			}
+			if tt.name == "outcome unknown is not retried" && len(writer.inputs) != 1 {
+				t.Fatalf("outcome-unknown calls = %d, want 1", len(writer.inputs))
+			}
+		})
+	}
+}
+
+func homeUsageCuratorSkillID(userID, agentID, name string) string {
+	payload := fmt.Sprintf("10:user_agent%d:%s%d:%s%d:%s", len(userID), userID, len(agentID), agentID, len(name), name)
+	return "skill-v2-" + base64.RawURLEncoding.EncodeToString([]byte(payload))
 }
 
 func TestSQLRecentlyForgottenStoreListsRestorableKnowledgeCandidates(t *testing.T) {
@@ -911,9 +1006,13 @@ func (p *fakeUsageCuratorMemoryProvider) Close() error { return nil }
 
 type fakeUsageCuratorSkillWriter struct {
 	inputs []skills.ReflectSkillDelete
+	err    error
 }
 
 func (w *fakeUsageCuratorSkillWriter) DeleteReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillDelete) (skills.Skill, error) {
 	w.inputs = append(w.inputs, in)
+	if w.err != nil {
+		return skills.Skill{}, w.err
+	}
 	return skills.Skill{ID: in.ID, Status: skills.SkillStatusActive}, nil
 }

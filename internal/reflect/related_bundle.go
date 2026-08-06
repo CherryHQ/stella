@@ -55,13 +55,14 @@ type factCatalogItem struct {
 }
 
 type skillCatalogItem struct {
-	ID          string           `json:"id"`
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	Scope       string           `json:"scope"`
-	UpdatedAt   time.Time        `json:"updated_at"`
-	Version     int64            `json:"version"`
-	Record      pkgplugins.Skill `json:"-"`
+	ID            string           `json:"id"`
+	Name          string           `json:"name"`
+	Description   string           `json:"description"`
+	Scope         string           `json:"scope"`
+	UpdatedAt     time.Time        `json:"updated_at"`
+	ContentDigest string           `json:"content_digest,omitempty"`
+	Version       int64            `json:"version"`
+	Record        pkgplugins.Skill `json:"-"`
 }
 
 // reflectSkillCatalogStore is intentionally narrower than the plugin-facing
@@ -209,13 +210,14 @@ func buildSkillRelatedCatalog(ctx context.Context, store reflectSkillCatalogStor
 	catalog := make([]skillCatalogItem, 0, len(rows))
 	for _, skill := range rows {
 		catalog = append(catalog, skillCatalogItem{
-			ID:          skill.ID,
-			Name:        skill.Name,
-			Description: skill.Description,
-			Scope:       skill.Scope,
-			UpdatedAt:   skill.UpdatedAt,
-			Version:     skill.Version,
-			Record:      skill,
+			ID:            skill.ID,
+			Name:          skill.Name,
+			Description:   skill.Description,
+			Scope:         skill.Scope,
+			UpdatedAt:     skill.UpdatedAt,
+			ContentDigest: skill.ContentDigest,
+			Version:       skill.Version,
+			Record:        skill,
 		})
 	}
 	return catalog, nil
@@ -253,6 +255,7 @@ func buildSkillRelatedBundle(ctx context.Context, store skillRelatedBundleStore,
 			}
 			bundle.RelatedRecords = append(bundle.RelatedRecords, skillRelatedRecord{
 				Skill:           item.Record,
+				ContentDigest:   item.ContentDigest,
 				MainFileContent: content,
 			})
 			seen[hint.SkillID] = struct{}{}

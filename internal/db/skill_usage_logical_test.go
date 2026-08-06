@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -121,7 +122,8 @@ func seedSkillUsageOwners(t *testing.T, ctx context.Context, db interface {
 }
 
 func canonicalUsageHomeID(userID, agentID, name string) string {
-	return fmt.Sprintf("skill/v1/10:user_agent%d:%s%d:%s%d:%s", len(userID), userID, len(agentID), agentID, len(name), name)
+	payload := fmt.Sprintf("10:user_agent%d:%s%d:%s%d:%s", len(userID), userID, len(agentID), agentID, len(name), name)
+	return "skill-v2-" + base64.RawURLEncoding.EncodeToString([]byte(payload))
 }
 
 func assertSkillUsageConstraint(t *testing.T, err error, want string) {

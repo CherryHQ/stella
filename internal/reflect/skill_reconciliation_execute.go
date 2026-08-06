@@ -79,6 +79,7 @@ func executeSkillReconciliationPlan(
 				ID:                op.TargetSkillID,
 				UserID:            userID,
 				AgentID:           agentID,
+				ExpectedDigest:    op.ExpectedContentDigest,
 				ExpectedVersion:   op.ExpectedSkillVersion,
 				MainFileContent:   &mainFile,
 				ChangelogMetadata: changelogMetadata,
