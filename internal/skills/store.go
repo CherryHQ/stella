@@ -22,6 +22,9 @@ type Skill struct {
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	Version                int64
+	// ContentDigest is the canonical Home-managed content revision. PostgreSQL-backed
+	// rows deliberately leave it empty because PostgreSQL is not content authority.
+	ContentDigest string
 }
 
 // SkillSnapshot is the committed representation returned by an atomic Skill

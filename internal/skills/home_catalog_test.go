@@ -113,7 +113,7 @@ func TestHomeCatalogPrecedenceDisabledAndDeprecated(t *testing.T) {
 			disabled = item
 		}
 	}
-	if disabled.Digest == "" || !disabled.Managed || disabled.Skill.Version != 1 || string(disabled.Skill.Metadata) != `{"created_by":"manual"}` {
+	if disabled.Digest == "" || disabled.Skill.ContentDigest != disabled.Digest || !disabled.Managed || disabled.Skill.Version != 1 || string(disabled.Skill.Metadata) != `{"created_by":"manual"}` {
 		t.Fatalf("descriptor lost metadata: %+v", disabled)
 	}
 }

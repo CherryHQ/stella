@@ -30,8 +30,9 @@ type HomeCatalogRoot struct {
 	Scope, UserID, AgentID string
 }
 
-// HomeCatalogSkill keeps the content digest separate from legacy Version,
-// which remains lifecycle metadata for compatibility with legacy consumers.
+// HomeCatalogSkill keeps Digest for source compatibility with catalog callers
+// that predate Skill.ContentDigest. For managed results they are always equal;
+// Version remains independent legacy lifecycle metadata.
 type HomeCatalogSkill struct {
 	Skill   Skill
 	Digest  string
@@ -304,7 +305,13 @@ func applicableHomeCatalogRoot(root HomeCatalogRoot) bool {
 }
 
 func homeCatalogSkill(d FilesystemSkillDescriptor) HomeCatalogSkill {
-	return HomeCatalogSkill{Skill: Skill{ID: d.Skill.ID, Scope: d.Skill.Scope, UserID: d.Skill.UserID, AgentID: d.Skill.AgentID, Name: d.Skill.Name, Description: d.Skill.Description, Status: d.Skill.Status, DisableModelInvocation: d.Skill.DisableModelInvocation, Metadata: d.Skill.Metadata, CreatedAt: d.Skill.CreatedAt, UpdatedAt: d.Skill.UpdatedAt, Version: d.Skill.Version}, Digest: d.Digest, Managed: d.Managed}
+	contentDigest := d.Skill.ContentDigest
+	if d.Managed {
+		// Keep the compatibility field and the canonical read model pinned to the
+		// same descriptor digest; callers must never observe two revisions here.
+		contentDigest = d.Digest
+	}
+	return HomeCatalogSkill{Skill: Skill{ID: d.Skill.ID, Scope: d.Skill.Scope, UserID: d.Skill.UserID, AgentID: d.Skill.AgentID, Name: d.Skill.Name, Description: d.Skill.Description, Status: d.Skill.Status, DisableModelInvocation: d.Skill.DisableModelInvocation, Metadata: d.Skill.Metadata, CreatedAt: d.Skill.CreatedAt, UpdatedAt: d.Skill.UpdatedAt, Version: d.Skill.Version, ContentDigest: contentDigest}, Digest: d.Digest, Managed: d.Managed}
 }
 
 func catalogTreeFiles(ctx context.Context, filesystem sandbox.Filesystem, root string, includeControl bool) ([]string, error) {

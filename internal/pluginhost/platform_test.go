@@ -17,6 +17,20 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
+func TestSkillStoreAdapterPreservesContentDigest(t *testing.T) {
+	const digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	pluginSkill := skillToPlugin(skills.Skill{ID: "home-skill", Version: 7, ContentDigest: digest})
+	if pluginSkill.ContentDigest != digest || pluginSkill.Version != 7 {
+		t.Fatalf("skillToPlugin = %+v, want digest %q and unchanged lifecycle version", pluginSkill, digest)
+	}
+
+	internalSkill := skillFromPlugin(pluginSkill)
+	if internalSkill.ContentDigest != digest || internalSkill.Version != 7 {
+		t.Fatalf("skillFromPlugin = %+v, want digest %q and unchanged lifecycle version", internalSkill, digest)
+	}
+}
+
 func TestSkillStoreAdapterTouchesReflectSkillUsage(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)

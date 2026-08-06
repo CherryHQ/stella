@@ -250,6 +250,7 @@ func dbSkillToPluginSkill(sk skills.Skill) pkgplugins.Skill {
 		Name: sk.Name, Description: sk.Description,
 		DisableModelInvocation: sk.DisableModelInvocation, Metadata: sk.Metadata,
 		CreatedAt: sk.CreatedAt, UpdatedAt: sk.UpdatedAt, Version: sk.Version,
+		ContentDigest: sk.ContentDigest,
 	}
 }
 

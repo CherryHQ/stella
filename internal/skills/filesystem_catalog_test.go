@@ -43,14 +43,20 @@ func TestSnapshotFilesystemCatalogOrdinaryManagedAndPinned(t *testing.T) {
 	if strings.Contains(fmt.Sprintf("%+v", snapshot), "private") {
 		t.Fatal("attachment locator leaked into catalog descriptor")
 	}
-	var managed FilesystemSkillDescriptor
+	var managed, ordinary FilesystemSkillDescriptor
 	for _, descriptor := range snapshot.Active {
-		if descriptor.Skill.Name == "managed" {
+		switch descriptor.Skill.Name {
+		case "managed":
 			managed = descriptor
+		case "ordinary":
+			ordinary = descriptor
 		}
 	}
-	if managed.Digest != digestA || managed.RevisionPath != "/workspace/.stella-revisions/managed/"+digestA {
+	if managed.Digest != digestA || managed.Skill.ContentDigest != digestA || managed.RevisionPath != "/workspace/.stella-revisions/managed/"+digestA || managed.Skill.Version != 1 {
 		t.Fatalf("managed descriptor = %+v", managed)
+	}
+	if ordinary.Skill.ContentDigest != "" {
+		t.Fatalf("ordinary content digest = %q, want empty", ordinary.Skill.ContentDigest)
 	}
 	if err := r.SwapManagedSkillTarget(context.Background(), "managed", digestB); err != nil {
 		t.Fatal(err)

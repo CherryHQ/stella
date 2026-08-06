@@ -178,8 +178,12 @@ func snapshotFilesystemSkill(ctx context.Context, filesystem sandbox.Filesystem,
 	if err != nil {
 		return FilesystemSkillDescriptor{}, false, err
 	}
+	contentDigest := ""
+	if managed {
+		contentDigest = target.Digest
+	}
 	descriptor := FilesystemSkillDescriptor{
-		Skill:        pkgplugins.Skill{ID: logicalID, Scope: scope.scope, UserID: scope.userID, AgentID: scope.agentID, Name: name, Description: frontmatter.Description, Status: envelope.Status, DisableModelInvocation: envelope.DisableModelInvocation, Metadata: pluginMetadata, CreatedAt: envelope.CreatedAt, UpdatedAt: envelope.UpdatedAt, Version: envelope.LegacyLifecycleVersion},
+		Skill:        pkgplugins.Skill{ID: logicalID, Scope: scope.scope, UserID: scope.userID, AgentID: scope.agentID, Name: name, Description: frontmatter.Description, Status: envelope.Status, DisableModelInvocation: envelope.DisableModelInvocation, Metadata: pluginMetadata, CreatedAt: envelope.CreatedAt, UpdatedAt: envelope.UpdatedAt, Version: envelope.LegacyLifecycleVersion, ContentDigest: contentDigest},
 		RevisionPath: directory, Digest: target.Digest, Managed: managed,
 	}
 	return descriptor, envelope.Status == SkillStatusDeprecated, nil

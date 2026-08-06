@@ -168,6 +168,7 @@ func skillToPlugin(r skills.Skill) pkgplugins.Skill {
 		CreatedAt:              r.CreatedAt,
 		UpdatedAt:              r.UpdatedAt,
 		Version:                r.Version,
+		ContentDigest:          r.ContentDigest,
 	}
 }
 
@@ -185,6 +186,7 @@ func skillFromPlugin(s pkgplugins.Skill) skills.Skill {
 		CreatedAt:              s.CreatedAt,
 		UpdatedAt:              s.UpdatedAt,
 		Version:                s.Version,
+		ContentDigest:          s.ContentDigest,
 	}
 }
 

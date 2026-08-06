@@ -22,6 +22,9 @@ type Skill struct {
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	Version                int64
+	// ContentDigest identifies the exact canonical Home-managed content revision.
+	// It is empty when the plugin-facing Skill does not come from a Home catalog.
+	ContentDigest string
 }
 
 // SkillViewContext describes who is asking and from where.

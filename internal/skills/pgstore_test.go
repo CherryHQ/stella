@@ -16,9 +16,17 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
+
+func TestMapRowLeavesContentDigestEmpty(t *testing.T) {
+	got := mapRow(sqlc.Skill{ID: "pg-skill", Version: 7})
+	if got.ContentDigest != "" || got.Version != 7 {
+		t.Fatalf("mapRow = %+v, want empty content digest and unchanged lifecycle version", got)
+	}
+}
 
 // newTestStore opens a fresh isolated PostgreSQL DB and returns a Store plus a context.
 func newTestStore(t *testing.T) (*PGStore, *pgxpool.Pool, context.Context) {
