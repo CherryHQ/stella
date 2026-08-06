@@ -5,6 +5,7 @@ import "github.com/CherryHQ/stella/pkg/ai"
 const (
 	toolSubmitGroupFactGeneration  = "submit_group_fact_generation"
 	toolSubmitGroupFactEvaluations = "submit_group_fact_evaluations"
+	toolSubmitGroupReconciliation  = "submit_group_fact_reconciliation"
 )
 
 func groupFactGenerationTools(candidateCap int) []ai.ToolDefinition {
@@ -34,6 +35,31 @@ func groupFactEvaluationTools() []ai.ToolDefinition {
 			[]string{"evaluations"},
 			map[string]any{
 				"evaluations": groupArraySchema(groupFactEvaluationSchema()),
+			},
+		),
+	}}
+}
+
+func groupFactReconciliationTools() []ai.ToolDefinition {
+	return []ai.ToolDefinition{{
+		Name:        toolSubmitGroupReconciliation,
+		Description: "Submit the complete Group Fact reconciliation plan.",
+		InputSchema: groupObjectSchema(
+			[]string{"operations"},
+			map[string]any{
+				"operations": groupArraySchema(groupObjectSchema(
+					[]string{"operation", "candidate_refs", "target_fact_ids", "rationale"},
+					map[string]any{
+						"operation": map[string]any{
+							"type": "string",
+							"enum": []string{"noop", "create", "replace_many", "deprecate_many"},
+						},
+						"candidate_refs":  groupArraySchema(map[string]any{"type": "string"}),
+						"target_fact_ids": groupArraySchema(map[string]any{"type": "string"}),
+						"new_content":     map[string]any{"type": "string"},
+						"rationale":       map[string]any{"type": "string"},
+					},
+				)),
 			},
 		),
 	}}
