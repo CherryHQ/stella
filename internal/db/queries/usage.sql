@@ -157,6 +157,27 @@ WHERE user_id = sqlc.arg(user_id)::uuid
   AND last_content_digest = sqlc.arg(last_content_digest)
   AND last_used_at = sqlc.arg(expected_last_used_at);
 
+-- DeleteLogicalReflectSkillUsageForCurator removes exactly the logical usage
+-- fact and pair-activity maximum a Home curator inspected. It deliberately
+-- has no Skill join: Home is the current-state authority.
+-- name: DeleteLogicalReflectSkillUsageForCurator :execrows
+DELETE FROM skill_usage su
+WHERE su.user_id = sqlc.arg(user_id)::uuid
+  AND su.agent_id = sqlc.arg(agent_id)
+  AND su.scope = 'user_agent'
+  AND su.name = sqlc.arg(name)
+  AND su.last_content_digest = sqlc.arg(last_content_digest)
+  AND su.last_used_at = sqlc.arg(expected_last_used_at)
+  AND sqlc.arg(expected_pair_latest_activity_at) > su.last_used_at
+  AND (
+    SELECT MAX(c.last_active)::timestamptz
+    FROM ctx_conversation c
+    WHERE c.user_id = su.user_id::text
+      AND c.agent_id = su.agent_id
+      AND c.archived = false
+      AND c.kind NOT IN ('task', 'delegate', 'scheduler')
+  ) = sqlc.arg(expected_pair_latest_activity_at);
+
 -- The activity gate intentionally means "at least one non-archived conversation
 -- had activity after this item was last used"; it does not assert recent
 -- activity relative to the curator run time.

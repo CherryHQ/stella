@@ -41,10 +41,14 @@ type ReflectSkillCreate struct {
 }
 
 type ReflectSkillPatch struct {
-	ID                     string
-	UserID                 string
-	AgentID                string
-	ExpectedVersion        int64
+	ID              string
+	UserID          string
+	AgentID         string
+	ExpectedVersion int64
+	// ExpectedDigest is the immutable Home revision inspected by a
+	// Home-authoritative writer. PGStore intentionally ignores it until the
+	// production cutover changes its authority.
+	ExpectedDigest         string
 	Description            *string
 	Status                 *string
 	DisableModelInvocation *bool
@@ -56,11 +60,17 @@ type ReflectSkillPatch struct {
 }
 
 type ReflectSkillDelete struct {
-	ID                      string
-	UserID                  string
-	AgentID                 string
-	ExpectedVersion         int64
+	ID              string
+	UserID          string
+	AgentID         string
+	ExpectedVersion int64
+	// ExpectedDigest is the immutable Home revision inspected by a
+	// Home-authoritative curator. PGStore intentionally ignores it for now.
+	ExpectedDigest          string
 	ExpectedUsageLastUsedAt time.Time
+	// ExpectedPairLatestActivityAt pins the exact eligible pair-activity
+	// evidence used by the Home-authoritative curator. PGStore ignores it for now.
+	ExpectedPairLatestActivityAt time.Time
 }
 
 // CreateReflectOwnedUserAgentSkill creates an active Reflect-owned user_agent

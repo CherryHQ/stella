@@ -270,6 +270,44 @@ func (c *HomeCatalog) LoadManagedSnapshot(ctx context.Context, id string) (HomeM
 	return out, nil
 }
 
+// LoadManagedRevision reads one named retained immutable revision directly. It
+// deliberately never inspects or follows the mutable direct catalog entry: a
+// stale writer uses this to reconstruct the complete state it actually saw.
+func (c *HomeCatalog) LoadManagedRevision(ctx context.Context, id, digest string) (HomeManagedSkillSnapshot, error) {
+	if !validHomeSkillDigest(digest) {
+		return HomeManagedSkillSnapshot{}, errors.New("skills: expected digest must be a lowercase SHA-256 digest")
+	}
+	scope, userID, agentID, name, err := decodeFilesystemSkillID(id)
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, err
+	}
+	root, err := homeCatalogSkillRoot(HomeCatalogRoot{Scope: scope, UserID: userID, AgentID: agentID})
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, err
+	}
+	var out HomeManagedSkillSnapshot
+	exists, err := c.homes.UseExistingSkillFilesystem(ctx, root, func(filesystem sandbox.Filesystem) error {
+		revision := path.Join(sandbox.PathWorkspace, ".stella-revisions", name, digest)
+		captured, err := captureManagedRevision(ctx, filesystem, revision)
+		if err != nil {
+			return fmt.Errorf("skills: capture retained managed Skill %q: %w", name, err)
+		}
+		snapshot, err := managedSnapshotFromCapture(id, scope, userID, agentID, name, digest, captured)
+		if err != nil {
+			return fmt.Errorf("skills: decode retained managed Skill %q: %w", name, err)
+		}
+		out = snapshot
+		return nil
+	})
+	if err != nil {
+		return HomeManagedSkillSnapshot{}, fmt.Errorf("skills: open Home catalog retained revision: %w", err)
+	}
+	if !exists {
+		return HomeManagedSkillSnapshot{}, fs.ErrNotExist
+	}
+	return out, nil
+}
+
 type capturedManagedRevision struct{ files []HomeSkillFile }
 
 func homeSkillTreeEntries(files []HomeSkillFile) []skillTreeEntry {

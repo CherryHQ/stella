@@ -54,6 +54,52 @@ func (q *Queries) DeleteLogicalReflectSkillUsage(ctx context.Context, arg Delete
 	return result.RowsAffected(), nil
 }
 
+const deleteLogicalReflectSkillUsageForCurator = `-- name: DeleteLogicalReflectSkillUsageForCurator :execrows
+DELETE FROM skill_usage su
+WHERE su.user_id = $1::uuid
+  AND su.agent_id = $2
+  AND su.scope = 'user_agent'
+  AND su.name = $3
+  AND su.last_content_digest = $4
+  AND su.last_used_at = $5
+  AND $6 > su.last_used_at
+  AND (
+    SELECT MAX(c.last_active)::timestamptz
+    FROM ctx_conversation c
+    WHERE c.user_id = su.user_id::text
+      AND c.agent_id = su.agent_id
+      AND c.archived = false
+      AND c.kind NOT IN ('task', 'delegate', 'scheduler')
+  ) = $6
+`
+
+type DeleteLogicalReflectSkillUsageForCuratorParams struct {
+	UserID                       string      `json:"user_id"`
+	AgentID                      string      `json:"agent_id"`
+	Name                         pgtype.Text `json:"name"`
+	LastContentDigest            pgtype.Text `json:"last_content_digest"`
+	ExpectedLastUsedAt           time.Time   `json:"expected_last_used_at"`
+	ExpectedPairLatestActivityAt time.Time   `json:"expected_pair_latest_activity_at"`
+}
+
+// DeleteLogicalReflectSkillUsageForCurator removes exactly the logical usage
+// fact and pair-activity maximum a Home curator inspected. It deliberately
+// has no Skill join: Home is the current-state authority.
+func (q *Queries) DeleteLogicalReflectSkillUsageForCurator(ctx context.Context, arg DeleteLogicalReflectSkillUsageForCuratorParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteLogicalReflectSkillUsageForCurator,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+		arg.LastContentDigest,
+		arg.ExpectedLastUsedAt,
+		arg.ExpectedPairLatestActivityAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteSkillUsage = `-- name: DeleteSkillUsage :exec
 DELETE FROM skill_usage
 WHERE skill_id = $1

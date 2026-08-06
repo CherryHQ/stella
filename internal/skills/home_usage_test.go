@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -8,8 +9,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 func TestHomeSkillUsageStoreLogicalLifecycle(t *testing.T) {
@@ -129,6 +132,107 @@ func TestHomeSkillUsageStoreRejectsMalformedIdentityBeforeSQL(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("malformed identity wrote %d rows, want 0", rows)
+	}
+}
+
+func TestHomeSkillUsageMutatingTransportErrorsAreOutcomeUnknown(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*HomeSkillUsageStore, HomeSkillUsageIdentity) error
+	}{
+		{name: "initialize", call: func(store *HomeSkillUsageStore, identity HomeSkillUsageIdentity) error {
+			_, err := store.InitializeReflectCreate(context.Background(), identity)
+			return err
+		}},
+		{name: "patch", call: func(store *HomeSkillUsageStore, identity HomeSkillUsageIdentity) error {
+			_, err := store.PatchReflectDigest(context.Background(), identity, testDigest('b'))
+			return err
+		}},
+		{name: "touch", call: func(store *HomeSkillUsageStore, identity HomeSkillUsageIdentity) error {
+			return store.TouchReflectRuntimeUse(context.Background(), identity)
+		}},
+		{name: "delete", call: func(store *HomeSkillUsageStore, identity HomeSkillUsageIdentity) error {
+			return store.Delete(context.Background(), identity, time.Now().UTC())
+		}},
+		{name: "curator delete", call: func(store *HomeSkillUsageStore, identity HomeSkillUsageIdentity) error {
+			return store.DeleteForCurator(context.Background(), identity, time.Now().UTC(), time.Now().UTC().Add(time.Hour))
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, db, ctx := newTestStore(t)
+			userID, agentID := seedFixtures(t, db)
+			store, err := NewHomeSkillUsageStore(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity := testHomeUsageIdentity(t, userID, agentID, "closed-"+strings.ReplaceAll(tt.name, " ", "-"), testDigest('a'))
+			db.Close()
+			if err := tt.call(store, identity); !sandbox.IsOutcomeUnknown(err) {
+				t.Fatalf("closed-pool mutation = %v, want outcome unknown", err)
+			}
+			_ = ctx
+		})
+	}
+}
+
+func TestHomeSkillUsageCuratorDeletePinsExactPairLatestActivity(t *testing.T) {
+	tests := []struct {
+		name       string
+		insertMore func(t *testing.T, db *pgxpool.Pool, ctx context.Context, userID, agentID string, latest time.Time)
+		wantDelete bool
+	}{
+		{
+			name: "archived newer activity is ignored",
+			insertMore: func(t *testing.T, db *pgxpool.Pool, ctx context.Context, userID, agentID string, latest time.Time) {
+				t.Helper()
+				if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id) VALUES ($1, $2, 'web', 'chat', true, $3, $4, $5)`, uuid.NewString(), "archived-activity", latest.Add(time.Hour), agentID, userID); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantDelete: true,
+		},
+		{
+			name: "new eligible activity changes max",
+			insertMore: func(t *testing.T, db *pgxpool.Pool, ctx context.Context, userID, agentID string, latest time.Time) {
+				t.Helper()
+				if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id) VALUES ($1, $2, 'web', 'chat', false, $3, $4, $5)`, uuid.NewString(), "new-activity", latest.Add(time.Hour), agentID, userID); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantDelete: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, db, ctx := newTestStore(t)
+			userID, agentID := seedFixtures(t, db)
+			store, err := NewHomeSkillUsageStore(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			identity := testHomeUsageIdentity(t, userID, agentID, "pinned-activity", testDigest('a'))
+			if _, err := store.InitializeReflectCreate(ctx, identity); err != nil {
+				t.Fatal(err)
+			}
+			lastUsedAt := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Microsecond)
+			latest := lastUsedAt.Add(time.Hour)
+			if _, err := db.Exec(ctx, `UPDATE skill_usage SET last_used_at = $1 WHERE skill_id = $2`, lastUsedAt, identity.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id) VALUES ($1, $2, 'web', 'chat', false, $3, $4, $5)`, uuid.NewString(), "expected-activity", latest, agentID, userID); err != nil {
+				t.Fatal(err)
+			}
+			tt.insertMore(t, db, ctx, userID, agentID, latest)
+			err = store.DeleteForCurator(ctx, identity, lastUsedAt, latest)
+			if tt.wantDelete {
+				if err != nil {
+					t.Fatalf("exact curator delete: %v", err)
+				}
+			} else if !errors.Is(err, ErrSkillUsageChanged) {
+				t.Fatalf("changed activity delete = %v, want usage conflict", err)
+			}
+		})
 	}
 }
 

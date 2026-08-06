@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // HomeSkillUsageIdentity identifies one user_agent Skill selected by a
@@ -62,7 +63,7 @@ func (s *HomeSkillUsageStore) InitializeReflectCreate(ctx context.Context, ident
 	}
 	rows, err := s.q.InsertLogicalReflectSkillUsage(ctx, logicalUsageInsertParams(identity))
 	if err != nil {
-		return false, fmt.Errorf("skills: initialize Home Skill usage: %w", err)
+		return false, homeUsageMutationOutcome("initialize Home Skill usage", err)
 	}
 	if rows == 1 {
 		return true, nil
@@ -96,7 +97,7 @@ func (s *HomeSkillUsageStore) PatchReflectDigest(ctx context.Context, identity H
 		ExpectedDigest: pgtype.Text{String: identity.LastContentDigest, Valid: true},
 	})
 	if err != nil {
-		return false, fmt.Errorf("skills: patch Home Skill usage digest: %w", err)
+		return false, homeUsageMutationOutcome("patch Home Skill usage digest", err)
 	}
 	if rows == 1 {
 		return true, nil
@@ -127,7 +128,7 @@ func (s *HomeSkillUsageStore) TouchReflectRuntimeUse(ctx context.Context, identi
 		LastContentDigest: pgtype.Text{String: identity.LastContentDigest, Valid: true},
 	})
 	if err != nil {
-		return fmt.Errorf("skills: touch Home Skill usage: %w", err)
+		return homeUsageMutationOutcome("touch Home Skill usage", err)
 	}
 	if rows == 0 {
 		return ErrSkillUsageChanged
@@ -183,7 +184,7 @@ func (s *HomeSkillUsageStore) Delete(ctx context.Context, identity HomeSkillUsag
 		ExpectedLastUsedAt: expectedLastUsedAt.UTC(),
 	})
 	if err != nil {
-		return fmt.Errorf("skills: delete Home Skill usage: %w", err)
+		return homeUsageMutationOutcome("delete Home Skill usage", err)
 	}
 	if rows == 0 {
 		return ErrSkillUsageChanged
@@ -192,6 +193,43 @@ func (s *HomeSkillUsageStore) Delete(ctx context.Context, identity HomeSkillUsag
 		return fmt.Errorf("skills: delete Home Skill usage affected %d rows", rows)
 	}
 	return nil
+}
+
+// DeleteForCurator removes one exact logical usage fact only if the eligible
+// pair activity which justified its curation decision still exists. This is a
+// single DELETE ... EXISTS CAS: it never reads a Home or legacy Skill row.
+func (s *HomeSkillUsageStore) DeleteForCurator(ctx context.Context, identity HomeSkillUsageIdentity, expectedLastUsedAt, expectedPairLatestActivityAt time.Time) error {
+	if err := validateHomeSkillUsageIdentity(identity); err != nil {
+		return err
+	}
+	if expectedLastUsedAt.IsZero() {
+		return errors.New("skills: expected last used at is required")
+	}
+	if expectedPairLatestActivityAt.IsZero() {
+		return errors.New("skills: expected pair latest activity at is required")
+	}
+	rows, err := s.q.DeleteLogicalReflectSkillUsageForCurator(ctx, sqlc.DeleteLogicalReflectSkillUsageForCuratorParams{
+		UserID:                       identity.UserID,
+		AgentID:                      identity.AgentID,
+		Name:                         pgtype.Text{String: identity.Name, Valid: true},
+		LastContentDigest:            pgtype.Text{String: identity.LastContentDigest, Valid: true},
+		ExpectedLastUsedAt:           expectedLastUsedAt.UTC(),
+		ExpectedPairLatestActivityAt: expectedPairLatestActivityAt.UTC(),
+	})
+	if err != nil {
+		return homeUsageMutationOutcome("delete Home Skill usage for curator", err)
+	}
+	if rows == 0 {
+		return ErrSkillUsageChanged
+	}
+	if rows != 1 {
+		return fmt.Errorf("skills: delete Home Skill usage for curator affected %d rows", rows)
+	}
+	return nil
+}
+
+func homeUsageMutationOutcome(action string, err error) error {
+	return fmt.Errorf("%w: %s: %w", sandbox.ErrOutcomeUnknown, action, err)
 }
 
 // ListStaleReflectCandidates returns only logical Home Skill telemetry and its
