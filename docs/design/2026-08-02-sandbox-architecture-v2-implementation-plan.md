@@ -383,7 +383,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 - [x] Define canonical sandbox paths and `internal/fsops` operations for stat/list/read/write/mkdir/remove/rename/upload with root containment, symlink handling, permission preservation, bounded reads, and streaming payloads.
 - [x] Add the restricted `stella-fs` multicall mode to the existing `stellad` binary and install the revision-matched helper in the sandbox image. `stella-exec` remains the Phase 5 provider environment-delivery boundary and is not required for Phase 2 file operations.
 - [x] Implement local/`none` direct-library adapters and Docker one-shot exec adapter; classify disconnects and writes as outcome unknown without transparent retry.
-- [ ] Implement managed Skill publication in `stella-fs`:
+- [x] Implement managed Skill publication in `stella-fs`:
   - write/fsync/verify immutable `.stella-revisions/<name>/<tree-digest>` content;
   - atomically flip one canonical contained relative symlink;
   - accept ordinary directory Skills with normal POSIX semantics;
@@ -416,7 +416,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - be idempotent and never delete remote objects.
 - [x] Fail server startup when the durable metadata/config says legacy mutable object authority requires migration but the completion marker is absent. No-authority deployments record/observe `not_required` and continue normally.
 - [x] After the marker gate, make `$STELLA_ASSETS_DIR` ordinary PrincipalHome data; migrate upload/share/channel consumers; remove mutable `asset.Store` object mirroring, hydrate, rollback, and object-version fencing while retaining immutable session media and share snapshots.
-- [ ] Extend canonical filesystem Skill metadata to preserve active/deprecated status, `disable_model_invocation`, nested metadata/`created_by`, source/install timestamps, and legacy lifecycle version; scope remains attachment-derived and rename remains delete+create.
+- [x] Extend canonical filesystem Skill metadata to preserve active/deprecated status, `disable_model_invocation`, nested metadata/`created_by`, source/install timestamps, and legacy lifecycle version; scope remains attachment-derived and rename remains delete+create.
 - [ ] Add operator-only `stellad storage migrate-skills --dry-run|--json` and a fail-closed Skill authority marker:
   - require maintenance mode, old writers stopped, and complete PG backup;
   - map active rows to exact SystemSkillRoot/SystemAgentSkillRoot/UserHome/AgentHome scope roots;
@@ -440,7 +440,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 
 - [x] `mise run generate:check` exits 0 after the spec-first API/client change.
 - [x] The shared Filesystem conformance suite passes for local, `none`, and Docker; a helper killed during write returns outcome unknown and the caller does not retry.
-- [ ] Managed Skill publication tests prove concurrent readers see complete old or new trees without ENOENT/mixed files; unsupported symlink/Store behavior fails conformance. Ordinary CLI mutation retains documented POSIX behavior.
+- [x] Managed Skill publication tests prove concurrent readers see complete old or new trees without ENOENT/mixed files; unsupported symlink/Store behavior fails conformance. Ordinary CLI mutation retains documented POSIX behavior.
 - [ ] A fixture publishes known-size revisions into multiple roots: the collector reports exact aggregate count/bytes/oldest-age, a configured low threshold emits the expected opaque-root warning, and alert/capacity-response documentation is executable without high-cardinality metric labels.
 - [ ] Isolating-provider tests prove the three exact `/opt/stella/skills/*` views are read-only and disjoint; a pinned managed descriptor continues reading its old revision after a flip while the next catalog snapshot reads the new revision.
 - [x] Workspace list/read/write/upload succeeds through an exact Session with no warm Sandbox using the current single-process lifecycle; no Workspace path or response exposes a host coordinate.
