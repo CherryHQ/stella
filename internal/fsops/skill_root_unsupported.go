@@ -17,3 +17,7 @@ func OpenExistingSkillFilesystem(base, relative string) (*Filesystem, error) {
 func newSkillFilesystem(base, relative string, syncParent func(int) error) (*Filesystem, error) {
 	return NewSkillFilesystem(base, relative)
 }
+
+func (r *Root) openPinnedManagedSkillCatalog(relative string) (*Root, error) {
+	return nil, errors.New("fsops: pinned managed Skill catalogs are unsupported on this platform")
+}

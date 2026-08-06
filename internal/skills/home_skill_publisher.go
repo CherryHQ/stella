@@ -59,6 +59,14 @@ type HomeSkillPublishRequest struct {
 	Files          []HomeSkillFile
 }
 
+// HomeSkillUnpublishRequest withdraws one exact managed selection from a typed
+// Home Skill root. Its immutable revision remains retained for later GC.
+type HomeSkillUnpublishRequest struct {
+	Root           *home.SkillRoot
+	Name           string
+	ExpectedDigest string
+}
+
 // HomeSkillPublisher publishes complete, digest-pinned revisions to all four
 // typed Skill roots. Stripes are process-local for the Phase-1 single-replica
 // ceiling; replace them with Phase-4 PG advisory locking when writers can run
@@ -106,6 +114,17 @@ func (p *HomeSkillPublisher) Publish(ctx context.Context, request HomeSkillPubli
 		return "", errors.New("skills: Home Skill publisher is unavailable")
 	}
 	return p.core.publish(ctx, request, p.homes.UseSkillFilesystem, p.observeVerifiedPublication)
+}
+
+// Unpublish removes only the direct link that still selects ExpectedDigest.
+// It shares publication's bounded writer stripes, serializing managed
+// create/update/delete for one logical name in the Phase-1 single-replica
+// ceiling. Same-UID arbitrary POSIX writers retain ordinary winner semantics.
+func (p *HomeSkillPublisher) Unpublish(ctx context.Context, request HomeSkillUnpublishRequest) error {
+	if p == nil || p.homes == nil {
+		return errors.New("skills: Home Skill publisher is unavailable")
+	}
+	return p.core.unpublish(ctx, request, p.homes.UseSkillFilesystem)
 }
 
 func (p *HomeSkillPublisher) observeVerifiedPublication(ctx context.Context, root *home.SkillRoot, filesystem sandbox.Filesystem) {
@@ -227,6 +246,77 @@ func (p *managedSkillPublicationCore) publish(ctx context.Context, request HomeS
 	return digest, nil
 }
 
+func (p *managedSkillPublicationCore) unpublish(ctx context.Context, request HomeSkillUnpublishRequest, use useHomeSkillFilesystem) error {
+	if p == nil || use == nil {
+		return errors.New("skills: Home Skill publisher is unavailable")
+	}
+	if ctx == nil {
+		return errors.New("skills: Home Skill unpublication context is required")
+	}
+	if err := snapshotHomeSkillUnpublishRequest(request); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	stripe := p.stripes[homeSkillPublishStripe(request.Name)]
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-stripe:
+	}
+	defer func() { stripe <- struct{}{} }()
+
+	primitiveConflict := false
+	primitiveMayHaveMutated := false
+	err := use(ctx, request.Root, func(filesystem sandbox.Filesystem) error {
+		unpublisher, ok := filesystem.(sandbox.ManagedSkillUnpublisher)
+		if !ok {
+			return errors.New("skills: filesystem does not support managed Skill unpublication")
+		}
+		primitiveMayHaveMutated = true
+		if err := unpublisher.UnpublishManagedSkill(ctx, sandbox.PathWorkspace, request.Name, request.ExpectedDigest); err != nil {
+			if errors.Is(err, sandbox.ErrOutcomeUnknown) {
+				return err
+			}
+			if errors.Is(err, sandbox.ErrManagedSkillConflict) {
+				primitiveMayHaveMutated = false
+				primitiveConflict = true
+				return err
+			}
+			return fmt.Errorf("%w: unpublish Home Skill %q: %w", sandbox.ErrOutcomeUnknown, request.Name, err)
+		}
+		// Inspecting managed shape alone cannot distinguish absence from an
+		// ordinary replacement. Stat proves the direct entry is absent.
+		_, err := filesystem.Stat(ctx, path.Join(sandbox.PathWorkspace, request.Name))
+		if err == nil {
+			err = errors.New("direct entry exists after unpublication")
+			return fmt.Errorf("%w: verify unlinked Home Skill %q: %w", sandbox.ErrOutcomeUnknown, request.Name, err)
+		}
+		if errors.Is(err, sandbox.ErrOutcomeUnknown) {
+			return err
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("%w: verify unlinked Home Skill %q: %w", sandbox.ErrOutcomeUnknown, request.Name, err)
+	})
+	if primitiveConflict {
+		return fmt.Errorf("%w: Home Skill %q does not match expected digest", ErrHomeSkillConflict, request.Name)
+	}
+	if errors.Is(err, sandbox.ErrOutcomeUnknown) {
+		return err
+	}
+	if err != nil {
+		if primitiveMayHaveMutated {
+			return fmt.Errorf("%w: finalize Home Skill unpublication: %w", sandbox.ErrOutcomeUnknown, err)
+		}
+		return err
+	}
+	return nil
+}
+
 func snapshotHomeSkillRequest(request HomeSkillPublishRequest) (skillTree, error) {
 	if request.Root == nil {
 		return skillTree{}, errors.New("skills: Home Skill root is required")
@@ -246,6 +336,19 @@ func snapshotHomeSkillRequest(request HomeSkillPublishRequest) (skillTree, error
 		files[i] = skillTreeEntry{Path: file.Path, Content: append([]byte(nil), file.Content...), Mode: file.Mode}
 	}
 	return skillTree{Metadata: metadata, Files: files}, nil
+}
+
+func snapshotHomeSkillUnpublishRequest(request HomeSkillUnpublishRequest) error {
+	if request.Root == nil {
+		return errors.New("skills: Home Skill root is required")
+	}
+	if err := skillNameValidationError(request.Name, request.Name); err != nil {
+		return err
+	}
+	if !validHomeSkillDigest(request.ExpectedDigest) {
+		return errors.New("skills: expected digest must be a lowercase SHA-256 digest")
+	}
+	return nil
 }
 
 // validateHomeSkillPublicationBounds applies the complete managed-revision

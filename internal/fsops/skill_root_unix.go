@@ -127,6 +127,43 @@ func openExistingNoFollowDirectoryTree(base, relative string) (int, error) {
 	return fd, nil
 }
 
+// openPinnedManagedSkillCatalog opens an exact existing catalog below r without
+// ever resolving that catalog path again. The returned Root owns both the
+// os.Root and its backing directory descriptor; callers must Close it.
+func (r *Root) openPinnedManagedSkillCatalog(relative string) (*Root, error) {
+	current, err := r.root.Open(".")
+	if err != nil {
+		return nil, fmt.Errorf("fsops: open managed Skill catalog root: %w", err)
+	}
+	for component := range strings.SplitSeq(relative, "/") {
+		if component == "." || component == "" {
+			continue
+		}
+		fd, err := unix.Openat(int(current.Fd()), component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if err != nil {
+			_ = current.Close()
+			return nil, fmt.Errorf("fsops: open managed Skill catalog component %q: %w", component, err)
+		}
+		next := os.NewFile(uintptr(fd), "managed-skill-catalog-root")
+		if err := current.Close(); err != nil {
+			_ = next.Close()
+			return nil, fmt.Errorf("fsops: close managed Skill catalog parent: %w", err)
+		}
+		current = next
+	}
+	root, err := os.OpenRoot(skillRootFDPath(int(current.Fd())))
+	if err != nil {
+		_ = current.Close()
+		return nil, fmt.Errorf("fsops: open pinned managed Skill catalog: %w", err)
+	}
+	return &Root{
+		root:                      root,
+		pinned:                    current,
+		syncManagedDirectory:      r.syncManagedDirectory,
+		syncManagedDirectoryError: r.syncManagedDirectoryError,
+	}, nil
+}
+
 func openOrMakeNoFollowDirectory(parent int, name string) (int, error) {
 	for attempt := 0; attempt != 2; attempt++ {
 		fd, err := unix.Openat(parent, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)

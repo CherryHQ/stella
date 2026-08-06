@@ -38,12 +38,13 @@ const (
 // the wire fail closed. "opaque" is the deliberate catch-all for errors that map
 // to no sentinel.
 const (
-	ErrorCodeNotExist       = "not_exist"
-	ErrorCodePermission     = "permission"
-	ErrorCodeExist          = "exist"
-	ErrorCodeReadLimit      = "read_limit"
-	ErrorCodeOutcomeUnknown = "outcome_unknown"
-	ErrorCodeOpaque         = "opaque"
+	ErrorCodeNotExist             = "not_exist"
+	ErrorCodePermission           = "permission"
+	ErrorCodeExist                = "exist"
+	ErrorCodeReadLimit            = "read_limit"
+	ErrorCodeOutcomeUnknown       = "outcome_unknown"
+	ErrorCodeManagedSkillConflict = "managed_skill_conflict"
+	ErrorCodeOpaque               = "opaque"
 )
 
 // classifyErrorCode maps a helper error to its stable wire code. read_limit is
@@ -52,6 +53,8 @@ func classifyErrorCode(err error) string {
 	switch {
 	case errors.Is(err, sandbox.ErrOutcomeUnknown):
 		return ErrorCodeOutcomeUnknown
+	case errors.Is(err, sandbox.ErrManagedSkillConflict):
+		return ErrorCodeManagedSkillConflict
 	case errors.Is(err, sandbox.ErrReadLimit):
 		return ErrorCodeReadLimit
 	case errors.Is(err, fs.ErrNotExist):
@@ -71,6 +74,8 @@ func sentinelForCode(code string) error {
 	switch code {
 	case ErrorCodeOutcomeUnknown:
 		return sandbox.ErrOutcomeUnknown
+	case ErrorCodeManagedSkillConflict:
+		return sandbox.ErrManagedSkillConflict
 	case ErrorCodeNotExist:
 		return fs.ErrNotExist
 	case ErrorCodePermission:
@@ -86,7 +91,7 @@ func sentinelForCode(code string) error {
 
 func isKnownErrorCode(code string) bool {
 	switch code {
-	case "", ErrorCodeNotExist, ErrorCodePermission, ErrorCodeExist, ErrorCodeReadLimit, ErrorCodeOutcomeUnknown, ErrorCodeOpaque:
+	case "", ErrorCodeNotExist, ErrorCodePermission, ErrorCodeExist, ErrorCodeReadLimit, ErrorCodeOutcomeUnknown, ErrorCodeManagedSkillConflict, ErrorCodeOpaque:
 		return true
 	default:
 		return false
@@ -106,6 +111,8 @@ func KindForOperation(op string) string {
 	case "managed_skill_target":
 		return KindManagedSkillTarget
 	case "publish_managed_skill":
+		return KindMutation
+	case "unpublish_managed_skill":
 		return KindMutation
 	default: // write, upload, mkdir, remove, rename
 		return KindMutation
@@ -217,6 +224,12 @@ func Serve(ctx context.Context, cwd string, in io.Reader, out io.Writer) error {
 				err = requireEOF(body)
 			}
 		}
+	case "unpublish_managed_skill":
+		err = requireEOF(in)
+		if err != nil {
+			break
+		}
+		err = root.UnpublishManagedSkillAt(ctx, req.CatalogRoot, req.Path, req.Digest)
 	case "stat":
 		err = requireEOF(in)
 		if err != nil {
@@ -288,6 +301,10 @@ func validateRequest(req Request) error {
 		}
 		if total != req.BodyLength {
 			return errors.New("fsops: managed skill publication body length mismatch")
+		}
+	case "unpublish_managed_skill":
+		if req.Path == "" || !validCatalogRoot(req.CatalogRoot) || !validManagedSkillName(req.Path) || !validManagedSkillDigest(req.Digest) || req.Perm != 0 || req.MaxBytes != 0 || req.NewPath != "" || req.BodyLength != 0 || len(req.Files) != 0 {
+			return errors.New("fsops: invalid managed skill unpublication request")
 		}
 	case "read":
 		if req.MaxBytes <= 0 || req.BodyLength != 0 {

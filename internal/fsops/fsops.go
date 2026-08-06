@@ -28,7 +28,11 @@ type Root struct {
 	syncRootDirectory              func(*os.File) error
 	afterManagedSkillTemporaryLink func(string)
 	afterManagedSkillRename        func()
+	afterManagedSkillCatalogPin    func()
+	afterManagedSkillUnlink        func()
 	syncManagedDirectory           func(string)
+	syncManagedDirectoryError      func(string) error
+	closeManagedSkillCatalog       func(*Root) error
 }
 
 // Mount binds one canonical sandbox root to a provider-authorized directory.
@@ -127,6 +131,19 @@ func (f *Filesystem) PublishManagedSkill(ctx context.Context, catalogRoot, name,
 	publication.Files = append([]sandbox.ManagedSkillTreeEntry(nil), publication.Files...)
 	sort.Slice(publication.Files, func(i, j int) bool { return publication.Files[i].Path < publication.Files[j].Path })
 	return m.root.PublishManagedSkillAt(ctx, rel, name, digest, publication)
+}
+
+// UnpublishManagedSkill removes only a direct, exact managed selection. It
+// never exposes a link target or provider path and retains immutable revisions.
+func (f *Filesystem) UnpublishManagedSkill(ctx context.Context, catalogRoot, name, expectedDigest string) error {
+	m, rel, err := f.mount(catalogRoot, true)
+	if err != nil {
+		return err
+	}
+	if rel == "" {
+		rel = "."
+	}
+	return m.root.UnpublishManagedSkillAt(ctx, rel, name, expectedDigest)
 }
 
 func (f *Filesystem) InspectManagedSkillTarget(ctx context.Context, p string) (sandbox.ManagedSkillTarget, error) {

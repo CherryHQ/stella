@@ -32,9 +32,10 @@ func (s *dockerSession) Filesystem() (sandboxpkg.Filesystem, error) {
 type dockerFilesystem struct{ session *dockerSession }
 
 var (
-	_ sandboxpkg.FilesystemSession     = (*dockerSession)(nil)
-	_ sandboxpkg.Filesystem            = (*dockerFilesystem)(nil)
-	_ sandboxpkg.ManagedSkillPublisher = (*dockerFilesystem)(nil)
+	_ sandboxpkg.FilesystemSession       = (*dockerSession)(nil)
+	_ sandboxpkg.Filesystem              = (*dockerFilesystem)(nil)
+	_ sandboxpkg.ManagedSkillPublisher   = (*dockerFilesystem)(nil)
+	_ sandboxpkg.ManagedSkillUnpublisher = (*dockerFilesystem)(nil)
 )
 
 func (f *dockerFilesystem) Close() error { return nil }
@@ -194,6 +195,34 @@ func (f *dockerFilesystem) PublishManagedSkill(ctx context.Context, catalogRoot,
 		return f.transportError(true, fmt.Errorf("helper exit %d: %s", code, stderr.text()))
 	}
 	return responseErr
+}
+
+// UnpublishManagedSkill is one synchronous helper exec. A transport failure
+// after it starts is outcome-unknown because unlink may have linearized.
+func (f *dockerFilesystem) UnpublishManagedSkill(ctx context.Context, catalogRoot, name, expectedDigest string) error {
+	cwd, relative, err := f.mount(catalogRoot, true)
+	if err != nil {
+		return err
+	}
+	if relative == "" {
+		relative = "."
+	}
+	payload, err := fsops.EncodeRequest(fsops.Request{Version: fsops.ProtocolVersion, Operation: "unpublish_managed_skill", CatalogRoot: relative, Path: name, Digest: expectedDigest})
+	if err != nil {
+		return err
+	}
+	result, err := f.session.client.Exec(ctx, dockerclient.ExecOptions{ContainerID: f.session.containerID, Command: []string{"/opt/stella/bin/stella-fs"}, Cwd: cwd, Stdin: bytes.NewReader(payload)})
+	if err != nil {
+		return f.transportError(true, err)
+	}
+	if result.ExitCode != 0 {
+		return f.transportError(true, fmt.Errorf("helper exit %d: %s", result.ExitCode, result.Stderr))
+	}
+	response, err := fsops.DecodeResponse(bytes.NewReader(result.Stdout), fsops.KindMutation)
+	if err != nil {
+		return f.transportError(true, err)
+	}
+	return fsops.ResponseError(response)
 }
 
 type managedPublicationBody struct {

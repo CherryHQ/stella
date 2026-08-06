@@ -108,6 +108,7 @@ type filesystemExecAPI struct {
 	request     chan []byte
 	fullRequest chan []byte
 	wait        <-chan struct{}
+	inspects    int
 }
 
 func (a *filesystemExecAPI) ExecCreate(_ context.Context, _ string, _ mobyclient.ExecCreateOptions) (mobyclient.ExecCreateResult, error) {
@@ -305,7 +306,39 @@ func TestDockerFilesystemInspectManagedSkillTargetKeepsNestedRelativePath(t *tes
 	}
 }
 
+func TestDockerFilesystemUnpublishManagedSkillUsesOneReapedExecAndTypedConflict(t *testing.T) {
+	conflict := fsops.Response{Version: fsops.ProtocolVersion, Kind: fsops.KindMutation, ErrorCode: fsops.ErrorCodeManagedSkillConflict, Error: "selection changed"}
+	payload, err := json.Marshal(conflict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := &filesystemExecAPI{response: frameStdout(fsFrame(payload)), request: make(chan []byte, 1)}
+	err = testDockerFilesystem(api).UnpublishManagedSkill(context.Background(), "/workspace/nested", "skill", strings.Repeat("a", 64))
+	if !errors.Is(err, sandboxpkg.ErrManagedSkillConflict) || sandboxpkg.IsOutcomeUnknown(err) {
+		t.Fatalf("unpublish conflict = %v", err)
+	}
+	var request fsops.Request
+	if err := json.Unmarshal((<-api.request)[4:], &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.Operation != "unpublish_managed_skill" || request.CatalogRoot != "nested" || request.Path != "skill" || request.Digest != strings.Repeat("a", 64) {
+		t.Fatalf("request = %+v", request)
+	}
+	if api.inspects == 0 {
+		t.Fatal("unpublish returned without reaping its synchronous exec")
+	}
+}
+
+func TestDockerFilesystemUnpublishDisconnectIsOutcomeUnknown(t *testing.T) {
+	api := &filesystemExecAPI{response: []byte{1, 0, 0, 0, 0, 0, 0, 4, 'x'}}
+	err := testDockerFilesystem(api).UnpublishManagedSkill(context.Background(), "/workspace", "skill", strings.Repeat("a", 64))
+	if !sandboxpkg.IsOutcomeUnknown(err) || api.creates != 1 {
+		t.Fatalf("unpublish disconnect = %v, creates=%d", err, api.creates)
+	}
+}
+
 func (a *filesystemExecAPI) ExecInspect(context.Context, string, mobyclient.ExecInspectOptions) (mobyclient.ExecInspectResult, error) {
+	a.inspects++
 	return mobyclient.ExecInspectResult{Running: false, ExitCode: 0}, nil
 }
 

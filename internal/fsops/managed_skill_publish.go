@@ -420,6 +420,11 @@ func (r *Root) syncDirectory(p string) error {
 	if r.syncManagedDirectory != nil {
 		r.syncManagedDirectory(p)
 	}
+	if r.syncManagedDirectoryError != nil {
+		if err := r.syncManagedDirectoryError(p); err != nil {
+			return err
+		}
+	}
 	f, err := r.root.Open(p)
 	if err != nil {
 		return err

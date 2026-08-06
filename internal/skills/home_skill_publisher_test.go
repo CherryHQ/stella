@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"path"
 	"strings"
 	"sync"
@@ -399,6 +400,133 @@ func TestHomeSkillPublisherSerializesSameRootCreate(t *testing.T) {
 	}
 }
 
+func TestHomeSkillPublisherUnpublishesTypedRootsAndMapsConflicts(t *testing.T) {
+	system := home.SystemSkillCatalog()
+	systemAgent, err := home.SystemAgentSkillCatalog("agent-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := home.UserSkillCatalog("user-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	userAgent, err := home.UserAgentSkillCatalog("user-a", "agent-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher, homes := testHomeSkillPublisher(t, system, systemAgent, user, userAgent)
+	for _, root := range []*home.SkillRoot{system, systemAgent, user, userAgent} {
+		digest, err := publisher.Publish(context.Background(), validHomeSkillRequest(root))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := publisher.Unpublish(context.Background(), HomeSkillUnpublishRequest{Root: root, Name: "example", ExpectedDigest: digest}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := homes.filesystems[root].Stat(context.Background(), path.Join(sandbox.PathWorkspace, "example")); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("root %p direct entry after unpublish = %v", root, err)
+		}
+	}
+
+	root := system
+	if err := homes.filesystems[root].Mkdir(context.Background(), path.Join(sandbox.PathWorkspace, "ordinary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := publisher.Unpublish(context.Background(), HomeSkillUnpublishRequest{Root: root, Name: "ordinary", ExpectedDigest: strings.Repeat("a", 64)}); !errors.Is(err, ErrHomeSkillConflict) || sandbox.IsOutcomeUnknown(err) {
+		t.Fatalf("ordinary unpublish = %v", err)
+	}
+	digest, err := publisher.Publish(context.Background(), validHomeSkillRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publisher.Unpublish(context.Background(), HomeSkillUnpublishRequest{Root: root, Name: "example", ExpectedDigest: strings.Repeat("b", 64)}); !errors.Is(err, ErrHomeSkillConflict) || sandbox.IsOutcomeUnknown(err) {
+		t.Fatalf("stale unpublish = %v", err)
+	}
+	target, err := homes.filesystems[root].(sandbox.ManagedSkillTargetInspector).InspectManagedSkillTarget(context.Background(), path.Join(sandbox.PathWorkspace, "example"))
+	if err != nil || !target.Managed || target.Digest != digest {
+		t.Fatalf("stale unpublish changed selection = %+v, %v", target, err)
+	}
+}
+
+func TestHomeSkillPublisherUnpublishReleaseAndSharedStripeSemantics(t *testing.T) {
+	root := home.SystemSkillCatalog()
+	publisher, homes := testHomeSkillPublisher(t, root)
+	digest, err := publisher.Publish(context.Background(), validHomeSkillRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeErr := errors.New("release failed")
+	publisher.homes = homeSkillFilesystemAccessFunc(func(_ context.Context, _ *home.SkillRoot, use func(sandbox.Filesystem) error) error {
+		if err := use(homes.filesystems[root]); err != nil {
+			return err
+		}
+		return closeErr
+	})
+	if err := publisher.Unpublish(context.Background(), HomeSkillUnpublishRequest{Root: root, Name: "example", ExpectedDigest: digest}); !sandbox.IsOutcomeUnknown(err) || !errors.Is(err, closeErr) {
+		t.Fatalf("release after unlink = %v", err)
+	}
+
+	// Recreate for a contention test. The shared core stripe must cover delete
+	// and publish, rather than letting their independent checks race.
+	publisher.homes = homes
+	digest, err = publisher.Publish(context.Background(), validHomeSkillRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	blocking := &blockingUnpublishFilesystem{Filesystem: homes.filesystems[root], entered: entered, release: release}
+	publisher.homes = homeSkillFilesystemAccessFunc(func(_ context.Context, _ *home.SkillRoot, use func(sandbox.Filesystem) error) error {
+		return use(blocking)
+	})
+	deleted := make(chan error, 1)
+	go func() {
+		deleted <- publisher.Unpublish(context.Background(), HomeSkillUnpublishRequest{Root: root, Name: "example", ExpectedDigest: digest})
+	}()
+	<-entered
+	published := make(chan error, 1)
+	go func() {
+		request := validHomeSkillRequest(root)
+		request.ExpectedDigest = digest
+		_, err := publisher.Publish(context.Background(), request)
+		published <- err
+	}()
+	select {
+	case err := <-published:
+		t.Fatalf("publish escaped shared stripe: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if err := <-deleted; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-published; !errors.Is(err, ErrHomeSkillConflict) {
+		t.Fatalf("publish after delete = %v, want conflict", err)
+	}
+}
+
+func TestHomeSkillPublisherUnpublishReleaseConflictAfterSuccessIsUnknown(t *testing.T) {
+	root := home.SystemSkillCatalog()
+	publisher, homes := testHomeSkillPublisher(t, root)
+	digest, err := publisher.Publish(context.Background(), validHomeSkillRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseErr := fmt.Errorf("release conflict: %w", sandbox.ErrManagedSkillConflict)
+	publisher.homes = homeSkillFilesystemAccessFunc(func(_ context.Context, _ *home.SkillRoot, use func(sandbox.Filesystem) error) error {
+		if err := use(homes.filesystems[root]); err != nil {
+			return err
+		}
+		return releaseErr
+	})
+	err = publisher.Unpublish(context.Background(), HomeSkillUnpublishRequest{Root: root, Name: "example", ExpectedDigest: digest})
+	if !sandbox.IsOutcomeUnknown(err) || errors.Is(err, ErrHomeSkillConflict) || !errors.Is(err, releaseErr) {
+		t.Fatalf("release conflict after unlink = %v", err)
+	}
+	if _, err := homes.filesystems[root].Stat(context.Background(), path.Join(sandbox.PathWorkspace, "example")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("direct entry after release conflict = %v", err)
+	}
+}
+
 type homeSkillFilesystemAccessFunc func(context.Context, *home.SkillRoot, func(sandbox.Filesystem) error) error
 
 func (f homeSkillFilesystemAccessFunc) UseSkillFilesystem(ctx context.Context, root *home.SkillRoot, use func(sandbox.Filesystem) error) error {
@@ -409,6 +537,26 @@ type cancelledInspectionFilesystem struct {
 	sandbox.Filesystem
 	cancel context.CancelFunc
 	err    error
+}
+
+type blockingUnpublishFilesystem struct {
+	sandbox.Filesystem
+	entered chan<- struct{}
+	release <-chan struct{}
+}
+
+func (f *blockingUnpublishFilesystem) UnpublishManagedSkill(ctx context.Context, root, name, digest string) error {
+	close(f.entered)
+	<-f.release
+	return f.Filesystem.(sandbox.ManagedSkillUnpublisher).UnpublishManagedSkill(ctx, root, name, digest)
+}
+
+func (f *blockingUnpublishFilesystem) InspectManagedSkillTarget(ctx context.Context, entry string) (sandbox.ManagedSkillTarget, error) {
+	return f.Filesystem.(sandbox.ManagedSkillTargetInspector).InspectManagedSkillTarget(ctx, entry)
+}
+
+func (f *blockingUnpublishFilesystem) PublishManagedSkill(ctx context.Context, root, name, digest string, publication sandbox.ManagedSkillPublication) error {
+	return f.Filesystem.(sandbox.ManagedSkillPublisher).PublishManagedSkill(ctx, root, name, digest, publication)
 }
 
 func (f *cancelledInspectionFilesystem) InspectManagedSkillTarget(context.Context, string) (sandbox.ManagedSkillTarget, error) {

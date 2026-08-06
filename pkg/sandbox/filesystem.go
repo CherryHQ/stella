@@ -16,8 +16,9 @@ const (
 )
 
 var (
-	ErrReadLimit      = errors.New("sandbox: read exceeds limit")
-	ErrOutcomeUnknown = errors.New("sandbox: operation outcome unknown")
+	ErrReadLimit            = errors.New("sandbox: read exceeds limit")
+	ErrOutcomeUnknown       = errors.New("sandbox: operation outcome unknown")
+	ErrManagedSkillConflict = errors.New("sandbox: managed Skill target conflict")
 )
 
 // IsOutcomeUnknown reports an interrupted mutation whose result cannot safely
@@ -57,6 +58,15 @@ type ManagedSkillTarget struct {
 // entry; ordinary directories and absent entries are unmanaged.
 type ManagedSkillTargetInspector interface {
 	InspectManagedSkillTarget(context.Context, string) (ManagedSkillTarget, error)
+}
+
+// ManagedSkillUnpublisher is an optional, narrowly scoped capability for
+// withdrawing a direct managed Skill selection. catalogRoot is a canonical
+// sandbox path; implementations retain the immutable revision for later GC.
+// A matching ErrManagedSkillConflict guarantees the direct selection was not
+// removed. Callers must treat every other error after invocation as unknown.
+type ManagedSkillUnpublisher interface {
+	UnpublishManagedSkill(ctx context.Context, catalogRoot, name, expectedDigest string) error
 }
 
 // Filesystem is the provider-neutral filesystem operation boundary. Paths are
