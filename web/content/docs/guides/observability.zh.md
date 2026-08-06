@@ -279,6 +279,22 @@ LLM 与工具 span 遵循 [OpenTelemetry GenAI 语义约定](https://opentelemet
 | `stella.sandbox.server.version`     | 握手返回的沙箱服务版本                  |
 | `stella.sandbox.protocol_version`   | 沙箱返回的 RPC 协议版本                 |
 
+## 保留的受管 Skill 修订版
+
+受管 Skill 每次发布都会保留不可变修订版。在 Phase 3 垃圾回收上线前，此清单只做观测，**绝不会删除修订版**。容量阈值由调用方配置，并会随 authority cutover 启用；本版本没有生产默认值，也没有环境变量。
+
+OpenTelemetry 提供以下 gauge，仅按有界的 `scope` 标签聚合（`system`、`system_agent`、`user` 或 `user_agent`）：
+
+| 指标                                | 单位         | 含义                             |
+| ----------------------------------- | ------------ | -------------------------------- |
+| `stella.skill.revisions.count`      | `{revision}` | 完整保留的受管修订版数量         |
+| `stella.skill.revisions.bytes`      | `By`         | 这些修订版中常规文件的精确字节数 |
+| `stella.skill.revisions.oldest_age` | `s`          | 最早保留修订版的年龄             |
+
+指标标签绝不包含 home ID、根路径、主体、用户、agent、Skill 名称或修订版摘要。配置了数量或字节阈值后，观测值大于或等于阈值时会输出结构化容量警告：首次越界一次；只有数量/字节变化或最早年龄变化至少一小时才会再次输出；恢复后再次越界也会重新警告。阈值为零会禁用该维度。扫描失败会保留最近一次成功的指标快照并记录采集警告，不会自动重试。
+
+收到警告后：停止发布受管 Skill，检查 Store 容量，然后扩容或迁移 Store。Phase 3 垃圾回收之前**不要**手动删除保留修订版；手动删除可能破坏正在使用或已固定的修订版。
+
 ## 如何关闭
 
 没有可禁用的插件。日志模式跟随 `LOG_LEVEL`，设为 `WARN` 或 `ERROR` 即可静默每次调用的 INFO 行。除非设置了 `OTEL_EXPORTER_OTLP_ENDPOINT` 或信号专用导出器，否则 OTel 导出默认关闭；留空这些变量即可完全停用分布式遥测。设 `OTEL_TRACES_EXPORTER=none`、`OTEL_LOGS_EXPORTER=none` 或 `OTEL_METRICS_EXPORTER=none` 可以按信号单独关闭。

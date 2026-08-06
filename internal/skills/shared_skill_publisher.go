@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"path"
 	"strings"
 	"time"
@@ -60,8 +61,10 @@ type SharedSkillPublishRequest struct {
 // replica ceiling; replace them with Phase-4 PG advisory locking when writers
 // can run in more than one replica.
 type SharedSkillPublisher struct {
-	homes   SharedSkillFilesystemAccess
-	stripes [sharedSkillPublishStripeCount]chan struct{}
+	homes             SharedSkillFilesystemAccess
+	revisionTelemetry *RevisionTelemetry
+	catalogRoot       func(home.Key) (FilesystemCatalogRoot, error)
+	stripes           [sharedSkillPublishStripeCount]chan struct{}
 }
 
 func NewSharedSkillPublisher(homes SharedSkillFilesystemAccess) (*SharedSkillPublisher, error) {
@@ -74,6 +77,22 @@ func NewSharedSkillPublisher(homes SharedSkillFilesystemAccess) (*SharedSkillPub
 		p.stripes[i] <- struct{}{}
 	}
 	return p, nil
+}
+
+// NewSharedSkillPublisherWithRevisionTelemetry adds best-effort retained
+// revision observation after verified publications. The resolver is supplied by
+// the authority wiring because only it can bind a Home to an opaque catalog root.
+func NewSharedSkillPublisherWithRevisionTelemetry(homes SharedSkillFilesystemAccess, telemetry *RevisionTelemetry, catalogRoot func(home.Key) (FilesystemCatalogRoot, error)) (*SharedSkillPublisher, error) {
+	publisher, err := NewSharedSkillPublisher(homes)
+	if err != nil {
+		return nil, err
+	}
+	if telemetry == nil || catalogRoot == nil {
+		return nil, errors.New("skills: revision telemetry and catalog root resolver are required together")
+	}
+	publisher.revisionTelemetry = telemetry
+	publisher.catalogRoot = catalogRoot
+	return publisher, nil
 }
 
 // Publish validates and snapshots the complete caller-owned request before it
@@ -137,6 +156,16 @@ func (p *SharedSkillPublisher) Publish(ctx context.Context, request SharedSkillP
 		}
 		if !selected.Managed || selected.Digest != digest {
 			return fmt.Errorf("%w: selected digest %q, want %q", sandbox.ErrOutcomeUnknown, selected.Digest, digest)
+		}
+		if p.revisionTelemetry != nil {
+			root, rootErr := p.catalogRoot(request.Root)
+			if rootErr != nil {
+				slog.Warn("shared Skill revision telemetry failed after publication", "reason", "root_unavailable")
+			} else {
+				// Observe logs path-safe collection failures itself. A verified
+				// publication remains successful regardless.
+				_ = p.revisionTelemetry.Observe(ctx, filesystem, root)
+			}
 		}
 		return nil
 	})

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log/slog"
 	"path"
 	"sync"
 	"testing"
@@ -221,6 +222,149 @@ func TestSharedSkillPublisherKeepsSystemAgentRootsIsolated(t *testing.T) {
 			t.Fatalf("isolated target = %+v, %v", target, err)
 		}
 	}
+}
+
+func TestSharedSkillPublisherObservesOnlyVerifiedSuccess(t *testing.T) {
+	filesystem, err := fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: t.TempDir()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = filesystem.Close() })
+	telemetry, err := NewRevisionTelemetry(RevisionTelemetryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := SystemFilesystemCatalogRoot(sandbox.PathWorkspace, sandbox.HomeAttachment{HomeID: "opaque-home", StoreID: "store", Locator: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher, err := NewSharedSkillPublisherWithRevisionTelemetry(&testSharedSkillHomes{filesystem: filesystem}, telemetry, func(home.Key) (FilesystemCatalogRoot, error) { return root, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := publisher.Publish(context.Background(), validSharedSkillRequest()); err != nil {
+		t.Fatal(err)
+	}
+	key := revisionKey(root)
+	telemetry.mu.RLock()
+	observation := telemetry.observed[key]
+	telemetry.mu.RUnlock()
+	if observation.count != 1 || observation.bytes == 0 {
+		t.Fatalf("success observation = %+v", observation)
+	}
+	if _, err := publisher.Publish(context.Background(), validSharedSkillRequest()); !errors.Is(err, ErrSharedSkillConflict) {
+		t.Fatalf("conflict = %v", err)
+	}
+	telemetry.mu.RLock()
+	afterConflict := telemetry.observed[key]
+	telemetry.mu.RUnlock()
+	if afterConflict != observation {
+		t.Fatalf("conflict changed telemetry: before=%+v after=%+v", observation, afterConflict)
+	}
+}
+
+func TestSharedSkillPublisherTelemetryFailuresKeepVerifiedSuccess(t *testing.T) {
+	base, err := fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: t.TempDir()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = base.Close() })
+	root, err := SystemFilesystemCatalogRoot(sandbox.PathWorkspace, sandbox.HomeAttachment{HomeID: "opaque-home", StoreID: "store", Locator: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("resolver", func(t *testing.T) {
+		logs := &revisionLogHandler{}
+		previous := slog.Default()
+		slog.SetDefault(slog.New(logs))
+		t.Cleanup(func() { slog.SetDefault(previous) })
+		telemetry, err := NewRevisionTelemetry(RevisionTelemetryConfig{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		publisher, err := NewSharedSkillPublisherWithRevisionTelemetry(&testSharedSkillHomes{filesystem: base}, telemetry, func(home.Key) (FilesystemCatalogRoot, error) {
+			return FilesystemCatalogRoot{}, errors.New("/workspace/secret")
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if digest, err := publisher.Publish(context.Background(), validSharedSkillRequest()); err != nil || digest == "" {
+			t.Fatalf("publish = %q, %v", digest, err)
+		}
+		if record := logs.last("shared Skill revision telemetry failed after publication"); record.attrs["reason"] != "root_unavailable" {
+			t.Fatalf("resolver log = %+v", record)
+		}
+	})
+	t.Run("scan", func(t *testing.T) {
+		logs := &revisionLogHandler{}
+		telemetry, err := NewRevisionTelemetry(RevisionTelemetryConfig{Logger: slog.New(logs)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		failing := &telemetryFailFilesystem{Filesystem: base}
+		publisher, err := NewSharedSkillPublisherWithRevisionTelemetry(&testSharedSkillHomes{filesystem: failing}, telemetry, func(home.Key) (FilesystemCatalogRoot, error) { return root, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := validSharedSkillRequest()
+		request.Name = "telemetry-failure"
+		if digest, err := publisher.Publish(context.Background(), request); err != nil || digest == "" {
+			t.Fatalf("publish = %q, %v", digest, err)
+		}
+		record := logs.last("skill revision telemetry collection failed")
+		if record.attrs["reason"] != "scan_failed" {
+			t.Fatalf("scan log = %+v", record)
+		}
+		for _, value := range record.attrs {
+			if value == sandbox.PathWorkspace || value == "/workspace/secret" {
+				t.Fatalf("canonical path leaked: %+v", record)
+			}
+		}
+	})
+}
+
+func TestSharedSkillPublisherTelemetrySkipsPrevalidationAndUnknownOutcome(t *testing.T) {
+	publisher, _, filesystem := testSharedSkillPublisher(t)
+	telemetry, err := NewRevisionTelemetry(RevisionTelemetryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := SystemFilesystemCatalogRoot(sandbox.PathWorkspace, sandbox.HomeAttachment{HomeID: "opaque-home", StoreID: "store", Locator: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher.revisionTelemetry = telemetry
+	publisher.catalogRoot = func(home.Key) (FilesystemCatalogRoot, error) { return root, nil }
+	bad := validSharedSkillRequest()
+	bad.Name = "bad/name"
+	if _, err := publisher.Publish(context.Background(), bad); err == nil {
+		t.Fatal("invalid request succeeded")
+	}
+	unknown := &unknownPublishFilesystem{Filesystem: filesystem}
+	publisher.homes = sharedSkillHomesFunc(func(_ context.Context, _ home.Key, use func(sandbox.Filesystem) error) error { return use(unknown) })
+	if _, err := publisher.Publish(context.Background(), validSharedSkillRequest()); !errors.Is(err, sandbox.ErrOutcomeUnknown) {
+		t.Fatal("unknown outcome was not preserved")
+	}
+	telemetry.mu.RLock()
+	_, observed := telemetry.observed[revisionKey(root)]
+	telemetry.mu.RUnlock()
+	if observed {
+		t.Fatal("prevalidation or outcome-unknown observed telemetry")
+	}
+}
+
+type telemetryFailFilesystem struct{ sandbox.Filesystem }
+
+func (f *telemetryFailFilesystem) InspectManagedSkillTarget(ctx context.Context, name string) (sandbox.ManagedSkillTarget, error) {
+	return f.Filesystem.(sandbox.ManagedSkillTargetInspector).InspectManagedSkillTarget(ctx, name)
+}
+
+func (f *telemetryFailFilesystem) PublishManagedSkill(ctx context.Context, root, name, digest string, publication sandbox.ManagedSkillPublication) error {
+	return f.Filesystem.(sandbox.ManagedSkillPublisher).PublishManagedSkill(ctx, root, name, digest, publication)
+}
+
+func (f *telemetryFailFilesystem) List(context.Context, string) ([]sandbox.DirEntry, error) {
+	return nil, errors.New("/workspace/secret")
 }
 
 type sharedSkillHomesFunc func(context.Context, home.Key, func(sandbox.Filesystem) error) error

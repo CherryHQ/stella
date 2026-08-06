@@ -279,6 +279,22 @@ Sandbox lifecycle spans use these Stella-specific attributes:
 | `stella.sandbox.server.version`     | Handshake-reported sandbox server version        |
 | `stella.sandbox.protocol_version`   | RPC protocol version returned by the sandbox     |
 
+## Retained managed Skill revisions
+
+Managed Skill publications retain immutable revisions. Until Phase 3 garbage collection lands, this inventory is observation-only: it **never deletes revisions**. Capacity thresholds are caller-configured and will be activated by the authority cutover; this release wires no production default or environment variable.
+
+OpenTelemetry exposes these gauges, aggregated only by the bounded `scope` label (`system`, `system_agent`, `user`, or `user_agent`):
+
+| Metric                              | Unit         | Meaning                                     |
+| ----------------------------------- | ------------ | ------------------------------------------- |
+| `stella.skill.revisions.count`      | `{revision}` | Complete retained managed revisions         |
+| `stella.skill.revisions.bytes`      | `By`         | Exact regular-file bytes in those revisions |
+| `stella.skill.revisions.oldest_age` | `s`          | Age of the oldest retained revision         |
+
+Metric labels never include home IDs, roots, principals, users, agents, Skill names, or revision digests. A configured count or byte threshold emits a structured capacity warning when the observed value is equal to or greater than it: once on entry, again only when count/bytes change or oldest age moves by at least one hour, and again after recovery followed by a new breach. Zero disables that threshold dimension. Failed scans retain the last successful metrics snapshot and log a collection warning; they do not retry automatically.
+
+If a warning fires: stop managed Skill publication, inspect Store capacity, then add or migrate storage. Do **not** manually delete retained revisions before Phase 3 garbage collection; manual deletion can invalidate an active or pinned revision.
+
 ## Turning It Off
 
 There is no plugin to disable. Log mode follows `LOG_LEVEL`; set it to `WARN` or `ERROR` to quiet the per-call INFO lines. OTel export is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` or a signal-specific exporter is set, so leaving those variables empty disables distributed telemetry entirely. Set `OTEL_TRACES_EXPORTER=none`, `OTEL_LOGS_EXPORTER=none`, or `OTEL_METRICS_EXPORTER=none` to disable individual signals.
