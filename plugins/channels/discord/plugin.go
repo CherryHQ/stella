@@ -19,7 +19,7 @@ var newRuntime = func(rc plugins.RuntimeContext) (plugins.Runtime, error) {
 		return nil, fmt.Errorf("discord: channel runtime services unavailable")
 	}
 	return NewManagedRuntime(RuntimeDeps{Parent: r.ParentContext(), Handler: r.Handler(), Notifications: r.Notifications(), Log: platform.Logger(), NewChannel: func(cfg channel.DiscordConfig, h channel.Handler) (channel.Channel, error) {
-		return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token}, h)
+		return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, AllowedGuildIDs: cfg.AllowedGuildIDs}, h)
 	}}), nil
 }
 
@@ -50,5 +50,8 @@ func init() {
 }
 
 func configSchema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{"token": map[string]any{"type": "string", "description": "Discord bot token."}}, "required": []any{"token"}}
+	return map[string]any{"type": "object", "properties": map[string]any{
+		"token":             map[string]any{"type": "string", "description": "Discord bot token."},
+		"allowed_guild_ids": map[string]any{"type": "string", "description": "Comma-separated Discord guild IDs allowed to send server-channel messages."},
+	}, "required": []any{"token"}}
 }

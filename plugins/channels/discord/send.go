@@ -44,7 +44,7 @@ func (b *Bot) sendTextOptions(ctx context.Context, channelID, text, replyTo stri
 			msg.Reference = softReference(channelID, replyTo)
 		}
 		if _, err := b.session.ChannelMessageSendComplex(channelID, msg); err != nil {
-			return fmt.Errorf("send discord message: %w", err)
+			return fmt.Errorf("send discord message chunk %d/%d: %w", i+1, len(chunks), err)
 		}
 	}
 	return nil

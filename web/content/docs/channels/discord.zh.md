@@ -14,16 +14,17 @@ title: Discord 机器人
 
 1. 打开 [Discord Developer Portal](https://discord.com/developers/applications) 并创建应用。
 2. 打开 **Bot**，按需创建机器人，然后复制 token。请将 token 作为 secret 保管。
-3. 在 **Privileged Gateway Intents** 下启用 **Message Content Intent**。
+3. 在 **Privileged Gateway Intents** 下启用 **Message Content Intent**。如果只有你的组织可以安装此机器人，请关闭 **Public Bot**。
 4. 在 **OAuth2 → URL Generator** 中选择 `bot` scope，授予 **View Channels**、**Send Messages**、**Read Message History** 和 **Attach Files**，然后用生成的 URL 邀请机器人。
-5. 在 Stella Web UI 中打开 **Channels**，创建 Discord 渠道，粘贴 bot token 并启用。
-6. 如果渠道未自动启动，请重启 `stellad server`。
+5. 启用 Discord Developer Mode，右键点击每个你信任且希望 Stella 服务的服务器，然后选择 **Copy Server ID**。
+6. 在 Stella Web UI 中打开 **Channels**，创建 Discord 渠道，粘贴 bot token，并将可信服务器 ID 填入 **Allowed Guild IDs**，然后启用。多个 ID 之间使用英文逗号分隔。
+7. 如果渠道未自动启动，请重启 `stellad server`。
 
 私信可以使用每位用户选择的 agent。使用服务器频道前，请将 Discord 渠道实例绑定到一个 agent，以便 Stella 将该 agent 加入所遇频道的群聊路由。
 
 ## 使用机器人
 
-向机器人发送私信，或在服务器频道中 @提及它。@提及会确定性路由；配置了语义群聊路由后，其他服务器消息也可能被选中。Agent 输出不会触发 `@everyone` 等 Discord 提及。
+向机器人发送私信，或在允许的服务器频道中 @提及它。未列入 **Allowed Guild IDs** 的服务器消息会被忽略。允许服务器中的每位成员都能向其共享 agent 上下文发送消息，因此只应允许成员均可信的服务器。@提及会确定性路由；配置了语义群聊路由后，其他服务器消息也可能被选中。Agent 输出不会触发 `@everyone` 等 Discord 提及。
 
 机器人在私信中支持 `/start`、`/help`、`/new`、`/compact`、`/abort`、`/agent`、`/whoami` 和 `/link`。暂不支持 `/model` 和服务器频道中的 `/agent`。Discord 将命令作为普通文本消息接收，无需注册 Discord application commands。
 
@@ -37,9 +38,10 @@ title: Discord 机器人
 
 ## 配置参考
 
-| 字段    | 描述              | 默认值   |
-| ------- | ----------------- | -------- |
-| `token` | Discord bot token | （必需） |
+| 字段                | 描述                                    | 默认值 |
+| ------------------- | --------------------------------------- | ------ |
+| `token`             | Discord bot token                       | 必需   |
+| `allowed_guild_ids` | 允许使用 Stella 的服务器 ID，以逗号分隔 | 无     |
 
 ## 故障排除
 
@@ -47,6 +49,6 @@ title: Discord 机器人
 
 **机器人无法回复或上传文件：** 同时检查频道权限覆盖和服务器角色。机器人需要 View Channels、Send Messages、Read Message History 和 Attach Files。
 
-**机器人在服务器频道中不响应：** 先 @提及机器人。若需要无 @提及路由，请配置可用的群聊路由模型，并确认机器人可以读取该频道。
+**机器人在服务器频道中不响应：** 先将该服务器 ID 加入 **Allowed Guild IDs**，再 @提及机器人。若需要无 @提及路由，请配置可用的群聊路由模型，并确认机器人可以读取该频道。
 
 **渠道报告认证错误：** 在 Developer Portal 中重置 token，在 Stella 中替换它，切勿将 token 粘贴到聊天或日志中。

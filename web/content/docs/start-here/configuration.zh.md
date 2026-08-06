@@ -53,6 +53,7 @@ title: 配置
 各渠道的设置说明：
 
 - [Telegram](/docs/channels/telegram)
+- [Discord](/docs/channels/discord)
 - [QQ](/docs/channels/qq)
 - [飞书](/docs/channels/feishu)
 - [微信](/docs/channels/weixin)

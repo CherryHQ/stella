@@ -15,17 +15,24 @@ import (
 
 const maxMessageLength = 2000
 
-type Config struct{ InstanceID, Token string }
+type Config struct {
+	InstanceID      string
+	Token           string
+	AllowedGuildIDs string
+}
 
 type Bot struct {
-	session   *discordgo.Session
-	handler   channel.Handler
-	cfg       Config
-	ctx       context.Context
-	mu        sync.RWMutex
-	closeOnce sync.Once
-	finalized bool
-	botID     string
+	session           *discordgo.Session
+	handler           channel.Handler
+	cfg               Config
+	allowedGuilds     map[string]struct{}
+	ctx               context.Context
+	mu                sync.RWMutex
+	provisionMu       sync.Mutex
+	provisionedGroups map[string]struct{}
+	closeOnce         sync.Once
+	finalized         bool
+	botID             string
 }
 
 func New(cfg Config, handler channel.Handler) (*Bot, error) {
@@ -37,7 +44,13 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		return nil, fmt.Errorf("create discord session: %w", err)
 	}
 	s.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
-	return &Bot{session: s, handler: handler, cfg: cfg}, nil
+	allowedGuilds := make(map[string]struct{})
+	for _, guildID := range strings.FieldsFunc(cfg.AllowedGuildIDs, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	}) {
+		allowedGuilds[guildID] = struct{}{}
+	}
+	return &Bot{session: s, handler: handler, cfg: cfg, allowedGuilds: allowedGuilds, provisionedGroups: make(map[string]struct{})}, nil
 }
 
 func (b *Bot) Name() string {
@@ -48,22 +61,39 @@ func (b *Bot) Name() string {
 }
 func (b *Bot) Platform() string { return channel.PlatformDiscord }
 
+func (b *Bot) guildAllowed(guildID string) bool {
+	if guildID == "" {
+		return true
+	}
+	_, ok := b.allowedGuilds[guildID]
+	return ok
+}
+
 func (b *Bot) Start(ctx context.Context) error {
-	b.mu.Lock()
-	b.ctx = ctx
-	b.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	b.session.AddHandler(b.onMessageCreate)
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("open discord gateway: %w", err)
 	}
-	b.mu.Lock()
-	if b.finalized {
-		b.mu.Unlock()
+	if err := b.activate(ctx); err != nil {
 		b.Stop()
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+		return err
+	}
+	<-ctx.Done()
+	b.Stop()
+	return ctx.Err()
+}
+
+func (b *Bot) activate(ctx context.Context) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.finalized {
 		return fmt.Errorf("discord: finalized during startup")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if b.session.State != nil && b.session.State.User != nil {
 		b.botID = b.session.State.User.ID
@@ -76,10 +106,10 @@ func (b *Bot) Start(ctx context.Context) error {
 	}); ok {
 		r.RegisterGroupPublisher(b.Name(), b)
 	}
-	b.mu.Unlock()
-	<-ctx.Done()
-	b.Stop()
-	return ctx.Err()
+	// Publishing the context is the ingress activation point. Keep it last so
+	// event handlers cannot accept traffic before all routing state is ready.
+	b.ctx = ctx
+	return nil
 }
 
 // Finalize removes routing registrations after accepted work has drained.
@@ -90,6 +120,7 @@ func (b *Bot) Finalize() {
 		return
 	}
 	b.finalized = true
+	b.ctx = nil
 	if b.botID != "" {
 		if r, ok := b.handler.(interface {
 			UnregisterBotIdentity(string, string, string)

@@ -10,7 +10,7 @@ A tenant is the organization boundary. It keeps users, agents, credentials, and 
 
 ## User
 
-A user is a person who works with agents. Users can chat from the Web UI, terminal, or connected channels such as Telegram, QQ, Feishu, and WeChat.
+A user is a person who works with agents. Users can chat from the Web UI, terminal, or connected channels such as Telegram, Discord, QQ, Feishu, and WeChat.
 
 ## Agent
 

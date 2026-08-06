@@ -29,6 +29,10 @@ type groupMemberProvisioner interface {
 
 func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	deliveryCtx := context.WithoutCancel(ctx)
+	if !b.guildAllowed(m.GuildID) {
+		logger().Debug("ignoring message from unconfigured guild", "guild_id", m.GuildID, "channel_id", m.ChannelID)
+		return nil
+	}
 	text := m.Content
 	if m.GuildID != "" {
 		text = b.stripBotMention(text)
@@ -39,17 +43,15 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	}
 	probe := b.incomingMessage(m, nil)
 	for _, attachment := range m.Attachments {
-		content = append(content, b.attachmentContent(ctx, probe, attachment)...)
+		content = append(content, b.attachmentContent(deliveryCtx, probe, attachment)...)
 	}
 	if len(content) == 0 {
 		return nil
 	}
 	msg := b.incomingMessage(m, content)
 	if msg.IsGroup {
-		if provisioner, ok := b.handler.(groupMemberProvisioner); ok {
-			if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformDiscord, msg.ChatID, b.Name()); err != nil {
-				logger().Warn("ensure group member failed", "channel_id", msg.ChatID, "error", err)
-			}
+		if err := b.ensureGroupMember(ctx, msg.ChatID); err != nil {
+			return err
 		}
 	}
 	cmd, args := channel.ParseSlashCommand(text)
@@ -114,6 +116,23 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	return nil
 }
 
+func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID string) error {
+	provisioner, ok := b.handler.(groupMemberProvisioner)
+	if !ok {
+		return nil
+	}
+	b.provisionMu.Lock()
+	defer b.provisionMu.Unlock()
+	if _, ok := b.provisionedGroups[platformGroupID]; ok {
+		return nil
+	}
+	if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformDiscord, platformGroupID, b.Name()); err != nil {
+		return fmt.Errorf("ensure discord group member: %w", err)
+	}
+	b.provisionedGroups[platformGroupID] = struct{}{}
+	return nil
+}
+
 func collectResponse(ctx context.Context, stream *channel.ChatStream) (string, []channel.ImageEvent, []channel.FileEvent, error) {
 	var text strings.Builder
 	var images []channel.ImageEvent
@@ -151,15 +170,22 @@ func (b *Bot) attachmentContent(ctx context.Context, msg channel.IncomingMessage
 	}
 	data, err := downloadAttachment(ctx, a.URL)
 	if err != nil {
+		logger().Warn("download attachment failed", "attachment_id", a.ID, "file_name", name, "error", err)
 		return channel.TextContent(fmt.Sprintf("[Attachment: %s — download failed.]", name))
 	}
 	mime := http.DetectContentType(data)
 	resolver, rok := b.handler.(channel.UserRootResolver)
 	saver, sok := b.handler.(channel.AssetSaver)
 	if rok && sok {
-		if root, err := resolver.ResolveUserRoot(ctx, msg); err == nil && root != "" {
+		root, err := resolver.ResolveUserRoot(ctx, msg)
+		if err != nil {
+			logger().Warn("resolve attachment owner failed", "attachment_id", a.ID, "file_name", name, "error", err)
+		} else if root != "" {
 			dir := agent.UserAssetsDir(root)
-			if path, err := saver.SaveAsset(ctx, dir, name, data); err == nil {
+			path, err := saver.SaveAsset(ctx, dir, name, data)
+			if err != nil {
+				logger().Warn("save attachment failed", "attachment_id", a.ID, "file_name", name, "error", err)
+			} else {
 				return channel.AttachmentReceivedContent(name, dir, path, data)
 			}
 		}

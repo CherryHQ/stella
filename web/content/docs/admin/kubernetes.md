@@ -189,7 +189,7 @@ stateless: a multi-replica readiness audit found three classes of state that bre
 the moment a second pod runs.
 
 - **IM channels start in full on every replica.** Each pod independently starts
-  every configured Telegram/QQ/Feishu/WeChat connection. Two pods means two long-poll
+  every configured Telegram/Discord/QQ/Feishu/WeChat connection. Two pods means two long-poll
   or WebSocket sessions on the same bot token — platforms respond with conflicts
   (e.g. Telegram `409`) or deliver each message twice.
 - **Live streaming and per-session serialization are in-process.** The guarantee
@@ -284,7 +284,7 @@ Stella needs outbound access to:
 
 - **PostgreSQL** — your external database (usually `5432`).
 - **LLM provider APIs** — Anthropic, OpenAI, or whichever providers you configure.
-- **IM platform APIs** — Telegram, QQ, Feishu, WeChat, for any channels you enable.
+- **IM platform APIs** — Telegram, Discord, QQ, Feishu, WeChat, for any channels you enable.
 - **S3 / object storage** — only if you configure the `STELLA_BLOB_S3_*` asset mirror.
 
 If your cluster restricts egress, allow these destinations. The chart does not ship

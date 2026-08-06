@@ -82,6 +82,10 @@ type Bot struct {
 	cfg    Config
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	routingMu        sync.Mutex
+	routingFinalized bool
+	registeredBotID  string
 }
 
 // New creates a Feishu bot. Call Start to begin receiving events.
@@ -120,7 +124,12 @@ func (b *Bot) Start(ctx context.Context) error {
 		logger().Warn("failed to fetch bot open_id, self-message filtering disabled", "error", err)
 	} else if registrar, ok := b.handler.(channel.BotRegistrar); ok {
 		if botID, _ := b.botOpenID.Load().(string); botID != "" {
-			registrar.RegisterBotIdentity(channel.PlatformFeishu, botID, b.cfg.InstanceID)
+			b.routingMu.Lock()
+			if !b.routingFinalized {
+				registrar.RegisterBotIdentity(channel.PlatformFeishu, botID, b.cfg.InstanceID)
+				b.registeredBotID = botID
+			}
+			b.routingMu.Unlock()
 		}
 	}
 
@@ -174,6 +183,26 @@ func (b *Bot) Stop() {
 	logger().Info("stopping feishu bot")
 	if b.cancel != nil {
 		b.cancel()
+	}
+}
+
+// Finalize removes routing registrations after accepted work has drained.
+func (b *Bot) Finalize() {
+	b.routingMu.Lock()
+	defer b.routingMu.Unlock()
+	if b.routingFinalized {
+		return
+	}
+	b.routingFinalized = true
+	if b.registeredBotID != "" {
+		if registrar, ok := b.handler.(interface {
+			UnregisterBotIdentity(string, string, string)
+		}); ok {
+			registrar.UnregisterBotIdentity(channel.PlatformFeishu, b.registeredBotID, b.cfg.InstanceID)
+		}
+	}
+	if registrar, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
+		registrar.UnregisterGroupPublisher(b.Name())
 	}
 }
 

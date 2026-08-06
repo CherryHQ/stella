@@ -212,16 +212,16 @@ func (c *Coordinator) EnsurePlatformGroupMember(ctx context.Context, platform, p
 	if c.eventLog == nil || c.db == nil {
 		return errors.New("group member provisioning not configured")
 	}
-	groupID, err := c.eventLog.ResolveGroupID(ctx, platform, platformGroupID, "")
-	if err != nil {
-		return fmt.Errorf("resolve group: %w", err)
-	}
 	ch, err := c.store.GetChannel(ctx, channelID)
 	if err != nil {
 		return fmt.Errorf("get channel %q: %w", channelID, err)
 	}
 	if ch.AgentID == "" {
 		return fmt.Errorf("channel %q has no agent", channelID)
+	}
+	groupID, err := c.eventLog.ResolveGroupID(ctx, platform, platformGroupID, "")
+	if err != nil {
+		return fmt.Errorf("resolve group: %w", err)
 	}
 	q := sqlc.New(c.db)
 	if _, err := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{

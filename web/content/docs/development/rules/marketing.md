@@ -33,20 +33,20 @@ If a headline doesn't trace back to a filled-in formula, it's decoration. Cut it
 
 Engineering describes Stella in feature language. Users don't buy features; they buy "what this does for me." Every feature claim must be translated to its value before it ships in marketing copy.
 
-| Feature layer (how we build it)                   | Value layer (what the reader gets)                                                                     |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Verified work items + weekly report               | Your digital employee files a weekly report; click any line to see what it did and the proof it's done |
-| Action receipts on every external write           | Every piece of work leaves a paper trail you can audit — including attempts that were refused          |
-| Acceptance checks against external systems        | Work only counts when your systems confirm it's done — the AI never grades its own homework            |
-| Per-person authority (avatars act as their owner) | It acts with each person's own permissions, so your existing access controls contain it                |
-| Follow-ups with escalation                        | It chases the right person until the thing is actually done — approvals, invoices, reviews             |
-| One deployment, many users and agents             | Anyone on the team just asks — no new system to learn, no seat-by-seat setup                           |
-| Per-user-per-agent memory                         | The agent remembers each teammate's context, so nobody re-explains themselves                          |
-| Telegram / QQ / Feishu / WeChat / Web channels    | It shows up in the group chat you already live in — no new app to install                              |
-| Skills, tools, sandbox policy                     | It does the work, not just chats — and only within boundaries you set                                  |
-| Self-hosted, bring-your-own model keys            | Your data and your keys stay on infrastructure you control                                             |
-| Knowledge base + permissions                      | The agent answers from _your_ docs, and only shows each person what they're allowed to see             |
-| Scheduler / durable jobs                          | Reminders, digests, and recurring work keep running and notify the right people                        |
+| Feature layer (how we build it)                          | Value layer (what the reader gets)                                                                     |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Verified work items + weekly report                      | Your digital employee files a weekly report; click any line to see what it did and the proof it's done |
+| Action receipts on every external write                  | Every piece of work leaves a paper trail you can audit — including attempts that were refused          |
+| Acceptance checks against external systems               | Work only counts when your systems confirm it's done — the AI never grades its own homework            |
+| Per-person authority (avatars act as their owner)        | It acts with each person's own permissions, so your existing access controls contain it                |
+| Follow-ups with escalation                               | It chases the right person until the thing is actually done — approvals, invoices, reviews             |
+| One deployment, many users and agents                    | Anyone on the team just asks — no new system to learn, no seat-by-seat setup                           |
+| Per-user-per-agent memory                                | The agent remembers each teammate's context, so nobody re-explains themselves                          |
+| Telegram / Discord / QQ / Feishu / WeChat / Web channels | It shows up in the group chat you already live in — no new app to install                              |
+| Skills, tools, sandbox policy                            | It does the work, not just chats — and only within boundaries you set                                  |
+| Self-hosted, bring-your-own model keys                   | Your data and your keys stay on infrastructure you control                                             |
+| Knowledge base + permissions                             | The agent answers from _your_ docs, and only shows each person what they're allowed to see             |
+| Scheduler / durable jobs                                 | Reminders, digests, and recurring work keep running and notify the right people                        |
 
 The test for any marketing sentence: a reader should feel **"this is about me,"** not "this is impressive engineering." If a sentence only makes sense to someone who already knows the architecture, it belongs in `development/`, not on a landing page.
 

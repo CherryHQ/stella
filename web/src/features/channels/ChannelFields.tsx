@@ -17,7 +17,7 @@ export type PlatformDefaults = Record<string, string | boolean>;
  */
 export const platformDefaults: Record<string, PlatformDefaults> = {
   telegram: { token: "", channel_id: "" },
-  discord: { token: "" },
+  discord: { token: "", allowed_guild_ids: "" },
   qq: { app_id: "", app_secret: "" },
   feishu: {
     app_id: "",
@@ -168,7 +168,17 @@ export function ChannelConfigFields({
         </>
       )}
 
-      {type === "discord" && field("token", "Bot Token", "password", "Discord Developer Portal")}
+      {type === "discord" && (
+        <>
+          {field("token", "Bot Token", "password", "Discord Developer Portal")}
+          {field(
+            "allowed_guild_ids",
+            "Allowed Guild IDs",
+            "text",
+            "Comma-separated Discord server IDs",
+          )}
+        </>
+      )}
 
       {type === "qq" && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
