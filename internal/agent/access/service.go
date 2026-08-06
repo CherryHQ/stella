@@ -3,6 +3,7 @@ package access
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -100,8 +101,14 @@ func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (c
 	if channel.AgentID != agentID {
 		return config.Agent{}, ErrForbidden
 	}
-	if a.authority.Kind() == authz.ActorGuest && !channel.Enabled {
-		return config.Agent{}, ErrForbidden
+	if a.authority.Kind() == authz.ActorGuest {
+		var guestConfig struct {
+			AllowDM         bool `json:"allow_dm"`
+			AllowUnlinkedDM bool `json:"allow_unlinked_dm"`
+		}
+		if !channel.Enabled || channel.Type != "discord" || json.Unmarshal([]byte(channel.Config), &guestConfig) != nil || !guestConfig.AllowDM || !guestConfig.AllowUnlinkedDM {
+			return config.Agent{}, ErrForbidden
+		}
 	}
 	return a.decide(ctx, agentID, authz.ActionExecute, true)
 }
@@ -259,6 +266,9 @@ func (a *Access) decide(ctx context.Context, agentID string, action authz.Action
 	ag, err := a.load(ctx, agentID)
 	if err != nil {
 		return config.Agent{}, err
+	}
+	if action == authz.ActionExecute && a.authority.Kind() == authz.ActorGuest && !ag.Enabled {
+		return config.Agent{}, ErrForbidden
 	}
 	scope, err := canonicalScope(ag.Scope)
 	if err != nil {

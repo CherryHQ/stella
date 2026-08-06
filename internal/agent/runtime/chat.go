@@ -35,16 +35,15 @@ type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory
 
 // chat is the goroutine body for Runtime.Chat.
 func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
-	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
-	if err != nil {
-		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
-		close(out)
-		return
-	}
-
-	if info.GroupID == "" {
+	isGuest := info.GuestID != ""
+	switch {
+	case isGuest:
+		// Guest mode is derived exclusively from durable session metadata. Never
+		// mint a Stella user identity for the guest's UUID-shaped owner key.
+		ctx = authz.WithGuestID(ctx, info.GuestID)
+	case info.GroupID == "":
 		ctx = authz.WithUserID(ctx, info.UserID)
-	} else {
+	default:
 		// Group turns: carry the group id (not a user) so trusted adapters can mint
 		// a confined GroupAgentActor. authz.WithUserID stays unset so runtime
 		// identity remains the group (D9).
@@ -62,6 +61,13 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		ctx = withChannel(ctx, info.Channel)
 	}
 
+	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
+	if err != nil {
+		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
+		close(out)
+		return
+	}
+
 	memSess, err := info.MemoryScope()
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("session scope: %w", err)}
@@ -72,9 +78,12 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	msgText := MessageText(msg)
 	rt.log.Debug("chat started", "session_id", info.ID, "message_len", len(msgText))
 
-	// Fire PreAgentCall hook.
+	// Fire PreAgentCall hook for authenticated sessions only.
 	chatStart := time.Now()
-	hookPlugins := rt.hookPlugins()
+	var hookPlugins []hooks.HookPlugin
+	if !isGuest {
+		hookPlugins = rt.hookPlugins()
+	}
 	hs := hooks.NewHookSet(hookPlugins)
 	hookMeta := hooks.HookMeta{
 		SessionID: info.ID,
@@ -82,14 +91,16 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		AgentID:   info.AgentID,
 		Channel:   info.Channel,
 	}
-	hs.RunPreAgentCall(ctx, &hooks.PreAgentCallContext{
-		HookMeta:   hookMeta,
-		MessageLen: len(msgText),
-		Channel:    info.Channel,
-	})
+	if !isGuest {
+		hs.RunPreAgentCall(ctx, &hooks.PreAgentCallContext{
+			HookMeta:   hookMeta,
+			MessageLen: len(msgText),
+			Channel:    info.Channel,
+		})
+	}
 
 	// Auto-compact.
-	if rt.needsCompaction(ctx, memSess) {
+	if !isGuest && rt.needsCompaction(ctx, memSess) {
 		rt.log.Info("auto-compaction triggered", "session_id", info.ID)
 		compactCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), autoCompactionTimeout)
 		if summary, err := rt.compact_(compactCtx, memSess); err != nil {
@@ -115,7 +126,10 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		if updated.Title == "" && len(msgText) > 0 {
 			updated.Title = autoTitle(msgText)
 		}
-		saveCtx := authz.WithUserID(ctx, info.UserID)
+		saveCtx := ctx
+		if !isGuest {
+			saveCtx = authz.WithUserID(saveCtx, info.UserID)
+		}
 		saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
 		// TouchActiveInfo, not SaveInfo: a `/new` rotation can archive this
 		// session after the turn resolved it, and
@@ -152,9 +166,14 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 
 	// Resolve system prompt.
 	baseSystem := co.systemOverride
+	if isGuest {
+		// A caller override is another capability surface. Guest runners always
+		// use the minimal prompt selected from durable GuestID at construction.
+		baseSystem = r.SystemPrompt()
+	}
 	if baseSystem == "" {
 		baseSystem = r.SystemPrompt()
-		if info.GroupID == "" && rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
+		if !isGuest && info.GroupID == "" && rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
 			// DM per-turn snapshot prompt: rebuild system with frozen memory
 			// version. Skipped when systemOverride is set (e.g. delegate custom
 			// system).
@@ -169,7 +188,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 			}
 		}
 	}
-	if rt.beforeRun != nil {
+	if !isGuest && rt.beforeRun != nil {
 		systemOut, err := rt.beforeRun(ctx, info, cs.model, msgText, baseSystem, history)
 		if err != nil {
 			out <- Event{Err: fmt.Errorf("before run: %w", err)}
@@ -215,7 +234,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		case []ai.ContentBlock:
 			blocks = content
 		}
-		if blocks != nil {
+		if blocks != nil && !isGuest {
 			if ai.HasImage(blocks) {
 				if rt.sessionImages == nil {
 					out <- Event{Err: errors.New("session image enrichment is not configured")}
@@ -259,8 +278,10 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (*cachedSession, Runner, error) {
 	attrs := []attribute.KeyValue{
 		attribute.String("gen_ai.conversation.id", info.ID),
-		attribute.String("user_id", info.UserID),
 		attribute.String("agent_id", info.AgentID),
+	}
+	if info.GuestID == "" {
+		attrs = append(attrs, attribute.String("user_id", info.UserID))
 	}
 	if info.ProjectID != "" {
 		attrs = append(attrs, attribute.String("project_id", info.ProjectID))

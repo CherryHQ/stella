@@ -278,6 +278,9 @@ func (a *Access) ResolveChatChannel(ctx context.Context, req agentsession.Channe
 	if err := a.authorizeChannelBinding(ctx, req, authz.ActionCreate); err != nil {
 		return agentsession.Info{}, err
 	}
+	if req.GuestID != "" {
+		ctx = authz.WithGuestID(ctx, req.GuestID)
+	}
 	info, err := a.svc.registry.ResolveChatChannel(ctx, req)
 	if err != nil {
 		return agentsession.Info{}, err
@@ -296,6 +299,9 @@ func (a *Access) ResolveChatChannel(ctx context.Context, req agentsession.Channe
 func (a *Access) RotateChannel(ctx context.Context, req agentsession.ChannelRequest) (agentsession.Info, error) {
 	if err := a.authorizeChannelBinding(ctx, req, authz.ActionDelete); err != nil {
 		return agentsession.Info{}, err
+	}
+	if req.GuestID != "" {
+		ctx = authz.WithGuestID(ctx, req.GuestID)
 	}
 	info, err := a.svc.registry.RotateChannel(ctx, req)
 	if err != nil {
@@ -517,7 +523,12 @@ func (a *Access) session(ctx context.Context, routeAgentID, sessionID string, ac
 	if !conv.UserID.Valid || !conv.AgentID.Valid || (routeAgentID != "" && routeAgentID != conv.AgentID.String) {
 		return agentsession.Info{}, ErrNotFound
 	}
-	loadCtx := authz.WithAgentID(authz.WithUserID(ctx, conv.UserID.String), conv.AgentID.String)
+	loadCtx := authz.WithAgentID(ctx, conv.AgentID.String)
+	if conv.GuestID.Valid {
+		loadCtx = authz.WithGuestID(loadCtx, conv.GuestID.String)
+	} else {
+		loadCtx = authz.WithUserID(loadCtx, conv.UserID.String)
+	}
 	record, err := a.svc.memory.LoadInfo(loadCtx, sessionID)
 	if err != nil {
 		return agentsession.Info{}, ErrNotFound

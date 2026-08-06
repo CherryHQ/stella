@@ -39,6 +39,7 @@ type providerConfig struct {
 
 // runnerConfig configures the runner implementation.
 type runnerConfig struct {
+	NoCapabilities      bool // guest mode: empty tool registry, no hooks or media
 	Provider            providerConfig
 	Thinking            ai.ThinkingLevel
 	Sandbox             sandbox.Config
@@ -93,21 +94,27 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input}
 
-	// Propagate the turn budget into the sandbox config so both initial OAuth env
-	// injection and per-turn refresh size their min-validity to the actual chat
-	// timeout (#722). cfg is a value copy, so this stays local to this runner.
-	cfg.Sandbox.ChatTimeout = cfg.ChatTimeout
+	var session pkgsandbox.Session
+	if !cfg.NoCapabilities {
+		// Propagate the turn budget into the sandbox config so both initial OAuth env
+		// injection and per-turn refresh size their min-validity to the actual chat
+		// timeout (#722). cfg is a value copy, so this stays local to this runner.
+		cfg.Sandbox.ChatTimeout = cfg.ChatTimeout
 
-	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
-	if err != nil {
-		return nil, fmt.Errorf("runner: %w", err)
-	}
-	paths, err := sandbox.ResolvePaths(cfg.Sandbox)
-	if err != nil {
-		return nil, fmt.Errorf("runner: %w", err)
+		session, err = sandbox.ResolveSession(ctx, cfg.Sandbox)
+		if err != nil {
+			return nil, fmt.Errorf("runner: %w", err)
+		}
 	}
 
 	if systemPrompt == "" {
+		paths, err := sandbox.ResolvePaths(cfg.Sandbox)
+		if err != nil {
+			if session != nil {
+				_ = session.Close()
+			}
+			return nil, fmt.Errorf("runner: %w", err)
+		}
 		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
 			StellaHome:  paths.StellaHome,
 			AgentRoot:   paths.AgentRoot,
@@ -200,8 +207,11 @@ func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
 func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, error) {
-	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 	toolReg := tools.NewRegistry()
+	if cfg.NoCapabilities {
+		return toolReg, nil, nil
+	}
+	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 
 	// Core tools (read, bash, edit, write) are always provided by the active
 	// sandbox session.

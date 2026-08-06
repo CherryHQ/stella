@@ -6,6 +6,7 @@ type DiscordConfig struct {
 	Token           string `json:"token"`
 	AllowedGuildIDs string `json:"allowed_guild_ids"`
 	AllowDM         bool   `json:"allow_dm"`
+	AllowUnlinkedDM bool   `json:"allow_unlinked_dm"`
 	RequireMention  bool   `json:"require_mention"`
 }
 

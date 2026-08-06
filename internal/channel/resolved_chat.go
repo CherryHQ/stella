@@ -229,9 +229,10 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 	if resolved.User.ID == "" && !isGroup && platform == "discord" {
 		channel, channelErr := store.GetChannel(ctx, channelID)
 		var pluginConfig struct {
+			AllowDM         bool `json:"allow_dm"`
 			AllowUnlinkedDM bool `json:"allow_unlinked_dm"`
 		}
-		if channelErr != nil || !channel.Enabled || channel.AgentID == "" || json.Unmarshal([]byte(channel.Config), &pluginConfig) != nil || !pluginConfig.AllowUnlinkedDM || guests == nil {
+		if channelErr != nil || !channel.Enabled || channel.AgentID == "" || json.Unmarshal([]byte(channel.Config), &pluginConfig) != nil || !pluginConfig.AllowDM || !pluginConfig.AllowUnlinkedDM || guests == nil {
 			return nil, ErrAgentAccessDenied
 		}
 		guest, guestErr := guests.ResolveOrCreateGuest(ctx, channel.ID, platform, senderID)

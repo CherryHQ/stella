@@ -17,11 +17,11 @@ import (
 
 func TestConfigDecodeRedactSchemaAndValidation(t *testing.T) {
 	cfg, err := DecodeConfig(map[string]any{"token": "secret", "allowed_guild_ids": "one, two"})
-	if err != nil || cfg.Token != "secret" || cfg.AllowedGuildIDs != "one, two" || !cfg.AllowDM || !cfg.RequireMention {
+	if err != nil || cfg.Token != "secret" || cfg.AllowedGuildIDs != "one, two" || !cfg.AllowDM || cfg.AllowUnlinkedDM || !cfg.RequireMention {
 		t.Fatalf("DecodeConfig() = %#v, %v", cfg, err)
 	}
-	cfg, err = DecodeConfig(map[string]any{"token": "secret", "allow_dm": false, "require_mention": false})
-	if err != nil || cfg.AllowDM || cfg.RequireMention {
+	cfg, err = DecodeConfig(map[string]any{"token": "secret", "allow_dm": false, "allow_unlinked_dm": true, "require_mention": false})
+	if err != nil || cfg.AllowDM || !cfg.AllowUnlinkedDM || cfg.RequireMention {
 		t.Fatalf("DecodeConfig(disabled defaults) = %#v, %v", cfg, err)
 	}
 	redacted := RedactConfig(map[string]any{"token": "secret"})
@@ -33,6 +33,14 @@ func TestConfigDecodeRedactSchemaAndValidation(t *testing.T) {
 	}
 	if got := configSchema()["required"]; !reflect.DeepEqual(got, []any{"token"}) {
 		t.Fatalf("schema required = %#v", got)
+	}
+	properties, ok := configSchema()["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema properties = %#v", configSchema()["properties"])
+	}
+	unlinked, ok := properties["allow_unlinked_dm"].(map[string]any)
+	if !ok || unlinked["default"] != false {
+		t.Fatalf("allow_unlinked_dm schema = %#v", properties["allow_unlinked_dm"])
 	}
 }
 
@@ -166,6 +174,25 @@ func TestDirectMessageCanBeDisabled(t *testing.T) {
 	}
 	if h.handleCalls != 0 {
 		t.Fatalf("disabled direct messages caused %d handle calls", h.handleCalls)
+	}
+}
+
+func TestAttachmentOwnershipIsResolvedBeforeDownload(t *testing.T) {
+	h := &rejectingAttachmentHandler{err: errors.New("guest sessions have no workspace")}
+	b, err := New(Config{Token: "token", AllowDM: true, AllowUnlinkedDM: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &discordgo.Message{
+		ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "guest"}, Content: "hello",
+		Attachments: []*discordgo.MessageAttachment{{ID: "attachment", Filename: "secret.txt", URL: "https://invalid.example/should-not-be-fetched"}},
+	}
+	err = b.handleMessage(context.Background(), m)
+	if err == nil || !strings.Contains(err.Error(), "guest sessions have no workspace") {
+		t.Fatalf("handleMessage() error = %v", err)
+	}
+	if h.resolveCalls != 1 || h.handleCalls != 0 {
+		t.Fatalf("calls: resolve=%d handle=%d, want 1 and 0", h.resolveCalls, h.handleCalls)
 	}
 }
 
@@ -303,6 +330,17 @@ type unregisteringHandler struct {
 	botID                  string
 	channelID              string
 	publisherChannelID     string
+}
+
+type rejectingAttachmentHandler struct {
+	unregisteringHandler
+	err          error
+	resolveCalls int
+}
+
+func (h *rejectingAttachmentHandler) ResolveUserRoot(context.Context, channel.IncomingMessage) (string, error) {
+	h.resolveCalls++
+	return "", h.err
 }
 
 func (h *unregisteringHandler) HandleIncoming(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error) {

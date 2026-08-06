@@ -56,6 +56,9 @@ func (t *tracedProvider) hooks() *hooks.HookSet {
 }
 
 func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallContext) (context.Context, time.Time) {
+	if authz.GuestIDFromContext(ctx) != "" {
+		return ctx, time.Now()
+	}
 	hs := t.hooks()
 	if hs == nil || hs.Empty() {
 		return ctx, time.Now()
@@ -72,6 +75,9 @@ func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallCo
 }
 
 func (t *tracedProvider) emit(ctx context.Context, hctx *hooks.PostMemoryCallContext) {
+	if authz.GuestIDFromContext(ctx) != "" {
+		return
+	}
 	hs := t.hooks()
 	if hs == nil || hs.Empty() {
 		return

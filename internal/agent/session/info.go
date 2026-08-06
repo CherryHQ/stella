@@ -232,7 +232,7 @@ func infosFromRecords(rs []memory.SessionInfo) ([]Info, error) {
 func infosFromReviewRecords(rs []memory.SessionInfo) ([]Info, error) {
 	out := make([]Info, 0, len(rs))
 	for i, r := range rs {
-		if r.UserID == "" {
+		if r.UserID == "" || r.GuestID != "" {
 			continue
 		}
 		info, err := InfoFromRecord(r)

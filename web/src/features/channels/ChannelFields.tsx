@@ -21,6 +21,7 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
     token: "",
     allowed_guild_ids: "",
     allow_dm: true,
+    allow_unlinked_dm: false,
     require_mention: true,
   },
   qq: { app_id: "", app_secret: "" },
@@ -190,6 +191,15 @@ export function ChannelConfigFields({
               onCheckedChange={(checked) => onChange("allow_dm", checked)}
             />
             <FieldDescription>{t("channels.allowDmDesc")}</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>{t("channels.allowUnlinkedDm")}</FieldLabel>
+            <Switch
+              checked={Boolean(channel.allow_unlinked_dm)}
+              aria-label={t("channels.allowUnlinkedDm")}
+              onCheckedChange={(checked) => onChange("allow_unlinked_dm", checked)}
+            />
+            <FieldDescription>{t("channels.allowUnlinkedDmDesc")}</FieldDescription>
           </Field>
           <Field>
             <FieldLabel>{t("channels.requireMention")}</FieldLabel>

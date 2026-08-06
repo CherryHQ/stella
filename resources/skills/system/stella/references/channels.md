@@ -79,11 +79,14 @@ Discord channel config (JSON):
   "token": "BOT_TOKEN",
   "allowed_guild_ids": "SERVER_ID_1,SERVER_ID_2",
   "allow_dm": true,
+  "allow_unlinked_dm": false,
   "require_mention": true
 }
 ```
 
-The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, `/agent` in direct messages, and shared channel commands. `allowed_guild_ids` is comma-separated and fail-closed: leaving it empty disables all guild messages while direct messages continue to work. `allow_dm` defaults to `true`; disable it for a guild-only bot. `require_mention` defaults to `true`, so unmentioned guild messages are ignored before reaching shared history or an agent. Every member who can access an allowed channel can mention the bot, so use Discord channel and role permissions for access control. Unlinked users cannot invoke an agent by direct message; they can only link an account. Bind the channel instance to an agent before using it in guild channels. `/model` and guild-channel `/agent` are not yet supported. Use a Discord channel ID as an explicit notification target; do not invent one.
+The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, `/agent` in direct messages, and shared channel commands. `allowed_guild_ids` is comma-separated and fail-closed: leaving it empty disables all guild messages while direct messages continue to work. `allow_dm` defaults to `true`; disable it for a guild-only bot. `require_mention` defaults to `true`, so unmentioned guild messages are ignored before reaching shared history or an agent. Every member who can access an allowed channel can mention the bot, so use Discord channel and role permissions for access control. Bind the channel instance to an agent before using it in guild channels. `/model` and guild-channel `/agent` are not yet supported. Use a Discord channel ID as an explicit notification target; do not invent one.
+
+Unlinked direct messages are off by default. Setting `allow_unlinked_dm: true` requires `allow_dm: true`, an enabled Discord channel, and a channel-bound agent; guests can use only that agent. Guest conversation history persists, but profile, reflection, tools, skills, files, workspace, plugins, and delegation are unavailable. Only `/link`, `/help`, `/new`, and `/abort` are allowed, and linking does not merge old guest history. This proof of concept has no guest rate limiting or guest management. It exposes model use publicly, so warn operators about cost and security and recommend a dedicated guest-safe agent whose base prompt contains no secrets.
 
 ## QQ bot
 

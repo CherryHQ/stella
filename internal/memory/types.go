@@ -11,16 +11,19 @@ import (
 
 // ScopeUserIDFromContext returns the user_id this turn's conversation rows are
 // keyed by. A group turn carries no user identity — runtime identity stays the
-// group (D9) — and its conversations persist under user_id = group_id (the
-// ctx_conversation_group_owner_check invariant), so the group id is its scope
+// group (D9) — and guest turns likewise carry no Stella user identity. Their
+// conversations persist under their group_id or guest_id compatibility owner
 // key. Use this for conversation-scoped reads and writes (session info,
 // messages, summaries) only. Per-user data — soul, profile, constraints,
 // knowledge facts — must keep resolving strictly against
-// authz.UserIDFromContext so a group turn fails closed instead of reading a
-// person's private rows.
+// authz.UserIDFromContext so a group or guest turn fails closed instead of
+// reading a person's private rows.
 func ScopeUserIDFromContext(ctx context.Context) string {
 	if userID := authz.UserIDFromContext(ctx); userID != "" {
 		return userID
+	}
+	if guestID := authz.GuestIDFromContext(ctx); guestID != "" {
+		return guestID
 	}
 	return authz.GroupIDFromContext(ctx)
 }

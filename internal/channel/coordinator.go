@@ -341,7 +341,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			return "Guest chat currently supports text messages only.", true, nil, nil
 		}
 		switch strings.ToLower(command) {
-		case "", "/new", "/abort", "/start", "/help":
+		case "", "/new", "/abort", "/help":
 		default:
 			return "This command is not available in guest chat.", true, nil, nil
 		}
@@ -366,7 +366,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		}
 	}
 
-	if c.intentClassifier != nil {
+	if rc.GuestID == "" && c.intentClassifier != nil {
 		intent := c.intentClassifier.Classify(ctx, rc.AgentID, msg.Content)
 		switch intent {
 		case IntentAbort:

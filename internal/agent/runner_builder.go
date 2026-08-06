@@ -90,6 +90,22 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			apiName = provID
 		}
 
+		if params.GuestID != "" {
+			return newRunner(ctx, runnerConfig{
+				NoCapabilities: true,
+				Provider: providerConfig{
+					API:     apiName,
+					Model:   modelID,
+					Input:   cfg.Snap.ModelInput(provID, modelID),
+					APIKey:  creds.APIKey,
+					BaseURL: creds.BaseURL,
+					Builder: cfg.ProviderStreamBuilder,
+				},
+				Thinking: params.Thinking,
+				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
+			})
+		}
+
 		stellaHome := config.StellaHome()
 		var (
 			userRoot string

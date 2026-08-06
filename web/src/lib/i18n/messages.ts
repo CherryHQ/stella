@@ -2032,7 +2032,10 @@ const en = {
   "channels.autoProvisionDesc": "Create a Stella account for every member of the tenant.",
   "channels.allowDm": "Allow direct messages",
   "channels.allowDmDesc":
-    "Accept account linking and chat from linked users. Unlinked users cannot invoke an agent.",
+    "Accept account linking and direct-message chat. Disable this to reject all DMs.",
+  "channels.allowUnlinkedDm": "Allow guest direct messages",
+  "channels.allowUnlinkedDmDesc":
+    "Let unlinked Discord users chat with the bound agent in persistent, capability-free guest sessions.",
   "channels.requireMention": "Require a mention",
   "channels.requireMentionDesc": "Ignore server-channel messages that do not mention this bot.",
   "channels.configOnlyNote":
@@ -4145,7 +4148,10 @@ const zh: Record<MessageKey, string> = {
   "channels.autoProvision": "自动开通账号",
   "channels.autoProvisionDesc": "为企业内的每位成员自动创建 Stella 账号。",
   "channels.allowDm": "允许私信",
-  "channels.allowDmDesc": "接受账号关联和已关联用户的聊天。未关联用户无法调用 Agent。",
+  "channels.allowDmDesc": "接受账号关联和私信聊天。关闭后拒绝所有私信。",
+  "channels.allowUnlinkedDm": "允许访客私信",
+  "channels.allowUnlinkedDmDesc":
+    "允许未关联的 Discord 用户通过持久、无工具权限的访客会话与绑定 Agent 对话。",
   "channels.requireMention": "必须 @机器人",
   "channels.requireMentionDesc": "忽略服务器频道中未 @此机器人的消息。",
   "channels.configOnlyNote": "这里只保存渠道配置；绑定关系在智能体那边设置。",

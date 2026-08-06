@@ -67,7 +67,10 @@ Channel access is enforced by Stella's trusted Authority-based domain services; 
 - `token` -- Bot token
 - `allowed_guild_ids` -- Comma-separated trusted server IDs; empty disables all guild messages but not direct messages
 - `allow_dm` -- Accept account linking and linked-user direct messages; defaults to `true`
+- `allow_unlinked_dm` -- Allow persistent restricted guest direct messages on the channel-bound agent; defaults to `false` and requires `allow_dm`
 - `require_mention` -- Only process guild messages that mention the bot; defaults to `true`
+
+Guest direct messages retain conversation history but have no profile, reflection, tools, skills, files, workspace, plugins, or delegation. Guests can only use `/link`, `/help`, `/new`, and `/abort`; linking does not merge old guest history. This proof of concept has no rate limiting or guest management. Enabling it exposes model usage publicly, so warn about cost and security and use a dedicated guest-safe agent whose base prompt contains no secrets.
 
 **QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 

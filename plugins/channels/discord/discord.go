@@ -21,6 +21,7 @@ type Config struct {
 	Token           string
 	AllowedGuildIDs string
 	AllowDM         bool
+	AllowUnlinkedDM bool
 	RequireMention  bool
 }
 

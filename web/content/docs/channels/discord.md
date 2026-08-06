@@ -20,7 +20,15 @@ Connect Stella to Discord through a bot Gateway connection. No webhook or public
 6. In Stella's Web UI, open **Channels**, create a Discord channel, paste the bot token and the trusted server IDs into **Allowed Guild IDs**, then enable it. Separate multiple IDs with commas.
 7. Restart `stellad server` if the channel does not start automatically.
 
-Linked users can use their selected agent in direct messages. An unlinked Discord user can request account linking but cannot reach an agent, session, or tools. Bind the Discord channel instance to an agent before using it in server channels so Stella can add that agent to each encountered channel's group routing.
+Linked users can use their selected agent in direct messages. By default, an unlinked Discord user can request account linking but cannot reach an agent. You can optionally enable persistent guest direct messages as described below. Bind the Discord channel instance to an agent before using it in server channels so Stella can add that agent to each encountered channel's group routing.
+
+## Optional guest direct messages
+
+Set `allow_unlinked_dm` to `true` to let unlinked Discord users chat with the agent bound to this channel instance. This option is off by default and also requires `allow_dm: true`, an enabled channel, and a bound agent. Guests cannot choose another agent.
+
+Guest conversation history persists across direct messages, but the restricted guest session has no profile, reflection, tools, skills, files, workspace, plugins, or delegation. Guests can use only `/link`, `/help`, `/new`, and `/abort`. Linking a Stella account does not merge the earlier guest history into that account's history.
+
+> **Warning:** Enabling guest direct messages makes your model available to the public and can create unexpected provider costs and security risk. This proof of concept has no guest rate limiting or guest-management interface. Use a dedicated guest-safe agent, and make sure its base prompt contains no secrets.
 
 ## Using the bot
 
@@ -43,6 +51,7 @@ For an explicit notification target, use a real Discord channel ID. Enable Disco
 | `token`             | Discord bot token                                | (required) |
 | `allowed_guild_ids` | Comma-separated server IDs allowed to use Stella | (none)     |
 | `allow_dm`          | Accept account linking and linked-user DMs       | `true`     |
+| `allow_unlinked_dm` | Allow restricted guest DMs on the bound agent    | `false`    |
 | `require_mention`   | Require a bot mention in server channels         | `true`     |
 
 ## Troubleshooting
@@ -51,7 +60,7 @@ For an explicit notification target, use a real Discord channel ID. Enable Disco
 
 **The bot cannot reply or upload files:** Check its channel overrides as well as its server role. It needs View Channels, Send Messages, Read Message History, and Attach Files.
 
-**The bot ignores direct messages:** Set `allow_dm` to `true`. Unlinked users can only submit an account link code; they cannot invoke an agent, create a session, or access memory and tools.
+**The bot ignores direct messages:** Set `allow_dm` to `true`. To accept unlinked users as restricted guests, also bind a dedicated guest-safe agent and set `allow_unlinked_dm` to `true`.
 
 **The bot does not respond in a server channel:** Add that server's ID to **Allowed Guild IDs**, then mention the bot. To allow semantic routing of messages without a mention, set `require_mention` to `false` and make sure an eligible group-routing model is configured.
 

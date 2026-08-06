@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -77,9 +78,13 @@ type chatFakeRunner struct {
 	events   []Event
 	system   string
 	messages *[]MessageContent
+	ctx      *context.Context
 }
 
-func (r chatFakeRunner) Chat(_ context.Context, _ []ai.Message, msg MessageContent) <-chan Event {
+func (r chatFakeRunner) Chat(ctx context.Context, _ []ai.Message, msg MessageContent) <-chan Event {
+	if r.ctx != nil {
+		*r.ctx = ctx
+	}
 	if r.messages != nil {
 		*r.messages = append(*r.messages, msg)
 	}
@@ -96,6 +101,45 @@ func (r chatFakeRunner) Busy() bool              { return false }
 func (r chatFakeRunner) LastActivity() time.Time { return time.Now() }
 func (r chatFakeRunner) SystemPrompt() string    { return r.system }
 func (r chatFakeRunner) Close() error            { return nil }
+
+func TestGuestChatCarriesGuestIdentityWithoutUserIdentity(t *testing.T) {
+	const guestID = "11111111-1111-4111-8111-111111111111"
+	mem := &recordingMemory{}
+	var runnerCtx context.Context
+	var params RunnerParams
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(_ context.Context, p RunnerParams) (Runner, error) {
+			params = p
+			return chatFakeRunner{ctx: &runnerCtx, events: []Event{{Text: "ok"}}}, nil
+		},
+		BeforeRun: func(context.Context, session.Info, string, string, string, []ai.Message) (string, error) {
+			t.Fatal("guest must not run before-run hooks")
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := session.Info{ID: "guest-session", UserID: guestID, GuestID: guestID, AgentID: "agent-1", Kind: "chat"}
+	for evt := range rt.Chat(context.Background(), info, "hello") {
+		if evt.Err != nil {
+			t.Fatalf("chat: %v", evt.Err)
+		}
+	}
+	if params.GuestID != guestID {
+		t.Fatalf("runner GuestID = %q, want %q", params.GuestID, guestID)
+	}
+	if got := authz.UserIDFromContext(runnerCtx); got != "" {
+		t.Fatalf("runtime UserID = %q, want empty", got)
+	}
+	if got := authz.GuestIDFromContext(runnerCtx); got != guestID {
+		t.Fatalf("runtime GuestID = %q, want %q", got, guestID)
+	}
+	if len(mem.messages) < 1 {
+		t.Fatal("guest conversation was not appended")
+	}
+}
 
 func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 	mem := &snapshotRecordingMemory{
