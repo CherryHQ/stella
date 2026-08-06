@@ -202,6 +202,12 @@ func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
 func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, error) {
 	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 	toolReg := tools.NewRegistry()
+	toolUserID := cfg.BuiltinParams.UserID
+	if cfg.BuiltinParams.GroupID != "" {
+		// A group runner uses UserID only as a storage owner. Never resolve
+		// private MCP registrations or tool overrides with that synthetic ID.
+		toolUserID = ""
+	}
 
 	// Core tools (read, bash, edit, write) are always provided by the active
 	// sandbox session.
@@ -284,7 +290,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			WithActionsOnly("search_installed", "load"))
 	}
 	if cfg.MCPToolProvider != nil {
-		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID) {
+		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, toolUserID, cfg.BuiltinParams.AgentID) {
 			registerNonCore(t)
 		}
 	}
@@ -309,7 +315,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 
 	var overrides []ToolOverride
 	if cfg.ToolOverrideFetcher != nil {
-		rows, err := cfg.ToolOverrideFetcher(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID)
+		rows, err := cfg.ToolOverrideFetcher(ctx, toolUserID, cfg.BuiltinParams.AgentID)
 		if err != nil {
 			slog.Warn("failed to load tool overrides; using default tool visibility", "error", err)
 		} else {

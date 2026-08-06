@@ -57,8 +57,13 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		// identity remains the group (D9).
 		ctx = authz.WithGroupID(ctx, info.GroupID)
 		if co.hasSpeaker {
-			// Attach the speaker as a personalization target only.
-			ctx = memory.WithCurrentSpeaker(ctx, co.currentSpeaker)
+			speaker := co.currentSpeaker
+			if rt.structuredGroupMemory {
+				// Structured group turns retain only public actor metadata. The
+				// private Stella-user link exists solely for legacy Profile fallback.
+				speaker.UserID = ""
+			}
+			ctx = memory.WithCurrentSpeaker(ctx, speaker)
 		}
 	}
 	ctx = authz.WithAgentID(ctx, info.AgentID)
@@ -82,9 +87,15 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	chatStart := time.Now()
 	hookPlugins := rt.hookPlugins()
 	hs := hooks.NewHookSet(hookPlugins)
+	hookUserID := info.UserID
+	if info.GroupID != "" {
+		// Group sessions persist under a synthetic owner key, but hooks must not
+		// interpret that key as an authenticated user identity.
+		hookUserID = ""
+	}
 	hookMeta := hooks.HookMeta{
 		SessionID: info.ID,
-		UserID:    info.UserID,
+		UserID:    hookUserID,
 		AgentID:   info.AgentID,
 		Channel:   info.Channel,
 	}
@@ -142,7 +153,12 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		if updated.Title == "" && len(msgText) > 0 {
 			updated.Title = autoTitle(msgText)
 		}
-		saveCtx := authz.WithUserID(ctx, info.UserID)
+		saveCtx := ctx
+		if info.GroupID == "" {
+			// Group sessions use UserID only as a durable storage owner. Keep
+			// authz user identity unset when persisting group metadata.
+			saveCtx = authz.WithUserID(saveCtx, info.UserID)
+		}
 		saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
 		// TouchActiveInfo, not SaveInfo: a `/new` rotation can archive this
 		// session after the turn resolved it, and
@@ -224,7 +240,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		// media receives its own authorization model. AppendGroupTurn persists the
 		// trigger atomically after the turn succeeds.
 		if co.hasSpeaker {
-			modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker)
+			modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker, !rt.structuredGroupMemory)
 		}
 	} else {
 		// Direct internal callers may supply either one image block or the usual
@@ -289,8 +305,13 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (*cachedSession, Runner, error) {
 	attrs := []attribute.KeyValue{
 		attribute.String("gen_ai.conversation.id", info.ID),
-		attribute.String("user_id", info.UserID),
 		attribute.String("agent_id", info.AgentID),
+	}
+	if info.GroupID != "" {
+		// A group session's storage owner is not an authenticated user.
+		attrs = append(attrs, attribute.String("group_id", info.GroupID))
+	} else {
+		attrs = append(attrs, attribute.String("user_id", info.UserID))
 	}
 	if info.ProjectID != "" {
 		attrs = append(attrs, attribute.String("project_id", info.ProjectID))

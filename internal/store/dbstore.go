@@ -779,12 +779,18 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 		// p.ID is the canonical row ID even when pid is a type alias, so a per-Agent
 		// override keyed by canonical ID can later be applied to every alias entry
 		// that shares it.
-		creds[pid] = config.ProviderCreds{Type: p.Type, APIKey: p.APIKey, BaseURL: p.BaseURL, ProviderID: p.ID}
+		creds[pid] = config.ProviderCreds{
+			Type:       p.Type,
+			APIKey:     p.APIKey,
+			BaseURL:    p.BaseURL,
+			ProviderID: p.ID,
+			Models:     normalizeProviderModels(p.Models),
+		}
 		// Key by the referenced provider ID, not p.ID, so type aliases resolve
 		// the same way the credentials above do.
 		for modelID, m := range p.Models {
 			if len(m.Input) > 0 {
-				modelInputs[config.ModelKey{Provider: pid, Model: modelID}] = m.Input
+				modelInputs[config.ModelKey{Provider: pid, Model: modelID}] = append([]string(nil), m.Input...)
 			}
 		}
 	}

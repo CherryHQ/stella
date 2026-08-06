@@ -31,3 +31,21 @@ func TestBuiltinToolAvailable(t *testing.T) {
 		})
 	}
 }
+
+func TestGroupMemoryBuiltinAvailability(t *testing.T) {
+	group := RunnerParams{UserID: "synthetic-group-id", GroupID: "group-1", AgentID: "agent-1"}
+	if NonGroupBuiltinToolAvailable(context.Background(), group) {
+		t.Fatal("private memory tool must be unavailable in a group runner")
+	}
+	if !GroupBuiltinToolAvailable(context.Background(), group) {
+		t.Fatal("group-safe memory tool must be available in a group runner")
+	}
+
+	dm := RunnerParams{UserID: "user-1", AgentID: "agent-1"}
+	if !NonGroupBuiltinToolAvailable(context.Background(), dm) {
+		t.Fatal("private memory tool must remain available in a DM runner")
+	}
+	if GroupBuiltinToolAvailable(context.Background(), dm) {
+		t.Fatal("group-safe memory tool must be unavailable in a DM runner")
+	}
+}

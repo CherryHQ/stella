@@ -86,11 +86,28 @@ func (t *tracedProvider) finish(ctx context.Context, start time.Time, hctx *hook
 
 // metaFromSession populates HookMeta from a memory Session.
 func metaFromSession(s Session) hooks.HookMeta {
+	userID := s.UserID
+	if s.GroupID != "" {
+		// Group sessions reuse UserID as a storage-owner key. Do not expose that
+		// synthetic owner to hooks as an authenticated user identity.
+		userID = ""
+	}
 	return hooks.HookMeta{
 		SessionID: s.ID,
-		UserID:    s.UserID,
+		UserID:    userID,
 		AgentID:   s.AgentID,
 	}
+}
+
+// metaFromSessionInfo applies the same identity boundary to persisted session
+// metadata operations. GroupID identifies the owner; it is not a human user.
+func metaFromSessionInfo(info SessionInfo) hooks.HookMeta {
+	return metaFromSession(Session{
+		ID:      info.ID,
+		UserID:  info.UserID,
+		AgentID: info.AgentID,
+		GroupID: info.GroupID,
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -491,7 +508,7 @@ func (t *tracedProvider) SaveInfo(ctx context.Context, info SessionInfo) error {
 	if !ok {
 		return errCapabilityNotSupported("SessionManager")
 	}
-	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID}, Op: hooks.MemoryOpSaveInfo, SessionID: info.ID}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSessionInfo(info), Op: hooks.MemoryOpSaveInfo, SessionID: info.ID}
 	ctx, start := t.begin(ctx, hctx)
 	err := sm.SaveInfo(ctx, info)
 	hctx.Error = err
@@ -505,7 +522,7 @@ func (t *tracedProvider) TouchActiveInfo(ctx context.Context, info SessionInfo) 
 	if !ok {
 		return false, errCapabilityNotSupported("SessionManager")
 	}
-	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID}, Op: hooks.MemoryOpTouchActiveInfo, SessionID: info.ID}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSessionInfo(info), Op: hooks.MemoryOpTouchActiveInfo, SessionID: info.ID}
 	ctx, start := t.begin(ctx, hctx)
 	applied, err := sm.TouchActiveInfo(ctx, info)
 	hctx.Error = err
@@ -519,7 +536,7 @@ func (t *tracedProvider) RotateInfo(ctx context.Context, expectedSessionID strin
 	if !ok {
 		return errCapabilityNotSupported("SessionManager")
 	}
-	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: successor.ID, UserID: successor.UserID, AgentID: successor.AgentID}, Op: hooks.MemoryOpRotateInfo, SessionID: successor.ID}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSessionInfo(successor), Op: hooks.MemoryOpRotateInfo, SessionID: successor.ID}
 	ctx, start := t.begin(ctx, hctx)
 	err := sm.RotateInfo(ctx, expectedSessionID, successor)
 	hctx.Error = err
@@ -552,8 +569,7 @@ func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (Sessio
 	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: sessionID}, Op: hooks.MemoryOpLoadInfo, SessionID: sessionID}
 	ctx, start := t.begin(ctx, hctx)
 	info, err := sm.LoadInfo(ctx, sessionID)
-	hctx.UserID = info.UserID
-	hctx.AgentID = info.AgentID
+	hctx.HookMeta = metaFromSessionInfo(info)
 	hctx.Error = err
 	hctx.Detail = fmt.Sprintf("title=%q archived=%v channel=%s", info.Title, info.Archived, info.Channel)
 	t.finish(ctx, start, hctx)

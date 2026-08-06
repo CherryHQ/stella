@@ -625,6 +625,7 @@ func (h *Host) BeforeRun(ctx context.Context, build pkgplugins.BeforeRunContext)
 			Channel:      build.Channel,
 			UserID:       build.UserID,
 			AgentID:      build.AgentID,
+			GroupID:      build.GroupID,
 			Model:        build.Model,
 			MessageText:  build.MessageText,
 			SystemPrompt: current,

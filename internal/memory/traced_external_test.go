@@ -537,6 +537,58 @@ func TestTracedProvider_SaveInfo(t *testing.T) {
 	}
 }
 
+func TestTracedProvider_GroupSessionHooksDoNotExposeStorageOwnerAsUser(t *testing.T) {
+	fake := memorytest.New()
+	traced, col := newTracedWithCollector(fake)
+	manager := traced.(memory.SessionManager)
+	groupID := "11111111-1111-4111-8111-111111111111"
+	info := memory.SessionInfo{
+		ID:      "group-session-1",
+		AgentID: "agent-1",
+		UserID:  groupID,
+		GroupID: groupID,
+	}
+
+	assertLastHook := func(operation hooks.MemoryOp) {
+		t.Helper()
+		if len(col.events) == 0 {
+			t.Fatalf("%s emitted no memory hook", operation)
+		}
+		got := col.events[len(col.events)-1]
+		if got.Op != operation {
+			t.Fatalf("last hook operation = %q, want %q", got.Op, operation)
+		}
+		if got.UserID != "" {
+			t.Fatalf("%s hook exposed group storage owner as user %q", operation, got.UserID)
+		}
+		if got.SessionID != info.ID || got.AgentID != info.AgentID {
+			t.Fatalf("%s hook metadata = %+v", operation, got.HookMeta)
+		}
+	}
+
+	if err := traced.Bootstrap(context.Background(), memory.Session{
+		ID: info.ID, UserID: info.UserID, AgentID: info.AgentID, GroupID: info.GroupID,
+	}); err != nil {
+		t.Fatalf("bootstrap group session: %v", err)
+	}
+	assertLastHook(hooks.MemoryOpBootstrap)
+
+	if err := manager.SaveInfo(context.Background(), info); err != nil {
+		t.Fatalf("save group info: %v", err)
+	}
+	assertLastHook(hooks.MemoryOpSaveInfo)
+
+	if _, err := manager.TouchActiveInfo(context.Background(), info); err != nil {
+		t.Fatalf("touch group info: %v", err)
+	}
+	assertLastHook(hooks.MemoryOpTouchActiveInfo)
+
+	if _, err := manager.LoadInfo(context.Background(), info.ID); err != nil {
+		t.Fatalf("load group info: %v", err)
+	}
+	assertLastHook(hooks.MemoryOpLoadInfo)
+}
+
 func TestTracedProvider_LoadInfo(t *testing.T) {
 	fake := memorytest.New()
 	traced, col := newTracedWithCollector(fake)

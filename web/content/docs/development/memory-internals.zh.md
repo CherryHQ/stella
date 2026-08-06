@@ -20,18 +20,20 @@ title: 记忆系统内部实现
 
 Provider 可以通过类型断言实现额外接口：
 
-| 接口                                                 | 说明                                |
-| ---------------------------------------------------- | ----------------------------------- |
-| `Compactor`                                          | 上下文窗口压缩                      |
-| `Searcher`                                           | 跨消息和摘要的全文搜索              |
-| `Explorer`                                           | 检查和深入摘要                      |
-| `ProfileStore`                                       | 每用户每代理的 profile 和 soul 文本 |
-| `ConstraintStore`                                    | 每用户每代理的硬性约束              |
-| `ChangelogReader` / `ChangelogWriter`                | 记忆写入版本历史                    |
-| `VersionedProfileStore` / `VersionedConstraintStore` | 按冻结版本读取身份/约束状态         |
-| `SessionSnapshotStore`                               | 冻结和推进每会话记忆版本            |
-| `SessionManager`                                     | 会话元数据和历史管理                |
-| `ReviewSource`                                       | Reflect 自我改进评审数据            |
+| 接口                                                 | 说明                                             |
+| ---------------------------------------------------- | ------------------------------------------------ |
+| `Compactor`                                          | 上下文窗口压缩                                   |
+| `Searcher`                                           | 跨消息和摘要的全文搜索                           |
+| `Explorer`                                           | 检查和深入摘要                                   |
+| `ProfileStore`                                       | 每用户每代理的 profile 和 soul 文本              |
+| `ConstraintStore`                                    | 每用户每代理的硬性约束                           |
+| `ChangelogReader` / `ChangelogWriter`                | 记忆写入版本历史                                 |
+| `VersionedProfileStore` / `VersionedConstraintStore` | 按冻结版本读取身份/约束状态                      |
+| `SessionSnapshotStore`                               | 冻结和推进每会话记忆版本                         |
+| `SessionManager`                                     | 会话元数据和历史管理                             |
+| `ReviewSource`                                       | Reflect 自我改进评审数据                         |
+| `GroupEventIngestor` / `GroupCursorCommitter`        | 幂等复制公开 Group Event，并在回合成功后提交游标 |
+| `GroupFactStore`                                     | 读取群作用域原子 Fact 和版本                     |
 
 LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约束、changelog、snapshot 和会话管理，但不支持压缩、搜索和探索。
 
@@ -57,17 +59,14 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 
 工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成动作较少的工具。面向模型的聊天会话还会对持久记忆写入只读化：不能调用 `profile_update`、`soul_update`、`profile_rollback`、`constraint_add` 或 `constraint_remove`。
 
-### 群聊回合:当前发言人回退
+### 群聊回合
 
-群 session 的运行时身份是群,因此没有 session 用户(D9)。为了仍能让 agent 读取正在说话的人的事实,当不存在 session 用户时,`profile_get` 会回退到当前发言人。底层 resolver 也支持显式开启写入的工具使用 `profile_update`，但普通聊天 runner 不暴露该动作:
+`STELLA_GROUP_MEMORY_MODE` 控制过渡：
 
-1. session 用户(`UserIDFromContext`)—— 正常 DM 行为。
-2. 否则已关联的当前发言人(`CurrentSpeaker.UserID`)—— 群个性化。
-3. 否则 fail-closed,报 `no linked current speaker`(未关联发送者)。
+- `legacy` 保留旧共享 Blob prompt 和兼容行为。
+- `structured` 只为当前群 session 暴露 `status`、`search`、`describe`、`expand`、`get_message`。它不暴露 Profile、Soul、Constraint、1v1 Knowledge，也不使用当前发言人 Profile 回退。
 
-回退刻意收窄。**普通聊天中只有 `profile_get` 获得它,且只有模型显式调用工具时才会发生。** `soul_get`、`soul_update`、`constraint_*`、`profile_history`、`profile_rollback` 仍走严格的 session-用户解析器,因此群聊回合中它们 fail-closed——公开群不是通过共享 agent 读取或改写某成员 soul、constraints、历史的地方。如果显式开启写入的内部工具经回退调用 `profile_update`，它只推进发言人自己的快照行 `(session, speaker.UserID, agent)`,绝不推进群的。
-
-参见[群聊:当前发言人(D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10)。
+群运行时身份只包含 `(group_id, agent_id)`，不包含认证用户。同一边界会隐藏 user/user_agent Skill；群 Agent 只能读取 system、自己的 system_agent 和 project Skill。
 
 ## 系统提示层级
 
@@ -77,13 +76,13 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 2. **工具和插件提示清单** —— 可用工具、插件能力、技能。
 3. **约束** —— 来自 `ConstraintStore` 的用户确认硬规则；位于 soul/profile 之前，Reflect 不会修改。
 4. **Agent soul** —— agent 身份、人格和语气文本。
-5. **用户画像** —— 持久用户笔记。**群聊回合用 `## Group Memory`(共享群抽屉)加可选的 `## Current Speaker` 段替换它**,该段只包含发言人姓名和关联状态;群聊回合绝不渲染按用户的画像。群模式按 session 是否有 `group_id` 分支,而非按群记忆是否为空。
+5. **用户画像或 Group Facts** —— DM 使用冻结的用户画像；structured 群聊通过每轮 before-run hook 注入全部 active 原子 Group Facts，不渲染用户画像或 legacy Group Memory Blob。
 6. **知识** —— facts 表里的 active `subject=world` 事实。
 7. **项目上下文** —— `AGENTS.md` 等项目指令。
 
 对话历史由记忆 provider 单独组装。约束、身份和知识位于系统提示中，因此对话压缩不会删除它们。
 
-群聊回合由 PoolManager 的 before-run 路径带当前发言人元数据重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的回合上下文不会泄漏到另一个发言人的回合。发言人的 profile 正文和带日期条目不会自动注入公开群 prompt;profile 访问仍必须通过显式的只读 `memory.profile_get` 工具调用。
+Structured Group Facts 不做 session snapshot。进程共享 cache 只按 `group_id` 建键：两小时内复用最后一次成功内容，到期先检查 group version，只有 version 变化才全量重载 active Facts。当前公开消息高于陈旧或冲突 Fact；Fact 只提供背景，不能授予权限或覆盖 system/constraint。
 
 ## Changelog 与回滚
 
@@ -137,6 +136,19 @@ Reflect 被明确禁止添加、删除或编辑约束。普通会话工具也不
 Skills 仍然只表示可复用流程，不再通过 `metadata.knowledge_type` 创建或存储 fact/context knowledge。旧的 `user_agent` skill-backed knowledge 会由 v1 facts migration 迁移为 `subject=world` facts；更宽的 knowledge scope 留给后续设计。
 
 普通会话工具不直接写 facts。Structured Reflect 会生成并评估 Fact/Skill 候选、发现相关的 Reflect-owned 记录、协调通过门控的候选，并通过 host 校验后的操作分别写入两条线。Usage tracking 和 curator 负责维护 active Reflect-owned Knowledge/Skill 的生命周期。
+
+## Structured Group Facts
+
+Group Facts 是按 `group_id` 隔离的公开协作记忆，绝不读取或写入 1v1 Profile、Soul、Constraint、Knowledge 或用户 Skill。
+
+- subject 为 `group`、`human:<actor_id>` 或 `agent:<actor_id>`。
+- Group Reflect 每六小时使用独立的 128k+ 模型，只读取有界的公开 Event Log window。
+- generation 最多生成五条候选；独立 evaluator 使用更严格的群聊 rubric 和确定性 Host gate。
+- accepted candidates 与当前群全部 active Facts 做 reconciliation，只能输出 `noop`、`create`、`replace_many`、`deprecate_many`。
+- Facts、changelog、group version 和 `group_reflect` cursor 在同一个 per-group 短事务中提交。
+- 不做 group snapshot、usage/LRU 自动过期、私人 Profile 回退或自动 Skill 生成。
+
+每个 Agent 仍维护独立 LCM。公开 Group Event 通过 `origin_group_message_id` 复制进 LCM，使重试幂等；compaction 前先同步待处理公开事件。群 LCM 固定使用 80k budget，并保留最近六个 Group Event 输入锚点及其后的 assistant/tool 因果尾部。
 
 ## Structured Reflect 与 Curator
 

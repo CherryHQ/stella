@@ -94,3 +94,12 @@ func TestResolveReflectInterval(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveReflectSchedule(t *testing.T) {
+	if got := resolveReflectSchedule(""); got.Cron != defaultReflectCron || got.Every != "" {
+		t.Fatalf("default schedule = %#v", got)
+	}
+	if got := resolveReflectSchedule("2h"); got.Every != "2h0m0s" || got.Cron != "" {
+		t.Fatalf("override schedule = %#v", got)
+	}
+}

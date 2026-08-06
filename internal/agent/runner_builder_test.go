@@ -10,7 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/ai"
-	"github.com/CherryHQ/stella/pkg/plugins"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
@@ -48,10 +48,10 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	var promptBuild plugins.SystemPromptContext
+	var promptBuild pkgplugins.SystemPromptContext
 	build := newRunnerFunc(runnerBuilderConfig{
 		Snap: snap,
-		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+		PromptSectionsBuilder: func(_ context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 			promptBuild = build
 			return nil, nil
 		},
@@ -160,5 +160,108 @@ func TestNewRunnerFunc(t *testing.T) {
 	}
 	if r == nil {
 		t.Fatal("expected non-nil runner")
+	}
+}
+
+func TestStructuredGroupRunnerRequiresLargeContextAndUsesGroupSafePromptScope(t *testing.T) {
+	stellaHome := t.TempDir()
+	t.Setenv("STELLA_HOME", stellaHome)
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+
+	const (
+		groupID = "11111111-1111-4111-8111-111111111111"
+		agentID = "test-agent"
+	)
+	snap := &config.Snapshot{
+		AgentID:   agentID,
+		Provider:  "provider-1",
+		Model:     "provider-1/group-chat",
+		Workspace: t.TempDir(),
+		Providers: map[string]config.ProviderCreds{
+			"provider-1": {
+				Type:   "openai",
+				APIKey: "test-key",
+				Models: map[string]config.ProviderModel{
+					"group-chat": {
+						Enabled:       true,
+						ContextWindow: config.GroupMemoryMinimumContextWindow - 1,
+					},
+				},
+			},
+		},
+	}
+
+	var promptBuild pkgplugins.SystemPromptContext
+	build := newRunnerFunc(runnerBuilderConfig{
+		Snap:                  snap,
+		StructuredGroupMemory: true,
+		PromptSectionsBuilder: func(_ context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
+			promptBuild = build
+			return nil, nil
+		},
+		ProviderStreamBuilder: func(string, string, string) (providers.StreamFunc, error) {
+			return nil, errors.New("provider builder reached")
+		},
+	})
+
+	_, err := build(context.Background(), RunnerParams{
+		UserID:  groupID,
+		GroupID: groupID,
+		AgentID: agentID,
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires at least") {
+		t.Fatalf("small-context group runner error = %v", err)
+	}
+
+	creds := snap.Providers["provider-1"]
+	model := creds.Models["group-chat"]
+	model.ContextWindow = config.GroupMemoryMinimumContextWindow
+	creds.Models["group-chat"] = model
+	snap.Providers["provider-1"] = creds
+
+	_, err = build(context.Background(), RunnerParams{
+		UserID:  groupID,
+		GroupID: groupID,
+		AgentID: agentID,
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider builder reached") {
+		t.Fatalf("valid-context group runner did not reach provider builder: %v", err)
+	}
+	if promptBuild.UserID != "" {
+		t.Fatalf("group prompt UserID = %q, want empty synthetic principal", promptBuild.UserID)
+	}
+	if promptBuild.AgentID != agentID {
+		t.Fatalf("group prompt AgentID = %q, want %q", promptBuild.AgentID, agentID)
+	}
+}
+
+func TestStructuredGroupContextLimitDoesNotApplyToDM(t *testing.T) {
+	snap := &config.Snapshot{
+		AgentID:   "test-agent",
+		Provider:  "provider-1",
+		Model:     "provider-1/dm-model",
+		Workspace: t.TempDir(),
+		Providers: map[string]config.ProviderCreds{
+			"provider-1": {
+				Type:   "openai",
+				APIKey: "test-key",
+				Models: map[string]config.ProviderModel{
+					"dm-model": {Enabled: true, ContextWindow: 32_000},
+				},
+			},
+		},
+	}
+	build := newRunnerFunc(runnerBuilderConfig{
+		Snap:                  snap,
+		StructuredGroupMemory: true,
+		ProviderStreamBuilder: func(string, string, string) (providers.StreamFunc, error) {
+			return nil, errors.New("provider builder reached")
+		},
+	})
+
+	_, err := build(context.Background(), RunnerParams{UserID: "user-1", AgentID: snap.AgentID})
+	if err == nil || !strings.Contains(err.Error(), "provider builder reached") {
+		t.Fatalf("DM runner was blocked by group context policy: %v", err)
 	}
 }

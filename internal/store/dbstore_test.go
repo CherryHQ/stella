@@ -700,7 +700,13 @@ func TestSnapshotCarriesDeclaredModelInput(t *testing.T) {
 		Name:   "Claude",
 		APIKey: "sk-claude",
 		Models: map[string]config.ProviderModel{
-			"claude-sonnet-4-6": {ID: "claude-sonnet-4-6", Enabled: true, Input: []string{"text", "image"}},
+			"claude-sonnet-4-6": {
+				ID:            "claude-sonnet-4-6",
+				Enabled:       true,
+				Input:         []string{"text", "image"},
+				ContextWindow: 200_000,
+				MaxTokens:     32_000,
+			},
 			"claude-text-only":  {ID: "claude-text-only", Enabled: true, Input: []string{"text"}},
 			"claude-undeclared": {ID: "claude-undeclared", Enabled: true},
 		},
@@ -733,6 +739,10 @@ func TestSnapshotCarriesDeclaredModelInput(t *testing.T) {
 	}
 	if got := snap.ModelInput("anthropic", "claude-sonnet-4-6"); len(got) != 2 {
 		t.Errorf("ModelInput(anthropic, claude-sonnet-4-6) = %v, want [text image]", got)
+	}
+	resolved := snap.ResolveModelRef("anthropic/claude-sonnet-4-6")
+	if resolved.ContextWindow != 200_000 || resolved.MaxTokens != 32_000 {
+		t.Fatalf("ResolveModel metadata = %#v, want context_window=200000 max_tokens=32000", resolved)
 	}
 }
 

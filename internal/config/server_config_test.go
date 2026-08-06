@@ -220,17 +220,21 @@ func TestLoadServerConfigNoSecretInError(t *testing.T) {
 // "", and no group validation runs at load time.
 func TestLoadServerConfigRawPassthrough(t *testing.T) {
 	cfg, err := LoadServerConfig(lookupFrom(map[string]string{
-		baseURLEnv:          "https://stella.example.com/",
-		vaultKeyEnv:         "  AGE-SECRET-KEY-1padded  ",
-		pprofAddrEnv:        "127.0.0.1:6060",
-		recordToolIOEnv:     "true",
-		oidcIssuerURLEnv:    "https://issuer.example.com",
-		oidcClientSecretEnv: "  spaced-secret  ",
-		oidcScopesEnv:       "openid,email",
-		blobS3UseSSLEnv:     "yes",
-		blobS3EndpointEnv:   "s3.example.com",
-		reflectIntervalEnv:  "  garbage  ",
-		reflectModeEnv:      "  structured  ",
+		baseURLEnv:              "https://stella.example.com/",
+		vaultKeyEnv:             "  AGE-SECRET-KEY-1padded  ",
+		pprofAddrEnv:            "127.0.0.1:6060",
+		recordToolIOEnv:         "true",
+		oidcIssuerURLEnv:        "https://issuer.example.com",
+		oidcClientSecretEnv:     "  spaced-secret  ",
+		oidcScopesEnv:           "openid,email",
+		blobS3UseSSLEnv:         "yes",
+		blobS3EndpointEnv:       "s3.example.com",
+		reflectIntervalEnv:      "  garbage  ",
+		reflectModeEnv:          "  structured  ",
+		groupMemoryModeEnv:      "  structured  ",
+		groupReflectModelEnv:    "  openai/group-reflect  ",
+		groupReflectIntervalEnv: "  2h  ",
+		groupReflectGateEnv:     ` {"core_floor":2} `,
 	}))
 	if err != nil {
 		t.Fatalf("LoadServerConfig() unexpected error: %v", err)
@@ -263,6 +267,12 @@ func TestLoadServerConfigRawPassthrough(t *testing.T) {
 	}
 	if cfg.Reflect.LegacyModeGuard != "  structured  " {
 		t.Errorf("Reflect.LegacyModeGuard not carried verbatim: %q", cfg.Reflect.LegacyModeGuard)
+	}
+	if cfg.GroupMemory.Mode != "  structured  " ||
+		cfg.GroupMemory.ReflectModel != "  openai/group-reflect  " ||
+		cfg.GroupMemory.ReflectInterval != "  2h  " ||
+		cfg.GroupMemory.ReflectGate != ` {"core_floor":2} ` {
+		t.Errorf("GroupMemory raw fields not carried: %+v", cfg.GroupMemory)
 	}
 }
 

@@ -38,6 +38,37 @@ func (b *bareProvider) Close() error { return nil }
 // Compile-time check: bareProvider implements only Provider, not any capability.
 var _ memory.Provider = (*bareProvider)(nil)
 
+type sessionCaptureProvider struct {
+	bareProvider
+	got memory.Session
+}
+
+func (p *sessionCaptureProvider) Stats(_ context.Context, session memory.Session) (memory.SessionStats, error) {
+	p.got = session
+	return memory.SessionStats{}, nil
+}
+
+func TestExecuteStatus_GroupUsesGroupStorageScopeWithoutUserIdentity(t *testing.T) {
+	provider := &sessionCaptureProvider{}
+	tool := memory.BuildTool(provider, memory.WithActionsOnly("status"))
+	ctx := memory.WithSessionID(context.Background(), "group-session")
+	ctx = authz.WithGroupID(ctx, "group-1")
+	ctx = authz.WithAgentID(ctx, "agent-1")
+
+	if _, err := tool.Execute(ctx, map[string]any{"action": "status"}); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if got, want := provider.got.UserID, "group-1"; got != want {
+		t.Fatalf("storage owner = %q, want group %q", got, want)
+	}
+	if got, want := provider.got.GroupID, "group-1"; got != want {
+		t.Fatalf("GroupID = %q, want %q", got, want)
+	}
+	if got := authz.UserIDFromContext(ctx); got != "" {
+		t.Fatalf("group tool minted authenticated user %q", got)
+	}
+}
+
 func TestBuildTool_FullProvider(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
